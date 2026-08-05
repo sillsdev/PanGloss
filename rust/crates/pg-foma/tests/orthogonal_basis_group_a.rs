@@ -37,7 +37,7 @@
 //!   `CopyFromInput`). Without this end an exercise could pass while pointing at a grammar that has
 //!   nothing to do with the mechanism it claims to exercise.
 //! - The BOTTOM end is what the engine actually produces for that fixture's own pinned words,
-//!   projected through the program's parity vocabulary ([`pg_foma::parity::OccurrenceIdentities`]).
+//!   projected through the program's parity vocabulary (`pg_foma::parity::OccurrenceIdentities`).
 //!
 //! **Nothing here hand-derives an expected number.** Every count an assertion compares against is
 //! read out of the committed `words.yaml` (the `parses:` rows), or computed from the grammar the
@@ -47,24 +47,24 @@
 //! # WHICH RELATION each assertion uses, and why
 //!
 //! Conflating two of these once made an entire certification scope invisible (see
-//! [`pg_foma::parity`]'s own module doc). So each is named at its use site:
+//! `pg_foma::parity`'s own module doc). So each is named at its use site:
 //!
-//! - **MULTISET cardinality** — [`OccurrenceIdentities::raw_analyses`] against the committed
+//! - **MULTISET cardinality** — `OccurrenceIdentities::raw_analyses` against the committed
 //!   `parses:` ROW COUNT. `words.yaml` is sorted but NOT deduplicated
 //!   (`pg_parse::result_signature` / `WordEntry::expected_signature`), so a repeated signature there
 //!   is a measured multiplicity, and `ParseOutcome::structured` has one entry per rendered
-//!   signature component. Used by [`assert_word_parity`] for every word of every exercise.
-//! - **SET** — [`OccurrenceIdentities::len`], bounded below by the number of DISTINCT morpheme-join
+//!   signature component. Used by `assert_word_parity` for every word of every exercise.
+//! - **SET** — `OccurrenceIdentities::len`, bounded below by the number of DISTINCT morpheme-join
 //!   strings the fixture records (two different morpheme joins are two different morpheme-key
 //!   vectors, hence two different identities) and above by the row count; pinned EXACTLY where those
 //!   two bounds coincide.
 //! - **The PROGRAM's parity relation** — deduplicated SET EQUALITY
-//!   ([`OccurrenceIdentities::same_identities`]), blind to multiplicity by design. Used in exactly
+//!   (`OccurrenceIdentities::same_identities`), blind to multiplicity by design. Used in exactly
 //!   two places, both of which are asking precisely "are these the same analyses?":
 //!   `gray`/`grey` (free-fluctuating allomorphs of ONE morpheme must project to ONE identity set)
 //!   and `mano`/`mino` (two lexical-class allomorphs of ONE morpheme, likewise). Both are the
 //!   relation's own question — an identity is allomorph-blind on purpose.
-//! - **Never full [`pg_parse::WordAnalysis`] equality**, which would make engine internals
+//! - **Never full `pg_parse::WordAnalysis` equality**, which would make engine internals
 //!   (`syn_fs`, `mpr`, dense ordinals) observable as disagreement. Not used anywhere in this file.
 //!
 //! Two further relations appear, and are named as NOT being parity relations:
@@ -584,7 +584,7 @@ fn anchor_against_committed_signatures(label: &str, grammar: &Grammar, words: &W
 /// Every committed word's identity set for one fixture, keyed by word.
 ///
 /// A separate function rather than an inline block so the `Morpher`'s borrow of `grammar` ends here,
-/// leaving the caller free to move the grammar into [`ExerciseRun`].
+/// leaving the caller free to move the grammar into `ExerciseRun`.
 fn occurrences_for(
     label: &str,
     grammar: &Grammar,
@@ -645,7 +645,7 @@ fn prule_xml_id(def: &PhonRuleDef) -> &str {
     }
 }
 
-/// The morpheme key ([`pg_parse::identity::AnalysisIdentity`]'s own vocabulary --
+/// The morpheme key (`pg_parse::identity::AnalysisIdentity`'s own vocabulary --
 /// `MorphemeInfo::xml_key`) of the morpheme whose committed `<MorphemeId>` is `morph_id`.
 ///
 /// `morph_id` is read out of the fixture's own committed signatures (e.g. `MONU+VAC|monu` names
@@ -777,7 +777,7 @@ fn committed_cascade_depth(run: &ExerciseRun) -> usize {
 ///
 /// The relation in claim 4 is ordered-sequence inequality plus unordered-set equality. Set equality
 /// alone is blind to order, which is the whole mechanism; the program's parity relation
-/// ([`OccurrenceIdentities::same_identities`]) is asserted FALSE here for the same reason.
+/// (`OccurrenceIdentities::same_identities`) is asserted FALSE here for the same reason.
 #[test]
 fn template_order_exercise_slot_sequence_and_obligatory_slot() {
     let run = run_exercise(EX_TEMPLATE_SLOT_ORDER);
@@ -926,7 +926,7 @@ fn template_order_exercise_slot_sequence_and_obligatory_slot() {
 ///    at least one identity. Without the second half the first would hold vacuously for a slot whose
 ///    members were both unreachable.
 ///
-/// Relations: multiplicity + set per word (via [`assert_word_parity`]); claim 5 is morpheme-key
+/// Relations: multiplicity + set per word (via `assert_word_parity`); claim 5 is morpheme-key
 /// CONTAINMENT counted per identity, which is neither the parity relation nor a set comparison.
 #[test]
 fn template_order_exercise_disjunctive_slot_and_enforced_order() {
@@ -1093,7 +1093,7 @@ fn template_order_exercise_disjunctive_slot_and_enforced_order() {
 /// while an `adjacentToLeft` requirement is NOT (`walaknichikwas`). Collapsing the two kinds in
 /// either direction flips exactly one of those two words.
 ///
-/// Relations: multiplicity + set for every word (via [`assert_word_parity`]); the pair claims are
+/// Relations: multiplicity + set for every word (via `assert_word_parity`); the pair claims are
 /// stated as exact distinct-identity counts, `1` versus `0`.
 #[test]
 fn co_occurrence_exercise_adjacency_and_granularity() {
@@ -1226,7 +1226,7 @@ fn co_occurrence_exercise_adjacency_and_granularity() {
 /// TOP end: exactly ONE stratum (so no stratum-ordering defect can reach this exercise) whose
 /// ordered `phonologicalRules` list has at least three members, and whose committed records show a
 /// single parse driving at least three of them -- the fixture's own measured cascade depth, computed
-/// by [`committed_cascade_depth`] from `words.yaml`'s `rules:` lists intersected with the grammar's
+/// by `committed_cascade_depth` from `words.yaml`'s `rules:` lists intersected with the grammar's
 /// declared phonological-rule ids, never chosen here.
 ///
 /// BOTTOM end: three positive words that each require a DIFFERENT subset of the cascade, and three
@@ -1245,7 +1245,7 @@ fn co_occurrence_exercise_adjacency_and_granularity() {
 /// three exercises of the cascade rather than one word looked at three times.
 ///
 /// Relations: multiplicity + set per word; the disjointness claim is stated over
-/// [`OccurrenceIdentities::identities`] as set intersection, and explicitly is NOT the parity
+/// `OccurrenceIdentities::identities` as set intersection, and explicitly is NOT the parity
 /// relation (which asks about equality).
 #[test]
 fn cascade_exercise_ordered_phonological_rule_chain() {
@@ -1436,7 +1436,7 @@ fn strata_exercise_cross_stratum_derivation_feed() {
 /// only on a non-final stratum is not a tokenizable surface word at all. The fixture pins that
 /// honestly as invalid-shape rather than omitting it, and this exercise asserts it directly through
 /// `Morpher` -- those words are `expect_skip` and therefore excluded from
-/// [`committed_words`]/[`assert_word_parity`], so asserting them here is the only thing that keeps
+/// `committed_words`/`assert_word_parity`, so asserting them here is the only thing that keeps
 /// them from being silently dropped. An engine that merged the two tables makes them tokenize, which
 /// is precisely the falsifier neither other cascade/strata exercise can see.
 ///
@@ -1540,7 +1540,7 @@ fn strata_exercise_per_stratum_character_table() {
 /// A plain identity/inequality implementation of the class check flips at least one cell.
 ///
 /// The overlap cell carries the second, sharper claim, and it is the one place in this file where
-/// the PROGRAM's parity relation ([`OccurrenceIdentities::same_identities`], deduplicated identity
+/// the PROGRAM's parity relation (`OccurrenceIdentities::same_identities`, deduplicated identity
 /// set equality) is the right question: the two class allomorphs are allomorphs of ONE morpheme, so
 /// their analyses of the overlap feature must be THE SAME identity set even though the two surface
 /// words differ. If that fails, the identity relation has become allomorph-sensitive, and "lexical
@@ -1995,7 +1995,7 @@ fn allomorph_priority_exercise_later_index_is_reachable() {
 
 /// **Exercise 1 of zero morphology: a SILENT rule in a MANDATORY template slot.**
 ///
-/// TOP end: exactly one rule in the grammar is zero-exponence by [`zero_exponence_rules`]'s
+/// TOP end: exactly one rule in the grammar is zero-exponence by `zero_exponence_rules`'s
 /// structural definition, it is the one the committed signatures name, and it is referenced by a
 /// NON-optional template slot. "Mandatory but silent" is that conjunction, and asserting the
 /// uniqueness matters: if a second zero rule appeared, the word-level counts below would stop

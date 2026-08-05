@@ -21,28 +21,28 @@ use pg_foma::health::HealthReport;
 /// envelope-tag convention).
 pub const MANIFEST_FORMAT_TAG: &str = "pangloss-pack-manifest";
 /// This manifest schema's own version. Bump only on a wire-incompatible change to
-/// [`PackManifest`]'s shape — independent of [`crate::format::CONTAINER_VERSION`] (the container
-/// framing) and of [`crate::compat::RequiredRuntimeFeatures::payload_format_version`] (the
+/// `PackManifest`'s shape — independent of `crate::format::CONTAINER_VERSION` (the container
+/// framing) and of `crate::compat::RequiredRuntimeFeatures::payload_format_version` (the
 /// runtime-payload format), which each version separately.
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
 
 /// The `.pgpack` pack manifest: canonical JSON, embedded length-prefixed in the container by
-/// [`crate::format::write_pack`]. Every field this module's own doc names has a slot
+/// `crate::format::write_pack`. Every field this module's own doc names has a slot
 /// here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PackManifest {
-    /// [`MANIFEST_FORMAT_TAG`], always.
+    /// `MANIFEST_FORMAT_TAG`, always.
     pub format: String,
-    /// [`MANIFEST_SCHEMA_VERSION`] at the time this manifest was produced.
+    /// `MANIFEST_SCHEMA_VERSION` at the time this manifest was produced.
     pub manifest_schema_version: u32,
     /// A stable identifier for the grammar this pack was compiled from (package/grammar identity;
     /// freeform — this schema step does not mint a grammar-ID registry).
     pub grammar_id: String,
-    /// Lowercase-hex SHA-256 over both framed payloads (see [`crate::format::fingerprint_hex`]
+    /// Lowercase-hex SHA-256 over both framed payloads (see `crate::format::fingerprint_hex`
     /// for the exact bytes hashed). Binds the runtime and foma payloads together so they cannot be
-    /// mixed across grammars — [`crate::format::read_pack`] recomputes this from the payload
+    /// mixed across grammars — `crate::format::read_pack` recomputes this from the payload
     /// bytes it actually read and rejects a mismatch as
-    /// [`crate::format::PgPackError::FingerprintMismatch`], independent of the container's own
+    /// `crate::format::PgPackError::FingerprintMismatch`, independent of the container's own
     /// whole-file SHA-256 structural-integrity digest.
     pub package_fingerprint: String,
     /// The required-runtime-feature set this pack was built against.
@@ -51,7 +51,7 @@ pub struct PackManifest {
     /// override record.
     pub capability_trust: CapabilityTrust,
     /// The FST-health admission/findings/override report (reusing
-    /// `pg_foma::health::HealthReport`/`Severity`/[`HealthReport::admission`] verbatim --
+    /// `pg_foma::health::HealthReport`/`Severity`/`HealthReport::admission` verbatim --
     /// never redefined here).
     pub fst_health: HealthReport,
     /// Optional license declaration: declaration/provenance only; never gates analysis.
@@ -64,10 +64,10 @@ pub struct PackManifest {
     /// `CapabilityOverrideRecord::recorded_at`).
     pub created_at: String,
     /// Optional publisher signature. `None` means this pack is unsigned
-    /// ([`crate::signature::SignatureState::Unsigned`]). Always the **last** field serialized so
-    /// the "manifest excluding its signature value" bytes [`crate::signature::sign`]/
-    /// [`crate::signature::verify`] need are a simple prefix-truncation... in practice
-    /// [`PackManifest::without_signature`] clones with `signature: None` instead, so this field's
+    /// (`crate::signature::SignatureState::Unsigned`). Always the **last** field serialized so
+    /// the "manifest excluding its signature value" bytes `crate::signature::sign`/
+    /// `crate::signature::verify` need are a simple prefix-truncation... in practice
+    /// `PackManifest::without_signature` clones with `signature: None` instead, so this field's
     /// position does not matter for correctness, only for reading convenience.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<SignatureBlock>,
@@ -83,15 +83,15 @@ impl PackManifest {
         serde_json::to_string_pretty(self).expect("PackManifest serialization is infallible")
     }
 
-    /// Parses a pack manifest from its canonical JSON form. Returns [`serde_json::Error`] directly
+    /// Parses a pack manifest from its canonical JSON form. Returns `serde_json::Error` directly
     /// (not a manifest-specific error type) — callers needing container-level typed errors go
-    /// through [`crate::format::read_pack`], which wraps this.
+    /// through `crate::format::read_pack`, which wraps this.
     pub fn from_json(json: &str) -> serde_json::Result<Self> {
         serde_json::from_str(json)
     }
 
     /// A clone of this manifest with `signature` cleared, exactly the bytes
-    /// [`crate::signature::sign`]/[`crate::signature::verify`] must operate on: the pack
+    /// `crate::signature::sign`/`crate::signature::verify` must operate on: the pack
     /// manifest excluding its signature value.
     pub fn without_signature(&self) -> Self {
         let mut cleared = self.clone();

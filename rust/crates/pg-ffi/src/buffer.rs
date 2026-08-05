@@ -49,7 +49,7 @@
 //!                                 out of scope for this milestone).
 //! ```
 //!
-//! This format has no `guessed` bit anywhere in it, by design (see [`MAGIC_GUESS`]'s own doc) — so
+//! This format has no `guessed` bit anywhere in it, by design (see `MAGIC_GUESS`'s own doc) — so
 //! `write_word` (this format's per-word encoder) filters out any guessed analysis rather than risk
 //! ever encoding one indistinguishably from a confirmed analysis; see that function's own doc for
 //! why a filter and not a panic.
@@ -59,15 +59,15 @@ use pg_parse::{BatchWordOutcome, ParseOutcome, WordAnalysis};
 /// See module docs.
 pub(crate) const MAGIC: u32 = 0x4843_5246;
 
-/// `hc_generate_words`'s own magic (distinct from [`MAGIC`] so a mis-cast buffer from the wrong
+/// `hc_generate_words`'s own magic (distinct from `MAGIC` so a mis-cast buffer from the wrong
 /// entry point fails the sanity check rather than silently misreading a differently-shaped format).
 pub(crate) const GENERATE_MAGIC: u32 = 0x4843_4757; // "HCGW" as 4 little-endian ASCII bytes.
 
 /// `hc_parse_word_opts`/`hc_parse_batch_opts`'s own magic (HC-rust port gap G3, ABI v3 -- see
-/// `crate::HC_ABI_VERSION`'s doc): distinct from [`MAGIC`] for the same reason [`GENERATE_MAGIC`]
+/// `crate::HC_ABI_VERSION`'s doc): distinct from `MAGIC` for the same reason `GENERATE_MAGIC`
 /// is distinct from it -- these two additive entry points carry an extra per-word/per-analysis
-/// `guessed` byte [`MAGIC`]'s format has no room for, so they get their OWN wire format rather than
-/// silently reinterpreting [`MAGIC`]'s bytes under a hidden version switch. [`MAGIC`]'s own format
+/// `guessed` byte `MAGIC`'s format has no room for, so they get their OWN wire format rather than
+/// silently reinterpreting `MAGIC`'s bytes under a hidden version switch. `MAGIC`'s own format
 /// (and `hc_parse_word`/`hc_parse_batch`'s bytes) are completely untouched by this addition.
 pub(crate) const MAGIC_GUESS: u32 = 0x4843_4751; // "HCGQ" as 4 little-endian ASCII bytes.
 
@@ -95,8 +95,8 @@ pub fn encode_generated_words(words: &[String]) -> Vec<u8> {
     buf
 }
 
-/// Decode a buffer produced by [`encode_generated_words`] (i.e. exactly what `hc_generate_words`
-/// writes into `HcResultBuf`). `None` on any malformed input, same convention as [`decode`].
+/// Decode a buffer produced by `encode_generated_words` (i.e. exactly what `hc_generate_words`
+/// writes into `HcResultBuf`). `None` on any malformed input, same convention as `decode`.
 pub fn decode_generated_words(bytes: &[u8]) -> Option<Vec<String>> {
     let mut r = Reader { bytes, pos: 0 };
     let magic = r.u32()?;
@@ -115,7 +115,7 @@ pub fn decode_generated_words(bytes: &[u8]) -> Option<Vec<String>> {
     Some(words)
 }
 
-/// Encode a single [`ParseOutcome`] as a `word_count == 1` buffer (`hc_parse_word`).
+/// Encode a single `ParseOutcome` as a `word_count == 1` buffer (`hc_parse_word`).
 ///
 /// `pub` (not just `pub(crate)`) so external tests — notably the FFI-vs-in-process parity test,
 /// which needs to encode an in-process `pg_parse::Morpher::parse_word` result through the exact
@@ -157,7 +157,7 @@ fn write_word(buf: &mut Vec<u8>, outcome: &ParseOutcome) {
     // with its structured record, then sort by (signature, morpheme_ids, root_morpheme_index,
     // pos_id) — see module docs for why the tiebreaker is load-bearing, not decorative.
     //
-    // Belt-and-braces overclaim guard: this format ([`MAGIC`]) has no `guessed` bit
+    // Belt-and-braces overclaim guard: this format (`MAGIC`) has no `guessed` bit
     // anywhere in its layout, so a guessed analysis reaching this function would be encoded
     // byte-indistinguishable from a confirmed one — exactly the overclaim `hc_parse_word`/
     // `hc_parse_batch` must never commit. Today `guess_fallback: false` at every call site into
@@ -214,7 +214,7 @@ pub struct DecodedAnalysis {
     pub morpheme_ids: Vec<u32>,
 }
 
-/// Decode a buffer produced by [`encode_single`]/[`encode_batch`] (i.e. exactly what
+/// Decode a buffer produced by `encode_single`/`encode_batch` (i.e. exactly what
 /// `hc_parse_word`/`hc_parse_batch` write into `HcResultBuf`). Returns `None` on any malformed
 /// input (bad magic, truncated buffer) — this is a test/host-side reference decoder, not part of
 /// the `extern "C"` surface, so it reports failure via `Option` rather than an FFI error code.
@@ -259,8 +259,8 @@ pub fn decode(bytes: &[u8]) -> Option<Vec<DecodedWord>> {
     Some(words)
 }
 
-/// Encode a single [`ParseOutcome`] as a `word_count == 1` buffer, for `hc_parse_word_opts`
-/// (HC-rust port gap G3). Same shape as [`encode_single`]/[`write_word`] plus two additive
+/// Encode a single `ParseOutcome` as a `word_count == 1` buffer, for `hc_parse_word_opts`
+/// (HC-rust port gap G3). Same shape as `encode_single`/`write_word` plus two additive
 /// `guessed` bytes -- see module docs' new "Guess-opt-in wire format" section.
 pub fn encode_single_guess(outcome: &ParseOutcome) -> Vec<u8> {
     let mut buf = Vec::new();
@@ -271,7 +271,7 @@ pub fn encode_single_guess(outcome: &ParseOutcome) -> Vec<u8> {
 }
 
 /// Encode a full batch outcome for `hc_parse_batch_opts` (HC-rust port gap G3), one word-record
-/// per input word in original request order -- see [`encode_batch`]'s own doc for the ordering
+/// per input word in original request order -- see `encode_batch`'s own doc for the ordering
 /// contract (identical here).
 pub fn encode_batch_guess(outcomes: &[BatchWordOutcome]) -> Vec<u8> {
     let mut buf = Vec::new();
@@ -340,8 +340,8 @@ fn write_word_guess(buf: &mut Vec<u8>, outcome: &ParseOutcome) {
     }
 }
 
-/// A decoded mirror of [`encode_single_guess`]/[`encode_batch_guess`]'s wire format -- the
-/// guess-aware sibling of [`DecodedWord`].
+/// A decoded mirror of `encode_single_guess`/`encode_batch_guess`'s wire format -- the
+/// guess-aware sibling of `DecodedWord`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedWordGuess {
     pub invalid_shape: bool,
@@ -350,7 +350,7 @@ pub struct DecodedWordGuess {
     pub analyses: Vec<DecodedAnalysisGuess>,
 }
 
-/// The guess-aware sibling of [`DecodedAnalysis`].
+/// The guess-aware sibling of `DecodedAnalysis`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedAnalysisGuess {
     pub pos_id: Option<u32>,
@@ -359,9 +359,9 @@ pub struct DecodedAnalysisGuess {
     pub morpheme_ids: Vec<u32>,
 }
 
-/// Decode a buffer produced by [`encode_single_guess`]/[`encode_batch_guess`] (i.e. exactly what
+/// Decode a buffer produced by `encode_single_guess`/`encode_batch_guess` (i.e. exactly what
 /// `hc_parse_word_opts`/`hc_parse_batch_opts` write into `HcResultBuf`). `None` on any malformed
-/// input, including a buffer carrying [`MAGIC`] instead of [`MAGIC_GUESS`] -- the two formats are
+/// input, including a buffer carrying `MAGIC` instead of `MAGIC_GUESS` -- the two formats are
 /// never cross-decodable, by design.
 pub fn decode_guess(bytes: &[u8]) -> Option<Vec<DecodedWordGuess>> {
     let mut r = Reader { bytes, pos: 0 };
@@ -733,8 +733,8 @@ mod tests {
         assert!(!decoded[0].analyses[0].guessed);
     }
 
-    /// The two magics are never cross-decodable -- a plain [`encode_single`] buffer must not
-    /// silently "just work" through [`decode_guess`] (or vice versa), even though the two formats
+    /// The two magics are never cross-decodable -- a plain `encode_single` buffer must not
+    /// silently "just work" through `decode_guess` (or vice versa), even though the two formats
     /// share a byte-layout prefix shape.
     #[test]
     fn guess_format_and_plain_format_are_not_cross_decodable() {

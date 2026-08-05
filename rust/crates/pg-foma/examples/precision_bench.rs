@@ -6,7 +6,7 @@
 //!
 //!   cargo run -p pg-foma --release --example precision_bench
 //!
-//! Only [`PrecisionConfig::Strip`] and [`PrecisionConfig::AllFlags`] are benched — `FullCompile`/
+//! Only `PrecisionConfig::Strip` and `PrecisionConfig::AllFlags` are benched — `FullCompile`/
 //! `Auto` are emit-identical to `Strip` as of this step (`crate::precision`'s own doc: "`crate::emit`
 //! treats every config other than `AllFlags` identically to `Strip`"), so benching them would just
 //! reprint the `Strip` row under a different name.

@@ -19,16 +19,16 @@ use crate::plan::{NodeId, Plan};
 
 pub const REGISTRY_SCHEMA_VERSION: u16 = 1;
 
-/// The witness that an [`ExecutableCandidate`] was built by the Registry.
+/// The witness that an `ExecutableCandidate` was built by the Registry.
 ///
 /// Its only field is a private unit, declared in THIS module. That single fact is the whole
 /// enforcement: no other module -- in this crate or any other -- can name the field, so no other
 /// module can produce a value of this type, so no other module can call
-/// [`crate::executable_candidate::seal`]. It is deliberately neither `Copy` nor `Clone`, so an
+/// `crate::executable_candidate::seal`. It is deliberately neither `Copy` nor `Clone`, so an
 /// authority obtained for one candidate cannot be kept and reused to seal a second, unvalidated
 /// one.
 ///
-/// This is the same shape used for [`crate::recipe_mechanism::MechanismBinding`] -- private
+/// This is the same shape used for `crate::recipe_mechanism::MechanismBinding` -- private
 /// fields plus a single constructor -- scaled up to a type whose validation lives in a different
 /// module from the type itself, where field privacy alone would not have reached.
 pub struct RegistryAuthority(());
@@ -46,7 +46,7 @@ pub struct Parameter {
 pub enum Applicability {
     Always,
     /// At least one gated `RewriteSubruleDef`, decided by PROJECTING the real mechanism
-    /// ([`crate::gate::find_gated_subrules`], over [`crate::enumerate::prules_in_order`]) rather
+    /// (`crate::gate::find_gated_subrules`, over `crate::enumerate::prules_in_order`) rather
     /// than re-deriving it. See `matches`'s own arm for why the previous re-derivation was wrong.
     HasGatedExceptions,
     HasTemplates,
@@ -84,16 +84,16 @@ pub enum Applicability {
 }
 
 impl Applicability {
-    /// `&Grammar` front end onto [`Self::matches_semantics`] — derives a
-    /// [`GrammarSemantics`] and delegates. A caller checking several families against one grammar
+    /// `&Grammar` front end onto `Self::matches_semantics` — derives a
+    /// `GrammarSemantics` and delegates. A caller checking several families against one grammar
     /// (every `Registry` entry point below) derives the owner once and calls
-    /// [`Self::matches_semantics`] instead.
+    /// `Self::matches_semantics` instead.
     pub fn matches(&self, grammar: &Grammar) -> bool {
         self.matches_semantics(&GrammarSemantics::derive(grammar))
     }
 
     /// The authoritative applicability predicate: every arm is a PROJECTION of a fact
-    /// [`GrammarSemantics`] already owns, never a fresh grammar walk. In particular
+    /// `GrammarSemantics` already owns, never a fresh grammar walk. In particular
     /// `HasGatedExceptions` no longer re-runs `prules_in_order` + `find_gated_subrules` per family
     /// per instance — those ran up to `families x instances` times through
     /// `Registry::materialize_distinct` alone.
@@ -469,7 +469,7 @@ impl Registry {
         self.instances_for_semantics(&GrammarSemantics::derive(grammar))
     }
 
-    /// [`Self::instances_for_grammar`] over an already-derived [`GrammarSemantics`].
+    /// `Self::instances_for_grammar` over an already-derived `GrammarSemantics`.
     pub fn instances_for_semantics(&self, semantics: &GrammarSemantics<'_>) -> Vec<RecipeInstance> {
         self.instances_matching(|family| family.applicability.matches_semantics(semantics))
     }
@@ -489,7 +489,7 @@ impl Registry {
         )
     }
 
-    /// [`Self::instances_for_search`] over an already-derived [`GrammarSemantics`].
+    /// `Self::instances_for_search` over an already-derived `GrammarSemantics`.
     pub fn instances_for_search_with_semantics(
         &self,
         semantics: &GrammarSemantics<'_>,
@@ -537,9 +537,9 @@ impl Registry {
         )
     }
 
-    /// [`Self::materialize`] over an already-derived [`GrammarSemantics`]. The
+    /// `Self::materialize` over an already-derived `GrammarSemantics`. The
     /// applicability re-check is unchanged; what changes is that a batch materializer
-    /// ([`Self::materialize_distinct`]) no longer re-derives the grammar's semantic facts once per
+    /// (`Self::materialize_distinct`) no longer re-derives the grammar's semantic facts once per
     /// instance on top of the one derivation its own instance enumeration already made.
     pub fn materialize_with_semantics(
         &self,
@@ -598,10 +598,10 @@ impl Registry {
         Ok(candidates)
     }
 
-    /// The SOLE constructor of a validated [`ExecutableCandidate`].
+    /// The SOLE constructor of a validated `ExecutableCandidate`.
     ///
-    /// Materializes `instance` exactly as [`Self::materialize_with_semantics`] does -- same
-    /// validation, same applicability re-check, same typed [`MaterializeError`], so nothing about
+    /// Materializes `instance` exactly as `Self::materialize_with_semantics` does -- same
+    /// validation, same applicability re-check, same typed `MaterializeError`, so nothing about
     /// WHICH candidates a grammar is offered changes here -- and then binds the parts a
     /// a `LoweredCandidate` does not carry: a stable semantic digest, a portable round-trippable Plan
     /// document and its digest, the exact lowering adapter, the runtime requirements the evaluator
@@ -609,22 +609,22 @@ impl Registry {
     /// scope those bindings license.
     ///
     /// The mechanism graph is derived from `semantics` alone, through
-    /// [`crate::mechanism_provider::derive_mechanism_graph`] -- the rule that no provider may
+    /// `crate::mechanism_provider::derive_mechanism_graph` -- the rule that no provider may
     /// reread the `Grammar` to decide applicability is inherited here rather than restated, because
     /// this function has no other way to obtain a graph.
     ///
     /// # Refuses, never substitutes
-    /// Every failure is a [`CandidateConstructionError`]. If the named adapter cannot represent a
+    /// Every failure is a `CandidateConstructionError`. If the named adapter cannot represent a
     /// construct this grammar's mechanisms require, that is
-    /// [`CandidateConstructionError::MechanismRefused`] naming the mechanism and the adapter -- not
+    /// `CandidateConstructionError::MechanismRefused` naming the mechanism and the adapter -- not
     /// a quiet switch to a compiler that happens to work. A cheaper candidate can be a WRONG
     /// candidate (Amharic's 2.2x-cheaper `identity-mismatch`), so a substitution made here would be
     /// indistinguishable, downstream, from a measurement of the candidate that was asked for.
     ///
-    /// # Builds and verifies data only, like [`crate::mechanism_provider`]
+    /// # Builds and verifies data only, like `crate::mechanism_provider`
     /// Constructing an `ExecutableCandidate` changes no outcome and makes nothing selectable that
     /// was not selectable before -- no applicability predicate, dispatch, or evaluation in
-    /// [`crate::recipe_runtime`] is required to consume one.
+    /// `crate::recipe_runtime` is required to consume one.
     pub fn executable_candidate(
         &self,
         instance: &RecipeInstance,

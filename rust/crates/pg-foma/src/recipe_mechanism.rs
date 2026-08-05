@@ -9,8 +9,8 @@
 //! repeating a node's own source list in the edge body) invites the copies to drift, and a
 //! validator that then *asserts* the copies are equal is not validation -- it is a consistency
 //! check on a redundancy that should not exist. Provenance is written exactly once: **typed source
-//! references live in [`MechanismNode::sources`]**, the active table lives in
-//! [`MechanismNode::symbol_space`], and the stratum lives in [`MechanismNode::stratum`]. Bodies
+//! references live in `MechanismNode::sources`**, the active table lives in
+//! `MechanismNode::symbol_space`, and the stratum lives in `MechanismNode::stratum`. Bodies
 //! carry only what those cannot express.
 //!
 //! **2. Unproved blanket contracts.** A type like `IdentityGuarantee` or `MultiplicityGuarantee` is
@@ -23,39 +23,39 @@
 //! represent them at all. Nothing in this module ranks or selects, so nothing needs them.
 //!
 //! **3. Guarantees that did not name whose guarantee they were.**
-//! [`crate::capability::Disposition::ConfirmOnly`] is defined as *"recall-preserving only if the
+//! `crate::capability::Disposition::ConfirmOnly` is defined as *"recall-preserving only if the
 //! proposer proposes the superset"* -- a claim about a **proposer**, not about a grammar. Without a
 //! place to name which compiler makes that claim, one compiler's ability can be inherited by every
 //! compiler that touches the same construct: `Compounding` rested at `ConfirmOnly` grammar-wide
-//! while [`crate::uflexc`], the only lexicon emitter
-//! [`crate::enumerate::EmissionStrategy::PlanComposed`] has, could not propose a single compound.
+//! while `crate::uflexc`, the only lexicon emitter
+//! `crate::enumerate::EmissionStrategy::PlanComposed` has, could not propose a single compound.
 //!
-//! So this vocabulary makes that inexpressible. A [`MechanismNode`] owns **requirements**, never
-//! recall guarantees: [`MechanismNode::construct_requirements`] is a set of
-//! [`CharacteristicKind`]s -- "faithfully executing this mechanism requires the compiler to
+//! So this vocabulary makes that inexpressible. A `MechanismNode` owns **requirements**, never
+//! recall guarantees: `MechanismNode::construct_requirements` is a set of
+//! `CharacteristicKind`s -- "faithfully executing this mechanism requires the compiler to
 //! represent these constructs." The ONLY type in this module that expresses what a compiler can
-//! actually deliver is [`MechanismBinding`], whose [`MechanismBinding::strategy`] is mandatory,
-//! whose fields are private, and whose only constructor is [`MechanismBinding::derive`]. There is
-//! no way to write down an [`ExecutionDisposition`] without naming the [`EmissionStrategy`] it
+//! actually deliver is `MechanismBinding`, whose `MechanismBinding::strategy` is mandatory,
+//! whose fields are private, and whose only constructor is `MechanismBinding::derive`. There is
+//! no way to write down an `ExecutionDisposition` without naming the `EmissionStrategy` it
 //! belongs to, and no way to write one down by hand at all.
 //!
-//! # How requirements connect to [`crate::strategy_coverage`] without restating it
+//! # How requirements connect to `crate::strategy_coverage` without restating it
 //! `strategy_coverage` already owns the 3 x 22 `(EmissionStrategy, CharacteristicKind)` account,
 //! exhaustively matched so a new compiler or construct breaks the build. This module does not hold
 //! a second copy, a subset, or a summary of it. A node's requirements are expressed **in
 //! `CharacteristicKind`**, exactly the key that table is indexed by, and
-//! [`MechanismBinding::derive`] resolves them by calling
-//! [`crate::strategy_coverage::representation_of`] once per requirement and taking the meet. Adding
+//! `MechanismBinding::derive` resolves them by calling
+//! `crate::strategy_coverage::representation_of` once per requirement and taking the meet. Adding
 //! a construct or a compiler still breaks `strategy_coverage`'s build first, and every mechanism's
 //! answer moves with it automatically.
 //!
 //! Two node-owned facts are deliberately NOT expressed as `CharacteristicKind` because they are
-//! genuinely a different question: [`SymbolSpace`] and [`BoundaryState`]. `strategy_coverage`
+//! genuinely a different question: `SymbolSpace` and `BoundaryState`. `strategy_coverage`
 //! answers "can compiler S represent construct K", which takes no position on whether the boundary
 //! symbols are still present at the point one mechanism reads another's output, or on which
 //! character-definition table the two are speaking. Those are properties of a mechanism's
 //! **position in the composition**, with no compiler input at all, and they are what
-//! [`MechanismGraph::validate`] checks along an edge. They are structural facts, not recall claims,
+//! `MechanismGraph::validate` checks along an edge. They are structural facts, not recall claims,
 //! and they are named accordingly -- `state`/`space`, never `guarantee`.
 //!
 //! # No node names a plan shape
@@ -63,7 +63,7 @@
 //! different transforms produced bit-identical networks (2044 states / 21114 arcs), and on
 //! Indonesian all five plan-composed permutations scored bit-identically. Accordingly there is no
 //! node, body field, or edge attribute here that names a family, a topology, or a permutation. The
-//! order mechanisms compose in is a single canonical spine ([`MechanismKind::COMPOSITION_ORDER`]),
+//! order mechanisms compose in is a single canonical spine (`MechanismKind::COMPOSITION_ORDER`),
 //! not an axis.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -87,7 +87,7 @@ pub struct MechanismId(pub String);
 // Typed source references (wire domain)
 // ---------------------------------------------------------------------------------------------
 
-/// The model-id domain a [`WireModelId`] belongs to. Kept from the initial commit unchanged: it is
+/// The model-id domain a `WireModelId` belongs to. Kept from the initial commit unchanged: it is
 /// the type-tag half of a typed source reference, and it is what stops a `PRuleId` being read back
 /// as an `MRuleId` across a serialization boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -220,9 +220,9 @@ impl WireModelId {
 
 /// What kind of authored model object a mechanism was derived from.
 ///
-/// Every variant except [`Self::CharacterTable`] is the image of a
-/// [`crate::capability::ModelLocation`] variant under the `From` impl below -- which is the join
-/// that lets a mechanism provider attribute a [`crate::capability::CharacteristicObservation`] to a
+/// Every variant except `Self::CharacterTable` is the image of a
+/// `crate::capability::ModelLocation` variant under the `From` impl below -- which is the join
+/// that lets a mechanism provider attribute a `crate::capability::CharacteristicObservation` to a
 /// mechanism without ever re-reading the `Grammar`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -236,10 +236,10 @@ pub enum MechanismSourceKind {
     NaturalClass,
     MorphemeCoOccurrence,
     AllomorphCoOccurrence,
-    /// The active `CharacterDefinitionTable`. The one source kind with no [`ModelLocation`]
-    /// counterpart: [`MechanismKind::BoundaryCleanup`] is derived from the character table it
+    /// The active `CharacterDefinitionTable`. The one source kind with no `ModelLocation`
+    /// counterpart: `MechanismKind::BoundaryCleanup` is derived from the character table it
     /// cleans, not from an observed construct, and a node with no typed source at all is rejected
-    /// by [`MechanismGraph::validate`].
+    /// by `MechanismGraph::validate`.
     CharacterTable,
 }
 
@@ -327,7 +327,7 @@ impl From<&ModelLocation> for MechanismSource {
 }
 
 impl MechanismSource {
-    /// The `CharacterDefinitionTable` source for a [`MechanismKind::BoundaryCleanup`] node.
+    /// The `CharacterDefinitionTable` source for a `MechanismKind::BoundaryCleanup` node.
     pub fn character_table(table: TableId) -> Self {
         Self {
             kind: MechanismSourceKind::CharacterTable,
@@ -414,8 +414,8 @@ impl MechanismKind {
 /// Which mechanism owns a given construct.
 ///
 /// Exhaustively matched with no catch-all, the same discipline
-/// [`crate::strategy_coverage::representation_of`] and [`crate::capability::characterize`] hold
-/// themselves to: adding a [`CharacteristicKind`] breaks this build until a reviewer assigns it to
+/// `crate::strategy_coverage::representation_of` and `crate::capability::characterize` hold
+/// themselves to: adding a `CharacteristicKind` breaks this build until a reviewer assigns it to
 /// a mechanism. That compile break is the mechanism -- a new construct cannot silently land in
 /// whichever node happens to be nearest.
 pub fn mechanism_kind_for(kind: CharacteristicKind) -> MechanismKind {
@@ -477,7 +477,7 @@ pub fn mechanism_kind_for(kind: CharacteristicKind) -> MechanismKind {
 ///
 /// `templates` is NOT duplicate provenance: a template is not the source of an observed construct
 /// (no `ModelLocation` names one), so this is the only place a template id appears. `max_depth` is
-/// [`crate::capability::GrammarCardinality::max_derivation_chain_depth`], which is honestly `None`
+/// `crate::capability::GrammarCardinality::max_derivation_chain_depth`, which is honestly `None`
 /// today -- carried as an `Option` rather than guessed, exactly as that field's own doc requires.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MorphotacticsSpec {
@@ -485,8 +485,8 @@ pub struct MorphotacticsSpec {
     pub max_depth: Option<usize>,
 }
 
-/// One partition group, as [`crate::gate::partition_entries`] actually computed it (projected
-/// through [`crate::grammar_semantics::GrammarSemantics::entry_partition`], which is the
+/// One partition group, as `crate::gate::partition_entries` actually computed it (projected
+/// through `crate::grammar_semantics::GrammarSemantics::entry_partition`, which is the
 /// deterministically-ordered owner of that answer).
 ///
 /// The gate key IS the group's identity -- there is no separate `id` string, and no
@@ -497,7 +497,7 @@ pub struct MorphotacticsSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PartitionGroupSpec {
     /// One bool per gated subrule, in
-    /// [`crate::grammar_semantics::GrammarSemantics::gated_subrules`] order.
+    /// `crate::grammar_semantics::GrammarSemantics::gated_subrules` order.
     pub key: Vec<bool>,
     /// The group's lexical entries, sorted (the real mechanism collects into a `HashSet`).
     pub members: Vec<WireModelId>,
@@ -505,10 +505,10 @@ pub struct PartitionGroupSpec {
 
 /// The authored cascade order of the phonological rules this mechanism runs.
 ///
-/// Order is load-bearing and is never canonicalized (see [`crate::grammar_semantics`]'s "authored
+/// Order is load-bearing and is never canonicalized (see `crate::grammar_semantics`'s "authored
 /// order is preserved" note). The initial commit's `OrderedRuleAtom` enum is gone: its
 /// `Rewrite`/`Metathesis` distinction is already carried, per compiler, by the
-/// [`CharacteristicKind::Metathesis`] requirement resolving through [`crate::strategy_coverage`],
+/// `CharacteristicKind::Metathesis` requirement resolving through `crate::strategy_coverage`,
 /// and its `swap_construction_attempted: bool` was an unproved declaration about a compile attempt
 /// that had not happened.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -518,7 +518,7 @@ pub struct OrderedPhonologySpec {
 
 /// The boundary symbols this terminal mechanism consumes, from the active table's
 /// `CharDefKind::Boundary` definitions. The table itself is the node's
-/// [`MechanismNode::symbol_space`], not a field here.
+/// `MechanismNode::symbol_space`, not a field here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoundaryCleanupSpec {
     pub boundary_symbols: Vec<String>,
@@ -526,9 +526,9 @@ pub struct BoundaryCleanupSpec {
 
 /// The per-kind payload.
 ///
-/// [`Self::StructuralAllomorph`] and [`Self::CopyProcess`] are deliberately payload-free. Their
+/// `Self::StructuralAllomorph` and `Self::CopyProcess` are deliberately payload-free. Their
 /// initial-commit specs carried `rule`/`allomorphs` (duplicate provenance -- already in
-/// [`MechanismNode::sources`]) plus `bounded_local_shape`, `CopyKind`, `max_span` and
+/// `MechanismNode::sources`) plus `bounded_local_shape`, `CopyKind`, `max_span` and
 /// `max_chain_depth`, none of which any semantic owner can derive today. An empty body is the
 /// honest shape: everything currently knowable about these two mechanisms is their typed sources
 /// and their construct requirements. The bounded-vs-unbounded-copy axis needs a real derivation
@@ -552,8 +552,8 @@ pub enum MechanismBody {
 /// Which symbol alphabet a mechanism reads and writes, and in which character-definition table.
 ///
 /// A composition fact, not a recall claim: it says nothing about what any compiler can represent,
-/// so it is deliberately not expressed in [`CharacteristicKind`] and does not resolve through
-/// [`crate::strategy_coverage`].
+/// so it is deliberately not expressed in `CharacteristicKind` and does not resolve through
+/// `crate::strategy_coverage`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SymbolSpace {
@@ -572,7 +572,7 @@ impl SymbolSpace {
 /// Whether boundary/marker symbols are still present in a mechanism's symbol stream.
 ///
 /// Two-point and derived, never declared: exactly one mechanism kind
-/// ([`MechanismKind::BoundaryCleanup`]) transitions `Present` to `Removed`, and every mechanism
+/// (`MechanismKind::BoundaryCleanup`) transitions `Present` to `Removed`, and every mechanism
 /// requires `Present` on input because every one of them may need to see a boundary. That single
 /// rule is what makes "all boundary-consuming consumers run before cleanup" (the cleanup dossier's
 /// first invariant) a structural property of the graph rather than a review checklist item.
@@ -599,13 +599,13 @@ pub enum InterfaceField {
 ///
 /// Owns its typed source references, its position in the symbol pipeline, and the typed
 /// **requirements** that decide whether a given compiler can represent it faithfully. It owns NO
-/// recall guarantee: see [`MechanismBinding`], which is the only type here that can express one,
+/// recall guarantee: see `MechanismBinding`, which is the only type here that can express one,
 /// and cannot express one anonymously.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MechanismNode {
     pub id: MechanismId,
     /// Where in the authored model this mechanism came from. Never empty (enforced by
-    /// [`MechanismGraph::validate`]): a mechanism with no source is a mechanism nobody can justify.
+    /// `MechanismGraph::validate`): a mechanism with no source is a mechanism nobody can justify.
     pub sources: Vec<MechanismSource>,
     /// The symbol alphabet and active table this mechanism reads and writes.
     pub symbol_space: SymbolSpace,
@@ -613,8 +613,8 @@ pub struct MechanismNode {
     /// exactly once: no body field and no edge repeats it.
     pub stratum: Option<WireModelId>,
     /// Every construct the compiler must be able to represent for this mechanism to execute
-    /// faithfully. Expressed in [`CharacteristicKind`] precisely so it resolves through
-    /// [`crate::strategy_coverage`]'s existing 3 x 22 table rather than restating any of it.
+    /// faithfully. Expressed in `CharacteristicKind` precisely so it resolves through
+    /// `crate::strategy_coverage`'s existing 3 x 22 table rather than restating any of it.
     pub construct_requirements: BTreeSet<CharacteristicKind>,
     pub body: MechanismBody,
 }
@@ -655,7 +655,7 @@ impl MechanismNode {
 /// It carries no contract. Everything an edge used to declare is now either owned by a node (symbol
 /// space, boundary state, stratum) or deleted as unprovable (identity, multiplicity, copy span,
 /// dynamic state). Compatibility is COMPUTED from the two endpoints by
-/// [`MechanismGraph::validate`], so an edge cannot assert a compatibility its endpoints do not
+/// `MechanismGraph::validate`, so an edge cannot assert a compatibility its endpoints do not
 /// have.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MechanismEdge {
@@ -681,22 +681,22 @@ pub enum ExecutionDisposition {
     /// Every required construct is represented by this compiler with no cited gap.
     ExactFst,
     /// At least one required construct has a documented partial gap for this compiler
-    /// ([`StrategyRepresentation::RepresentsWithKnownGap`]), so the mechanism's output must be
+    /// (`StrategyRepresentation::RepresentsWithKnownGap`), so the mechanism's output must be
     /// confirm-gated.
     ConfirmOnly,
-    /// Executed outside the compiled FST by `crate::peel` -- the division [`crate::capability`]'s
+    /// Executed outside the compiled FST by `crate::peel` -- the division `crate::capability`'s
     /// `Reduplication` arm describes, which holds for every strategy alike.
     Peeled,
-    /// At least one required construct is [`StrategyRepresentation::CannotRepresent`] for this
+    /// At least one required construct is `StrategyRepresentation::CannotRepresent` for this
     /// compiler: a whole-construct recall hole, so no disposition short of refusal is honest.
     Refused,
 }
 
-/// A mechanism's execution disposition **under a named [`EmissionStrategy`]**.
+/// A mechanism's execution disposition **under a named `EmissionStrategy`**.
 ///
 /// This is the only type in this module that expresses what a compiler can deliver, and it is
 /// structurally impossible to write one down anonymously or by hand: the fields are private, the
-/// only constructor is [`Self::derive`], and `derive` requires a strategy.
+/// only constructor is `Self::derive`, and `derive` requires a strategy.
 ///
 /// That is not stylistic. `Disposition::ConfirmOnly` means "recall-preserving only if the proposer
 /// proposes the superset" -- a per-proposer fact. Recording it as a grammar fact is how `uflexc`
@@ -705,7 +705,7 @@ pub enum ExecutionDisposition {
 ///
 /// Deliberately NOT `Serialize`: a binding is cheap to re-`derive` from a node and a strategy, and
 /// serializing one would create a second, staleable copy of an answer whose whole point is that it
-/// is recomputed from [`crate::strategy_coverage`] every time that table changes.
+/// is recomputed from `crate::strategy_coverage` every time that table changes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MechanismBinding {
     mechanism: MechanismId,
@@ -715,8 +715,8 @@ pub struct MechanismBinding {
 }
 
 impl MechanismBinding {
-    /// Resolve `node`'s requirements against `strategy`'s rows in [`crate::strategy_coverage`].
-    /// Every verdict comes from [`crate::strategy_coverage::representation_of`]; nothing is
+    /// Resolve `node`'s requirements against `strategy`'s rows in `crate::strategy_coverage`.
+    /// Every verdict comes from `crate::strategy_coverage::representation_of`; nothing is
     /// restated or re-decided here.
     pub fn derive(node: &MechanismNode, strategy: EmissionStrategy) -> Self {
         let mut worst = StrategyRepresentation::Represents;
@@ -763,7 +763,7 @@ impl MechanismBinding {
         self.disposition
     }
 
-    /// Every requirement row that was not a clean [`StrategyRepresentation::Represents`], with the
+    /// Every requirement row that was not a clean `StrategyRepresentation::Represents`, with the
     /// citation `strategy_coverage` records for it. Empty iff coverage did not limit the
     /// disposition.
     pub fn limiting_rows(&self) -> &[StrategyCoverageRow] {
@@ -968,8 +968,8 @@ impl MechanismGraph {
         self.nodes.iter().find(|node| &node.id == id)
     }
 
-    /// Every node's disposition under one named compiler (see [`MechanismBinding`]). Returned in
-    /// node order, which for a derived graph is [`MechanismKind::COMPOSITION_ORDER`].
+    /// Every node's disposition under one named compiler (see `MechanismBinding`). Returned in
+    /// node order, which for a derived graph is `MechanismKind::COMPOSITION_ORDER`.
     pub fn bind(&self, strategy: EmissionStrategy) -> Vec<MechanismBinding> {
         self.nodes
             .iter()
@@ -989,7 +989,7 @@ impl MechanismGraph {
     /// A deterministic, byte-stable projection of the whole graph -- the canonical graph identity.
     ///
     /// Every collection reaching this point is already in a deterministic order (node order is
-    /// [`MechanismKind::COMPOSITION_ORDER`], requirement sets are `BTreeSet`s, partition members
+    /// `MechanismKind::COMPOSITION_ORDER`, requirement sets are `BTreeSet`s, partition members
     /// are sorted, rule order is authored order), so serializing is enough. Nothing is re-sorted
     /// here on purpose: a provider that leaked a hash-ordered collection shows up as a projection
     /// difference instead of being papered over.

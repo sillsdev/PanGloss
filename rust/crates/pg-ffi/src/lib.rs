@@ -4,24 +4,24 @@
 //! UTF-8 in/out, `x86_64-pc-windows-msvc`.
 //!
 //! ## The entry points (plan §4.2; W7 adds the seventh; ABI v3 adds the guess-opt-in pair)
-//! - [`hc_abi_version`] — version probe, no grammar needed.
-//! - [`grammar::hc_grammar_load`] / [`grammar::hc_grammar_free`] — load/free a compiled grammar.
-//! - [`parse::hc_parse_word`] — parse one word on the caller's thread.
-//! - [`parse::hc_parse_batch`] — parse many words, internally parallel (rayon).
-//! - [`parse::hc_parse_word_opts`] / [`parse::hc_parse_batch_opts`] (HC-rust port gap G3,
+//! - `hc_abi_version` — version probe, no grammar needed.
+//! - `grammar::hc_grammar_load` / `grammar::hc_grammar_free` — load/free a compiled grammar.
+//! - `parse::hc_parse_word` — parse one word on the caller's thread.
+//! - `parse::hc_parse_batch` — parse many words, internally parallel (rayon).
+//! - `parse::hc_parse_word_opts` / `parse::hc_parse_batch_opts` (HC-rust port gap G3,
 //!   `docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1) — additive `guess_root`-parameterized
 //!   siblings of the two entry points above, routing through the plain `pg_parse::Morpher` (the
 //!   same engine `pg-cli`'s `--guess` flag uses) rather than the supplied-lexicon/foma union;
 //!   encode through a distinct wire format (`buffer::encode_single_guess`/`encode_batch_guess`)
 //!   carrying the `guessed` bit so a guessed analysis is never wire-indistinguishable from a
 //!   confirmed one. See `parse` module's own doc for the full contract.
-//! - [`parse::hc_buf_free`] — free a result/error-message buffer.
-//! - [`generate::hc_generate_words`] — generate surface forms from a `WordAnalysis`-shaped
+//! - `parse::hc_buf_free` — free a result/error-message buffer.
+//! - `generate::hc_generate_words` — generate surface forms from a `WordAnalysis`-shaped
 //!   morpheme sequence (C# `Morpher.GenerateWords(WordAnalysis)`, W7).
 //!
 //! ## No panic crosses the boundary (plan §8 layer 7)
 //! **Every** entry point's entire body is wrapped in `std::panic::catch_unwind`, converting any
-//! caught panic into `HC_ERR_PANIC` (see [`error`]) rather than letting an unwind reach the
+//! caught panic into `HC_ERR_PANIC` (see `error`) rather than letting an unwind reach the
 //! `extern "C"` frame (undefined behavior, not just an ugly error). This holds for
 //! `hc_parse_batch` too, including panics raised on a rayon worker thread and propagated out
 //! through `par_iter`/`.install()` — see `tests/abort_safety.rs` for the test that proves it on
@@ -33,14 +33,14 @@
 //! own comment on it.
 //!
 //! ## Grammar handle
-//! Immutable and `Send + Sync` once built (compile-time-checked in [`grammar`]): one
+//! Immutable and `Send + Sync` once built (compile-time-checked in `grammar`): one
 //! `hc_grammar_load` can back any number of concurrent `hc_parse_word` callers (the FieldWorks
 //! parallelize-across-words pattern) or one internally-parallel `hc_parse_batch` call. See
-//! [`grammar`]'s module docs for the one safety contract the C signature can't express: don't
+//! `grammar`'s module docs for the one safety contract the C signature can't express: don't
 //! free a handle while a call using it is still in flight.
 //!
 //! ## Wire format
-//! See [`buffer`]'s module docs for the exact `HcResultBuf` byte layout.
+//! See `buffer`'s module docs for the exact `HcResultBuf` byte layout.
 
 pub mod buffer;
 pub mod error;

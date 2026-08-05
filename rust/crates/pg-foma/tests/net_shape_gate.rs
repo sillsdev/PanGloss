@@ -1,4 +1,4 @@
-//! The SHAPE screen's gate: [`pg_foma::net_shape`] must separate a known-good finished net from a
+//! The SHAPE screen's gate: `pg_foma::net_shape` must separate a known-good finished net from a
 //! known-pathological one, on real compiled `foma` networks, without applying a single word.
 //!
 //! # Why this file exists at all, and what it can do that the existing gate cannot
@@ -15,15 +15,15 @@
 //! *synthetic* grammars in the ORDINARY test suite, the discrimination that previously required
 //! private real-language data:
 //!
-//! - [`net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot`] flags the FIRST
+//! - `net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot` flags the FIRST
 //!   regression of this class (the top-level `PrefixChain` one, on the very fixture whose proposal
 //!   ceiling is documented as unable to see it).
-//! - [`net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one`] flags the SECOND (the
+//! - `net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one` flags the SECOND (the
 //!   per-compound-level one that `7644b52` fixed), by reconstructing that commit's parent's emission
 //!   from the current emitter's own output and screening both.
 //!
 //! # SCOPE, restated because it is a hard constraint and not a preference
-//! Nothing here — and nothing in [`pg_foma::net_shape`] — feeds a `Score` field, a ranking key, an
+//! Nothing here — and nothing in `pg_foma::net_shape` — feeds a `Score` field, a ranking key, an
 //! eligibility predicate, or a certification verdict, and no code path exists from the screen to a
 //! decision to stop proposing. A pathological verdict is INFORMATION. Recall is not negotiable.
 //!
@@ -338,7 +338,7 @@ fn parse_entry_line(line: &str) -> Option<(&str, &str, &str)> {
 /// The top-level chains carry the SAME null-shaped allomorph the compound levels do, and their
 /// exposure is closed by a completely different mechanism: `build::reroute_null_shaped_affix_chains`,
 /// a private build-time rewrite of the raw lexc that the isolated pipeline in
-/// [`finished_net_from_lexc`] does not run. Left in place, both sides of that A/B would carry a
+/// `finished_net_from_lexc` does not run. Left in place, both sides of that A/B would carry a
 /// top-level zero-width cycle and the compound-level difference under test would be masked by it.
 ///
 /// Applied IDENTICALLY to both sides, so the single remaining variable is the compound prefix hop —
@@ -347,7 +347,7 @@ fn parse_entry_line(line: &str) -> Option<(&str, &str, &str)> {
 /// test, whereas a deletion is trivially the same operation on both inputs. It is not
 /// recall-preserving and is not meant to be; the top-level regression is screened on its own,
 /// against the real production network, in
-/// [`net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot`].
+/// `net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot`.
 fn strip_top_level_null_shaped_affix_lines(
     lexc_source: &str,
     boundary: &HashSet<char>,
@@ -705,7 +705,7 @@ fn net_shape_of_the_production_compound_net_is_bounded_and_branching_is_reported
 // -------------------------------------------------------------------------------------------------
 
 /// The two fixtures that USED to kill the test process, kept as a named pair for
-/// [`net_shape_probe_of_the_two_process_aborting_fixtures`] — no longer excluded from anything here.
+/// `net_shape_probe_of_the_two_process_aborting_fixtures` — no longer excluded from anything here.
 ///
 /// Both fixtures die in TRAVERSAL, not construction: the plan-composed net for this grammar BUILDS
 /// in 0.027s, while `apply_up` enumerates `12^k` paths for a k-`x` word (2,985,984 measured at
@@ -810,7 +810,7 @@ fn net_shape_census_over_every_discoverable_conformance_fixture() {
     );
 }
 
-/// Narrows the open question [`ABORTING_FIXTURES`] leaves: for the fixture whose name literally
+/// Narrows the open question `ABORTING_FIXTURES` leaves: for the fixture whose name literally
 /// describes the pathological shape (`deep-optional-affix-nesting` — deep, optional, nested
 /// affixation), does `uflexc` EMISSION and lexc compilation survive, so that a static screen would
 /// have had a finished net to read?

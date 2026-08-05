@@ -19,12 +19,12 @@
 //! ```json
 //! { "format": "pangloss-project", "version": 1, "project": { ... }, ... }
 //! ```
-//! [`Snapshot::from_json`] rejects any document whose `format`/`version` don't match what this
-//! build understands, with a specific [`SnapshotError`] variant — never a generic parse failure.
+//! `Snapshot::from_json` rejects any document whose `format`/`version` don't match what this
+//! build understands, with a specific `SnapshotError` variant — never a generic parse failure.
 //!
 //! # Determinism
 //!
-//! [`Snapshot::to_json`] always pretty-prints with two-space indentation and struct fields in
+//! `Snapshot::to_json` always pretty-prints with two-space indentation and struct fields in
 //! their Rust declaration order (serde's default, unmodified). Every collection in this format
 //! is a plain `Vec` — **construction order is preserved on the wire**; nothing is sorted or
 //! reordered by this crate. Where the source data has a meaningful order (affix template slots,
@@ -32,13 +32,13 @@
 //! order; where the source data is an unordered LCM collection, the snapshot's order is simply
 //! whatever order the producer (`pg-fwdata`) encountered it in, which is itself deterministic
 //! across imports of the same `.fwdata` file (`docs/fwdata-import-plan.md` §5.3). Two
-//! [`Snapshot`]s built with the same field values in the same order always serialize to
+//! `Snapshot`s built with the same field values in the same order always serialize to
 //! byte-identical JSON.
 //!
 //! # Validation
 //!
-//! [`Snapshot::validate`] is a light, warning-only check for dangling GUID references (see the
-//! [`validate`] module doc for exactly what is and isn't checked). It never rejects a snapshot —
+//! `Snapshot::validate` is a light, warning-only check for dangling GUID references (see the
+//! `validate` module doc for exactly what is and isn't checked). It never rejects a snapshot —
 //! real FieldWorks projects contain stale references, and this pipeline must tolerate them
 //! (`docs/fwdata-import-plan.md` §1).
 #![forbid(unsafe_code)]
@@ -78,10 +78,10 @@ pub const FORMAT_TAG: &str = "pangloss-project";
 /// The envelope version this build of `pg-snapshot` reads and writes.
 pub const FORMAT_VERSION: u32 = 1;
 
-/// Errors from [`Snapshot::from_json`].
+/// Errors from `Snapshot::from_json`.
 #[derive(Debug, Error)]
 pub enum SnapshotError {
-    /// The document isn't well-formed JSON, or doesn't match the [`Snapshot`] shape at all
+    /// The document isn't well-formed JSON, or doesn't match the `Snapshot` shape at all
     /// (missing/mistyped required fields).
     #[error("invalid snapshot JSON: {0}")]
     Json(#[from] serde_json::Error),
@@ -97,7 +97,7 @@ pub enum SnapshotError {
 /// A complete PanGloss project snapshot: the versioned envelope plus every section described in
 /// `docs/fwdata-import-plan.md` §3 / `docs/snapshot-format.md`.
 ///
-/// Field declaration order below is exactly the order [`Snapshot::to_json`] emits keys in
+/// Field declaration order below is exactly the order `Snapshot::to_json` emits keys in
 /// (serde_json's struct default), and is deliberately envelope-first: `format`/`version` are the
 /// first two keys of every emitted document.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -113,7 +113,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// Build a new snapshot with the current [`FORMAT_TAG`]/[`FORMAT_VERSION`] envelope
+    /// Build a new snapshot with the current `FORMAT_TAG`/`FORMAT_VERSION` envelope
     /// already filled in — the normal way to construct one (rather than setting `format`/
     /// `version` by hand).
     pub fn new(
@@ -135,7 +135,7 @@ impl Snapshot {
     }
 
     /// Parse a snapshot from JSON text, rejecting any document whose envelope doesn't match
-    /// this crate's [`FORMAT_TAG`]/[`FORMAT_VERSION`].
+    /// this crate's `FORMAT_TAG`/`FORMAT_VERSION`.
     pub fn from_json(json: &str) -> Result<Self, SnapshotError> {
         let snap: Snapshot = serde_json::from_str(json)?;
         if snap.format != FORMAT_TAG {
@@ -150,7 +150,7 @@ impl Snapshot {
     }
 
     /// Serialize to deterministic, pretty-printed JSON (see the module doc's "Determinism"
-    /// section). Serialization of a well-formed [`Snapshot`] cannot fail in practice (every
+    /// section). Serialization of a well-formed `Snapshot` cannot fail in practice (every
     /// field is a plain data type with a total `Serialize` impl); this returns a `String`
     /// directly rather than a `Result` for caller convenience, panicking only if serde_json
     /// itself reports an error (e.g. a `NaN` float, which this format never produces — there
@@ -160,9 +160,9 @@ impl Snapshot {
     }
 
     /// Light structural validation: GUID cross-references that don't resolve within this same
-    /// snapshot, reported as [`Warning`]s (a stable short code alongside human-readable prose).
+    /// snapshot, reported as `Warning`s (a stable short code alongside human-readable prose).
     /// Never fails/panics; an empty `Vec` means nothing suspicious was found (not that the
-    /// snapshot is semantically complete — see the [`validate`] module doc for scope).
+    /// snapshot is semantically complete — see the `validate` module doc for scope).
     pub fn validate(&self) -> Vec<Warning> {
         validate::validate(self)
     }

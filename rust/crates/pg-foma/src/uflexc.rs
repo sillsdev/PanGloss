@@ -1,16 +1,16 @@
 //! An underlying-morph-spelling lexc emitter: a FRESH, deliberately minimal `Grammar -> lexc`
 //! emitter whose lower tape is UNDERLYING morph spellings (in
-//! [`crate::replace::SegAlphabet`] token space — NOT surface spellings), meant to be composed
-//! with [`crate::replace::compile_and_compose_rules`]'s rule cascade rather than pre-probing
-//! junction phonology the way [`crate::emit`] does. This is NOT a refit of `emit.rs`: it does not
-//! call [`crate::junctions`] or [`crate::preexpand`], and its morphotactic structure is
+//! `crate::replace::SegAlphabet` token space — NOT surface spellings), meant to be composed
+//! with `crate::replace::compile_and_compose_rules`'s rule cascade rather than pre-probing
+//! junction phonology the way `crate::emit` does. This is NOT a refit of `emit.rs`: it does not
+//! call `crate::junctions` or `crate::preexpand`, and its morphotactic structure is
 //! deliberately simpler (self-looping prefix/suffix chains rather than `emit.rs`'s rule-count-
 //! bounded, template-aware derivation layers) — adequate for Indonesian's template-less
 //! standalone-rule morphotactics (verified: zero `<AffixTemplate>` elements in
 //! `indonesian-hc.xml`), not intended to generalize to a templated grammar (Sena/Amharic) as-is.
 //!
 //! It DOES reuse `emit.rs`'s already-tested, purely-classificatory `pub(crate)` helpers
-//! ([`crate::emit::classify_affix`], [`crate::emit::Role`]) rather than re-deriving affix-role
+//! (`crate::emit::classify_affix`, `crate::emit::Role`) rather than re-deriving affix-role
 //! classification a second time — those are queries about the grammar's OWN structure, unrelated
 //! to surface-spelling/junction machinery, so reusing them is not the "refit all of emit.rs" the
 //! prototype brief warns against.
@@ -18,7 +18,7 @@
 //! ## Tag convention (unchanged from mainline)
 //! Same as `emit.rs`: every entry's upper side is `tags::root_tag_lexc`/`tags::morph_tag_lexc`
 //! (a multichar tag symbol only); lower side is the morph's UNDERLYING text, encoded through
-//! [`crate::replace::SegAlphabet`] (module doc there: char-def-identity tokens, not literal
+//! `crate::replace::SegAlphabet` (module doc there: char-def-identity tokens, not literal
 //! spelling — so a multi-representation segment or a multi-grapheme unit needs no special
 //! handling here at all).
 //!
@@ -26,7 +26,7 @@
 //! - Root allomorphs: every non-pattern allomorph accepted bare (module doc "Deliberate
 //!   supersets" convention `emit.rs` already uses — `is_pattern` allomorphs stay uncovered, zero
 //!   in Indonesian).
-//! - Affix allomorphs: classified via [`crate::emit::classify_affix`] on each allomorph's own RHS
+//! - Affix allomorphs: classified via `crate::emit::classify_affix` on each allomorph's own RHS
 //!   (not just the rule's first allomorph, matching `emit.rs`'s per-allomorph granularity).
 //!   `Role::Prefix` → prefix chain; `Role::Suffix` → suffix chain. Everything else
 //!   (`Reduplication`/`Infix`/`CircumfixPrefix`/`CircumfixSuffix`/`Process`/`None`) is skipped and
@@ -36,7 +36,7 @@
 //!   support up front — the parity gate (this module's own driver) is the source of truth on
 //!   whether that holds for the underlying-form path too.
 //! - Compounding: **covered** as of the bounded compound loop below. Every
-//!   [`MorphRuleDef::Realizational`] rule is still reported via `skipped` (never a silent drop, this
+//!   `MorphRuleDef::Realizational` rule is still reported via `skipped` (never a silent drop, this
 //!   doc's own heading) rather than enumerated — this module never attempts the syntactic
 //!   feature-realization mechanism `RealizationalRuleDef` needs.
 //!
@@ -44,7 +44,7 @@
 //! Until this loop existed, this module's continuation graph was structurally single-root — no arc
 //! from at-or-after `RootBare` back to `RootBare`/`PrefixOrRoot` — so it could never propose a
 //! compound no matter what a `CompoundingRuleDef` said, and
-//! [`crate::enumerate::EmissionStrategy::PlanComposed`] (whose ONLY lexicon emitter is this module,
+//! `crate::enumerate::EmissionStrategy::PlanComposed` (whose ONLY lexicon emitter is this module,
 //! `crate::build::build_controllable`) proposed ZERO candidates for any compound word. Indonesian
 //! declares compounding rules but the corpus (per `f2_indonesian_gate.rs`) needs none of them for
 //! its 114-word (121 − 7 redup) recall denominator, which is why this prototype's own parity gate
@@ -67,14 +67,14 @@
 //! ```
 //! (`{base}{k}` reads `UCmp` for `k == 1` and `UCmp{k}` after that; `{base}{k}Pfx` likewise reads
 //! `UCmpPfx` for `k == 1` -- so the first level's prefix hop is `UCmpPfx0`, NOT `UCmp1Pfx0`.
-//! [`build_compound_chain`] owns that naming.)
+//! `build_compound_chain` owns that naming.)
 //! **Unrolled to `levels`, never self-looped**, so depth stays bounded by construction —
-//! `levels` comes from [`crate::emit::compound_extra_levels_checked`], the SAME
+//! `levels` comes from `crate::emit::compound_extra_levels_checked`, the SAME
 //! `capability::characterize`-derived bound and `HC_COMPOUND_CHAIN_DEPTH_BUDGET` check
 //! `crate::emit`'s two emitters use, and the chain itself is
-//! [`crate::emit::build_compound_chain`] — the one shared unroller, now with three callers rather
+//! `crate::emit::build_compound_chain` — the one shared unroller, now with three callers rather
 //! than a third hand-rolled copy (that function's own doc explains the generic seams that made the
-//! reuse possible). Head/non-head eligibility is [`crate::emit::compound_license`], and the
+//! reuse possible). Head/non-head eligibility is `crate::emit::compound_license`, and the
 //! head x non-head cross product is checked against `HC_COMPOUND_PAIR_BUDGET` before any of the
 //! chain's lexc text is written.
 //!
@@ -97,7 +97,7 @@
 //! ### Null-shaped affixes are at most once per juncture -- enforced HERE, at emission time
 //! An affix allomorph whose ENTIRE underlying text is drawn from `Boundary`-kind char-defs (a
 //! zero/null-morph marker, e.g. `^0+`) is deleted to NOTHING by the boundary cleanup every caller of
-//! this module's output composes afterwards ([`crate::build::finish_controllable_net`]). On a
+//! this module's output composes afterwards (`crate::build::finish_controllable_net`). On a
 //! SELF-LOOPING continuation that leaves a zero-width, tag-only arc back onto the state it came from
 //! -- a free, unboundedly repeatable insertion of that morpheme's tag, taken any number of times
 //! without consuming a single surface character. `apply_up` enumerates each repeat count as a
@@ -137,11 +137,11 @@ use crate::replace::SegAlphabet;
 use crate::tags;
 
 /// One emittable root/affix lexc entry in this module's own token space: the morpheme's tag symbol
-/// and the [`SegAlphabet`]-encoded underlying spelling of one allomorph. Deliberately NOT
+/// and the `SegAlphabet`-encoded underlying spelling of one allomorph. Deliberately NOT
 /// `crate::emit::RootRec` — that type is surface-variant/precision-oriented (it carries a
 /// `Vec<String>` of representation variants, a `Stripped` sibling list, an `AllomorphId` for the
 /// precision knob's owner-side gate, and a `FsId` category), none of which exists on this path;
-/// [`build_compound_chain`] is generic over the root record type precisely so this module can keep
+/// `build_compound_chain` is generic over the root record type precisely so this module can keep
 /// its own two-field one (see that function's doc).
 struct TokenEntry {
     tag: String,
@@ -150,7 +150,7 @@ struct TokenEntry {
 
 impl TokenEntry {
     /// This entry as one lexc line continuing to `continuation`. No `crate::emit::escape_lexc_text`
-    /// call: `underlying` is a [`SegAlphabet`] PUA-codepoint token string (that module's own
+    /// call: `underlying` is a `SegAlphabet` PUA-codepoint token string (that module's own
     /// "Symbol alphabet" doc), which by construction contains none of lexc's metacharacters, and
     /// `tag` is a `crate::tags` multichar symbol.
     fn write(&self, out: &mut String, continuation: &str, counts: &mut EmitCounts) {
@@ -168,7 +168,7 @@ impl TokenEntry {
 pub struct UEmitReport {
     pub lexc_source: String,
     /// One line per skipped allomorph, e.g. `"mrule14#allo1 role=reduplication"` -- or, for an
-    /// entire [`MorphRuleDef::Compounding`]/[`MorphRuleDef::Realizational`] rule this module never
+    /// entire `MorphRuleDef::Compounding`/`MorphRuleDef::Realizational` rule this module never
     /// implements at all, one line per rule, e.g. `"mrule9(cmp1) kind=compounding-rule"` /
     /// `"mrule12/RL(-) kind=realizational-rule"` (module doc's "what's covered / skipped" section).
     /// Never a silent drop (module doc).
@@ -200,7 +200,7 @@ pub struct UEmitReport {
 
 /// The leading (before the first `Copy`) or trailing (after the last `Copy`) `InsertSegments`
 /// text of an allomorph's RHS, mirroring the min/max-copy-index scan
-/// [`crate::emit::classify_affix`] does internally (not exposed there, so re-derived here — ~10
+/// `crate::emit::classify_affix` does internally (not exposed there, so re-derived here — ~10
 /// lines, cheap, and avoids widening that function's public surface for one caller).
 fn affix_insert_shape(rhs: &[OutputAction], leading: bool) -> Option<&SegmentedText> {
     let mut first_copy: Option<usize> = None;
@@ -233,13 +233,13 @@ fn affix_insert_shape(rhs: &[OutputAction], leading: bool) -> Option<&SegmentedT
 
 /// Emit the underlying-form lexc source for `g` (Indonesian-scoped design, module doc).
 ///
-/// Thin wrapper over [`emit_underlying_filtered`] with every lexical entry included (the
+/// Thin wrapper over `emit_underlying_filtered` with every lexical entry included (the
 /// pre-gating behavior, unchanged for every existing caller).
 pub fn emit_underlying(g: &Grammar, alphabet: &SegAlphabet) -> Result<UEmitReport, ComposeError> {
     emit_underlying_filtered(g, alphabet, None)
 }
 
-/// Identical to [`emit_underlying`], but when `allowed_entries` is `Some`, ONLY [`LexEntryId`]s in
+/// Identical to `emit_underlying`, but when `allowed_entries` is `Some`, ONLY `LexEntryId`s in
 /// that set get root lexc lines emitted — every other entry is silently omitted (NOT reported in
 /// `skipped`: this is `crate::gate`'s static-partition design, where an entry excluded from THIS
 /// group's lexicon is included in a DIFFERENT group's, so it is not a coverage gap here, unlike a
@@ -247,9 +247,9 @@ pub fn emit_underlying(g: &Grammar, alphabet: &SegAlphabet) -> Result<UEmitRepor
 /// in this prototype's scope is root-only (`crate::gate`'s module doc), so every group shares the
 /// identical affix lexicons.
 ///
-/// Builds a production [`ComposeBudget`] from `HC_COMPOSE_*` env vars exactly once (mirrors
+/// Builds a production `ComposeBudget` from `HC_COMPOSE_*` env vars exactly once (mirrors
 /// `crate::emit::emit_with_precision`'s own convention). Tests should call
-/// [`emit_underlying_filtered_with_budget`] directly instead.
+/// `emit_underlying_filtered_with_budget` directly instead.
 pub fn emit_underlying_filtered(
     g: &Grammar,
     alphabet: &SegAlphabet,
@@ -259,7 +259,7 @@ pub fn emit_underlying_filtered(
     emit_underlying_filtered_with_budget(g, alphabet, allowed_entries, &budget)
 }
 
-/// [`emit_underlying_filtered`]'s core, with the [`ComposeBudget`] threaded in explicitly rather
+/// `emit_underlying_filtered`'s core, with the `ComposeBudget` threaded in explicitly rather
 /// than read from env -- what `crate::gate::compile_gated_grammar_with_budget` and tests call
 /// directly, so a whole gated-grammar compile shares ONE budget across every group's emission.
 ///
@@ -277,7 +277,7 @@ pub fn emit_underlying_filtered_with_budget(
     let mut skipped = Vec::new();
     let mut multichar: Vec<String> = Vec::new();
     let mut declared_tags: HashSet<String> = HashSet::new();
-    /// The `base` name [`build_compound_chain`] derives every compound level's lexicon names from
+    /// The `base` name `build_compound_chain` derives every compound level's lexicon names from
     /// (`UCmp`, `UCmpPfx0`, `UCmpRoots`, `UCmp2Next`, ...). `crate::emit`'s own two callers use
     /// `TLCmp`/`G{gi}Cmp`; this module has no template-less/per-group split to name against, so one
     /// base for the whole emission is enough.

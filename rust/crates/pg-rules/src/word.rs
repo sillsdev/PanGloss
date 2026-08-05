@@ -6,7 +6,7 @@
 //!
 //! ## Deviations from the brief's contract sketch (flagged, per "implement exactly, flag if
 //! inadequate")
-//! - **`syn_fs` / `real_fs` are owned [`FeatureStruct`]s, not `FsId`s.** Rule application *mints new
+//! - **`syn_fs` / `real_fs` are owned `FeatureStruct`s, not `FsId`s.** Rule application *mints new
 //!   feature-structure values* (`unify` then `priority_union` on synthesis; `Add`/`Clear` on
 //!   analysis). Those values cannot be interned into the immutable grammar interner
 //!   (`grammar.fs_interner`, a frozen contract), and standing up a per-parse mutable FS interner is
@@ -61,14 +61,14 @@ pub struct MorphRecord {
     /// rides along in `Word`'s copy constructor (Word.cs:112-115).
     pub passed_over: Option<Box<[u16]>>,
     /// Wave-4 (W9.1 `dfbb754b` + the subsumed-affix finding): how this record is anchored — see
-    /// [`MorphStatus`] and `pg_rules::morph::attribute_morphs`'s doc comment for the C# mechanism
+    /// `MorphStatus` and `pg_rules::morph::attribute_morphs`'s doc comment for the C# mechanism
     /// each variant ports. `Real` for root records and every pre-wave-4 record.
     pub status: MorphStatus,
     /// Runtime root payload attached to this morph (never word-wide), for supplied/guessed roots.
     pub runtime_root: Option<Rc<RuntimeRoot>>,
 }
 
-/// How a [`MorphRecord`] is anchored to the word's shape (wave-4). Only [`MorphStatus::Real`]
+/// How a `MorphRecord` is anchored to the word's shape (wave-4). Only `MorphStatus::Real`
 /// records own output nodes (`pg_rules::morph`'s `owning_morph` skips the rest); the other three
 /// variants port the C# annotation-tree states a morph can be in after
 /// `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs`'s fallback branches (cs:162-207):
@@ -115,8 +115,8 @@ impl MorphRecord {
 /// is immutable and shared across parses/threads, so a guessed allomorph/entry/morpheme — which
 /// C# fabricates as fresh `RootAllomorph`/`LexEntry` objects with no place in any grammar table
 /// (`Morpher.LexicalGuess`, `Morpher.cs:522-590`) — cannot be appended to it. Instead
-/// [`Word::root_allomorph`] and the root [`MorphRecord`] carry the sentinels
-/// [`AllomorphId::GUESSED`] / [`MorphemeId::GUESSED`], and this payload is looked up on the word
+/// `Word::root_allomorph` and the root `MorphRecord` carry the sentinels
+/// `AllomorphId::GUESSED` / `MorphemeId::GUESSED`, and this payload is looked up on the word
 /// itself wherever the real content is needed.
 ///
 /// Every id-resolution site that reads `allomorph_owners`/`entries`/`morphemes` with a word's
@@ -194,7 +194,7 @@ pub struct Word {
     pub stratum: StratumId,
     /// Syntactic feature structure (owned — see module docs).
     pub syn_fs: FeatureStruct,
-    /// Realizational FS: [`FeatureStruct::EMPTY`] except while a `RealizationalAffixProcessRule`
+    /// Realizational FS: `FeatureStruct::EMPTY` except while a `RealizationalAffixProcessRule`
     /// (W5) is threading its own realizational value through `ana_realizational`/
     /// `synth_realizational` (`pg_rules::morph`), or on a generation seed built by
     /// `pg_parse::morpher`'s `generate_words` with a caller-supplied non-empty value (C#
@@ -202,10 +202,10 @@ pub struct Word {
     pub real_fs: FeatureStruct,
     /// Morphological/phonological rule (MPR) feature set (see module docs).
     pub mpr: MprSet,
-    /// Applied allomorphs in morph order (see [`MorphRecord`]).
+    /// Applied allomorphs in morph order (see `MorphRecord`).
     pub morphs: Vec<MorphRecord>,
     /// Compounding non-head children (C# `Word._nonHeadApps`; `CurrentNonHead` = the element at
-    /// [`Word::non_head_app_index`]).
+    /// `Word::non_head_app_index`).
     pub non_heads: Vec<Word>,
     /// C# `Word._nonHeadAppIndex` (init `-1` = none). During analysis this only ever grows
     /// (`NonHeadUnapplied` pushes + increments; nothing pops), so it invariably equals
@@ -243,31 +243,31 @@ pub struct Word {
     /// Per-rule **unapplication** count multiset (C# `Word._mrulesUnapplied` /
     /// `Word.UnappliedRuleCounts`, Word.cs:376-406) — how many times each morphological rule has been
     /// unapplied on this word. Incremented alongside every `mrule_apps.push` (the M6 rule-count
-    /// deferred from M4b). Its sole consumer is [`pg_memo::AnalysisStateKey`], which needs an
-    /// order-independent view of the trail; it is **not** part of [`WordKey`] (C# `ValueEquals`
+    /// deferred from M4b). Its sole consumer is `pg_memo::AnalysisStateKey`, which needs an
+    /// order-independent view of the trail; it is **not** part of `WordKey` (C# `ValueEquals`
     /// ignores it), so adding it does not perturb dedup. A `BTreeMap` for the same canonical-order
-    /// reason the key uses one. Unmodified by [`Word::replay_onto`] — see that method.
+    /// reason the key uses one. Unmodified by `Word::replay_onto` — see that method.
     pub unapplied_rule_counts: BTreeMap<MRuleId, u32>,
     pub flags: WordFlags,
     /// C# `Word.Source` (Word.cs:86,491-533): the word this one was derived from at a **stratum
     /// boundary**. `AnalysisStratumRule.Apply` sets every output word's `Source` to the stratum's
     /// input (`mruleOutWord.Source = origInput`, AnalysisStratumRule.cs:165), and the seed's `Source`
     /// is that same input (from `input.Clone()`, cs:106). So the chain of `source` links is exactly
-    /// the per-stratum input words back to the surface form — the spine [`Word::expand_alternatives`]
+    /// the per-stratum input words back to the surface form — the spine `Word::expand_alternatives`
     /// walks to distribute a merged word's rule/non-head deltas across its alternatives. `None` on the
     /// surface input word (chain root) and on any word never passed through a stratum boundary.
     ///
     /// `Rc` (not `Box`): many stratum outputs share one input, and the chain is walked, never mutated,
-    /// so sharing is both cheaper and identity-correct. **Not** part of [`WordKey`] / dedup (C#
+    /// so sharing is both cheaper and identity-correct. **Not** part of `WordKey` / dedup (C#
     /// `ValueEquals` never reads `Source`), and cleared-not-copied on the seed/lexical-lookup clones
     /// (see those sites) so it can never inflate the key or the candidate set.
     pub source: Option<Rc<Word>>,
     /// P11 §4.4: `Some` iff this word's root is a guessed (fabricated) one — equivalently iff
     /// `root_allomorph == Some(AllomorphId::GUESSED)` — carrying the payload every sentinel-id
-    /// resolution site needs (see [`GuessedRoot`]'s doc). `None` for every ordinary (real-lexicon)
+    /// resolution site needs (see `GuessedRoot`'s doc). `None` for every ordinary (real-lexicon)
     /// word, the overwhelming majority. `Rc` for the same reason `source` is: words are cloned
     /// heavily, the payload is immutable once fabricated, and sharing is both cheaper and
-    /// identity-correct. **Not** part of [`WordKey`] (C# has no notion of it in `ValueEquals` —
+    /// identity-correct. **Not** part of `WordKey` (C# has no notion of it in `ValueEquals` —
     /// `Word._rootAllomorph` alone, which already includes the fabricated `RootAllomorph`'s
     /// object identity, is what C#'s dedup keys on; `root_allomorph`'s `AllomorphId::GUESSED`
     /// sentinel is the Rust analog of that, so this payload would be redundant in the key even if
@@ -276,24 +276,24 @@ pub struct Word {
     /// this word by `MergeEquivalentAnalyses` (AnalysisStratumRule.cs:161-171 — a repeat shape does
     /// not enter the output set; instead `canonicalWord.Alternatives.Add(mruleOutWord)`). They differ
     /// from the canonical only in rule/non-head history (the merge keys on `Shape` alone), and are
-    /// re-expanded at synthesis by [`Word::expand_alternatives`]. Empty on almost every word. **Not**
-    /// part of [`WordKey`]; **not** copied by [`Word::clone_without_alternatives`] (C#'s copy ctor
+    /// re-expanded at synthesis by `Word::expand_alternatives`. Empty on almost every word. **Not**
+    /// part of `WordKey`; **not** copied by `Word::clone_without_alternatives` (C#'s copy ctor
     /// leaves `_alternatives` fresh-empty, Word.cs:87), so only the two sites that build a canonical
     /// (the stratum merge) ever populate it.
     pub alternatives: Vec<Word>,
     /// Mirrors C# `Word.CurrentTrace` (`object`), the live cursor a `TraceManager`
     /// call reassigns as the parse progresses (`Trace.cs`/`TraceManager.cs`; see
     /// `crate::trace`'s module doc for why this port carries the cursor as an explicit
-    /// [`crate::trace::TraceHandle`] value alongside the word instead of a mutated field the sink
+    /// `crate::trace::TraceHandle` value alongside the word instead of a mutated field the sink
     /// owns). `None` when tracing is off (the overwhelming common case — adds one `Option<u32>`-sized
     /// field, no allocation) or on any `Word` never touched by a traced call. Threaded through every
-    /// existing clone point (the derived [`Clone`], [`Word::clone_without_alternatives`],
-    /// [`Word::replay_onto`]) exactly as C#'s `CurrentTrace` rides along `Word.Clone()` (Word.cs:110)
-    /// — **not** part of [`WordKey`] (C# `ValueEquals`/`FreezeImpl` never reads `CurrentTrace` either).
+    /// existing clone point (the derived `Clone`, `Word::clone_without_alternatives`,
+    /// `Word::replay_onto`) exactly as C#'s `CurrentTrace` rides along `Word.Clone()` (Word.cs:110)
+    /// — **not** part of `WordKey` (C# `ValueEquals`/`FreezeImpl` never reads `CurrentTrace` either).
     pub trace: Option<crate::trace::TraceHandle>,
 }
 
-/// Canonical dedup key for [`Word`], a faithful port of C# `Word.ValueEquals` / `FreezeImpl`
+/// Canonical dedup key for `Word`, a faithful port of C# `Word.ValueEquals` / `FreezeImpl`
 /// (Word.cs:508-546). The cascades (`pg_rules::cascade`) and the stratum orchestrator dedup on this
 /// key; M6's `AnalysisStateKey` builds on it.
 ///
@@ -305,7 +305,7 @@ pub struct Word {
 ///
 /// It deliberately **excludes** the syntactic FS (`SyntacticFeatureStruct` appears nowhere in
 /// `ValueEquals`/`FreezeImpl`), the MPR set, the morph records, and the obligatory-feature set —
-/// none of which C# compares. Both [`Shape`] and [`FeatureStruct`] derive `Eq + Hash` over their
+/// none of which C# compares. Both `Shape` and `FeatureStruct` derive `Eq + Hash` over their
 /// canonical (sorted/bracketed) forms, so this struct derives `Eq + Hash` directly with no
 /// hand-rolled byte key needed.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -348,7 +348,7 @@ impl Word {
         }
     }
 
-    /// A clone that drops [`Word::alternatives`] (leaves it empty), mirroring C#'s `Word(Word)` copy
+    /// A clone that drops `Word::alternatives` (leaves it empty), mirroring C#'s `Word(Word)` copy
     /// constructor which never copies `_alternatives` ("Don't copy Alternatives", Word.cs:87). The
     /// plain `#[derive(Clone)]` copies every field, so this is used at the two boundary sites where
     /// C# starts a fresh candidate whose alternatives must NOT ride along — the per-stratum analysis
@@ -389,16 +389,16 @@ impl Word {
     }
 
     /// C# `Word.NonHeadUnapplied` (Word.cs:395-399): push a compounding non-head candidate and
-    /// advance [`Word::non_head_app_index`] to point at it. Generation-only counterpart to the
+    /// advance `Word::non_head_app_index` to point at it. Generation-only counterpart to the
     /// stratum orchestrator's own non-head push inside `morph::ana_compound` (which builds the
-    /// non-head from the analysis split, not from a caller-supplied [`Word`]).
+    /// non-head from the analysis split, not from a caller-supplied `Word`).
     pub fn non_head_unapplied(&mut self, non_head: Word) {
         self.non_heads.push(non_head);
         self.non_head_app_index = self.non_heads.len() as i32 - 1;
     }
 
     /// Re-parent a word computed while exploring the analysis-cascade subtree below some node `N`
-    /// onto `query` — a different word that reached the same [`pg_memo::AnalysisStateKey`] as `N` via
+    /// onto `query` — a different word that reached the same `pg_memo::AnalysisStateKey` as `N` via
     /// a different rule-unapplication *order* (the #451 positive memo; C# `Word.ReplayOnto`,
     /// Word.cs:554-581).
     ///
@@ -441,7 +441,7 @@ impl Word {
         clone
     }
 
-    /// The canonical dedup key (see [`WordKey`]). Cloned per lookup; per-parse interning that would
+    /// The canonical dedup key (see `WordKey`). Cloned per lookup; per-parse interning that would
     /// avoid the clone is deferred to M6.
     pub fn dedup_key(&self) -> WordKey {
         WordKey {
@@ -482,9 +482,9 @@ impl Word {
     /// Reconstruct the full set of analysis candidates that `MergeEquivalentAnalyses` folded into
     /// this word — a faithful port of C# `Word.ExpandAlternatives` (Word.cs:491-533).
     ///
-    /// The per-stratum merge (`AnalysisStratumRule.Apply`) keeps only one word per [`Shape`] flowing
-    /// into deeper strata, stashing the shape-equivalent repeats in [`Word::alternatives`] and every
-    /// word's stratum-input in [`Word::source`]. This walks that `source` spine: it expands the
+    /// The per-stratum merge (`AnalysisStratumRule.Apply`) keeps only one word per `Shape` flowing
+    /// into deeper strata, stashing the shape-equivalent repeats in `Word::alternatives` and every
+    /// word's stratum-input in `Word::source`. This walks that `source` spine: it expands the
     /// source first, and — whenever the source itself expanded to two or more words (i.e. a merge
     /// happened upstream) — replays the delta this word accumulated since its source (the extra
     /// `mrule_apps`, the extra `non_heads`, and, at the synthesis boundary, the root allomorph) onto
@@ -588,7 +588,7 @@ impl Word {
     /// Deduped by allomorph and runtime realization in first-occurrence order. The runtime
     /// identity is load-bearing because supplied roots share a sentinel allomorph while still
     /// representing distinct morphemes. W3.3 also splits a discontinuous morph into one
-    /// [`MorphRecord`] per contiguous run, all sharing both identities.
+    /// `MorphRecord` per contiguous run, all sharing both identities.
     pub fn morpheme_sequence(&self) -> Vec<MorphemeId> {
         let mut ms = self.morphs.clone();
         ms.sort_by_key(|m| m.order);

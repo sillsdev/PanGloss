@@ -1,6 +1,6 @@
-//! Frozen CSR finite-state automaton (plan §5.4). Built by [`crate::optimize`], consumed by
-//! [`crate::traverse`]. Arc constraints are interned into a shared pool addressed by
-//! [`crate::ConstraintId`]; states and arcs are flat `Vec`s with CSR ranges.
+//! Frozen CSR finite-state automaton (plan §5.4). Built by `crate::optimize`, consumed by
+//! `crate::traverse`. Arc constraints are interned into a shared pool addressed by
+//! `crate::ConstraintId`; states and arcs are flat `Vec`s with CSR ranges.
 
 use crate::lanes::{flat_subsumes, UNCONSTRAINED};
 use crate::{AcceptInfo, Cmd, ConstraintId, Direction};
@@ -76,12 +76,12 @@ pub struct Fst {
     /// Per-state minimum number of arcs to reach ANY accepting state, ignoring arc constraints
     /// (`u32::MAX` = no accepting state reachable at all). Computed once at freeze time by a
     /// multi-source BFS on the reversed arc graph from all accepting states (see
-    /// [`crate::optimize`]). Ignoring constraints only *adds* edges relative to any real
+    /// `crate::optimize`). Ignoring constraints only *adds* edges relative to any real
     /// traversal, so this is an admissible lower bound: a real thread at state `s` must take at
     /// least `min_hops_to_accept[s]` more arcs before it can accept. Frozen FSTs are epsilon-free
     /// (both `Determinize` and `EpsilonRemoval` outputs), so every arc consumes >= 1 input
     /// segment and "hops remaining" is bounded above by "segments remaining" — the invariant the
-    /// nondeterministic traversal's pruning (see [`crate::traverse`]) relies on.
+    /// nondeterministic traversal's pruning (see `crate::traverse`) relies on.
     pub(crate) min_hops_to_accept: Vec<u32>,
 }
 

@@ -6,7 +6,7 @@
 //! two character definitions in the same table to claim the same normalized representation
 //! (`_charDefLookup.ContainsKey` check). Multiple `<Representation>` elements on one
 //! `SegmentDefinition`/`BoundaryDefinition` (e.g. Sena's `char4` = `m`/`n`, or its boundary
-//! `char42` = `^0`/`*0`) all resolve to the *same* [`CharDefId`] — this is exercised by the
+//! `char42` = `^0`/`*0`) all resolve to the *same* `CharDefId` — this is exercised by the
 //! module tests and by the real Sena grammar.
 
 use hashbrown::HashMap;
@@ -130,7 +130,7 @@ pub struct CharDefTable {
     /// (j)` ⇔ `flat_unifiable(lanes_i, lanes_j)` for segment char-defs `i`, `j` (reflexive,
     /// symmetric by construction). Boundary rows are left empty (`CdBits::empty()`) — C#
     /// boundaries always carry `StrRep` (`AddBoundary` always passes `fs: null`), so boundary
-    /// identity gating is untouched by this closure; [`Self::unifiable_cds`] additionally guards
+    /// identity gating is untouched by this closure; `Self::unifiable_cds` additionally guards
     /// this explicitly rather than relying on the row being empty.
     unif_closure: Option<Vec<CdBits>>,
 }
@@ -316,10 +316,10 @@ impl CharDefTable {
         Some(&closure[cd.0 as usize])
     }
 
-    /// The full per-cd closure rows, indexed by [`CharDefId`], `None` when disabled. Threaded
+    /// The full per-cd closure rows, indexed by `CharDefId`, `None` when disabled. Threaded
     /// through `pg_parse::root_trie::RootAllomorphTrie::search_segs_opt` (P5), whose edges are
     /// already known to be `Segment`-kind (the trie's own `Segment`-only filter), so the direct
-    /// row lookup there doesn't need [`Self::unifiable_cds`]'s per-call boundary re-check.
+    /// row lookup there doesn't need `Self::unifiable_cds`'s per-call boundary re-check.
     #[inline]
     pub fn unif_closure_rows(&self) -> Option<&[CdBits]> {
         self.unif_closure.as_deref()

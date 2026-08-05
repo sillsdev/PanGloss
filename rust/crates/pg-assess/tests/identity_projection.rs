@@ -1,7 +1,7 @@
 //! The projection from `pg_parse::WordAnalysis` to a stable-key identity, against real compiled
 //! grammars.
 //!
-//! The headline test here is [`dense_ordinals_shift_but_identities_do_not`], which is the whole
+//! The headline test here is `dense_ordinals_shift_but_identities_do_not`, which is the whole
 //! argument of ADR 0006 reduced to an executable claim: insert a part of speech and a lexical entry
 //! ahead of the existing ones — the most ordinary FieldWorks edit there is — and every dense
 //! ordinal behind them shifts, while the identities of the analyses that did not change stay equal.

@@ -1,4 +1,4 @@
-//! `featureSystems` snapshot section, plus the [`FeatureStructure`] resolver used everywhere else
+//! `featureSystems` snapshot section, plus the `FeatureStructure` resolver used everywhere else
 //! a feature structure is attached to something (phonemes, MSAs, stem-name regions, natural
 //! classes, ...). See `docs/snapshot-format.md` §3.
 
@@ -93,7 +93,7 @@ fn extract_complex_feature(ctx: &mut Ctx, rec: &Record) -> ComplexFeature {
     }
 }
 
-/// Resolve an `FsFeatStruc` guid into a [`FeatureStructure`], recursing into any `FsComplexValue`
+/// Resolve an `FsFeatStruc` guid into a `FeatureStructure`, recursing into any `FsComplexValue`
 /// members. `label` is used only for warning messages. Returns `None` (rather than an empty
 /// structure) when `guid` doesn't resolve at all, so callers can distinguish "no feature
 /// structure was ever attached" (`None` on the owning field) from "the referenced one was empty"

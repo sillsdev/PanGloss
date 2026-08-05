@@ -1,6 +1,6 @@
 //! Part-1 checkpoint gate (plan §5.4/§5.5): compile **every** phonological-rule pattern from the
 //! real Indonesian (5 rules) and Amharic (7 rules) grammars — LHS, each subrule's RHS, and each
-//! subrule's left/right environment — through the [`pg_rules::bridge`] into a frozen `pg_fst::Fst`,
+//! subrule's left/right environment — through the `pg_rules::bridge` into a frozen `pg_fst::Fst`,
 //! without error. This is a structural gate (like the M1 loader gate): it proves the bridge handles
 //! the real authored constructs, not a hand-built subset.
 //!

@@ -1,5 +1,5 @@
-//! The `.pgpack` container's exact physical byte layout. This module owns [`write_pack`]/[`read_pack`] and every typed failure
-//! [`PgPackError`] names; nothing above this module touches raw bytes.
+//! The `.pgpack` container's exact physical byte layout. This module owns `write_pack`/`read_pack` and every typed failure
+//! `PgPackError` names; nothing above this module touches raw bytes.
 //!
 //! # Byte layout (container version 1)
 //!
@@ -22,11 +22,11 @@
 //! 12..36), rather than interleaved immediately before each of their own sections. Each section is
 //! length-prefixed without mandating interleaving; grouping them
 //! together is what makes the hard rule -- "EVERY length validated against versioned limits
-//! BEFORE allocation" -- straightforward to enforce as a single up-front pass: [`read_pack`] reads
+//! BEFORE allocation" -- straightforward to enforce as a single up-front pass: `read_pack` reads
 //! and validates all three declared lengths (bounds, overflow, per-section limit, total-package
 //! limit) using only fixed-offset, fixed-size reads (never a length-dependent slice) before it
 //! computes a single "does this container actually contain that many more bytes" check and only
-//! then takes its first length-dependent slice. See [`read_pack`]'s own body comments for exactly
+//! then takes its first length-dependent slice. See `read_pack`'s own body comments for exactly
 //! where allocation (`.to_vec()`/`String`/JSON parse, all of which allocate) first happens --
 //! strictly after every length/limit/truncation/trailing-byte check has passed.
 //!
@@ -52,8 +52,8 @@ use crate::signature::{self, SignatureState};
 /// Fixed PanGloss magic bytes opening every `.pgpack` container.
 pub const MAGIC: [u8; 8] = *b"PGLOPACK";
 /// The container framing version this build writes and reads. Distinct from
-/// [`crate::manifest::MANIFEST_SCHEMA_VERSION`] (the manifest's own shape) and from
-/// [`crate::compat::RequiredRuntimeFeatures::payload_format_version`] (the runtime payload's own
+/// `crate::manifest::MANIFEST_SCHEMA_VERSION` (the manifest's own shape) and from
+/// `crate::compat::RequiredRuntimeFeatures::payload_format_version` (the runtime payload's own
 /// format) -- three independently-versioned dimensions.
 pub const CONTAINER_VERSION: u32 = 1;
 
@@ -91,7 +91,7 @@ pub const V1_LIMITS: VersionLimits = VersionLimits {
 };
 
 /// Looks up the versioned limits for a container version. `None` for any version this build
-/// doesn't understand -- callers turn that into [`PgPackError::UnsupportedVersion`].
+/// doesn't understand -- callers turn that into `PgPackError::UnsupportedVersion`.
 pub const fn limits_for_version(version: u32) -> Option<VersionLimits> {
     match version {
         1 => Some(V1_LIMITS),
@@ -99,7 +99,7 @@ pub const fn limits_for_version(version: u32) -> Option<VersionLimits> {
     }
 }
 
-/// Every typed failure [`read_pack`] (or, for writer-side validation, [`write_pack`]) can return.
+/// Every typed failure `read_pack` (or, for writer-side validation, `write_pack`) can return.
 /// Never a panic -- malformed/hostile input always reaches one of these variants.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PgPackError {
@@ -140,7 +140,7 @@ pub enum PgPackError {
 /// own length prefix (u64 little-endian) followed by its bytes, runtime then foma -- so the
 /// fingerprint pins each payload's exact length as well as its content, and is independent of
 /// everything else in the manifest (identity, license, health, signature, ...), letting
-/// [`read_pack`] recompute and compare it purely from the payload bytes it read.
+/// `read_pack` recompute and compare it purely from the payload bytes it read.
 pub fn fingerprint_hex(runtime_payload: &[u8], foma_payload: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update((runtime_payload.len() as u64).to_le_bytes());
@@ -167,12 +167,12 @@ fn check_section_limit(what: &'static str, declared: u64, limit: u64) -> Result<
 }
 
 /// Writes a complete `.pgpack` container. `manifest.package_fingerprint` must already equal
-/// [`fingerprint_hex`] of `runtime_payload`/`foma_payload` (typically set via that function before
-/// constructing the manifest, and via [`crate::signature::sign`]-populated `manifest.signature` if
+/// `fingerprint_hex` of `runtime_payload`/`foma_payload` (typically set via that function before
+/// constructing the manifest, and via `crate::signature::sign`-populated `manifest.signature` if
 /// the pack is to be signed) -- this function validates that consistency defensively and returns
-/// [`PgPackError::FingerprintMismatch`] rather than writing a self-inconsistent pack.
+/// `PgPackError::FingerprintMismatch` rather than writing a self-inconsistent pack.
 ///
-/// Performs the same versioned-limit validation [`read_pack`] performs on the way in, so a caller
+/// Performs the same versioned-limit validation `read_pack` performs on the way in, so a caller
 /// can never accidentally produce a pack this build's own reader would refuse.
 pub fn write_pack(
     manifest: &PackManifest,
@@ -230,16 +230,16 @@ pub fn write_pack(
     Ok(out)
 }
 
-/// The result of a successful [`read_pack`] call: the parsed manifest, both payloads as owned
+/// The result of a successful `read_pack` call: the parsed manifest, both payloads as owned
 /// bytes, and the derived signature state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReadPack {
     pub manifest: PackManifest,
     pub runtime_payload: Vec<u8>,
     pub foma_payload: Vec<u8>,
-    /// See [`crate::signature::SignatureState`]'s own doc: reported for the caller's information
+    /// See `crate::signature::SignatureState`'s own doc: reported for the caller's information
     /// only. **Never used by this function to decide whether to return `Ok`** -- an `Invalid`
-    /// signature state is returned inside a successful [`ReadPack`], exactly like `Valid` and
+    /// signature state is returned inside a successful `ReadPack`, exactly like `Valid` and
     /// `Unsigned` are: signature state NEVER controls analysis.
     pub signature_state: SignatureState,
 }
@@ -255,8 +255,8 @@ pub struct ReadPack {
 /// manifest JSON). See this module's own doc for the exact byte layout these offsets index into.
 ///
 /// # Signature never gates
-/// A [`crate::signature::SignatureState::Invalid`] (or the manifest simply being unsigned) never
-/// turns this into an `Err` -- see [`ReadPack::signature_state`]'s own doc.
+/// A `crate::signature::SignatureState::Invalid` (or the manifest simply being unsigned) never
+/// turns this into an `Err` -- see `ReadPack::signature_state`'s own doc.
 pub fn read_pack(bytes: &[u8]) -> Result<ReadPack, PgPackError> {
     // ---- Fixed-size header reads only; no length-dependent slicing yet. ----
     if bytes.len() < HEADER_LEN {
@@ -456,7 +456,7 @@ mod tests {
     }
 
     /// A REAL, gzip-compressed foma binary-memory payload -- `foma::io::fsm_write_binary`, the
-    /// SAME function [`crate::compat`]'s production caller (`pg_foma::analyzer::FomaProposer::
+    /// SAME function `crate::compat`'s production caller (`pg_foma::analyzer::FomaProposer::
     /// foma_binary_payload`) uses -- as opposed to the plain-ASCII `SYNTHETIC_FOMA_PAYLOAD` string
     /// literal every other test in this module uses. This crate's container format must handle
     /// genuine binary content (gzip magic bytes at the front, non-UTF8 bytes throughout, embedded

@@ -5,7 +5,7 @@
 //! 1. **Wall-clock exclusions were not reproducible.** Amharic word U+1264 U+1273 PASSED the oracle
 //!    in a 673-row run and was excluded as `oracle-timeout` in a 573-row run — same grammar, same
 //!    caps, same binary; only machine load differed. Now a wall-clock trip is a whole-run
-//!    [`OraclePreparationFault`], so a timed-out word is UNREPRESENTABLE as an eligibility outcome.
+//!    `OraclePreparationFault`, so a timed-out word is UNREPRESENTABLE as an eligibility outcome.
 //! 2. **The two bounds masked each other.** A word that would exhaust its step budget could trip
 //!    the 2-second clock first and be misrecorded as a timeout (re-running 669 words at a 120s net
 //!    instead of 2s moved the step-capped count from 4 to 12, recovering 80 Amharic words that were

@@ -676,7 +676,7 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
 }
 
 impl crate::compile::CompileInput {
-    /// Compile this pattern all the way to a frozen CSR [`Fst`]: NFA → `Determinize()` (if
+    /// Compile this pattern all the way to a frozen CSR `Fst`: NFA → `Determinize()` (if
     /// `deterministic`) or `EpsilonRemoval()`.
     pub fn compile(&self) -> Fst {
         let nfa = self.build_nfa();

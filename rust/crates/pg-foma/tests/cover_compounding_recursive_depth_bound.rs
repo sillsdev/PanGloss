@@ -280,7 +280,7 @@ fn small_bound_grammar_xml(max_apps: u32, roots: &[&str]) -> String {
     )
 }
 
-/// [`small_bound_grammar_xml`]'s sibling for the OTHER way `max_depth` grows: `rule_count` DISTINCT
+/// `small_bound_grammar_xml`'s sibling for the OTHER way `max_depth` grows: `rule_count` DISTINCT
 /// `CompoundingRule`s in one stratum, every one at the DTD default `multipleApplication="1"`.
 ///
 /// This is the real `sena` shape (8 such rules, measured), and the shape that makes
@@ -373,7 +373,7 @@ fn many_rule_grammar_xml(rule_count: usize, roots: &[&str]) -> String {
 /// `crate::emit::compound_extra_levels_checked` unrolls **8** non-head root levels for it.
 ///
 /// The OPERATIVE bound is much smaller and lives elsewhere entirely: C#'s `Morpher.MaxStemCount`
-/// (ctor default **2**), ported as [`pg_rules::stratum::AnalyzerConfig::max_stem_count`], gates
+/// (ctor default **2**), ported as `pg_rules::stratum::AnalyzerConfig::max_stem_count`, gates
 /// `Compounding` rule application as soon as `non_heads.len() + 1 >= max_stem_count`, so a
 /// DEFAULT-configured engine confirms at most two stems.
 /// `raised_cap_oracle_finds_the_recursive_analysis_confirm_at_default_would_miss` in this same

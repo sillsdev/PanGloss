@@ -1,5 +1,5 @@
 //! Stratum-depth scale builder. Adds `extra_strata` ADDITIONAL strata beyond the base single-table/single-stratum
-//! scaffold [`crate::render::render_indexed`] always builds, each REUSING the SAME table 0 (never a
+//! scaffold `crate::render::render_indexed` always builds, each REUSING the SAME table 0 (never a
 //! new table) -- deliberately sidesteps the multi-table threading question
 //! (`pg_foma::replace::table_of`/`resolve_alpha_tuples`'s handling of `char_tables[0]`)
 //! rather than exercising it a second time: GATE 1 already covers multi-TABLE wrongness; this gate
@@ -23,7 +23,7 @@ pub struct ExtraStratum {
     pub rule_xml_id: String,
 }
 
-/// Everything [`build`] produces: `extra_strata` additional `<Stratum>` elements (concatenated XML,
+/// Everything `build` produces: `extra_strata` additional `<Stratum>` elements (concatenated XML,
 /// document order = cascade order, applied AFTER the base stratum) and their own bookkeeping.
 #[derive(Debug, Clone)]
 pub struct StrataBuild {
@@ -36,7 +36,7 @@ pub struct StrataBuild {
 /// `S0..S{first_index-1}` itself can continue the naming sequence without collision -- existing
 /// recipes always use `first_index = 1`, the base stratum being `S0`). Needs at least
 /// `extra_strata` distinct segments in `table` (one dedicated marker character per extra stratum,
-/// mirroring [`crate::build::gating`]/[`crate::build::alpha`]'s own "one dedicated position"
+/// mirroring `crate::build::gating`/`crate::build::alpha`'s own "one dedicated position"
 /// convention) -- panics otherwise.
 pub fn build(
     extra_strata: usize,

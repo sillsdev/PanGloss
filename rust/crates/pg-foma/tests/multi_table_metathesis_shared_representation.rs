@@ -10,10 +10,10 @@
 //!
 //! ## The fix: alias-expand `slot_candidates`, never text-union the swap
 //! `crate::replace::slot_candidates` now expands every member `CharDefId` to every `(table, cd)`
-//! pair sharing its own normalized representation ([`pg_foma::replace`]'s own module doc,
+//! pair sharing its own normalized representation (`pg_foma::replace`'s own module doc,
 //! "Cross-table representation aliasing" section, has the full derivation) -- NOT by rendering a
 //! bracketed union at each position the way `crate::lower::render_slots` does for ordinary rewrite
-//! rules. A text-level union would be UNSAFE here: [`compile_metathesis_swap_net`]'s per-branch
+//! rules. A text-level union would be UNSAFE here: `compile_metathesis_swap_net`'s per-branch
 //! construction requires the swap to reproduce the EXACT SAME value that matched at its own
 //! (possibly swapped) output position, and independently unioning LHS/RHS at one position would let
 //! the compiled transducer pair a matched alias with a DIFFERENT alias's token -- a new correctness
@@ -51,12 +51,12 @@
 //! orthogonal to, and not fixed by, this task's own change. Consequently:
 //! - The standard "FST propose+decode set EQUALS the oracle set" Stage-2 containment shape is
 //!   pinned for ROOT2 (same-table, oracle succeeds) in
-//!   [`containment_holds_for_the_same_table_entry_the_oracle_can_analyze`] below -- a genuine,
+//!   `containment_holds_for_the_same_table_entry_the_oracle_can_analyze` below -- a genuine,
 //!   non-vacuous check.
 //! - For ROOT1 (cross-table), a full oracle-equality comparison would be VACUOUSLY true (the
 //!   oracle's own set is empty for reasons unrelated to this fix) and would prove nothing about the
-//!   fix. Instead, [`current_compile_fires_on_table_a_originated_material_and_preserves_identity`]
-//!   and [`fst_proposes_root1_for_its_correctly_metathesized_surface`] below demonstrate the actual
+//!   fix. Instead, `current_compile_fires_on_table_a_originated_material_and_preserves_identity`
+//!   and `fst_proposes_root1_for_its_correctly_metathesized_surface` below demonstrate the actual
 //!   claim this task is responsible for -- the FST proposer's own recall -- directly against the
 //!   compiled net (steps 1-3 above), the same technique `two_table_shared_representation_recall.rs`'s
 //!   own steps 1-2 already established for the ordinary-rewrite case.

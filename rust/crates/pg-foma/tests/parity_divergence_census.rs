@@ -334,7 +334,7 @@ fn no_fixture_produces_a_candidate_only_identity() {
 /// Worth having separately because the hazard is about how the RESTRICTION perturbs dedup order, and
 /// different candidates restrict differently — one candidate per fixture exercises one restriction
 /// shape per grammar. This exercises several per grammar, including both whole-grammar compilers.
-/// Bounded to [`REGISTRY_CENSUS_FIXTURES`] rather than swept over everything: a full
+/// Bounded to `REGISTRY_CENSUS_FIXTURES` rather than swept over everything: a full
 /// registry-by-fixture cross product IS the corpus battery, and this must stay runnable on every
 /// change.
 #[test]

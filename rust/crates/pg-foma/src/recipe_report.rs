@@ -4,8 +4,8 @@ use crate::recipe_optimizer::{
     Termination,
 };
 
-/// Bumped 1 -> 2 when [`RecipeOptimizationReport::corpus`] and the oracle-configuration fields on
-/// [`CorpusCompletenessEvidence`] became part of the artifact. A version-1 report states a
+/// Bumped 1 -> 2 when `RecipeOptimizationReport::corpus` and the oracle-configuration fields on
+/// `CorpusCompletenessEvidence` became part of the artifact. A version-1 report states a
 /// certification without stating the corpus it certified or the bounds it was derived under, so it
 /// is not comparable with a version-2 one and must not silently deserialize as if it were.
 pub const RECIPE_REPORT_SCHEMA_VERSION: u32 = 2;
@@ -108,9 +108,9 @@ pub struct PruningWaterfall {
 }
 
 impl PruningWaterfall {
-    /// Every field here is a disjoint bucket of `generated` and is checked by [`Self::reconciles`].
+    /// Every field here is a disjoint bucket of `generated` and is checked by `Self::reconciles`.
     /// D1's `N_syntactic`/`N_attested`/`N_static` deliberately do NOT appear: they are upstream
-    /// space sizes, not buckets of this funnel, they live in [`SpaceCounts`], and when they were
+    /// space sizes, not buckets of this funnel, they live in `SpaceCounts`, and when they were
     /// mirrored here nothing populated them — every real report rendered them as a false `0` that
     /// `reconciles()` could not catch, since the balance equation never referenced them.
     pub fn reconciles(&self) -> bool {
@@ -182,7 +182,7 @@ pub struct RecipeOptimizationReport {
     /// re-verifying across N per-candidate copies.
     ///
     /// # Why it is required for a certifying report
-    /// [`Self::validate`] refuses a report that has a selectable candidate but no ledger. A run that
+    /// `Self::validate` refuses a report that has a selectable candidate but no ledger. A run that
     /// excluded nothing must still SAY so, over a named requested corpus, or a hand-filtered word
     /// list fed in from outside is indistinguishable from an honest full-corpus run — which is
     /// exactly how a certification came to be labelled provisional after a 653-row filtered list

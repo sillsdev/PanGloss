@@ -375,7 +375,7 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
 
 /// The artifact a run produces when setup failed safely.
 ///
-/// Every case is `not_attempted/assessment_setup_failed`, so [`pg_assess::derive_status`] reports
+/// Every case is `not_attempted/assessment_setup_failed`, so `pg_assess::derive_status` reports
 /// `failed` and no case can be mistaken for a grammar that analyzes nothing.
 fn setup_failed_report(
     suite: SuiteRef,
@@ -724,7 +724,7 @@ pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
         });
 
         // Attribute a missing analysis to HermitCrab rejection vs. a proposer recall gap by
-        // running the case on both pipelines. [`pg_assess::investigate`] refuses the whole
+        // running the case on both pipelines. `pg_assess::investigate` refuses the whole
         // handoff below if `current_model_fingerprint` disagrees with the report, so anything
         // gathered here only reaches a caller for the grammar the report actually describes.
         // Best-effort: if the case, grammar, or HermitCrab run is unavailable, every asked-about
@@ -779,7 +779,7 @@ pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
     emit(&args, &handoff.to_value())
 }
 
-/// One HermitCrab trace node that carried a [`pg_rules::trace::FailureReason`] — the pruning unit
+/// One HermitCrab trace node that carried a `pg_rules::trace::FailureReason` — the pruning unit
 /// for both the failure narrative (6.5) and the "did HermitCrab reject a candidate matching this
 /// identity" evidence (6.4). A word's full trace can run to thousands of nodes; only the nodes
 /// that actually record a rejection carry information either consumer needs, so this is the
@@ -787,7 +787,7 @@ pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
 struct HermitcrabFailure {
     step: NarrativeStep,
     /// The rejected candidate's ordered stable morpheme keys, `None` per slot exactly where an
-    /// [`AnalysisIdentity`] would record `None` (a fabricated/guessed root has no
+    /// `AnalysisIdentity` would record `None` (a fabricated/guessed root has no
     /// `Grammar::morphemes` row). Used only to match a failure against an asked-about identity —
     /// never surfaced in the artifact itself.
     candidate_morphemes: Vec<Option<String>>,
@@ -936,7 +936,7 @@ fn collect_hermitcrab_failures_node(
 }
 
 /// The rejected candidate's ordered stable morpheme keys, in the same shape
-/// [`AnalysisIdentity::morphemes`] uses, so a failure can be matched against an asked-about
+/// `AnalysisIdentity::morphemes` uses, so a failure can be matched against an asked-about
 /// identity by simple equality.
 fn word_morpheme_keys(word: &Word, grammar: &Grammar) -> Vec<Option<String>> {
     word.morpheme_sequence()
@@ -955,7 +955,7 @@ fn word_morpheme_keys(word: &Word, grammar: &Grammar) -> Vec<Option<String>> {
 }
 
 /// A human-readable morpheme join for the narrative's `candidate` field (e.g. `"walk + ed"`) —
-/// display only, never used for identity matching (see [`word_morpheme_keys`] for that).
+/// display only, never used for identity matching (see `word_morpheme_keys` for that).
 fn display_candidate(grammar: &Grammar, word: &Word) -> String {
     let ids = word.morpheme_sequence();
     if ids.is_empty() {
@@ -981,7 +981,7 @@ fn display_candidate(grammar: &Grammar, word: &Word) -> String {
         .join(" + ")
 }
 
-/// Where a HermitCrab trace node's failure lives, as a [`ConstructRef`]. Rule/stratum/template
+/// Where a HermitCrab trace node's failure lives, as a `ConstructRef`. Rule/stratum/template
 /// sources are always `compilerAssigned` (ADR 0001 — dense ordinals, not source IDs). Leaf-level
 /// nodes (`Failed`/`Blocked`) carry no rule source at all; when the candidate's root allomorph
 /// resolves to a real lexical entry, that IS a stable FieldWorks identity and the more useful

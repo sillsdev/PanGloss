@@ -10,7 +10,7 @@
 //! lexical entry, no morphological rules -- just a bare segmented shape) through EVERY stratum's
 //! phonological-rule cascade, in `language.Strata` order, unconditionally: there is no "which
 //! stratum owns this word" entry gate the way the real per-word `SynthesisStratumRule.Apply` has,
-//! because this probe `Word` is not associated with any lexical entry at all. [`probe_synthesize`]
+//! because this probe `Word` is not associated with any lexical entry at all. `probe_synthesize`
 //! mirrors that exactly.
 
 use pg_featstruct::flat_unifiable;
@@ -34,9 +34,9 @@ pub struct ProbeSeg {
 
 /// Run every stratum's phonological-rule cascade over `shape` (C# `SurfacePhonology.SurfaceNodes`),
 /// then filter to SEGMENT-kind nodes only, preserving positions (deleted nodes are marked, never
-/// dropped -- see [`crate::rewrite`]'s module note). Returns `None` iff the cascade reaches a
+/// dropped -- see `crate::rewrite`'s module note). Returns `None` iff the cascade reaches a
 /// structurally-unrepresentable rule (`ProbeOutcome::Refused` -- an empty-LHS/Epenthesis rule or a
-/// metathesis rule; verified absent from the three reference grammars, see [`crate::rewrite`]'s note).
+/// metathesis rule; verified absent from the three reference grammars, see `crate::rewrite`'s note).
 ///
 /// `cache` (built ONCE by the caller, e.g. `SurfacePhonology::new` -> `RuleCache::build`, and reused
 /// across every probe) is not optional here: `SurfacePhonology` probes an affix underlying form
@@ -89,7 +89,7 @@ pub fn render_nodes(table: &CharDefTable, segs: &[ProbeSeg]) -> Option<String> {
 /// module would need is unavailable, and this crate's own probing nodes never carry the abstract
 /// `CdSet::Members` case that function's general signature also handles (`segment_with_features`
 /// always segments to concrete char-defs; only a feature-change rule's rewrite can later clear a
-/// node's `char_def` to [`NO_CHAR_DEF`] -- `crate::rewrite::syn_feature`'s doc -- which is exactly
+/// node's `char_def` to `NO_CHAR_DEF` -- `crate::rewrite::syn_feature`'s doc -- which is exactly
 /// the identity-vs-unrestricted split below). Table document order, matching every other rendering
 /// site in this port.
 fn matching_reps(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<String> {

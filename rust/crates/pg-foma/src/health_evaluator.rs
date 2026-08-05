@@ -9,106 +9,106 @@
 //! recomputation. This module reads exactly four measurement sources that exist in this crate
 //! **today** — nothing here calls `foma`, walks a grammar, or measures anything itself:
 //! - **Payload size**: a plain `u64` byte count the caller already has (the emitted network /
-//!   `pg-pack` payload), scored by [`crate::health::severity_for_size_bytes`] (unchanged, reused).
-//! - **[`crate::emit::EmitReport`]**: `tier`/`uncovered`/`enum_budget_exceeded`, already produced
+//!   `pg-pack` payload), scored by `crate::health::severity_for_size_bytes` (unchanged, reused).
+//! - **`crate::emit::EmitReport`**: `tier`/`uncovered`/`enum_budget_exceeded`, already produced
 //!   by `crate::emit::emit`/`emit_with_budget`.
-//! - **[`crate::compose_budget::ComposeError`]** (compile-time composition budget trips) and
-//!   [`ApplyBudgetTrip`] (this module's own lightweight distillation of a per-word
+//! - **`crate::compose_budget::ComposeError`** (compile-time composition budget trips) and
+//!   `ApplyBudgetTrip` (this module's own lightweight distillation of a per-word
 //!   `crate::compose_budget::ApplyOutcome::Incomplete` — see that type's own doc for why it exists
 //!   instead of taking `ApplyOutcome<T>` generically).
-//! - **[`crate::profile::CompileProfile`]**: [`profile_findings`]
+//! - **`crate::profile::CompileProfile`**: `profile_findings`
 //!   reads its final compiled-network state/arc counts and total emitted-line count to produce the
 //!   two *approaching-but-not-yet-tripped* finding kinds this crate's compile-time-series
 //!   instrumentation supports.
 //!
-//! [`profile_findings`] populates [`crate::health::FindingCode::IntermediateNetworkGrowth`] (the
+//! `profile_findings` populates `crate::health::FindingCode::IntermediateNetworkGrowth` (the
 //! production network's own final state/arc count approaching, but not tripping,
 //! `crate::compose_budget::DEFAULT_STATE_BUDGET`/`DEFAULT_ARC_BUDGET` — reused as the closest
-//! existing calibrated size dimension; see [`profile_findings`]'s own doc for why the production
+//! existing calibrated size dimension; see `profile_findings`'s own doc for why the production
 //! path has no earlier "intermediate" composition product to measure instead) and
-//! [`crate::health::FindingCode::CompileWorkBudget`] (total emitted lexc lines approaching, but not
+//! `crate::health::FindingCode::CompileWorkBudget` (total emitted lexc lines approaching, but not
 //! tripping, `crate::compose_budget::DEFAULT_LINE_BUDGET` — a dimension the production path does
 //! not even check today, unlike the experimental `emit_underlying_templated`/`crate::uflexc`
 //! paths' own incremental `line_cap` check).
 //!
 //! Not populated here (observed audit fields populate only as their owning profile/budget
 //! instrumentation exists, and are never independently remeasured):
-//! [`crate::health::FindingCode::ApplicationTimeWork`]'s
-//! [`crate::health::Metric::ElapsedMillis`]/[`crate::health::Metric::ApplyAllocationBytes`]
+//! `crate::health::FindingCode::ApplicationTimeWork`'s
+//! `crate::health::Metric::ElapsedMillis`/`crate::health::Metric::ApplyAllocationBytes`
 //! dimensions (no per-word wall-clock/allocation instrumentation exists yet, only the two
-//! magnitude caps [`ApplyBudgetTrip`] already covers — `profile-fst-compilation` is a COMPILE-time
+//! magnitude caps `ApplyBudgetTrip` already covers — `profile-fst-compilation` is a COMPILE-time
 //! profile, this dimension is per-word APPLY-time, a different measurement surface entirely);
-//! [`crate::health::FindingCode::DuplicateAnalysisOverlap`] (needs `crate::confirm`'s pre-dedup
-//! counts, not produced anywhere yet); and [`crate::health::FindingCode::ProposalVolume`]/
-//! [`crate::health::FindingCode::ConfirmationWork`] for *large-but-not-tripped* candidate/
-//! confirmation volume (only the tripped case, via [`ApplyBudgetTrip`], is evaluated here — see
+//! `crate::health::FindingCode::DuplicateAnalysisOverlap` (needs `crate::confirm`'s pre-dedup
+//! counts, not produced anywhere yet); and `crate::health::FindingCode::ProposalVolume`/
+//! `crate::health::FindingCode::ConfirmationWork` for *large-but-not-tripped* candidate/
+//! confirmation volume (only the tripped case, via `ApplyBudgetTrip`, is evaluated here — see
 //! this module's "Judgment calls" section, item 6; also apply-time, not compile-time). Every one of
 //! these finding kinds is fully *producible* by this evaluator's own shape (the `match` arms below
-//! are exhaustive over [`crate::compose_budget::ComposeError`]/[`crate::emit::FomaTier`]) but stays
+//! are exhaustive over `crate::compose_budget::ComposeError`/`crate::emit::FomaTier`) but stays
 //! unpopulated until its owning profile/budget change lands real values to read.
 //!
 //! # Two distinct axes, again (see `crate::health`'s own doc first)
-//! Every [`HealthFinding`] this module builds carries `severity` on the cost/health axis only
+//! Every `HealthFinding` this module builds carries `severity` on the cost/health axis only
 //! (never the capability-trust axis) and always `override_record: None` — attaching
-//! an [`crate::health::OverrideRecord`] to a finding is a separate, later, explicitly-authorized
+//! an `crate::health::OverrideRecord` to a finding is a separate, later, explicitly-authorized
 //! caller action, not something this evaluator
-//! (which only reads compiler measurements) can decide on its own. [`HealthReport::admission`]
+//! (which only reads compiler measurements) can decide on its own. `HealthReport::admission`
 //! (unmodified, called as-is — never re-derived here) is what turns this report's findings into
 //! the "FST admission result".
 //!
 //! # Judgment calls flagged for review
-//! 1. **[`crate::compose_budget::ComposeError`] variants split into two [`crate::health::
+//! 1. **`crate::compose_budget::ComposeError` variants split into two [`crate::health::
 //!    FindingCode`]s by *when* the check runs, not by variant name alone**: `AlphaTupleBudgetExceeded`/
 //!    `GroupBudgetExceeded`/`OrderingMultiplicityExceeded` are checked BEFORE the expensive
 //!    operation they would gate even starts (`compose_budget.rs`'s own doc, verbatim, for all
 //!    three: "checked BEFORE..."), on an exact, already-known count — a proven work bound — so
-//!    they map to [`FindingCode::ProvenBoundExceedsBudget`] with
-//!    [`ValueProvenance::ProvenBound`]. `NetSizeExceeded`/`EmitLineBudgetExceeded`/
+//!    they map to `FindingCode::ProvenBoundExceedsBudget` with
+//!    `ValueProvenance::ProvenBound`. `NetSizeExceeded`/`EmitLineBudgetExceeded`/
 //!    `ComposeStepTimedOut`/`ChainDepthExceeded` are only detected AFTER the checked operation (an
 //!    actual compose/union/minimize call, an actual emission run, an actual wall-clock wait, an
 //!    actual recursion) already executed and produced/consumed a measured value, so they map to
-//!    [`FindingCode::ResourceBudgetReached`] with [`ValueProvenance::Observed`].
-//! 2. **[`crate::health::Metric::OrderingRuleCount`] is a new variant this change appends** to
+//!    `FindingCode::ResourceBudgetReached` with `ValueProvenance::Observed`.
+//! 2. **`crate::health::Metric::OrderingRuleCount` is a new variant this change appends** to
 //!    `crate::health`'s `Metric` enum (see that enum's own doc on the variant) — the only schema
 //!    edit this evaluator makes: an appended variant, with no renumbering, no removal, no change to
 //!    any existing golden JSON.
 //! 3. **`crate::emit::FomaTier::Partial`'s `uncovered` count maps to
-//!    [`FindingCode::UnknownUnboundedConstruct`] at [`Severity::Warning`]**, not
-//!    [`Severity::Critical`]: `FomaTier::Partial`'s own doc is explicit that this is "still safe to
+//!    `FindingCode::UnknownUnboundedConstruct` at `Severity::Warning`**, not
+//!    `Severity::Critical`: `FomaTier::Partial`'s own doc is explicit that this is "still safe to
 //!    use — those constructs simply cannot contribute candidates; nothing was emitted incorrectly"
 //!    — the same shape cost uncertainty gets elsewhere in this schema ("not itself Critical"), even
 //!    though cost uncertainty proper describes *unknown* cost under a
 //!    recall-preserving disposition, and an uncovered construct is instead a *confirmed*, exactly-
-//!    counted zero-candidate gap for those specific occurrences. [`FindingCode::UnknownUnboundedConstruct`]
+//!    counted zero-candidate gap for those specific occurrences. `FindingCode::UnknownUnboundedConstruct`
 //!    is nonetheless the closest of this schema's ten registered codes for a per-construct coverage
 //!    fact today; a dedicated coverage-gap code is a candidate follow-on if this reuse proves
-//!    confusing in practice. [`ValueProvenance::Observed`] (not `Predicted`) is used throughout
+//!    confusing in practice. `ValueProvenance::Observed` (not `Predicted`) is used throughout
 //!    this module's `FomaTier`-derived findings because the uncovered count is an exact, already-
 //!    counted value, never a heuristic guess.
-//! 4. **`crate::emit::FomaTier::Unsupported` maps to the SAME [`FindingCode::UnknownUnboundedConstruct`]
-//!    but at [`Severity::Critical`]**, deliberately diverging from that code's general "not itself
+//! 4. **`crate::emit::FomaTier::Unsupported` maps to the SAME `FindingCode::UnknownUnboundedConstruct`
+//!    but at `Severity::Critical`**, deliberately diverging from that code's general "not itself
 //!    Critical" framing: `Unsupported` means this compile path produced no usable network at all —
 //!    "any uncertainty that could omit an analysis fails closed" taken to its maximal case
 //!    (total, not partial, coverage loss), not the ordinary bounded-cost-uncertainty shape the code
-//!    otherwise names. [`MetricValue::Unbounded`] is used here (this compile's residual
+//!    otherwise names. `MetricValue::Unbounded` is used here (this compile's residual
 //!    coverage is definitionally unknown, not a countable partial gap).
 //! 5. **`crate::emit::EnumBudgetExceeded`'s free-form `measure: &'static str` label has no
-//!    dedicated [`Metric`]** (it names one of several different eager-enumeration measures --
+//!    dedicated `Metric`** (it names one of several different eager-enumeration measures --
 //!    `crate::morphotactics::EnumMeasure`'s own label set -- not one fixed quantity); this evaluator
-//!    reuses [`Metric::UnknownUnboundedWork`] (the closest existing "unbounded compile-time-work"
+//!    reuses `Metric::UnknownUnboundedWork` (the closest existing "unbounded compile-time-work"
 //!    slot) and folds the exact label into the finding's `explanation` text, since `Metric` itself
 //!    cannot carry a free-form label.
-//! 6. **[`ApplyBudgetTrip`] is this module's own type, not `crate::compose_budget::ApplyOutcome<T>`
+//! 6. **`ApplyBudgetTrip` is this module's own type, not `crate::compose_budget::ApplyOutcome<T>`
 //!    directly**: `ApplyOutcome<T>`'s `Complete(T)` payload type varies by caller (e.g.
-//!    `Vec<Candidate>`) and carries nothing this evaluator needs; making [`evaluate_health`] generic
+//!    `Vec<Candidate>`) and carries nothing this evaluator needs; making `evaluate_health` generic
 //!    over `T` just to ignore `Complete`'s payload would cost every caller a type parameter for no
 //!    benefit. Callers extract each `ApplyOutcome::Incomplete { dimension, value, limit }` into an
-//!    [`ApplyBudgetTrip`] themselves — a direct field-for-field copy, not a recomputation.
+//!    `ApplyBudgetTrip` themselves — a direct field-for-field copy, not a recomputation.
 //! 7. **All findings this module builds set `affected` from whatever stable identifier the source
 //!    measurement already carries** (a compose-budget `site` label, an `UncoveredItem::id`, a rule
 //!    XML id, an apply-time word) — never inventing a new identifier scheme; grammar-level findings
 //!    with no specific construct identifier (e.g. a payload-size finding) leave `affected` empty.
-//! 8. **[`profile_findings`] reuses [`Metric::IntermediateStateCount`]/[`Metric::IntermediateArcCount`]
+//! 8. **`profile_findings` reuses `Metric::IntermediateStateCount`/`Metric::IntermediateArcCount`
 //!    for the PRODUCTION path's own FINAL compiled network**, not a mid-cascade intermediate
 //!    composition product — `crate::emit::emit_with_budget`'s production path pre-bakes
 //!    phonology into emitted surface forms, so replacement-rule nets do not exist there: it
@@ -120,19 +120,19 @@
 //!    explicitly, so a report reader is never misled into expecting a future per-rule
 //!    cascade curve from this kind of report.
 //! 9. **A single flat 80%-of-budget threshold, not a banded severity scale**
-//!    ([`APPROACHING_BUDGET_WARNING_FRACTION`]) — no real large-grammar measurement of a legitimate
+//!    (`APPROACHING_BUDGET_WARNING_FRACTION`) — no real large-grammar measurement of a legitimate
 //!    "approaching" curve exists yet for either dimension (mirrors `crate::compose_budget`'s own
 //!    "conservative placeholder pending real-grammar measurement" convention for its calibrated
-//!    defaults); always [`Severity::Warning`], never escalated further by this evaluator, because an
+//!    defaults); always `Severity::Warning`, never escalated further by this evaluator, because an
 //!    ACTUAL trip of the same dimension is a completely different, already-handled code path
-//!    ([`compose_error_finding`]'s [`FindingCode::ResourceBudgetReached`]/
-//!    [`FindingCode::ProvenBoundExceedsBudget`] arms) that this function never reaches (the
+//!    (`compose_error_finding`'s `FindingCode::ResourceBudgetReached`/
+//!    `FindingCode::ProvenBoundExceedsBudget` arms) that this function never reaches (the
 //!    production path has no compose-budget-checked call site at all, module doc).
-//! 10. **[`profile_findings`] refuses a non-[`crate::profile::ProfileLabel::Production`] profile
+//! 10. **`profile_findings` refuses a non-`crate::profile::ProfileLabel::Production` profile
 //!     outright** (empty `Vec`, never a partial fold): an
 //!     `ExperimentalComposition`-labeled profile "cannot
-//!     satisfy production-profile gates." [`evaluate_health`] never even needs to check this itself;
-//!     [`profile_findings`] is the one and only place this gate is enforced.
+//!     satisfy production-profile gates." `evaluate_health` never even needs to check this itself;
+//!     `profile_findings` is the one and only place this gate is enforced.
 
 use crate::compose_budget::{
     ApplyDimension, ComposeError, NetSizeMeasure, DEFAULT_ARC_BUDGET, DEFAULT_LINE_BUDGET,
@@ -146,16 +146,16 @@ use crate::health::{
 use crate::profile::{CompileProfile, ProfileLabel};
 
 /// The fraction of a calibrated compose-budget
-/// dimension ([`DEFAULT_STATE_BUDGET`]/[`DEFAULT_ARC_BUDGET`]/[`DEFAULT_LINE_BUDGET`]) at or above
-/// which [`profile_findings`] raises an "approaching, not yet tripped" [`Severity::Warning`]
+/// dimension (`DEFAULT_STATE_BUDGET`/`DEFAULT_ARC_BUDGET`/`DEFAULT_LINE_BUDGET`) at or above
+/// which `profile_findings` raises an "approaching, not yet tripped" `Severity::Warning`
 /// finding.
 /// A single flat threshold, not a banded severity scale — see this module's "Judgment calls" item
 /// 9 for why.
 const APPROACHING_BUDGET_WARNING_FRACTION: f64 = 0.8;
 
-/// One "approaching, not yet tripped" [`Severity::Warning`] finding, or `None` when `value` is
-/// below [`APPROACHING_BUDGET_WARNING_FRACTION`] of `limit` (this module's own "Ideal: nothing to
-/// report" convention, mirroring [`payload_size_finding`]). Shared by every [`profile_findings`]
+/// One "approaching, not yet tripped" `Severity::Warning` finding, or `None` when `value` is
+/// below `APPROACHING_BUDGET_WARNING_FRACTION` of `limit` (this module's own "Ideal: nothing to
+/// report" convention, mirroring `payload_size_finding`). Shared by every `profile_findings`
 /// dimension so the threshold/severity policy lives in exactly one place.
 fn approaching_budget_finding(
     code: FindingCode,
@@ -182,10 +182,10 @@ fn approaching_budget_finding(
     })
 }
 
-/// `crate::profile::CompileProfile`-sourced findings: [`FindingCode::IntermediateNetworkGrowth`]
+/// `crate::profile::CompileProfile`-sourced findings: `FindingCode::IntermediateNetworkGrowth`
 /// from the production network's final state/arc count approaching (but not tripping)
-/// [`DEFAULT_STATE_BUDGET`]/[`DEFAULT_ARC_BUDGET`], and [`FindingCode::CompileWorkBudget`] from the
-/// total emitted lexc line count approaching (but not tripping) [`DEFAULT_LINE_BUDGET`] — see this
+/// `DEFAULT_STATE_BUDGET`/`DEFAULT_ARC_BUDGET`, and `FindingCode::CompileWorkBudget` from the
+/// total emitted lexc line count approaching (but not tripping) `DEFAULT_LINE_BUDGET` — see this
 /// module's "Judgment calls" items 8/9 for the reuse/threshold rationale.
 ///
 /// The production-only gate (this module's "Judgment calls" item 10): a `profile.label !=
@@ -258,7 +258,7 @@ pub fn profile_findings(profile: &CompileProfile) -> Vec<HealthFinding> {
 }
 
 /// This evaluator's own distillation of one `crate::compose_budget::ApplyOutcome::Incomplete` —
-/// see this module's "Judgment calls" item 6 for why [`evaluate_health`] takes this instead of the
+/// see this module's "Judgment calls" item 6 for why `evaluate_health` takes this instead of the
 /// generic `ApplyOutcome<T>` directly. Callers build one of these per incomplete per-word apply
 /// result they want reflected as health evidence.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -293,9 +293,9 @@ fn retry_full_engine_remedy() -> Remedy {
     }
 }
 
-/// [`severity_for_size_bytes`]'s own band boundaries, returned as the crossed threshold for
-/// every non-[`Severity::Ideal`] band — e.g. an [`Severity::Error`] finding's threshold is
-/// `100_000_000` (the [`Severity::Warning`] band's own ceiling, the boundary this payload crossed
+/// `severity_for_size_bytes`'s own band boundaries, returned as the crossed threshold for
+/// every non-`Severity::Ideal` band — e.g. an `Severity::Error` finding's threshold is
+/// `100_000_000` (the `Severity::Warning` band's own ceiling, the boundary this payload crossed
 /// to become Error). Mirrors `crate::health`'s own golden test's worked Error finding
 /// (`threshold: Some(MetricValue::Bytes(100_000_000))` for a 150,000,000-byte payload).
 fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
@@ -310,8 +310,8 @@ fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
     }
 }
 
-/// Maps a final FST payload byte count to a [`HealthFinding`] via
-/// [`severity_for_size_bytes`] (reused unchanged, never re-derived). `None` when the payload is
+/// Maps a final FST payload byte count to a `HealthFinding` via
+/// `severity_for_size_bytes` (reused unchanged, never re-derived). `None` when the payload is
 /// within the Ideal band — `crate::health`'s own convention: "Ideal: Within every band; nothing
 /// to report."
 fn payload_size_finding(bytes: u64) -> Option<HealthFinding> {
@@ -338,7 +338,7 @@ fn payload_size_finding(bytes: u64) -> Option<HealthFinding> {
 }
 
 /// `crate::emit::FomaTier::Partial`'s `uncovered` construct occurrences — see this module's
-/// "Judgment calls" item 3 for the [`Severity::Warning`]/[`FindingCode::UnknownUnboundedConstruct`]
+/// "Judgment calls" item 3 for the `Severity::Warning`/`FindingCode::UnknownUnboundedConstruct`
 /// choice.
 fn partial_tier_finding(report: &EmitReport, uncovered_count: usize) -> HealthFinding {
     let affected: Vec<String> = report
@@ -367,8 +367,8 @@ fn partial_tier_finding(report: &EmitReport, uncovered_count: usize) -> HealthFi
 }
 
 /// `crate::emit::FomaTier::Unsupported` — see this module's "Judgment calls" item 4 for the
-/// [`Severity::Critical`] choice (deliberately diverging from
-/// [`FindingCode::UnknownUnboundedConstruct`]'s general "not itself Critical" framing).
+/// `Severity::Critical` choice (deliberately diverging from
+/// `FindingCode::UnknownUnboundedConstruct`'s general "not itself Critical" framing).
 fn unsupported_tier_finding(reason: &str) -> HealthFinding {
     HealthFinding {
         code: FindingCode::UnknownUnboundedConstruct,
@@ -390,7 +390,7 @@ fn unsupported_tier_finding(reason: &str) -> HealthFinding {
 }
 
 /// `crate::emit::EnumBudgetExceeded` (Fix 1, the fail-fast eager-enumeration budget) — see this
-/// module's "Judgment calls" item 5 for the [`Metric::UnknownUnboundedWork`] reuse.
+/// module's "Judgment calls" item 5 for the `Metric::UnknownUnboundedWork` reuse.
 fn enum_budget_finding(exceeded: &EnumBudgetExceeded) -> HealthFinding {
     HealthFinding {
         code: FindingCode::ResourceBudgetReached,
@@ -604,7 +604,7 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
     }
 }
 
-/// One [`ApplyBudgetTrip`] — see this module's "Judgment calls" item 6.
+/// One `ApplyBudgetTrip` — see this module's "Judgment calls" item 6.
 fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
     let metric = match trip.dimension {
         ApplyDimension::DecodedPaths => Metric::ProposalPathCount,
@@ -642,8 +642,8 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
 }
 
 /// The evaluator: turns every
-/// available compile measurement into [`HealthFinding`]s and returns the aggregated
-/// [`HealthReport`] — call [`HealthReport::admission`] on the result for the `FST
+/// available compile measurement into `HealthFinding`s and returns the aggregated
+/// `HealthReport` — call `HealthReport::admission` on the result for the `FST
 /// admission result` (unmodified, never re-derived here).
 ///
 /// Every parameter is optional/empty-by-default so a caller with only some measurements (e.g. just
@@ -651,15 +651,15 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
 /// `fst_health_evaluator_empty_report_is_ideal` test pins the all-`None`/all-empty case.
 ///
 /// - `payload_bytes`: the final FST payload's byte count, if known.
-/// - `emit_report`: `crate::emit::emit`/`emit_with_budget`'s own [`EmitReport`], if this
+/// - `emit_report`: `crate::emit::emit`/`emit_with_budget`'s own `EmitReport`, if this
 ///   compilation went through that path.
-/// - `compose_errors`: every [`ComposeError`] this compilation's checked compose/union/minimize/
+/// - `compose_errors`: every `ComposeError` this compilation's checked compose/union/minimize/
 ///   chain-depth/ordering-multiplicity calls raised (typically zero or one per grammar, but a
 ///   caller collecting evidence across a batch or a diagnostic sweep may pass more than one).
-/// - `apply_budget_trips`: every per-word [`ApplyBudgetTrip`] this compilation's callers observed.
-/// - `compile_profile`: this crate's own [`CompileProfile`], if this
+/// - `apply_budget_trips`: every per-word `ApplyBudgetTrip` this compilation's callers observed.
+/// - `compile_profile`: this crate's own `CompileProfile`, if this
 ///   compilation collected one (`crate::analyzer::FomaProposer::new_with_profile`) — see
-///   [`profile_findings`]'s own doc for exactly which finding kinds this populates, and the
+///   `profile_findings`'s own doc for exactly which finding kinds this populates, and the
 ///   production-only gate it enforces on a non-production-labeled profile.
 pub fn evaluate_health(
     payload_bytes: Option<u64>,

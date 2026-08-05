@@ -213,7 +213,7 @@ fn analysis_agreement_rejects_when_places_disagree() {
 
 /// Target: any consonant, binding αa from its own place (matches Indonesian prule3's LHS `nc8(α)`
 /// binding first, C# `RewriteRuleSpec.MatchSubrule` target-then-environments order). RHS: `[+voice]`
-/// only (an observable side effect uninvolved in the α-mechanism, mirroring [`place_agreement_rule`]).
+/// only (an observable side effect uninvolved in the α-mechanism, mirroring `place_agreement_rule`).
 /// Left environment: `[Context(nc_cons, αa), Quantifier{0,None}(CharDef('a')), CharDef('b')]` — the
 /// env's own occurrence of αa (a SECOND occurrence of the same variable) must AGREE with the
 /// target's bound place, exactly like prule3's `nc10(α)` checking against `nc8(α)`'s binding.

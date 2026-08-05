@@ -1,7 +1,7 @@
 //! Error codes and the two C-visible buffer types (plan §4.2).
 //!
 //! `HcResultBuf` is a generic owned-byte-buffer triple `(data, len, cap)` reused for two
-//! purposes: parse results (`hc_parse_word`/`hc_parse_batch`) and, embedded in [`HcError`], a
+//! purposes: parse results (`hc_parse_word`/`hc_parse_batch`) and, embedded in `HcError`, a
 //! grammar-load error message. Reusing one type means `hc_buf_free` — the only free function the
 //! ABI declares (plan §4.2) — is sufficient to release either; there is no second free function
 //! for `HcError::message`. A zeroed `HcResultBuf` (`data == null`, `len == 0`, `cap == 0`) is
@@ -66,7 +66,7 @@ impl HcError {
 }
 
 /// Move `bytes` into a leaked `(ptr, len, cap)` triple suitable for handing across the FFI
-/// boundary; the receiver must eventually pass it to [`crate::hc_buf_free`] (directly, or nested
+/// boundary; the receiver must eventually pass it to `crate::hc_buf_free` (directly, or nested
 /// inside an `HcError`) to reclaim it.
 pub(crate) fn leak_buf(bytes: Vec<u8>) -> HcResultBuf {
     let mut v = bytes;

@@ -1,8 +1,8 @@
-//! The FST precision knob, step 1 only: the [`ConstraintCatalog`] for the
+//! The FST precision knob, step 1 only: the `ConstraintCatalog` for the
 //! GATE-CONSTRAINT **ENVIRONMENT** family (allomorph-selection environments,
-//! where v1's emitter today ([`crate::emit`]) emits every allomorph permissively regardless of its
+//! where v1's emitter today (`crate::emit`) emits every allomorph permissively regardless of its
 //! declared `RequiredEnvironments`/`ExcludedEnvironments` and lets HC confirm prune the
-//! wrong-environment candidates), [`PrecisionAction`]/[`PrecisionConfig`], and the `AllFlags`
+//! wrong-environment candidates), `PrecisionAction`/`PrecisionConfig`, and the `AllFlags`
 //! preset's flag-emission hookup `crate::emit::emit_with_precision` drives.
 //!
 //! ## Architecture reminder (design §0)
@@ -34,7 +34,7 @@
 //!    `EnvironmentDef` on an allomorph with >1 environment independently, each with its own
 //!    require flag, would silently turn that disjunction into a conjunction — a genuine recall
 //!    bug the recall-invariance harness might not even catch if the corpus never exercises the
-//!    second disjunct. [`classify`] therefore requires `sibling_count == 1` (the owning
+//!    second disjunct. `classify` therefore requires `sibling_count == 1` (the owning
 //!    allomorph's *entire* `environments` list is this one instance) before considering any other
 //!    shape check; every multi-environment allomorph is `Unsupported { reason: "or-ambiguous" }`
 //!    regardless of how simple its individual environments look.
@@ -57,7 +57,7 @@
 //!    vacuously true). The only exact encoding is structural (routing this allomorph's own
 //!    continuation directly to `#`, i.e. `PrecisionAction::Eliminate`, not `KeepFlag`) — out of
 //!    scope for the `AllFlags` preset this step implements (design §3: "every environment
-//!    constraint as a KeepFlag"). [`classify`] reports these `Unsupported { reason:
+//!    constraint as a KeepFlag"). `classify` reports these `Unsupported { reason:
 //!    "anchor-or-compound-left" }` (folded into the same left-shape check as any other non-literal
 //!    left pattern) rather than silently mis-encoding them.
 //! 4. **`ExcludedEnvironments` (a left `@D@` disallow) is left out of THIS step's scope**, even
@@ -70,11 +70,11 @@
 //!    144 requires, 0 excludes; Indonesian: 0 environments) cannot exercise a newly-added exclude
 //!    arm at all, so adding it here would be an UNTESTED change riding along with a verified one.
 //!    Reason tag kept unchanged so a future step that lifts this restriction only needs to touch
-//!    [`classify`]'s one `if !env.require` line, not rename anything already in the field.
+//!    `classify`'s one `if !env.require` line, not rename anything already in the field.
 //!
 //! Left-literal, single-environment, REQUIRE instances (`/mb_`-shaped: `RequiredEnvironments` whose
 //! `LeftEnvironment` is one plain `<Segments><PhoneticShape>` run, no `RightEnvironment`) are the
-//! one shape left standing, and they ARE soundly flag-representable: see [`EnvCoverage::LeftLiteral`]
+//! one shape left standing, and they ARE soundly flag-representable: see `EnvCoverage::LeftLiteral`
 //! and the "Emission mechanism" section below.
 //!
 //! ## Two failed encodings, and why (the adjacency finding)
@@ -114,28 +114,28 @@
 //!    `@P.ENV1%0.n@` both fail identically; `@P.ENV1Z.n@`, zero-free, works). `%`-escaping is only
 //!    proven for a tag symbol occupying an entire lexc side ALONE — the ONLY way this crate had
 //!    ever used it before this module — not for a symbol appended after ordinary characters on the
-//!    SAME side, which is what every set-side flag here does. [`flag_id`] avoids the digit
+//!    SAME side, which is what every set-side flag here does. `flag_id` avoids the digit
 //!    entirely rather than escaping it.
 //!
 //! The corrected design (below) fixes all three: it keeps the all-suffixes-superset SET-side
 //! breadth's *successor* — a same-adjacency, over-approximated y/n test per entry (§ "Emission
 //! mechanism") — but drops the per-occurrence micro-lexicon (inline flags instead, §ibid.), drops
-//! the dotted flag-name format, AND drops every literal `0` digit ([`flag_id`]: `ENV{id}`, `0`
+//! the dotted flag-name format, AND drops every literal `0` digit (`flag_id`: `ENV{id}`, `0`
 //! digits replaced, never escaped) — so every constraint gets a distinct, `flag_check`-valid,
 //! zero-free name, never sharing state with another and never silently failing to match.
 //!
-//! ## Emission mechanism (the `AllFlags` preset, [`PrecisionEmit`])
-//! For each covered [`EnvConstraint`] (`EnvCoverage::LeftLiteral { literal_variants }`), three
+//! ## Emission mechanism (the `AllFlags` preset, `PrecisionEmit`)
+//! For each covered `EnvConstraint` (`EnvCoverage::LeftLiteral { literal_variants }`), three
 //! flag symbols are minted from the constraint's own `id` (never from `attr`, which embeds a `.`
-//! for human-readable reporting only — see [`flag_id`]'s doc for why that must never reach an
+//! for human-readable reporting only — see `flag_id`'s doc for why that must never reach an
 //! actual flag symbol): a require `@R.ENV{id}.y@` and two positive-set symbols `@P.ENV{id}.y@` /
 //! `@P.ENV{id}.n@`. `crate::emit::write_tag_entry` is the single choke point every literal
 //! spelling in the whole emitter passes through (verified by inspection: roots, affix derivation/
 //! slot chains, and P1d composite entries all call it, nothing writes a tagged entry any other
-//! way) — [`PrecisionEmit::tagged_lower`] is what it calls to build the entry's LOWER-tape text:
+//! way) — `PrecisionEmit::tagged_lower` is what it calls to build the entry's LOWER-tape text:
 //!
 //! - **Set side, EVERY entry, unconditionally when its surface is non-empty**: for EACH covered
-//!   constraint, appends EXACTLY ONE of `@P.ENV{id}.y@` (the entry's surface [`could_satisfy`] the
+//!   constraint, appends EXACTLY ONE of `@P.ENV{id}.y@` (the entry's surface `could_satisfy` the
 //!   context — an over-approximated "yes, adjacency-wise this could be the immediately-preceding
 //!   material") or `@P.ENV{id}.n@` (definitely not) — never neither. Because `@P@` (positive set)
 //!   OVERWRITES the attribute's value unconditionally every time it fires, and every non-empty
@@ -153,7 +153,7 @@
 //!   `@R@` reads whatever the immediately preceding non-empty entry's `@P@` last set — at word
 //!   start nothing has set anything, so `@R@` correctly fails there (a left-literal environment can
 //!   never hold with no left context at all).
-//! - **The y-test ([`could_satisfy`]) over-approximates, never under-approximates**: an entry's
+//! - **The y-test (`could_satisfy`) over-approximates, never under-approximates**: an entry's
 //!   surface gets `y` if, for ANY of the constraint's literal variants `L`, the surface
 //!   `ends_with(L)` OR the surface is a PROPER SUFFIX of `L` (i.e. shorter than `L` and `L`
 //!   `ends_with` the surface) — the second disjunct is exactly the boundary-splitting case that
@@ -162,7 +162,7 @@
 //!   caller already writes ONE lexc entry per rendered spelling variant (`surface_variants`/
 //!   `pattern_variants`/`PhonologyProbe::variants`'s enumeration, each its own
 //!   `crate::emit::write_tag_entry` call) — so "any of the entry's own rendered variants" is
-//!   already handled by construction; [`could_satisfy`] only needs to range over the
+//!   already handled by construction; `could_satisfy` only needs to range over the
 //!   CONSTRAINT's own literal variants for the ONE surface it is called with.
 //!
 //! **Why this is safe to splice directly into the entry's own upper:lower string** (unlike stage
@@ -181,11 +181,11 @@
 //! cases) during this step's implementation, not merely reasoned about; see this module's own
 //! `tests` for the equivalent property tests. `escape_lexc_text` is applied ONLY to the real
 //! surface text, never to a flag symbol (flag symbols are built already lexc-safe by
-//! construction, ASCII letters/digits/`@`/`.` only, escaped zeros — see [`flag_id`]).
+//! construction, ASCII letters/digits/`@`/`.` only, escaped zeros — see `flag_id`).
 //!
-//! Everything above is gated on [`PrecisionEmit::build`] only ever populating its lookup tables
-//! when `config` is [`PrecisionConfig::AllFlags`] — under the default [`PrecisionConfig::Strip`],
-//! [`PrecisionEmit::tagged_lower`] always returns exactly what the pre-precision-knob emitter wrote
+//! Everything above is gated on `PrecisionEmit::build` only ever populating its lookup tables
+//! when `config` is `PrecisionConfig::AllFlags` — under the default `PrecisionConfig::Strip`,
+//! `PrecisionEmit::tagged_lower` always returns exactly what the pre-precision-knob emitter wrote
 //! (`escaped` unchanged, or lexc's `0` epsilon marker for an empty surface), which is what makes
 //! `crate::emit::emit`'s byte-identical-to-before guarantee a property of the CODE PATH itself
 //! (one implementation, exercised both ways) rather than something a second, forked emitter would
@@ -202,9 +202,9 @@
 //! are `@P@` (set) and `@R@` (require) — R is in the safe (U/R/D) list, but **P is not**, and the
 //! two are only ever eliminated TOGETHER (removing the require without the matching set values, or
 //! vice versa, is meaningless) — so an ENVIRONMENT-family constraint may only ever be assigned
-//! [`PrecisionAction::KeepFlag`] or [`PrecisionAction::Strip`]. A future `PrecisionTuner` (design
-//! §8 item (3)) must never route a [`ConstraintFamily::Environment`] instance to
-//! [`PrecisionAction::Eliminate`] — [`ConstraintCatalog::decide`] already only ever produces
+//! `PrecisionAction::KeepFlag` or `PrecisionAction::Strip`. A future `PrecisionTuner` (design
+//! §8 item (3)) must never route a `ConstraintFamily::Environment` instance to
+//! `PrecisionAction::Eliminate` — `ConstraintCatalog::decide` already only ever produces
 //! `KeepFlag`/`Strip` for this family (no code path assigns `Eliminate` today), so this is
 //! currently true by omission; this note exists so a later step's tuner doesn't "fix" that by
 //! adding one.
@@ -214,7 +214,7 @@
 //!   re-check, compounding FS gates, morpheme/allomorph co-occurrence, bound-root, obligatory
 //!   features, W3.2 free-fluctuation, circumfix pairing) and the whole rewrite-rule arm
 //!   (`Compose`/`Optionalize`/`Skip`) are represented only as enum variants below, unpopulated —
-//!   [`PrecisionAction`] and [`ConstraintFamily`] carry the extra variants so a later step's types
+//!   `PrecisionAction` and `ConstraintFamily` carry the extra variants so a later step's types
 //!   don't need an enum-breaking change, but nothing in this crate ever produces them yet.
 //! - `PrecisionConfig::FullCompile`/`Auto` and `PrecisionTuner`/measured before/after network
 //!   sizes in `PrecisionReport` (design §3): later steps (design §8 items (3)-(5)). `crate::emit`
@@ -232,7 +232,7 @@ use crate::emit::{allomorphs_of, surface_variants};
 // --- Mechanism families (design §2's table) -----------------------------------------------------
 
 /// Which mechanism family a gate-constraint (or rewrite-rule) instance belongs to. Only
-/// [`ConstraintFamily::Environment`] is ever populated by [`ConstraintCatalog::build`] this step;
+/// `ConstraintFamily::Environment` is ever populated by `ConstraintCatalog::build` this step;
 /// the rest exist so later steps' catalogs can grow into this same enum without a breaking change
 /// (module doc, "Deliberately out of scope").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,14 +270,14 @@ pub enum EnvOwnerKind {
     Rule,
 }
 
-/// Whether, and how, this step can soundly encode one [`EnvironmentDef`] instance as a flag
+/// Whether, and how, this step can soundly encode one `EnvironmentDef` instance as a flag
 /// diacritic (module doc's three findings).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnvCoverage {
     /// A single-environment, `require == true`, no-right, single-literal-segment-run left context
     /// (no natural class / anchor / quantifier) — safe to encode as a real `KeepFlag` (module doc
     /// findings 1-4: every other shape, and every exclude, is `Unsupported`). `literal_variants` is
-    /// every accepted spelling of the left pattern's literal text ([`surface_variants`] — the SAME
+    /// every accepted spelling of the left pattern's literal text (`surface_variants` — the SAME
     /// representation-cartesian-product/NFD-normalization convention `crate::emit`'s own root/
     /// affix spellings use, so a plain `str::ends_with` comparison against an emitted entry's
     /// surface is apples-to-apples).
@@ -286,18 +286,18 @@ pub enum EnvCoverage {
     /// machine-stable tag (module doc): `"or-ambiguous"`, `"exclude-left-persistent-unsound"`,
     /// `"right-context"`, `"anchor-or-compound-left"`, `"non-literal-left"`, `"no-pattern"`,
     /// `"overflow"`, `"unsegmentable"`, `"prule-tail-rewrite-risk"` (new finding 5:
-    /// [`prule_tail_rewrite_risk`] — a phonological rewrite rule's output could plausibly combine
+    /// `prule_tail_rewrite_risk` — a phonological rewrite rule's output could plausibly combine
     /// into the literal in a way this emitter's purely textual surface spellings would never show).
     Unsupported { reason: &'static str },
 }
 
-/// One gate-constraint instance of the ENVIRONMENT family: one [`EnvironmentDef`] entry on one
+/// One gate-constraint instance of the ENVIRONMENT family: one `EnvironmentDef` entry on one
 /// root or rule allomorph, with a stable, deterministic id/attribute name (design §3: "Stable IDs
 /// ⇒ deterministic tuning and diffable reports").
 #[derive(Debug, Clone)]
 pub struct EnvConstraint {
     /// Stable, deterministic (assignment order = a fixed grammar walk, module doc /
-    /// [`ConstraintCatalog::build`] — never re-sorted or hashed) — the SAME grammar always
+    /// `ConstraintCatalog::build` — never re-sorted or hashed) — the SAME grammar always
     /// produces the SAME ids in the SAME order.
     pub id: u32,
     /// The flag-attribute name (design §2/§3: `ENV.nnnn`, zero-padded to at least 4 digits — the
@@ -305,7 +305,7 @@ pub struct EnvConstraint {
     pub attr: String,
     pub family: ConstraintFamily,
     pub owner_kind: EnvOwnerKind,
-    /// The allomorph this [`EnvironmentDef`] is declared on.
+    /// The allomorph this `EnvironmentDef` is declared on.
     pub allomorph: AllomorphId,
     /// Index into the owning allomorph's own `environments` list.
     pub env_index: usize,
@@ -325,8 +325,8 @@ impl EnvConstraint {
     }
 }
 
-/// Walks a [`Grammar`] and enumerates every gate-constraint instance of the ENVIRONMENT family
-/// (design §3). Extensible to the other families design §2 lists (see [`ConstraintFamily`]) —
+/// Walks a `Grammar` and enumerates every gate-constraint instance of the ENVIRONMENT family
+/// (design §3). Extensible to the other families design §2 lists (see `ConstraintFamily`) —
 /// only `env` is populated this step.
 #[derive(Debug, Clone, Default)]
 pub struct ConstraintCatalog {
@@ -337,7 +337,7 @@ impl ConstraintCatalog {
     /// Deterministic walk order: strata (document order) → each stratum's entries (document
     /// order) → each entry's allomorphs (document order) → each allomorph's `environments`
     /// (document order) for roots; then `g.mrules` in `Vec` index order → each rule's allomorphs
-    /// (document order, via [`allomorphs_of`]) → `environments` (document order) for rules. Same
+    /// (document order, via `allomorphs_of`) → `environments` (document order) for rules. Same
     /// convention `crate::emit::collect_roots`/`emit_rule_allomorphs` already walk in, so a
     /// grammar's ids never depend on anything but the grammar itself.
     pub fn build(g: &Grammar) -> Self {
@@ -412,7 +412,7 @@ fn push_instances(
     }
 }
 
-/// One [`EnvironmentDef`]'s coverage classification (module doc's findings, in order).
+/// One `EnvironmentDef`'s coverage classification (module doc's findings, in order).
 fn classify(g: &Grammar, env: &EnvironmentDef, sibling_count: usize) -> EnvCoverage {
     if sibling_count != 1 {
         return EnvCoverage::Unsupported {
@@ -479,7 +479,7 @@ fn classify(g: &Grammar, env: &EnvironmentDef, sibling_count: usize) -> EnvCover
 /// rule in `g` could ever rewrite word-internal material into (a suffix of) one of
 /// `literal_variants` — the safe default whenever this can't be decided cheaply, per the
 /// architecture's "approximate only upward, never guess downward" rule (a wrong `y`/`n` from
-/// [`could_satisfy`] IS a downward approximation risk, unlike an over-eager `y`, which is always
+/// `could_satisfy` IS a downward approximation risk, unlike an over-eager `y`, which is always
 /// safe). `false` (no risk at all) for the common case of a grammar with zero phonological rules
 /// (Sena) — the loop below is then a no-op.
 fn prule_tail_rewrite_risk(g: &Grammar, literal_variants: &[String]) -> bool {
@@ -506,9 +506,9 @@ fn prule_tail_rewrite_risk(g: &Grammar, literal_variants: &[String]) -> bool {
     false
 }
 
-/// Attempts to render `pattern`'s literal spelling for [`prule_tail_rewrite_risk`]'s substring
-/// check. `Some(variants)` only when EVERY node is a [`PatternNode::Segments`] sharing the SAME
-/// char-def table (the same literal shape [`classify`]'s own left-pattern check already accepts) —
+/// Attempts to render `pattern`'s literal spelling for `prule_tail_rewrite_risk`'s substring
+/// check. `Some(variants)` only when EVERY node is a `PatternNode::Segments` sharing the SAME
+/// char-def table (the same literal shape `classify`'s own left-pattern check already accepts) —
 /// `None` (cannot cheaply render, caller must decline) for a `Context`/`CharDef`/`Quantifier`/
 /// `Anchor` node, mixed tables, or a representation-variant overflow.
 fn render_pattern_literal(g: &Grammar, pattern: &Pattern) -> Option<Vec<String>> {
@@ -552,7 +552,7 @@ fn render_pattern_literal(g: &Grammar, pattern: &Pattern) -> Option<Vec<String>>
 ///   replaced, works correctly. `crate::tags::lexc_tag`'s `%0` convention is only proven for a tag
 ///   symbol occupying an ENTIRE lexc side alone (its only use before this module) — a symbol
 ///   spliced onto the END of ordinary surface text is a materially different case this crate had
-///   never exercised, and `%`-escaping does not fix it there. [`flag_id`] therefore avoids the
+///   never exercised, and `%`-escaping does not fix it there. `flag_id` therefore avoids the
 ///   digit `0` altogether: `Z` substitutes for it (never itself produced by `u32::to_string`, so
 ///   the substitution is injective — no two ids can ever collide).
 fn flag_id(id: u32) -> String {
@@ -585,15 +585,15 @@ pub enum PrecisionAction {
     // Gate-constraint arm (design §1, position list 1).
     /// Compiled into network topology (`eliminate flag`) — exact, zero lookup cost. Never assigned
     /// by anything in this crate yet (design §8 item (2), the PK2 oracle gate, and item (3), the
-    /// tuner, are later steps) — kept as a variant so [`PrecisionReport`]'s decision type doesn't
+    /// tuner, are later steps) — kept as a variant so `PrecisionReport`'s decision type doesn't
     /// need to change shape when they land.
     Eliminate,
     /// Flag stays in the network; `apply_up` obeys it at runtime. This step's `AllFlags` preset
-    /// assigns this to every [`EnvConstraint::is_coverable`] instance.
+    /// assigns this to every `EnvConstraint::is_coverable` instance.
     KeepFlag,
     /// Fully permissive — no flag at all (v1's existing, only-ever behavior). Assigned to every
     /// `Unsupported` instance under every preset, and to everything under
-    /// [`PrecisionConfig::Strip`].
+    /// `PrecisionConfig::Strip`.
     Strip,
     // Rewrite-rule arm (design §1, position list 2) — stubbed, unwired (design §8 item (4)).
     Compose,
@@ -601,7 +601,7 @@ pub enum PrecisionAction {
     Skip,
 }
 
-/// The global precision knob (design §3). [`PrecisionConfig::Strip`] is v1's existing,
+/// The global precision knob (design §3). `PrecisionConfig::Strip` is v1's existing,
 /// fully-permissive emitter behavior and is the `Default` so nothing changes anywhere unless a
 /// caller explicitly opts in to `AllFlags` (`crate::emit::emit` always passes `Strip`;
 /// `crate::emit::emit_with_precision` is the opt-in entry point).
@@ -610,7 +610,7 @@ pub enum PrecisionConfig {
     #[default]
     Strip,
     /// "Simplest FST" (design §3): every `AllFlags`-coverable environment constraint (this step:
-    /// [`EnvCoverage::LeftLiteral`], a require-only left-literal instance) is emitted as a real
+    /// `EnvCoverage::LeftLiteral`, a require-only left-literal instance) is emitted as a real
     /// `@R@`+`@P@` flag scheme (`crate::precision::PrecisionEmit`); everything else stays `Strip`,
     /// exactly as today.
     AllFlags,
@@ -631,14 +631,14 @@ pub struct ConstraintDecision {
     pub attr: String,
     pub family: ConstraintFamily,
     pub action: PrecisionAction,
-    /// `Some` for a `Strip` decision reached because [`EnvCoverage::Unsupported`] said so (the
+    /// `Some` for a `Strip` decision reached because `EnvCoverage::Unsupported` said so (the
     /// `Unsupported::reason` tag); `None` for a `KeepFlag`/`Eliminate` decision, or a `Strip`
-    /// decision reached only because the active [`PrecisionConfig`] is `Strip` itself.
+    /// decision reached only because the active `PrecisionConfig` is `Strip` itself.
     pub reason: Option<&'static str>,
 }
 
 /// An auto-generated Karttunen-style table (design §3) for one grammar under one config —
-/// currently just the per-constraint decisions (no measured sizes; see [`ConstraintDecision`]'s
+/// currently just the per-constraint decisions (no measured sizes; see `ConstraintDecision`'s
 /// doc).
 #[derive(Debug, Clone, Default)]
 pub struct PrecisionReport {
@@ -646,7 +646,7 @@ pub struct PrecisionReport {
 }
 
 impl ConstraintCatalog {
-    /// Decide every catalogued instance's [`PrecisionAction`] under `config` (design §3's
+    /// Decide every catalogued instance's `PrecisionAction` under `config` (design §3's
     /// `PrecisionTuner`, minus the actual trial-elimination auction — step 1 has exactly one
     /// non-default preset, `AllFlags`, and its decision rule is static: `KeepFlag` iff coverable,
     /// `Strip` otherwise; every other config is `Strip` for everything).
@@ -679,7 +679,7 @@ impl ConstraintCatalog {
 
 // --- Emission runtime (the `AllFlags` preset's flag scheme; module doc "Emission mechanism") ----
 
-/// One [`EnvConstraint::is_coverable`] instance's runtime flag symbols + literal test data
+/// One `EnvConstraint::is_coverable` instance's runtime flag symbols + literal test data
 /// (module doc, "Emission mechanism").
 struct EnvSetRule {
     sym_y: String,
@@ -687,10 +687,10 @@ struct EnvSetRule {
     literal_variants: Vec<String>,
 }
 
-/// `crate::emit`'s runtime companion: derived once from a [`ConstraintCatalog`] +
-/// [`PrecisionConfig`], then threaded through every entry-writing call alongside `EmitCounts`
-/// (same threading convention). Holds no [`Grammar`] reference of its own — only the small derived
-/// lookup tables [`Self::tagged_lower`] needs. Unlike step 1's first implementation, this holds NO
+/// `crate::emit`'s runtime companion: derived once from a `ConstraintCatalog` +
+/// `PrecisionConfig`, then threaded through every entry-writing call alongside `EmitCounts`
+/// (same threading convention). Holds no `Grammar` reference of its own — only the small derived
+/// lookup tables `Self::tagged_lower` needs. Unlike step 1's first implementation, this holds NO
 /// scratch buffer and synthesizes NO `LEXICON` blocks — every flag is inline text on the entry's
 /// own LOWER tape (module doc: "linear by construction").
 pub(crate) struct PrecisionEmit {
@@ -699,7 +699,7 @@ pub(crate) struct PrecisionEmit {
     /// 4). Empty unless `config == AllFlags` (so `tagged_lower` is a pure passthrough under `Strip`).
     owner_require: BTreeMap<AllomorphId, String>,
     /// Every covered constraint's set-y/set-n symbols + literal variants, in catalog (id-ascending)
-    /// order — [`Self::tagged_lower`] appends ONE of `sym_y`/`sym_n` per rule, per non-empty-surface
+    /// order — `Self::tagged_lower` appends ONE of `sym_y`/`sym_n` per rule, per non-empty-surface
     /// entry, in this fixed order (module doc: every entry gets AT MOST one symbol per constraint).
     /// Empty unless `config == AllFlags`.
     set_rules: Vec<EnvSetRule>,
@@ -711,7 +711,7 @@ pub(crate) struct PrecisionEmit {
 
 impl PrecisionEmit {
     /// Build the runtime lookup tables for `config` against `catalog`. A `Strip` (or any config
-    /// other than `AllFlags`) build leaves every table empty — [`Self::tagged_lower`] is then a
+    /// other than `AllFlags`) build leaves every table empty — `Self::tagged_lower` is then a
     /// pure passthrough for every call, which is what makes `crate::emit::emit`'s
     /// byte-identical-to-before guarantee hold by construction rather than by a second,
     /// hand-kept-in-sync code path.
@@ -724,7 +724,7 @@ impl PrecisionEmit {
                 let EnvCoverage::LeftLiteral { literal_variants } = &c.coverage else {
                     continue;
                 };
-                // Only `require == true` is ever coverable ([`classify`], module doc finding 4 — a
+                // Only `require == true` is ever coverable (`classify`, module doc finding 4 — a
                 // persistent-flag `@D@` disallow is declined, this step's scope), so a covered
                 // instance's gate is always `@R@`; the assertion documents that invariant at the
                 // emission seam.
@@ -942,7 +942,7 @@ mod tests {
         }
     }
 
-    /// [`PrecisionEmit::tagged_lower`] is a byte-identical passthrough under `Strip` regardless of
+    /// `PrecisionEmit::tagged_lower` is a byte-identical passthrough under `Strip` regardless of
     /// `owner` (the property `crate::emit`'s default path depends on): non-empty surface returns
     /// `escaped` unchanged, empty surface returns lexc's `"0"` epsilon marker.
     #[test]
@@ -976,7 +976,7 @@ mod tests {
 
     /// Under `AllFlags`, the owner allomorph's LOWER text gets the `@R@` require prefix, and EVERY
     /// non-empty-surface entry (owner or not) gets exactly one of `@P@` y/n appended, matching
-    /// [`could_satisfy`]. No flag text is emitted for an empty surface.
+    /// `could_satisfy`. No flag text is emitted for an empty surface.
     #[test]
     fn precision_emit_tagged_lower_gates_owner_and_sets_on_every_entry() {
         let catalog = one_constraint_catalog(7, AllomorphId(3), "mb");
@@ -1002,7 +1002,7 @@ mod tests {
         assert_eq!(empty_plain_lower, "0");
     }
 
-    /// [`could_satisfy`]'s two disjuncts: whole-literal `ends_with`, and the boundary-spanning
+    /// `could_satisfy`'s two disjuncts: whole-literal `ends_with`, and the boundary-spanning
     /// "proper suffix of the literal" case (module doc: the "miseru" cross-boundary recall break).
     #[test]
     fn could_satisfy_covers_whole_literal_and_boundary_spanning_suffix() {
@@ -1021,8 +1021,8 @@ mod tests {
         assert!(!could_satisfy("mb", &[String::new()]));
     }
 
-    /// [`flag_id`] never contains the digit `0` (verified empirically: a `0` breaks matching for
-    /// the WHOLE symbol once spliced onto a surface, `%`-escaped or not — module doc, [`flag_id`]'s
+    /// `flag_id` never contains the digit `0` (verified empirically: a `0` breaks matching for
+    /// the WHOLE symbol once spliced onto a surface, `%`-escaped or not — module doc, `flag_id`'s
     /// own doc) nor a `.` (the `flag_check` DFA finding — module doc, "Two failed encodings"), and
     /// the `0`->`Z` substitution stays injective (distinct ids never collide).
     #[test]

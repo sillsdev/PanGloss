@@ -7,7 +7,7 @@
 //!   - Fix 2: `rust/crates/pg-foma/src/tags.rs`'s `decode_path` rewrite from a `Vec<char>` scan to
 //!     direct byte/`&str` slicing.
 //!
-//! Dumps, for EVERY word of all three sample corpora, every [`FomaProposer::propose`] candidate
+//! Dumps, for EVERY word of all three sample corpora, every `FomaProposer::propose` candidate
 //! (morpheme ids + root_index) IN ORDER, to stdout in a deterministic line format. Run once at
 //! baseline (e.g. `git stash`) and once with the changes applied; the two dumps must be
 //! byte-identical -- that identity is the actual correctness gate for both optimizations (neither

@@ -360,7 +360,7 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
     );
 }
 
-/// [`pg_rules::trace::NoopSink`]'s five G4 methods are all `unreachable!()` (see that module's
+/// `pg_rules::trace::NoopSink`'s five G4 methods are all `unreachable!()` (see that module's
 /// doc): a successful, non-panicking untraced parse over the SAME template grammar is direct
 /// proof none of them were invoked on that path.
 #[test]

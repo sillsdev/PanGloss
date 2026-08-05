@@ -5,14 +5,14 @@
 //! reduplication peeling is proposer-agnostic — it only needs a `fn(&str) -> Vec<Candidate>` to
 //! recurse residuals into.
 //!
-//! Reuses [`crate::emit`]'s own port of `hc-hybrid/src/token.rs`'s `MorphOp`/`ClassifyAffix`
+//! Reuses `crate::emit`'s own port of `hc-hybrid/src/token.rs`'s `MorphOp`/`ClassifyAffix`
 //! (`Role`/`classify_affix`, made `pub(crate)` there for exactly this reason) plus its
 //! `owning_morpheme`/`surface_table` helpers, rather than re-porting the same classification logic
 //! a second time in this module — both the emitter and this peel need the identical affix-role
 //! answer, and `hc-hybrid` itself is being sunset, so neither may depend on it.
 //!
 //! ## Chain depth and nested reduplication
-//! [`ReduplicationPeeler::peel_candidates`] originally peeled at most ONE layer: strip a
+//! `ReduplicationPeeler::peel_candidates` originally peeled at most ONE layer: strip a
 //! prefix/suffix/separator copy, then hand the residual STRAIGHT to the caller's FST `propose`
 //! closure (never back to itself). That is faithful for every reference/synthetic grammar this
 //! crate has seen (a single reduplication rule per word), but is a real, silent recall gap for a
@@ -31,14 +31,14 @@
 //! layer consumes >= 1 character), but for a long enough adversarial word this is exactly the
 //! Aweti-style "derivation chain deep enough to matter" failure class (deep native
 //! recursion risks a stack overflow; the branching multiplies total work superlinearly in the
-//! number of layers actually taken). [`crate::compose_budget::ComposeBudget::check_chain_depth`] —
+//! number of layers actually taken). `crate::compose_budget::ComposeBudget::check_chain_depth` —
 //! until this change, a schema-only type with no production caller (that module's own doc) — is
-//! wired here as the fix: [`ReduplicationPeeler::propose_for_residual`] checks it once per
+//! wired here as the fix: `ReduplicationPeeler::propose_for_residual` checks it once per
 //! reduplication layer it is ABOUT to use, turning a runaway chain into the typed, deterministic
-//! [`crate::compose_budget::ComposeError::ChainDepthExceeded`] instead of an unbounded
+//! `crate::compose_budget::ComposeError::ChainDepthExceeded` instead of an unbounded
 //! stack/candidate blow-up. This
 //! module's own operation is declared as the required-runtime-feature
-//! [`RUNTIME_FEATURE_REDUPLICATION_PEEL`] — see that constant's own doc.
+//! `RUNTIME_FEATURE_REDUPLICATION_PEEL` — see that constant's own doc.
 //!
 //! **Why the check sits at "a real match was found," not at "entering the recursive scan."** The
 //! obvious-looking alternative — check the budget at the TOP of the recursive scan function, before
@@ -49,7 +49,7 @@
 //! suite's own `machine/conformance/languages/suffixing-extension-slot-ordering`'s `mrRedup`) trip a
 //! small configured cap merely because a second, ultimately-empty, cheap attempt was made — a false
 //! refusal of a construct this crate already faithfully supports. Checking instead at the point
-//! [`ReduplicationPeeler::propose_for_residual`] is about to USE a layer (i.e. is only ever reached
+//! `ReduplicationPeeler::propose_for_residual` is about to USE a layer (i.e. is only ever reached
 //! because THIS depth's own scan found a real match) means an attempt that finds nothing is free —
 //! it never consults the budget at all — while a genuine chain of N real, successive matches trips
 //! the cap at exactly the (N+1)th real layer, never one that was merely tried and empty.
@@ -60,9 +60,9 @@
 //! synthetic single-layer grammar this crate has seen, so their own cost is unchanged). With genuine
 //! D-deep nested structure, cost is `O(word length ^ D)` in the worst (fully self-similar) case
 //! before this change's chain-depth cap intervenes — `D` bounded by
-//! [`crate::compose_budget::ComposeBudget::chain_depth_cap`] once one is configured (`None`,
-//! production's default via [`crate::compose_budget::ComposeBudget::from_env`], leaves `D` bounded
-//! only by the word's own length, per [`crate::compose_budget::ComposeBudget`]'s own documented
+//! `crate::compose_budget::ComposeBudget::chain_depth_cap` once one is configured (`None`,
+//! production's default via `crate::compose_budget::ComposeBudget::from_env`, leaves `D` bounded
+//! only by the word's own length, per `crate::compose_budget::ComposeBudget`'s own documented
 //! "uncalibrated default" caveat — the same one every other dimension in that module already
 //! carries until a calibrated number lands.
 //!
@@ -85,7 +85,7 @@
 //!   just "doesn't crash") is genuinely unproven — no in-repo conformance fixture exercises a real
 //!   TWO-rule reduplication chain (or one rule at `max_apps >= 2`) today, so there is no oracle
 //!   witness to check the new recursive candidates against at all. The capability disposition
-//!   reflects this honestly: [`crate::capability::ReduplicationPeelSupportedPredicate`] verdicts
+//!   reflects this honestly: `crate::capability::ReduplicationPeelSupportedPredicate` verdicts
 //!   ConfirmOnly for the depth-1-eligible case (never Admit), which already
 //!   means confirm is trusted to prune whatever this module over-generates, nested candidates
 //!   included; a wrong/spurious nested candidate is therefore safe by construction (confirm drops
@@ -117,14 +117,14 @@ use crate::tags::Candidate;
 ///
 /// **Declared here; consuming it is `pg-pack`'s responsibility.** `pg-pack` is a separate
 /// crate/single-owner boundary this module does not cross; this constant is the stable identifier
-/// a `pg-pack` manifest-builder should read [`ReduplicationPeeler::has_redup_rules`] against and
+/// a `pg-pack` manifest-builder should read `ReduplicationPeeler::has_redup_rules` against and
 /// push into the pack's required set, rather than inventing a second ad hoc name for the same
 /// operation.
 pub const RUNTIME_FEATURE_REDUPLICATION_PEEL: &str = "reduplication.peel";
 
-/// [`crate::compose_budget::ComposeBudget::check_chain_depth`]'s `site` label for every check this
+/// `crate::compose_budget::ComposeBudget::check_chain_depth`'s `site` label for every check this
 /// module makes (that function's own doc: `site` names the call site for
-/// [`crate::compose_budget::ComposeError::ChainDepthExceeded`]'s message).
+/// `crate::compose_budget::ComposeError::ChainDepthExceeded`'s message).
 const CHAIN_DEPTH_SITE: &str = "peel::ReduplicationPeeler::propose_for_residual";
 
 /// C# `ReduplicationProposer.IsReduplication` (`ReduplicationProposer.cs:233-247`): **only** an
@@ -240,9 +240,9 @@ impl ReduplicationPeeler {
         }
     }
 
-    /// Whether this grammar has any reduplication rule at all — [`Self::peel_candidates`] already
+    /// Whether this grammar has any reduplication rule at all — `Self::peel_candidates` already
     /// early-returns empty when this is `false` (mirroring the original's own early-out), exposed
-    /// separately so a caller (e.g. [`crate::composite::FomaAnalyzer`]) can skip building a
+    /// separately so a caller (e.g. `crate::composite::FomaAnalyzer`) can skip building a
     /// `propose` closure entirely for a no-redup grammar like Sena.
     pub fn has_redup_rules(&self) -> bool {
         !self.redup_rules.is_empty()
@@ -257,11 +257,11 @@ impl ReduplicationPeeler {
     /// indexing and a `Vec<char>`'s indexing coincide exactly), so this never panics on a non-ASCII
     /// grammar's multi-byte UTF-8 word.
     ///
-    /// `budget` is threaded through to [`Self::propose_for_residual`]'s
-    /// [`crate::compose_budget::ComposeBudget::check_chain_depth`] call (module doc's "Big-O"
+    /// `budget` is threaded through to `Self::propose_for_residual`'s
+    /// `crate::compose_budget::ComposeBudget::check_chain_depth` call (module doc's "Big-O"
     /// section) — `Err(`[`crate::compose_budget::ComposeError::ChainDepthExceeded`]`)` means a
     /// genuinely deep nested-reduplication chain exceeded `budget`'s configured
-    /// [`crate::compose_budget::ComposeBudget::chain_depth_cap`]; the caller gets a typed, honest
+    /// `crate::compose_budget::ComposeBudget::chain_depth_cap`; the caller gets a typed, honest
     /// refusal for this word rather than this module silently doing an unbounded amount of work.
     pub fn peel_candidates(
         &self,
@@ -273,10 +273,10 @@ impl ReduplicationPeeler {
         self.peel_at_depth(g, word, 1, budget, propose)
     }
 
-    /// [`Self::peel_candidates`]'s actual recursive core: `depth` names which reduplication layer
+    /// `Self::peel_candidates`'s actual recursive core: `depth` names which reduplication layer
     /// (1-based) this call is peeling — `1` for the top-level word itself, `2` for a residual
     /// peeled once already, and so on. See module doc for the full chain-depth design and why the
-    /// budget check itself lives in [`Self::propose_for_residual`], not here.
+    /// budget check itself lives in `Self::propose_for_residual`, not here.
     fn peel_at_depth(
         &self,
         g: &Grammar,
@@ -372,13 +372,13 @@ impl ReduplicationPeeler {
     /// caller's proposer, then wrap every returned base candidate with the reduplication morpheme
     /// (and, for the separator+suffix-peel path, the peeled suffix morpheme afterward). Since
     /// `cover-template-truncation-reduplication`, ALSO recurses `residual` back into
-    /// [`Self::peel_at_depth`] one layer deeper (module doc: the new nested-reduplication capability)
+    /// `Self::peel_at_depth` one layer deeper (module doc: the new nested-reduplication capability)
     /// and unions those wrapped candidates in too.
     ///
     /// This function is called if and only if a REAL match was found at `depth` (every call site is
     /// inside a `peel_at_depth` scan branch that just matched) — which is exactly why the
-    /// [`crate::compose_budget::ComposeBudget::check_chain_depth`] call belongs HERE and not at
-    /// [`Self::peel_at_depth`]'s own entry (module doc's "why the check sits at a real match, not at
+    /// `crate::compose_budget::ComposeBudget::check_chain_depth` call belongs HERE and not at
+    /// `Self::peel_at_depth`'s own entry (module doc's "why the check sits at a real match, not at
     /// entering the recursive scan" section): an attempt to peel a residual that turns out to have no
     /// further structure of its own costs nothing and never reaches this function again, so it never
     /// counts against `budget`; only a genuine chain of successive real matches ever trips the cap.
@@ -555,8 +555,8 @@ mod tests {
     // =============================================================================================
 
     /// A grammar with exactly one `AffixProcessRule` classifying `Role::Reduplication`
-    /// (`OutputAction::Copy(PartRef::Input(0))` twice — [`crate::emit::classify_affix`]'s own
-    /// trigger), wired into stratum 0 — everything [`ReduplicationPeeler::new`] itself reads.
+    /// (`OutputAction::Copy(PartRef::Input(0))` twice — `crate::emit::classify_affix`'s own
+    /// trigger), wired into stratum 0 — everything `ReduplicationPeeler::new` itself reads.
     /// `char_tables`/`entries`/`morphemes` stay at their loader-provided minimum (peel.rs's own
     /// scan never touches segment features or the lexicon at all — only `render_surface_only`/
     /// `surface_table`, used solely by the separator+suffix-peel scan's `suffix_surfaces` list,
@@ -638,7 +638,7 @@ mod tests {
     }
 
     /// A small chain-depth cap deterministically refuses a genuinely deep self-similar chain —
-    /// [`crate::compose_budget::ComposeError::ChainDepthExceeded`], never a hang or an unbounded
+    /// `crate::compose_budget::ComposeError::ChainDepthExceeded`, never a hang or an unbounded
     /// candidate blow-up.
     #[test]
     fn deep_self_similar_chain_is_refused_deterministically_under_a_small_cap() {

@@ -2,8 +2,8 @@
 //!
 //! An integration test is the right place for this one, not a unit test: half of what this file
 //! claims is a claim about the crate's PUBLIC surface -- that
-//! [`pg_foma::recipe_registry::Registry::executable_candidate`] is the only way to obtain an
-//! [`pg_foma::executable_candidate::ExecutableCandidate`], that the type carries no `Deserialize`
+//! `pg_foma::recipe_registry::Registry::executable_candidate` is the only way to obtain an
+//! `pg_foma::executable_candidate::ExecutableCandidate`, that the type carries no `Deserialize`
 //! back door, and that a portable Plan document survives leaving the process. None of that can be
 //! observed from inside `src/`.
 //!
@@ -280,7 +280,7 @@ fn a_sealed_candidate_binds_digests_document_adapter_requirements_and_scope() {
 
 /// A whole-grammar adapter gets the complementary requirement set: it recompiles the grammar its own
 /// way and never reads the plan, which is exactly why
-/// [`pg_foma::recipe_runtime::build_candidate`] refuses to
+/// `pg_foma::recipe_runtime::build_candidate` refuses to
 /// be handed one ("evaluating this permutation there would measure the baseline network and report
 /// it as this permutation").
 #[test]

@@ -1,11 +1,11 @@
 //! Tag codec for the emitter: multichar analysis-
 //! tape symbols `<R:nnnn>` (root morpheme) and `<M:nnnn>` (non-root morpheme), where `nnnn` is the
-//! morpheme's own [`MorphemeId`] index directly — no separate first-seen codec is needed the way
+//! morpheme's own `MorphemeId` index directly — no separate first-seen codec is needed the way
 //! `hc-hybrid/src/token.rs`'s `MorphTokenCodec` needs one for its packed-token scheme, because
 //! `MorphemeId` is already a dense index into `Grammar::morphemes` (`pg-grammar/src/model.rs:60`).
 //!
-//! Two representations of one tag: [`lexc_tag`] is the ESCAPED lexc SOURCE spelling (declared in
-//! `Multichar_Symbols` and written at each morpheme's position in an entry); [`tag_text`] is the
+//! Two representations of one tag: `lexc_tag` is the ESCAPED lexc SOURCE spelling (declared in
+//! `Multichar_Symbols` and written at each morpheme's position in an entry); `tag_text` is the
 //! DECODED literal that actually appears in `apply_up` output. Ported byte-for-byte from gate F0's
 //! verified escaping rules (`tests/f0_viability.rs`'s `lexc_tag`/`tag_text`, generalized here with
 //! an explicit `width` parameter instead of a hardcoded `{n:04}`) — see that file's module doc for
@@ -34,12 +34,12 @@
 //!      which no longer lines up with the fully-normalized registered name. The declared tag is
 //!      consequently spelled as a RUN OF SINGLE-CHARACTER ARCS in the compiled network instead of
 //!      one atomic multichar arc, for every tag whose numeral contains a literal `0` digit (i.e.
-//!      most tags in most real grammars, since [`tag_width`] only zero-pads once morpheme counts
+//!      most tags in most real grammars, since `tag_width` only zero-pads once morpheme counts
 //!      exceed 10).
 //!
 //!      `foma::apply::apply_up`/`apply_down` don't care (a run of single-char arcs concatenates to
 //!      the identical string, verified directly) — but anything that treats the tag as ONE
-//!      indivisible alphabet symbol, e.g. an `Fsm` built with a single [`foma::dynarray::fsm_construct_add_arc`]-
+//!      indivisible alphabet symbol, e.g. an `Fsm` built with a single `foma::dynarray::fsm_construct_add_arc`-
 //!      style arc labeled with the WHOLE tag string (exactly what
 //!      `p6_templated_morphotactics_gate.rs`'s own recall-counting `tag_string_fsm` helper does, to
 //!      intersect a candidate analysis's tag sequence against the compiled network's upper
@@ -56,7 +56,7 @@
 //!      padded id).
 //!
 //!      Fix: this module never emits the ASCII byte `0` in a tag's numeral text AT ALL — every
-//!      would-be `0` digit is instead spelled with [`ZERO_GLYPH`] (`'z'`, never confusable with a
+//!      would-be `0` digit is instead spelled with `ZERO_GLYPH` (`'z'`, never confusable with a
 //!      real digit or with the `R`/`M` prefix letters), so the upstream `@ZERO@`-marker code path
 //!      is never exercised in the first place and no tag can ever suffer this decomposition. This
 //!      also makes the old `%0`-escaping in point 2 above moot (there is no literal `0` left to
@@ -70,13 +70,13 @@ use pg_grammar::model::MorphemeId;
 
 /// The glyph substituted for every ASCII `'0'` digit in a tag's numeral text (module doc point 3).
 /// Never `'0'` itself — the whole point is that no tag numeral this module emits ever contains a
-/// literal `0` byte, anywhere, in either [`lexc_tag`]'s escaped lexc-source spelling or
-/// [`tag_text`]'s decoded plain spelling. Chosen to be visually distinct from a digit and from the
+/// literal `0` byte, anywhere, in either `lexc_tag`'s escaped lexc-source spelling or
+/// `tag_text`'s decoded plain spelling. Chosen to be visually distinct from a digit and from the
 /// `R`/`M` prefix letters (lowercase, so it can never collide with those uppercase prefixes either).
 pub const ZERO_GLYPH: char = 'z';
 
 /// Render `n` as `width`-digit zero-padded decimal, then substitute every `'0'` character with
-/// [`ZERO_GLYPH`] (module doc point 3) — the one place both [`lexc_tag`] and [`tag_text`] get their
+/// `ZERO_GLYPH` (module doc point 3) — the one place both `lexc_tag` and `tag_text` get their
 /// numeral text from, so the two representations can never drift on how zero is spelled.
 fn digits_no_zero(n: u32, width: usize) -> String {
     format!("{n:0width$}")
@@ -95,7 +95,7 @@ pub fn tag_width(morpheme_count: usize) -> usize {
 
 /// The escaped lexc SOURCE spelling of one tag symbol (for `Multichar_Symbols` declarations and
 /// entry occurrences). See the module doc for why `<`, `:`, and `>` must be escaped, and why the
-/// numeral itself is spelled via [`digits_no_zero`] rather than raw decimal digits (module doc
+/// numeral itself is spelled via `digits_no_zero` rather than raw decimal digits (module doc
 /// point 3 — the numeral never contains a literal `0` byte, so it needs no escaping of its own).
 pub fn lexc_tag(prefix: &str, n: u32, width: usize) -> String {
     let mut out = String::new();
@@ -141,7 +141,7 @@ pub type RawPath = Vec<(bool, MorphemeId)>;
 
 /// Scan `s` (a raw `apply_up` result string) for every `<R:NNNN>`/`<M:NNNN>` occurrence, in the
 /// order they appear, decoding each to `(is_root, MorphemeId)`. This is a plain substring scan,
-/// not a general lexc-output parser — safe because [`crate::emit`] never puts literal underlying
+/// not a general lexc-output parser — safe because `crate::emit` never puts literal underlying
 /// text on the upper (analysis) tape, only tag symbols (see that module's doc), so `<`/`>` never
 /// appear in emitted output except as part of a tag.
 ///
@@ -215,7 +215,7 @@ pub struct Candidate {
     pub root_index: i32,
 }
 
-/// Split one decoded path into one [`Candidate`] per `<R:...>` occurrence (D2: "compounds ...
+/// Split one decoded path into one `Candidate` per `<R:...>` occurrence (D2: "compounds ...
 /// split into one candidate per root"), mirroring `hc-hybrid/src/walk.rs:230-255`'s
 /// `to_word_analyses` exactly: 0 or 1 roots yields exactly one candidate (`root_index = -1` if
 /// none); 2+ roots (a compound) yields one candidate per root position, ascending, each sharing
@@ -298,7 +298,7 @@ mod tests {
         }
     }
 
-    /// Round trip through [`decode_path`] for every id in the same sweep as the test above,
+    /// Round trip through `decode_path` for every id in the same sweep as the test above,
     /// including ids whose padded numeral is nothing but `ZERO_GLYPH` substitutions (e.g. `n=0`
     /// at `width=4` renders as four zero-glyphs) -- `decode_path` must recover the exact original
     /// `MorphemeId`, not the glyph-substituted digit string.

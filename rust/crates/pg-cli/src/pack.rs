@@ -5,24 +5,24 @@
 //! `CapabilityOverrideRecord`); this module is the first real producer that writes one.
 //!
 //! `pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>]`
-//! loads `grammar` via [`crate::load_grammar`] (the same `.xml`/`.json`/`.fwdata` dispatch every
-//! other subcommand uses), runs [`pg_foma::capability_entry::evaluate_capability`], and writes a
-//! `.pgpack` via [`pg_pack::write_pack`] carrying:
+//! loads `grammar` via `crate::load_grammar` (the same `.xml`/`.json`/`.fwdata` dispatch every
+//! other subcommand uses), runs `pg_foma::capability_entry::evaluate_capability`, and writes a
+//! `.pgpack` via `pg_pack::write_pack` carrying:
 //!
 //! - **`capability_trust`** (ADR 0005, `docs/adr/0005-capability-override-unproven-grammars.md`):
 //!   `Proven` for `Admit`/`ConfirmOnly` (ADR 0001: `ConfirmOnly` is a first-class non-failure
 //!   verdict, not a degraded one); `Overridden` — with a populated
-//!   [`pg_pack::CapabilityOverrideRecord`] naming who/why/when and every refused construct — for a
+//!   `pg_pack::CapabilityOverrideRecord` naming who/why/when and every refused construct — for a
 //!   `Refuse` verdict force-packed via `--allow-unproven`. A `Refuse` verdict WITHOUT
 //!   `--allow-unproven` fails this command outright, before any file is written — the same
 //!   never-overclaim discipline `main.rs`'s `run_capability_gate` already enforces for
 //!   `batch`/`parse`, applied here to packaging instead of analysis.
 //! - **`required_runtime_features`** (ADR 0004, `docs/adr/0004-runtime-feature-compatibility.md`):
-//!   declares [`pg_foma::peel::RUNTIME_FEATURE_REDUPLICATION_PEEL`] iff
+//!   declares `pg_foma::peel::RUNTIME_FEATURE_REDUPLICATION_PEEL` iff
 //!   `pg_foma::peel::ReduplicationPeeler::has_redup_rules()` — exactly the wiring that constant's
 //!   own doc flagged as "not yet wired into `pg-pack`... whenever it lands."
-//! - **`fst_health`**: `pg_foma::health_evaluator::evaluate_health`'s [`pg_foma::health::HealthReport`],
-//!   fed from a standalone [`pg_foma::analyzer::FomaProposer::new_with_profile`] compile (this
+//! - **`fst_health`**: `pg_foma::health_evaluator::evaluate_health`'s `pg_foma::health::HealthReport`,
+//!   fed from a standalone `pg_foma::analyzer::FomaProposer::new_with_profile` compile (this
 //!   command's own second compiled network — the same "acceptable one-time cost for an offline
 //!   diagnostic tool" judgment call `diagnostics.rs::assess_words` already makes, for the identical
 //!   reason: `FomaAnalyzer` does not expose its own internal proposer/profile for external reuse).
@@ -38,7 +38,7 @@
 //! ONE case this command cannot produce real foma bytes for is when this same compile does not
 //! succeed (an emit/lexc-compile failure, an enumeration-budget refusal) or `--watchdog` is passed
 //! (its worker protocol ships back only a `HealthReport`, not the compiled network) — that pack's
-//! foma section falls back to the same honestly-labeled [`PLACEHOLDER_FOMA_PAYLOAD`] this module
+//! foma section falls back to the same honestly-labeled `PLACEHOLDER_FOMA_PAYLOAD` this module
 //! always used.
 //!
 //! **The runtime payload is still a placeholder.** No Rust-HermitCrab runtime-payload serializer
@@ -51,7 +51,7 @@
 //! `Interner` impl), not something this additive step invents. Rather than writing an empty byte
 //! string (indistinguishable from "a real, empty payload") or fabricating bytes that *look* like a
 //! real payload, the runtime section still carries the literal, human-readable
-//! [`PLACEHOLDER_RUNTIME_PAYLOAD`] label as its actual content — unmissable to anyone who inspects a
+//! `PLACEHOLDER_RUNTIME_PAYLOAD` label as its actual content — unmissable to anyone who inspects a
 //! produced `.pgpack`'s raw bytes, and `run_pack`'s own stderr summary repeats which section is
 //! real vs. placeholder at pack time. **Everything else in the manifest — capability trust,
 //! required runtime features, FST health, and (when the compile succeeds) the foma payload itself
@@ -225,9 +225,9 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
 }
 
 /// The result of one `.pgpack` build: the assembled manifest, the full container bytes
-/// ([`pg_pack::write_pack`]'s own output), and whether the foma payload section inside those bytes
+/// (`pg_pack::write_pack`'s own output), and whether the foma payload section inside those bytes
 /// is real compiled-network bytes or the honestly-labeled placeholder fallback (see this module's
-/// top doc, "What is real vs. placeholder"). Factored out of [`run_pack`] so `pangloss make-report`
+/// top doc, "What is real vs. placeholder"). Factored out of `run_pack` so `pangloss make-report`
 /// can share the SAME real pack-build logic — a real trust stamp and a real artifact size —
 /// without going through `run_pack`'s own CLI arg-parsing/file-writing/stderr-summary shell, so
 /// both call sites share one implementation rather than `make-report` re-deriving a second,
@@ -235,20 +235,20 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
 pub(crate) struct BuiltPack {
     pub manifest: PackManifest,
     pub bytes: Vec<u8>,
-    /// `true` iff [`BuiltPack::bytes`]'s foma payload section is the grammar's own real compiled
+    /// `true` iff `BuiltPack::bytes`'s foma payload section is the grammar's own real compiled
     /// network (`FomaProposer::foma_binary_payload`), `false` iff it is the honestly-labeled
-    /// [`PLACEHOLDER_FOMA_PAYLOAD`] fallback (compile did not succeed, or `watchdog` was requested).
+    /// `PLACEHOLDER_FOMA_PAYLOAD` fallback (compile did not succeed, or `watchdog` was requested).
     pub foma_payload_is_real: bool,
 }
 
 /// Builds one `.pgpack` in memory: the ADR 0001/0005 capability-trust stamp, the ADR 0004
 /// required-runtime-feature set, the FST-health report (+ the real foma payload when this same
-/// compile succeeds), and the assembled, written [`pg_pack::write_pack`] container bytes — see
-/// [`run_pack`]'s own top-of-module doc for the full contract this implements (every side effect
+/// compile succeeds), and the assembled, written `pg_pack::write_pack` container bytes — see
+/// `run_pack`'s own top-of-module doc for the full contract this implements (every side effect
 /// and stderr diagnostic below is identical to what `run_pack` always printed; this function is a
 /// pure extraction, not a behavior change).
 ///
-/// `semantics` must be [`pg_foma::grammar_semantics::GrammarSemantics::derive`]d from `grammar`.
+/// `semantics` must be `pg_foma::grammar_semantics::GrammarSemantics::derive`d from `grammar`.
 /// Taking it rather than deriving it
 /// here is what lets `pangloss make-report` — which needs the capability verdict in its own
 /// preamble, here, and again in `readiness_verdict::certify` — pay for the grammar walk once
@@ -348,7 +348,7 @@ pub(crate) fn build_pack(
     // one-time cost for an offline tool" judgment call ------------------------------------------
     // `--watchdog` (this module's own doc): OPT-IN. Default path (watchdog == false) is BYTE-FOR-
     // BYTE the pre-existing in-process compile -- unchanged, PLUS it now also serializes that same
-    // compiled network via [`pg_foma::analyzer::FomaProposer::foma_binary_payload`] (foma's own
+    // compiled network via `pg_foma::analyzer::FomaProposer::foma_binary_payload` (foma's own
     // existing binary-memory encoding -- R2A forbids inventing a second network format) so this
     // command no longer has to compile the grammar a THIRD time just to get the foma payload bytes.
     // `--watchdog`'s worker protocol (`pg_foma::worker::WorkerOutcome`) only ships a `HealthReport`
@@ -432,7 +432,7 @@ pub(crate) fn build_pack(
     })
 }
 
-/// `grammar_path`'s extension -> [`pg_foma::worker::GrammarFormat`], mirroring `crate::
+/// `grammar_path`'s extension -> `pg_foma::worker::GrammarFormat`, mirroring `crate::
 /// load_grammar`'s own three-way extension dispatch exactly (`.json` -> `Json`, `.fwdata` ->
 /// `Fwdata`, anything else including `.xml` -> `Xml`) so the watchdog path names the SAME format
 /// the non-watchdog path would have loaded.
@@ -450,10 +450,10 @@ fn infer_grammar_format(grammar_path: &str) -> pg_foma::worker::GrammarFormat {
 
 /// `--watchdog`'s implementation (this module's own doc): re-execs this same `pangloss` binary as
 /// the hidden `__compile-worker-child` subcommand (`main.rs`'s dispatch) via
-/// [`pg_foma::worker::run_compile_worker`], under [`pg_foma::worker::WatchdogEnvelope::
-/// default_envelope`], and maps whatever [`pg_foma::worker::WorkerOutcome`] comes back into the
-/// same [`pg_foma::health::HealthReport`] the non-watchdog path already produces
-/// ([`pg_foma::worker::WorkerOutcome::health_report`] handles every variant, including a real
+/// `pg_foma::worker::run_compile_worker`, under [`pg_foma::worker::WatchdogEnvelope::
+/// default_envelope`], and maps whatever `pg_foma::worker::WorkerOutcome` comes back into the
+/// same `pg_foma::health::HealthReport` the non-watchdog path already produces
+/// (`pg_foma::worker::WorkerOutcome::health_report` handles every variant, including a real
 /// `Completed(Success)`'s own real report, uniformly -- no separate match needed here).
 fn run_fst_health_under_watchdog(
     grammar_path: &str,
@@ -702,7 +702,7 @@ mod tests {
 
     /// A grammar whose only morphological rule is reduplication-shaped
     /// (`ReduplicationPeeler::has_redup_rules() == true`) must declare
-    /// [`RUNTIME_FEATURE_REDUPLICATION_PEEL`] in the packed manifest's
+    /// `RUNTIME_FEATURE_REDUPLICATION_PEEL` in the packed manifest's
     /// `required_runtime_features.runtime_operations` (ADR 0004). `--allow-unproven` is passed
     /// unconditionally here since this test's only concern is the runtime-feature declaration, not
     /// this fixture's own capability verdict (which may legitimately be `ConfirmOnly` or `Refuse`
@@ -753,7 +753,7 @@ mod tests {
     }
 
     /// The foma payload a real `pangloss pack` writes is REAL compiled-network bytes, not the
-    /// [`PLACEHOLDER_FOMA_PAYLOAD`] fallback -- and those bytes actually round-trip:
+    /// `PLACEHOLDER_FOMA_PAYLOAD` fallback -- and those bytes actually round-trip:
     /// `pg_foma::analyzer::read_foma_binary_payload` (`foma::io::fsm_read_binary_mem` under the
     /// hood) reconstructs a network with the SAME state/arc counts as an independent, from-scratch
     /// compile of the identical grammar, and `apply_up` agrees on every word in this fixture's own

@@ -24,7 +24,7 @@ pub use tree::{FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue};
 
 /// Stable per-grammar identity of a frozen feature structure (plan §5.3).
 ///
-/// Assigned by an [`Interner`]; equality is a `u32` compare, which is the whole point — it turns
+/// Assigned by an `Interner`; equality is a `u32` compare, which is the whole point — it turns
 /// the memo key and every gating comparison into integer compares (plan §6.3).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct FsId(pub u32);

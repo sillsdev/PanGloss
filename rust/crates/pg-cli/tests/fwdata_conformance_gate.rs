@@ -3,7 +3,7 @@
 //! (`pg_fwdata::import_file` -> `pg_snapshot::Snapshot` -> `pg_grammar::compile_project` ->
 //! `Grammar`) and independently load the committed HC-XML oracle through the *legacy* pipeline
 //! (`pg_grammar::load`), then run every word in `samples/data/{sena,amharic}-words.txt` through a
-//! [`pg_parse::Morpher`] built from each `Grammar` and compare results **behaviorally**.
+//! `pg_parse::Morpher` built from each `Grammar` and compare results **behaviorally**.
 //!
 //! IDs cannot be compared directly: the legacy XML export keys morphemes by session-scoped `Hvo`
 //! integers while the new pipeline keys everything by FieldWorks GUID, so even the parity
@@ -44,9 +44,9 @@
 //! `Grammar`s are structurally identical, so this is not an importer defect: the same word blows
 //! up identically regardless of which pipeline produced its grammar. `Morpher::with_word_timeout`
 //! (a wall-clock deadline, `pg-parse/tests/word_timeout_pathological_gate.rs`) fixes the hang
-//! without the step cap's non-determinism problem: [`run_conformance`] arms
-//! `WORD_TIMEOUT` on both morphers, and [`compare_word`] treats either side timing out as
-//! [`WordComparison::TimedOut`] -- reported separately, like known oracle drift, never counted as
+//! without the step cap's non-determinism problem: `run_conformance` arms
+//! `WORD_TIMEOUT` on both morphers, and `compare_word` treats either side timing out as
+//! `WordComparison::TimedOut` -- reported separately, like known oracle drift, never counted as
 //! a match *or* a mismatch (a wall-clock deadline is inherently non-deterministic across runs/
 //! machines, so the partial result at the moment it fires is not a meaningful cross-pipeline
 //! comparison either way).
@@ -59,7 +59,7 @@
 //! multisets: the ONLY content differences are
 //! `peno`→`penohoho` (entry 2976cd0f), `guman`→`guman.hello.world`, and `mpaka`→`mpaka.la.la`
 //! (obvious "hello world"/"la la" test edits); everything else is Hvo drift. Each
-//! [`KNOWN_ORACLE_DRIFT`] entry is matched against the corpus by **substring**, not exact
+//! `KNOWN_ORACLE_DRIFT` entry is matched against the corpus by **substring**, not exact
 //! equality: a root-form edit doesn't just break the bare root word, it breaks every corpus word
 //! *derived* from that root by affixation too (confirmed against the full Sena corpus: 13 words
 //! like `"agumana"`/`"kugumana"`/`"gumanik"` all fail to parse on the new pipeline, `new: []`,
@@ -75,7 +75,7 @@
 //! contain `"guman"`/`"peno"` yet parse identically on both pipelines -- healthy, unrelated words).
 //! Such a word matching both pipelines is not a sign of anything wrong. Instead, each drift root is
 //! asserted to still resolve to *at least one* mismatch **somewhere in the corpus** (so this list
-//! self-invalidates if the oracle is ever regenerated), tolerating [`WORD_TIMEOUT`] noise: a root
+//! self-invalidates if the oracle is ever regenerated), tolerating `WORD_TIMEOUT` noise: a root
 //! is only flagged stale if every corpus word containing it plain-matched with zero timeouts and
 //! zero mismatches, never merely because a thin root's one qualifying word happened to time out.
 //! Confirmed live drift is reported separately, never counted as a conformance failure.
@@ -87,7 +87,7 @@ use std::time::Duration;
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 
-/// Wall-clock deadline armed on every [`Morpher`] built in [`run_conformance`] (see the module
+/// Wall-clock deadline armed on every `Morpher` built in `run_conformance` (see the module
 /// doc's "The hang (fixed)" section). Generous relative to a normal word's parse time (real corpus
 /// words finish in low single-digit milliseconds; see this test file's own timing in the fast
 /// grammar-equivalence gate for comparable grammars) but small enough that even every one of the
@@ -185,7 +185,7 @@ enum WordComparison {
         new: Vec<BehavioralAnalysis>,
         legacy: Vec<BehavioralAnalysis>,
     },
-    /// Either side's `Morpher` hit [`WORD_TIMEOUT`] -- see the module doc's "The hang (fixed)"
+    /// Either side's `Morpher` hit `WORD_TIMEOUT` -- see the module doc's "The hang (fixed)"
     /// section for why this is neither a match nor a mismatch, just reported and skipped.
     TimedOut,
 }
@@ -220,7 +220,7 @@ fn compare_word(
 /// one language in a loop need every language's results printed before the test fails on the
 /// first mismatch it finds.
 ///
-/// `known_drift` is the caller's [`KNOWN_ORACLE_DRIFT`]-style list (empty for a language with a
+/// `known_drift` is the caller's `KNOWN_ORACLE_DRIFT`-style list (empty for a language with a
 /// faithful oracle). This is a **per-root aggregate** invariant, not a per-word one: many corpus
 /// words merely *contain* a drift root's substring incidentally without being morphologically
 /// derived from the affected lexeme, so an individual such word matching both pipelines is
@@ -228,11 +228,11 @@ fn compare_word(
 /// judged once, after the full word list has been scanned:
 /// - never appeared in this word list -> skipped silently (absence isn't evidence of staleness;
 ///   most roots won't appear in a short prefix like the 50-word smoke test);
-/// - at least one appearance was a confirmed [`WordComparison::Mismatch`] -> drift is live, as
+/// - at least one appearance was a confirmed `WordComparison::Mismatch` -> drift is live, as
 ///   expected, counted towards the returned summary's known-drift count;
-/// - appeared only as [`WordComparison::TimedOut`] (zero mismatches) -> inconclusive, not a
+/// - appeared only as `WordComparison::TimedOut` (zero mismatches) -> inconclusive, not a
 ///   failure (a thin root with few qualifying words must not fail just because its one qualifying
-///   word got starved past [`WORD_TIMEOUT`] on this run);
+///   word got starved past `WORD_TIMEOUT` on this run);
 /// - appeared, nothing timed out, and nothing mismatched -> the drift entry has gone stale (e.g.
 ///   the oracle was regenerated) and is reported as a conformance failure so it gets removed
 ///   rather than silently masking a real regression.

@@ -1,6 +1,6 @@
 //! The conformance-coverage cross-check, shipped
 //! here as a **NON-BLOCKING, advisory preview** — the same non-blocking-first pattern
-//! [`crate::capability`]'s own `characterize` (computes only) → `compose_envelope` (CHECK-ONLY) →
+//! `crate::capability`'s own `characterize` (computes only) → `compose_envelope` (CHECK-ONLY) →
 //! a later, deliberate compile-blocking step already used.
 //!
 //! This crate's own honest-capability discipline: "'Supported' is mechanically gated on passing conformance coverage... CI
@@ -12,8 +12,8 @@
 //! suite yet enforces `gaps.is_empty()`** — see "End state" below.
 //!
 //! # The two sides of the cross-check
-//! - **The registry side**: [`crate::capability::CharacteristicKind`] + [`crate::capability::
-//!   CharacteristicKind::default_disposition`] — [`Disposition::Proven`] is today's actual
+//! - **The registry side**: `crate::capability::CharacteristicKind` + [`crate::capability::
+//!   CharacteristicKind::default_disposition`] — `Disposition::Proven` is today's actual
 //!   "supported (admission-proven)" set; `ConfirmOnly`/`ConfigPredicate`
 //!   are compiled-or-relied-upon capabilities in their own right, just not
 //!   admission-proven — see "The cross-check is ledger-wide" below for why this module
@@ -28,12 +28,12 @@
 //!   question straight from `words.yaml`, which is the actual committed ground truth.
 //!
 //! # The cross-check is ledger-wide
-//! [`supported_kinds`] returns every [`CharacteristicKind`] ([`crate::capability::
-//! CharacteristicKind::ALL`]), not just the [`Disposition::Proven`] subset. Scoping it to `Proven`
+//! `supported_kinds` returns every `CharacteristicKind` ([`crate::capability::
+//! CharacteristicKind::ALL`]), not just the `Disposition::Proven` subset. Scoping it to `Proven`
 //! made the cross-check vacuous for most of the ledger — the majority of rows were never asked
 //! about at all. Every disposition here is a compiled-or-relied-upon capability, so every row
 //! needs the same evidence: a covering, PASSING analysis fixture.
-//! [`CoverageReportRow::disposition`] stays on the row so a build-breaking flip can stage `Proven`
+//! `CoverageReportRow::disposition` stays on the row so a build-breaking flip can stage `Proven`
 //! ahead of `ConfigPredicate`/`ConfirmOnly` without re-deriving the report.
 //!
 //! # What "passing" means here (a judgment call, flagged)
@@ -49,20 +49,20 @@
 //! signature. A currently-*failing* word's `exercises:` tags do not count.
 //!
 //! # The mapping (deliverable 1 — THE CONTRACT)
-//! [`construct_ids_for`] is hand-authored and exhaustively matched (no catch-all arm — adding a
-//! [`CharacteristicKind`] variant breaks this file's build, same discipline `characterize`/
+//! `construct_ids_for` is hand-authored and exhaustively matched (no catch-all arm — adding a
+//! `CharacteristicKind` variant breaks this file's build, same discipline `characterize`/
 //! `default_disposition` already hold themselves to). Before G9, three kinds returned an **empty slice** —
-//! [`CharacteristicKind::LeftToRightRewrite`], [`CharacteristicKind::RightToLeftRewrite`], and
-//! [`CharacteristicKind::SubruleGating`] ([`CharacteristicKind::MultiTable`] was the fourth,
+//! `CharacteristicKind::LeftToRightRewrite`, `CharacteristicKind::RightToLeftRewrite`, and
+//! `CharacteristicKind::SubruleGating` (`CharacteristicKind::MultiTable` was the fourth,
 //! already documented separately below) — because `constructs.txt` had no row distinguishing
 //! rewrite direction or subrule-level MPR/POS gating as its own tagged phenomenon. G9 added the
-//! four missing rows upstream and this function now maps all four; see [`construct_ids_for`]'s own
+//! four missing rows upstream and this function now maps all four; see `construct_ids_for`'s own
 //! per-arm doc for exactly which row each maps to and why the old mapping was genuinely absent
-//! rather than mismapped. [`ORPHAN_CONSTRUCT_ROWS`] is the mirror-image list this same audit
+//! rather than mismapped. `ORPHAN_CONSTRUCT_ROWS` is the mirror-image list this same audit
 //! surfaced — 12 `constructs.txt` rows with NO corresponding `CharacteristicKind`, deliberately
 //! left unmapped (not invented) with a documented reason each.
-//! [`CoverageStatus::Unmappable`] surfaces a construct-id-less kind separately from
-//! [`CoverageStatus::Uncovered`] (a real construct id exists, but the required evidence is
+//! `CoverageStatus::Unmappable` surfaces a construct-id-less kind separately from
+//! `CoverageStatus::Uncovered` (a real construct id exists, but the required evidence is
 //! missing) so a reader never conflates "nobody has produced the evidence yet" with "there is
 //! nothing to produce evidence FOR." After G9, zero kinds are `Unmappable` (see
 //! `zero_unmappable_after_g9`).
@@ -89,11 +89,11 @@
 //! via `disposition`.
 //!
 //! # The structural-witness gate: closing the last silent-inheritance hole before a flip
-//! [`construct_ids_for`] maps some `constructs.txt` row ids from MORE THAN ONE [`CharacteristicKind`]
+//! `construct_ids_for` maps some `constructs.txt` row ids from MORE THAN ONE `CharacteristicKind`
 //! (a coarser characteristic and a finer one genuinely sharing the same upstream row — `constructs.
 //! txt` has no finer-grained id for either). That is fine for the coarser kind, but it means the
 //! finer kind's `Covered` status is, MECHANICALLY, satisfied by ANY passing fixture tagging that id
-//! — including one that only ever exercised the coarser sibling. [`supported_coverage_report`]
+//! — including one that only ever exercised the coarser sibling. `supported_coverage_report`
 //! cannot tell "this fixture genuinely exercises the finer construct" from "this fixture exercises
 //! the coarser one and happens to share the finer one's row id" — both look identical to a plain
 //! set-membership check over `exercises:` tags. A row can therefore report `Covered` forever even if
@@ -101,12 +101,12 @@
 //! other, coarser-only fixture keeps tagging the shared id. That silent-rot risk is exactly what
 //! makes flipping this cross-check to build-breaking on faith irresponsible.
 //!
-//! [`shared_construct_ids`] computes every such shared id directly from [`construct_ids_for`] (never
+//! `shared_construct_ids` computes every such shared id directly from `construct_ids_for` (never
 //! hardcoded — a future mapping edit is picked up automatically). Every sharing kind is graded
 //! against the passing-fixture set, so every shared id is at risk of this inheritance.
 //!
-//! [`registered_structural_witnesses`] pairs each at-risk id with a
-//! [`StructuralWitness`]: a predicate over the LOADED [`pg_grammar::model::Grammar`] (never a second
+//! `registered_structural_witnesses` pairs each at-risk id with a
+//! `StructuralWitness`: a predicate over the LOADED `pg_grammar::model::Grammar` (never a second
 //! hand-rolled definition of the construct, never a regex over the source XML) that decides whether
 //! a grammar structurally exhibits the FINER characteristic — independent of whatever `exercises:`
 //! tag a fixture happens to carry. `tests/structural_witness_gate.rs` (this crate) is what actually
@@ -115,7 +115,7 @@
 //! finer characteristic's evidence mechanically rather than leaving it to only ever have been
 //! verified by hand. `every_shared_id_has_a_registered_structural_witness` (below,
 //! this module) is the generic, string-driven half that needs no fixture I/O at all: it fails loudly
-//! if [`construct_ids_for`] ever grows a NEW shared id with no registered witness, so this
+//! if `construct_ids_for` ever grows a NEW shared id with no registered witness, so this
 //! protection cannot be silently defeated by a future mapping edit the way the original four ids
 //! went unnoticed.
 
@@ -127,22 +127,22 @@ use pg_grammar::model::{Grammar, MorphRuleOrder, MprGroupOutput, PhonRuleDef};
 /// Deliverable 1, THE CONTRACT: `kind`'s corresponding `machine/conformance/constructs.txt`
 /// identifier(s), verbatim (byte-for-byte matching what a `words.yaml` `exercises:` entry would
 /// carry — see `constructs.txt`'s own header: "A line's text (verbatim, including punctuation) is
-/// the key"). Exhaustively matched (no catch-all): adding a [`CharacteristicKind`] variant without
+/// the key"). Exhaustively matched (no catch-all): adding a `CharacteristicKind` variant without
 /// adding an arm here breaks this crate's build, same discipline
-/// [`CharacteristicKind::default_disposition`] already holds itself to.
+/// `CharacteristicKind::default_disposition` already holds itself to.
 ///
 /// An empty slice is a deliberate, documented "no corresponding coverage identifier exists" —
-/// [`CoverageStatus::Unmappable`]'s trigger, not an oversight:
-/// - [`CharacteristicKind::MultiTable`]: `constructs.txt` has no row tagging "more than one
+/// `CoverageStatus::Unmappable`'s trigger, not an oversight:
+/// - `CharacteristicKind::MultiTable`: `constructs.txt` has no row tagging "more than one
 ///   `CharacterDefinitionTable`, each stratum's own" as its own phenomenon — see this function's
 ///   own match arm for the two near-miss rows considered and rejected.
-/// - [`CharacteristicKind::LeftToRightRewrite`] / [`CharacteristicKind::RightToLeftRewrite`]:
+/// - `CharacteristicKind::LeftToRightRewrite` / `CharacteristicKind::RightToLeftRewrite`:
 ///   `constructs.txt`'s `RewriteRule Iterative (...)`/`RewriteRule Simultaneous` rows tag
 ///   *multiple-application order*, not *directionality* — no row anywhere names "left-to-right" or
 ///   "right-to-left" as its own tagged phenomenon, so no fixture author has anything to write in
 ///   an `exercises:` list for direction specifically, however many `Dir::RightToLeft` rules a
 ///   grammar has.
-/// - [`CharacteristicKind::SubruleGating`]: this characteristic is triggered by a
+/// - `CharacteristicKind::SubruleGating`: this characteristic is triggered by a
 ///   `RewriteSubruleDef` declaring `required_pos`/`required_mpr`/`excluded_mpr` — a *phonological*
 ///   subrule's own MPR/POS gate. `constructs.txt`'s `MPR features/groups` row is the closest
 ///   textual match, but every `coverage.csv` row actually tagged with it exercises a
@@ -152,7 +152,7 @@ use pg_grammar::model::{Grammar, MorphRuleOrder, MprGroupOutput, PhonRuleDef};
 ///   No row distinctly tags phonological-subrule-level gating today.
 ///
 /// One further judgment call, NOT an empty mapping: `constructs.txt`'s `"AffixProcessRule:
-/// subtraction/truncation"` row is folded into [`CharacteristicKind::Affixation`]'s mapping rather
+/// subtraction/truncation"` row is folded into `CharacteristicKind::Affixation`'s mapping rather
 /// than given its own `CharacteristicKind`. D1's characterizer (`capability.rs`) has no distinct
 /// characteristic for plain (single-part-LHS) truncation — [`CharacteristicKind::
 /// CircumfixOutputAction`]'s own trigger (`allomorph_drops_lhs_material`) explicitly early-returns
@@ -164,13 +164,13 @@ use pg_grammar::model::{Grammar, MorphRuleOrder, MprGroupOutput, PhonRuleDef};
 ///
 /// # G9 update
 /// The four characteristics that used to return an empty slice here — [`CharacteristicKind::
-/// LeftToRightRewrite`], [`CharacteristicKind::RightToLeftRewrite`], [`CharacteristicKind::
-/// SubruleGating`], [`CharacteristicKind::MultiTable`] — now map to four NEW `constructs.txt`
+/// LeftToRightRewrite`], `CharacteristicKind::RightToLeftRewrite`, [`CharacteristicKind::
+/// SubruleGating`], `CharacteristicKind::MultiTable` — now map to four NEW `constructs.txt`
 /// rows added upstream specifically to close this gap (this function's own previous doc explained
 /// exactly why each was a genuine, deliberate non-mapping; that reasoning is preserved below per
 /// arm, now paired with the row that was added to resolve it). No other characteristic's mapping
-/// changed. [`CharacteristicKind::MultiTable`] is exhaustively re-verified as the true empty-
-/// mapping was NOT a permanent property — see [`supported_uncovered`] for which rows (mapped or
+/// changed. `CharacteristicKind::MultiTable` is exhaustively re-verified as the true empty-
+/// mapping was NOT a permanent property — see `supported_uncovered` for which rows (mapped or
 /// not) still lack a *passing* fixture even after this mapping fix.
 pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
     use CharacteristicKind::*;
@@ -230,7 +230,7 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
         }
         // `capability.rs`'s `CharacteristicKind::StemName` own doc: this row
         // used to be one of the "genuine constructs.txt row with no CharacteristicKind" entries in
-        // [`ORPHAN_CONSTRUCT_ROWS`] below -- removed from there now that a characteristic exists.
+        // `ORPHAN_CONSTRUCT_ROWS` below -- removed from there now that a characteristic exists.
         // Real, already-merged fixtures already tag this row (`machine/conformance/languages/
         // fusional-realizational-morphology`, `machine/conformance/languages/
         // templatic-root-modification`).
@@ -243,13 +243,13 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
 }
 
 /// The `constructs.txt` rows that name a genuine construct with NO corresponding
-/// [`CharacteristicKind`] at all (the mirror image of the empty-slice arms [`construct_ids_for`]
+/// `CharacteristicKind` at all (the mirror image of the empty-slice arms `construct_ids_for`
 /// used to have before G9 — there, a characteristic existed with no row; here, a row exists with
 /// no characteristic). This crate's own discipline: **do not invent characteristics for
 /// these** — some are genuinely not compiler/FST-capability concerns at all. This function exists
 /// purely as living documentation (nothing calls it at runtime; no test asserts these ARE the only
 /// entries — that would require parsing `constructs.txt` at build time, which this crate
-/// deliberately does not do, per [`construct_ids_for`]'s own "hand-authored, verbatim" contract) —
+/// deliberately does not do, per `construct_ids_for`'s own "hand-authored, verbatim" contract) —
 /// see each tuple's second field for why no `CharacteristicKind` was added for it.
 ///
 /// **Correction:** "Stem names" and "Disjunctive allomorphs /
@@ -258,8 +258,8 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
 /// entry shape the disjunctive re-check engages, `LexEntryDef::allomorphs`, model.rs:777)
 /// this crate's capability ledger had simply never recorded at all — not, as the removed entries
 /// claimed, ordinary bookkeeping already folded into another characteristic. Both now have their
-/// own [`CharacteristicKind`] (`StemName`/`FreeFluctuation`, both `ConfirmOnly`) and a real
-/// [`construct_ids_for`] mapping above. This does not retract the reasoning for the OTHER entries
+/// own `CharacteristicKind` (`StemName`/`FreeFluctuation`, both `ConfirmOnly`) and a real
+/// `construct_ids_for` mapping above. This does not retract the reasoning for the OTHER entries
 /// still listed below (e.g. `MorphRuleDef::required_stem_name`, folded into `Affixation`/
 /// `RealizationalMorphology` for a real, still-valid double-counting reason — see
 /// `CharacteristicKind::StemName`'s own doc for the distinction).
@@ -333,7 +333,7 @@ pub const ORPHAN_CONSTRUCT_ROWS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Every [`CharacteristicKind`] the cross-check reasons over — literally `CharacteristicKind::ALL`,
+/// Every `CharacteristicKind` the cross-check reasons over — literally `CharacteristicKind::ALL`,
 /// not the narrower `Disposition::Proven` subset, which made the cross-check vacuous for most of
 /// the ledger. Kept as a named function (rather than every caller reaching
 /// for `CharacteristicKind::ALL` directly) so call sites read as making a deliberate scope choice,
@@ -342,16 +342,16 @@ pub fn supported_kinds() -> Vec<CharacteristicKind> {
     CharacteristicKind::ALL.to_vec()
 }
 
-/// One [`CharacteristicKind`]'s cross-check outcome (deliverable 2).
+/// One `CharacteristicKind`'s cross-check outcome (deliverable 2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoverageStatus {
-    /// At least one of [`construct_ids_for`]'s ids is in the caller's passing-covered set.
+    /// At least one of `construct_ids_for`'s ids is in the caller's passing-covered set.
     Covered,
-    /// [`construct_ids_for`] names at least one construct id, but none of them is in the caller's
+    /// `construct_ids_for` names at least one construct id, but none of them is in the caller's
     /// passing-covered set — the "marking anything supported without a covering, passing fixture"
     /// gap.
     Uncovered,
-    /// [`construct_ids_for`] returns an empty slice for this kind: no `constructs.txt` identifier
+    /// `construct_ids_for` returns an empty slice for this kind: no `constructs.txt` identifier
     /// corresponds to it at all, so no fixture -- however written -- could satisfy this cross-check
     /// for it today. A gap in the mapping contract itself, distinct from `Uncovered`. G9 closed
     /// this for the 4 kinds that used to be `Unmappable` for this reason; zero kinds are
@@ -361,11 +361,11 @@ pub enum CoverageStatus {
     Unmappable,
 }
 
-/// One row of the full report: a [`CharacteristicKind`], its [`Disposition`] (kept explicit and
+/// One row of the full report: a `CharacteristicKind`, its `Disposition` (kept explicit and
 /// distinct from `status` so a reader — or a later staged flip — can tell `Proven`'s hard-error
 /// rows apart from `ConfigPredicate`/`ConfirmOnly`'s "also needs a fixture, but not yet
 /// admission-proven" rows without re-deriving anything), its mapped construct id(s) (possibly
-/// empty), and the [`CoverageStatus`] that resolves to against the caller-supplied evidence set.
+/// empty), and the `CoverageStatus` that resolves to against the caller-supplied evidence set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoverageReportRow {
     pub kind: CharacteristicKind,
@@ -374,7 +374,7 @@ pub struct CoverageReportRow {
     pub construct_ids: &'static [&'static str],
 }
 
-/// Deliverable 2, THE CROSS-CHECK: one [`CoverageReportRow`] per [`supported_kinds`] entry,
+/// Deliverable 2, THE CROSS-CHECK: one `CoverageReportRow` per `supported_kinds` entry,
 /// resolved against `passing_covered_constructs` — the `constructs.txt` identifiers exercised by
 /// at least one word/parse whose engine output CURRENTLY MATCHES its fixture's declared ground
 /// truth (see this module's own top-doc "What 'passing' means here").
@@ -408,8 +408,8 @@ pub fn supported_coverage_report(
         .collect()
 }
 
-/// Convenience projection of [`supported_coverage_report`]: every [`CharacteristicKind`] whose
-/// status is NOT [`CoverageStatus::Covered`] (i.e. `Uncovered` or `Unmappable` — both are "not
+/// Convenience projection of `supported_coverage_report`: every `CharacteristicKind` whose
+/// status is NOT `CoverageStatus::Covered` (i.e. `Uncovered` or `Unmappable` — both are "not
 /// demonstrably covered by the evidence its own disposition demands today", the task's "gaps").
 /// `tests/conformance_coverage_gate.rs` asserts this is empty against the real conformance corpus
 /// and prints the full report either way.
@@ -421,11 +421,11 @@ pub fn supported_uncovered(passing_covered_constructs: &HashSet<&str>) -> Vec<Ch
         .collect()
 }
 
-/// Every `constructs.txt` row id mapped by MORE THAN ONE [`CharacteristicKind`] — computed
-/// directly from [`construct_ids_for`] over [`CharacteristicKind::ALL`], never a hardcoded list.
+/// Every `constructs.txt` row id mapped by MORE THAN ONE `CharacteristicKind` — computed
+/// directly from `construct_ids_for` over `CharacteristicKind::ALL`, never a hardcoded list.
 /// See this module's own "structural-witness gate" top-doc section for why this matters and what
 /// it is the mechanical half of. Deterministic order (`BTreeMap`) so callers/tests get stable
-/// output regardless of [`CharacteristicKind::ALL`]'s own declaration order.
+/// output regardless of `CharacteristicKind::ALL`'s own declaration order.
 pub fn shared_construct_ids() -> Vec<(&'static str, Vec<CharacteristicKind>)> {
     let mut by_id: std::collections::BTreeMap<&'static str, Vec<CharacteristicKind>> =
         std::collections::BTreeMap::new();
@@ -442,7 +442,7 @@ pub fn shared_construct_ids() -> Vec<(&'static str, Vec<CharacteristicKind>)> {
 
 /// One at-risk shared id's structural witness: a predicate over the LOADED grammar model that
 /// decides whether a grammar structurally exhibits `finer_kind` — independent of any
-/// `exercises:` tag. See [`registered_structural_witnesses`] for today's three, and each
+/// `exercises:` tag. See `registered_structural_witnesses` for today's three, and each
 /// predicate function's own doc for exactly where it reads its facts from.
 pub struct StructuralWitness {
     pub construct_id: &'static str,
@@ -462,9 +462,9 @@ impl std::fmt::Debug for StructuralWitness {
     }
 }
 
-/// [`CharacteristicKind::UnorderedMorphRuleApplication`]'s structural predicate: does any stratum
-/// in the loaded [`Grammar`] declare `morphologicalRuleOrder="unordered"`
-/// ([`MorphRuleOrder::Unordered`], `pg_grammar::load`'s own parse of that attribute)? Reads the
+/// `CharacteristicKind::UnorderedMorphRuleApplication`'s structural predicate: does any stratum
+/// in the loaded `Grammar` declare `morphologicalRuleOrder="unordered"`
+/// (`MorphRuleOrder::Unordered`, `pg_grammar::load`'s own parse of that attribute)? Reads the
 /// LOADED model (`StratumDef::mrule_order`), never the raw XML — the same field
 /// `tests/cover_unordered_morph_rules.rs` asserts against directly.
 pub fn grammar_has_unordered_stratum(g: &Grammar) -> bool {
@@ -473,13 +473,13 @@ pub fn grammar_has_unordered_stratum(g: &Grammar) -> bool {
         .any(|s| s.mrule_order == MorphRuleOrder::Unordered)
 }
 
-/// [`CharacteristicKind::Epenthesis`]'s structural predicate: does any phonological rewrite rule
-/// in the loaded [`Grammar`] have an EMPTY `PhoneticInput` — [`pg_grammar::model::RewriteRuleDef`]'s
+/// `CharacteristicKind::Epenthesis`'s structural predicate: does any phonological rewrite rule
+/// in the loaded `Grammar` have an EMPTY `PhoneticInput` — `pg_grammar::model::RewriteRuleDef`'s
 /// own doc: "empty pattern if absent (epenthesis rules)"? Reads the LOADED model
 /// (`RewriteRuleDef::lhs.nodes.is_empty()`), not a regex over `grammar.xml`'s `<PhoneticInput/>`
 /// tag — deliberately: the DTD's insertion-only convention is that an ABSENT/empty
-/// `<PhoneticInput>` element compiles to an empty [`pg_grammar::model::Pattern`] (zero
-/// [`pg_grammar::model::PatternNode`]s), and reading the compiled model is the same fact
+/// `<PhoneticInput>` element compiles to an empty `pg_grammar::model::Pattern` (zero
+/// `pg_grammar::model::PatternNode`s), and reading the compiled model is the same fact
 /// `tests/epenthesis_structural_route_containment.rs::fixture_has_epenthesis_and_composes_to_confirm_only`
 /// already asserts on directly, rather than this gate re-deriving its own independent (and
 /// possibly drifting) idea of what "empty" looks like in the source XML — e.g. a
@@ -492,9 +492,9 @@ pub fn grammar_has_empty_lhs_rewrite_rule(g: &Grammar) -> bool {
         .any(|pr| matches!(pr, PhonRuleDef::Rewrite(r) if r.lhs.nodes.is_empty()))
 }
 
-/// [`CharacteristicKind::CircumfixOutputAction`]'s structural predicate: does ANY allomorph of ANY
-/// morphological rule in the loaded [`Grammar`] classify as `Role::CircumfixPrefix` under
-/// [`crate::emit::classify_affix`] — the COMPILER'S OWN classifier, called here directly rather
+/// `CharacteristicKind::CircumfixOutputAction`'s structural predicate: does ANY allomorph of ANY
+/// morphological rule in the loaded `Grammar` classify as `Role::CircumfixPrefix` under
+/// `crate::emit::classify_affix` — the COMPILER'S OWN classifier, called here directly rather
 /// than re-implemented, so this gate and the compiler cannot drift apart. Deliberately scans
 /// EVERY allomorph of every rule (`MorphRuleDef::affix_allomorphs`), not just allomorph 0 —
 /// `crate::emit::rule_role` (the compiler's OWN candidate-selection path) classifies a rule by its
@@ -518,7 +518,7 @@ pub fn grammar_has_overwrite_mpr_group(g: &Grammar) -> bool {
         .any(|group| group.output == MprGroupOutput::Overwrite)
 }
 
-/// The live [`StructuralWitness`]es — one per [`shared_construct_ids`] entry.
+/// The live `StructuralWitness`es — one per `shared_construct_ids` entry.
 pub fn registered_structural_witnesses() -> Vec<StructuralWitness> {
     vec![
         StructuralWitness {
@@ -548,7 +548,7 @@ pub fn registered_structural_witnesses() -> Vec<StructuralWitness> {
 mod tests {
     use super::*;
 
-    /// Every [`CharacteristicKind`] must be reachable from [`construct_ids_for`] without panicking
+    /// Every `CharacteristicKind` must be reachable from `construct_ids_for` without panicking
     /// (the exhaustive-match discipline is enforced by the compiler already; this test just proves
     /// the function is callable end to end for the full `ALL` list, matching the same
     /// belt-and-suspenders style `capability.rs`'s own `all_kinds_have_a_default_disposition` test
@@ -560,7 +560,7 @@ mod tests {
         }
     }
 
-    /// [`supported_kinds`] must be EXACTLY `CharacteristicKind::ALL`, never narrowed back to the
+    /// `supported_kinds` must be EXACTLY `CharacteristicKind::ALL`, never narrowed back to the
     /// `Proven` subset — a narrowed set makes the cross-check vacuous for most of the ledger.
     #[test]
     fn supported_kinds_is_exactly_characteristic_kind_all() {
@@ -590,10 +590,10 @@ mod tests {
     }
 
     /// G9: after adding the 4 missing `constructs.txt` rows and mapping them, NO
-    /// [`CharacteristicKind`] is `Unmappable` any more — every one of the 20 rows now has a real
+    /// `CharacteristicKind` is `Unmappable` any more — every one of the 20 rows now has a real
     /// `constructs.txt` identifier. This is a hard, unconditional assertion (unlike `Covered`,
     /// which depends on caller-supplied evidence sets): `Unmappable` depends only on
-    /// [`construct_ids_for`] being non-empty.
+    /// `construct_ids_for` being non-empty.
     #[test]
     fn zero_unmappable_after_g9() {
         let covered: HashSet<&str> = HashSet::new();
@@ -615,7 +615,7 @@ mod tests {
         }
     }
 
-    /// Feeding in every construct id [`construct_ids_for`] ever names must make every kind
+    /// Feeding in every construct id `construct_ids_for` ever names must make every kind
     /// `Covered` (all 20 are mappable after G9).
     #[test]
     fn fully_evidenced_sets_cover_every_kind() {
@@ -654,7 +654,7 @@ mod tests {
         assert_eq!(overwrite_row.status, CoverageStatus::Covered);
     }
 
-    /// [`supported_uncovered`] is exactly the non-`Covered` projection of the same report.
+    /// `supported_uncovered` is exactly the non-`Covered` projection of the same report.
     #[test]
     fn supported_uncovered_matches_report_non_covered_rows() {
         let covered: HashSet<&str> = HashSet::new();
@@ -677,7 +677,7 @@ mod tests {
     // `conformance_coverage_gate.rs`'s own top-doc already established for `supported_kinds`).
     // ---------------------------------------------------------------------------------------
 
-    /// [`shared_construct_ids`] must find the known four shared ids today (belt-and-suspenders on
+    /// `shared_construct_ids` must find the known four shared ids today (belt-and-suspenders on
     /// top of the generic check below, which is what actually protects against a NEW one) —
     /// pinning today's exact shape so a silent change to `construct_ids_for` shows up here too.
     #[test]
@@ -720,7 +720,7 @@ mod tests {
     }
 
     /// **The generic drift guard.** Every shared id must have a registered
-    /// [`StructuralWitness`] — computed here with NO hardcoded id list on either side, so a
+    /// `StructuralWitness` — computed here with NO hardcoded id list on either side, so a
     /// future `construct_ids_for` edit that introduces a new coarser/finer shared-id pair with no
     /// structural predicate fails LOUDLY, rather than silently reintroducing the exact inheritance
     /// risk this whole gate exists to close.
@@ -758,8 +758,8 @@ mod tests {
         );
     }
 
-    /// Each registered witness's [`StructuralWitness::construct_id`] must actually be one of
-    /// [`construct_ids_for`]'s ids for its own [`StructuralWitness::finer_kind`] — catches a
+    /// Each registered witness's `StructuralWitness::construct_id` must actually be one of
+    /// `construct_ids_for`'s ids for its own `StructuralWitness::finer_kind` — catches a
     /// witness accidentally pointing at the wrong kind's id.
     #[test]
     fn each_registered_witness_construct_id_matches_its_finer_kind() {

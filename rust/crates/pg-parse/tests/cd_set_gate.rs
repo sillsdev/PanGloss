@@ -3,14 +3,14 @@
 //! as exactly the class's real members, never the whole char-def table.
 //!
 //! Two hand-built grammars, spanning `pg-rules` (synthesis) and `pg-parse` (surface rendering):
-//! - [`zero_feat_segments_class_renders_only_its_members`] mirrors Sena's actual situation: a
+//! - `zero_feat_segments_class_renders_only_its_members` mirrors Sena's actual situation: a
 //!   grammar with **zero phonological features**, where the pre-fix lane-only representation was
 //!   *no constraint at all* (every char-def's lanes are `&[]`, so `flat_unifiable(&[],&[])` is
 //!   vacuously true for the entire table) — the confirmed mechanism behind the Sena "mbali"
 //!   full-inventory-bracket bug (`rust-conversion.md` §13.1 Tier-1 #3, `parity-out/audit/
 //!   C-loader-pipeline.md` Detail #1).
-//! - [`feature_grammar_segments_class_narrows_tighter_than_lane_union`] and
-//!   [`feature_grammar_feature_class_behavior_is_unchanged`] mirror Indonesian/Amharic: a
+//! - `feature_grammar_segments_class_narrows_tighter_than_lane_union` and
+//!   `feature_grammar_feature_class_behavior_is_unchanged` mirror Indonesian/Amharic: a
 //!   phonological-feature-bearing table where a `Segments`-kind class must narrow to *exactly* its
 //!   explicit members (tighter than the old lane-union over-approximation, which would have also
 //!   admitted a same-lane non-member), while a `Feature`-kind class's lane-unification rendering is

@@ -278,7 +278,7 @@ impl AssessmentReport {
 
     /// The serialized artifact, with stable source keys interned into `keyTable`.
     ///
-    /// `reportId` is present only once it has been computed; [`ReportDraft::finish`] calls this
+    /// `reportId` is present only once it has been computed; `ReportDraft::finish` calls this
     /// with the field still empty to obtain the preimage.
     pub fn to_value(&self) -> Value {
         let table = KeyTable::build(&self.draft.cases);

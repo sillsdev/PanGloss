@@ -9,7 +9,7 @@
 //! and rounding rules are genuinely fiddly to reproduce. Rather than ship a subtly wrong
 //! implementation under a digest that is supposed to be authoritative, canonical assessment
 //! artifacts contain **no floating-point values at all** — durations are integer microseconds, and
-//! every other quantity is a count. [`canonicalize`] returns [`JcsError::FloatNotPermitted`] rather
+//! every other quantity is a count. `canonicalize` returns `JcsError::FloatNotPermitted` rather
 //! than guessing. If a future artifact genuinely needs a real number, that decision comes with the
 //! obligation to implement ECMAScript number formatting and prove it against the RFC's test
 //! vectors.

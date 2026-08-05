@@ -19,14 +19,14 @@
 //! (module doc's own `ruleFeatures` correspondence).
 //!
 //! Needs `1 + 2*k` distinct segments from its own table (1 shared base character + one off/on pair
-//! per gated rule) -- [`crate::render::render_indexed`]'s caller is responsible for sizing
-//! `segment_inventory` up to at least this (mirrors [`crate::build::circumfix`]'s own "pad the
+//! per gated rule) -- `crate::render::render_indexed`'s caller is responsible for sizing
+//! `segment_inventory` up to at least this (mirrors `crate::build::circumfix`'s own "pad the
 //! table" convention for its own affix material).
 
 use crate::build::tables::TableSpec;
 use crate::ids::IdMinter;
 
-/// Everything [`build`] produces: the `k` gated `<PhonologicalRule>`s, the
+/// Everything `build` produces: the `k` gated `<PhonologicalRule>`s, the
 /// `<MorphologicalPhonologicalRuleFeatures>` block declaring their `mprJ` ids, and `2^k`
 /// `<LexicalEntry>` elements realizing every gating-key combination.
 #[derive(Debug, Clone)]
@@ -58,7 +58,7 @@ pub fn bit_set(i: usize, j: usize) -> bool {
 /// Build `k` (`>= 1`) independent gated rules and `2^k` entries realizing every combination,
 /// referencing part of speech `pos_xml_id` and drawing marker/base material from `table`'s own
 /// segments (must have at least `1 + 2*k` -- module doc; panics otherwise, mirroring
-/// [`crate::build::circumfix::build_circumfixes`]'s own non-empty-affix-material precondition).
+/// `crate::build::circumfix::build_circumfixes`'s own non-empty-affix-material precondition).
 pub fn build(k: usize, pos_xml_id: &str, table: &TableSpec, ids: &mut IdMinter) -> GatingBuild {
     assert!(k >= 1, "build_gating: k must be >= 1");
     let needed = 1 + 2 * k;

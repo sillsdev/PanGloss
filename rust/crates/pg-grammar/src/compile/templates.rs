@@ -3,7 +3,7 @@
 //!
 //! A template is skipped entirely if none of its slots end up with at least one loaded affix
 //! rule (HCLoader.cs:297-299: `slots.Where(s => s.Affixes.Any(msa => m_morphemes.ContainsKey
-//! (msa))`) — this compiler mirrors that by dropping any slot whose [`Acc::slot_rules`] entry is
+//! (msa))`) — this compiler mirrors that by dropping any slot whose `Acc::slot_rules` entry is
 //! empty/absent, then dropping the whole template if every slot was dropped.
 
 use hashbrown::HashMap;

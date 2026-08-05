@@ -35,7 +35,7 @@
 //! Two more roots (`eL`/`eM`) isolate the group-AWARE `all`-type semantics directly, independent of
 //! `out_mpr` timing: `eL` carries `ruleFeatures="mprX"` (PARTIAL group membership -- missing
 //! `mprY`), `eM` carries `ruleFeatures="mprX mprY"` (FULL group membership). Applying `mrQ` directly
-//! to each (no `mrP` involved at all) proves [`Grammar::mpr_group_ok`]'s `all`-type fold correctly
+//! to each (no `mrP` involved at all) proves `Grammar::mpr_group_ok`'s `all`-type fold correctly
 //! excludes the partial match (a flat, group-UNAWARE overlap test would have wrongly admitted `eL`,
 //! since `{mprX,mprY}` overlaps `{mprX}`) -- the group-(un)awareness contract, from the
 //! ordinary-affix-rule side rather than the compounding side's own `compound_match`
@@ -321,7 +321,7 @@ fn all_type_group_excludes_partial_match_like_confirm() {
 /// final accumulated state under `Append` (set union is commutative), but a DIFFERENT final state
 /// under `Overwrite` (each new output retracts every OTHER member of its own group first) --
 /// literally the property `mpr-group.append-output`'s `ConfirmOnly` promotion depends on, and
-/// which [`pg_foma::capability::MprGroupOverwritePredicate`] never gets to assume for
+/// which `pg_foma::capability::MprGroupOverwritePredicate` never gets to assume for
 /// `mpr-group.overwrite-output`.
 #[test]
 fn append_output_is_order_invariant_overwrite_output_is_not() {

@@ -1,7 +1,7 @@
 //! MPR ("morphological/phonological rule") feature groups: inflection classes, exception
 //! features, and lexEntryInflTypes — `HCLoader.LoadLanguage` HCLoader.cs:168-192. All three
 //! populate ONE shared bit space (`Language.MprFeatures`/`MprSet`, capped at 64 total, mirroring
-//! [`mod@crate::load`]'s own >64 MPR-feature lint), each wrapped in its own [`MprGroup`] with the
+//! `mod@crate::load`'s own >64 MPR-feature lint), each wrapped in its own `MprGroup` with the
 //! fixed match/output semantics HCLoader always uses (never authored, since the legacy HC-XML
 //! `<MorphologicalPhonologicalRuleFeatureGroup>` element has no snapshot analog — these three
 //! groups are the *entire* set of `MprGroup`s a `compile_project`-built grammar ever has).

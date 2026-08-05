@@ -20,7 +20,7 @@
 //! would pass under a wrong-table resolution is the exact failure the whole suite already had").
 //! This file proves the fixture's own natural classes are genuinely table-dependent, by
 //! constructing the "resolved against the wrong table" comparison DIRECTLY, via
-//! [`pg_rules::bridge::PatternBridge`]'s own public `with_table`/`compile_pattern` API -- the exact
+//! `pg_rules::bridge::PatternBridge`'s own public `with_table`/`compile_pattern` API -- the exact
 //! seam `nat_class_lanes`'s `Segments` branch lives behind -- rather than by editing any crate's
 //! `src/` (this task does not own `pg-rules/src`, and `RuleCache`/`synthesize_with_mpr_cached`, the
 //! real per-word cached call path, are `pub(crate)`-only inside `pg-rules`, unreachable from this

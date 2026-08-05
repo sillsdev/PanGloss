@@ -10,7 +10,7 @@
 //! union. A fix that passes a single-group fixture (the `compounding-non-recursive` fixture RED-1
 //! uses declares no phonological rules at all, so it partitions into exactly one group) and fails
 //! on a partitioned grammar is the likely failure mode, which is what
-//! [`compound_levels_are_grammar_wide_under_a_real_gate_partition`] exists to catch.
+//! `compound_levels_are_grammar_wide_under_a_real_gate_partition` exists to catch.
 //!
 //! The other half of the same constraint is that the BARE-ROOT lexicon must stay partitioned --
 //! `crate::gate`'s "groups are lexically disjoint by construction" argument for why unioning the

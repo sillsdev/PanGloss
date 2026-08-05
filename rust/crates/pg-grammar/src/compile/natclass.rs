@@ -35,16 +35,16 @@
 //! and are not the project's last-declared unnamed class, so HCLoader's own export never surfaces
 //! them, while `pg-fwdata`'s eager extraction does.
 //!
-//! [`compact_to_referenced`] reconciles this the same way [`build`] already reconciles the
+//! `compact_to_referenced` reconciles this the same way `build` already reconciles the
 //! synthetic-boundary-vs-real-inventory difference for phonemes: build every declared natural
 //! class up front (as before — every other compile step still needs the full `by_guid`/`by_name`
 //! lookup to resolve a reference, wherever in the snapshot it's authored), then, once the whole
 //! `Grammar` is otherwise fully assembled, keep (a) every named class, (b) the synthetic "Any"
-//! class, (c) the last-declared unnamed class ([`NatClassBuild::last_unnamed`]), and (d) every
+//! class, (c) the last-declared unnamed class (`NatClassBuild::last_unnamed`), and (d) every
 //! *other* natural class actually referenced somewhere structurally (every `SimpleContext` —
 //! patterns, environments, phonological rewrite/metathesis rules, compounding subrules,
 //! root-allomorph environments) — dropping the rest and remapping survivors to dense ids. One
-//! known, narrow gap in (d): [`crate::segment::segment_with_patterns`]'s `[ClassName]`-in-a-root-
+//! known, narrow gap in (d): `crate::segment::segment_with_patterns`'s `[ClassName]`-in-a-root-
 //! shape bracket notation resolves a natural class straight into a raw `CdSet` at segmentation
 //! time (see that function's own doc) rather than leaving a `NatClassId` anywhere in the compiled
 //! `Grammar` for this sweep to find — an *unnamed* natural class reachable *only* that way would
@@ -77,7 +77,7 @@ pub(crate) struct NatClassBuild {
     pub by_name: HashMap<String, NatClassId>,
     pub any: NatClassId,
     /// The *last*-declared natural class (in snapshot order) whose name/abbreviation is empty, if
-    /// any — see [`compact_to_referenced`]'s doc: `m_naturalClassLookup` (HCLoader.cs:88-90) is a
+    /// any — see `compact_to_referenced`'s doc: `m_naturalClassLookup` (HCLoader.cs:88-90) is a
     /// `Dictionary<string, IPhNaturalClass>` keyed by abbreviation text, last-write-wins, so
     /// exactly the last-declared unnamed class ends up at key `""` and gets eagerly force-loaded
     /// alongside every other distinct abbreviation — independent of whether anything actually
@@ -276,7 +276,7 @@ fn walk_affix_allos_mut(allos: &mut [AffixAllomorphDef], f: &mut dyn FnMut(&mut 
     }
 }
 
-/// Visits every [`NatClassId`] occurrence anywhere in `grammar`'s structural data (see this
+/// Visits every `NatClassId` occurrence anywhere in `grammar`'s structural data (see this
 /// module's top doc for the full rationale and the one documented gap). Used both to *collect*
 /// the referenced set (the closure just records ids) and to *rewrite* it in place (the closure
 /// remaps each id) — one traversal, so the two passes can never drift apart on which fields count.
@@ -325,14 +325,14 @@ fn walk_all_natclass_ids_mut(grammar: &mut Grammar, f: &mut dyn FnMut(&mut NatCl
 }
 
 /// Drops every natural class in `grammar.natural_classes` that HCLoader would never load (see
-/// this module's top doc for the exact rule), remapping every surviving [`NatClassId`] to a dense
+/// this module's top doc for the exact rule), remapping every surviving `NatClassId` to a dense
 /// index. Kept unconditionally: `any_nc` (the synthetic "Any" class, HCLoader.cs:200-202),
 /// `last_unnamed` (the project's last-declared unnamed class — the sole survivor of
 /// `m_naturalClassLookup`'s `""`-keyed last-write-wins collision, HCLoader.cs:88-90), and every
 /// *named* class (`grammar.natural_classes[..].name` non-empty — HCLoader loads every distinct
 /// abbreviation eagerly, HCLoader.cs:2736-2741, so a name is never a reachability question).
 /// Everything else (an unnamed class that is neither `any_nc` nor `last_unnamed`) is kept only if
-/// [`walk_all_natclass_ids_mut`] actually finds a structural reference to it.
+/// `walk_all_natclass_ids_mut` actually finds a structural reference to it.
 pub(crate) fn compact_to_referenced(
     grammar: &mut Grammar,
     any_nc: NatClassId,

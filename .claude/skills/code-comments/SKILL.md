@@ -122,9 +122,39 @@ above wherever you can reach it:
 | Tier | Looks like | What to do | Who checks it |
 |---|---|---|---|
 | **Executable** | "this composes to `ConfirmOnly`", "`qp` becomes `pq` at a final boundary" | a doctest, or **`pinned by `<test_name>``** | `cargo test`; the citation's *name* is verified against every item in the tree by `comment-hygiene.ps1` |
-| **Linked** | any claim about a *different* entity: "X refuses Y", "the only caller is Z", "unreachable in practice" | write the entity as an intra-doc link — ``[`crate::lower::lower_span`]`` | `rustdoc::broken_intra_doc_links` via `pg.ps1 -Mode doc` |
+| **Cited** | durable external knowledge: a paper, an algorithm, an upstream issue | a link to `docs/research/*.md` or a URL | `docs-link-broken`; the target does not move on its own |
+| **Named** | any claim about a *different* entity: "X refuses Y", "the only caller is Z" | just backtick it — `` `crate::lower::lower_span` ``. **Do not add an intra-doc link.** | nothing, deliberately — see below |
 | **Durable external** | a paper, an algorithm name, a DTD element, an upstream issue, foma's `.#.` semantics | keep it, one to three lines | nothing needed — it does not rot |
 | **Project state** | plans, dates, wiring status, history | delete | the hygiene ratchet |
+
+## Do not write code-to-code intra-doc links
+
+**Default to a backtick, not `[`a link`]`.** This reverses an earlier version of this file, and the
+reversal is evidence-driven: turning on `broken_intra_doc_links` for the first time found **551 broken
+links**, and nobody had noticed any of them. A navigation aid that can rot that far unobserved was not
+being navigated with.
+
+The argument for links, stated fairly, because there is exactly one: rust-analyzer resolves intra-doc
+links, so `[`Foo`]` is go-to-definition-able from a comment while `` `Foo` `` is inert text. That is
+real. It is also worth roughly one keystroke over a workspace-symbol search, and it buys nothing at all
+for the reader this repo optimizes for — an agent greps, and a link and a backtick are identical to it.
+Against that: every link is a permanent coupling to another item's exact path, and it validates only
+that the path resolves, never that the sentence is true. `[`slot_candidates`]` kept resolving
+throughout the eight days its surrounding paragraph was false.
+
+The case that WOULD justify links is a published crate whose readers browse rendered HTML on docs.rs
+with no editor. That is not this workspace. Revisit this rule if any crate here is ever published.
+
+So: **a link to research is worth keeping; a link to code is redundant with the LSP.** Delete the
+brackets, keep the name in backticks. Deleting a link cannot break the build and permanently removes a
+rot surface — which is why the correct response to a broken code link is almost always to remove it,
+not to repair it.
+
+Two corollaries:
+- **Brackets inside plain `//` comments are already meaningless.** Rustdoc reads only `///` and `//!`,
+  so `[`Foo`]` in an ordinary comment renders as literal brackets and is never checked. Pure noise.
+- **A link no longer buys comment length** (see below). It never should have: rewarding links was an
+  incentive to add exactly the thing that rots.
 
 **Two hard coverage limits, because a gate you misjudge is worse than one you know is partial.**
 
@@ -152,8 +182,13 @@ reason is what no gate catches, and a paragraph of prose reasoning is how you ge
 ## Length: three lines, and longer costs you an anchor
 
 **A comment block of three lines or fewer needs no justification. Over three lines, it must carry an
-anchor a machine can check** — an intra-doc link, a ``` doctest, or a path under `docs/research/`
-that exists. `rust\tools\comment-hygiene.ps1` enforces this as `comment-block-too-long`.
+anchor a machine can check** — a ``` doctest, a `pinned by `<test_name>`` citation, or a path under
+`docs/research/` that exists. `rust\tools\comment-hygiene.ps1` enforces this as `comment-block-too-long`.
+
+**An intra-doc link is NOT an anchor**, though it used to be. Two reasons it was removed: it only ever
+proved a path resolved, so it licensed length without licensing truth; and making it an anchor created
+an incentive to add links at exactly the moment we established that code links should be deleted. The
+three remaining anchors all survive semantic drift, which a link never did.
 
 Three, not one, and the reason is specific: **one claim plus the falsifier that keeps it honest.**
 One line holds a claim and nothing else, and a claim with no named falsifier is precisely what went

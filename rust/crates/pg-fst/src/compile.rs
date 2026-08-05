@@ -1,11 +1,11 @@
 //! Decoupled pattern compiler: a minimal local pattern description → Thompson NFA → optimized
 //! CSR FST. This crate deliberately does **not** depend on `pg-grammar`; the M3 loader will
-//! translate `model::Pattern`/`PatternNode` into [`CompileInput`].
+//! translate `model::Pattern`/`PatternNode` into `CompileInput`.
 //!
 //! The node set is exactly what `PatternNode` needs (plan §5.4): single-segment constraints,
 //! concatenation (a node sequence), alternation, capture groups, and min/max quantifiers
 //! including the unbounded (Kleene) case. Anchoring is expressed by the `start_anchor`/`end_anchor`
-//! flags on [`crate::traverse::Transduce`] exactly as C# `Matcher` passes
+//! flags on `crate::traverse::Transduce` exactly as C# `Matcher` passes
 //! `AnchoredToStart`/`AnchoredToEnd` to `Fst.Transduce` — that is how `PatternNode::Anchor`
 //! surfaces, so no anchor node kind is needed here.
 
@@ -18,7 +18,7 @@ pub const ENTIRE_MATCH: &str = "*entire*";
 /// lanes (§5.3); an empty lane slice is the "matches any segment" constraint.
 #[derive(Clone, Debug)]
 pub enum CompileNode {
-    /// A single-segment arc constraint (match = [`pg_featstruct::flat_unifiable`]).
+    /// A single-segment arc constraint (match = `pg_featstruct::flat_unifiable`).
     Constraint(Vec<u64>),
     /// A named capture group around a child sequence (C# `CreateTag` start/end).
     Group {

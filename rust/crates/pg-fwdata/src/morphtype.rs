@@ -1,4 +1,4 @@
-//! The well-known `MoMorphType` GUID → [`MorphType`] mapping table.
+//! The well-known `MoMorphType` GUID → `MorphType` mapping table.
 //!
 //! `docs/snapshot-format.md` §5 ("MorphType") explains why this table lives here rather than in
 //! `pg-snapshot`: the actual `MoMorphTypeTags.kguidMorph*` constants are compiled into the
@@ -9,11 +9,11 @@
 //! seeds this list from a fixed installer XML file at project-creation time, so these GUIDs are
 //! constant across every FieldWorks project, not user data.
 //!
-//! **Model gap**: FieldWorks' well-known list has *nineteen* entries; [`pg_snapshot::MorphType`]
+//! **Model gap**: FieldWorks' well-known list has *nineteen* entries; `pg_snapshot::MorphType`
 //! is a closed 17-variant enum that has no `Simulfix`/`Suprafix` variant (ablaut/suprasegmental
 //! morph types, unused by both fixture projects). An allomorph/entry whose morph type resolves
 //! to one of those two GUIDs is reported as an import warning and skipped, exactly like an
-//! unrecognized GUID — see [`lookup`].
+//! unrecognized GUID — see `lookup`.
 
 use pg_snapshot::MorphType;
 
@@ -107,7 +107,7 @@ const WELL_KNOWN: &[(&str, &str, MorphType)] = &[
     ),
 ];
 
-/// The two well-known morph types with no [`MorphType`] variant (see module docs).
+/// The two well-known morph types with no `MorphType` variant (see module docs).
 const UNSUPPORTED: &[(&str, &str)] = &[
     ("d7f713dc-e8cf-11d3-9764-00c04f186933", "simulfix"),
     ("d7f713de-e8cf-11d3-9764-00c04f186933", "suprafix"),
@@ -116,7 +116,7 @@ const UNSUPPORTED: &[(&str, &str)] = &[
 /// Outcome of resolving an `MoForm.MorphTypeRA`/`MoMorphType` GUID.
 pub enum MorphTypeLookup {
     Known(MorphType),
-    /// A well-known FieldWorks morph type this format's [`MorphType`] enum has no variant for
+    /// A well-known FieldWorks morph type this format's `MorphType` enum has no variant for
     /// (see module docs) — callers should warn and skip whatever referenced it.
     UnsupportedWellKnown(&'static str),
     /// Not one of the well-known GUIDs at all.

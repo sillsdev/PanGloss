@@ -2,7 +2,7 @@
 //!
 //! ADR 0006. An identity carries the keys themselves, never a reference resolved against a compiled
 //! model, so an analysis stays comparable after the grammar that produced it deleted the morpheme,
-//! renamed it, or stopped compiling entirely. [`crate::WordAnalysis`]'s own `morpheme_ids` and
+//! renamed it, or stopped compiling entirely. `crate::WordAnalysis`'s own `morpheme_ids` and
 //! `pos_id` are dense compiler-assigned ordinals that shift whenever authored content is added or
 //! reordered (`Grammar::morphemes` is in document order, and so is the part-of-speech symbol
 //! table), which is exactly why they cannot serve as identity across two compilations.
@@ -20,7 +20,7 @@
 //! assessment/reporting layer, so `pg-foma -> pg-assess` is a backwards dependency and forking the
 //! projection into `pg-foma` would leave two definitions of "the same analysis" free to drift —
 //! the one failure this module exists to prevent. This module imports only `pg_grammar::model` and
-//! this crate's own [`crate::WordAnalysis`], which it is the natural owner of, and BOTH `pg-foma`
+//! this crate's own `crate::WordAnalysis`, which it is the natural owner of, and BOTH `pg-foma`
 //! and `pg-assess` already depend on `pg-parse`. `pg-assess` re-exports it (`pub use
 //! pg_parse::identity`), so its public API, schemas, and call sites are unchanged.
 
@@ -39,7 +39,7 @@ pub const IDENTITY_PROFILE: &str = "pangloss.machine-word-analysis/v1";
 
 /// A complete structured analysis identity.
 ///
-/// The serde representation and [`Self::to_canonical_value`] are deliberately the same shape: a
+/// The serde representation and `Self::to_canonical_value` are deliberately the same shape: a
 /// suite's expectations are deserialized identities, and they must digest identically to identities
 /// the parser produced or every expectation would silently miss.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

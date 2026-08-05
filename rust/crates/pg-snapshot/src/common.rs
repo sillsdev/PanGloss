@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// A FieldWorks GUID, always rendered lowercase-hyphenated (the canonical `Guid.ToString()`
 /// format, e.g. `"3c6ce6a1-3d3b-4c3c-9e3e-9b5a6d9d0f1a"`). Every cross-reference within a
-/// [`crate::Snapshot`] is one of these — never an `Hvo` (FieldWorks' in-session integer id,
+/// `crate::Snapshot` is one of these — never an `Hvo` (FieldWorks' in-session integer id,
 /// which is *not* stable across loads and therefore unsuitable as a durable interchange key;
 /// see `docs/fwdata-import-plan.md` §3).
 ///

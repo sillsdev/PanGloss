@@ -1,9 +1,9 @@
 //! Fresh port of `hc-hybrid/src/replay.rs`'s confirm half (module doc there, `replay.rs:1-49`,
 //! esp. the quirk-8 `RuleRef` mapping) — attribution comments throughout, NO dependency on
 //! `hc-hybrid` (that crate is being sunset, plan D8). Adapted to this crate's own
-//! [`crate::tags::Candidate`] (the FST-tag-decoded candidate shape, plan D2 — `MorphemeId`
+//! `crate::tags::Candidate` (the FST-tag-decoded candidate shape, plan D2 — `MorphemeId`
 //! sequence + `root_index`, not `hc-hybrid/src/walk.rs`'s own candidate type) and to plan D4's
-//! multiplicity recovery: [`confirm_all`] collects EVERY matching analysis the pinned
+//! multiplicity recovery: `confirm_all` collects EVERY matching analysis the pinned
 //! `parse_word_selected` outcome contains, not just the first the way the original's `confirm`
 //! (`replay.rs:118-192`, `.find()`) did — the engine returns a genuine multiset (Sena `mbali`: 8),
 //! and D4 requires restoring it rather than silently collapsing to one hit per candidate.
@@ -26,16 +26,16 @@ use crate::tags::Candidate;
 
 /// Per-candidate buckets of confirmed matches: outer index parallels the candidate slice,
 /// inner entries are `(analysis, morpheme-join display string, surface display string)` —
-/// see [`confirm_batch`]'s doc for why matches are collected this way.
+/// see `confirm_batch`'s doc for why matches are collected this way.
 type ConfirmedBuckets = Vec<Vec<(EngineAnalysis, String, String)>>;
 
 /// How many rules beyond a chunk's largest member's own rule set the chunk's union may admit
-/// (see [`confirm_batch`]'s doc). 0 = exact-filter grouping (never merges rule-diverse
+/// (see `confirm_batch`'s doc). 0 = exact-filter grouping (never merges rule-diverse
 /// candidates); large = per-root-set full union (merges everything, risks near-cross-product
 /// searches on rule-diverse words). 3 measured best on the Sena 40-word set.
 pub const RULE_UNION_SLACK: usize = 3;
 
-/// True execution topology for one [`confirm_batch_with_diagnostics`] call. `confirmation_groups`
+/// True execution topology for one `confirm_batch_with_diagnostics` call. `confirmation_groups`
 /// counts fused internal work groups; each group currently performs exactly one restricted
 /// `Morpher::parse_word_selected` call, counted separately in `confirmation_calls`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -54,7 +54,7 @@ pub(crate) struct ConfirmBatchDiagnostics {
     pub confirmation_steps: usize,
 }
 
-/// Which grammar object owns a given [`MorphemeId`] — ported from `hc-hybrid/src/replay.rs`'s
+/// Which grammar object owns a given `MorphemeId` — ported from `hc-hybrid/src/replay.rs`'s
 /// `MorphemeOwner` (`replay.rs:70-74`) verbatim. See that module's doc for the full quirk-8
 /// rationale (why a `CompoundingRule` never owns a morpheme and so is never this enum's `MRule`
 /// variant).
@@ -90,7 +90,7 @@ fn owner_of(owners: &[Option<MorphemeOwner>], m: MorphemeId) -> Option<MorphemeO
 }
 
 /// `replay.rs::analyses_match` (`replay.rs:200-208`): positional identity comparison, ported
-/// verbatim except for the candidate type (this crate's [`Candidate`] instead of `hc-hybrid`'s).
+/// verbatim except for the candidate type (this crate's `Candidate` instead of `hc-hybrid`'s).
 /// Plan §2's "positional match trap" — element-wise, not set-wise; morphemes in the wrong order or
 /// wrong `root_index` is a silent loss, never a false negative match.
 fn analyses_match(wa: &EngineAnalysis, candidate: &Candidate) -> bool {
@@ -170,13 +170,13 @@ fn resolve_pins(owners: &[Option<MorphemeOwner>], candidate: &Candidate) -> Opti
 }
 
 /// Census helper for candidate-failure attribution: run exactly the same
-/// restricted reparse [`confirm_all`] would for ONE candidate (same pin resolution via
-/// [`resolve_pins`], same tight per-candidate filter — root set + exact rule set, no slack) but
-/// return the raw [`ParseOutcome`] instead of routing matches into a bucket, and accept a
-/// caller-supplied [`TraceSink`] so the census can classify *why* a failing candidate failed
+/// restricted reparse `confirm_all` would for ONE candidate (same pin resolution via
+/// `resolve_pins`, same tight per-candidate filter — root set + exact rule set, no slack) but
+/// return the raw `ParseOutcome` instead of routing matches into a bucket, and accept a
+/// caller-supplied `TraceSink` so the census can classify *why* a failing candidate failed
 /// (validity-gate `FailureReason`, via the trace tree, vs. `candidates_generated == 0` meaning
 /// the unapply/synthesis cascade never produced a single candidate to test) — WITHOUT touching
-/// the timed paths ([`confirm_batch`]/[`confirm_all`], both still `NoopSink`-only, unchanged).
+/// the timed paths (`confirm_batch`/`confirm_all`, both still `NoopSink`-only, unchanged).
 /// `None` when the candidate's pins don't resolve (mirrors `confirm_all`'s empty-result case for
 /// the same inputs — `resolve_pins`'s doc explains the two rejection cases).
 ///
@@ -217,7 +217,7 @@ pub fn confirm_one_traced(
 /// roots), and each group gets ONE `parse_word_selected` run whose filters admit the union of
 /// that group's rules; returned analyses are routed to the candidate they positionally match.
 /// Returns one bucket per input candidate (parallel by index), each bucket in its group
-/// outcome's own order — content-identical to calling [`confirm_all`] per candidate.
+/// outcome's own order — content-identical to calling `confirm_all` per candidate.
 ///
 /// Grouping granularity — four strategies measured on the Sena 40-word set (confirm totals):
 /// per-candidate 400ms; one global union 339ms but REDISTRIBUTED cost (`kutongera` 5x slower —
@@ -231,7 +231,7 @@ pub fn confirm_one_traced(
 /// 1. candidates are grouped by root set (designated root + extra compound roots — the lexicon
 ///    pin stays exactly as tight as per-candidate confirm), then greedily sub-chunked so that a
 ///    chunk's rule-set UNION never exceeds its largest member's own rule set by more than
-///    [`RULE_UNION_SLACK`] rules. Homogeneous candidate families (shared rule core, the antumira/
+///    `RULE_UNION_SLACK` rules. Homogeneous candidate families (shared rule core, the antumira/
 ///    kakamwe shape) merge into a few parses; rule-diverse families (the kutongera shape) fall
 ///    back toward tight per-candidate parses automatically.
 /// 2. **Cross-root-set fusion** (the "identical morpheme-derivation, different

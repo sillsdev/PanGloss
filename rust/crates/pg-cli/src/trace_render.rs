@@ -1,4 +1,4 @@
-//! Rendering a [`TreeTraceSink`] for `pangloss parse --trace`.
+//! Rendering a `TreeTraceSink` for `pangloss parse --trace`.
 //!
 //! Two formats, deliberately different design points: **text** is an indented tree, one line
 //! per node, shaped to be visually diffable against a hand-transcribed or tooling-extracted C#
@@ -57,7 +57,7 @@ fn template_name(g: &Grammar, id: pg_grammar::model::TemplateId) -> String {
         .unwrap_or_else(|| format!("template#{}", id.0))
 }
 
-/// Render a [`Word`]'s shape as plain surface text, using its OWN `stratum`'s character table
+/// Render a `Word`'s shape as plain surface text, using its OWN `stratum`'s character table
 /// (matching `pg-parse::Morpher::surface_of`'s convention) -- correct for every node regardless of
 /// which stratum produced it (an analysis-side word mid-derivation is rendered in its own stratum's
 /// table, not forced through the surface one).

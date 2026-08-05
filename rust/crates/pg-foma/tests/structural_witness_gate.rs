@@ -3,10 +3,10 @@
 //!
 //! # The gap this file closes
 //! Four `machine/conformance/constructs.txt` row ids are each mapped by TWO different
-//! [`pg_foma::capability::CharacteristicKind`]s (`pg_foma::conformance_coverage::
+//! `pg_foma::capability::CharacteristicKind`s (`pg_foma::conformance_coverage::
 //! construct_ids_for`, see that module's own "structural-witness gate" doc section). Three of
 //! those pairs are genuinely at risk of one kind's `Covered` status silently INHERITING from a
-//! sibling's passing fixture: [`pg_foma::conformance_coverage::supported_coverage_report`] credits
+//! sibling's passing fixture: `pg_foma::conformance_coverage::supported_coverage_report` credits
 //! a row `Covered` the instant ANY passing word/parse anywhere tags the shared id — it cannot tell
 //! "this fixture genuinely exercises the finer construct" from "this fixture exercises the coarser
 //! sibling and happens to share the finer one's row id". A hand audit today confirms all three
@@ -17,7 +17,7 @@
 //! to forbid.
 //!
 //! # What this file does about it
-//! For each of [`pg_foma::conformance_coverage::registered_structural_witnesses`]'s three entries,
+//! For each of `pg_foma::conformance_coverage::registered_structural_witnesses`'s three entries,
 //! this file replays EVERY discovered fixture (`pg_conformance_fixtures::discover` — the one shared
 //! enumeration helper, not a second path walker) against `pg_parse::Morpher` (the same oracle
 //! `tests/conformance_coverage_gate.rs` and `pg-parse`'s own `conformance_fixtures_gate.rs` already
@@ -162,7 +162,7 @@ fn every_registered_structural_witness_is_satisfied_by_a_passing_fixture() {
     );
 }
 
-/// Belt-and-suspenders on [`every_registered_structural_witness_is_satisfied_by_a_passing_fixture`]:
+/// Belt-and-suspenders on `every_registered_structural_witness_is_satisfied_by_a_passing_fixture`:
 /// names the SPECIFIC fixture this crate's own hand audit identified for each witness (module doc),
 /// so a reviewer can see at a glance which fixture is load-bearing for each id, and so a future
 /// change that deletes/renames one of these three specific fixtures — while some OTHER fixture

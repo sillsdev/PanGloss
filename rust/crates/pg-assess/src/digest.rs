@@ -4,9 +4,9 @@
 //! drop-list is the question (`add-grammar-assessment` design D3):
 //!
 //! - `reportId` drops nothing — "are these the same bytes?"
-//! - [`SEMANTIC_PROJECTION`] drops timestamps, paths, timings, and `sourceSha256` — "was this the
+//! - `SEMANTIC_PROJECTION` drops timestamps, paths, timings, and `sourceSha256` — "was this the
 //!   same run?"
-//! - [`OUTCOME_PROJECTION`] additionally drops tool versions, budgets, pipeline, and duplicate
+//! - `OUTCOME_PROJECTION` additionally drops tool versions, budgets, pipeline, and duplicate
 //!   counts — "did the grammar behave the same?"
 //!
 //! The projection name is part of every digest's preimage, so changing what a projection drops

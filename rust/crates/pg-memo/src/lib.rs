@@ -100,7 +100,7 @@ impl AnalysisStateKey {
 ///
 /// `results` empty = the "nogood" case (the subtree proved to yield nothing); non-empty = the
 /// positive case, each result replayable onto a differently-ordered arrival at the same
-/// [`AnalysisStateKey`]. `mrule_trail_prefix_length` / `non_head_prefix_length` are the memoized
+/// `AnalysisStateKey`. `mrule_trail_prefix_length` / `non_head_prefix_length` are the memoized
 /// node's own trail/non-head lengths at store time, so a replay knows where its (discarded) prefix
 /// ends and the (kept) subtree-local suffix begins (see `Word::replay_onto`). There is no
 /// "budget exhausted" flag — this branch has no per-subtree budget, so every stored subtree was

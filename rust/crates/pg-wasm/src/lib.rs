@@ -7,7 +7,7 @@
 //! `PanGlossGrammar::new` also builds a `pg_foma::composite::FomaAnalyzer`
 //! for the grammar; `analyze_text` routes each word through it when present. A grammar whose
 //! emitted lexc source fails to foma-compile falls back automatically to the full engine (logged,
-//! see [`log_foma_fallback`]) — see [`FomaState`]'s doc for why the compiled proposer is stored as
+//! see `log_foma_fallback`) — see `FomaState`'s doc for why the compiled proposer is stored as
 //! its own owned pieces rather than as a `FomaAnalyzer<'g>` field.
 #![forbid(unsafe_code)]
 
@@ -22,7 +22,7 @@ use wasm_bindgen::prelude::*;
 use web_time::Instant;
 
 /// `.pgpack` load-time compatibility (ADR 0004 `required ⊆ provided` containment) and the ADR
-/// 0005 capability-trust stamp -- see [`pack`]'s own module doc. [`PgPack`] below is this module's
+/// 0005 capability-trust stamp -- see `pack`'s own module doc. `PgPack` below is this module's
 /// wasm-bindgen-facing wrapper.
 pub mod pack;
 
@@ -59,7 +59,7 @@ struct AnalysisOut {
 
 /// Everything about a parsed word that's deterministic for a given (grammar, exact authored word)
 /// pair — i.e. safe to cache and replay without re-running the morpher. Kept separate from
-/// [`TokenOut`] because [`TokenOut`] also carries call-specific bookkeeping (`parse_ms`,
+/// `TokenOut` because `TokenOut` also carries call-specific bookkeeping (`parse_ms`,
 /// `from_cache`) that must NOT be cached (a cache hit's `parse_ms` is always ~0, not the original
 /// call's timing).
 #[derive(Serialize, Deserialize, Clone)]
@@ -89,7 +89,7 @@ struct CachedWord {
 #[serde(rename_all = "camelCase")]
 struct TokenOut {
     /// `"word"` for a token that went through morphological analysis, `"other"` for whitespace/
-    /// punctuation/digits passed through verbatim (see [`tokenize`]).
+    /// punctuation/digits passed through verbatim (see `tokenize`).
     kind: &'static str,
     /// Original surface text, unchanged — concatenating every token's `text` in order reconstructs
     /// the input exactly.
@@ -103,20 +103,20 @@ struct TokenOut {
     /// `ParseOutcome.invalid_shape` — the word contains characters outside the grammar's
     /// orthography, so it was never actually run through the cascade.
     invalid_shape: bool,
-    /// See [`CachedWord::candidates_generated`]. `0` for `"other"` tokens.
+    /// See `CachedWord::candidates_generated`. `0` for `"other"` tokens.
     candidates_generated: usize,
-    /// See [`CachedWord::candidates_accepted`]. `0` for `"other"` tokens.
+    /// See `CachedWord::candidates_accepted`. `0` for `"other"` tokens.
     candidates_accepted: usize,
     /// Wall-clock milliseconds this call spent in `Morpher::parse_word_opts` for this word — `0.0`
     /// for a cache hit (nothing was re-parsed) and for `"other"` tokens (never parsed at all).
     parse_ms: f64,
-    /// True if this word's result came from the `cache` argument to [`PanGlossGrammar::analyze_text`]
+    /// True if this word's result came from the `cache` argument to `PanGlossGrammar::analyze_text`
     /// rather than a fresh parse this call. Always `false` for `"other"` tokens.
     from_cache: bool,
 }
 
-/// Return value of [`PanGlossGrammar::analyze_text`]: the token stream to render, plus every
-/// newly-parsed (not-a-cache-hit) word's [`CachedWord`], keyed by its exact surface form, for
+/// Return value of `PanGlossGrammar::analyze_text`: the token stream to render, plus every
+/// newly-parsed (not-a-cache-hit) word's `CachedWord`, keyed by its exact surface form, for
 /// the caller to merge into whatever persistent cache it keeps across calls. Only *new* entries are
 /// returned — words already present in the `cache` argument aren't echoed back, since the caller
 /// already has them.
@@ -134,8 +134,8 @@ struct AnalyzeTextResult {
 /// `PanGlossGrammar` also OWNS the `Grammar` these would borrow from — a `PanGlossGrammar` field
 /// of type `FomaAnalyzer<'g>` tied to a sibling `grammar: Grammar` field is a self-referential
 /// struct Rust cannot express directly. Instead this crate does what it already does for
-/// `Morpher<'g>` (see [`PanGlossGrammar::analyze_text`]: never stored, always built fresh per call
-/// from `&self.grammar`). [`FomaCheckout`] reconstructs a short-lived `FomaAnalyzer` and owns the
+/// `Morpher<'g>` (see `PanGlossGrammar::analyze_text`: never stored, always built fresh per call
+/// from `&self.grammar`). `FomaCheckout` reconstructs a short-lived `FomaAnalyzer` and owns the
 /// mandatory restoration path; its `Drop` implementation returns the unchanged compiled pieces
 /// during ordinary return, error return, or panic unwinding.
 struct FomaState {
@@ -192,9 +192,9 @@ fn build_foma_state(grammar: &Grammar) -> Result<FomaState, String> {
     })
 }
 
-/// Attempt to build [`FomaState`] for `grammar`; on failure, log the automatic fallback (plan P4:
+/// Attempt to build `FomaState` for `grammar`; on failure, log the automatic fallback (plan P4:
 /// "compile failure → automatic fallback to full engine, logged") and return the diagnostic
-/// message alongside `None` so [`PanGlossGrammar::engine_diagnostic`] can surface it to JS without
+/// message alongside `None` so `PanGlossGrammar::engine_diagnostic` can surface it to JS without
 /// the caller needing to inspect the browser console.
 fn init_foma(grammar: &Grammar) -> (Option<FomaState>, Option<String>) {
     match build_foma_state(grammar) {
@@ -208,7 +208,7 @@ fn init_foma(grammar: &Grammar) -> (Option<FomaState>, Option<String>) {
 
 /// `console.error` in a browser (wasm32) build, `eprintln!` natively (this crate's own `cargo
 /// test` runs off the wasm32 target) — the "logged" half of plan P4's automatic-fallback
-/// requirement. Deliberately independent of `console_error_panic_hook` (set up in [`start`]),
+/// requirement. Deliberately independent of `console_error_panic_hook` (set up in `start`),
 /// which only intercepts Rust panics; this is an ordinary `Err` return, not a panic.
 fn log_foma_fallback(msg: &str) {
     let full = format!(
@@ -220,9 +220,9 @@ fn log_foma_fallback(msg: &str) {
     eprintln!("{full}");
 }
 
-/// Build one [`CachedWord`] from a (possibly foma- or full-engine-sourced) list of confirmed
+/// Build one `CachedWord` from a (possibly foma- or full-engine-sourced) list of confirmed
 /// analyses plus the diagnostic fields `ParseOutcome`/`FomaOutcome` each carry under different
-/// names — shared by both engine paths in [`PanGlossGrammar::analyze_text`] so the
+/// names — shared by both engine paths in `PanGlossGrammar::analyze_text` so the
 /// gloss/leipzig/realize construction (which neither knows nor cares which engine produced
 /// `structured`) is written once.
 struct CacheAnalysis {
@@ -280,7 +280,7 @@ fn build_cached_word(
 }
 
 /// A loaded grammar plus the (grammar-independent) English realization pipeline, kept together so
-/// JS makes one object per grammar and calls [`PanGlossGrammar::analyze_text`] on it repeatedly.
+/// JS makes one object per grammar and calls `PanGlossGrammar::analyze_text` on it repeatedly.
 #[wasm_bindgen]
 pub struct PanGlossGrammar {
     grammar: Arc<Grammar>,
@@ -288,22 +288,22 @@ pub struct PanGlossGrammar {
     realize_map: RealizeMap,
     realizer: TableRealizer,
     /// `Some` iff this grammar's foma propose→confirm proposer compiled successfully (plan P4) —
-    /// see [`FomaState`]'s doc for why these are owned pieces rather than a stored `FomaAnalyzer`.
+    /// see `FomaState`'s doc for why these are owned pieces rather than a stored `FomaAnalyzer`.
     /// `None` means every word in this grammar routes through the full engine because compilation
-    /// failed (see `foma_diagnostic`). A transient checkout is protected by [`FomaCheckout`],
+    /// failed (see `foma_diagnostic`). A transient checkout is protected by `FomaCheckout`,
     /// whose destructor restores this slot even while unwinding.
     foma: Option<FomaState>,
     /// `Some` iff construction failed to build `foma` — the human-readable reason, surfaced to JS via
-    /// [`PanGlossGrammar::engine_diagnostic`]. `None` once foma is active.
+    /// `PanGlossGrammar::engine_diagnostic`. `None` once foma is active.
     foma_diagnostic: Option<String>,
 }
 
 /// Every affix-morpheme `<Gloss>` string in `grammar` — the `AffixProcess`/`Realizational`
-/// morphological rules' own [`pg_grammar::model::MorphemeInfo::gloss`] (resolved through each
+/// morphological rules' own `pg_grammar::model::MorphemeInfo::gloss` (resolved through each
 /// rule's `morpheme: MorphemeId`), as opposed to lexical-ENTRY (root) glosses. `CompoundingRule`
 /// carries no `MorphemeId` at all (`pg_grammar::model::CompoundingRuleDef`'s own doc: "Not a
 /// morpheme") so it contributes nothing here. This is the gloss vocabulary
-/// [`pg_realize::infer_english`] matches its built-in English alias table against — root glosses
+/// `pg_realize::infer_english` matches its built-in English alias table against — root glosses
 /// (e.g. "house") are never affix category labels ("pl", "1sg.poss", ...) so including them would
 /// only ever add noise, never a match.
 fn affix_glosses(grammar: &Grammar) -> Vec<String> {
@@ -320,11 +320,11 @@ fn affix_glosses(grammar: &Grammar) -> Vec<String> {
         .collect()
 }
 
-/// Build the [`RealizeMap`] a [`PanGlossGrammar`] should use: always start from
-/// [`pg_realize::infer_english`] over the grammar's own affix-morpheme glosses (see
-/// [`affix_glosses`]) as the base, then, if `realize_toml` is `Some` and non-empty, parse it and
+/// Build the `RealizeMap` a `PanGlossGrammar` should use: always start from
+/// `pg_realize::infer_english` over the grammar's own affix-morpheme glosses (see
+/// `affix_glosses`) as the base, then, if `realize_toml` is `Some` and non-empty, parse it and
 /// let it override the base per-key (`RealizeMap::extend_overriding` — sidecar wins). Shared by
-/// [`PanGlossGrammar::new`].
+/// `PanGlossGrammar::new`.
 fn build_realize_map(grammar: &Grammar, realize_toml: Option<&str>) -> Result<RealizeMap, JsValue> {
     let glosses = affix_glosses(grammar);
     let mut map = pg_realize::infer_english(glosses.iter().map(String::as_str));
@@ -382,20 +382,20 @@ impl PanGlossGrammar {
     }
 
     /// `Some` iff the most recent attempt to compile this grammar's foma proposer failed — the
-    /// reason [`PanGlossGrammar::engine_kind`] reports `"engine"`. `None` once foma is active.
+    /// reason `PanGlossGrammar::engine_kind` reports `"engine"`. `None` once foma is active.
     #[wasm_bindgen(js_name = engineDiagnostic)]
     pub fn engine_diagnostic(&self) -> Option<String> {
         self.foma_diagnostic.clone()
     }
 
     /// Tokenizes `text` and runs every word token through the full analyze -> gloss -> realize
-    /// pipeline, returning `{ tokens, newCacheEntries }` (see [`AnalyzeTextResult`]). Unknown words
+    /// pipeline, returning `{ tokens, newCacheEntries }` (see `AnalyzeTextResult`). Unknown words
     /// still produce a guessed-root analysis (`ParseOptions::with_guess_root(true)`) rather than an
     /// empty `analyses` array — showing the guess path is part of what the demo is for, not a
     /// fallback to hide.
     ///
     /// `cache` is a JS object (or `undefined`/`null`) mapping an exact surface word to a previously
-    /// returned [`CachedWord`] (i.e. the accumulated `newCacheEntries` of every prior call, merged
+    /// returned `CachedWord` (i.e. the accumulated `newCacheEntries` of every prior call, merged
     /// by the caller) — words present there skip re-analysis entirely and are replayed verbatim,
     /// so re-analyzing the same chapter (or any text sharing vocabulary with one already seen)
     /// only pays the parse cost for genuinely new words. The cache is keyed per-grammar by
@@ -758,16 +758,16 @@ fn api_error(code: &str, message: &str) -> pg_lexicon::StructuredError {
 }
 
 /// The wasm-bindgen-facing handle for a validated `.pgpack` artifact.
-/// Construction runs [`pack::load_pack`]: the
+/// Construction runs `pack::load_pack`: the
 /// container's own structural validation, then ADR 0004's `required ⊆ provided` runtime-feature
-/// containment check against this build's own [`pack::provided_runtime_features`] -- replacing
+/// containment check against this build's own `pack::provided_runtime_features` -- replacing
 /// what would otherwise be a monolithic engine-compatibility-identifier equality check. A pack
 /// requiring a runtime feature this build does not provide is refused here with a typed
-/// `pack_incompatible_runtime_features` diagnostic (see [`pack_load_err_to_js`]), never a crash.
+/// `pack_incompatible_runtime_features` diagnostic (see `pack_load_err_to_js`), never a crash.
 ///
-/// Every getter below is a read-only view over the manifest [`pack::load_pack`] already accepted;
+/// Every getter below is a read-only view over the manifest `pack::load_pack` already accepted;
 /// this handle constructs no working analyzer from the packaged runtime/foma payload
-/// bytes -- see [`pack`]'s own module doc "Analysis-only boundary" section for that scope
+/// bytes -- see `pack`'s own module doc "Analysis-only boundary" section for that scope
 /// boundary. Loading a pack here performs zero FST/lexc compilation.
 #[wasm_bindgen]
 pub struct PgPack {
@@ -787,7 +787,7 @@ impl PgPack {
         Ok(PgPack { loaded })
     }
 
-    /// [`pg_pack::PackManifest::grammar_id`] -- this pack's stable grammar/package identity.
+    /// `pg_pack::PackManifest::grammar_id` -- this pack's stable grammar/package identity.
     #[wasm_bindgen(js_name = grammarId)]
     pub fn grammar_id(&self) -> String {
         self.loaded.manifest.grammar_id.clone()
@@ -803,7 +803,7 @@ impl PgPack {
         self.loaded.is_unproven()
     }
 
-    /// The same ADR 0005 signal as [`PgPack::is_unproven`], exposed under the name a per-analysis-
+    /// The same ADR 0005 signal as `PgPack::is_unproven`, exposed under the name a per-analysis-
     /// result flag on packaged-artifact analysis should also use: every
     /// result drawn from an unproven pack must carry this flag.
     #[wasm_bindgen(js_name = analysisTrustFlag)]
@@ -825,7 +825,7 @@ impl PgPack {
     }
 
     /// The FST-health "admission result" (`pg_foma::health::HealthReport::admission`, reused
-    /// verbatim -- see [`pack::LoadedPack::fst_health_admission`]'s doc), as its lowercase
+    /// verbatim -- see `pack::LoadedPack::fst_health_admission`'s doc), as its lowercase
     /// `Severity` name (`"ideal"`, `"info"`, `"warning"`, `"error"`, or `"critical"`).
     #[wasm_bindgen(js_name = fstHealthAdmission)]
     pub fn fst_health_admission(&self) -> String {
@@ -847,15 +847,15 @@ impl PgPack {
     }
 
     /// This pack's required-runtime-feature set (`pg_pack::RequiredRuntimeFeatures`), the same
-    /// value [`PgPack::new`] already checked against this build's provided set.
+    /// value `PgPack::new` already checked against this build's provided set.
     #[wasm_bindgen(js_name = requiredRuntimeFeatures)]
     pub fn required_runtime_features(&self) -> Result<JsValue, JsValue> {
         to_js(&self.loaded.manifest.required_runtime_features)
     }
 }
 
-/// Maps [`pack::PackLoadError`] to this crate's usual `pg_lexicon::StructuredError` JSON shape
-/// (the same convention [`structured_js`] already applies to every other fallible wasm-bindgen
+/// Maps `pack::PackLoadError` to this crate's usual `pg_lexicon::StructuredError` JSON shape
+/// (the same convention `structured_js` already applies to every other fallible wasm-bindgen
 /// method here) so JS callers get one consistent `{code, message, details}` diagnostic regardless
 /// of which layer refused the pack.
 fn pack_load_err_to_js(err: pack::PackLoadError) -> JsValue {

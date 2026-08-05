@@ -2,7 +2,7 @@
 //!
 //! # Why this gate exists
 //! `pg_foma::coverage_ledger::containment_evidence_for` returns hand-curated
-//! [`pg_foma::coverage_ledger::ContainmentEvidence`] citations of the form
+//! `pg_foma::coverage_ledger::ContainmentEvidence` citations of the form
 //! `tests/<file>.rs::<test_fn>`. A citation that names a deleted file, or a `#[test]` that was
 //! renamed or removed, is a dangling pointer the ledger keeps reporting as evidence it does not
 //! have. Renaming a test is routine; this gate is what makes that routine change fail loudly.

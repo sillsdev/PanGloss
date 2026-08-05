@@ -98,7 +98,7 @@ fn oracle_candidate_set(
         .collect()
 }
 
-/// Compiles `rule` (stratum 0's own table) via [`compile_and_compose_rules_with_budget`], composes
+/// Compiles `rule` (stratum 0's own table) via `compile_and_compose_rules_with_budget`, composes
 /// it after `lexc_source`, and minimizes -- the shared plumbing every containment witness below
 /// uses (`tests/phase_c_right_to_left.rs`'s own `compile_net`, reused verbatim).
 fn compile_net(

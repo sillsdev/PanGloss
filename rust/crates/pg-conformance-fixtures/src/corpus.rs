@@ -17,12 +17,12 @@
 //! agent worktrees, and it is the second false-success path this module exists to close.
 //!
 //! # The contract
-//! [`required`] reads `PANGLOSS_CORPUS_REQUIRED`, which `rust/tools/pg.ps1 -Mode corpus-test` sets
-//! after validating every required manifest path. When it is on, [`path`] PANICS on a missing input
+//! `required` reads `PANGLOSS_CORPUS_REQUIRED`, which `rust/tools/pg.ps1 -Mode corpus-test` sets
+//! after validating every required manifest path. When it is on, `path` PANICS on a missing input
 //! instead of returning `None`, so a corpus suite cannot exit successfully with missing inputs.
 //! When it is off, behaviour is unchanged and ordinary fixture-independent runs are unaffected.
 //!
-//! Tests should also call [`record_cases`] with the number of corpus cases they actually executed.
+//! Tests should also call `record_cases` with the number of corpus cases they actually executed.
 //! The front end rejects a successful cargo exit whose total executed-case count is zero — a suite
 //! that compiles, runs, and exercises nothing is a failure, not a pass.
 
@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 /// required mode.
 pub const REQUIRED_ENV: &str = "PANGLOSS_CORPUS_REQUIRED";
 
-/// Prefix of the machine-readable line [`record_cases`] emits.
+/// Prefix of the machine-readable line `record_cases` emits.
 pub const CASE_COUNT_PREFIX: &str = "PANGLOSS_CORPUS_CASES";
 
 fn repo_root() -> PathBuf {
@@ -62,7 +62,7 @@ pub fn required() -> bool {
 /// A corpus file's path when present.
 ///
 /// # Panics
-/// When [`required`] is on and the file is absent — the whole point of this module. The message
+/// When `required` is on and the file is absent — the whole point of this module. The message
 /// names the file, the resolved root, and how the caller got into required mode, because the usual
 /// symptom otherwise is a mysteriously-passing suite.
 pub fn path(relative: &str) -> Option<PathBuf> {
@@ -84,7 +84,7 @@ pub fn path(relative: &str) -> Option<PathBuf> {
     None
 }
 
-/// [`path`], but always a hard failure when absent regardless of required mode. Use in a test that
+/// `path`, but always a hard failure when absent regardless of required mode. Use in a test that
 /// is meaningless without its corpus and is only ever run deliberately.
 pub fn require(relative: &str) -> PathBuf {
     let candidate = corpus_root().join(relative);
@@ -142,7 +142,7 @@ pub struct CorpusFile {
     pub path: String,
     pub role: String,
     pub required: bool,
-    /// Present only for `role: "corpus"` files; see [`WordList`].
+    /// Present only for `role: "corpus"` files; see `WordList`.
     #[serde(default)]
     pub word_list: Option<WordList>,
 }

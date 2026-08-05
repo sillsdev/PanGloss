@@ -4,7 +4,7 @@
 //! absent and out of scope. W7 lands the API; this file is its conformance evidence.
 //!
 //! Also ports the one `GenerateWords` assertion in `CompoundingRuleTests.MorphosyntacticRules`
-//! (CompoundingRuleTests.cs:143-146) as [`direct_api_compounding_non_head`] — the ONLY C# test in the
+//! (CompoundingRuleTests.cs:143-146) as `direct_api_compounding_non_head` — the ONLY C# test in the
 //! whole suite that calls the direct 3-arg API with a bare `LexEntry` as an "other morpheme" (a
 //! compounding non-head with no known `CompoundingRule`), which is what exercises the `mrule_apps`
 //! `None`-wildcard engine support W7 added in `pg_rules::word`/`pg_rules::stratum`.
@@ -15,7 +15,7 @@
 //! generalized into `csharp_port_common` so both files (and this one) share one copy.
 //! `PrefixRules` has no `GenerateWords` calls in its C# body. Also ports the other half of the
 //! D-batch-7 gap the coverage map flagged as needing `WordAnalysis` to exist first
-//! (D-test-coverage-map.md:127): [`analyze_word_can_analyze_returns_correct_analysis`] below is the
+//! (D-test-coverage-map.md:127): `analyze_word_can_analyze_returns_correct_analysis` below is the
 //! true structured-return path for `MorpherTests.AnalyzeWord_CanAnalyze_ReturnsCorrectAnalysis`
 //! (`ParseOutcome::structured`, not just a string-signature check like `csharp_port_morpher.rs`'s
 //! existing `AnalyzeWord_CanAnalyzeLinear` port).

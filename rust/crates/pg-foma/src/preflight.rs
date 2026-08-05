@@ -4,88 +4,88 @@
 //! construction is recall-preserving; any uncertainty that could omit an analysis fails closed.
 //!
 //! # Consume, never remeasure (same discipline as `crate::health_evaluator`)
-//! [`preflight_findings`] takes a `&Grammar`, derives ONE
-//! [`crate::grammar_semantics::GrammarSemantics`] from it, and reads exactly two existing, already-
+//! `preflight_findings` takes a `&Grammar`, derives ONE
+//! `crate::grammar_semantics::GrammarSemantics` from it, and reads exactly two existing, already-
 //! tested, pure-Rust (no foma, no I/O) facts off it — never re-derives their logic itself:
-//! - [`crate::grammar_semantics::GrammarSemantics::characteristics`] — this crate's own one-time,
+//! - `crate::grammar_semantics::GrammarSemantics::characteristics` — this crate's own one-time,
 //!   exhaustive walk over every represented `pg_grammar::model::Grammar` construct variant. Its
-//!   [`crate::capability::CharacteristicsProfile::cardinality`]
-//!   ([`crate::capability::GrammarCardinality`]) and per-observation detail structs
-//!   ([`crate::capability::QuantifierPatternDetail::all_bounded`],
-//!   [`crate::capability::UnorderedStratumDetail::rule_count`]/`within_bound`) feed this module's
+//!   `crate::capability::CharacteristicsProfile::cardinality`
+//!   (`crate::capability::GrammarCardinality`) and per-observation detail structs
+//!   (`crate::capability::QuantifierPatternDetail::all_bounded`,
+//!   `crate::capability::UnorderedStratumDetail::rule_count`/`within_bound`) feed this module's
 //!   cardinality/bounded-product findings verbatim — never re-walked from the grammar.
-//! - [`crate::capability_entry::evaluate_capability_with_semantics`] — the SAME capability-gate
+//! - `crate::capability_entry::evaluate_capability_with_semantics` — the SAME capability-gate
 //!   entry point `pg-cli`'s own `run_capability_gate`/`pangloss pack` already call (through its
 //!   `&Grammar` front end `evaluate_capability`), composing `characterize` with the predicate
-//!   registry ([`crate::capability::compose_envelope`]/`crate::capability::default_registry`) into
-//!   one final [`crate::capability::CompileDecision`]. This module reuses that FINAL,
+//!   registry (`crate::capability::compose_envelope`/`crate::capability::default_registry`) into
+//!   one final `crate::capability::CompileDecision`. This module reuses that FINAL,
 //!   predicate-resolved verdict directly rather than re-implementing the disposition/predicate-
-//!   resolution logic itself — a raw, unresolved [`crate::capability::Disposition::ConfigPredicate`]
+//!   resolution logic itself — a raw, unresolved `crate::capability::Disposition::ConfigPredicate`
 //!   characteristic (e.g. `Compounding`, `UnorderedMorphRuleApplication`, `QuantifierPattern`) only
 //!   resolves to a real `ConfirmOnly`-vs-`Refuse` verdict THROUGH that predicate registry, so
 //!   reasoning from raw per-kind dispositions alone (without running the registry) would
 //!   misclassify most `ConfigPredicate` characteristics. Both this module and `evaluate_capability`
-//!   read the SAME memoized profile off one [`crate::grammar_semantics::GrammarSemantics`], so a
+//!   read the SAME memoized profile off one `crate::grammar_semantics::GrammarSemantics`, so a
 //!   `pangloss fst-health` run characterizes once rather than running `characterize`'s real
 //!   `foma::types::Fsm` construction for `Simultaneous`-mode subrules twice.
 //!
 //! # Two distinct axes this module keeps separate
-//! - **Semantic uncertainty** ([`semantic_uncertainty_finding`]): [`crate::capability::CompileDecision::
+//! - **Semantic uncertainty** (`semantic_uncertainty_finding`): [`crate::capability::CompileDecision::
 //!   Refuse`] — at least one construct has no predicate-proven recall-preserving compilation path at
 //!   all. This preflight walk cannot guarantee every HermitCrab analysis survives, so it reports a
-//!   `Critical` finding naming every [`crate::capability::CapabilityDiagnostic`] the gate collected.
+//!   `Critical` finding naming every `crate::capability::CapabilityDiagnostic` the gate collected.
 //!   This finding never itself blocks the actual compiler pass (it is evidence, not a second gate —
 //!   `pg-cli`'s own `run_capability_gate`/`pangloss pack` are the real enforcement points a caller
 //!   consults separately); it is this report's own honest record of the same fact, consistent with
 //!   (never duplicating the logic of) that gate.
-//! - **Cost uncertainty** ([`cost_uncertainty_finding`], [`unbounded_quantifier_findings`]):
-//!   [`crate::capability::CompileDecision::ConfirmOnly`] (a first-class, non-failure verdict:
+//! - **Cost uncertainty** (`cost_uncertainty_finding`, `unbounded_quantifier_findings`):
+//!   `crate::capability::CompileDecision::ConfirmOnly` (a first-class, non-failure verdict:
 //!   propose the superset, HermitCrab confirm prunes false positives) or a specific
-//!   [`crate::capability::QuantifierPatternDetail::all_bounded`] occurrence marked `false`. Always
+//!   `crate::capability::QuantifierPatternDetail::all_bounded` occurrence marked `false`. Always
 //!   `Warning`, never `Critical` on its own (unknown cost is not itself Critical when construction
 //!   is recall-preserving) — an actual budget trip during the real compile is a completely
 //!   different, already-handled code path: `crate::health_evaluator::compose_error_finding`'s
-//!   [`crate::health::FindingCode::ResourceBudgetReached`]/
-//!   [`crate::health::FindingCode::ProvenBoundExceedsBudget`] arms, which this module's own
+//!   `crate::health::FindingCode::ResourceBudgetReached`/
+//!   `crate::health::FindingCode::ProvenBoundExceedsBudget` arms, which this module's own
 //!   findings never construct.
 //!
 //! # Bounded products
-//! [`unordered_stratum_findings`] reuses [`crate::capability::CharacteristicsProfile::
+//! `unordered_stratum_findings` reuses [`crate::capability::CharacteristicsProfile::
 //! unordered_stratum_details`]'s ALREADY-COMPUTED `rule_count`/`within_bound` against the SAME
-//! [`crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`] the real compile-time check
+//! `crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET` the real compile-time check
 //! (`crate::unordered::check_unordered_strata_bound`, surfaced post-hoc by
 //! `crate::health_evaluator::compose_error_finding`'s `OrderingMultiplicityExceeded` arm) trips
 //! against — the exact count is already known before foma ever runs, so this finding's
-//! [`crate::health::ValueProvenance`] is `ProvenBound`, not a heuristic guess, and its severity is
+//! `crate::health::ValueProvenance` is `ProvenBound`, not a heuristic guess, and its severity is
 //! `Critical` (an exact count proven to exceed budget can reject work before allocation). This
-//! deliberately duplicates part of what [`semantic_uncertainty_finding`]'s `Refuse` case already
+//! deliberately duplicates part of what `semantic_uncertainty_finding`'s `Refuse` case already
 //! names in a less specific way (a grammar-wide `Refuse` diagnostic list) with a MORE specific,
 //! metric-tagged finding for this one construct — both are kept, since
-//! [`crate::health::Metric::OrderingRuleCount`] carries information (the exact rule count vs. the
+//! `crate::health::Metric::OrderingRuleCount` carries information (the exact rule count vs. the
 //! budget) the generic diagnostic-list finding does not.
 //!
-//! [`rule_interaction_product_finding`] computes bounded products for alternatives, templates, and
-//! slots: [`crate::capability::GrammarCardinality::mrule_count`] times `prule_count` is a cheap,
+//! `rule_interaction_product_finding` computes bounded products for alternatives, templates, and
+//! slots: `crate::capability::GrammarCardinality::mrule_count` times `prule_count` is a cheap,
 //! generic proxy for how much morphological x phonological rule-interaction surface a grammar
-//! presents. [`RULE_PRODUCT_WARNING_THRESHOLD`] is a conservative, provisional placeholder (this
+//! presents. `RULE_PRODUCT_WARNING_THRESHOLD` is a conservative, provisional placeholder (this
 //! crate's own repeated convention — mirrors
 //! `crate::health_evaluator::APPROACHING_BUDGET_WARNING_FRACTION`'s identical disclaimer): no
 //! real-grammar calibration evidence exists yet for this specific product, so this finding is
 //! `Predicted`/`Warning` only, never something that can reject a compile on its own.
 //!
 //! # Design notes
-//! 1. **Every uncertainty finding reuses [`crate::health::FindingCode::UnknownUnboundedConstruct`]**,
+//! 1. **Every uncertainty finding reuses `crate::health::FindingCode::UnknownUnboundedConstruct`**,
 //!    at different severities (`Critical` for `Refuse`, `Warning` for `ConfirmOnly`/unbounded
 //!    quantifiers/the rule-interaction product) — the SAME "same code, severity carries the
 //!    distinction" pattern `crate::health_evaluator`'s own `unsupported_tier_finding`/
 //!    `partial_tier_finding` already established for `FomaTier::Unsupported` vs. `FomaTier::Partial`,
 //!    deliberately diverging from that code's general "not itself Critical" framing. No new
 //!    `FindingCode` is minted for this.
-//! 2. **[`semantic_uncertainty_finding`]'s `affected` names each [`crate::capability::
+//! 2. **`semantic_uncertainty_finding`'s `affected` names each [`crate::capability::
 //!    CapabilityDiagnostic::construct`] string verbatim** (the same field `pg-cli`'s own
 //!    `run_capability_gate`/`pangloss pack` already print to stderr) — never a re-derived
 //!    identifier scheme.
-//! 3. **[`rule_interaction_product_finding`]'s `affected` is empty** — this is a grammar-wide
+//! 3. **`rule_interaction_product_finding`'s `affected` is empty** — this is a grammar-wide
 //!    cardinality fact, not about any one construct, matching `crate::health_evaluator`'s own
 //!    "grammar-level findings with no specific construct identifier ... leave `affected` empty"
 //!    convention (`payload_size_finding`).
@@ -105,14 +105,14 @@ use crate::health::{
 /// product). Never used to reject a compile; `Predicted`/`Warning` evidence only.
 const RULE_PRODUCT_WARNING_THRESHOLD: u64 = 64;
 
-/// The preflight walker: every [`crate::health::HealthFinding`] this crate can derive BEFORE any
+/// The preflight walker: every `crate::health::HealthFinding` this crate can derive BEFORE any
 /// foma compile is attempted, from `g` alone. See this module's own doc for the
 /// semantic-vs-cost-uncertainty split and the bounded-product findings.
 pub fn preflight_findings(g: &Grammar) -> Vec<HealthFinding> {
     preflight_findings_with_semantics(&GrammarSemantics::derive(g))
 }
 
-/// [`preflight_findings`] over an already-derived [`GrammarSemantics`] -- so a caller running
+/// `preflight_findings` over an already-derived `GrammarSemantics` -- so a caller running
 /// preflight alongside its own capability gate (`pangloss fst-health` is exactly such a caller)
 /// characterizes once in total, not once per call site.
 pub fn preflight_findings_with_semantics(semantics: &GrammarSemantics<'_>) -> Vec<HealthFinding> {
@@ -130,7 +130,7 @@ pub fn preflight_findings_with_semantics(semantics: &GrammarSemantics<'_>) -> Ve
     findings
 }
 
-/// [`CompileDecision::Refuse`] — this grammar's capability gate has at least one construct with no
+/// `CompileDecision::Refuse` — this grammar's capability gate has at least one construct with no
 /// predicate-proven recall-preserving compilation path. `None` for `Admit`/`ConfirmOnly`.
 fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding> {
     let CompileDecision::Refuse(diags) = decision else {
@@ -169,7 +169,7 @@ fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFind
     })
 }
 
-/// [`CompileDecision::ConfirmOnly`]
+/// `CompileDecision::ConfirmOnly`
 /// — recall-preserving (the FST proposer proposes the superset; HermitCrab confirm prunes), but
 /// this preflight stage has no proven cost bound for whichever construct(s) landed here. Always
 /// `Warning`, `Predicted` (a pre-compile heuristic, not an exact count of compile work). `None` for
@@ -199,10 +199,10 @@ fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding>
     })
 }
 
-/// The per-rule cost-uncertainty case: every [`crate::capability::QuantifierPatternDetail`]
+/// The per-rule cost-uncertainty case: every `crate::capability::QuantifierPatternDetail`
 /// observation whose `all_bounded` is `false` (a genuinely unbounded `max="-1"` quantifier
 /// occurrence) — one finding per affected rule, `Predicted`/`Warning` (same reasoning as
-/// [`cost_uncertainty_finding`]).
+/// `cost_uncertainty_finding`).
 fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<HealthFinding> {
     profile
         .observations()
@@ -234,10 +234,10 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
 }
 
 /// The bounded-product case for `MorphRuleOrder::Unordered` strata: reuses
-/// [`crate::capability::CharacteristicsProfile::unordered_stratum_details`]'s ALREADY-COMPUTED
+/// `crate::capability::CharacteristicsProfile::unordered_stratum_details`'s ALREADY-COMPUTED
 /// `rule_count`/`within_bound` (see this module's doc). `within_bound == false` means the exact
 /// rule count is already proven, before foma runs, to exceed
-/// [`DEFAULT_ORDERING_MULTIPLICITY_BUDGET`] — `ProvenBound`, `Critical`: a proven lower bound can
+/// `DEFAULT_ORDERING_MULTIPLICITY_BUDGET` — `ProvenBound`, `Critical`: a proven lower bound can
 /// reject work before allocation.
 fn unordered_stratum_findings(profile: &CharacteristicsProfile) -> Vec<HealthFinding> {
     profile
@@ -265,7 +265,7 @@ fn unordered_stratum_findings(profile: &CharacteristicsProfile) -> Vec<HealthFin
 }
 
 /// The grammar-wide bounded-product case: see this module's doc "Bounded products". `None` when
-/// the product is at or below [`RULE_PRODUCT_WARNING_THRESHOLD`].
+/// the product is at or below `RULE_PRODUCT_WARNING_THRESHOLD`.
 fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<HealthFinding> {
     let mrule_count = profile.cardinality.mrule_count as u64;
     let prule_count = profile.cardinality.prule_count as u64;
@@ -301,7 +301,7 @@ mod tests {
     use crate::capability_entry::evaluate_capability;
 
     /// A synthetic (delanguaged) `MorphRuleOrder::Unordered` stratum with more loose rules than
-    /// [`DEFAULT_ORDERING_MULTIPLICITY_BUDGET`] — this module's own "shaped synthetic grammar"
+    /// `DEFAULT_ORDERING_MULTIPLICITY_BUDGET` — this module's own "shaped synthetic grammar"
     /// gate: `preflight_findings` must raise a `ProvenBoundExceedsBudget`/`OrderingRuleCount`
     /// finding BEFORE any foma compile is attempted. Ported verbatim from `crate::capability`'s own
     /// identically-named test-only fixture generator (this crate's repo-wide "port a fixture across
@@ -448,7 +448,7 @@ mod tests {
     }
 
     /// This module's semantic-uncertainty scenario: a grammar whose capability verdict is
-    /// [`crate::capability::CompileDecision::Refuse`] must produce a `Critical`
+    /// `crate::capability::CompileDecision::Refuse` must produce a `Critical`
     /// `UnknownUnboundedConstruct` finding naming the refusing construct, before foma ever runs.
     /// Genuinely-overlapping simultaneous subrules are the fixture because
     /// `simultaneous.subrule-overlap` refuses on a structural automaton intersection; a construct
@@ -482,8 +482,8 @@ mod tests {
     }
 
     /// The grammar-wide bounded-product case: enough morphological/phonological rules to
-    /// cross [`RULE_PRODUCT_WARNING_THRESHOLD`] raises a `Predicted`/`Warning` finding naming the
-    /// exact product. Exercised directly against [`rule_interaction_product_finding`] (a synthetic
+    /// cross `RULE_PRODUCT_WARNING_THRESHOLD` raises a `Predicted`/`Warning` finding naming the
+    /// exact product. Exercised directly against `rule_interaction_product_finding` (a synthetic
     /// `CharacteristicsProfile` with only `cardinality` populated) rather than a large generated
     /// grammar, since this finding depends on nothing else in the profile.
     #[test]

@@ -11,7 +11,7 @@
 //!   immediately, ahead of upstream acceptance. See `docs/conformance-staging-plan.md`.
 //!
 //! Either root may be absent (a fresh clone with the `machine` submodule not initialized still
-//! discovers staged fixtures fine); [`discover`] tolerates both independently.
+//! discovers staged fixtures fine); `discover` tolerates both independently.
 
 pub mod corpus;
 

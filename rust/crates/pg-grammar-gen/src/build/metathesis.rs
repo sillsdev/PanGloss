@@ -1,5 +1,5 @@
 //! `MetathesisRuleDef` HONEST-SKIP bail gate builder (pure test-writing -- `pg_foma::replace::
-//! compile_and_compose_rules_with_budget`'s own match on [`pg_grammar::model::PhonRuleDef`] already
+//! compile_and_compose_rules_with_budget`'s own match on `pg_grammar::model::PhonRuleDef` already
 //! routes EVERY `PhonRuleDef::Metathesis` straight to `skipped.push(format!("{} (metathesis,
 //! unhandled)", m.xml_id))`, with no compile attempt at all -- this builder only needs a LOADABLE
 //! `<MetathesisRule>`, following `machine/conformance/languages/metathesis-phase-isolation/grammar.xml`'s

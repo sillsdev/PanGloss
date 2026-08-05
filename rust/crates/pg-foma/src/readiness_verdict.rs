@@ -1,6 +1,6 @@
-//! The **tiered certification verdict** — [`certify`] evaluates a grammar's real capability
+//! The **tiered certification verdict** — `certify` evaluates a grammar's real capability
 //! decision, its trust status, and its measured facts against a
-//! [`crate::readiness_policy::ThresholdPolicy`], and produces a [`ReadinessReport`] naming every
+//! `crate::readiness_policy::ThresholdPolicy`, and produces a `ReadinessReport` naming every
 //! failed check, never presenting an unassessed or override-blocked check as passed.
 //!
 //! **Non-goal**: certifying correctness. This module composes evidence produced elsewhere (the
@@ -8,11 +8,11 @@
 //! it does not independently verify any of it.
 //!
 //! # The two tiers, and why a flat pass/fail cannot do this job
-//! - [`Tier::NotYet`]: the grammar compiles and runs (capability `Admit`/`ConfirmOnly`, trust
+//! - `Tier::NotYet`: the grammar compiles and runs (capability `Admit`/`ConfirmOnly`, trust
 //!   `Proven`), but at least one threshold is missed or a required check could not be assessed.
 //!   Actionable by the language team — more lexicon, better data, a smaller pack.
-//! - [`Tier::NotSupported`]: either (a) the capability gate refuses the grammar outright — cited
-//!   from the **real** [`crate::capability::CompileDecision::Refuse`] this module always computes
+//! - `Tier::NotSupported`: either (a) the capability gate refuses the grammar outright — cited
+//!   from the **real** `crate::capability::CompileDecision::Refuse` this module always computes
 //!   itself (never a caller-supplied guess, never inferred from a failure to run), or (b) the
 //!   artifact carries a capability override (`trust=unproven`) — see the next section. Actionable
 //!   only by compiler work (or, for (b), a clean recompile without the override).
@@ -21,10 +21,10 @@
 //! carved-out construct" call for completely different responses.
 //!
 //! # Rule 1: an override-trusted artifact never certifies, under any configuration
-//! [`certify`] takes a caller-supplied [`TrustStatus`]. Whenever it is [`TrustStatus::Overridden`],
-//! **every** [`CheckOutcome`] this call produces is [`CheckOutcome::Blocked`] — never `Pass`, even
-//! if the underlying measured value would numerically satisfy its threshold — and [`Tier`] is
-//! forced to [`Tier::NotSupported`], regardless of what the real capability decision or any
+//! `certify` takes a caller-supplied `TrustStatus`. Whenever it is `TrustStatus::Overridden`,
+//! **every** `CheckOutcome` this call produces is `CheckOutcome::Blocked` — never `Pass`, even
+//! if the underlying measured value would numerically satisfy its threshold — and `Tier` is
+//! forced to `Tier::NotSupported`, regardless of what the real capability decision or any
 //! threshold comparison would otherwise say. This is deliberately **two independent enforcement
 //! points** (the per-check outcome AND the tier), not one: a caller that renders `checks` directly
 //! without consulting `tier` still cannot accidentally print a "Pass" for an unproven pack. See
@@ -34,33 +34,33 @@
 //! too).
 //!
 //! # Rule 2: held-out coverage is an attestation, never a measurement
-//! [`CoverageAssessment::Attested`] carries an `attestor` and a `attested_on` date and is rendered
-//! with [`COVERAGE_UNVERIFIED_STATEMENT`] stating plainly that it is unverified — nothing in this
+//! `CoverageAssessment::Attested` carries an `attestor` and a `attested_on` date and is rendered
+//! with `COVERAGE_UNVERIFIED_STATEMENT` stating plainly that it is unverified — nothing in this
 //! module checks whether the named attestor actually held the corpus out of authoring (PanGloss
 //! does not train, and nothing in a grammar artifact records what its author read). Absent a
-//! corpus, [`CoverageAssessment::NotAssessed`] renders as [`CheckOutcome::NotAssessed`], which
-//! [`compute_tier`] treats as blocking [`Tier::Certified`] exactly like a real `Fail` — an
+//! corpus, `CoverageAssessment::NotAssessed` renders as `CheckOutcome::NotAssessed`, which
+//! `compute_tier` treats as blocking `Tier::Certified` exactly like a real `Fail` — an
 //! unassessed check must never render as passed (rule 4 below; this is the same check).
 //!
 //! # Rule 3: coverage is a token-level analysis rate, never accuracy
-//! [`COVERAGE_RATE_STATEMENT`] is the fixed disclaimer every coverage [`CheckResult`] carries: the
+//! `COVERAGE_RATE_STATEMENT` is the fixed disclaimer every coverage `CheckResult` carries: the
 //! rate is the fraction of tokens receiving **at least one** analysis; a token may receive a
 //! *wrong* analysis and still count. Correctness is the conformance suite's job, not this module's.
 //!
 //! # Rule 4: an unassessed check never renders as passed
-//! [`CheckOutcome`] is a closed, four-variant enum (`Pass`/`Fail`/`NotAssessed`/`Blocked`) with no
-//! variant that could be mistaken for `Pass` by a renderer matching loosely — and [`compute_tier`]
-//! only ever returns [`Tier::Certified`] when **every** check is `Pass`, so a single `NotAssessed`
+//! `CheckOutcome` is a closed, four-variant enum (`Pass`/`Fail`/`NotAssessed`/`Blocked`) with no
+//! variant that could be mistaken for `Pass` by a renderer matching loosely — and `compute_tier`
+//! only ever returns `Tier::Certified` when **every** check is `Pass`, so a single `NotAssessed`
 //! or `Blocked` check anywhere denies `Certified` outright.
 //!
 //! # Latency's own below-floor discipline (composes with, but is distinct from, section 1's)
-//! [`LatencyMeasurement`] mirrors `tests/typology_speedup.rs`'s "never emit `0`" rule at this
+//! `LatencyMeasurement` mirrors `tests/typology_speedup.rs`'s "never emit `0`" rule at this
 //! module's own layer (that harness's types are test-only and not importable as a library):
-//! [`LatencyMeasurement::BelowFloor`] records that the true value is somewhere under the stated
+//! `LatencyMeasurement::BelowFloor` records that the true value is somewhere under the stated
 //! floor, and `compare_latency` treats a below-floor measurement as a **safe** (conservative)
 //! comparison — the true value is less than the floor, so a floor at or under the threshold proves
 //! a pass; a floor above the threshold cannot be resolved finely enough to call, and is reported as
-//! [`CheckOutcome::NotAssessed`] (an honest "cannot tell", never a guessed `Pass` or `Fail`) rather
+//! `CheckOutcome::NotAssessed` (an honest "cannot tell", never a guessed `Pass` or `Fail`) rather
 //! than silently treating "below floor" as "zero" and calling it a pass by assumption.
 
 use serde::{Deserialize, Serialize};
@@ -77,13 +77,13 @@ use pg_grammar::model::Grammar;
 /// `RequiredRuntimeFeatures::payload_format_version`).
 pub const READINESS_REPORT_SCHEMA_VERSION: u32 = 1;
 
-/// The fixed disclaimer every coverage [`CheckResult`] carries (rule 3: never worded as accuracy).
+/// The fixed disclaimer every coverage `CheckResult` carries (rule 3: never worded as accuracy).
 pub const COVERAGE_RATE_STATEMENT: &str = "Coverage is a token-level ANALYSIS RATE: the fraction \
     of tokens receiving at least one analysis. A token may receive an INCORRECT analysis and still \
     count -- this is not an accuracy or correctness measurement. Correctness is the conformance \
     suite's job.";
 
-/// The fixed disclaimer every attested coverage [`CheckResult`] carries (rule 2: an attestation is
+/// The fixed disclaimer every attested coverage `CheckResult` carries (rule 2: an attestation is
 /// not a measurement).
 pub const COVERAGE_UNVERIFIED_STATEMENT: &str = "Held-out status is an ATTESTATION, not a \
     measurement: nothing in the artifact records what its author read while authoring, and \
@@ -100,7 +100,7 @@ pub const COVERAGE_UNVERIFIED_STATEMENT: &str = "Held-out status is an ATTESTATI
 
 /// One fail-closed configuration a capability override force-compiled through — mirrors
 /// `pg_pack::trust::OverriddenConfig`'s shape (predicate/construct/witness), the same vocabulary
-/// [`CapabilityDiagnostic`] already uses.
+/// `CapabilityDiagnostic` already uses.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OverriddenConfig {
     pub predicate: String,
@@ -155,7 +155,7 @@ pub enum CoverageAssessment {
         attested_on: String,
         analysis_rate: f64,
     },
-    /// No held-out corpus is available for this language. Reports as [`CheckOutcome::NotAssessed`]
+    /// No held-out corpus is available for this language. Reports as `CheckOutcome::NotAssessed`
     /// -- never silently passing (rule 4).
     NotAssessed,
 }
@@ -181,10 +181,10 @@ pub enum LatencyMeasurement {
 // `pangloss make-report`'s job, section 4, out of this module's scope)
 // =================================================================================================
 
-/// The measured facts [`certify`] checks against a [`ThresholdPolicy`]. `None` for the whole
-/// struct (via [`certify`]'s `Option` parameter) means no compiled artifact exists to measure at
+/// The measured facts `certify` checks against a `ThresholdPolicy`. `None` for the whole
+/// struct (via `certify`'s `Option` parameter) means no compiled artifact exists to measure at
 /// all (e.g. the grammar was refused before anything compiled); every field of coverage is its own
-/// independent [`CoverageAssessment`] since a corpus can be present or absent independent of
+/// independent `CoverageAssessment` since a corpus can be present or absent independent of
 /// whether size/latency were measured.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Measurements {
@@ -213,7 +213,7 @@ pub enum CheckKind {
     LatencyP99,
 }
 
-/// A measured or threshold value, in whatever unit its [`CheckKind`] uses -- shares one shape
+/// A measured or threshold value, in whatever unit its `CheckKind` uses -- shares one shape
 /// across all six checks rather than six near-identical structs (mirrors `crate::health::
 /// MetricValue`'s own closed-enum convention).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -223,13 +223,13 @@ pub enum CheckValue {
     Count(u64),
     Rate(f64),
     Millis(f64),
-    /// Mirrors [`LatencyMeasurement::BelowFloor`] for a measured (not threshold) value.
+    /// Mirrors `LatencyMeasurement::BelowFloor` for a measured (not threshold) value.
     BelowFloorMillis(f64),
 }
 
 /// The outcome of one check. **Closed, four variants, no catch-all match anywhere in this module**
 /// (the same discipline `crate::health`/`crate::plan` document for their own closed enums) --
-/// [`CheckOutcome::Blocked`] is a structurally distinct variant from [`CheckOutcome::Pass`], so an
+/// `CheckOutcome::Blocked` is a structurally distinct variant from `CheckOutcome::Pass`, so an
 /// override-blocked check cannot be confused with a passed one even by a renderer that pattern-
 /// matches loosely.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -246,7 +246,7 @@ pub enum CheckOutcome {
     NotAssessed {
         reason: String,
     },
-    /// This artifact's trust status is [`TrustStatus::Overridden`] -- rule 1 forces every check to
+    /// This artifact's trust status is `TrustStatus::Overridden` -- rule 1 forces every check to
     /// this outcome, never `Pass`, regardless of the underlying measured value (still recorded,
     /// for transparency, but never presented as passing).
     Blocked {
@@ -268,8 +268,8 @@ pub struct CheckResult {
     pub kind: CheckKind,
     pub outcome: CheckOutcome,
     pub threshold: CheckValue,
-    /// Present only for [`CheckKind::CoverageAnalysisRate`]: [`COVERAGE_RATE_STATEMENT`] always,
-    /// plus [`COVERAGE_UNVERIFIED_STATEMENT`] when the coverage was [`CoverageAssessment::
+    /// Present only for `CheckKind::CoverageAnalysisRate`: `COVERAGE_RATE_STATEMENT` always,
+    /// plus `COVERAGE_UNVERIFIED_STATEMENT` when the coverage was [`CoverageAssessment::
     /// Attested`] (an attestation, not a check that could fail on its own terms).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub statements: Vec<String>,
@@ -279,8 +279,8 @@ pub struct CheckResult {
 // Capability: always the REAL evaluation, never a caller-supplied guess
 // =================================================================================================
 
-/// One capability refusal citation, owned (not borrowed) so it outlives the [`Grammar`] this
-/// report was computed from -- mirrors [`CapabilityDiagnostic`]'s own predicate/construct/witness
+/// One capability refusal citation, owned (not borrowed) so it outlives the `Grammar` this
+/// report was computed from -- mirrors `CapabilityDiagnostic`'s own predicate/construct/witness
 /// shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RefusalCitation {
@@ -299,8 +299,8 @@ impl From<&CapabilityDiagnostic> for RefusalCitation {
     }
 }
 
-/// The real capability decision this report was computed from ([`certify`] always calls
-/// [`evaluate_capability_with_semantics`] itself -- see this module's top doc).
+/// The real capability decision this report was computed from (`certify` always calls
+/// `evaluate_capability_with_semantics` itself -- see this module's top doc).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "decision", rename_all = "snake_case")]
 pub enum CapabilitySummary {
@@ -453,7 +453,7 @@ type ThresholdU64 = crate::readiness_policy::Threshold<u64>;
 type ThresholdF64 = crate::readiness_policy::Threshold<f64>;
 
 /// Applies `blocked_reason` (rule 1) or `measurements` (normal path) to produce every check's
-/// [`CheckOutcome`], in a fixed declaration order matching [`CheckKind`]'s own order.
+/// `CheckOutcome`, in a fixed declaration order matching `CheckKind`'s own order.
 fn compute_checks(
     policy: &ThresholdPolicy,
     measurements: Option<&Measurements>,
@@ -586,8 +586,8 @@ fn compute_checks(
         .collect()
 }
 
-/// [`Tier::Certified`] iff every check passed and neither the override nor the refusal gate fired.
-/// Rule 1/rule 4 both live here: any [`CheckOutcome::Blocked`] or [`CheckOutcome::NotAssessed`]
+/// `Tier::Certified` iff every check passed and neither the override nor the refusal gate fired.
+/// Rule 1/rule 4 both live here: any `CheckOutcome::Blocked` or `CheckOutcome::NotAssessed`
 /// anywhere denies `Certified`, same as an outright `Fail`.
 fn compute_tier(
     trust: &TrustStatus,
@@ -647,11 +647,11 @@ fn build_notes(trust: &TrustStatus, capability: &CapabilitySummary, tier: Tier) 
 
 /// Certifies `g` against `policy`, given its `trust` status and (if any) its `measurements`.
 ///
-/// Always calls [`evaluate_capability_with_semantics`] itself (never a caller-supplied capability
+/// Always calls `evaluate_capability_with_semantics` itself (never a caller-supplied capability
 /// verdict, never inferred from a failure to run). `measurements` is `None` when no compiled
 /// artifact exists to measure (e.g. the grammar was refused before compilation ever produced one);
-/// each measurement's own coverage sub-field is independently [`CoverageAssessment::NotAssessed`]
-/// or [`CoverageAssessment::Attested`] regardless of whether the rest of `measurements` is present.
+/// each measurement's own coverage sub-field is independently `CoverageAssessment::NotAssessed`
+/// or `CoverageAssessment::Attested` regardless of whether the rest of `measurements` is present.
 pub fn certify(
     g: &Grammar,
     trust: &TrustStatus,
@@ -661,15 +661,15 @@ pub fn certify(
     certify_with_semantics(&GrammarSemantics::derive(g), trust, measurements, policy)
 }
 
-/// [`certify`] over an already-derived [`GrammarSemantics`]. `pangloss make-report` evaluates the
+/// `certify` over an already-derived `GrammarSemantics`. `pangloss make-report` evaluates the
 /// capability gate three times in one process — here, in its own preamble, and inside
 /// `pack::build_pack` — and each of those used to be a full independent
-/// [`crate::capability::characterize`] walk.
+/// `crate::capability::characterize` walk.
 ///
 /// This does NOT weaken the rule that certification never accepts a caller-supplied capability
-/// verdict: a [`GrammarSemantics`] is a pure, deterministic function of the grammar, not a verdict,
-/// and this function still computes the [`CompileDecision`] itself through
-/// [`evaluate_capability_with_semantics`]. The thing a caller cannot do — hand in a `Refuse` it
+/// verdict: a `GrammarSemantics` is a pure, deterministic function of the grammar, not a verdict,
+/// and this function still computes the `CompileDecision` itself through
+/// `evaluate_capability_with_semantics`. The thing a caller cannot do — hand in a `Refuse` it
 /// decided on its own — remains impossible.
 pub fn certify_with_semantics(
     semantics: &GrammarSemantics<'_>,

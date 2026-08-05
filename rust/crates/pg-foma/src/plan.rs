@@ -1,36 +1,36 @@
 //! The compilation `Plan`: a content-addressed AND-OR DAG over a closed node-kind enum.
 //!
 //! Compilation topology is data here rather than control flow, so a compiler can be COMPOSED from
-//! parts instead of hand-written. [`crate::enumerate`] emits a `Plan` for a `Grammar`;
-//! [`crate::build`] interprets one into real [`foma::types::Fsm`]s.
+//! parts instead of hand-written. `crate::enumerate` emits a `Plan` for a `Grammar`;
+//! `crate::build` interprets one into real `foma::types::Fsm`s.
 //!
 //! `emit`/`preexpand` keep their own hardcoded seams and do not consult a `Plan`.
 //!
 //! # The five node kinds
-//! - [`PlanNodeKind::Leaf`] — an atomic FST-to-be-compiled-from-source: a [`FragmentSpec`]
-//!   describing *what* it will encode, plus a [`Provenance`] recording *which grammar construct*
+//! - `PlanNodeKind::Leaf` — an atomic FST-to-be-compiled-from-source: a `FragmentSpec`
+//!   describing *what* it will encode, plus a `Provenance` recording *which grammar construct*
 //!   it encodes (the source of the capability-evidence-provenance field). No live `Fsm`
 //!   here — that comes later, from an interpreter over this data.
-//! - [`PlanNodeKind::Compose`] — n-ary composition (Allauzen & Mohri's 3-way composition result:
-//!   n-ary is cost-relevant, not sugar for a binary fold), tagged with a [`ComposeStrategy`] kept
+//! - `PlanNodeKind::Compose` — n-ary composition (Allauzen & Mohri's 3-way composition result:
+//!   n-ary is cost-relevant, not sugar for a binary fold), tagged with a `ComposeStrategy` kept
 //!   deliberately separate from topology so a cost model can vary it per edge.
-//! - [`PlanNodeKind::Union`] — merges independently-compiled branches.
-//! - [`PlanNodeKind::Gate`] — `gate.rs`'s subrule-gated partition-and-union, promoted to a named
-//!   node kind; see [`GatePartitionSpec`].
-//! - [`PlanNodeKind::Replace`] — `replace.rs`'s rewrite-cascade construction, promoted to a named
-//!   node kind; see [`ReplaceCascadeSpec`].
+//! - `PlanNodeKind::Union` — merges independently-compiled branches.
+//! - `PlanNodeKind::Gate` — `gate.rs`'s subrule-gated partition-and-union, promoted to a named
+//!   node kind; see `GatePartitionSpec`.
+//! - `PlanNodeKind::Replace` — `replace.rs`'s rewrite-cascade construction, promoted to a named
+//!   node kind; see `ReplaceCascadeSpec`.
 //!
 //! The enum is closed **on purpose**: adding a node kind is a closed-set change, so
 //! every exhaustive match over node kinds must fail to compile until a new kind is handled. Every
-//! `match` in this file over [`PlanNodeKind`] is written with no catch-all arm, demonstrating that
-//! discipline; see [`PlanNodeKind::children`] and [`PlanNodeKind::kind_name`].
+//! `match` in this file over `PlanNodeKind` is written with no catch-all arm, demonstrating that
+//! discipline; see `PlanNodeKind::children` and `PlanNodeKind::kind_name`.
 //!
 //! # Content addressing
 //! `NodeId = hash(kind, child NodeIds, config)`. This is what makes (a) the plan a usable cache
 //! key, (b) cross-plan subtree sharing possible (two plans differing only in how the phonological
 //! cascade is grouped share their identical lexicon leaves — measured once, stored once), and (c)
 //! a future memoized AND-OR search actually work. A tree would force duplicating shared subtrees;
-//! see [`Plan`]'s doc for the arena/interner that makes this concrete.
+//! see `Plan`'s doc for the arena/interner that makes this concrete.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -85,8 +85,8 @@ impl Hasher for StableHasher {
 
 /// Content-addressed identity of a plan node. Two nodes with equal `PlanNodeKind` content
 /// (same kind, same children, same config) always produce the same `NodeId`; two nodes differing
-/// in ANY of those — including a config-only difference like [`ComposeStrategy`] — produce
-/// different ids. This is what lets [`Plan::add_node`] dedup identical subtrees for free.
+/// in ANY of those — including a config-only difference like `ComposeStrategy` — produce
+/// different ids. This is what lets `Plan::add_node` dedup identical subtrees for free.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeId(u64);
 
@@ -105,7 +105,7 @@ impl fmt::Display for NodeId {
     }
 }
 
-/// Computes `kind`'s content address. `PlanNodeKind`'s derived [`Hash`] impl already covers
+/// Computes `kind`'s content address. `PlanNodeKind`'s derived `Hash` impl already covers
 /// "kind tag" (the enum discriminant) + every field of the matched variant, including nested
 /// `Vec<NodeId>` children and config payloads — so hashing the whole value is exactly
 /// `hash(kind, child NodeIds, config)`, not an approximation of it.
@@ -119,7 +119,7 @@ fn content_address(kind: &PlanNodeKind) -> NodeId {
 // Compose strategy: physical strategy kept separate from topology
 // ---------------------------------------------------------------------------------------------
 
-/// The *physical* strategy for a [`PlanNodeKind::Compose`] node, kept as a separate enum from
+/// The *physical* strategy for a `PlanNodeKind::Compose` node, kept as a separate enum from
 /// topology so a future cost model can vary the strategy per edge without the enumerator
 /// having to emit a combinatorially separate `Compose` topology for every strategy choice.
 ///
@@ -151,12 +151,12 @@ impl Hash for ComposeStrategy {
 // Leaf payload: FragmentSpec (what to compile) + Provenance (which grammar construct)
 // ---------------------------------------------------------------------------------------------
 
-/// What a [`PlanNodeKind::Leaf`] will be compiled from — the *compile-shape* descriptor a builder
+/// What a `PlanNodeKind::Leaf` will be compiled from — the *compile-shape* descriptor a builder
 /// needs to know HOW to produce this leaf's `Fsm`. Deliberately lightweight: no grammar
 /// data is embedded beyond stable ids, and no `Fsm` is built here at all — building/executing a
 /// plan into real FSTs happens later.
 ///
-/// Kept **separate** from [`Provenance`] even though the two overlap for most of today's leaf
+/// Kept **separate** from `Provenance` even though the two overlap for most of today's leaf
 /// kinds: `FragmentSpec` answers "what source material, compiled how", while `Provenance` answers
 /// "which grammar construct to attribute this to" for capability-evidence/coverage purposes. They
 /// can diverge — e.g. a single composite-emission leaf's `FragmentSpec` is one
@@ -167,7 +167,7 @@ impl Hash for ComposeStrategy {
 pub enum FragmentSpec {
     /// A lexc-compiled lexicon fragment. `entries = None` means the whole grammar's lexicon;
     /// `Some(_)` names an explicit subset (mirrors `gate::EntryGroup::entries`, without
-    /// recomputing it here — see [`GatePartitionSpec`]'s doc).
+    /// recomputing it here — see `GatePartitionSpec`'s doc).
     LexiconFragment { entries: Option<Vec<LexEntryId>> },
     /// A single rewrite rule's transducer, addressed by its `PRuleId` (cascade position).
     RewriteRule { rule: PRuleId },
@@ -184,14 +184,14 @@ pub enum FragmentSpec {
     /// ordinary composite mechanism cannot represent at all (circumfixes, subtractive/dropped-LHS-
     /// material rules), plus every ordinary `Prefix`/`Suffix`/`Infix` rule when
     /// `emit::probe_would_refuse` holds (that construct's own doc). Kept as a DISTINCT marker from
-    /// [`Self::CompositeEmissionMarker`] even though both are "opaque, resolved-against-
+    /// `Self::CompositeEmissionMarker` even though both are "opaque, resolved-against-
     /// the-grammar-later" leaves: they gate on two different seams (`preexpand::should_run` vs.
     /// `emit::probe_would_refuse`/`structural_candidate_rules`) and a grammar can need either, both,
     /// or neither independently — collapsing them into one marker would lose that independence.
     StructuralCompositeMarker,
 }
 
-/// Which grammar construct a [`PlanNodeKind::Leaf`] (or [`PlanNodeKind::Replace`]) encodes —
+/// Which grammar construct a `PlanNodeKind::Leaf` (or `PlanNodeKind::Replace`) encodes —
 /// records which grammar construct it encodes, and is the source of the
 /// capability-evidence-provenance field. This type only needs
 /// a stable, content-addressable "what grammar-level thing does this node come from" tag so a
@@ -206,15 +206,15 @@ pub enum Provenance {
     MorphRule(MRuleId),
     /// An affix template.
     Template(TemplateId),
-    /// A gate/guard automaton (see [`GatePartitionSpec`]).
+    /// A gate/guard automaton (see `GatePartitionSpec`).
     Gate,
     /// A rewrite-cascade construction as a whole (`replace.rs`).
     Replace,
     /// A composite-emission subtree (multi-tag composite entries).
     CompositeEmission,
     /// A structural-composite subtree (the `emit::build_structural_composites` route — see
-    /// [`FragmentSpec::StructuralCompositeMarker`]'s doc for why this is kept distinct from
-    /// [`Self::CompositeEmission`]).
+    /// `FragmentSpec::StructuralCompositeMarker`'s doc for why this is kept distinct from
+    /// `Self::CompositeEmission`).
     StructuralComposite,
 }
 
@@ -243,7 +243,7 @@ pub struct GateGroupSpec {
     pub key: Vec<bool>,
 }
 
-/// The partition descriptor for a [`PlanNodeKind::Gate`] node: it can reference the gate-key
+/// The partition descriptor for a `PlanNodeKind::Gate` node: it can reference the gate-key
 /// concept without recomputing it here. `gated_subrules` names which
 /// subrules the partition keys on; `groups` lists one entry per distinct gating key realized by
 /// the grammar, in the same order as the `Gate` node's `children` (one compiled child subplan per
@@ -260,23 +260,23 @@ pub struct GatePartitionSpec {
 // Replace payload: replace.rs's rewrite-cascade construction, promoted to a named node kind
 // ---------------------------------------------------------------------------------------------
 
-/// The cascade descriptor for a [`PlanNodeKind::Replace`] node: the ordered rewrite rules the
+/// The cascade descriptor for a `PlanNodeKind::Replace` node: the ordered rewrite rules the
 /// cascade applies, addressed by `PRuleId` in cascade order.
 ///
 /// **`gated_subrules` + `group_key`:** a `Replace`
-/// node compiled underneath a [`PlanNodeKind::Gate`] group must exclude/include specific SUBRULES
+/// node compiled underneath a `PlanNodeKind::Gate` group must exclude/include specific SUBRULES
 /// per that group's own gating key (`crate::replace::compile_and_compose_rules_gated_with_budget`'s
 /// `subrule_ok` callback) -- a fact that, before this fix, lived only on the `Gate` node's
-/// [`GatePartitionSpec`], NOT on the `Replace` node's own content. That made two groups needing
+/// `GatePartitionSpec`, NOT on the `Replace` node's own content. That made two groups needing
 /// DIFFERENT `subrule_ok` behavior reference the SAME `Replace` `NodeId` (`crate::enumerate`'s own
 /// `enumerate_default` built exactly one shared `Replace` node for every group), which is unsound
 /// for any `NodeId`-keyed cache/memoizing interpreter: the compiled artifact for that shared
 /// `NodeId` is NOT a pure function of the id, it also depends on which group is asking.
 ///
 /// The fix: every `Replace` node now carries its OWN group's subrule inclusion directly, in the
-/// same shape [`GatePartitionSpec`] already uses for the analogous group-level facts --
-/// `gated_subrules` mirrors [`GatePartitionSpec::gated_subrules`] (which `(rule_pos, sub_idx)`
-/// subrule positions are gated at all) and `group_key` mirrors [`GateGroupSpec::key`] (THIS
+/// same shape `GatePartitionSpec` already uses for the analogous group-level facts --
+/// `gated_subrules` mirrors `GatePartitionSpec::gated_subrules` (which `(rule_pos, sub_idx)`
+/// subrule positions are gated at all) and `group_key` mirrors `GateGroupSpec::key` (THIS
 /// cascade's own truth value for each of those positions, same indexing). Two `Replace` nodes are
 /// now the SAME `NodeId` iff they share `rules` AND `gated_subrules` AND `group_key` -- i.e. iff
 /// they would compile to the identical `subrule_ok` predicate -- so distinct groups (different
@@ -285,7 +285,7 @@ pub struct GatePartitionSpec {
 /// that realize the same key) still dedup correctly, because their compiled artifact really would
 /// be identical. An ungated cascade (no gated subrules apply at all -- the pre-refactor "1 group,
 /// empty key" collapse) carries `gated_subrules: vec![]` / `group_key: vec![]`, matching
-/// [`GatePartitionSpec`]'s own ungated-collapse shape.
+/// `GatePartitionSpec`'s own ungated-collapse shape.
 ///
 /// `Replace` is content-pure with this fix in place (`crate::build`'s own module doc): its
 /// compiled `Fsm` depends on nothing this struct doesn't already carry, so a future `NodeId`-keyed
@@ -295,10 +295,10 @@ pub struct GatePartitionSpec {
 pub struct ReplaceCascadeSpec {
     pub rules: Vec<PRuleId>,
     /// Which `(rule_pos, sub_idx)` subrule positions this cascade's `subrule_ok` gates on at all --
-    /// same shape as [`GatePartitionSpec::gated_subrules`]. Empty for an ungated cascade.
+    /// same shape as `GatePartitionSpec::gated_subrules`. Empty for an ungated cascade.
     pub gated_subrules: Vec<GatedSubruleRef>,
     /// THIS cascade's own truth value for each of `gated_subrules`, same indexing -- same shape as
-    /// [`GateGroupSpec::key`]. Empty for an ungated cascade (vacuously matches an empty
+    /// `GateGroupSpec::key`. Empty for an ungated cascade (vacuously matches an empty
     /// `gated_subrules`).
     pub group_key: Vec<bool>,
 }
@@ -312,14 +312,14 @@ pub struct ReplaceCascadeSpec {
 /// compile until a new kind is handled.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PlanNodeKind {
-    /// An atomic FST-to-be-compiled-from-source. See [`FragmentSpec`]/[`Provenance`]'s docs.
+    /// An atomic FST-to-be-compiled-from-source. See `FragmentSpec`/`Provenance`'s docs.
     Leaf {
         fragment: FragmentSpec,
         provenance: Provenance,
     },
     /// N-ary composition (not binary — Allauzen & Mohri's 3-way composition result proves
     /// n-ary composition is strictly cost-relevant... when out-degrees are skewed). `strategy` is
-    /// the physical strategy, kept separate from topology (see [`ComposeStrategy`]'s doc).
+    /// the physical strategy, kept separate from topology (see `ComposeStrategy`'s doc).
     Compose {
         children: Vec<NodeId>,
         strategy: ComposeStrategy,
@@ -329,7 +329,7 @@ pub enum PlanNodeKind {
     /// only needs to exist as data here.
     Union { children: Vec<NodeId> },
     /// `gate.rs`'s subrule-gated partition-and-union, promoted to a named node kind. See
-    /// [`GatePartitionSpec`]'s doc for the invariant between `partition.groups` and `children`.
+    /// `GatePartitionSpec`'s doc for the invariant between `partition.groups` and `children`.
     Gate {
         partition: GatePartitionSpec,
         children: Vec<NodeId>,
@@ -401,7 +401,7 @@ impl Plan {
         Plan::default()
     }
 
-    /// Interns `kind`, returning its content-addressed [`NodeId`]. If a node with the same content
+    /// Interns `kind`, returning its content-addressed `NodeId`. If a node with the same content
     /// address is already present, the existing entry is kept and `kind` is dropped without adding
     /// new storage — this dedup IS the DAG-sharing behavior this type requires, not an optimization
     /// layered on top of it: constructing the identical subtree twice through this method always
@@ -409,7 +409,7 @@ impl Plan {
     ///
     /// Debug-only invariant check (never a behavior change in a release build, and not a
     /// substitute for a real validated builder — this module ships a data type, not a validator): a
-    /// [`PlanNodeKind::Gate`] node's `children` length must equal its `partition.groups` length
+    /// `PlanNodeKind::Gate` node's `children` length must equal its `partition.groups` length
     /// (one compiled child subplan per partition group).
     pub fn add_node(&mut self, kind: PlanNodeKind) -> NodeId {
         if let PlanNodeKind::Gate {
@@ -669,7 +669,7 @@ mod tests {
         assert_eq!(plan.get(gate).unwrap().kind_name(), "Gate");
     }
 
-    /// The debug-only invariant in [`Plan::add_node`] catches a `Gate` node whose `children` count
+    /// The debug-only invariant in `Plan::add_node` catches a `Gate` node whose `children` count
     /// doesn't match its partition's group count.
     ///
     /// `#[cfg(debug_assertions)]`-gated because the invariant it exercises is a `debug_assert!`,
@@ -699,7 +699,7 @@ mod tests {
         });
     }
 
-    /// Exercises [`PlanNodeKind::children`]/[`PlanNodeKind::kind_name`]'s exhaustive matches over
+    /// Exercises `PlanNodeKind::children`/`PlanNodeKind::kind_name`'s exhaustive matches over
     /// every variant. If a sixth kind is ever added without updating those matches, THIS FILE
     /// fails to compile -- not this test ("adding a node kind is a closed-set change").
     #[test]
@@ -748,7 +748,7 @@ mod tests {
         assert_eq!(plan.iter().count(), 5);
     }
 
-    /// [`Plan::set_root`]/[`Plan::root`] round-trip.
+    /// `Plan::set_root`/`Plan::root` round-trip.
     #[test]
     fn root_round_trips() {
         let mut plan = Plan::new();

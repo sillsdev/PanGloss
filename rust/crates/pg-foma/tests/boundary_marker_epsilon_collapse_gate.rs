@@ -6,7 +6,7 @@
 //! Sena's own explosion traced to ONE specific construction: an affix allomorph whose ENTIRE
 //! underlying shape is composed only of `Boundary`-kind characters (Sena's compounding allomorph
 //! `"^0+"` -- a null/zero-morph marker immediately followed by an ordinary separator, nothing else).
-//! [`pg_foma::uflexc`]'s prefix/suffix continuation classes are deliberately self-looping (that
+//! `pg_foma::uflexc`'s prefix/suffix continuation classes are deliberately self-looping (that
 //! module's own doc), so once EVERY character of such an allomorph is deleted by the boundary
 //! cleanup step, its lexc line degenerates to a bare, zero-width, epsilon-tagged entry whose own
 //! continuation loops back to the state it came from -- a free, repeatable insertion point available
@@ -37,7 +37,7 @@
 //! that cannot distinguish the fixed build from the broken one is not a precision gate, so this file
 //! does not pretend otherwise.
 //!
-//! The precision half is pinned by [`corpus_large_lexicon_proposals_stay_bounded_after_the_reroute`],
+//! The precision half is pinned by `corpus_large_lexicon_proposals_stay_bounded_after_the_reroute`,
 //! on the real grammar where the defect manifests: 575 proposals with the fix, 53,992 with it
 //! bypassed, over the same deterministic 5-word slice. That one has been confirmed to fail on the
 //! broken build.
@@ -48,7 +48,7 @@
 //! prefix lexicon of its own (`UCmpPfx0`, `UCmp2Pfx0`, ...) built by re-emitting every prefix line --
 //! null-shaped ones included -- and the guard could not see those names, so the same epsilon cycle came
 //! back once per compound level. That class is now pinned by
-//! [`compound_level_null_shaped_prefix_is_not_a_free_epsilon_loop`], and pinned STRUCTURALLY (on the
+//! `compound_level_null_shaped_prefix_is_not_a_free_epsilon_loop`, and pinned STRUCTURALLY (on the
 //! emitted lexc text) rather than by a proposal ceiling, precisely because the measured limitation
 //! recorded above means a ceiling on a fixture this small cannot discriminate. The fix for it is
 //! structural too, in `uflexc`'s own `prefix_hop` at emission time -- a name-based guard cannot defend

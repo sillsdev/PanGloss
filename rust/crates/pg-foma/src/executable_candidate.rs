@@ -1,43 +1,43 @@
 //! The ONE validated
-//! [`ExecutableCandidate`], and the portable [`PortablePlan`] document it binds.
+//! `ExecutableCandidate`, and the portable `PortablePlan` document it binds.
 //!
 //! # What this is for
 //! A raw candidate as a `&'static str`
-//! label, an in-memory [`Plan`], and an [`EmissionStrategy`] -- all public fields, constructible by
+//! label, an in-memory `Plan`, and an `EmissionStrategy` -- all public fields, constructible by
 //! anyone -- would have no identity that survives leaving the process and no statement anywhere of what
 //! executing it would actually deliver. Every consumer would therefore have to re-derive the missing parts on
 //! its own, and the two that matter most -- which compiler realizes it, and what that compiler can
-//! represent -- would be re-derived independently in [`crate::recipe_runtime`] and
-//! [`crate::strategy_coverage`].
+//! represent -- would be re-derived independently in `crate::recipe_runtime` and
+//! `crate::strategy_coverage`.
 //!
-//! [`ExecutableCandidate`] binds all of it in one validated value:
+//! `ExecutableCandidate` binds all of it in one validated value:
 //!
 //! | Bound | Field | Derived from |
 //! |---|---|---|
-//! | Stable semantic digest | [`ExecutableCandidate::semantic_digest()`] | SHA-256 over [`crate::recipe_mechanism::MechanismGraph::canonical_projection`] (a byte-identical fresh-load projection) |
-//! | Portable Plan document | [`ExecutableCandidate::plan_document()`] | [`PortablePlan::encode`] of the materialized [`Plan`] |
-//! | Plan document digest | [`ExecutableCandidate::plan_digest()`] | SHA-256 over that document's canonical JSON |
-//! | Exact lowering adapter | [`ExecutableCandidate::adapter()`] | the [`LoweringAdapter`] the candidate itself carries ([`crate::enumerate::LoweredCandidate::adapter`]), 1:1 with [`EmissionStrategy`] |
-//! | Existing runtime requirements | [`ExecutableCandidate::runtime_requirements()`] | the checks [`crate::recipe_runtime`] already performs, made explicit |
-//! | Mechanism graph + bindings | [`ExecutableCandidate::mechanism_graph()`] / [`ExecutableCandidate::mechanism_bindings()`] | [`crate::mechanism_provider::derive_mechanism_graph`] + [`crate::recipe_mechanism::MechanismBinding::derive`] |
-//! | Certification scope | [`ExecutableCandidate::certification_scope()`] | those bindings, per mechanism, naming the adapter |
+//! | Stable semantic digest | `ExecutableCandidate::semantic_digest()` | SHA-256 over `crate::recipe_mechanism::MechanismGraph::canonical_projection` (a byte-identical fresh-load projection) |
+//! | Portable Plan document | `ExecutableCandidate::plan_document()` | `PortablePlan::encode` of the materialized `Plan` |
+//! | Plan document digest | `ExecutableCandidate::plan_digest()` | SHA-256 over that document's canonical JSON |
+//! | Exact lowering adapter | `ExecutableCandidate::adapter()` | the `LoweringAdapter` the candidate itself carries (`crate::enumerate::LoweredCandidate::adapter`), 1:1 with `EmissionStrategy` |
+//! | Existing runtime requirements | `ExecutableCandidate::runtime_requirements()` | the checks `crate::recipe_runtime` already performs, made explicit |
+//! | Mechanism graph + bindings | `ExecutableCandidate::mechanism_graph()` / `ExecutableCandidate::mechanism_bindings()` | `crate::mechanism_provider::derive_mechanism_graph` + `crate::recipe_mechanism::MechanismBinding::derive` |
+//! | Certification scope | `ExecutableCandidate::certification_scope()` | those bindings, per mechanism, naming the adapter |
 //!
 //! # The Registry is the sole constructor, and that is enforced by a type
-//! [`ExecutableCandidate`]'s fields are private, it has no public constructor, and -- unlike every
+//! `ExecutableCandidate`'s fields are private, it has no public constructor, and -- unlike every
 //! other data type in this crate that carries provenance -- it deliberately implements neither
-//! [`serde::Serialize`] nor [`serde::Deserialize`]. Deserialization would be a second constructor
+//! `serde::Serialize` nor `serde::Deserialize`. Deserialization would be a second constructor
 //! that skips every check below, which is precisely the bypass this design forbids; the PORTABLE part
-//! of a candidate is its [`PortablePlan`], which round-trips and re-verifies, not the validated
+//! of a candidate is its `PortablePlan`, which round-trips and re-verifies, not the validated
 //! binding around it.
 //!
-//! Crate-internal callers are blocked too, not merely discouraged: [`seal`] requires a
-//! [`crate::recipe_registry::RegistryAuthority`], whose only field is private to
+//! Crate-internal callers are blocked too, not merely discouraged: `seal` requires a
+//! `crate::recipe_registry::RegistryAuthority`, whose only field is private to
 //! `recipe_registry`, so no other module -- in this crate or any other -- can produce one. The
 //! authority is taken BY VALUE and is neither `Copy` nor `Clone`, so it cannot be minted once and
 //! reused to seal a second, unvalidated candidate.
 //!
 //! # Never FNV as artifact identity
-//! [`crate::plan::NodeId`] is an unseeded 64-bit FNV-1a content address. It is the right tool for
+//! `crate::plan::NodeId` is an unseeded 64-bit FNV-1a content address. It is the right tool for
 //! what it does -- in-memory interning and cross-plan subtree sharing -- and its own doc says
 //! plainly that it is "not collision-resistant, and that is an accepted tradeoff at this
 //! data-modeling step". A 64-bit non-cryptographic hash cannot ground a persisted artifact identity
@@ -49,23 +49,23 @@
 //! `pg-foma` deliberately does not depend on the assessment layer -- `pg_parse::identity` was moved
 //! rather than the dependency added). The FNV addresses still
 //! APPEAR inside the document, because they are the plan's own structure; what makes them safe
-//! there is that [`PortablePlan::decode`] RECOMPUTES every one of them from the decoded content and
+//! there is that `PortablePlan::decode` RECOMPUTES every one of them from the decoded content and
 //! refuses on the first disagreement. A tampered id is therefore a decode failure, never a silently
 //! accepted relabelling -- the ids are checkable data inside the artifact, not the artifact's
 //! identity.
 //!
 //! # Nothing here ranks, selects, or routes
-//! Constructing an [`ExecutableCandidate`] changes no
+//! Constructing an `ExecutableCandidate` changes no
 //! outcome and makes nothing selectable that was not selectable before -- this module only builds
-//! and verifies portable data, like [`crate::mechanism_provider`]. That is deliberate: measurement
+//! and verifies portable data, like `crate::mechanism_provider`. That is deliberate: measurement
 //! found a candidate that was 2.2x cheaper than the winner and returned a DIFFERENT analysis set
 //! (`@templated-underlying-tokens` on Amharic); ranking is only ever legitimate downstream of the
-//! parity relation measured against an oracle ([`crate::parity`]), never from anything this module
-//! can compute. [`CandidateCertificationScope`] accordingly states what a named compiler can
+//! parity relation measured against an oracle (`crate::parity`), never from anything this module
+//! can compute. `CandidateCertificationScope` accordingly states what a named compiler can
 //! REPRESENT and nothing about what it got right.
 //!
 //! # And no implicit fallback
-//! Every way construction can fail is a variant of [`CandidateConstructionError`]. There is no arm
+//! Every way construction can fail is a variant of `CandidateConstructionError`. There is no arm
 //! that substitutes a different plan, a different adapter, or a different compiler for one that
 //! could not be built. A budget verdict relabelled
 //! `Unsupported` several call frames away from where it was produced is exactly the same disease as
@@ -95,7 +95,7 @@ use crate::strategy_coverage::StrategyRepresentation;
 // Domain-framed SHA-256
 // ---------------------------------------------------------------------------------------------
 
-/// Wire version of [`PortablePlan`]. Bumped only for a change that makes an older document decode
+/// Wire version of `PortablePlan`. Bumped only for a change that makes an older document decode
 /// differently; the projection name below carries the same information into every digest, so a
 /// schema change cannot silently produce a colliding identity.
 pub const PORTABLE_PLAN_SCHEMA_VERSION: u16 = 1;
@@ -104,7 +104,7 @@ pub const PORTABLE_PLAN_SCHEMA_VERSION: u16 = 1;
 pub const PLAN_DOCUMENT_PROJECTION: &str = "pangloss.foma.plan-document/v1";
 
 /// "These candidates were derived from the same grammar semantics." The preimage is
-/// [`MechanismGraph::canonical_projection`], which is byte-identical across
+/// `MechanismGraph::canonical_projection`, which is byte-identical across
 /// independent loads of the same grammar.
 pub const CANDIDATE_SEMANTICS_PROJECTION: &str = "pangloss.foma.candidate-semantics/v1";
 
@@ -128,10 +128,10 @@ pub fn digest_projection(projection: &str, value: &str) -> String {
 // The portable Plan document
 // ---------------------------------------------------------------------------------------------
 
-/// A [`crate::plan::FragmentSpec`] in wire form.
+/// A `crate::plan::FragmentSpec` in wire form.
 ///
-/// Model ids travel as [`WireModelId`]s -- the same typed carrier
-/// [`crate::recipe_mechanism`] already uses -- rather than as bare integers. `pg_grammar`'s id
+/// Model ids travel as `WireModelId`s -- the same typed carrier
+/// `crate::recipe_mechanism` already uses -- rather than as bare integers. `pg_grammar`'s id
 /// newtypes are not `Serialize`, and more importantly a bare integer lets a `PRuleId` be read back
 /// as a `LexEntryId` across a serialization boundary; the kind tag makes that a typed decode error.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,7 +144,7 @@ pub enum PortableFragment {
     StructuralCompositeMarker,
 }
 
-/// A [`crate::plan::Provenance`] in wire form.
+/// A `crate::plan::Provenance` in wire form.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "provenance", rename_all = "kebab-case")]
 pub enum PortableProvenance {
@@ -158,7 +158,7 @@ pub enum PortableProvenance {
     StructuralComposite,
 }
 
-/// A [`crate::plan::ComposeStrategy`] in wire form.
+/// A `crate::plan::ComposeStrategy` in wire form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PortableComposeStrategy {
@@ -189,8 +189,8 @@ pub struct PortableReplaceCascade {
     pub group_key: Vec<bool>,
 }
 
-/// A [`PlanNodeKind`] in wire form. Children are the 16-hex `Display` form of the child's
-/// [`NodeId`], so a document is readable and diffable without a decoder.
+/// A `PlanNodeKind` in wire form. Children are the 16-hex `Display` form of the child's
+/// `NodeId`, so a document is readable and diffable without a decoder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum PortableNodeKind {
@@ -215,9 +215,9 @@ pub enum PortableNodeKind {
     },
 }
 
-/// One node of a [`PortablePlan`]: its DECLARED content address plus its content.
+/// One node of a `PortablePlan`: its DECLARED content address plus its content.
 ///
-/// The id is declared, not trusted. [`PortablePlan::decode`] recomputes it from the content and
+/// The id is declared, not trusted. `PortablePlan::decode` recomputes it from the content and
 /// refuses on disagreement, which is the whole reason a document can carry FNV addresses at all
 /// without them becoming the artifact's identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,11 +227,11 @@ pub struct PortablePlanNode {
     pub node: PortableNodeKind,
 }
 
-/// A [`Plan`] as a portable, round-trippable document.
+/// A `Plan` as a portable, round-trippable document.
 ///
 /// Round-trip means exactly this, and nothing weaker: `decode(encode(p))` rebuilds a `Plan` whose
-/// re-`encode` is the identical document, and therefore has the identical [`Self::digest`]. Node
-/// order is [`Plan::iter`]'s, which is content-address order (`Plan`'s arena is a `BTreeMap`), so
+/// re-`encode` is the identical document, and therefore has the identical `Self::digest`. Node
+/// order is `Plan::iter`'s, which is content-address order (`Plan`'s arena is a `BTreeMap`), so
 /// two independent encodes of the same plan agree. Child order inside a node is NEVER sorted: it is
 /// semantic (a `Replace` cascade is order-sensitive) and is part of the content address.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -241,7 +241,7 @@ pub struct PortablePlan {
     pub nodes: Vec<PortablePlanNode>,
 }
 
-/// Every way a [`PortablePlan`] can fail to be a faithful plan. Note what is absent: there is no
+/// Every way a `PortablePlan` can fail to be a faithful plan. Note what is absent: there is no
 /// variant that repairs, prunes, or substitutes. A document that does not decode exactly is
 /// refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -255,7 +255,7 @@ pub enum PortablePlanError {
         referrer: String,
         id: String,
     },
-    /// The document's node graph is cyclic. A [`Plan`] is a DAG; a cycle cannot be interned.
+    /// The document's node graph is cyclic. A `Plan` is a DAG; a cycle cannot be interned.
     Cycle {
         id: String,
     },
@@ -268,7 +268,7 @@ pub enum PortablePlanError {
         expected: WireModelKind,
     },
     /// A `Gate` node whose child count does not match its partition-group count. Checked HERE, and
-    /// before interning, because [`Plan::add_node`] enforces the same invariant with a
+    /// before interning, because `Plan::add_node` enforces the same invariant with a
     /// `debug_assert!` -- which is a panic in a debug build and silence in a release one. Neither is
     /// an acceptable answer to untrusted input.
     GateArityMismatch {
@@ -360,7 +360,7 @@ impl PortablePlan {
         serde_json::to_string(self).expect("a portable plan is plain serializable data")
     }
 
-    /// The artifact identity: domain-framed SHA-256 over [`Self::canonical_json`]. NOT the plan's
+    /// The artifact identity: domain-framed SHA-256 over `Self::canonical_json`. NOT the plan's
     /// FNV root -- see this module's doc.
     pub fn digest(&self) -> String {
         digest_projection(PLAN_DOCUMENT_PROJECTION, &self.canonical_json())
@@ -370,11 +370,11 @@ impl PortablePlan {
         serde_json::from_str(json).map_err(|error| PortablePlanError::Malformed(error.to_string()))
     }
 
-    /// Rebuild the [`Plan`] this document describes, recomputing and CHECKING every content
+    /// Rebuild the `Plan` this document describes, recomputing and CHECKING every content
     /// address on the way.
     ///
     /// Nothing is repaired. A mismatch, a dangling child, a cycle, a mis-typed wire id, or a `Gate`
-    /// arity error each abort with the corresponding [`PortablePlanError`], leaving the caller to
+    /// arity error each abort with the corresponding `PortablePlanError`, leaving the caller to
     /// decide -- which is the point: a decoder that silently rebuilt "the nearest valid plan" would
     /// hand back an artifact whose digest no longer means what it said.
     pub fn decode(&self) -> Result<Plan, PortablePlanError> {
@@ -496,7 +496,7 @@ fn encode_node(kind: &PlanNodeKind) -> PortableNodeKind {
     }
 }
 
-/// Resolve one declared id to an interned [`NodeId`], recursing into its children first.
+/// Resolve one declared id to an interned `NodeId`, recursing into its children first.
 ///
 /// Recursion depth is plan DEPTH (`Union` -> `Gate` -> `Compose` -> `Replace` -> `Leaf` in every
 /// plan this crate enumerates), not plan size; a `Gate` node's hundreds of children are siblings,
@@ -673,24 +673,24 @@ fn resolve_node(
 // ---------------------------------------------------------------------------------------------
 
 /// WHICH of this crate's compilers lowers a candidate into a network -- named as an adapter rather
-/// than left implicit in a `match` on [`EmissionStrategy`] scattered across
-/// [`crate::recipe_runtime`].
+/// than left implicit in a `match` on `EmissionStrategy` scattered across
+/// `crate::recipe_runtime`.
 ///
-/// One variant per [`EmissionStrategy`], both directions exhaustively matched, so the adapter axis
+/// One variant per `EmissionStrategy`, both directions exhaustively matched, so the adapter axis
 /// provably expresses everything the enum selects between. Measurement showed that axis to be the
 /// DECISIVE one (two whole-grammar compilers win two different languages), so nothing here
 /// hard-codes a winner and nothing here ranks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LoweringAdapter {
-    /// [`crate::build::build_controllable`] interprets the candidate's own [`Plan`]. The ONLY
+    /// `crate::build::build_controllable` interprets the candidate's own `Plan`. The ONLY
     /// adapter that reads a plan at all.
     ControllablePlanCompose,
-    /// `crate::emit`'s surface probe via [`crate::analyzer::FomaProposer::new`]. Whole-grammar;
+    /// `crate::emit`'s surface probe via `crate::analyzer::FomaProposer::new`. Whole-grammar;
     /// derives its own topology and ignores the plan.
     TunedSurfaceEmit,
     /// `crate::emit::emit_underlying_templated` plus a compiled rewrite cascade via
-    /// [`crate::templated_compile`]. Whole-grammar; likewise ignores the plan.
+    /// `crate::templated_compile`. Whole-grammar; likewise ignores the plan.
     TemplatedUnderlyingEmit,
 }
 
@@ -714,7 +714,7 @@ impl LoweringAdapter {
     }
 
     /// Whether this adapter INTERPRETS the candidate's plan. `false` for both whole-grammar
-    /// adapters, which is exactly why [`crate::recipe_runtime::build_candidate`] refuses to be
+    /// adapters, which is exactly why `crate::recipe_runtime::build_candidate` refuses to be
     /// handed one: honouring it there would measure a different compiler than the candidate names.
     pub fn interprets_plan(self) -> bool {
         matches!(self, Self::ControllablePlanCompose)
@@ -738,13 +738,13 @@ impl LoweringAdapter {
 ///
 /// Every variant is DERIVED from the adapter and the plan; none is declared by whoever builds the
 /// candidate. That is the same discipline imposed on
-/// [`crate::recipe_mechanism::MechanismEdge`], after an earlier vocabulary let an edge assert a
+/// `crate::recipe_mechanism::MechanismEdge`, after an earlier vocabulary let an edge assert a
 /// property its endpoints lacked.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeRequirement {
-    /// The plan must have a root. [`crate::recipe_registry::Registry::materialize`] already checks
-    /// this and returns [`MaterializeError::RootlessPlan`]; the requirement records that a rootless
+    /// The plan must have a root. `crate::recipe_registry::Registry::materialize` already checks
+    /// this and returns `MaterializeError::RootlessPlan`; the requirement records that a rootless
     /// plan is unbuildable for every adapter, not just the interpreting one.
     RootedPlan,
     /// The adapter interprets this candidate's plan, so the plan's shape is load-bearing and a
@@ -754,7 +754,7 @@ pub enum RuntimeRequirement {
     /// Recorded so a report can never attribute a plan permutation to a compiler that never read
     /// one -- `recipe_runtime` calls that "a fabricated comparison".
     WholeGrammarRecompilation,
-    /// [`crate::build::unbuildable_markers`]: the marker leaves this plan names that
+    /// `crate::build::unbuildable_markers`: the marker leaves this plan names that
     /// `build_controllable` cannot build. Empty is the common, healthy case and is still recorded,
     /// because "the interpreter must be able to build every leaf this plan names" is a requirement
     /// whether or not it currently bites.
@@ -785,7 +785,7 @@ pub struct CoverageCitation {
 /// what was measured, this says what the compiler can represent.
 ///
 /// It states no identity or multiplicity guarantee, and it never will. Those ARE the parity
-/// relation, established by measuring against an oracle ([`crate::parity`]); Amharic's 2.2x-cheaper
+/// relation, established by measuring against an oracle (`crate::parity`); Amharic's 2.2x-cheaper
 /// `identity-mismatch` candidate is the measured reason a declared "identity preserved" is a false
 /// comfort. Every field below names the adapter it belongs to, because a guarantee that cannot name
 /// whose guarantee it is, is the `uflexc`/`Compounding` bug.
@@ -815,7 +815,7 @@ impl CandidateCertificationScope {
         &self.confirm_only
     }
 
-    /// Mechanisms executed outside the compiled FST by [`crate::peel`].
+    /// Mechanisms executed outside the compiled FST by `crate::peel`.
     pub fn peeled(&self) -> &[MechanismId] {
         &self.peeled
     }
@@ -863,7 +863,7 @@ impl CandidateCertificationScope {
 // The validated candidate
 // ---------------------------------------------------------------------------------------------
 
-/// Every way constructing an [`ExecutableCandidate`] can fail.
+/// Every way constructing an `ExecutableCandidate` can fail.
 ///
 /// There is no "substituted X instead" variant and there must never be one. Each of these is a
 /// refusal the caller must handle; none of them is recoverable inside this module by quietly
@@ -889,7 +889,7 @@ pub enum CandidateConstructionError {
         error: MechanismGraphError,
     },
     /// At least one mechanism this grammar requires is
-    /// [`StrategyRepresentation::CannotRepresent`] for this adapter: a whole-construct recall hole.
+    /// `StrategyRepresentation::CannotRepresent` for this adapter: a whole-construct recall hole.
     ///
     /// This is the typed refusal that replaces an implicit fallback. Nothing here reaches for
     /// another compiler that happens to work: substituting one silently is exactly how `uflexc`
@@ -913,8 +913,8 @@ impl std::error::Error for CandidateConstructionError {}
 
 /// One validated, executable candidate.
 ///
-/// Constructible ONLY by [`crate::recipe_registry::Registry::executable_candidate`] (module doc:
-/// the [`RegistryAuthority`] parameter on [`seal`] is what enforces that, in this crate as well as
+/// Constructible ONLY by `crate::recipe_registry::Registry::executable_candidate` (module doc:
+/// the `RegistryAuthority` parameter on `seal` is what enforces that, in this crate as well as
 /// outside it). Neither `Serialize` nor `Deserialize`, on purpose -- see the module doc.
 #[derive(Debug, Clone)]
 pub struct ExecutableCandidate {
@@ -978,7 +978,7 @@ impl ExecutableCandidate {
     }
 }
 
-/// Validate everything and seal the candidate. The [`RegistryAuthority`] is the enforcement; see
+/// Validate everything and seal the candidate. The `RegistryAuthority` is the enforcement; see
 /// the module doc.
 ///
 /// Order matters and is chosen so the cheapest refusal comes first: root, then the portable

@@ -1,4 +1,4 @@
-//! Capability-safe plan selection over [`crate::enumerate::enumerate_candidates`]'s candidate list,
+//! Capability-safe plan selection over `crate::enumerate::enumerate_candidates`'s candidate list,
 //! plus a deterministic default selection objective.
 //!
 //! # The invariant this relies on
@@ -9,29 +9,29 @@
 //! > measure-or-estimate of `(states + arcs)` (controllable path) / payload size (black-box foma
 //! > path), tie-broken by content-address for reproducibility.
 //!
-//! [`select_plan`] is exactly this, done twice, in this order:
-//! 1. **Filter**: run [`crate::capability::compose_envelope_for_strategy`] over every candidate. A candidate
-//!    whose [`crate::capability::CompileDecision`] is `Refuse` is excluded from being chosen —
+//! `select_plan` is exactly this, done twice, in this order:
+//! 1. **Filter**: run `crate::capability::compose_envelope_for_strategy` over every candidate. A candidate
+//!    whose `crate::capability::CompileDecision` is `Refuse` is excluded from being chosen —
 //!    capability-safe BY CONSTRUCTION, never a runtime check bolted on after the
 //!    fact. This is the ONLY filter: an `Admit` candidate and a `ConfirmOnly` candidate are equally
 //!    admissible here (both are recall-preserving; the line is drawn at `Refuse`, not
-//!    at `ConfirmOnly` — see [`crate::capability::CompileDecision`]'s own doc, "`ConfirmOnly`... is
+//!    at `ConfirmOnly` — see `crate::capability::CompileDecision`'s own doc, "`ConfirmOnly`... is
 //!    first-class, not a failure").
 //!
 //!    **The filter is STRATEGY-AWARE**, and this is the only place in the crate that can be.
 //!    "Every capability-passing plan is recall-preserving" rests on
-//!    [`crate::capability::Disposition::ConfirmOnly`]'s precondition — "recall-preserving only if
+//!    `crate::capability::Disposition::ConfirmOnly`'s precondition — "recall-preserving only if
 //!    the proposer proposes the superset" — which is a claim about a PROPOSER, not about a grammar
 //!    or a plan. A bare `compose_envelope` has no proposer in hand and so was checking that
 //!    precondition against the union of every compiler's abilities; a
-//!    [`crate::enumerate::LoweredCandidate`] carries the [`crate::enumerate::EmissionStrategy`] that
+//!    `crate::enumerate::LoweredCandidate` carries the `crate::enumerate::EmissionStrategy` that
 //!    will actually realize it, so here (and only here) the account can be taken against the right
-//!    one. See [`crate::strategy_coverage`] for the table and the whole-construct recall hole that
+//!    one. See `crate::strategy_coverage` for the table and the whole-construct recall hole that
 //!    survived undetected without it.
-//! 2. **Rank**: among admissible candidates, build each one via [`crate::build::build_controllable`]
+//! 2. **Rank**: among admissible candidates, build each one via `crate::build::build_controllable`
 //!    (the only builder that exists today, so measured `(states + arcs)`
 //!    from its net is what ranking uses where available) and pick the minimum `states + arcs`,
-//!    tie-broken by the candidate's root [`crate::plan::NodeId`] (a content address, already a
+//!    tie-broken by the candidate's root `crate::plan::NodeId` (a content address, already a
 //!    total, deterministic order via `NodeId`'s derived `Ord`).
 //!
 //! # What this module deliberately does NOT do
@@ -41,17 +41,17 @@
 //! measured/estimated size, build" is the whole of what this module ships, nothing more.
 //!
 //! # A library capability, not a production compile path
-//! [`select_plan`] is a library capability callers can invoke, not something `emit.rs`/`analyzer.rs`/
+//! `select_plan` is a library capability callers can invoke, not something `emit.rs`/`analyzer.rs`/
 //! `composite.rs` calls today. Replacing the hardcoded `should_run`/
 //! `probe_would_refuse`/`partition_entries` branching with a selected `Plan` stays a deliberately
 //! separate, still-open question — this module's own existence does not imply that flip happened.
 //!
 //! # A candidate that fails to build is unmeasurable, not un-admissible
-//! A [`crate::compose_budget::ComposeBudget`] cap can trip inside [`crate::build::
+//! A `crate::compose_budget::ComposeBudget` cap can trip inside [`crate::build::
 //! build_controllable`] independently of capability admissibility (a `ComposeError` is a resource
 //! observation, not a recall-soundness one). Such a candidate stays in [`SelectionOutcome::
 //! considered`] with `measure: None` and is never the MINIMUM-objective choice (there is no
-//! objective value to compare), but it is not treated as inadmissible either — see [`select_plan`]'s
+//! objective value to compare), but it is not treated as inadmissible either — see `select_plan`'s
 //! own fallback for the degenerate case where NO admissible candidate measures successfully.
 
 use foma::options::FomaOptions;
@@ -68,7 +68,7 @@ use crate::replace::SegAlphabet;
 
 /// The measured cost of one admissible candidate's built network (D3: "measured `(states + arcs)`
 /// from `build_controllable`'s net where available"). `None` counterparts of this in
-/// [`CandidateReport::measure`] cover the two cases where no measurement exists: the candidate was
+/// `CandidateReport::measure` cover the two cases where no measurement exists: the candidate was
 /// `Refuse`d (never built at all — filtered before build), or `build_controllable` itself returned
 /// `Err`/an empty net (module doc: unmeasurable, not un-admissible).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,19 +84,19 @@ impl PlanMeasure {
     }
 }
 
-/// One candidate's full provenance: which plan it was, what [`crate::capability::compose_envelope`]
+/// One candidate's full provenance: which plan it was, what `crate::capability::compose_envelope`
 /// decided, and (if admissible and buildable) its measured size — enough for a caller to explain
 /// "why this plan, not that one" without re-running anything (deliverable 2's own requirement:
 /// "return the choice plus enough provenance to explain it").
 #[derive(Debug, Clone)]
 pub struct CandidateReport {
-    /// [`crate::enumerate::LoweredCandidate::label`], echoed back for readable reporting.
+    /// `crate::enumerate::LoweredCandidate::label`, echoed back for readable reporting.
     pub label: &'static str,
-    /// The candidate's root [`NodeId`] — D3's tie-break key, and a stable identity for this
+    /// The candidate's root `NodeId` — D3's tie-break key, and a stable identity for this
     /// candidate independent of its position in the input list.
     pub root: NodeId,
-    /// The full [`CompileDecision`] `compose_envelope` reached for this candidate (carries every
-    /// [`crate::capability::CapabilityDiagnostic`] on a `Refuse`, not just a bool).
+    /// The full `CompileDecision` `compose_envelope` reached for this candidate (carries every
+    /// `crate::capability::CapabilityDiagnostic` on a `Refuse`, not just a bool).
     pub decision: CompileDecision,
     /// `Some` iff this candidate was admissible (`decision` is not `Refuse`) AND
     /// `build_controllable` produced a real, non-empty net for it.
@@ -104,20 +104,20 @@ pub struct CandidateReport {
 }
 
 impl CandidateReport {
-    /// `true` iff [`Self::decision`] is not [`CompileDecision::Refuse`] — D3's admissibility
+    /// `true` iff `Self::decision` is not `CompileDecision::Refuse` — D3's admissibility
     /// predicate, named so callers don't have to match on `decision` themselves.
     pub fn is_admissible(&self) -> bool {
         !matches!(self.decision, CompileDecision::Refuse(_))
     }
 }
 
-/// The full result of one [`select_plan`] run: every candidate's provenance, plus which one (if any)
+/// The full result of one `select_plan` run: every candidate's provenance, plus which one (if any)
 /// was chosen.
 #[derive(Debug, Clone)]
 pub struct SelectionOutcome {
-    /// Every candidate considered, in the SAME order [`select_plan`] was given them.
+    /// Every candidate considered, in the SAME order `select_plan` was given them.
     pub considered: Vec<CandidateReport>,
-    /// The index into [`Self::considered`] (and, by construction, into the caller's own
+    /// The index into `Self::considered` (and, by construction, into the caller's own
     /// `candidates` slice) of the selected plan — `None` only if NO candidate was admissible at all
     /// (every one `Refuse`d).
     pub chosen: Option<usize>,
@@ -130,19 +130,19 @@ impl SelectionOutcome {
     }
 }
 
-/// D3's selector: filter `candidates` to those [`crate::capability::compose_envelope`] does not `Refuse`, then pick the
-/// minimum `states + arcs` among the ones [`build_controllable`] can actually measure, tie-broken by
-/// root [`NodeId`] (module doc).
+/// D3's selector: filter `candidates` to those `crate::capability::compose_envelope` does not `Refuse`, then pick the
+/// minimum `states + arcs` among the ones `build_controllable` can actually measure, tie-broken by
+/// root `NodeId` (module doc).
 ///
 /// `g`/`registry`/`opts`/`alphabet`/`prules_in_order`/`budget` are the same grammar-derived and
-/// build-configuration inputs [`crate::oracle::differential_oracle`] and [`build_controllable`]
+/// build-configuration inputs `crate::oracle::differential_oracle` and `build_controllable`
 /// themselves take — this function does not recompute or re-derive any of them, only threads them
 /// through to `compose_envelope`/`build_controllable` for each candidate in turn (same trust
 /// convention those functions already document for their own parameters).
 ///
 /// # Panics
-/// If `candidates` contains a [`crate::plan::Plan`] with no root set — a caller/plan-construction
-/// contract violation ([`crate::enumerate::enumerate_candidates`] always sets a root), not a
+/// If `candidates` contains a `crate::plan::Plan` with no root set — a caller/plan-construction
+/// contract violation (`crate::enumerate::enumerate_candidates` always sets a root), not a
 /// judgment this function can make a decision about.
 #[allow(clippy::too_many_arguments)] // mirrors build_controllable's/differential_oracle's own many
                                      // grammar-derived parameters, taken once per candidate here.
@@ -214,8 +214,8 @@ pub fn select_plan(
     SelectionOutcome { considered, chosen }
 }
 
-/// The pure ranking core (module doc, D3's objective + tie-break), factored out of [`select_plan`]
-/// so it can be unit-tested directly against synthetic [`CandidateReport`]s without building any
+/// The pure ranking core (module doc, D3's objective + tie-break), factored out of `select_plan`
+/// so it can be unit-tested directly against synthetic `CandidateReport`s without building any
 /// real `Fsm` — same discipline `crate::oracle::resolve_verdict` uses for its own pure selection
 /// core.
 ///
@@ -280,7 +280,7 @@ mod tests {
     /// One MPR-gated subrule and two entries realizing both truth values of that gate key --
     /// the same synthetic shape `enumerate.rs`/`build.rs`/`oracle.rs` each duplicate for their own
     /// test modules (see any of those for the same fixture-sharing rationale). Two real gate groups
-    /// means [`enumerate_candidates`] yields both `"default"` and `"gate-group-permuted"`, exactly
+    /// means `enumerate_candidates` yields both `"default"` and `"gate-group-permuted"`, exactly
     /// what a selection test over ≥2 candidates needs.
     fn gated_two_group_fixture_xml() -> &'static str {
         r#"<?xml version="1.0" encoding="utf-8"?>
@@ -502,7 +502,7 @@ mod tests {
     }
 
     /// `NodeId` is a content HASH (D1) -- unrelated monotonically to whatever raw seed
-    /// [`node_id_from_raw`] was given -- so this test cannot simply declare "the candidate built
+    /// `node_id_from_raw` was given -- so this test cannot simply declare "the candidate built
     /// from the smaller seed wins"; it must compute the two real `NodeId`s first, determine which
     /// one is actually smaller, and assert THAT candidate wins. What is being pinned is the
     /// tie-break's determinism/correctness (min-by-root), never a specific hash value.
@@ -715,7 +715,7 @@ mod tests {
     /// The load-bearing invariant: EVERY capability-passing plan is recall-preserving, so all
     /// produce the identical confirmed set. For every grammar this module's own fixtures exercise,
     /// every pair of ADMISSIBLE candidates
-    /// [`select_plan`] considered must AGREE under [`differential_oracle`] -- proving selection
+    /// `select_plan` considered must AGREE under `differential_oracle` -- proving selection
     /// among them can only ever trade cost, never correctness. Run over the two grammars whose
     /// candidate sets actually contain ≥2 admissible plans (the ordinary-Admit fixture collapses to
     /// 1 candidate, so it is included too as a trivial/vacuous check of the same property).

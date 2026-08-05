@@ -8,7 +8,7 @@
 //!
 //! Note: `OptionalSegmentSequence` is a perfectly ordinary, WORKING construct elsewhere in this
 //! generator (every root-capturing `MorphologicalRule`'s own `MorphologicalInput`, e.g.
-//! [`crate::build::circumfix`], uses it) -- `pattern_slots`'s bail is specific to the P6 REWRITE-
+//! `crate::build::circumfix`, uses it) -- `pattern_slots`'s bail is specific to the P6 REWRITE-
 //! RULE compiler (`pg_foma::replace`), not a claim that HermitCrab itself can't represent it.
 
 use crate::build::tables::TableSpec;

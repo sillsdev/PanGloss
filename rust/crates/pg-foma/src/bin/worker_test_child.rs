@@ -1,5 +1,5 @@
 //! Test-support-only executable for `pg-foma`'s own `tests/worker_supervisor.rs` integration
-//! tests: a minimal process wrapper around [`pg_foma::worker::run_worker_child`] so those tests can
+//! tests: a minimal process wrapper around `pg_foma::worker::run_worker_child` so those tests can
 //! spawn a REAL child process (via `std::process::Command`, exactly as `pg-cli`'s own hidden
 //! `__compile-worker-child` subcommand will in production) and exercise
 //! `pg_foma::worker::run_compile_worker`'s wall-timeout/kill/RSS-sampling loop end-to-end, without
@@ -22,7 +22,7 @@
 //!   result frame) against a real process exit, not a fabricated `ExitStatus`.
 //!
 //! Both are read only by this test-support binary's own `main`, never by
-//! [`pg_foma::worker::run_worker_child`] itself (which has no env-var hook of its own) -- so the
+//! `pg_foma::worker::run_worker_child` itself (which has no env-var hook of its own) -- so the
 //! production child path (`pg-cli`'s hidden subcommand, which calls `run_worker_child` directly)
 //! is unaffected by either variable's presence.
 

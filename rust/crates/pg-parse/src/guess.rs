@@ -5,26 +5,26 @@
 //!
 //! **Why not `pg-fst`.** C# itself does not route this through its `Matcher`/`Pattern` engine
 //! — "the Matcher doesn't preserve the unifications of the nodes" (`Morpher.cs:138-140`) — and
-//! this port follows: [`match_nodes_with_pattern`] is a direct recursive walk over a small
-//! resolved node view ([`GuessNode`]), never through `pg_fst`'s FSA/pattern-compile machinery.
+//! this port follows: `match_nodes_with_pattern` is a direct recursive walk over a small
+//! resolved node view (`GuessNode`), never through `pg_fst`'s FSA/pattern-compile machinery.
 //! (The design doc's §3 blesses reuse of pure lane-arithmetic — this module keeps its own tiny
 //! `unify_lanes`/`unify_cd_set` helpers rather than importing `pg_fst::lanes`, so there is no
 //! dependency edge onto the FST engine from this file at all, not even an arithmetic one.)
 //!
-//! [`GuessNode`] is built from a [`Shape`]'s INTERIOR nodes — segments AND boundaries (anchors
-//! excluded; they are not `ShapeNode`s in C#) — via [`nodes_of`]. This is the crucial difference
+//! `GuessNode` is built from a `Shape`'s INTERIOR nodes — segments AND boundaries (anchors
+//! excluded; they are not `ShapeNode`s in C#) — via `nodes_of`. This is the crucial difference
 //! from `root_trie.rs`'s trie-edge builders, which filter to `Segment` nodes only: §1.3 step 2
 //! is explicit that `MatchNodesWithPattern`'s `nodes` parameter is **every** node of the analysis
-//! shape, boundaries included (they only drop out later, at [`render_match`] time, mirroring
+//! shape, boundaries included (they only drop out later, at `render_match` time, mirroring
 //! `match.ToString(table, false)`'s `includeBdry = false`).
 //!
-//! Unification of an input node against a pattern node ([`unify_shape_nodes`]) is `root_trie.rs::
+//! Unification of an input node against a pattern node (`unify_shape_nodes`) is `root_trie.rs::
 //! edge_matches`'s same shape of predicate — kind equality (the `Type` feature, which the trie
 //! never needed since it pre-filters to segments), identity (concrete `char_def` equality /
 //! `CdSet` membership / `NO_CHAR_DEF`-query wildcard), and phonological-lane unifiability — but
 //! genuinely UNIFIES (narrows) rather than just checking compatibility: the returned node's
 //! identity and lanes are the intersection of both sides, because a narrowed node is exactly what
-//! [`render_match`] needs to pick the right candidate representations later (§4.3's "the
+//! `render_match` needs to pick the right candidate representations later (§4.3's "the
 //! narrowing matters for rendering").
 
 use std::rc::Rc;
@@ -40,8 +40,8 @@ use rustc_hash::FxHashSet as HashSet;
 use crate::surface::matching_reps_for_node;
 
 /// A resolved, table-independent view of one shape node — the `(kind, char_def, lanes, cd_set,
-/// optional, iterative, deleted)` tuple §4.3 calls for. Built from a [`Shape`]'s interior nodes by
-/// [`nodes_of`]; also the type [`match_nodes_with_pattern`] both consumes and produces (a matched
+/// optional, iterative, deleted)` tuple §4.3 calls for. Built from a `Shape`'s interior nodes by
+/// `nodes_of`; also the type `match_nodes_with_pattern` both consumes and produces (a matched
 /// node may be a freshly unified value, not one of the original shape's own nodes).
 #[derive(Clone, Debug, PartialEq)]
 pub struct GuessNode {
@@ -57,7 +57,7 @@ pub struct GuessNode {
     pub iterative: bool,
     /// Always `false` in this port: frozen `Shape`s never carry deleted nodes (repeatedly noted
     /// elsewhere in this crate/`pg-rules`). Kept as a field for fidelity with C#'s
-    /// `ShapeNode.IsDeleted()` check at the one call site that reads it ([`render_match`]) and so
+    /// `ShapeNode.IsDeleted()` check at the one call site that reads it (`render_match`) and so
     /// a future deletion-bearing node source needs no signature change here.
     pub deleted: bool,
 }
@@ -179,7 +179,7 @@ fn unify_lanes(a: &[u64], b: &[u64]) -> Option<Vec<u64>> {
 /// against a Boundary pattern node or vice versa — always fails, exactly as it would fail C#'s
 /// full-`FeatureStruct` unify (the type symbol is part of that FS). C#'s `fs.ValueEquals(node.FS)
 /// ? node : new ShapeNode(fs)` object-identity optimization has no analog for a value type — this
-/// always returns a freshly narrowed [`GuessNode`], which is behaviorally identical content
+/// always returns a freshly narrowed `GuessNode`, which is behaviorally identical content
 /// either way.
 fn unify_shape_nodes(node: &GuessNode, pattern: &GuessNode) -> Option<GuessNode> {
     if node.kind != pattern.kind {
@@ -300,8 +300,8 @@ pub fn render_match(table: &CharDefTable, matched: &[GuessNode]) -> String {
 /// does for a real root.
 ///
 /// **Table choice (§1.3 step 1, literal from C#):** `table` = `aw`'s OWN stratum's character-
-/// definition table — used for BOTH matching ([`nodes_of`] on both the analysis shape and the
-/// pattern's stored shape) and rendering ([`render_match`]), even though `lexical_patterns` draws
+/// definition table — used for BOTH matching (`nodes_of` on both the analysis shape and the
+/// pattern's stored shape) and rendering (`render_match`), even though `lexical_patterns` draws
 /// from every stratum. This is C#'s own literal behavior (`CharacterDefinitionTable table =
 /// input.Stratum.CharacterDefinitionTable;`, declared once and reused for every pattern
 /// regardless of which stratum it came from) — correct for every grammar where strata share one

@@ -1,22 +1,22 @@
-//! ONE immutable, typed owner for the semantic facts this crate derives from a [`Grammar`], and
+//! ONE immutable, typed owner for the semantic facts this crate derives from a `Grammar`, and
 //! the projections its consumers read instead of walking the grammar themselves.
 //!
 //! # The problem this replaces
-//! Four consumer areas -- the capability gate ([`crate::capability`]/[`crate::capability_entry`]/
-//! [`crate::preflight`]), registry applicability ([`crate::recipe_registry::Applicability`]),
-//! recipe-space accounting ([`crate::recipe_space::GrammarFacts`]) and the phonology/morphotactics
+//! Four consumer areas -- the capability gate (`crate::capability`/`crate::capability_entry`/
+//! `crate::preflight`), registry applicability (`crate::recipe_registry::Applicability`),
+//! recipe-space accounting (`crate::recipe_space::GrammarFacts`) and the phonology/morphotactics
 //! existence gates -- each independently re-walked `Grammar` for the SAME handful of facts. Nothing
-//! memoized anything: [`crate::capability::compose_envelope`] recomputed
-//! [`crate::capability::characterize`] unconditionally on every call, and
-//! [`crate::selection::select_plan`] called it ONCE PER CANDIDATE PLAN -- re-running the whole
-//! grammar walk, including the real [`foma::types::Fsm`] construction `characterize`'s
+//! memoized anything: `crate::capability::compose_envelope` recomputed
+//! `crate::capability::characterize` unconditionally on every call, and
+//! `crate::selection::select_plan` called it ONCE PER CANDIDATE PLAN -- re-running the whole
+//! grammar walk, including the real `foma::types::Fsm` construction `characterize`'s
 //! `lower_subrule_span` performs for every `Simultaneous`-mode subrule. `pangloss make-report`
 //! re-derived the whole capability verdict three times in one process; `pangloss fst-health` twice
-//! -- duplication [`crate::preflight`]'s own module doc called "an acceptable duplication" and this
+//! -- duplication `crate::preflight`'s own module doc called "an acceptable duplication" and this
 //! type now removes by memoizing the derivation once.
 //!
 //! # What this owns, and what it deliberately does not
-//! [`GrammarSemantics::derive`] is the single derivation point. It is a pure function of `&Grammar`,
+//! `GrammarSemantics::derive` is the single derivation point. It is a pure function of `&Grammar`,
 //! it is immutable once built (no `&mut self` method exists), and every field it exposes is either
 //! computed eagerly in `derive` or memoized exactly once behind a `OnceLock` -- so the second read
 //! is free and can never disagree with the first.
@@ -26,29 +26,29 @@
 //!   INTENTIONALLY independent second derivation, cross-checked against the characteristics profile
 //!   by `tests/structural_witness_gate.rs`. Making them projections would destroy exactly the
 //!   independence that gate exists to exploit. Left alone on purpose.
-//! - The compile paths themselves ([`crate::gate::compile_gated_grammar_with_budget`],
-//!   [`crate::emit`], [`crate::replace`]). Those take `prules_in_order` as an explicit parameter
+//! - The compile paths themselves (`crate::gate::compile_gated_grammar_with_budget`,
+//!   `crate::emit`, `crate::replace`). Those take `prules_in_order` as an explicit parameter
 //!   from their caller and build live networks; this type owns the FACTS those paths are described
 //!   by, not the compilation.
 //!
 //! # Authored order is preserved, hash order is not
 //! Stratum order and template-slot order are load-bearing for reachability/completability, and
-//! [`crate::enumerate::prules_in_order`]'s borrow-from-`g.prules` identity is load-bearing for
-//! [`crate::enumerate::rule_id_of`]'s pointer-identity `PRuleId` recovery. Neither is canonicalized,
-//! sorted, or rebuilt here -- [`GrammarSemantics::prules_in_order()`] hands back the exact slice every
+//! `crate::enumerate::prules_in_order`'s borrow-from-`g.prules` identity is load-bearing for
+//! `crate::enumerate::rule_id_of`'s pointer-identity `PRuleId` recovery. Neither is canonicalized,
+//! sorted, or rebuilt here -- `GrammarSemantics::prules_in_order()` hands back the exact slice every
 //! compile seam already takes.
 //!
 //! The ONE thing this type does canonicalize is the entry partition's group order.
-//! [`crate::gate::partition_entries`] collects into a `HashMap` and returns its iteration order,
+//! `crate::gate::partition_entries` collects into a `HashMap` and returns its iteration order,
 //! which is not authored order and is not stable across runs -- it is hash order. Sorting the groups
-//! by their own gate key makes [`GrammarSemantics::derive`] byte-identical on a fresh load, and is
+//! by their own gate key makes `GrammarSemantics::derive` byte-identical on a fresh load, and is
 //! safe because every consumer of the partition in this type's scope reads only `len()` (the
 //! `partitions` fact) or `is_empty()`. `gate.rs`'s own compile path is untouched and keeps calling
 //! `partition_entries` directly.
 //!
 //! # Two facts that look like one: declared vs. cascade phonology
 //! `Applicability::HasPhonology` tests the grammar-wide `g.prules`, while
-//! [`crate::junctions::PhonologyProbe::new`]'s existence gate scans each stratum's own `sd.prules`.
+//! `crate::junctions::PhonologyProbe::new`'s existence gate scans each stratum's own `sd.prules`.
 //! These are NOT the same predicate, and they genuinely disagree: a `<PhonologicalRule>` declared in
 //! the global `<PhonologicalRuleDefinitions>` block but named by no stratum's `phonologicalRules`
 //! attribute is loaded into `g.prules` and referenced by no `sd.prules`
@@ -56,7 +56,7 @@
 //! names). `tests/grammar_semantics_owner_gate.rs` pins a fixture where they differ.
 //!
 //! So this type owns BOTH, under names that say which is which --
-//! [`GrammarSemantics::declared_phonology()`] and [`GrammarSemantics::cascade_phonology()`] -- and each
+//! `GrammarSemantics::declared_phonology()` and `GrammarSemantics::cascade_phonology()` -- and each
 //! consumer projects the one it already meant. This is deliberately NOT a unification: collapsing
 //! them would change which recipe families a grammar is offered, and this type's split is a
 //! consolidation of existing facts, not a behavior change.
@@ -80,8 +80,8 @@ use crate::capability::{characterize, rhs_has_true_reduplication, Characteristic
 use crate::enumerate::prules_in_order;
 use crate::gate::{find_gated_subrules, partition_entries, GatedSubrule};
 
-/// One entry partition, owned by [`GrammarSemantics`] in a deterministic order (module doc). Shaped
-/// like [`crate::gate::EntryGroup`] but held separately so `gate.rs`'s own compile path keeps its
+/// One entry partition, owned by `GrammarSemantics` in a deterministic order (module doc). Shaped
+/// like `crate::gate::EntryGroup` but held separately so `gate.rs`'s own compile path keeps its
 /// existing, unchanged return type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemanticEntryGroup {
@@ -91,18 +91,18 @@ pub struct SemanticEntryGroup {
 
 /// The single immutable owner of this crate's grammar-derived semantic facts (module doc).
 ///
-/// Built once with [`GrammarSemantics::derive`] and shared by reference. Every accessor is `&self`
+/// Built once with `GrammarSemantics::derive` and shared by reference. Every accessor is `&self`
 /// and every one of them is deterministic: the eager fields are computed in `derive`, the two
-/// genuinely expensive ones ([`Self::entry_partition`] and [`Self::characteristics`]) are memoized
+/// genuinely expensive ones (`Self::entry_partition` and `Self::characteristics`) are memoized
 /// behind a `OnceLock` so the first caller pays and every later caller reads the same value.
 ///
 /// # Why those two are lazy and the rest are not
 /// `derive` has to be cheap enough that every consumer can afford to call it -- an owner nobody can
 /// afford to build gets bypassed, and then it owns nothing. The eager facts are all O(rules + strata
 /// + entries) scans over already-loaded vectors. The two lazy ones are not:
-/// [`crate::gate::partition_entries`] is O(entries x gated subrules) and evaluates the engine's own
+/// `crate::gate::partition_entries` is O(entries x gated subrules) and evaluates the engine's own
 /// `pg_rules::rewrite::subrule_applicable` predicate for each pair, and
-/// [`crate::capability::characterize`] builds real `foma` networks for `Simultaneous`-mode subrules.
+/// `crate::capability::characterize` builds real `foma` networks for `Simultaneous`-mode subrules.
 /// A registry applicability check that only needs "does this grammar have templates" must not pay
 /// for either.
 pub struct GrammarSemantics<'g> {
@@ -261,26 +261,26 @@ impl<'g> GrammarSemantics<'g> {
     }
 
     /// `g`'s phonological rules in stratum-cascade (authored) order, as literal borrows of
-    /// `g.prules` -- the exact slice [`crate::enumerate::enumerate_default`],
-    /// [`crate::gate::compile_gated_grammar_with_budget`] and `crate::replace`'s cascade builders
-    /// take. The borrow identity is load-bearing (see [`crate::enumerate::prules_in_order`]).
+    /// `g.prules` -- the exact slice `crate::enumerate::enumerate_default`,
+    /// `crate::gate::compile_gated_grammar_with_budget` and `crate::replace`'s cascade builders
+    /// take. The borrow identity is load-bearing (see `crate::enumerate::prules_in_order`).
     pub fn prules_in_order(&self) -> &[&'g PhonRuleDef] {
         &self.prules_in_order
     }
 
-    /// Every gated `RewriteSubruleDef` [`crate::gate::find_gated_subrules`] finds over
-    /// [`Self::prules_in_order`] -- the real mechanism's own answer, computed once.
+    /// Every gated `RewriteSubruleDef` `crate::gate::find_gated_subrules` finds over
+    /// `Self::prules_in_order` -- the real mechanism's own answer, computed once.
     pub fn gated_subrules(&self) -> &[GatedSubrule] {
         &self.gated_subrules
     }
 
     /// `true` iff at least one subrule is gated. The projection
-    /// [`crate::recipe_registry::Applicability::HasGatedExceptions`] reads.
+    /// `crate::recipe_registry::Applicability::HasGatedExceptions` reads.
     pub fn has_gated_exceptions(&self) -> bool {
         !self.gated_subrules.is_empty()
     }
 
-    /// [`crate::gate::partition_entries`]'s groups, sorted by gate key so this is deterministic
+    /// `crate::gate::partition_entries`'s groups, sorted by gate key so this is deterministic
     /// (module doc: `partition_entries` itself returns `HashMap` iteration order). Memoized.
     pub fn entry_partition(&self) -> &[SemanticEntryGroup] {
         self.entry_partition.get_or_init(|| {
@@ -305,15 +305,15 @@ impl<'g> GrammarSemantics<'g> {
 
     /// `true` iff the grammar declares at least one phonological rule ANYWHERE
     /// (`!g.prules.is_empty()`), whether or not a stratum names it. What
-    /// [`crate::recipe_registry::Applicability::HasPhonology`] means -- see the module doc for why
-    /// this is not the same question as [`Self::cascade_phonology`].
+    /// `crate::recipe_registry::Applicability::HasPhonology` means -- see the module doc for why
+    /// this is not the same question as `Self::cascade_phonology`.
     pub fn declared_phonology(&self) -> bool {
         self.declared_phonology
     }
 
     /// `true` iff at least one stratum's own `phonologicalRules` list is non-empty, i.e. at least
     /// one rule actually reaches the trailing per-stratum rewrite cascade. What
-    /// [`crate::junctions::PhonologyProbe::new`]'s existence gate means.
+    /// `crate::junctions::PhonologyProbe::new`'s existence gate means.
     pub fn cascade_phonology(&self) -> bool {
         self.cascade_phonology
     }
@@ -341,7 +341,7 @@ impl<'g> GrammarSemantics<'g> {
     }
 
     /// `true` iff any morphological-rule allomorph genuinely reduplicates, per
-    /// [`crate::capability::rhs_has_true_reduplication`] -- the single authority for that fact.
+    /// `crate::capability::rhs_has_true_reduplication` -- the single authority for that fact.
     pub fn has_reduplication(&self) -> bool {
         self.reduplicative_allomorph_count > 0
     }
@@ -382,7 +382,7 @@ impl<'g> GrammarSemantics<'g> {
         self.ordering_dependencies
     }
 
-    /// The same stratum-cascade order as [`Self::prules_in_order`], as `PRuleId`s. Authored order,
+    /// The same stratum-cascade order as `Self::prules_in_order`, as `PRuleId`s. Authored order,
     /// never canonicalized -- what a mechanism's ordered-phonology body records.
     pub fn prule_ids_in_order(&self) -> &[PRuleId] {
         &self.prule_ids_in_order
@@ -409,7 +409,7 @@ impl<'g> GrammarSemantics<'g> {
         &self.primary_table_boundary_symbols
     }
 
-    /// [`crate::capability::characterize`]'s exhaustive construct profile, computed AT MOST ONCE per
+    /// `crate::capability::characterize`'s exhaustive construct profile, computed AT MOST ONCE per
     /// `GrammarSemantics` (see the module doc: this is the memoization this type exists to provide).
     pub fn characteristics(&self) -> &CharacteristicsProfile {
         self.characteristics
@@ -418,7 +418,7 @@ impl<'g> GrammarSemantics<'g> {
 }
 
 /// How many of `rule`'s allomorphs genuinely reduplicate. The per-allomorph decision is
-/// [`crate::capability::rhs_has_true_reduplication`], the single authority for the fact (see that
+/// `crate::capability::rhs_has_true_reduplication`, the single authority for the fact (see that
 /// function's doc for why the `redup_hint != Implicit` shortcut callers used to carry is a trap).
 fn reduplicative_allomorphs_in(rule: &MorphRuleDef) -> u64 {
     let allomorphs = match rule {

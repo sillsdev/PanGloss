@@ -11,7 +11,7 @@
 //!
 //! # Caller compatibility
 //!
-//! [`Warning`] implements [`std::fmt::Display`] and [`std::ops::Deref`]`<Target = str>` against
+//! `Warning` implements `std::fmt::Display` and `std::ops::Deref<Target = str>` against
 //! `message` alone, printing/comparing exactly the same text every pre-existing bare-`String`
 //! warning did. Every caller that only ever printed a warning or pattern-matched its prose (e.g.
 //! `w.contains("...")`) keeps compiling and behaving identically without any change; only call

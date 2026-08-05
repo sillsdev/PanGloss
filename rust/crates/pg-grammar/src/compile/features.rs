@@ -237,7 +237,7 @@ fn push_complex(cf: &ComplexFeature, features: &mut Vec<SynFeature>) {
 
 /// `LoadFeatureSystem(m_cache.LanguageProject.PhFeatureSystemOA, ...)` (HCLoader.cs:198): only
 /// closed (symbolic) phonological features are representable — the Rust engine's
-/// [`PhonFeatureSystem`] has no complex-feature notion at all (see that module's doc), matching
+/// `PhonFeatureSystem` has no complex-feature notion at all (see that module's doc), matching
 /// legacy HC-XML (`PhonologicalFeatureSystem` never carries a `ComplexFeature` either). A
 /// snapshot with authored phonological complex features gets a warning; those features are
 /// simply dropped (nothing downstream can reference them, since no phoneme/natural-class
@@ -279,7 +279,7 @@ pub(crate) fn build_phon_features(
 }
 
 /// Build a `{POS, head}` feature struct for the syntactic domain from a resolved POS symbol set
-/// and an optional (already-resolved) morphosyntactic [`FeatureStructure`].
+/// and an optional (already-resolved) morphosyntactic `FeatureStructure`.
 pub(crate) fn build_syn_fs(
     syn: &SynFeatureSystem,
     pos_bits: Option<SymbolBits>,

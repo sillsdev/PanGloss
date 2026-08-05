@@ -1,5 +1,5 @@
 //! `Dir::RightToLeft` REAL directional semantics, via
-//! [`pg_foma::replace::compile_rtl_branch_net`]'s reversal-plus-safety-net-union construction
+//! `pg_foma::replace::compile_rtl_branch_net`'s reversal-plus-safety-net-union construction
 //! (that function's own doc: reverse the mirror rule, `fsm_union` with the plain
 //! `LeftToRight`-style compile — a documented, conservative response to a real, empirically-
 //! verified gap in this repo's own oracle, see the "Known, out-of-scope oracle gap" section
@@ -103,7 +103,7 @@ fn oracle_candidate_set(
         .collect()
 }
 
-/// Compiles `rule` (stratum 0's own table) via [`compile_and_compose_rules_with_budget`], composes
+/// Compiles `rule` (stratum 0's own table) via `compile_and_compose_rules_with_budget`, composes
 /// it after `lexc_source`, and minimizes -- the shared plumbing every witness below uses.
 fn compile_net(
     g: &Grammar,
@@ -1177,7 +1177,7 @@ fn rtl_cross_table_segments_environment_matches_oracle() {
 /// 1. **End-to-end acceptance is real, both directions.** A real grammar whose LHS is authored as
 ///    ONE inline `Segments` literal (`<Segments><PhoneticShape>aa</PhoneticShape></Segments>`)
 ///    instead of two `<SimpleContext>` nodes now reports `is_fully_supported_shape() == true` and
-///    actually compiles ([`compile_net`] does not panic) — the emitter's pattern_slots step no
+///    actually compiles (`compile_net` does not panic) — the emitter's pattern_slots step no
 ///    longer refuses any Segments occurrence unconditionally. Both the LeftToRight- and
 ///    RightToLeft-declared versions of this exact rule now compile instead of being silently
 ///    skipped (`Ok(None)`).
@@ -1191,7 +1191,7 @@ fn rtl_cross_table_segments_environment_matches_oracle() {
 ///    unconstrained (no-environment) rule — a real, useful negative finding, not a bug to chase.
 ///    The genuine divergence lives at `apply_down`'s single-PREFERRED-realization level (exactly
 ///    what `rtl_distinct_leftmost_rightmost_...`'s own bare-automaton half already established for
-///    ordinary `<SimpleContext>`-authored "aa"): since [`crate::lower::render_slots`]'s
+///    ordinary `<SimpleContext>`-authored "aa"): since `crate::lower::render_slots`'s
 ///    `Slot::Fixed` arm renders identically regardless of whether the `CharDefId` came from a
 ///    `PatternNode::CharDef`/`Context` or a `PatternNode::Segments` node (`Slot::Fixed` carries only
 ///    the `CharDefId`, never its provenance), the Segments-authored LHS compiles to the EXACT SAME

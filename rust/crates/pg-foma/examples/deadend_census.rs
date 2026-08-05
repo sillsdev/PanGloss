@@ -33,17 +33,17 @@
 //! every existing `parse_word*`/`confirm_batch`/`confirm_all` call path).
 //!
 //! ## Frontier definition (the thing that actually decides the numbers)
-//! For each FAILING candidate, ONE real [`TreeTraceSink`] captures both the analysis and synthesis
+//! For each FAILING candidate, ONE real `TreeTraceSink` captures both the analysis and synthesis
 //! cascades in a single tree (now that analysis is wired). We walk it once from the root, computing
 //! for every node a `depth` = the number of ANCESTOR nodes that represent a SUCCESSFUL rule
 //! (un)application step (`MorphologicalRuleAnalysis`/`MorphologicalRuleSynthesis`/
 //! `PhonologicalRuleAnalysis`/`PhonologicalRuleSynthesis`/`CompoundingRuleAnalysis`/
 //! `CompoundingRuleSynthesis`, distinguished from a FAILED attempt of the same `TraceType` by
-//! `node.output.is_some()` — see [`is_success_step`]). Every node that represents a DEAD attempt (a
-//! "not applied"/"not unapplied" event, or a terminal `Failed` node — see [`is_frontier`]) is a
+//! `node.output.is_some()` — see `is_success_step`). Every node that represents a DEAD attempt (a
+//! "not applied"/"not unapplied" event, or a terminal `Failed` node — see `is_frontier`) is a
 //! frontier candidate; among ALL of them in the tree, the one with the GREATEST depth is "the
 //! attempt that got furthest" — ties broken by a fixed pipeline-stage ordinal (analysis < synthesis
-//! < final validity/match gate), preferring the LATER stage (see [`stage_ordinal`]).
+//! < final validity/match gate), preferring the LATER stage (see `stage_ordinal`).
 //!
 //! This is a coarse but fully-defined proxy for "how many of the pinned rules' (un)applications
 //! this branch actually got through before dying" — it does not reconstruct the exact pinned-rule-
@@ -66,7 +66,7 @@
 //!    analysis cascade fully and successfully unapplies every pinned rule (no frontier node anywhere
 //!    below it) but whose resulting shape still does not match any stored allomorph of the pinned
 //!    root produces a trace tree with NO frontier node at all — reported as its own outcome,
-//!    [`Outcome::LexLookupBoundary`], folded into d4 (a lexicon-shape miss is the same KIND of
+//!    `Outcome::LexLookupBoundary`, folded into d4 (a lexicon-shape miss is the same KIND of
 //!    failure as a rule-shape miss) but counted and printed on its own line so this approximation's
 //!    size is visible rather than asserted away.
 //!
@@ -78,7 +78,7 @@
 //!   - `keep_confirming` = `confirm_batch(only candidates that end up confirming)`
 //!   - `minus_dN`       = `confirm_batch(all candidates EXCEPT the ones classified dN)`, N in 1..=6
 //!   - class dN's share of FAILING time = `(baseline - minus_dN) / (baseline - keep_confirming)`
-//!     CLASSIFICATION is a separate, untimed pass using [`classify_failing_candidate`]; the six timed
+//!     CLASSIFICATION is a separate, untimed pass using `classify_failing_candidate`; the six timed
 //!     `confirm_batch` calls per word (plus baseline/keep_confirming) never touch tracing.
 //!
 //! ## Usage
@@ -411,7 +411,7 @@ fn reason_name(r: FailureReason) -> &'static str {
 /// application `TraceType`s AND carries an `output` snapshot with no `failure_reason` — the
 /// convention every trace-emitting call site in `pg-rules` already follows (see `crate::trace`'s
 /// module doc and `crate::morph`'s analysis-tracing addition). This is what
-/// [`find_deepest_frontier`] increments `depth` on.
+/// `find_deepest_frontier` increments `depth` on.
 fn is_success_step(n: &TraceNode) -> bool {
     n.failure_reason.is_none()
         && n.output.is_some()
@@ -452,7 +452,7 @@ fn is_frontier(n: &TraceNode) -> Option<FailureReason> {
 /// Pipeline-stage ordinal for the "ties broken by later pipeline stage" rule (mission's frontier
 /// definition). Analysis (0) < synthesis (2) < final validity/match gate (3); anything else (the
 /// bookend/lexical-lookup node types, which never carry a `failure_reason` and so are never
-/// returned by [`is_frontier`] anyway) gets 1, unused in practice.
+/// returned by `is_frontier` anyway) gets 1, unused in practice.
 fn stage_ordinal(t: TraceType) -> u8 {
     use TraceType::*;
     match t {
@@ -473,7 +473,7 @@ struct FrontierHit {
     reason: FailureReason,
 }
 
-/// Which frontier the census reports — see [`find_frontier`]'s doc. `Deepest` is the mission's own
+/// Which frontier the census reports — see `find_frontier`'s doc. `Deepest` is the mission's own
 /// definition ("the attempt that got furthest") and is what every printed table in this file's
 /// `main` report uses; `Shallowest` is the alternate definition run once per grammar (env
 /// `CENSUS_FRONTIER=shallowest`) to check whether the choice materially changes the d1-d6 table —
@@ -485,7 +485,7 @@ enum FrontierMode {
 }
 
 /// Walk the whole trace tree once (root to leaves), tracking depth = count of ancestor
-/// [`is_success_step`] nodes, and return the [`FrontierHit`] that is either the DEEPEST (mission's
+/// `is_success_step` nodes, and return the `FrontierHit` that is either the DEEPEST (mission's
 /// definition — "the attempt that got furthest through the pinned rule sequence") or the
 /// SHALLOWEST (the alternate definition checked for material disagreement — the first dead end any
 /// branch hits, ignoring how much further OTHER branches got) — see this file's module doc for the
@@ -527,7 +527,7 @@ fn find_frontier(sink: &TreeTraceSink, mode: FrontierMode) -> Option<FrontierHit
 }
 
 /// One failing candidate's classification outcome — see this file's module doc, "Frontier
-/// definition", for [`Outcome::LexLookupBoundary`]'s meaning and why it is a documented gap rather
+/// definition", for `Outcome::LexLookupBoundary`'s meaning and why it is a documented gap rather
 /// than a bug.
 #[derive(Copy, Clone, Debug)]
 enum Outcome {

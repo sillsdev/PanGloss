@@ -3,7 +3,7 @@
 //! in this repo): a head root + a non-head root, concatenated with a literal `+` compound-seam
 //! marker in between (`CopyFromInput(head) + InsertSegments("+") + CopyFromInput(nonhead)`). That
 //! same file's own header comment records a load-bearing finding this builder depends on: the `+`
-//! marker must be declared as a `<BoundaryDefinition>` (via [`crate::build::tables::build`]'s own
+//! marker must be declared as a `<BoundaryDefinition>` (via `crate::build::tables::build`'s own
 //! `needs_boundary` flag), NOT a plain `<SegmentDefinition>` -- declaring it as a segment "produced
 //! zero parses for every compound word (confirmed by isolated probing)".
 //!
@@ -25,7 +25,7 @@
 use crate::build::tables::TableSpec;
 use crate::ids::IdMinter;
 
-/// Everything [`build`] produces: one `<CompoundingRule>` plus its head/non-head root entries.
+/// Everything `build` produces: one `<CompoundingRule>` plus its head/non-head root entries.
 #[derive(Debug, Clone)]
 pub struct CompoundingBuild {
     pub rule_xml: String,
@@ -39,7 +39,7 @@ pub struct CompoundingBuild {
 /// Build one compounding rule (`headPartsOfSpeech`/`nonHeadPartsOfSpeech` both `pos_xml_id`,
 /// unconstrained -- no MPR/POS gating, module doc's own minimal-shape convention) plus its own head
 /// and non-head root entries, drawing head/non-head characters from `table.segments[0]`/`[1]` and
-/// the compound seam from `boundary_xml_id` ([`crate::build::tables::build`]'s own
+/// the compound seam from `boundary_xml_id` (`crate::build::tables::build`'s own
 /// `needs_boundary=true` output). Panics if `table` has fewer than 2 segments.
 pub fn build(
     pos_xml_id: &str,

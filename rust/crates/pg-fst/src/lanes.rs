@@ -5,11 +5,11 @@
 //! C# `EnsureFlat` seeds absent features to `ulong.MaxValue`. These helpers are the lane-wise
 //! ports of the three FS predicates the FST touches:
 //!
-//! - matching an arc against a segment — [`pg_featstruct::flat_unifiable`] (`IsUnifiable`, the
+//! - matching an arc against a segment — `pg_featstruct::flat_unifiable` (`IsUnifiable`, the
 //!   `Matcher.UseUnification == true` path; see `Input.Matches`, Input.cs:49-58);
-//! - combining two arc conditions during determinization — [`flat_unify`] (`FeatureStruct.Unify`,
+//! - combining two arc conditions during determinization — `flat_unify` (`FeatureStruct.Unify`,
 //!   used in `DeterministicGetArcs`, Fst.cs:631);
-//! - pruning unsatisfiable determinized arcs / negated conditions — [`flat_subsumes`]
+//! - pruning unsatisfiable determinized arcs / negated conditions — `flat_subsumes`
 //!   (`FeatureStruct.Subsumes`, used by `Input.IsSatisfiable`, Input.cs:60-63).
 //!
 //! Lanes are canonicalized by trimming trailing all-ones lanes (an unconstrained tail is the
@@ -59,7 +59,7 @@ pub fn flat_subsumes(sup: &[u64], sub: &[u64]) -> bool {
 }
 
 /// C# `FeatureStruct.IsEmpty` for a flat constraint: the constraint places no restriction on any
-/// feature (all lanes unconstrained). After [`canonicalize`] this is exactly the empty slice.
+/// feature (all lanes unconstrained). After `canonicalize` this is exactly the empty slice.
 #[inline]
 pub fn is_empty(lanes: &[u64]) -> bool {
     lanes.is_empty()

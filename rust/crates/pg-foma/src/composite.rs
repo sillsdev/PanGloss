@@ -1,6 +1,6 @@
 //! `FomaAnalyzer`: the public
-//! product API tying [`crate::analyzer::FomaProposer`] (propose), [`crate::peel::ReduplicationPeeler`]
-//! (the redup peel), and [`crate::confirm`] (verify + multiplicity recovery) into one `analyze_word` call
+//! product API tying `crate::analyzer::FomaProposer` (propose), `crate::peel::ReduplicationPeeler`
+//! (the redup peel), and `crate::confirm` (verify + multiplicity recovery) into one `analyze_word` call
 //! whose output shape mirrors `pg_parse::ParseOutcome`'s essentials — `analyses`/`structured`,
 //! parallel by index, `pg-parse/src/morpher.rs:79-120` — plus diagnostics.
 //!
@@ -31,7 +31,7 @@ use crate::tags::Candidate;
 pub struct ProposedWord {
     candidates: Vec<Candidate>,
     peel_used: bool,
-    /// See [`FomaOutcome::peel_chain_depth_error`]'s own doc.
+    /// See `FomaOutcome::peel_chain_depth_error`'s own doc.
     peel_chain_depth_error: Option<ComposeError>,
     propose_elapsed: Duration,
 }
@@ -39,7 +39,7 @@ pub struct ProposedWord {
 type ConfirmedBuckets = Vec<Vec<(WordAnalysis, String, String)>>;
 type TimedConfirmedBuckets = (ConfirmedBuckets, Duration);
 
-/// `Ok` payload of [`FomaAnalyzer::propose_candidates_with_diagnostics_budgeted`]: the deduped
+/// `Ok` payload of `FomaAnalyzer::propose_candidates_with_diagnostics_budgeted`: the deduped
 /// candidate set plus peel/diagnostics bookkeeping.
 pub(crate) type ProposeCandidatesOk = (
     Vec<Candidate>,
@@ -48,7 +48,7 @@ pub(crate) type ProposeCandidatesOk = (
     ProposalDiagnostics,
     usize,
 );
-/// `Err` payload of [`FomaAnalyzer::propose_candidates_with_diagnostics_budgeted`]: which budget
+/// `Err` payload of `FomaAnalyzer::propose_candidates_with_diagnostics_budgeted`: which budget
 /// dimension tripped, the measured value/limit, and diagnostics for the measured prefix.
 pub(crate) type ProposeCandidatesErr = (ApplyDimension, usize, usize, ProposalDiagnostics, usize);
 
@@ -121,7 +121,7 @@ pub mod test_confirmation_concurrency {
     }
 }
 
-/// Per-word timer for [`FomaAnalyzer::analyze_words`]'s reported durations.
+/// Per-word timer for `FomaAnalyzer::analyze_words`'s reported durations.
 /// `std::time::Instant::now()` COMPILES on wasm32-unknown-unknown but ABORTS at runtime
 /// ("time not implemented on this platform") — the same compiles-but-aborts trap as
 /// `SystemTime::now`/`thread::spawn` (see `rust/tools/f4-wasm-smoke.js`'s reason for existing).
@@ -151,7 +151,7 @@ mod word_timer {
     }
 }
 
-/// The outcome of [`FomaAnalyzer::analyze_word`] — the `pg_parse::ParseOutcome`-compatible shape
+/// The outcome of `FomaAnalyzer::analyze_word` — the `pg_parse::ParseOutcome`-compatible shape
 /// (`analyses`/`structured`), plus diagnostics the propose/confirm gate's numbers come from:
 /// how many distinct candidates were proposed before confirm, how many survived confirm, and
 /// whether the reduplication peel contributed any candidate for this particular word.
@@ -166,16 +166,16 @@ pub struct FomaOutcome {
     /// `structured.len()` — kept as its own field (rather than making callers re-derive it) since
     /// it is the OTHER half of the same headline number (candidates_generated vs confirmed).
     pub confirmed: usize,
-    /// Whether [`crate::peel::ReduplicationPeeler::peel_candidates`] returned at least one
+    /// Whether `crate::peel::ReduplicationPeeler::peel_candidates` returned at least one
     /// candidate for this word (regardless of whether it survived the union dedup against
     /// `propose`'s own output) — the redup gate's own diagnostic ("redup words
-    /// round-trip"). `false` whenever [`Self::peel_chain_depth_error`] is `Some` too (a refused
+    /// round-trip"). `false` whenever `Self::peel_chain_depth_error` is `Some` too (a refused
     /// peel contributes zero candidates for this word).
     pub peel_used: bool,
-    /// `Some` iff [`crate::peel::ReduplicationPeeler::peel_candidates`] returned
-    /// [`crate::compose_budget::ComposeError::ChainDepthExceeded`] for this word (see
+    /// `Some` iff `crate::peel::ReduplicationPeeler::peel_candidates` returned
+    /// `crate::compose_budget::ComposeError::ChainDepthExceeded` for this word (see
     /// `crate::peel`'s own module doc) — a genuinely deep nested-reduplication chain exceeded the
-    /// configured [`crate::compose_budget::ComposeBudget::chain_depth_cap`]. This word's
+    /// configured `crate::compose_budget::ComposeBudget::chain_depth_cap`. This word's
     /// `analyses`/`structured`/`candidates_generated` still reflect whatever `propose` (the FST
     /// proposer alone, unaffected) found on its own; the peel's own contribution for this word was
     /// refused rather than silently dropped, and this field is the typed, honest record of that —
@@ -186,7 +186,7 @@ pub struct FomaOutcome {
 }
 
 /// Opt-in runtime measurements for the exact proposal/peel/confirm pipeline used by
-/// [`FomaAnalyzer::analyze_word_with_diagnostics`]. Proposal counters are summed across the direct
+/// `FomaAnalyzer::analyze_word_with_diagnostics`. Proposal counters are summed across the direct
 /// word proposal and every root proposal requested by reduplication peeling.
 #[derive(Clone, Debug, Default)]
 pub struct FomaWordDiagnostics {
@@ -210,7 +210,7 @@ pub struct FomaWordDiagnostics {
     pub confirmation_elapsed: Duration,
 }
 
-/// A complete ordinary [`FomaOutcome`] paired with opt-in runtime diagnostics.
+/// A complete ordinary `FomaOutcome` paired with opt-in runtime diagnostics.
 pub struct ProfiledFomaOutcome {
     pub outcome: FomaOutcome,
     pub diagnostics: FomaWordDiagnostics,
@@ -247,7 +247,7 @@ pub(crate) enum ProfiledFomaApplyOutcomeWithCandidates {
     },
 }
 
-/// The production counterpart of [`ProfiledFomaApplyOutcome`]: a budgeted analysis that either
+/// The production counterpart of `ProfiledFomaApplyOutcome`: a budgeted analysis that either
 /// finished or was stopped by a deterministic magnitude cap, with no profiling attached.
 ///
 /// The distinction between `Incomplete` and a `Complete` outcome carrying an empty analysis list is
@@ -291,17 +291,17 @@ fn accumulate_proposal_diagnostics(total: &mut ProposalDiagnostics, next: Propos
 }
 
 /// `propose(word)` UNION `peel_candidates(word, propose)`, deduped by `(morphemes, root_index)`,
-/// with diagnostics — **the whole pre-confirm half, with no [`Morpher`] anywhere in its signature.**
+/// with diagnostics — **the whole pre-confirm half, with no `Morpher` anywhere in its signature.**
 ///
 /// # Why this is a free function and not only a method
-/// [`FomaAnalyzer`] owns a confirming `Morpher`, and building one runs `RuleCache::build`, which
+/// `FomaAnalyzer` owns a confirming `Morpher`, and building one runs `RuleCache::build`, which
 /// compiles every matcher FST in the grammar. A caller that only wants to know WHAT a compiled
-/// network proposes — the confirmation-free accuracy check in [`crate::recipe_accuracy`] — should not
+/// network proposes — the confirmation-free accuracy check in `crate::recipe_accuracy` — should not
 /// have to construct the confirmation engine in order to ask. Taking the proposer and peeler as
 /// parameters makes "this call cannot confirm anything" a property of the TYPE SIGNATURE rather than
 /// a promise in a comment: there is no `Morpher` in scope to call.
 ///
-/// [`FomaAnalyzer::analyze_word_with_diagnostics_budgeted`]'s own propose stage delegates straight
+/// `FomaAnalyzer::analyze_word_with_diagnostics_budgeted`'s own propose stage delegates straight
 /// here, so the accuracy check and the certification path propose through one shared definition —
 /// they cannot drift into offering different candidate sets for the same word and network.
 pub(crate) fn propose_union_peel_with_diagnostics(
@@ -408,7 +408,7 @@ fn remaining_apply_budget(budget: &ApplyBudget, used: &ProposalDiagnostics) -> A
     )
 }
 
-/// One grammar's compiled foma proposer, uncapped verify [`Morpher`], prebuilt morpheme-owner map,
+/// One grammar's compiled foma proposer, uncapped verify `Morpher`, prebuilt morpheme-owner map,
 /// and redup peeler, owned together — the propose→confirm composite. `'g` ties this to the
 /// same `&Grammar` borrow the verify `Morpher` itself needs.
 pub struct FomaAnalyzer<'g> {
@@ -417,11 +417,11 @@ pub struct FomaAnalyzer<'g> {
     peeler: ReduplicationPeeler,
     morpher: Morpher<'g>,
     owners: Vec<Option<MorphemeOwner>>,
-    /// The [`ComposeBudget`] [`Self::propose_candidates`] threads into every
-    /// [`ReduplicationPeeler::peel_candidates`] call (`crate::peel`'s own module doc).
-    /// Built ONCE here from `HC_COMPOSE_*` env vars (mirrors [`ComposeBudget::from_env`]'s own "read
+    /// The `ComposeBudget` `Self::propose_candidates` threads into every
+    /// `ReduplicationPeeler::peel_candidates` call (`crate::peel`'s own module doc).
+    /// Built ONCE here from `HC_COMPOSE_*` env vars (mirrors `ComposeBudget::from_env`'s own "read
     /// env exactly once, in the production entry point" convention/doc) rather than per word —
-    /// [`ComposeBudget`] is `Copy`, so re-reading it per word would be pure waste, not a correctness
+    /// `ComposeBudget` is `Copy`, so re-reading it per word would be pure waste, not a correctness
     /// concern either way. Production's default (`HC_COMPOSE_CHAIN_DEPTH_BUDGET` unset) leaves
     /// `chain_depth_cap` at `None` (unbounded) — this addition is a zero-behavior-change no-op for
     /// every existing caller of this type unless that env var is explicitly set.
@@ -431,8 +431,8 @@ pub struct FomaAnalyzer<'g> {
 }
 
 impl<'g> FomaAnalyzer<'g> {
-    /// Emit + foma-compile `g` (via [`FomaProposer::new`]), build the redup peeler, an UNCAPPED
-    /// verify `Morpher` (`Morpher::new(g, usize::MAX)` — see [`crate::confirm::confirm_all`]'s doc
+    /// Emit + foma-compile `g` (via `FomaProposer::new`), build the redup peeler, an UNCAPPED
+    /// verify `Morpher` (`Morpher::new(g, usize::MAX)` — see `crate::confirm::confirm_all`'s doc
     /// for why a cap here would be a silent parity bug, not a performance knob), and the
     /// morpheme-owner reverse map confirm needs. `Err` iff the grammar's emitted lexc source itself
     /// fails to foma-compile. There is no per-grammar fallback tier: this
@@ -457,7 +457,7 @@ impl<'g> FomaAnalyzer<'g> {
     }
 
     /// Build the ordinary propose→peel→confirm analyzer around an already-compiled proposer.
-    /// Every non-proposer field is initialized identically to [`Self::new`].
+    /// Every non-proposer field is initialized identically to `Self::new`.
     pub fn from_precompiled_proposer(g: &'g Grammar, proposer: FomaProposer) -> Self {
         Self::from_cached(
             g,
@@ -519,11 +519,11 @@ impl<'g> FomaAnalyzer<'g> {
         }
     }
 
-    /// [`Self::analyze_word`] under a deterministic magnitude budget, with no profiling.
+    /// `Self::analyze_word` under a deterministic magnitude budget, with no profiling.
     ///
     /// This is the production budgeted path. Until it existed, the only way to obtain a typed
     /// incomplete from the foma pipeline was
-    /// [`Self::analyze_word_with_diagnostics_budgeted`], which clocks every decoded path — so
+    /// `Self::analyze_word_with_diagnostics_budgeted`, which clocks every decoded path — so
     /// `pg-cli`'s `diagnose` compiled a *second* standalone proposer just to measure against a
     /// budget, and the production pipeline itself remained unbounded and therefore unable to report
     /// `incomplete` at all. Both of those follow from the missing entry point, not from anything
@@ -534,7 +534,7 @@ impl<'g> FomaAnalyzer<'g> {
     /// confirmation runs: partial candidates are never confirmed, because a partial confirm would
     /// produce an analysis set that looks authoritative and is not.
     ///
-    /// [`ApplyBudget::unbounded`] can never trip, so [`Self::analyze_word`] delegating here is a
+    /// `ApplyBudget::unbounded` can never trip, so `Self::analyze_word` delegating here is a
     /// behavior-preserving no-op for every existing caller.
     pub fn analyze_word_budgeted(&mut self, word: &str, budget: &ApplyBudget) -> FomaApplyOutcome {
         let (candidates, peel_used, peel_chain_depth_error) =
@@ -570,7 +570,7 @@ impl<'g> FomaAnalyzer<'g> {
         })
     }
 
-    /// [`Self::propose_candidates`] under one cumulative budget, using counters rather than the
+    /// `Self::propose_candidates` under one cumulative budget, using counters rather than the
     /// clocked diagnostic proposal.
     #[allow(clippy::type_complexity)]
     fn propose_candidates_budgeted(
@@ -650,7 +650,7 @@ impl<'g> FomaAnalyzer<'g> {
         Ok((candidates, peel_used, peel_chain_depth_error))
     }
 
-    /// Opt-in diagnostic sibling of [`Self::analyze_word`].
+    /// Opt-in diagnostic sibling of `Self::analyze_word`.
     pub fn analyze_word_with_diagnostics(&mut self, word: &str) -> ProfiledFomaOutcome {
         match self.analyze_word_with_diagnostics_budgeted(word, &ApplyBudget::unbounded()) {
             ProfiledFomaApplyOutcome::Complete(profiled) => profiled,
@@ -660,7 +660,7 @@ impl<'g> FomaAnalyzer<'g> {
         }
     }
 
-    /// Bounded diagnostic pipeline. One shared [`ApplyBudget`] is consumed by the direct proposal
+    /// Bounded diagnostic pipeline. One shared `ApplyBudget` is consumed by the direct proposal
     /// and every proposal requested by reduplication peeling. A trip returns diagnostics for the
     /// measured prefix and never confirms partial candidates.
     pub fn analyze_word_with_diagnostics_budgeted(
@@ -782,12 +782,12 @@ impl<'g> FomaAnalyzer<'g> {
     }
 
     /// `propose(word)` UNION `peel_candidates(word, propose)`, deduped by `(morphemes,
-    /// root_index)` — the pre-confirm half of [`Self::analyze_word`]/[`Self::analyze_words`],
+    /// root_index)` — the pre-confirm half of `Self::analyze_word`/`Self::analyze_words`,
     /// factored out so the batch path can run this stage sequentially over every word (see
-    /// [`Self::analyze_words`]'s doc for why it stays sequential) before handing the results to
+    /// `Self::analyze_words`'s doc for why it stays sequential) before handing the results to
     /// confirm. Returns the deduped candidate list, whether the redup peel contributed anything
     /// for this word, and `Some` iff the peel hit its configured chain-depth budget for
-    /// this word (`self.peel_budget`; [`FomaOutcome::peel_chain_depth_error`]'s own doc) — a refused
+    /// this word (`self.peel_budget`; `FomaOutcome::peel_chain_depth_error`'s own doc) — a refused
     /// peel contributes zero candidates of its own for this word, but never touches `propose`'s
     /// own (unaffected) candidates.
     fn propose_candidates(&mut self, word: &str) -> (Vec<Candidate>, bool, Option<ComposeError>) {
@@ -847,26 +847,26 @@ impl<'g> FomaAnalyzer<'g> {
     /// Batch entry point: analyze every word in `words`, running PROPOSE
     /// sequentially but CONFIRM in parallel across words.
     ///
-    /// **Why propose stays sequential:** [`FomaProposer::propose`] takes `&mut self` because it
+    /// **Why propose stays sequential:** `FomaProposer::propose` takes `&mut self` because it
     /// drives the single foma `ApplyHandle` this analyzer owns — that handle is deliberately
     /// built ONCE per grammar and reused (`analyzer.rs`'s own doc: `apply_init` deep-clones the
     /// whole compiled network, so rebuilding or cloning one per worker thread would cost far more
     /// than the propose stage itself saves). There is exactly one handle, so propose for N words
     /// cannot run on more than one thread without either a lock (serializing it anyway) or N
     /// redundant network clones — neither is a real win, so this stage stays a plain sequential
-    /// loop over `words`, identical in content and cost to N calls to [`Self::analyze_word`]'s own
+    /// loop over `words`, identical in content and cost to N calls to `Self::analyze_word`'s own
     /// propose half.
     ///
     /// **Why confirm parallelizes across words:** a tracer measured `pg_foma::confirm::confirm_batch`
     /// as the dominant cost of `analyze_word` on real corpora, and it is safe to run concurrently,
-    /// one word per task: [`Morpher`] is `Sync` (its only interior-mutable state, an
+    /// one word per task: `Morpher` is `Sync` (its only interior-mutable state, an
     /// `AnalysisScope` behind a `RefCell`, is created fresh inside `parse_word_core_selected` per
     /// call — never a shared field), `RuleCache` and `pg_fst::Fst` hold no interior mutability at
     /// all, and `pg-parse`/`pg-rules`/`pg-fst` are all `#![forbid(unsafe_code)]` — so two words'
     /// confirm calls touch no shared mutable state. This runs on a DEDICATED rayon pool (not the
     /// global default pool) with large worker stacks
-    /// ([`crate::emit::PROBE_STACK_BYTES`] — same size [`crate::preexpand::build_composites`] and
-    /// [`crate::junctions::PhonologyProbe`] already use, and for the same reason: the analysis
+    /// (`crate::emit::PROBE_STACK_BYTES` — same size `crate::preexpand::build_composites` and
+    /// `crate::junctions::PhonologyProbe` already use, and for the same reason: the analysis
     /// cascade `confirm_batch`'s pinned `parse_word_selected` recurses through can overflow
     /// rayon's default 2-8MB stacks on heavy words). `wasm32-unknown-unknown` cannot spawn OS
     /// threads (a rayon pool ctor would panic there), so that target keeps the plain sequential
@@ -876,8 +876,8 @@ impl<'g> FomaAnalyzer<'g> {
     /// Returns one `(`[`FomaOutcome`]`, elapsed)` pair per input word, in the SAME order as
     /// `words` — independent of dispatch/completion order or thread count
     /// (`par_iter().map(..).collect::<Vec<_>>()` over an `IndexedParallelIterator`, like
-    /// [`crate::preexpand::build_composites`]'s own doc notes, preserves original input order),
-    /// each `FomaOutcome` content-identical to calling [`Self::analyze_word`] on that word alone.
+    /// `crate::preexpand::build_composites`'s own doc notes, preserves original input order),
+    /// each `FomaOutcome` content-identical to calling `Self::analyze_word` on that word alone.
     /// `elapsed` is that word's own propose (stage 1) plus confirm (stage 2) wall time — timed
     /// separately per word in each stage (stage 2's timer runs inside that word's own parallel
     /// task, so it reflects real per-word cost, not a share of the pool's total wall time) and
@@ -929,15 +929,15 @@ impl<'g> FomaAnalyzer<'g> {
         self.g
     }
 
-    /// Arm (or leave unarmed) the internal confirming [`Morpher`]'s `--word-timeout-ms` deadline
-    /// (`pg_parse::Morpher::with_word_timeout`). `None` (also [`Self::new`]/[`Self::from_cached`]'s
+    /// Arm (or leave unarmed) the internal confirming `Morpher`'s `--word-timeout-ms` deadline
+    /// (`pg_parse::Morpher::with_word_timeout`). `None` (also `Self::new`/`Self::from_cached`'s
     /// implicit default) is a complete no-op — behavior stays byte-identical to before this
-    /// existed. NOTE: this only threads through the `Morpher` [`Self::new`]/[`Self::from_cached`]
-    /// just built for THIS instance — [`Self::into_parts`]/[`Self::from_cached`]'s cached-pieces
+    /// existed. NOTE: this only threads through the `Morpher` `Self::new`/`Self::from_cached`
+    /// just built for THIS instance — `Self::into_parts`/`Self::from_cached`'s cached-pieces
     /// round trip does not persist the timeout (the `Morpher<'g>` it rebuilds is never one of the
     /// cached pieces, per that method's own doc), so a caller using that path must call this again
-    /// after every `from_cached`. The [`Self::into_parts_with_morpher`]/
-    /// [`Self::from_cached_with_morpher`] round trip DOES persist it, precisely because it carries
+    /// after every `from_cached`. The `Self::into_parts_with_morpher`/
+    /// `Self::from_cached_with_morpher` round trip DOES persist it, precisely because it carries
     /// the same `Morpher<'g>` across instead of rebuilding one.
     pub fn with_word_timeout(self, timeout: Option<Duration>) -> Self {
         FomaAnalyzer {
@@ -946,15 +946,15 @@ impl<'g> FomaAnalyzer<'g> {
         }
     }
 
-    /// Rehydrate a `FomaAnalyzer` from previously-built OWNED pieces (a compiled [`FomaProposer`]
-    /// — the expensive `emit`+foma-compile step — a [`ReduplicationPeeler`], and an owners map)
+    /// Rehydrate a `FomaAnalyzer` from previously-built OWNED pieces (a compiled `FomaProposer`
+    /// — the expensive `emit`+foma-compile step — a `ReduplicationPeeler`, and an owners map)
     /// plus a fresh borrow of `g` for this call. `PanGlossGrammar::new` builds `FomaAnalyzer`: a long-lived host (`pg-wasm`'s
     /// `PanGlossGrammar`) that also OWNS the `Grammar` these borrow from can't store a
     /// `FomaAnalyzer<'g>` as a sibling field of that same `Grammar` (that would be a
     /// self-referential struct) — but it CAN store the three owned pieces here and reconstruct a
     /// short-lived `FomaAnalyzer` from them plus `&self.grammar` for the duration of one call,
     /// exactly the way `Morpher<'g>` itself is never stored, only ever built fresh per call from
-    /// an owned `&Grammar`. Pair with [`Self::into_parts`] to hand the (unchanged) owned pieces
+    /// an owned `&Grammar`. Pair with `Self::into_parts` to hand the (unchanged) owned pieces
     /// back to long-term storage once the call is done.
     pub fn from_cached(
         g: &'g Grammar,
@@ -965,11 +965,11 @@ impl<'g> FomaAnalyzer<'g> {
         Self::from_cached_with_morpher(g, proposer, peeler, owners, Morpher::new(g, usize::MAX))
     }
 
-    /// [`Self::from_cached`] with the confirming [`Morpher`] supplied by the caller instead of built
+    /// `Self::from_cached` with the confirming `Morpher` supplied by the caller instead of built
     /// here, so a caller that constructs MANY analyzers over one `&Grammar` pays for it once.
     ///
     /// **`Morpher::new` is not cheap, and this exists because a doc comment on
-    /// [`Self::into_parts`] used to claim it was.** It builds `RootAllomorphIndex::build(g)`,
+    /// `Self::into_parts` used to claim it was.** It builds `RootAllomorphIndex::build(g)`,
     /// `collect_lexical_patterns(g)` and — the expensive one — `RuleCache::build(g)`, which compiles
     /// EVERY phonological/morphological matcher FST in the grammar (`pg_rules::cache`'s own module
     /// doc: "build once, at `Morpher` construction"). Rebuilding it per analyzer pays a
@@ -983,7 +983,7 @@ impl<'g> FomaAnalyzer<'g> {
     /// not on the `Morpher`. The only `Morpher` fields a caller can vary (`cap`, `memo`,
     /// `word_timeout`, `max_stem_count`) are construction-time knobs, so a supplied `Morpher` also
     /// lets a caller set them once for a whole batch of analyzers. Pair with
-    /// [`Self::into_parts_with_morpher`] to hand it back for the next one.
+    /// `Self::into_parts_with_morpher` to hand it back for the next one.
     pub fn from_cached_with_morpher(
         g: &'g Grammar,
         proposer: FomaProposer,
@@ -1003,16 +1003,16 @@ impl<'g> FomaAnalyzer<'g> {
         }
     }
 
-    /// The inverse of [`Self::from_cached`]: reclaim the three owned pieces this analyzer was
-    /// built from (or built fresh in [`Self::new`]), DROPPING its `Morpher<'g>`.
+    /// The inverse of `Self::from_cached`: reclaim the three owned pieces this analyzer was
+    /// built from (or built fresh in `Self::new`), DROPPING its `Morpher<'g>`.
     ///
-    /// Dropping the morpher is a real cost, not a free discard — the next [`Self::from_cached`]
+    /// Dropping the morpher is a real cost, not a free discard — the next `Self::from_cached`
     /// rebuilds it with `Morpher::new`, which compiles every matcher FST in the grammar
-    /// ([`Self::from_cached_with_morpher`]'s doc has the accounting). An earlier version of this
+    /// (`Self::from_cached_with_morpher`'s doc has the accounting). An earlier version of this
     /// comment claimed the morpher was "recreated for free on the next `from_cached` call", which
     /// is false and is exactly why nobody looked: a caller that round-trips one analyzer per
     /// candidate over a fixed grammar was paying a grammar-wide FST compilation per candidate. Use
-    /// [`Self::into_parts_with_morpher`] to keep it instead.
+    /// `Self::into_parts_with_morpher` to keep it instead.
     pub fn into_parts(
         self,
     ) -> (
@@ -1024,8 +1024,8 @@ impl<'g> FomaAnalyzer<'g> {
         (proposer, peeler, owners)
     }
 
-    /// [`Self::into_parts`] that also hands back the confirming [`Morpher`] instead of dropping it —
-    /// the reclaim half of [`Self::from_cached_with_morpher`]. Nothing in this type mutates the
+    /// `Self::into_parts` that also hands back the confirming `Morpher` instead of dropping it —
+    /// the reclaim half of `Self::from_cached_with_morpher`. Nothing in this type mutates the
     /// morpher, so what comes back is the same object that went in.
     pub fn into_parts_with_morpher(
         self,
@@ -1135,7 +1135,7 @@ fn confirm_proposed_words_with_probe(
 }
 
 #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
-/// Test-only variant of [`confirm_proposed_words_in_pool`] that reports confirmation concurrency
+/// Test-only variant of `confirm_proposed_words_in_pool` that reports confirmation concurrency
 /// through an analyzer-owned probe.
 #[doc(hidden)]
 pub fn confirm_proposed_words_in_pool_with_probe(
@@ -1251,9 +1251,9 @@ mod tests {
         assert_eq!(outcome.structured.len(), engine.structured.len());
     }
 
-    /// Regression guard: [`FomaAnalyzer::analyze_words`]'s parallel-confirm
+    /// Regression guard: `FomaAnalyzer::analyze_words`'s parallel-confirm
     /// batch path must produce, per word, the exact same confirmed-analysis multiset as calling
-    /// [`FomaAnalyzer::analyze_word`] on that word alone — compared via `pg_parse::result_signature`
+    /// `FomaAnalyzer::analyze_word` on that word alone — compared via `pg_parse::result_signature`
     /// (order-independent over the analysis set), the same fingerprint the CLI's own TSV rows use.
     /// Includes a word with zero candidates (`"zzzqxxxnonsense"`) alongside real corpus words so the
     /// batch path's empty-outcome handling is covered too, not just the confirms-something case.

@@ -1,13 +1,13 @@
-//! The recipe parity relation: **deduplicated [`AnalysisIdentity`] set equality, per occurrence.**
+//! The recipe parity relation: **deduplicated `AnalysisIdentity` set equality, per occurrence.**
 //!
 //! # What the relation is, and what it is not
 //!
 //! Two engines agree about one word occurrence when the SETS of analysis identities they produced
 //! for it are equal. Three consequences, each of which this module exists to make unavoidable:
 //!
-//! - **Not full `WordAnalysis` equality.** [`pg_parse::WordAnalysis`] carries dense
+//! - **Not full `WordAnalysis` equality.** `pg_parse::WordAnalysis` carries dense
 //!   compiler-assigned ordinals plus engine-internal payload (`syn_fs`, `mpr`, the per-morpheme
-//!   supplied-root slots) that [`AnalysisIdentity`] deliberately does not capture. Comparing whole
+//!   supplied-root slots) that `AnalysisIdentity` deliberately does not capture. Comparing whole
 //!   `WordAnalysis` values makes engine internals observable as disagreement, which is the wrong
 //!   relation — it reports two names for the same analysis as a parity miss.
 //! - **Not multiset equality.** Multiplicity is NOT part of the relation. Two analyses that reach
@@ -17,28 +17,28 @@
 //!   it is simply not the verdict.
 //! - **Deduplication is WITHIN one occurrence only.** Repeated corpus rows are separate
 //!   observations and are never collapsed against one another. That is why the unit of this module
-//!   is [`OccurrenceIdentities`] — one word occurrence's set — and why nothing here takes a corpus.
+//!   is `OccurrenceIdentities` — one word occurrence's set — and why nothing here takes a corpus.
 //!
 //! # Faults are not misses
 //!
-//! [`AnalysisIdentity::project`] is fallible, and its failure means an internal inconsistency (an
+//! `AnalysisIdentity::project` is fallible, and its failure means an internal inconsistency (an
 //! analysis referencing a morpheme its own model lacks), never "these two disagree". Reporting such
 //! a fault as an ordinary parity miss would blame the grammar for a bug in the engine; swallowing it
 //! as "equal" would certify a candidate on evidence that was never computed. So a fault is typed
-//! ([`ParityFault`]) and its only certification is a non-selectable truncation.
+//! (`ParityFault`) and its only certification is a non-selectable truncation.
 //!
 //! # v1 certification scope
 //!
 //! For the v1 four-language certification, supplied roots are REFUSED and guessing is DISABLED. A
 //! supplied root is grammar-external content injected at runtime, and a guessed analysis has a
-//! fabricated root with no authored source at all ([`AnalysisIdentity`] records it as a `None`
+//! fabricated root with no authored source at all (`AnalysisIdentity` records it as a `None`
 //! morpheme key); neither is evidence about the compiled grammar, which is the only thing a recipe
 //! certification is a statement about. Both are refused as typed faults rather than being silently
 //! excluded, because a certification computed over a silently-narrowed analysis set would carry the
 //! full corpus's name.
 //!
-//! Note the layering: [`OccurrenceIdentities::project`] RECORDS the guessed/supplied annotations as
-//! evidence and refuses nothing; [`certified_occurrence`] applies the scope. Evidence and policy are
+//! Note the layering: `OccurrenceIdentities::project` RECORDS the guessed/supplied annotations as
+//! evidence and refuses nothing; `certified_occurrence` applies the scope. Evidence and policy are
 //! separate on purpose — a later profile that admits guessing needs a different policy, not a
 //! different projector.
 
@@ -51,13 +51,13 @@ use pg_parse::{AnalysisProvenance, WordAnalysis};
 /// One distinct identity observed within ONE word occurrence, plus the evidence that deduplicating
 /// down to it erased.
 ///
-/// The parity verdict reads [`Self::identity`] and nothing else. The other three fields exist so
+/// The parity verdict reads `Self::identity` and nothing else. The other three fields exist so
 /// that collapsing a set does not also destroy the diagnostic record of what was collapsed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentityEvidence {
     /// The identity itself — the only field the parity relation looks at.
     pub identity: AnalysisIdentity,
-    /// How many raw [`WordAnalysis`] values collapsed into this identity. Always at least 1.
+    /// How many raw `WordAnalysis` values collapsed into this identity. Always at least 1.
     ///
     /// Greater than 1 means the engine reached the same analysis by more than one derivational
     /// path. That is a real property of the compilation (and a useful signal about redundant
@@ -67,7 +67,7 @@ pub struct IdentityEvidence {
     /// Whether ANY raw analysis that collapsed into this identity came from the guess branch.
     ///
     /// Kept even though the v1 scope refuses guessed analyses outright: the refusal happens in
-    /// [`certified_occurrence`], and the report should be able to say WHICH identity carried the
+    /// `certified_occurrence`, and the report should be able to say WHICH identity carried the
     /// annotation rather than only that some did.
     pub guessed: bool,
     /// Whether ANY raw analysis that collapsed into this identity carried a supplied (runtime,
@@ -77,8 +77,8 @@ pub struct IdentityEvidence {
 
 /// The deduplicated identity set of ONE word occurrence, in a canonical order.
 ///
-/// Entries are ordered by [`AnalysisIdentity`]'s own total order and are distinct by construction,
-/// which is what makes [`Self::same_identities`] a genuine set comparison rather than an
+/// Entries are ordered by `AnalysisIdentity`'s own total order and are distinct by construction,
+/// which is what makes `Self::same_identities` a genuine set comparison rather than an
 /// order-sensitive one. Discovery order is deliberately discarded: it is not semantic, and letting
 /// it reach a verdict would make engine traversal order observable as a grammar difference.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -191,15 +191,15 @@ impl OccurrenceIdentities {
     /// `(morphemes, root_index)` — and therefore differ from it ONLY in `category`.
     ///
     /// `0` means the admission key is INJECTIVE on this set, which is the property a
-    /// confirmation-free accuracy verdict needs: [`crate::confirm::confirm_batch`] routes a
-    /// confirmed analysis to a candidate by exactly this key ([`admission_key`]), so a proposal set
+    /// confirmation-free accuracy verdict needs: `crate::confirm::confirm_batch` routes a
+    /// confirmed analysis to a candidate by exactly this key (`admission_key`), so a proposal set
     /// containing the key of every oracle analysis admits every oracle analysis — but only if one
     /// key cannot stand for two distinct identities. Where it can, "the key was proposed" is a
     /// weaker statement than "that identity is reachable", and the difference has to be counted
     /// rather than assumed away.
     ///
     /// Cheap and exact rather than a second hash pass: `entries` is already in
-    /// [`AnalysisIdentity`]'s own total order, whose leading components are `morphemes` then
+    /// `AnalysisIdentity`'s own total order, whose leading components are `morphemes` then
     /// `root_index`, so key-sharing members are necessarily ADJACENT.
     pub fn admission_key_collisions(&self) -> u64 {
         self.entries
@@ -216,20 +216,20 @@ impl OccurrenceIdentities {
 /// position.
 ///
 /// This is not a new notion invented here. It is verbatim the key
-/// [`crate::confirm::confirm_batch`] builds its `by_key` routing map from, and verbatim the key
+/// `crate::confirm::confirm_batch` builds its `by_key` routing map from, and verbatim the key
 /// `propose UNION peel` deduplicates candidates by. Naming it once, here, is what stops a
 /// confirmation-free accuracy check from inventing a *second*, subtly different notion of "the
 /// candidate offered this analysis" — the drift that would make the fast verdict and the full
 /// certification answer different questions while appearing to answer the same one.
 ///
-/// Deliberately dense ORDINALS, not the stable source keys [`AnalysisIdentity`] carries: an
+/// Deliberately dense ORDINALS, not the stable source keys `AnalysisIdentity` carries: an
 /// admission key is only ever compared WITHIN one compiled grammar and one run (proposals against
 /// that same run's oracle analyses), where ordinals are exactly what confirm itself compares. An
 /// identity is the cross-compilation notion; this is the intra-run one. Using an identity here
 /// would also be strictly wrong, because it carries `category`, which no proposal has.
 pub type AdmissionKey = (Vec<u32>, i32);
 
-/// One analysis's [`AdmissionKey`]. Mirrors `confirm_batch`'s own
+/// One analysis's `AdmissionKey`. Mirrors `confirm_batch`'s own
 /// `(wa.morpheme_ids.clone(), wa.root_morpheme_index)`.
 pub fn admission_key(analysis: &WordAnalysis) -> AdmissionKey {
     (
@@ -247,23 +247,23 @@ pub fn admission_key(analysis: &WordAnalysis) -> AdmissionKey {
 /// for that is strong — the candidate's confirm is a RESTRICTED `parse_word_selected` and the
 /// oracle is the same engine unrestricted, so the candidate explores a subset — but it is not
 /// airtight. `pg_rules::word::WordKey`, the analysis-search dedup key, deliberately EXCLUDES the
-/// syntactic feature struct, while [`AnalysisIdentity::category`] is projected from it (via
+/// syntactic feature struct, while `AnalysisIdentity::category` is projected from it (via
 /// `WordAnalysis::pos_id`). Two search states differing only in `syn_fs` therefore collapse to one
 /// map entry, and which one's `syn_fs` survives is decided first-wins by traversal order — which
 /// the restriction changes. So a restricted run can in principle surface a category the
 /// unrestricted run deduplicated away, producing a **candidate-only identity**.
 ///
 /// That is inference, not observation. Building containment on top of it without measuring would
-/// silently certify a wrong answer on the day it happens, so [`Self::candidate_only_identities`] is
+/// silently certify a wrong answer on the day it happens, so `Self::candidate_only_identities` is
 /// counted on the ordinary certification path and reported per run.
 ///
 /// # "I could not look" is a distinct outcome
 ///
-/// [`Self::occurrences_not_compared`] exists so a run that never got to compare anything (a
+/// `Self::occurrences_not_compared` exists so a run that never got to compare anything (a
 /// projection fault, a v1-scope refusal, a resource breach, a refused corpus) cannot be read as a
 /// run that compared everything and found nothing wrong. A zero in
-/// [`Self::candidate_only_identities`] is only evidence in proportion to
-/// [`Self::occurrences_compared`].
+/// `Self::candidate_only_identities` is only evidence in proportion to
+/// `Self::occurrences_compared`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct IdentityDivergence {
     /// Occurrences whose two identity sets were both projected and actually compared.
@@ -280,10 +280,10 @@ pub struct IdentityDivergence {
     /// contain. Expected to be 0; a non-zero value invalidates the free-containment argument and is
     /// a finding in its own right.
     pub candidate_only_identities: u64,
-    /// Occurrences contributing at least one [`Self::candidate_only_identities`] — so a single
+    /// Occurrences contributing at least one `Self::candidate_only_identities` — so a single
     /// pathological word cannot be mistaken for a widespread divergence, or vice versa.
     pub occurrences_with_candidate_only: u64,
-    /// Summed [`OccurrenceIdentities::admission_key_collisions`] over the ORACLE side of every
+    /// Summed `OccurrenceIdentities::admission_key_collisions` over the ORACLE side of every
     /// compared occurrence. Expected 0; non-zero means an admission key stands for more than one
     /// oracle identity on some word, so key containment is coarser than identity containment there.
     pub oracle_admission_key_collisions: u64,
@@ -404,7 +404,7 @@ impl ParityFault {
     /// Deliberately a short, closed set of six kebab-case values (three causes x two sides) rather
     /// than a formatted message: `Truncated` carries no detail field, stage strings are matched
     /// exactly by gates, and an unbounded message interpolated into one would be neither greppable
-    /// nor stable. The underlying [`IdentityError`]'s own text is available on the value itself for
+    /// nor stable. The underlying `IdentityError`'s own text is available on the value itself for
     /// a caller that wants to log it.
     pub fn stage(&self) -> String {
         let (cause, side) = match self {
@@ -451,7 +451,7 @@ impl std::error::Error for ParityFault {}
 
 /// Project one occurrence AND apply the v1 certification scope.
 ///
-/// This is the function a certification path should call; [`OccurrenceIdentities::project`] is the
+/// This is the function a certification path should call; `OccurrenceIdentities::project` is the
 /// evidence-only half, for a report that wants the annotations without the policy.
 pub fn certified_occurrence(
     analyses: &[WordAnalysis],

@@ -1,31 +1,31 @@
-//! The shared pattern/environment → FST lowering seam: [`lower_span`] lowers one subrule's
-//! `left_env · lhs_focus · right_env` triple into foma acceptors, and [`spans_overlap`] tests two
+//! The shared pattern/environment → FST lowering seam: `lower_span` lowers one subrule's
+//! `left_env · lhs_focus · right_env` triple into foma acceptors, and `spans_overlap` tests two
 //! such spans for a non-empty intersection at the shared focus position — the real
-//! automaton-intersection test behind [`crate::capability::SimultaneousSubruleOverlapPredicate`],
+//! automaton-intersection test behind `crate::capability::SimultaneousSubruleOverlapPredicate`,
 //! replacing a conservative unconditional-`Refuse` fallback.
 //!
-//! This module owns the pattern-lowering vocabulary ([`Slot`], [`pattern_slots`],
-//! [`slots_from_nodes`], [`resolve_alpha_tuples`], [`render_slots`], [`AlphaAssignment`],
-//! [`TupleReport`], `class_members`, `slots_contain_alpha`, `MAX_QUANTIFIER_BOUND`) that
+//! This module owns the pattern-lowering vocabulary (`Slot`, `pattern_slots`,
+//! `slots_from_nodes`, `resolve_alpha_tuples`, `render_slots`, `AlphaAssignment`,
+//! `TupleReport`, `class_members`, `slots_contain_alpha`, `MAX_QUANTIFIER_BOUND`) that
 //! `replace.rs`'s rewrite-rule/metathesis compilation also uses; `replace.rs` re-exports every one
 //! at its own path so existing callers are unaffected by where the logic actually lives.
 //!
-//! [`crate::replace::SegAlphabet`] (the char-def <-> PUA-token codec) and
-//! [`crate::replace::owning_table`]/[`crate::replace::owning_table_for_metathesis`] (rule ->
+//! `crate::replace::SegAlphabet` (the char-def <-> PUA-token codec) and
+//! `crate::replace::owning_table`/`crate::replace::owning_table_for_metathesis` (rule ->
 //! owning-stratum -> `CharDefTable` resolution) stay in `replace.rs`: the former is general
 //! token-alphabet infrastructure several other modules depend on directly, not something
-//! pattern/environment lowering owns; the latter is rule/stratum bookkeeping that [`lower_span`]'s
+//! pattern/environment lowering owns; the latter is rule/stratum bookkeeping that `lower_span`'s
 //! own callers already resolve before calling in, so this module never needs to call it itself.
 //!
-//! [`UnsupportedPatternNode`] is the typed disposition for a pattern node kind [`lower_span`]
+//! `UnsupportedPatternNode` is the typed disposition for a pattern node kind `lower_span`
 //! cannot yet represent — always returned explicitly rather than silently omitting or weakening the
-//! node. Quantifier metadata is partially covered, transparently: [`pattern_slots`] accepts both a
+//! node. Quantifier metadata is partially covered, transparently: `pattern_slots` accepts both a
 //! finitely bounded and a genuinely unbounded (`max: None`) alpha-free `PatternNode::Quantifier`
-//! natively (`Slot::Repeat`), and since [`lower_span`] calls `pattern_slots` directly rather than
+//! natively (`Slot::Repeat`), and since `lower_span` calls `pattern_slots` directly rather than
 //! re-deriving pattern coverage, either shape anywhere in `left_env`/`focus`/`right_env` lowers for
-//! free. An inverted-bound (`min > max`), over-budget-finite (past [`MAX_QUANTIFIER_BOUND`]), or
+//! free. An inverted-bound (`min > max`), over-budget-finite (past `MAX_QUANTIFIER_BOUND`), or
 //! alpha-nested quantifier is not representable: `pattern_slots` returns `None` for it, and
-//! [`UnsupportedPatternNode::Quantifier`] is the typed reason [`diagnose_unsupported`] reports.
+//! `UnsupportedPatternNode::Quantifier` is the typed reason `diagnose_unsupported` reports.
 
 use std::collections::HashSet;
 
@@ -50,9 +50,9 @@ use crate::replace::SegAlphabet;
 // so callers that import them from `replace.rs` keep working.
 // =================================================================================================
 
-/// One class's members, resolved from [`NaturalClassKind`] with a given set of alpha-bound
+/// One class's members, resolved from `NaturalClassKind` with a given set of alpha-bound
 /// feature lanes excluded from the `Feature`-kind pin test (module doc: an alpha-bound feature is
-/// NOT a fixed pin — its value is resolved per tuple, see [`resolve_alpha_tuples`]).
+/// NOT a fixed pin — its value is resolved per tuple, see `resolve_alpha_tuples`).
 fn class_members(
     g: &Grammar,
     table: &CharDefTable,
@@ -82,11 +82,11 @@ fn class_members(
 // this prototype doesn't render (Quantifier/Anchor/CharDef-of-unknown-kind never seen here).
 // =================================================================================================
 
-/// Which additional pattern-node shapes a particular [`pattern_slots`]/[`slots_from_nodes`] CALLER
+/// Which additional pattern-node shapes a particular `pattern_slots`/`slots_from_nodes` CALLER
 /// may accept, beyond the floor every caller has always shared (`Context`/`CharDef`/a well-formed
 /// `Quantifier`). `pattern_slots` is a single shared lowering seam deliberately reused by THREE
 /// independent consumers with DIFFERENT verification obligations (module top doc's own "reuse, not
-/// re-derive" discipline: [`lower_span`] for `crate::capability::SimultaneousSubruleOverlapPredicate`
+/// re-derive" discipline: `lower_span` for `crate::capability::SimultaneousSubruleOverlapPredicate`
 /// (an `hc.dll`-oracle-verified span-intersection test), `crate::replace::compile_rewrite_rule_
 /// subset`/`crate::replace::compile_metathesis_rule` for the real rewrite-rule/metathesis compile) --
 /// widening what ONE consumer accepts must never silently widen what an UNRELATED consumer accepts
@@ -100,7 +100,7 @@ fn class_members(
 pub(crate) enum PatternLowerScope {
     /// The floor: `PatternNode::Segments`/`PatternNode::Anchor` still
     /// refuse unconditionally (`None`).
-    /// [`lower_span`]'s own callers stay on this tier PERMANENTLY by an explicit
+    /// `lower_span`'s own callers stay on this tier PERMANENTLY by an explicit
     /// ownership boundary -- widening `SimultaneousRewrite`'s own admitted set is a DIFFERENT
     /// characteristic's oracle-verification question, not something a pattern-shape-lowering
     /// change gets to answer as a side effect. `crate::replace::compile_metathesis_rule` also stays
@@ -112,11 +112,11 @@ pub(crate) enum PatternLowerScope {
     /// (`crate::replace::compile_rewrite_rule_subset`/`crate::capability::
     /// rtl_reversal_construction_attempted`, which MUST stay in lockstep with each other -- see that
     /// function's own doc): additionally accepts (1) a `PatternNode::Segments` whose OWN declared
-    /// table is the SAME table as this call's own `table` parameter (lowering to [`Slot::Fixed`])
-    /// or a DIFFERENT table (lowering to table-qualified [`Slot::ForeignFixed`], rendered as an
+    /// table is the SAME table as this call's own `table` parameter (lowering to `Slot::Fixed`)
+    /// or a DIFFERENT table (lowering to table-qualified `Slot::ForeignFixed`, rendered as an
     /// oracle-equivalent union of feature-unifiable owning-table tokens; raw ids are never
     /// reinterpreted across tables) -- and (2)
-    /// any `PatternNode::Anchor` (lowers to [`Slot::Anchor`], rendered as foma's own `.#.`
+    /// any `PatternNode::Anchor` (lowers to `Slot::Anchor`, rendered as foma's own `.#.`
     /// word-boundary xre atom). A disagree-polarity alpha var and a malformed `Quantifier` still
     /// refuse under this tier too -- widening is strictly ADDITIVE, never a blanket "accept
     /// everything" switch.
@@ -137,7 +137,7 @@ pub(crate) enum PatternLowerScope {
 #[derive(Debug, Clone)]
 pub(crate) enum Slot {
     /// A single fixed char-def (`PatternNode::CharDef`, or a `Context` with no alpha vars whose
-    /// class happens to be a singleton — kept general as [`Slot::Union`] instead, see below).
+    /// class happens to be a singleton — kept general as `Slot::Union` instead, see below).
     Fixed(CharDefId),
     /// One literal segment from a `PatternNode::Segments` node explicitly segmented against a
     /// table other than the rewrite rule's owning table. The dense id has meaning only with its
@@ -148,12 +148,12 @@ pub(crate) enum Slot {
     /// A natural class occurrence bound to one OR MORE alpha variables (Amharic's CV-merger binds
     /// up to 20 vars on a SINGLE `SimpleContext` — the 20 variables jointly
     /// copy the feature bundles of one (C,V) segment pair): resolved per-tuple by
-    /// [`resolve_alpha_tuples`], not fixed until a concrete assignment is chosen. `occurrence` is
+    /// `resolve_alpha_tuples`, not fixed until a concrete assignment is chosen. `occurrence` is
     /// this specific SLOT INSTANCE's own id (unique per occurrence, NOT per variable — two
-    /// occurrences of the same [`VarId`] almost always draw from two DIFFERENT classes, e.g.
+    /// occurrences of the same `VarId` almost always draw from two DIFFERENT classes, e.g.
     /// Indonesian prule4's RHS `nc11` (the nasal output class) vs its right-environment `nc12`
     /// (the following-obstruent class): they must agree on the var's FEATURE VALUE, not resolve
-    /// to the identical segment — see [`resolve_alpha_tuples`]'s doc for why this rules out a
+    /// to the identical segment — see `resolve_alpha_tuples`'s doc for why this rules out a
     /// same-var-implies-same-segment shortcut). `vars` is one `(VarId, feature lane)` pair per
     /// `AlphaVariable` this ONE occurrence carries — all of them apply to the SAME concrete
     /// segment eventually chosen for this occurrence.
@@ -186,7 +186,7 @@ pub(crate) enum Slot {
     /// `E^>N`/`E*`; `foma-0.4.2/src/regex.rs`'s own `RepeatNPlus`/`Star` arms build them with no
     /// cutoff anywhere), so refusing an unbounded quantifier would be a scope restriction, not a
     /// genuine feasibility limit.
-    /// [`MAX_QUANTIFIER_BOUND`] applies ONLY when `max` is `Some(_)` (`slots_from_nodes`'s own
+    /// `MAX_QUANTIFIER_BOUND` applies ONLY when `max` is `Some(_)` (`slots_from_nodes`'s own
     /// Quantifier arm never even evaluates it when `max` is `None`) — an unbounded quantifier's own
     /// compiled net size does not depend on any repetition count, so there is nothing for that
     /// ceiling to bound; treating `max: None` as "a bound above the ceiling" and silently clamping
@@ -200,18 +200,18 @@ pub(crate) enum Slot {
     /// pattern's own top-level nodes — one node-to-slot mapping, reused, not re-derived (mirrors
     /// this module's "resolve once, reuse everywhere" discipline for `pattern_slots`/
     /// `resolve_alpha_tuples`/`render_slots` themselves). Storing already-resolved `Slot`s (rather
-    /// than the raw `PatternNode`s) means [`render_slots`] can render a nested quantifier the SAME
+    /// than the raw `PatternNode`s) means `render_slots` can render a nested quantifier the SAME
     /// way it renders every other slot list, with no special-cased second PatternNode-to-text path.
     ///
     /// # Why no `Slot::Alpha` may ever appear (transitively) inside `children`
-    /// [`slots_from_nodes`] REFUSES (returns `None`) to build a `Slot::Repeat` whose own `children`
+    /// `slots_from_nodes` REFUSES (returns `None`) to build a `Slot::Repeat` whose own `children`
     /// contain a `Slot::Alpha` occurrence at ANY nesting depth (checked recursively through any
-    /// further-nested `Slot::Repeat`, never just the immediate level) — [`resolve_alpha_tuples`]'s
+    /// further-nested `Slot::Repeat`, never just the immediate level) — `resolve_alpha_tuples`'s
     /// own occurrence-flattening walks `slot_lists: &[&[Slot]]` at exactly ONE level (the top-level
     /// LHS/RHS/left-env/right-env lists `replace.rs`'s `compile_rewrite_rule_subset`/this module's
-    /// own [`lower_span`] pass it), so an `Alpha` occurrence buried inside a `Slot::Repeat`'s own
+    /// own `lower_span` pass it), so an `Alpha` occurrence buried inside a `Slot::Repeat`'s own
     /// `children` would never be discovered, never receive a resolved assignment, and would panic
-    /// [`render_slots`]'s own `.expect("every alpha slot's occurrence has a resolved assignment by
+    /// `render_slots`'s own `.expect("every alpha slot's occurrence has a resolved assignment by
     /// render time")` the first time anyone tried to render it. Refusing to BUILD the `Slot::Repeat`
     /// in the first place (rather than teaching `resolve_alpha_tuples` to recurse) keeps that
     /// invariant enforced at construction time, not merely by convention — an alpha variable nested
@@ -224,11 +224,11 @@ pub(crate) enum Slot {
     },
     /// `PatternNode::Anchor` (`initialBoundaryCondition`/`finalBoundaryCondition` on a
     /// `<PhoneticTemplate>`, or a bare leading/trailing `#` in an environment string): accepted only under
-    /// [`PatternLowerScope::RewriteRuleCompile`] ([`PatternLowerScope`]'s own doc). Renders
-    /// ([`render_slots`]) as foma's own `.#.` xre atom -- "signifies both end and beginning of
+    /// `PatternLowerScope::RewriteRuleCompile` (`PatternLowerScope`'s own doc). Renders
+    /// (`render_slots`) as foma's own `.#.` xre atom -- "signifies both end and beginning of
     /// word/string" (`foma-0.4.2/src/iface/print.rs`'s own built-in help text for the operator,
     /// `regex.rs`'s `XreExpr::BoundaryMarker => fsm_symbol(".#.")`) -- IDENTICALLY regardless of
-    /// which [`AnchorSide`] this occurrence carries: the compiled meaning ("start of word" vs "end
+    /// which `AnchorSide` this occurrence carries: the compiled meaning ("start of word" vs "end
     /// of word") comes entirely from WHICH SIDE of the rule's own `_` focus marker the rendered text
     /// sits on (leading in a left environment = word-initial; trailing in a right environment =
     /// word-final -- `pg_grammar::compile::rules.rs`'s own construction: `Anchor(Left)` is always
@@ -237,7 +237,7 @@ pub(crate) enum Slot {
     /// mirror-and-reverse construction swap an anchor to the CORRECT opposite edge with NO
     /// anchor-specific code in that function at all: `reversed_slots` reverses this slot's own
     /// POSITION within its containing environment list (an atomic slot, no internal reversal, same
-    /// as [`Slot::Fixed`]/[`Slot::Union`]) and swaps left_env<->right_env wholesale, so a
+    /// as `Slot::Fixed`/`Slot::Union`) and swaps left_env<->right_env wholesale, so a
     /// `Right`-anchor that was the LAST slot of the original `right_env` becomes the FIRST slot of
     /// the mirror's own `left_env` -- rendered as a LEADING `.#.` there, meaning "start of the
     /// mirror/reversed representation", which `fsm_reverse` then correctly turns into "end of the
@@ -247,8 +247,8 @@ pub(crate) enum Slot {
     /// character). Pinned empirically, not just argued: `tests/phase_c_right_to_left.rs`'s
     /// `rtl_anchor_reversal_swaps_the_correct_edge`.
     ///
-    /// `#[allow(dead_code)]`: the carried [`AnchorSide`] is never actually READ by this crate today
-    /// (this doc's own argument for why [`render_slots`] can render `.#.` unconditionally,
+    /// `#[allow(dead_code)]`: the carried `AnchorSide` is never actually READ by this crate today
+    /// (this doc's own argument for why `render_slots` can render `.#.` unconditionally,
     /// regardless of side) -- kept anyway, not collapsed to a unit variant, because it is real
     /// structural information a future caller (a diagnostic, or a stricter position-validity check)
     /// may legitimately want, and because `PatternNode::Anchor(AnchorSide)` (the node this variant
@@ -259,9 +259,9 @@ pub(crate) enum Slot {
 }
 
 /// `true` iff `slots` (or the `children` of any `Slot::Repeat` nested at ANY depth inside `slots`)
-/// contains at least one `Slot::Alpha` occurrence — [`Slot::Repeat`]'s own doc explains why a
+/// contains at least one `Slot::Alpha` occurrence — `Slot::Repeat`'s own doc explains why a
 /// `Slot::Repeat` may never be built over such `children`: this is the recursive check
-/// [`slots_from_nodes`]'s own `PatternNode::Quantifier` arm uses to enforce that, checked at EVERY
+/// `slots_from_nodes`'s own `PatternNode::Quantifier` arm uses to enforce that, checked at EVERY
 /// nesting depth (not just the immediate one) so a nested bounded-quantifier-inside-a-bounded-
 /// quantifier can never smuggle an alpha occurrence past a shallow, single-level check.
 fn slots_contain_alpha(slots: &[Slot]) -> bool {
@@ -272,12 +272,12 @@ fn slots_contain_alpha(slots: &[Slot]) -> bool {
     })
 }
 
-/// Preflight ceiling on a [`PatternNode::Quantifier`]'s own FINITE `max` bound: preflights the
+/// Preflight ceiling on a `PatternNode::Quantifier`'s own FINITE `max` bound: preflights the
 /// product of alternatives/repetitions and reports a typed budget or unsupported result. Checked in `slots_from_nodes` BEFORE any xre
 /// text is rendered or any `Fsm` is built at all — the cheapest possible predictor, the same "check
 /// the search result before the expensive part" principle `resolve_alpha_tuples`' own V3 alpha-tuple
 /// cap uses. `pattern_slots`/`slots_from_nodes` are pure structural walks with no
-/// [`crate::compose_budget::ComposeBudget`] threaded through them (a fixed, always-on structural
+/// `crate::compose_budget::ComposeBudget` threaded through them (a fixed, always-on structural
 /// ceiling rather than a new env-configurable budget dimension) — a finite `max` above this ceiling
 /// is honestly reported unsupported (`None`), never silently clamped down to it (that would round
 /// an honest refusal toward false acceptance, just at a
@@ -287,7 +287,7 @@ fn slots_contain_alpha(slots: &[Slot]) -> bool {
 /// check ever runs.
 ///
 /// **Never applied to a genuinely UNBOUNDED quantifier**: `max: None` is not "a bound above this ceiling" — it is a
-/// DIFFERENT construction entirely (foma's native `E*`/`E^>N` Kleene star/plus, [`Slot::Repeat`]'s
+/// DIFFERENT construction entirely (foma's native `E*`/`E^>N` Kleene star/plus, `Slot::Repeat`'s
 /// own doc), whose compiled net size does not scale with any repetition count at all, so there is
 /// nothing here for this ceiling to usefully bound. `slots_from_nodes`'s own Quantifier arm never
 /// evaluates this constant when `max` is `None` — silently coercing an unbounded quantifier into a
@@ -295,23 +295,23 @@ fn slots_contain_alpha(slots: &[Slot]) -> bool {
 /// the same, so that path is never taken.
 const MAX_QUANTIFIER_BOUND: u32 = 512;
 
-/// Walk `pattern`'s nodes into [`Slot`]s, numbering each `Alpha` occurrence sequentially from
+/// Walk `pattern`'s nodes into `Slot`s, numbering each `Alpha` occurrence sequentially from
 /// `*next_occurrence` (shared across LHS/RHS/left-env/right-env for one subrule — see
-/// `replace.rs`'s `compile_rewrite_rule`, or this module's own [`lower_span`], which resets its own
+/// `replace.rs`'s `compile_rewrite_rule`, or this module's own `lower_span`, which resets its own
 /// FRESH counter per span). Returns `None` (uncovered) on a disagree-polarity `Context`; an
 /// out-of-scope `Quantifier` (inverted/over-budget-finite/alpha-nested/empty-children — see
-/// [`Slot::Repeat`]'s own doc; a genuinely UNBOUNDED quantifier is not, by itself, out of
+/// `Slot::Repeat`'s own doc; a genuinely UNBOUNDED quantifier is not, by itself, out of
 /// scope); or, when `scope` is
-/// [`PatternLowerScope::Baseline`], any `Segments`/`Anchor` node at all (when `scope` is
-/// [`PatternLowerScope::RewriteRuleCompile`], both same-table and table-qualified cross-table
-/// `Segments` plus any `Anchor` lower successfully -- see [`PatternLowerScope`]'s own doc).
+/// `PatternLowerScope::Baseline`, any `Segments`/`Anchor` node at all (when `scope` is
+/// `PatternLowerScope::RewriteRuleCompile`, both same-table and table-qualified cross-table
+/// `Segments` plus any `Anchor` lower successfully -- see `PatternLowerScope`'s own doc).
 ///
 /// `table`: every `Context` node's `NatClassId` is resolved against THIS table
-/// ([`class_members`]), never an implicit grammar-wide default
+/// (`class_members`), never an implicit grammar-wide default
 /// ("table zero is never an
 /// implicit default"). The caller is responsible for choosing the RIGHT table — see
-/// [`crate::replace::owning_table`]'s own doc for how `replace.rs`'s `compile_rewrite_rule_subset`
-/// picks it (the rule's own stratum's `StratumDef::table`), and [`lower_span`]'s own call sites for
+/// `crate::replace::owning_table`'s own doc for how `replace.rs`'s `compile_rewrite_rule_subset`
+/// picks it (the rule's own stratum's `StratumDef::table`), and `lower_span`'s own call sites for
 /// how THIS module picks it (`alphabet.table()`, already the correct per-caller table by that
 /// function's own contract). A `PatternNode::Segments`' OWN declared table is compared against THIS
 /// SAME `table` by pointer identity (`std::ptr::eq`, both being borrowed from the same `g.char_tables`
@@ -332,8 +332,8 @@ pub(crate) fn pattern_slots(
     slots_from_nodes(g, table, &pattern.nodes, next_occurrence, scope)
 }
 
-/// [`pattern_slots`]'s own per-node walk, factored out over a bare node slice (rather than a whole
-/// `&Pattern`) so [`PatternNode::Quantifier`]'s own `children` can recurse through the IDENTICAL per-node semantics
+/// `pattern_slots`'s own per-node walk, factored out over a bare node slice (rather than a whole
+/// `&Pattern`) so `PatternNode::Quantifier`'s own `children` can recurse through the IDENTICAL per-node semantics
 /// `pattern_slots` already gives a whole pattern — one pattern-node-to-slot mapping, not two
 /// independently-maintained ones (mirrors this module's own "one shared occurrence counter"
 /// discipline for LHS/RHS/environment: `next_occurrence` threads through this recursion exactly
@@ -460,11 +460,11 @@ fn slots_from_nodes(
 // their old paths.
 // =================================================================================================
 
-/// One assignment of every alpha slot OCCURRENCE (module doc on [`Slot::Alpha`] — keyed by
-/// occurrence id, NOT by [`VarId`]: two occurrences of the same variable generally resolve to
+/// One assignment of every alpha slot OCCURRENCE (module doc on `Slot::Alpha` — keyed by
+/// occurrence id, NOT by `VarId`: two occurrences of the same variable generally resolve to
 /// two DIFFERENT concrete segments, e.g. prule4's nasal-output segment and its
 /// following-obstruent segment, which merely need to AGREE on the variable's feature value, not
-/// be the same segment) to a concrete [`CharDefId`], surviving the joint agreement filter.
+/// be the same segment) to a concrete `CharDefId`, surviving the joint agreement filter.
 pub struct AlphaAssignment {
     pub values: std::collections::HashMap<usize, CharDefId>,
 }
@@ -478,11 +478,11 @@ pub struct TupleReport {
     pub surviving: usize,
 }
 
-/// Locate every [`Slot::Alpha`] occurrence across `slot_lists` (one `Vec<Slot>` per pattern zone:
+/// Locate every `Slot::Alpha` occurrence across `slot_lists` (one `Vec<Slot>` per pattern zone:
 /// LHS, RHS, left-env, right-env — in that order, any of which may be empty), and enumerate the
 /// surviving tuple-indexed cross product: the FULL product of every occurrence's OWN candidate
-/// set (never a same-var intersection — see [`AlphaAssignment`]'s doc for why that shortcut is
-/// wrong), filtered to combinations where every pair of occurrences sharing a [`VarId`] AGREES —
+/// set (never a same-var intersection — see `AlphaAssignment`'s doc for why that shortcut is
+/// wrong), filtered to combinations where every pair of occurrences sharing a `VarId` AGREES —
 /// unify (bitwise-overlap, matching this codebase's own natural-class-membership idiom, not
 /// strict equality, since an underspecified segment's lane can carry more than one live bit) — at
 /// that variable's feature lane. This bounds the count of segment tuples satisfying
@@ -493,11 +493,11 @@ pub struct TupleReport {
 ///
 /// `table`: every alpha occurrence's feature-lane agreement test (`lane_value`, below) resolves
 /// against THIS table, never an implicit `g.char_tables[0]` default
-/// (the second of two former hardcoded-table sites, alongside [`pattern_slots`]'s own former
+/// (the second of two former hardcoded-table sites, alongside `pattern_slots`'s own former
 /// `table_of` call). The
-/// `members: Vec<CharDefId>` each [`Slot::Alpha`] already carries were themselves resolved against
-/// this SAME table by [`pattern_slots`] (the caller's job: pass ONE consistent table to both), so
-/// this function's own `table` parameter must be the identical table [`pattern_slots`] used to
+/// `members: Vec<CharDefId>` each `Slot::Alpha` already carries were themselves resolved against
+/// this SAME table by `pattern_slots` (the caller's job: pass ONE consistent table to both), so
+/// this function's own `table` parameter must be the identical table `pattern_slots` used to
 /// build `slot_lists` in the first place — never a second, independently-chosen one.
 ///
 /// `pub(crate)`: canonical definition -- `replace.rs`
@@ -633,9 +633,9 @@ pub(crate) fn resolve_alpha_tuples(
 /// existing caller keep compiling unmodified.
 /// Render an already-deduplicated token set as one atom: a bare char for a singleton (the ordinary
 /// case, and the ONLY case for every pre-aliasing caller/grammar), or foma's own `[a | b | ...]`
-/// union syntax for two-or-more — the exact same shape [`render_slots`]'s `Slot::Union` arm always
-/// rendered for a multi-member natural class, reused here so an aliased [`Slot::Fixed`] atom or an
-/// aliased-and-unioned [`Slot::Union`] atom look identical to a caller that never observes aliasing
+/// union syntax for two-or-more — the exact same shape `render_slots`'s `Slot::Union` arm always
+/// rendered for a multi-member natural class, reused here so an aliased `Slot::Fixed` atom or an
+/// aliased-and-unioned `Slot::Union` atom look identical to a caller that never observes aliasing
 /// at all.
 fn format_union_tokens(chars: &[char]) -> String {
     if chars.len() == 1 {
@@ -716,7 +716,7 @@ pub(crate) fn render_slots(
                 }
             }
             // Foma's own `.#.`
-            // word-boundary xre atom, IDENTICAL text regardless of `AnchorSide` -- [`Slot::Anchor`]'s
+            // word-boundary xre atom, IDENTICAL text regardless of `AnchorSide` -- `Slot::Anchor`'s
             // own doc has the full argument for why the side never needs to be inspected here (the
             // rendered POSITION, not the tag, is what conveys "word-initial" vs "word-final").
             Slot::Anchor(_) => ".#.".to_string(),
@@ -726,41 +726,41 @@ pub(crate) fn render_slots(
     pieces.join(" ")
 }
 
-/// A pattern node kind [`lower_span`] cannot yet represent -- a typed
+/// A pattern node kind `lower_span` cannot yet represent -- a typed
 /// unsupported disposition that does not omit or weaken the node. Named after the `model.rs`
-/// [`PatternNode`] variant (or, for the one non-node case, the [`pg_grammar::model::AlphaVar`]
+/// `PatternNode` variant (or, for the one non-node case, the `pg_grammar::model::AlphaVar`
 /// shape) it names, so a caller's diagnostic can cite the EXACT construct rather than a generic
-/// "pattern too complex" message — exactly the naming [`crate::replace::pattern_slots`]'s own doc
+/// "pattern too complex" message — exactly the naming `crate::replace::pattern_slots`'s own doc
 /// already scopes as unrendered by this crate's existing pattern compiler, carried through here as
 /// a typed value instead of a silent `None`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedPatternNode {
     /// `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) that
-    /// [`crate::replace::pattern_slots`] still refuses: inverted (`min > max`), pathologically
-    /// large (past [`crate::replace`]'s own preflight bound), carrying an alpha-bound occurrence
+    /// `crate::replace::pattern_slots` still refuses: inverted (`min > max`), pathologically
+    /// large (past `crate::replace`'s own preflight bound), carrying an alpha-bound occurrence
     /// anywhere in its own children, or with no renderable child at all. A
     /// FINITELY bounded OR genuinely UNBOUNDED (`max == None`), alpha-free quantifier does not reach
     /// this variant at all — `pattern_slots`
-    /// accepts it directly (a `Slot::Repeat`), so [`lower_span`] lowers it transparently, same as
+    /// accepts it directly (a `Slot::Repeat`), so `lower_span` lowers it transparently, same as
     /// any other supported node.
     Quantifier,
     /// `PatternNode::Segments` (`<Segments><PhoneticShape>`) — an inline pre-segmented literal shape
-    /// group. Under [`PatternLowerScope::Baseline`] ANY `Segments` node triggers this;
-    /// under [`PatternLowerScope::RewriteRuleCompile`],
+    /// group. Under `PatternLowerScope::Baseline` ANY `Segments` node triggers this;
+    /// under `PatternLowerScope::RewriteRuleCompile`,
     /// neither same-table nor
     /// table-qualified cross-table `Segments` reaches this variant; both preserve table semantics
     /// and lower successfully. This variant remains the baseline-scope refusal only.
     Segments,
     /// `PatternNode::Anchor` (`initialBoundaryCondition`/`finalBoundaryCondition`, or a bare
     /// leading/trailing `#` in an environment string) — a word-boundary condition. Under
-    /// [`PatternLowerScope::Baseline`] this triggers unconditionally;
-    /// under [`PatternLowerScope::RewriteRuleCompile`] `Anchor` no longer reaches this
-    /// variant AT ALL — it always lowers to [`Slot::Anchor`] instead.
+    /// `PatternLowerScope::Baseline` this triggers unconditionally;
+    /// under `PatternLowerScope::RewriteRuleCompile` `Anchor` no longer reaches this
+    /// variant AT ALL — it always lowers to `Slot::Anchor` instead.
     Anchor,
-    /// A `PatternNode::Context` carrying an [`pg_grammar::model::AlphaVar`] with `plus == false`
+    /// A `PatternNode::Context` carrying an `pg_grammar::model::AlphaVar` with `plus == false`
     /// ("disagree" polarity) — not a distinct node KIND, but the same "cannot lower faithfully"
-    /// outcome [`pattern_slots`] already reports as unrendered. Scope-independent: no
-    /// [`PatternLowerScope`] tier accepts this shape — an orthogonal,
+    /// outcome `pattern_slots` already reports as unrendered. Scope-independent: no
+    /// `PatternLowerScope` tier accepts this shape — an orthogonal,
     /// pre-existing gap in `resolve_alpha_tuples`' own joint-agreement filter, unrelated to
     /// direction/reversal.
     AlphaDisagreePolarity,
@@ -780,16 +780,16 @@ impl std::fmt::Display for UnsupportedPatternNode {
     }
 }
 
-/// Scans `pattern` for the FIRST node [`pattern_slots`] (called with this SAME `g`/`table`/`scope`)
+/// Scans `pattern` for the FIRST node `pattern_slots` (called with this SAME `g`/`table`/`scope`)
 /// cannot lower, to recover a typed reason after `pattern_slots` has already returned `None` for it.
 /// `pub(crate)`: exposed so
 /// `capability.rs`'s `RightToLeftRewriteFaithfulReversalPredicate` can name the EXACT failing shape
 /// in its own `Refuse` witness, rather than a laundry-list "could be any of these" message.
 ///
-/// Recurses into a `Quantifier`'s own `children` ([`diagnose_unsupported_nodes`]) rather than
+/// Recurses into a `Quantifier`'s own `children` (`diagnose_unsupported_nodes`) rather than
 /// assuming the FIRST `Quantifier` node encountered is automatically the culprit: a well-formed
 /// quantifier earlier in document order than the REAL failing node would otherwise be mis-blamed
-/// (this function's own precision bar, matching [`slots_from_nodes`]'s actual accept/reject order
+/// (this function's own precision bar, matching `slots_from_nodes`'s actual accept/reject order
 /// exactly — a diagnostic that mis-names its cause is worse than no diagnostic).
 pub(crate) fn diagnose_unsupported(
     g: &Grammar,
@@ -808,12 +808,12 @@ pub(crate) fn diagnose_unsupported(
 
 /// `true` iff `nodes` (at ANY nesting depth through a `Quantifier`'s own `children`) contains a
 /// `PatternNode::Context` carrying at least one `AlphaVar` — the same "would this node list produce
-/// a `Slot::Alpha` occurrence somewhere" question [`slots_contain_alpha`] asks of an already-lowered
+/// a `Slot::Alpha` occurrence somewhere" question `slots_contain_alpha` asks of an already-lowered
 /// `&[Slot]`, re-derived here at the `PatternNode` level (before lowering) so
-/// [`diagnose_unsupported_nodes`]'s own `Quantifier` arm can check it WITHOUT first building
+/// `diagnose_unsupported_nodes`'s own `Quantifier` arm can check it WITHOUT first building
 /// `Slot`s for a subtree it may still end up rejecting for an entirely different reason.
 /// Disagree-polarity vars are covered too (a disagree-polarity `Context` still carries a non-empty
-/// `vars` list) — harmless double-coverage, since [`diagnose_unsupported_nodes`]'s own `Context` arm
+/// `vars` list) — harmless double-coverage, since `diagnose_unsupported_nodes`'s own `Context` arm
 /// always reports the MORE SPECIFIC `AlphaDisagreePolarity` reason first, before this function is
 /// ever consulted for that same node.
 fn nodes_contain_alpha_context(nodes: &[PatternNode]) -> bool {
@@ -824,11 +824,11 @@ fn nodes_contain_alpha_context(nodes: &[PatternNode]) -> bool {
     })
 }
 
-/// [`diagnose_unsupported`]'s own recursive walk, mirroring [`slots_from_nodes`]'s EXACT accept/
+/// `diagnose_unsupported`'s own recursive walk, mirroring `slots_from_nodes`'s EXACT accept/
 /// reject decisions node-by-node (never a re-derived, independently-drifting approximation) so the
 /// reason it reports is always the REAL one. Returns `None` when `nodes` is (as far as this function
-/// can tell) fully lowerable — the top-level [`diagnose_unsupported`] treats that as a caller-bug
-/// panic, since it is only ever invoked after [`pattern_slots`] has already rejected this exact
+/// can tell) fully lowerable — the top-level `diagnose_unsupported` treats that as a caller-bug
+/// panic, since it is only ever invoked after `pattern_slots` has already rejected this exact
 /// `nodes` list.
 // `_g`/`_table` are threaded through only to keep this recursive walk's signature matching its
 // caller and its own recursive calls (`diagnose_unsupported`'s doc above); this function itself
@@ -887,8 +887,8 @@ fn diagnose_unsupported_nodes(
     None
 }
 
-/// Compiles `text` to an [`Fsm`] acceptor, treating an empty rendered string as the empty-string
-/// language (concatenation identity) rather than an invalid regex — [`render_slots`] legitimately
+/// Compiles `text` to an `Fsm` acceptor, treating an empty rendered string as the empty-string
+/// language (concatenation identity) rather than an invalid regex — `render_slots` legitimately
 /// returns `""` for an absent/empty pattern (no left-environment declared, an epenthesis-shaped
 /// empty LHS, etc.), and `fsm_parse_regex` is not asked to parse that case at all.
 fn parse_template(opts: &FomaOptions, text: &str) -> Fsm {
@@ -902,7 +902,7 @@ fn parse_template(opts: &FomaOptions, text: &str) -> Fsm {
 }
 
 /// Lowers one subrule's `left_env · lhs_focus · right_env` triple (the `span(s)`
-/// formula) into a pair of foma acceptors over `alphabet`'s token space, for [`spans_overlap`]'s
+/// formula) into a pair of foma acceptors over `alphabet`'s token space, for `spans_overlap`'s
 /// intersection test. `focus` is `RewriteRuleDef.lhs` — shared verbatim across every subrule of
 /// one rule (`RewriteSubruleDef` only supplies its own `rhs`/`left_env`/`right_env`, model.rs
 /// `RewriteSubruleDef` doc).
@@ -932,7 +932,7 @@ fn parse_template(opts: &FomaOptions, text: &str) -> Fsm {
 /// template) and fold `lhs_focus`/`right_env` into the PREFIX language `lhs_focus · right_env ·
 /// Σ*` (starting with the shared focus then the template, any suffix) — each half anchored at the
 /// boundary it actually describes, `Σ*` absorbing any length mismatch between the two subrules'
-/// own templates. [`spans_overlap`] then intersects the two subrules' LEFT halves and FOCUS+RIGHT
+/// own templates. `spans_overlap` then intersects the two subrules' LEFT halves and FOCUS+RIGHT
 /// halves SEPARATELY (not concatenated into one "contains the whole span somewhere in the word"
 /// automaton) — see that function's own doc for why checking them separately is the CORRECT
 /// decomposition of "at a shared focus position", not merely a convenient
@@ -945,7 +945,7 @@ fn parse_template(opts: &FomaOptions, text: &str) -> Fsm {
 /// `left_env`/`focus`/`right_env` are lowered with a FRESH, shared occurrence counter local to
 /// this call — exactly mirroring how `replace.rs::compile_rewrite_rule_subset` resets
 /// `next_occurrence` to `0` per subrule — and jointly resolved via the REUSED
-/// [`resolve_alpha_tuples`], so an `AlphaVariable` shared between (say) `left_env` and `focus` is
+/// `resolve_alpha_tuples`, so an `AlphaVariable` shared between (say) `left_env` and `focus` is
 /// resolved with the SAME joint-agreement semantics real rewrite-rule compilation already uses,
 /// not a re-derived one. The subrule's OWN `rhs` is deliberately NOT included in this joint
 /// resolution (unlike `replace.rs`'s per-subrule fold, which joins LHS+RHS+left+right together):
@@ -953,12 +953,12 @@ fn parse_template(opts: &FomaOptions, text: &str) -> Fsm {
 /// only ever ADD spurious alpha tuples relative to the true RHS-constrained set (never remove real
 /// ones, since the RHS's own occurrences could only additionally NARROW the joint-agreement
 /// filter) — a strictly SAFE, over-permissive simplification that rounds toward more overlap being
-/// detected (i.e. toward `Refuse` in [`spans_overlap`]), never an unsound one.
+/// detected (i.e. toward `Refuse` in `spans_overlap`), never an unsound one.
 ///
-/// Each resolved tuple's rendered text is [`fsm_parse_regex`]-compiled (via [`parse_template`])
+/// Each resolved tuple's rendered text is `fsm_parse_regex`-compiled (via `parse_template`)
 /// and the per-tuple automata are `fsm_union`-folded per half (a subrule's span matches under ANY
 /// of its own valid alpha assignments, not just one) — contrast
-/// [`crate::replace::compile_rewrite_rule_subset`]'s per-tuple fold, which is a SEQUENTIAL
+/// `crate::replace::compile_rewrite_rule_subset`'s per-tuple fold, which is a SEQUENTIAL
 /// composition because there each tuple's compiled net is a full elsewhere-preserving REPLACE
 /// transducer (that module's own doc: union would reintroduce a spurious "did nothing" path).
 /// Here each tuple's compiled net is a plain ACCEPTOR with no "elsewhere" case, so union is exactly
@@ -966,7 +966,7 @@ fn parse_template(opts: &FomaOptions, text: &str) -> Fsm {
 ///
 /// # Returns
 /// `Err` names the FIRST unsupported node encountered (checked in `left_env`, `focus`, `right_env`
-/// order) via [`UnsupportedPatternNode`] — the caller (`capability.rs`) rounds this to a
+/// order) via `UnsupportedPatternNode` — the caller (`capability.rs`) rounds this to a
 /// conservative `Refuse` naming the kind: any approximation here rounds toward `Refuse`, never
 /// toward `Admit`.
 pub fn lower_span(
@@ -1054,7 +1054,7 @@ pub fn lower_span(
 }
 
 /// The intersection test: `true` iff subrules `a` and `b`'s spans (each a
-/// `(left_language, focus_right_language)` pair from [`lower_span`]) can hold AT THE SAME shared
+/// `(left_language, focus_right_language)` pair from `lower_span`) can hold AT THE SAME shared
 /// focus position — i.e. genuinely overlap.
 ///
 /// # Why two independent intersections, not one combined automaton
@@ -1064,17 +1064,17 @@ pub fn lower_span(
 /// — both languages describe THE SAME region of the SAME word, so the question "can some real
 /// left-context simultaneously satisfy both" is exactly `intersect(left_a, left_b)` non-empty, no
 /// further alignment machinery needed (the `Σ*` prefix in each already anchors the comparison at
-/// the shared right edge — see [`lower_span`]'s own doc). The symmetric argument holds for the
+/// the shared right edge — see `lower_span`'s own doc). The symmetric argument holds for the
 /// content AT/RIGHT of the position via `focus_right_language`. Because the left region and the
 /// focus+right region of a word are DISJOINT and freely composable (any accepted left-string
 /// concatenated with any accepted focus+right-string is a valid witness word — nothing else
 /// constrains them jointly once each subrule's OWN internal alpha agreement has already been
-/// resolved inside [`lower_span`]), `a` and `b` can co-fire at the same position iff BOTH
+/// resolved inside `lower_span`), `a` and `b` can co-fire at the same position iff BOTH
 /// intersections are non-empty; checking them as one combined `Σ* · L · F · R · Σ*` "contains
-/// somewhere" automaton instead would be WRONG (see [`lower_span`]'s own doc for the false-overlap
+/// somewhere" automaton instead would be WRONG (see `lower_span`'s own doc for the false-overlap
 /// case that construction admits).
 ///
-/// Any imprecision [`lower_span`]'s per-subrule marginalization introduces (projecting each of a
+/// Any imprecision `lower_span`'s per-subrule marginalization introduces (projecting each of a
 /// subrule's OWN internally-consistent alpha tuples down to a left-only / focus+right-only piece
 /// before unioning across tuples) can only ever make a language LARGER than the true "matches
 /// under some single self-consistent assignment" set — i.e. can only report MORE overlap than
@@ -1263,7 +1263,7 @@ mod tests {
     /// One `<CharacterDefinitionTable>` (a single segment `c1`) and five `<PhonologicalRule>`s, each
     /// a bare `Segment`-focused LHS with ONE quantifier-bearing probe -- no `Environment`/`RHS`
     /// content is load-bearing here (these fixtures are never compiled/composed, only fed straight
-    /// to [`pattern_slots`] via each rule's own `lhs`), mirroring `OVERLAP_LOWER_PROBE_XML`'s own
+    /// to `pattern_slots` via each rule's own `lhs`), mirroring `OVERLAP_LOWER_PROBE_XML`'s own
     /// "cheap structural probe, not an end-to-end compile" convention.
     const QUANTIFIER_SCOPE_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>QuantifierScopeProbe</Name>
       <PhonologicalFeatureSystem>
@@ -1359,7 +1359,7 @@ mod tests {
         }
     }
 
-    /// Positive witness: [`MAX_QUANTIFIER_BOUND`] (512) is NEVER checked against an unbounded
+    /// Positive witness: `MAX_QUANTIFIER_BOUND` (512) is NEVER checked against an unbounded
     /// quantifier's own `min` -- `min=1000` (well past 512) must still lower to `Some(_)`, proving
     /// the ceiling is skipped entirely for `max: None`, not merely "not tripped by coincidence".
     #[test]
@@ -1402,7 +1402,7 @@ mod tests {
         );
     }
 
-    /// Negative witness: a FINITE `max` past [`MAX_QUANTIFIER_BOUND`] (512) must stay refused, never
+    /// Negative witness: a FINITE `max` past `MAX_QUANTIFIER_BOUND` (512) must stay refused, never
     /// silently clamped down to the ceiling -- unaffected by the unbounded-quantifier widening
     /// (which only ever ADDS a new accepted shape, `max: None`; it never loosens the finite check).
     #[test]
@@ -1425,7 +1425,7 @@ mod tests {
     }
 
     /// Negative witness: an `AlphaVariable` occurrence inside a quantifier's own children is out of
-    /// scope regardless of whether the quantifier itself is bounded or unbounded ([`Slot::Repeat`]'s
+    /// scope regardless of whether the quantifier itself is bounded or unbounded (`Slot::Repeat`'s
     /// own doc) -- `max="-1"` here does not change that.
     #[test]
     fn alpha_nested_unbounded_quantifier_still_unsupported() {

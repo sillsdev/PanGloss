@@ -1,6 +1,6 @@
 //! In-house SplitMix64 -- no `rand` dependency for a dev tool. Not cryptographic,
 //! not published as its own crate -- just a small, fast, well-mixed, deterministic bit source
-//! seeded from `hash(name, seed)` so [`crate::render::render`] can stay a pure function of the
+//! seeded from `hash(name, seed)` so `crate::render::render` can stay a pure function of the
 //! recipe alone (that module's own determinism contract).
 
 /// A SplitMix64 generator (Vigna & Steele's public-domain 64-bit mixing recurrence -- the same

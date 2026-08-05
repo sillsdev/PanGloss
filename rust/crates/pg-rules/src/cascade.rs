@@ -12,7 +12,7 @@
 //!
 //! ## Generic over the data + a dedup key
 //! The C# classes are generic over `TData` with an `IEqualityComparer<TData>`. Here the cascade is
-//! generic over `T` (the in-flight datum, e.g. [`crate::word::Word`]) with:
+//! generic over `T` (the in-flight datum, e.g. `crate::word::Word`) with:
 //! - `apply_rule: Fn(usize, &T) -> Vec<T>` — C# `RuleCascade.ApplyRule(rule, index, input)` (the
 //!   default `rule.Apply(input)`; the stratum passes a closure dispatching to the compiled rule),
 //! - `key: Fn(&T) -> K` where `K: Hash + Eq` — C# `IEqualityComparer<TData>` (`FreezableEquality`),
@@ -21,7 +21,7 @@
 //! ## Step cap (M4b addition; not in C#)
 //! The multi-application cascades terminate only when rules stop producing *new* (non-input-equal)
 //! results. Unmemoized on real grammars that can be a 158k-expansion k!-walk (the exact cost M6
-//! memoizes). A [`Cascade::cap`] on total `apply_rule` invocations makes tests/gates terminate,
+//! memoizes). A `Cascade::cap` on total `apply_rule` invocations makes tests/gates terminate,
 //! returning partial results (C# has no such cap — it relies on `MaxUnapplications` bounding the
 //! stratum's output count instead). The cap is a safety valve, not a semantic change: when it does
 //! not fire, output is byte-identical to the uncapped C# walk.

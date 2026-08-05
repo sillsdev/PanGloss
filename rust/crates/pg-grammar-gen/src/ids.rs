@@ -1,7 +1,7 @@
 //! Deterministic per-prefix XML id minting: builders return XML fragments plus minted ids.
 //! A plain monotonic counter per prefix -- no randomness involved -- so id
-//! assignment depends only on CALL ORDER, which [`crate::render::render`] fixes deterministically
-//! for a given recipe (never on [`crate::rng::Rng`] draws), keeping ids stable, human-legible, and
+//! assignment depends only on CALL ORDER, which `crate::render::render` fixes deterministically
+//! for a given recipe (never on `crate::rng::Rng` draws), keeping ids stable, human-legible, and
 //! reproducible across re-renders of the same recipe.
 
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ impl IdMinter {
 
     /// Mint the next id for `prefix` (e.g. `next("tbl")` -> `"tbl0"`, then `"tbl1"`, ...). Two
     /// different prefixes never collide (each has its own counter); the same prefix never repeats
-    /// a number within one [`IdMinter`].
+    /// a number within one `IdMinter`.
     pub fn next(&mut self, prefix: &'static str) -> String {
         let n = self.counters.entry(prefix).or_insert(0);
         let id = format!("{prefix}{n}");

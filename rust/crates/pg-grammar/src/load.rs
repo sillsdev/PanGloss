@@ -1,9 +1,9 @@
 //! Full-grammar loader (plan §5.5): parse a HermitCrab `*-hc.xml` document into the frozen
-//! runtime tables of [`crate::model::Grammar`]. A faithful port of the C#
+//! runtime tables of `crate::model::Grammar`. A faithful port of the C#
 //! `XmlLanguageLoader.cs` object-model construction.
 //!
 //! ## Two passes, one file
-//! Pass 1 reuses [`crate::load_char_def_table_from_xml`] to build the phonological census
+//! Pass 1 reuses `crate::load_char_def_table_from_xml` to build the phonological census
 //! (`PhonologicalFeatureSystem` + every `CharacterDefinitionTable`). Pass 2 builds a small
 //! read-only DOM of the active `<Language>` element and ports each `Load*` method almost
 //! line-for-line against it — the C# is irreducibly DOM-style (`.Element`/`.Elements`/
@@ -15,11 +15,11 @@
 //! `phonologicalRules`/`morphologicalRules` id-list attributes (ids not found are silently
 //! skipped, as C# `TryGetValue`); subrules, template slots, and allomorphs in document order.
 //!
-//! ## v1 lint surface (plan §8 layer 6; see [`crate::model`] docs)
+//! ## v1 lint surface (plan §8 layer 6; see `crate::model` docs)
 //! `FootFeatures`, `StemName`, `Family` (with entries), `MetathesisRule`, `RealizationalRule`,
 //! `MorphemeCoOccurrenceRule`, `AllomorphCoOccurrenceRule`, `AlphaVariable` in an allomorph
 //! environment, >=64 symbols in a symbolic feature, and >64 MPR features all lint
-//! [`GrammarError::Unsupported`] → managed fallback. The three reference grammars contain none
+//! `GrammarError::Unsupported` → managed fallback. The three reference grammars contain none
 //! of these, so a correct loader loads all three without an `Unsupported` error.
 
 use std::fmt::Write as _;
@@ -180,7 +180,7 @@ struct Ro<'a> {
     /// natural-class XML id → dense id.
     natclass: &'a HashMap<String, NatClassId>,
     /// Full natural-class definitions, document order (dense-id-indexed: `NatClassId(i)` is
-    /// `natural_class_defs[i]`). Only [`load_root_allomorph`] needs the definitions themselves
+    /// `natural_class_defs[i]`). Only `load_root_allomorph` needs the definitions themselves
     /// (not just the id) — finding N3's `[ClassName]` pattern-language lookup is by `<Name>` text,
     /// a full linear scan over this slice (mirrors C#'s per-table `_naturalClassLookup`, which is
     /// likewise populated from every natural class regardless of which table is being segmented).
@@ -194,10 +194,10 @@ struct Ro<'a> {
     /// `<StemName>` XML id → dense id (W5). Fixed before the strata loop starts (`<StemNames>`
     /// loads before `<Strata>`, `XmlLanguageLoader.cs:280-281`), so a plain `Ro` field — unlike
     /// `families`' entry-membership half, which mutates during the strata loop and lives on
-    /// [`Acc`] instead.
+    /// `Acc` instead.
     stem_names: &'a HashMap<String, StemNameId>,
     /// `<Family>` XML id → dense id (W5). Fixed before the strata loop the same way; see
-    /// [`Acc::families`] for where the mutable `entries` list this indexes into lives.
+    /// `Acc::families` for where the mutable `entries` list this indexes into lives.
     families: &'a HashMap<String, FamilyId>,
 }
 
@@ -210,12 +210,12 @@ struct Acc {
     templates: Vec<AffixTemplateDef>,
     entries: Vec<LexEntryDef>,
     /// `<Family>` definitions (W5), pre-seeded (name + empty `entries`) before the strata loop
-    /// starts; `try_load_lex_entry` pushes each successfully-loaded entry's [`LexEntryId`] onto
+    /// starts; `try_load_lex_entry` pushes each successfully-loaded entry's `LexEntryId` onto
     /// its family's `entries` as it goes (C# `family.Entries.Add(entry)`,
     /// `XmlLanguageLoader.cs:463-465` — see that function's doc for the one documented C# edge
     /// case this does not reproduce).
     families: Vec<FamilyDef>,
-    /// XML `id` → [`AllomorphId`] (C#'s `_allomorphs` dict: `<Allomorph id="...">` and
+    /// XML `id` → `AllomorphId` (C#'s `_allomorphs` dict: `<Allomorph id="...">` and
     /// `<MorphologicalSubrule id="...">` share one namespace there, so this does too). Consumed
     /// only by the post-strata `<AllomorphCoOccurrenceRule>` pass in `load()` — mirrors C#'s own
     /// `primaryAllomorph`/`otherAllomorphs` IDREF resolution, which runs after every stratum is
@@ -224,7 +224,7 @@ struct Acc {
     allomorph_xml_index: HashMap<String, AllomorphId>,
 }
 
-/// Which morphological input list a captured LHS part belongs to (drives the [`PartRef`] kind).
+/// Which morphological input list a captured LHS part belongs to (drives the `PartRef` kind).
 #[derive(Copy, Clone)]
 enum PartKind {
     Input,
@@ -271,11 +271,11 @@ fn parse_bool(v: Option<&str>, default: bool) -> bool {
 // Entry point.
 // =============================================================================================
 
-/// Load a full HermitCrab XML grammar into the frozen [`Grammar`] runtime tables.
+/// Load a full HermitCrab XML grammar into the frozen `Grammar` runtime tables.
 ///
 /// Faithful port of `XmlLanguageLoader.Load`. Constructs outside the v1 surface lint
-/// [`GrammarError::Unsupported`]; malformed references (unknown feature/symbol/natural-class ids)
-/// surface [`GrammarError::Semantic`]; XML errors surface [`GrammarError::Xml`].
+/// `GrammarError::Unsupported`; malformed references (unknown feature/symbol/natural-class ids)
+/// surface `GrammarError::Semantic`; XML errors surface `GrammarError::Xml`.
 pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
     // Pass 1: phonological feature system + character-definition tables.
     let phon = load_char_def_table_from_xml(xml)?;
@@ -973,7 +973,7 @@ fn load_simple_context(
 /// Build one `PatternNode` from a single `<SimpleContext>`/`<Segment>`/`<BoundaryMarker>`/
 /// `<OptionalSegmentSequence>`/`<Segments>` element (`None` for any other/unrecognized tag, mirroring
 /// C#'s `LoadPatternNodes` switch falling through with no `node` assigned). Factored out of
-/// [`load_pattern_nodes`] so `load_metathesis_pattern_nodes` can reuse the exact same per-element
+/// `load_pattern_nodes` so `load_metathesis_pattern_nodes` can reuse the exact same per-element
 /// logic while additionally checking each element's own `id` attribute for switch-tagging (the DTD's
 /// only group-authoring mechanism, used exclusively by `<MetathesisRule>`).
 fn load_one_pattern_node(
@@ -1104,10 +1104,10 @@ fn segment_text(
     })
 }
 
-/// [`segment_text`]'s pattern-aware counterpart (finding N3): C# `LoadRootAllomorph` is the
+/// `segment_text`'s pattern-aware counterpart (finding N3): C# `LoadRootAllomorph` is the
 /// **only** `new Segments(...)` call site that passes `allowPattern = true`
-/// (`XmlLanguageLoader.cs:501`), so this is used only by [`load_root_allomorph`], never by
-/// [`segment_text`]'s other two call sites (rule/environment `<Segments>` patterns).
+/// (`XmlLanguageLoader.cs:501`), so this is used only by `load_root_allomorph`, never by
+/// `segment_text`'s other two call sites (rule/environment `<Segments>` patterns).
 fn segment_text_with_patterns(
     table: TableId,
     shape_str: &str,
@@ -1128,7 +1128,7 @@ fn segment_text_with_patterns(
 
 /// `LoadAllomorphEnvironments` for one `RequiredEnvironments`/`ExcludedEnvironments` block. The
 /// variable scope is always empty (C# `LoadAllomorphEnvironment`), so an `AlphaVariable` here
-/// lints `Unsupported` via [`load_simple_context`].
+/// lints `Unsupported` via `load_simple_context`.
 fn load_allomorph_environments(
     envs: Option<&Node>,
     require: bool,
@@ -1709,7 +1709,7 @@ fn try_load_affix_process_rule(
 
 /// `TryLoadRealizationalRule` (`XmlLanguageLoader.cs:947-1014`, W5). Shares `load_affix_allomorph`
 /// with the regular affix-process loader above (C#'s `LoadAffixProcessAllomorph` is the one method
-/// both call) — see [`crate::model::MorphRuleDef::affix_allomorphs`]'s doc for why that's
+/// both call) — see `crate::model::MorphRuleDef::affix_allomorphs`'s doc for why that's
 /// exact, not coincidental.
 fn try_load_realizational_rule(
     real: &Node,
@@ -2284,7 +2284,7 @@ fn load_properties(props: Option<&Node>) -> Vec<(String, String)> {
 impl Grammar {
     /// A normalized, deterministic, human-readable structural inventory of the grammar, for the
     /// plan §8 layer-1 loader gate (diffed against counts derived independently from the XML).
-    /// Mirrors the style of [`crate::GrammarPhonology::dump_char_defs`]; iterates only `Vec`
+    /// Mirrors the style of `crate::GrammarPhonology::dump_char_defs`; iterates only `Vec`
     /// order and interner id order (never a `HashMap`), so it is stable across re-loads.
     pub fn dump_grammar(&self) -> String {
         let mut out = String::new();

@@ -59,7 +59,7 @@
 //! one canonical `pg_foma::health::HealthReport`. `<out.json>` omitted prints the JSON to stdout.
 //!
 //! Every other subcommand that takes a grammar path (`parse`, `batch`, `generate`, `diagnose`)
-//! now dispatches on the path's extension via [`load_grammar`]: `.xml` (or anything else) is the
+//! now dispatches on the path's extension via `load_grammar`: `.xml` (or anything else) is the
 //! legacy HC-XML path (`pg_grammar::load`, unchanged, no warnings); `.json` loads a `pg-snapshot`
 //! `Snapshot` (`Snapshot::from_json`) and compiles it (`pg_grammar::compile_project`); `.fwdata`
 //! imports the FieldWorks project file directly, in-memory, then compiles it -- no intermediate
@@ -346,7 +346,7 @@ fn run_import(args: &[String]) -> Result<(), String> {
 /// never produces warnings of its own. Returns any compile/import warnings alongside the
 /// `Grammar` -- callers are responsible for printing them to stderr (never stdout; see the
 /// module doc).
-/// [`load_grammar`], but keeping each warning's stable code instead of flattening it to prose.
+/// `load_grammar`, but keeping each warning's stable code instead of flattening it to prose.
 ///
 /// `load_grammar` returns `Vec<String>` because almost every caller only ever prints warnings, and
 /// changing that signature would churn every one of them. But an assessment report is exactly the
@@ -455,8 +455,8 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
 }
 
 /// Decides what `run_batch`/`run_parse`
-/// should do about [`pg_foma::capability_entry::evaluate_capability`]'s
-/// [`pg_foma::capability::CompileDecision`] for `g`, given the resolved `enforce`/
+/// should do about `pg_foma::capability_entry::evaluate_capability`'s
+/// `pg_foma::capability::CompileDecision` for `g`, given the resolved `enforce`/
 /// `allow_unproven` booleans, and what to print to stderr about it.
 ///
 /// This function itself is engine-agnostic -- it just implements the enforce/override
@@ -478,12 +478,12 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
 ///   verdict ("propose the superset... first-class, not a failure") -- enforcement does not
 ///   demand `Admit`, only rules out `Refuse`.
 /// - `Refuse`, `allow_unproven == false` -> the caller must fail hard with **no analysis output**:
-///   [`GateResult::proceed`] is `false`, so `run_batch`/`run_parse` return `Err` before writing any
+///   `GateResult::proceed` is `false`, so `run_batch`/`run_parse` return `Err` before writing any
 ///   TSV row / `word\tsignature` line (both call sites sit before any such output is produced).
 /// - `Refuse`, `allow_unproven == true` -> the override: force-compile anyway
-///   (`proceed: true`), but [`GateResult::overridden`] is `true` and `stderr_lines` carries an
+///   (`proceed: true`), but `GateResult::overridden` is `true` and `stderr_lines` carries an
 ///   **unmissable** `trust=unproven` degraded-trust marker naming every overridden diagnostic --
-///   see [`GateResult::overridden`]'s own doc for why this remains a report/stderr-level marker
+///   see `GateResult::overridden`'s own doc for why this remains a report/stderr-level marker
 ///   HERE: `batch`/`parse` produce no persistent artifact of their own (a TSV file / a
 ///   `word\tsignature` line, neither a pack), so there is nothing for a manifest stamp to
 ///   attach to at this call site. `pangloss pack` (`pack.rs`) is the real, persistent home for that
@@ -499,7 +499,7 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
 /// reads the `{output}` TSV file, never `pangloss`'s stderr) cannot be perturbed by anything here.
 ///
 /// Pure (no I/O of its own) precisely so it is directly unit-testable without capturing process
-/// stderr -- callers (here, [`run_capability_gate`]) print `stderr_lines` themselves.
+/// stderr -- callers (here, `run_capability_gate`) print `stderr_lines` themselves.
 struct GateResult {
     /// `false` only for `enforce == true, Refuse, !allow_unproven`; every other combination
     /// proceeds.
@@ -513,7 +513,7 @@ struct GateResult {
     /// wanting a machine-readable hook beyond stderr) can key off the degraded-trust fact
     /// directly.
     ///
-    /// Not read by [`run_capability_gate`] itself (the marker text in `stderr_lines` already
+    /// Not read by `run_capability_gate` itself (the marker text in `stderr_lines` already
     /// carries everything a CLI caller needs) -- kept as a plain field for tests (see this
     /// crate's `capability_gate_tests` module) and any future non-stderr consumer to key off
     /// directly rather than string-matching stderr; `#[allow(dead_code)]` reflects that it is
@@ -529,7 +529,7 @@ struct GateResult {
 
 /// This step's DEFAULT-ENFORCING flip, scoped to exactly where `--engine` selects the FST/foma
 /// compile path (never-overclaim; the override): resolves the
-/// effective `enforce` boolean [`capability_gate`] takes, from the parsed `--engine` and the
+/// effective `enforce` boolean `capability_gate` takes, from the parsed `--engine` and the
 /// user's explicit `--enforce-capability`/`--no-enforce-capability` choice (`enforce_flag`,
 /// `None` when neither was passed).
 ///
@@ -670,7 +670,7 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
     }
 }
 
-/// Runs [`capability_gate`] over `g`, prints its `stderr_lines` (one `eprintln!` per entry,
+/// Runs `capability_gate` over `g`, prints its `stderr_lines` (one `eprintln!` per entry,
 /// preserving the exact pre-existing line-by-line shape when `enforce` is unset), and returns
 /// `Err` -- matching `run_batch`/`run_parse`'s own `Result<(), String>` shape -- when the gate
 /// refuses. Called at the point in both subcommands' control flow BEFORE any output file is
@@ -947,7 +947,7 @@ fn print_realize_lines(
     }
 }
 
-/// Resolve and load the `--natural-gloss=eng` sidecar [`pg_realize::RealizeMap`]: `explicit_arg`
+/// Resolve and load the `--natural-gloss=eng` sidecar `pg_realize::RealizeMap`: `explicit_arg`
 /// (`--realize-map=<path>`) wins when given, else the default path is derived from
 /// `grammar_path`'s directory and stem (strip a trailing
 /// `-hc` from the stem, append `-realize.toml`). An explicit path that doesn't exist, or any
@@ -1534,7 +1534,7 @@ fn run_generate(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// The [`LexEntryId`] of the `LexicalEntry` whose `<MorphemeId>` text is `id`.
+/// The `LexEntryId` of the `LexicalEntry` whose `<MorphemeId>` text is `id`.
 fn lex_entry_by_morpheme_id(g: &Grammar, id: &str) -> Option<LexEntryId> {
     g.entries
         .iter()
@@ -1542,8 +1542,8 @@ fn lex_entry_by_morpheme_id(g: &Grammar, id: &str) -> Option<LexEntryId> {
         .map(|idx| LexEntryId(idx as u32))
 }
 
-/// A [`GenMorpheme`] for the "other morpheme" whose `<MorphemeId>` text is `id` — either
-/// [`GenMorpheme::NonHead`] (a `LexicalEntry`, a compounding non-head) or [`GenMorpheme::Rule`] (an
+/// A `GenMorpheme` for the "other morpheme" whose `<MorphemeId>` text is `id` — either
+/// `GenMorpheme::NonHead` (a `LexicalEntry`, a compounding non-head) or `GenMorpheme::Rule` (an
 /// `AffixProcessRule`/`RealizationalRule`; a `CompoundingRule` never has a `<MorphemeId>` of its
 /// own — C#'s `Morpher._morphemes` never gathers one either, Morpher.cs:50-52).
 fn gen_morpheme_by_morpheme_id(g: &Grammar, id: &str) -> Option<GenMorpheme> {
@@ -1638,7 +1638,7 @@ mod tests {
         run_batch_tsv_custom(tag, MINI_GRAMMAR_XML, "kat\n", extra_args)
     }
 
-    /// Like [`run_batch_tsv`], but with a caller-supplied grammar/word-list body (used by the
+    /// Like `run_batch_tsv`, but with a caller-supplied grammar/word-list body (used by the
     /// `--guess` tests below, whose grammar needs a lexical pattern `MINI_GRAMMAR_XML` doesn't
     /// have).
     fn run_batch_tsv_custom(
@@ -1905,9 +1905,9 @@ mod tests {
 
     /// DEFAULT-ENFORCING, scoped to
     /// `--engine=foma`, `--allow-unproven`-overridable gating. Covers both the pure
-    /// [`super::capability_gate`] boolean contract directly (no stderr capture needed -- see that
-    /// function's own "pure" doc) AND [`super::resolve_capability_enforcement`]'s engine-scoping
-    /// policy end-to-end through [`run_batch`], proving: (a) `--engine=default` never enforces,
+    /// `super::capability_gate` boolean contract directly (no stderr capture needed -- see that
+    /// function's own "pure" doc) AND `super::resolve_capability_enforcement`'s engine-scoping
+    /// policy end-to-end through `run_batch`, proving: (a) `--engine=default` never enforces,
     /// with or without `--enforce-capability`; (b) `--engine=foma` enforces BY DEFAULT with no
     /// flags at all; (c) `--no-enforce-capability` opts back out on the foma path;
     /// (d) `--allow-unproven` still overrides a foma-path refusal.
@@ -1931,8 +1931,8 @@ mod tests {
         // --- Unit-level: `capability_gate` itself, no process I/O ------------------------------
 
         /// No flags (both `false`): behavior must be advisory-only, for BOTH an `Admit` grammar
-        /// and a `Refuse` grammar -- this is [`capability_gate`]'s own bool contract (unaffected
-        /// by the engine-scoping policy in [`super::super::resolve_capability_enforcement`],
+        /// and a `Refuse` grammar -- this is `capability_gate`'s own bool contract (unaffected
+        /// by the engine-scoping policy in `super::super::resolve_capability_enforcement`,
         /// which lives one layer up in `run_batch`/`run_parse`, not here).
         #[test]
         fn capability_gate_no_flags_never_blocks_either_grammar() {

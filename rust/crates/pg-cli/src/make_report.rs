@@ -7,7 +7,7 @@
 //!
 //! # What this module measures itself, and what it only composes
 //! Sections 1-3 define the SHAPE of a certification (the threshold policy, the tiered verdict, the
-//! plan diagram) but nothing yet populates a real [`pg_foma::readiness_verdict::Measurements`] from
+//! plan diagram) but nothing yet populates a real `pg_foma::readiness_verdict::Measurements` from
 //! a live grammar/pack — that is this module's own job:
 //! - **Pack size + trust status**: a REAL `.pgpack`, never a caller-supplied trust parameter (see
 //!   "Trust comes from a real artifact" below).
@@ -15,7 +15,7 @@
 //!   (the pack's runtime payload is still an honest placeholder, `pg-pack`'s own top doc; the
 //!   in-memory `Grammar` is the real source of this count).
 //! - **Latency percentiles**: measured IN-PROCESS via nanosecond `Instant`/`Duration` timing over a
-//!   real, freshly-built [`pg_foma::composite::FomaAnalyzer`] — mirroring `rust/crates/pg-foma/
+//!   real, freshly-built `pg_foma::composite::FomaAnalyzer` — mirroring `rust/crates/pg-foma/
 //!   tests/typology_speedup.rs`'s own methodology (median-of-repeats per word, discard one warmup
 //!   call, a per-run-calibrated timer floor, below-floor reported honestly, never `pangloss batch`'s
 //!   integer-millisecond TSV column). See "Latency methodology" below for the exact percentile
@@ -32,13 +32,13 @@
 //!
 //! # Trust comes from a real artifact, never a caller-settable parameter
 //! `certify`'s `trust: &TrustStatus` parameter is never populated from a bare CLI flag here. Either
-//! `--pack=<path>` names an existing `.pgpack` — read via [`pg_pack::read_pack`], its
+//! `--pack=<path>` names an existing `.pgpack` — read via `pg_pack::read_pack`, its
 //! `manifest.capability_trust` is the trust this report certifies against — or, with no `--pack`
-//! given, this module builds one itself via [`crate::pack::build_pack`] (the exact same real
+//! given, this module builds one itself via `crate::pack::build_pack` (the exact same real
 //! capability-trust-stamping logic `pangloss pack` uses, factored out of that module for this
 //! reuse) and reads the trust back off the manifest that call produces. Either way, the trust this
 //! report certifies against is the real stamp on a real artifact, not a value a caller typed in.
-//! [`map_trust`] is a **plain, non-lossy field-for-field projection** of `pg_pack::CapabilityTrust`
+//! `map_trust` is a **plain, non-lossy field-for-field projection** of `pg_pack::CapabilityTrust`
 //! into `pg_foma::readiness_verdict::TrustStatus` — the latter is documented as a local mirror of
 //! the former precisely because `pg-pack` already depends on `pg-foma` (for `HealthReport`), so
 //! `pg-foma` cannot depend back on `pg-pack` without a cycle; the two shapes are kept in exact
@@ -61,12 +61,12 @@
 //!
 //! # Latency methodology (never `pangloss batch`'s integer-millisecond floor)
 //! For each word in the word list (`--words=<path>`, one word per line; falling back to this
-//! grammar's own lexical root surface forms when omitted — see [`default_word_list`]), this module
-//! times [`pg_foma::composite::FomaAnalyzer::analyze_word`] `--repeats` times (default 7) after one
+//! grammar's own lexical root surface forms when omitted — see `default_word_list`), this module
+//! times `pg_foma::composite::FomaAnalyzer::analyze_word` `--repeats` times (default 7) after one
 //! discarded warmup call, keeps that word's MEDIAN nanosecond duration, then computes p50/p90/p99
 //! (nearest-rank method) over the sorted per-word medians — the same "median-of-repeats per word,
 //! percentile across words" shape `typology_speedup.rs` uses, just driven over one caller-chosen
-//! grammar/word-list instead of the whole conformance corpus. [`measure_timer_floor_ns`] calibrates
+//! grammar/word-list instead of the whole conformance corpus. `measure_timer_floor_ns` calibrates
 //! this process's real `Instant` granularity once per run (never a hardcoded platform constant);
 //! any percentile at or below that floor renders as [`pg_foma::readiness_verdict::
 //! LatencyMeasurement::BelowFloor`], never a literal `0` (this module's own
@@ -74,7 +74,7 @@
 //!
 //! # Coverage's token definition
 //! A corpus's tokens are its whitespace-separated words (`str::split_whitespace`). A token this
-//! grammar's own segmentation rejects outright ([`crate::foma_invalid_shape`], the SAME guard
+//! grammar's own segmentation rejects outright (`crate::foma_invalid_shape`, the SAME guard
 //! `run_batch`/`run_parse` use to keep the `SKIPPED` vs. `ok` status column identical between
 //! engines) counts as a miss, not an exclusion — the analysis-rate denominator is every token in the
 //! corpus, never a pre-filtered subset (`pg_foma::readiness_verdict::COVERAGE_RATE_STATEMENT`: "the
@@ -222,7 +222,7 @@ fn measure_timer_floor_ns() -> u64 {
 }
 
 /// A single nanosecond duration, honoring the below-floor discipline: never `Millis(0.0)`, always
-/// [`LatencyMeasurement::BelowFloor`] once the raw value sits at or under the calibrated floor.
+/// `LatencyMeasurement::BelowFloor` once the raw value sits at or under the calibrated floor.
 fn latency_measurement(value_ns: u64, floor_ns: u64) -> LatencyMeasurement {
     if value_ns < floor_ns {
         LatencyMeasurement::BelowFloor {
@@ -276,7 +276,7 @@ fn default_word_list(g: &Grammar) -> Vec<String> {
 /// Times every word in `words` against `analyzer`: one discarded warmup call, then `repeats` timed
 /// samples, keeping that word's median nanosecond duration. Returns the raw (p50, p90, p99)
 /// nanosecond values over the sorted per-word medians (nearest-rank method) — below-floor rendering
-/// happens at the caller via [`latency_measurement`], not here, so this function stays a pure
+/// happens at the caller via `latency_measurement`, not here, so this function stays a pure
 /// timing primitive.
 fn measure_latency_percentiles_ns(
     analyzer: &mut FomaAnalyzer,
@@ -1350,10 +1350,10 @@ mod tests {
     // A live end-to-end `run_make_report` run embeds REAL wall-clock timing (build time, latency
     // percentiles) that varies run to run by construction -- a byte-for-byte golden of THAT output
     // would be inherently flaky, not a real regression gate. So this golden pins the RENDERING
-    // layer instead: [`render_markdown`] fed fixed, hand-picked (not hand-edited-into-the-golden)
+    // layer instead: `render_markdown` fed fixed, hand-picked (not hand-edited-into-the-golden)
     // inputs -- a fixed synthetic grammar, a fixed `Measurements` (same discipline
     // `readiness_verdict`'s own golden fixture uses), and the REAL, deterministic
-    // [`pg_foma::plan_diagram::build_plan_document`]/[`render_mermaid`] output over that same fixed grammar (plan-diagram
+    // `pg_foma::plan_diagram::build_plan_document`/`render_mermaid` output over that same fixed grammar (plan-diagram
     // output is itself content-addressed and deterministic, per that module's own doc) --
     // everything here is either a fixed literal or the real generator's own deterministic
     // computation, never a live timer.

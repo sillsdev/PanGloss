@@ -4,7 +4,7 @@
 //! below exists because at least one emission site in `super` needed it, and any two call sites
 //! reporting the *same underlying situation* — regardless of which field or record class they
 //! happen to be checking — deliberately share one. The two most common situations
-//! ([`DANGLING_REFERENCE`], [`UNEXPECTED_CLASS`]) are handled centrally by [`super::Ctx::require`]
+//! (`DANGLING_REFERENCE`, `UNEXPECTED_CLASS`) are handled centrally by `super::Ctx::require`
 //! and so already cover the majority of this crate's ~36 warning sites without every call site
 //! needing to pick a code itself.
 
@@ -12,7 +12,7 @@
 pub(crate) const DANGLING_REFERENCE: &str = "fwdata.dangling-reference";
 /// A GUID reference resolves, but to a record of a class other than the one expected at that
 /// position (includes the tag/discriminant classes like `PhContextOrVar`/`RuleMapping` variants,
-/// not just [`super::Ctx::require`]'s single-target-class case).
+/// not just `super::Ctx::require`'s single-target-class case).
 pub(crate) const UNEXPECTED_CLASS: &str = "fwdata.unexpected-class";
 /// A record is missing a field this extractor needs to represent it at all (as opposed to that
 /// field being present but dangling) -- the record/sub-structure is skipped as a result.

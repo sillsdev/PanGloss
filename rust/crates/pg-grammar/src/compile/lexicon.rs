@@ -177,7 +177,7 @@ fn sense_gloss<'a>(entry: &'a LexEntry, msa: &str, ctx: &Ctx) -> Option<&'a str>
 /// stem types — `IsStemType`: root/stem/bound-root/bound-stem/phrase — to `stemAllos` → the
 /// Morphology stratum). `Particle` and bare `Clitic` are clitic-typed (HCLoader.cs:609-624), as
 /// are `Enclitic`/`Proclitic` — the latter two are *also* rule forms and additionally become
-/// clitic-stratum affix rules ([`build`]'s rule buckets).
+/// clitic-stratum affix rules (`build`'s rule buckets).
 fn is_lex_entry_form(allo: &Allomorph, clitic: bool) -> bool {
     if allo.is_abstract {
         return false;
@@ -378,9 +378,9 @@ fn build_root_allomorph(
     })
 }
 
-/// Natural classes are only needed by [`build_root_allomorph`]'s pattern-language segmentation;
+/// Natural classes are only needed by `build_root_allomorph`'s pattern-language segmentation;
 /// exposed via a tiny accessor since `Ctx` does not carry the definitions slice directly (only
-/// guid/name lookups) — this crate's [`crate::segment::segment_with_patterns`] needs the full
+/// guid/name lookups) — this crate's `crate::segment::segment_with_patterns` needs the full
 /// `&[NaturalClass]` list, so `mod.rs` stashes it on `Ctx` for this one call site.
 fn natural_class_defs<'a>(ctx: &Ctx<'a>) -> &'a [crate::model::NaturalClass] {
     ctx.natural_class_defs
@@ -391,7 +391,7 @@ fn natural_class_defs<'a>(ctx: &Ctx<'a>) -> &'a [crate::model::NaturalClass] {
 /// prepend/append), and inflection features.
 ///
 /// A main-entry MSA that is *not* `Msa::Stem` (derivational/inflectional/unclassified) instead
-/// goes through [`build_variant_affix_rule`] — `LoadMorphologicalRules`'s senses-empty branch
+/// goes through `build_variant_affix_rule` — `LoadMorphologicalRules`'s senses-empty branch
 /// (HCLoader.cs:852-871) walks *every* `mainEntry.MorphoSyntaxAnalysesOC`, not just stem MSAs, and
 /// `LoadMorphologicalRule`'s dispatch (HCLoader.cs:877-908) builds an ordinary affix-process rule
 /// for each — using the *variant's own* allomorphs as the rule's forms but the main entry's MSA
@@ -484,9 +484,9 @@ fn build_variant(
     }
 }
 
-/// The non-stem counterpart of [`build_variant_stem_entry`] (see [`build_variant`]'s doc for the
+/// The non-stem counterpart of `build_variant_stem_entry` (see `build_variant`'s doc for the
 /// full HCLoader rationale): builds a full second `AffixProcessRule` for `msa` using
-/// `variant_entry`'s own rule-form allomorphs, reusing [`affixes::build_affix_rule`] verbatim so
+/// `variant_entry`'s own rule-form allomorphs, reusing `affixes::build_affix_rule` verbatim so
 /// every mrule-level field (reqfs/outfs/partial/stratum/slot registration) is derived exactly the
 /// way the main entry's own rule for this same MSA was derived. `entry.ShortName`/circumfix
 /// classification in HCLoader always come from the entry passed to `LoadMorphologicalRule` --
@@ -538,7 +538,7 @@ fn get_infl_types<'a>(
     out
 }
 
-/// The variant-entry counterpart of [`build_stem_entry`]: allomorphs come from `variant_entry`,
+/// The variant-entry counterpart of `build_stem_entry`: allomorphs come from `variant_entry`,
 /// everything else (POS, inflection class, base gloss, inflection features) from `main_entry`'s
 /// MSA, plus the `infl_type`'s gloss prepend/append and inflection-feature merge
 /// (HCLoader.cs:748-786).

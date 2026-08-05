@@ -3,7 +3,7 @@
 //! HCLoader.cs:2260-2457) plus the `AnyPlus`/`AnyStar`/`PrefixNull`/`SuffixNull` helpers
 //! (HCLoader.cs:2283-2311) concatenative affix rules assemble their LHS patterns from.
 //!
-//! A [`pg_snapshot::phonology::Environment::representation`] is a hand-authored string like
+//! A `pg_snapshot::phonology::Environment::representation` is a hand-authored string like
 //! `/_[UnVDent]` or `/#[C]_` — this module re-tokenizes and validates it at compile time exactly
 //! as HCLoader does at load time (lazily, tolerantly: a malformed environment is a warning, never
 //! a hard failure — `IsValidEnvironment`, HCLoader.cs:1205-1271).
@@ -146,7 +146,7 @@ fn find_matching_paren(chars: &[char], open: usize) -> Option<usize> {
 
 /// `LoadPatternNodes` (HCLoader.cs:2391-2418): builds pattern nodes from already-tokenized
 /// context text. A bare `#` token contributes no node here (the edge anchor, if any, was already
-/// pushed by [`load_environment_pattern`]) — mirrors C#'s `case '#': break;`.
+/// pushed by `load_environment_pattern`) — mirrors C#'s `case '#': break;`.
 fn nodes_from_tokens(tokens: &[String], ctx: &Ctx) -> Result<Vec<PatternNode>, String> {
     let mut out = Vec::new();
     for tok in tokens {
@@ -279,7 +279,7 @@ pub(crate) fn pattern_nodes(s: &str, ctx: &Ctx) -> Result<Vec<PatternNode>, Stri
 /// invalid — and HCLoader therefore emits those allomorphs' subrules *unrestricted*.
 ///
 /// Implemented as a dry run of exactly the machinery the real build uses
-/// ([`split_environment_string`] + [`tokenize`] + [`nodes_from_tokens`] per side), so verdicts
+/// (`split_environment_string` + `tokenize` + `nodes_from_tokens` per side), so verdicts
 /// cannot drift from what pattern construction would actually accept.
 pub(crate) fn validate_environment(representation: &str, ctx: &Ctx) -> Result<(), String> {
     let (left, right) = split_environment_string(representation)?;

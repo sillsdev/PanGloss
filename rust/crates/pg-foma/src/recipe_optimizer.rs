@@ -1,5 +1,5 @@
 //! Deterministic, budgeted search and confirmed-only ranking for compilation recipes.
-//! Candidate construction and HC execution are injected through [`CandidateEvaluator`], while this
+//! Candidate construction and HC execution are injected through `CandidateEvaluator`, while this
 //! module owns search policy, budget enforcement, certification boundaries, Pareto ranking, and
 //! replay semantics.
 
@@ -117,7 +117,7 @@ pub struct CorpusExclusion {
 /// byte-indistinguishable in every field a reader could check, so "this corpus is fully eligible"
 /// was an unqualified claim that silently meant "…at whatever cap happened to be in force". All
 /// three bounds are recorded, including the two that can only ever ABORT a run
-/// ([`Self::memory_ceiling_bytes`], [`Self::liveness_net_ns`]) — a run that completes under a
+/// (`Self::memory_ceiling_bytes`, `Self::liveness_net_ns`) — a run that completes under a
 /// 300-second liveness net is not the same evidence as one that completes under a 2-second net,
 /// because the second one had a whole class of words it would have refused to finish measuring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,12 +152,12 @@ pub struct CorpusCompletenessEvidence {
     pub requested_hash: String,
     pub included_hash: String,
     pub excluded_hash: String,
-    /// See [`OracleEligibilityConfig::step_cap`]. Flattened rather than nested so a reader (and a
+    /// See `OracleEligibilityConfig::step_cap`. Flattened rather than nested so a reader (and a
     /// JSON assertion) reaches it with the same one-level lookup as every count beside it.
     pub oracle_step_cap: u64,
-    /// See [`OracleEligibilityConfig::memory_ceiling_bytes`].
+    /// See `OracleEligibilityConfig::memory_ceiling_bytes`.
     pub oracle_memory_ceiling_bytes: u64,
-    /// See [`OracleEligibilityConfig::liveness_net_ns`].
+    /// See `OracleEligibilityConfig::liveness_net_ns`.
     pub oracle_liveness_net_ns: u64,
     pub exclusions: Vec<CorpusExclusion>,
 }
@@ -290,15 +290,15 @@ pub enum Certification {
         detail: String,
     },
     /// **No longer produced.** Retained so reports written before the parity relation moved to
-    /// deduplicated [`pg_parse::identity::AnalysisIdentity`] set equality still deserialize, and so
+    /// deduplicated `pg_parse::identity::AnalysisIdentity` set equality still deserialize, and so
     /// that such a report keeps ranking as the non-selectable failure it was recorded as.
     ///
     /// It used to mean "the two engines found a different NUMBER of analyses for this word".
-    /// Multiplicity is not part of the parity relation (see [`crate::parity`]): two analyses
+    /// Multiplicity is not part of the parity relation (see `crate::parity`): two analyses
     /// reaching one identity by different derivational paths are one member of the set, so a
     /// difference in count is not by itself a disagreement. The count difference that IS a
     /// disagreement -- different numbers of DISTINCT identities -- is necessarily also a set
-    /// difference and is reported as [`Self::IdentityMismatch`], whose detail names both
+    /// difference and is reported as `Self::IdentityMismatch`, whose detail names both
     /// cardinalities. Do not reintroduce a producer for this variant.
     MultiplicityMismatch {
         word: String,
@@ -343,7 +343,7 @@ pub struct Score {
     pub confirmation_steps: u64,
     /// Raw proposer paths `apply_up` yielded across the whole corpus, before tag-decode/dedup --
     /// summed from `FomaWordDiagnostics::raw_paths` (see that field's doc). The propose-side
-    /// counterpart to `confirmation_steps`: together they are the leading term of [`Self::key`].
+    /// counterpart to `confirmation_steps`: together they are the leading term of `Self::key`.
     /// `#[serde(default)]` keeps older reports readable. Their containing report carries a
     /// `score_schema_version`; recipe_report.rs's test
     /// validation_rejects_unknown_report_and_score_schema_versions pins that a legacy version
@@ -391,7 +391,7 @@ impl Score {
     /// `selectable()` candidate may win (`RecipeOptimizationReport::validate`), which requires full-HC
     /// confirmation over the whole corpus. Work-minimization operates strictly behind that gate.
     ///
-    /// `build`/`apply` remain in [`Score`] and in the report as diagnostics -- useful for spotting a
+    /// `build`/`apply` remain in `Score` and in the report as diagnostics -- useful for spotting a
     /// pathological compile -- but deliberately do NOT rank. Candidates that tie on every component
     /// here are genuinely tied, and the `id` tiebreak makes that outcome deterministic rather than
     /// pretending to a preference.
@@ -400,7 +400,7 @@ impl Score {
     /// `confirmation_steps` leads because a confirmation CALL is not a constant amount of work: a long
     /// word costs far more to adjudicate than a short one, so ranking by calls under-weights exactly
     /// the expensive words that dominate real cost. Steps are also the unit HC work is already BOUNDED
-    /// in ([`crate::recipe_runtime::DEFAULT_ORACLE_STEP_CAP`] caps these same ticks), so the objective
+    /// in (`crate::recipe_runtime::DEFAULT_ORACLE_STEP_CAP` caps these same ticks), so the objective
     /// and the cap now measure the same quantity rather than two proxies for it. `confirmation`
     /// (calls) stays as the next component: it separates candidates that happen to consume equal
     /// steps across a different number of adjudications.
@@ -893,7 +893,7 @@ pub fn optimize_with_evaluator(
         // and only the second one changed.
         //
         // Downgrading `quality` here as well produced a report that could not be written AT ALL.
-        // [`crate::recipe_report::RecipeOptimizationReport::validate`] refuses `Approximate` with
+        // `crate::recipe_report::RecipeOptimizationReport::validate` refuses `Approximate` with
         // `unexplored == 0` ("approximate search must quantify unexplored space"), and `unexplored` is zero by
         // construction on this path — every selected candidate was evaluated. So the child exited 1
         // with no `report.json`, and `write_supervisor_failure_report` never ran either (it fires
@@ -1189,7 +1189,7 @@ mod tests {
     ///
     /// `quality` must nonetheless stay `Exact`, and that is not cosmetic: an `Approximate` result
     /// with `unexplored == 0` is a combination
-    /// [`crate::recipe_report::RecipeOptimizationReport::validate`] REFUSES, so the
+    /// `crate::recipe_report::RecipeOptimizationReport::validate` REFUSES, so the
     /// fix for the termination label used to make the whole report unwritable. See the arm's own
     /// comment in `optimize_with_evaluator`.
     #[test]
@@ -1259,7 +1259,7 @@ mod tests {
         assert_eq!(outcome.search.termination, Termination::BudgetExhausted);
         // Nothing was left unexplored, so nothing may claim otherwise -- and the pair
         // (`Approximate`, `unexplored == 0`) is exactly what
-        // [`crate::recipe_report::RecipeOptimizationReport::validate`] rejects.
+        // `crate::recipe_report::RecipeOptimizationReport::validate` rejects.
         assert_eq!(outcome.search.unexplored, 0);
         assert_eq!(
             outcome.search.quality,

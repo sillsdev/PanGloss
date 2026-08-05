@@ -14,9 +14,9 @@
 //! boundaries as unconstrained.
 //!
 //! Two grammars are exercised, spanning the two width regimes this fix changes:
-//! - [`zero_feat_grammar`] mirrors Sena exactly (no `<PhonologicalFeatureSystem>` at all — the
+//! - `zero_feat_grammar` mirrors Sena exactly (no `<PhonologicalFeatureSystem>` at all — the
 //!   `phon_features.len()` 0→1 case).
-//! - [`feature_grammar`] mirrors Indonesian/Amharic (one real symbolic feature — the `len()` N→N+1
+//! - `feature_grammar` mirrors Indonesian/Amharic (one real symbolic feature — the `len()` N→N+1
 //!   case), and additionally pins that a `FeatureNaturalClass` keyed on a real feature still
 //!   matches exactly the right segments post-fix (no regression on real phonological matching).
 

@@ -10,7 +10,7 @@ use crate::AcceptInfo;
 
 /// An NFA arc's input predicate. Real NFA arcs are either epsilon (possibly a capture tag) or a
 /// single positive constraint; the negated-condition form only arises during determinization
-/// (see [`crate::optimize`]).
+/// (see `crate::optimize`).
 #[derive(Clone, Debug)]
 pub enum ArcInput {
     Epsilon,
@@ -20,7 +20,7 @@ pub enum ArcInput {
 
 /// One NFA arc. `tag == -1` means "no tag"; otherwise this is an epsilon arc that records the
 /// current position into capture register `tag` (C# `Arc.Tag`). `priority` is filled in by
-/// [`Nfa::mark_arc_priorities`].
+/// `Nfa::mark_arc_priorities`.
 #[derive(Clone, Debug)]
 pub struct NfaArc {
     pub input: ArcInput,

@@ -29,7 +29,7 @@
 //! this vendored foma's epsilon handling being a real hazard, not folklore (`pg-foma/src/gate.rs`'s
 //! own module doc catalogs three unrelated epsilon/flag surprises in this same crate version).
 //!
-//! [`recall_reachable`] therefore finishes with an `apply_up` search -- but critically, ONLY on the
+//! `recall_reachable` therefore finishes with an `apply_up` search -- but critically, ONLY on the
 //! already-word-restricted `upper` net (a handful of states, by construction: the whole point of
 //! the compose-restriction step), never on the full, potentially enormous composed net apply_up's
 //! own search is unsafe against. `tag_string_fsm` is kept (still a correct, reusable acceptor
@@ -50,7 +50,7 @@
 //! gate wants to ASSERT specific numbers stay small, not merely that they didn't exceed a cap).
 //!
 //! ## (c) Honest failure
-//! [`assert_compose_error`]: given a `Result<T, pg_foma::compose_budget::ComposeError>` from a
+//! `assert_compose_error`: given a `Result<T, pg_foma::compose_budget::ComposeError>` from a
 //! call made under a deliberately tiny `ComposeBudget::with_caps` (never an env var -- design doc
 //! §6: "explicit-caps constructors, never env vars", mirroring every existing `ComposeBudget` test
 //! in this crate), assert it is the SPECIFIC expected variant.
@@ -175,7 +175,7 @@ pub fn per_word_p99<T>(words: &[T], mut f: impl FnMut(&T)) -> Duration {
 // (c) Honest failure.
 // =================================================================================================
 
-/// Asserts `result` is `Err` and that `matches` accepts the specific [`ComposeError`] variant --
+/// Asserts `result` is `Err` and that `matches` accepts the specific `ComposeError` variant --
 /// never a bare "it failed somehow" check (module doc (c): the whole point of a typed budget error
 /// is that a gate can assert WHICH one).
 pub fn assert_compose_error<T: std::fmt::Debug>(

@@ -1,5 +1,5 @@
 //! Post-hoc reachability compaction for morphological rules and morpheme co-occurrence rules —
-//! the mrule/morpheme-scoped sibling of [`super::natclass::compact_to_referenced`] (read that
+//! the mrule/morpheme-scoped sibling of `super::natclass::compact_to_referenced` (read that
 //! function's doc first; this module mirrors its used-set + remap-with-expect pattern exactly,
 //! extended to cover the extra wrinkle `MRuleId` has that `NatClassId` doesn't: an owner-registry
 //! back-reference, not just read-only structural edges).
@@ -20,7 +20,7 @@
 //! those two places, so this reference set is precisely "every place the legacy exporter looks."
 //!
 //! # Why the allomorph-owner registry needs a cascade, unlike `natclass`
-//! [`super::natclass::compact_to_referenced`] only ever *reads* a `NatClassId` from structural
+//! `super::natclass::compact_to_referenced` only ever *reads* a `NatClassId` from structural
 //! sites (patterns/environments/rules) — dropping an unreferenced class breaks nothing else,
 //! because nothing else's own identity depends on that class's position in the `Vec`.
 //! `Grammar::allomorph_owners` is different: it's an owner *registry*, indexed by `AllomorphId`,
@@ -62,7 +62,7 @@ use crate::model::{
 /// slot's `rules`), remapping every surviving `MRuleId` to a dense index in both of those places.
 /// Step 3-4: cascade the same treatment to `grammar.allomorph_owners` and every surviving
 /// allomorph's own `id`/`co_occurrence` (see this module's top doc for why that cascade is
-/// required, unlike [`super::natclass::compact_to_referenced`]'s simpler read-only-edge case).
+/// required, unlike `super::natclass::compact_to_referenced`'s simpler read-only-edge case).
 pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) {
     // --- 1. Every mrule a stratum or an (enabled) template slot actually names. ---
     let mut used_mrules: HashSet<u32> = HashSet::new();
@@ -186,11 +186,11 @@ fn remap_allomorph_id_and_coocc(
     });
 }
 
-/// Drops a [`crate::model::MorphemeCoOccurrenceRuleDef`] whose primary morpheme (the one whose
+/// Drops a `crate::model::MorphemeCoOccurrenceRuleDef` whose primary morpheme (the one whose
 /// `co_occurrence` list holds it) or any `others` target is no longer reachable after
-/// [`compact_mrules`] has run — see this module's top doc for why `Grammar::morphemes` itself is
+/// `compact_mrules` has run — see this module's top doc for why `Grammar::morphemes` itself is
 /// never compacted (only its `co_occurrence` contents are filtered here). Must run *after*
-/// [`compact_mrules`], since "reachable" is defined in terms of the already-compacted
+/// `compact_mrules`, since "reachable" is defined in terms of the already-compacted
 /// `grammar.mrules`/`grammar.entries`.
 pub(crate) fn trim_unreachable_morpheme_coocurrence(grammar: &mut Grammar) {
     let mut reachable: HashSet<u32> = HashSet::new();

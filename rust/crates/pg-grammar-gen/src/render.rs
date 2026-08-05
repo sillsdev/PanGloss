@@ -1,13 +1,13 @@
-//! Assembles a full `<HermitCrabInput>` XML document from a [`crate::recipe::Recipe`].
+//! Assembles a full `<HermitCrabInput>` XML document from a `crate::recipe::Recipe`.
 //! Generalizes the working precedent: `pg-foma/src/gate.rs`'s `sixteen_group_fixture_xml`
 //! (a string-built XML fixture `pg_grammar::load` accepts) and `pg-foma/src/morphotactics.rs`'s
 //! `FIXTURE_SLOTS`/`FIXTURE_STRATA` -- same hand-verified element shapes, parameterized over a
 //! `Recipe` instead of hardcoded.
 //!
 //! Determinism: `render`/`render_indexed` are pure functions of `recipe`'s own
-//! fields -- [`IdMinter`] assigns ids purely by CALL ORDER (fixed for a given recipe, never by
+//! fields -- `IdMinter` assigns ids purely by CALL ORDER (fixed for a given recipe, never by
 //! `Rng` draws) and every character/segment choice below is knob-driven, not randomized, so the
-//! same recipe renders byte-identically every time (`tests/self_check.rs` pins this). [`Rng`] is
+//! same recipe renders byte-identically every time (`tests/self_check.rs` pins this). `Rng` is
 //! still seeded and drawn from here (one throwaway draw) so the mechanism is exercised end-to-end
 //! even though nothing here currently consumes further draws.
 //!
@@ -37,14 +37,14 @@ pub struct RootIndex {
 }
 
 /// One generated stratum/table pairing, plus everything a gate needs to find its own material
-/// back out of the loaded [`pg_grammar::model::Grammar`] by xml id.
+/// back out of the loaded `pg_grammar::model::Grammar` by xml id.
 #[derive(Debug, Clone)]
 pub struct TableIndex {
     pub table_xml_id: String,
     pub stratum_name: String,
     pub roots: Vec<RootIndex>,
     /// Circumfix `MorphologicalRule` xml ids generated on this stratum (empty unless this is
-    /// stratum 0 of a `circumfix_count > 0` recipe -- see [`render_indexed`]).
+    /// stratum 0 of a `circumfix_count > 0` recipe -- see `render_indexed`).
     pub circumfix_mrule_xml_ids: Vec<String>,
 }
 
@@ -54,20 +54,20 @@ pub struct GatingIndex {
     /// The `k` gated rules' own xml ids, in `j` order.
     pub rule_xml_ids: Vec<String>,
     /// The `2^k` entries' own xml ids, in bit-pattern order (entry `i` realizes gating key `i`;
-    /// [`crate::build::gating::bit_set`] derives the same bit convention).
+    /// `crate::build::gating::bit_set` derives the same bit convention).
     pub entry_xml_ids: Vec<String>,
 }
 
 /// Bookkeeping for an `alpha_var_count > 0` recipe.
 #[derive(Debug, Clone)]
 pub struct AlphaIndex {
-    /// The `var_count` independent alpha rules' own xml ids ([`crate::build::alpha`]'s own doc: one
+    /// The `var_count` independent alpha rules' own xml ids (`crate::build::alpha`'s own doc: one
     /// rule per var, each targeting its own dedicated marker position).
     pub rule_xml_ids: Vec<String>,
     /// The single root entry's own xml id.
     pub root_entry_xml_id: String,
     /// The root entry's own `<PhoneticShape>` text -- also its expected, UNCHANGED post-synthesis
-    /// surface ([`crate::build::alpha::AlphaBuild::root_shape`]'s own doc).
+    /// surface (`crate::build::alpha::AlphaBuild::root_shape`'s own doc).
     pub root_shape: String,
 }
 
@@ -122,7 +122,7 @@ pub struct RightToLeftIndex {
     pub rule_xml_ids: Vec<String>,
 }
 
-/// Everything [`render_indexed`] produces: the XML string itself, plus the bookkeeping a gate
+/// Everything `render_indexed` produces: the XML string itself, plus the bookkeeping a gate
 /// needs to resolve its own generated material (roots, rules, natural classes) back out of the
 /// `Grammar` `pg_grammar::load` returns -- entries/rules are found by their xml id via
 /// `Grammar::morphemes[..].xml_key` (`pg-grammar/src/load.rs`'s convention for every
@@ -151,8 +151,8 @@ pub struct RenderedGrammar {
 const POS_XML_ID: &str = "posV";
 
 /// A 2-segment slice of `table`'s own segments starting at `start`, wrapped as a standalone
-/// [`TableSpec`] (same xml id, borrowed segments cloned) -- lets [`build::metathesis`]/
-/// [`build::simultaneous`]/[`build::right_to_left`]/[`build::compounding`] (each of which only ever
+/// `TableSpec` (same xml id, borrowed segments cloned) -- lets `build::metathesis`/
+/// `build::simultaneous`/`build::right_to_left`/`build::compounding` (each of which only ever
 /// reads `segments[0]`/`segments[1]`) mint `N` independent, non-overlapping rule instances from one
 /// shared table by giving instance `n` its own private pair at `[2n, 2n+1]`.
 fn sub_table_pair(table: &TableSpec, start: usize) -> TableSpec {
@@ -179,14 +179,14 @@ fn one_entry_xml(ids: &mut IdMinter, pos: &str, shape: &str, morph_id: &str) -> 
 }
 
 /// Render `recipe` into a full `<HermitCrabInput>` XML string. Thin wrapper over
-/// [`render_indexed`] for callers that only need the XML (e.g.
+/// `render_indexed` for callers that only need the XML (e.g.
 /// `tests/self_check.rs`'s round-trip check) -- gates that need to resolve their own generated
-/// material back out of the loaded `Grammar` should call [`render_indexed`] instead.
+/// material back out of the loaded `Grammar` should call `render_indexed` instead.
 pub fn render(recipe: &Recipe) -> String {
     render_indexed(recipe).xml
 }
 
-/// [`render`]'s core: builds the same XML string, but also returns the [`RenderedGrammar`] index
+/// `render`'s core: builds the same XML string, but also returns the `RenderedGrammar` index
 /// a gate needs.
 pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
     let mut ids = IdMinter::new();

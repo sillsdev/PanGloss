@@ -3,7 +3,7 @@
 //! # Two questions, two mechanisms
 //!
 //! "Does this compilation work?" and "is this compilation as cheap as it could be?" are different
-//! questions, and one mechanism was being asked to answer both. [`crate::recipe_optimizer::Score`]
+//! questions, and one mechanism was being asked to answer both. `crate::recipe_optimizer::Score`
 //! ranks candidates by DETERMINISTIC WORK, and its leading component is `confirmation_steps` — so
 //! any attempt to replace confirmation with a cheaper check does not speed the same answer up, it
 //! redefines what "best" means. That is why such attempts were rejected, and rightly.
@@ -14,12 +14,12 @@
 //!   against the run's shared oracle result, at a cost of ZERO full-HC confirmation calls per
 //!   candidate.
 //! - **Speed** — "is this as cheap as it could be?" NOT answered here, and deliberately not
-//!   answerable here. Containment says nothing about cost. [`crate::recipe_optimizer::Score`] and
+//!   answerable here. Containment says nothing about cost. `crate::recipe_optimizer::Score` and
 //!   the certification path remain the whole answer to that, untouched.
 //!
 //! # Why containment against the oracle is free
 //!
-//! [`crate::recipe_runtime::PreparedCorpus`] already runs the ground-truth `pg_parse::Morpher` ONCE
+//! `crate::recipe_runtime::PreparedCorpus` already runs the ground-truth `pg_parse::Morpher` ONCE
 //! per corpus occurrence and shares the result across every candidate in the run
 //! (`oracle_calls == words.len()`), and it is COMPLETE for every occurrence that passes eligibility
 //! — a step-capped occurrence refuses the whole corpus rather than contributing a partial
@@ -28,8 +28,8 @@
 //!
 //! # Why proposing the key is enough
 //!
-//! [`crate::confirm::confirm_batch`] routes a confirmed analysis to a candidate by exactly
-//! [`crate::parity::admission_key`] — `(ordered morpheme ordinals, root_index)` — and confirmation
+//! `crate::confirm::confirm_batch` routes a confirmed analysis to a candidate by exactly
+//! `crate::parity::admission_key` — `(ordered morpheme ordinals, root_index)` — and confirmation
 //! is candidate-INDEPENDENT: `confirm_batch` takes no net, no plan, no strategy and no gate
 //! partition, so whether a given derivation is VALID cannot vary by candidate. Together those two
 //! facts mean: if a candidate proposes the admission key of an oracle analysis, that candidate's own
@@ -45,7 +45,7 @@
 //! `pg_parse::identity::AnalysisIdentity::category` is projected from it, so first-wins dedup order
 //! — which the restriction perturbs — could in principle surface a candidate-only category. That is
 //! inference, never an observation, so it is COUNTED on the ordinary certification path rather than
-//! assumed: [`crate::parity::IdentityDivergence::candidate_only_identities`], reachable as
+//! assumed: `crate::parity::IdentityDivergence::candidate_only_identities`, reachable as
 //! `RunEvaluationCache::identity_divergence`. A verdict from this module is a claim about
 //! undergeneration whatever that count says; it is equivalent to full certification only while that
 //! count is zero.
@@ -72,7 +72,7 @@ use crate::enumerate::EmissionStrategy;
 use crate::parity::{admission_key, AdmissionKey};
 use crate::tags::Candidate;
 
-/// One proposal's [`AdmissionKey`]. The mirror of [`admission_key`] on the propose side, and
+/// One proposal's `AdmissionKey`. The mirror of `admission_key` on the propose side, and
 /// verbatim what `propose UNION peel` already deduplicates by.
 pub fn candidate_admission_key(candidate: &Candidate) -> AdmissionKey {
     (
@@ -83,7 +83,7 @@ pub fn candidate_admission_key(candidate: &Candidate) -> AdmissionKey {
 
 /// How many missing analyses a verdict NAMES before it stops listing them.
 ///
-/// The counts in [`AccuracyCounters`] are always exact; this bounds only the witness list, so a
+/// The counts in `AccuracyCounters` are always exact; this bounds only the witness list, so a
 /// badly broken candidate produces a readable report instead of one row per lost analysis. Same
 /// reasoning as `recipe_runtime`'s own mismatch-detail sample bound.
 pub const MISS_WITNESS_SAMPLE: usize = 16;
@@ -121,7 +121,7 @@ pub struct AccuracyCounters {
     /// How many of those it did offer.
     pub oracle_keys_matched: u64,
     /// How many it did not — the exact recall-failure count, even when the witness list is capped
-    /// at [`MISS_WITNESS_SAMPLE`].
+    /// at `MISS_WITNESS_SAMPLE`.
     pub oracle_keys_missed: u64,
     /// Distinct proposal admission keys, summed over occurrences. Larger than
     /// `oracle_keys_required` is EXPECTED and is not a defect: the FST proposes and HC prunes, so
@@ -145,22 +145,22 @@ pub struct AccuracyCounters {
     /// This must never be zero-and-forgotten. A refused peel contributes zero candidates of its own,
     /// so a missing key on such an occurrence is indistinguishable from a genuine recall failure —
     /// which is exactly the "never truncate a word's proposal set" rule stated as a counter.
-    /// [`verdict_from`] therefore refuses to report undergeneration when this is non-zero and
-    /// returns [`AccuracyVerdict::NotDetermined`] instead. Production's default leaves
+    /// `verdict_from` therefore refuses to report undergeneration when this is non-zero and
+    /// returns `AccuracyVerdict::NotDetermined` instead. Production's default leaves
     /// `chain_depth_cap` unset, so this is 0 unless `HC_COMPOSE_CHAIN_DEPTH_BUDGET` says otherwise.
     pub peel_refusals: u64,
     /// Occurrences whose PROPOSAL was refused by the per-word apply-path envelope
-    /// ([`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`]), so that occurrence's
+    /// (`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`), so that occurrence's
     /// proposal set is incomplete through no fault of the compilation.
     ///
-    /// Exactly [`Self::peel_refusals`]'s contract, one dimension over, and it exists for the same
+    /// Exactly `Self::peel_refusals`'s contract, one dimension over, and it exists for the same
     /// reason stated in the same words: a refused proposal contributes fewer candidates than the
     /// unbounded walk would, so a missing key on such an occurrence is indistinguishable from a
-    /// genuine recall failure. [`verdict_from`] therefore refuses to report undergeneration when this
+    /// genuine recall failure. `verdict_from` therefore refuses to report undergeneration when this
     /// is non-zero.
     ///
     /// This path proposes with a bounded
-    /// [`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`] rather than
+    /// `crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET` rather than
     /// `ApplyBudget::unbounded()`: a bounded proposal set that trips would otherwise read as
     /// undergeneration, which this counter fixes by making the refusal visible instead. Leaving
     /// it unbounded is not a safe fallback -- `machine:edge-cases/deep-optional-affix-nesting`
@@ -220,7 +220,7 @@ pub enum AccuracyVerdict {
     /// Every oracle admission key on every checked occurrence was proposed. No undergeneration.
     NoLoss,
     /// At least one oracle analysis was never proposed. The witnesses are capped at
-    /// [`MISS_WITNESS_SAMPLE`]; [`AccuracyCounters::oracle_keys_missed`] is exact.
+    /// `MISS_WITNESS_SAMPLE`; `AccuracyCounters::oracle_keys_missed` is exact.
     Undergenerated { misses: Vec<AccuracyMiss> },
     /// The check could not be performed — the candidate did not build, or the corpus itself was
     /// refused. **Never a pass.** "I could not look" must not read as "nothing was lost".
@@ -229,7 +229,7 @@ pub enum AccuracyVerdict {
 
 impl AccuracyVerdict {
     /// Whether this verdict is a positive statement that nothing was lost. `false` for
-    /// [`Self::NotDetermined`], deliberately.
+    /// `Self::NotDetermined`, deliberately.
     pub fn is_no_loss(&self) -> bool {
         matches!(self, Self::NoLoss)
     }
@@ -309,7 +309,7 @@ fn oracle_key_is_ambiguous(oracle: &[WordAnalysis]) -> bool {
 
 /// Fold one occurrence's misses and counters into a whole-corpus verdict.
 ///
-/// Separate from [`check_occurrence`] so the per-occurrence check stays a pure function of its own
+/// Separate from `check_occurrence` so the per-occurrence check stays a pure function of its own
 /// inputs, and so the witness cap is applied in exactly one place.
 pub fn verdict_from(counters: &AccuracyCounters, mut misses: Vec<AccuracyMiss>) -> AccuracyVerdict {
     // Checked FIRST and unconditionally: a refused reduplication peel makes the proposal set

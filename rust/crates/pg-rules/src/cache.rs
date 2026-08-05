@@ -66,14 +66,14 @@ pub(crate) fn owning_table_for_prule(g: &Grammar, pid: PRuleId) -> Option<TableI
         .map(|s| s.table)
 }
 
-/// [`owning_table_for_prule`]'s sibling for a caller that holds a [`MetathesisRuleDef`] value but not
-/// its [`PRuleId`] (a standalone, non-`_cached` call site -- `metathesis::synthesize`/`analyze`,
+/// `owning_table_for_prule`'s sibling for a caller that holds a `MetathesisRuleDef` value but not
+/// its `PRuleId` (a standalone, non-`_cached` call site -- `metathesis::synthesize`/`analyze`,
 /// this crate's own "recompiles every call, also exercised by non-grammar-resident test fixtures"
 /// convention, `crate::cache`'s own module doc). Finds the rule's own position in `g.prules` by
 /// `xml_id`, then resolves as above. `None` both when the rule isn't grammar-resident at all (never
 /// registered into any `Grammar`'s `prules` -- a hand-built fixture, this crate's well-established
 /// "standalone rule" pattern) and when it is resident but orphaned (same caveat as
-/// [`owning_table_for_prule`]); callers fall back to `TableId(0)` only in that non-resident case,
+/// `owning_table_for_prule`); callers fall back to `TableId(0)` only in that non-resident case,
 /// matching every other standalone entry point in this crate (see call sites' own doc).
 pub(crate) fn owning_table_for_metathesis_rule(
     g: &Grammar,
@@ -87,13 +87,13 @@ pub(crate) fn owning_table_for_metathesis_rule(
 }
 
 /// Resolve the table a stratum-resident `MorphemeId` belongs to (`morpheme -> its stratum -> that
-/// stratum's table`) -- the common tail [`owning_table_for_allomorph`]'s two `AllomorphOwner` arms
+/// stratum's table`) -- the common tail `owning_table_for_allomorph`'s two `AllomorphOwner` arms
 /// both reduce to, factored out so `pg_rules::morph`'s own per-rule (not per-allomorph) call sites
 /// can resolve the SAME way directly from an `AffixProcessRuleDef`'s/`RealizationalRuleDef`'s own
 /// `morpheme` field, without needing to first reconstruct an `AllomorphId`/`AllomorphOwner` they
 /// don't have in hand (`morph::synth_affix`/`ana_affix`/`synth_realizational`/`ana_realizational`
 /// and their `_cached` siblings all receive the rule def directly, never an `AllomorphOwner`).
-/// `.get()`-based, never a raw index -- see [`owning_table_for_allomorph`]'s doc for why (hand-built
+/// `.get()`-based, never a raw index -- see `owning_table_for_allomorph`'s doc for why (hand-built
 /// test `Grammar`s with a bare opaque `morpheme` tag and no backing `g.morphemes` entry).
 pub(crate) fn owning_table_for_morpheme(g: &Grammar, morpheme: MorphemeId) -> Option<TableId> {
     let stratum = g.morphemes.get(morpheme.0 as usize)?.stratum;
@@ -122,10 +122,10 @@ pub(crate) fn owning_table_for_allomorph(g: &Grammar, owner: AllomorphOwner) -> 
     owning_table_for_morpheme(g, morpheme)
 }
 
-/// [`owning_table_for_prule`]'s sibling over `g.strata[..].mrules` instead of `.prules` --
-/// [`owning_table_for_allomorph`] cannot resolve a [`MorphRuleDef::Compounding`] rule at all (it
+/// `owning_table_for_prule`'s sibling over `g.strata[..].mrules` instead of `.prules` --
+/// `owning_table_for_allomorph` cannot resolve a `MorphRuleDef::Compounding` rule at all (it
 /// mints no `AllomorphOwner`, unlike `AffixProcess`/`Realizational`, both of which carry their own
-/// `MorphemeId` and so resolve via [`owning_table_for_morpheme`] instead of needing this). This is
+/// `MorphemeId` and so resolve via `owning_table_for_morpheme` instead of needing this). This is
 /// NOT a fourth independent resolution strategy: it is `owning_table_for_prule`'s own "which
 /// stratum's own cascade contains this id" algorithm, applied to the one `Grammar` list
 /// (`mrules`) that algorithm doesn't already cover -- the minimal completion `morph::
@@ -140,10 +140,10 @@ pub(crate) fn owning_table_for_mrule(g: &Grammar, mrid: MRuleId) -> Option<Table
         .map(|s| s.table)
 }
 
-/// [`owning_table_for_mrule`]'s sibling for a caller that holds a [`CompoundingRuleDef`] value but
-/// not its [`MRuleId`] -- `morph::synth_compound`/`ana_compound`, the standalone (uncached,
+/// `owning_table_for_mrule`'s sibling for a caller that holds a `CompoundingRuleDef` value but
+/// not its `MRuleId` -- `morph::synth_compound`/`ana_compound`, the standalone (uncached,
 /// non-grammar-resident-fixture-friendly) entry points reached via `morph::synthesize`/`analyze`
-/// with no `MRuleId` in scope at all, exactly mirroring [`owning_table_for_metathesis_rule`]'s own
+/// with no `MRuleId` in scope at all, exactly mirroring `owning_table_for_metathesis_rule`'s own
 /// "resolve by `xml_id`, then delegate" shape for the identical reason (`metathesis::synthesize`/
 /// `analyze` have the same no-id-in-scope shape one crate module over). `None` both when `rule`
 /// isn't grammar-resident (a hand-built fixture) and when it is resident but orphaned; callers fall
@@ -160,7 +160,7 @@ pub(crate) fn owning_table_for_compounding_rule(
     owning_table_for_mrule(g, MRuleId(idx as u32))
 }
 
-/// Per-[`AllomorphId`] precompiled matchers, shared by root and affix allomorphs (both draw from the
+/// Per-`AllomorphId` precompiled matchers, shared by root and affix allomorphs (both draw from the
 /// same global registry, `Grammar::allomorph_owners`). `envs` backs `crate::validity`'s
 /// per-environment gate (populated for both owner kinds); `synth_lhs`/`ana_lhs` are
 /// `AffixAllomorphDef`-only (a root allomorph has no `MorphologicalInput`/RHS to compile, so both
@@ -184,7 +184,7 @@ pub(crate) struct AllomorphCache {
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum PruleCacheEntry {
     Rewrite(PruleCache),
-    /// Boxed: [`MetaCache`] grew past the lint's threshold when the metathesis analysis fix added a
+    /// Boxed: `MetaCache` grew past the lint's threshold when the metathesis analysis fix added a
     /// `Grammar`-dependent `ana_pattern_len` field (the middle-node boundary check needs the grammar
     /// to classify a node). Boxing keeps every slot of a mostly-`Rewrite` `Vec` from paying the
     /// metathesis cache's size; metathesis rules are rare, so the one allocation is free in practice.

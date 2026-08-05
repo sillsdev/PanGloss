@@ -1,6 +1,6 @@
 //! Gate for `pg_foma::emit::verify_tags_reachable` (`emit.rs`'s own doc on that function): the
 //! post-emission detection originally added to close what was BELIEVED to be a silent recall-loss
-//! class in [`pg_foma::emit::emit_underlying_templated`].
+//! class in `pg_foma::emit::emit_underlying_templated`.
 //!
 //! ## Background
 //! `tests/p6_templated_morphotactics_gate.rs`'s own `BASELINE_MISSES` doc found that Aweti's

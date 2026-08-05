@@ -1,8 +1,8 @@
 //! The gloss-bundle extraction layer: additive, display-only presentation of an analysis, on top
 //! of the frozen parity engine.
 //!
-//! [`gloss_bundle`] resolves a [`pg_parse::WordAnalysis`]'s grammar-tier morpheme ordinals against
-//! `Grammar::morphemes` to produce a [`GlossBundle`], and [`leipzig`] renders that bundle as a
+//! `gloss_bundle` resolves a `pg_parse::WordAnalysis`'s grammar-tier morpheme ordinals against
+//! `Grammar::morphemes` to produce a `GlossBundle`, and `leipzig` renders that bundle as a
 //! Leipzig-style gloss string (`house-pl-poss.1s`). Neither function touches `result_signature`,
 //! `ParseOutcome.analyses`, or any other parity-frozen output — this crate is consumed only by
 //! new, additive call sites (`pg-cli`'s `--gloss` flag today; later IR/realizer layers build on
@@ -11,22 +11,22 @@
 //! Degrades gracefully everywhere: an out-of-range morpheme ordinal, a missing gloss, or a
 //! guessed root never panics — worst case is a `[?]` token in the rendered string.
 //!
-//! [`ir`] defines a typed IR on top of the gloss bundle: [`ir::GlossIr`] and its closed-enum
-//! feature slots, and [`map`] defines [`map::RealizeMap`], the per-grammar sidecar mapping from
-//! raw gloss strings to those features. [`ir::to_ir`] builds a `GlossIr` from a `GlossBundle` the
+//! `ir` defines a typed IR on top of the gloss bundle: `ir::GlossIr` and its closed-enum
+//! feature slots, and `map` defines `map::RealizeMap`, the per-grammar sidecar mapping from
+//! raw gloss strings to those features. `ir::to_ir` builds a `GlossIr` from a `GlossBundle` the
 //! same way `gloss_bundle`/`leipzig` are built: total, additive, never touching parity output.
 //!
-//! [`realize`] defines the realizer layer on top of the IR: the [`realize::Realizer`] trait and
-//! its [`realize::Realization`] result type (the Architecture-A upgrade seam, see that module's
-//! doc), and [`table`] defines [`table::TableRealizer`], a compile-time English
+//! `realize` defines the realizer layer on top of the IR: the `realize::Realizer` trait and
+//! its `realize::Realization` result type (the Architecture-A upgrade seam, see that module's
+//! doc), and `table` defines `table::TableRealizer`, a compile-time English
 //! construction-table implementation.
 //!
-//! [`infer`]: `infer_english` builds a [`RealizeMap`] straight from a grammar's affix glosses via
+//! `infer`: `infer_english` builds a `RealizeMap` straight from a grammar's affix glosses via
 //! a built-in English alias table, so grammars without a hand-authored sidecar still get
 //! natural-ish phrases. Wiring the inferred-map/sidecar-override precedence into `pg-wasm` is a
 //! separate, later phase.
 //!
-//! [`signature`]: a canonical string encoding of a word's whole analysis set (`gloss_bundle`'s
+//! `signature`: a canonical string encoding of a word's whole analysis set (`gloss_bundle`'s
 //! tokens plus each analysis's surface shape), for shared use across downstream consumers that
 //! need to compare whole analysis sets — see that module's doc for the full encoding, and its own
 //! top-of-file note for why it is a parallel format next to `pg_parse::result_signature`, never a
@@ -51,7 +51,7 @@ pub use signature::{gloss_analysis_set_signature, gloss_signature_entry, word_gl
 pub use table::TableRealizer;
 
 /// One morpheme's display data, resolved from `Grammar::morphemes` (or synthesized for the
-/// guessed-root sentinel / an out-of-range ordinal — see [`gloss_bundle`]'s doc for the exact
+/// guessed-root sentinel / an out-of-range ordinal — see `gloss_bundle`'s doc for the exact
 /// resolution rules).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlossToken {
@@ -69,7 +69,7 @@ pub struct GlossToken {
 
 /// A word analysis's morphemes resolved to display data, in surface morpheme order (root
 /// included at its own position — not pulled out separately) — the Rust mirror of C#'s
-/// `Morpher.cs` gloss display data, built fresh per analysis by [`gloss_bundle`].
+/// `Morpher.cs` gloss display data, built fresh per analysis by `gloss_bundle`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlossBundle {
     /// One token per `WordAnalysis.morpheme_ids` entry, same order, same length.
@@ -84,8 +84,8 @@ pub struct GlossBundle {
     pub guessed: bool,
 }
 
-/// Resolve one [`WordAnalysis`]'s morpheme ordinals against `grammar.morphemes` into a
-/// [`GlossBundle`], in morpheme order.
+/// Resolve one `WordAnalysis`'s morpheme ordinals against `grammar.morphemes` into a
+/// `GlossBundle`, in morpheme order.
 ///
 /// Each `wa.morpheme_ids[i]` is a dense ordinal into `grammar.morphemes` EXCEPT the sentinel
 /// `u32::MAX` (`pg_grammar::model::MorphemeId::GUESSED`), which is the fabricated root a
@@ -135,7 +135,7 @@ pub fn gloss_bundle(grammar: &Grammar, wa: &WordAnalysis) -> GlossBundle {
     }
 }
 
-/// Render a [`GlossBundle`] as a Leipzig-style gloss string: each token's rendering, joined with
+/// Render a `GlossBundle` as a Leipzig-style gloss string: each token's rendering, joined with
 /// `-` (`house-pl-poss.1s`). A token renders as, in priority order: its `gloss` if present; else,
 /// when it is the bundle's (guessed) root, `*{surface_word}*`; else `[?]` (an unglossed real
 /// morpheme, or a defensive out-of-range ordinal). An empty bundle renders as the empty string.

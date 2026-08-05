@@ -1,10 +1,10 @@
-//! The single-owner invariant for [`pg_foma::grammar_semantics::GrammarSemantics`].
+//! The single-owner invariant for `pg_foma::grammar_semantics::GrammarSemantics`.
 //!
 //! The invariant this pins: **no migrated consumer re-reads `Grammar` to decide something
 //! `GrammarSemantics` already owns.** Two shapes of evidence, and they are not equally strong --
 //! stated plainly rather than padded:
 //!
-//! 1. **Call counting (the real gate).** [`pg_foma::capability::characterize`] is the expensive
+//! 1. **Call counting (the real gate).** `pg_foma::capability::characterize` is the expensive
 //!    walk -- it builds real `foma::types::Fsm` networks for `Simultaneous`-mode subrules -- and
 //!    nothing memoized it before this task. `select_plan` called it ONCE PER CANDIDATE PLAN and
 //!    `preflight_findings` called it twice. Both assertions below FAIL on the pre-7.11 code (2 and

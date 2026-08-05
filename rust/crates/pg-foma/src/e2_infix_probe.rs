@@ -3,7 +3,7 @@
 //! (root-and-pattern interdigitation: `-ipfv-`/`-conv-`/`-pfv-`) into UNDERLYING token-space
 //! composite entries — via the plain, non-recursive `pg_rules::morph::synthesize`, not
 //! `crate::preexpand`'s real-phonology probe — then composing with the already-proven replace-rule
-//! cascade ([`crate::replace`]), reach 100% propose recall on Amharic's corpus?
+//! cascade (`crate::replace`), reach 100% propose recall on Amharic's corpus?
 //!
 //! ## Why this question needed asking
 //! No earlier prototype exercises Amharic's actual
@@ -24,14 +24,14 @@
 //! precision machinery is unconditionally absent (real phonology is the downstream replace-rule
 //! cascade's job here, not this emitter's — advisor guidance recorded in the E2 build session:
 //! "turned OFF in underlying mode, not refit"). Leaf text is
-//! [`crate::replace::SegAlphabet::encode_shape`] (one PUA token per char-def; no
+//! `crate::replace::SegAlphabet::encode_shape` (one PUA token per char-def; no
 //! representation-variant cartesian product needed at all — token space already collapses that
 //! dimension, `crate::replace`'s own module doc). This is a fresh, self-contained implementation
 //! (not a refactor of `emit.rs`) precisely because it must stay decoupled from `emit.rs`'s mainline
 //! behavior while the GO/NO-GO call is still open — see the E2 task's own log for why touching
 //! `emit.rs` itself was deferred to the (not-yet-authorized) mainline build step.
 //!
-//! ## The Infix splice mechanism ([`build_splice_composites`])
+//! ## The Infix splice mechanism (`build_splice_composites`)
 //! For each (root allomorph × Infix rule) pair: seed a `pg_rules::word::Word` EXACTLY the way
 //! `crate::preexpand::process_root_work` does (feature-bearing re-segmentation via
 //! `pg_rules::shape_feat::segment_with_features`, the entry's own REAL `syn_fs`/`mpr` — never
@@ -68,10 +68,10 @@ pub struct UProbeResult {
     /// so it's a flat diagnostic list, not a structured `UncoveredItem`).
     pub uncovered: Vec<String>,
     pub root_count: usize,
-    /// How many mrules [`special_rules_u`] routed into the splice mechanism at all (Infix +
+    /// How many mrules `special_rules_u` routed into the splice mechanism at all (Infix +
     /// structural/truncating + process-morph rules — module doc there).
     pub special_rule_count: usize,
-    /// [`build_splice_composites`]'s own output counts: composite entries emitted, (word, rule)
+    /// `build_splice_composites`'s own output counts: composite entries emitted, (word, rule)
     /// pairs actually attempted (after the required-FS pre-filter, at every recursion depth), and
     /// how many of those pairs produced MORE than one `Word` from `synthesize` (ambiguous-match
     /// fan-out — the E2 build session's risk #2).
@@ -383,8 +383,8 @@ fn rhs_drops_lhs_material_u(a: &AffixAllomorphDef) -> bool {
 }
 
 /// Mirrors `crate::emit::is_structural_rule` (same visibility reasoning as
-/// [`rhs_drops_lhs_material_u`]). Scoped to `Role::None`/`Prefix`/`Suffix` (an `Infix` rule is
-/// always in [`special_rules_u`]'s set on its own account; `Role::CircumfixPrefix` is
+/// `rhs_drops_lhs_material_u`). Scoped to `Role::None`/`Prefix`/`Suffix` (an `Infix` rule is
+/// always in `special_rules_u`'s set on its own account; `Role::CircumfixPrefix` is
 /// unconditionally structural per emit.rs's doc, but Amharic has zero of those, verified by the E2
 /// census — kept for parity, costs nothing to check).
 fn is_structural_rule_u(g: &Grammar, mid: MRuleId) -> bool {
@@ -462,7 +462,7 @@ fn special_rules_u(g: &Grammar) -> Vec<MRuleId> {
         .collect()
 }
 
-/// Bound on [`encode_shape_variants`]'s cartesian product — mirrors
+/// Bound on `encode_shape_variants`'s cartesian product — mirrors
 /// `crate::preexpand::MAX_RENDER_VARIANTS` (same value, same rationale: that module's own doc
 /// measured Ge'ez vowel-quality ambiguity at ~30% of all probed segments on Amharic, "the ORDINARY
 /// case for this templatic language family, not a rare exception", so the cap must stay SMALL, not
@@ -477,7 +477,7 @@ const SPLICE_MAX_RENDER_VARIANTS: usize = 4;
 /// preferred token — fall through to every table `Segment` char-def whose feature lanes unify with
 /// the node's CURRENT lanes (mirrors `crate::preexpand::matching_reps_local` exactly, but in TOKEN
 /// space rather than literal-representation space), cartesian-producting across every such
-/// ambiguous position, capped at [`SPLICE_MAX_RENDER_VARIANTS`].
+/// ambiguous position, capped at `SPLICE_MAX_RENDER_VARIANTS`.
 ///
 /// **How this was found**: mrule31's `ModifyFromInput` (a `Suffix`-classified rule that changes the
 /// stem's own final-consonant identity — gemination/ablaut) produces exactly this shape once
@@ -545,7 +545,7 @@ fn encode_shape_variants(alphabet: &SegAlphabet<'_>, shape: &pg_shape::Shape) ->
 /// "dirty" steps the way `preexpand.rs` optimizes for entry-count — this probe doesn't need that
 /// optimization, and always-emit is simpler and still upward-safe), then recurses through `rules`
 /// again (skipping any rule already in `chain`, same `multipleApplication = 1` default guard
-/// `preexpand.rs` uses) up to [`SPLICE_MAX_EXTRA_RULES`].
+/// `preexpand.rs` uses) up to `SPLICE_MAX_EXTRA_RULES`.
 #[allow(clippy::too_many_arguments)]
 fn splice_extend_u(
     g: &Grammar,
@@ -610,8 +610,8 @@ fn splice_extend_u(
 }
 
 /// The splice mechanism's outer loop: seed a real-`syn_fs` `Word` per root allomorph (same
-/// convention `crate::preexpand::process_root_work` uses), then recurse via [`splice_extend_u`]
-/// over [`special_rules_u`]'s small candidate set. Returns `(composites, pairs_probed,
+/// convention `crate::preexpand::process_root_work` uses), then recurse via `splice_extend_u`
+/// over `special_rules_u`'s small candidate set. Returns `(composites, pairs_probed,
 /// ambiguous_pairs)`.
 fn build_splice_composites(
     g: &Grammar,

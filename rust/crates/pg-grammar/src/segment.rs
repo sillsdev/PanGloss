@@ -1,8 +1,8 @@
-//! Word -> [`Shape`] segmentation (plan §5.2, §8 layer 1 segmentation gate).
+//! Word -> `Shape` segmentation (plan §5.2, §8 layer 1 segmentation gate).
 //!
 //! Ports C# `CharacterDefinitionTable.GetShapeNodes`/`Segment` (`CharacterDefinitionTable.cs:
-//! 108-240`). [`segment`] is `allowPattern = false`, used everywhere *except* one call site.
-//! [`segment_with_patterns`] is `allowPattern = true` (natural-class references `[Seg]`, optional
+//! 108-240`). `segment` is `allowPattern = false`, used everywhere *except* one call site.
+//! `segment_with_patterns` is `allowPattern = true` (natural-class references `[Seg]`, optional
 //! groups `([Seg])`, Kleene star `[Seg]*`), and per a grep-trace of every `new Segments(table,
 //! str, ...)` call site in `XmlLanguageLoader.cs`, **exactly one** caller passes `allowPattern =
 //! true`: `LoadRootAllomorph` (`cs:501`) — i.e. plain lexicon **root-allomorph** shapes. Every
@@ -10,7 +10,7 @@
 //! affix-allomorph shapes) uses the 2-argument (`allowPattern = false`) form. An earlier version
 //! of this doc comment asserted the *opposite* (pattern syntax reached only from rule/environment
 //! parsing, never plain word segmentation) — that was backwards; corrected per phase-2 audit C
-//! finding N3, which also ports [`segment_with_patterns`] itself (this file previously had no
+//! finding N3, which also ports `segment_with_patterns` itself (this file previously had no
 //! pattern-language implementation at all, so a root-allomorph `<PhoneticShape>` containing a
 //! literal-non-matching `[`, `(`, or `*` would error out of `segment()` and the whole allomorph
 //! would be silently dropped by the caller's `is_droppable` handling).
@@ -23,7 +23,7 @@ use crate::chardef::{CharDefKind, CharDefTable};
 use crate::model::{NaturalClass, NaturalClassKind};
 use crate::nfd::{is_nfd, nfd};
 
-/// A word could not be segmented against a [`CharDefTable`] — no character definition matches at
+/// A word could not be segmented against a `CharDefTable` — no character definition matches at
 /// `position`. Mirrors C# `InvalidShapeException`.
 #[derive(Debug, Error, PartialEq, Eq)]
 #[error("cannot segment {word:?}: no character definition matches at position {position}")]
@@ -34,13 +34,13 @@ pub struct InvalidShape {
     pub position: usize,
 }
 
-/// Segment `word` into a [`Shape`] via greedy longest-match against `table`, matching C#
+/// Segment `word` into a `Shape` via greedy longest-match against `table`, matching C#
 /// `CharacterDefinitionTable.Segment(str, allowPattern: false)`.
 ///
 /// Algorithm: NFD-normalize `word`; walk left to right; at each position try substring lengths
 /// from longest-remaining down to 1 and take the first that matches an entry in `table`'s
 /// segmentation lookup (segments and boundaries share one lookup, disambiguated by
-/// [`CharDefKind`] on the match). A [`pg_shape::NodeKind::Boundary`] match becomes an optional
+/// `CharDefKind` on the match). A `pg_shape::NodeKind::Boundary` match becomes an optional
 /// node (`ShapeBuilder::push_boundary`); everything else is a plain segment node.
 ///
 /// # Error-position remap (judgment call — see module docs)
@@ -102,11 +102,11 @@ pub fn segment(table: &CharDefTable, word: &str) -> Result<Shape, InvalidShape> 
 /// `compile::environment::validate_environment`'s upfront dry run) must therefore fail
 /// to recognize such a token even when it happens to collide with a boundary's representation —
 /// e.g. Sena 3's `/ o ... _` environment (guid `6f252993`, on the "separado" affix rule's `ok`
-/// allomorph): every table always carries the synthetic `.` boundary, so plain [`segment`] happily
+/// allomorph): every table always carries the synthetic `.` boundary, so plain `segment` happily
 /// parses the literal `...` token as three optional boundary nodes, but no *phoneme* named `.`
 /// exists, so FieldWorks' own recognizer rejects this environment outright (an "Unrecognized
 /// phoneme" syntax error) and HCLoader falls back to treating the environment as blank/absent.
-/// Using [`segment`] here was a confirmed bug: it accepted this environment as valid literal
+/// Using `segment` here was a confirmed bug: it accepted this environment as valid literal
 /// context and embedded a bogus `SEG[...]` node straight into the rule's LHS pattern, something
 /// legacy's loader never does for any grammar.
 pub fn segment_phonemes_only(table: &CharDefTable, word: &str) -> Result<Shape, InvalidShape> {
@@ -142,7 +142,7 @@ pub fn segment_phonemes_only(table: &CharDefTable, word: &str) -> Result<Shape, 
     Ok(builder.finish())
 }
 
-/// Segment `word` into a [`Shape`] via greedy longest-match, falling back to the HC pattern
+/// Segment `word` into a `Shape` via greedy longest-match, falling back to the HC pattern
 /// language at any position where no literal character-definition substring matches (C#
 /// `CharacterDefinitionTable.Segment(str, allowPattern: true)`/`GetShapeNodes`,
 /// `CharacterDefinitionTable.cs:108-219`) — used **only** by `load_root_allomorph` (see this
@@ -153,7 +153,7 @@ pub fn segment_phonemes_only(table: &CharDefTable, word: &str) -> Result<Shape, 
 ///   XML `id` (C# `LoadNaturalClass` keys `_naturalClassLookup` by `nc.Name = (string)
 ///   natClassElem.Element("Name")`, `XmlLanguageLoader.cs:704,713,719`, a different key than
 ///   `SimpleContext@naturalClass`'s `id`-based lookup elsewhere in this crate — easy to
-///   mis-port). Produces a `NO_CHAR_DEF` segment node whose [`CdSet`] is the class's real member
+///   mis-port). Produces a `NO_CHAR_DEF` segment node whose `CdSet` is the class's real member
 ///   set (this port's Tier-1 #3 convention for an abstract/natural-class-only node, in place of
 ///   C#'s lazy `IsUnifiable`-at-render-time `FeatureStruct` reference).
 /// - `([ClassName])` — the class reference is optional (C# `Annotation.Optional = true` on the
@@ -167,7 +167,7 @@ pub fn segment_phonemes_only(table: &CharDefTable, word: &str) -> Result<Shape, 
 ///   exactly, not a semantic "was the last node a class" check).
 ///
 /// An unclosed `(` (EOF while `optional` is still set) or any other unrecognized character fails
-/// at that position, exactly like [`segment`]'s literal-only failure.
+/// at that position, exactly like `segment`'s literal-only failure.
 pub fn segment_with_patterns(
     table: &CharDefTable,
     natural_classes: &[NaturalClass],
@@ -271,7 +271,7 @@ pub fn segment_with_patterns(
 /// every `Segment`-kind character definition in `table` whose feature lanes satisfy every pinned
 /// `(lane, symbols)` constraint (`NaturalClassKind::Feature` always includes the synthetic
 /// `Type=Segment` pin — see `load_phon_constraints` — so boundaries can never be members). Falls
-/// back to [`CdSet::Unrestricted`] when every segment in the table qualifies.
+/// back to `CdSet::Unrestricted` when every segment in the table qualifies.
 fn nat_class_cd_set(table: &CharDefTable, nc: &NaturalClass) -> CdSet {
     match &nc.kind {
         NaturalClassKind::Segments(segs) => {
@@ -303,7 +303,7 @@ fn nat_class_cd_set(table: &CharDefTable, nc: &NaturalClass) -> CdSet {
     }
 }
 
-/// Port of `GetShapeNodes`' `errorPos` remap (see [`segment`]'s doc comment for the rationale).
+/// Port of `GetShapeNodes`' `errorPos` remap (see `segment`'s doc comment for the rationale).
 fn remap_error_position(original_word: &str, normalized_chars: &[char], i: usize) -> usize {
     if is_nfd(original_word) {
         return i;

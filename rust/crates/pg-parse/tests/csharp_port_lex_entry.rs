@@ -1,12 +1,12 @@
 //! Ports `LexEntryTests` (parse-opt: `tests/SIL.Machine.Morphology.HermitCrab.Tests/LexEntryTests.cs`)
 //! bucket-B rows per `rust/parity-out/audit/phase2/D-test-coverage-map.md` §3. Grammar/lexicon shared
-//! via [`csharp_port_common`] (entries `disj`/`free`/`54` transcribed verbatim from
+//! via `csharp_port_common` (entries `disj`/`free`/`54` transcribed verbatim from
 //! `HermitCrabTestBase.cs`); every test drives `pg_parse::Morpher::parse_word`, matching each C#
 //! test's own `morpher.ParseWord(...)` calls. Expected values are transcribed from the C# source's
 //! `AssertMorphsEqual`/`Is.Empty` literals.
 //!
 //! `StemNames` (D-batch-3) is now ported here — the W5 realizational-cluster port unlinted
-//! `StemName` (see [`stem_names`]). `BoundRootAllomorph`/`AllomorphEnvironments` (already bucket A
+//! `StemName` (see `stem_names`). `BoundRootAllomorph`/`AllomorphEnvironments` (already bucket A
 //! via `pg-rules/tests/validity_gate.rs`) remain out of this file's scope.
 
 mod csharp_port_common;
@@ -16,7 +16,7 @@ use pg_parse::Morpher;
 /// Ports `LexEntryTests.DisjunctiveAllomorphs` (LexEntryTests.cs:13-39), positive/live half. The
 /// "disj" root's 4 allomorphs are environment-disjunctive; the un-suffixed and "baz"-suffixed forms
 /// (which don't turn on the boundary-transparency question raised in
-/// [`disjunctive_allomorphs_environment_across_boundary_diverges`]) round-trip correctly.
+/// `disjunctive_allomorphs_environment_across_boundary_diverges`) round-trip correctly.
 #[test]
 fn disjunctive_allomorphs() {
     let g = build_grammar("", "", ED_UD_SUFFIX_MRULE, "mrEd", "");
@@ -133,7 +133,7 @@ fn partial_entry() {
 /// per this file's module doc; the W5 realizational-cluster port unlints `StemName`). The
 /// `stemname` root (`HermitCrabTestBase.cs:722-768`: FS `{V, head:{tense:pres}}`, allomorphs
 /// `san`/`sad`/`sap`, with `sad` restricted to stem name `sn1` = regions `{pers:1}|{pers:2}` and
-/// `sap` to `sn2` = `{pers:1}|{pers:3}`) is supplied via [`build_grammar_w5`]'s extra-lexicon
+/// `sap` to `sn2` = `{pers:1}|{pers:3}`) is supplied via `build_grammar_w5`'s extra-lexicon
 /// block; three suffix rules assign `pers` 1/2/3 via `OutputHeadFeatures` exactly as the C# test's
 /// `ed`/`t`/`s` suffixes do. Every `AssertMorphsEqual` literal is transcribed verbatim; the
 /// interesting rows are `sadɯd`/`sapɯd` (same `pers=1`, DIFFERENT allomorphs both valid, because

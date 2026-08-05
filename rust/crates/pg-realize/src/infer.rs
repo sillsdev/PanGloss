@@ -1,9 +1,9 @@
 //! Built-in English gloss-alias inference for the `PanGloss-demo` consumer, so a grammar with no
 //! `realize.toml` sidecar (`crate::map`'s `RealizeMap::empty()` path) still gets natural-ish
 //! phrases out of the box instead of every affix falling straight through to
-//! [`crate::ir::GlossIr::extras`].
+//! `crate::ir::GlossIr::extras`.
 //!
-//! [`infer_english`] builds a [`RealizeMap`] directly from a grammar's affix-morpheme gloss
+//! `infer_english` builds a `RealizeMap` directly from a grammar's affix-morpheme gloss
 //! strings — no sidecar file, no grammar-specific tuning. Token normalization: lowercase, then
 //! split on `.`, `-`, `_`, `:`; the resulting token set is matched against a small built-in
 //! alias table (Num/Poss/Case, below). Only glosses actually present in the input iterator get
@@ -26,7 +26,7 @@
 //!   split masculine from feminine (contrast a grammar with its own gendered gloss inventory,
 //!   e.g. amharic's `poss.2m`/`poss.2f`, which a sidecar `realize.toml` can still map precisely).
 //!   A grammar that needs the feminine variant corrects this per gloss key via a sidecar and
-//!   [`RealizeMap::extend_overriding`] — sidecar wins, this inferred base is just a starting
+//!   `RealizeMap::extend_overriding` — sidecar wins, this inferred base is just a starting
 //!   point.
 //! - **Case**: `loc`/`locative` -> `Case::Loc`; `abl`/`ablative` -> `Case::Abl`; `all`/
 //!   `allative` -> `Case::All`.
@@ -39,12 +39,12 @@
 use crate::ir::{CaseRole, Num, Poss};
 use crate::map::{FeatureAssignment, RealizeMap};
 
-/// Build a [`RealizeMap`] by matching each gloss in `glosses` against the built-in English
+/// Build a `RealizeMap` by matching each gloss in `glosses` against the built-in English
 /// alias table (module docs above). `glosses` is expected to be a grammar's affix-morpheme
 /// gloss strings (e.g. iterated from `Grammar::morphemes`); only glosses that actually match an
 /// alias produce an entry, keyed by the exact (un-normalized) string as given by the iterator —
-/// the same key shape [`crate::map::RealizeMap::lookup`] is called with from
-/// [`crate::ir::to_ir`] (a token's raw `gloss` string, verbatim).
+/// the same key shape `crate::map::RealizeMap::lookup` is called with from
+/// `crate::ir::to_ir` (a token's raw `gloss` string, verbatim).
 pub fn infer_english<'a>(glosses: impl Iterator<Item = &'a str>) -> RealizeMap {
     let mut map = RealizeMap::empty();
     for gloss in glosses {

@@ -8,7 +8,7 @@
 //! failure mode propose-and-confirm cannot recover from (a candidate that is never even offered can
 //! never be confirmed).
 //!
-//! `emit_underlying_templated` now reuses [`pg_foma::emit::build_compound_chain`] -- the SAME
+//! `emit_underlying_templated` now reuses `pg_foma::emit::build_compound_chain` -- the SAME
 //! shared, depth-budgeted chain construction `emit_with_budget_profiled` (the production
 //! `SurfaceProbed`/`FomaProposer` path) already used for this, extracted out of that function's own
 //! former closure so both emitters drive ONE construction, not two that can drift
@@ -20,11 +20,11 @@
 //! `g.templates` is non-empty, so a template-less grammar is the minimal vehicle that still reaches
 //! `emit_underlying_templated`'s compounding code path; `has_template_less_section` is `true`
 //! whenever `has_compounding_rules` is, independent of templates). The per-group `G{gi}Cmp` chain
-//! calls the EXACT SAME shared [`pg_foma::emit::build_compound_chain`] function with the same
+//! calls the EXACT SAME shared `pg_foma::emit::build_compound_chain` function with the same
 //! `compound_extra_levels`/license arguments (see `emit.rs`'s own "Per-group root sections" comment),
 //! so this file's coverage of the shared function is not narrowed by avoiding templates here.
 //!
-//! [`pg_foma::emit::emit_underlying_templated`] has no production caller in this crate today
+//! `pg_foma::emit::emit_underlying_templated` has no production caller in this crate today
 //! (`grep` confirms zero call sites outside `tests/`) -- it is driven directly here, exactly like
 //! `tests/p6_templated_morphotactics_gate.rs`'s own `run_emit_compile_compose`/`run_spot_check`
 //! helpers: emit -> `foma::lexcread::fsm_lexc_parse_string` -> `foma::apply::apply_init` ->

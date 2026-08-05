@@ -2,37 +2,37 @@
 //! mechanisms -- see the C1/C2/C3 sections below for each precedence case.
 //!
 //! ## C1 (`emit::rule_role`/`emit::is_structural_rule` — non-first-allomorph selection)
-//! [`non_first_allomorph_circumfix_recall_parity`] is the proposer-to-confirm containment check for
+//! `non_first_allomorph_circumfix_recall_parity` is the proposer-to-confirm containment check for
 //! `conformance-staging/edge-cases/circumfix-non-first-allomorph-selection` (the staged fixture: one
 //! rule, allomorph 0 an ordinary suffix, allomorph 1 — declared SECOND — circumfix-shaped).
-//! [`circumfix_allomorph_selection_is_order_independent`] is the invariant the bug violated: the
+//! `circumfix_allomorph_selection_is_order_independent` is the invariant the bug violated: the
 //! SAME rule, with its two allomorphs declared in the OTHER order, must be admitted into
-//! [`pg_foma::emit::build_structural_composites`] (via [`pg_foma::emit::composite_candidate_rules`]'s
+//! `pg_foma::emit::build_structural_composites` (via `pg_foma::emit::composite_candidate_rules`'s
 //! public `structural_candidate_count`) and pass the identical containment check. These two inline
 //! grammars are hand-authored Rust string constants (mirroring `phase_c_circumfix.rs`'s own
 //! `ORDERED_MULTI_INSERT_XML`/`NULL_ROLE_STRUCTURAL_DROP_XML` precedent for an internal-invariant
 //! check that is not itself a new conformance corpus entry) rather than a second staged fixture.
 //!
 //! ## C3 (`emit::classify_affix` — infix-preempts-circumfix precedence)
-//! [`circumfix_infix_interior_action_recall_parity`] is the proposer-to-confirm containment check
+//! `circumfix_infix_interior_action_recall_parity` is the proposer-to-confirm containment check
 //! for `conformance-staging/edge-cases/circumfix-infix-interior-action-precedence` (the staged
 //! fixture: one allomorph that is simultaneously circumfixing AND infixing).
-//! [`circumfix_infix_ownership_handoff_is_clean`] checks the OTHER mechanism's own candidate set
-//! (`crate::preexpand`, read via the same public [`pg_foma::emit::composite_candidate_rules`]
+//! `circumfix_infix_ownership_handoff_is_clean` checks the OTHER mechanism's own candidate set
+//! (`crate::preexpand`, read via the same public `pg_foma::emit::composite_candidate_rules`
 //! diagnostic) drops this rule cleanly the moment it reclassifies `CircumfixPrefix` — so the two
 //! composite mechanisms never both claim it and never both drop it.
 //!
 //! ## C2 (`emit::classify_affix` — reduplication-preempts-circumfix precedence)
-//! [`circumfix_reduplication_recall_parity`] is the proposer-to-confirm containment check for
+//! `circumfix_reduplication_recall_parity` is the proposer-to-confirm containment check for
 //! `conformance-staging/edge-cases/circumfix-reduplication-precedence` (the staged fixture: one
 //! allomorph that is simultaneously circumfixing AND reduplicating — the same LHS part `Copy`d
 //! twice, wrapped by a leading and a trailing insert). Unlike C3, this is not merely an ownership
-//! relabeling of an already-correct outcome: [`peel_relinquishes_circumfix_reduplication_cleanly`]
+//! relabeling of an already-correct outcome: `peel_relinquishes_circumfix_reduplication_cleanly`
 //! checks the OTHER mechanism this Role feeds (`crate::peel::ReduplicationPeeler`, whose four scan
 //! kinds are each one-sided surface matches that cannot recall a genuine wrap-both-sides-plus-
 //! reduplication surface) drops the rule cleanly — `has_redup_rules()` must be `false` for this
 //! grammar once `classify_affix` stops calling this shape `Role::Reduplication`.
-//! [`c1_and_c3_selection_is_unperturbed_by_the_c2_fix`] re-runs C1's and C3's own staged fixtures
+//! `c1_and_c3_selection_is_unperturbed_by_the_c2_fix` re-runs C1's and C3's own staged fixtures
 //! through the same public diagnostics C1/C3's own tests use, pinning that neither's selection
 //! outcome moved as a side effect of the C2 fix.
 
@@ -194,7 +194,7 @@ const SUFFIX_THEN_CIRCUMFIX_XML: &str = r#"<HermitCrabInput><Language><Name>Orde
   </Strata>
 </Language></HermitCrabInput>"#;
 
-/// IDENTICAL rule to [`SUFFIX_THEN_CIRCUMFIX_XML`], except the two `MorphologicalSubrule` blocks
+/// IDENTICAL rule to `SUFFIX_THEN_CIRCUMFIX_XML`, except the two `MorphologicalSubrule` blocks
 /// are swapped: allomorph 0 is now the circumfix, allomorph 1 the ordinary suffix. Under the OLD
 /// (pre-C1-fix) code this order already worked (census's own "opposite order is safe" finding,
 /// since `rule_role`'s allomorph-0 view already reports `Role::CircumfixPrefix` here) — the point
@@ -283,7 +283,7 @@ fn circumfix_infix_interior_action_recall_parity() {
 
 /// The ownership-handoff check: once `mrCircInfix`'s allomorph reclassifies
 /// `CircumfixPrefix` (instead of `Infix`), `crate::preexpand`'s own candidate set must drop it
-/// cleanly (read via the same public [`emit::composite_candidate_rules`] diagnostic this crate
+/// cleanly (read via the same public `emit::composite_candidate_rules` diagnostic this crate
 /// already exposes for exactly this kind of cross-mechanism check) -- never double-claimed by both
 /// mechanisms, never silently dropped by both.
 #[test]

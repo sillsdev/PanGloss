@@ -3,19 +3,19 @@
 //! Faithful ports of two C# `SIL.Machine.Morphology.HermitCrab` primitives that together define the
 //! batch protocol's `surface` column and the `IsMatch` synthesis filter:
 //!
-//! - [`to_regex_display`] = `HermitCrabExtensions.ToRegexString(shape, table, displayFormat: true)`
+//! - `to_regex_display` = `HermitCrabExtensions.ToRegexString(shape, table, displayFormat: true)`
 //!   (HermitCrabExtensions.cs:209-249): for each shape node, emit the representations of every
 //!   character definition whose feature structure unifies with the node — `[..]` when more than one
 //!   matches (the underspecified `[gG]`), `(rep)` when a representation is multi-character (`(ng)`),
 //!   and a trailing `?` on an optional node (boundaries: `+?`). This is the exact string the golden
 //!   `BatchCommand.BuildSignature` prints after the `|`.
-//! - [`to_plain_string`] = `IEnumerable<ShapeNode>.ToString(table, includeBdry)`
+//! - `to_plain_string` = `IEnumerable<ShapeNode>.ToString(table, includeBdry)`
 //!   (HermitCrabExtensions.cs:251-269): for each non-deleted node (boundaries skipped when
 //!   `includeBdry` is false), take the FIRST matching representation only — no `[..]` alternation, no
 //!   multi-char parens, no `?` — and concatenate. This is what `Morpher.GenerateWords` renders as its
 //!   output surface string (Morpher.cs:222: `validWord.Shape.ToString(surfaceTable, false)`), a
-//!   different method from the signature's [`to_regex_display`], not just a formatting variant of it.
-//! - [`is_match`] = `CharacterDefinitionTable.IsMatch(word, shape)` (CharacterDefinitionTable.cs:274)
+//!   different method from the signature's `to_regex_display`, not just a formatting variant of it.
+//! - `is_match` = `CharacterDefinitionTable.IsMatch(word, shape)` (CharacterDefinitionTable.cs:274)
 //!   = `Regex.IsMatch(word.NFD, shape.ToRegexString(table, displayFormat:false).NFD)`. Rather than
 //!   pull in a regex engine, this is the equivalent structural match: the NFD input string is
 //!   consumed node-by-node, each node accepting any of its matching (NFD) representations, optional
@@ -25,18 +25,18 @@
 //! ## The `StrRep` analog
 //! C# matches on `cd.FeatureStruct.IsUnifiable(node.Annotation.FeatureStruct)`, whose feature
 //! structure includes the segment/boundary *type* symbol. Here the type is the node/char-def
-//! [`pg_shape::NodeKind`] / [`pg_grammar::chardef::CharDefKind`] (segment nodes match only segment
+//! `pg_shape::NodeKind` / `pg_grammar::chardef::CharDefKind` (segment nodes match only segment
 //! char-defs, boundary nodes only boundary char-defs), and the phonological lanes are compared with
-//! [`pg_featstruct::flat_unifiable`] (a boundary char-def carries no phonological features → empty
+//! `pg_featstruct::flat_unifiable` (a boundary char-def carries no phonological features → empty
 //! constraint → trivially unifiable, exactly as C#'s boundary FS unifies on lanes). Char-defs are
-//! visited in table document order ([`CharDefTable::iter`]), matching C#'s `foreach (cd in this)`,
+//! visited in table document order (`CharDefTable::iter`), matching C#'s `foreach (cd in this)`,
 //! so the representation order inside `[..]` is byte-identical to the golden.
 //!
 //! `CharacterDefinitionTable.Add` (`CharacterDefinitionTable.cs:68-81`) attaches `StrRep` **only**
 //! on the `fs == null` branch (zero authored phonological `<FeatureValue>`s, e.g. Sena); a
 //! feature-bearing grammar's segment carries `Type + features` and **no** `StrRep` at all
 //! (`XmlLanguageLoader.cs:670-673`). `matching_reps_for_node`'s concrete-identity gate (below)
-//! therefore falls back to [`CharDefTable::unifiable_cds`]'s build-time closure (Design A) when
+//! therefore falls back to `CharDefTable::unifiable_cds`'s build-time closure (Design A) when
 //! literal `char_def` equality misses — this is the synthesis-confirm counterpart of
 //! `root_trie.rs`'s same fallback, required because a
 //! rule can leave a node's `char_def` at its as-segmented identity (`root_trie.rs`'s "Stale
@@ -65,11 +65,11 @@ fn kind_matches(node: NodeKind, cd: &CharDef) -> bool {
 
 /// The representations of every char-def whose feature struct unifies with the node at `i`
 /// (`CharacterDefinitionTable.GetMatchingStrReps`, CharacterDefinitionTable.cs:96). `nfd = true`
-/// selects the NFD-normalized representations (for [`is_match`]); `false` the as-authored ones (for
-/// [`to_regex_display`], which prints what the golden prints). Order = table document order, then
+/// selects the NFD-normalized representations (for `is_match`); `false` the as-authored ones (for
+/// `to_regex_display`, which prints what the golden prints). Order = table document order, then
 /// representation order within a char-def.
 ///
-/// Delegates to [`matching_reps_for_node`], the node-view-generalized core (P11 §4.3): identical
+/// Delegates to `matching_reps_for_node`, the node-view-generalized core (P11 §4.3): identical
 /// behavior to before that split, just built from `shape`'s own accessors instead of inline.
 fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -> Vec<String> {
     let node_kind = shape.kind(i);
@@ -117,7 +117,7 @@ fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -
     matching_reps_for_node(table, node_kind, char_def, &cd_set, node_lanes, nfd)
 }
 
-/// The node-view-generalized core of [`matching_str_reps`]'s identity+lane predicate (P11 §4.3):
+/// The node-view-generalized core of `matching_str_reps`'s identity+lane predicate (P11 §4.3):
 /// takes a node's kind/identity/lanes directly rather than `(shape, i)`, so the guess matcher
 /// (`pg-parse/src/guess.rs::render_match`) can reuse the *exact* rendering rule
 /// `MatchNodesWithPattern`'s caller needs (`match.ToString(table, false)`,

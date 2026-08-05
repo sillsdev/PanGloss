@@ -101,7 +101,7 @@ fn load() -> Grammar {
 }
 
 /// The `LEXICON Root` block's own text (up to the next `LEXICON` header) — the section
-/// [`emit::emit`]'s bare-root path (module doc, "Bare-root paths") writes every root's
+/// `emit::emit`'s bare-root path (module doc, "Bare-root paths") writes every root's
 /// `"#"`-continuation entry into. Slicing to just this block (rather than grepping the whole
 /// `lexc_source`) avoids a false negative/positive from `bnd`/`fre`'s OTHER, non-bare occurrences
 /// (e.g. the template-less section's `TLRoots` entries, continuation `TLPost`, which this change
@@ -117,7 +117,7 @@ fn root_lexicon_block(lexc_source: &str) -> &str {
 }
 
 /// A line inside `block` that mentions `surface` and ends its lexc entry on the bare accept state
-/// (`# ;`) -- the exact shape [`emit::emit`]'s bare-root `write_root_entries(.., "#", ..)` call
+/// (`# ;`) -- the exact shape `emit::emit`'s bare-root `write_root_entries(.., "#", ..)` call
 /// writes (module doc's tag-tape convention: upper = tag symbol, lower = literal surface text).
 fn has_bare_accept_line_for(block: &str, surface: &str) -> bool {
     block

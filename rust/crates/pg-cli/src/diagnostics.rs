@@ -6,14 +6,14 @@
 //! cooperative magnitude budgets**, never a watchdog: apply runs constantly, per word, in the
 //! caller's own process, where a native thread cannot be safely hard-killed (a watchdog that kills
 //! a whole process is a viable tool at compile time, when there is one killable worker per grammar
-//! compile, but not here). [`assess_words`] drives the production foma pipeline through
-//! [`pg_foma::composite::FomaAnalyzer::analyze_word_budgeted`] against an explicit
-//! [`pg_foma::compose_budget::ApplyBudget`] and records `pg_assess::IncompleteReason::LogicalBudget`
+//! compile, but not here). `assess_words` drives the production foma pipeline through
+//! `pg_foma::composite::FomaAnalyzer::analyze_word_budgeted` against an explicit
+//! `pg_foma::compose_budget::ApplyBudget` and records `pg_assess::IncompleteReason::LogicalBudget`
 //! — naming the tripped dimension, value, and limit — so a word either completes or returns a typed
 //! incomplete outcome naming exactly what it hit.
 //!
 //! The budget is measured on the same compiled network and traversal that produces the analyses
-//! (via [`FomaAnalyzer::analyze_word_budgeted`], not a second standalone measurement pass), so the
+//! (via `FomaAnalyzer::analyze_word_budgeted`, not a second standalone measurement pass), so the
 //! recorded outcome can never describe a run other than the one that actually happened.
 //!
 //! # One assessment artifact, reusing the emission units it needs
@@ -29,7 +29,7 @@
 //! values verbatim, never a parallel report shape.
 //!
 //! Health findings are always empty today, because no evaluator populates them yet.
-//! [`build_report`] still embeds the real [`pg_foma::health::HealthReport`] type (never a
+//! `build_report` still embeds the real `pg_foma::health::HealthReport` type (never a
 //! duplicate/placeholder) so the report's shape does not have to change when an evaluator starts
 //! populating findings — it only has to start returning a non-empty vector.
 
@@ -47,7 +47,7 @@ use pg_foma::composite::{FomaAnalyzer, FomaApplyOutcome};
 use pg_foma::health::HealthReport;
 use pg_grammar::model::Grammar;
 
-/// This module's own schema version, written into every [`BuildReport`]/[`AssessmentReport`].
+/// This module's own schema version, written into every `BuildReport`/`AssessmentReport`.
 /// Bump only on a wire-incompatible change to either type (mirrors `pg_foma::health`'s
 /// `HEALTH_SCHEMA_VERSION` convention one crate over).
 pub const DIAGNOSTICS_SCHEMA_VERSION: u32 = 1;
@@ -67,9 +67,9 @@ pub struct BuildReport {
     pub lex_entry_count: usize,
     pub morpheme_count: usize,
     pub stratum_count: usize,
-    /// [`crate::load_grammar`]'s own compile/import warnings (dangling refs, unsupported
+    /// `crate::load_grammar`'s own compile/import warnings (dangling refs, unsupported
     /// constructs) — printed to stderr by every other subcommand already
-    /// ([`crate::print_grammar_warnings`]); recorded here too so a `build.json` consumer has them
+    /// (`crate::print_grammar_warnings`); recorded here too so a `build.json` consumer has them
     /// without re-running the load.
     pub load_warnings: Vec<String>,
     /// `pg_foma::health::HealthReport` verbatim — always empty today (see this module's top doc),
@@ -77,7 +77,7 @@ pub struct BuildReport {
     pub health: HealthReport,
 }
 
-/// Builds a [`BuildReport`] from an already-loaded grammar plus [`crate::load_grammar`]'s own
+/// Builds a `BuildReport` from an already-loaded grammar plus `crate::load_grammar`'s own
 /// warnings. Pure (no I/O) so it is directly unit-testable against a synthetic fixture.
 pub fn build_report(grammar: &Grammar, load_warnings: Vec<String>) -> BuildReport {
     BuildReport {
@@ -97,8 +97,8 @@ pub fn build_report(grammar: &Grammar, load_warnings: Vec<String>) -> BuildRepor
 /// rule for which to believe. The canonical artifact carries structured analysis identities, three
 /// digests, and atomic per-case outcomes.
 ///
-/// `grammar` is compiled to foma exactly once — [`FomaAnalyzer::analyze_word_budgeted`] both runs
-/// the real propose→confirm pipeline and measures against the [`ApplyBudget`] on the same network
+/// `grammar` is compiled to foma exactly once — `FomaAnalyzer::analyze_word_budgeted` both runs
+/// the real propose→confirm pipeline and measures against the `ApplyBudget` on the same network
 /// and traversal, so the recorded apply status can never describe a different run from the one that
 /// produced the analyses.
 ///
@@ -236,7 +236,7 @@ pub fn assess_words(
 }
 
 /// `pangloss diagnose <grammar> <words.txt> <out-dir>`: loads `grammar` via
-/// [`crate::load_grammar`] (the existing `.xml`/`.json`/`.fwdata` extension dispatch every other
+/// `crate::load_grammar` (the existing `.xml`/`.json`/`.fwdata` extension dispatch every other
 /// subcommand already uses), reads one word per non-empty trimmed line from `words.txt` (the same
 /// convention `run_batch` already uses), and writes `<out-dir>/build.json` and
 /// `<out-dir>/assessment.json` — always both, always separate files, never a combined artifact.

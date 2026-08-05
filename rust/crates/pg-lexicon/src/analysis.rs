@@ -89,7 +89,7 @@ impl AnalysisCache {
 impl SuppliedLexiconRuntime {
     /// Unions a confirmed grammar-only proposer result with the overlay-aware authoritative engine,
     /// with the guesser retry left **off** (`guess_fallback: false` — see
-    /// [`Self::analyze_word_opts`]). This is the shape every existing caller of this exact method
+    /// `Self::analyze_word_opts`). This is the shape every existing caller of this exact method
     /// name gets: in particular `hc_parse_word`/`hc_parse_batch`'s wire format
     /// (`pg-ffi::buffer::MAGIC`) has no `guessed` field at all, so those two entry points must
     /// never see a guessed analysis out of this call, on pain of returning a guess
@@ -107,7 +107,7 @@ impl SuppliedLexiconRuntime {
     ///
     /// `guess_fallback` controls whether a *total* miss (the complete union above comes back empty
     /// on a validly-shaped word) retries once through the guesser. This used to be unconditional
-    /// (always on) here; it is now explicit opt-in, defaulting to off in [`Self::analyze_word`],
+    /// (always on) here; it is now explicit opt-in, defaulting to off in `Self::analyze_word`,
     /// because a guessed analysis is only ever safe to hand back through a wire format that can
     /// *mark* it as guessed (`WordAnalysis::guessed`/`UnifiedAnalysis::guessed` are carried
     /// correctly regardless of this flag — see each field's own doc — but a caller encoding into a

@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 /// # The absent variant is the point
 /// There is deliberately no `TimedOut` and no `MemoryCapped` here. Wall-clock and memory outcomes
 /// are **unrepresentable as eligibility outcomes**: they can only be
-/// [`OraclePreparationFault`]s, which abort the whole preparation run. That is a type-level
+/// `OraclePreparationFault`s, which abort the whole preparation run. That is a type-level
 /// property, not a convention someone must remember — as long as a clock could produce an
 /// eligibility outcome, raising the clock's value only moves the race, never removes it.
 ///
@@ -55,7 +55,7 @@ struct PreparedWord {
 /// determined for the requested corpus.
 ///
 /// Every variant is a whole-run abort. None of them is, or may become, a per-word exclusion — see
-/// [`OracleOutcome`] for why that is a type-level guarantee rather than a rule.
+/// `OracleOutcome` for why that is a type-level guarantee rather than a rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OraclePreparationFault {
     /// The wall-clock liveness net tripped. The net exists only so a pathological word cannot hang
@@ -116,9 +116,9 @@ impl std::error::Error for OraclePreparationFault {}
 
 /// Samples THIS process's resident set size in bytes.
 ///
-/// [`RssSampler::sample`] returning `None` means "could not look", never "fine":
-/// [`PreparedCorpus::prepare`] turns it into
-/// [`OraclePreparationFault::MemoryCeilingUnobservable`] whenever a ceiling is actually declared.
+/// `RssSampler::sample` returning `None` means "could not look", never "fine":
+/// `PreparedCorpus::prepare` turns it into
+/// `OraclePreparationFault::MemoryCeilingUnobservable` whenever a ceiling is actually declared.
 /// Two cfg'd shapes with one signature, so the preparation loop has no `cfg` in it — `wasm32` has
 /// no process table to read, and `sysinfo` is not even in that target's dependency graph.
 #[cfg(not(target_arch = "wasm32"))]
@@ -292,15 +292,15 @@ struct PreparedSelection {
 /// Every field is a COUNT, never an elapsed time. That is not stylistic: this crate ranks candidates
 /// by deterministic work precisely because time decided ties by noise (`Score::key`), and a saving
 /// reported in nanoseconds could not be asserted by a gate at all. `nets_deduped` provably reads 0
-/// with [`RunEvaluationCache::without_net_dedup`] and non-zero without it, which is what makes "the
+/// with `RunEvaluationCache::without_net_dedup` and non-zero without it, which is what makes "the
 /// mechanism engaged" a measurement rather than a claim.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NetDedupSavings {
     /// Candidates whose entire measurement was served from an earlier candidate's identical network.
     pub nets_deduped: usize,
     /// Distinct finished networks RECORDED as reusable. Not simply "candidates that paid a corpus
-    /// pass": a candidate whose certification is a [`Certification::ResourceBreach`] pays the pass and
-    /// is deliberately never recorded (see [`RunEvaluationCache::record_net_measurement`]), so this can
+    /// pass": a candidate whose certification is a `Certification::ResourceBreach` pays the pass and
+    /// is deliberately never recorded (see `RunEvaluationCache::record_net_measurement`), so this can
     /// be smaller than the number of full passes performed.
     pub distinct_nets: usize,
     /// Corpus word applications (propose calls) skipped: one per comparable word per deduped
@@ -322,8 +322,8 @@ pub struct RunEvaluationCache {
     emission_report: Option<crate::emit::EmitReport>,
     emission_report_calls: usize,
     divergence: IdentityDivergence,
-    /// Measurements indexed by [`net_reuse_key`]. `None` means net-level dedup is DISABLED for this
-    /// cache — see [`Self::without_net_dedup`], which exists so every dedup gate can be written as a
+    /// Measurements indexed by `net_reuse_key`. `None` means net-level dedup is DISABLED for this
+    /// cache — see `Self::without_net_dedup`, which exists so every dedup gate can be written as a
     /// negative control rather than a same-path-twice comparison.
     net_measurements: Option<std::collections::HashMap<String, EvaluatedPlan>>,
     savings: NetDedupSavings,
@@ -394,7 +394,7 @@ impl RunEvaluationCache {
     /// Record `measured` as the reusable measurement for `key`, and count it as a distinct network.
     ///
     /// Deliberately refuses to record a candidate whose certification is a
-    /// [`Certification::ResourceBreach`]. A breach SHORT-CIRCUITS certification, so such a
+    /// `Certification::ResourceBreach`. A breach SHORT-CIRCUITS certification, so such a
     /// measurement never learned what the corpus comparison would have said — and a breach on the
     /// `build` dimension is a function of the candidate's own wall clock, which the next candidate
     /// with the same network need not share. Serving it on would be the one way this mechanism could
@@ -442,7 +442,7 @@ impl RunEvaluationCache {
     /// This run's accumulated parity-set divergence across every candidate evaluated against this
     /// cache.
     ///
-    /// [`IdentityDivergence::candidate_only_identities`] is the number the
+    /// `IdentityDivergence::candidate_only_identities` is the number the
     /// confirmation-free accuracy path's soundness rests on; see that type's doc for why it is
     /// counted rather than argued. It accumulates across calls, so a caller measuring one run must
     /// use one cache for it — which is already the run cache's whole purpose.
@@ -460,7 +460,7 @@ impl RunEvaluationCache {
     /// `None` deliberately covers two different facts — "not prepared" and "prepared but step-capped"
     /// — because neither is a set of analyses, and a caller must not be able to treat a step-capped
     /// row as an empty one. That distinction is what
-    /// [`CorpusCompletenessEvidence`]/[`Certification::Truncated`] exist to carry; this accessor is
+    /// `CorpusCompletenessEvidence`/`Certification::Truncated` exist to carry; this accessor is
     /// for reading a ground truth that IS complete, not for classifying eligibility.
     ///
     /// Exposed so a gate can construct a negative control against real oracle analyses of a real
@@ -533,12 +533,12 @@ fn corpus_hash(words: &[String]) -> String {
 
 /// "These bytes are the whole state of one FINISHED proposer network."
 ///
-/// The preimage is everything [`foma::types::Fsm`] carries that `apply_up` can observe — see
-/// [`finished_net_digest`] for the field-by-field account and the two deliberate exclusions.
+/// The preimage is everything `foma::types::Fsm` carries that `apply_up` can observe — see
+/// `finished_net_digest` for the field-by-field account and the two deliberate exclusions.
 pub const FINISHED_NET_PROJECTION: &str = "pangloss.foma.finished-net/v1";
 
 /// "This is the same loaded grammar." Preimage is the grammar's own derived `Debug` projection; see
-/// [`grammar_identity`].
+/// `grammar_identity`.
 pub const GRAMMAR_IDENTITY_PROJECTION: &str = "pangloss.foma.grammar-identity/v1";
 
 /// "Another candidate's measurement over this corpus is reusable verbatim for this one."
@@ -547,15 +547,15 @@ pub const NET_REUSE_KEY_PROJECTION: &str = "pangloss.foma.net-reuse-key/v1";
 /// Feeds `part` into `hash` LENGTH-PREFIXED, so no two different tuples of parts can share a
 /// preimage. Without it `("ab", "c")` and `("a", "bc")` hash alike, and a projection name is exactly
 /// the kind of string that gets extended — the same framing rule
-/// [`crate::executable_candidate::digest_projection`] already states.
+/// `crate::executable_candidate::digest_projection` already states.
 fn framed(hash: &mut Sha256, part: &[u8]) {
     hash.update((part.len() as u64).to_le_bytes());
     hash.update(part);
 }
 
-/// A [`std::fmt::Write`] sink that hashes instead of allocating.
+/// A `std::fmt::Write` sink that hashes instead of allocating.
 ///
-/// Load-bearing for [`grammar_identity`]: `format!("{grammar:?}")` on a 50k-entry grammar would
+/// Load-bearing for `grammar_identity`: `format!("{grammar:?}")` on a 50k-entry grammar would
 /// materialize a multi-hundred-megabyte `String` just to hash it and drop it. Streaming the same
 /// bytes through `write!` keeps the whole projection at one SHA-256 block of live memory.
 struct DigestWriter(Sha256);
@@ -585,7 +585,7 @@ impl std::fmt::Write for DigestWriter {
 ///
 /// # Why the cost is affordable
 /// It is O(grammar), and it is only ever computed on a path that has just compiled the same grammar
-/// into an FST ([`build_candidate`] plus [`crate::build::finish_controllable_net`]) — a strictly more
+/// into an FST (`build_candidate` plus `crate::build::finish_controllable_net`) — a strictly more
 /// expensive O(grammar) operation. So it can never be more than a small fraction of work already
 /// spent, and it is computed once per evaluator CALL, never once per plan.
 pub fn grammar_identity(grammar: &Grammar) -> String {
@@ -681,9 +681,9 @@ fn finished_net_digest(net: &foma::types::Fsm) -> String {
 /// because the reused verdict would usually be a pass.
 ///
 /// So all four are bound, each length-prefixed:
-/// - `grammar_identity` — see [`grammar_identity`].
+/// - `grammar_identity` — see `grammar_identity`.
 /// - `corpus_hash` of the COMPARABLE words, which is the slice actually applied and the slice whose
-///   hash a [`Certification::FullHcConfirmed`] carries. It also fixes `expected`: the prepared oracle
+///   hash a `Certification::FullHcConfirmed` carries. It also fixes `expected`: the prepared oracle
 ///   result for a given word text is a pure function of (grammar, word, step cap), so equal
 ///   comparable slices imply equal ground truth.
 /// - `observed` — the observed evaluator retains per-word proposal evidence and the ordinary one does
@@ -711,7 +711,7 @@ pub fn net_reuse_key(
 }
 
 /// Default oracle (ground-truth `pg_parse::Morpher`) step cap, used whenever
-/// [`RuntimeBudget::oracle_step_cap`] is left `None`.
+/// `RuntimeBudget::oracle_step_cap` is left `None`.
 ///
 /// Justified by measurement: on the
 /// deep-truncation-chain stress grammar, the pathological corpus word that the fully-unbounded
@@ -723,12 +723,12 @@ pub fn net_reuse_key(
 /// is stopped in well under a second instead of hanging the whole evaluator call.
 pub const DEFAULT_ORACLE_STEP_CAP: usize = 20_000;
 
-/// Default wall-clock LIVENESS NET, used whenever [`RuntimeBudget::oracle_liveness_net`] is `None`.
+/// Default wall-clock LIVENESS NET, used whenever `RuntimeBudget::oracle_liveness_net` is `None`.
 ///
 /// # This is not a classifier, and it used to be one
 /// It exists for exactly one purpose: a word whose single step is pathologically expensive must not
-/// hang the run forever. Tripping it is an [`OraclePreparationFault`] that aborts preparation; it
-/// can never exclude a word. See [`OracleOutcome`] for the measured incidents behind that.
+/// hang the run forever. Tripping it is an `OraclePreparationFault` that aborts preparation; it
+/// can never exclude a word. See `OracleOutcome` for the measured incidents behind that.
 ///
 /// # Why 300 seconds and not 2
 /// The old 2-second value was small enough to trip BEFORE a word reached its step cap, which both
@@ -740,7 +740,7 @@ pub const DEFAULT_ORACLE_STEP_CAP: usize = 20_000;
 pub const DEFAULT_ORACLE_LIVENESS_NET: Duration = Duration::from_secs(300);
 
 /// Default declared resident-memory ceiling for oracle preparation, used whenever
-/// [`RuntimeBudget::oracle_memory_ceiling`] is `None`.
+/// `RuntimeBudget::oracle_memory_ceiling` is `None`.
 ///
 /// # Why memory is a declared axis at all
 /// Measured: Aweti at a 200k step cap OOMed against a 16GB job-object ceiling, and a job-object
@@ -749,12 +749,12 @@ pub const DEFAULT_ORACLE_LIVENESS_NET: Duration = Duration::from_secs(300);
 /// reader can act on.
 ///
 /// # Why a fixed constant and not a fraction of installed RAM
-/// This number is recorded in [`CorpusCompletenessEvidence`], so a machine-derived value would make
+/// This number is recorded in `CorpusCompletenessEvidence`, so a machine-derived value would make
 /// two identical eligibility sets produce different evidence on different machines. A ceiling can
 /// only ever ABORT, never classify, so the cost of it being wrong for a given machine is a loud
 /// refusal rather than a wrong answer — which is the direction a reproducible artifact should fail
 /// in. 12 GiB sits below the 16GB job ceiling that killed the Aweti run. Override with
-/// [`RuntimeBudget::oracle_memory_ceiling`]; `Some(u64::MAX)` opts out entirely.
+/// `RuntimeBudget::oracle_memory_ceiling`; `Some(u64::MAX)` opts out entirely.
 pub const DEFAULT_ORACLE_MEMORY_CEILING_BYTES: u64 = 12 * 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -768,17 +768,17 @@ pub struct WordEvidence {
     /// The oracle's deduplicated identity set for THIS occurrence, carrying the duplicate-path
     /// count and the guessed/supplied annotations that deduplication erased.
     ///
-    /// This is the evidence half of the parity relation: [`certify_word`] compares only the
+    /// This is the evidence half of the parity relation: `certify_word` compares only the
     /// identities, so without this the report could not say that a candidate found one analysis by
     /// five paths where the oracle found it by one — a real and useful property of the compilation
     /// that the verdict is deliberately blind to.
     ///
     /// `None` means the projection FAILED for this occurrence, which is exactly the case in which
-    /// the certification is a [`crate::parity::ParityFault`]-derived truncation. It never means
+    /// the certification is a `crate::parity::ParityFault`-derived truncation. It never means
     /// "no analyses"; that is `Some` of an empty set.
     pub expected_identities: Option<OccurrenceIdentities>,
     /// The candidate's deduplicated identity set for this occurrence. Same contract as
-    /// [`Self::expected_identities`].
+    /// `Self::expected_identities`.
     pub actual_identities: Option<OccurrenceIdentities>,
 }
 
@@ -792,7 +792,7 @@ pub struct RuntimeEvaluationObservation {
     pub words: Option<Vec<WordEvidence>>,
 }
 
-/// `Clone` so [`RunEvaluationCache`] can serve one candidate's whole measurement to the next
+/// `Clone` so `RunEvaluationCache` can serve one candidate's whole measurement to the next
 /// candidate that compiles to the identical network. The clone is deep but bounded by the DISTINCT-net
 /// count, not the plan count, and in the ordinary (unobserved) mode `words` is `None`, so it is a
 /// certification, a `Score` and a divergence.
@@ -801,7 +801,7 @@ struct EvaluatedPlan {
     evaluation: RuntimeEvaluation,
     words: Option<Vec<WordEvidence>>,
     /// Counted parity-set divergence for THIS candidate's corpus pass. Folded into the run cache by
-    /// [`evaluate_plans_with_cache_mode`] so a caller can read one run-scoped number rather
+    /// `evaluate_plans_with_cache_mode` so a caller can read one run-scoped number rather
     /// than reconstructing it from per-candidate verdicts (which, being first-failure-only, do not
     /// carry it).
     divergence: IdentityDivergence,
@@ -854,9 +854,9 @@ pub fn check_proposal_ratio(
 const MISMATCH_DETAIL_SAMPLE: usize = 4;
 
 /// Compare one word occurrence's analyses as **deduplicated
-/// [`pg_parse::identity::AnalysisIdentity`] sets**.
+/// `pg_parse::identity::AnalysisIdentity` sets**.
 ///
-/// This is [`crate::parity`]'s relation applied; read that module for why it is the relation. The
+/// This is `crate::parity`'s relation applied; read that module for why it is the relation. The
 /// two things it is NOT are worth restating at the call site, because both were previously what
 /// this function did:
 ///
@@ -865,13 +865,13 @@ const MISMATCH_DETAIL_SAMPLE: usize = 4;
 ///   the SAME analysis, and this function now says so.
 /// - It is not multiset equality. Multiplicity is not part of the relation, so a candidate that
 ///   reached one identity by three derivational paths agrees with an oracle that reached it by one.
-///   The collapsed-path count survives as evidence on [`WordEvidence`], not as a verdict.
+///   The collapsed-path count survives as evidence on `WordEvidence`, not as a verdict.
 ///
 /// Deduplication is strictly WITHIN this one occurrence. Corpus rows are separate observations;
-/// [`certify_corpus`] never compares one row against another.
+/// `certify_corpus` never compares one row against another.
 ///
 /// A projection failure or a v1-scope refusal comes back as a non-selectable
-/// [`Certification::Truncated`] naming the fault and the side it was found on — never as a
+/// `Certification::Truncated` naming the fault and the side it was found on — never as a
 /// mismatch, which would report an internal fault as a grammar disagreement.
 pub fn certify_word(
     grammar: &Grammar,
@@ -882,7 +882,7 @@ pub fn certify_word(
     certify_word_measured(grammar, word, expected, actual).0
 }
 
-/// [`certify_word`] plus the counted [`IdentityDivergence`] of the same comparison.
+/// `certify_word` plus the counted `IdentityDivergence` of the same comparison.
 ///
 /// The two are one function rather than two because the divergence must be measured on the SAME
 /// projection the verdict came from. A second, independent pass would both double the projection
@@ -890,8 +890,8 @@ pub fn certify_word(
 /// verdict disagreeing about what they looked at, which is exactly the property a soundness counter
 /// cannot afford to lose.
 ///
-/// The divergence is [`IdentityDivergence::not_compared`] whenever the verdict is a
-/// [`crate::parity::ParityFault`]-derived truncation: a fault means no comparison happened, and
+/// The divergence is `IdentityDivergence::not_compared` whenever the verdict is a
+/// `crate::parity::ParityFault`-derived truncation: a fault means no comparison happened, and
 /// silently reporting a clean divergence for it would let "I could not look" read as "nothing was
 /// wrong".
 pub fn certify_word_measured(
@@ -985,12 +985,12 @@ pub fn certify_corpus(
     certify_corpus_measured(grammar, expected, actual).0
 }
 
-/// [`certify_corpus`] plus the counted [`IdentityDivergence`] summed over every row.
+/// `certify_corpus` plus the counted `IdentityDivergence` summed over every row.
 ///
 /// The divergence is accumulated over ALL rows even though the verdict is decided by the first
 /// failure: the verdict only needs one witness, whereas the soundness counter is a claim about the
 /// whole corpus and would be worthless if it stopped at the first disagreement. See
-/// [`certify_word_measured`] for why the count and the verdict share one projection pass.
+/// `certify_word_measured` for why the count and the verdict share one projection pass.
 pub fn certify_corpus_measured(
     grammar: &Grammar,
     expected: &[(String, Vec<WordAnalysis>)],
@@ -1062,14 +1062,14 @@ pub fn certify_corpus_measured(
 /// Builds a candidate's network with the plan-composing interpreter.
 ///
 /// # Panics
-/// If `candidate`'s [`LoweringAdapter`] is not the one that interprets a plan. That is deliberate,
+/// If `candidate`'s `LoweringAdapter` is not the one that interprets a plan. That is deliberate,
 /// and it is a refusal rather than a fallback: this function can only ever produce
 /// `build_controllable`'s controllable-subtree network, so honouring such a candidate by building it
 /// anyway would hand the caller a network from a DIFFERENT compiler than the one the candidate
 /// names, with nothing in the result saying so. Every measurement drawn from it would then be
 /// attributed to a compiler that never ran. Callers holding mixed candidates must dispatch on
-/// `candidate.adapter` (as [`evaluate_plans_with_cache`] does) or filter on
-/// [`LoweringAdapter::interprets_plan`] first.
+/// `candidate.adapter` (as `evaluate_plans_with_cache` does) or filter on
+/// `LoweringAdapter::interprets_plan` first.
 pub fn build_candidate(
     candidate: &LoweredCandidate,
     opts: &FomaOptions,
@@ -1100,35 +1100,35 @@ pub struct RuntimeBudget {
     /// "unbounded" — it means "caller did not override the default", because unbounded is exactly
     /// the defect this field exists to close (an unbounded oracle `Morpher` call is what hung the
     /// deep-truncation-chain grammar's pilot indefinitely). `evaluate_plans` resolves `None`
-    /// to [`DEFAULT_ORACLE_STEP_CAP`]. A caller that genuinely wants the old unbounded behavior must
+    /// to `DEFAULT_ORACLE_STEP_CAP`. A caller that genuinely wants the old unbounded behavior must
     /// say so explicitly with `Some(usize::MAX)`.
     pub oracle_step_cap: Option<usize>,
     /// Ground-truth oracle wall-clock LIVENESS NET — not a classifier. Same "`None` = use the
     /// default, not unbounded" convention as `oracle_step_cap` immediately above; resolves to
-    /// [`DEFAULT_ORACLE_LIVENESS_NET`]. Tripping it aborts preparation with
-    /// [`OraclePreparationFault::LivenessNetTripped`].
+    /// `DEFAULT_ORACLE_LIVENESS_NET`. Tripping it aborts preparation with
+    /// `OraclePreparationFault::LivenessNetTripped`.
     pub oracle_liveness_net: Option<Duration>,
     /// Declared resident-memory ceiling for oracle preparation, in bytes. Same `None` convention;
-    /// resolves to [`DEFAULT_ORACLE_MEMORY_CEILING_BYTES`]. `Some(u64::MAX)` declares no ceiling
+    /// resolves to `DEFAULT_ORACLE_MEMORY_CEILING_BYTES`. `Some(u64::MAX)` declares no ceiling
     /// (and is recorded as such in the evidence, so "unbounded" is a stated choice, not a silence).
     pub oracle_memory_ceiling: Option<u64>,
     /// CANDIDATE-side per-word raw `apply_up` path ceiling. Same "`None` = caller did not override
     /// the default, NOT unbounded" convention as `oracle_step_cap` above, and for the same reason in
     /// the mirror-image direction: the oracle field exists because an unbounded ORACLE hung the run,
     /// and this one exists because an unbounded CANDIDATE PROPOSE killed the process outright
-    /// (see [`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`]
+    /// (see `crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`
     /// for the full measurement and the calibration argument). Resolves to that constant. A caller
     /// that genuinely wants the old unbounded behavior must say so explicitly with `Some(usize::MAX)`.
     pub apply_path_budget: Option<usize>,
     /// CANDIDATE-side per-word distinct-candidate ceiling; same `None` convention, resolving to
-    /// [`crate::compose_budget::DEFAULT_EVALUATION_APPLY_CANDIDATE_BUDGET`].
+    /// `crate::compose_budget::DEFAULT_EVALUATION_APPLY_CANDIDATE_BUDGET`.
     pub apply_candidate_budget: Option<usize>,
 }
 
 impl RuntimeBudget {
     /// The per-word apply-path envelope this budget puts in force, resolved.
     ///
-    /// `Some(usize::MAX)` on either field is honoured as `None` on the [`ApplyBudget`] — i.e. genuinely
+    /// `Some(usize::MAX)` on either field is honoured as `None` on the `ApplyBudget` — i.e. genuinely
     /// unbounded — because that is the explicit opt-out the two field docs name, and
     /// `ApplyBudget`'s own caps are `Option`s where `None` already means unbounded. Anything else,
     /// including the ordinary `None`, resolves to the calibrated default.
@@ -1198,8 +1198,8 @@ pub struct RuntimeEvaluation {
 }
 
 /// Evaluates the BASELINE of a grammar whose plan needs composite/structural marker subtrees, using
-/// the tuned [`crate::analyzer::FomaProposer::new`] path (`emit` → lexc → foma compile) instead of
-/// [`build_controllable`].
+/// the tuned `crate::analyzer::FomaProposer::new` path (`emit` → lexc → foma compile) instead of
+/// `build_controllable`.
 ///
 /// Why a whole separate path rather than a flag: the two builders produce different artifact types in
 /// different symbol spaces. `uflexc`'s lexc is in char-def-token space (hence the
@@ -1210,20 +1210,20 @@ pub struct RuntimeEvaluation {
 /// zero-candidate results.
 ///
 /// Deliberately ignores the candidate's plan: the tuned path derives topology from a plan it builds
-/// itself ([`crate::emit`]'s `plan_topology_decisions` reads two booleans off it), so it can express
+/// itself (`crate::emit`'s `plan_topology_decisions` reads two booleans off it), so it can express
 /// the DEFAULT compilation of this grammar and nothing else. That is exactly why only the baseline is
 /// routed here; see the caller.
 /// Runs `words` through `analyzer`, scores, budget-checks, and certifies against `expected`.
 ///
 /// Shared by EVERY evaluation strategy on purpose. The only thing that differs between the three
-/// ([`EmissionStrategy`]) is how the network — and therefore the analyzer — was obtained; everything
+/// (`EmissionStrategy`) is how the network — and therefore the analyzer — was obtained; everything
 /// from "apply the corpus" onward must be identical, or a cross-strategy comparison would be
 /// comparing measurement procedures rather than compilations. This function existing is what makes
 /// adding a strategy cost nothing: the previous two strategies each carried their own copy of this
 /// block, which is exactly how they would have drifted.
-/// The ordinary (unobserved) measurement. Returns the full [`EvaluatedPlan`] — whose `words` is
+/// The ordinary (unobserved) measurement. Returns the full `EvaluatedPlan` — whose `words` is
 /// always `None` in this mode — rather than only its `evaluation`, so the counted
-/// [`IdentityDivergence`] reaches the run cache from every strategy's call site instead of only
+/// `IdentityDivergence` reaches the run cache from every strategy's call site instead of only
 /// from the observed one.
 #[allow(clippy::too_many_arguments)]
 fn measure_and_certify(
@@ -1279,7 +1279,7 @@ fn measure_and_certify_observed(
 ///
 /// # Why this is a function and not an inline array
 /// A net-level dedup hit reuses another candidate's deterministic measurement but must re-decide the
-/// breach on ITS OWN `build` time (see [`evaluate_plans_with_cache_mode`]). Two copies of this
+/// breach on ITS OWN `build` time (see `evaluate_plans_with_cache_mode`). Two copies of this
 /// ladder would drift in the one way that matters most — the ORDER, which decides not just whether a
 /// breach is reported but which `dimension` it names — and the whole soundness claim for dedup is that
 /// a deduped candidate reports exactly what it would have reported unduplicated.
@@ -1492,7 +1492,7 @@ fn failed_evaluation(
 }
 
 /// A failure that happened BEFORE any occurrence could be compared. `occurrences` is how many the
-/// caller was going to compare, recorded as [`IdentityDivergence::not_compared`] so that a run
+/// caller was going to compare, recorded as `IdentityDivergence::not_compared` so that a run
 /// which never reached the comparison cannot report the clean zero of a run that did.
 fn failed_evaluated_over(
     realized_strategy: EmissionStrategy,
@@ -1521,8 +1521,8 @@ fn build_failed_evaluated(
     )
 }
 
-/// [`EmissionStrategy::TunedSurfaceProbed`]: the DEFAULT compilation of this grammar, through
-/// [`FomaProposer::new`] (`emit` -> lexc -> foma compile) rather than [`build_controllable`].
+/// `EmissionStrategy::TunedSurfaceProbed`: the DEFAULT compilation of this grammar, through
+/// `FomaProposer::new` (`emit` -> lexc -> foma compile) rather than `build_controllable`.
 fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     grammar: &Grammar,
     words: &[String],
@@ -1573,7 +1573,7 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     }
 }
 
-/// [`EmissionStrategy::TemplatedUnderlyingTokens`]: compile the whole grammar through
+/// `EmissionStrategy::TemplatedUnderlyingTokens`: compile the whole grammar through
 /// `emit_underlying_templated` + a real compiled rewrite cascade, rather than through the
 /// surface-probed lexc plus synthesized composite entries.
 ///
@@ -1637,20 +1637,20 @@ fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
     }
 }
 
-/// Evaluates every candidate through its own [`LoweringAdapter`] and the production
+/// Evaluates every candidate through its own `LoweringAdapter` and the production
 /// propose→confirm pipeline. The caller-provided order is preserved.
 ///
 /// One exception, and it is load-bearing: a plan that needs composite/structural marker subtrees is
-/// routed to the whole-grammar tuned adapter ([`crate::enumerate::CandidateRole::Baseline`] only) or
-/// refused (any [`crate::enumerate::CandidateRole::Alternative`]), because `build_controllable`
+/// routed to the whole-grammar tuned adapter (`crate::enumerate::CandidateRole::Baseline` only) or
+/// refused (any `crate::enumerate::CandidateRole::Alternative`), because `build_controllable`
 /// cannot build those subtrees and a templated grammar keeps nearly all of its productive morphology
 /// there.
 ///
 /// # Neither positional NOR parallel-slice baseline state is used here
 /// This function used to derive `is_baseline` from POSITION (`i == 0`), and a second entry point took
 /// it as a parallel `&[bool]` kept honest only by a length assertion. Both are gone: the fact is
-/// [`crate::enumerate::LoweredCandidate::role`], carried by the candidate it is a fact about. See
-/// [`crate::enumerate::CandidateRole`] for the two measured failures those shapes produced.
+/// `crate::enumerate::LoweredCandidate::role`, carried by the candidate it is a fact about. See
+/// `crate::enumerate::CandidateRole` for the two measured failures those shapes produced.
 pub fn evaluate_plans(
     grammar: &Grammar,
     plans: &[LoweredCandidate],
@@ -1663,7 +1663,7 @@ pub fn evaluate_plans(
     ))
 }
 
-/// [`evaluate_plans`] against a caller-owned run cache, so one optimizer run shares a single prepared
+/// `evaluate_plans` against a caller-owned run cache, so one optimizer run shares a single prepared
 /// oracle and a single net-dedup ledger.
 pub fn evaluate_plans_with_cache(
     grammar: &Grammar,
@@ -1698,7 +1698,7 @@ pub fn evaluate_plans_observed_with_cache(
         .collect()
 }
 
-/// One [`LoweringAdapter::ControllablePlanCompose`] candidate, realized into an owned, apply-ready
+/// One `LoweringAdapter::ControllablePlanCompose` candidate, realized into an owned, apply-ready
 /// proposer.
 enum RealizedPlanComposed {
     Ready {
@@ -1706,7 +1706,7 @@ enum RealizedPlanComposed {
         states: u64,
         arcs: u64,
         build: u64,
-        /// [`finished_net_digest`] of the net this proposer was built from, taken at the last moment
+        /// `finished_net_digest` of the net this proposer was built from, taken at the last moment
         /// the net still exists as an `Fsm`.
         net_digest: String,
     },
@@ -1719,7 +1719,7 @@ enum RealizedPlanComposed {
 /// Build ONE plan-composed candidate's network and turn it into a proposer.
 ///
 /// # Why this is a function and not inline in the evaluator
-/// The confirmation-free accuracy path ([`assess_accuracy_with_cache`]) has to propose from the SAME
+/// The confirmation-free accuracy path (`assess_accuracy_with_cache`) has to propose from the SAME
 /// network the certification path measures, or the two answer questions about different
 /// compilations while carrying the same candidate's name. A second copy of this sequence would
 /// drift, and this module's own history says so out loud: before `measure_and_certify` existed, each
@@ -1729,7 +1729,7 @@ enum RealizedPlanComposed {
 /// # Why it can return an OWNED proposer
 /// `FomaProposer::from_precompiled_network` calls `apply_init`, which deep-clones the compiled `Fsm`
 /// into the handle. The net is therefore dead the moment the proposer exists — precisely what
-/// `FomaProposer::new` already relies on (see [`FomaProposer`]'s own doc: the `Fsm` "is consumed by
+/// `FomaProposer::new` already relies on (see `FomaProposer`'s own doc: the `Fsm` "is consumed by
 /// `apply_init` and can be (is) dropped once the handle exists"). So dropping `net` at the end of
 /// this function is not a liberty taken here; it is the documented lifetime of that type.
 fn realize_plan_composed(
@@ -1822,9 +1822,9 @@ fn realize_plan_composed(
 /// **The sizing instrument for net-level dedup: how many DISTINCT networks does a plan set actually
 /// produce?**
 ///
-/// Builds each plan-composed candidate exactly the way [`evaluate_plans_with_cache`] does —
-/// [`build_candidate`], [`crate::build::finish_controllable_net`],
-/// [`crate::analyzer::prepare_network_for_apply`] — and returns [`finished_net_digest`] for each. It
+/// Builds each plan-composed candidate exactly the way `evaluate_plans_with_cache` does —
+/// `build_candidate`, `crate::build::finish_controllable_net`,
+/// `crate::analyzer::prepare_network_for_apply` — and returns `finished_net_digest` for each. It
 /// runs NO oracle, NO propose and NO confirm, so a census over many fixtures costs only the build
 /// half.
 ///
@@ -2221,14 +2221,14 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
 ///
 /// This is the fast path the whole objective turns on: a rough pass/fail over the eligible
 /// vocabulary, cheap enough to run as a regression gate on every change, rather than a full
-/// certification battery. Read [`crate::recipe_accuracy`]'s module doc first — it carries the
+/// certification battery. Read `crate::recipe_accuracy`'s module doc first — it carries the
 /// soundness argument, the one hazard, and the reasons this is NOT a certification.
 ///
 /// # What it does per candidate
-/// 1. Realizes the candidate's network exactly as [`evaluate_plans_with_cache`] does — the
-///    SAME [`realize_plan_composed`] for composed plans, the same two compilers for the whole-grammar
+/// 1. Realizes the candidate's network exactly as `evaluate_plans_with_cache` does — the
+///    SAME `realize_plan_composed` for composed plans, the same two compilers for the whole-grammar
 ///    strategies. A different network would make the verdict a statement about something else.
-/// 2. Proposes over the corpus through [`crate::composite::propose_union_peel_with_diagnostics`],
+/// 2. Proposes over the corpus through `crate::composite::propose_union_peel_with_diagnostics`,
 ///    the same propose-UNION-peel the certification path uses.
 /// 3. Checks admission-key containment against the oracle result THIS RUN already prepared once per
 ///    occurrence.
@@ -2240,7 +2240,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
 ///   reach, not by a counter it remembers to keep at zero. The counter is reported anyway, from the
 ///   same diagnostics field the certification path reads its `Score::confirmation` from, so the claim
 ///   is checkable rather than merely asserted.
-/// - **It computes no [`Score`] and moves no ranking.** Containment cannot price a compilation; the
+/// - **It computes no `Score` and moves no ranking.** Containment cannot price a compilation; the
 ///   objective stays `confirmation_steps`-led and untouched.
 /// - **It never truncates a proposal set and never caps per-candidate work.** Either would be
 ///   indistinguishable from the recall failure this exists to find.
@@ -2248,9 +2248,9 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
 /// # Corpus eligibility is the certification path's, unchanged
 /// The same all-or-nothing rule applies: if ANY requested occurrence was excluded (a step-capped
 /// oracle result, an unprepared row), every candidate comes back
-/// [`crate::recipe_accuracy::AccuracyVerdict::NotDetermined`] rather than assessed over a silently
+/// `crate::recipe_accuracy::AccuracyVerdict::NotDetermined` rather than assessed over a silently
 /// narrowed corpus. Assessing a subset under the requested corpus's name is the failure mode
-/// [`PreparedCorpus`] exists to prevent, and it is no more acceptable for a cheap verdict than for
+/// `PreparedCorpus` exists to prevent, and it is no more acceptable for a cheap verdict than for
 /// an expensive one.
 pub fn assess_accuracy_with_cache(
     grammar: &Grammar,
@@ -2424,7 +2424,7 @@ pub fn assess_accuracy_with_cache(
 }
 
 /// Realize one candidate into the proposer the accuracy check will propose from — the same network
-/// the certification path measures, by construction (see [`realize_plan_composed`]).
+/// the certification path measures, by construction (see `realize_plan_composed`).
 #[allow(clippy::type_complexity)]
 fn realize_accuracy_proposer(
     candidate: &LoweredCandidate,

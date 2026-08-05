@@ -1,5 +1,5 @@
 //! `hc_parse_word` / `hc_parse_batch`: the two result-producing entry points. Both encode
-//! through the same [`crate::buffer`] writer (`hc_parse_word` is the `word_count == 1` case),
+//! through the same `crate::buffer` writer (`hc_parse_word` is the `word_count == 1` case),
 //! and both wrap their **entire** body in `catch_unwind` — including, for `hc_parse_batch`,
 //! the call-scoped unified-analysis Rayon pool, so a panic raised inside a worker thread and
 //! propagated out through `par_iter`/`.install()` is caught here, not left to unwind across
@@ -22,7 +22,7 @@
 //! `hc_parse_word`/`hc_parse_batch` use, so `guess_root == 0` reproduces `Morpher::parse_word`
 //! byte-for-byte (the default, pre-existing behavior) and the CLI/FFI/library paths are all
 //! provably the same computation (see `tests/parse_opts_gate.rs`). They encode through
-//! [`crate::buffer::encode_single_guess`]/[`crate::buffer::encode_batch_guess`] — a distinct
+//! `crate::buffer::encode_single_guess`/`crate::buffer::encode_batch_guess` — a distinct
 //! wire format/magic from `hc_parse_word`/`hc_parse_batch`'s, carrying the `guessed` bit
 //! `ParseOutcome`/`WordAnalysis` already track — so a guessed analysis is never wire-
 //! indistinguishable from a confirmed one. `hc_parse_word`/`hc_parse_batch` themselves, and
@@ -106,7 +106,7 @@ fn unified_to_parse(unified: pg_lexicon::UnifiedAnalysis) -> pg_parse::ParseOutc
 /// host beyond what the caller intends (the grammar handle itself is safe to share; this is a
 /// performance note, not a soundness one).
 ///
-/// Returns/leaves `*out` under the same contract as [`hc_parse_word`].
+/// Returns/leaves `*out` under the same contract as `hc_parse_word`.
 ///
 /// # Safety
 /// `handle` must be a still-valid handle from `hc_grammar_load`. `words` must point to `n` valid
@@ -167,12 +167,12 @@ pub unsafe extern "C" fn hc_parse_batch(
 /// reproduces `Morpher::parse_word`/`hc_parse_word`'s pre-existing analysis set byte-for-byte
 /// (guess off, the default); nonzero enables the P11 lexical-pattern guesser on a total
 /// normal-lexicon miss. Parses one word on the caller's own thread, exactly like
-/// [`hc_parse_word`]. Encodes through [`crate::buffer::encode_single_guess`] (see module doc).
+/// `hc_parse_word`. Encodes through `crate::buffer::encode_single_guess` (see module doc).
 ///
-/// Returns/leaves `*out` under the same contract as [`hc_parse_word`].
+/// Returns/leaves `*out` under the same contract as `hc_parse_word`.
 ///
 /// # Safety
-/// Same preconditions as [`hc_parse_word`].
+/// Same preconditions as `hc_parse_word`.
 #[no_mangle]
 pub unsafe extern "C" fn hc_parse_word_opts(
     handle: HcGrammarHandle,
@@ -206,14 +206,14 @@ pub unsafe extern "C" fn hc_parse_word_opts(
 /// int32_t guess_root, HcResultBuf* out)` (see this module's own doc).
 /// `guess_root == 0` reproduces the pre-existing guess-off analysis set byte-for-byte, per word;
 /// nonzero enables the guesser for every word in the batch. Internally parallel (rayon) via
-/// [`parse_batch_with_opts`] — a smaller, additive sibling of `pg_parse::hc_parse_batch` that
+/// `parse_batch_with_opts` — a smaller, additive sibling of `pg_parse::hc_parse_batch` that
 /// threads a `ParseOptions` through (that free function has none). Encodes through
-/// [`crate::buffer::encode_batch_guess`].
+/// `crate::buffer::encode_batch_guess`.
 ///
-/// Returns/leaves `*out` under the same contract as [`hc_parse_batch`].
+/// Returns/leaves `*out` under the same contract as `hc_parse_batch`.
 ///
 /// # Safety
-/// Same preconditions as [`hc_parse_batch`].
+/// Same preconditions as `hc_parse_batch`.
 #[no_mangle]
 pub unsafe extern "C" fn hc_parse_batch_opts(
     handle: HcGrammarHandle,

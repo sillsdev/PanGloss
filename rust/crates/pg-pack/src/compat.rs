@@ -2,7 +2,7 @@
 //! manifest's **required runtime-feature set** and the Runtime's own **provided** set. "The pack
 //! loads iff `required ⊆ provided`" — this module defines both sides of that containment check as
 //! plain data plus a pure comparison function, for a `pg-wasm`/`pg-cli` load path to call
-//! [`RequiredRuntimeFeatures::satisfied_by`] against a Runtime-declared [`ProvidedRuntimeFeatures`]
+//! `RequiredRuntimeFeatures::satisfied_by` against a Runtime-declared `ProvidedRuntimeFeatures`
 //! before constructing an analyzer.
 //!
 //! Five stamped inputs: payload-format version, the runtime *operations* its
@@ -15,11 +15,11 @@
 use serde::{Deserialize, Serialize};
 
 /// The required-runtime-feature set a pack was compiled against. Carried verbatim in
-/// [`crate::manifest::PackManifest::required_runtime_features`].
+/// `crate::manifest::PackManifest::required_runtime_features`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct RequiredRuntimeFeatures {
-    /// This container's own payload-format version (mirrors [`crate::format::CONTAINER_VERSION`]
+    /// This container's own payload-format version (mirrors `crate::format::CONTAINER_VERSION`
     /// at the time the pack was written; kept as a plain field rather than re-derived so a
     /// manifest is meaningful even read out of its container framing).
     pub payload_format_version: u32,

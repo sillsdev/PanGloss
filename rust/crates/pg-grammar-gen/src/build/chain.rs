@@ -24,7 +24,7 @@
 //! `deriv_suffix` vector, one call to `build_deriv_chain` per zone, `rules.len() == count` levels.
 //!
 //! Needs `count + 1` distinct segments from its own table (1 root character + one dedicated
-//! suffix marker per rule) — [`crate::render::render_indexed`]'s caller is responsible for sizing
+//! suffix marker per rule) — `crate::render::render_indexed`'s caller is responsible for sizing
 //! `segment_inventory` up to at least this (mirrors `crate::build::circumfix`'s own "pad the
 //! table" convention). `crate::build::tables::build`'s own 26-ASCII-letter ceiling
 //! (`table_count * segment_inventory <= 26`) caps `count` at 25 for a single-table recipe — which
@@ -34,7 +34,7 @@
 use crate::build::tables::TableSpec;
 use crate::ids::IdMinter;
 
-/// Everything [`build`] produces: the `count` standalone suffix rules' own XML (already inside a
+/// Everything `build` produces: the `count` standalone suffix rules' own XML (already inside a
 /// `<MorphologicalRuleDefinitions>` element — the caller splices it in) and their minted xml ids,
 /// in document/level order (`rule_xml_ids[i]` == rule `i`, the SAME order `build_deriv_chain`'s
 /// `rules` slice will see, since strata list rules in `morphologicalRules` attribute order and
@@ -52,7 +52,7 @@ pub struct ChainBuild {
 
 /// Build `count` (`>= 1`) independent standalone suffix rules over `table`'s own segments (needs
 /// at least `count + 1` — module doc; panics otherwise, mirroring
-/// [`crate::build::circumfix::build_circumfixes`]'s own non-empty-affix-material precondition).
+/// `crate::build::circumfix::build_circumfixes`'s own non-empty-affix-material precondition).
 pub fn build(count: usize, pos_xml_id: &str, table: &TableSpec, ids: &mut IdMinter) -> ChainBuild {
     assert!(count >= 1, "build_chain: count must be >= 1");
     let needed = count + 1;

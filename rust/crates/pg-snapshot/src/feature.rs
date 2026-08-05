@@ -4,12 +4,12 @@
 //! (morphosyntactic: person/number/gender/tense/...) and `LangProject.PhFeatureSystemOA`
 //! (phonological: voice/place/manner/...) — loaded identically by
 //! `HCLoader.LoadFeatureSystem` (HCLoader.cs:2650-2667). Both are represented by the same
-//! [`FeatureSystem`] shape here; [`crate::Snapshot`] carries one of each
+//! `FeatureSystem` shape here; `crate::Snapshot` carries one of each
 //! (`featureSystems.phonological` / `featureSystems.morphosyntactic`).
 //!
 //! A feature is either *closed* (`FsClosedFeature`: a fixed enumeration of value symbols, e.g.
 //! `number: {sg, pl}`) or *complex* (`FsComplexFeature`: its value is itself a nested feature
-//! structure, e.g. `agreement: [person, number]`). [`FeatureStructure`] is the recursive value
+//! structure, e.g. `agreement: [person, number]`). `FeatureStructure` is the recursive value
 //! type used everywhere a feature structure is attached to something else (phonemes, MSAs, stem
 //! name regions, inflection types, natural classes, ...).
 
@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::common::Guid;
 
 /// The `featureSystems` snapshot section: the two independent feature systems FieldWorks keeps
-/// (phonological and morphosyntactic — see [`FeatureSystem`]'s doc for why there are two).
+/// (phonological and morphosyntactic — see `FeatureSystem`'s doc for why there are two).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeatureSystems {
@@ -57,7 +57,7 @@ pub struct ClosedFeature {
     pub values: Vec<FeatureValueSymbol>,
 }
 
-/// One admissible value of a [`ClosedFeature`] (e.g. `number`'s `sg`/`pl`). ← `FsSymFeatVal`.
+/// One admissible value of a `ClosedFeature` (e.g. `number`'s `sg`/`pl`). ← `FsSymFeatVal`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeatureValueSymbol {
@@ -91,7 +91,7 @@ pub struct ComplexFeature {
 }
 
 /// A feature structure: an ordered list of (feature → value) pairs. Recursive because a
-/// [`ComplexFeature`]'s value is itself a `FeatureStructure`. ← `FsFeatStruc`
+/// `ComplexFeature`'s value is itself a `FeatureStructure`. ← `FsFeatStruc`
 /// (`FeatureSpecsOC`, `HCLoader.LoadFeatureStruct`, HCLoader.cs:2500-2530).
 ///
 /// Order is the LCM `FeatureSpecsOC` declaration order; it carries no semantic weight (feature
@@ -102,25 +102,25 @@ pub struct FeatureStructure {
     pub values: Vec<FeatureValue>,
 }
 
-/// One (feature → value) pair inside a [`FeatureStructure`].
+/// One (feature → value) pair inside a `FeatureStructure`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeatureValue {
-    /// The feature this value is for — a [`ClosedFeature`] or [`ComplexFeature`] guid, resolved
-    /// against whichever [`FeatureSystem`] this feature structure lives under (phonological or
+    /// The feature this value is for — a `ClosedFeature` or `ComplexFeature` guid, resolved
+    /// against whichever `FeatureSystem` this feature structure lives under (phonological or
     /// morphosyntactic; the two are never mixed within one `FeatureStructure`).
     /// ← `IFsFeatureSpecification.FeatureRA`.
     pub feature: Guid,
     pub value: FeatureValueKind,
 }
 
-/// The value half of a [`FeatureValue`]: either a value symbol of a closed feature, or a nested
+/// The value half of a `FeatureValue`: either a value symbol of a closed feature, or a nested
 /// feature structure (when the feature is complex). ← `IFsClosedValue.ValueRA` /
 /// `IFsComplexValue.ValueOA` (HCLoader.cs:2507-2526).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum FeatureValueKind {
-    /// ← `IFsClosedValue.ValueRA` — the guid of a [`FeatureValueSymbol`] belonging to the
+    /// ← `IFsClosedValue.ValueRA` — the guid of a `FeatureValueSymbol` belonging to the
     /// referenced feature.
     Closed { value: Guid },
     /// ← `IFsComplexValue.ValueOA` — a nested feature structure.

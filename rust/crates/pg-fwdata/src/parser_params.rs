@@ -1,6 +1,6 @@
 //! Parse the `<ParserParameters><HC>...</HC></ParserParameters>` XML blob FieldWorks stores as a
 //! *string* on `MorphologicalDataOA.ParserParameters` (`MoMorphData.ParserParameters`, a `Uni`
-//! field) into a [`ParserParameters`] value.
+//! field) into a `ParserParameters` value.
 //!
 //! ← `HCLoader`'s constructor, HCLoader.cs:92-112. That C# reads:
 //! - `hcElem = root.Element("HC")` (may be entirely absent — e.g. a project still configured

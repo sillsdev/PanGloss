@@ -1,14 +1,14 @@
 //! Part 1 — the pattern → FST compile bridge (plan §5.4/§5.5).
 //!
-//! Translates an authored [`pg_grammar::model::Pattern`] (its [`PatternNode`] tree) into
-//! [`pg_fst::CompileInput`] and compiles it to a frozen [`pg_fst::Fst`]. This is the seam the
+//! Translates an authored `pg_grammar::model::Pattern` (its `PatternNode` tree) into
+//! `pg_fst::CompileInput` and compiles it to a frozen `pg_fst::Fst`. This is the seam the
 //! module doc of `pg-fst`'s `compile.rs` describes: pg-fst deliberately does *not* depend on
 //! pg-grammar; **this** module owns the grammar-aware resolution (natural classes, char-def
 //! feature bundles, alpha variables) down to the canonical `u64` symbolic-feature lanes that
 //! `CompileNode::Constraint` consumes.
 //!
 //! ## Node mapping (C# `PatternNode` → `CompileNode`)
-//! - [`PatternNode::Context`] (`<SimpleContext>`): resolve its [`NatClassId`] to a per-lane
+//! - `PatternNode::Context` (`<SimpleContext>`): resolve its `NatClassId` to a per-lane
 //!   constraint. `NaturalClassKind::Feature` → each `(FlatIndex, SymbolBits)` sets that lane;
 //!   unmentioned lanes stay `UNCONSTRAINED`. `NaturalClassKind::Segments` → the lane-wise **union**
 //!   (OR) of the listed char-defs' feature bundles (a segment class matches any listed segment, and
@@ -19,23 +19,23 @@
 //!   determinism predicate is literally `!hasVariables`) — a **flagged frozen-contract gap**. We do
 //!   not edit pg-fst; instead the bridge lowers every variable-governed feature lane to
 //!   `UNCONSTRAINED`, making the compiled FST a **sound over-approximation**: it accepts a superset
-//!   of the true match set, and the [`CompiledPattern::uses_alpha_vars`] flag tells the rule driver
+//!   of the true match set, and the `CompiledPattern::uses_alpha_vars` flag tells the rule driver
 //!   the span it found must still be agreement-checked (binding a variable on first sight, verifying
 //!   it after) before the RHS is applied. The hand-built Part-2 gate rules use no variables; the
 //!   agreement post-filter for the real grammars is described in the report as the remaining work.
-//! - [`PatternNode::CharDef`]: that char-def's `feature_lanes()` as the constraint (match =
+//! - `PatternNode::CharDef`: that char-def's `feature_lanes()` as the constraint (match =
 //!   feature unifiability, **not** char-def identity). **Stale-claim correction (plan §W1.5):**
 //!   boundary char-defs do **not** have empty feature lanes / match-any semantics — every char-def,
 //!   segment or boundary, carries a full `feat_sys.len()`-wide lane row with its `Type` lane always
 //!   pinned to `Segment`-only or `Boundary`-only bits (plan §13.1 Tier-1 #1,
 //!   `pg_grammar::chardef::CharDef::feature_lanes` doc, `2f238cee`); a boundary constraint here
 //!   matches only boundary nodes, exactly like any other pinned lane.
-//! - [`PatternNode::Quantifier`]: the pg-fst `{min,max}` quantifier over the compiled children.
-//! - [`PatternNode::Segments`]: a sequence of per-node constraints taken from the pre-segmented
+//! - `PatternNode::Quantifier`: the pg-fst `{min,max}` quantifier over the compiled children.
+//! - `PatternNode::Segments`: a sequence of per-node constraints taken from the pre-segmented
 //!   shape's interior char-defs.
-//! - [`PatternNode::Anchor`]: pg-fst has no anchor *node* — anchoring is the `start_anchor`/
+//! - `PatternNode::Anchor`: pg-fst has no anchor *node* — anchoring is the `start_anchor`/
 //!   `end_anchor` flags on the traversal (see `pg-fst` compile.rs docs). A left/right anchor node
-//!   therefore lifts to a flag on the returned [`CompiledPattern`], not a `CompileNode`.
+//!   therefore lifts to a flag on the returned `CompiledPattern`, not a `CompileNode`.
 
 use pg_fst::{CompileInput, CompileNode, Fst};
 use pg_grammar::chardef::CharDefId;
@@ -106,7 +106,7 @@ impl std::fmt::Display for BridgeError {
 impl std::error::Error for BridgeError {}
 
 /// A compiled authored pattern: the FST node sequence plus the anchor flags lifted out of any
-/// [`PatternNode::Anchor`] nodes (which pg-fst expresses as traversal flags, not nodes).
+/// `PatternNode::Anchor` nodes (which pg-fst expresses as traversal flags, not nodes).
 #[derive(Clone, Debug)]
 pub struct CompiledPattern {
     pub input: CompileInput,
@@ -119,27 +119,27 @@ pub struct CompiledPattern {
     /// then a sound over-approximation (variable-governed lanes lowered to `UNCONSTRAINED`) and the
     /// found span must be agreement-checked before use (see module docs — the frozen-contract gap).
     pub uses_alpha_vars: bool,
-    /// Per-segment-matching-node alpha-variable occurrences (see [`pattern_var_occurrences`]); the
+    /// Per-segment-matching-node alpha-variable occurrences (see `pattern_var_occurrences`); the
     /// `pg_rules::rewrite` agreement check binds/verifies these against actual node lanes.
     pub node_vars: Vec<Vec<VarOccur>>,
 }
 
 impl CompiledPattern {
     /// Compile to a frozen forward FST (traversal direction defaults to `LeftToRight`). The rule
-    /// drivers pass an explicit direction via [`pg_fst::CompileInput::compile_with_direction`].
+    /// drivers pass an explicit direction via `pg_fst::CompileInput::compile_with_direction`.
     pub fn compile(&self) -> Fst {
         self.input.compile()
     }
 }
 
-/// A grammar-scoped pattern compiler. `table` is the char-def table that [`PatternNode::CharDef`]
+/// A grammar-scoped pattern compiler. `table` is the char-def table that `PatternNode::CharDef`
 /// and `SegmentNaturalClass` ids resolve against (phonological rules default to `TableId(0)`, the
 /// only table in every reference grammar).
 pub struct PatternBridge<'g> {
     grammar: &'g Grammar,
     table: TableId,
     deterministic: bool,
-    /// P10 (`StrRep` identity lane): when `true` (and the table fits — see [`id_lane_width`]),
+    /// P10 (`StrRep` identity lane): when `true` (and the table fits — see `id_lane_width`),
     /// `Segments`-kind class constraints and concrete char-def constraints carry an extra synthetic
     /// lane at index `feature_width()` holding a char-def membership bitset — the flat-lane port of
     /// C#'s `StrRep` string feature (`CharacterDefinitionTable.Add` puts `StrRep = {reps}` on every
@@ -170,7 +170,7 @@ pub(crate) fn id_lane_width(grammar: &Grammar, table: TableId) -> Option<usize> 
     (grammar.char_tables[table.0 as usize].len() <= 64).then(|| grammar.phon_features.len())
 }
 
-/// Pad `lanes` with [`UNCONSTRAINED`] up to the identity-lane index `w`, then push the membership
+/// Pad `lanes` with `UNCONSTRAINED` up to the identity-lane index `w`, then push the membership
 /// bitset `bits` there. (`lanes` may be shorter than `w` if a producer trimmed trailing
 /// unconstrained feature lanes; padding preserves that meaning.)
 pub(crate) fn push_id_lane(lanes: &mut Vec<u64>, w: usize, bits: u64) {
@@ -202,7 +202,7 @@ impl<'g> PatternBridge<'g> {
     }
 
     /// Opt in to the P10 `StrRep` identity lane (see the field doc). Callers must feed the
-    /// resulting FSTs inputs built with the same lane ([`crate::morph::segs_of`]).
+    /// resulting FSTs inputs built with the same lane (`crate::morph::segs_of`).
     pub fn id_lane(mut self, on: bool) -> Self {
         self.id_lane = on;
         self
@@ -222,7 +222,7 @@ impl<'g> PatternBridge<'g> {
     /// Resolve a natural-class constraint to canonical `u64` lanes.
     ///
     /// KNOWN RESIDUAL — **now largely closed by P10's identity lane** for
-    /// bridges compiled with [`PatternBridge::id_lane`] on ≤64-char-def tables (the morphological
+    /// bridges compiled with `PatternBridge::id_lane` on ≤64-char-def tables (the morphological
     /// LHS + allomorph-environment paths; exactly the paths where the residual bit Sena). Still
     /// open *in principle* for: id-lane-off consumers (the phonological rewrite/metathesis
     /// pipelines) and >64-def tables (Amharic) — but **P7 measured and censused that
@@ -419,7 +419,7 @@ impl<'g> PatternBridge<'g> {
         Ok(())
     }
 
-    /// Compile one authored [`Pattern`] into a [`CompiledPattern`].
+    /// Compile one authored `Pattern` into a `CompiledPattern`.
     pub fn compile_pattern(&self, pattern: &Pattern) -> Result<CompiledPattern, BridgeError> {
         let mut nodes = Vec::new();
         let mut anchor_start = false;

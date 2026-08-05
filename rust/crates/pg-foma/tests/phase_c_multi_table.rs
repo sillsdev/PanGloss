@@ -12,8 +12,8 @@
 //! produces two deterministic wrong behaviors: a voice+ root that never devoices, and a voice-
 //! root spuriously rewritten to the voice+ root's own spelling.
 //!
-//! [`pg_foma::replace::pattern_slots`]/[`pg_foma::replace::resolve_alpha_tuples`] take an explicit
-//! `&CharDefTable` parameter, and [`pg_foma::replace::compile_rewrite_rule_subset`] resolves it
+//! `pg_foma::replace::pattern_slots`/`pg_foma::replace::resolve_alpha_tuples` take an explicit
+//! `&CharDefTable` parameter, and `pg_foma::replace::compile_rewrite_rule_subset` resolves it
 //! ONCE per rule via `pg_foma::replace::owning_table` (the rule's OWN stratum's
 //! `StratumDef::table` -- never an implicit table-zero default). Every assertion below checks that
 //! this design produces the linguistically-correct result.

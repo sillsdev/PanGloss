@@ -249,7 +249,7 @@ fn tag_sequences_for(
 /// actions before the `CopyFromInput` -- `x` then `y` then the stem. This never routes through
 /// `build_structural_composites` at all (no LHS material is dropped: `lhs.len() == 1`), so it
 /// exercises `crate::emit::insert_action_texts`'s own ORDINARY (non-structural) emission path
-/// directly. Before this change's fix, [`emit::emit`] would have emitted only `x` + stem (the old
+/// directly. Before this change's fix, `emit::emit` would have emitted only `x` + stem (the old
 /// `first_insert_text` silently dropped the second `InsertSegments` action), losing recall for the
 /// REAL surface `xya` entirely.
 const ORDERED_MULTI_INSERT_XML: &str = r#"<HermitCrabInput><Language><Name>OrderedMultiInsert</Name>
@@ -428,7 +428,7 @@ fn null_role_structural_drop_recall_parity() {
 }
 
 /// Synthetic, delanguaged fixture (D1's "cover-circumfix-null-..." row, OUT-OF-SCOPE case): the
-/// SAME 2-part-LHS drop shape as [`NULL_ROLE_STRUCTURAL_DROP_XML`], but the RHS uses
+/// SAME 2-part-LHS drop shape as `NULL_ROLE_STRUCTURAL_DROP_XML`, but the RHS uses
 /// `ModifyFromInput` (an ablaut/simulfix-style "process morph") instead of ever `CopyFromInput`ing
 /// either part. `classify_affix` reads this as `Role::Process` (the "not compilable as
 /// strings" case), which `crate::emit::is_structural_rule` never admits -- this construct must

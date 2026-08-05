@@ -3,30 +3,30 @@
 //! `diagnose`/`pack`'s own argument-parsing and report-writing style (`diagnostics.rs`/`pack.rs`).
 //!
 //! # What this command composes (never recomputes a shared measurement twice)
-//! 1. **Preflight** ([`pg_foma::preflight::preflight_findings`]): the cheap, pre-compile pass over
+//! 1. **Preflight** (`pg_foma::preflight::preflight_findings`): the cheap, pre-compile pass over
 //!    `grammar` alone — semantic/cost uncertainty and bounded-product findings. Always runs.
-//! 2. **Compile-time observed health** ([`pg_foma::health_evaluator::evaluate_health`], unchanged,
+//! 2. **Compile-time observed health** (`pg_foma::health_evaluator::evaluate_health`, unchanged,
 //!    never re-derived here): fed from a standalone profiled compile
-//!    ([`FomaProposer::new_with_profile`]) — the SAME "a second compiled network is an acceptable
+//!    (`FomaProposer::new_with_profile`) — the SAME "a second compiled network is an acceptable
 //!    one-time cost for an offline diagnostic tool" judgment call `diagnostics.rs::assess_words`/
 //!    `pack.rs::run_pack` already make, for the identical reason (`FomaAnalyzer` does not expose
 //!    its own internal proposer/profile for external reuse, and `composite.rs` is a named
 //!    single-owner merge hotspot this module does not touch). Always runs.
-//! 3. **Apply-side measurement** ([`measure_apply_side`]): proposal/confirmation counts, rejection
+//! 3. **Apply-side measurement** (`measure_apply_side`): proposal/confirmation counts, rejection
 //!    share, and pre-dedup duplicate-analysis evidence for a caller-supplied word set. Builds its
-//!    OWN [`FomaAnalyzer`] (same judgment call as step 2, and as `diagnostics.rs::assess_words`)
+//!    OWN `FomaAnalyzer` (same judgment call as step 2, and as `diagnostics.rs::assess_words`)
 //!    rather than editing `composite.rs`. **Only runs when a `<words.txt>` argument is given** —
 //!    this command is honest about what it did not measure: no words means no apply-side findings
 //!    at all, never a fabricated zero-evidence finding.
 //!
-//! All three sets of findings are concatenated into ONE [`pg_foma::health::HealthReport`] (never
-//! three separate reports) via [`pg_foma::health::HealthReport::new`] — this module invents no
+//! All three sets of findings are concatenated into ONE `pg_foma::health::HealthReport` (never
+//! three separate reports) via `pg_foma::health::HealthReport::new` — this module invents no
 //! parallel report shape.
 //!
 //! # Pre-dedup duplicate-analysis identity
-//! [`duplicate_analysis_findings`] deduplicates `pg_foma::composite::FomaOutcome::structured`
+//! `duplicate_analysis_findings` deduplicates `pg_foma::composite::FomaOutcome::structured`
 //! (populated but never deduplicated by `FomaAnalyzer::analyze_word` itself — see that struct's own
-//! doc) by [`pg_parse::WordAnalysis`]'s own derived `PartialEq`/`Eq` — the exact structured-analysis
+//! doc) by `pg_parse::WordAnalysis`'s own derived `PartialEq`/`Eq` — the exact structured-analysis
 //! identity `pg_parse::result_signature` is rendered FROM (`analyses`/`structured` are parallel by
 //! index) and the same type `diagnostics.rs::assess_words` already reuses for its gloss-signature
 //! pairs. This is deliberately NOT `result_signature`'s own rendered-string equality
@@ -55,9 +55,9 @@ use pg_foma::preflight::preflight_findings;
 use pg_grammar::model::Grammar;
 use pg_parse::WordAnalysis;
 
-/// Every word's `FomaOutcome::structured` deduplicated by [`WordAnalysis`]'s own derived equality
-/// feeds [`FindingCode::DuplicateAnalysisOverlap`], plus the batch-level
-/// [`FindingCode::ProposalVolume`]/[`FindingCode::ConfirmationWork`] findings — always emitted once
+/// Every word's `FomaOutcome::structured` deduplicated by `WordAnalysis`'s own derived equality
+/// feeds `FindingCode::DuplicateAnalysisOverlap`, plus the batch-level
+/// `FindingCode::ProposalVolume`/`FindingCode::ConfirmationWork` findings — always emitted once
 /// at least one word was measured: candidate/path volume, confirmation count and work, and
 /// rejection share remain first-class health metrics even when final results are completely
 /// correct (never gated behind "only report if something looks wrong").
@@ -242,8 +242,8 @@ fn compile_time_findings(grammar: &Grammar) -> Vec<HealthFinding> {
 
 /// Composes preflight + compile-time findings, plus apply-side findings when `words` is `Some`
 /// (never when `None`: a no-words invocation must not fabricate an apply-side finding of any
-/// kind). Pure aside from the one standalone profiled compile ([`compile_time_findings`]); factored
-/// out from [`run_fst_health`] so the honest no-words contract is directly unit-testable without
+/// kind). Pure aside from the one standalone profiled compile (`compile_time_findings`); factored
+/// out from `run_fst_health` so the honest no-words contract is directly unit-testable without
 /// going through file I/O.
 fn build_health_report(
     grammar: &Grammar,

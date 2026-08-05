@@ -21,14 +21,14 @@
 //! PanGloss/C# divergence, the C# trace shows the analysis being produced perfectly normally. The
 //! investigator then hunts a grammar bug that does not exist, and the real defect is the one thing
 //! the trace has hidden. So every piece of evidence here records which engine produced it, and
-//! [`EngineCaveat`] says this out loud in the artifact rather than in documentation nobody reads.
+//! `EngineCaveat` says this out loud in the artifact rather than in documentation nobody reads.
 //!
 //! ## Honest source identity
 //!
 //! Stable FieldWorks IDs survive import for lexical entries only (`LexEntryDef.authored_id`).
 //! Rules, strata, and templates are compiler-assigned dense indices with no GUID retained, so a
 //! handoff cannot name them in FieldWorks terms. Following ADR 0001's honest-capability-boundary
-//! pattern, each reference is explicitly tagged [`SourceIdKind`] — a handoff that silently
+//! pattern, each reference is explicitly tagged `SourceIdKind` — a handoff that silently
 //! presented a dense index as if it were a FieldWorks identity would be worse than one that admits
 //! the gap.
 

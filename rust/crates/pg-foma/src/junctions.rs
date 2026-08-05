@@ -18,12 +18,12 @@
 //!    root-chain graph across every affix and a wrong gate would let one prefix's deletion wrongly
 //!    skip into an unrelated root's chain structurally. `emit.rs`'s lexc encoding doesn't share
 //!    state that way: it instead offers a root-initial-stripped SPELLING to every root uniformly
-//!    whenever [`PhonologyProbe::deletion_junctions`] proves SOME context deletes the following
+//!    whenever `PhonologyProbe::deletion_junctions` proves SOME context deletes the following
 //!    segment for this affix text (see `emit.rs`'s "Junction-aware prefix emission" section) — an
 //!    upward approximation (extra accepted spellings are harmless; confirm
 //!    prunes them) that trades a little overgeneration for not needing lane-level gating at all.
 //!
-//! Capability-gated exactly like the original: [`PhonologyProbe::new`] returns `None` when the
+//! Capability-gated exactly like the original: `PhonologyProbe::new` returns `None` when the
 //! grammar has no phonological rules at all (Sena), so the baseline phonology-unaware emission path
 //! is completely untouched for grammars that don't need this probe — the Sena regression gate
 //! (`tests/f1_sena_gate.rs`) depends on this being a true no-op, not just an empty result.
@@ -50,8 +50,8 @@ pub struct PhonologyProbe<'g> {
     alphabet: Vec<String>,
     /// Subset of `alphabet` restricted to segments that actually appear as the FIRST real segment
     /// of some root allomorph's or some affix rule's authored text in THIS grammar (the Amharic
-    /// hazard-1 fix: see [`neighbor_first_segments`]'s doc for the soundness
-    /// argument). Used ONLY for [`PhonologyProbe::compute_deletion_junctions`]'s outer (C1) loop -- an affix's
+    /// hazard-1 fix: see `neighbor_first_segments`'s doc for the soundness
+    /// argument). Used ONLY for `PhonologyProbe::compute_deletion_junctions`'s outer (C1) loop -- an affix's
     /// real right-neighbor in any synthesized word is always some root's or some rule's own first
     /// segment, a closed, enumerable set, so narrowing the C1 loop to it can never drop a
     /// deletion junction that could actually occur. The inner C2 loop stays over the FULL
@@ -78,14 +78,14 @@ pub struct PhonologyProbe<'g> {
     rule_cache: RuleCache,
     /// A dedicated rayon pool (NOT the global default pool -- `pg-parse`'s own batch parallelism,
     /// `pg-parse/src/batch.rs`, configures the global pool for ITS OWN stack needs, and this
-    /// crate must not fight it for that setting) for [`PhonologyProbe::compute_variants`]/
-    /// [`PhonologyProbe::compute_deletion_junctions`]'s alphabet-probe loops. Built ONCE per grammar (not once per
+    /// crate must not fight it for that setting) for `PhonologyProbe::compute_variants`/
+    /// `PhonologyProbe::compute_deletion_junctions`'s alphabet-probe loops. Built ONCE per grammar (not once per
     /// probed text -- 58 distinct texts on Amharic would otherwise pay pool-spawn cost 58 times)
-    /// with [`crate::emit::PROBE_STACK_BYTES`]-sized worker stacks: `probe_synthesize`'s own
+    /// with `crate::emit::PROBE_STACK_BYTES`-sized worker stacks: `probe_synthesize`'s own
     /// recursion depth (same machinery, same overflow risk `emit.rs`'s `probe_surface` already
     /// works around) needs far more than rayon's default 2-8MB worker stack. `None` on
     /// wasm32-unknown-unknown, where building a pool would call `thread::spawn`, which aborts at
-    /// runtime there -- [`PhonologyProbe::compute_variants`]/[`PhonologyProbe::compute_deletion_junctions`] fall back to a plain
+    /// runtime there -- `PhonologyProbe::compute_variants`/`PhonologyProbe::compute_deletion_junctions` fall back to a plain
     /// sequential loop on that target instead of touching this field at all.
     #[cfg(not(target_arch = "wasm32"))]
     pool: rayon::ThreadPool,
@@ -177,18 +177,18 @@ impl<'g> PhonologyProbe<'g> {
     /// `emit.rs` treats `None` as "this grammar's affix/root emission is unchanged from the
     /// baseline emission path".
     ///
-    /// Derives a [`GrammarSemantics`] to answer the existence question. A caller that already holds
-    /// one should use [`Self::new_with_semantics`]; `GrammarSemantics::derive` is cheap (it does not
+    /// Derives a `GrammarSemantics` to answer the existence question. A caller that already holds
+    /// one should use `Self::new_with_semantics`; `GrammarSemantics::derive` is cheap (it does not
     /// characterize), so this convenience form stays available for the many call sites that only
     /// have a `&Grammar`.
     pub fn new(g: &'g Grammar) -> Option<Self> {
         Self::new_with_semantics(&GrammarSemantics::derive(g))
     }
 
-    /// [`Self::new`] over an already-derived [`GrammarSemantics`].
+    /// `Self::new` over an already-derived `GrammarSemantics`.
     ///
-    /// The existence gate is [`GrammarSemantics::cascade_phonology`], NOT
-    /// [`GrammarSemantics::declared_phonology`] — this probe drives the trailing per-stratum rewrite
+    /// The existence gate is `GrammarSemantics::cascade_phonology`, NOT
+    /// `GrammarSemantics::declared_phonology` — this probe drives the trailing per-stratum rewrite
     /// cascade, so a rule declared globally but named by no stratum's `phonologicalRules` list gives
     /// it nothing to probe. That is the exact predicate this function always used (`sd.prules` per
     /// stratum); it is now a named, owned fact rather than an inline loop, and its difference from
@@ -274,8 +274,8 @@ impl<'g> PhonologyProbe<'g> {
 
     /// Probes every alphabet neighbor `c` on both sides of `underlying` (module doc's C1×C2
     /// fan-out — here just a single alphabet loop). Each `c`'s probe is fully independent and
-    /// read-only over `&self` (no shared mutable state touched -- see [`PhonologyProbe`]'s
-    /// `pool` field doc), so on non-wasm32 targets this runs across [`Self::pool`]'s worker
+    /// read-only over `&self` (no shared mutable state touched -- see `PhonologyProbe`'s
+    /// `pool` field doc), so on non-wasm32 targets this runs across `Self::pool`'s worker
     /// threads; on wasm32-unknown-unknown (no threads at all) it stays the original sequential
     /// loop. The probe closure itself (`probe_one`) is shared between both paths -- only the
     /// driving iterator (`iter()` vs. `par_iter()`) differs -- so there is exactly one place that
@@ -361,11 +361,11 @@ impl<'g> PhonologyProbe<'g> {
     /// c1's own probe (the cheap zero-c2 check, then, on a miss, its private scan over the full
     /// C2 `alphabet` that stops at the first hit) is entirely independent of every other c1's —
     /// none of it reads or writes any shared mutable state — so distributing it across
-    /// [`Self::pool`]'s worker threads changes nothing about what any single c1 computes, only
+    /// `Self::pool`'s worker threads changes nothing about what any single c1 computes, only
     /// which thread computes it. The per-c1 "break at first hit" short-circuit is preserved
     /// exactly (it lives inside `probe_one`, unaffected by which iterator drives it), so this
     /// stays the same total probe count per c1 as the sequential version, not more. Same
-    /// wasm32/non-wasm32 split as [`Self::compute_variants`]: one shared closure, driving iterator
+    /// wasm32/non-wasm32 split as `Self::compute_variants`: one shared closure, driving iterator
     /// swapped by `cfg`, collected into the same order-independent `BTreeSet`.
     fn compute_deletion_junctions(&self, underlying: &str) -> Vec<String> {
         let mut result: BTreeSet<String> = BTreeSet::new();

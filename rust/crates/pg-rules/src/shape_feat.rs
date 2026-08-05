@@ -7,7 +7,7 @@
 //! `FeatureStruct` per node when the phonological feature system is non-empty). Boundaries are
 //! `OPTIONAL` and, as of plan §13.1 Tier-1 #1, carry their **real** char-def lanes (`Type=Boundary`
 //! plus full-mask on every other lane) rather than a hardcoded fully-unconstrained row — see
-//! [`lanes_for`]'s doc comment. Anchors bracket the shape with unconstrained lanes.
+//! `lanes_for`'s doc comment. Anchors bracket the shape with unconstrained lanes.
 
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::Grammar;
@@ -19,7 +19,7 @@ use pg_shape::{Shape, ShapeBuilder};
 /// always-present synthetic `Type` feature). Boundaries become optional nodes carrying their real
 /// char-def lanes (plan §13.1 Tier-1 #1 — previously hardcoded to fully unconstrained, which
 /// silently discarded the boundary's own `Type` identity and let boundary-marker pattern nodes
-/// match any segment; see [`lanes_for`]).
+/// match any segment; see `lanes_for`).
 pub fn segment_with_features(
     grammar: &Grammar,
     table: &CharDefTable,

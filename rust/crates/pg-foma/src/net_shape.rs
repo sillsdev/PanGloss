@@ -1,5 +1,5 @@
-//! Static structural inspection of a finished [`foma::types::Fsm`] — the SPEED half of the
-//! candidate-screening split (the accuracy half is [`crate::recipe_accuracy`]'s set containment).
+//! Static structural inspection of a finished `foma::types::Fsm` — the SPEED half of the
+//! candidate-screening split (the accuracy half is `crate::recipe_accuracy`'s set containment).
 //!
 //! Nothing here applies a word. Every number is read off the compiled net's own line table, so the
 //! whole inspection is `O(states + arcs)` and available before a single corpus word is proposed.
@@ -19,9 +19,9 @@
 //! size and reports it as *context*, never as a ranking term.
 //!
 //! # What IS predictive: the shape of the continuation graph
-//! [`crate::emit`] builds BOUNDED, non-looping derivational chains where each slot appears exactly
+//! `crate::emit` builds BOUNDED, non-looping derivational chains where each slot appears exactly
 //! once (that module's `build_deriv_chain`), so branching at any input position is small and
-//! locally bounded. [`crate::uflexc`] builds SELF-LOOPING prefix/suffix chains, and `apply_up` must
+//! locally bounded. `crate::uflexc` builds SELF-LOOPING prefix/suffix chains, and `apply_up` must
 //! keep "did the word take another turn through this loop" live at every loop state, with the
 //! ambiguity compounding across the word. **The `apply_up` code is identical on both sides — the
 //! gap is entirely automaton shape.**
@@ -36,12 +36,12 @@
 //! lexicon added after it. A structural cycle check does not care what the lexicon is called.
 //!
 //! # Direction matters, and getting it backwards would make this vacuous
-//! `apply_up` matches the **lower** tape ([`foma::types::FsmState::out`]) and *emits* the upper one;
+//! `apply_up` matches the **lower** tape (`foma::types::FsmState::out`) and *emits* the upper one;
 //! `apply_down` is the mirror image (`foma`'s own `apply_binarysearch` selects `l_out` for `UP` and
 //! `l_in` for `DOWN`). So "consumes nothing" means `out == EPSILON` when screening an `apply_up`
 //! net, and `in == EPSILON` when screening an `apply_down` one. The null-morph pathology is
 //! precisely an `in != EPSILON, out == EPSILON` self-loop: invisible in the down direction,
-//! unbounded in the up direction. [`ApplyDirection`] is therefore a required argument, never
+//! unbounded in the up direction. `ApplyDirection` is therefore a required argument, never
 //! defaulted, and `shape_unit_tests::direction_decides_whether_a_zero_width_cycle_exists` pins
 //! the asymmetry on a two-arc net.
 //!
@@ -67,11 +67,11 @@
 //!   *may mislead*, and that acceptance does not extend to letting it decide correctness.
 //! - **A pathological verdict is INFORMATION, not permission to stop proposing.** Nothing here can
 //!   skip, truncate, or prune a candidate or a proposal set — there is no code path from this module
-//!   into one. Truncating a word's proposal set would be read by [`crate::parity`] as disagreement,
+//!   into one. Truncating a word's proposal set would be read by `crate::parity` as disagreement,
 //!   which is worse than the cost the truncation saved.
 //! - Only ONE property is asserted as a defect: presence of a zero-width cycle. That is a
 //!   *structural* fact with no threshold to tune. Everything else (`NetShape::branching_max`, the
-//!   quantiles, [`NetShape::apply_ambiguity_total`]) is reported as an **uncalibrated number**:
+//!   quantiles, `NetShape::apply_ambiguity_total`) is reported as an **uncalibrated number**:
 //!   this project has no complete grammar to calibrate against, and a fabricated threshold would
 //!   read as a measurement.
 
@@ -79,15 +79,15 @@ use foma::types::Fsm;
 
 /// `foma`'s epsilon symbol number, in the `i16` width the line table stores labels at.
 ///
-/// Narrowed from [`foma::types::EPSILON`] (an `i32`) rather than re-spelled as a literal `0`, so the
+/// Narrowed from `foma::types::EPSILON` (an `i32`) rather than re-spelled as a literal `0`, so the
 /// two can never drift: if foma ever renumbered epsilon, this would follow it and a hardcoded `0`
 /// would silently start screening the wrong symbol.
 const EPSILON_LABEL: i16 = foma::types::EPSILON as i16;
 
 /// Which tape an `apply` traversal CONSUMES. Determines which label counts as "consumes nothing".
 ///
-/// See the module doc: `foma`'s traversal reads [`foma::types::FsmState::out`] for `Up` and
-/// [`foma::types::FsmState::in`] for `Down`. Screening the wrong direction does not fail loudly —
+/// See the module doc: `foma`'s traversal reads `foma::types::FsmState::out` for `Up` and
+/// `foma::types::FsmState::in` for `Down`. Screening the wrong direction does not fail loudly —
 /// it silently reports a clean net.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ApplyDirection {
@@ -174,17 +174,17 @@ pub struct NetShape {
     /// Reported for CONTEXT only. See the module doc's measured table for why neither of these two
     /// numbers may be used to prefer one candidate over another.
     pub states: u64,
-    /// Reported for CONTEXT only, as [`Self::states`].
+    /// Reported for CONTEXT only, as `Self::states`.
     pub arcs: u64,
     /// Cycles over the FULL continuation graph, labels ignored. A high count here is normal and not
     /// by itself a problem: `uflexc`'s self-looping affix chains are deliberate, and a loop whose
     /// every lap consumes a real surface character is bounded by the query's own length.
     pub cycles: CycleCensus,
-    /// Cycles over the subgraph of arcs that consume NOTHING in [`Self::direction`]. **This is the
+    /// Cycles over the subgraph of arcs that consume NOTHING in `Self::direction`. **This is the
     /// defect.** Any cycle here can be traversed an unbounded number of times at a single input
     /// position.
     pub zero_width_cycles: CycleCensus,
-    /// Arcs consuming nothing in [`Self::direction`]. Individually harmless (an ordinary epsilon
+    /// Arcs consuming nothing in `Self::direction`. Individually harmless (an ordinary epsilon
     /// transition on an acyclic path is just a jump); counted because a zero-width cycle cannot
     /// exist without them, so a `0` here is a positive proof of absence.
     pub zero_width_arcs: u64,
@@ -194,7 +194,7 @@ pub struct NetShape {
     /// between at one input position, with duplicate labels collapsed.
     pub distinct_label_branching: DegreeDistribution,
     /// Largest number of arcs leaving ONE state that consume the SAME label (an epsilon "label"
-    /// included). `1` means the net is deterministic in [`Self::direction`]; `n > 1` means a
+    /// included). `1` means the net is deterministic in `Self::direction`; `n > 1` means a
     /// traversal at that state forks `n` ways on one input symbol.
     pub apply_ambiguity_max: u64,
     /// Summed excess: over every (state, consumed label) pair, `count - 1`. The total number of
@@ -393,7 +393,7 @@ impl DegreeDistribution {
 /// Built once and shared by both cycle walks, so a net is decoded from its CSR blocks exactly once
 /// no matter how many subgraphs are censused.
 struct Adjacency {
-    /// `arc_offsets[s]..arc_offsets[s + 1]` indexes [`Self::arcs`] for state `s`.
+    /// `arc_offsets[s]..arc_offsets[s + 1]` indexes `Self::arcs` for state `s`.
     arc_offsets: Vec<u32>,
     arcs: Vec<Arc>,
 }
@@ -462,9 +462,9 @@ impl Adjacency {
 }
 
 /// Strongly-connected components of the subgraph `adjacency` restricted to arcs satisfying `keep`,
-/// reduced to a [`CycleCensus`].
+/// reduced to a `CycleCensus`.
 ///
-/// **Iterative Tarjan, not recursive.** See [`NetShape::inspect`]'s own doc: the nets this screen
+/// **Iterative Tarjan, not recursive.** See `NetShape::inspect`'s own doc: the nets this screen
 /// most needs to survive are exactly the ones already overflowing a stack elsewhere.
 fn census(n: usize, adjacency: &Adjacency, keep: impl Fn(&Arc) -> bool) -> CycleCensus {
     const UNVISITED: u32 = u32::MAX;

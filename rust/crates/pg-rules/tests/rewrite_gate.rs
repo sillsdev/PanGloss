@@ -45,7 +45,7 @@ fn rule(lhs: Pattern, sr: RewriteSubruleDef) -> RewriteRuleDef {
     }
 }
 
-/// [`rule`]'s direction-parameterized sibling — needed only by the direction (LtR vs RtL) pick-order
+/// `rule`'s direction-parameterized sibling — needed only by the direction (LtR vs RtL) pick-order
 /// gate tests below, which are the only tests in this file that build a `Dir::RightToLeft` rule
 /// (`rule`'s every other caller wants the default `Dir::LeftToRight`, so that helper is left as-is).
 fn rule_dir(lhs: Pattern, sr: RewriteSubruleDef, dir: Dir) -> RewriteRuleDef {
@@ -60,7 +60,7 @@ fn rule_dir(lhs: Pattern, sr: RewriteSubruleDef, dir: Dir) -> RewriteRuleDef {
     }
 }
 
-/// [`rule`]'s multi-subrule, mode-parameterized sibling — needed only by the P13 multi-subrule
+/// `rule`'s multi-subrule, mode-parameterized sibling — needed only by the P13 multi-subrule
 /// Simultaneous-disjunction gate test below (§4.1's warning / §7 open question 1), which is the
 /// only test in this file with more than one subrule on a single rule.
 fn rule_multi(lhs: Pattern, subrules: Vec<RewriteSubruleDef>, mode: RewriteMode) -> RewriteRuleDef {
@@ -1185,7 +1185,7 @@ fn traced_synthesis_applied_carries_no_reason_and_the_rewritten_output() {
     );
 }
 
-/// [`SynthesisRewriteSubruleSpec.IsApplicable`]'s first gate (`RequiredMprFeatures`, C#
+/// `SynthesisRewriteSubruleSpec.IsApplicable`'s first gate (`RequiredMprFeatures`, C#
 /// `SynthesisRewriteSubruleSpec.cs:46-59`): reported even though the LHS pattern (medial "t" in
 /// "ata") WOULD otherwise match -- confirming the gate is checked, and its specific reason reported,
 /// BEFORE the pattern is ever tried, matching C#'s `IsApplicable`-before-`MatchSubrule` order.

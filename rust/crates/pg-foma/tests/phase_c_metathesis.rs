@@ -1,5 +1,5 @@
 //! `PhonRuleDef::Metathesis` real FST semantics, via
-//! [`pg_foma::replace::compile_metathesis_rule`]'s dedicated swap relation (that function's own
+//! `pg_foma::replace::compile_metathesis_rule`'s dedicated swap relation (that function's own
 //! module doc: a per-branch literal cross-product union, mirroring `resolve_alpha_tuples`'s own
 //! identity-preservation fix). Any rule whose whole pattern is a shape
 //! `pg_foma::replace::pattern_slots` accepts (no `Quantifier`/`Segments`/`Anchor`, no
@@ -145,7 +145,7 @@ fn oracle_candidate_set(
         .collect()
 }
 
-/// Compiles `rule` (stratum 0's own table) via [`compile_and_compose_rules_with_budget`], composes
+/// Compiles `rule` (stratum 0's own table) via `compile_and_compose_rules_with_budget`, composes
 /// it after `lexc_source`, and minimizes -- the shared plumbing every containment witness below
 /// uses (mirrors `tests/phase_c_right_to_left.rs`'s own `compile_net`).
 fn compile_net(

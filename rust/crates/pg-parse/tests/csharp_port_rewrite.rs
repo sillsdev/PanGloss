@@ -10,7 +10,7 @@
 //! `{min,max}`-repeated groups via `OptionalSegmentSequence`, anchors, ordered disjunctive subrules)
 //! already matches C#. `MultipleSegmentRules` is a partial exception: its first reconfiguration
 //! ports live, but composing a second (untriggered deletion) rule into the same stratum surfaces a
-//! genuine finding -- [`multiple_segment_rules_deletion_composition_finding`].
+//! genuine finding -- `multiple_segment_rules_deletion_composition_finding`.
 //!
 //! Deliberate scope reductions (each noted at its test, not silently):
 //! - `BoundaryRules`: ports the boundary+feature-environment reconfigurations and the MPR-feature
@@ -205,7 +205,7 @@ fn multiple_deletion_rules() {
 /// Ports `RewriteRuleTests.BoundaryRules` (RewriteRuleTests.cs:562-844), the boundary+feature-
 /// environment reconfigurations (1-4) and the MPR-feature reconfigurations (last 2); the
 /// `RequiredSyntacticFeatureStruct`-on-a-subrule reconfiguration is a documented finding (see file
-/// doc + [`boundary_rules_required_pos_on_subrule_finding`]).
+/// doc + `boundary_rules_required_pos_on_subrule_finding`).
 ///
 /// PARTIALLY FIXED (plan item 1 / wave-3): sub-cases (1)-(4) (the boundary+feature-environment
 /// reconfigurations needing the char_def-staleness fix) now pass. Sub-cases (5)/(6) (the MPR-gated
@@ -398,7 +398,7 @@ fn boundary_rules() {
 /// with a working epenthesis path.
 ///
 /// **FIXED -- un-ignored; green.** The bare-root epenthesis path now works (see
-/// [`boundary_rules`]' updated doc: word-initial synthesis site + the multi-node analysis-target
+/// `boundary_rules`' updated doc: word-initial synthesis site + the multi-node analysis-target
 /// direction fix), and as predicted the separately-landed POS gate composes correctly with it:
 /// `taba` resolves to `pos2` only (posN fires the epenthesis; `pos1`/posV's confirm can't produce
 /// the `ta`) and `ba` to `pos1` only (posV never epenthesizes; `pos2`'s confirm would).
@@ -480,7 +480,7 @@ fn common_feature_rules() {
 
 /// Ports `RewriteRuleTests.EpenthesisRules` (RewriteRuleTests.cs:1144-1342), the non-alpha-variable,
 /// non-infinite-loop reconfigurations (1,2,3,4,5,7 of the C# test's 9; see file doc for the two
-/// omitted, and [`epenthesis_rules_iterative_cascade_finding`] for the 9th, which is a separate,
+/// omitted, and `epenthesis_rules_iterative_cascade_finding` for the 9th, which is a separate,
 /// still-open finding, not part of this test).
 ///
 /// CORRECTED FINDING (plan item 1 / wave-3): this test's actual blocker was mis-attributed to the
@@ -552,7 +552,7 @@ fn common_feature_rules() {
 ///      The real C# test (`RewriteRuleTests.cs:1201-1254`) asserts both sub-cases succeed; both now do.
 /// - **A NINTH sub-case, previously believed "verified passing individually," is in fact a separate,
 ///   pre-existing, confirmed-but-not-fixed divergence** — split out to
-///   [`epenthesis_rules_iterative_cascade_finding`] (its own doc has the full mechanism).
+///   `epenthesis_rules_iterative_cascade_finding` (its own doc has the full mechanism).
 ///
 /// This test is now un-ignored and green: (1), (2), (3), (4), (5), (7) all pass.
 #[test]
@@ -748,7 +748,7 @@ fn epenthesis_rules_iterative_cascade_finding() {
 /// Ports `RewriteRuleTests.DeletionRules` (RewriteRuleTests.cs:1345-1559) reconfigurations 5-7 (the
 /// two-Morphophonemic-rules negative case), which does not need multiple analysis-side alternatives
 /// and so is unaffected by the module doc's "major finding". Reconfigurations 1-4 (and the omitted
-/// `DeletionReapplications` one) are [`deletion_rules_multi_position_reinsertion`].
+/// `DeletionReapplications` one) are `deletion_rules_multi_position_reinsertion`.
 #[test]
 fn deletion_rules_negative_case() {
     let g5 = build_grammar(
@@ -992,7 +992,7 @@ fn long_distance_rules() {
 }
 
 /// Ports `RewriteRuleTests.QuantifierRules` (RewriteRuleTests.cs:247-347) -- same probe outcome as
-/// [`long_distance_rules`] (batch-5, live, zero engine changes). `(cons lowVowel){1,2}` as a
+/// `long_distance_rules` (batch-5, live, zero engine changes). `(cons lowVowel){1,2}` as a
 /// REPEATED GROUP -- the DTD's only group-authoring mechanism outside `<MetathesisRule>`, an
 /// `<OptionalSegmentSequence min max>` whose children are matched together as one repeated unit
 /// (`pg-grammar/src/load.rs:890-906`'s `PatternNode::Quantifier { children, .. }`) -- is exactly how
@@ -1056,11 +1056,11 @@ fn quantifier_rules() {
 }
 
 /// Ports `RewriteRuleTests.MultipleSegmentRules`'s FIRST reconfiguration only (RewriteRuleTests.cs:
-/// 384-399) -- same probe outcome as [`long_distance_rules`]/[`quantifier_rules`] for this half
+/// 384-399) -- same probe outcome as `long_distance_rules`/`quantifier_rules` for this half
 /// (batch-5, live, zero engine changes). `rule1` has a genuinely TWO-SEGMENT `PhoneticInput`/
 /// `PhoneticOutput` (highVowel,highVowel -> backRnd,backRnd), gated on a preceding backRndVowel. The
 /// SECOND reconfiguration (adding `rule2`, a pure-deletion rule) surfaces a genuine finding --
-/// [`multiple_segment_rules_deletion_composition_finding`].
+/// `multiple_segment_rules_deletion_composition_finding`.
 #[test]
 fn multiple_segment_rules() {
     let mrules = r#"
@@ -1080,7 +1080,7 @@ fn multiple_segment_rules() {
 /// Ports `RewriteRuleTests.MultipleSegmentRules`'s SECOND reconfiguration (RewriteRuleTests.cs:
 /// 401-408): adding `rule2` (`t` -> nothing, gated on a following backRndVowel -- a pure-deletion
 /// rule that never actually fires on "buuubuuu", no "t" is present) to the SAME stratum as
-/// [`multiple_segment_rules`]'s `rule1` must still yield `{"27"}` per the C# oracle (cs:408).
+/// `multiple_segment_rules`'s `rule1` must still yield `{"27"}` per the C# oracle (cs:408).
 ///
 /// **FIXED (P6).** The original triangulation (`Morpher::with_memo(false)` gives the same empty
 /// result, ruling out the #451 analysis memo / `merge_equivalent` shape-fold; `rule2`/`rule1` each
@@ -1145,7 +1145,7 @@ fn multiple_segment_rules_deletion_composition_finding() {
 }
 
 /// Ports `RewriteRuleTests.DisjunctiveRules` (RewriteRuleTests.cs:1562-1806) -- same probe outcome as
-/// [`long_distance_rules`]/[`quantifier_rules`] (batch-5, live, zero engine changes): 5
+/// `long_distance_rules`/`quantifier_rules` (batch-5, live, zero engine changes): 5
 /// reconfigurations of a single rule (`disrule1`), each with 2+ DISJUNCTIVE `PhonologicalSubrule`s
 /// (ordered alternatives -- the first whose own `Environment` matches wins, mirroring the earlier
 /// `AffixProcessRuleTests.SuffixRules`-style ordered-subrule disjunction, now for phonology).

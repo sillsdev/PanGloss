@@ -66,7 +66,7 @@ fn pos_fs(g: &Grammar, xml_id: &str) -> FeatureStruct {
     b.build()
 }
 
-/// Build a bare (feature-less shape, but real `MorphemeId`/`AllomorphId`/`syn_fs`) root [`Word`] for
+/// Build a bare (feature-less shape, but real `MorphemeId`/`AllomorphId`/`syn_fs`) root `Word` for
 /// the lexical entry whose `<MorphemeId>` text is `gloss`, the same style
 /// `pg-rules/tests/validity_gate.rs` uses to drive `pg_rules::morph::synthesize` directly against a
 /// real loaded grammar without needing the full `Morpher` pipeline -- appropriate here because
@@ -1070,7 +1070,7 @@ fn truncate_rules() {
 }
 
 /// Ports `AffixProcessRuleTests.NonContiguousRules` (AffixProcessRuleTests.cs:1948-2030): the same
-/// `perf_act` infix shape as [`infix_rules`] (root "49"="ktb" -> "k"+a+"t"+a+"b"+"ɯd" = "katabɯd"),
+/// `perf_act` infix shape as `infix_rules` (root "49"="ktb" -> "k"+a+"t"+a+"b"+"ɯd" = "katabɯd"),
 /// but this time followed by an ITERATIVE `RewriteRule` raising a low vowel ("a") to `[i]`
 /// (`ncISeg`) whenever the RIGHT environment is a voiced consonant (`ncVoicedCons`) -- discontiguous
 /// from the affixation rule's own insertion sites, hence the test's name. Applied iteratively across

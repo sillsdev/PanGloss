@@ -77,7 +77,7 @@ const REDUP_EXCLUDED: &[&str] = &[
     "menyewa-nyewa",
 ];
 
-/// Routed through [`pg_conformance_fixtures::corpus`] rather than joining the path directly, so that
+/// Routed through `pg_conformance_fixtures::corpus` rather than joining the path directly, so that
 /// `PANGLOSS_CORPUS_REQUIRED` (set by `pg.ps1 -Mode corpus-test` after it validates the manifest)
 /// turns an absent corpus into a hard failure instead of the skip-if-absent success below. Without
 /// that, a worktree with no `samples/data/` reports this whole suite as passing while measuring

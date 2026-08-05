@@ -25,17 +25,17 @@
 //! certification scope was once made invisible (`pg_foma::parity`'s own module doc, and the
 //! fix that restored it). Three distinct relations appear below:
 //!
-//! - **Deduplicated [`pg_foma::parity::OccurrenceIdentities`] SET cardinality**
-//!   ([`OccurrenceIdentities::len`]) -- the PROGRAM's own parity relation, counted. Multiplicity is
+//! - **Deduplicated `pg_foma::parity::OccurrenceIdentities` SET cardinality**
+//!   (`OccurrenceIdentities::len`) -- the PROGRAM's own parity relation, counted. Multiplicity is
 //!   deliberately not part of it. Every per-word claim about "how many distinct analyses exist" is
-//!   this relation, bounded above and below by the committed record in [`assert_word_parity`] and
-//!   pinned exactly in [`assert_identities_and_multiplicity`].
-//! - **MULTISET cardinality** ([`OccurrenceIdentities::raw_analyses`]) against the committed
+//!   this relation, bounded above and below by the committed record in `assert_word_parity` and
+//!   pinned exactly in `assert_identities_and_multiplicity`.
+//! - **MULTISET cardinality** (`OccurrenceIdentities::raw_analyses`) against the committed
 //!   `parses:` row count. `words.yaml` is documented as sorted-but-NOT-deduped
 //!   (`pg_parse::result_signature`, `WordEntry::expected_signature`), so a repeated signature there
 //!   is a real, measured multiplicity, not a formatting artifact. Asserted for every committed word
-//!   of every exercise, by [`assert_word_parity`], and again per witness word by
-//!   [`assert_identities_and_multiplicity`] -- so "one identity found twice" can never pass as "two
+//!   of every exercise, by `assert_word_parity`, and again per witness word by
+//!   `assert_identities_and_multiplicity` -- so "one identity found twice" can never pass as "two
 //!   identities".
 //! - **The committed SIGNATURE relation** (`pg_conformance_fixtures::assert_matches_oracle`) --
 //!   status plus sorted-joined signature string, the shared ground truth every conformance fixture
@@ -51,7 +51,7 @@
 //! hid the v1 scope.
 //!
 //! Where an exercise needs two witnesses to be genuinely two, it compares MORPHEME SEQUENCES
-//! ([`morpheme_sequences`], the `morphemes` field of each identity) and requires the two sets to be
+//! (`morpheme_sequences`, the `morphemes` field of each identity) and requires the two sets to be
 //! disjoint. Identity counts alone would not do it: two surfaces could each carry one analysis and
 //! still be the same analysis, which would make a pair of witnesses one witness with two names.
 //!
@@ -59,20 +59,20 @@
 //!
 //! 7.8's wording lists "bounded copy" and "unbounded peeled copy" as two mechanisms without saying
 //! where the line is. Left as a label it would be unfalsifiable, so this file pins it to a property
-//! of the loaded grammar that [`copy_width_bound`] computes:
+//! of the loaded grammar that `copy_width_bound` computes:
 //!
 //! - A **bounded copy** copies an LHS part whose pattern has a FINITE width bound -- e.g.
 //!   `metathesis-phase-isolation`'s `mrRedupCV`, whose copied part `rcCV` is exactly two
 //!   `SimpleContext` nodes (one consonant, one vowel). A finite-width copy is a finite relation over
 //!   the alphabet, so a composed FST can express it outright.
 //! - An **unbounded copy** copies a part with NO finite width bound -- an
-//!   `<OptionalSegmentSequence min="1" max="-1">`, i.e. a [`PatternNode::Quantifier`] whose `max` is
+//!   `<OptionalSegmentSequence min="1" max="-1">`, i.e. a `PatternNode::Quantifier` whose `max` is
 //!   `None`. `{ww : w in Sigma*}` is not a regular language, so no finite-state
 //!   relation expresses it and the surface must be PEELED at query time
 //!   (`pg_foma::peel::ReduplicationPeeler`) instead. This is why the peel path exists at all, and
 //!   why it -- and only it -- carries a chain-depth budget.
 //!
-//! [`the_bounded_unbounded_copy_line_is_a_property_of_the_grammar`] asserts that this distinction is
+//! `the_bounded_unbounded_copy_line_is_a_property_of_the_grammar` asserts that this distinction is
 //! a real, computed fact about the two rules rather than a comment: `mrRedupCV`'s copied part must
 //! have a finite bound and `mrRedupFull`'s must not.
 //!
@@ -82,13 +82,13 @@
 //! TRUNCATED candidate set. Two rules follow, both observed:
 //!
 //! 1. **Every recall claim in this file is made under a budget whose `chain_depth_cap` is `None`**
-//!    (unbounded), built by [`unbounded_budget`]. No assertion about which analyses exist can
+//!    (unbounded), built by `unbounded_budget`. No assertion about which analyses exist can
 //!    therefore be a disguised budget refusal.
 //! 2. **The refusal is a typed `Err`, never `Ok(vec![])`.** `peel_candidates` returns
 //!    `Result<Vec<Candidate>, ComposeError>`, so "I was refused" and "I looked and found nothing"
 //!    are different values, and this file never collapses them:
-//!    [`peel_residuals_offered`] returns `Result` and every caller matches on it.
-//!    [`the_smallest_chain_depth_cap_never_refuses_a_single_layer_copy`] pins the other direction --
+//!    `peel_residuals_offered` returns `Result` and every caller matches on it.
+//!    `the_smallest_chain_depth_cap_never_refuses_a_single_layer_copy` pins the other direction --
 //!    a single-layer unbounded copy, which the peel genuinely supports, must NOT be refused even by
 //!    the smallest configurable cap. A failure there is "the budget refuses a supported construct",
 //!    a finding about the budget; it is not, and must not be reported as, a recall failure.
@@ -107,7 +107,7 @@
 //! `metathesis-phase-isolation`'s `mrRedupCV`. Its apparent second home,
 //! `staging:edge-cases/recipe-ordered-generic`, is a byte-identical CLONE of that upstream grammar
 //! differing only in `<Language><Name>` -- pinned by
-//! [`clone_fixtures_are_pinned_as_clones_not_independent_exercises`] precisely so nobody pairs the
+//! `clone_fixtures_are_pinned_as_clones_not_independent_exercises` precisely so nobody pairs the
 //! two and reports one exercise as two.
 //!
 //! So there is no second bounded-copy FIXTURE in the corpus, and authoring one was out of scope for
@@ -116,9 +116,9 @@
 //! hand-derived expectation would pin this file's arithmetic instead of the grammar -- exactly what
 //! the discipline above exists to prevent. What is offered instead is two exercises of the ONE
 //! fixture at two different LAYERS, with genuinely independent falsifiers:
-//! [`bounded_copy_exercise_fixed_width_reduplicant_recalls_exactly_one_reading`] (word level,
+//! `bounded_copy_exercise_fixed_width_reduplicant_recalls_exactly_one_reading` (word level,
 //! oracle-anchored: a synthesis/analysis defect in the fixed-width copy fails it while the model
-//! stays intact) and [`the_bounded_unbounded_copy_line_is_a_property_of_the_grammar`] (model level:
+//! stays intact) and `the_bounded_unbounded_copy_line_is_a_property_of_the_grammar` (model level:
 //! a loader change that collapsed `OptionalSegmentSequence`'s `min`/`max` fails it while both words
 //! could still parse). That is weaker than two fixtures and is reported as weaker.
 //!
@@ -126,7 +126,7 @@
 //!
 //! `mpr-gated-exception` and `subrule-morphosyntactic-gating` are independent in the MPR direction
 //! and that half is ASSERTED, not argued: `subrule-morphosyntactic-gating` declares no MPR features
-//! at all ([`gate_exercise_pos_requirement_on_a_rewrite_subrule`] checks
+//! at all (`gate_exercise_pos_requirement_on_a_rewrite_subrule` checks
 //! `Grammar::mpr_names.is_empty()`), so no regression in `excluded_mpr` handling can be detected
 //! there and `mpr-gated-exception` is the only witness for it.
 //!
@@ -205,7 +205,7 @@ const COPY_BOUNDED_AND_UNBOUNDED: Fixture =
 
 /// Every exercise, in the order the table in this module's doc lists them. `COPY_BOUNDED_AND_
 /// UNBOUNDED` appears once even though two mechanisms use it -- see
-/// [`the_exercise_set_has_the_shape_it_claims`].
+/// `the_exercise_set_has_the_shape_it_claims`.
 const EXERCISES: &[Fixture] = &[
     COMPOUNDING_MPR_GATED,
     COMPOUNDING_SELF_FEEDING,
@@ -220,7 +220,7 @@ const EXERCISES: &[Fixture] = &[
 ];
 
 /// Fixture pairs where one is a clone of the other -- see
-/// [`clone_fixtures_are_pinned_as_clones_not_independent_exercises`].
+/// `clone_fixtures_are_pinned_as_clones_not_independent_exercises`.
 const CLONE_PAIRS: &[(Fixture, Fixture)] = &[
     (
         Fixture::staged("recipe-ordered-generic"),
@@ -612,7 +612,7 @@ fn assert_no_derivation(
 
 /// A pattern's width bound in shape nodes, or `None` when it has none.
 ///
-/// `None` propagates: an unbounded [`PatternNode::Quantifier`] (`max: None`, the loader's rendering
+/// `None` propagates: an unbounded `PatternNode::Quantifier` (`max: None`, the loader's rendering
 /// of `<OptionalSegmentSequence max="-1">`) makes the whole pattern unbounded, and so does an
 /// unbounded child. Anchors contribute zero width because they are position constraints, not
 /// material.
@@ -991,7 +991,7 @@ fn interdigitation_exercise_literal_insert_between_split_root_copies() {
 ///
 /// Anchored on a NAMED subset rather than the whole fixture: its remaining rows carry stem-name
 /// selection and cascade feeding/bleeding, which belong to group A's half of 7.8 (see
-/// [`committed_named`] for why whole-fixture anchoring here would duplicate an existing gate).
+/// `committed_named` for why whole-fixture anchoring here would duplicate an existing gate).
 #[test]
 fn interdigitation_exercise_class_insert_and_root_internal_modification() {
     let (label, grammar, words) = INTERDIGITATION_MODIFY_INPUT.open();
@@ -1059,8 +1059,8 @@ struct InterdigitationShapes {
     /// Rules whose RHS is `Copy .. InsertSegments .. Copy` -- LITERAL material interleaved at a
     /// split point (exercise 1's family).
     insert_literal_between_copies: usize,
-    /// Rules carrying a `ModifyFromInput` ([`OutputAction::Modify`]) or an `InsertSimpleContext`
-    /// ([`OutputAction::InsertContext`]) action -- exercise 2's family. Counted together because
+    /// Rules carrying a `ModifyFromInput` (`OutputAction::Modify`) or an `InsertSimpleContext`
+    /// (`OutputAction::InsertContext`) action -- exercise 2's family. Counted together because
     /// they are the two halves of one output-action family (a natural CLASS as the exponent, rather
     /// than a literal shape) and both are absent from exercise 1's grammar.
     class_valued_actions: usize,
@@ -1507,7 +1507,7 @@ fn bounded_copy_exercise_fixed_width_reduplicant_recalls_exactly_one_reading() {
 ///
 /// The falsifier this layer has and the word layer does not: a loader or model change that collapsed
 /// `<OptionalSegmentSequence>`'s `min`/`max` into a fixed repetition -- or that dropped the
-/// distinction from [`PatternNode::Quantifier`] -- fails here while both words could still parse
+/// distinction from `PatternNode::Quantifier` -- fails here while both words could still parse
 /// perfectly well.
 ///
 /// The corpus-wide half is asserted too, because it is the reason this mechanism has only one
@@ -1604,7 +1604,7 @@ fn the_bounded_unbounded_copy_line_is_a_property_of_the_grammar() {
 /// other green -- which is not hypothetical: the peel once appended unconditionally, and that was
 /// correct only because the sole reduplication it had ever seen was a trailing copy.
 ///
-/// Every peel call here runs under [`unbounded_budget`], so no assertion can be a disguised
+/// Every peel call here runs under `unbounded_budget`, so no assertion can be a disguised
 /// chain-depth refusal.
 #[test]
 fn unbounded_peeled_copy_exercise_suffix_scan() {

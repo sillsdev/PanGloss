@@ -3,17 +3,17 @@
 //! `pg_foma`'s own coverage/capability primitives, never inventing a parallel data source.
 //!
 //! # What this composes (read/reuse only — no `pg_foma` coverage/ledger/capability semantics touched)
-//! - [`pg_foma::coverage_ledger::build_ledger`]: one row per [`pg_foma::capability::
+//! - `pg_foma::coverage_ledger::build_ledger`: one row per [`pg_foma::capability::
 //!   CharacteristicKind`] — disposition, discharging predicates, conformance-construct mapping/
 //!   status, and curated containment evidence. This is the single source of truth every count below
 //!   is tallied FROM (never a second, independently-computed number that could drift).
-//! - [`pg_foma::capability::default_registry`]: the same twelve real predicates every production
+//! - `pg_foma::capability::default_registry`: the same twelve real predicates every production
 //!   compile-time gate uses.
 //! - The "supported (Proven) constructs vs. conformance-covered" ADR 0001 cross-check
-//!   ([`pg_foma::conformance_coverage`]'s own contract) is rendered as a FILTER over the ledger's own
+//!   (`pg_foma::conformance_coverage`'s own contract) is rendered as a FILTER over the ledger's own
 //!   `disposition == Proven` rows — not a second call to `supported_coverage_report` with its own
 //!   passing-set — so it is provably impossible for this section to disagree with the ledger.
-//! - [`pg_foma::plan_interaction_coverage`] (node-kind adjacency-tuple coverage): OPTIONAL, only when
+//! - `pg_foma::plan_interaction_coverage` (node-kind adjacency-tuple coverage): OPTIONAL, only when
 //!   `--grammar=<path>` is given (it needs a compiled `Plan`, which needs a grammar) — omitted
 //!   entirely, and said so in both the human summary and the JSON (`plan_interaction: null`), when no
 //!   grammar is supplied.
@@ -21,7 +21,7 @@
 //! # The "passing conformance construct" set
 //! `build_ledger` (like `pg_foma::conformance_coverage::supported_coverage_report`) needs a
 //! caller-supplied "which `constructs.txt` ids are exercised by a CURRENTLY-PASSING fixture" set.
-//! [`passing_covered_constructs`] builds it by replaying every discoverable IN-REPO SYNTHETIC
+//! `passing_covered_constructs` builds it by replaying every discoverable IN-REPO SYNTHETIC
 //! conformance fixture (`pg_conformance_fixtures::discover()` — `machine/conformance/**` +
 //! `conformance-staging/**`; never real-language data, per this repo's own hard rule) against
 //! `pg_parse::Morpher`, mirroring `pg-foma/tests/conformance_coverage_gate.rs`'s own
@@ -31,7 +31,7 @@
 //!
 //! # Tests
 //! The command must run and emit valid JSON that round-trips, and every count in the human/JSON
-//! summary must match a direct recount over the SAME [`pg_foma::coverage_ledger::CoverageLedger`]
+//! summary must match a direct recount over the SAME `pg_foma::coverage_ledger::CoverageLedger`
 //! this module built — see this file's own `tests` module.
 
 use std::collections::HashSet;

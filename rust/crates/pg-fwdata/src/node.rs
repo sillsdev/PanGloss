@@ -1,7 +1,7 @@
 //! A tiny read-only DOM for a single `.fwdata` `<rt>` record, plus accessor helpers that mirror
 //! the handful of shapes FieldWorks uses for scalar/multi-lingual/reference-link fields.
 //!
-//! We never DOM the whole 54MB `.fwdata` document (see `crate::xml`); a [`Node`] tree is built
+//! We never DOM the whole 54MB `.fwdata` document (see `crate::xml`); a `Node` tree is built
 //! for one `<rt>...</rt>` element at a time and dropped once its class has been extracted, or
 //! (for classes outside our allowlist) never built at all — the reader skips straight past the
 //! closing tag.
@@ -85,7 +85,7 @@ impl Node {
     }
 
     /// `<Tag><AUni ws="en">text</AUni><AStr ws="pt"><Run ws="pt">text</Run></AStr>...</Tag>` —
-    /// a `MultiUnicode`/`MultiString` field, one [`WsForm`] per writing system, in document
+    /// a `MultiUnicode`/`MultiString` field, one `WsForm` per writing system, in document
     /// order.
     pub fn ws_forms(&self, tag: &str) -> Vec<WsForm> {
         let Some(c) = self.child(tag) else {
@@ -120,11 +120,11 @@ impl Node {
         Some(concat_runs(self.child(tag)?.child("Str")?))
     }
 
-    /// Tolerant boolean parse of a child element's own *text content* (as opposed to [`val_bool`]
+    /// Tolerant boolean parse of a child element's own *text content* (as opposed to `val_bool`
     /// which reads a `val="..."` attribute) — the shape used by the nested `<ParserParameters>`
     /// XML blob (e.g. `<NotOnClitics>false</NotOnClitics>`).
     ///
-    /// [`val_bool`]: Node::val_bool
+    /// `val_bool`: Node::val_bool
     pub fn child_bool_text(&self, tag: &str) -> Option<bool> {
         let raw = self.child(tag)?.text.trim();
         match raw {
@@ -147,8 +147,8 @@ fn concat_runs(rich_text_elem: &Node) -> String {
 }
 
 /// Parse a small, complete XML document (e.g. the decoded `<ParserParameters>` blob, a few
-/// hundred bytes) into a synthetic root [`Node`] whose children are the document's top-level
-/// elements. Unlike [`crate::xml::parse_fwdata`] this *does* build a full DOM — safe here because
+/// hundred bytes) into a synthetic root `Node` whose children are the document's top-level
+/// elements. Unlike `crate::xml::parse_fwdata` this *does* build a full DOM — safe here because
 /// the input is always small (never the 54MB `.fwdata` file itself).
 pub fn parse_full_document(xml: &str) -> Option<Node> {
     let mut reader = Reader::from_str(xml);

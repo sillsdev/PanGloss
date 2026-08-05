@@ -1,5 +1,5 @@
-//! Natural-phrases N2 (`docs/natural-phrases-plan.md` N2): [`TableRealizer`], the one
-//! [`crate::Realizer`] implementation this milestone ships — a compile-time-authored English
+//! Natural-phrases N2 (`docs/natural-phrases-plan.md` N2): `TableRealizer`, the one
+//! `crate::Realizer` implementation this milestone ships — a compile-time-authored English
 //! construction table (Architecture B, `docs/natural-glosses-plan.md` §8) loaded from two
 //! `include_str!`-embedded assets under `rust/crates/pg-realize/assets/eng/`:
 //!
@@ -8,12 +8,12 @@
 //!   comment for the mechanical rule that generated it), key syntax `"Loc.P1Sg.Pl" = "in my
 //!   {n:pl}"`. Each value contains exactly one `{n:sg}` or `{n:pl}` slot.
 //! - `lexicon.toml`'s `[plural_exceptions]` section: the standard English irregular plurals,
-//!   consulted before the regular `-s`/`-es`/`-ies` rules in [`regular_plural`].
+//!   consulted before the regular `-s`/`-es`/`-ies` rules in `regular_plural`.
 //!
 //! Both assets reuse `crate::map`'s restricted-TOML-subset reader
-//! ([`crate::map::parse_section`]) rather than a third hand-rolled parser — same rejection-with-
+//! (`crate::map::parse_section`) rather than a third hand-rolled parser — same rejection-with-
 //! line-number behavior a bad committed asset gets caught by (below, in a unit test, not a
-//! runtime panic: [`TableRealizer::new`] returns a `Result`, and `assets_load_and_cover_all_108_cells`
+//! runtime panic: `TableRealizer::new` returns a `Result`, and `assets_load_and_cover_all_108_cells`
 //! is the test that would fail CI on a bad asset).
 #![forbid(unsafe_code)]
 
@@ -54,7 +54,7 @@ impl TableRealizer {
     }
 
     /// Resolve `citation`'s plural form: the exceptions table first, then the regular mechanical
-    /// rules ([`regular_plural`]) for any plain ASCII-alphabetic word. `None` when neither source
+    /// rules (`regular_plural`) for any plain ASCII-alphabetic word. `None` when neither source
     /// can handle it cleanly (a non-alphabetic token — digits, punctuation, empty) — the caller
     /// falls back to the unchanged citation form and marks the realization incomplete, per the
     /// milestone task's "else use the citation form unchanged and mark the realization
@@ -163,16 +163,16 @@ fn fill_template(template: &str, form: &str) -> String {
     }
 }
 
-/// A plain (non-empty, all-ASCII-alphabetic) word — the class [`regular_plural`]'s mechanical
+/// A plain (non-empty, all-ASCII-alphabetic) word — the class `regular_plural`'s mechanical
 /// suffix rules are meaningful over. Anything else (digits, punctuation, empty) is left alone by
-/// [`TableRealizer::plural_form`] and marks the realization incomplete instead.
+/// `TableRealizer::plural_form` and marks the realization incomplete instead.
 fn is_plain_ascii_word(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_ascii_alphabetic())
 }
 
 /// Regular English pluralization (`docs/natural-phrases-plan.md` N2): default `-s`; `-es` after a
 /// word ending in s/x/z/ch/sh; a final consonant + `y` becomes `-ies`. Only ever called on an
-/// [`is_plain_ascii_word`] input.
+/// `is_plain_ascii_word` input.
 fn regular_plural(word: &str) -> String {
     if word.ends_with('s')
         || word.ends_with('x')

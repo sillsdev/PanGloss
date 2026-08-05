@@ -2,8 +2,8 @@
 //! `examples/p6_replace_prototype.rs` (Indonesian). Builds the composed network
 //! `underlying-lexc(templated) .o. prule1 .o. .. .o. prule18 .o. boundary-cleanup` for Aweti (855
 //! entries, 135 mrules, 18 prules, 14 templates/43 slots, 3 strata) using
-//! [`pg_foma::emit::emit_underlying_templated`] instead of the enumeration-based
-//! [`pg_foma::emit::emit`] (which OOMs on this grammar — `p6_templated_diagnostics.rs`'s/the emit
+//! `pg_foma::emit::emit_underlying_templated` instead of the enumeration-based
+//! `pg_foma::emit::emit` (which OOMs on this grammar — `p6_templated_diagnostics.rs`'s/the emit
 //! budget's own numbers: 2,833,559 fusion entries, a 691MB/9.7M-line lexc, ~8.8GB `apply_up`
 //! allocation). Unlike its Indonesian sibling, this driver does NOT attempt a full-corpus
 //! recall-parity gate — see the comment above the spot-check section below (and

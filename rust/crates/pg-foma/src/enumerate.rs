@@ -1,17 +1,17 @@
-//! `enumerate_default` builds today's compilation topology as a single reified [`Plan`]
+//! `enumerate_default` builds today's compilation topology as a single reified `Plan`
 //! (`crate::plan`), verified structurally against the REAL seam functions rather than a
 //! re-derivation of their decisions.
 //!
-//! This module does not implement a plan builder/interpreter (no live [`foma::types::Fsm`] is
+//! This module does not implement a plan builder/interpreter (no live `foma::types::Fsm` is
 //! built anywhere here), and does not modify the bodies of the three seam functions it mirrors
 //! (their *visibility* was widened from private to `pub(crate)` so this module and its tests can
-//! call them directly — see [`crate::emit::probe_would_refuse`]/[`crate::emit::
+//! call them directly — see `crate::emit::probe_would_refuse`/[`crate::emit::
 //! structural_candidate_rules`]'s own doc comments for that rationale; [`crate::preexpand::
-//! should_run`] and [`crate::gate::partition_entries`]/[`crate::gate::find_gated_subrules`] were
-//! already `pub(crate)`/`pub`). Building/executing a [`Plan`] into real FSTs stays out of scope
+//! should_run`] and `crate::gate::partition_entries`/`crate::gate::find_gated_subrules` were
+//! already `pub(crate)`/`pub`). Building/executing a `Plan` into real FSTs stays out of scope
 //! here (`crate::plan`'s own module doc; `crate::build`'s `build_controllable` is the one
 //! interpreter, over the CONTROLLABLE Gate/Replace/Compose subtree only). `crate::emit::
-//! plan_topology_decisions` calls [`enumerate_default`] and reads the built `Plan`'s composite-
+//! plan_topology_decisions` calls `enumerate_default` and reads the built `Plan`'s composite-
 //! emission/structural-composite marker presence to decide `emit_with_budget_profiled`'s own
 //! topology, replacing that function's independent `preexpand::should_run`/`structural_candidate_
 //! rules(...).is_empty()` calls — see that function's own doc. `gate::partition_entries` stays
@@ -22,9 +22,9 @@
 //!
 //! | Row | Real seam | Modeled as |
 //! |---|---|---|
-//! | 1 | [`crate::preexpand::should_run`] | An `Option<NodeId>` for a [`PlanNodeKind::Leaf`] tagged [`FragmentSpec::CompositeEmissionMarker`] — present iff `should_run` is `true`. |
-//! | 2 | [`crate::emit::probe_would_refuse`] / [`crate::emit::structural_candidate_rules`] | An `Option<NodeId>` for a [`PlanNodeKind::Leaf`] tagged [`FragmentSpec::StructuralCompositeMarker`] — present iff `structural_candidate_rules(g)` is non-empty (the REAL gate `emit::emit_with_budget` uses, `!struct_rules.is_empty()`; a strict superset of "`probe_would_refuse` alone" — see that function's own doc). |
-//! | 3 | [`crate::gate::partition_entries`] / [`crate::gate::find_gated_subrules`] | A [`PlanNodeKind::Gate`] node whose `partition.groups` has one [`GateGroupSpec`] per group `partition_entries` yields, one child subplan per group. An ungated grammar collapses to a single-group `Gate` with an empty key (`GatePartitionSpec`'s doc) — the pre-refactor behavior preserved as a specific enumerable plan, not a special case. |
+//! | 1 | `crate::preexpand::should_run` | An `Option<NodeId>` for a `PlanNodeKind::Leaf` tagged `FragmentSpec::CompositeEmissionMarker` — present iff `should_run` is `true`. |
+//! | 2 | `crate::emit::probe_would_refuse` / `crate::emit::structural_candidate_rules` | An `Option<NodeId>` for a `PlanNodeKind::Leaf` tagged `FragmentSpec::StructuralCompositeMarker` — present iff `structural_candidate_rules(g)` is non-empty (the REAL gate `emit::emit_with_budget` uses, `!struct_rules.is_empty()`; a strict superset of "`probe_would_refuse` alone" — see that function's own doc). |
+//! | 3 | `crate::gate::partition_entries` / `crate::gate::find_gated_subrules` | A `PlanNodeKind::Gate` node whose `partition.groups` has one `GateGroupSpec` per group `partition_entries` yields, one child subplan per group. An ungated grammar collapses to a single-group `Gate` with an empty key (`GatePartitionSpec`'s doc) — the pre-refactor behavior preserved as a specific enumerable plan, not a special case. |
 //!
 //! # Shape (mirrors `emit::emit_with_budget`'s own compose order: lexicon, composites, structural
 //! composites, rules cascade, gate partition)
@@ -60,7 +60,7 @@
 //!   the natural unification, not a literal mirror of one existing function's call graph.
 //! - **Every gate group gets its OWN `Replace` node.** An EARLIER version of this module built one
 //!   Replace node SHARED by
-//!   every group, on the reasoning that [`ReplaceCascadeSpec`] is rule-level (`Vec<PRuleId>`) and
+//!   every group, on the reasoning that `ReplaceCascadeSpec` is rule-level (`Vec<PRuleId>`) and
 //!   the per-group subrule-inclusion distinction lives on `GatePartitionSpec::gated_subrules` +
 //!   each group's own `key`, so duplicating it into `Replace` would be "redundant, not more
 //!   faithful." That turned out to be UNSOUND: `crate::build`'s `build_controllable` needs a
@@ -87,10 +87,10 @@
 //!   the SAME grammar's enumerated `Plan` hash differently between runs — a direct violation of the
 //!   requirement that NodeIds be reproducible across processes. This is enumerate.rs's own
 //!   post-processing of the seam's return value, not a change to `partition_entries` itself.
-//! - **Recovering each `prules_in_order` entry's `PRuleId`** (needed for [`ReplaceCascadeSpec`] and
-//!   [`FragmentSpec::RewriteRule`], which are addressed by the grammar-wide id, NOT by position in
+//! - **Recovering each `prules_in_order` entry's `PRuleId`** (needed for `ReplaceCascadeSpec` and
+//!   `FragmentSpec::RewriteRule`, which are addressed by the grammar-wide id, NOT by position in
 //!   `prules_in_order` — that's `GatedSubruleRef::rule_pos`'s own, different, addressing scheme) is
-//!   done by pointer identity against `g.prules` (see [`rule_id_of`]'s own doc) — every
+//!   done by pointer identity against `g.prules` (see `rule_id_of`'s own doc) — every
 //!   `prules_in_order` construction site in this crate (`gate.rs`'s/`replace.rs`'s own test
 //!   harnesses, `emit.rs`'s production callers) builds it as literal borrows of `g.prules` elements,
 //!   never copies, so this is safe, not a hack of convenience.
@@ -109,8 +109,8 @@ use crate::replace::SegAlphabet;
 use crate::{emit, preexpand};
 
 /// `g`'s phonological rules in stratum-cascade (authored) order, as literal borrows of `g.prules` —
-/// the exact slice [`enumerate_default`], [`crate::gate::compile_gated_grammar_with_budget`],
-/// [`crate::gate::find_gated_subrules`] and `crate::replace`'s cascade builders all take.
+/// the exact slice `enumerate_default`, `crate::gate::compile_gated_grammar_with_budget`,
+/// `crate::gate::find_gated_subrules` and `crate::replace`'s cascade builders all take.
 ///
 /// The borrow-from-`g.prules` part is load-bearing, not stylistic: `rule_id_of` recovers a
 /// `PRuleId` by POINTER IDENTITY against `g.prules`, so a caller that clones or re-collects the
@@ -130,7 +130,7 @@ pub fn prules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
         .collect()
 }
 
-/// Builds today's compilation topology for `g` as a single reified [`Plan`].
+/// Builds today's compilation topology for `g` as a single reified `Plan`.
 ///
 /// Takes exactly the inputs the real compile seams take: `alphabet`/`prules_in_order` (the shape
 /// `crate::gate::compile_gated_grammar_with_budget` and `crate::replace`'s cascade builders take)
@@ -285,7 +285,7 @@ pub fn enumerate_default(
 /// filtering, or evaluating a single candidate cannot separate them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CandidateRole {
-    /// This grammar's default compilation. See [`crate::recipe_runtime`] for the one behaviour that
+    /// This grammar's default compilation. See `crate::recipe_runtime` for the one behaviour that
     /// reads this: a baseline whose plan needs marker subtrees `build::build_controllable` cannot
     /// build is realized by the whole-grammar tuned adapter instead, because for the DEFAULT
     /// compilation that adapter's network is the right answer.
@@ -302,14 +302,14 @@ impl CandidateRole {
     }
 }
 
-/// One candidate topology [`enumerate_candidates`] emits, labeled for provenance/diagnostics.
+/// One candidate topology `enumerate_candidates` emits, labeled for provenance/diagnostics.
 /// The label is a static string naming
 /// WHICH axis produced this candidate (`"default"`, `"gate-group-permuted"`, ...), not a
-/// user-facing description — see [`crate::selection::select_plan`]'s own doc for how this feeds a
+/// user-facing description — see `crate::selection::select_plan`'s own doc for how this feeds a
 /// caller's provenance report.
 ///
 /// # Why the compiler axis is a typed adapter, and the baseline fact lives here
-/// 1. **The compiler axis is a typed [`LoweringAdapter`], not an [`EmissionStrategy`].** The
+/// 1. **The compiler axis is a typed `LoweringAdapter`, not an `EmissionStrategy`.** The
 ///    adapter is the identity `ExecutableCandidate` already binds, so the lowering step
 ///    dispatches on the same value the sealed candidate carries instead of on a second enum that
 ///    had to be kept in correspondence with it by hand. `EmissionStrategy` survives, deliberately:
@@ -317,9 +317,9 @@ impl CandidateRole {
 ///    `RecipeOptimizationReport::winner_strategy`, `strategy_coverage`), measured to be the
 ///    decisive one — two whole-grammar compilers win two different languages. The
 ///    two are 1:1 in both directions (`executable_candidate`'s own
-///    `every_strategy_has_exactly_one_adapter_and_back`), so [`Self::strategy`] is a projection,
+///    `every_strategy_has_exactly_one_adapter_and_back`), so `Self::strategy` is a projection,
 ///    not a second source of truth.
-/// 2. **The baseline fact lives here**, as [`CandidateRole`] — see that type for the two measured
+/// 2. **The baseline fact lives here**, as `CandidateRole` — see that type for the two measured
 ///    failures of putting it anywhere else.
 #[derive(Debug)]
 pub struct LoweredCandidate {
@@ -333,8 +333,8 @@ pub struct LoweredCandidate {
 }
 
 impl LoweredCandidate {
-    /// The [`EmissionStrategy`] this candidate's adapter realizes — the axis reports and
-    /// `strategy_coverage` speak in. A projection of [`Self::adapter`], never independent of it.
+    /// The `EmissionStrategy` this candidate's adapter realizes — the axis reports and
+    /// `strategy_coverage` speak in. A projection of `Self::adapter`, never independent of it.
     pub fn strategy(&self) -> EmissionStrategy {
         self.adapter.strategy()
     }
@@ -358,11 +358,11 @@ impl LoweredCandidate {
 /// The axis that is NOT erased by minimization is which lexc a grammar is compiled to in the first
 /// place, because that changes what gets composed rather than the order of composing it:
 ///
-/// * [`Self::TunedSurfaceProbed`] bakes phonology into the lexc via `emit`'s surface probe, then
+/// * `Self::TunedSurfaceProbed` bakes phonology into the lexc via `emit`'s surface probe, then
 ///   patches the resulting expressive gaps with synthesized composite entries
 ///   (`preexpand::build_composites`, `emit::build_structural_composites`) — the material the `Plan`
 ///   can only NAME, via its `CompositeEmissionMarker`/`StructuralCompositeMarker` leaves.
-/// * [`Self::TemplatedUnderlyingTokens`] emits plain char-def tokens and lets a real compiled
+/// * `Self::TemplatedUnderlyingTokens` emits plain char-def tokens and lets a real compiled
 ///   rewrite cascade do the phonological work. Verified: `emit::emit_underlying_templated` contains
 ///   no composite/pre-expansion machinery at all, so this strategy needs none of that material.
 ///
@@ -409,18 +409,18 @@ impl EmissionStrategy {
 
 /// The candidate
 /// ENUMERATOR — every legal, **buildable** topology this crate can emit for `g` today, as
-/// content-addressed [`Plan`]s a caller (typically [`crate::selection::select_plan`]) can filter by
-/// capability and rank by cost. Always emits [`enumerate_default`]'s own plan first (candidate
+/// content-addressed `Plan`s a caller (typically `crate::selection::select_plan`) can filter by
+/// capability and rank by cost. Always emits `enumerate_default`'s own plan first (candidate
 /// `"default"`); the selection story only becomes meaningful once there is a second, genuinely
 /// distinct candidate to choose between.
 ///
 /// # Which axes are emitted, and why
 ///
-/// **Emitted: gate-group order** (candidate `"gate-group-permuted"`, via [`permute_gate_groups`]).
-/// [`crate::oracle`]'s own module doc proves this is sound and non-vacuous:
-/// [`crate::build::build_controllable`] folds every `Gate` group's compiled network together with
-/// [`crate::compose_budget::union_checked`] (commutative) and always finishes with
-/// [`crate::compose_budget::minimize_checked`], so a `Gate` node's group ORDER cannot affect the
+/// **Emitted: gate-group order** (candidate `"gate-group-permuted"`, via `permute_gate_groups`).
+/// `crate::oracle`'s own module doc proves this is sound and non-vacuous:
+/// `crate::build::build_controllable` folds every `Gate` group's compiled network together with
+/// `crate::compose_budget::union_checked` (commutative) and always finishes with
+/// `crate::compose_budget::minimize_checked`, so a `Gate` node's group ORDER cannot affect the
 /// final relation — only membership does. Reordering the groups changes the `Gate` node's content
 /// address (`NodeId = hash(kind, children, config)`, and both `partition.groups` and `children`
 /// are part of that content) without changing what the built network recognizes: a real, distinct,
@@ -428,22 +428,22 @@ impl EmissionStrategy {
 /// is actually a different plan**: a grammar with 0 or 1 partition groups reverses to the identical
 /// `Vec`, so `permute_gate_groups` would return a `Plan` with the SAME root `NodeId` — appending it
 /// would just be the `"default"` candidate wearing a second label, which is not a genuine
-/// alternative for [`crate::selection::select_plan`] to weigh. This function checks the roots differ
+/// alternative for `crate::selection::select_plan` to weigh. This function checks the roots differ
 /// before appending, so the returned `Vec` has length 1 for an ungated/single-group grammar and
 /// length 2 once there are ≥2 groups to reorder.
 ///
 /// # Which axes are deliberately NOT emitted yet, and why
 ///
 /// - **Reordering the root `Union`'s composite-emission/structural-composite marker children.**
-///   [`enumerate_default`]'s own module doc already notes `Union`'s commutativity makes child order
+///   `enumerate_default`'s own module doc already notes `Union`'s commutativity makes child order
 ///   semantically inert; the reason this is still not a candidate axis is that neither marker leaf
-///   is interpreted by [`crate::build::build_controllable`] at all (that module's own scope note: markers
+///   is interpreted by `crate::build::build_controllable` at all (that module's own scope note: markers
 ///   are a separate, black-box lexc-`String` artifact, "out of scope for this step"). Permuting
 ///   `Union` children would therefore change a content address without changing anything
-///   [`crate::build::build_controllable`] can measure or build differently — no genuine topology choice,
+///   `crate::build::build_controllable` can measure or build differently — no genuine topology choice,
 ///   just churn.
 /// - **An alternative partition function for the `Gate` node** (grouping entries differently than
-///   [`crate::gate::partition_entries`] does). No second partition-computing seam exists anywhere in
+///   `crate::gate::partition_entries` does). No second partition-computing seam exists anywhere in
 ///   this crate; inventing one here would mean re-deriving `gate.rs`'s own gating semantics a second,
 ///   independent way — squarely the kind of change this module's own scope excludes: this file does
 ///   not reach into `gate.rs` to manufacture a second partition strategy it was never asked to build.
@@ -484,7 +484,7 @@ pub fn enumerate_candidates(
     candidates
 }
 
-/// Recovers `pr`'s [`PRuleId`] (its index into [`Grammar::prules`]) from a `prules_in_order` entry,
+/// Recovers `pr`'s `PRuleId` (its index into `Grammar::prules`) from a `prules_in_order` entry,
 /// by pointer identity — see this module's own doc ("Judgment calls") for why this is safe, not a
 /// hack: every construction site for a `prules_in_order` slice in this crate borrows its elements
 /// directly from `g.prules` (`&g.prules[id.0 as usize]`), never copies them, so the reference's
@@ -928,7 +928,7 @@ mod tests {
         }
     }
 
-    /// A regression pin for [`rule_id_of`]: every rewrite-rule Leaf's `PRuleId` inside the
+    /// A regression pin for `rule_id_of`: every rewrite-rule Leaf's `PRuleId` inside the
     /// enumerated Plan's Replace cascade must equal the `PRuleId` `prules_in_order` was itself built
     /// from (`g.strata`'s own `phonologicalRules` id-list order), not merely "some id or other" --
     /// this is what makes `FragmentSpec::RewriteRule`/`Provenance::RewriteRule` a faithful
@@ -963,7 +963,7 @@ mod tests {
     }
 
     /// A small diagnostic-only sanity check that the module-doc example XML actually compiles into
-    /// the shape it claims -- exercises [`Plan::root`] resolving to a `Union` when both a Gate node
+    /// the shape it claims -- exercises `Plan::root` resolving to a `Union` when both a Gate node
     /// AND a composite marker are present.
     #[test]
     fn root_is_union_when_composite_marker_and_gate_both_present() {
@@ -1024,7 +1024,7 @@ mod tests {
 
     /// A grammar with ≥2 gate groups must yield 2 candidates: `"default"` and
     /// `"gate-group-permuted"`, with genuinely different root NodeIds (the whole point of the
-    /// second axis -- see [`enumerate_candidates`]'s own doc).
+    /// second axis -- see `enumerate_candidates`'s own doc).
     #[test]
     fn enumerate_candidates_yields_two_distinct_candidates_for_a_multi_group_gated_fixture() {
         let g = load(&gated_two_group_fixture());

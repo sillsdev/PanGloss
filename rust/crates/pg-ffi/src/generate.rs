@@ -27,7 +27,7 @@ use pg_parse::WordAnalysis;
 /// `Morpher::generate_words_from_analysis`'s own defensive empty-result handling — see that
 /// method's doc for why this differs from C#'s unchecked array-index cast).
 ///
-/// Returns/leaves `*out` under the same contract as [`crate::parse::hc_parse_word`]: `HC_OK` (0) on
+/// Returns/leaves `*out` under the same contract as `crate::parse::hc_parse_word`: `HC_OK` (0) on
 /// success (an `hc_generate_words`-specific buffer, see `buffer::encode_generated_words`), otherwise
 /// a nonzero `HC_ERR_*` code with `*out` left as `HcResultBuf::EMPTY`. The caller should call
 /// `hc_buf_free(out)` unconditionally, exactly as for the other result-producing entry points.

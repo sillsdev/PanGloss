@@ -1,7 +1,7 @@
 //! `Dir::RightToLeft` HONEST-SKIP bail gate builder (same detection-wiring dependency as
-//! [`crate::build::simultaneous`]).
+//! `crate::build::simultaneous`).
 //!
-//! XML shape: identical to [`crate::build::simultaneous`] but `multipleApplicationOrder=
+//! XML shape: identical to `crate::build::simultaneous` but `multipleApplicationOrder=
 //! "rightToLeftIterative"` instead of `"simultaneous"` (`pg_grammar::load::load_rewrite_rule`'s own
 //! parsing: the SAME attribute drives both `RewriteMode` and `Dir`, mutually exclusively by value --
 //! `"simultaneous"` sets `RewriteMode::Simultaneous` with `Dir` staying the default `LeftToRight`;

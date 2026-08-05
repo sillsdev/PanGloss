@@ -1,7 +1,7 @@
 //! M4a acceptance gate — Part 3 (morphological rules).
 //!
 //! Part 1: hand-built affix-process rules (suffix, prefix, feature-modifying simulfix) and a
-//! compounding rule, exercised on hand-authored [`Word`]s with expected shapes + morph records
+//! compounding rule, exercised on hand-authored `Word`s with expected shapes + morph records
 //! reasoned from HermitCrab semantics and cross-referenced to the C# unit tests
 //! (`tests/SIL.Machine.Morphology.HermitCrab.Tests/MorphologicalRules/*Tests.cs`). Includes a
 //! synthesize→analyze round trip (shape recovery — the load-bearing invariant, since C#

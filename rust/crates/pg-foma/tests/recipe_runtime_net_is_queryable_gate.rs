@@ -24,7 +24,7 @@
 //! `recipe-strata-generic`) produced byte-identical proposal counts, confirmation counts, and state
 //! counts in both states. Their corpora are too shallow for an inter-morph boundary token to ever
 //! block a query, so an assertion over them would pass with the fix reverted — a vacuous gate, which
-//! is worse than none. The real pin therefore lives in [`corpus_indonesian_confirms_after_the_finish_step`],
+//! is worse than none. The real pin therefore lives in `corpus_indonesian_confirms_after_the_finish_step`,
 //! which needs the private corpus.
 //!
 //! **Follow-up owed:** a synthetic fixture reproducing the boundary-token pathology would move this
@@ -64,7 +64,7 @@ use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
 
 /// Returns each candidate's evaluation PAIRED WITH the strategy that produced it AND its declared
-/// [`CandidateRole`]. Both pairings are necessary, not decorative:
+/// `CandidateRole`. Both pairings are necessary, not decorative:
 ///
 /// * the marker-attribution rule below applies only to candidates measured on
 ///   `build_controllable`'s controllable-subtree network -- a candidate compiled by a whole-grammar

@@ -45,7 +45,7 @@
 use crate::build::tables::TableSpec;
 use crate::ids::IdMinter;
 
-/// Everything [`build`] produces: `var_count` independent identity-mapping alpha rules and the
+/// Everything `build` produces: `var_count` independent identity-mapping alpha rules and the
 /// single root's own `<PhoneticShape>` text (one marker character per rule, concatenated, in rule
 /// order) -- a gate splices this shape into its own single `<LexicalEntry>`. The root's own
 /// spelling is UNCHANGED by every rule here (module doc), so it is also the expected post-synthesis

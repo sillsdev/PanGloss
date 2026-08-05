@@ -52,7 +52,7 @@ pub struct LexEntry {
     pub entry_refs: Vec<EntryRef>,
 }
 
-/// One allomorph (alternate form) of a [`LexEntry`]. Covers all three `MoForm` subclasses LCM
+/// One allomorph (alternate form) of a `LexEntry`. Covers all three `MoForm` subclasses LCM
 /// distinguishes (`MoStemAllomorph`, `MoAffixAllomorph`, `MoAffixProcess`) in a single shape:
 /// stem-only fields (`stem_name`) and process-only fields (`process`) are simply absent/`None`
 /// for the other two kinds; `forms`/`environments`/`inflection_classes`/`ms_env_features` are
@@ -123,14 +123,14 @@ pub struct Allomorph {
 pub struct AffixProcess {
     /// Each entry is one numbered "part" of the input, referenced positionally (1-based, in
     /// list order) by `CopyFromInput`/`ModifyFromInput` in `output`. ← `MoAffixProcess.InputOS`
-    /// (a `PhContextOrVar` sequence: either a [`PhonContext::Variable`] placeholder or a
+    /// (a `PhContextOrVar` sequence: either a `PhonContext::Variable` placeholder or a
     /// concrete phonological context).
     pub input: Vec<PhonContext>,
     /// ← `MoAffixProcess.OutputOS` (`MoRuleMapping` sequence), in order.
     pub output: Vec<RuleMapping>,
 }
 
-/// One step of an [`AffixProcess`]'s output construction. ← `MoRuleMapping`.
+/// One step of an `AffixProcess`'s output construction. ← `MoRuleMapping`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum RuleMapping {
@@ -293,7 +293,7 @@ pub enum EntryRef {
         /// resolvers must check both.
         component_lexemes: Vec<Guid>,
         /// ← `LexEntryRef.VariantEntryTypesRS`. Each guid may be a plain `LexEntryType` (no
-        /// further data beyond identity) or a [`crate::morphology::LexEntryInflType`] guid (for
+        /// further data beyond identity) or a `crate::morphology::LexEntryInflType` guid (for
         /// irregularly-inflected-form variants) — resolve against
         /// `morphology.lexEntryInflTypes` first, falling back to "plain variant type, no
         /// further semantics" if absent (mirrors `HCLoader.GetInflTypes`'s `as ILexEntryInflType`

@@ -14,7 +14,7 @@
 //!
 //! # Per-analysis component encoding
 //!
-//! Each analysis contributes one entry, in [`crate::gloss_bundle`]'s own token order (root
+//! Each analysis contributes one entry, in `crate::gloss_bundle`'s own token order (root
 //! included in place, not pulled out separately):
 //!
 //! - a token with a literal `<Gloss>` renders `g:<canonical-json-string>`;
@@ -82,7 +82,7 @@ fn owning_morpheme_id(grammar: &Grammar, morpheme_ordinal: u32) -> String {
 /// equivalent) — this function never renders shape itself, it only encodes what it's given.
 ///
 /// Callers assemble a word's full signature by collecting one entry per distinct analysis and
-/// passing them to [`gloss_analysis_set_signature`] (or use [`word_gloss_signature`], which does
+/// passing them to `gloss_analysis_set_signature` (or use `word_gloss_signature`, which does
 /// both steps for a `(WordAnalysis, shape)` list in one call).
 pub fn gloss_signature_entry(grammar: &Grammar, wa: &WordAnalysis, surface_shape: &str) -> String {
     let bundle = gloss_bundle(grammar, wa);
@@ -106,7 +106,7 @@ pub fn gloss_signature_entry(grammar: &Grammar, wa: &WordAnalysis, surface_shape
 }
 
 /// Assemble a word's full gloss signature from its distinct-analysis entries (each produced by
-/// [`gloss_signature_entry`]): sorted lexicographically by unsigned canonical UTF-8 bytes,
+/// `gloss_signature_entry`): sorted lexicographically by unsigned canonical UTF-8 bytes,
 /// duplicates preserved, joined with `;`. An empty entry set — zero analyses, or (by caller
 /// convention) a `SKIPPED` row — renders the literal `-`.
 pub fn gloss_analysis_set_signature(entries: &[String]) -> String {
@@ -118,7 +118,7 @@ pub fn gloss_analysis_set_signature(entries: &[String]) -> String {
     sorted.join(";")
 }
 
-/// Convenience wrapper combining [`gloss_signature_entry`] and [`gloss_analysis_set_signature`]
+/// Convenience wrapper combining `gloss_signature_entry` and `gloss_analysis_set_signature`
 /// for a word's full `(WordAnalysis, surface_shape)` analysis list, mirroring
 /// `pg_parse::result_signature`'s call shape one layer up (that function takes pre-rendered
 /// `(morphs, surface)` string pairs; this one takes structured `WordAnalysis`es plus shape since

@@ -12,13 +12,13 @@
 //! metrics, alpha-tuple/group counts, the running composition
 //! state/arc curve) needs that cascade wired into
 //! the production constructor first — merely having experimental `crate::replace`/`crate::gate`
-//! functions is insufficient. This module defines [`ProfileLabel`] as
+//! functions is insufficient. This module defines `ProfileLabel` as
 //! the gate that gap requires ("Metrics
-//! from an experimental cascade SHALL NOT be labeled as production") and [`CompileProfile::label`]
-//! is always [`ProfileLabel::Production`] for every profile this module's own production
-//! constructor ([`CompileProfileBuilder::production`]) builds — nothing here wires
+//! from an experimental cascade SHALL NOT be labeled as production") and `CompileProfile::label`
+//! is always `ProfileLabel::Production` for every profile this module's own production
+//! constructor (`CompileProfileBuilder::production`) builds — nothing here wires
 //! `crate::replace`/`crate::gate`'s experimental cascade to this module at all, but
-//! [`ProfileLabel::ExperimentalComposition`]
+//! `ProfileLabel::ExperimentalComposition`
 //! exists now so a future change profiling the experimental cascade has a place to land its own
 //! label rather than inventing
 //! one under time pressure, and so `crate::health_evaluator::profile_findings` can enforce the gate
@@ -27,26 +27,26 @@
 //!
 //! # No observer-induced minimization
 //! Every measurement here is a value the production path already computes for its own purposes:
-//! [`std::time::Instant`] deltas around code that runs unconditionally anyway, [`EmitCounts::
+//! `std::time::Instant` deltas around code that runs unconditionally anyway, [`EmitCounts::
 //! lexc_lines`] snapshots (a plain integer field already incremented by `write_tag_entry`/
-//! `write_bare`), and the compiled [`foma::types::Fsm`]'s own `statecount`/`arccount` fields (public,
+//! `write_bare`), and the compiled `foma::types::Fsm`'s own `statecount`/`arccount` fields (public,
 //! free reads — `crate::compose_budget`'s own doc: "size checks are free after every call").
 //! Nothing here calls `fsm_compose`/`fsm_union`/`fsm_minimize`/`fsm_lexc_parse_string` an extra
 //! time, clones an `Fsm`, or otherwise performs automaton work solely to produce a metric.
 //!
 //! # Top-line compile time is mandatory
-//! [`CompileProfileBuilder::production`] starts its own wall-clock timer at construction (called at
+//! `CompileProfileBuilder::production` starts its own wall-clock timer at construction (called at
 //! the very top of `FomaProposer::new_with_budget`, before `crate::emit::emit_with_budget_profiled`
-//! even runs) and [`CompileProfileBuilder::finish`] (called after `fsm_lexc_parse_string` returns)
-//! stamps [`CompileProfile::total_elapsed_millis`] from that SAME timer — the full
+//! even runs) and `CompileProfileBuilder::finish` (called after `fsm_lexc_parse_string` returns)
+//! stamps `CompileProfile::total_elapsed_millis` from that SAME timer — the full
 //! grammar-to-ready-network wall time, spanning both this crate's own emission work and the
-//! vendored `foma` crate's lexc-parse call. Per-stage timings ([`CompileProfile::stages`]) are
+//! vendored `foma` crate's lexc-parse call. Per-stage timings (`CompileProfile::stages`) are
 //! attribution, not a guaranteed additive partition of the total: they cover the
 //! stages this module names below, not every line of `emit_with_budget_profiled`'s own glue code
 //! between them.
 //!
 //! # Stage boundaries
-//! [`CompileStage`]'s six variants are the real, pre-existing sequential boundaries inside
+//! `CompileStage`'s six variants are the real, pre-existing sequential boundaries inside
 //! `crate::emit::emit_with_budget_profiled` (the profiled core `crate::emit::emit_with_budget`
 //! thinly wraps) plus the one boundary that lives in `crate::analyzer` instead (lexc parsing itself
 //! is a vendored-crate call, not something `emit.rs` performs): `SurfaceSetup` (surface table +
@@ -70,7 +70,7 @@
 //! an identical `required_syn_fs` are collapsed into ONE shared category-group root+derivation
 //! section — lexc has no per-template graph-sharing equivalent, so line counts genuinely attach to
 //! the GROUP a set of templates was collapsed into, not to any one template individually.
-//! [`GroupLineCount`] therefore names the group index [`emit::emit_with_budget_profiled`]'s own
+//! `GroupLineCount` therefore names the group index `emit::emit_with_budget_profiled`'s own
 //! `group_keys`/`group_templates` vectors use (document order, first-seen `required_syn_fs`), the
 //! coarsest-grained honest unit this emitter's architecture actually has — never a fabricated
 //! per-template split this emitter cannot produce.
@@ -79,8 +79,8 @@
 //! 1. **`CompileProfile` is JSON-serializable** (mirrors `crate::health`'s own canonical-JSON
 //!    convention) with `Duration` fields stored as `u64` millis rather than `std::time::Duration`
 //!    directly — `serde` has no built-in `Duration` support and this crate does not depend on
-//!    `serde_with`; millis matches [`crate::health::MetricValue::Millis`]'s own unit exactly, so a
-//!    profile-sourced [`crate::health::HealthFinding`]'s `value`/`threshold` need no unit
+//!    `serde_with`; millis matches `crate::health::MetricValue::Millis`'s own unit exactly, so a
+//!    profile-sourced `crate::health::HealthFinding`'s `value`/`threshold` need no unit
 //!    conversion.
 //! 2. **`final_state_count`/`final_arc_count` are `Option<i64>`, not `Option<u32>`**: mirrors
 //!    `foma::types::Fsm`'s own `statecount`/`arccount: i32` fields exactly (widened to `i64` only to
@@ -90,7 +90,7 @@
 //!    `crate::analyzer::FomaProposer::new_with_budget`'s own call site for exactly which outcomes
 //!    leave this `None`.
 //! 3. **No experimental-cascade instrumentation ships here** (see this module's own
-//!    "Scope: the production path only" section above) -- [`ProfileLabel::ExperimentalComposition`] is a real,
+//!    "Scope: the production path only" section above) -- `ProfileLabel::ExperimentalComposition` is a real,
 //!    tested enum variant (`crate::health_evaluator::profile_findings`'s own gate test constructs
 //!    one directly) but nothing in `crate::replace`/`crate::gate` builds one yet; that wiring
 //!    depends on the experimental cascade reaching the production constructor first.
@@ -99,7 +99,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-/// This profile's own pipeline fingerprint string for [`ProfileLabel::Production`]: every compile
+/// This profile's own pipeline fingerprint string for `ProfileLabel::Production`: every compile
 /// profile names and fingerprints the constructor/network it measures. Named after the exact
 /// production call chain
 /// (`crate::analyzer::FomaProposer::new_with_budget` -> `crate::emit::emit_with_budget_profiled` ->
@@ -109,9 +109,9 @@ pub const PRODUCTION_PIPELINE: &str =
     "pg_foma::analyzer::FomaProposer::new_with_budget (crate::emit::emit_with_budget_profiled -> \
      foma::lexcread::fsm_lexc_parse_string)";
 
-/// Which pipeline a [`CompileProfile`] measures.
+/// Which pipeline a `CompileProfile` measures.
 /// See this module's doc "Scope: the production path only"
-/// section — nothing here constructs [`ProfileLabel::ExperimentalComposition`] outside
+/// section — nothing here constructs `ProfileLabel::ExperimentalComposition` outside
 /// this module's own tests, but the variant exists now so `crate::health_evaluator::
 /// profile_findings` can enforce "an experimental cascade's profile is labeled early" today.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -123,8 +123,8 @@ pub enum ProfileLabel {
     /// A pre-production capture of `crate::replace`/`crate::gate`'s experimental cascade,
     /// separate from the production constructor. The result is labeled
     /// `experimental_composition` and cannot satisfy production-profile gates —
-    /// [`crate::health_evaluator::profile_findings`] refuses to fold a profile carrying this label
-    /// into a production [`crate::health::HealthReport`].
+    /// `crate::health_evaluator::profile_findings` refuses to fold a profile carrying this label
+    /// into a production `crate::health::HealthReport`.
     ExperimentalComposition,
 }
 
@@ -135,7 +135,7 @@ pub enum ProfileLabel {
 #[serde(rename_all = "snake_case")]
 pub enum CompileStage {
     /// Surface table lookup + FST precision catalog + phonology probe + structural-rule/rule-cache/
-    /// morpher setup — everything before [`Self::RootCollection`].
+    /// morpher setup — everything before `Self::RootCollection`.
     SurfaceSetup,
     /// `crate::emit::collect_roots`.
     RootCollection,
@@ -143,7 +143,7 @@ pub enum CompileStage {
     /// boundary-fusion composite probing).
     PreexpandComposites,
     /// `crate::emit::build_structural_composites`, only when the grammar has at least one
-    /// structural-composite candidate rule (zero-elapsed/absent from [`CompileProfile::stages`]
+    /// structural-composite candidate rule (zero-elapsed/absent from `CompileProfile::stages`
     /// otherwise — this crate's own "zero-cost when the construct is absent" convention).
     StructuralComposites,
     /// Every remaining lexc-source string-building step: derivation layers + per-template-group
@@ -171,7 +171,7 @@ impl CompileStage {
 }
 
 /// One stage's own elapsed wall time -- attribution, not a guaranteed additive
-/// partition of [`CompileProfile::total_elapsed_millis`].
+/// partition of `CompileProfile::total_elapsed_millis`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageTiming {
     pub stage: CompileStage,
@@ -193,19 +193,19 @@ pub struct GroupLineCount {
 /// minimization" section.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompileProfile {
-    /// Which pipeline this profile measures. Always [`ProfileLabel::Production`] for every profile
+    /// Which pipeline this profile measures. Always `ProfileLabel::Production` for every profile
     /// this crate's own
     /// production code path builds.
     pub label: ProfileLabel,
-    /// This profile's pipeline fingerprint ([`PRODUCTION_PIPELINE`] for
-    /// [`ProfileLabel::Production`]) — an owned `String` (not `&'static str`) so this type derives
+    /// This profile's pipeline fingerprint (`PRODUCTION_PIPELINE` for
+    /// `ProfileLabel::Production`) — an owned `String` (not `&'static str`) so this type derives
     /// `Deserialize` without a lifetime parameter.
     pub pipeline: String,
     /// D3: total grammar-to-ready-network wall time, in milliseconds — spans this crate's own
     /// emission work AND the vendored `foma` crate's lexc-parse call.
     pub total_elapsed_millis: u64,
     /// Per-stage attribution (module doc "Stage boundaries") — not sorted/deduplicated by this
-    /// type; [`CompileProfileBuilder`] pushes each stage exactly once, in the order it actually ran,
+    /// type; `CompileProfileBuilder` pushes each stage exactly once, in the order it actually ran,
     /// including zero entries when the production path bails out early (an `Unsupported`/
     /// budget-exceeded outcome) before reaching a later stage at all.
     pub stages: Vec<StageTiming>,
@@ -224,15 +224,15 @@ pub struct CompileProfile {
     /// existed, pinned by `fst_profile_finish_with_no_compiled_network_leaves_counts_none`.
     pub final_state_count: Option<i64>,
     /// The compiled network's own final arc count (`foma::types::Fsm::arccount`). Same `None`
-    /// convention as [`Self::final_state_count`].
+    /// convention as `Self::final_state_count`.
     pub final_arc_count: Option<i64>,
 }
 
-/// The mutable accumulator [`crate::emit::emit_with_budget_profiled`]/
+/// The mutable accumulator `crate::emit::emit_with_budget_profiled`/
 /// `crate::analyzer::FomaProposer::new_with_budget` push measurements into as the production path
-/// runs, consumed once by [`Self::finish`]. `pub(crate)`: this is an internal plumbing detail, not
+/// runs, consumed once by `Self::finish`. `pub(crate)`: this is an internal plumbing detail, not
 /// part of this module's public surface — callers outside this crate only ever see the finished
-/// [`CompileProfile`].
+/// `CompileProfile`.
 pub(crate) struct CompileProfileBuilder {
     label: ProfileLabel,
     pipeline: &'static str,
@@ -245,7 +245,7 @@ pub(crate) struct CompileProfileBuilder {
 impl CompileProfileBuilder {
     /// Starts a new production-labeled profile's wall-clock timer NOW — callers must construct this
     /// at the very top of the production entry point (`crate::analyzer::FomaProposer::
-    /// new_with_budget`), before any emission work runs, so [`Self::finish`]'s
+    /// new_with_budget`), before any emission work runs, so `Self::finish`'s
     /// `total_elapsed_millis` is genuinely D3's "grammar-to-ready-network" span.
     pub(crate) fn production() -> Self {
         CompileProfileBuilder {
@@ -280,7 +280,7 @@ impl CompileProfileBuilder {
         });
     }
 
-    /// Records the grammar's own total emitted lexc line count ([`CompileProfile::total_lexc_lines`]'s
+    /// Records the grammar's own total emitted lexc line count (`CompileProfile::total_lexc_lines`'s
     /// own doc). Called once, at the point `crate::emit::emit_with_budget_profiled` has its final
     /// `EmitCounts` in hand.
     pub(crate) fn set_total_lexc_lines(&mut self, lines: usize) {
@@ -289,7 +289,7 @@ impl CompileProfileBuilder {
 
     /// Finishes the profile: stamps `total_elapsed_millis` from this builder's own start time (D3)
     /// and attaches the compiled network's final state/arc counts (`None` when the production path
-    /// never reached a compiled network at all — see [`CompileProfile::final_state_count`]'s doc).
+    /// never reached a compiled network at all — see `CompileProfile::final_state_count`'s doc).
     pub(crate) fn finish(
         self,
         final_state_count: Option<i32>,

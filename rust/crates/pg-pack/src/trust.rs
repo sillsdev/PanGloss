@@ -2,21 +2,21 @@
 //! written into the pack manifest override record — reusing the pack-manifest
 //! admission/findings/override field rather than inventing a parallel one. The trust axis is
 //! binary and kept separate from the cost/health axis `pg_foma::health` owns. So this module's
-//! [`CapabilityTrust`] is its own
-//! distinct manifest field (see [`crate::manifest::PackManifest::capability_trust`]), **not** a
+//! `CapabilityTrust` is its own
+//! distinct manifest field (see `crate::manifest::PackManifest::capability_trust`), **not** a
 //! reuse of `pg_foma::health::HealthFinding::override_record` — that per-finding
-//! [`pg_foma::health::OverrideRecord`] stays exactly what it is (a cost/health-axis override on
-//! one finding); this module's [`CapabilityOverrideRecord`] is the pack-level correctness-trust
+//! `pg_foma::health::OverrideRecord` stays exactly what it is (a cost/health-axis override on
+//! one finding); this module's `CapabilityOverrideRecord` is the pack-level correctness-trust
 //! override. Distinct fields per axis: reuse the artifact, not the field.
 //!
 //! This is the **persistent** home for capability-override state: `rust/crates/pg-cli/src/main.rs`'s
 //! `GateResult::overridden` is today only a session/report-level stand-in ("no `.pgpack` packaging
 //! exists yet to carry that" — see that type's own doc), scoped to one CLI invocation. This
-//! module's [`CapabilityOverrideRecord`] is that persistent, indelible, serialized record: once
+//! module's `CapabilityOverrideRecord` is that persistent, indelible, serialized record: once
 //! written into a pack manifest and the pack is distributed, the record travels with the pack
 //! forever -- the stamp is indelible and cannot be removed by a consumer.
 //!
-//! `predicate`/`construct`/`witness` on [`OverriddenConfig`] deliberately mirror the diagnostic
+//! `predicate`/`construct`/`witness` on `OverriddenConfig` deliberately mirror the diagnostic
 //! shape `pg_foma::capability::CompileDecision::Refuse`'s diagnostics already use (see
 //! `pg-cli`'s `capability_gate` — "predicate=... construct=... witness=..." lines) so the same
 //! vocabulary describes an override at the CLI-report level and at the persistent pack-manifest
@@ -56,7 +56,7 @@ pub struct CapabilityOverrideRecord {
 }
 
 /// The binary capability-trust axis, stamped into every pack manifest
-/// ([`crate::manifest::PackManifest::capability_trust`]). `Proven` packs passed the
+/// (`crate::manifest::PackManifest::capability_trust`). `Proven` packs passed the
 /// characteristics-check gate cleanly; `Overridden` packs were force-compiled past a `Refuse`
 /// verdict and are indelibly stamped unproven/recall-unsafe. Tagged so a reader can
 /// distinguish the two without probing for `Option`-ness of a shared field.
@@ -72,7 +72,7 @@ pub enum CapabilityTrust {
 }
 
 impl CapabilityTrust {
-    /// `true` for [`CapabilityTrust::Overridden`] — the pack-level "unproven" broadcast
+    /// `true` for `CapabilityTrust::Overridden` — the pack-level "unproven" broadcast
     /// required at load and on every analysis result.
     pub fn is_unproven(&self) -> bool {
         matches!(self, CapabilityTrust::Overridden(_))

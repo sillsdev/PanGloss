@@ -2,10 +2,10 @@
 //! state is reported `unsigned`/`valid`/`invalid` and NEVER controls analysis; verification
 //! requires no secret, entitlement, account, or network service.
 //!
-//! **What is signed.** [`domain_separated_signed_bytes`] builds the exact byte sequence: a
+//! **What is signed.** `domain_separated_signed_bytes` builds the exact byte sequence: a
 //! domain-separated canonical representation of the container version, pack manifest
-//! excluding its signature value, and both framed payloads. [`crate::format::write_pack`]/
-//! [`crate::format::read_pack`] are the only callers that assemble those bytes for real container
+//! excluding its signature value, and both framed payloads. `crate::format::write_pack`/
+//! `crate::format::read_pack` are the only callers that assemble those bytes for real container
 //! framing; this module owns the domain-separation tag and the byte-assembly function so signing
 //! and verification can never drift apart on what bytes actually get hashed/signed.
 //!
@@ -13,36 +13,36 @@
 //! key itself — signing tooling accepts the
 //! private key outside the package, i.e. key generation is an external concern. Every test key in
 //! this crate is therefore built from a fixed synthetic 32-byte seed via
-//! [`ed25519_dalek::SigningKey::from_bytes`] (deterministic, no CSPRNG needed), keeping the
+//! `ed25519_dalek::SigningKey::from_bytes` (deterministic, no CSPRNG needed), keeping the
 //! dependency footprint to `ed25519-dalek` alone.
 //!
-//! **Never gates analysis.** [`SignatureState`] is a pure report computed by
-//! [`crate::format::read_pack`] after every other structural check has already passed; a `read`
+//! **Never gates analysis.** `SignatureState` is a pure report computed by
+//! `crate::format::read_pack` after every other structural check has already passed; a `read`
 //! call always returns the parsed manifest and both payloads regardless of which
-//! [`SignatureState`] it reports (see that function's own doc and this crate's `tamper` tests).
+//! `SignatureState` it reports (see that function's own doc and this crate's `tamper` tests).
 
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
 /// Domain-separation tag mixed into every signed byte sequence (part of the domain-separated
 /// canonical representation). Changing this tag is a wire-breaking change to every existing
-/// signature; it is not itself versioned because [`crate::format::CONTAINER_VERSION`] is already
+/// signature; it is not itself versioned because `crate::format::CONTAINER_VERSION` is already
 /// part of the signed bytes and any future incompatible signing scheme is a new container version.
 const SIGNATURE_DOMAIN_TAG: &[u8] = b"pangloss.pgpack.signature.v1";
 
 /// The only signature algorithm this schema step defines. Kept as an explicit field (rather than
 /// assumed) so a future algorithm can be added without an incompatible schema change — an unknown
-/// value simply cannot verify (see [`SignatureBlock::algorithm`]'s doc).
+/// value simply cannot verify (see `SignatureBlock::algorithm`'s doc).
 pub const ALGORITHM_ED25519: &str = "ed25519";
 
 /// An optional publisher signature attached to a pack manifest.
-/// [`crate::manifest::PackManifest::signature`] is `None` for an unsigned pack; `Some` here does
-/// not by itself mean the signature verifies — see [`SignatureState`].
+/// `crate::manifest::PackManifest::signature` is `None` for an unsigned pack; `Some` here does
+/// not by itself mean the signature verifies — see `SignatureState`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SignatureBlock {
-    /// Which algorithm produced `signature_hex`. Only [`ALGORITHM_ED25519`] is understood by this
-    /// build; any other value reports [`SignatureState::Invalid`] rather than panicking (see
-    /// [`verify`]).
+    /// Which algorithm produced `signature_hex`. Only `ALGORITHM_ED25519` is understood by this
+    /// build; any other value reports `SignatureState::Invalid` rather than panicking (see
+    /// `verify`).
     pub algorithm: String,
     /// Lowercase-hex-encoded 32-byte Ed25519 public key.
     pub public_key_hex: String,
@@ -56,16 +56,16 @@ pub struct SignatureBlock {
 
 /// The loader's tri-state signature report: `unsigned`, `valid`, or `invalid`, and it NEVER
 /// controls analysis. Never itself serialized into a manifest — it is always *derived* fresh by
-/// [`crate::format::read_pack`], never trusted from the wire.
+/// `crate::format::read_pack`, never trusted from the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignatureState {
-    /// No [`SignatureBlock`] present at all.
+    /// No `SignatureBlock` present at all.
     Unsigned,
-    /// A [`SignatureBlock`] was present and its signature verified against its declared public
+    /// A `SignatureBlock` was present and its signature verified against its declared public
     /// key over the exact domain-separated signed bytes.
     Valid,
-    /// A [`SignatureBlock`] was present but did not verify (wrong key, tampered content after
+    /// A `SignatureBlock` was present but did not verify (wrong key, tampered content after
     /// signing, malformed hex, unknown algorithm, or malformed key/signature bytes). Reported, not
     /// fatal — see this module's doc "Never gates analysis."
     Invalid,
@@ -107,10 +107,10 @@ fn decode_hex(s: &str) -> Result<Vec<u8>, HexError> {
 }
 
 /// Builds the exact domain-separated byte sequence that is signed/verified: the fixed domain tag,
-/// the container version (little-endian `u32`, matching [`crate::format`]'s own byte order), the
+/// the container version (little-endian `u32`, matching `crate::format`'s own byte order), the
 /// pack manifest's canonical JSON bytes **with its `signature` field absent/`None`** (the manifest
 /// this crate signs must never include the signature it is itself producing), and both payloads
-/// framed exactly as [`crate::format::write_pack`] frames them on the wire (length-prefix then
+/// framed exactly as `crate::format::write_pack` frames them on the wire (length-prefix then
 /// content, so a signature also pins each payload's declared length, not only its bytes).
 pub fn domain_separated_signed_bytes(
     container_version: u32,
@@ -139,8 +139,8 @@ pub fn domain_separated_signed_bytes(
     buf
 }
 
-/// Signs `message` (normally the output of [`domain_separated_signed_bytes`]) with an Ed25519
-/// signing key, producing a [`SignatureBlock`]. `seed` is the 32-byte Ed25519 secret scalar seed;
+/// Signs `message` (normally the output of `domain_separated_signed_bytes`) with an Ed25519
+/// signing key, producing a `SignatureBlock`. `seed` is the 32-byte Ed25519 secret scalar seed;
 /// see this module's doc for why callers (including this crate's own tests) build it from a fixed
 /// synthetic byte array rather than a CSPRNG.
 pub fn sign(seed: &[u8; 32], message: &[u8], key_id: Option<String>) -> SignatureBlock {
@@ -157,8 +157,8 @@ pub fn sign(seed: &[u8; 32], message: &[u8], key_id: Option<String>) -> Signatur
 
 /// Verifies `block` against `message`. Returns `false` (never panics/errors) for any malformed
 /// hex, wrong-length key/signature bytes, unknown algorithm, or a cryptographically invalid
-/// signature — every failure mode collapses to [`SignatureState::Invalid`] at the call site in
-/// [`crate::format::read_pack`].
+/// signature — every failure mode collapses to `SignatureState::Invalid` at the call site in
+/// `crate::format::read_pack`.
 pub fn verify(block: &SignatureBlock, message: &[u8]) -> bool {
     if block.algorithm != ALGORITHM_ED25519 {
         return false;

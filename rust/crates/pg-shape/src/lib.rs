@@ -1,7 +1,7 @@
 //! Shapes and annotations (plan §5.2).
 //!
 //! A **frozen shape** is a contiguous struct-of-arrays block (no node objects, no in-array
-//! linked list, no annotation tree) interned per parse to a [`ShapeId`]. This is the Rust-native
+//! linked list, no annotation tree) interned per parse to a `ShapeId`. This is the Rust-native
 //! form of C#'s flat `Shape`: C# kept a doubly-linked list inside its flat arrays only to
 //! preserve `ShapeNode` reference identity and O(1) splice under the existing API; Rust owes
 //! nothing to that API, so a shape is just parallel `Box<[_]>` columns.
@@ -12,14 +12,14 @@
 //!
 //! ## Scope note
 //! M1 implemented the segmentation-relevant core: node kind + char-definition reference + flags,
-//! an append [`ShapeBuilder`], and the [`ShapeId`] interner. **M3 (this file) adds** the per-node
+//! an append `ShapeBuilder`, and the `ShapeId` interner. **M3 (this file) adds** the per-node
 //! **feature matrix** (`W` symbolic `u64` lanes per node, plan §5.2/§5.3) and the positional
 //! copy-on-write mutation ops (`insert`/`delete`/`modify`) that phonological rewrite rules need.
 //!
 //! ## Feature lanes (plan §5.2/§5.3)
 //! Each node carries `W` inline `u64` lanes, stored SoA in one flat `feat_lanes` block: node `i`'s
 //! lanes are `feat_lanes[i*W .. (i+1)*W]`. One lane is one symbolic feature's
-//! [`pg_featstruct::SymbolBits`] set
+//! `pg_featstruct::SymbolBits` set
 //! (raw `u64`, so [`node_lanes`](Shape::node_lanes) feeds `pg_featstruct::flat_unifiable` with no
 //! newtype friction). `W` (`feat_width`) is fixed per shape.
 //!
@@ -30,7 +30,7 @@
 //! signature); the live phonological state is the lanes, and the two intentionally diverge.
 //!
 //! Feature lanes are part of a shape's **identity**: two shapes with identical structure but
-//! differing lanes intern to different [`ShapeId`]s.
+//! differing lanes intern to different `ShapeId`s.
 //!
 //! The default lane fill for anchors / no-lane pushes is `u64::MAX` ("unconstrained", matching
 //! `flat_unifiable`'s treatment of an absent lane); real segment lanes come from callers. Do not
@@ -115,10 +115,10 @@ impl CdBits {
     }
 }
 
-/// The char-def-set identity of an underspecified (`char_def == `[`NO_CHAR_DEF`]``) shape node —
+/// The char-def-set identity of an underspecified (`char_def == NO_CHAR_DEF`) shape node —
 /// the port's analog of C#'s `StrRep` disjunction (plan §13.1 Tier-1 #3). Concrete/segmented nodes
 /// never need this stored explicitly: they derive an implicit singleton from their own `char_def`
-/// (see [`Shape::node_cd_set`]), matching the convention `root_trie.rs` already documents for
+/// (see `Shape::node_cd_set`), matching the convention `root_trie.rs` already documents for
 /// lexical lookup. This type stores the explicit set only for nodes born from a natural-class
 /// insertion (`InsertSimpleContext`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -136,8 +136,8 @@ pub enum CdSet {
 }
 
 /// The *effective* char-def-set of a node, resolved at query time: concrete nodes (`char_def !=
-/// `[`NO_CHAR_DEF`]``) are an implicit singleton (their own identity, never stored); underspecified
-/// nodes use their stored [`CdSet`]. Borrowed, not owned — built fresh by [`Shape::node_cd_set`].
+/// NO_CHAR_DEF`) are an implicit singleton (their own identity, never stored); underspecified
+/// nodes use their stored `CdSet`. Borrowed, not owned — built fresh by `Shape::node_cd_set`.
 #[derive(Copy, Clone, Debug)]
 pub enum EffectiveCdSet<'a> {
     Singleton(u32),
@@ -195,11 +195,11 @@ impl NodeFlags {
 }
 
 /// A frozen phonetic shape: parallel SoA columns, bracketed by anchor nodes. Cheap to clone as an
-/// interned [`ShapeId`]; direct `Clone` here is a column copy (used only by the builder).
+/// interned `ShapeId`; direct `Clone` here is a column copy (used only by the builder).
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub struct Shape {
     kinds: Box<[NodeKind]>,
-    /// Index into the grammar's character-definition table, or [`NO_CHAR_DEF`] for anchors.
+    /// Index into the grammar's character-definition table, or `NO_CHAR_DEF` for anchors.
     char_defs: Box<[u32]>,
     flags: Box<[NodeFlags]>,
     /// Lanes-per-node (`W`). The `feat_lanes` block is `feat_width * len()` long.
@@ -207,7 +207,7 @@ pub struct Shape {
     /// SoA feature matrix: node `i`'s lanes are `feat_lanes[i*feat_width .. (i+1)*feat_width]`.
     feat_lanes: Box<[u64]>,
     /// Explicit char-def-set per node (plan §13.1 Tier-1 #3), consulted only when `char_defs[i] ==
-    /// NO_CHAR_DEF` — see [`Shape::node_cd_set`]. `CdSet::Unrestricted` for every node whose
+    /// NO_CHAR_DEF` — see `Shape::node_cd_set`. `CdSet::Unrestricted` for every node whose
     /// producer doesn't set one (the overwhelming majority: concrete nodes ignore this column
     /// entirely in favor of their own `char_def`).
     cd_sets: Box<[CdSet]>,
@@ -256,7 +256,7 @@ impl Shape {
 
     /// The effective char-def-set identity of node `i` (plan §13.1 Tier-1 #3): a concrete node
     /// (`char_def != NO_CHAR_DEF`) is an implicit singleton of its own identity; an underspecified
-    /// node (natural-class insertion) uses its stored [`CdSet`]. See [`EffectiveCdSet`].
+    /// node (natural-class insertion) uses its stored `CdSet`. See `EffectiveCdSet`.
     #[inline]
     pub fn node_cd_set(&self, i: usize) -> EffectiveCdSet<'_> {
         let cd = self.char_defs[i];
@@ -279,7 +279,7 @@ impl Shape {
     }
 }
 
-/// Builds a [`Shape`], either by **appending** interior nodes between the anchors then
+/// Builds a `Shape`, either by **appending** interior nodes between the anchors then
 /// [`finish`](Self::finish)ing, or by **copy-on-write mutation** of a frozen shape
 /// ([`from_shape`](Self::from_shape) → `insert`/`delete`/`modify` → [`freeze`](Self::freeze)).
 ///
@@ -409,7 +409,7 @@ impl ShapeBuilder {
 
     /// Append a `NO_CHAR_DEF` segment node with explicit lanes **and** an explicit char-def-set
     /// (plan §13.1 Tier-1 #3): the `InsertSimpleContext` insertion path, which must carry the
-    /// natural class's real membership instead of the default [`CdSet::Unrestricted`].
+    /// natural class's real membership instead of the default `CdSet::Unrestricted`.
     pub fn push_segment_with_lanes_and_set(&mut self, lanes: &[u64], cd_set: CdSet) {
         self.push_with_lanes(NodeKind::Segment, NO_CHAR_DEF, NodeFlags::EMPTY, lanes);
         *self.cd_sets.last_mut().expect("just pushed") = cd_set;
@@ -512,10 +512,10 @@ impl ShapeBuilder {
     /// Feature-change: replace node `index`'s lanes with `lanes` (`lanes.len()` must be
     /// `feat_width`). Models the priority-union RHS of C# `FeatureSynthesisRewriteSubruleSpec`:
     /// pg-shape is pure storage, so the **caller** computes the post-union lanes (reading
-    /// [`Shape::node_lanes`], unifying with `pg_featstruct` ops + the grammar's per-feature masks)
+    /// `Shape::node_lanes`, unifying with `pg_featstruct` ops + the grammar's per-feature masks)
     /// and hands in the full resulting row. `char_def` is deliberately **left unchanged** — it
     /// remains the as-segmented display identity even though the live features now diverge from it.
-    /// The node's [`CdSet`] (plan §13.1 Tier-1 #3) is likewise **left untouched** by design: a
+    /// The node's `CdSet` (plan §13.1 Tier-1 #3) is likewise **left untouched** by design: a
     /// feature-changing rule narrows which lanes are pinned, not which literal characters/segments
     /// are being talked about (C#'s `StrRep` is a distinct FS slot a plain feature `PriorityUnion`
     /// never touches) — this method simply never writes `cd_sets[index]`, so the caller gets
@@ -537,13 +537,13 @@ impl ShapeBuilder {
         &self.feat_lanes[index * w..index * w + w]
     }
 
-    /// Append the right anchor and freeze into an immutable [`Shape`] (append path).
+    /// Append the right anchor and freeze into an immutable `Shape` (append path).
     pub fn finish(mut self) -> Shape {
         self.push(NodeKind::RightAnchor, NO_CHAR_DEF, NodeFlags::EMPTY);
         self.into_shape()
     }
 
-    /// Freeze the builder's current nodes as-is into an immutable [`Shape`] (mutation path — the
+    /// Freeze the builder's current nodes as-is into an immutable `Shape` (mutation path — the
     /// anchors are already present from [`from_shape`](Self::from_shape)).
     pub fn freeze(self) -> Shape {
         debug_assert_eq!(self.kinds.first(), Some(&NodeKind::LeftAnchor));
@@ -580,7 +580,7 @@ impl Default for ShapeBuilder {
 pub struct ShapeId(pub u32);
 
 /// Hash-cons interner for shapes (per-parse scope; lives in the parse arena, plan §6.2). Reuses
-/// the generic [`Interner`] from `pg-featstruct` but hands back a distinct [`ShapeId`] type.
+/// the generic `Interner` from `pg-featstruct` but hands back a distinct `ShapeId` type.
 #[derive(Debug, Default, Clone)]
 pub struct ShapeInterner {
     inner: Interner<Shape>,

@@ -1,4 +1,4 @@
-//! A test that [`pg_foma::readiness_verdict`]'s `not-supported` tier cites a REAL predicate
+//! A test that `pg_foma::readiness_verdict`'s `not-supported` tier cites a REAL predicate
 //! refusal, on a grammar known to carry a permanently carved-out construct.
 //!
 //! Per this task's own brief: "all three reference grammars now refuse on exactly

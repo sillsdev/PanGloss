@@ -27,7 +27,7 @@
 //!
 //! `<MorphemeId>` is set to each rule/entry's C# `Gloss`/id (e.g. `"32"`, `"PAST"`) so
 //! `pg_parse::Morpher`'s morpheme-join signature reproduces `AssertMorphsEqual`'s gloss strings
-//! directly (join on `"+"` here vs C#'s `" "` -- callers translate via [`morphs_set`]).
+//! directly (join on `"+"` here vs C#'s `" "` -- callers translate via `morphs_set`).
 //!
 //! Every lexical entry transcribed below cites the C# `AddEntry` call it ports
 //! (`HermitCrabTestBase.cs`), so a reader can cross-check spelling/POS/features against the source.
@@ -811,7 +811,7 @@ pub fn build_morph_grammar(mrule_defs_xml: &str, mrule_ids: &str) -> Grammar {
     build_grammar("", "", mrule_defs_xml, mrule_ids, "")
 }
 
-/// Like [`build_grammar`] (no phonological rules, no templates), but for the two W6 co-occurrence
+/// Like `build_grammar` (no phonological rules, no templates), but for the two W6 co-occurrence
 /// `MorpherTests` only: `extra_lexicon_xml` is a second `<LexicalEntries>` block (Rust's loader
 /// merges every `<LexicalEntries>` under one `<Stratum>` via `elems2`, unlike a DTD-validating
 /// reader, so this doesn't need to be spliced into the shared `LEXICON_XML` constant) holding the
@@ -853,13 +853,13 @@ pub fn build_grammar_cooccurrence(
     })
 }
 
-/// [`build_grammar`]'s W5 sibling for the realizational-cluster ports (`LexEntryTests.StemNames`,
+/// `build_grammar`'s W5 sibling for the realizational-cluster ports (`LexEntryTests.StemNames`,
 /// `AffixTemplateTests.RealizationalRule`): adds the two language-level blocks W5 unlinted --
 /// `stem_names_xml` (a `<StemNames>` block, DTD position after
 /// `MorphologicalPhonologicalRuleFeatures`) and `families_xml` (a `<Families>` block, DTD position
 /// after `NaturalClasses`) -- plus `extra_lexicon_xml`, a second `<LexicalEntries>` block for the
 /// test-specific roots (`stemname`, the `SEE` family's `bl1`/`bl2`/`bl3`) that the shared
-/// [`LEXICON_XML`] deliberately omits (they'd be inert-but-noisy surplus for every other port).
+/// `LEXICON_XML` deliberately omits (they'd be inert-but-noisy surplus for every other port).
 pub fn build_grammar_w5(
     stem_names_xml: &str,
     families_xml: &str,
@@ -898,7 +898,7 @@ pub fn build_grammar_w5(
         .unwrap_or_else(|e| panic!("csharp_port_common W5 grammar failed to load: {e}\n---\n{xml}"))
 }
 
-/// [`build_morph_grammar`] with the shared [`LEXICON_XML`] REPLACED by the caller's own block --
+/// `build_morph_grammar` with the shared `LEXICON_XML` REPLACED by the caller's own block --
 /// for `CompoundingRuleTests.ProdRestrictRule`, whose per-configuration steps mutate specific
 /// entries' `MprFeatures` in C# (`head.MprFeatures.Add(excFeat)` etc.); the Rust port re-declares
 /// the three entries the test touches (`5`/`8`/`9`) with per-configuration `ruleFeatures`
@@ -936,10 +936,10 @@ pub fn build_grammar_custom_lexicon(
     })
 }
 
-/// Identical to [`build_grammar`], but `morphologicalRuleOrder="linear"` (C#
+/// Identical to `build_grammar`, but `morphologicalRuleOrder="linear"` (C#
 /// `MorphologicalRuleOrder.Linear`, used by exactly one ported test --
 /// `MorpherTests.AnalyzeWord_CanAnalyzeLinear_ReturnsCorrectAnalysis`; every other ported test uses
-/// C#'s `Unordered`, [`build_grammar`]'s default).
+/// C#'s `Unordered`, `build_grammar`'s default).
 pub fn build_grammar_linear(
     prule_defs_xml: &str,
     prule_ids: &str,
@@ -975,7 +975,7 @@ pub fn build_grammar_linear(
 }
 
 /// The set of morpheme-join strings (C# `AssertMorphsEqual`'s gloss-joined-by-space form) among a
-/// [`ParseOutcome`]'s surviving analyses. `pg_parse::Morpher` joins morphemes with `"+"`;
+/// `ParseOutcome`'s surviving analyses. `pg_parse::Morpher` joins morphemes with `"+"`;
 /// `AssertMorphsEqual` joins with `" "` -- translated here so expected literals can be transcribed
 /// character-for-character from the C# source (`"32 PAST"`, not `"32+PAST"`).
 pub fn morphs_set(outcome: &ParseOutcome) -> BTreeSet<String> {
@@ -1018,7 +1018,7 @@ pub fn morpheme_ordinal(g: &Grammar, gloss: &str) -> u32 {
         .unwrap_or_else(|| panic!("no morpheme with <MorphemeId>{gloss}</MorphemeId>")) as u32
 }
 
-/// The [`LexEntryId`] of the `LexicalEntry` whose `<MorphemeId>` text is `gloss` -- the direct-API
+/// The `LexEntryId` of the `LexicalEntry` whose `<MorphemeId>` text is `gloss` -- the direct-API
 /// (`Morpher::generate_words`) equivalent of C#'s `Entries["<gloss>"]` indexer
 /// (`HermitCrabTestBase.cs`'s `Entries` dictionary, keyed by id/gloss).
 pub fn lex_entry_id(g: &Grammar, gloss: &str) -> LexEntryId {
@@ -1030,7 +1030,7 @@ pub fn lex_entry_id(g: &Grammar, gloss: &str) -> LexEntryId {
     LexEntryId(idx as u32)
 }
 
-/// The [`MRuleId`] of the `AffixProcessRule`/`RealizationalRule` whose `<MorphemeId>` text is
+/// The `MRuleId` of the `AffixProcessRule`/`RealizationalRule` whose `<MorphemeId>` text is
 /// `gloss` (a `CompoundingRule` never has one -- C#'s own `Morpher._morphemes` collection excludes
 /// it too, Morpher.cs:50-52 -- so this never resolves one).
 pub fn mrule_id(g: &Grammar, gloss: &str) -> MRuleId {

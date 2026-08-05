@@ -10,21 +10,21 @@
 //!
 //! # What this module owns, and what it reuses rather than re-deriving
 //! - The INVENTORY of every frozen `model.rs` variant already exists as
-//!   [`crate::capability::CharacteristicKind`] (its own `ALL` constant) and
-//!   [`crate::capability::characterize`] (the exhaustive, no-catch-all per-`model.rs`-variant
+//!   `crate::capability::CharacteristicKind` (its own `ALL` constant) and
+//!   `crate::capability::characterize` (the exhaustive, no-catch-all per-`model.rs`-variant
 //!   walk) — this module does not re-inventory `model.rs`. What it adds is the SCHEMA half: a
 //!   consolidated, queryable, *serializable* row-per-construct VIEW over that existing inventory,
-//!   via [`LedgerRow`]/[`CoverageLedger`]/[`build_ledger`].
-//! - The disposition mapping is not duplicated here either — [`LedgerRow::disposition`] always
-//!   reads [`crate::capability::CharacteristicKind::default_disposition`], never a second,
+//!   via `LedgerRow`/`CoverageLedger`/`build_ledger`.
+//! - The disposition mapping is not duplicated here either — `LedgerRow::disposition` always
+//!   reads `crate::capability::CharacteristicKind::default_disposition`, never a second,
 //!   hardcoded copy (pinned by this file's own
 //!   `ledger_disposition_never_diverges_from_default_disposition` test).
-//! - [`containment_evidence_for`] is a curated, hand-reviewed table naming, for every construct,
+//! - `containment_evidence_for` is a curated, hand-reviewed table naming, for every construct,
 //!   which REAL already-merged test file (`tests/cover_*.rs`, `tests/phase_c_*.rs`, `tests/
 //!   epenthesis_structural_route_containment.rs`, `tests/two_table_symbol_divergence.rs`, `tests/
 //!   f6_reduplication_peel_chain_depth.rs`, `tests/p6_gate_parity.rs`) is a witness for it — a
 //!   one-time REVIEWED table, not a mechanically-derived one.
-//! - [`CoverageLedger::to_json`] is the machine-readable source artifact (mirrors `crate::health`'s
+//! - `CoverageLedger::to_json` is the machine-readable source artifact (mirrors `crate::health`'s
 //!   own "canonical JSON is the source artifact" convention); no Markdown/prose renderer exists
 //!   here.
 //! - Every ledger row's disposition and evidence owner is validated exhaustively by this module's
@@ -34,28 +34,28 @@
 //!   reflection (the same reason `crate::capability::CharacteristicKind::ALL`'s own doc gives).
 //!
 //! # Coverage is claimed PER STRATEGY, never for "the compiler"
-//! This crate has three compilers ([`crate::enumerate::EmissionStrategy`]), and until
-//! [`crate::strategy_coverage`] existed this ledger's rows silently spoke for all of them at once.
+//! This crate has three compilers (`crate::enumerate::EmissionStrategy`), and until
+//! `crate::strategy_coverage` existed this ledger's rows silently spoke for all of them at once.
 //! The `Compounding` row cited `tests/cover_compounding.rs`, which exercises `FomaAnalyzer::new`
-//! and therefore [`crate::enumerate::EmissionStrategy::TunedSurfaceProbed`] only -- while
-//! [`crate::uflexc`], the sole lexicon emitter
-//! [`crate::enumerate::EmissionStrategy::PlanComposed`] has, could not propose a compound at all.
+//! and therefore `crate::enumerate::EmissionStrategy::TunedSurfaceProbed` only -- while
+//! `crate::uflexc`, the sole lexicon emitter
+//! `crate::enumerate::EmissionStrategy::PlanComposed` has, could not propose a compound at all.
 //! One compiler's coverage was read as three compilers' coverage. That is this repo's own
 //! coverage-gate inheritance trap recurring on a per-strategy axis rather than a per-construct one.
 //!
 //! Three things follow, all enforced in this file's own `tests` submodule:
-//! - Every [`ContainmentEvidence`] NAMES the strategies its citation was demonstrated on
-//!   ([`ContainmentEvidence::strategies`]); [`ev`] panics on an unattributed one.
-//! - A citation may not name a strategy [`crate::strategy_coverage`] says cannot represent the
+//! - Every `ContainmentEvidence` NAMES the strategies its citation was demonstrated on
+//!   (`ContainmentEvidence::strategies`); `ev` panics on an unattributed one.
+//! - A citation may not name a strategy `crate::strategy_coverage` says cannot represent the
 //!   construct (`no_citation_claims_a_strategy_that_cannot_represent_the_construct`).
 //! - Each row reports the strategies that CAN represent the construct but have no witness
-//!   ([`LedgerRow::strategies_unwitnessed`]) and the ones that cannot represent it at all
-//!   ([`LedgerRow::strategies_cannot_represent`]). Both are DERIVED from the strategy table, so a
+//!   (`LedgerRow::strategies_unwitnessed`) and the ones that cannot represent it at all
+//!   (`LedgerRow::strategies_cannot_represent`). Both are DERIVED from the strategy table, so a
 //!   fourth compiler cannot inherit the incumbents' evidence by being added quietly.
 //!
 //! Reported, not gated -- consistent with this module's "Evidence, not a gate" section below. A
 //! non-empty `strategies_unwitnessed` is today's honest reading of the test suite, not a failure;
-//! notably no row names [`crate::enumerate::EmissionStrategy::TemplatedUnderlyingTokens`] at all.
+//! notably no row names `crate::enumerate::EmissionStrategy::TemplatedUnderlyingTokens` at all.
 //!
 //! # A future model-shape change
 //! Adding a new `pg-grammar/src/model.rs` construct or behavior-bearing field is OUTSIDE this
@@ -64,35 +64,35 @@
 //! first (`CharacteristicKind`, `CharacteristicKind::ALL`, `default_disposition`, `characterize`,
 //! per that module's own exhaustiveness discipline), which breaks THIS module's build the moment a
 //! new `CharacteristicKind::ALL` entry appears (every exhaustive match in this file has no
-//! catch-all arm), forcing a reviewed update to [`containment_evidence_for`] too.
+//! catch-all arm), forcing a reviewed update to `containment_evidence_for` too.
 //!
 //! # Evidence, not a gate
-//! Nothing in this module is consulted by any compile path. [`build_ledger`] is a pure function;
-//! [`CoverageLedger`] is inert data. The load-bearing, hard-failing artifact remains
-//! [`crate::capability::compose_envelope`] — this ledger's rows are read BY a human/CI
+//! Nothing in this module is consulted by any compile path. `build_ledger` is a pure function;
+//! `CoverageLedger` is inert data. The load-bearing, hard-failing artifact remains
+//! `crate::capability::compose_envelope` — this ledger's rows are read BY a human/CI
 //! reviewer and by that gate's own predicate authors as evidence when they write or review a
-//! [`crate::capability::CapabilityPredicate`], never consulted at compile time to admit or refuse a
+//! `crate::capability::CapabilityPredicate`, never consulted at compile time to admit or refuse a
 //! grammar. No test in this file asserts `gaps.is_empty()` for conformance/containment coverage —
 //! same non-blocking-first discipline `crate::conformance_coverage`/`crate::
 //! plan_interaction_coverage` already established for their own advisory reports.
 //!
 //! # The four rows this ledger fills in per `CharacteristicKind`
-//! [`LedgerRow`]: the [`crate::capability::CharacteristicKind`] itself; its
-//! [`crate::capability::Disposition`] (ALWAYS [`crate::capability::CharacteristicKind::
+//! `LedgerRow`: the `crate::capability::CharacteristicKind` itself; its
+//! `crate::capability::Disposition` (ALWAYS [`crate::capability::CharacteristicKind::
 //! default_disposition`] — never a second, divergent copy); every [`crate::capability::
 //! CapabilityPredicate`] in the caller-supplied registry that discharges it, alongside that
-//! predicate's own [`crate::capability::EvidenceProvenance`]; the mapped `machine/conformance/
+//! predicate's own `crate::capability::EvidenceProvenance`; the mapped `machine/conformance/
 //! constructs.txt` construct id(s) (reused verbatim from [`crate::conformance_coverage::
 //! construct_ids_for`], never re-derived) plus the resulting [`crate::conformance_coverage::
 //! CoverageStatus`] against a caller-supplied passing-construct set; and the curated
-//! [`ContainmentEvidence`] naming which (if any) already-merged test is this construct's
+//! `ContainmentEvidence` naming which (if any) already-merged test is this construct's
 //! proposer-to-confirm containment witness.
 //!
 //! # Canonical JSON
-//! [`CoverageLedger::to_json`]/[`CoverageLedger::from_json`] follow `crate::health`'s own
+//! `CoverageLedger::to_json`/`CoverageLedger::from_json` follow `crate::health`'s own
 //! established convention exactly: pretty-printed, two-space indent, fields in Rust declaration
 //! order (serde's unmodified default), a `schema_version` constant
-//! ([`COVERAGE_LEDGER_SCHEMA_VERSION`]) bumped only on a wire-incompatible change. CLI/AI/FieldWorks
+//! (`COVERAGE_LEDGER_SCHEMA_VERSION`) bumped only on a wire-incompatible change. CLI/AI/FieldWorks
 //! tooling consumes this one artifact rather than re-deriving the same facts from `capability.rs`'s
 //! Rust types directly.
 //!
@@ -117,7 +117,7 @@ use crate::conformance_coverage::{construct_ids_for, CoverageStatus};
 use crate::enumerate::EmissionStrategy;
 use crate::strategy_coverage::{representation_of, strategies_that_represent};
 
-/// This schema's own version (mirrors [`crate::health::HEALTH_SCHEMA_VERSION`]'s convention).
+/// This schema's own version (mirrors `crate::health::HEALTH_SCHEMA_VERSION`'s convention).
 pub const COVERAGE_LEDGER_SCHEMA_VERSION: u32 = 1;
 
 // =================================================================================================
@@ -269,8 +269,8 @@ impl<'de> Deserialize<'de> for CoverageStatus {
 // The curated containment-evidence table ("owning tests" per construct)
 // =================================================================================================
 
-/// Which shape of evidence [`ContainmentEvidence::citation`] provides. Not every
-/// [`crate::capability::CharacteristicKind`] needs (or can meaningfully have) the same shape of
+/// Which shape of evidence `ContainmentEvidence::citation` provides. Not every
+/// `crate::capability::CharacteristicKind` needs (or can meaningfully have) the same shape of
 /// witness — see each variant's own doc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -280,7 +280,7 @@ pub enum ContainmentEvidenceKind {
     /// every `ConfigPredicate`/`ConfirmOnly` characteristic's kit needs.
     Dedicated,
     /// No single dedicated fixture exists (or is needed): the characteristic is
-    /// [`Disposition::Proven`] and is exercised pervasively, as ordinary background material, by
+    /// `Disposition::Proven` and is exercised pervasively, as ordinary background material, by
     /// this crate's general full-grammar propose-confirm gates (`tests/f1_large_lexicon_gate.rs`, `tests/
     /// f2_junction_gate.rs`, `tests/f4_composite_gate.rs`, etc.) rather than by any one
     /// construct-specific fixture.
@@ -288,27 +288,27 @@ pub enum ContainmentEvidenceKind {
 }
 
 /// One curated, hand-reviewed containment-evidence citation. Every field is a
-/// `String` (not `&'static str`) so [`LedgerRow`] round-trips through [`CoverageLedger::from_json`]
+/// `String` (not `&'static str`) so `LedgerRow` round-trips through `CoverageLedger::from_json`
 /// losslessly, matching `crate::health::HealthFinding`'s own `String`-field convention.
 ///
 /// # Evidence NAMES ITS STRATEGIES
 /// Every citation must say which compiler(s) it was demonstrated on. Before that requirement, this
 /// table's `Compounding` row cited `tests/cover_compounding.rs`, which exercises `FomaAnalyzer::new`
-/// -- i.e. [`crate::enumerate::EmissionStrategy::TunedSurfaceProbed`] -- and nothing else, while the
+/// -- i.e. `crate::enumerate::EmissionStrategy::TunedSurfaceProbed` -- and nothing else, while the
 /// row read as evidence that the construct was covered, full stop. It was then silently inherited by
-/// [`crate::enumerate::EmissionStrategy::PlanComposed`], whose emitter ([`crate::uflexc`]) could not
+/// `crate::enumerate::EmissionStrategy::PlanComposed`, whose emitter (`crate::uflexc`) could not
 /// propose a compound at all. That is the coverage-gate inheritance trap on a per-STRATEGY axis, and
-/// [`ContainmentEvidence::strategies`] is what makes it impossible to repeat silently: the ledger
+/// `ContainmentEvidence::strategies` is what makes it impossible to repeat silently: the ledger
 /// now reports, per row, both the strategies a witness exists for and the ones that can represent
-/// the construct but have NO witness ([`LedgerRow::strategies_unwitnessed`]).
+/// the construct but have NO witness (`LedgerRow::strategies_unwitnessed`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContainmentEvidence {
     pub kind: ContainmentEvidenceKind,
     /// `tests/<file>.rs` plus the specific `#[test]` function name(s), e.g.
     /// `"tests/cover_compounding.rs::head_a_word_over_propose_confirm_prune"`.
     pub citation: String,
-    /// Which [`crate::enumerate::EmissionStrategy`]s the cited test(s) actually exercise, as
-    /// [`crate::enumerate::EmissionStrategy::label`] strings. NEVER empty (see [`ev`]) -- an
+    /// Which `crate::enumerate::EmissionStrategy`s the cited test(s) actually exercise, as
+    /// `crate::enumerate::EmissionStrategy::label` strings. NEVER empty (see `ev`) -- an
     /// unattributed citation is exactly the shape that let one compiler's coverage stand in for
     /// three.
     pub strategies: Vec<String>,
@@ -316,7 +316,7 @@ pub struct ContainmentEvidence {
     pub note: String,
 }
 
-/// The strategies a citation demonstrates, as the wire strings [`ContainmentEvidence::strategies`]
+/// The strategies a citation demonstrates, as the wire strings `ContainmentEvidence::strategies`
 /// holds. Taken as `EmissionStrategy` values, not free-form strings, so a citation cannot name a
 /// compiler that does not exist and a renamed label updates every row at once.
 fn strategies_of(strategies: &[EmissionStrategy]) -> Vec<String> {
@@ -326,7 +326,7 @@ fn strategies_of(strategies: &[EmissionStrategy]) -> Vec<String> {
 /// # Panics
 /// If `strategies` is empty. Every citation must attribute itself to at least one compiler -- an
 /// unattributed one is the inheritance trap this table exists to close, and defaulting to "all
-/// strategies" would silently re-create exactly the bug (see [`ContainmentEvidence`]'s own doc).
+/// strategies" would silently re-create exactly the bug (see `ContainmentEvidence`'s own doc).
 fn ev(
     kind: ContainmentEvidenceKind,
     citation: &str,
@@ -348,7 +348,7 @@ fn ev(
 /// `kind`'s curated proposer-to-confirm
 /// containment witness, if this crate's test suite
 /// has one — `None` only where no witness exists at all (a genuine, honestly-reported gap, never
-/// silently invented; see [`CharacteristicKind::NaturalClassDefinition`]'s own arm below).
+/// silently invented; see `CharacteristicKind::NaturalClassDefinition`'s own arm below).
 /// Exhaustively matched (no catch-all) — same discipline `crate::capability::characterize`/
 /// `crate::conformance_coverage::construct_ids_for` already hold themselves to: adding a
 /// `CharacteristicKind` variant breaks this file's build until it is given an explicit arm here.
@@ -563,8 +563,8 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
 // LedgerRow / CoverageLedger / build_ledger
 // =================================================================================================
 
-/// One [`crate::capability::CapabilityPredicate`] that discharges a [`LedgerRow`]'s
-/// [`CharacteristicKind`], alongside that predicate's own [`EvidenceProvenance`].
+/// One `crate::capability::CapabilityPredicate` that discharges a `LedgerRow`'s
+/// `CharacteristicKind`, alongside that predicate's own `EvidenceProvenance`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DischargingPredicate {
     pub id: String,
@@ -572,7 +572,7 @@ pub struct DischargingPredicate {
 }
 
 /// One row of the coverage ledger: everything this crate can say
-/// today about one [`CharacteristicKind`] — the frozen-model construct(s) it represents (see that
+/// today about one `CharacteristicKind` — the frozen-model construct(s) it represents (see that
 /// type's own per-variant doc in `capability.rs` for the exact `model.rs` citation), its
 /// disposition, which predicates (if any) discharge it, which `constructs.txt` id(s) it maps to and
 /// whether a passing fixture is known to cover them, and its curated containment-test citation.
@@ -582,35 +582,35 @@ pub struct LedgerRow {
     /// ALWAYS `kind.default_disposition()` — never a second, independently-maintained copy. See
     /// this file's own `ledger_disposition_never_diverges_from_default_disposition` test.
     pub disposition: Disposition,
-    /// Every registered [`crate::capability::CapabilityPredicate`] whose [`crate::capability::
+    /// Every registered `crate::capability::CapabilityPredicate` whose [`crate::capability::
     /// CapabilityPredicate::discharges`] names this row's `kind`. Empty for every [`Disposition::
-    /// Proven`] kind (none needed) and for a [`Disposition::ConfirmOnly`] kind with no registered
+    /// Proven`] kind (none needed) and for a `Disposition::ConfirmOnly` kind with no registered
     /// predicate (also fine — only `ConfigPredicate` kinds REQUIRE one, per
-    /// [`crate::capability::undischarged_kinds`]).
+    /// `crate::capability::undischarged_kinds`).
     #[serde(default)]
     pub discharging_predicates: Vec<DischargingPredicate>,
     /// `machine/conformance/constructs.txt` identifier(s) this kind maps to (reused verbatim from
-    /// [`construct_ids_for`] — never re-derived). Empty iff [`Self::conformance_status`] is
-    /// [`CoverageStatus::Unmappable`].
+    /// `construct_ids_for` — never re-derived). Empty iff `Self::conformance_status` is
+    /// `CoverageStatus::Unmappable`.
     pub construct_ids: Vec<String>,
     /// This row's conformance-coverage cross-check outcome against the ledger's own build-time
-    /// passing-construct set (see [`build_ledger`]'s own doc: this ledger reuses [`construct_ids_
-    /// for`]/[`CoverageStatus`] rather than re-deriving the classification rule).
+    /// passing-construct set (see `build_ledger`'s own doc: this ledger reuses [`construct_ids_
+    /// for`]/`CoverageStatus` rather than re-deriving the classification rule).
     pub conformance_status: CoverageStatus,
     /// The curated proposer-to-confirm containment witness, if this crate's test
     /// suite has one for this construct (`None` only for a genuine, honestly-reported gap).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub containment: Option<ContainmentEvidence>,
-    /// Every [`EmissionStrategy`] whose proposer emits nothing at all for this construct
-    /// ([`crate::strategy_coverage::StrategyRepresentation::CannotRepresent`]), as
-    /// [`EmissionStrategy::label`] strings. A whole-construct recall hole for that compiler --
-    /// [`crate::capability::compose_envelope_for_strategy`] refuses a candidate realized by one.
+    /// Every `EmissionStrategy` whose proposer emits nothing at all for this construct
+    /// (`crate::strategy_coverage::StrategyRepresentation::CannotRepresent`), as
+    /// `EmissionStrategy::label` strings. A whole-construct recall hole for that compiler --
+    /// `crate::capability::compose_envelope_for_strategy` refuses a candidate realized by one.
     #[serde(default)]
     pub strategies_cannot_represent: Vec<String>,
     /// Every strategy that CAN represent this construct but which no citation in
-    /// [`containment_evidence_for`] names -- i.e. coverage this row would be INHERITING rather than
+    /// `containment_evidence_for` names -- i.e. coverage this row would be INHERITING rather than
     /// demonstrating. Non-empty is not a failure; it is the honest reading of the evidence, and the
-    /// thing that was invisible before. See [`ContainmentEvidence`]'s own doc for the incident.
+    /// thing that was invisible before. See `ContainmentEvidence`'s own doc for the incident.
     #[serde(default)]
     pub strategies_unwitnessed: Vec<String>,
 }
@@ -620,13 +620,13 @@ pub struct LedgerRow {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CoverageLedger {
     pub schema_version: u32,
-    /// One row per [`CharacteristicKind::ALL`] entry, in that constant's own declaration order.
+    /// One row per `CharacteristicKind::ALL` entry, in that constant's own declaration order.
     pub rows: Vec<LedgerRow>,
 }
 
 impl CoverageLedger {
     /// This ledger's row for `kind`, if present (always present in any ledger built by
-    /// [`build_ledger`] — see `every_characteristic_kind_appears_exactly_once`).
+    /// `build_ledger` — see `every_characteristic_kind_appears_exactly_once`).
     pub fn row(&self, kind: CharacteristicKind) -> Option<&LedgerRow> {
         self.rows.iter().find(|r| r.kind == kind)
     }
@@ -643,11 +643,11 @@ impl CoverageLedger {
     }
 }
 
-/// Builds the coverage ledger: one [`LedgerRow`] per [`CharacteristicKind::ALL`] entry, in that
+/// Builds the coverage ledger: one `LedgerRow` per `CharacteristicKind::ALL` entry, in that
 /// constant's own order. A pure function over a caller-supplied `registry` (whose predicates
-/// determine [`LedgerRow::discharging_predicates`]) and `passing_covered_constructs` (the same
+/// determine `LedgerRow::discharging_predicates`) and `passing_covered_constructs` (the same
 /// "set of `constructs.txt` identifiers exercised by at least one currently-passing fixture" shape
-/// [`crate::conformance_coverage::supported_coverage_report`] itself takes) — mirroring that
+/// `crate::conformance_coverage::supported_coverage_report` itself takes) — mirroring that
 /// module's own "pure core, wired-up glue lives at the edge" split: nothing here calls
 /// `pg_conformance_fixtures::discover` or replays any fixture itself; a caller (e.g. a
 /// `tests/coverage_ledger_gate.rs`, mirroring `tests/conformance_coverage_gate.rs`) supplies that
@@ -656,12 +656,12 @@ impl CoverageLedger {
 /// reproducibility independent of fixture churn elsewhere in the repo).
 ///
 /// `conformance_status`'s classification is the identical three-way rule
-/// [`crate::conformance_coverage::supported_coverage_report`]'s own inner closure uses
-/// (`construct_ids.is_empty()` -> [`CoverageStatus::Unmappable`]; at least one of the row's
-/// construct ids in `passing_covered_constructs` -> [`CoverageStatus::Covered`]; otherwise
-/// [`CoverageStatus::Uncovered`]) — re-stated here rather than called, because the two callers
+/// `crate::conformance_coverage::supported_coverage_report`'s own inner closure uses
+/// (`construct_ids.is_empty()` -> `CoverageStatus::Unmappable`; at least one of the row's
+/// construct ids in `passing_covered_constructs` -> `CoverageStatus::Covered`; otherwise
+/// `CoverageStatus::Uncovered`) — re-stated here rather than called, because the two callers
 /// thread their evidence sets differently, not because the two scopes differ. The underlying
-/// contract ([`construct_ids_for`] plus [`CoverageStatus`] itself) is reused unchanged, never
+/// contract (`construct_ids_for` plus `CoverageStatus` itself) is reused unchanged, never
 /// re-derived.
 pub fn build_ledger(
     registry: &PredicateRegistry,
@@ -746,10 +746,10 @@ mod tests {
     use super::*;
     use crate::capability::{default_registry, undischarged_kinds};
 
-    /// A fixed, hand-built passing set (every construct id [`construct_ids_for`] ever names) so
+    /// A fixed, hand-built passing set (every construct id `construct_ids_for` ever names) so
     /// this test module's ledgers are deterministic and independent of any real fixture's
     /// pass/fail state elsewhere in the repo (this module builds no dependency on
-    /// `pg_conformance_fixtures`/`pg_parse` replay at all -- see [`build_ledger`]'s own doc).
+    /// `pg_conformance_fixtures`/`pg_parse` replay at all -- see `build_ledger`'s own doc).
     fn fully_covered_constructs() -> HashSet<&'static str> {
         let mut set = HashSet::new();
         for &kind in CharacteristicKind::ALL {
@@ -797,7 +797,7 @@ mod tests {
     }
 
     /// Every non-vacuous `ConfigPredicate` row names at least one discharging
-    /// predicate -- exactly [`undischarged_kinds`]'s own coverage requirement, cross-checked
+    /// predicate -- exactly `undischarged_kinds`'s own coverage requirement, cross-checked
     /// directly against the ledger's own per-row data (not re-derived: this test asserts the
     /// ledger AGREES with `undischarged_kinds`, the crate's existing single source of truth for
     /// this rule).
@@ -821,7 +821,7 @@ mod tests {
         }
     }
 
-    /// [`containment_evidence_for`] must be callable end to end for every kind (mirrors
+    /// `containment_evidence_for` must be callable end to end for every kind (mirrors
     /// `crate::conformance_coverage`'s own `construct_ids_for_is_callable_for_every_kind`
     /// belt-and-suspenders test).
     #[test]
@@ -923,7 +923,7 @@ mod tests {
     }
 
     /// The per-row `CannotRepresent` list is likewise a projection of
-    /// [`crate::strategy_coverage`], and the live hole (`PlanComposed` x `RealizationalMorphology`)
+    /// `crate::strategy_coverage`, and the live hole (`PlanComposed` x `RealizationalMorphology`)
     /// is visible in the ledger rather than only in the selection path.
     #[test]
     fn the_ledger_reports_the_live_whole_construct_hole() {
@@ -952,7 +952,7 @@ mod tests {
     /// for `LeftToRightRewrite`). `FreeFluctuation` has no DEDICATED pg-foma-crate propose-then-
     /// confirm containment test today (unlike its sibling `StemName`, which
     /// `cover_realizational_morphology_constraints.rs` already covers) -- see
-    /// [`containment_evidence_for`]'s own `FreeFluctuation` arm for why this is an honestly
+    /// `containment_evidence_for`'s own `FreeFluctuation` arm for why this is an honestly
     /// reported gap, not an oversight.
     #[test]
     fn natural_class_definition_and_free_fluctuation_are_the_only_kinds_with_no_containment_evidence(

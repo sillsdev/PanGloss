@@ -9,9 +9,9 @@
 //! ## What each direction does
 //! - **Synthesis** (`SynthesisAffixProcessRule` / `SynthesisCompoundingRule`): match the allomorph
 //!   LHS parts against the input word's shape (anchored, per-part capture groups via the frozen
-//!   `pg-fst`), then build a *new* shape by executing the RHS [`OutputAction`]s
+//!   `pg-fst`), then build a *new* shape by executing the RHS `OutputAction`s
 //!   (`CopyFromInput`/`InsertSegments`/`ModifyFromInput`/`InsertSimpleContext`). Records the applied
-//!   allomorph as a [`MorphRecord`] and priority-unions the rule's `out_syn_fs` onto the word.
+//!   allomorph as a `MorphRecord` and priority-unions the rule's `out_syn_fs` onto the word.
 //! - **Analysis** (`AnalysisAffixProcessRule` / `AnalysisCompoundingRule` via
 //!   `AnalysisMorphologicalTransform`): build the *analysis LHS* by inverting the RHS actions
 //!   (`AnalysisMorphologicalTransform` ctor: `CopyFromInput`→capture the part; `InsertSegments`→
@@ -45,7 +45,7 @@
 //!   that grammar, both in C# and here.
 //! - **`blockable` / `RequiredStemName` / free-fluctuation** are not gated: blocking needs the M5
 //!   lexicon; stem names lint unsupported. `NonFinal`/partial gating that *is* computable from
-//!   [`crate::word::WordFlags`] is applied. **`max_apps`** *is* gated, but — like the compounding
+//!   `crate::word::WordFlags` is applied. **`max_apps`** *is* gated, but — like the compounding
 //!   root-allomorph search noted just below — one layer up, in
 //!   `StratumAnalyzer::apply_one_mrule` (the `Word::unapplied_rule_counts`
 //!   multiset built for the M6 memo key doubles as this gate's input), not inside this module: this
@@ -57,11 +57,11 @@
 //!   **not** run the C# root allomorph search over the non-head (`SearchRootAllomorphs`) — this
 //!   module stays free of the lexicon dependency. That gate is now closed one layer up, in
 //!   `StratumAnalyzer::apply_one_mrule` (M5c: `non_head_root_matches` +
-//!   [`crate::stratum::NonHeadRootFilter`]), wired from `pg-parse::Morpher` (which owns the
+//!   `crate::stratum::NonHeadRootFilter`), wired from `pg-parse::Morpher` (which owns the
 //!   `RootAllomorphIndex`). Every output this module returns for a `Compounding` rule still needs
-//!   that filter applied by the caller — a bare call to [`analyze`] here does not prune anything.
+//!   that filter applied by the caller — a bare call to `analyze` here does not prune anything.
 //! - **`GetSkippedOptionalNodes`** (optional nodes just left of a captured range folded into a copy)
-//!   **is now modeled** (P10): [`copy_part`] folds a word-initial run of optional (boundary) nodes
+//!   **is now modeled** (P10): `copy_part` folds a word-initial run of optional (boundary) nodes
 //!   into the copied range, mirroring `MorphologicalOutputAction.cs:41-55` — first exercised by a
 //!   zero allomorph's `^0+` insertion feeding a later prefix rule's stem copy
 //!   (`rust/conformance/allomorphy/strrep-identity/`).
@@ -69,7 +69,7 @@
 //!   no `Origin::Affix` node exists) **now** record their morpheme (wave-4, W9.1, history row
 //!   `dfbb754b`/#264/LT-21939) — `attribute_morphs` mirrors C#'s `outputNewMorph == null` fallback
 //!   (`SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs`, marks the allomorph on the last output
-//!   node) by minting a synthetic tail-ordered [`MorphRecord`] when no `Origin::Affix` position was
+//!   node) by minting a synthetic tail-ordered `MorphRecord` when no `Origin::Affix` position was
 //!   produced. Fixture: `rust/conformance/affix-shapes/truncate/`. Zero occurrences in Sena's 132
 //!   affix rules (all Copy + InsertSegments), so the reference corpora never exercised this path
 //!   before the fixture; the fix is otherwise unconditional (any grammar, not corpus-gated).
@@ -126,8 +126,8 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 /// Recompiles every allomorph/subrule LHS FST on every call — kept as-is (not cached) because this
 /// function is also called directly on standalone, non-grammar-resident rule fixtures throughout
 /// the test suite (e.g. `pg-parse/tests/cd_set_gate.rs`), which have no stable index into a
-/// [`crate::cache::RuleCache`]. The real per-word pipeline (`crate::stratum`) calls
-/// [`synthesize_cached`] instead. See `crate::cache`'s module doc for the full rationale.
+/// `crate::cache::RuleCache`. The real per-word pipeline (`crate::stratum`) calls
+/// `synthesize_cached` instead. See `crate::cache`'s module doc for the full rationale.
 pub fn synthesize(g: &Grammar, word: &Word, rule: &MorphRuleDef) -> Vec<Word> {
     let out = match rule {
         MorphRuleDef::AffixProcess(def) => synth_affix(g, word, def),
@@ -137,7 +137,7 @@ pub fn synthesize(g: &Grammar, word: &Word, rule: &MorphRuleDef) -> Vec<Word> {
     apply_blocking(g, out, rule.blockable())
 }
 
-/// The [`crate::cache::RuleCache`]-aware sibling of [`synthesize`], used by the real per-word
+/// The `crate::cache::RuleCache`-aware sibling of `synthesize`, used by the real per-word
 /// pipeline. `mrid` must identify `rule` (`rule as *const _ == &g.mrules[mrid.0 as usize] as *const
 /// _`) — every production call site already has both in hand.
 ///
@@ -145,7 +145,7 @@ pub fn synthesize(g: &Grammar, word: &Word, rule: &MorphRuleDef) -> Vec<Word> {
 /// other `*_traced` siblings (`allomorphs_valid_cached_traced`, `synthesize_stratum_traced`), there
 /// is no separate untraced `synthesize_cached` wrapper: its only call site (`guided_synth`) already
 /// carries a `trace`/`parent` pair unconditionally (threaded from `pg-parse::Morpher::parse_word`'s
-/// entry, defaulting to [`crate::trace::NoopSink`]/[`TraceHandle::DUMMY`] on the untraced path), so
+/// entry, defaulting to `crate::trace::NoopSink`/`TraceHandle::DUMMY` on the untraced path), so
 /// a second thin wrapper here would be dead code with no caller. Pass `&NoopSink`/`TraceHandle::DUMMY`
 /// directly for an untraced call, exactly as `guided_synth`'s own untraced callers already do one
 /// level up.
@@ -172,12 +172,12 @@ pub(crate) fn synthesize_cached_traced(
     apply_blocking_traced(g, out, rule.blockable(), mrid, trace, parent)
 }
 
-/// Untraced, publicly-reachable sibling of [`synthesize_cached_traced`] for callers outside this
+/// Untraced, publicly-reachable sibling of `synthesize_cached_traced` for callers outside this
 /// crate that hold a `&RuleCache` but have no trace sink of their own (e.g. `pg-foma`'s
 /// rule-application pre-expansion, `pg_foma::preexpand`, which probes ~10^5 (root, rule) pairs at
-/// grammar-emit time and cannot afford [`synthesize`]'s uncached LHS-FST recompilation on every
-/// probe). Returns exactly what [`synthesize`] returns for the same `(g, word, rule)` inputs,
-/// provided `mrid` correctly identifies `rule` (same contract as [`synthesize_cached_traced`]) --
+/// grammar-emit time and cannot afford `synthesize`'s uncached LHS-FST recompilation on every
+/// probe). Returns exactly what `synthesize` returns for the same `(g, word, rule)` inputs,
+/// provided `mrid` correctly identifies `rule` (same contract as `synthesize_cached_traced`) --
 /// the two differ only in where the LHS FST comes from (compiled fresh vs. read from `cache`), not
 /// in what they compute.
 pub fn synthesize_cached(
@@ -219,8 +219,8 @@ fn mpr_gate_reason(
 /// Un-apply `rule` to `word` (analysis). Returns the un-applied word(s); empty if the rule cannot
 /// be un-applied.
 ///
-/// Recompiles on every call — see [`synthesize`]'s doc for why. The real pipeline calls
-/// [`analyze_cached`].
+/// Recompiles on every call — see `synthesize`'s doc for why. The real pipeline calls
+/// `analyze_cached`.
 pub fn analyze(g: &Grammar, word: &Word, rule: &MorphRuleDef) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => ana_affix(g, word, def),
@@ -229,7 +229,7 @@ pub fn analyze(g: &Grammar, word: &Word, rule: &MorphRuleDef) -> Vec<Word> {
     }
 }
 
-/// The [`crate::cache::RuleCache`]-aware sibling of [`analyze`]. See [`synthesize_cached`]'s doc
+/// The `crate::cache::RuleCache`-aware sibling of `analyze`. See `synthesize_cached`'s doc
 /// for the `mrid`/`rule` correspondence contract.
 pub(crate) fn analyze_cached(
     g: &Grammar,
@@ -245,13 +245,13 @@ pub(crate) fn analyze_cached(
     }
 }
 
-/// [`analyze_cached`]'s sibling for the one production call site that also has the M5c non-head
+/// `analyze_cached`'s sibling for the one production call site that also has the M5c non-head
 /// lexicon filter in hand (`crate::stratum::StratumAnalyzer::apply_one_mrule`, `Compounding` rules
 /// only — an `AffixProcess` rule never consumes a filter, so callers route those through
-/// [`analyze_cached`] instead). Threading the filter in here (rather than post-filtering the
+/// `analyze_cached` instead). Threading the filter in here (rather than post-filtering the
 /// returned `Vec<Word>`, as M5c originally did) is what lets the root-allomorph resolution join the
 /// **per-subrule** duplicate-elimination scope C# uses (`AnalysisCompoundingRule.cs:99-117`) instead
-/// of a coarser whole-rule scope — see [`ana_compound_subrule`]'s doc.
+/// of a coarser whole-rule scope — see `ana_compound_subrule`'s doc.
 pub(crate) fn analyze_cached_with_root_filter(
     g: &Grammar,
     mrid: MRuleId,
@@ -269,8 +269,8 @@ pub(crate) fn analyze_cached_with_root_filter(
     }
 }
 
-/// Uncached sibling of [`analyze_cached_with_root_filter`] (the `cache: None` production fallback —
-/// see [`analyze`]'s doc for why that path still exists).
+/// Uncached sibling of `analyze_cached_with_root_filter` (the `cache: None` production fallback —
+/// see `analyze`'s doc for why that path still exists).
 pub fn analyze_with_root_filter(
     g: &Grammar,
     word: &Word,
@@ -286,7 +286,7 @@ pub fn analyze_with_root_filter(
 
 // =================================================================================================
 // Dead-end-attribution census support (harness: `rust/crates/pg-foma/examples/
-// deadend_census.rs`) — the analysis-side mirror of [`synthesize_cached_traced`], which this
+// deadend_census.rs`) — the analysis-side mirror of `synthesize_cached_traced`, which this
 // module already has for synthesis. `pg_rules::stratum::StratumAnalyzer`'s analysis cascade has
 // NEVER threaded a trace sink before this landing (confirmed by grep: zero production or test
 // callers of `TraceSink::morphological_rule_unapplied`/`_not_unapplied` existed before this commit,
@@ -320,7 +320,7 @@ pub fn analyze_with_root_filter(
 // is structurally closer to "shape doesn't match anything real" than to d1/d2/d3/d5's mechanisms).
 // =================================================================================================
 
-/// [`analyze_cached`]'s traced sibling. See this section's module doc for the fast-path/reason-
+/// `analyze_cached`'s traced sibling. See this section's module doc for the fast-path/reason-
 /// mapping contract every function below shares.
 pub(crate) fn analyze_cached_traced(
     g: &Grammar,
@@ -347,7 +347,7 @@ pub(crate) fn analyze_cached_traced(
     }
 }
 
-/// [`analyze_cached_with_root_filter`]'s traced sibling — see this section's module doc.
+/// `analyze_cached_with_root_filter`'s traced sibling — see this section's module doc.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn analyze_cached_with_root_filter_traced(
     g: &Grammar,
@@ -538,7 +538,7 @@ fn ana_compound_cached_traced(
 /// (`new Word(entry.PrimaryAllomorph, RealizationalFeatureStruct.Clone())`), discarding every rule
 /// applied so far. `None` if not blocked (no family, or no matching relative). Compounding output
 /// words carry the HEAD's root allomorph forward (`SynthesisCompoundingRule.cs`'s `ApplySubrule`
-/// clones the head match, `AllomorphOwner::Root` by construction — see [`crate::cache`]'s doc for
+/// clones the head match, `AllomorphOwner::Root` by construction — see `crate::cache`'s doc for
 /// why `AllomorphOwner::Affix` never appears there), so this needs no rule-kind branch of its own.
 ///
 /// P11 correction (§4.4-1's audit claimed this site "unreachable for a guessed root, which is
@@ -591,7 +591,7 @@ fn apply_blocking(g: &Grammar, words: Vec<Word>, blockable: bool) -> Vec<Word> {
         .collect()
 }
 
-/// [`apply_blocking`]'s traced sibling (`synthesize_cached_traced`'s only caller). C# fires
+/// `apply_blocking`'s traced sibling (`synthesize_cached_traced`'s only caller). C# fires
 /// `Blocked(rule, newWord)` (a sibling trace node, still under the ambient `parent` — C#'s
 /// `output.CurrentTrace` at that point has not yet been reassigned to the rule's own `Applied` node)
 /// BEFORE `MorphologicalRuleApplied` reassigns the cursor to the (possibly blocked-replaced) output
@@ -636,7 +636,7 @@ fn apply_blocking_traced(
 /// `SynthesisAffixTemplatesRule.ChooseInflectionalStem` (cs:103). `le`'s primary allomorph is
 /// `Allomorphs[0]` (C# `LexEntry.PrimaryAllomorph`, LexEntry.cs:57-64 — the loader never reorders
 /// `Vec<RootAllomorphDef>`, so index 0 is exactly that). Every field starts fresh (fresh shape/
-/// stratum/syn FS/MPR/partial-flag from the entry, a single root [`MorphRecord`] at order 0, no
+/// stratum/syn FS/MPR/partial-flag from the entry, a single root `MorphRecord` at order 0, no
 /// rule-application history) except the realizational FS, which the caller supplies (both call
 /// sites pass `Clone()` of the CURRENT word's `real_fs`, not the new entry's — there is no such
 /// concept on a bare `LexEntry`).
@@ -736,7 +736,7 @@ fn ctx_lanes(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<u64> {
 /// the set of char-defs whose lanes unify with the pins `ctx_pins` computes (alpha-variable-governed
 /// features already excluded there), computed once per call rather than cached per node — these
 /// tables are small (≤418 entries) and this only runs per rule application, not per shape. Falls back
-/// to [`CdSet::Unrestricted`] when that set is the whole table (a class that really does mean "any
+/// to `CdSet::Unrestricted` when that set is the whole table (a class that really does mean "any
 /// segment"), avoiding materializing a full-table bitset for that common case.
 fn ctx_cd_set(g: &Grammar, table: TableId, ctx: &SimpleContext) -> CdSet {
     let nc = &g.natural_classes[ctx.nat_class.0 as usize];
@@ -774,7 +774,7 @@ fn ctx_cd_set(g: &Grammar, table: TableId, ctx: &SimpleContext) -> CdSet {
     }
 }
 
-/// The owned [`CdSet`] to carry onto a new [`OutNode`] copying an existing shape node `p` (plan
+/// The owned `CdSet` to carry onto a new `OutNode` copying an existing shape node `p` (plan
 /// §13.1 Tier-1 #3: "feature-modified copies of an existing node carry forward the source node's
 /// set unchanged"). For a concrete source (`char_def != NO_CHAR_DEF`) this is `Unrestricted` —
 /// harmless, since the copy keeps that same real `char_def` and `Shape::node_cd_set` will derive
@@ -896,11 +896,11 @@ struct OutNode {
     /// Char-def-set identity (plan §13.1 Tier-1 #3), consulted only when `char_def == NO_CHAR_DEF`.
     /// Every producer that copies/keeps a real `char_def` defaults this to `Unrestricted` — it is
     /// never read for those nodes (`Shape::node_cd_set` derives their singleton from `char_def`
-    /// itself). Only `InsertSimpleContext`-originated nodes set a real [`CdSet`].
+    /// itself). Only `InsertSimpleContext`-originated nodes set a real `CdSet`.
     cd_set: CdSet,
 }
 
-/// Freeze interior [`OutNode`]s into a bracketed [`Shape`]. Optional segments use the
+/// Freeze interior `OutNode`s into a bracketed `Shape`. Optional segments use the
 /// delete-then-reinsert workaround (as `rewrite.rs`), since `ShapeBuilder` has no set-flags-in-place.
 fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
     let w = feat_width(g) as u32;
@@ -970,7 +970,7 @@ pub(crate) fn compile_parts(
     deterministic: bool,
 ) -> Result<(Fst, Vec<String>), BridgeError> {
     // P10: morphological-LHS FSTs carry the `StrRep` identity lane (see `PatternBridge::id_lane`);
-    // their inputs all come from [`segs_of`], which emits the same lane. `table` is the rule's own
+    // their inputs all come from `segs_of`, which emits the same lane. `table` is the rule's own
     // owning table (see this module's top-of-file note), never an implicit default.
     let bridge = PatternBridge::new(g)
         .with_table(table)
@@ -1011,7 +1011,7 @@ fn part_ranges(fst: &Fst, names: &[String], result: &FstResult) -> Vec<Option<(u
 
 /// Which input morph owns a source interior node `idx` (contiguous partition of `word.morphs` by
 /// ascending `order` — exact for concatenative morphology; see module scope note). Only
-/// [`MorphStatus::Real`] records own nodes: `Floating`/`SubsumedChild`/`SubsumedFirst` records are
+/// `MorphStatus::Real` records own nodes: `Floating`/`SubsumedChild`/`SubsumedFirst` records are
 /// markers riding at (or sharing) a position, never material owners (wave-4; and `Real` records
 /// never tie on `order` — each owns a distinct leftmost node — so `max_by_key` is unambiguous).
 fn owning_morph(word: &Word, idx: usize) -> Option<usize> {
@@ -1030,11 +1030,11 @@ enum MorphKey {
     Affix,
 }
 
-/// Build the output word's [`MorphRecord`]s from the constructed output nodes: existing morphs are
+/// Build the output word's `MorphRecord`s from the constructed output nodes: existing morphs are
 /// remapped to where their copied material landed (keeping their `passed_over` sets — C#'s
 /// `_disjunctiveAllomorphIndices` dictionary rides along in `Word`'s copy constructor); new affix
 /// material becomes records whose `passed_over` is `affix`'s recorded passed-over-index set
-/// (W3.2 — see [`MorphRecord::passed_over`]).
+/// (W3.2 — see `MorphRecord::passed_over`).
 ///
 /// W3.3 (`97fa7721`, "do not allow non-contiguous morph annotations"): one record per **contiguous
 /// run** of a morph's output positions, mirroring C# `MarkMorphs`' split (`SynthesisAffixProcess
@@ -1128,16 +1128,16 @@ fn attribute_morphs(
     // Wave-4 unified fallback model (C# `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs`,
     // cs:137-207; fixture `rust/conformance/affix-shapes/truncate/` + the `subsumed_affix` C# port):
     //
-    // * A [`MorphStatus::Real`] record with runs is a normal positioned morph (`MarkMorphs`).
+    // * A `MorphStatus::Real` record with runs is a normal positioned morph (`MarkMorphs`).
     // * A `Real` record with NO runs this hop (a later rule deleted all of its material — e.g.
     //   `s_suffix` capturing-but-not-copying the `u` that was 3SG's whole realization) is C#'s
     //   `else if (inputMorph.Parent == null && !markedAllomorphs.Contains(...))` branch:
     //   - rule inserted new material (`outputNewMorph != null`) ⇒ `MarkSubsumedMorph`: the record
-    //     becomes [`MorphStatus::SubsumedChild`] at the affix's longest-run order, pushed BEFORE
+    //     becomes `MorphStatus::SubsumedChild` at the affix's longest-run order, pushed BEFORE
     //     the affix runs (C#'s postorder `Word.Morphs` traversal renders a subsumed child before
     //     its host — "47 3SG PAST", not "47 PAST 3SG").
     //   - pure truncation (`outputNewMorph == null`) ⇒ `MarkMorph(Shape.First)`: the record becomes
-    //     [`MorphStatus::SubsumedFirst`] at order 0, pushed AFTER the node-0 owner's records (C#'s
+    //     `MorphStatus::SubsumedFirst` at order 0, pushed AFTER the node-0 owner's records (C#'s
     //     interval sort renders the longer/containing annotation first — "47 3SG PRES").
     // * A `SubsumedChild`/`SubsumedFirst` record never owns nodes; each hop it re-anchors to its
     //   HOST — the unique `Real` record sharing its `order` (unique because `Real` orders are
@@ -1149,7 +1149,7 @@ fn attribute_morphs(
     //     (C# recursion), as `SubsumedChild`s; on pure truncation C#'s `MarkMorph(Shape.First)`
     //     branch does NOT recurse into children — a `SubsumedChild` is dropped (bug-compatible)
     //     while a `SubsumedFirst` re-anchors at 0 (it was a top-level annotation in C#).
-    // * A [`MorphStatus::Floating`] record (a previous pure-truncation rule's own marker,
+    // * A `MorphStatus::Floating` record (a previous pure-truncation rule's own marker,
     //   W9.1/`dfbb754b`) rides at the `FLOATING_ORDER` sentinel until a hop with new material
     //   resolves it to a `SubsumedChild` of that hop's affix run.
     // * `markedAllomorphs` (cs:175,185,206): a no-run record whose allomorph was already recorded
@@ -1311,8 +1311,8 @@ fn attribute_morphs(
     records
 }
 
-/// Sentinel `order` for a still-unresolved floating marker (see [`attribute_morphs`]): larger than
-/// any real `out` position could ever be, so [`owning_morph`]'s `order <= idx` filter never selects
+/// Sentinel `order` for a still-unresolved floating marker (see `attribute_morphs`): larger than
+/// any real `out` position could ever be, so `owning_morph`'s `order <= idx` filter never selects
 /// it, and it always sorts after every genuinely-positioned record in the word's own signature.
 const FLOATING_ORDER: u32 = u32::MAX;
 
@@ -1320,7 +1320,7 @@ const FLOATING_ORDER: u32 = u32::MAX;
 // RHS execution (synthesis) — shared by affix and compounding.
 // =================================================================================================
 
-/// Resolve a [`PartRef`] to the matched source (segments + node map + captured range + origin tag).
+/// Resolve a `PartRef` to the matched source (segments + node map + captured range + origin tag).
 struct PartSource<'a> {
     node_of: &'a [usize],
     shape: &'a Shape,
@@ -1515,7 +1515,7 @@ fn ana_syn_fs(
 // those via the always-group-unaware `CompoundMprFeaturesMatch`, i.e. `MprSet::compound_match`.
 
 /// C# `HashSet<AllomorphEnvironment>.SetEquals` — environment lists compared as sets (shared by
-/// [`constraints_equal`] and `crate::validity`'s root-allomorph `ConstraintsEqual` port).
+/// `constraints_equal` and `crate::validity`'s root-allomorph `ConstraintsEqual` port).
 pub(crate) fn env_set_equal(
     a: &[pg_grammar::model::EnvironmentDef],
     b: &[pg_grammar::model::EnvironmentDef],
@@ -1572,7 +1572,7 @@ fn free_fluctuates_with(g: &Grammar, cur: &AffixAllomorphDef, next: &AffixAllomo
 /// P11: `word.root_allomorph == Some(AllomorphId::GUESSED)` (a fabricated root, §4.4) has no
 /// `allomorph_owners` row; not exercised by any oracle-verified fixture today (no
 /// `requiredStemName`-declaring rule combines with the guesser yet), but guarded the same way as
-/// [`check_blocking`] for consistency and defense-in-depth — a guessed root's own stem name would
+/// `check_blocking` for consistency and defense-in-depth — a guessed root's own stem name would
 /// need explicit delegation to its pattern (as `pg_rules::validity`'s sentinel branch already does
 /// for the FINAL validity check), which this synthesis-time rule-application gate does not
 /// attempt; `None` (no stem name) is the safe, conservative answer.
@@ -1698,7 +1698,7 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
     output
 }
 
-/// [`crate::cache::RuleCache`]-aware sibling of [`synth_affix`], used by the real per-word pipeline.
+/// `crate::cache::RuleCache`-aware sibling of `synth_affix`, used by the real per-word pipeline.
 /// P12 chunk 4: `mrid`/`trace`/`parent` close gap #1 (dead-end nodes with no `Failed` sibling) --
 /// every early return now reports the matching `FailureReason` via `MorphologicalRuleNotApplied`
 /// (`subrule_index = -1` for the four rule-level gates before the loop, matching C#'s `-1` at
@@ -1870,13 +1870,13 @@ fn realizational_is_blocked(real_fs: &FeatureStruct, syn_fs: &FeatureStruct) -> 
 ///    `input.SyntacticFeatureStruct` (the word's syn FS *before* this rule's own unify below).
 /// 3. `RequiredSyntacticFeatureStruct.Unify(input.SyntacticFeatureStruct, true, out syntacticFS)`
 ///    then, per successful allomorph, `sfs.PriorityUnion(_rule.RealizationalFeatureStruct)`
-///    (cs:62-76,127-129) — exactly [`synth_syn_fs`]'s `unify-then-priority_union` shape with
+///    (cs:62-76,127-129) — exactly `synth_syn_fs`'s `unify-then-priority_union` shape with
 ///    `real_fs` standing in for the regular path's `out_syn_fs`, so it is reused verbatim.
 ///
 /// No `MaxApplicationCount`/`IsPartial`/`IsLastAppliedRuleFinal`/`ObligatorySyntacticFeatures`
-/// gates exist on this class (see [`RealizationalRuleDef`]'s doc) — the per-allomorph loop itself
+/// gates exist on this class (see `RealizationalRuleDef`'s doc) — the per-allomorph loop itself
 /// (MPR gating, disjunctive-break condition, `appliedAllomorphIndices`) is otherwise identical to
-/// [`synth_affix`], via the shared [`synth_process_allomorph`].
+/// `synth_affix`, via the shared `synth_process_allomorph`.
 fn synth_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) -> Vec<Word> {
     let real_fs = g.fs_interner.get(rule.real_fs);
     if !pg_featstruct::subsumes(real_fs, &word.real_fs) {
@@ -1934,7 +1934,7 @@ fn synth_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) ->
     output
 }
 
-/// [`crate::cache::RuleCache`]-aware sibling of [`synth_realizational`]. P12 chunk 4: the first two
+/// `crate::cache::RuleCache`-aware sibling of `synth_realizational`. P12 chunk 4: the first two
 /// gates (`real_fs` subsumption, `IsBlocked`) stay UNTRACED — verified against
 /// `SynthesisRealizationalAffixProcessRule.cs:42-56`, C# itself fires no `TraceManager` call at
 /// either site (a bare `return Enumerable.Empty<Word>()`), so tracing them would fabricate an event
@@ -2051,7 +2051,7 @@ fn redup_part_ref(action: &OutputAction) -> Option<u16> {
 
 /// Tier-2 #8 (reduplication morph attribution): C#'s `_nonAllomorphActions`
 /// (`SynthesisAffixProcessAllomorphRuleSpec.cs:23-120`). Ported verbatim (the `PartName` string
-/// comparisons become `PartRef::Input` index comparisons, per [`redup_part_ref`]'s doc). Returns,
+/// comparisons become `PartRef::Input` index comparisons, per `redup_part_ref`'s doc). Returns,
 /// for every RHS index that is part of a "true" reduplication group (some `Input` part referenced
 /// ≥2 times by Copy/Modify actions), whether that occurrence is the *existing* echo of the input
 /// morph (`true`, C#'s `_nonAllomorphActions.Contains == true`) or genuinely new affix material
@@ -2157,7 +2157,7 @@ fn classify_redup(
 /// per-allomorph `PatternRule` from, so the pattern-match-then-emit mechanics are identical; only
 /// the handful of **rule-level** bookkeeping fields differ, which is why this takes them
 /// individually instead of a `&AffixProcessRuleDef`:
-/// - `morpheme` tags the [`MorphRecord`] `attribute_morphs` mints (both rule kinds have one).
+/// - `morpheme` tags the `MorphRecord` `attribute_morphs` mints (both rule kinds have one).
 /// - `obligatory` is `&[]` for realizational (C# `RealizationalAffixProcessRule` never touches
 ///   `Word.ObligatorySyntacticFeatures` — no such field on that class at all).
 /// - `partial` is `None` for realizational: C#'s `SynthesisRealizationalAffixProcessRule.Apply`
@@ -2587,7 +2587,7 @@ fn untruncate(g: &Grammar, table: TableId, out: &mut Vec<OutNode>, part: &Patter
 /// Build the analysis LHS + its compiled FST for one affix allomorph (C# `AnalysisMorphologicalTransform`
 /// applied to `allo.rhs`). Pure function of `allo` (grammar-static) — factored out so
 /// `crate::cache::RuleCache::build` can call it once per [`AllomorphId`](pg_grammar::model::AllomorphId)
-/// instead of leaving it to be recompiled on every application (the uncached [`ana_affix`] still calls
+/// instead of leaving it to be recompiled on every application (the uncached `ana_affix` still calls
 /// this itself, once per call, for the standalone-fixture test callers that have no grammar-resident
 /// index to cache against).
 pub(crate) fn build_ana_affix_lhs(
@@ -2627,7 +2627,7 @@ fn ana_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word> 
     output
 }
 
-/// [`crate::cache::RuleCache`]-aware sibling of [`ana_affix`].
+/// `crate::cache::RuleCache`-aware sibling of `ana_affix`.
 fn ana_affix_cached(
     g: &Grammar,
     word: &Word,
@@ -2694,8 +2694,8 @@ fn ana_affix_allomorph(
 /// C# `AnalysisRealizationalAffixProcessRule.Apply` (cs:41-80): one rule-level gate —
 /// `RealizationalFeatureStruct.Unify(input.RealizationalFeatureStruct, out realFS)` — then every
 /// allomorph's matches all get the SAME unified `realFS` written onto `real_fs` (cs:56). No
-/// `MaxApplicationCount`/syntactic-FS gate exists on this class (contrast [`ana_affix`]'s
-/// [`ana_syn_fs`] — see [`RealizationalRuleDef`]'s doc for the full field-by-field diff).
+/// `MaxApplicationCount`/syntactic-FS gate exists on this class (contrast `ana_affix`'s
+/// `ana_syn_fs` — see `RealizationalRuleDef`'s doc for the full field-by-field diff).
 fn ana_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) -> Vec<Word> {
     let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
         return Vec::new();
@@ -2715,7 +2715,7 @@ fn ana_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) -> V
     output
 }
 
-/// [`crate::cache::RuleCache`]-aware sibling of [`ana_realizational`].
+/// `crate::cache::RuleCache`-aware sibling of `ana_realizational`.
 fn ana_realizational_cached(
     g: &Grammar,
     word: &Word,
@@ -2740,7 +2740,7 @@ fn ana_realizational_cached(
 }
 
 /// One realizational allomorph's analysis-side match + `GenerateShape` + per-allomorph dedup.
-/// Unlike [`ana_affix_allomorph`], the syntactic FS is left completely untouched — C#'s
+/// Unlike `ana_affix_allomorph`, the syntactic FS is left completely untouched — C#'s
 /// `AnalysisRealizationalAffixProcessRule.Apply` never assigns `outWord.SyntacticFeatureStruct` at
 /// all (only `RealizationalFeatureStruct`, cs:56), so `word.clone()`'s syn FS (identical to the
 /// matched span's, since the pattern spec never touches it either) passes through verbatim.
@@ -2872,7 +2872,7 @@ fn push_remove_duplicates_inner(out: &mut Vec<Word>, w: Word) {
 ///    and longer-wins-collapsed genuinely distinct analyses. `StrRep` compares as a value **set**
 ///    (`StringFeatureValue.ValueEquals`, `SM/FeatureModel/StringFeatureValue.cs:219-224`, uses
 ///    `SetEquals`), and a `SegmentNaturalClass`-inserted node carries the member-FS **union**
-///    (`SegmentNaturalClass.cs:16-26`) — hence [`effective_cd_sets_eq`]'s set semantics, including
+///    (`SegmentNaturalClass.cs:16-26`) — hence `effective_cd_sets_eq`'s set semantics, including
 ///    `Singleton(x) == Members({x})` (a one-member class's unioned `StrRep` is byte-identical to
 ///    the member's own).
 ///
@@ -2905,8 +2905,8 @@ fn shape_duplicates(a: &Shape, b: &Shape) -> bool {
         })
 }
 
-/// Set-equality over [`EffectiveCdSet`] — the `StrRep` value-set comparison of
-/// [`shape_duplicates`]'s dimension 2. `Unrestricted` (a node whose producer recorded no
+/// Set-equality over `EffectiveCdSet` — the `StrRep` value-set comparison of
+/// `shape_duplicates`'s dimension 2. `Unrestricted` (a node whose producer recorded no
 /// restriction) only equals `Unrestricted`: in C# terms, a node whose FS carries `StrRep` and one
 /// whose FS does not are different `FeatureStruct`s.
 fn effective_cd_sets_eq(a: EffectiveCdSet, b: EffectiveCdSet) -> bool {
@@ -2988,7 +2988,7 @@ fn synth_compound(g: &Grammar, word: &Word, rule: &CompoundingRuleDef) -> Vec<Wo
     output
 }
 
-/// [`crate::cache::RuleCache`]-aware sibling of [`synth_compound`]. P12 chunk 4: gate order here
+/// `crate::cache::RuleCache`-aware sibling of `synth_compound`. P12 chunk 4: gate order here
 /// differs slightly from `SynthesisCompoundingRule.cs`'s exact sequence (C#: MaxApplicationCount →
 /// NonPartialRuleProhibitedAfterFinalTemplate → NonHeadRequiredSyntacticFeatureStruct →
 /// HeadRequiredSyntacticFeatureStruct → HeadProdRestrictMprFeatures; this port has no
@@ -3240,7 +3240,7 @@ fn ana_compound_parts(sr: &CompoundingSubruleDef) -> Vec<(String, &Pattern)> {
 /// Build the analysis LHS + its compiled FST for one compounding subrule. Pure function of `sr`
 /// (grammar-static) — factored out so `crate::cache::RuleCache::build` can call it once per
 /// (rule, subrule) pair instead of leaving it to be recompiled on every application. Mirrors
-/// [`build_ana_affix_lhs`]'s role for affix-process allomorphs.
+/// `build_ana_affix_lhs`'s role for affix-process allomorphs.
 fn build_ana_compound_lhs(
     g: &Grammar,
     table: TableId,
@@ -3293,7 +3293,7 @@ fn ana_compound(
     output
 }
 
-/// [`crate::cache::RuleCache`]-aware sibling of [`ana_compound`].
+/// `crate::cache::RuleCache`-aware sibling of `ana_compound`.
 fn ana_compound_cached(
     g: &Grammar,
     word: &Word,
@@ -3510,7 +3510,7 @@ fn resolve_non_head_roots(
     out
 }
 
-/// [`push_remove_duplicates`] extended to the (head, non-head) shape pair a compounding analysis
+/// `push_remove_duplicates` extended to the (head, non-head) shape pair a compounding analysis
 /// candidate carries, for the lexicon-free (`root_filter = None`) path — `pg-rules`'s own tests that
 /// call `ana_compound`/`analyze` directly, unfiltered. "Longer" is judged on the head shape alone,
 /// exactly mirroring C#'s `outWord.Shape.Count` (the head word's own shape, not the non-head's).
@@ -3530,13 +3530,13 @@ fn push_remove_duplicates_compound(out: &mut Vec<Word>, w: Word) {
     out.push(w);
 }
 
-/// (Plan Tier-2 #7) The root-allomorph-pinned sibling of [`push_remove_duplicates_compound`], used
+/// (Plan Tier-2 #7) The root-allomorph-pinned sibling of `push_remove_duplicates_compound`, used
 /// once the non-head has been resolved: C#'s duplicate key is `outWord.Shape.Duplicates(...) && allo
 /// == srOutput[j].CurrentNonHead.RootAllomorph` (AnalysisCompoundingRule.cs:104-107) — the HEAD
 /// shape (optional-blind `Duplicates`) plus the *same pinned allomorph id*, not the non-head shape
 /// (which is now the resolved root's own canonical shape, so two candidates pinned to the same
 /// allomorph already have identical non-head shapes by construction). "Longer" is judged on the head
-/// shape alone (`outWord.Shape.Count`, cs:109), matching [`push_remove_duplicates_compound`].
+/// shape alone (`outWord.Shape.Count`, cs:109), matching `push_remove_duplicates_compound`.
 fn push_remove_duplicates_compound_pinned(out: &mut Vec<Word>, w: Word) {
     let allo = w.current_non_head().and_then(|nh| nh.root_allomorph);
     if let Some(existing) = out.iter_mut().find(|o| {
@@ -3556,9 +3556,9 @@ fn push_remove_duplicates_compound_pinned(out: &mut Vec<Word>, w: Word) {
 // =================================================================================================
 
 /// One compounding subrule's precompiled matchers. `synth_head`/`synth_non_head` are
-/// [`compile_parts`]' output for `sr.head_lhs`/`sr.non_head_lhs` (used by
-/// [`synth_compound_subrule`]); `ana` is [`build_ana_compound_lhs`]'s output (used by
-/// [`ana_compound_subrule`]). `None` iff the underlying pattern failed to compile (a loader
+/// `compile_parts`' output for `sr.head_lhs`/`sr.non_head_lhs` (used by
+/// `synth_compound_subrule`); `ana` is `build_ana_compound_lhs`'s output (used by
+/// `ana_compound_subrule`). `None` iff the underlying pattern failed to compile (a loader
 /// invariant violation in practice) — the runtime functions already treat a compile failure as "this
 /// subrule cannot apply," so a cached `None` reproduces that exactly.
 pub(crate) struct CompoundSubruleCache {
@@ -3567,13 +3567,13 @@ pub(crate) struct CompoundSubruleCache {
     pub(crate) ana: Option<(Fst, AnalysisLhs)>,
 }
 
-/// One compounding rule's precompiled matchers, one [`CompoundSubruleCache`] per subrule.
+/// One compounding rule's precompiled matchers, one `CompoundSubruleCache` per subrule.
 pub(crate) struct CompoundCache {
     pub(crate) subrules: Vec<CompoundSubruleCache>,
 }
 
 /// Build the compile-once cache for one compounding rule (`crate::cache::RuleCache::build` calls
-/// this once per `g.mrules` entry that is a [`CompoundingRuleDef`]). `table` is the rule's own
+/// this once per `g.mrules` entry that is a `CompoundingRuleDef`). `table` is the rule's own
 /// owning table, resolved once by the caller (`crate::cache::owning_table_for_mrule`) -- see this
 /// module's top-of-file note.
 pub(crate) fn build_compound_cache(
@@ -3593,11 +3593,11 @@ pub(crate) fn build_compound_cache(
     CompoundCache { subrules }
 }
 
-/// One allomorph's precompiled matchers (`crate::cache::RuleCache`'s per-[`AllomorphId`]
+/// One allomorph's precompiled matchers (`crate::cache::RuleCache`'s per-`AllomorphId`
 /// (pg_grammar::model::AllomorphId) slice; root allomorphs never populate these — only
-/// `AffixAllomorphDef`s have an `lhs`/`rhs` to compile). `synth_lhs` is [`compile_parts`]'s output
-/// for `allo.lhs` (used by `synth_affix_allomorph`); `ana_lhs` is [`build_ana_affix_lhs`]'s output
-/// (used by [`ana_affix_allomorph`]).
+/// `AffixAllomorphDef`s have an `lhs`/`rhs` to compile). `synth_lhs` is `compile_parts`'s output
+/// for `allo.lhs` (used by `synth_affix_allomorph`); `ana_lhs` is `build_ana_affix_lhs`'s output
+/// (used by `ana_affix_allomorph`).
 pub(crate) struct AllomorphLhsCache {
     pub(crate) synth_lhs: Option<(Fst, Vec<String>)>,
     pub(crate) ana_lhs: Option<(Fst, AnalysisLhs)>,

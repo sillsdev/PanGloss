@@ -6,13 +6,13 @@
 //! implementation also calls for).
 //!
 //! ## Model shape (deliberate divergence from an authored-`Group`-kind design)
-//! [`pg_grammar::model::MetathesisRuleDef`] carries ONE compiled pattern (no separate LHS/RHS split,
+//! `pg_grammar::model::MetathesisRuleDef` carries ONE compiled pattern (no separate LHS/RHS split,
 //! no environments — C#'s `IPhonologicalPatternSubruleSpec.LeftEnvironmentMatcher`/
 //! `RightEnvironmentMatcher` are hardcoded `null` for both Analysis/SynthesisMetathesisRuleSpec) plus
 //! two switch positions (`left_switch`/`right_switch`, indices into `pattern.nodes`). An authored
 //! `PatternNode::Group` kind (+ a `CompileNode::Group` case in `pg_rules::bridge::PatternBridge`)
 //! could represent a switch, but this port does that lowering **post-hoc**
-//! instead ([`compile_switch_pattern`]): compile the plain pattern via `PatternBridge` as usual, then
+//! instead (`compile_switch_pattern`): compile the plain pattern via `PatternBridge` as usual, then
 //! wrap the two switch positions' already-compiled nodes in a named `pg_fst::CompileNode::Group` and
 //! recover their matched spans via `Fst::get_offsets` after a match — exactly the technique
 //! `pg_rules::rewrite::compile_env_impl` already uses to recover alpha-variable positions, and the
@@ -31,12 +31,12 @@
 //! which clones every node as-is, only pinning `Modified=Clean` on the two switch nodes), matched
 //! with `rule.dir` over `Segment+Boundary+Anchor` (C# `SynthesisMetathesisRule`'s
 //! `MatcherSettings.Filter`), deterministic (C# never sets `Nondeterministic` here). On a match,
-//! [`synthesis_reorder`] physically swaps the two switch ranges (see its doc for the exact
+//! `synthesis_reorder` physically swaps the two switch ranges (see its doc for the exact
 //! node-identity algorithm — a faithful, not shortcut, port of `MoveNodesAfter`); a node strictly
 //! between them keeps its slot untouched.
 //!
 //! ## Analysis (reverse, feature union)
-//! Pattern REBUILT ([`build_analysis_pattern`]), physical-position-driven (see that function's own
+//! Pattern REBUILT (`build_analysis_pattern`), physical-position-driven (see that function's own
 //! doc for two fixes vs. an earlier revision, both discovered building `pg_foma`'s FST-metathesis
 //! containment suite, `pg_foma::tests::phase_c_metathesis`):
 //! 1. **Switch order**: C#'s own `AnalysisMetathesisRuleSpec` ctor (`AnalysisMetathesisRuleSpec.
@@ -69,7 +69,7 @@
 //!    them keeps its slot untouched") and letting analysis actually confirm it.
 //!
 //! Matched with `reverse(rule.dir)` over `Segment+Anchor` only (no boundaries), nondeterministic (C#:
-//! shape nodes can be underspecified during analysis). On a match, [`ana_union`] bitwise-ORs the two
+//! shape nodes can be underspecified during analysis). On a match, `ana_union` bitwise-ORs the two
 //! matched nodes' lanes onto each other (see its doc for why this equals C#'s `FeatureStruct.Union`
 //! under this port's dense-lane representation) and resets both nodes' `char_def` identity to
 //! `NO_CHAR_DEF` (mirroring `pg_rules::rewrite::syn_feature`'s identical, already-documented choice
@@ -77,7 +77,7 @@
 //! identity node" reason).
 //!
 //! ## MPR/POS immunity
-//! No subrule-level gating exists at all (see [`pg_grammar::model::MetathesisRuleDef`]'s doc) — every
+//! No subrule-level gating exists at all (see `pg_grammar::model::MetathesisRuleDef`'s doc) — every
 //! `synthesize`/`analyze` call here always considers the rule applicable. Deliberately **not** pinned
 //! by a dedicated test: the DTD's `<MetathesisRule>` has no `requiredMPRFeatures`/`excludedMPRFeatures`/
 //! `requiredPartsOfSpeech` attribute at all, so there is no grammar any test could author that would
@@ -106,7 +106,7 @@ const RIGHT_GROUP: &str = "R";
 // Pattern compilation.
 // =================================================================================================
 
-/// A compiled metathesis pattern plus the *traversal*-relative anchor flags [`match_candidates`]
+/// A compiled metathesis pattern plus the *traversal*-relative anchor flags `match_candidates`
 /// must pass to `Transduce::anchored` (see this function's doc for why these are not simply
 /// `anchor_start`/`anchor_end` as `PatternBridge` reports them).
 struct CompiledSwitchPattern {
@@ -117,8 +117,8 @@ struct CompiledSwitchPattern {
 
 /// Compile `pattern` (anchors included; they lift to flags per `PatternBridge::compile_pattern`'s
 /// convention), wrapping the compiled nodes at `left_idx`/`right_idx` (indices into the *compiled*,
-/// anchor-excluded node sequence — see [`compiled_index`]) in named capture groups so
-/// [`match_candidates`] can recover their matched spans after a match, mirroring
+/// anchor-excluded node sequence — see `compiled_index`) in named capture groups so
+/// `match_candidates` can recover their matched spans after a match, mirroring
 /// `pg_rules::rewrite::compile_env_impl`'s identical `CompileNode::Group` post-processing for
 /// alpha-variable position recovery.
 ///
@@ -218,7 +218,7 @@ fn non_anchor_count(nodes: &[PatternNode]) -> usize {
 /// but disagrees for the "reversed" tag convention `pg_grammar_gen`'s own recipe exercises).
 ///
 /// Any node strictly between the two original switch positions is preserved, in its own slot,
-/// between the two (now reordered) switch nodes — UNLESS [`is_boundary_node`] reports it resolves to
+/// between the two (now reordered) switch nodes — UNLESS `is_boundary_node` reports it resolves to
 /// a `CharDefKind::Boundary`, in which case it is dropped (a boundary never appears in the analysis
 /// match sequence regardless of pattern shape, so requiring one here could never be satisfied; see
 /// this module's doc for why C#'s own unconditional drop never surfaced this as a problem).
@@ -253,7 +253,7 @@ fn build_analysis_pattern(
 /// `CharDefKind::Boundary` char def — a `Context` node's `SimpleContext` always names a segment
 /// natural class, per this crate's own `PatternNode::Context` doc; `pg_grammar::chardef`'s own
 /// "AddBoundary always passes `fs: null`" provenance note is why boundaries never carry a natural-
-/// class feature constraint). Used by [`build_analysis_pattern`] to decide whether a middle node
+/// class feature constraint). Used by `build_analysis_pattern` to decide whether a middle node
 /// between the two switches must be dropped (a boundary, transparent to analysis matching either
 /// way) or preserved (a real segment, required for a faithful round-trip with `synthesis_reorder`).
 fn is_boundary_node(g: &Grammar, table: TableId, node: &PatternNode) -> bool {
@@ -270,7 +270,7 @@ fn is_boundary_node(g: &Grammar, table: TableId, node: &PatternNode) -> bool {
 // =================================================================================================
 
 /// One accepted candidate: the two switch groups' matched (start,end) ranges in *segment-index*
-/// space (`ms.segs(...)`'s output space, not `ms.nodes` space — see [`seg_range_to_nodes`]).
+/// space (`ms.segs(...)`'s output space, not `ms.nodes` space — see `seg_range_to_nodes`).
 struct Candidate {
     entire: (usize, usize),
     left: (usize, usize),
@@ -566,7 +566,7 @@ pub fn synthesize(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<S
     synthesize_with_pattern(&compiled, pattern_len, input, table)
 }
 
-/// `g` is needed only to resolve [`MetaCache::table_id`] into the actual [`CharDefTable`]
+/// `g` is needed only to resolve `MetaCache::table_id` into the actual `CharDefTable`
 /// `synthesis_reorder`'s own per-node validity check reads (see its doc); every OTHER input here is
 /// already fully precompiled. Every production call site (`crate::stratum::StratumAnalyzer`) already
 /// holds `self.g`, so this is a cheap, already-in-scope reference, not a new lookup.
@@ -634,7 +634,7 @@ fn synthesize_with_pattern(
 // row's fan-out list) -- there is no gate to decompose the way rewrite's subrules have.
 // =================================================================================================
 
-/// [`synthesize`]'s traced sibling — standalone (recompiles every call, like [`synthesize`] itself).
+/// `synthesize`'s traced sibling — standalone (recompiles every call, like `synthesize` itself).
 /// `pid` is a nominal trace-tree identity for fixtures with no grammar-resident prule table (mirrors
 /// `pg_rules::rewrite::synthesize_with_mpr_traced`'s convention).
 pub fn synthesize_traced(
@@ -652,7 +652,7 @@ pub fn synthesize_traced(
     result
 }
 
-/// The [`MetaCache`]-aware sibling of [`synthesize_traced`] — the real per-word pipeline's traced
+/// The `MetaCache`-aware sibling of `synthesize_traced` — the real per-word pipeline's traced
 /// entry point (`crate::stratum::synthesize_stratum_traced`'s trailing prule application, the
 /// `PhonRuleDef::Metathesis` arm). Takes the real `&Word` so the trace snapshot carries the word's
 /// actual full state and `node_parent` can fall back to `input.trace`, exactly like
@@ -690,7 +690,7 @@ pub(crate) fn synthesize_cached_traced(
 }
 
 /// Shared readout for the two synthesis-traced functions above: `result` is what the untraced
-/// [`synthesize`]/[`synthesize_cached`] already returned -- empty means `NotApplied(Pattern)` (using
+/// `synthesize`/`synthesize_cached` already returned -- empty means `NotApplied(Pattern)` (using
 /// the original `input`), non-empty means `Applied` (using the rewritten shape).
 fn report_metathesis_synth(
     trace: &dyn TraceSink,
@@ -789,13 +789,13 @@ fn analyze_with_pattern(
 // origInput, input)` on success, `PhonologicalRuleNotUnapplied(_rule, -1, input)` on failure
 // (cs:49-55). Not yet wired into the live per-word pipeline for the same reason
 // `pg_rules::rewrite::analyze_cached_traced` isn't: `crate::stratum::StratumAnalyzer::analyze`
-// (the sole caller of [`analyze`]/[`analyze_cached`] today) is itself untraced -- a pre-existing,
+// (the sole caller of `analyze`/`analyze_cached` today) is itself untraced -- a pre-existing,
 // separately-documented P12 gap (see that function's doc). Built and unit-tested now so the
 // mechanism exists; a future pass that traces `StratumAnalyzer::analyze` calls these instead of
-// [`analyze`]/[`analyze_cached`].
+// `analyze`/`analyze_cached`.
 // =================================================================================================
 
-/// [`analyze`]'s traced sibling — standalone (recompiles every call). `pid` is a nominal trace-tree
+/// `analyze`'s traced sibling — standalone (recompiles every call). `pid` is a nominal trace-tree
 /// identity, matching every other standalone `_traced` function's convention in this crate.
 pub fn analyze_traced(
     g: &Grammar,
@@ -812,7 +812,7 @@ pub fn analyze_traced(
     result
 }
 
-/// The [`MetaCache`]-aware sibling of [`analyze_traced`]. Not yet called from live code (see this
+/// The `MetaCache`-aware sibling of `analyze_traced`. Not yet called from live code (see this
 /// section's doc: the analysis-side stratum caller is itself untraced) — `MetaCache`'s own
 /// `pub(crate)` visibility rules out the "export it `pub`" dodge `pg_rules::rewrite::
 /// analyze_cached_traced` uses for the identical situation, so `dead_code` is silenced explicitly
@@ -864,13 +864,13 @@ pub(crate) struct MetaCache {
     syn: CompiledSwitchPattern,
     ana: CompiledSwitchPattern,
     /// `non_anchor_count` of the REBUILT analysis pattern's nodes -- cached here (rather than
-    /// recomputed by re-running [`build_analysis_pattern`] on every [`analyze_cached`] call, as an
-    /// earlier revision did) because that rebuild is now `&Grammar`-aware ([`is_boundary_node`]),
-    /// and `analyze_cached` itself has no `&Grammar` in scope (only [`build_meta_cache`] does).
+    /// recomputed by re-running `build_analysis_pattern` on every `analyze_cached` call, as an
+    /// earlier revision did) because that rebuild is now `&Grammar`-aware (`is_boundary_node`),
+    /// and `analyze_cached` itself has no `&Grammar` in scope (only `build_meta_cache` does).
     ana_pattern_len: usize,
     /// The rule's own owning table (already resolved once by `crate::cache::
     /// owning_table_for_prule`/[`RuleCache::build`](crate::cache::RuleCache::build), never a
-    /// guess) -- [`synthesize_cached`] resolves this back into the actual [`CharDefTable`]
+    /// guess) -- `synthesize_cached` resolves this back into the actual `CharDefTable`
     /// `synthesis_reorder`'s own per-node validity check reads (see that function's doc); stored as
     /// an id rather than a borrowed table reference to sidestep this cache's own lifetime (it
     /// outlives any one `&Grammar` borrow across `pg-parse::Morpher::new`'s construction).

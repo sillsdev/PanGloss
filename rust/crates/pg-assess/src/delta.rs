@@ -10,7 +10,7 @@
 //! subtracting them (`ParserReport.cs:418-442`). A word that produced two analyses before an edit
 //! and two entirely different analyses after diffs to zero — a silent "nothing changed" about a
 //! word whose every analysis was replaced. That is not a bug in their arithmetic; it is what
-//! storing counts instead of sets costs. [`compare`] joins deduplicated identity sets, so the same
+//! storing counts instead of sets costs. `compare` joins deduplicated identity sets, so the same
 //! case comes back `mixed` with both sides enumerated.
 //!
 //! ## Why `caseId` and not the surface form
@@ -92,7 +92,7 @@ pub enum NotComparableReason {
     /// Neither side ran.
     BothNotAttempted,
     /// One side finished and the other did not. Reported here rather than as
-    /// `completeness_changed` only when neither side is complete — see [`categorize`].
+    /// `completeness_changed` only when neither side is complete — see `categorize`.
     IncomparableOutcomes,
     /// Two unequal identities share a digest within one report. An integrity error, never a match.
     KeyCollision,

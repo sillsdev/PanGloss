@@ -2,7 +2,7 @@
 //! license class plus license identifier/text/reference and publisher metadata. Licensing is
 //! declaration and provenance only — it does not license or restrict FieldWorks analysis, and
 //! unknown namespaced declarations stay round-trippable. Nothing in this crate ever reads
-//! [`LicenseDeclaration`] to gate a read or an analysis — see `crate::format::read_pack`'s doc for
+//! `LicenseDeclaration` to gate a read or an analysis — see `crate::format::read_pack`'s doc for
 //! where that hard rule is enforced.
 
 use serde::{Deserialize, Serialize};

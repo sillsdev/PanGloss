@@ -1,7 +1,7 @@
 //! The compile-time cardinality gate for
 //! `MorphRuleOrder::Unordered` (`pg-grammar/src/model.rs:1057-1060`; `StratumDef.mrule_order`,
 //! `1067`) -- the second real production consumer of
-//! [`crate::compose_budget::ComposeBudget`]'s chain-depth-shaped budget discipline, after
+//! `crate::compose_budget::ComposeBudget`'s chain-depth-shaped budget discipline, after
 //! `crate::peel::ReduplicationPeeler`'s own per-word chain-depth check
 //! (`crate::compose_budget`'s "Chain-depth dimension" section doc).
 //!
@@ -50,12 +50,12 @@
 //! `depth = rules.len().max(DERIV_DEPTH_MIN)`) -- so an `Unordered` stratum's own loose-rule count
 //! is EXACTLY the quantity whose growth predicts this construction's compiled-network cost (each
 //! extra level offers every rule again: `O(rule_count)` extra levels x `O(rule_count)` per-level
-//! arcs). [`check_unordered_strata_bound`] is the compile-time gate `crate::analyzer::
+//! arcs). `check_unordered_strata_bound` is the compile-time gate `crate::analyzer::
 //! FomaProposer::new_with_budget` calls, once per grammar, BEFORE handing any lexc source to the
 //! foma compiler: `unordered-application.chain-depth-bounded` (within
-//! [`crate::compose_budget::ComposeBudget::ordering_multiplicity_cap`]) proceeds unchanged;
+//! `crate::compose_budget::ComposeBudget::ordering_multiplicity_cap`) proceeds unchanged;
 //! `unordered-application.unbounded` (exceeding it) is refused with a typed
-//! [`crate::compose_budget::ComposeError::OrderingMultiplicityExceeded`] -- an honest, deterministic
+//! `crate::compose_budget::ComposeError::OrderingMultiplicityExceeded` -- an honest, deterministic
 //! refusal, never a silent truncation and never an attempt to actually build the (potentially very
 //! large, though NOT exponential by construction -- see this module's doc above) network.
 //!
@@ -84,12 +84,12 @@ use pg_grammar::model::{Grammar, MorphRuleOrder, StratumId};
 
 use crate::compose_budget::{ComposeBudget, ComposeError};
 
-/// [`crate::compose_budget::ComposeError`]'s `site` label for every check this module makes.
+/// `crate::compose_budget::ComposeError`'s `site` label for every check this module makes.
 const ORDERING_MULTIPLICITY_SITE: &str = "unordered::check_unordered_strata_bound";
 
 /// One `Unordered` stratum's own cardinality facts (the chain-depth-bounded cardinality
-/// check) -- shared by [`check_unordered_strata_bound`] (the compile-time gate) and
-/// `crate::capability`'s [`crate::capability::UnorderedStratumDetail`] (the STATIC characterization,
+/// check) -- shared by `check_unordered_strata_bound` (the compile-time gate) and
+/// `crate::capability`'s `crate::capability::UnorderedStratumDetail` (the STATIC characterization,
 /// computed independently over the same `rule_count`/`within_bound` facts so the declared capability
 /// verdict and the real compile-time refusal can never silently drift apart).
 #[derive(Debug, Clone, Copy)]
@@ -99,16 +99,16 @@ pub(crate) struct UnorderedStratumMetrics {
     pub within_bound: bool,
 }
 
-/// One stratum's own [`UnorderedStratumMetrics`], computed against
-/// [`crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`] directly (not a live
-/// [`ComposeBudget`] instance) -- `crate::capability::characterize` is a pure, `Grammar`-only
+/// One stratum's own `UnorderedStratumMetrics`, computed against
+/// `crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET` directly (not a live
+/// `ComposeBudget` instance) -- `crate::capability::characterize` is a pure, `Grammar`-only
 /// static projection with no `ComposeBudget` in scope anywhere else in that module,
 /// so `crate::capability::UnorderedStratumDetail` is built directly from THIS function's own
 /// result (not a re-derived copy of its formula), sharing the SAME calibrated constant
-/// [`check_unordered_strata_bound`]'s own production-default [`ComposeBudget::from_env`]
-/// configures. Called for EVERY stratum by [`crate::capability::characterize`]'s own per-stratum
+/// `check_unordered_strata_bound`'s own production-default `ComposeBudget::from_env`
+/// configures. Called for EVERY stratum by `crate::capability::characterize`'s own per-stratum
 /// walk, not just `Unordered` ones -- callers that only want `Unordered` strata should filter on
-/// [`unordered_stratum_metrics`] instead.
+/// `unordered_stratum_metrics` instead.
 pub(crate) fn stratum_metrics(
     stratum: StratumId,
     sd: &pg_grammar::model::StratumDef,
@@ -121,9 +121,9 @@ pub(crate) fn stratum_metrics(
     }
 }
 
-/// Every `Unordered` stratum's own [`UnorderedStratumMetrics`] ([`stratum_metrics`], filtered to
+/// Every `Unordered` stratum's own `UnorderedStratumMetrics` (`stratum_metrics`, filtered to
 /// `MorphRuleOrder::Unordered` strata only) -- this module's own tests use this directly; production
-/// code goes through [`check_unordered_strata_bound`]. `#[allow(dead_code)]`: only this module's
+/// code goes through `check_unordered_strata_bound`. `#[allow(dead_code)]`: only this module's
 /// `#[cfg(test)]` tests call it (a plain `--lib` build never does), mirroring
 /// `crate::compose_budget::ComposeBudget::chain_depth_cap`'s own convention for a test-only reader.
 #[allow(dead_code)]
@@ -137,12 +137,12 @@ pub(crate) fn unordered_stratum_metrics(g: &Grammar) -> Vec<UnorderedStratumMetr
 }
 
 /// The compile-time gate (module doc): `Err` iff SOME `Unordered` stratum's own loose-rule count
-/// exceeds `budget`'s [`ComposeBudget::ordering_multiplicity_cap`] -- checked against every
+/// exceeds `budget`'s `ComposeBudget::ordering_multiplicity_cap` -- checked against every
 /// `Unordered` stratum independently (two strata receive independent capability
 /// verdicts, and neither is inferred from the other), returning the FIRST breach found
 /// (document stratum order) rather than collecting every one -- mirrors
 /// `crate::morphotactics::EnumerationBudget`'s own "fail fast, do not keep computing once tripped"
-/// discipline; a caller that wants every breach can call [`unordered_stratum_metrics`] directly.
+/// discipline; a caller that wants every breach can call `unordered_stratum_metrics` directly.
 pub(crate) fn check_unordered_strata_bound(
     g: &Grammar,
     budget: &ComposeBudget,
@@ -253,8 +253,8 @@ mod tests {
     }
 
     /// `check_unordered_strata_bound` against an EXPLICIT (test-only) budget cap, independent of
-    /// [`UnorderedStratumMetrics::within_bound`]'s own crate-wide
-    /// [`crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`] -- a 7-rule stratum is well
+    /// `UnorderedStratumMetrics::within_bound`'s own crate-wide
+    /// `crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET` -- a 7-rule stratum is well
     /// within the production default (100, calibrated against this repo's own real reference/
     /// conformance corpus, `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`'s own doc), but must still trip a
     /// deliberately small EXPLICIT cap of 6 -- proving the gate genuinely reads the budget it is

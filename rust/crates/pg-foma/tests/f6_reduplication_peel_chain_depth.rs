@@ -9,8 +9,8 @@
 //! `machine/conformance/languages/suffixing-extension-slot-ordering`'s `mrRedup` (full-stem SUFFIX
 //! reduplication, `redupMorphType="suffix"`) is an existing, oracle-verified, in-repo conformance
 //! fixture whose own `words.yaml` comment documents "ReduplicationHint, zero coverage today" for
-//! the FST proposer -- `kimbiakimbia`, `KIMB+RED`. [`kimbiakimbia_reduplication_is_recovered_with_oracle_containment`]
-//! proves [`pg_foma::composite::FomaAnalyzer`] (propose UNION peel, confirmed against
+//! the FST proposer -- `kimbiakimbia`, `KIMB+RED`. `kimbiakimbia_reduplication_is_recovered_with_oracle_containment`
+//! proves `pg_foma::composite::FomaAnalyzer` (propose UNION peel, confirmed against
 //! `pg_parse::Morpher`) now recovers it, CONTAINMENT-checked against the very oracle that fixture's
 //! own ground truth was hand-derived from (never merely "non-empty" -- every FST-confirmed analysis
 //! must be one the oracle itself accepts for this word); empirically, for this specific
@@ -22,7 +22,7 @@
 //! `crate::peel::ReduplicationPeeler`'s own scan/recursion is independent of both, exactly like
 //! `crate::peel`'s own unit tests) exercises a genuinely self-similar word deep enough to need more
 //! nested reduplication layers than a small configured `ComposeBudget::chain_depth_cap` admits --
-//! [`deep_self_similar_chain_is_refused_deterministically`] proves the refusal is a typed,
+//! `deep_self_similar_chain_is_refused_deterministically` proves the refusal is a typed,
 //! deterministic `ComposeError::ChainDepthExceeded`, never a hang, a panic, or a silently-truncated
 //! candidate set. Synthetic/delanguaged ("Hard rule: synthetic data only") -- this fixture is
 //! authored purely in this file, named by the construct it stresses (self-similar chain depth),

@@ -1,7 +1,7 @@
 //! Hash-consing interner for frozen feature structures (plan §5.3, §6.2).
 //!
 //! Interning is what makes the memo key and every gating comparison an integer compare: two
-//! structurally-equal frozen FS values get the same [`crate::FsId`], so `ValueEquals` (deep
+//! structurally-equal frozen FS values get the same `crate::FsId`, so `ValueEquals` (deep
 //! structural equality, the cost center of the C# engine) is paid **once** at intern time and
 //! never again. Grammar-tier FS (syntactic/head/foot, arc constraints) are interned at load and
 //! frozen for the process; per-parse interners live in the parse arena and die with it (§6.2).

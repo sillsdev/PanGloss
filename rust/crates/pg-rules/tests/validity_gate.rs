@@ -4,12 +4,12 @@
 //! Two layers, mirroring this project's established style (`type_lane_gate.rs` drives the raw
 //! `PatternBridge`→`pg_fst` primitive; `cd_set_gate.rs`/`morph_gate.rs` drive real loaded grammars
 //! end-to-end):
-//! - [`environments_ok`] tests drive `pg_rules::validity::environments_ok` directly against a
+//! - `environments_ok` tests drive `pg_rules::validity::environments_ok` directly against a
 //!   hand-built `Shape`/`EnvironmentDef` (the probe grammar, phonology only) — the anchored
 //!   left/right matching primitive this fix reuses verbatim from `rewrite.rs`.
 //! - The XML-loaded tests build tiny real grammars (`pg_grammar::load`) with a lexicon and a
 //!   morphological rule, so `Grammar::allomorph_owners`/`entries`/`mrules` are populated the same
-//!   way a real grammar's are, then hand-build [`Word`]s (real `AllomorphId`/`MorphemeId` values
+//!   way a real grammar's are, then hand-build `Word`s (real `AllomorphId`/`MorphemeId` values
 //!   looked up from the loaded grammar, not arbitrary literals — the load-bearing correction over
 //!   `morph_gate.rs`'s style, which never registers its hand-built rules into a `Grammar`) and call
 //!   `pg_rules::validity::allomorphs_valid` directly, the same function `pg-parse::Morpher::

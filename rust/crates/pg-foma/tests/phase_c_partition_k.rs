@@ -3,7 +3,7 @@
 //!
 //! ## Why `pg_foma::gate::compile_gated_grammar_with_budget`, not a hand-assembled compose
 //! Unlike GATE 1/GATE 2 (which build their own net by hand from `uflexc`/`emit`), this gate calls
-//! the PRODUCTION gating entry point directly: [`pg_foma::gate::compile_gated_grammar_with_budget`]
+//! the PRODUCTION gating entry point directly: `pg_foma::gate::compile_gated_grammar_with_budget`
 //! already does everything (`find_gated_subrules` -> `partition_entries` -> per-group
 //! lexc+rules compile -> disjoint union) -- exactly the mechanism `pg_grammar_gen::build::gating`
 //! generalizes `pg-foma/src/gate.rs`'s own `sixteen_group_fixture_xml` test to exercise, generated
@@ -17,7 +17,7 @@
 //! predicate `crate::gate::entry_gate_key` also calls -- `pg-foma/src/gate.rs`'s own module doc),
 //! giving ground truth for which marker positions this specific entry's own gating key flips. The
 //! compose-recall check (`tests/common/gate_template.rs`) then verifies the `compile_gated_grammar`
-//! net relates that SAME surface string to the SAME root tag, in [`SegAlphabet`] token space
+//! net relates that SAME surface string to the SAME root tag, in `SegAlphabet` token space
 //! (mirrors `tests/phase_c_multi_table.rs`'s own technique).
 
 mod common;

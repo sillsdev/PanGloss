@@ -14,16 +14,16 @@
 //! caller enables it.
 //!
 //! ## MANDATORY safety bounds (hangs are documented repo history, not folklore)
-//! 1. Never `Morpher::new(g, usize::MAX)` -- a bounded step cap ([`OracleOpts::step_cap`],
+//! 1. Never `Morpher::new(g, usize::MAX)` -- a bounded step cap (`OracleOpts::step_cap`,
 //!    default 20,000, the same default the P6/Aweti investigation settled on after `usize::MAX`
 //!    hung >10 minutes on a real corpus word).
-//! 2. [`OracleOpts::word_timeout`] as the ORTHOGONAL wall-clock bound (`Morpher::
+//! 2. `OracleOpts::word_timeout` as the ORTHOGONAL wall-clock bound (`Morpher::
 //!    with_word_timeout`) -- the step cap alone under-bounds a bulk sweep because synthesis-side
 //!    `StepBudget` is per-(stratum, candidate), not cumulative across the whole sweep.
-//! 3. The sweep itself is bounded: [`OracleOpts::max_rules_per_root`] caps how many single-rule
+//! 3. The sweep itself is bounded: `OracleOpts::max_rules_per_root` caps how many single-rule
 //!    "other morphemes" combinations are tried per root (depth 1 -- bare root, plus each
 //!    individually-applicable rule once; a deeper combination would need this widened), and
-//!    [`OracleOpts::max_total_words`] caps the
+//!    `OracleOpts::max_total_words` caps the
 //!    deduplicated, deterministically-truncated (sorted, then take) total word list size.
 //!
 //! Existing recipes are sized so the oracle is cheap BY CONSTRUCTION -- these bounds are a safety
@@ -35,7 +35,7 @@ use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::morpher::GenMorpheme;
 use pg_parse::Morpher;
 
-/// Bounds for [`sweep`] (module doc's numbered list).
+/// Bounds for `sweep` (module doc's numbered list).
 #[derive(Debug, Clone, Copy)]
 pub struct OracleOpts {
     /// Bound 1: `Morpher::new`'s own step cap.
@@ -91,7 +91,7 @@ fn candidate_rules(g: &Grammar, opts: &OracleOpts) -> Vec<MRuleId> {
 /// (determinism), and truncate to `opts.max_total_words` (module doc bound 3b).
 ///
 /// `rules`, not auto-discovered from the whole grammar, is the caller's OWN candidate list
-/// (already capped by [`candidate_rules`] if the caller wants the "every `AffixProcess` rule"
+/// (already capped by `candidate_rules` if the caller wants the "every `AffixProcess` rule"
 /// default) -- callers that already know exactly which rule(s) their recipe cares about (GATE 2:
 /// its own circumfix rules) should pass those directly rather than re-deriving them.
 pub fn sweep(
@@ -132,7 +132,7 @@ pub fn sweep(
     out
 }
 
-/// [`sweep`], but with `rules` auto-discovered from the grammar (module doc's [`candidate_rules`])
+/// `sweep`, but with `rules` auto-discovered from the grammar (module doc's `candidate_rules`)
 /// rather than caller-supplied -- convenient for `tests/self_check.rs`'s generic per-builder
 /// round-trip, where the exact rule ids aren't already in hand.
 pub fn sweep_all_rules(g: &Grammar, roots: &[LexEntryId], opts: &OracleOpts) -> Vec<OracleWord> {

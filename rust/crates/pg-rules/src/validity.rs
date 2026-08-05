@@ -30,7 +30,7 @@
 //! W3.2 (plan #5d, history row `987be2fd`, formerly deferred): the **disjunctive-allomorph /
 //! free-fluctuation re-check** (`Allomorph.IsWordValid`'s second loop, Allomorph.cs:127-152) is now
 //! ported. Per morph occurrence, every "passed-over" disjunctive alternative — an earlier-indexed
-//! allomorph of the same morpheme recorded by synthesis ([`MorphRecord::passed_over`], C#'s
+//! allomorph of the same morpheme recorded by synthesis (`MorphRecord::passed_over`, C#'s
 //! `appliedAllomorphIndices` / `Word.GetDisjunctiveAllomorphApplications`), or ALL earlier-indexed
 //! allomorphs (`Enumerable.Range(0, Index)`) when nothing was recorded (root morphs) — REJECTS the
 //! word if it does not free-fluctuate with the used allomorph (`Allomorph.FreeFluctuatesWith`'s
@@ -43,7 +43,7 @@
 //! `pg-parse/tests/disjunctive_recheck_gate.rs`.
 //!
 //! ## Morph-span derivation
-//! [`crate::word::MorphRecord`] stores only the leftmost interior position (`order`); this module
+//! `crate::word::MorphRecord` stores only the leftmost interior position (`order`); this module
 //! derives each record's span as `[order_i, order_{i+1} - 1]` (sorted ascending; the last record
 //! runs to the shape's last interior index).
 //!
@@ -78,7 +78,7 @@ const TABLE: TableId = TableId(0);
 /// C# `Allomorph.IsWordValid`'s environment clause (Allomorph.cs:110-125) for one morph occurrence:
 /// the span `[start, end]` (inclusive, 0-based interior indices, anchors excluded) must satisfy at
 /// least one of `envs`, if any are declared. `start`/`end` double as segment-*positions* in the
-/// `include_boundaries=true` sequence [`segs_of`] builds: every interior node is a Segment or a
+/// `include_boundaries=true` sequence `segs_of` builds: every interior node is a Segment or a
 /// Boundary, so with boundaries included nothing is filtered out and segment-position `k` is
 /// exactly interior index `k` (the same identity `morph.rs`'s `owning_morph`/`MorphRecord.order`
 /// convention already relies on).
@@ -92,8 +92,8 @@ const TABLE: TableId = TableId(0);
 /// Recompiles every environment's matcher on every call — kept as-is (not cached) because this
 /// function is also called directly, in tests, against standalone `EnvironmentDef`s that are never
 /// grammar-resident (no stable `AllomorphId` to cache against). The real per-word pipeline
-/// (`pg-parse::Morpher::is_word_valid`) calls [`allomorphs_valid_cached`] instead, which reads each
-/// environment's matcher from `crate::cache::RuleCache` via [`environments_ok_cached`]. See
+/// (`pg-parse::Morpher::is_word_valid`) calls `allomorphs_valid_cached` instead, which reads each
+/// environment's matcher from `crate::cache::RuleCache` via `environments_ok_cached`. See
 /// `crate::cache`'s module doc for the full rationale.
 pub fn environments_ok(
     g: &Grammar,
@@ -113,7 +113,7 @@ pub fn environments_ok(
     })
 }
 
-/// The [`crate::cache::RuleCache`]-aware sibling of [`environments_ok`]: `envs` and `env_cache` must
+/// The `crate::cache::RuleCache`-aware sibling of `environments_ok`: `envs` and `env_cache` must
 /// correspond positionally (`env_cache[i]` is `(left, right)` for `envs[i]`) — every production call
 /// site gets both from the same `cache.allomorph(id).envs`/owning def's `environments`, so they are
 /// always in lockstep.
@@ -134,8 +134,8 @@ fn environments_ok_cached(
         .any(|(env, (left, right))| env_side_ok(env, left, right, &segs, start, end))
 }
 
-/// One environment's require/exclude check, shared by [`environments_ok`] and
-/// [`environments_ok_cached`].
+/// One environment's require/exclude check, shared by `environments_ok` and
+/// `environments_ok_cached`.
 fn env_side_ok(
     env: &EnvironmentDef,
     left: &Option<EnvFst>,
@@ -153,8 +153,8 @@ fn env_side_ok(
     }
 }
 
-/// How an allomorph's environments are matched by [`allomorphs_valid_impl`]: freshly compiled per
-/// call ([`environments_ok`], standalone-fixture tests) or read from the [`RuleCache`] (the real
+/// How an allomorph's environments are matched by `allomorphs_valid_impl`: freshly compiled per
+/// call (`environments_ok`, standalone-fixture tests) or read from the `RuleCache` (the real
 /// per-word pipeline). Threaded so the W3.2 disjunctive loop's *candidate* environment checks go
 /// through the same machinery as the used allomorph's own check.
 enum EnvCheck<'a> {
@@ -184,7 +184,7 @@ impl EnvCheck<'_> {
 /// C# `RootAllomorph.ConstraintsEqual` (RootAllomorph.cs:106-112): environments as a set +
 /// `IsBound` equality. `StemName` is genuinely NOT compared here even in C# (verified against the
 /// override itself, which calls only `base.ConstraintsEqual(other) && IsBound == otherAllo.
-/// IsBound` — no `StemName` reference at all), so [`stem_name_gates_ok`]'s checks stay entirely
+/// IsBound` — no `StemName` reference at all), so `stem_name_gates_ok`'s checks stay entirely
 /// separate from `FreeFluctuatesWith`.
 fn root_constraints_equal(a: &RootAllomorphDef, b: &RootAllomorphDef) -> bool {
     crate::morph::env_set_equal(&a.environments, &b.environments) && a.is_bound == b.is_bound
@@ -241,7 +241,7 @@ fn stem_name_gates_ok(
     stem_name_gate_reason(g, allos, idx, fs).is_none()
 }
 
-/// P12 chunk 3: [`stem_name_gates_ok`]'s reason-reporting sibling (§3.2: Rust already distinguishes
+/// P12 chunk 3: `stem_name_gates_ok`'s reason-reporting sibling (§3.2: Rust already distinguishes
 /// required-vs-excluded internally -- this just reports which one failed instead of folding both
 /// into one bool). `stem_name_gates_ok` is a thin wrapper over this, so the traced and untraced
 /// paths cannot disagree on which allomorphs pass.
@@ -396,9 +396,9 @@ fn co_occurrence_rule_ok<T: Copy + PartialEq>(
 }
 
 /// Every rule in `rules` must pass against `key` — the AND-across-rules fold `90dcee64` requires.
-/// Factored out of [`morpheme_co_occurrence_ok`] so the P11 §4.4-1 guessed-root branch of
-/// [`allomorphs_valid_impl`] can evaluate the PATTERN's rule list keyed on the GUESSED (sentinel)
-/// morpheme id, exactly as [`allomorph_co_occurrence_ok`] already lets its caller separate "whose
+/// Factored out of `morpheme_co_occurrence_ok` so the P11 §4.4-1 guessed-root branch of
+/// `allomorphs_valid_impl` can evaluate the PATTERN's rule list keyed on the GUESSED (sentinel)
+/// morpheme id, exactly as `allomorph_co_occurrence_ok` already lets its caller separate "whose
 /// rules" from "which id is the primary key".
 fn morpheme_co_occurrence_rules_ok(
     rules: &[MorphemeCoOccurrenceRuleDef],
@@ -432,7 +432,7 @@ fn morpheme_co_occurrence_ok(
 
 /// Every `AllomorphCoOccurrenceRule` in `rules` (an allomorph's own `co_occurrence` field, C#
 /// `Allomorph.AllomorphCoOccurrenceRules`) must pass, tested against `key` — same AND-across-rules
-/// fold as [`morpheme_co_occurrence_ok`]. `key` is a parameter (not always `rules`'s own owning
+/// fold as `morpheme_co_occurrence_ok`. `key` is a parameter (not always `rules`'s own owning
 /// allomorph id) because the W3.2 disjunctive re-check calls this with the candidate's OWN rules
 /// but the ORIGINALLY USED allomorph as the co-occurrence key — see that call site's comment.
 fn allomorph_co_occurrence_ok(
@@ -457,14 +457,14 @@ fn allomorph_co_occurrence_ok(
 /// own `Allomorph.IsWordValid`.
 ///
 /// Recompiles every checked allomorph's environment matchers on every call — see
-/// [`environments_ok`]'s doc for why (standalone test fixtures). The real per-word pipeline
-/// (`pg-parse::Morpher::is_word_valid`) calls [`allomorphs_valid_cached`] instead.
+/// `environments_ok`'s doc for why (standalone test fixtures). The real per-word pipeline
+/// (`pg-parse::Morpher::is_word_valid`) calls `allomorphs_valid_cached` instead.
 pub fn allomorphs_valid(g: &Grammar, w: &Word) -> bool {
     let sink = NoopSink;
     allomorphs_valid_impl(g, w, EnvCheck::Fresh, &sink, TraceHandle::DUMMY)
 }
 
-/// The [`RuleCache`]-aware sibling of [`allomorphs_valid`], used by the real per-word pipeline
+/// The `RuleCache`-aware sibling of `allomorphs_valid`, used by the real per-word pipeline
 /// (`pg-parse::Morpher::is_word_valid`): every environment matcher is read from
 /// `cache.allomorph(id).envs` instead of being recompiled.
 pub fn allomorphs_valid_cached(g: &Grammar, w: &Word, cache: &RuleCache) -> bool {
@@ -472,8 +472,8 @@ pub fn allomorphs_valid_cached(g: &Grammar, w: &Word, cache: &RuleCache) -> bool
     allomorphs_valid_impl(g, w, EnvCheck::Cached(cache), &sink, TraceHandle::DUMMY)
 }
 
-/// P12 chunk 3: [`allomorphs_valid_cached`]'s traced sibling -- the single source of truth both
-/// share (`allomorphs_valid_cached` calls this with a [`NoopSink`]). Closes the gap chunk 2 left
+/// P12 chunk 3: `allomorphs_valid_cached`'s traced sibling -- the single source of truth both
+/// share (`allomorphs_valid_cached` calls this with a `NoopSink`). Closes the gap chunk 2 left
 /// open: `pg-parse::Morpher::is_word_valid_traced`'s final gate now reports exactly which of the 11
 /// `FailureReason`s in this function's cross-reference table rejected the
 /// word, at the first morph occurrence that fails.
@@ -488,7 +488,7 @@ pub fn allomorphs_valid_cached_traced(
 }
 
 /// Emit `Failed(parent, w, reason)` (guarded by `is_tracing()`) and return `false` -- every early
-/// return in [`allomorphs_valid_impl`] goes through this so the trace call and the `false` result
+/// return in `allomorphs_valid_impl` goes through this so the trace call and the `false` result
 /// can never drift apart.
 fn fail(trace: &dyn TraceSink, parent: TraceHandle, w: &Word, reason: FailureReason) -> bool {
     if trace.is_tracing() {
@@ -690,7 +690,7 @@ fn allomorphs_valid_impl(
                     return fail(trace, parent, w, FailureReason::Environments);
                 }
                 // W3.2 disjunctive re-check, affix arm: candidates are the passed-over subrule
-                // indices recorded during synthesis ([`MorphRecord::passed_over`]); the candidate's
+                // indices recorded during synthesis (`MorphRecord::passed_over`); the candidate's
                 // `AffixProcessAllomorph.CheckAllomorphConstraints` is its required-syntactic-FS
                 // subsumption against the word's accumulated syn FS, plus (W6) its own allomorph-
                 // co-occurrence rules keyed on the originally used allomorph — same rationale as

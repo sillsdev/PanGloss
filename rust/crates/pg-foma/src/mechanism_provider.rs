@@ -1,41 +1,41 @@
-//! Derives the [`crate::recipe_mechanism::MechanismGraph`] from the shared [`GrammarSemantics`]
+//! Derives the `crate::recipe_mechanism::MechanismGraph` from the shared `GrammarSemantics`
 //! and from nothing else.
 //!
 //! # The one rule, and how the signature enforces it
-//! [`derive_mechanism_graph`] takes `&GrammarSemantics` and no `&Grammar`. That is not a
+//! `derive_mechanism_graph` takes `&GrammarSemantics` and no `&Grammar`. That is not a
 //! convention this module promises to keep; it is the whole surface. There is no second entry
 //! point, no `&Grammar` front end (unlike
-//! [`crate::recipe_registry::Applicability::matches`], which deliberately keeps one), and
-//! [`GrammarSemantics::grammar`] is never called anywhere in this file -- so a provider CANNOT
+//! `crate::recipe_registry::Applicability::matches`, which deliberately keeps one), and
+//! `GrammarSemantics::grammar` is never called anywhere in this file -- so a provider CANNOT
 //! decide applicability, membership, or ordering from a fresh grammar walk. Everything below is a
 //! projection of a fact `GrammarSemantics` already owns.
 //!
 //! # Why observations are the right input
 //! A mechanism exists because a construct was OBSERVED, and
-//! [`crate::capability::CharacteristicObservation`] carries exactly the two things needed to place
-//! it: a [`crate::capability::CharacteristicKind`] (which mechanism owns it, via
-//! [`mechanism_kind_for`]; and, unchanged, which compilers can represent it, via
-//! [`crate::strategy_coverage`]) and a [`crate::capability::ModelLocation`] (where it came from,
-//! convertible to a typed [`MechanismSource`] by an impl that already existed). The join is
+//! `crate::capability::CharacteristicObservation` carries exactly the two things needed to place
+//! it: a `crate::capability::CharacteristicKind` (which mechanism owns it, via
+//! `mechanism_kind_for`; and, unchanged, which compilers can represent it, via
+//! `crate::strategy_coverage`) and a `crate::capability::ModelLocation` (where it came from,
+//! convertible to a typed `MechanismSource` by an impl that already existed). The join is
 //! total and needs no grammar access.
 //!
 //! **Inert hints create nothing, for free.** The repo's standing trap here is the
 //! `ReduplicationHint` shortcut: an allomorph may carry a non-`Implicit` hint and not reduplicate
-//! at all. [`crate::capability::characterize`] already refuses to raise
+//! at all. `crate::capability::characterize` already refuses to raise
 //! `CharacteristicKind::Reduplication` for such an allomorph (it uses the structural
-//! [`crate::capability::rhs_has_true_reduplication`] test, the single authority for the fact), so
+//! `crate::capability::rhs_has_true_reduplication` test, the single authority for the fact), so
 //! an inert hint produces no observation, therefore no source, therefore no `CopyProcess` node.
 //! This module does not re-decide the question, which is precisely why it cannot get it wrong.
 //! `tests/mechanism_provider_gate.rs` pins both halves: inert hint -> zero copy nodes, real
 //! reduplication -> exactly one.
 //!
 //! # Canonical identity
-//! Nodes are emitted in [`MechanismKind::COMPOSITION_ORDER`] and edges chain the present nodes in
+//! Nodes are emitted in `MechanismKind::COMPOSITION_ORDER` and edges chain the present nodes in
 //! that same order, so two derivations of the same grammar are identical as data and
-//! byte-identical under [`MechanismGraph::canonical_projection`]. Every collection inside a node is
+//! byte-identical under `MechanismGraph::canonical_projection`. Every collection inside a node is
 //! deterministically ordered at its own source: requirements are a `BTreeSet`, sources a
 //! `BTreeSet` flattened to a `Vec`, partition groups come from
-//! [`GrammarSemantics::entry_partition`] (which sorts by gate key precisely because
+//! `GrammarSemantics::entry_partition` (which sorts by gate key precisely because
 //! `gate::partition_entries` returns `HashMap` order) with members sorted, and rule order is the
 //! authored cascade order.
 //!

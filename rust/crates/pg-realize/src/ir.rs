@@ -1,12 +1,12 @@
 //! Natural-phrases N1 (`docs/natural-phrases-plan.md` N1): the typed intermediate
-//! representation a bundle's tokens get mapped into, plus [`to_ir`], the function that builds
+//! representation a bundle's tokens get mapped into, plus `to_ir`, the function that builds
 //! one. Closed enums, not stringly features (`docs/natural-glosses-plan.md` §6.3's proposed
 //! record made concrete for the Rust side).
 //!
-//! Additive on top of N0's [`crate::GlossBundle`]: `to_ir` only reads a bundle and a
-//! [`crate::map::RealizeMap`], never touches parity output, and — like [`crate::gloss_bundle`]
-//! and [`crate::leipzig`] — is a total function: no input produces a panic or a fatal error,
-//! only more material in [`GlossIr::extras`].
+//! Additive on top of N0's `crate::GlossBundle`: `to_ir` only reads a bundle and a
+//! `crate::map::RealizeMap`, never touches parity output, and — like `crate::gloss_bundle`
+//! and `crate::leipzig` — is a total function: no input produces a panic or a fatal error,
+//! only more material in `GlossIr::extras`.
 #![forbid(unsafe_code)]
 
 use crate::map::{FeatureAssignment, RealizeMap};
@@ -34,7 +34,7 @@ pub enum Num {
 }
 
 impl Num {
-    /// All variants, in declaration order — used by [`crate::table::TableRealizer`]'s 108-cell
+    /// All variants, in declaration order — used by `crate::table::TableRealizer`'s 108-cell
     /// (`docs/natural-phrases-plan.md` N2) full-coverage validation.
     pub(crate) const ALL: [Num; 3] = [Num::Unspec, Num::Sg, Num::Pl];
 
@@ -81,7 +81,7 @@ pub enum Poss {
 }
 
 impl Poss {
-    /// All variants, in declaration order — used by [`crate::table::TableRealizer`]'s 108-cell
+    /// All variants, in declaration order — used by `crate::table::TableRealizer`'s 108-cell
     /// (`docs/natural-phrases-plan.md` N2) full-coverage validation.
     pub(crate) const ALL: [Poss; 9] = [
         Poss::None,
@@ -124,7 +124,7 @@ pub enum CaseRole {
 }
 
 impl CaseRole {
-    /// All variants, in declaration order — used by [`crate::table::TableRealizer`]'s 108-cell
+    /// All variants, in declaration order — used by `crate::table::TableRealizer`'s 108-cell
     /// (`docs/natural-phrases-plan.md` N2) full-coverage validation.
     pub(crate) const ALL: [CaseRole; 4] =
         [CaseRole::None, CaseRole::Loc, CaseRole::Abl, CaseRole::All];
@@ -140,7 +140,7 @@ impl CaseRole {
     }
 }
 
-/// The typed intermediate representation [`to_ir`] builds from a [`GlossBundle`]: a closed-enum
+/// The typed intermediate representation `to_ir` builds from a `GlossBundle`: a closed-enum
 /// concept + feature slots, plus `extras` for everything the mapping chain couldn't place.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlossIr {
@@ -156,11 +156,11 @@ pub struct GlossIr {
     pub extras: Vec<String>,
 }
 
-/// Build a [`GlossIr`] from a [`GlossBundle`], a [`RealizeMap`] sidecar (or
-/// [`RealizeMap::empty`]), and the analysis's surface word. Total: never panics, never fails.
+/// Build a `GlossIr` from a `GlossBundle`, a `RealizeMap` sidecar (or
+/// `RealizeMap::empty`), and the analysis's surface word. Total: never panics, never fails.
 ///
 /// Root resolution: `bundle.root_index` (defensively re-validated against `bundle.tokens.len()`
-/// here, same defensive posture as [`crate::gloss_bundle`] itself) names the root token, which
+/// here, same defensive posture as `crate::gloss_bundle` itself) names the root token, which
 /// becomes `concept` and does **not** also flow through the feature-mapping chain below. A
 /// guessed root (`bundle.guessed`) becomes `Concept::Guessed(surface_word)`; an unglossed real
 /// root becomes `Concept::Lex("[?]")` (matching N0's `leipzig` rendering rule); a glossed real

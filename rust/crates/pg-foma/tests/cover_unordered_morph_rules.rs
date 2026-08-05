@@ -110,7 +110,7 @@ fn fixture_xml(mrule_order: &str) -> String {
 }
 
 /// A chain-depth-bounded `Unordered` stratum's OWN loose-rule count exceeding the calibrated
-/// [`pg_foma::compose_budget`] default -- generated programmatically (never hand-typed), same
+/// `pg_foma::compose_budget` default -- generated programmatically (never hand-typed), same
 /// generator shape `crate::unordered`'s own test-only `stratum_xml` uses.
 fn unbounded_fixture_xml(rule_count: u32) -> String {
     let mut rules = String::new();
@@ -268,7 +268,7 @@ fn non_document_order_analysis_is_proposed_and_confirmed() {
 
 /// **The distinguishing property witness (module doc).** The IDENTICAL grammar, differing ONLY in
 /// `mrule_order="linear"`, must NOT confirm `"kqp"` at all: this test pins that firing `mrQ`
-/// before `mrP` is unreachable under [`pg_rules::cascade::Cascade::permutation`]'s own
+/// before `mrP` is unreachable under `pg_rules::cascade::Cascade::permutation`'s own
 /// non-decreasing-index restriction (rule index 1 before rule index 0) -- the real semantic
 /// difference `Unordered`'s promotion depends on.
 #[test]

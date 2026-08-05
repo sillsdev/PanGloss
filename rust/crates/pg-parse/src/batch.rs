@@ -69,7 +69,7 @@ pub struct BatchWordOutcome {
 /// Parse every word in `words` against `morpher`, using up to `max_threads` rayon worker threads
 /// (`0` = rayon's default, i.e. `std::thread::available_parallelism()`).
 ///
-/// Returns one [`BatchWordOutcome`] per input word, in the **same order as `words`** —
+/// Returns one `BatchWordOutcome` per input word, in the **same order as `words`** —
 /// independent of dispatch/completion order or `max_threads` (see module docs).
 ///
 /// # Panics

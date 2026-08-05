@@ -1,10 +1,10 @@
 //! `FomaProposer`: the thin `emit + foma-compile + apply-up` wrapper (plan §1's "propose" half of
 //! propose→confirm; confirm itself is P2's job, not built here).
 //!
-//! Compiles [`crate::emit::emit`]'s lexc source with the pure-Rust `foma` crate (gate F0) and
-//! exposes [`FomaProposer::propose`]: normalize the query word the SAME way [`crate::emit`]
+//! Compiles `crate::emit::emit`'s lexc source with the pure-Rust `foma` crate (gate F0) and
+//! exposes `FomaProposer::propose`: normalize the query word the SAME way `crate::emit`
 //! normalized surface text (NFD — see that module's doc), `apply_up` it, decode every resulting
-//! tag path, and split each into [`tags::Candidate`]s, deduped by `(morphemes, root_index)`
+//! tag path, and split each into `tags::Candidate`s, deduped by `(morphemes, root_index)`
 //! preserving first-seen order (matching the propose→verify contract, plan §2: "Allomorph IDs are
 //! NOT part of candidate identity").
 
@@ -26,7 +26,7 @@ use crate::emit::{self, EmitReport};
 use crate::profile::{CompileProfile, CompileProfileBuilder, CompileStage};
 use crate::tags::{self, Candidate};
 
-/// Errors constructing a [`FomaProposer`]. Deliberately small (this stage doesn't need a rich
+/// Errors constructing a `FomaProposer`. Deliberately small (this stage doesn't need a rich
 /// error hierarchy) — a grammar whose foma path fails to compile should fall back to the full
 /// engine (plan §1's per-grammar tiering), which only needs to know THAT it failed.
 #[derive(Debug)]
@@ -53,12 +53,12 @@ pub enum FomaError {
         /// `HC_ENUM_PROBE_BUDGET` override).
         limit: usize,
     },
-    /// [`crate::unordered::check_unordered_strata_bound`]
+    /// `crate::unordered::check_unordered_strata_bound`
     /// found an `Unordered` stratum's own loose-rule count exceeding
-    /// [`crate::compose_budget::ComposeBudget::ordering_multiplicity_cap`] -- checked FIRST, before
+    /// `crate::compose_budget::ComposeBudget::ordering_multiplicity_cap` -- checked FIRST, before
     /// `emit::emit_with_budget` is ever called, so `unordered-application.unbounded` never pays the
     /// cost of building a (potentially large) `build_deriv_chain` network only to refuse it. Carries
-    /// the SAME [`crate::compose_budget::ComposeError`] this crate's other typed budget errors
+    /// the SAME `crate::compose_budget::ComposeError` this crate's other typed budget errors
     /// carry, unwrapped to this variant's own fields for a caller that never needs to depend on
     /// `crate::compose_budget` directly.
     UnorderedOrderingMultiplicityExceeded { rule_count: usize, limit: usize },
@@ -108,7 +108,7 @@ impl std::error::Error for FomaError {}
 pub type Result<T> = std::result::Result<T, FomaError>;
 
 /// Opt-in per-word proposal measurements. These counters describe only paths actually pulled from
-/// foma before completion or a cooperative [`ApplyBudget`] trip.
+/// foma before completion or a cooperative `ApplyBudget` trip.
 #[derive(Clone, Debug, Default)]
 pub struct ProposalDiagnostics {
     pub raw_paths: usize,
@@ -120,9 +120,9 @@ pub struct ProposalDiagnostics {
     pub decode_dedup_elapsed: std::time::Duration,
 }
 
-/// The two magnitudes an [`ApplyBudget`] is denominated in, and nothing else.
+/// The two magnitudes an `ApplyBudget` is denominated in, and nothing else.
 ///
-/// Distinct from [`ProposalDiagnostics`] on purpose: these are counters the decode loop already
+/// Distinct from `ProposalDiagnostics` on purpose: these are counters the decode loop already
 /// keeps, so reporting them is free, whereas the diagnostics clock every path. A budgeted
 /// production run needs the counters to carry one cumulative budget across several proposals; it
 /// does not need the timings.
@@ -155,7 +155,7 @@ pub(crate) fn prepare_network_for_apply(net: &mut Fsm) {
     }
 }
 
-/// The compiled foma network for one grammar (as a live [`ApplyHandle`], see below), plus the
+/// The compiled foma network for one grammar (as a live `ApplyHandle`, see below), plus the
 /// emitter's own report (uncovered constructs, counts, tier — plan P1 gate F1's "counts are
 /// plausible" assertions read this).
 pub struct FomaProposer {
@@ -172,7 +172,7 @@ pub struct FomaProposer {
     query_encoder: Option<SegmentQueryEncoder>,
 }
 
-/// Owned form of [`crate::replace::SegAlphabet::encode_query`]. P6's compiled network is in
+/// Owned form of `crate::replace::SegAlphabet::encode_query`. P6's compiled network is in
 /// char-def-token space, but a proposer must outlive the borrowed `SegAlphabet` used to build it.
 struct SegmentQueryEncoder {
     /// NFD representations, longest first, paired with their PUA token.
@@ -213,7 +213,7 @@ impl SegmentQueryEncoder {
 
 impl FomaProposer {
     /// Build a proposer around an already-compiled network. This constructor performs exactly one
-    /// [`apply_init`] and does not emit, compile, sort, compose, or minimize the supplied network.
+    /// `apply_init` and does not emit, compile, sort, compose, or minimize the supplied network.
     pub fn from_precompiled_network(net: &foma::types::Fsm, report: EmitReport) -> Self {
         FomaProposer {
             handle: apply_init(net),
@@ -236,12 +236,12 @@ impl FomaProposer {
     }
 
     /// Emit `g`'s lexc source, compile it, and build the (word-independent) `ApplyHandle` once.
-    /// `Err` iff [`FomaError::LexcCompileFailed`] (a bug in this crate's emitter, not a
+    /// `Err` iff `FomaError::LexcCompileFailed` (a bug in this crate's emitter, not a
     /// grammar-content problem — the emitter's own `uncovered` list is how grammar CONTENT gaps
     /// are reported, always alongside `Ok`) OR iff Fix 1's default-on enumeration budget
-    /// ([`FomaError::EnumerationBudgetExceeded`]) trips.
+    /// (`FomaError::EnumerationBudgetExceeded`) trips.
     ///
-    /// Thin, env-driven wrapper over [`Self::new_with_budget`] -- same convention
+    /// Thin, env-driven wrapper over `Self::new_with_budget` -- same convention
     /// `crate::emit::emit_with_precision` uses for the same reason (its own doc): reads
     /// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`/`HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET`
     /// exactly once, here, in the production entry point, so parallel test processes never race
@@ -256,27 +256,27 @@ impl FomaProposer {
         Self::new_with_budget(g, &enum_budget, &compose_budget)
     }
 
-    /// [`Self::new`], plus
-    /// its own [`CompileProfile`] -- the production compile-time-profiling entry point. Reads the
-    /// same env vars [`Self::new`] does, exactly once, mirroring its convention.
+    /// `Self::new`, plus
+    /// its own `CompileProfile` -- the production compile-time-profiling entry point. Reads the
+    /// same env vars `Self::new` does, exactly once, mirroring its convention.
     pub fn new_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
         let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let compose_budget = ComposeBudget::from_env();
         Self::new_with_budget_and_profile(g, &enum_budget, &compose_budget)
     }
 
-    /// [`Self::new`]'s core, with the fail-fast enumeration budget AND
+    /// `Self::new`'s core, with the fail-fast enumeration budget AND
     /// the ordering-multiplicity budget both threaded
     /// in explicitly rather than read from env -- what tests call directly (with a small
-    /// [`crate::morphotactics::EnumerationBudget::with_caps`]/
-    /// [`ComposeBudget::with_ordering_multiplicity_cap`]) to exercise
+    /// `crate::morphotactics::EnumerationBudget::with_caps`/
+    /// `ComposeBudget::with_ordering_multiplicity_cap`) to exercise
     /// `FomaError::EnumerationBudgetExceeded`/`FomaError::UnorderedOrderingMultiplicityExceeded`
     /// deterministically and fast, without setting `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`/
     /// `HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET` (this crate's tests never touch those env vars,
     /// mirroring `crate::morphotactics::ExploreMode`'s own doc's reasoning for `HC_PREEXPAND_FLAT`).
     ///
-    /// Thin, zero-behavior-change wrapper over [`Self::new_with_budget_and_profile`], discarding its
-    /// [`CompileProfile`] -- proven byte-for-byte identical (same `Result`, same emitted network) by
+    /// Thin, zero-behavior-change wrapper over `Self::new_with_budget_and_profile`, discarding its
+    /// `CompileProfile` -- proven byte-for-byte identical (same `Result`, same emitted network) by
     /// this file's own `fst_profile_new_with_budget_matches_new_with_budget_and_profile` test.
     // See the `#[allow(clippy::result_large_err)]` justification on `Self::new` above.
     #[allow(clippy::result_large_err)]
@@ -288,11 +288,11 @@ impl FomaProposer {
         Self::new_with_budget_and_profile(g, enum_budget, compose_budget).0
     }
 
-    /// [`Self::new_with_budget`]'s real core, with a [`CompileProfileBuilder`]
+    /// `Self::new_with_budget`'s real core, with a `CompileProfileBuilder`
     /// threaded through: [`CompileProfileBuilder::
     /// production`] starts the top-line wall-clock timer at the very top of this function, before
-    /// any emission work runs, and [`CompileProfileBuilder::finish`] is called exactly once on
-    /// EVERY return path (including every early-return error path) so the returned [`CompileProfile`]
+    /// any emission work runs, and `CompileProfileBuilder::finish` is called exactly once on
+    /// EVERY return path (including every early-return error path) so the returned `CompileProfile`
     /// always reflects real elapsed time up to that outcome, never a fabricated/zero value.
     pub(crate) fn new_with_budget_and_profile(
         g: &Grammar,
@@ -397,21 +397,21 @@ impl FomaProposer {
         }
     }
 
-    /// [`Self::propose`]'s core, plus in-process cooperative magnitude containment
+    /// `Self::propose`'s core, plus in-process cooperative magnitude containment
     /// (`crate::compose_budget`'s own "Apply-path dimension" section doc): checks `budget`'s two
     /// magnitude dimensions -- raw decoded-path count, distinct-candidate count -- as this word's
-    /// `apply_up` result iterator is walked, returning [`ApplyOutcome::Incomplete`] the instant
+    /// `apply_up` result iterator is walked, returning `ApplyOutcome::Incomplete` the instant
     /// either cap is exceeded rather than continuing to decode/allocate further for this word. This
     /// is deliberately NOT a watchdog: there is no worker process to spawn or kill here (a native
     /// thread cannot be safely hard-killed in Rust; this method runs entirely in the
-    /// caller's own process, on `self.handle`, exactly like [`Self::propose`] always has) -- the
+    /// caller's own process, on `self.handle`, exactly like `Self::propose` always has) -- the
     /// containment is a plain deterministic counter, checked cooperatively, the same discipline
-    /// [`ComposeBudget::check_chain_depth`] already uses one call stack over in the compile-time
+    /// `ComposeBudget::check_chain_depth` already uses one call stack over in the compile-time
     /// composition path.
     ///
-    /// [`ApplyBudget::unbounded`] (what [`Self::propose`] passes) can never report `Incomplete` --
+    /// `ApplyBudget::unbounded` (what `Self::propose` passes) can never report `Incomplete` --
     /// every check below is `Some(cap) if count > cap`, so a `None` cap is always `false` -- which
-    /// is exactly how [`Self::propose`] proves its own behavior is unchanged by this addition
+    /// is exactly how `Self::propose` proves its own behavior is unchanged by this addition
     /// without duplicating the decode loop.
     pub fn propose_budgeted(
         &mut self,
@@ -421,11 +421,11 @@ impl FomaProposer {
         self.propose_budgeted_counted(word, budget).0
     }
 
-    /// [`Self::propose_budgeted`] with the two magnitudes it consumed, and nothing else.
+    /// `Self::propose_budgeted` with the two magnitudes it consumed, and nothing else.
     ///
     /// A budgeted *production* run needs one cumulative budget spanning the direct proposal and
     /// every proposal reduplication peeling requests, which means each call has to report what it
-    /// spent. [`Self::propose_with_diagnostics_budgeted`] already reports that, but it calls
+    /// spent. `Self::propose_with_diagnostics_budgeted` already reports that, but it calls
     /// `Instant::now()` twice per raw path — on a word that decodes a hundred thousand paths that
     /// is two hundred thousand clock reads bought for a number nobody asked for. These are plain
     /// counters the decode loop was already keeping.
@@ -487,7 +487,7 @@ impl FomaProposer {
         (ApplyOutcome::Complete(out), counts)
     }
 
-    /// Opt-in diagnostic sibling of [`Self::propose`]. The ordinary proposal APIs do not call a
+    /// Opt-in diagnostic sibling of `Self::propose`. The ordinary proposal APIs do not call a
     /// clock or allocate diagnostic state; callers pay this instrumentation cost only here.
     pub fn propose_with_diagnostics(
         &mut self,
@@ -503,7 +503,7 @@ impl FomaProposer {
         }
     }
 
-    /// [`Self::propose_budgeted`] with opt-in path, byte, decode, dedup, and timing diagnostics.
+    /// `Self::propose_budgeted` with opt-in path, byte, decode, dedup, and timing diagnostics.
     /// Budget dimensions and first-seen candidate order are identical to the ordinary path.
     pub fn propose_with_diagnostics_budgeted(
         &mut self,
@@ -595,7 +595,7 @@ impl FomaProposer {
     /// REAL foma payload `pg-cli`'s `pack.rs` writes into a `.pgpack` container — no second network
     /// format, no fabricated bytes.
     ///
-    /// `self.handle.last_net` is always `Some` here: [`apply_init`] (called by every constructor
+    /// `self.handle.last_net` is always `Some` here: `apply_init` (called by every constructor
     /// above, immediately after a successful `fsm_lexc_parse_string`) unconditionally populates it
     /// with a clone of the just-compiled network before returning the handle — see `apply_init`'s
     /// own doc, "C: h->last_net = net (borrowed). DEVIATION from C (owns a clone...)". There is no
@@ -609,23 +609,23 @@ impl FomaProposer {
     /// `(statecount, arccount)` of this proposer's own compiled network — a cheap struct-field
     /// read (both are `Copy` `i32` fields), exposed so a caller can compare a freshly-compiled
     /// network's shape against one reconstructed from a serialized payload
-    /// ([`read_foma_binary_payload`]) without either side needing its own `foma` crate dependency.
+    /// (`read_foma_binary_payload`) without either side needing its own `foma` crate dependency.
     pub fn network_counts(&self) -> (i32, i32) {
         let net = self.network();
         (net.statecount, net.arccount)
     }
 
     /// Raw `apply_up` over this proposer's own live handle — undecoded, undeduped, unnormalized
-    /// (unlike [`Self::propose`]/[`Self::propose_budgeted`]). Exposed so a round-trip test can
-    /// compare THIS exact traversal against [`apply_up_against`] run on a network reconstructed
-    /// from this same proposer's serialized [`Self::foma_binary_payload`] bytes, without going
+    /// (unlike `Self::propose`/`Self::propose_budgeted`). Exposed so a round-trip test can
+    /// compare THIS exact traversal against `apply_up_against` run on a network reconstructed
+    /// from this same proposer's serialized `Self::foma_binary_payload` bytes, without going
     /// through `propose`'s richer decode/dedup pipeline on one side only.
     pub fn apply_up_raw(&mut self, word: &str) -> Vec<String> {
         self.handle.up(word).collect()
     }
 
-    /// This proposer's own compiled network, as built by [`apply_init`] — see
-    /// [`Self::foma_binary_payload`]'s doc for why `last_net` is always `Some` here.
+    /// This proposer's own compiled network, as built by `apply_init` — see
+    /// `Self::foma_binary_payload`'s doc for why `last_net` is always `Some` here.
     fn network(&self) -> &foma::types::Fsm {
         self.handle.last_net.as_ref().expect(
             "FomaProposer::handle is always built by apply_init, which unconditionally sets \
@@ -634,8 +634,8 @@ impl FomaProposer {
     }
 }
 
-/// Reads a foma binary-memory payload back into a live [`foma::types::Fsm`] — the read side of
-/// [`FomaProposer::foma_binary_payload`], exposed here (rather than requiring every caller to add
+/// Reads a foma binary-memory payload back into a live `foma::types::Fsm` — the read side of
+/// `FomaProposer::foma_binary_payload`, exposed here (rather than requiring every caller to add
 /// its own direct `foma` crate dependency) so `pg-pack`/`pg-cli` round-trip tests, and eventually a
 /// packaged-analyzer loader, can reconstruct the compiled network from `.pgpack` bytes using the
 /// SAME entry point (`fsm_read_binary_mem`), never a
@@ -647,11 +647,11 @@ pub fn read_foma_binary_payload(
 }
 
 /// Applies `word` up (`apply_up`) against an arbitrary already-compiled network — e.g. one just
-/// reconstructed by [`read_foma_binary_payload`] — and drains every surface->analysis path into an
+/// reconstructed by `read_foma_binary_payload` — and drains every surface->analysis path into an
 /// owned `Vec`. Lets a round-trip test check apply-agreement between an original compile and its
 /// reconstructed twin without needing its own `foma::apply` dependency (mirrors
-/// [`read_foma_binary_payload`]'s own reasoning). NFD-normalization is deliberately NOT applied
-/// here (unlike [`FomaProposer::propose_budgeted`]) — this is a thin, direct `apply_up` wrapper for
+/// `read_foma_binary_payload`'s own reasoning). NFD-normalization is deliberately NOT applied
+/// here (unlike `FomaProposer::propose_budgeted`) — this is a thin, direct `apply_up` wrapper for
 /// comparing two networks against the SAME literal input, not a query-normalization entry point.
 pub fn apply_up_against(net: &foma::types::Fsm, word: &str) -> Vec<String> {
     let mut handle = foma::apply::apply_init(net);
@@ -661,12 +661,12 @@ pub fn apply_up_against(net: &foma::types::Fsm, word: &str) -> Vec<String> {
 #[cfg(test)]
 mod budget_tests {
     //! Fail-fast enumeration budget regression tests: the default-on `crate::morphotactics::EnumerationBudget` must
-    //! abort `FomaProposer::new`'s build with the typed [`FomaError::EnumerationBudgetExceeded`] --
+    //! abort `FomaProposer::new`'s build with the typed `FomaError::EnumerationBudgetExceeded` --
     //! never a panic, never an unbounded run toward the Aweti-scale blow-up (551s emit, 691MB lexc,
     //! ~8.8GB `apply_up` allocation, process death on the very first word) -- and it must do so FAST.
     //!
-    //! These tests inject an explicit, tiny [`crate::morphotactics::EnumerationBudget`] via
-    //! [`FomaProposer::new_with_budget`] rather than setting `HC_ENUM_ENTRY_BUDGET`/
+    //! These tests inject an explicit, tiny `crate::morphotactics::EnumerationBudget` via
+    //! `FomaProposer::new_with_budget` rather than setting `HC_ENUM_ENTRY_BUDGET`/
     //! `HC_ENUM_PROBE_BUDGET`, mirroring this crate's existing convention for `HC_PREEXPAND_FLAT`/
     //! `HC_PREEXPAND_PROBE_CAP` (`crate::morphotactics::ExploreMode`'s own doc: "tests must construct
     //! ... directly, never call [the env-reading fn], so parallel test threads/processes never race
@@ -866,8 +866,8 @@ mod budget_tests {
 #[cfg(test)]
 mod apply_budget_tests {
     //! Apply-path magnitude-only containment (`crate::compose_budget`'s own "Apply-path
-    //! dimension" section doc): [`FomaProposer::propose_budgeted`] must (1) behave byte-for-byte
-    //! identically to plain [`FomaProposer::propose`] when given [`ApplyBudget::unbounded`], and
+    //! dimension" section doc): `FomaProposer::propose_budgeted` must (1) behave byte-for-byte
+    //! identically to plain `FomaProposer::propose` when given `ApplyBudget::unbounded`, and
     //! (2) trip each dimension deterministically and cheaply, in-process, with no watchdog/worker
     //! process involved anywhere in this call.
 
@@ -1085,8 +1085,8 @@ mod apply_budget_tests {
 
 #[cfg(test)]
 mod profile_tests {
-    //! [`FomaProposer::new_with_profile`]/
-    //! [`FomaProposer::new_with_budget_and_profile`] must (1) populate a real [`CompileProfile`]
+    //! `FomaProposer::new_with_profile`/
+    //! `FomaProposer::new_with_budget_and_profile` must (1) populate a real `CompileProfile`
     //! (`LexcParse` stage timing, final state/arc counts) on a successful build, (2) leave the
     //! network/`Result` byte-for-byte identical to the non-profiled entry points, and (3) still
     //! produce a `CompileProfile` (with `None` network counts) on a typed build failure.

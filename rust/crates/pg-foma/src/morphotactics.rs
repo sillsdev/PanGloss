@@ -5,7 +5,7 @@
 //! never actually produce in synthesis. This module builds, once per grammar, a subset-construction
 //! automaton over the engine's own morphotactics (`pg-rules/src/stratum.rs`: `synth_apply_mrules`,
 //! `synth_apply_templates`, `synth_slots_generic`, `slot_optional`) and exposes a single
-//! [`MorphotacticIndex::next_state`] query the two builders consult immediately before recursing
+//! `MorphotacticIndex::next_state` query the two builders consult immediately before recursing
 //! on a candidate rule -- restricting the flat recursion to a strict subset of engine-legal chains,
 //! never widening it (recall-preserving by construction: pruned exploration is always a subset of
 //! flat exploration).
@@ -23,7 +23,7 @@
 //!    (`synth_slots_generic`, stratum.rs:1339-1388): a non-optional slot that produces nothing
 //!    terminates the walk (`if !slot_optional(slot) { return; }`, stratum.rs:1373-1379). The
 //!    template completes early (`out.entry(input)...`, stratum.rs:1386-1387) only when every
-//!    remaining slot is optional. [`ChainState::mid`] tracks live `(template, slot)` positions;
+//!    remaining slot is optional. `ChainState::mid` tracks live `(template, slot)` positions;
 //!    firing a rule can advance a position to any later slot as long as every slot strictly
 //!    between is *skippable* (see the vacuous-slot trap below).
 //! 4. Under `Unordered`, a changed template output recurses back into the mrules cascade
@@ -35,15 +35,15 @@
 //!    `!root_is_partial` (`root_is_partial`, stratum.rs:1743-1756, checked at
 //!    `synth_apply_templates`'s stratum.rs:1855 `root_partial` gate) -- a partial root's word NEVER
 //!    enters ANY template, for the lifetime of the whole chain (not just the current call), so
-//!    [`ChainState::seed`] bakes this into `template_entry_disabled`, carried unchanged by every
-//!    [`MorphotacticIndex::next_state`] transition.
+//!    `ChainState::seed` bakes this into `template_entry_disabled`, carried unchanged by every
+//!    `MorphotacticIndex::next_state` transition.
 //!
 //! ## Recall trap: surface-vacuous rules in mandatory slots (plan doc "Recall trap")
 //! A realizational rule whose allomorph RHS is EXACTLY `[Copy(0), Copy(1), .., Copy(n-1)]` (every
 //! LHS part copied, in order, and NOTHING else -- no `InsertSegments`, no `Modify`, no
 //! `InsertContext`) adds no surface material at all; the engine still applies it in a mandatory
 //! slot, so a composite chain that only ever chains Prefix/Suffix/Infix candidates must be allowed
-//! to jump over such a slot and still match the engine's own surface. [`rule_may_be_vacuous`] is
+//! to jump over such a slot and still match the engine's own surface. `rule_may_be_vacuous` is
 //! the STRICT (exact-match) version of this test -- deliberately narrower than the throwaway
 //! `examples/aweti_probe.rs`'s own `rule_may_be_vacuous` (which treats "some allomorph inserts no
 //! non-empty text" as vacuous, a looser and UNSOUND-for-pruning test: a rule whose RHS reorders or
@@ -65,12 +65,12 @@ use rustc_hash::FxHashMap;
 
 /// The flat/pruned escape hatch (plan doc "Wiring": "an internal parameter... NOT a runtime branch
 /// tests can't control"). Threaded explicitly from every caller -- `crate::emit::emit_with_precision`
-/// resolves this from `HC_PREEXPAND_FLAT` exactly once (via [`explore_mode_from_env`]) and passes it
+/// resolves this from `HC_PREEXPAND_FLAT` exactly once (via `explore_mode_from_env`) and passes it
 /// down; unit/gate tests construct it directly, never through the env var, so parallel test
 /// processes never race process-global env state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExploreMode {
-    /// Consult [`MorphotacticIndex::next_state`] before every recursive step -- the production
+    /// Consult `MorphotacticIndex::next_state` before every recursive step -- the production
     /// default.
     Pruned,
     /// Skip the automaton entirely (`Some(state.clone())` unconditionally) -- the pre-fix
@@ -82,7 +82,7 @@ pub(crate) enum ExploreMode {
 /// Resolves the flat/pruned choice for the PRODUCTION `emit`/`emit_with_precision` path from
 /// `HC_PREEXPAND_FLAT` (plan doc's env-gated-diagnostic precedent, mirroring the repo's existing
 /// `CENSUS_DUMP_D5` convention). Read exactly ONCE per `emit_with_precision` call -- tests must
-/// construct [`ExploreMode`] directly, never call this, so parallel test threads/processes never
+/// construct `ExploreMode` directly, never call this, so parallel test threads/processes never
 /// race process-global env state (plan doc "Wiring").
 pub(crate) fn explore_mode_from_env() -> ExploreMode {
     match std::env::var("HC_PREEXPAND_FLAT") {
@@ -96,7 +96,7 @@ pub(crate) fn explore_mode_from_env() -> ExploreMode {
 /// `crate::emit::build_structural_composites` for one `emit`/`emit_with_precision` call (plan doc
 /// "Instrumentation" -- "measuring Aweti can never OOM the machine again"). `None` (the env var
 /// unset) means production behavior, completely unchanged -- callers must not build a
-/// [`ProbeBudget`] at all in that case.
+/// `ProbeBudget` at all in that case.
 pub(crate) fn probe_cap_from_env() -> Option<usize> {
     std::env::var("HC_PREEXPAND_PROBE_CAP")
         .ok()
@@ -196,7 +196,7 @@ pub(crate) fn probe_budget_from_env() -> usize {
         .unwrap_or(DEFAULT_PROBE_BUDGET)
 }
 
-/// Which measure tripped [`EnumerationBudget`] -- surfaced through
+/// Which measure tripped `EnumerationBudget` -- surfaced through
 /// `crate::analyzer::FomaError::EnumerationBudgetExceeded`'s error message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EnumMeasure {
@@ -218,7 +218,7 @@ impl EnumMeasure {
 /// Shared, cross-thread-safe, ALWAYS-ON budget state (module doc above). Built ONCE per
 /// `crate::emit::emit_with_precision` call and shared by reference across both composite builders
 /// (`crate::preexpand::build_composites_with_mode`, `crate::emit::build_structural_composites`) and
-/// every one of their parallel per-root workers -- mirrors [`ProbeBudget`]'s own sharing shape, but
+/// every one of their parallel per-root workers -- mirrors `ProbeBudget`'s own sharing shape, but
 /// every field here is a plain `AtomicUsize` (no `Mutex`, no interior `Cell`), so the whole struct is
 /// `Sync` for free and needs no `unsafe` to share across rayon's pool.
 pub(crate) struct EnumerationBudget {
@@ -226,8 +226,8 @@ pub(crate) struct EnumerationBudget {
     entry_count: AtomicUsize,
     probe_cap: usize,
     probe_count: AtomicUsize,
-    /// Latch: `0` = untripped; `1` = tripped by [`EnumMeasure::CompositeEntries`]; `2` = tripped by
-    /// [`EnumMeasure::PairsProbed`]. Whichever thread's `compare_exchange` wins first "owns" the
+    /// Latch: `0` = untripped; `1` = tripped by `EnumMeasure::CompositeEntries`; `2` = tripped by
+    /// `EnumMeasure::PairsProbed`. Whichever thread's `compare_exchange` wins first "owns" the
     /// recorded reason -- purely a diagnostic tie-break (both measures are checked at both call
     /// sites, so a grammar that crosses both thresholds in the same instant could latch either);
     /// every checker treats "tripped" as one boolean regardless of which measure caused it.
@@ -244,7 +244,7 @@ impl EnumerationBudget {
     /// Explicit-caps constructor -- what tests use (mirroring this crate's existing convention,
     /// `crate::morphotactics::ExploreMode`'s own doc: "tests must construct ... directly, never call
     /// [the env-reading fn], so parallel test threads/processes never race process-global env
-    /// state"). Also used internally by [`Self::from_env`].
+    /// state"). Also used internally by `Self::from_env`.
     pub(crate) fn with_caps(entry_cap: usize, probe_cap: usize) -> Self {
         EnumerationBudget {
             entry_cap,
@@ -257,9 +257,9 @@ impl EnumerationBudget {
 
     /// A budget that can never trip (`usize::MAX` on both measures) -- for callers/tests that need
     /// an `&EnumerationBudget` to satisfy a function signature but aren't exercising this mechanism
-    /// (mirrors passing `None` for the sibling [`ProbeBudget`] parameter). Test-only today (the
+    /// (mirrors passing `None` for the sibling `ProbeBudget` parameter). Test-only today (the
     /// `pruning_tests`/`budget_tests` modules); production callers always go through
-    /// [`Self::from_env`].
+    /// `Self::from_env`.
     #[cfg(test)]
     pub(crate) fn unbounded() -> Self {
         Self::with_caps(usize::MAX, usize::MAX)
@@ -325,12 +325,12 @@ impl EnumerationBudget {
 /// Subset-construction state for one in-progress composite chain (module doc). `free`/`mid` mirror
 /// the plan doc's `ChainState` exactly; `template_entry_disabled` is the "carry a bool in the
 /// state" option the plan doc names for the partial-root gate (module doc, engine fact 5) -- baked
-/// in at [`ChainState::seed`] and carried unchanged by every [`MorphotacticIndex::next_state`]
+/// in at `ChainState::seed` and carried unchanged by every `MorphotacticIndex::next_state`
 /// transition (a partial root never enters a template for the chain's entire lifetime, not just
 /// the current call).
 ///
 /// `mid` stores template ids as `u16` (not `MorphotacticIndex`'s native `u32` `TemplateId`) --
-/// [`MorphotacticIndex::build`] asserts every grammar's template count fits, which every reference/
+/// `MorphotacticIndex::build` asserts every grammar's template count fits, which every reference/
 /// edge-case/Aweti-scale grammar does by a wide margin; this halves this hot-loop state's size
 /// versus a `u32`, cheap to justify since the whole point of a subset-construction state is to stay
 /// small and `Clone`-cheap across a deep recursion. A `Vec` (not e.g. a `SmallVec`) is used
@@ -362,7 +362,7 @@ impl ChainState {
 }
 
 /// Per-template precomputed facts (module doc); indexed by `TemplateId.0 as usize` in
-/// [`MorphotacticIndex::templates`].
+/// `MorphotacticIndex::templates`.
 struct TemplateInfo {
     /// The stratum (index into `g.strata`) that declared this template (`sd.templates`) -- engine
     /// fact 1's floor check reads this, not `g.templates[t].required_syn_fs`'s owning rule (a

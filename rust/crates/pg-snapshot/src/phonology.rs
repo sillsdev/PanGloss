@@ -19,7 +19,7 @@ pub struct Phonology {
     pub phonemes: Vec<Phoneme>,
     /// ← `PhPhonemeSet.BoundaryMarkersOC`, excluding the special word-boundary marker
     /// (`LangProjectTags.kguidPhRuleWordBdry`, HCLoader.cs:2698), which is represented instead
-    /// by [`PhonContext::WordBoundary`] wherever it appears in a rule/environment context.
+    /// by `PhonContext::WordBoundary` wherever it appears in a rule/environment context.
     pub boundary_markers: Vec<BoundaryMarker>,
     /// ← `PhonologicalDataOA.NaturalClassesOS`.
     pub natural_classes: Vec<NaturalClass>,
@@ -130,10 +130,10 @@ pub struct FeatureConstraint {
 
 /// A phonological context: the recursive pattern-tree type used by rewrite-rule structural
 /// descriptions/changes, environment left/right sides (in a fully structured world; this format
-/// keeps environments as raw strings, see [`Environment`]), and affix-process input/output
-/// (§ [`crate::lexicon::AffixProcess`]). Mirrors the LCM `PhPhonContext` hierarchy exactly as
+/// keeps environments as raw strings, see `Environment`), and affix-process input/output
+/// (§ `crate::lexicon::AffixProcess`). Mirrors the LCM `PhPhonContext` hierarchy exactly as
 /// `HCLoader.LoadPatternNode` consumes it (HCLoader.cs:2313-2389), plus `IPhVariable` (used only
-/// inside `MoAffixProcess.InputOS`, HCLoader.cs:1338-1346) folded in as [`PhonContext::Variable`]
+/// inside `MoAffixProcess.InputOS`, HCLoader.cs:1338-1346) folded in as `PhonContext::Variable`
 /// so callers do not need a second parallel type.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
@@ -162,7 +162,7 @@ pub enum PhonContext {
         minus_variables: Vec<Guid>,
     },
     /// A user-defined boundary marker. ← `PhSimpleContextBdry.FeatureStructureRA`, when it is
-    /// *not* the special word-boundary marker (see [`PhonContext::WordBoundary`]).
+    /// *not* the special word-boundary marker (see `PhonContext::WordBoundary`).
     Boundary { marker: Guid },
     /// The special word-initial/word-final anchor (`#` in environment notation).
     /// ← `PhSimpleContextBdry.FeatureStructureRA.Guid == LangProjectTags.kguidPhRuleWordBdry`
@@ -218,7 +218,7 @@ pub struct RewriteRule {
     /// The alpha-variables available to `structural_description`/`right_hand_sides`' natural-
     /// class contexts, in the order `HCLoader` assigns Greek letters to them (α, β, γ, ...).
     /// ← `PhRegularRule.FeatureConstraints` (HCLoader.cs:2005-2011); each entry is a
-    /// [`FeatureConstraint`] guid also present in `Phonology.feature_constraints`.
+    /// `FeatureConstraint` guid also present in `Phonology.feature_constraints`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub feature_constraint_variables: Vec<Guid>,
     /// ← `PhRegularRule.RightHandSidesOS` — a rewrite rule may have several right-hand sides,
@@ -226,7 +226,7 @@ pub struct RewriteRule {
     pub right_hand_sides: Vec<RewriteRhs>,
 }
 
-/// One right-hand side of a [`RewriteRule`]. ← `PhSegRuleRHS`.
+/// One right-hand side of a `RewriteRule`. ← `PhSegRuleRHS`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RewriteRhs {

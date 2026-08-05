@@ -18,7 +18,7 @@ use crate::feature::FeatureStructure;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Morphology {
-    /// Root-level parts of speech; each [`PartOfSpeech`] carries its own `children` for the
+    /// Root-level parts of speech; each `PartOfSpeech` carries its own `children` for the
     /// rest of the hierarchy. ← `LangProject.PartsOfSpeechOA` top level (`AllPartsOfSpeech` in
     /// `HCLoader.LoadLanguage`, HCLoader.cs:170, flattens the whole tree; this format keeps the
     /// tree shape instead since it is lossless and `AllPartsOfSpeech`-style flattening is a
@@ -35,7 +35,7 @@ pub struct Morphology {
     /// (HCLoader.cs:341-351), *including* disabled/dangling ones (each carries its own
     /// `disabled` flag; a `primary`/`others` guid that fails to resolve to a real allomorph or
     /// MSA is exactly the "stale ad-hoc rule" tolerance case called out in
-    /// `docs/fwdata-import-plan.md` §1 — a [`crate::validate`] warning, never an import error).
+    /// `docs/fwdata-import-plan.md` §1 — a `crate::validate` warning, never an import error).
     pub adhoc_prohibitions: Vec<AdhocProhibition>,
     /// The registry of "exception feature" / productivity-restriction possibilities that MSAs,
     /// compound-rule constituent requirements, and rewrite-rule right-hand sides restrict
@@ -46,7 +46,7 @@ pub struct Morphology {
     /// `MprFeature`, `LoadMprFeature`, HCLoader.cs:571-577). Every `exceptionFeatures`/
     /// `fromExceptionFeatures`/`toExceptionFeatures`/`requiredRuleFeatures`/
     /// `excludedRuleFeatures` guid list elsewhere in this document either resolves here or is an
-    /// [`InflectionClass`] guid (the other kind `HCLoader.LoadMprFeatures` accepts,
+    /// `InflectionClass` guid (the other kind `HCLoader.LoadMprFeatures` accepts,
     /// HCLoader.cs:2610-2623).
     pub exception_features: Vec<ExceptionFeature>,
     /// ← `ILexEntryInflTypeRepository.AllInstances()`.
@@ -101,7 +101,7 @@ pub struct PartOfSpeech {
 /// A user-authored "exception feature" / productivity-restriction possibility (also called a
 /// "rule feature" or "ad hoc feature" in the LCM docs — an arbitrary, user-defined
 /// `CmPossibility` list item with no further structure beyond identity/name). See
-/// [`Morphology::exception_features`] for which two LCM sources feed this one registry.
+/// `Morphology::exception_features` for which two LCM sources feed this one registry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExceptionFeature {
@@ -198,7 +198,7 @@ pub struct AffixTemplate {
 ///
 /// Bound-ness ("is this allomorph a bound root/stem?") is *derived* from this enum
 /// (`BoundRoot`/`BoundStem`) rather than stored as a separate flag on
-/// [`crate::lexicon::Allomorph`], matching `HCLoader`'s own `IsBound` derivation
+/// `crate::lexicon::Allomorph`, matching `HCLoader`'s own `IsBound` derivation
 /// (HCLoader.cs:835-841).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

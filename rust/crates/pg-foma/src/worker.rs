@@ -1,6 +1,6 @@
 //! Compile-worker watchdog subsystem. Compile-time work runs in a killable native
 //! worker process under the parent watchdog, distinct
-//! from [`crate::compose_budget`]'s in-process cooperative APPLY-side budgets, under which
+//! from `crate::compose_budget`'s in-process cooperative APPLY-side budgets, under which
 //! apply-time (word analysis) runs in-process. Do not add
 //! anything here that touches per-word `propose`/`apply_up` -- that is `compose_budget.rs`'s
 //! `ApplyBudget`/`ApplyOutcome`, unchanged by this module.
@@ -18,8 +18,8 @@
 //! **Fast-failure primacy.** Deterministic logical counters are the primary fast-failure mechanism;
 //! cooperative
 //! elapsed checks and the parent wall timeout are outer safeguards. This module's wall-clock/RSS
-//! checks are exactly that outer safeguard -- [`CompileWorkerRequest::compose_budget`] is what the
-//! child compiles UNDER (the same [`crate::compose_budget::ComposeBudget`] every other production
+//! checks are exactly that outer safeguard -- `CompileWorkerRequest::compose_budget` is what the
+//! child compiles UNDER (the same `crate::compose_budget::ComposeBudget` every other production
 //! call site uses), never a substitute for it.
 //!
 //! This module is the
@@ -36,40 +36,40 @@
 //! construction, not merely by choice.
 //!
 //! # Three pieces
-//! - **Protocol** ([`CompileWorkerRequest`]/[`CompileWorkerResult`]/[`WorkerLimits`]): a versioned,
-//!   length-prefixed, bounded wire format over stdin/stdout. [`read_frame`] mirrors `pg-pack`'s own
+//! - **Protocol** (`CompileWorkerRequest`/`CompileWorkerResult`/`WorkerLimits`): a versioned,
+//!   length-prefixed, bounded wire format over stdin/stdout. `read_frame` mirrors `pg-pack`'s own
 //!   `format.rs` validate-before-allocate discipline verbatim: the declared length is checked
 //!   against a versioned ceiling BEFORE any buffer of that size is allocated.
-//! - **Child** ([`run_worker_child`]): reads exactly one [`CompileWorkerRequest`] frame, loads and
-//!   compiles the named grammar under the request's [`ComposeBudget`], and writes exactly one
-//!   [`CompileWorkerResult`] frame. Wraps the compile call in `std::panic::catch_unwind` --
+//! - **Child** (`run_worker_child`): reads exactly one `CompileWorkerRequest` frame, loads and
+//!   compiles the named grammar under the request's `ComposeBudget`, and writes exactly one
+//!   `CompileWorkerResult` frame. Wraps the compile call in `std::panic::catch_unwind` --
 //!   best-effort only; `compose_budget.rs`'s own doc is explicit that "stack-overflow and
 //!   allocator-OOM abort the process, bypassing every check" including `catch_unwind` -- that is
 //!   exactly why the supervisor below exists: it observes the whole child PROCESS, not just one
 //!   `Result`.
-//! - **Supervisor** ([`run_compile_worker`]): spawns a child process (`std::process::Command`),
+//! - **Supervisor** (`run_compile_worker`): spawns a child process (`std::process::Command`),
 //!   writes the request, drains stdout/stderr on capped reader threads, and polls
 //!   `Child::try_wait` in a loop that also samples the child's RSS via `sysinfo` and checks a wall
-//!   deadline -- killing the child (`Child::kill`) and returning a typed [`WorkerOutcome`] the
+//!   deadline -- killing the child (`Child::kill`) and returning a typed `WorkerOutcome` the
 //!   instant any bound is breached. No Tokio, no process tree, no Job Objects/cgroups (platform
 //!   parity, above); the
 //!   only "descendant" is the one worker process itself.
 //!
 //! # Typed outcomes -> existing health/error vocabulary (do not invent a parallel one)
-//! [`CompileWorkerOutcome`] (what the CHILD reports) reuses [`crate::compose_budget::ComposeError`]
+//! `CompileWorkerOutcome` (what the CHILD reports) reuses `crate::compose_budget::ComposeError`
 //! verbatim for a real budget trip (today, the ordering-multiplicity dimension --
-//! [`crate::analyzer::FomaProposer::new_with_budget_and_profile`] is the one production call site
-//! that can return `Err` from an actual [`crate::compose_budget::ComposeError`]-carrying
-//! [`crate::analyzer::FomaError`] variant before ever handing lexc to the foma compiler) and feeds
-//! every measurement into [`crate::health_evaluator::evaluate_health`] to build a real
-//! [`crate::health::HealthReport`] -- never a second, parallel report shape. [`WorkerOutcome`]
+//! `crate::analyzer::FomaProposer::new_with_budget_and_profile` is the one production call site
+//! that can return `Err` from an actual `crate::compose_budget::ComposeError`-carrying
+//! `crate::analyzer::FomaError` variant before ever handing lexc to the foma compiler) and feeds
+//! every measurement into `crate::health_evaluator::evaluate_health` to build a real
+//! `crate::health::HealthReport` -- never a second, parallel report shape. `WorkerOutcome`
 //! (what the PARENT reports for outcomes the child never got to write -- a wall-timeout kill, an
 //! RSS breach, a flooded pipe, a crash, a malformed protocol message) maps each into the SAME
-//! [`crate::health::HealthReport`]/[`crate::health::HealthFinding`] vocabulary via
-//! [`WorkerOutcome::health_report`], reusing [`crate::health::FindingCode::ResourceBudgetReached`]
-//! (this module's own judgment call, documented on that function: none of [`crate::health::Metric`]'s
+//! `crate::health::HealthReport`/`crate::health::HealthFinding` vocabulary via
+//! `WorkerOutcome::health_report`, reusing `crate::health::FindingCode::ResourceBudgetReached`
+//! (this module's own judgment call, documented on that function: none of `crate::health::Metric`'s
 //! existing variants name "parent-observed wall-clock kill" or "sampled child RSS", so one new
-//! variant, [`crate::health::Metric::SampledCompileRssBytes`], is appended, never inserted or
+//! variant, `crate::health::Metric::SampledCompileRssBytes`, is appended, never inserted or
 //! renumbered -- the
 //! same "new codes/variants only ever append" discipline `crate::health`'s own module doc
 //! documents, and the same reuse this crate's `OrderingRuleCount`/`enum_budget_finding` precedents
@@ -77,7 +77,7 @@
 //! against inventing a whole second schema").
 //!
 //! # Sampled RSS is not a hard ceiling (the platform-parity contract's exact wording matters)
-//! [`WorkerOutcome::RssLimitExceeded`]'s own doc, [`sample_rss_mb`]'s own doc, and every place this
+//! `WorkerOutcome::RssLimitExceeded`'s own doc, `sample_rss_mb`'s own doc, and every place this
 //! module surfaces a sampled RSS value in prose all say the same thing the contract above says verbatim:
 //! **allocation can occur between samples, so a sampled value below the limit is never proof the
 //! child never exceeded it, and a sampled value above the limit is a real observed measurement,
@@ -86,14 +86,14 @@
 //! continuously enforced hardware/kernel limit the way, say, a cgroup memory controller would be.
 //!
 //! # Opt-in, additive, default path unchanged
-//! Nothing in this module is called by [`crate::analyzer::FomaProposer::new`]/`new_with_profile`,
-//! [`crate::composite::FomaAnalyzer::new`], or any other existing production entry point --
+//! Nothing in this module is called by `crate::analyzer::FomaProposer::new`/`new_with_profile`,
+//! `crate::composite::FomaAnalyzer::new`, or any other existing production entry point --
 //! spawning a worker is something a caller (`pangloss pack --watchdog`, `pg-cli`'s own hidden
 //! `__compile-worker-child` subcommand) opts into explicitly. The in-process compile path's
 //! behavior, output, and exit codes are unchanged by this module's mere existence.
 //!
 //! # Documented gap: grammar-format dispatch duplicates `pg-cli::load_grammar`
-//! [`load_grammar_for_worker`] re-implements the same `.xml`/`.json`/`.fwdata` three-way extension
+//! `load_grammar_for_worker` re-implements the same `.xml`/`.json`/`.fwdata` three-way extension
 //! dispatch `pg-cli/src/main.rs::load_grammar` already has, rather than sharing it, since
 //! `pg-cli` depends on `pg-foma` (not the reverse) and this module needs to be able to load a
 //! grammar entirely inside the spawned child process, independent of any `pg-cli`-specific code.
@@ -120,8 +120,8 @@ use crate::health::{
 // `limits_for_version` shape byte-for-byte, applied to this module's own wire format).
 // =================================================================================================
 
-/// This worker protocol's own version, carried inside every [`CompileWorkerRequest`]/
-/// [`CompileWorkerResult`] (the platform-parity contract's "ONE versioned request/result
+/// This worker protocol's own version, carried inside every `CompileWorkerRequest`/
+/// `CompileWorkerResult` (the platform-parity contract's "ONE versioned request/result
 /// protocol"). Bump only on a
 /// wire-incompatible change to either type.
 pub const WORKER_PROTOCOL_VERSION: u32 = 1;
@@ -130,18 +130,18 @@ pub const WORKER_PROTOCOL_VERSION: u32 = 1;
 /// `pg_pack::format::VersionLimits`: every configurable dimension has a hard-coded, versioned,
 /// deliberately high absolute ceiling).
 /// These bound the WIRE MESSAGES themselves (request/result JSON frames, captured stdout/stderr) --
-/// a completely different thing from [`ComposeBudget`]'s logical compile-work caps or this
+/// a completely different thing from `ComposeBudget`'s logical compile-work caps or this
 /// envelope's own wall-clock/RSS fields, all three of which travel INSIDE a request that itself
 /// must first pass these frame-level limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorkerLimits {
-    /// Ceiling on one serialized [`CompileWorkerRequest`] frame's byte length.
+    /// Ceiling on one serialized `CompileWorkerRequest` frame's byte length.
     pub max_request_bytes: u64,
-    /// Ceiling on one serialized [`CompileWorkerResult`] frame's byte length.
+    /// Ceiling on one serialized `CompileWorkerResult` frame's byte length.
     pub max_result_bytes: u64,
     /// Ceiling on total captured stderr bytes the supervisor retains from the child.
     pub max_captured_stderr_bytes: u64,
-    /// Absolute ceiling on a caller-requested wall-clock timeout -- see [`WatchdogEnvelope::clamped`].
+    /// Absolute ceiling on a caller-requested wall-clock timeout -- see `WatchdogEnvelope::clamped`.
     pub max_wall_timeout_ms: u64,
     /// Absolute ceiling on a caller-requested RSS guardrail, in mebibytes.
     pub max_rss_limit_mb: u64,
@@ -152,9 +152,9 @@ pub struct WorkerLimits {
 
 /// Protocol version 1's limits. Deliberately generous relative to this protocol's own content (a
 /// grammar file PATH plus a handful of numeric budget caps for the request; a
-/// [`crate::health::HealthReport`] plus a few counts for the result) -- these bound the wire
+/// `crate::health::HealthReport` plus a few counts for the result) -- these bound the wire
 /// framing itself against a hostile/malformed peer, not the compile work the framed message
-/// describes (that is [`ComposeBudget`]'s job, checked separately, inside the child).
+/// describes (that is `ComposeBudget`'s job, checked separately, inside the child).
 pub const V1_WORKER_LIMITS: WorkerLimits = WorkerLimits {
     max_request_bytes: 4 * 1024 * 1024,         // 4 MiB
     max_result_bytes: 16 * 1024 * 1024,         // 16 MiB
@@ -185,7 +185,7 @@ pub const fn limits_for_version(version: u32) -> Option<WorkerLimits> {
 pub enum FrameError {
     Io(io::Error),
     /// The declared frame length exceeds this protocol version's limit -- returned BEFORE any
-    /// buffer of that size is allocated (see [`read_frame`]'s own doc).
+    /// buffer of that size is allocated (see `read_frame`'s own doc).
     LengthExceedsLimit {
         declared: u64,
         limit: u64,
@@ -239,10 +239,10 @@ fn read_frame<R: Read>(r: &mut R, max_len: u64) -> Result<Vec<u8>, FrameError> {
     Ok(buf)
 }
 
-/// Parses a length-prefixed frame's bytes (already read via [`read_frame`], or accumulated by the
-/// supervisor's capped reader thread) as one `T`. Split out from [`read_frame`] so the supervisor
+/// Parses a length-prefixed frame's bytes (already read via `read_frame`, or accumulated by the
+/// supervisor's capped reader thread) as one `T`. Split out from `read_frame` so the supervisor
 /// can apply the SAME declared-length check to a buffer it accumulated incrementally (see
-/// [`parse_result_frame`]) without re-reading from a live stream.
+/// `parse_result_frame`) without re-reading from a live stream.
 fn decode_frame_body<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, FrameError> {
     serde_json::from_slice(body).map_err(|e| FrameError::Json(e.to_string()))
 }
@@ -251,7 +251,7 @@ fn decode_frame_body<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, Fra
 // Request
 // =================================================================================================
 
-/// Which of `pg-cli`'s three supported grammar-path shapes [`CompileWorkerRequest::grammar_path`]
+/// Which of `pg-cli`'s three supported grammar-path shapes `CompileWorkerRequest::grammar_path`
 /// names (mirrors `pg-cli/src/main.rs::load_grammar`'s own extension dispatch; see this module's
 /// top doc "Documented gap").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,37 +267,37 @@ pub enum GrammarFormat {
 /// grammar-file PATH rather than embedded grammar bytes -- the worker child runs on the same host
 /// and can read the file itself, keeping this frame small (well under [`WorkerLimits::
 /// max_request_bytes`]) regardless of the referenced grammar's own size; the referenced grammar's
-/// CONTENT is exactly what [`ComposeBudget`] and this module's own wall-time/RSS guardrails protect
+/// CONTENT is exactly what `ComposeBudget` and this module's own wall-time/RSS guardrails protect
 /// against, not this small request message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileWorkerRequest {
     pub protocol_version: u32,
     pub grammar_path: String,
     pub grammar_format: GrammarFormat,
-    /// [`ComposeBudget::state_cap`].
+    /// `ComposeBudget::state_cap`.
     pub state_cap: usize,
-    /// [`ComposeBudget::arc_cap`].
+    /// `ComposeBudget::arc_cap`.
     pub arc_cap: usize,
-    /// [`ComposeBudget::tuple_cap`].
+    /// `ComposeBudget::tuple_cap`.
     pub tuple_cap: usize,
-    /// [`ComposeBudget::group_cap`].
+    /// `ComposeBudget::group_cap`.
     pub group_cap: usize,
-    /// [`ComposeBudget::line_cap`].
+    /// `ComposeBudget::line_cap`.
     pub line_cap: usize,
-    /// [`ComposeBudget::chain_depth_cap`] -- `None` (unbounded) by default, mirroring that field's
+    /// `ComposeBudget::chain_depth_cap` -- `None` (unbounded) by default, mirroring that field's
     /// own uncalibrated-default convention (`compose_budget.rs`'s "Chain-depth dimension" doc).
     pub chain_depth_cap: Option<usize>,
-    /// [`ComposeBudget::ordering_multiplicity_cap`].
+    /// `ComposeBudget::ordering_multiplicity_cap`.
     pub ordering_multiplicity_cap: Option<usize>,
 }
 
 impl CompileWorkerRequest {
     /// A request for `grammar_path`/`grammar_format` under this crate's own documented DEFAULT
     /// compose-budget caps (`compose_budget::DEFAULT_*` -- the same defaults
-    /// [`ComposeBudget::from_env`] falls back to when no `HC_COMPOSE_*` env var is set), explicit
+    /// `ComposeBudget::from_env` falls back to when no `HC_COMPOSE_*` env var is set), explicit
     /// rather than reading env itself: the request is the single source of truth for what budget
     /// the CHILD process runs under, so a caller who wants a different envelope should build one
-    /// explicitly (mirrors [`ComposeBudget::with_caps`]'s own "explicit-caps constructors, never env
+    /// explicitly (mirrors `ComposeBudget::with_caps`'s own "explicit-caps constructors, never env
     /// vars" convention one layer down).
     pub fn new(grammar_path: impl Into<String>, grammar_format: GrammarFormat) -> Self {
         CompileWorkerRequest {
@@ -316,8 +316,8 @@ impl CompileWorkerRequest {
         }
     }
 
-    /// Builds the [`ComposeBudget`] this request describes -- what [`run_worker_child`] compiles
-    /// under. Mirrors [`ComposeBudget::from_env`]'s own field-by-field construction, just sourced
+    /// Builds the `ComposeBudget` this request describes -- what `run_worker_child` compiles
+    /// under. Mirrors `ComposeBudget::from_env`'s own field-by-field construction, just sourced
     /// from this request's fields instead of process env.
     pub fn compose_budget(&self) -> ComposeBudget {
         let mut budget = ComposeBudget::with_caps(
@@ -343,21 +343,21 @@ impl CompileWorkerRequest {
 // =================================================================================================
 
 /// One versioned compile-worker result (the child's one write, per the platform-parity contract /
-/// [`run_worker_child`]'s doc).
+/// `run_worker_child`'s doc).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileWorkerResult {
     pub protocol_version: u32,
     pub outcome: CompileWorkerOutcome,
 }
 
-/// Every terminal outcome the CHILD itself can observe and report (see [`WorkerOutcome`] for the
+/// Every terminal outcome the CHILD itself can observe and report (see `WorkerOutcome` for the
 /// outcomes only the PARENT can observe -- a kill, a crash, a flooded pipe).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompileWorkerOutcome {
     /// The compile completed under budget. Carries the compiled network's own final state/arc
-    /// counts (from [`crate::profile::CompileProfile`] -- the same counts
-    /// [`crate::health_evaluator::profile_findings`] already reports against) and the real
-    /// [`HealthReport`] [`crate::health_evaluator::evaluate_health`] produced from this compile's
+    /// counts (from `crate::profile::CompileProfile` -- the same counts
+    /// `crate::health_evaluator::profile_findings` already reports against) and the real
+    /// `HealthReport` `crate::health_evaluator::evaluate_health` produced from this compile's
     /// own measurements.
     Success {
         final_state_count: Option<i64>,
@@ -365,15 +365,15 @@ pub enum CompileWorkerOutcome {
         uncovered_count: usize,
         health: HealthReport,
     },
-    /// A deterministic logical [`ComposeBudget`]/enumeration budget tripped before or during
+    /// A deterministic logical `ComposeBudget`/enumeration budget tripped before or during
     /// compilation (the fast-failure-primacy contract's "primary fast-failure mechanism"). `detail`
     /// is the originating typed
     /// error's own `Display` text (never a re-derived message); `health` is real whenever the
-    /// tripped dimension carries a [`ComposeError`] (today: the ordering-multiplicity dimension,
-    /// [`crate::analyzer::FomaError::UnorderedOrderingMultiplicityExceeded`], the one production
+    /// tripped dimension carries a `ComposeError` (today: the ordering-multiplicity dimension,
+    /// `crate::analyzer::FomaError::UnorderedOrderingMultiplicityExceeded`, the one production
     /// call site that can return a `ComposeError`-backed failure before handing lexc to the foma
-    /// compiler) -- see [`compile_grammar_from_request`]'s own doc for the one documented exception
-    /// ([`crate::analyzer::FomaError::EnumerationBudgetExceeded`] does not expose its originating
+    /// compiler) -- see `compile_grammar_from_request`'s own doc for the one documented exception
+    /// (`crate::analyzer::FomaError::EnumerationBudgetExceeded` does not expose its originating
     /// `EmitReport` through this crate's public API, so that variant's `health` is empty; `detail`
     /// still carries the complete typed information).
     BudgetTripped {
@@ -381,7 +381,7 @@ pub enum CompileWorkerOutcome {
         health: HealthReport,
     },
     /// The emitted lexc source itself failed to compile
-    /// ([`crate::analyzer::FomaError::LexcCompileFailed`]) -- a grammar-content/emitter gap, not a
+    /// (`crate::analyzer::FomaError::LexcCompileFailed`) -- a grammar-content/emitter gap, not a
     /// resource budget.
     CompileFailed {
         detail: String,
@@ -396,7 +396,7 @@ pub enum CompileWorkerOutcome {
 }
 
 /// Loads and compiles `grammar_path` (mirrors `pg-cli::load_grammar`'s three-way extension dispatch
-/// -- see this module's top doc "Documented gap") into a [`pg_grammar::model::Grammar`], returning
+/// -- see this module's top doc "Documented gap") into a `pg_grammar::model::Grammar`, returning
 /// a plain `String` on any failure (this module's own error shape stays a message, matching
 /// `pg-cli::load_grammar`'s own `Result<_, String>` convention one crate over).
 fn load_grammar_for_worker(
@@ -427,12 +427,12 @@ fn load_grammar_for_worker(
 }
 
 /// The child's actual compile step: load `request`'s named grammar, then run
-/// [`crate::analyzer::FomaProposer::new_with_budget_and_profile`] under `request`'s own
-/// [`ComposeBudget`] -- the SAME production constructor `FomaProposer::new_with_profile` calls,
+/// `crate::analyzer::FomaProposer::new_with_budget_and_profile` under `request`'s own
+/// `ComposeBudget` -- the SAME production constructor `FomaProposer::new_with_profile` calls,
 /// just with the budget threaded explicitly instead of read from env (that constructor's own doc:
 /// "what tests call directly... to exercise `FomaError::.. ` deterministically"), so a request that
 /// sets a small `ordering_multiplicity_cap` can trip a REAL
-/// [`ComposeError::OrderingMultiplicityExceeded`] through this crate's real production wiring, not
+/// `ComposeError::OrderingMultiplicityExceeded` through this crate's real production wiring, not
 /// a synthetic stand-in.
 ///
 /// Wraps the compile call in `catch_unwind` -- best-effort panic containment only; see this
@@ -533,13 +533,13 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
     }
 }
 
-/// The worker CHILD's entry point: reads exactly one [`CompileWorkerRequest`] frame from `input`, compiles it,
-/// and writes exactly one [`CompileWorkerResult`] frame to `output`. Never panics on malformed
+/// The worker CHILD's entry point: reads exactly one `CompileWorkerRequest` frame from `input`, compiles it,
+/// and writes exactly one `CompileWorkerResult` frame to `output`. Never panics on malformed
 /// input -- an oversized/malformed request frame is reported as
-/// [`CompileWorkerOutcome::ProtocolViolation`], not a crash, so a hostile/buggy parent still gets a
+/// `CompileWorkerOutcome::ProtocolViolation`, not a crash, so a hostile/buggy parent still gets a
 /// clean typed response instead of an opaque non-zero exit.
 ///
-/// Generic over [`Read`]/[`Write`] so this same function is both the real production child (`io::
+/// Generic over `Read`/`Write` so this same function is both the real production child (`io::
 /// stdin()`/`io::stdout()`, wired by `pg-cli`'s hidden subcommand) and directly unit-testable
 /// in-process against an in-memory buffer (no subprocess needed to test the protocol/compile-outcome
 /// mapping logic; only the supervisor's own kill/timeout/RSS behavior needs a real spawned process,
@@ -611,7 +611,7 @@ fn write_result<W: Write>(output: &mut W, result: &CompileWorkerResult) -> io::R
 // Supervisor (parent side)
 // =================================================================================================
 
-/// The parent-requested wall-time/RSS envelope, clamped to [`WorkerLimits`]' absolute ceilings --
+/// The parent-requested wall-time/RSS envelope, clamped to `WorkerLimits`' absolute ceilings --
 /// contractually clamps excessive values and provides no unlimited setting, applied here to the
 /// watchdog envelope exactly as `compose_budget::clamp_chain_depth_cap` applies
 /// it to the chain-depth dimension.
@@ -623,8 +623,8 @@ pub struct WatchdogEnvelope {
 }
 
 impl WatchdogEnvelope {
-    /// Clamps every field to [`V1_WORKER_LIMITS`]' absolute ceilings/floors -- never rejects, always
-    /// returns a usable envelope (mirrors [`crate::compose_budget::clamp_chain_depth_cap`]'s own
+    /// Clamps every field to `V1_WORKER_LIMITS`' absolute ceilings/floors -- never rejects, always
+    /// returns a usable envelope (mirrors `crate::compose_budget::clamp_chain_depth_cap`'s own
     /// "clamp, don't reject" convention).
     pub fn clamped(
         wall_timeout: Duration,
@@ -661,8 +661,8 @@ pub enum OutputStream {
 }
 
 /// Every terminal outcome the SUPERVISOR (parent) itself observes -- as opposed to
-/// [`CompileWorkerOutcome`], which the child observes and reports about itself. A
-/// [`WorkerOutcome::Completed`] wraps a real [`CompileWorkerOutcome`]; every other variant is an
+/// `CompileWorkerOutcome`, which the child observes and reports about itself. A
+/// `WorkerOutcome::Completed` wraps a real `CompileWorkerOutcome`; every other variant is an
 /// outcome the child never got to report because the supervisor killed it or it never produced a
 /// valid result frame at all.
 #[derive(Debug, Clone)]
@@ -672,7 +672,7 @@ pub enum WorkerOutcome {
     /// The child was killed after `elapsed` exceeded `limit` (the fast-failure-primacy contract's
     /// "the parent wall-time limit remains an outer host-safety watchdog... rather than the normal
     /// compiler-health cutoff"). Never a normal/expected outcome for a well-behaved grammar under its calibrated
-    /// [`ComposeBudget`] -- reaching this means either a genuinely uninstrumented stall or an
+    /// `ComposeBudget` -- reaching this means either a genuinely uninstrumented stall or an
     /// envelope set too small for legitimate work.
     WallTimeoutKilled { elapsed: Duration, limit: Duration },
     /// A sampled RSS reading exceeded `limit_mb`; the child was killed. `sampled_mb` is the
@@ -701,29 +701,29 @@ pub enum WorkerOutcome {
     /// `std::process::Command::spawn` itself failed (e.g. the child executable does not exist) --
     /// distinct from every outcome above, none of which requires a live child process to observe.
     SpawnFailed { detail: String },
-    /// The request could not even be serialized/sized within [`WorkerLimits::max_request_bytes`],
+    /// The request could not even be serialized/sized within `WorkerLimits::max_request_bytes`,
     /// so no child was spawned at all.
     ProtocolViolation { detail: String },
 }
 
 impl WorkerOutcome {
-    /// Maps this outcome into the existing [`HealthReport`]/[`HealthFinding`] vocabulary (the
+    /// Maps this outcome into the existing `HealthReport`/`HealthFinding` vocabulary (the
     /// fast-failure-primacy contract: the report must carry the effective envelope, the reached
     /// metric, and partial measurements where available) -- never a second, parallel report shape.
-    /// [`WorkerOutcome::Completed`] returns
+    /// `WorkerOutcome::Completed` returns
     /// the child's own real report unchanged; every other variant builds ONE synthetic finding
-    /// describing the parent-observed watchdog event, reusing [`FindingCode::ResourceBudgetReached`]
+    /// describing the parent-observed watchdog event, reusing `FindingCode::ResourceBudgetReached`
     /// throughout.
     ///
     /// **Judgment call** (flagged, mirroring this crate's own "Judgment calls" convention in
-    /// `health_evaluator.rs`): [`FindingCode`]'s ten registered codes are all compile/apply-work-
+    /// `health_evaluator.rs`): `FindingCode`'s ten registered codes are all compile/apply-work-
     /// shaped; none names "the parent's own wall-clock kill" or "a flooded output pipe" specifically.
-    /// [`FindingCode::ResourceBudgetReached`] is the closest existing code -- every one of these
+    /// `FindingCode::ResourceBudgetReached` is the closest existing code -- every one of these
     /// outcomes IS a compilation attempt reaching an enforced boundary and stopping, exactly what
     /// that code's own registered meaning says -- reused rather than inventing per-outcome codes
     /// this schema's own "new codes only ever append, chosen to cover every dimension... without
     /// inventing per-construct codes no instrumentation exists to emit yet" discipline would flag as
-    /// premature. [`Metric::SampledCompileRssBytes`] is the one genuinely new [`Metric`] variant
+    /// premature. `Metric::SampledCompileRssBytes` is the one genuinely new `Metric` variant
     /// this module appends (no existing variant names a sampled memory quantity at all -- see that
     /// variant's own doc).
     pub fn health_report(&self) -> HealthReport {
@@ -873,8 +873,8 @@ fn spawn_capped_reader<R: Read + Send + 'static>(
     })
 }
 
-/// Parses an accumulated stdout buffer as one length-prefixed [`CompileWorkerResult`] frame,
-/// applying [`WorkerLimits::max_result_bytes`] the same way [`read_frame`] does for a live stream --
+/// Parses an accumulated stdout buffer as one length-prefixed `CompileWorkerResult` frame,
+/// applying `WorkerLimits::max_result_bytes` the same way `read_frame` does for a live stream --
 /// this is the "already accumulated by a reader thread" sibling of that function.
 fn parse_result_frame(buf: &[u8]) -> Result<CompileWorkerResult, String> {
     if buf.len() < 8 {
@@ -944,11 +944,11 @@ fn classify_exit(
 }
 
 /// The parent-side supervisor (the platform-parity contract's "standard-library
-/// `Child::try_wait`/`Child::kill` wall-time control"): spawns `child_exe child_args...` (expected to eventually call [`run_worker_child`] on
+/// `Child::try_wait`/`Child::kill` wall-time control"): spawns `child_exe child_args...` (expected to eventually call `run_worker_child` on
 /// its own stdin/stdout -- e.g. `pangloss`'s hidden `__compile-worker-child` subcommand, or this
 /// crate's own `worker_test_child` test-support binary), writes `request` to its stdin, and polls
 /// until the child exits or `envelope` is breached -- whichever comes first -- returning exactly one
-/// typed [`WorkerOutcome`].
+/// typed `WorkerOutcome`.
 ///
 /// No Tokio, no process tree, no Job Objects/cgroups (platform parity, above) -- `std::process::Command`/`Child::
 /// try_wait`/`Child::kill` plus two capped reader threads and a `sysinfo` sample per poll tick are
@@ -1244,8 +1244,8 @@ mod tests {
 
     /// A synthetic (delanguaged) grammar with an `Unordered` stratum whose loose-rule count exceeds
     /// a small `ordering_multiplicity_cap` -- the one production call site
-    /// ([`crate::analyzer::FomaProposer::new_with_budget_and_profile`]) that can return a REAL
-    /// [`ComposeError`]-backed failure before ever handing lexc to the foma compiler. Proves
+    /// (`crate::analyzer::FomaProposer::new_with_budget_and_profile`) that can return a REAL
+    /// `ComposeError`-backed failure before ever handing lexc to the foma compiler. Proves
     /// `run_worker_child` maps a genuine budget trip to `CompileWorkerOutcome::BudgetTripped` with a
     /// real, non-empty `HealthReport`, not a synthetic stand-in.
     const UNORDERED_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>WorkerBudgetTripFixture</Name>

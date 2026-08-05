@@ -3,7 +3,7 @@
 //! Faithful behavioral port of C# `RootAllomorphTrie` (`RootAllomorphTrie.cs`) and
 //! `Morpher.SearchRootAllomorphs` (`Morpher.cs:343-347`) + the per-stratum trie construction
 //! (`Morpher.cs:35-48`). Each stratum indexes all of its root allomorphs' segment shapes into a
-//! trie; [`RootAllomorphTrie::search`] walks an input shape's segment nodes through the trie by
+//! trie; `RootAllomorphTrie::search` walks an input shape's segment nodes through the trie by
 //! **feature unification** (not string identity) and yields every matching root allomorph.
 //!
 //! ## Why a direct trie and not `pg-fst`
@@ -21,21 +21,21 @@
 //!    authors zero phonological `<FeatureValue>`s (Sena has no `<PhonologicalFeatureSystem>` at all;
 //!    `XmlLanguageLoader.cs:670-673` passes a non-null fs whenever the feature system is non-empty).
 //!    Sena's every segment lands in that branch, so its phonological lanes are empty and
-//!    [`pg_featstruct::flat_unifiable`] on two empty rows is trivially `true`. A lane-only trie would
+//!    `pg_featstruct::flat_unifiable` on two empty rows is trivially `true`. A lane-only trie would
 //!    therefore merge *all* Sena roots onto one path and return every equal-length root. The Rust
 //!    engine does not model `StrRep`; its faithful analog for a zero-feature grammar is the node's
-//!    `char_def` (a [`pg_grammar::chardef::CharDefId`], whose representations are unique per table).
+//!    `char_def` (a `pg_grammar::chardef::CharDefId`, whose representations are unique per table).
 //!    For a feature-bearing grammar (Indonesian, Amharic, the C# test fixtures) C# attaches **no**
 //!    `StrRep` at all, so two distinct char-defs whose feature structs unify legitimately cross-match
 //!    lexical lookup in C#. `edge_matches`'s build-time
-//!    [`pg_grammar::chardef::CharDefTable::unifiable_cds`] closure (Design A) is the equality-miss
+//!    `pg_grammar::chardef::CharDefTable::unifiable_cds` closure (Design A) is the equality-miss
 //!    fallback that restores this: a bitset probe, consulted only when `char_def` equality itself
 //!    misses, and entirely absent (`None`) for a zero-feature table so Sena/en/sp pay nothing and
 //!    keep the pre-P5 identity-only behavior bit-for-bit.
 //!
 //! So the match predicate is the exact port of C#'s full-`FeatureStruct` unification for concrete
 //! segments: **`char_def` equality, OR closure membership when the table has one (the `StrRep`
-//! analog), AND [`pg_featstruct::flat_unifiable`] on the phonological lanes.** For a zero-phon-feature
+//! analog), AND `pg_featstruct::flat_unifiable` on the phonological lanes.** For a zero-phon-feature
 //! grammar (Sena) this reduces to char-def identity (no closure exists); for a phon-feature grammar
 //! (Indonesian, Amharic) identity is still the fast path but a closure-eligible cross-table/cross-
 //! char-def pair is no longer rejected outright. The trie is keyed on `char_def`, mirroring C#'s
@@ -46,10 +46,10 @@
 //! matching the C# filter `ann.Type() == HCFeatureSystem.Segment` (`Morpher.cs:40`).
 //!
 //! ## M5b invariants introduced by the `char_def` key (C#'s `StrRep` did not have these)
-//! `char_def` ids are **per-table** ([`pg_grammar::chardef::CharDefId`] is a dense per-table
+//! `char_def` ids are **per-table** (`pg_grammar::chardef::CharDefId` is a dense per-table
 //! identity), whereas C#'s `StrRep` is a table-independent string. Two consequences the pipeline
 //! must uphold:
-//! - **Same-table segmentation.** [`RootAllomorphTrie::search`] requires the input shape to be
+//! - **Same-table segmentation.** `RootAllomorphTrie::search` requires the input shape to be
 //!   segmented against the *same stratum's character-definition table* the trie was built from.
 //!   (For Sena and Indonesian all strata share `table1`, so this holds trivially; a
 //!   multi-table grammar must route each shape to its stratum's trie.)
@@ -84,7 +84,7 @@ struct TrieNode {
 ///
 /// Wave-4 (loader N3 end-to-end): a **pattern-derived** root-allomorph node (`[NatClass]` in a
 /// `<PhoneticShape>`, loaded by `pg_grammar::segment::segment_with_patterns`) has
-/// `char_def == NO_CHAR_DEF` and carries its natural class's member set as a [`CdSet`] instead.
+/// `char_def == NO_CHAR_DEF` and carries its natural class's member set as a `CdSet` instead.
 /// Such an edge stores that set here; matching a concrete query segment against it goes by **set
 /// membership** (the `StrRep`-compatibility analog: the set was precomputed as exactly the table
 /// entries the class unifies with — `pg_grammar::segment`'s `nat_class_cd_set`) plus lane
@@ -131,7 +131,7 @@ impl RootAllomorphTrie {
     /// Build the trie for one stratum: index every **non-pattern** root allomorph of every
     /// lexical entry the stratum owns (`Morpher.cs:39-47`). P11 chunk 2: `IsPattern` allomorphs
     /// (`Morpher.cs:43-44`) are diverted into `Morpher.lexical_patterns`
-    /// ([`collect_lexical_patterns`]) instead — mirroring C#'s partition exactly, rather than the
+    /// (`collect_lexical_patterns`) instead — mirroring C#'s partition exactly, rather than the
     /// prior (wrong) "index everything" placeholder this module's doc used to carry. Before this
     /// fix, a lexical-pattern entry (e.g. a bare `[Any]*` root) fell through to a single
     /// mandatory unrestricted trie edge and could match any one-segment word in ordinary
@@ -219,7 +219,7 @@ impl RootAllomorphTrie {
     }
 
     /// Core search over a pre-resolved input `(char_def, lanes)` segment sequence, **all segments
-    /// mandatory** (the internal-unit-test entry point). Delegates to [`Self::search_segs_opt`]
+    /// mandatory** (the internal-unit-test entry point). Delegates to `Self::search_segs_opt`
     /// with `closure = None` — every existing unit test exercises the Sena-regime (no closure)
     /// behavior; the P5 closure-aware unit tests below pass a closure explicitly instead.
     #[cfg(test)]
@@ -229,7 +229,7 @@ impl RootAllomorphTrie {
         self.search_segs_opt(&with_opt, None)
     }
 
-    /// Same as [`Self::search_segs`], but threading an explicit closure (P5, §7.1's unit tests) —
+    /// Same as `Self::search_segs`, but threading an explicit closure (P5, §7.1's unit tests) —
     /// lets a test exercise the equality-miss fallback without needing a real `CharDefTable`.
     #[cfg(test)]
     fn search_segs_with_closure(
@@ -247,7 +247,7 @@ impl RootAllomorphTrie {
     /// Design A, P5 — membership of `cd` in the edge char-def's build-time unifiability closure
     /// (`closure`, `None` for a zero-feature table: Sena/en/sp keep the pre-P5 identity-only
     /// behavior bit-for-bit); for a **pattern-derived** edge (`char_def == NO_CHAR_DEF`, wave-4 /
-    /// loader N3 end-to-end), membership of the query's `char_def` in the edge's stored [`CdSet`]
+    /// loader N3 end-to-end), membership of the query's `char_def` in the edge's stored `CdSet`
     /// (precomputed as exactly the table entries the class unifies with). A `NO_CHAR_DEF` **query**
     /// segment has no literal identity to compare and passes the char-def gate against *any* edge
     /// (its features still gate below) — including a pattern edge, where C# would unify the
@@ -275,7 +275,7 @@ impl RootAllomorphTrie {
     /// preserving C#'s nondeterministic unification traversal; in practice the char-def key makes at
     /// most one edge per node match a concrete segment.
     ///
-    /// A query segment whose `char_def` is [`NO_CHAR_DEF`] has no known literal identity — this is
+    /// A query segment whose `char_def` is `NO_CHAR_DEF` has no known literal identity — this is
     /// this port's analog of a C# node whose `StrRep` feature is left unspecified, which happens for
     /// material an analysis-side phonological rule re-inserted from a **natural-class-only** LHS
     /// (e.g. Indonesian `prule5`'s "Voiceless obstruent deletion" reinstates a deleted segment typed
@@ -304,7 +304,7 @@ impl RootAllomorphTrie {
         let mut active: Vec<usize> = vec![0];
         for (cd, lanes, optional) in segs {
             let mut next: Vec<usize> = Vec::new();
-            // Consume branch: follow matching edges — see [`Self::edge_matches`] for the full
+            // Consume branch: follow matching edges — see `Self::edge_matches` for the full
             // concrete/pattern/wildcard predicate.
             for &node in &active {
                 for e in &self.nodes[node].edges {
@@ -343,9 +343,9 @@ impl RootAllomorphTrie {
 /// The `(char_def, phon-lanes, cd_set)` sequence of a shape's `Segment` nodes, resolving lanes from
 /// the char-def table (root allomorph shapes are stored feature-less, `feat_width == 0`).
 /// Boundaries and anchors are skipped (the C# `Segment`-only filter, `Morpher.cs:40`). A
-/// pattern-derived node (`char_def == NO_CHAR_DEF`, loader N3) contributes its stored [`CdSet`]
+/// pattern-derived node (`char_def == NO_CHAR_DEF`, loader N3) contributes its stored `CdSet`
 /// (the class's member set); a concrete node's set is never consulted (implicit singleton), stored
-/// as the free [`CdSet::Unrestricted`].
+/// as the free `CdSet::Unrestricted`.
 fn shape_segments(
     shape: &Shape,
     table: &CharDefTable,
@@ -399,7 +399,7 @@ fn char_def_lanes(table: &CharDefTable, cd: u32, feat_width: usize) -> Vec<u64> 
 }
 
 /// All strata's root-allomorph tries, built once (C# `Morpher._allomorphTries`, `Morpher.cs:35-48`).
-/// [`RootAllomorphIndex::search`] is the M5b pipeline entry — the Rust analog of
+/// `RootAllomorphIndex::search` is the M5b pipeline entry — the Rust analog of
 /// `Morpher.SearchRootAllomorphs(stratum, shape)` (`Morpher.cs:343-347`).
 #[derive(Debug)]
 pub struct RootAllomorphIndex {
@@ -440,7 +440,7 @@ impl RootAllomorphIndex {
 }
 
 /// All lexical-pattern root allomorphs, flat across every stratum, in document order — the exact
-/// counterpart of the exclusion [`RootAllomorphTrie::build`] now applies, mirroring C#'s single
+/// counterpart of the exclusion `RootAllomorphTrie::build` now applies, mirroring C#'s single
 /// `_lexicalPatterns` list built across all strata (`Morpher.cs:74-85`). Consumed by the guess
 /// subsystem (P11 chunks 3-5, `Morpher.lexical_patterns`); inert until then.
 pub fn collect_lexical_patterns(grammar: &Grammar) -> Vec<(AllomorphId, LexEntryId)> {

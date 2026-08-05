@@ -1,7 +1,7 @@
 //! Affix rules: concatenative (`MoAffixAllomorph`/plain-form) allomorphs
 //! (`LoadFormAffixProcessAllomorph`, HCLoader.cs:1441-1613, non-bracket branch only — bracket/
 //! reduplication forms are not implemented) and `MoAffixProcess`-style allomorphs
-//! (`LoadAffixProcessAllomorph`, HCLoader.cs:1334-1439), assembled into one [`AffixProcessRuleDef`]
+//! (`LoadAffixProcessAllomorph`, HCLoader.cs:1334-1439), assembled into one `AffixProcessRuleDef`
 //! per (entry, MSA) pair (`LoadDerivAffixProcessRule`/`LoadInflAffixProcessRule`/
 //! `LoadUnclassifiedAffixProcessRule`, HCLoader.cs:926-1028).
 //!
@@ -51,7 +51,7 @@ fn shape_of(mt: MorphType) -> Option<Shape> {
     }
 }
 
-/// Build the [`MorphRuleDef::AffixProcess`] for one (entry, MSA) pair, mirroring
+/// Build the `MorphRuleDef::AffixProcess` for one (entry, MSA) pair, mirroring
 /// `LoadMorphologicalRule`'s dispatch (HCLoader.cs:877-908). Returns `None` if the rule ends up
 /// with zero loadable allomorphs (`AddMorphologicalRule`'s guard, HCLoader.cs:916-924) — never an
 /// error; every dropped allomorph is a pushed warning instead.

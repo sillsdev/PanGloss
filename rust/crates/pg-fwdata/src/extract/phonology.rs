@@ -137,7 +137,7 @@ fn code_representations(ctx: &mut Ctx, rec: &Record, label: &str) -> Vec<pg_snap
 }
 
 /// The first `PhCode`'s representation for a phoneme/boundary-marker guid, used only by
-/// [`crate::extract::lexicon`] to build `MoInsertPhones`' concatenated literal string
+/// `crate::extract::lexicon` to build `MoInsertPhones`' concatenated literal string
 /// (`HCLoader.cs:1388-1406`: `termUnit.CodesOS[0]`, vernacular-default for phonemes /
 /// best-vernacular for boundary markers).
 pub(crate) fn first_code_representation(ctx: &mut Ctx, guid: &str) -> Option<String> {
@@ -495,7 +495,7 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
     })
 }
 
-/// Resolve a `PhContextOrVar` guid into a [`PhonContext`] tree. Shared by phonological
+/// Resolve a `PhContextOrVar` guid into a `PhonContext` tree. Shared by phonological
 /// rules/environments (this module) and `MoAffixProcess.InputOS` (`extract::lexicon`) — mirrors
 /// `HCLoader.LoadPatternNode`, HCLoader.cs:2313-2389.
 pub(crate) fn resolve_phon_context(ctx: &mut Ctx, guid: &str, label: &str) -> Option<PhonContext> {

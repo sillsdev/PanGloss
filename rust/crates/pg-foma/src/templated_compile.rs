@@ -142,7 +142,7 @@ pub fn compile_templated_morphotactics(
         .join(", ");
     let started = Instant::now();
     // A grammar with NO boundary char-defs has nothing to delete, and `cleanup_regex` is then the
-    // empty string -- which [`foma::regex::fsm_parse_regex`] rejects, so this path used to fail with
+    // empty string -- which `foma::regex::fsm_parse_regex` rejects, so this path used to fail with
     // `CleanupCompileFailed("")` on any boundary-free grammar. Measured: two synthetic conformance
     // fixtures were unbuildable for exactly this reason, having never been run through this compiler
     // (its only prior callers were the P6 gate and its own tests, all on grammars that do declare

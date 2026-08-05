@@ -1,7 +1,7 @@
 //! Ports `CompoundingRuleTests` (parse-opt: `tests/SIL.Machine.Morphology.HermitCrab.Tests/
 //! MorphologicalRules/CompoundingRuleTests.cs`) bucket-B rows per
 //! `rust/parity-out/audit/phase2/D-test-coverage-map.md` §3. `ProdRestrictRule` (D-batch-3,
-//! formerly scope-cut) is now ported too — see [`prod_restrict_rule`]; the
+//! formerly scope-cut) is now ported too — see `prod_restrict_rule`; the
 //! `HeadProdRestrictionsMprFeatures`/`NonHeadProdRestrictionsMprFeatures`/
 //! `OutputProdRestrictionsMprFeatures` gates it exercises turned out to already be implemented
 //! (`pg-rules/src/morph.rs`'s `compound_match` sites), so the port was pure test-writing (its
@@ -19,12 +19,12 @@
 //! but hardcoding it in `pg_parse::Morpher` also dropped C#'s configurability, which is what
 //! actually blocked a genuine 3-stem compound (a real, supported C# construct, not a design gap).
 //! `Morpher` now carries a `max_stem_count` field (default `2`, unchanged) plus a builder,
-//! [`Morpher::with_max_stem_count`], mirroring C#'s `new Morpher(...) { MaxStemCount = 3 }` usage
+//! `Morpher::with_max_stem_count`, mirroring C#'s `new Morpher(...) { MaxStemCount = 3 }` usage
 //! exactly (see `pg-parse/src/morpher.rs`'s field doc on `max_stem_count` for the full citation
 //! trail and the "never explode" argument -- the existing per-`parse_word` step budget/timeout
 //! already bounds every candidate regardless of this gate's value). The two below,
-//! [`simple_rules_4_three_root_compound_single_rule`] and
-//! [`simple_rules_5_three_root_compound_two_rules`], port `SimpleRules`' previously-omitted final
+//! `simple_rules_4_three_root_compound_single_rule` and
+//! `simple_rules_5_three_root_compound_two_rules`, port `SimpleRules`' previously-omitted final
 //! reconfiguration (cs:76-108) now that the knob exists.
 //!
 //! Two further findings surfaced while porting the remaining `SimpleRules` reconfigurations:
@@ -66,7 +66,7 @@ const SIMPLE_RULES_MRULES_1: &str = r#"
 /// Ports `CompoundingRuleTests.SimpleRules` reconfiguration 1 (CompoundingRuleTests.cs:13-29):
 /// head+"+"+nonHead order. The negative checks (a nonhead/head that doesn't structurally match) are
 /// live; the positive homophone-disjunction assertion is in
-/// [`simple_rules_1_homophone_disjunction_finding`].
+/// `simple_rules_1_homophone_disjunction_finding`.
 #[test]
 fn simple_rules_1_negative_cases() {
     let g1 = build_grammar("", "", SIMPLE_RULES_MRULES_1, "mrC", "");
@@ -166,7 +166,7 @@ fn simple_rules_2_negative_cases() {
 /// `5+PAST+9|(pʰ)ut+?di+?dat` -- pinned in `rust/conformance/compounding/prefix-commute/`.
 ///
 /// The root assertion is C#'s `AssertRootAllomorphsEquals(output, "9")` -- the HEAD root, which
-/// here is the LAST morpheme of the surface-ordered join, so [`root_gloss_set`] (first-morpheme
+/// here is the LAST morpheme of the surface-ordered join, so `root_gloss_set` (first-morpheme
 /// heuristic, correct only for head-first compounds) cannot express it; asserted via
 /// `WordAnalysis::root_morpheme_index` instead.
 #[test]
@@ -328,7 +328,7 @@ fn prod_restrict_grammar(rule_mpr_attrs: &str, e5_attrs: &str, e8_attrs: &str) -
 /// step 5):
 /// 1. no restrictions — parses as C# does: both dat homophones, {"5 8", "5 9"} (P4:
 ///    previously pinned at the known-collapsed {"5 8"} only, tracking the
-///    [`simple_rules_1_homophone_disjunction_finding`] engine finding this step shared — now fixed,
+///    `simple_rules_1_homophone_disjunction_finding` engine finding this step shared — now fixed,
 ///    see that test's doc comment for the root cause and repair).
 /// 2. `headProdRestrictionsMprFeatures` set, no entry carries the feature — no parse.
 /// 3. + entry `5` (the head root) carries it — parses again, both homophones: {"5 8", "5 9"}.
@@ -404,12 +404,12 @@ const RULE1_HEAD_NONHEAD_MAX_APP_2: &str = r#"
 
 /// Ports `CompoundingRuleTests.SimpleRules` cs:76-90: ONE self-recursive compounding rule
 /// (`rule1.MaxApplicationCount = 2`, head+"+"+nonHead order — the same shape as
-/// [`SIMPLE_RULES_MRULES_1`]) over a genuine 3-root word, `morpher = new Morpher(...) { MaxStemCount
+/// `SIMPLE_RULES_MRULES_1`) over a genuine 3-root word, `morpher = new Morpher(...) { MaxStemCount
 /// = 3 }`. Analysis: outer split head="pʰutdat"/nonHead="pip"(41, a bare root), then rule1
 /// self-applies a SECOND time on the head (`NonHeadCount+1 == 2 < MaxStemCount(3)`, and rule1's own
 /// `MaxApplicationCount == 2` is not yet exceeded) splitting head="pʰut"(5)/nonHead="dat"(8 or 9) --
 /// exactly C#'s `MaxStemCount` depth gate letting a 2nd compounding-rule unapplication through.
-/// Root stays "5" (the ultimate head chain), so [`root_gloss_set`]'s first-morpheme heuristic
+/// Root stays "5" (the ultimate head chain), so `root_gloss_set`'s first-morpheme heuristic
 /// applies here (head-first order throughout).
 #[test]
 fn simple_rules_4_three_root_compound_single_rule() {
@@ -447,13 +447,13 @@ const TWO_RULES_HEAD_NONHEAD_AND_NONHEAD_HEAD: &str = r#"
 /// from two DIFFERENT rules (each individually still capped at 1 application), rather than one rule
 /// re-entering itself. `AssertRootAllomorphsEquals(output, "8", "9")` (cs:108): the root is now
 /// `rule1`'s head position at the INNER split ("dat"), not the outer word's first morpheme --
-/// [`root_gloss_set`]'s first-morpheme heuristic does not apply here (same reason
-/// [`simple_rules_3_prefix_commutes_with_compounding`] uses `root_morpheme_index` instead), so this
+/// `root_gloss_set`'s first-morpheme heuristic does not apply here (same reason
+/// `simple_rules_3_prefix_commutes_with_compounding` uses `root_morpheme_index` instead), so this
 /// asserts via that index directly, exactly as that test does.
 ///
 /// Note: `AssertMorphsEqual`/`AssertRootAllomorphsEquals` are both defined over a C# `HashSet`/
 /// `.Distinct()` (`HermitCrabTestBase.cs:869-887`, `CompoundingRuleTests.cs:241-244`) -- set
-/// membership only, not raw analysis *count* -- matching [`assert_morphs_eq`]/this test's own
+/// membership only, not raw analysis *count* -- matching `assert_morphs_eq`/this test's own
 /// root-set check, both of which dedupe the same way. Rust may (and empirically does) surface the
 /// same final compound via more than one derivation history when two distinct rules can each supply
 /// either split point in an unordered cascade; that duplication is exactly as C#-faithful as the

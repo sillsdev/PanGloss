@@ -8,13 +8,13 @@
 //! not allowed to change (plan §8).
 //!
 //! ## Representation split
-//! - [`SymbolBits`] is one symbolic feature's allowed-symbol set: bit `i` = the symbol with
+//! - `SymbolBits` is one symbolic feature's allowed-symbol set: bit `i` = the symbol with
 //!   `Index i`. It is a plain `u64` newtype (8 bytes, `Copy`); the per-feature *mask* (which
 //!   depends on the feature's symbol count) is **not** stored here — it lives in grammar-tier
 //!   feature metadata and is passed into the ops that need it (`not`/`Not`/`has_all`). This
 //!   mirrors C#'s `_mask` field while keeping the value type minimal and cache-friendly.
 //! - A whole segment-domain FS is a lane array (`&[u64]`), one lane per symbolic feature indexed
-//!   by `FlatIndex`. [`flat_unifiable`] is the hot-path operation. An absent lane (index beyond
+//!   by `FlatIndex`. `flat_unifiable` is the hot-path operation. An absent lane (index beyond
 //!   the slice) is unconstrained = all-ones, exactly as C#'s `EnsureFlat` seeds `ulong.MaxValue`.
 
 /// Full mask for a symbolic feature with `count` possible symbols (`0..=64`).
@@ -205,7 +205,7 @@ impl SymbolBits {
 /// Whole-FS bit-packed unifiability fast path — the port of C# `FeatureStruct.TryFastUnifiable`.
 ///
 /// `seg` is the segment being matched (a shape node's feature lanes); `constraint` is the FST
-/// arc input's lanes. Each lane is one symbolic feature's [`SymbolBits`] indexed by `FlatIndex`;
+/// arc input's lanes. Each lane is one symbolic feature's `SymbolBits` indexed by `FlatIndex`;
 /// a lane beyond a slice's length is *unconstrained* (all-ones), matching C#'s `EnsureFlat`
 /// seeding absent features to `ulong.MaxValue`.
 ///

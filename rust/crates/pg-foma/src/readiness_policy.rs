@@ -9,15 +9,15 @@
 //! own "define the versioned schema first" precedent.
 //!
 //! # Calibration is a first-class field, not a doc comment
-//! Every threshold value carries a [`Calibration`] tag: [`Calibration::Measured`] (backed by real,
-//! cited evidence) or [`Calibration::Placeholder`] (explicitly un-calibrated, with a rationale for
+//! Every threshold value carries a `Calibration` tag: `Calibration::Measured` (backed by real,
+//! cited evidence) or `Calibration::Placeholder` (explicitly un-calibrated, with a rationale for
 //! why the chosen number is not arbitrary even though it is not yet evidence-backed). This is the
 //! same discipline `compose_budget.rs`'s "conservative placeholder pending real-grammar
 //! measurement" / `preflight.rs`'s provisional-bound comments already use: provisional values
 //! must never be presented as release policy without being flagged as such —
 //! made machine-readable here so a report can never silently launder a placeholder
 //! into a value that merely *looks* measured. Never invent a number that looks authoritative: every
-//! [`Calibration::Placeholder`] below names exactly why it has no evidence yet.
+//! `Calibration::Placeholder` below names exactly why it has no evidence yet.
 //!
 //! # Today's seed values (policy v1) and what backs each one
 //! - **`device_class`**: named as `"dev-workstation-v1"` — the exact machine/configuration
@@ -29,7 +29,7 @@
 //!   exists to refuse. A certificate under this policy version is scoped to this workstation class
 //!   and must not be read as evidence about any other device class: no silent
 //!   generalization beyond it.
-//! - **Latency (p50/p90/p99), [`Calibration::Measured`]**: grounded in two real sources — (1)
+//! - **Latency (p50/p90/p99), `Calibration::Measured`**: grounded in two real sources — (1)
 //!   `docs/benchmark-matrix.md`'s one force-compiled data point (Indonesian, `--allow-unproven`:
 //!   p50 `<1`ms, p95 1ms, p99 1ms, max 8ms — reported there as force-compiled, not certified), and
 //!   (2) the typology-speedup harness's own compiled-engine column (`rust/tools/
@@ -42,23 +42,23 @@
 //!   because the numbers ARE real measurements, honestly scoped to this policy's own
 //!   `dev-workstation-v1` device class (the class those numbers were actually taken on) rather than
 //!   projected onto a device nobody has benchmarked.
-//! - **`pack_size_max_bytes`, [`Calibration::Placeholder`]**: no full-scale (10^4-10^5 entry) pack
+//! - **`pack_size_max_bytes`, `Calibration::Placeholder`**: no full-scale (10^4-10^5 entry) pack
 //!   has ever been built and measured end-to-end, so there is no real evidence to calibrate a
 //!   device-storage-appropriate cap against. Borrows `crate::health::severity_for_size_bytes`'s own
 //!   Warning/Error band edge (100,000,000 bytes) as a starting reference point ONLY, because
 //!   that is the one artifact-size policy already declared anywhere in this repo — not itself
 //!   derived from a device memory/storage budget.
-//! - **`lexicon_min_entries`, [`Calibration::Placeholder`]**: no full-scale reference grammar has
+//! - **`lexicon_min_entries`, `Calibration::Placeholder`**: no full-scale reference grammar has
 //!   been compiled and certified end-to-end yet (a 10^4-10^5
 //!   entry design target is a goal, not a measurement). Seeded low (1,000) as a clearly-provisional
 //!   floor pending a real study, not a claimed target.
-//! - **`coverage_min_analysis_rate`, [`Calibration::Placeholder`]**: no held-out corpus has ever
+//! - **`coverage_min_analysis_rate`, `Calibration::Placeholder`**: no held-out corpus has ever
 //!   been measured against any grammar under this scheme. 0.90 is a conventional discussion-starter
 //!   bar, not derived from evidence.
 //!
 //! # Versioning
-//! [`THRESHOLD_POLICY_SCHEMA_VERSION`] is this module's own wire-shape version (bumped only on a
-//! wire-incompatible change to [`ThresholdPolicy`]'s shape); [`ThresholdPolicy::policy_id`] is the
+//! `THRESHOLD_POLICY_SCHEMA_VERSION` is this module's own wire-shape version (bumped only on a
+//! wire-incompatible change to `ThresholdPolicy`'s shape); `ThresholdPolicy::policy_id` is the
 //! POLICY-CONTENT version a verdict cites (bumped whenever the seeded *values* change, independent
 //! of the wire shape) — mirroring `pg-pack::manifest`'s own two-independent-version convention
 //! (`MANIFEST_SCHEMA_VERSION` vs. `RequiredRuntimeFeatures::payload_format_version`).
@@ -66,7 +66,7 @@
 use serde::{Deserialize, Serialize};
 
 /// This module's own wire-shape version. Bump only on a wire-incompatible change to
-/// [`ThresholdPolicy`]/[`Calibration`]/[`Threshold`]'s shape.
+/// `ThresholdPolicy`/`Calibration`/`Threshold`'s shape.
 pub const THRESHOLD_POLICY_SCHEMA_VERSION: u32 = 1;
 
 /// Whether a threshold's value is backed by real, cited measurement, or is an explicitly-marked,
@@ -86,7 +86,7 @@ pub enum Calibration {
 }
 
 impl Calibration {
-    /// `true` for [`Calibration::Placeholder`] — the un-calibrated case a report must surface
+    /// `true` for `Calibration::Placeholder` — the un-calibrated case a report must surface
     /// plainly rather than silently rendering identically to a measured value.
     pub fn is_placeholder(&self) -> bool {
         matches!(self, Calibration::Placeholder { .. })
@@ -105,7 +105,7 @@ impl Calibration {
     }
 }
 
-/// One threshold value, paired with the [`Calibration`] that justifies it. Generic so the same
+/// One threshold value, paired with the `Calibration` that justifies it. Generic so the same
 /// shape covers byte counts, entry counts, rates, and millisecond durations without four
 /// near-identical structs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -122,7 +122,7 @@ impl<T> Threshold<T> {
 
 /// The declared, versioned threshold policy: pack size, lexicon scale, token analysis rate, and
 /// p50/p90/p99 latency against a named device class. A [`crate::
-/// readiness_verdict::ReadinessReport`] records [`ThresholdPolicy::policy_id`] so an older
+/// readiness_verdict::ReadinessReport`] records `ThresholdPolicy::policy_id` so an older
 /// certificate stays interpretable after the numbers move.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ThresholdPolicy {
@@ -142,7 +142,7 @@ pub struct ThresholdPolicy {
     /// Minimum lexicon scale, in lexical entries.
     pub lexicon_min_entries: Threshold<u64>,
     /// Minimum token-level analysis rate (fraction of tokens receiving at least one analysis,
-    /// `0.0..=1.0`) on a held-out corpus. See [`crate::readiness_verdict`]'s own doc for why this
+    /// `0.0..=1.0`) on a held-out corpus. See `crate::readiness_verdict`'s own doc for why this
     /// is never worded as accuracy.
     pub coverage_min_analysis_rate: Threshold<f64>,
     /// Maximum p50 (median) per-word latency, in milliseconds, against `device_class`.
@@ -283,8 +283,8 @@ mod tests {
         assert_eq!(policy.to_canonical_json(), policy.to_canonical_json());
     }
 
-    /// Gate: every threshold in the seeded policy carries an explicit [`Calibration`], and every
-    /// [`Calibration::Placeholder`] names a non-empty rationale, every [`Calibration::Measured`]
+    /// Gate: every threshold in the seeded policy carries an explicit `Calibration`, and every
+    /// `Calibration::Placeholder` names a non-empty rationale, every `Calibration::Measured`
     /// names a non-empty citation -- "never invent a number that merely looks authoritative" is
     /// unenforceable by the type system alone (a caller could still write `rationale: ""`), so this
     /// test pins that today's real seed values actually satisfy the discipline the module doc

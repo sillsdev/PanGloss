@@ -17,7 +17,7 @@ use crate::error::{
 };
 
 /// Opaque handle type in the C ABI (`typedef void* HcGrammarHandle;`). Actually a
-/// `Box<GrammarHandle>` leaked via [`Box::into_raw`]; reclaimed by [`hc_grammar_free`].
+/// `Box<GrammarHandle>` leaked via `Box::into_raw`; reclaimed by `hc_grammar_free`.
 pub type HcGrammarHandle = *mut std::ffi::c_void;
 
 /// Matches the Indonesian parity-gate configuration already established by the M6/M7 work
@@ -66,7 +66,7 @@ impl FomaState {
 /// `Morpher<'g>` borrows the `Grammar` it parses against; to store both in one heap allocation
 /// behind an opaque C pointer, `grammar` is boxed first (a stable heap address that does not move
 /// even if this outer struct is moved — only the `Box`'s pointer moves), and `morpher` holds a
-/// `'static`-lifetime-erased reference into it, constructed once in [`GrammarHandle::new`] and
+/// `'static`-lifetime-erased reference into it, constructed once in `GrammarHandle::new` and
 /// never re-pointed. This is sound because:
 /// - the boxed `Grammar` is never mutated or moved out of this struct after construction, so its
 ///   heap address is stable for the handle's whole lifetime;
@@ -639,7 +639,7 @@ const _: fn() = || {
 /// `xml_utf8` must point to `len` readable bytes (or `len == 0`, in which case it may be null);
 /// `out` and `err` must each be a valid pointer to storage for their respective out-types, valid
 /// for the duration of the call. On success, `*out` receives a handle that must eventually be
-/// passed to [`hc_grammar_free`] exactly once.
+/// passed to `hc_grammar_free` exactly once.
 #[no_mangle]
 pub unsafe extern "C" fn hc_grammar_load(
     xml_utf8: *const u8,
@@ -699,7 +699,7 @@ pub unsafe extern "C" fn hc_grammar_load(
 }
 
 /// `hc_grammar_free(HcGrammarHandle)` (plan §4.2). Reclaims the handle built by
-/// [`hc_grammar_load`]. A null handle is a no-op. Wrapped in `catch_unwind` per plan §8 layer 7
+/// `hc_grammar_load`. A null handle is a no-op. Wrapped in `catch_unwind` per plan §8 layer 7
 /// even though this path is not expected to panic — every entry point gets the same treatment,
 /// not just the ones judged risky, since that judgment is exactly what a regression would
 /// invalidate.

@@ -3,23 +3,23 @@
 //! This module replaces what would otherwise be a monolithic engine-compatibility-identifier
 //! **equality** check with a load-time containment check: a pack's manifest stamps the
 //! **required** runtime-feature set it was built against; this Runtime declares the **provided**
-//! set it actually supports ([`provided_runtime_features`]); the pack loads iff
-//! `required ⊆ provided` ([`pg_pack::RequiredRuntimeFeatures::satisfied_by`], reused verbatim —
+//! set it actually supports (`provided_runtime_features`); the pack loads iff
+//! `required ⊆ provided` (`pg_pack::RequiredRuntimeFeatures::satisfied_by`, reused verbatim —
 //! this module never reimplements the containment logic itself, only supplies this Runtime's own
 //! `provided` side of it and the load-time call site). Because `provided` is append-only, an old
 //! pack keeps loading on every newer build of this Runtime unchanged; only a pack that requires a
-//! feature this build genuinely lacks is refused, with a typed [`PackLoadError`], never a crash
+//! feature this build genuinely lacks is refused, with a typed `PackLoadError`, never a crash
 //! and never a version-equality mismatch.
 //!
-//! [`load_pack`] also surfaces, at load time, the two other signals the pack manifest
-//! carries: the [`pg_pack::CapabilityTrust`] stamp (a pack force-compiled past a
+//! `load_pack` also surfaces, at load time, the two other signals the pack manifest
+//! carries: the `pg_pack::CapabilityTrust` stamp (a pack force-compiled past a
 //! characteristics-check refusal is indelibly `Overridden`/unproven, and still loads — see
-//! [`LoadedPack::is_unproven`] — the degraded-trust *signal*, not a refusal, is the safety
-//! mechanism) and the pack's [`pg_pack::SignatureState`] (reported for the caller's information
-//! only; it never gates a load, exactly as [`pg_pack::read_pack`] itself already
-//! guarantees). The FST-health admission field is [`pg_foma::health::HealthReport`] reused
-//! verbatim through [`pg_pack::PackManifest::fst_health`] — this module does not redefine, re-
-//! derive, or duplicate that schema; see [`LoadedPack::fst_health_admission`].
+//! `LoadedPack::is_unproven` — the degraded-trust *signal*, not a refusal, is the safety
+//! mechanism) and the pack's `pg_pack::SignatureState` (reported for the caller's information
+//! only; it never gates a load, exactly as `pg_pack::read_pack` itself already
+//! guarantees). The FST-health admission field is `pg_foma::health::HealthReport` reused
+//! verbatim through `pg_pack::PackManifest::fst_health` — this module does not redefine, re-
+//! derive, or duplicate that schema; see `LoadedPack::fst_health_admission`.
 //!
 //! # Analysis-only boundary
 //! This module depends only on `pg_pack` (plain data types: manifest, compat, trust) and reuses
@@ -57,9 +57,9 @@ pub use pg_foma::peel::RUNTIME_FEATURE_REDUPLICATION_PEEL as OP_REDUPLICATION_PE
 /// derived from this build itself:
 ///
 /// - `payload_format_versions`: every `.pgpack` container framing version this build's
-///   [`pg_pack::read_pack`] understands (currently just [`pg_pack::CONTAINER_VERSION`]).
+///   `pg_pack::read_pack` understands (currently just `pg_pack::CONTAINER_VERSION`).
 /// - `runtime_operations`: stable operation identifiers this build's analysis pipeline actually
-///   implements (today: [`OP_REDUPLICATION_PEEL`], backing `pg_foma::peel::ReduplicationPeeler`).
+///   implements (today: `OP_REDUPLICATION_PEEL`, backing `pg_foma::peel::ReduplicationPeeler`).
 /// - `foma_feature_level`/`hc_port_semver`: this build's own foma-feature level and this crate's
 ///   own semantic version (`CARGO_PKG_VERSION_*`, read at compile time) as the Rust-HermitCrab
 ///   port version.
@@ -102,13 +102,13 @@ fn this_crate_semver() -> (u32, u32, u32) {
     )
 }
 
-/// Every typed failure [`load_pack`] can return. Never a panic; a caller (native or, via
+/// Every typed failure `load_pack` can return. Never a panic; a caller (native or, via
 /// `PgPack`'s wasm-bindgen wrapper below, JS) always gets one of these back instead of a crash or
 /// a silently-accepted incompatible pack.
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum PackLoadError {
     /// The container itself failed to parse/validate (bad magic, unsupported version, oversize or
-    /// truncated section, digest or fingerprint mismatch, ...) — see [`pg_pack::PgPackError`].
+    /// truncated section, digest or fingerprint mismatch, ...) — see `pg_pack::PgPackError`.
     /// Independent of runtime-feature compatibility: a structurally invalid package never reaches
     /// the containment check at all.
     #[error("pack container invalid: {0}")]
@@ -117,7 +117,7 @@ pub enum PackLoadError {
     /// subset of this Runtime's `provided` set. Carries both sides so a caller can report exactly
     /// what is missing (e.g. "upgrade PanGloss to run this grammar") rather than a bare boolean.
     /// Boxed (clippy `result_large_err`): both feature-set structs carry several `Vec<String>`
-    /// fields, which would otherwise make every [`PackLoadError`] as large as this, the biggest,
+    /// fields, which would otherwise make every `PackLoadError` as large as this, the biggest,
     /// variant -- even the common `Container` case.
     #[error(
         "pack requires a runtime-feature set this Runtime build does not fully provide: \
@@ -130,8 +130,8 @@ pub enum PackLoadError {
 }
 
 /// A `.pgpack` that has passed both the container's own structural validation
-/// ([`pg_pack::read_pack`]) and this Runtime's `required ⊆ provided` containment check.
-/// Carries everything [`load_pack`]'s caller needs to surface the trust signal and the
+/// (`pg_pack::read_pack`) and this Runtime's `required ⊆ provided` containment check.
+/// Carries everything `load_pack`'s caller needs to surface the trust signal and the
 /// FST-health admission alongside the raw parsed manifest and payload bytes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedPack {
@@ -139,16 +139,16 @@ pub struct LoadedPack {
     pub runtime_payload: Vec<u8>,
     pub foma_payload: Vec<u8>,
     /// Reported for the caller's information only — signature state never gates a load, so
-    /// this is present on every [`LoadedPack`] regardless of its value, exactly as
-    /// [`pg_pack::ReadPack::signature_state`] already guarantees at the container level.
+    /// this is present on every `LoadedPack` regardless of its value, exactly as
+    /// `pg_pack::ReadPack::signature_state` already guarantees at the container level.
     pub signature_state: SignatureState,
 }
 
 impl LoadedPack {
     /// The pack-level degraded-trust signal: `true` iff this pack was force-compiled past
     /// a characteristics-check refusal via the capability override
-    /// ([`pg_pack::CapabilityTrust::Overridden`]). A consuming application keys its "this is
-    /// potentially broken" banner off this at load time. See [`LoadedPack::analysis_trust_flag`]
+    /// (`pg_pack::CapabilityTrust::Overridden`). A consuming application keys its "this is
+    /// potentially broken" banner off this at load time. See `LoadedPack::analysis_trust_flag`
     /// for the same signal reused as the per-analysis-result flag.
     pub fn is_unproven(&self) -> bool {
         self.manifest.capability_trust.is_unproven()
@@ -157,7 +157,7 @@ impl LoadedPack {
     /// The per-analysis-result degraded/experimental flag this pack's "two-level" trust signal
     /// names: at load, the pack reports pack-level `unproven`/`overridden` status; on every
     /// analysis, each result carries a degraded/experimental flag. Identical truth value to
-    /// [`LoadedPack::is_unproven`] today — a pack's trust stamp is a single pack-wide fact, so
+    /// `LoadedPack::is_unproven` today — a pack's trust stamp is a single pack-wide fact, so
     /// every analysis drawn from the same pack necessarily carries the same flag — kept as its own
     /// named accessor so the eventual per-word analysis result type (not yet wired)
     /// has one obvious call to copy onto itself rather than reaching into `manifest` directly.
@@ -165,9 +165,9 @@ impl LoadedPack {
         self.is_unproven()
     }
 
-    /// The override record when [`LoadedPack::is_unproven`] is `true` — who authorized
+    /// The override record when `LoadedPack::is_unproven` is `true` — who authorized
     /// the override, why, and exactly which fail-closed configurations were force-compiled through
-    /// (`None` for a cleanly [`pg_pack::CapabilityTrust::Proven`] pack).
+    /// (`None` for a cleanly `pg_pack::CapabilityTrust::Proven` pack).
     pub fn override_record(&self) -> Option<&pg_pack::CapabilityOverrideRecord> {
         match &self.manifest.capability_trust {
             CapabilityTrust::Proven => None,
@@ -177,7 +177,7 @@ impl LoadedPack {
 
     /// The FST-health "admission result" (`pg_foma::health::HealthReport::admission`,
     /// reused verbatim — this module never redefines or re-derives the health schema). The worst non-overridden severity
-    /// among this pack's FST-health findings; [`pg_foma::health::Severity::Ideal`] for an empty or
+    /// among this pack's FST-health findings; `pg_foma::health::Severity::Ideal` for an empty or
     /// fully-overridden report.
     pub fn fst_health_admission(&self) -> pg_foma::health::Severity {
         self.manifest.fst_health.admission()
@@ -186,11 +186,11 @@ impl LoadedPack {
 
 /// Loads and validates one `.pgpack` container against this Runtime build's own provided
 /// runtime-feature set: first the container's own structural validation
-/// ([`pg_pack::read_pack`] — magic, version, section limits, truncation, trailing bytes, digest,
+/// (`pg_pack::read_pack` — magic, version, section limits, truncation, trailing bytes, digest,
 /// cross-payload fingerprint), then, only once that passes, the `required ⊆ provided`
-/// containment check via [`RequiredRuntimeFeatures::satisfied_by`] against
-/// [`provided_runtime_features`]. Fails closed with a typed [`PackLoadError`] at either stage;
-/// never partially constructs a [`LoadedPack`].
+/// containment check via `RequiredRuntimeFeatures::satisfied_by` against
+/// `provided_runtime_features`. Fails closed with a typed `PackLoadError` at either stage;
+/// never partially constructs a `LoadedPack`.
 pub fn load_pack(bytes: &[u8]) -> Result<LoadedPack, PackLoadError> {
     let ReadPack {
         manifest,

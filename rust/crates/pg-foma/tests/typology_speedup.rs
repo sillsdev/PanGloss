@@ -33,13 +33,13 @@
 //!
 //! # The measurement floor (constraint 1: never emit `0` for a fast word)
 //! Primary fix: nanosecond `Instant`/`Duration` timing at the measurement site (this file), not
-//! `pangloss batch`'s integer-ms TSV column. Belt-and-suspenders: [`measure_timer_floor_ns`]
+//! `pangloss batch`'s integer-ms TSV column. Belt-and-suspenders: `measure_timer_floor_ns`
 //! calibrates THIS process's actual `Instant` tick granularity once (spinning until consecutive
 //! reads differ, several times, keeping the minimum observed delta) rather than assuming a constant
 //! — some platforms/virtualized CI runners have coarser clocks than a bare-metal Windows workstation.
 //! Any measured value at or below that calibrated floor is reported as **below-floor**, never as a
-//! literal `0`: [`Row::timed`] stores `None` (not `Some(0)`) for a field once its value is below the
-//! floor, and [`format_ns_cell`] renders that `None` as `<{floor}ns`, both in the CSV and the
+//! literal `0`: `Row::timed` stores `None` (not `Some(0)`) for a field once its value is below the
+//! floor, and `format_ns_cell` renders that `None` as `<{floor}ns`, both in the CSV and the
 //! Markdown table — see `below_floor_never_renders_as_zero_in_csv_or_markdown` for the direct proof.
 //!
 //! # Refusal as its own outcome (constraint 2: the common case on the compiled path, not an edge case)
@@ -59,9 +59,9 @@
 //! diagnostic). The Markdown table aggregates per FIXTURE — which is also per construct/typology,
 //! since `conformance-staging`/`machine/conformance` fixtures are literally named by construct
 //! (`edge-cases/*`) or typology (`languages/*`), one grammar per fixture. Aggregation uses the
-//! MEDIAN of each word's own median (of [`repeats`] timed samples, after one discarded warmup call)
+//! MEDIAN of each word's own median (of `repeats` timed samples, after one discarded warmup call)
 //! — median-of-medians, not a mean, so one slow/fast outlier word cannot swing a whole fixture's
-//! reported speed. [`fixture_is_noisy`] flags a fixture's speedup as unreliable rather than silently
+//! reported speed. `fixture_is_noisy` flags a fixture's speedup as unreliable rather than silently
 //! reporting a precise-looking ratio computed from noise: see that function's doc for the exact,
 //! deliberately-simple, explicitly-a-judgment-call thresholds. These fixtures are small (single
 //! digits to ~55 words, tiny synthetic grammars) — many results ARE too noisy to claim a precise
@@ -86,7 +86,7 @@ use pg_parse::Morpher;
 /// Timed samples per word per engine, after one discarded warmup call (env override
 /// `PG_TYPOLOGY_REPEATS`, minimum 1). Default 7: enough for a median to mean something at
 /// microsecond scale without making the full-corpus run slow. Noise treatment is NOT "run once and
-/// trust it" — see the module doc's "Grouping and noise" section and [`fixture_is_noisy`].
+/// trust it" — see the module doc's "Grouping and noise" section and `fixture_is_noisy`.
 fn repeats() -> u32 {
     std::env::var("PG_TYPOLOGY_REPEATS")
         .ok()
@@ -627,7 +627,7 @@ fn median_of(mut values: Vec<u64>) -> Option<u64> {
     Some(values[values.len() / 2])
 }
 
-/// Summarizes one engine's rows for one fixture into an [`EngineSummary`] — shared logic for both
+/// Summarizes one engine's rows for one fixture into an `EngineSummary` — shared logic for both
 /// `complete` and `compiled` (the only engine-specific input is which rows already got filtered to
 /// `engine_rows`).
 fn summarize_engine(engine_rows: &[&Row]) -> EngineSummary {
@@ -752,8 +752,8 @@ fn format_ns_cell(agg_ns: Option<u64>, below_floor: bool, floor_ns: u64) -> Stri
     }
 }
 
-/// Renders one [`EngineSummary`] as its table cell text (never a bare `0`/`0ms` — see
-/// [`format_ns_cell`]).
+/// Renders one `EngineSummary` as its table cell text (never a bare `0`/`0ms` — see
+/// `format_ns_cell`).
 fn render_engine_cell(e: &EngineSummary, floor_ns: u64) -> String {
     match e {
         EngineSummary::Refused(preds) => format!("REFUSED: {}", preds.join("; ")),

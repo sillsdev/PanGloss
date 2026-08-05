@@ -1,7 +1,7 @@
 //! The recall-invariance harness for the FST precision knob's step-1 `AllFlags` preset
 //! (`pg_foma::precision`) — THE key property: the knob is performance-only, so the composite
-//! propose→confirm path must reach IDENTICAL confirmed analyses at [`PrecisionConfig::Strip`]
-//! (default) and [`PrecisionConfig::AllFlags`], and the raw candidate set must only ever SHRINK
+//! propose→confirm path must reach IDENTICAL confirmed analyses at `PrecisionConfig::Strip`
+//! (default) and `PrecisionConfig::AllFlags`, and the raw candidate set must only ever SHRINK
 //! (never gain a candidate) between them.
 //!
 //! ## Why this file drives `apply_up`/peel/confirm directly instead of `FomaAnalyzer`
@@ -250,7 +250,7 @@ const SENA_SCAN_WORDS: usize = 30;
 /// `AllFlags` set-side broke (module doc / `precision.rs` findings: a missing `@P@` value zeroed
 /// every `@R@` gate, and a whole-literal-only `ends_with` under-set boundary-spanning contexts).
 /// Compiles the two Sena nets once (~1 min in release) and confirms a HANDFUL of words at both
-/// presets — orders of magnitude faster than [`sena_precision_recall_invariance`]'s full-corpus
+/// presets — orders of magnitude faster than `sena_precision_recall_invariance`'s full-corpus
 /// scan, so the fix can be iterated without paying the whole-corpus engine-oracle cost each time.
 /// Asserts only the confirmed-set identity (recall) here; non-vacuity (strict shrink) is the
 /// full-corpus test's job.

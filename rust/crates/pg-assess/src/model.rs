@@ -9,7 +9,7 @@
 //!
 //! ## Why the fingerprint is derived from the source rather than from `Grammar`
 //!
-//! The obvious implementation is to walk the compiled [`pg_grammar::model::Grammar`] and hash every
+//! The obvious implementation is to walk the compiled `pg_grammar::model::Grammar` and hash every
 //! analysis-relevant field. It is also the one that fails quietly: `Grammar` has eighteen fields,
 //! several of them deep, and a fingerprint that forgets one is a fingerprint that says "nothing
 //! changed" when something did. Because `semanticDigest` rests entirely on this value (design D3a),
@@ -25,8 +25,8 @@
 //!
 //! ## What "canonical" covers, and what it does not
 //!
-//! [`SourceKind::Snapshot`] canonicalizes through JCS, so key order, whitespace, and line endings
-//! are all absorbed. [`SourceKind::HcXml`] normalizes line endings only: attribute order and
+//! `SourceKind::Snapshot` canonicalizes through JCS, so key order, whitespace, and line endings
+//! are all absorbed. `SourceKind::HcXml` normalizes line endings only: attribute order and
 //! inter-element whitespace still move the fingerprint. That is a conservative failure — it reports
 //! a difference where none exists semantically, rather than hiding one — and closing it needs real
 //! XML canonicalization, which is deferred rather than faked.

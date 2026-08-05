@@ -7,8 +7,8 @@
 //! For Sena 3 and Amharic, this test imports the real `.fwdata` project through the *new*
 //! pipeline (`pg_fwdata::import_file` -> `Snapshot` -> `pg_grammar::compile_project` ->
 //! `Grammar`) and independently loads the committed HC-XML oracle through the *legacy* pipeline
-//! (`pg_grammar::load`), then compares the two resulting [`pg_grammar::model::Grammar`] structs
-//! for **semantic equivalence — no [`pg_parse::Morpher`], no analysis, no parsing of any kind**.
+//! (`pg_grammar::load`), then compares the two resulting `pg_grammar::model::Grammar` structs
+//! for **semantic equivalence — no `pg_parse::Morpher`, no analysis, no parsing of any kind**.
 //! This directly tests what T2/T3/T4 are supposed to guarantee (the compiler produces the same
 //! grammar the legacy XML pipeline does), with none of the parser's own performance
 //! characteristics in the loop.
@@ -44,8 +44,8 @@
 //! `ab672944-a2c4-4741-969f-01700b334572`) — GUIDs confirmed directly against a fresh
 //! `pangloss import` of the live `Sena 3.fwdata` (grepped its JSON for the edited surface forms).
 //! At this grammar-equivalence level that must surface as *exactly those three* paired-entry
-//! value mismatches and nothing else. [`SENA_ENTRY_DRIFT`] documents each by the new-pipeline
-//! entry's GUID; [`compare_entries`] resolves each to its pairing key and asserts the pairing
+//! value mismatches and nothing else. `SENA_ENTRY_DRIFT` documents each by the new-pipeline
+//! entry's GUID; `compare_entries` resolves each to its pairing key and asserts the pairing
 //! still mismatches (self-invalidating: an entry that unexpectedly matches means the oracle was
 //! regenerated and the drift entry is stale and must be removed, exactly like
 //! `fwdata_conformance_gate.rs`'s `KNOWN_ORACLE_DRIFT` convention).
@@ -99,7 +99,7 @@ fn norm_label(s: &str) -> String {
     }
 }
 
-/// [`norm_label`] over an `Option<String>` (`None` and `Some("")` and `Some("***")` are all "no
+/// `norm_label` over an `Option<String>` (`None` and `Some("")` and `Some("***")` are all "no
 /// label", equivalent for comparison purposes).
 fn norm_opt_label(s: &Option<String>) -> String {
     match s {
@@ -250,12 +250,12 @@ impl<'g> GV<'g> {
     }
 
     /// Content-only signature of a natural class (its member set / feature constraints),
-    /// independent of `name` or `xml_id`. Used both as [`Self::natclass_name`]'s fallback
+    /// independent of `name` or `xml_id`. Used both as `Self::natclass_name`'s fallback
     /// identity for the many *unnamed* natural classes both corpora declare (`xml_id` is a raw
     /// GUID on the new side and an Hvo-derived string on the legacy side -- falling back to it
     /// would key every unnamed class differently between pipelines even when their content is
     /// identical, the exact `natural classes` mismatch this replaced) and as the content half of
-    /// [`Self::canon_natclass_full`].
+    /// `Self::canon_natclass_full`.
     fn natclass_signature(&self, id: NatClassId) -> String {
         let nc = &self.g.natural_classes[id.0 as usize];
         match &nc.kind {
@@ -687,7 +687,7 @@ impl<'g> GV<'g> {
     }
 
     /// The template's *shape* only (name/final/reqfs/slot names+optionality, in slot order) --
-    /// deliberately excludes which specific rules occupy each slot. See [`TemplateKey`]'s doc for
+    /// deliberately excludes which specific rules occupy each slot. See `TemplateKey`'s doc for
     /// why: Sena's noun-class-agreement templates are ~20 structurally-identical, unnamed
     /// templates that differ *only* in which single rule sits in their one slot, so pairing on
     /// full content (like every other category) mispairs them the same way a naive full-content
@@ -705,7 +705,7 @@ impl<'g> GV<'g> {
         }
     }
 
-    /// The rule content actually occupying `t`'s slots (paired with [`Self::template_key`]) --
+    /// The rule content actually occupying `t`'s slots (paired with `Self::template_key`) --
     /// for each slot, in slot order (positional, preserved), the sorted set of that slot's rule
     /// signatures (sorted: a slot's rule order is meaningful *within* one template, but the
     /// ambiguity this key/content split exists to resolve is specifically about which physical
@@ -994,9 +994,9 @@ fn compare_entries(
     }
 }
 
-/// Keyed template comparison (see [`TemplateKey`]'s doc): groups both sides' templates by shape,
+/// Keyed template comparison (see `TemplateKey`'s doc): groups both sides' templates by shape,
 /// then compares each shape's (count, sorted per-template rule-content multiset) -- exactly the
-/// same count+multiset-per-key pattern [`compare_entries`] uses for lex entries, applied to
+/// same count+multiset-per-key pattern `compare_entries` uses for lex entries, applied to
 /// templates because template *names* here are frequently absent/duplicated (unlike entries,
 /// which have gloss as a discriminating key; template shape plays that role instead).
 fn compare_templates(

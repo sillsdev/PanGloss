@@ -24,7 +24,7 @@ fn some_staged_fixture_separates_more_than_three_registry_transforms() {
     let mut best = (0usize, String::new());
     // Tracked separately, and it is the number that actually matters. A distinct plan on a
     // marker-carrying grammar cannot be COMPARED against the baseline:
-    // [`pg_foma::recipe_runtime`] rescues the baseline through the tuned `emit` path and refuses
+    // `pg_foma::recipe_runtime` rescues the baseline through the tuned `emit` path and refuses
     // every permutation as `unsupported`, because the tuned path derives topology from a plan it
     // builds itself. So plan-space width only becomes an optimization opportunity on the
     // marker-free rows. Measured: the widest fixtures (5 and 4 plans) all carry markers, and no
@@ -34,7 +34,7 @@ fn some_staged_fixture_separates_more_than_three_registry_transforms() {
     // `markers` matters as much as `distinct` when choosing a fixture. On a plan carrying either
     // marker leaf, `build_controllable` compiles the controllable subtree ONLY, so every candidate
     // net -- and every comparison drawn between them -- excludes what those subtrees contribute, and
-    // the CLI refuses non-baseline candidates outright ([`pg_foma::recipe_runtime`]'s marker
+    // the CLI refuses non-baseline candidates outright (`pg_foma::recipe_runtime`'s marker
     // branch). A fixture with markers can still prove plan-level facts; it cannot demonstrate a
     // whole-grammar comparison. Counting `<AffixTemplate>` declarations does NOT answer this:
     // markers also come from composite entries and circumfix/dropped-material rules.

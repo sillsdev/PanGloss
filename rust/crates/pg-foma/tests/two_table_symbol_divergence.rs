@@ -17,7 +17,7 @@
 //! (`tests/f2_junction_gate.rs`'s `engine_sequences`/`candidates_cover`, `tests/f3_parity.rs`'s
 //! "multiset parity" framing, `tests/p6_templated_morphotactics_gate.rs` test (c)'s `apply_up` ->
 //! `tags::decode_path` -> `tags::to_candidates` decode): decode every raw `apply_up` result off the
-//! P6-compiled net into [`pg_foma::tags::Candidate`]s, and assert that set is EXACTLY EQUAL (not
+//! P6-compiled net into `pg_foma::tags::Candidate`s, and assert that set is EXACTLY EQUAL (not
 //! just a superset or subset) to `pg_parse::Morpher`'s own oracle analysis set for the same surface
 //! word -- `pg_rules::rewrite` (Morpher's own rewrite engine) already resolves every rule against
 //! its real owning stratum's table via an explicit `TableId` parameter at every call site (verified

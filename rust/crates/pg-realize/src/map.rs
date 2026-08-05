@@ -1,5 +1,5 @@
 //! Natural-phrases N1 (`docs/natural-phrases-plan.md` N1): sidecar mapping config from raw
-//! grammar-author gloss strings to [`crate::ir`]'s typed feature vocabulary.
+//! grammar-author gloss strings to `crate::ir`'s typed feature vocabulary.
 //!
 //! **File format decision (orchestrator, N1):** a hand-rolled, restricted TOML *subset* — not
 //! the `toml` crate. The workspace is deliberately zero-external-deps
@@ -15,12 +15,12 @@
 //! unrecognized `Feature:Value` pair) fails loudly instead of silently becoming an unmapped
 //! gloss (which degrades *gracefully but silently* to `extras` — exactly the failure mode a
 //! line-numbered load error is meant to prevent for sidecar typos specifically; see
-//! [`RealizeMap::parse`]).
+//! `RealizeMap::parse`).
 //!
 //! N2 (`docs/natural-phrases-plan.md` N2) reuses this exact subset for `crate::table::
 //! TableRealizer`'s two embedded assets (`templates.toml`'s `[cells]`, `lexicon.toml`'s
-//! `[plural_exceptions]`) rather than writing a third parser — [`parse_section`] is the
-//! generalized (any single section name) core [`RealizeMap::parse`] itself now sits on top of.
+//! `[plural_exceptions]`) rather than writing a third parser — `parse_section` is the
+//! generalized (any single section name) core `RealizeMap::parse` itself now sits on top of.
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
@@ -37,7 +37,7 @@ pub enum FeatureAssignment {
     Poss(Poss),
     Case(CaseRole),
     /// Explicitly mapped to nothing (e.g. a purely morphophonological gloss) — drops the token
-    /// from [`crate::ir::GlossIr::extras`] entirely, rather than letting it fall through as an
+    /// from `crate::ir::GlossIr::extras` entirely, rather than letting it fall through as an
     /// unmapped fallback string.
     Ignore,
 }
@@ -59,7 +59,7 @@ impl fmt::Display for MapError {
 impl std::error::Error for MapError {}
 
 /// A loaded gloss-string -> feature-assignment lookup table, built from a sidecar TOML-subset
-/// file (`samples/data/<grammar>-realize.toml`) via [`RealizeMap::parse`], or empty when a
+/// file (`samples/data/<grammar>-realize.toml`) via `RealizeMap::parse`, or empty when a
 /// grammar has no sidecar (`RealizeMap::empty()` — the sena no-sidecar path).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RealizeMap {
@@ -82,7 +82,7 @@ impl RealizeMap {
     }
 
     /// Parse a sidecar file's text (the restricted TOML subset documented at module level) into
-    /// a [`RealizeMap`]. Fails loudly, with a 1-indexed line number, on anything outside the
+    /// a `RealizeMap`. Fails loudly, with a 1-indexed line number, on anything outside the
     /// subset or on an unknown feature name/value — sidecar typos must not silently become
     /// `extras`.
     pub fn parse(text: &str) -> Result<RealizeMap, MapError> {
@@ -106,7 +106,7 @@ impl RealizeMap {
 
     /// Insert or overwrite one gloss key's feature assignment. Crate-private: `entries` is a
     /// private field of this module, so same-crate map builders that aren't `parse` (namely
-    /// [`crate::infer::infer_english`]) need this narrow door rather than reaching into the
+    /// `crate::infer::infer_english`) need this narrow door rather than reaching into the
     /// field directly.
     pub(crate) fn insert(&mut self, gloss: String, assignment: FeatureAssignment) {
         self.entries.insert(gloss, assignment);
@@ -116,7 +116,7 @@ impl RealizeMap {
     /// (or adds) that key's assignment here; keys only in `self` are left untouched. This is the
     /// small additive method the `pg-wasm` precedence rule needs ("inferred map is the base; a
     /// sidecar `realize.toml`, when present, overrides per gloss key") — `self` is expected to be
-    /// an [`crate::infer::infer_english`] base map and `overrides` a parsed sidecar, but this
+    /// an `crate::infer::infer_english` base map and `overrides` a parsed sidecar, but this
     /// method itself is agnostic to which side is which; it just merges, sidecar-wins ordering is
     /// the caller's responsibility (call it as `base.extend_overriding(sidecar)`, not the other
     /// way around).
@@ -128,7 +128,7 @@ impl RealizeMap {
 /// Parse one named section (`"[{section}]"`) of the restricted TOML subset documented at module
 /// level into its `key = "value"` entries, each tagged with its 1-indexed source line number.
 ///
-/// Generalizes [`RealizeMap::parse`]'s original single-purpose `[features]` reader so
+/// Generalizes `RealizeMap::parse`'s original single-purpose `[features]` reader so
 /// `docs/natural-phrases-plan.md` N2's `TableRealizer` asset loaders (`templates.toml`'s
 /// `[cells]`, `lexicon.toml`'s `[plural_exceptions]`) can reuse the exact same subset and error
 /// behavior instead of a third hand-rolled parser — same restrictions (full-line `#` comments,
@@ -237,7 +237,7 @@ fn parse_quoted_value(raw: &str, line_no: usize) -> Result<String, MapError> {
 }
 
 /// Parse a `"Feature:Value"` string (or the bare literal `"Ignore"`) into a
-/// [`FeatureAssignment`]. Shared between sidecar-file loading ([`RealizeMap::parse`], where a
+/// `FeatureAssignment`. Shared between sidecar-file loading (`RealizeMap::parse`, where a
 /// failure is a line-numbered load error) and morpheme `realize` properties (`crate::ir::to_ir`,
 /// where a failure degrades to unmapped -- "parse errors in properties degrade to unmapped,
 /// they are grammar-author data", per `docs/natural-phrases-plan.md` N1's mapping priority

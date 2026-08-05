@@ -15,7 +15,7 @@
 //! handler's (`thread '...' has overflowed its stack`). This was heap exhaustion against procgov's
 //! 19GB job-object committed-memory cap, **not** unbounded recursion. Three measurements pin that
 //! (all now folded into the tests below or into
-//! [`pg_foma::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`]'s own doc):
+//! `pg_foma::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`'s own doc):
 //!
 //! - the three corpus words parse UNCAPPED (`Morpher::new(g, usize::MAX)`) in **0.185s**, so no
 //!   recursion in the engine is unbounded on this grammar;
@@ -50,7 +50,7 @@ use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 /// The two fixtures the process used to die on. Byte-identical grammars bar `<Name>` — verified by
-/// [`the_two_aborting_fixtures_are_one_grammar`] below rather than asserted in prose.
+/// `the_two_aborting_fixtures_are_one_grammar` below rather than asserted in prose.
 const REFUSING_FIXTURES: [&str; 2] = ["deep-optional-affix-nesting", "recipe-template-generic"];
 
 /// A fixture that must NOT be refused at the default envelope — the negative control without which

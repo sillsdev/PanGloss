@@ -11,13 +11,13 @@
 //! Coreference via `VariableBindings` lives at the pattern-matching layer, not here.
 //!
 //! ## Representation
-//! A [`FeatureStruct`] is a sorted `(FeatId, FeatureValue)` vector — deterministic order,
+//! A `FeatureStruct` is a sorted `(FeatId, FeatureValue)` vector — deterministic order,
 //! cheap `Eq`/`Hash` for the grammar-tier hash-cons interner (`Interner<FeatureStruct>` →
 //! `FsId`), and cache-friendly linear walks (authored FS have single-digit entry counts).
 //!
 //! The *operations* (unify / subsumption / priority-union, ported from C#
 //! `FeatureStruct.cs` `NondestructiveUnify`/`IsUnifiable`/`Subsumes`/`PriorityUnion`)
-//! live in [`crate::ops`]; this module is the frozen data model they and the grammar
+//! live in `crate::ops`; this module is the frozen data model they and the grammar
 //! loader share.
 
 use crate::bitvec::SymbolBits;
@@ -31,7 +31,7 @@ pub struct FeatId(pub u16);
 
 /// One feature's value inside a tree FS.
 ///
-/// Symbolic values are a [`SymbolBits`] set over that feature's symbols (bit `i` = symbol
+/// Symbolic values are a `SymbolBits` set over that feature's symbols (bit `i` = symbol
 /// with index `i` in the feature's declaration order), exactly like the segment-domain
 /// lanes — POS max across the reference grammars is 37 symbols, well under 64.
 /// Complex values are nested structs (C# `ComplexFeature`, e.g. Amharic's `obj`/`sbj`).
@@ -41,10 +41,10 @@ pub enum FeatureValue {
     Complex(FeatureStruct),
 }
 
-/// A frozen, tree-shaped feature structure: entries sorted by [`FeatId`], no duplicates.
+/// A frozen, tree-shaped feature structure: entries sorted by `FeatId`, no duplicates.
 ///
-/// Construct through [`FeatureStructBuilder`] (which enforces the sorted-unique invariant)
-/// or [`FeatureStruct::EMPTY`]. Grammar-tier instances are interned to `FsId` so equality
+/// Construct through `FeatureStructBuilder` (which enforces the sorted-unique invariant)
+/// or `FeatureStruct::EMPTY`. Grammar-tier instances are interned to `FsId` so equality
 /// on the hot path is an integer compare; this type's own `Eq`/`Hash` are what the
 /// interner pays once per distinct value.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default, serde::Serialize)]

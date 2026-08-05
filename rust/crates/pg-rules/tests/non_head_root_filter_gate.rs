@@ -4,9 +4,9 @@
 //! it is not a valid analysis and throw it away."
 //!
 //! `pg-rules` cannot depend on `pg-parse` (crate-boundary: `pg-parse` depends on `pg-rules`, not the
-//! reverse — plan §5.1 crate map), so [`pg_rules::stratum::NonHeadRootFilter`] is injected. These
+//! reverse — plan §5.1 crate map), so `pg_rules::stratum::NonHeadRootFilter` is injected. These
 //! tests stand in for `pg-parse`'s `RootAllomorphIndex::search` with a hand-written closure over a
-//! tiny hand-built lexicon (`Grammar::entries`), exercising [`analyze_stratum_scoped_filtered`]
+//! tiny hand-built lexicon (`Grammar::entries`), exercising `analyze_stratum_scoped_filtered`
 //! directly — no need for a real trie.
 //!
 //! Reuses the compound-rule grammar shape from `morph_gate.rs`'s Part 1 (alpha grammar,
@@ -128,7 +128,7 @@ fn compound_rule_with(
     })
 }
 
-/// Push a lexicon entry and return its id. Registers a real [`MorphemeInfo`] too (at
+/// Push a lexicon entry and return its id. Registers a real `MorphemeInfo` too (at
 /// `StratumId(0)` — every test in this file calls `push_stratum` exactly once, immediately after,
 /// so its stratum is always id 0): plan Tier-2 #7's non-head resolution reads `entry.morpheme`
 /// back through `g.morphemes[..].stratum` (mirroring `pg-parse::Morpher::set_root_allomorph`), so
@@ -158,7 +158,7 @@ fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
 }
 
 /// Attach a single root allomorph (surface `text`, id `AllomorphId(300)` — the sentinel every
-/// filter closure in this file returns) to the most recently [`push_entry`]'d entry, so plan
+/// filter closure in this file returns) to the most recently `push_entry`'d entry, so plan
 /// Tier-2 #7's resolution (`pg-rules::morph::resolve_non_head_roots`) has a real `RootAllomorphDef`
 /// to find and re-segment.
 fn push_allomorph(g: &mut Grammar, entry: LexEntryId, text: &str) {

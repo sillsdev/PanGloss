@@ -504,7 +504,7 @@ pub(crate) const PARITY_FIXTURE_XML: &str = r#"<?xml version="1.0" encoding="utf
 </HermitCrabInput>
 "#;
 
-/// The compiled [`PARITY_FIXTURE_XML`].
+/// The compiled `PARITY_FIXTURE_XML`.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn parity_fixture_grammar() -> pg_grammar::model::Grammar {
     let g = pg_grammar::load(PARITY_FIXTURE_XML).expect("the parity fixture grammar must load");

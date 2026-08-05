@@ -1,5 +1,5 @@
 //! MPR/POS subrule gating: closes a recall gap a prototype build named but left open — a
-//! [`RewriteSubruleDef`] carrying `requiredPartsOfSpeech`/`requiredMPRFeatures`/
+//! `RewriteSubruleDef` carrying `requiredPartsOfSpeech`/`requiredMPRFeatures`/
 //! `excludedMPRFeatures` was compiled as if unconditional, so a rule that must NOT apply to one
 //! root (Indonesian `prule5`'s `excludedMPRFeatures="mpr1"`) or must ONLY apply to POS-restricted
 //! roots (Amharic `prule1`/`prule2`'s `requiredPartsOfSpeech`) fired for every root reaching it.
@@ -51,7 +51,7 @@
 //! stop fighting matched-context flags for this root-static gate and use a **static, flag-free
 //! partition** instead. It needs zero new
 //! foma primitives — only ones already proven in this file's own sibling modules (lexc, plain `->`
-//! rules with no flags, [`foma::constructions::fsm_compose`], [`foma::constructions::fsm_union`]) — and it is provably correct BY
+//! rules with no flags, `foma::constructions::fsm_compose`, `foma::constructions::fsm_union`) — and it is provably correct BY
 //! CONSTRUCTION rather than by hoping a flag survives composition:
 //!
 //! This decision does not rule out context-free inserted flags for a future morphotactic legality
@@ -72,32 +72,32 @@
 //!
 //! ## The static-partition design
 //! MPR/POS gating in this prototype's scope is **root-only** (see the caveat below): a lexical
-//! entry's own [`pg_grammar::model::LexEntryDef::mpr`] and part of speech are fixed at grammar-load
+//! entry's own `pg_grammar::model::LexEntryDef::mpr` and part of speech are fixed at grammar-load
 //! time and never change before the trailing per-stratum phonological-rule cascade runs (the ONLY
 //! place `pg_rules::rewrite::subrule_applicable` is ever consulted, `pg-rules/src/stratum.rs`'s
 //! `synth_apply_stratum`). So the gate/no-gate decision for every (entry, gated subrule) pair is
 //! fully static — computable once in Rust, at compile time, with NO runtime FST mechanism at all:
 //!
-//! 1. [`find_gated_subrules`] scans `prules_in_order` for every subrule declaring a nontrivial
+//! 1. `find_gated_subrules` scans `prules_in_order` for every subrule declaring a nontrivial
 //!    `required_pos`/`required_mpr`/`excluded_mpr` (Indonesian: exactly 1, `prule5`'s own subrule;
 //!    the synthetic POS fixture: exactly 1).
-//! 2. [`entry_gate_key`] computes, per lexical entry, the vector of booleans "is this gated subrule
+//! 2. `entry_gate_key` computes, per lexical entry, the vector of booleans "is this gated subrule
 //!    applicable to this entry" — by calling `pg_rules::rewrite::subrule_applicable` DIRECTLY (now
 //!    `pub`, see that function's doc), the exact function the real engine's trailing-prule cascade
 //!    calls. This is the guarantee this design rests on: the partition can never disagree with the
 //!    oracle about which entries are gated, because it IS the oracle's own predicate, not a
 //!    re-derivation of MPR-group All/Any semantics or the POS "unset = vacuous pass" rule.
-//! 3. [`partition_entries`] groups all entries by that key (a `HashMap<Vec<bool>, HashSet<LexEntryId>>`
+//! 3. `partition_entries` groups all entries by that key (a `HashMap<Vec<bool>, HashSet<LexEntryId>>`
 //!    collapsed to a `Vec`). Two test cases ⇒ 2 groups each; worst case is bounded by
 //!    `2^(#gated subrules)`, but in practice bounded by the number of DISTINCT gating vectors
 //!    actually realized by the grammar's own entries (≤ `#entries`), an honest, measurable
 //!    per-grammar quantity — matches this repo's "keep old paths, measure don't guess" convention
 //!    rather than a blind assumption it always stays small.
-//! 4. [`compile_gated_grammar`] builds ONE composed network PER GROUP: [`crate::uflexc::
+//! 4. `compile_gated_grammar` builds ONE composed network PER GROUP: [`crate::uflexc::
 //!    emit_underlying_filtered`] restricted to that group's entries (affix chains unfiltered — see
-//!    their own doc), [`crate::replace::compile_and_compose_rules_gated`] with every gated
+//!    their own doc), `crate::replace::compile_and_compose_rules_gated` with every gated
 //!    subrule's inclusion decided by that group's own key (ungated subrules always included), then
-//!    `lexc_group .o. rules_group`. The per-group nets are then [`foma::constructions::fsm_union`]ed into one final
+//!    `lexc_group .o. rules_group`. The per-group nets are then `foma::constructions::fsm_union`ed into one final
 //!    network.
 //!
 //! **Why the union is safe here** (the report's own §2.2 warning about union-of-complete-replace-
@@ -134,7 +134,7 @@
 //!   a gated prule.
 //! - **`MprGroupMatchType::Any`-typed MPR groups are excluded from partitioning entirely** (treated
 //!   as always-ungated, i.e. compiled as if the subrule declared no MPR restriction) — see
-//!   [`find_gated_subrules`]'s doc for why: this prototype's two acceptance grammars declare only
+//!   `find_gated_subrules`'s doc for why: this prototype's two acceptance grammars declare only
 //!   `All`-type (or ungrouped) MPR features, so `Any` semantics are unexercised, and folding them in
 //!   without a real test would risk silently mis-gating a shape nothing here proves correct.
 
@@ -164,7 +164,7 @@ pub struct GatedSubrule {
 }
 
 /// `true` iff `sr` declares a restriction this module partitions on. `required_mpr`/`excluded_mpr`
-/// bits belonging to an `Any`-type [`pg_grammar::model::MprGroup`] are excluded from the check
+/// bits belonging to an `Any`-type `pg_grammar::model::MprGroup` are excluded from the check
 /// (module doc caveat) by masking them out before testing emptiness.
 fn is_gated(g: &Grammar, sr: &RewriteSubruleDef) -> bool {
     sr.required_pos.is_some()
@@ -185,8 +185,8 @@ fn ungrouped_or_all(g: &Grammar, mpr: pg_grammar::model::MprSet) -> pg_grammar::
     keep
 }
 
-/// Scan every `Rewrite`-kind [`PhonRuleDef`] in `prules_in_order` (document/cascade order, same
-/// slice [`crate::replace::compile_and_compose_rules`] takes) for gated subrules (module doc).
+/// Scan every `Rewrite`-kind `PhonRuleDef` in `prules_in_order` (document/cascade order, same
+/// slice `crate::replace::compile_and_compose_rules` takes) for gated subrules (module doc).
 pub fn find_gated_subrules(g: &Grammar, prules_in_order: &[&PhonRuleDef]) -> Vec<GatedSubrule> {
     let mut out = Vec::new();
     for (rule_pos, pr) in prules_in_order.iter().enumerate() {
@@ -233,7 +233,7 @@ pub struct EntryGroup {
     pub entries: HashSet<LexEntryId>,
 }
 
-/// Partition every entry in `g.entries` by [`entry_gate_key`]. If `gated` is empty (no subrule in
+/// Partition every entry in `g.entries` by `entry_gate_key`. If `gated` is empty (no subrule in
 /// `prules_in_order` is gated at all), returns exactly ONE group containing every entry with an
 /// empty key — i.e. this degenerates to the pre-gating behavior exactly (verified by the Aweti/
 /// Amharic-compile-only regression checks, which have no acceptance-tested gated subrule reachable
@@ -277,9 +277,9 @@ pub struct GatedCompileResult {
 /// lexc+rules network PER GROUP, union them. `prules_in_order` is the same stratum-cascade-order
 /// slice every other `replace`/`uflexc` entry point takes.
 ///
-/// Builds a production [`ComposeBudget`] from `HC_COMPOSE_*` env vars exactly once (mirrors
+/// Builds a production `ComposeBudget` from `HC_COMPOSE_*` env vars exactly once (mirrors
 /// `crate::emit::emit_with_precision`'s own convention). Tests should call
-/// [`compile_gated_grammar_with_budget`] directly instead.
+/// `compile_gated_grammar_with_budget` directly instead.
 pub fn compile_gated_grammar(
     opts: &FomaOptions,
     g: &Grammar,
@@ -290,17 +290,17 @@ pub fn compile_gated_grammar(
     compile_gated_grammar_with_budget(opts, g, alphabet, prules_in_order, &budget)
 }
 
-/// [`compile_gated_grammar`]'s core, with the [`ComposeBudget`] threaded in explicitly rather than
+/// `compile_gated_grammar`'s core, with the `ComposeBudget` threaded in explicitly rather than
 /// read from env -- what tests call directly (design doc §6).
 ///
 /// `budget` is checked at three points (design doc §4):
-/// - **V6**, immediately after [`partition_entries`] returns, BEFORE any per-group compile work
-///   runs (`GroupBudgetExceeded` if the group count exceeds [`ComposeBudget::group_cap`] -- the
+/// - **V6**, immediately after `partition_entries` returns, BEFORE any per-group compile work
+///   runs (`GroupBudgetExceeded` if the group count exceeds `ComposeBudget::group_cap` -- the
 ///   single highest-leverage check here, since it gates every downstream V1/V4 cost below).
-/// - **V1**, via [`compose_checked`]/[`union_checked`], on the per-group `lexc .o. rules` compose
+/// - **V1**, via `compose_checked`/`union_checked`, on the per-group `lexc .o. rules` compose
 ///   and the per-group union fold.
-/// - **V2**, via [`minimize_checked`], as this function's own FINAL step on the fully unioned
-///   network -- design doc §4: "`compile_gated_grammar` take[s] ownership of their own FINAL
+/// - **V2**, via `minimize_checked`, as this function's own FINAL step on the fully unioned
+///   network -- design doc §4: "`compile_gated_grammar` takes ownership of their own FINAL
 ///   `minimize_checked` instead of leaving it to example drivers", turning a convention (every
 ///   example driver already minimizes its own further-composed network) into an enforced
 ///   invariant at this layer. Callers that further compose this result (every example/test driver

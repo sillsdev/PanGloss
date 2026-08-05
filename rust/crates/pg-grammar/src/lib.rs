@@ -69,7 +69,7 @@ impl GrammarPhonology {
         &self.tables
     }
 
-    /// Consume this phonology into its parts (for embedding in [`model::Grammar`], which owns
+    /// Consume this phonology into its parts (for embedding in `model::Grammar`, which owns
     /// them so that `TableId`/`CharDefId`/`FlatIndex` remain resolvable off the compiled
     /// grammar alone). Tables are in document order — `TableId(i)` indexes the returned `Vec`.
     pub fn into_parts(self) -> (PhonFeatureSystem, Vec<CharDefTable>) {
@@ -220,7 +220,7 @@ fn local<'a>(e: &'a BytesStart<'a>) -> &'a [u8] {
     e.local_name().into_inner()
 }
 
-/// [`local`], for `Event::End`'s `BytesEnd` (a distinct type from `BytesStart` in quick-xml).
+/// `local`, for `Event::End`'s `BytesEnd` (a distinct type from `BytesStart` in quick-xml).
 #[inline]
 fn local_end<'a>(e: &'a BytesEnd<'a>) -> &'a [u8] {
     e.local_name().into_inner()

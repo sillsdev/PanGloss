@@ -722,7 +722,7 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
 /// `words.yaml` header note). A words.yaml-only pin of this fixture is therefore an ANNOTATION, not
 /// an assertion -- a human note claiming "these two identical-looking entries differ in headedness"
 /// that nothing machine-checks. The assertion below is the first-class one: it compares
-/// deduplicated [`pg_parse::identity::AnalysisIdentity`] SETS via [`certify_corpus`], exactly as
+/// deduplicated `pg_parse::identity::AnalysisIdentity` SETS via `certify_corpus`, exactly as
 /// RED-1 already does -- `AnalysisIdentity` carries `root_index`, so `certify_corpus` was already
 /// root-index-aware, just never exercised by a fixture where the flat signature string alone
 /// couldn't tell the difference.

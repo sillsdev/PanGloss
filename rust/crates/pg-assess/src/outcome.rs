@@ -12,7 +12,7 @@
 //! Only a deterministic logical budget may decide a case's outcome in a reproducible assessment
 //! (design D5). A wall-clock stop is machine-dependent: the same word completes on a fast laptop and
 //! stops on a loaded CI runner, so a report containing one cannot promise that re-running it
-//! anywhere reproduces its `outcomeDigest`. Rather than hide that, [`IncompleteReason::is_reproducible`]
+//! anywhere reproduces its `outcomeDigest`. Rather than hide that, `IncompleteReason::is_reproducible`
 //! reports it and the report records `reproducible: false`.
 
 use serde::{Deserialize, Serialize};

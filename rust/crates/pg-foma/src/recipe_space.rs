@@ -141,7 +141,7 @@ impl GrammarFacts {
     }
 
     /// Every field is a PROJECTION of a
-    /// fact [`GrammarSemantics`] already owns — the per-stratum operation/dependency sums, the gated
+    /// fact `GrammarSemantics` already owns — the per-stratum operation/dependency sums, the gated
     /// subrules, the entry partition, the reduplicative-allomorph and metathesis counts. This struct
     /// used to re-walk the grammar for all of them, in parallel with
     /// `recipe_registry::Applicability` doing the same walks for the boolean forms of the same
@@ -189,9 +189,9 @@ pub fn characterize(
     )
 }
 
-/// [`characterize`] over an already-derived [`GrammarSemantics`]. ONE derivation serves the admissible-instance
+/// `characterize` over an already-derived `GrammarSemantics`. ONE derivation serves the admissible-instance
 /// filter, every per-instance applicability re-check inside
-/// [`Registry::materialize_with_semantics`], and the [`GrammarFacts`] projection at the bottom.
+/// `Registry::materialize_with_semantics`, and the `GrammarFacts` projection at the bottom.
 /// Each of those three used to walk the grammar independently -- the per-instance one once per
 /// sampled instance.
 pub fn characterize_with_semantics(
@@ -309,7 +309,7 @@ pub fn characterize_with_semantics(
 ///
 /// # Why `build`/`evaluation` are `Option` and `materialize`/`capability` are not
 /// A pilot candidate that the capability envelope REFUSES is never built and never evaluated. This
-/// type used to record `build: 0, evaluation: 0` for such a row, and [`summarize_pilot`] folded those
+/// type used to record `build: 0, evaluation: 0` for such a row, and `summarize_pilot` folded those
 /// literal zeros into the build/evaluation percentiles — so a pilot sample containing refusals
 /// reported a build cost pulled toward zero *for a stage that never executed*. That is not a
 /// cosmetic error: those percentiles are summed into `PilotCosts` and decide which search strategy

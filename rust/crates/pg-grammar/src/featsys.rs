@@ -12,7 +12,7 @@
 //! `HeadFeatures`, the syntactic feature system, out of scope here). C# handles this by never
 //! attaching a segment `FeatureStruct` (`LoadCharacterDefinitionTable`'s
 //! `if (_language.PhonologicalFeatureSystem.Count > 0)` guard); the Rust port mirrors it with an
-//! empty [`PhonFeatureSystem`] rather than an error.
+//! empty `PhonFeatureSystem` rather than an error.
 
 use hashbrown::HashMap;
 use pg_featstruct::full_mask;
@@ -61,7 +61,7 @@ struct FeatureDef {
 /// be distinguishable at a glance in dumps/diagnostics.
 const TYPE_XML_ID: &str = "__hc_type__";
 
-/// Dense symbol index of the `Type` feature's `Segment` symbol (see [`PhonFeatureSystem::type_flat`]).
+/// Dense symbol index of the `Type` feature's `Segment` symbol (see `PhonFeatureSystem::type_flat`).
 pub const TYPE_SEGMENT_SYMBOL: u32 = 0;
 /// Dense symbol index of the `Type` feature's `Boundary` symbol.
 pub const TYPE_BOUNDARY_SYMBOL: u32 = 1;
@@ -72,7 +72,7 @@ pub const TYPE_BOUNDARY_BITS: u64 = 1 << TYPE_BOUNDARY_SYMBOL;
 
 /// The compiled phonological feature system: features and their symbols, dense-indexed.
 ///
-/// **Lint:** a `SymbolicFeature` with >= 64 symbols is rejected as [`GrammarError::Unsupported`]
+/// **Lint:** a `SymbolicFeature` with >= 64 symbols is rejected as `GrammarError::Unsupported`
 /// rather than silently mis-masked — the 64-symbol mask boundary is a known parity hazard
 /// (`pg_featstruct::full_mask` doc comment; #446's regression fixture). None of the three
 /// reference grammars come close (widest is Sena's HeadFeatures `genro` at 20 symbols, and that
@@ -182,7 +182,7 @@ impl PhonFeatureSystem {
         })
     }
 
-    /// The synthetic `Type` feature's [`FlatIndex`] (see struct docs) — always the last feature.
+    /// The synthetic `Type` feature's `FlatIndex` (see struct docs) — always the last feature.
     #[inline]
     pub fn type_flat(&self) -> FlatIndex {
         self.type_flat
@@ -206,7 +206,7 @@ impl PhonFeatureSystem {
         self.type_flat.0 == 0
     }
 
-    /// The feature's dense [`FlatIndex`], by its XML `id` attribute.
+    /// The feature's dense `FlatIndex`, by its XML `id` attribute.
     pub fn flat_index(&self, feature_xml_id: &str) -> Option<FlatIndex> {
         self.id_to_flat.get(feature_xml_id).map(|&i| FlatIndex(i))
     }
@@ -229,18 +229,18 @@ impl PhonFeatureSystem {
         self.features[flat.0 as usize].symbol_names.len()
     }
 
-    /// The feature's name (`<Name>`), by [`FlatIndex`].
+    /// The feature's name (`<Name>`), by `FlatIndex`.
     pub fn feature_name(&self, flat: FlatIndex) -> &str {
         &self.features[flat.0 as usize].name
     }
 
-    /// The feature's original XML `id` attribute, by [`FlatIndex`].
+    /// The feature's original XML `id` attribute, by `FlatIndex`.
     pub fn feature_xml_id(&self, flat: FlatIndex) -> &str {
         &self.features[flat.0 as usize].xml_id
     }
 
     /// A symbol's display name (`<Symbol id="...">NAME</Symbol>` text — C# `FeatureSymbol.
-    /// Description`), by the owning feature's [`FlatIndex`] and the symbol's dense index (as used
+    /// Description`), by the owning feature's `FlatIndex` and the symbol's dense index (as used
     /// in a feature-lane bitmask). F2 prerequisite (HYBRID_FST_RUST_PLAN.md §7.1 bullet 4): needed
     /// to render a char-def's `FeatureStruct` in C#'s `FeatureStruct.ToString()` format
     /// (`SurfacePhonology`'s `DeletionJunctions` dump prints the deleted neighbor's own feature
@@ -250,7 +250,7 @@ impl PhonFeatureSystem {
         &self.features[flat.0 as usize].symbol_names[idx as usize]
     }
 
-    /// Dense symbol index of a symbol, by the feature's [`FlatIndex`] and the symbol's XML `id`.
+    /// Dense symbol index of a symbol, by the feature's `FlatIndex` and the symbol's XML `id`.
     pub fn symbol_index(&self, flat: FlatIndex, symbol_xml_id: &str) -> Option<u32> {
         self.features[flat.0 as usize]
             .symbol_index

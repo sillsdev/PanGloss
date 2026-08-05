@@ -2,26 +2,26 @@
 //!
 //! # What this crate is
 //! The self-contained analysis artifact format: fixed PanGloss magic bytes, an integer container
-//! version, a length-prefixed canonical JSON **pack manifest** ([`manifest::PackManifest`]), a
+//! version, a length-prefixed canonical JSON **pack manifest** (`manifest::PackManifest`), a
 //! length-prefixed Rust-HermitCrab runtime payload, a length-prefixed existing-foma binary payload
-//! (opaque, unchanged encoding — see [`format`]'s module doc), and a trailing SHA-256 digest. See
-//! [`format`] for the exact byte layout, [`format::write_pack`]/[`format::read_pack`] for the
-//! writer/reader, and [`manifest::PackManifest`] for every field the manifest carries: the
-//! required-runtime-feature set ([`compat::RequiredRuntimeFeatures`]), the
-//! capability-trust stamp ([`trust::CapabilityTrust`]), the FST-health admission
+//! (opaque, unchanged encoding — see `format`'s module doc), and a trailing SHA-256 digest. See
+//! `format` for the exact byte layout, `format::write_pack`/`format::read_pack` for the
+//! writer/reader, and `manifest::PackManifest` for every field the manifest carries: the
+//! required-runtime-feature set (`compat::RequiredRuntimeFeatures`), the
+//! capability-trust stamp (`trust::CapabilityTrust`), the FST-health admission
 //! (`pg_foma::health::HealthReport`, reused verbatim, never redefined), an optional license
-//! declaration ([`license::LicenseDeclaration`]), and an optional Ed25519 publisher signature
-//! ([`signature::SignatureBlock`]) whose state ([`signature::SignatureState`]) is reported but
+//! declaration (`license::LicenseDeclaration`), and an optional Ed25519 publisher signature
+//! (`signature::SignatureBlock`) whose state (`signature::SignatureState`) is reported but
 //! never gates a read.
 //!
 //! # What this crate is not (yet)
 //! `pg-cli`'s `pangloss pack` subcommand (`pg-cli/src/pack.rs`) is a real producer: it constructs a
-//! manifest from an actual compiled grammar and writes it via [`format::write_pack`]. `pg-wasm`
+//! manifest from an actual compiled grammar and writes it via `format::write_pack`. `pg-wasm`
 //! (`pg-wasm/src/pack.rs`) is a real load-time consumer of the manifest/compatibility/trust
 //! sections. **The two payload sections are not both real yet, though.** The foma payload IS real
 //! whenever the grammar's foma compile succeeds — `pg_foma::analyzer::FomaProposer::
 //! foma_binary_payload` serializes the actually-compiled network via foma's own existing
-//! `fsm_write_binary` (no second network format; see [`format`]'s module doc). The **runtime**
+//! `fsm_write_binary` (no second network format; see `format`'s module doc). The **runtime**
 //! payload — the Rust-HermitCrab port's own analysis-time grammar data — is still an honestly-
 //! labeled placeholder: `pg_grammar::model::Grammar` (what `pg-parse`/`pg-rules` actually analyze
 //! against) derives `serde::Serialize` on almost none of its dozens of constituent types today, and

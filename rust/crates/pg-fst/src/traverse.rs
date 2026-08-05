@@ -1,4 +1,4 @@
-//! Traversal of a frozen [`Fst`] over a linear segment sequence: the acceptor port of
+//! Traversal of a frozen `Fst` over a linear segment sequence: the acceptor port of
 //! `Fst.Transduce` (Fst.cs:304-414), the deterministic/nondeterministic FSA traversal methods,
 //! and `ResultCompare` (Fst.cs:416-441).
 //!
@@ -153,7 +153,7 @@ impl Segment {
 }
 
 /// A match result (C# `FstResult`, acceptor projection). `registers` is the flat
-/// `register_count * 2` scaffold; use [`Fst::get_offsets`] to read a group span.
+/// `register_count * 2` scaffold; use `Fst::get_offsets` to read a group span.
 #[derive(Clone, Debug)]
 pub struct FstResult {
     pub id: Option<String>,
@@ -187,8 +187,8 @@ impl FstResult {
 /// register commands (`cmd_lo == cmd_hi`), so eagerly deep-copying the `register_count * 2`
 /// scaffold on every clone dominated the confirm path (`docs/o2-profile-findings.md`:
 /// `nondet_max_traversed` reached 360K–542K on the pathological Amharic words). Cloning an `Inst`
-/// is now an O(1) refcount bump; [`Rc::make_mut`] deep-copies lazily, only at the moment an arc's
-/// non-empty command range actually writes (see [`Transduce::advance`]). Purely a representation
+/// is now an O(1) refcount bump; `Rc::make_mut` deep-copies lazily, only at the moment an arc's
+/// non-empty command range actually writes (see `Transduce::advance`). Purely a representation
 /// change: every observable value (register contents, results, ordering) is identical.
 #[derive(Clone)]
 struct Inst {
@@ -726,7 +726,7 @@ impl<'f> Transduce<'f> {
     }
 }
 
-/// Hash a [`FstResult`] consistently with [`FstResult::result_eq`]: the `id`, the register count,
+/// Hash a `FstResult` consistently with `FstResult::result_eq`: the `id`, the register count,
 /// and each register in **canonicalized** form — an unset register (`has == false`) contributes
 /// only its `has` bit, mirroring how `Register::value_eq` ignores `offset`/`start` when unset.
 /// (Today `Register::unset()` is the only `has == false` constructor and always zeroes those

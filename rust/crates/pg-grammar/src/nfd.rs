@@ -12,7 +12,7 @@ pub fn nfd(s: &str) -> String {
 
 /// Whether `s` is already in NFD, matching .NET `String.IsNormalized(FormD)`.
 ///
-/// Used by [`crate::segment::segment`] to replicate the C# `GetShapeNodes` error-position
+/// Used by `crate::segment::segment` to replicate the C# `GetShapeNodes` error-position
 /// remap: the remap only fires when the input string was *not* already NFD.
 pub fn is_nfd(s: &str) -> bool {
     unicode_normalization::is_nfd(s)

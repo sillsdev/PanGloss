@@ -1,21 +1,21 @@
 //! Per-STRATEGY construct coverage: which of this crate's compilers can actually PROPOSE each
-//! [`CharacteristicKind`], and therefore whether that kind's [`crate::capability::Disposition`] is honest for the
+//! `CharacteristicKind`, and therefore whether that kind's `crate::capability::Disposition` is honest for the
 //! compiler in use.
 //!
 //! # The hole this closes
-//! [`crate::capability::Disposition::ConfirmOnly`]'s own definition (`capability.rs`) is: *"Recall-preserving only if
+//! `crate::capability::Disposition::ConfirmOnly`'s own definition (`capability.rs`) is: *"Recall-preserving only if
 //! the proposer proposes the superset."* That is a claim about a PROPOSER, and until this module
 //! existed nothing in the capability layer knew which proposer was in use.
-//! [`crate::capability::characterize`] takes a bare `&Grammar`, [`crate::capability::
+//! `crate::capability::characterize` takes a bare `&Grammar`, [`crate::capability::
 //! compose_envelope`] takes a `&Grammar` and a `&Plan`, and
-//! [`crate::enumerate::EmissionStrategy`] -- the type that names WHICH compiler realizes a
+//! `crate::enumerate::EmissionStrategy` -- the type that names WHICH compiler realizes a
 //! candidate -- appeared nowhere in `capability.rs`, `coverage_ledger.rs`,
 //! `conformance_coverage.rs` or `gate.rs` at all.
 //!
 //! The consequence was measured, not hypothesized. `Compounding` rested at a non-refusing
 //! disposition on the strength of `crate::emit`'s compilers being able to propose compounds, while
-//! [`crate::uflexc`] -- the ONLY lexicon emitter
-//! [`crate::enumerate::EmissionStrategy::PlanComposed`] has -- emitted a structurally single-root
+//! `crate::uflexc` -- the ONLY lexicon emitter
+//! `crate::enumerate::EmissionStrategy::PlanComposed` has -- emitted a structurally single-root
 //! continuation graph that could not propose ANY compound (that module's own "Bounded compound
 //! loop" doc). One compiler's ability was silently inherited by all three. The compound hole itself
 //! is now fixed; this module fixes the ACCOUNTING that let it hide, so the next one cannot.
@@ -27,19 +27,19 @@
 //!
 //! # What this module is, and is not
 //! It is a hand-curated, source-cited table: for each `(EmissionStrategy, CharacteristicKind)`
-//! pair, one [`StrategyRepresentation`] plus the citation that establishes it. It is deliberately
-//! curated rather than derived, for the same reason [`crate::coverage_ledger`] is: a one-time
+//! pair, one `StrategyRepresentation` plus the citation that establishes it. It is deliberately
+//! curated rather than derived, for the same reason `crate::coverage_ledger` is: a one-time
 //! REVIEWED table over the current model, deliberately without source-AST/reflection
 //! infrastructure. Nothing here inspects an
 //! emitter at runtime; a reviewer reads the emitter and writes the row.
 //!
-//! It is NOT a second disposition table. [`CharacteristicKind::default_disposition`] remains the
+//! It is NOT a second disposition table. `CharacteristicKind::default_disposition` remains the
 //! single source of truth for what a construct costs IN GENERAL; this table says only whether a
 //! particular compiler's proposer can represent it at all. The two are combined -- never merged --
-//! by [`crate::capability::compose_envelope_for_strategy`].
+//! by `crate::capability::compose_envelope_for_strategy`.
 //!
 //! # Why this is a separate table and NOT a strategy-keyed `characterize` memo
-//! [`crate::grammar_semantics::GrammarSemantics`] memoizes `characterize()` keyed on the grammar
+//! `crate::grammar_semantics::GrammarSemantics` memoizes `characterize()` keyed on the grammar
 //! alone. That memo is CORRECT and stays: `characterize` answers "which constructs does this
 //! grammar CONTAIN", which is a property of the grammar and cannot vary by compiler. What varies
 //! by compiler is "can this proposer represent that construct" -- a property of the COMPILER, with
@@ -57,7 +57,7 @@
 use crate::capability::CharacteristicKind;
 use crate::enumerate::EmissionStrategy;
 
-/// Whether one [`EmissionStrategy`]'s proposer can represent one [`CharacteristicKind`].
+/// Whether one `EmissionStrategy`'s proposer can represent one `CharacteristicKind`.
 ///
 /// Three-valued on purpose. A two-valued table would have to file every *documented partial* gap
 /// as either a clean "represents" (dishonest -- the gap is written down in the emitter's own doc)
@@ -72,7 +72,7 @@ pub enum StrategyRepresentation {
     /// holds for this compiler.
     Represents,
     /// The proposer emits material for the construct, but a specific, cited case exists where it
-    /// can under-propose. Folded in as [`crate::capability::CompileDecision::ConfirmOnly`]: never
+    /// can under-propose. Folded in as `crate::capability::CompileDecision::ConfirmOnly`: never
     /// better than confirm-gated, never a hard refusal (the construct IS proposed, just not
     /// provably as a superset).
     RepresentsWithKnownGap,
@@ -106,9 +106,9 @@ pub struct StrategyCoverageRow {
     pub evidence: &'static str,
 }
 
-/// Every [`EmissionStrategy`] variant -- hand-maintained, exactly like
-/// [`CharacteristicKind::ALL`] (Rust has no enum reflection). Adding a variant and forgetting this
-/// constant is caught by [`representation_of`]'s exhaustive, catch-all-free `match` on `strategy`
+/// Every `EmissionStrategy` variant -- hand-maintained, exactly like
+/// `CharacteristicKind::ALL` (Rust has no enum reflection). Adding a variant and forgetting this
+/// constant is caught by `representation_of`'s exhaustive, catch-all-free `match` on `strategy`
 /// only if the new variant is also given arms there, which it must be for the build to pass.
 pub const ALL_STRATEGIES: &[EmissionStrategy] = &[
     EmissionStrategy::PlanComposed,
@@ -117,9 +117,9 @@ pub const ALL_STRATEGIES: &[EmissionStrategy] = &[
 ];
 
 /// The curated table (module doc). Exhaustively matched on BOTH axes with no catch-all arm, the
-/// same discipline [`crate::capability::characterize`] and
-/// [`crate::coverage_ledger::containment_evidence_for`] hold themselves to: adding an
-/// [`EmissionStrategy`] variant or a [`CharacteristicKind`] variant breaks this build until a
+/// same discipline `crate::capability::characterize` and
+/// `crate::coverage_ledger::containment_evidence_for` hold themselves to: adding an
+/// `EmissionStrategy` variant or a `CharacteristicKind` variant breaks this build until a
 /// reviewer gives the new pair an explicit verdict. That compile break IS the mechanism -- a new
 /// compiler cannot silently inherit the incumbent's coverage.
 pub fn representation_of(
@@ -139,7 +139,7 @@ pub fn representation_of(
     }
 }
 
-/// [`EmissionStrategy::PlanComposed`], whose ONLY lexicon emitter is [`crate::uflexc`]
+/// `EmissionStrategy::PlanComposed`, whose ONLY lexicon emitter is `crate::uflexc`
 /// (`crate::build::build_controllable` is the interpreter; that module's own doc names uflexc as
 /// its emitter). uflexc is an explicitly minimal prototype -- "deliberately simpler (self-looping
 /// prefix/suffix chains rather than `emit.rs`'s rule-count-bounded, template-aware derivation
@@ -271,10 +271,10 @@ fn plan_composed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static 
     }
 }
 
-/// [`EmissionStrategy::TunedSurfaceProbed`] -- `emit::emit_with_budget` plus the junction probe,
+/// `EmissionStrategy::TunedSurfaceProbed` -- `emit::emit_with_budget` plus the junction probe,
 /// pre-expansion and structural-composite pipelines, reached via `analyzer::FomaProposer::new`.
 /// This is the mainline, whole-grammar compiler every `tests/cover_*.rs` containment witness in
-/// [`crate::coverage_ledger`] was written against, and it is the reference against which the other
+/// `crate::coverage_ledger` was written against, and it is the reference against which the other
 /// two strategies' rows are gaps.
 fn tuned_surface_probed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static str) {
     use CharacteristicKind::*;
@@ -308,7 +308,7 @@ fn tuned_surface_probed(kind: CharacteristicKind) -> (StrategyRepresentation, &'
     }
 }
 
-/// [`EmissionStrategy::TemplatedUnderlyingTokens`] -- `emit::emit_underlying_templated` plus a real
+/// `EmissionStrategy::TemplatedUnderlyingTokens` -- `emit::emit_underlying_templated` plus a real
 /// compiled rewrite cascade, via `templated_compile::compile_templated_morphotactics`. Shares
 /// `emit.rs`'s morphotactic machinery (so it handles `Realizational` exactly as the mainline does),
 /// but that function's own doc enumerates what it deliberately drops.
@@ -376,7 +376,7 @@ fn templated_underlying_tokens(kind: CharacteristicKind) -> (StrategyRepresentat
     }
 }
 
-/// Every [`CharacteristicKind`] `strategy`'s proposer emits nothing at all for -- the whole-
+/// Every `CharacteristicKind` `strategy`'s proposer emits nothing at all for -- the whole-
 /// construct recall holes. Empty for a compiler with no such hole.
 pub fn unrepresentable_kinds(strategy: EmissionStrategy) -> Vec<CharacteristicKind> {
     CharacteristicKind::ALL
@@ -389,11 +389,11 @@ pub fn unrepresentable_kinds(strategy: EmissionStrategy) -> Vec<CharacteristicKi
         .collect()
 }
 
-/// Every [`EmissionStrategy`] whose proposer emits at least SOME material for `kind` (i.e. is not
-/// [`StrategyRepresentation::CannotRepresent`]). This is the set a coverage claim for `kind` has to
+/// Every `EmissionStrategy` whose proposer emits at least SOME material for `kind` (i.e. is not
+/// `StrategyRepresentation::CannotRepresent`). This is the set a coverage claim for `kind` has to
 /// be measured against: evidence demonstrated on a strict subset of it is INHERITED coverage, which
 /// is the failure this module exists to make visible -- see
-/// [`crate::coverage_ledger::LedgerRow::strategies_unwitnessed`].
+/// `crate::coverage_ledger::LedgerRow::strategies_unwitnessed`.
 pub fn strategies_that_represent(kind: CharacteristicKind) -> Vec<EmissionStrategy> {
     ALL_STRATEGIES
         .iter()

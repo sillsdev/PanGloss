@@ -2,7 +2,7 @@
 //! constructs.txt` row id.
 //!
 //! # Why this gate exists
-//! `conformance_coverage::construct_ids_for` maps each [`pg_foma::capability::CharacteristicKind`]
+//! `conformance_coverage::construct_ids_for` maps each `pg_foma::capability::CharacteristicKind`
 //! to `constructs.txt` row-id strings, and `passing_covered_constructs`
 //! (`tests/conformance_coverage_gate.rs`) credits a construct toward coverage by collecting every
 //! `words.yaml` `exercises:` string from a currently-passing word/parse and set-matching it
@@ -30,7 +30,7 @@
 //! # What it checks
 //! Every `exercises:` entry -- both per-word (`WordEntry::exercises`) and per-parse
 //! (`ParseEntry::exercises`) -- across every fixture returned by
-//! [`pg_conformance_fixtures::discover`] (the ONE shared enumeration helper this repo's fixture
+//! `pg_conformance_fixtures::discover` (the ONE shared enumeration helper this repo's fixture
 //! tests use for both `machine/conformance/**` and `conformance-staging/**`; this file does not
 //! walk either root a second time) names a literal, verbatim line of `machine/conformance/
 //! constructs.txt` (blank lines and `#`-led comment lines excluded, per that file's own header).
@@ -58,7 +58,7 @@ fn repo_root() -> PathBuf {
 /// Parse `machine/conformance/constructs.txt` into its set of row ids. Format per the file's own
 /// header comment: "one construct per line. Blank lines and lines starting with `#` are ignored."
 /// This is a single-file line parser, not a second fixture-discovery/path-walking implementation
-/// (that concern stays entirely inside [`pg_conformance_fixtures::discover`]).
+/// (that concern stays entirely inside `pg_conformance_fixtures::discover`).
 fn known_construct_ids() -> BTreeSet<String> {
     let path = repo_root().join("machine/conformance/constructs.txt");
     let text =

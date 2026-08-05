@@ -1,10 +1,10 @@
 //! Integration test for tree-structured node/subtree interaction coverage over the reified
 //! compilation plan, rather than pairwise covering arrays over raw grammar "knobs".
 //!
-//! Computes [`pg_foma::plan_interaction_coverage::compute_interaction_coverage`]'s report over every
+//! Computes `pg_foma::plan_interaction_coverage::compute_interaction_coverage`'s report over every
 //! discoverable conformance fixture (`pg_conformance_fixtures::discover()` -- `machine/conformance/
 //! **` + `conformance-staging/**`), prints it, and now **fails the build** if any required
-//! [`pg_foma::plan_interaction_coverage::AdjacencyTuple`] is `Uncovered`. This mirrors
+//! `pg_foma::plan_interaction_coverage::AdjacencyTuple` is `Uncovered`. This mirrors
 //! `conformance_coverage_gate.rs`'s own flip discipline exactly (that module's own doc;
 //! `docs/conformance/shared-construct-id-analysis.md`'s "a green build-breaking gate that can
 //! silently start lying is worse than an advisory report, because the green light is what gets
@@ -29,7 +29,7 @@
 //!
 //! # The fuzz slice (deliverable 5) -- also a hard assertion, unchanged by this flip
 //! For every discovered fixture whose plan's `Gate` node has >=2 partition groups,
-//! [`pg_foma::plan_interaction_coverage::fuzz_gate_group_reordering_for_grammar`] builds the
+//! `pg_foma::plan_interaction_coverage::fuzz_gate_group_reordering_for_grammar` builds the
 //! grammar's default plan and its `permute_gate_groups` twin and asserts `differential_oracle`
 //! reports `Agree`. This assertion was already hard before today's flip of the coverage-report half
 //! above: it re-confirms a mechanized correctness property (Gate-group order-invariance,

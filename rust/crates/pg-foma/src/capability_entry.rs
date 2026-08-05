@@ -1,22 +1,22 @@
-//! A production-shaped convenience entry point into [`crate::capability::compose_envelope`], for
+//! A production-shaped convenience entry point into `crate::capability::compose_envelope`, for
 //! callers (`pg-cli`) that just want "the
 //! `CompileDecision` for this `Grammar`" without hand-assembling `characterize`'s `enumerate_default`
 //! inputs themselves.
 //!
-//! [`evaluate_capability`] only ever COMPUTES a [`crate::capability::CompileDecision`], it
+//! `evaluate_capability` only ever COMPUTES a `crate::capability::CompileDecision`, it
 //! does not consult one itself: a `Refuse` is reported rather than silently
 //! papered over so an unrepresentable construct never turns into a quietly wrong parse. Whether a
 //! `CompileDecision` actually blocks/stamps a real compile path is a fact
-//! about the call graph, not this module — grep for callers of [`evaluate_capability`] to check.
+//! about the call graph, not this module — grep for callers of `evaluate_capability` to check.
 //!
 //! # Mirroring the real compile setup
-//! [`crate::emit::emit_with_budget`]'s own SETUP (its first few lines, before any lexc text is
+//! `crate::emit::emit_with_budget`'s own SETUP (its first few lines, before any lexc text is
 //! written) builds exactly three things this function also needs, the same way:
-//! - `table`/the segment alphabet: `emit_with_budget` calls [`crate::emit::surface_table`] (the
+//! - `table`/the segment alphabet: `emit_with_budget` calls `crate::emit::surface_table` (the
 //!   LAST stratum's char-def table — that function's own doc) and wraps it in a
-//!   [`crate::replace::SegAlphabet`] wherever the compose/gate seams need one (`crate::gate`/
+//!   `crate::replace::SegAlphabet` wherever the compose/gate seams need one (`crate::gate`/
 //!   `crate::replace`'s own production call sites, mirrored by `crate::enumerate`'s test-module
-//!   helpers this function also mirrors). [`evaluate_capability`] does the identical
+//!   helpers this function also mirrors). `evaluate_capability` does the identical
 //!   `SegAlphabet::new(surface_table(g))`.
 //! - `phon`: `emit_with_budget` calls `PhonologyProbe::new(g)` directly; so does this function.
 //! - `prules_in_order`: not a literal local in `emit_with_budget` itself (that function's mainline
@@ -27,13 +27,13 @@
 //!   compile_gated_grammar_with_budget`, `crate::enumerate`'s and `crate::capability`'s own test
 //!   modules) builds it the same way: `g`'s strata, in order, flattened over each stratum's own
 //!   `phonologicalRules` id list, as literal borrows of `g.prules` (required for
-//!   [`crate::enumerate::rule_id_of`]'s pointer-identity `PRuleId` recovery). That construction is
-//!   the shared [`crate::enumerate::prules_in_order`], which [`evaluate_capability`] calls.
+//!   `crate::enumerate::rule_id_of`'s pointer-identity `PRuleId` recovery). That construction is
+//!   the shared `crate::enumerate::prules_in_order`, which `evaluate_capability` calls.
 //!
-//! `evaluate_capability` then hands all three to [`crate::enumerate::enumerate_default`]
-//! to get the reified [`crate::plan::Plan`], and folds that together with
-//! [`crate::capability::characterize`]'s profile via [`crate::capability::compose_envelope`] against
-//! [`crate::capability::default_registry`] — the same two spines
+//! `evaluate_capability` then hands all three to `crate::enumerate::enumerate_default`
+//! to get the reified `crate::plan::Plan`, and folds that together with
+//! `crate::capability::characterize`'s profile via `crate::capability::compose_envelope` against
+//! `crate::capability::default_registry` — the same two spines
 //! already connected, just assembled from a bare `&Grammar` in
 //! one call instead of by hand at every call site.
 
@@ -46,9 +46,9 @@ use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
 use crate::replace::SegAlphabet;
 
-/// Computes the overall, whole-grammar [`CompileDecision`] for `g` — `characterize` + `enumerate_
+/// Computes the overall, whole-grammar `CompileDecision` for `g` — `characterize` + `enumerate_
 /// default` + `compose_envelope`, assembled the way a real caller would, over
-/// [`crate::capability::default_registry`] (today's shipped predicate set — see that function's
+/// `crate::capability::default_registry` (today's shipped predicate set — see that function's
 /// own doc).
 ///
 /// **Check-only.** Calling this function has no effect on `g` or on any other compile path; it does
@@ -60,13 +60,13 @@ pub fn evaluate_capability(g: &Grammar) -> CompileDecision {
     evaluate_capability_with_semantics(&GrammarSemantics::derive(g))
 }
 
-/// [`evaluate_capability`] over an already-derived [`GrammarSemantics`]. A caller that needs BOTH the profile and the
-/// verdict -- [`crate::preflight::preflight_findings`] is exactly that, and `pangloss make-report`
+/// `evaluate_capability` over an already-derived `GrammarSemantics`. A caller that needs BOTH the profile and the
+/// verdict -- `crate::preflight::preflight_findings` is exactly that, and `pangloss make-report`
 /// needs the verdict three times in one process -- derives the owner once and calls this, instead of
-/// paying for a second (and third) full [`crate::capability::characterize`] walk.
+/// paying for a second (and third) full `crate::capability::characterize` walk.
 ///
-/// This is not "accept a caller-supplied verdict": a [`GrammarSemantics`] is a pure, deterministic
-/// function of the grammar, and this function still computes the [`CompileDecision`] itself through
+/// This is not "accept a caller-supplied verdict": a `GrammarSemantics` is a pure, deterministic
+/// function of the grammar, and this function still computes the `CompileDecision` itself through
 /// the same `enumerate_default` + `compose_envelope` spine `evaluate_capability` always used.
 pub fn evaluate_capability_with_semantics(semantics: &GrammarSemantics<'_>) -> CompileDecision {
     let g = semantics.grammar();

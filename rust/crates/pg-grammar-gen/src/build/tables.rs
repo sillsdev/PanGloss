@@ -15,7 +15,7 @@
 //! table-0-local `CharDefId`s, but the CALLER's alphabet (built, correctly, from whichever table
 //! the rule's own stratum actually uses) converted those same raw indices into ITS OWN table's
 //! tokens -- silently naming whatever segment happens to sit at that same positional index in the
-//! OTHER table. If every table assigned the same feature to the same index (the [`build`]'s
+//! OTHER table. If every table assigned the same feature to the same index (the `build`'s
 //! `misaligned = false` case), this mix-up would coincidentally still name the linguistically-right
 //! segment -- useless for a detect-wrong gate. `misaligned = true` gives table 1 (and beyond) the
 //! OPPOSITE index/feature alignment table 0 uses, so the mix-up provably named the WRONG segment.
@@ -62,7 +62,7 @@ pub struct TableSpec {
 
 impl TableSpec {
     /// The (first) segment of this table whose polarity is `voice_plus`. Panics if this table has
-    /// none -- every table [`build`] produces has both polarities present (alternating), so this
+    /// none -- every table `build` produces has both polarities present (alternating), so this
     /// only fires if a caller asks for a table shape this module doesn't build.
     pub fn segment_with_polarity(&self, voice_plus: bool) -> &SegmentSpec {
         self.segments
@@ -78,7 +78,7 @@ impl TableSpec {
     }
 }
 
-/// Everything [`build`] produces: the shared feature system, the tables themselves, the shared
+/// Everything `build` produces: the shared feature system, the tables themselves, the shared
 /// (feature-based, table-agnostic) natural classes every recipe can reference, and -- when
 /// `table_count >= 2` -- the demo devoicing rule GATE 1 composes against.
 #[derive(Debug, Clone)]
@@ -98,7 +98,7 @@ pub struct TablesBuild {
     pub devoice_rule_xml: Option<String>,
     pub devoice_rule_xml_id: Option<String>,
     /// Present iff `build` was called with `needs_boundary = true` -- table 0's own
-    /// `<BoundaryDefinition>` xml id ([`crate::build::compounding`]'s compound-seam marker; see
+    /// `<BoundaryDefinition>` xml id (`crate::build::compounding`'s compound-seam marker; see
     /// `build`'s own doc for why this must be a boundary, not a plain segment).
     pub boundary_xml_id: Option<String>,
 }
@@ -126,8 +126,8 @@ const FEAT_ID_XML_ID: &str = "featId";
 /// same-phase multi-table sanity check should pass `false`.
 ///
 /// `needs_boundary`: when `true`, table 0 also declares a single `<BoundaryDefinition>` (xml id
-/// returned as [`TablesBuild::boundary_xml_id`]) whose representation is the literal `"+"`
-/// character -- [`crate::build::compounding`]'s own compound-seam marker. Found empirically by
+/// returned as `TablesBuild::boundary_xml_id`) whose representation is the literal `"+"`
+/// character -- `crate::build::compounding`'s own compound-seam marker. Found empirically by
 /// reading `machine/conformance/languages/fusional-realizational-morphology/grammar.xml`'s own header comment on its
 /// `cBnd` declaration: a compounding rule's `InsertSegments` boundary text must be declared as a
 /// `<BoundaryDefinition>`, NOT a plain `<SegmentDefinition>` -- that file's own comment records that
@@ -277,8 +277,8 @@ pub fn nc_any_xml_id() -> &'static str {
     NC_ANY_XML_ID
 }
 
-/// Xml id of the per-segment-unique `featId` `SymbolicFeature` [`build`] always declares (module
-/// doc addendum) -- [`crate::build::alpha`] reuses this existing feature as the phonological
+/// Xml id of the per-segment-unique `featId` `SymbolicFeature` `build` always declares (module
+/// doc addendum) -- `crate::build::alpha` reuses this existing feature as the phonological
 /// feature every alpha variable it declares binds to (module doc: since `ncAny` matches every
 /// segment in the table regardless of feature, and each segment's own `featId` value is unique and
 /// always set, this gives alpha-tuple resolution exactly `segment_inventory`-many self-agreeing

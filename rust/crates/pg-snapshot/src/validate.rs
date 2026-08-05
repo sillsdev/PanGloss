@@ -3,8 +3,8 @@
 //! Real FieldWorks data contains stale references (`docs/fwdata-import-plan.md` §1's motivating
 //! example: a `MoMorphAdhocProhib` referencing a deleted morpheme, which crashes the legacy C#
 //! exporter). This importer's contract is to tolerate that — dangling GUID references are
-//! reported here as **warnings** ([`Warning`]s: a stable code alongside human-readable prose),
-//! never as errors; [`crate::Snapshot::from_json`]/parsing always succeeds if the JSON itself is
+//! reported here as **warnings** (`Warning`s: a stable code alongside human-readable prose),
+//! never as errors; `crate::Snapshot::from_json`/parsing always succeeds if the JSON itself is
 //! well-formed and correctly versioned.
 //!
 //! This is intentionally a *light* check, not an exhaustive schema validator: it resolves the
@@ -20,12 +20,12 @@
 //! Every warning below carries a stable short code alongside its prose. The overwhelming
 //! majority of this module's checks are the *same* situation applied to a different reference
 //! kind — "a GUID cross-reference does not resolve to any definition of the expected kind in this
-//! snapshot" — so they intentionally share one code, [`DANGLING_REFERENCE`]. Three call sites are
-//! genuinely different situations and get their own code: [`FEATURE_STRUCTURE_UNRESOLVED`]
+//! snapshot" — so they intentionally share one code, `DANGLING_REFERENCE`. Three call sites are
+//! genuinely different situations and get their own code: `FEATURE_STRUCTURE_UNRESOLVED`
 //! (`check_feature_structure`'s recursive closed/complex-feature-or-value resolution, which is
-//! more involved than a single flat registry lookup), [`RULE_FEATURE_UNRESOLVED`]
+//! more involved than a single flat registry lookup), `RULE_FEATURE_UNRESOLVED`
 //! (`check_rule_feature_ref`'s reference is documented as legitimately resolving against *either*
-//! of two different registries), and [`REFERENCE_OUT_OF_SCOPE`] (a sense's MSA reference that
+//! of two different registries), and `REFERENCE_OUT_OF_SCOPE` (a sense's MSA reference that
 //! resolves fine as *some* MSA in the snapshot, just not one owned by its own entry — not a
 //! dangling reference at all).
 
@@ -218,8 +218,8 @@ fn build_registries(snap: &Snapshot) -> Registries {
 }
 
 /// `guid` is a "rule feature"/"exception feature" reference: it may legitimately be either an
-/// [`crate::morphology::InflectionClass`] guid or an
-/// [`crate::morphology::ExceptionFeature`] guid (see `HCLoader.LoadMprFeatures`,
+/// `crate::morphology::InflectionClass` guid or an
+/// `crate::morphology::ExceptionFeature` guid (see `HCLoader.LoadMprFeatures`,
 /// HCLoader.cs:2610-2623, and `Morphology::exception_features`'s doc for why both are valid).
 fn check_rule_feature_ref(
     guid: &Guid,

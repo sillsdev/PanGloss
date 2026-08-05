@@ -2,11 +2,11 @@
 //!
 //! # What a "vertical slice" is here
 //! Two ends joined by one gate. The TOP end is the typed mechanism graph
-//! ([`pg_foma::mechanism_provider::derive_mechanism_graph`] over
-//! [`pg_foma::grammar_semantics::GrammarSemantics`]): a `Morphotactics` node, a terminal
+//! (`pg_foma::mechanism_provider::derive_mechanism_graph` over
+//! `pg_foma::grammar_semantics::GrammarSemantics`): a `Morphotactics` node, a terminal
 //! `BoundaryCleanup` node, and a directed path from the first to the second. The BOTTOM end is what
 //! the engine actually produces for that same grammar's own pinned words, projected through the
-//! program's parity vocabulary ([`pg_foma::parity::OccurrenceIdentities`]). A gate that asserted
+//! program's parity vocabulary (`pg_foma::parity::OccurrenceIdentities`). A gate that asserted
 //! only the graph would be asserting a description of a pipeline; a gate that asserted only the
 //! analyses would not have touched the slice. Both ends, one fixture at a time, is the slice.
 //!
@@ -46,12 +46,12 @@
 //! This matters enough to spell out, because a relation chosen for convenience is how the v1 scope
 //! was once made invisible (`pg_foma::parity`'s own module doc explains the fix). Three distinct
 //! relations appear below, named at every use site:
-//! - The PROGRAM's parity relation is deduplicated [`pg_foma::parity::OccurrenceIdentities`] SET
-//!   equality ([`OccurrenceIdentities::same_identities`]); multiplicity is deliberately NOT part of
+//! - The PROGRAM's parity relation is deduplicated `pg_foma::parity::OccurrenceIdentities` SET
+//!   equality (`OccurrenceIdentities::same_identities`); multiplicity is deliberately NOT part of
 //!   it. That relation is used for the language-rename invariance check, where "the same analyses"
 //!   is exactly the question.
 //! - This slice additionally asks for MULTIPLICITY, which set equality drops. So the per-word
-//!   check below asserts the MULTISET cardinality too, via [`OccurrenceIdentities::raw_analyses`]
+//!   check below asserts the MULTISET cardinality too, via `OccurrenceIdentities::raw_analyses`
 //!   against the
 //!   committed `parses:` row count -- `words.yaml` is documented as sorted-but-NOT-deduped
 //!   (`pg_parse::result_signature`, `WordEntry::expected_signature`), so a repeated signature there
@@ -65,7 +65,7 @@
 //!
 //! **2. `root_index` is load-bearing.** The per-word check pins that every identity's `root_index`
 //! indexes its own morpheme sequence, which is a well-formedness floor and not a discrimination
-//! claim. The discrimination claim is [`root_index_discriminates_two_readings_of_one_surface`],
+//! claim. The discrimination claim is `root_index_discriminates_two_readings_of_one_surface`,
 //! which uses the fixture staged for exactly this
 //! (`conformance-staging/edge-cases/head-ambiguous-compounding`, whose two `dakimo` readings render
 //! to the IDENTICAL flat signature string and so cannot be told apart by any `words.yaml`
@@ -76,7 +76,7 @@
 //! `assert_eq!(root_blind.len(), 1)` half, which is asserted to be STRICTLY smaller than the full
 //! set. A relation that dropped `root_index` would report the two readings as one analysis.
 //!
-//! **3. Cleanup idempotence.** [`boundary_cleanup_applied_twice_equals_once`] builds the cleanup
+//! **3. Cleanup idempotence.** `boundary_cleanup_applied_twice_equals_once` builds the cleanup
 //! relation the way `pg_foma::build`'s own private `boundary_cleanup_net` builds it (every
 //! `CharDefKind::Boundary` token, `tok -> 0`, blanket and unconditional -- that module's doc records
 //! why excluding any boundary family is a measured recall regression), then applies it twice with
@@ -90,7 +90,7 @@
 //! assertion pass by asserting nothing. The companion assertion that a boundary-FREE input is
 //! returned unchanged is the cleanup dossier's "no non-boundary symbol is deleted" obligation.
 //!
-//! **4. No language-name routing.** [`no_language_name_routing`] reloads each of the four fixtures
+//! **4. No language-name routing.** `no_language_name_routing` reloads each of the four fixtures
 //! with its `<Language><Name>` replaced by a fixed neutral string and requires the derived graph's
 //! `canonical_projection()` to be BYTE-identical and the oracle's per-word identity sets and
 //! multiplicities to be unchanged.
@@ -151,7 +151,7 @@ const EXERCISES: &[&str] = &[
     CLEANUP_BOUNDARY_CONSUMER,
 ];
 
-/// The neutral name every fixture is reloaded under by [`no_language_name_routing`]. Deliberately
+/// The neutral name every fixture is reloaded under by `no_language_name_routing`. Deliberately
 /// not a word in any language.
 const NEUTRAL_LANGUAGE_NAME: &str = "Zq0NeutralControl";
 
@@ -182,7 +182,7 @@ struct CommittedWord {
     raw_parses: usize,
     /// Distinct MORPHEME-JOIN parts (the text before `|`) among those rows.
     ///
-    /// A sound LOWER bound on the number of distinct [`pg_parse::identity::AnalysisIdentity`]s:
+    /// A sound LOWER bound on the number of distinct `pg_parse::identity::AnalysisIdentity`s:
     /// two different morpheme joins are two different morpheme-key vectors, hence two different
     /// identities. The morpheme half is used rather than the whole signature precisely because two
     /// rows CAN differ only in their rendered surface, which would make the whole-signature count an
@@ -1054,7 +1054,7 @@ fn renamed(xml: &str, language_name: &str, label: &str) -> String {
 /// case, or name-derived tie-break anywhere on either path changes one of those two artifacts.
 ///
 /// The identity comparison here uses the PROGRAM's parity relation
-/// ([`OccurrenceIdentities::same_identities`]) -- deduplicated set equality -- because "did renaming
+/// (`OccurrenceIdentities::same_identities`) -- deduplicated set equality -- because "did renaming
 /// change which analyses exist" is exactly the question that relation answers. Multiplicity is
 /// compared separately and explicitly, since set equality is blind to it by design.
 #[test]

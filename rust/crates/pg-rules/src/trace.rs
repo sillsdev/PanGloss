@@ -1,24 +1,24 @@
 //! The `TraceManager` port: rule-by-rule parse tracing.
 //!
-//! Pure data types plus the [`TraceSink`] trait. No call sites live
+//! Pure data types plus the `TraceSink` trait. No call sites live
 //! here — `pg-rules`/`pg-parse`'s own functions gain `trace` parameters elsewhere. This module
 //! is unit-testable in isolation: build a small tree by hand through the trait and assert the
-//! resulting [`TreeTraceSink`]'s structure (see the tests below, which pin the two trickiest pieces
+//! resulting `TreeTraceSink`'s structure (see the tests below, which pin the two trickiest pieces
 //! of C#'s `TraceManager.cs` cursor semantics: the "applying a rule reassigns the cursor so later
 //! events nest UNDER it" behavior, and `SynthesizeWord`'s two-levels-deep
 //! `curTrace.Children.Last.Children.Add` reach).
 //!
 //! ## Zero-cost-when-off
-//! [`NoopSink`] is the always-present no-op [`TraceSink`] every existing call path uses by default
+//! `NoopSink` is the always-present no-op `TraceSink` every existing call path uses by default
 //! (`Morpher::parse_word` stays a thin wrapper over a traced variant called with `NoopSink`).
-//! Every real call site must check [`TraceSink::is_tracing`] BEFORE doing any other
-//! trace-related work (cloning a `Word`, computing a [`FailureReason`]) — the single branch that
+//! Every real call site must check `TraceSink::is_tracing` BEFORE doing any other
+//! trace-related work (cloning a `Word`, computing a `FailureReason`) — the single branch that
 //! must be free when tracing is off.
 //!
 //! ## Deliberate simplification vs. the design sketch
 //! The original sketch takes `input`/`output` as `&Word` and leaves "the sink
-//! itself decides whether/when to clone" up to the implementation. This port's [`TreeTraceSink`]
-//! always snapshots via `Word::clone()` (a whole owned [`Word`], not a hand-trimmed lighter struct) —
+//! itself decides whether/when to clone" up to the implementation. This port's `TreeTraceSink`
+//! always snapshots via `Word::clone()` (a whole owned `Word`, not a hand-trimmed lighter struct) —
 //! simpler than threading a separate `WordSnapshot` type through every call site, and costs nothing
 //! on the no-op path (the clone only happens inside `TreeTraceSink`'s methods, never inside
 //! `NoopSink`'s, and call sites must check `is_tracing()` before calling either). The sketch's
@@ -33,7 +33,7 @@ use pg_grammar::model::{MRuleId, PRuleId, StratumId, TemplateId};
 
 use crate::word::Word;
 
-/// A stable handle into the trace tree a [`TraceSink`] is building — the Rust analog of C#'s
+/// A stable handle into the trace tree a `TraceSink` is building — the Rust analog of C#'s
 /// `Word.CurrentTrace`, carried as an explicit value (an arena index) rather than a mutated field.
 /// `Word` itself carries `trace: Option<TraceHandle>` mirroring `CurrentTrace: object`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,13 +43,13 @@ impl TraceHandle {
     /// A placeholder handle for call sites that thread a `parent: TraceHandle` parameter
     /// unconditionally (so the traced and untraced code paths share one function body) but only
     /// ever dereference it behind an `is_tracing()` guard. Never produced by a real
-    /// [`TraceSink`] and never valid to pass to one — [`NoopSink`]'s methods that would read it are
+    /// `TraceSink` and never valid to pass to one — `NoopSink`'s methods that would read it are
     /// all `unreachable!()`, so this value is never actually looked up.
     pub const DUMMY: TraceHandle = TraceHandle(u32::MAX);
 }
 
 /// `TraceType` (C# `TraceType`, `Trace.cs`, 19 real values ported 1:1 by name; no `None` variant —
-/// see [`FailureReason`]'s doc for why Rust drops C#'s sentinel defaults in this port).
+/// see `FailureReason`'s doc for why Rust drops C#'s sentinel defaults in this port).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TraceType {
     GenerateWords,
@@ -75,7 +75,7 @@ pub enum TraceType {
     Failed,
 }
 
-/// The rule/stratum/template/language object that produced a [`TraceNode`] (C#'s `IHCRule Source`,
+/// The rule/stratum/template/language object that produced a `TraceNode` (C#'s `IHCRule Source`,
 /// replacing C#'s OOP polymorphism with a closed enum — every concrete source kind is already known
 /// to the grammar model, per §4.3). `None` for the leaf-most `Successful`/`Failed`/`Blocked` nodes,
 /// which are keyed off a `Word`, not a rule (matching C#'s `Source == null` for those).
@@ -160,7 +160,7 @@ impl TraceNode {
 }
 
 /// The zero-cost-when-off guard + event-emission surface (C# `ITraceManager`). Mirrors C#'s
-/// `if (_morpher.TraceManager.IsTracing)` idiom: every call site must check [`Self::is_tracing`]
+/// `if (_morpher.TraceManager.IsTracing)` idiom: every call site must check `Self::is_tracing`
 /// before doing ANY other trace-related work.
 ///
 /// One instance per `parse_word` call (never shared/reused across words — mirrors C#'s per-`Morpher`
@@ -172,7 +172,7 @@ impl TraceNode {
 /// &T) -> Vec<T>`, not `FnMut` -- a real `&mut dyn TraceSink` captured by such a closure cannot be
 /// re-borrowed across the closure's many sequential (but not simultaneously live) invocations
 /// without fighting the borrow checker. Every method here therefore takes `&self`;
-/// [`TreeTraceSink`] wraps its arena in a [`RefCell`]/[`Cell`] to get the mutation back. This is the
+/// `TreeTraceSink` wraps its arena in a `RefCell`/`Cell` to get the mutation back. This is the
 /// standard Rust shape for a "logger" trait threaded through combinators that don't need unique
 /// access, and it is what let chunks 4/5 pass `trace: &dyn TraceSink` through the cascade closures
 /// as a plain shared reference instead of threading a raw pointer or restructuring the cascade API.
@@ -252,7 +252,7 @@ pub trait TraceSink {
         output: &Word,
     ) -> TraceHandle;
     /// `ApplicableTemplatesNotApplied` — always `FailureReason::PartialParse`, but a DISTINCT trace
-    /// event from [`Self::non_final_template_applied_last`] (§3.2's last row / §4.2's third bullet).
+    /// event from `Self::non_final_template_applied_last` (§3.2's last row / §4.2's third bullet).
     /// P12 chunk 5 correction: C#'s actual signature (`ITraceManager.cs:73`) is also `(Stratum
     /// stratum, Word word)` -- chunk 0 omitted the stratum source entirely; added here.
     fn applicable_templates_not_applied(
@@ -300,7 +300,7 @@ pub trait TraceSink {
         output: &Word,
     ) -> TraceHandle;
     /// Dead-end-attribution census addition (`deadend_census.rs`): unlike the
-    /// synthesis-side [`Self::morphological_rule_not_applied`] (which has carried a `FailureReason`
+    /// synthesis-side `Self::morphological_rule_not_applied` (which has carried a `FailureReason`
     /// since P12 chunk 4), this method originally carried none — there was no call site at all
     /// (`pg_rules::stratum::StratumAnalyzer`'s analysis cascade has never been traced; confirmed by
     /// grep, zero production or test callers before this census). Adding the `reason` parameter here
@@ -363,7 +363,7 @@ pub trait TraceSink {
     fn synthesize_word(&self, parent: TraceHandle, input: &Word) -> TraceHandle;
 }
 
-/// The always-present no-op [`TraceSink`] (see the `impl` below for why every method but
+/// The always-present no-op `TraceSink` (see the `impl` below for why every method but
 /// [`is_tracing`](TraceSink::is_tracing) panics). Kept as a concrete (not `dyn`) type at call sites
 /// where possible so `is_tracing()` can const-fold away; some call sites accept `&dyn TraceSink`
 /// at the boundary instead.
@@ -541,10 +541,10 @@ impl TraceSink for NoopSink {
     }
 }
 
-/// The concrete tree-builder (C# `TraceManager`, `TraceManager.cs`): an arena of [`TraceNode`]s
-/// ([`TraceHandle`] = index) built by appending exactly as `TraceManager.cs` does, including the two
-/// cursor subtleties documented on [`TraceSink::synthesize_word`] and
-/// [`TraceSink::morphological_rule_applied`].
+/// The concrete tree-builder (C# `TraceManager`, `TraceManager.cs`): an arena of `TraceNode`s
+/// (`TraceHandle` = index) built by appending exactly as `TraceManager.cs` does, including the two
+/// cursor subtleties documented on `TraceSink::synthesize_word` and
+/// `TraceSink::morphological_rule_applied`.
 pub struct TreeTraceSink {
     nodes: RefCell<Vec<TraceNode>>,
     root: Cell<Option<TraceHandle>>,
@@ -602,7 +602,7 @@ impl TreeTraceSink {
         h
     }
 
-    /// The last child of `parent` — used by [`TraceSink::synthesize_word`]'s two-levels-deep reach.
+    /// The last child of `parent` — used by `TraceSink::synthesize_word`'s two-levels-deep reach.
     fn last_child(&self, parent: TraceHandle) -> TraceHandle {
         *self.nodes.borrow()[parent.0 as usize]
             .children

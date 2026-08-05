@@ -205,7 +205,11 @@ $anchoredLongBlocks = 0
 # AND only if the file is really there -- an anchor nobody can follow is not an anchor.
 function Get-BlockAnchor {
     param([string]$Text, [string]$RepoRoot)
-    if ($Text -match '\[`[^`]+`\]') { return 'intra-doc-link' }
+    # An intra-doc link is deliberately NOT an anchor any more. It only ever proved that a path
+    # resolved, so it licensed length without licensing truth -- and treating it as an anchor rewarded
+    # adding links at the same time the repo concluded code-to-code links should be deleted (the LSP
+    # already navigates; 551 broken ones had gone unnoticed). The three anchors left all survive
+    # semantic drift.
     if ($Text -match '```') { return 'doctest' }
     if ($Text -match 'include_str!') { return 'include-str' }
     foreach ($m in [regex]::Matches($Text, '(?:rust/)?docs/research/[A-Za-z0-9._/\-]+\.md')) {

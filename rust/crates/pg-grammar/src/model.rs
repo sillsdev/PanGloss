@@ -2,7 +2,7 @@
 //! the input to every downstream crate (pg-fst pattern compile, pg-rules, pg-parse).
 //!
 //! Faithful to the object model `XmlLanguageLoader.cs` constructs, flattened to id-indexed
-//! tables: every cross-reference is a dense `u32`/`u16` newtype into a `Vec` on [`Grammar`].
+//! tables: every cross-reference is a dense `u32`/`u16` newtype into a `Vec` on `Grammar`.
 //! Ordering matters everywhere and mirrors the C# loader exactly: strata in document order,
 //! a stratum's rules in the order of its `morphologicalRules`/`phonologicalRules` id-list
 //! attributes (ids not found are silently skipped, as C# `TryGetValue` does), subrules in
@@ -19,8 +19,8 @@
 //!
 //! `MetathesisRule` (phase 2, W4), `MorphemeCoOccurrenceRule`/`AllomorphCoOccurrenceRule`
 //! (phase 2, W6): ported. `StemName`/`Family`/`RealizationalRule` (phase 2, W5, the
-//! "realizational cluster"): ported — see [`StemNameDef`], [`FamilyDef`],
-//! [`RealizationalRuleDef`] and `pg_rules::{validity, morph, stratum}`. No reference grammar
+//! "realizational cluster"): ported — see `StemNameDef`, `FamilyDef`,
+//! `RealizationalRuleDef` and `pg_rules::{validity, morph, stratum}`. No reference grammar
 //! uses any of these five (still zero occurrences in Indonesian/Amharic/Sena), but they are
 //! real, loadable, unlinted surface now.
 
@@ -32,29 +32,29 @@ use crate::featsys::{FlatIndex, PhonFeatureSystem};
 
 // --- Id newtypes ---------------------------------------------------------------------------
 
-/// Index into [`Grammar::strata`].
+/// Index into `Grammar::strata`.
 #[derive(
     Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct StratumId(pub u8);
 
-/// Index into [`Grammar::mrules`] (all morphological rules, grammar-wide).
+/// Index into `Grammar::mrules` (all morphological rules, grammar-wide).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct MRuleId(pub u32);
 
-/// Index into [`Grammar::prules`] (all phonological rule definitions, grammar-wide).
+/// Index into `Grammar::prules` (all phonological rule definitions, grammar-wide).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct PRuleId(pub u32);
 
-/// Index into [`Grammar::templates`] (all affix templates, grammar-wide).
+/// Index into `Grammar::templates` (all affix templates, grammar-wide).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct TemplateId(pub u32);
 
-/// Index into [`Grammar::entries`] (all lexical entries, grammar-wide).
+/// Index into `Grammar::entries` (all lexical entries, grammar-wide).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct LexEntryId(pub u32);
 
-/// Index into [`Grammar::morphemes`] — the unified morpheme registry. Both lexical entries
+/// Index into `Grammar::morphemes` — the unified morpheme registry. Both lexical entries
 /// and morphemic morphological rules (affix process rules) are morphemes in C#; analysis
 /// results are sequences of these ids, and the batch signature is
 /// `join("+", morpheme.Id)` over them (M0-verified protocol).
@@ -69,7 +69,7 @@ impl MorphemeId {
     pub const GUESSED: MorphemeId = MorphemeId(u32::MAX);
 }
 
-/// Index into [`Grammar::allomorph_owners`] — the unified allomorph registry (root allomorphs and
+/// Index into `Grammar::allomorph_owners` — the unified allomorph registry (root allomorphs and
 /// affix-process allomorphs), mirroring C#'s `_allomorphs` dictionary keyed by XML id.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct AllomorphId(pub u32);
@@ -84,33 +84,33 @@ impl AllomorphId {
     pub const GUESSED: AllomorphId = AllomorphId(u32::MAX);
 }
 
-/// Index into [`Grammar::natural_classes`].
+/// Index into `Grammar::natural_classes`.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct NatClassId(pub u32);
 
-/// Index into [`Grammar::stem_names`] (`<StemNames><StemName>`, C# `StemName`).
+/// Index into `Grammar::stem_names` (`<StemNames><StemName>`, C# `StemName`).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct StemNameId(pub u32);
 
-/// Index into [`Grammar::families`] (`<Families><Family>`, C# `LexFamily`).
+/// Index into `Grammar::families` (`<Families><Family>`, C# `LexFamily`).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct FamilyId(pub u32);
 
-/// Index into [`Grammar::char_tables`].
+/// Index into `Grammar::char_tables`.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct TableId(pub u16);
 
-/// A rule-scoped alpha variable (index into the owning rule's [`VarTable`]).
+/// A rule-scoped alpha variable (index into the owning rule's `VarTable`).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct VarId(pub u16);
 
-/// Bit position in an [`MprSet`] (max 6 MPR features across the reference grammars; the
+/// Bit position in an `MprSet` (max 6 MPR features across the reference grammars; the
 /// loader lints >64).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct MprId(pub u8);
 
 /// Stable authored identity and current display label for one MPR feature. Indexed in the same
-/// order as [`Grammar::mpr_names`], so [`MprId`] remains the compact hot-path representation.
+/// order as `Grammar::mpr_names`, so `MprId` remains the compact hot-path representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MprFeatureDef {
     pub xml_id: String,
@@ -170,8 +170,8 @@ impl MprSet {
 /// item 4: previously hard-linted unsupported because no reference grammar used it; the
 /// `fst-advisor-toys/HermitCrabTestBase.shared.xml` fixture does, via an empty `<FootFeatures/>`
 /// plus `AssignedFootFeatures`/`RequiredFootFeatures` regions). Symbol/feature ids are dense
-/// indices in declaration order; tree feature structs ([`pg_featstruct::FeatureStruct`])
-/// reference features by [`pg_featstruct::FeatId`] into this system.
+/// indices in declaration order; tree feature structs (`pg_featstruct::FeatureStruct`)
+/// reference features by `pg_featstruct::FeatId` into this system.
 ///
 /// Head and foot share ONE feature namespace (`XmlLanguageLoader.cs:244-256`: both
 /// `LoadSyntacticFeatureSystem(headFeatsElem, SyntacticFeatureType.Head)` and the foot
@@ -190,7 +190,7 @@ pub struct SynFeatureSystem {
     /// a syntactic FS is a nested `FeatureStruct` over the head/foot-shared declared features.
     pub head: Option<pg_featstruct::FeatId>,
     /// The foot complex feature (present iff the grammar has `<FootFeatures>`), C#'s
-    /// `AddFootFeature()`/`_footFeature`. Mirrors [`Self::head`] exactly.
+    /// `AddFootFeature()`/`_footFeature`. Mirrors `Self::head` exactly.
     pub foot: Option<pg_featstruct::FeatId>,
 }
 
@@ -330,7 +330,7 @@ pub struct SegmentedText {
 
 /// An authored pattern: an ordered node sequence, optionally named (LHS parts of
 /// morphological rules are named "1", "2", … / "head_1", … in C#; here the name is the
-/// [`PartRef`] the RHS uses to reference the captured span).
+/// `PartRef` the RHS uses to reference the captured span).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Pattern {
     pub nodes: Vec<PatternNode>,
@@ -509,7 +509,7 @@ pub struct MorphemeInfo {
     pub properties: Vec<(String, String)>,
     /// `<MorphemeCoOccurrenceRules>` entries whose `primaryMorpheme` is this morpheme (C#
     /// `Morpheme.MorphemeCoOccurrenceRules`). Evaluated by `pg-rules::validity` alongside the
-    /// per-allomorph [`AllomorphCoOccurrenceRuleDef`]s (plan W6, `Allomorph.
+    /// per-allomorph `AllomorphCoOccurrenceRuleDef`s (plan W6, `Allomorph.
     /// CheckAllomorphConstraints`, Allomorph.cs:181-201).
     pub co_occurrence: Vec<MorphemeCoOccurrenceRuleDef>,
 }
@@ -525,7 +525,7 @@ pub enum CoOccurrenceAdjacency {
 }
 
 /// `<MorphemeCoOccurrenceRule>` → C# `MorphemeCoOccurrenceRule` (`MorphCoOccurrenceRule<Morpheme>`).
-/// Attached to the primary morpheme's [`MorphemeInfo::co_occurrence`] — C#'s `Morpheme.
+/// Attached to the primary morpheme's `MorphemeInfo::co_occurrence` — C#'s `Morpheme.
 /// MorphemeCoOccurrenceRules` is itself a per-morpheme collection (`XmlLanguageLoader.
 /// LoadMorphemeCoOccurrenceRule`: `primaryMorpheme.MorphemeCoOccurrenceRules.Add(rule)`).
 #[derive(Debug, Clone)]
@@ -537,9 +537,9 @@ pub struct MorphemeCoOccurrenceRuleDef {
 }
 
 /// `<AllomorphCoOccurrenceRule>` → C# `AllomorphCoOccurrenceRule` (`MorphCoOccurrenceRule<Allomorph>`).
-/// Attached to the primary allomorph's `co_occurrence` field ([`RootAllomorphDef`]/
-/// [`AffixAllomorphDef`]) — C#'s `Allomorph.AllomorphCoOccurrenceRules` is a per-*allomorph*
-/// collection, distinct from the per-*morpheme* [`MorphemeCoOccurrenceRuleDef`] above (pinned by
+/// Attached to the primary allomorph's `co_occurrence` field (`RootAllomorphDef`/
+/// `AffixAllomorphDef`) — C#'s `Allomorph.AllomorphCoOccurrenceRules` is a per-*allomorph*
+/// collection, distinct from the per-*morpheme* `MorphemeCoOccurrenceRuleDef` above (pinned by
 /// `rust/conformance/cooccurrence/allomorph-basic`: two allomorphs of the same morpheme, only one
 /// carrying the rule).
 #[derive(Debug, Clone)]
@@ -859,10 +859,10 @@ pub struct MprGroup {
 /// group-**unaware** in C# itself (a flat `Intersect(..).Any()`), so `compound_match` is untouched.
 ///
 /// Free functions over `&[MprGroup]` (not `Grammar` methods) so they're unit-testable without
-/// standing up a full loaded [`Grammar`]; [`Grammar`]'s methods below are thin `&self.mpr_groups`
+/// standing up a full loaded `Grammar`; `Grammar`'s methods below are thin `&self.mpr_groups`
 /// wrappers, the actual call sites in `pg-rules`.
 /// Partition `test`'s bits into "buckets" the way C#'s `this.GroupBy(mf => mf.Group)` does: every
-/// bit belongs to at most one [`MprGroup`] (a well-formed grammar never puts one MPR feature in two
+/// bit belongs to at most one `MprGroup` (a well-formed grammar never puts one MPR feature in two
 /// groups; if it did, C#'s last-write-wins `MprFeature.Group` backpointer would decide, but no
 /// FLEx-emittable grammar does this, so this port simplifies to **first** declared group claims the
 /// bit — flagged, not silently assumed). Returns `(ungrouped_bits, [(match_type, bucket_bits),
@@ -906,7 +906,7 @@ pub fn mpr_required_ok(groups: &[MprGroup], required: MprSet, have: MprSet) -> b
 }
 
 /// C# `MprFeatureSet.IsMatchExcluded` (`MprFeatureSet.cs:72-96`): the dual of
-/// [`mpr_required_ok`] — ungrouped features and `All`-type group members must ALL be *absent*; an
+/// `mpr_required_ok` — ungrouped features and `All`-type group members must ALL be *absent*; an
 /// `Any`-type group only needs one member absent (fails only when every member of that group is
 /// present).
 pub fn mpr_excluded_ok(groups: &[MprGroup], excluded: MprSet, have: MprSet) -> bool {
@@ -924,8 +924,8 @@ pub fn mpr_excluded_ok(groups: &[MprGroup], excluded: MprSet, have: MprSet) -> b
 }
 
 /// C# `MprFeatureSet.AddOutput` (`MprFeatureSet.cs:29-44`): group-aware MPR output accumulation.
-/// For every [`MprGroup`] `output` touches (`group.members` overlaps `output`) whose policy is
-/// [`MprGroupOutput::Overwrite`], every member of that group NOT itself in `output` is dropped from
+/// For every `MprGroup` `output` touches (`group.members` overlaps `output`) whose policy is
+/// `MprGroupOutput::Overwrite`, every member of that group NOT itself in `output` is dropped from
 /// `current` first; only then is `output` unioned in. `Append`-policy groups (and any group
 /// `output` doesn't touch at all) are pure union, same as ungrouped features — matching every
 /// reference-grammar allomorph today (singleton groups, so Overwrite-vs-Append is unobservable
@@ -954,7 +954,7 @@ impl Grammar {
             && mpr_excluded_ok(&self.mpr_groups, excluded, have)
     }
 
-    /// See the free function [`mpr_add_output`] (this grammar's own `mpr_groups`).
+    /// See the free function `mpr_add_output` (this grammar's own `mpr_groups`).
     pub fn mpr_add_output(&self, current: MprSet, output: MprSet) -> MprSet {
         mpr_add_output(&self.mpr_groups, current, output)
     }
@@ -1084,7 +1084,7 @@ pub struct StratumDef {
     pub entries: Vec<LexEntryId>,
 }
 
-/// One allomorph registry record: who owns an [`AllomorphId`].
+/// One allomorph registry record: who owns an `AllomorphId`.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum AllomorphOwner {
     /// `entries[e].allomorphs[i]`.
@@ -1099,27 +1099,27 @@ pub enum AllomorphOwner {
 pub struct Grammar {
     pub name: Option<String>,
     /// The phonological (segment-domain) symbolic feature system. Resolves every
-    /// [`crate::featsys::FlatIndex`] appearing in natural-class feature constraints,
+    /// `crate::featsys::FlatIndex` appearing in natural-class feature constraints,
     /// alpha-variable feature references, and simple contexts. Owned here because — as in the
     /// C# `Language` — the character-definition tables and phonetic patterns are only
     /// interpretable against it, and downstream crates (pg-fst pattern compile, pg-rules) need
     /// it alongside the tables. Built by the loader's phonology pass.
     pub phon_features: PhonFeatureSystem,
-    /// Character-definition tables in document order; [`TableId`] indexes this `Vec`. Resolves
-    /// every [`crate::chardef::CharDefId`] in natural-class segment lists, [`SegmentedText`]
-    /// shapes, and [`PatternNode::CharDef`] nodes.
+    /// Character-definition tables in document order; `TableId` indexes this `Vec`. Resolves
+    /// every `crate::chardef::CharDefId` in natural-class segment lists, `SegmentedText`
+    /// shapes, and `PatternNode::CharDef` nodes.
     pub char_tables: Vec<CharDefTable>,
     pub syn_features: SynFeatureSystem,
     /// Grammar-tier interner for all syntactic-domain tree feature structures. Every `FsId`
     /// in these tables resolves here. `FsId` of the empty FS is interned first (id 0).
     pub fs_interner: pg_featstruct::Interner<pg_featstruct::FeatureStruct>,
     pub mpr_names: Vec<String>,
-    /// Authored identities parallel to [`Self::mpr_names`] and indexed by [`MprId`].
+    /// Authored identities parallel to `Self::mpr_names` and indexed by `MprId`.
     pub mpr_features: Vec<MprFeatureDef>,
     pub mpr_groups: Vec<MprGroup>,
-    /// `<StemNames><StemName>` (W5), in document order; [`StemNameId`] indexes this `Vec`.
+    /// `<StemNames><StemName>` (W5), in document order; `StemNameId` indexes this `Vec`.
     pub stem_names: Vec<StemNameDef>,
-    /// `<Families><Family>` (W5), in document order; [`FamilyId`] indexes this `Vec`.
+    /// `<Families><Family>` (W5), in document order; `FamilyId` indexes this `Vec`.
     pub families: Vec<FamilyDef>,
     pub natural_classes: Vec<NaturalClass>,
     pub morphemes: Vec<MorphemeInfo>,

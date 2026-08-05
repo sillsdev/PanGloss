@@ -1,9 +1,9 @@
 //! Streaming `.fwdata` reader: walks the flat sequence of `<rt class="..." guid="..."
 //! [ownerguid="..."]>` records one at a time (`quick_xml`'s pull-based `Reader`, never a DOM of
-//! the whole document — Sena 3 is ~54MB) and builds a [`RawGraph`] keyed by GUID, containing
+//! the whole document — Sena 3 is ~54MB) and builds a `RawGraph` keyed by GUID, containing
 //! only records whose `class` is one this crate's extractor understands. Every other class
 //! (the bulk of a real project — `ChkRef`, `WfiWordform`, `StText`, Scripture data, ...) is
-//! skipped without ever being parsed into a [`crate::node::Node`].
+//! skipped without ever being parsed into a `crate::node::Node`.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -41,7 +41,7 @@ pub struct RawGraph {
     /// `ownerguid` attribute) and `LexDb` has no ordered `Entries` sequence field either; the only
     /// deterministic order available at all is raw document order, so the streaming parser
     /// records it directly here rather than the extractor discovering entries via
-    /// [`RawGraph::by_class`] (hashmap iteration order is per-process-random and would break the
+    /// `RawGraph::by_class` (hashmap iteration order is per-process-random and would break the
     /// "same file twice → byte-identical JSON" determinism requirement).
     pub lex_entry_order: Vec<String>,
 }
@@ -60,7 +60,7 @@ impl RawGraph {
     /// `LangProject` is a file singleton — `.next()` over a one-element filtered set can't
     /// observe ordering. Every other ordered output in this crate comes from a named-field
     /// `objsur_list` walk, a `CmPossibilityList`/`SubPossibilities` tree walk, or
-    /// [`RawGraph::lex_entry_order`] — never this method. Keep it that way: a new caller of
+    /// `RawGraph::lex_entry_order` — never this method. Keep it that way: a new caller of
     /// `by_class` feeding `Snapshot` output would silently reintroduce the hazard.
     pub fn by_class<'a>(&'a self, class: &'a str) -> impl Iterator<Item = &'a Record> + 'a {
         self.records.values().filter(move |r| r.class == class)
@@ -151,7 +151,7 @@ fn get_attr(e: &BytesStart, name: &str) -> Result<Option<String>, ImportError> {
     Ok(None)
 }
 
-/// Parse `path` into a [`RawGraph`]. Hard errors are reserved for I/O failures and XML that
+/// Parse `path` into a `RawGraph`. Hard errors are reserved for I/O failures and XML that
 /// isn't well-formed at all (or isn't a `.fwdata` document — no `<languageproject>`/`<rt>`
 /// elements found); anything else (dangling references, missing fields, unknown morph types) is
 /// the extractor's job to log as a warning, never this layer's.
@@ -230,7 +230,7 @@ pub fn parse_fwdata(path: &Path) -> Result<RawGraph, ImportError> {
     Ok(graph)
 }
 
-/// Parse everything up to (and including) the matching `</rt>` into a [`Node`] representing the
+/// Parse everything up to (and including) the matching `</rt>` into a `Node` representing the
 /// `<rt>` element itself (its `children` are the record's property elements).
 fn parse_rt_body(reader: &mut Reader<BufReader<File>>) -> Result<Node, ImportError> {
     let mut stack: Vec<Node> = vec![Node::empty()];

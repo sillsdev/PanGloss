@@ -5,14 +5,14 @@
 //! drift — first as a versioned JSON document, then as a mermaid diagram over that same document.
 //!
 //! # Two steps, on purpose (mirrors `crate::health`'s convention)
-//! [`build_plan_document`] projects a `Plan` (plus its grammar and the real capability evaluation)
-//! into [`PlanDocument`] — canonical, versioned JSON, independently useful for diffing two grammar
-//! revisions or machine checks. [`render_mermaid`] is a **pure function over that documented JSON
+//! `build_plan_document` projects a `Plan` (plus its grammar and the real capability evaluation)
+//! into `PlanDocument` — canonical, versioned JSON, independently useful for diffing two grammar
+//! revisions or machine checks. `render_mermaid` is a **pure function over that documented JSON
 //! shape**, never over the `Plan`/`Grammar` again — exactly `crate::health`'s "canonical JSON is the
 //! source artifact; the rendering is a view" split.
 //!
 //! # Node identity IS the plan's content address
-//! [`PlanDocumentNode::id`] is [`crate::plan::NodeId`]'s own `Display` (16 lowercase hex digits) —
+//! `PlanDocumentNode::id` is `crate::plan::NodeId`'s own `Display` (16 lowercase hex digits) —
 //! not a separately-invented diagram-local id. Two runs over an unchanged grammar therefore produce
 //! byte-identical JSON (this module's own `plan_diagram_determinism` test pins that), and a diff
 //! between two grammar revisions highlights exactly the subtrees whose *meaning* changed (this
@@ -20,25 +20,25 @@
 //! it).
 //!
 //! # Linguistic labelling (never a second source of truth)
-//! Every [`PlanDocumentNode::label`] names the linguistic work that node performs (a stratum, a
+//! Every `PlanDocumentNode::label` names the linguistic work that node performs (a stratum, a
 //! rewrite/metathesis rule and its mode/direction, a gate partition and what it gates on, a rewrite
 //! cascade and its member rules) with the plan node kind carried separately, as secondary detail, in
-//! [`PlanDocumentNode::kind`]. Every label is derived from the SAME [`Plan`] node's own payload
+//! `PlanDocumentNode::kind`. Every label is derived from the SAME `Plan` node's own payload
 //! (`FragmentSpec`/`Provenance`/`GatePartitionSpec`/`ReplaceCascadeSpec`) plus read-only lookups
 //! against the SAME `Grammar` the plan was built from (stratum names, rule names/xml-ids) — never a
 //! parallel description invented here. See `leaf_label`/`gate_label`/`replace_label`.
 //!
 //! # Capability verdicts, read from the real evaluation
-//! [`PlanDocumentNode::verdict`] is **not** inferred from a node merely existing in the plan (a node
+//! `PlanDocumentNode::verdict` is **not** inferred from a node merely existing in the plan (a node
 //! exists whether or not it was admitted — `crate::capability::compose_envelope`'s own module doc).
-//! [`per_node_verdicts`] computes each node's real, bottom-up [`crate::capability::CompileDecision`]
+//! `per_node_verdicts` computes each node's real, bottom-up `crate::capability::CompileDecision`
 //! by mirroring `crate::capability`'s own private `node_decision` walk — same registry, same
-//! [`crate::capability::CharacteristicsProfile`], same [`crate::capability::meet`] — over ONLY that
+//! `crate::capability::CharacteristicsProfile`, same `crate::capability::meet` — over ONLY that
 //! module's own public API (this file never modifies
-//! `capability.rs`). [`PlanDocument::overall_verdict`] is, separately, the literal, unmodified return
-//! value of [`crate::capability::compose_envelope`] itself, so a reader always has the ONE
+//! `capability.rs`). `PlanDocument::overall_verdict` is, separately, the literal, unmodified return
+//! value of `crate::capability::compose_envelope` itself, so a reader always has the ONE
 //! authoritative whole-grammar answer available even where a characteristic has no distinct
-//! [`crate::plan::PlanNodeKind`] to hang a node-local verdict on (`compose_envelope`'s own doc names
+//! `crate::plan::PlanNodeKind` to hang a node-local verdict on (`compose_envelope`'s own doc names
 //! several: `Compounding`, `UnorderedMorphRuleApplication`, `MprGroupAppend`, `MprGroupOverwrite`,
 //! `CircumfixOutputAction`, `Reduplication`). This module's own `plan_diagram_root_verdict_matches_
 //! compose_envelope` test pins that the two agree for `crate::capability::default_registry`, whose
@@ -55,13 +55,13 @@
 //!
 //! # Honest summarization (mermaid only — the JSON is always the complete plan)
 //! A plan over a realistic lexicon can have far more sibling rewrite-rule leaves under one
-//! [`crate::plan::PlanNodeKind::Replace`] node than mermaid can draw at all (mermaid fails outright
-//! above a size, rather than degrading). [`render_mermaid`] collapses sibling LEAF children above a
-//! caller-chosen threshold (default [`DEFAULT_LEAF_COLLAPSE_THRESHOLD`]) into one labelled summary
+//! `crate::plan::PlanNodeKind::Replace` node than mermaid can draw at all (mermaid fails outright
+//! above a size, rather than degrading). `render_mermaid` collapses sibling LEAF children above a
+//! caller-chosen threshold (default `DEFAULT_LEAF_COLLAPSE_THRESHOLD`) into one labelled summary
 //! node carrying a count, and the rendered text ALWAYS states the threshold, whether summarization
 //! actually happened, and the node count actually emitted (`MermaidRender`'s own fields, plus the
 //! same facts as `%%` comment lines in the rendered text itself) — a reader must never be left
-//! guessing whether they are looking at the whole plan. [`RenderMode::Full`] opts out entirely.
+//! guessing whether they are looking at the whole plan. `RenderMode::Full` opts out entirely.
 //! Collapsing decisions are made per PARENT EDGE, not globally per node: a leaf shared by several
 //! parents (real, since `crate::plan::Plan` dedups identical subtrees) can be drawn in full under one
 //! parent while folded into a summary node under another whose own child count crossed the
@@ -84,14 +84,14 @@ use crate::plan_interaction_coverage::plan_for_semantics;
 
 /// This document's own schema version (same discipline as `crate::coverage_ledger::
 /// COVERAGE_LEDGER_SCHEMA_VERSION`/`crate::health::HEALTH_SCHEMA_VERSION`) — bump only on a
-/// wire-incompatible change to [`PlanDocument`]'s shape.
+/// wire-incompatible change to `PlanDocument`'s shape.
 pub const PLAN_DIAGRAM_SCHEMA_VERSION: u32 = 1;
 
 // =================================================================================================
 // Capability verdicts: DiagnosticView + NodeVerdict, the real evaluation's serializable projection
 // =================================================================================================
 
-/// An owned, serializable projection of [`CapabilityDiagnostic`] (which does not itself derive
+/// An owned, serializable projection of `CapabilityDiagnostic` (which does not itself derive
 /// `serde` traits) — same fields, `predicate` widened from `&'static str` to `String` only because
 /// `serde` needs an owned type to (de)serialize into.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,8 +111,8 @@ impl From<&CapabilityDiagnostic> for DiagnosticView {
     }
 }
 
-/// A serializable projection of [`CompileDecision`] (which does not itself derive `serde` traits) —
-/// same three outcomes, `Refuse`'s diagnostics widened to [`DiagnosticView`]. Never constructed from
+/// A serializable projection of `CompileDecision` (which does not itself derive `serde` traits) —
+/// same three outcomes, `Refuse`'s diagnostics widened to `DiagnosticView`. Never constructed from
 /// a node's mere presence in the plan — see this module's own top-doc.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
@@ -122,7 +122,7 @@ pub enum NodeVerdict {
     /// Propose the superset; no no-false-negative proof, but a first-class non-failure.
     ConfirmOnly,
     /// Refused, carrying every diagnostic collected for this node (or, for the whole-plan
-    /// [`PlanDocument::overall_verdict`], for the whole plan).
+    /// `PlanDocument::overall_verdict`, for the whole plan).
     Refuse { diagnostics: Vec<DiagnosticView> },
 }
 
@@ -137,7 +137,7 @@ impl NodeVerdict {
         }
     }
 
-    /// `true` iff this verdict is [`NodeVerdict::Refuse`] — the one fact [`render_mermaid`] must
+    /// `true` iff this verdict is `NodeVerdict::Refuse` — the one fact `render_mermaid` must
     /// show unmistakably: a refused construct must be visible in the picture, not only in a
     /// diagnostic.
     pub fn is_refused(&self) -> bool {
@@ -145,7 +145,7 @@ impl NodeVerdict {
     }
 }
 
-/// Converts a single predicate's [`PredicateVerdict`] into the same three-way [`CompileDecision`]
+/// Converts a single predicate's `PredicateVerdict` into the same three-way `CompileDecision`
 /// lattice `crate::capability`'s own (private) `verdict_to_decision` uses — restated here (not
 /// imported: that helper is private) as the one-line, unambiguous mapping
 /// (`Admit`->`Admit`, `ConfirmOnly`->`ConfirmOnly`, `Refuse(d)`->`Refuse(vec![d])`).
@@ -158,7 +158,7 @@ fn predicate_verdict_to_decision(v: PredicateVerdict) -> CompileDecision {
 }
 
 /// Mirrors `crate::capability`'s own private `node_decision` exactly (same registry, same
-/// [`CharacteristicsProfile`], same [`crate::capability::meet`]) over ONLY that module's public API
+/// `CharacteristicsProfile`, same `crate::capability::meet`) over ONLY that module's public API
 /// — this module does not, and per this change's scope may not, modify `capability.rs`, so a node's
 /// real bottom-up verdict is recomputed here by calling the SAME predicates/registry `compose_
 /// envelope` calls, not by inventing a different, potentially-drifting rule. See this module's own
@@ -206,9 +206,9 @@ fn node_decision_mirror(
     decision
 }
 
-/// Every node's own [`CompileDecision`], keyed by [`NodeId`] — the per-node granularity `compose_
+/// Every node's own `CompileDecision`, keyed by `NodeId` — the per-node granularity `compose_
 /// envelope` itself never exposes (it only ever returns the single whole-plan decision at the
-/// root). See [`node_decision_mirror`]'s own doc for why this is a faithful mirror, not a second,
+/// root). See `node_decision_mirror`'s own doc for why this is a faithful mirror, not a second,
 /// independently-invented computation.
 fn per_node_verdicts(
     plan: &Plan,
@@ -330,7 +330,7 @@ fn compose_strategy_name(s: ComposeStrategy) -> &'static str {
     }
 }
 
-/// Stable, exhaustively-matched tags for [`FragmentSpec`] variants — used both as the JSON
+/// Stable, exhaustively-matched tags for `FragmentSpec` variants — used both as the JSON
 /// payload's `fragment` field and as the mermaid summarizer's collapsing group key (see
 /// `render_mermaid`'s own doc).
 fn fragment_tag(fragment: &FragmentSpec) -> &'static str {
@@ -394,7 +394,7 @@ fn replace_label(
 // The JSON document
 // =================================================================================================
 
-/// An owned, serializable projection of [`GatedSubruleRef`] (which does not derive `serde` traits).
+/// An owned, serializable projection of `GatedSubruleRef` (which does not derive `serde` traits).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatedSubruleRefView {
     pub rule_pos: usize,
@@ -410,17 +410,17 @@ impl From<&GatedSubruleRef> for GatedSubruleRefView {
     }
 }
 
-/// A structured, machine-checkable projection of one [`PlanNodeKind`]'s own config (excluding
-/// `children`, which [`PlanDocumentNode::children`] already carries) — independently
+/// A structured, machine-checkable projection of one `PlanNodeKind`'s own config (excluding
+/// `children`, which `PlanDocumentNode::children` already carries) — independently
 /// usable for machine checks: a caller diffing two
 /// grammar revisions can compare `payload` fields directly, not just the human-readable `label`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NodePayload {
     Leaf {
-        /// [`fragment_tag`] — also the mermaid summarizer's collapsing group key.
+        /// `fragment_tag` — also the mermaid summarizer's collapsing group key.
         fragment: String,
-        /// [`provenance_tag`].
+        /// `provenance_tag`.
         provenance: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         rule_id: Option<u32>,
@@ -444,7 +444,7 @@ pub enum NodePayload {
     },
 }
 
-/// One node in a [`PlanDocument`]. `id` is [`NodeId`]'s own content address (`Display`, 16 lowercase
+/// One node in a `PlanDocument`. `id` is `NodeId`'s own content address (`Display`, 16 lowercase
 /// hex digits) — never a diagram-local counter: `NodeId` is the diagram's node
 /// identity.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -458,21 +458,21 @@ pub struct PlanDocumentNode {
     /// built from — never a second, independently-invented description.
     pub label: String,
     pub payload: NodePayload,
-    /// This node's own real, bottom-up capability verdict — see [`per_node_verdicts`]'s doc.
+    /// This node's own real, bottom-up capability verdict — see `per_node_verdicts`'s doc.
     pub verdict: NodeVerdict,
 }
 
-/// The versioned JSON projection of a [`Plan`]: a documented, versioned JSON shape.
+/// The versioned JSON projection of a `Plan`: a documented, versioned JSON shape.
 /// See this module's top-doc for the full contract.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanDocument {
     pub schema_version: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root: Option<String>,
-    /// The real, unmodified [`crate::capability::compose_envelope`] verdict for the whole grammar —
+    /// The real, unmodified `crate::capability::compose_envelope` verdict for the whole grammar —
     /// see this module's top-doc for why this is kept alongside (not instead of) per-node verdicts.
     pub overall_verdict: NodeVerdict,
-    /// Every node, in [`Plan::iter`]'s own content-address order (deterministic — `Plan`'s own doc)
+    /// Every node, in `Plan::iter`'s own content-address order (deterministic — `Plan`'s own doc)
     /// — this is what makes two runs over an unchanged grammar serialize byte-identically.
     pub nodes: Vec<PlanDocumentNode>,
 }
@@ -489,8 +489,8 @@ impl PlanDocument {
         serde_json::from_str(json)
     }
 
-    /// Looks up one node by its content-address id (the same string [`PlanDocumentNode::id`]/
-    /// [`PlanDocument::root`] carry).
+    /// Looks up one node by its content-address id (the same string `PlanDocumentNode::id`/
+    /// `PlanDocument::root` carry).
     pub fn node(&self, id: &str) -> Option<&PlanDocumentNode> {
         self.nodes.iter().find(|n| n.id == id)
     }
@@ -592,23 +592,23 @@ fn build_node(
     }
 }
 
-/// Builds `g`'s [`PlanDocument`]: [`plan_for_semantics`] assembles the real [`Plan`]/
-/// [`CharacteristicsProfile`] the way `crate::capability_entry::evaluate_capability` does; [`crate::
-/// capability::compose_envelope`] supplies the real whole-grammar verdict; [`per_node_verdicts`]
+/// Builds `g`'s `PlanDocument`: `plan_for_semantics` assembles the real `Plan`/
+/// `CharacteristicsProfile` the way `crate::capability_entry::evaluate_capability` does; [`crate::
+/// capability::compose_envelope`] supplies the real whole-grammar verdict; `per_node_verdicts`
 /// supplies the real per-node verdicts (mirroring the same algorithm, see its own doc). Every label
 /// is derived from each node's own payload plus `g` — see this module's top-doc.
 ///
 /// Shares ONE
-/// [`crate::grammar_semantics::GrammarSemantics`] for the whole document, rather than running
-/// **three** independent [`crate::capability::characterize`] walks for one diagram — one in its own
+/// `crate::grammar_semantics::GrammarSemantics` for the whole document, rather than running
+/// **three** independent `crate::capability::characterize` walks for one diagram — one in its own
 /// `plan_and_profile` call, a second in the `plan_and_profile` call inside
-/// [`build_plan_document_for_plan`] (whose `Plan` half would then be discarded), and a third inside
-/// [`crate::capability::compose_envelope`].
+/// `build_plan_document_for_plan` (whose `Plan` half would then be discarded), and a third inside
+/// `crate::capability::compose_envelope`.
 pub fn build_plan_document(g: &Grammar) -> PlanDocument {
     build_plan_document_with_semantics(&GrammarSemantics::derive(g))
 }
 
-/// [`build_plan_document`] over an already-derived [`GrammarSemantics`].
+/// `build_plan_document` over an already-derived `GrammarSemantics`.
 pub fn build_plan_document_with_semantics(semantics: &GrammarSemantics<'_>) -> PlanDocument {
     let plan = plan_for_semantics(semantics);
     build_plan_document_for_plan_with_semantics(semantics, &plan)
@@ -620,7 +620,7 @@ pub fn build_plan_document_for_plan(g: &Grammar, plan: &Plan) -> PlanDocument {
     build_plan_document_for_plan_with_semantics(&GrammarSemantics::derive(g), plan)
 }
 
-/// [`build_plan_document_for_plan`] over an already-derived [`GrammarSemantics`].
+/// `build_plan_document_for_plan` over an already-derived `GrammarSemantics`.
 pub fn build_plan_document_for_plan_with_semantics(
     semantics: &GrammarSemantics<'_>,
     plan: &Plan,
@@ -654,13 +654,13 @@ pub fn build_plan_document_for_plan_with_semantics(
 // Mermaid rendering: a pure function over PlanDocument
 // =================================================================================================
 
-/// The default readability threshold above which [`render_mermaid`] collapses sibling leaf children
+/// The default readability threshold above which `render_mermaid` collapses sibling leaf children
 /// into a summary node (see this module's top-doc "Honest summarization" section). Chosen well
 /// above any node count a small synthetic test fixture produces (so ordinary tests exercise the
 /// uncollapsed path by default) and well below the count at which mermaid's own renderer degrades.
 pub const DEFAULT_LEAF_COLLAPSE_THRESHOLD: usize = 24;
 
-/// Whether [`render_mermaid`] summarizes large sibling-leaf groups or draws every node.
+/// Whether `render_mermaid` summarizes large sibling-leaf groups or draws every node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderMode {
     /// Collapse sibling leaf groups whose count exceeds `threshold` under any one parent.
@@ -678,13 +678,13 @@ impl Default for RenderMode {
     }
 }
 
-/// [`render_mermaid`]'s result: the rendered text plus the honesty facts a reader needs regardless
+/// `render_mermaid`'s result: the rendered text plus the honesty facts a reader needs regardless
 /// of whether they read the text closely -- the renderer reports the node count it
 /// emitted so a failed render is diagnosable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MermaidRender {
     pub mermaid: String,
-    /// `None` for [`RenderMode::Full`]; `Some(threshold)` for [`RenderMode::Summarized`], regardless
+    /// `None` for `RenderMode::Full`; `Some(threshold)` for `RenderMode::Summarized`, regardless
     /// of whether any group actually exceeded it.
     pub threshold: Option<usize>,
     /// `true` iff at least one sibling-leaf group was actually collapsed.
@@ -735,7 +735,7 @@ fn leaf_group_key(node: &PlanDocumentNode) -> String {
 }
 
 /// The number of distinct nodes reachable from `root` over `by_id`'s own `children` edges,
-/// independent of any collapsing decision -- [`MermaidRender::total_node_count`]'s own computation.
+/// independent of any collapsing decision -- `MermaidRender::total_node_count`'s own computation.
 fn reachable_node_count(by_id: &HashMap<&str, &PlanDocumentNode>, root: &str) -> usize {
     let mut seen: HashSet<String> = HashSet::new();
     let mut stack = vec![root.to_string()];
@@ -750,7 +750,7 @@ fn reachable_node_count(by_id: &HashMap<&str, &PlanDocumentNode>, root: &str) ->
     seen.len()
 }
 
-/// Renders `doc` as a mermaid `flowchart` — a pure function over the documented [`PlanDocument`]
+/// Renders `doc` as a mermaid `flowchart` — a pure function over the documented `PlanDocument`
 /// shape, never over the `Plan`/`Grammar` again. See
 /// this module's top-doc "Honest summarization" section for the collapsing contract.
 pub fn render_mermaid(doc: &PlanDocument, mode: RenderMode) -> MermaidRender {

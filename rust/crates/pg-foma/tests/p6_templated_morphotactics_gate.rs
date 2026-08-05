@@ -18,11 +18,11 @@
 //! convention for a gitignored real-language corpus fixture.
 //!
 //! ## Why this exists (not just the example)
-//! [`pg_foma::emit::emit`] (the enumeration-based emitter) OOMs on Aweti before ever reaching a
+//! `pg_foma::emit::emit` (the enumeration-based emitter) OOMs on Aweti before ever reaching a
 //! compilable lexc source (855 entries, 135 mrules — the composite pre-expansion stage trips the
 //! enumeration budget). Test (a) below is the first thing that gets Aweti's templated
 //! (`<AffixTemplate>`-based) morphotactics past that wall at all, via
-//! [`pg_foma::emit::emit_underlying_templated`] + a replace-rule cascade
+//! `pg_foma::emit::emit_underlying_templated` + a replace-rule cascade
 //! (`pg_foma::replace::compile_and_compose_rules_recall_safe`) — this is fully achieved and
 //! asserted here: valid `tier`, plausible counts, clean lexc/rule compile, successful `.o.`
 //! composition + minimize (35,846 states / 800,354 arcs).
@@ -40,7 +40,7 @@
 //! `"ti"`/`"an"`/`"parua"` all terminate promptly.
 //!
 //! ## Full-corpus recall gate (composition-based, no `apply_up`)
-//! [`b_full_corpus_recall_via_compose`] uses the composition technique (word-FST `.o.`
+//! `b_full_corpus_recall_via_compose` uses the composition technique (word-FST `.o.`
 //! composed net, `fsm_upper`, intersect against each oracle analysis's own tag acceptor,
 //! `fsm_isempty`) — an ordinary, terminating automaton construction with NO backtracking search
 //! and NO query-ordering dependence, safe to run over the whole corpus (`Morpher::new(&g,
@@ -90,8 +90,8 @@
 //! needs one of the two skipped rules), so test (c) no longer asserts recall. Its durable value is
 //! the chain restriction's real guarantee: `apply_up` on the composed net TERMINATES promptly and
 //! does not explode (pre-restriction, `"ti"`/`"parua"` hung indefinitely). It enumerates up to
-//! [`SAFE_WORD_RAW_CAP`] raw results and asserts the enumeration completes well within a generous
-//! wall-clock bound. Uses [`ORACLE_STEP_CAP`] (not `usize::MAX`) for the oracle `Morpher`.
+//! `SAFE_WORD_RAW_CAP` raw results and asserts the enumeration completes well within a generous
+//! wall-clock bound. Uses `ORACLE_STEP_CAP` (not `usize::MAX`) for the oracle `Morpher`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -434,9 +434,9 @@ fn tag_string_fsm(name: &str, tags: &[String]) -> Fsm {
 /// with a linear identity transducer), projects the UPPER (tag) tape, and checks whether ANY
 /// oracle analysis's own tag sequence intersects it non-emptily. Prints the full recall figure and
 /// the miss list; retains the historical `>= 32`/no-new-baseline-miss checks, then enforces the
-/// current achieved boundary exactly: 106/106 and [`CURRENT_EXPECTED_MISSES`]. A correctness
+/// current achieved boundary exactly: 106/106 and `CURRENT_EXPECTED_MISSES`. A correctness
 /// change must deliberately update that tuple; performance-only changes must preserve it. Every
-/// corpus word not in [`BASELINE_MISSES`] must still recall independently of the exact-current
+/// corpus word not in `BASELINE_MISSES` must still recall independently of the exact-current
 /// assertion.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]

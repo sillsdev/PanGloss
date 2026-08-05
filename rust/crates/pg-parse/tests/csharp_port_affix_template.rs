@@ -1,13 +1,13 @@
 //! Ports `AffixTemplateTests` (parse-opt: `tests/SIL.Machine.Morphology.HermitCrab.Tests/
 //! AffixTemplateTests.cs`) bucket-B/C rows per `rust/parity-out/audit/phase2/D-test-coverage-map.md`
-//! §3. Grammar/lexicon shared via [`csharp_port_common`]; every test drives the real end-to-end
+//! §3. Grammar/lexicon shared via `csharp_port_common`; every test drives the real end-to-end
 //! `pg_parse::Morpher::parse_word` pipeline over an XML-loaded grammar, matching each C# test's own
 //! `morpher.ParseWord(...)` calls. Expected values are transcribed verbatim from the C# source's
 //! `AssertMorphsEqual` literals (oracle = the C# assertion itself, per the task's fixture-strategy
 //! doc §5: "a human reading the assertion can transcribe it in under a minute").
 //!
 //! `RealizationalRule` (the 4th `AffixTemplateTests` test) is now ported (see
-//! [`realizational_rule`]) — the W5 realizational-cluster port unlinted
+//! `realizational_rule`) — the W5 realizational-cluster port unlinted
 //! `RealizationalAffixProcessRule`, closing the former scope-cut.
 
 mod csharp_port_common;
