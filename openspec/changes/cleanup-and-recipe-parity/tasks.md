@@ -123,21 +123,29 @@ residue, ordered by consequence, not by size.
       the widening and own it — all four comments corrected, a characteristics/capability row for
       anchored metathesis, and a test that fails if the scope moves back. Do not leave it: the file
       currently argues against its own code.
-- [ ] 5.4b Fix the stale assertion **message** in `capability.rs`'s
+- [ ] 5.4b **Make the checker's counts honest, then re-baseline — do this before 5.4c, which depends
+      on it.** `comment-hygiene.ps1` scores with PowerShell `-match`, which is **case-insensitive**,
+      so `Phase [A-Z]\b` matches "phase a" and `Stage \d[A-Z]?\b` matches "stage 1" — vocabulary this
+      repo uses for real algorithm structure (`composite.rs:881`, *"propose (stage 1) plus confirm
+      (stage 2)"*). The ratchet therefore over-counts, and worse, it pressures a sweep into rewriting
+      correct domain prose to satisfy a regex. Fix with `-cmatch` (or inline `(?-i)`), then re-baseline
+      in the same commit, since the fix changes every count. The branch header alignment with `main`
+      is already done (`9084d40`).
+- [ ] 5.4c The ratchet is reporting-only in `doctor` by design. Decide whether a **category
+      regression** (not the backlog) should fail CI, now that it has demonstrably caught one real
+      regression created mid-sweep — the first gate on this branch observed firing on a live defect
+      rather than asserted to work. This is the "minimum sufficient gate as a hook, not prose"
+      argument applied to documentation. Do 5.4b first: gating on a metric that miscounts is how a
+      gate earns its way to being switched off.
+- [ ] 5.4d Fix the stale assertion **message** in `capability.rs`'s
       `compose_envelope_meet_correctness_two_confirm_only_constructs` (`:7633`), which calls the
       `Overwrite`-output `MprGroup` "the Refuse-worthy half". The test's `ConfirmOnly` expectation is
       correct — `MprGroupOverwrite`'s disposition is `ConfigPredicate`, not `FailClosed` — so only the
       message and the function name mislead. A string literal, hence out of a comment-only pass.
-- [ ] 5.4c Consider whether `Score::scalar_objective()` should exist. It returns bare `states + arcs`
+- [ ] 5.4e Consider whether `Score::scalar_objective()` should exist. It returns bare `states + arcs`
       — the objective this change explicitly rejected — and has **zero consumers**. Already a Stage 4
-      instance in the grill agenda; listed here so it is not lost if the grill defers.
-- [ ] 5.4d Re-baseline `rust/tools/comment-hygiene.ps1` once the sweep is finished, and bring the
-      branch copy in line with `main`'s (the branch header still cites a specific backlog size,
-      which is the kind of project state the checker itself forbids).
-- [ ] 5.4e The ratchet is reporting-only in `doctor` by design. Decide whether a **category
-      regression** (not the backlog) should fail CI, now that it has demonstrably caught one real
-      regression created mid-sweep. This is the "minimum sufficient gate as a hook, not prose"
-      argument applied to documentation.
+      instance in the grill agenda; listed here so it is not lost if the grill defers. Last because
+      it is the only item that is purely a deletion judgement, with nothing depending on it.
 
 ## 6. Divvun-derived proposer-precision experiments (owner-supplied 2026-07-31)
 
