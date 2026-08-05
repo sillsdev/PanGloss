@@ -1,4 +1,4 @@
-//! ## Delanguaging Part C note (2026-07-25)
+//! ## Delanguaging Part C note
 //! Renamed off the real language's name (was `f1_sena_gate.rs`) as part of the delanguaging
 //! effort's last gap. This gate is STILL corpus-blocked: it needs `samples/data/sena-hc.xml` +
 //! `samples/data/sena-words.txt` (both gitignored real-language data, absent in a fresh clone/CI),
@@ -6,21 +6,21 @@
 //! standalone-affix chain — see `tests/phase_c_chain_scale.rs`'s own module doc) did not reproduce
 //! this grammar's own large-lexicon-scale pathology (its recall gate exercises a >1,300-entry, 132-
 //! rule agglutinative lexicon at real corpus scale, which no synthetic recipe in this repo attempts
-//! to match at that entry count yet — `synthetic-stress-grammar-plan.md`'s own Phase D scale sweeps
-//! are the follow-on for that). Kept `#[ignore]`d, unconditionally, exactly as before.
+//! to match at that entry count yet — `synthetic-stress-grammar-plan.md`'s own scale sweeps are
+//! the follow-on for that). Kept `#[ignore]`d, unconditionally, exactly as before.
 //!
-//! Phase P1 stage 1 gate (docs/fst-plan/foma-fst-plan.md §P1, gate F1, Sena leg): the emitter
-//! (`pg_foma::emit`) + tag codec (`pg_foma::tags`) + thin proposer (`pg_foma::analyzer`) against
+//! Large-lexicon proposer-recall gate (gate F1, Sena leg): the emitter (`pg_foma::emit`) + tag
+//! codec (`pg_foma::tags`) + thin proposer (`pg_foma::analyzer`) against
 //! the real Sena grammar, with the FULL ENGINE (`pg_parse::Morpher`, a dev-dependency only) as the
 //! recall oracle.
 //!
-//! The property that matters (plan §1's iron rule): every true engine analysis must appear among
+//! The property that matters (the iron rule): every true engine analysis must appear among
 //! the proposer's candidates — under-generation is a silently lost analysis. Over-generation is
-//! harmless (P2's confirm prunes it); test (d) only sanity-checks it isn't absurd.
+//! harmless (confirm prunes it); test (d) only sanity-checks it isn't absurd.
 //!
-//! Run with `cargo test -p pg-foma --release --test f1_large_lexicon_gate -- --include-ignored`. Measured
-//! on this machine (2026-07-15): release, all four tests ~32s total (recall gate b: ~33s wall, of
-//! which ~30s is the ENGINE oracle, 0.13s the proposer); debug, ~145s total with b alone ~120s.
+//! Run with `cargo test -p pg-foma --release --test f1_large_lexicon_gate -- --include-ignored`.
+//! Measured: release, all four tests ~32s total (recall gate b: ~33s wall, of which ~30s is the
+//! ENGINE oracle, 0.13s the proposer); debug, ~145s total with b alone ~120s.
 //!
 //! ## Test-timing policy
 //! The default local `cargo test --workspace --release` run must stay under ~60s total and must
