@@ -6,8 +6,7 @@
 //! Amharic's own tuple-expansion counts from `p6_interdigitation_probe.rs` are unchanged), and (c) do the
 //! same sanity pass over Aweti. Does NOT attempt a full gated compile for either (both need the
 //! templated-morphotactics `uflexc` emitter this prototype never built — a separate, already-costed
-//! gap per `docs/fst-plan/p6-prototype-report.md` §6 item 2, not something this MPR/POS step
-//! reaches).
+//! gap, not something this MPR/POS step reaches).
 
 use std::path::{Path, PathBuf};
 
