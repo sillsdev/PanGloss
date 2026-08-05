@@ -68,7 +68,7 @@ fn every_applicable_distinct_recipe_builds_and_full_hc_matches_each_word() {
         label: "baseline",
         plan: baseline,
         adapter: pg_foma::executable_candidate::LoweringAdapter::ControllablePlanCompose,
-        // Task 7.13: this candidate carries the grammar's own default plan, which is exactly what
+        // This candidate carries the grammar's own default plan, which is exactly what
         // `evaluate_plans`'s deleted positional `i == 0` rule used to assert about it from outside.
         role: pg_foma::enumerate::CandidateRole::Baseline,
     });
