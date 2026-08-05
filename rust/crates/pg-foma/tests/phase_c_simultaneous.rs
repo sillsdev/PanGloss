@@ -1,15 +1,12 @@
-//! `openspec/changes/compile-simultaneous-rewrites`: `RewriteMode::Simultaneous` REAL semantics for
+//! `RewriteMode::Simultaneous` REAL semantics for
 //! the configurations the `simultaneous.subrule-overlap` predicate (D3, `crate::capability::
-//! SimultaneousSubruleOverlapPredicate`, built by Stage 1B) ADMITS -- reusing `replace.rs`'s
+//! SimultaneousSubruleOverlapPredicate`) ADMITS -- reusing `replace.rs`'s
 //! existing plain/iterative sequential-compose machinery UNCHANGED (that predicate's own defining
 //! property: non-overlapping simultaneous == sequential, `replace.rs`'s own module doc, "compiling
-//! the ADMITTED case"). BEFORE this change, a `multipleApplicationOrder="simultaneous"` rule was
-//! honestly skipped UNCONDITIONALLY (`is_fully_supported_shape` returning `false` for EVERY such
-//! rule, regardless of subrule shape -- this file's OLD sole test). Now a rule the predicate proves
-//! pairwise non-overlapping actually compiles; one it cannot clear stays gated exactly as before.
+//! the ADMITTED case"). A rule the predicate proves
+//! pairwise non-overlapping actually compiles; one it cannot clear stays gated.
 //!
-//! Synthetic, delanguaged fixtures (`openspec/changes/STAGING.md`'s "Hard rule: synthetic data
-//! only"), named by construct:
+//! Synthetic, delanguaged fixtures ("synthetic data only"), named by construct:
 //! - `sim-trivial`: the pre-existing `pg_grammar_gen` bail-gate recipe (a single, ungated,
 //!   environment-free subrule) -- vacuously admitted (no peer subrule for D3's pairwise loop to
 //!   ever examine), now proven to actually COMPILE, not merely detected.
@@ -29,7 +26,7 @@
 //! safety-net union, that file's own top doc), `pg_rules::rewrite` is NOT mode-blind for
 //! `Simultaneous` vs `Iterative`: it dispatches to genuinely distinct `sim_feature`/`sim_narrow`
 //! synthesis functions and wraps analysis in a `self_opaquing`-gated repeat-until-fixpoint loop
-//! (`rust/docs/p13-simultaneous-design.md` §1.3/§4.3-4.4, P13, already shipped). D3's own
+//! (already shipped). D3's own
 //! `self_opaquing`-Refuse early-out (plus `crate::capability::
 //! simultaneous_rule_admitted_for_compile`'s own STRICTER lone-self-opaquing refusal, that
 //! function's doc) keeps every rule this file's tests below actually compile OUTSIDE the region
