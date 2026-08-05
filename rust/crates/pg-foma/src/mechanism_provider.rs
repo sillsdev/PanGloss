@@ -1,6 +1,5 @@
-//! Task 7.4 of `openspec/changes/cleanup-and-recipe-parity`: derive the
-//! [`crate::recipe_mechanism::MechanismGraph`] from the shared
-//! [`GrammarSemantics`] and from nothing else.
+//! Derives the [`crate::recipe_mechanism::MechanismGraph`] from the shared [`GrammarSemantics`]
+//! and from nothing else.
 //!
 //! # The one rule, and how the signature enforces it
 //! [`derive_mechanism_graph`] takes `&GrammarSemantics` and no `&Grammar`. That is not a
@@ -44,14 +43,15 @@
 //! nothing observable, so there is exactly one order and no permutation of it is representable.
 //!
 //! # What this module does NOT do
-//! It does not construct an `ExecutableCandidate`, register anything, or feed selection --
-//! task 7.5 owns the Registry, and nothing here is called from any routing, applicability or
+//! It does not construct an `ExecutableCandidate`, register anything, or feed selection -- the
+//! recipe registry owns that, and nothing here is called from any routing, applicability or
 //! candidate path. Deriving a graph changes no outcome; it only makes one describable.
 //!
 //! It also does not split mechanisms per stratum. Placing a rule-located observation in a stratum
 //! needs a rule -> stratum map that `GrammarSemantics` does not own, and inventing one here would
-//! mean re-walking `Grammar` -- the exact thing this task forbids. Every derived node is therefore
-//! grammar-wide (`stratum: None`), which the vocabulary already models and which the edge check
+//! mean re-walking `Grammar` -- exactly what this module's one rule (no `&Grammar` access) forbids.
+//! Every derived node is therefore grammar-wide (`stratum: None`), which the vocabulary already
+//! models and which the edge check
 //! treats as compatible with anything. A later slice that teaches `GrammarSemantics` the map can
 //! split them without changing this file's contract.
 
