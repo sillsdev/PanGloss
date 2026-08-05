@@ -1,18 +1,15 @@
-//! Phase P0 viability spike (docs/fst-plan/foma-fst-plan.md §P0, gate F0).
+//! Viability spike for the pure-Rust `foma` crate (crates.io v0.1.1, github.com/divvun/foma-rs).
 //!
-//! Proves the pure-Rust `foma` crate (crates.io v0.1.1, github.com/divvun/foma-rs) supports
-//! everything the emitter design (D2/D3) needs: lexc compilation with multichar tag symbols
-//! and all-paths `apply_up` enumeration (F0.1), regex-compiled replace rules composed with a
-//! lexicon and applied up through the composition (F0.2), flag diacritics gating paths under
-//! `apply_up` (F0.3), and non-ASCII round-tripping (F0.4, folded into the lexc section). A
-//! separate module proves binary save/load round-trips both via file and via the from-memory
-//! loader (`fsm_read_binary_mem`), which the browser-loading and `.bin`-cache designs (D5) will
-//! depend on later.
+//! Proves it supports everything the emitter design needs: lexc compilation with multichar tag
+//! symbols and all-paths `apply_up` enumeration, regex-compiled replace rules composed with a
+//! lexicon and applied up through the composition, flag diacritics gating paths under `apply_up`,
+//! and non-ASCII round-tripping (folded into the lexc section). A separate module proves binary
+//! save/load round-trips both via file and via the from-memory loader (`fsm_read_binary_mem`),
+//! which browser-loading and on-disk caching will depend on later.
 //!
 //! Every network in this file is compiled in **synthesis direction**: upper tape carries the
-//! analysis (tags + underlying segments), lower tape carries the surface form — matching D2/D3.
-//! We always apply **up** (surface -> analysis), matching the runtime direction in §1 of the
-//! plan.
+//! analysis (tags + underlying segments), lower tape carries the surface form. We always apply
+//! **up** (surface -> analysis), matching the runtime direction.
 
 use foma::apply::apply_init;
 use foma::constructions::fsm_compose;
@@ -336,9 +333,9 @@ fn flags_obey_off_lets_inconsistent_path_through() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Binary save/load round-trip (plan §P0 step 7): both the file-based loader and the
-// from-memory loader (`fsm_read_binary_mem`) must reproduce identical apply_up results, since
-// D5's optional `.bin` cache and the browser-loading path both depend on this.
+// Binary save/load round-trip: both the file-based loader and the from-memory loader
+// (`fsm_read_binary_mem`) must reproduce identical apply_up results, since an optional on-disk
+// cache and the browser-loading path both depend on this.
 // ---------------------------------------------------------------------------------------------
 
 #[test]
