@@ -1,8 +1,8 @@
-//! ## Delanguaging Part C note (2026-07-25)
+//! ## Still gated on a real-language corpus
 //! Renamed off the real language's name (was `indonesian_redup_gate.rs`). Still corpus-blocked:
-//! needs `samples/data/indonesian-hc.xml` (gitignored). Part C's own synthetic-reproduction
-//! attempt (`pg_grammar_gen::build::chain`, see `pg-foma/tests/phase_c_chain_scale.rs`) targeted a
-//! different historical anchor (a deep standalone-affix chain) and never attempted reduplication
+//! needs `samples/data/indonesian-hc.xml` (gitignored). A synthetic-reproduction attempt
+//! (`pg_grammar_gen::build::chain`, see `pg-foma/tests/phase_c_chain_scale.rs`) targeted a
+//! different anchor (a deep standalone-affix chain) and never attempted reduplication
 //! parity; `pg_grammar_gen` has no reduplication builder today. Kept `#[ignore]`d unconditionally.
 //!
 //! Tier-2 #8 real-grammar regression guard (plan §13.1.1 / §13.2 step 10): Indonesian's 3 actual

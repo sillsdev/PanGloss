@@ -1,4 +1,4 @@
-//! Shared fixture for the C#-suite port (workstream W11 batch 1, `rust/docs/phase2-completed/test-port-w11.md`).
+//! Shared fixture for the C#-suite port.
 //!
 //! Ports `.worktrees/parse-opt/tests/SIL.Machine.Morphology.HermitCrab.Tests/HermitCrabTestBase.cs`'s
 //! phonological/syntactic feature systems and lexicon into ONE merged XML grammar fragment, reused by
@@ -12,7 +12,7 @@
 //!    operates on `FeatureStruct`s, not table identity; `CharacterDefinitionTable` only matters at the
 //!    text<->shape boundary. This fixture's one table is the union (every segment gets both an `asp`
 //!    value and an `ATR` value), so every pattern from either C# table still matches the same segments.
-//!    **Exception (P5, `docs/p5-crosstable-featurestruct-design.md` §5):** `cA` ("a") deliberately
+//!    **Exception:** `cA` ("a") deliberately
 //!    does NOT get an `ATR` value pinned — every ported test segments surface words the way C#
 //!    segments against **Table1**, whose "a" carries no ATR feature at all; only `cAUnderdot` ("a̘",
 //!    Table3's ATR- "a") is ATR-pinned. This is what makes the `anchor_rules` root-"10" cross-
