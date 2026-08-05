@@ -1,5 +1,4 @@
-//! Task 7.11 of `openspec/changes/cleanup-and-recipe-parity`: the single-owner invariant for
-//! [`pg_foma::grammar_semantics::GrammarSemantics`].
+//! The single-owner invariant for [`pg_foma::grammar_semantics::GrammarSemantics`].
 //!
 //! The invariant this pins: **no migrated consumer re-reads `Grammar` to decide something
 //! `GrammarSemantics` already owns.** Two shapes of evidence, and they are not equally strong --
@@ -149,7 +148,7 @@ fn prules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
 
 /// `select_plan` characterizes the GRAMMAR once, not once per candidate PLAN.
 ///
-/// Falsified 2026-08-02 by moving `GrammarSemantics::derive` back inside `select_plan`'s
+/// Falsified by moving `GrammarSemantics::derive` back inside `select_plan`'s
 /// per-candidate closure: this test then reported 2 (one per candidate) and FAILED.
 #[test]
 fn select_plan_characterizes_the_grammar_once_not_once_per_candidate() {
@@ -201,7 +200,7 @@ fn select_plan_characterizes_the_grammar_once_not_once_per_candidate() {
 
 /// `preflight_findings` characterizes once, not twice.
 ///
-/// Falsified 2026-08-02 by restoring the two independent walks (`capability::characterize(g)` here
+/// Falsified by restoring the two independent walks (`capability::characterize(g)` here
 /// plus a second inside a freshly derived `evaluate_capability`): this test then reported 2 and
 /// FAILED.
 #[test]
@@ -230,8 +229,9 @@ fn preflight_findings_characterizes_once_not_twice() {
 /// Declared phonology and cascade phonology are DIFFERENT facts, and each consumer keeps the one it
 /// already meant. A "simplification" that unified them fails here.
 ///
-/// Falsified 2026-08-02 by pointing `Applicability::HasPhonology` at `cascade_phonology`: this test
-/// then FAILED on the orphaned-rule fixture, which is exactly the routing change task 7.11 forbids.
+/// Falsified by pointing `Applicability::HasPhonology` at `cascade_phonology`: this test then
+/// FAILED on the orphaned-rule fixture, which is exactly the routing change this invariant
+/// forbids.
 #[test]
 fn declared_and_cascade_phonology_stay_separate_facts_for_their_separate_consumers() {
     let orphan = load(ORPHANED_PRULE_XML);
