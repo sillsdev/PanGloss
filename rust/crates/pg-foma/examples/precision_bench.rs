@@ -1,7 +1,6 @@
-//! FST precision knob bench matrix (spec `docs/superpowers/specs/2026-07-15-fst-precision-knob-
-//! design.md` §6 last bullet, the "fst-stats successor"): per (grammar × preset), prints network
-//! size, load/compile time, lookup throughput, candidates/word, and confirm time as a markdown
-//! table — the "try out different combinations" playground, produced automatically.
+//! FST precision knob bench matrix (the "fst-stats successor"): per (grammar × preset), prints
+//! network size, load/compile time, lookup throughput, candidates/word, and confirm time as a
+//! markdown table — the "try out different combinations" playground, produced automatically.
 //!
 //! Run manually (not part of `cargo test`):
 //!
