@@ -1,4 +1,6 @@
-//! Pins task 1.2's run-scoped evaluator caches.
+//! A run-scoped evaluator cache must never change a score, certification, or winner relative to
+//! the uncached path; the oracle is called once per word regardless of plan count, and a cache
+//! prepared for fewer occurrences than requested must fail closed rather than select silently.
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::EmissionStrategy;

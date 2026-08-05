@@ -1,6 +1,4 @@
-//! Task 5.3 of `openspec/changes/certify-language-readiness` (tasks.md §5; `specs/
-//! language-readiness-certification/spec.md`'s "A grammar contains a refused construct" scenario):
-//! a test that [`pg_foma::readiness_verdict`]'s `not-supported` tier cites a REAL predicate
+//! A test that [`pg_foma::readiness_verdict`]'s `not-supported` tier cites a REAL predicate
 //! refusal, on a grammar known to carry a permanently carved-out construct.
 //!
 //! Per this task's own brief: "all three reference grammars now refuse on exactly
@@ -105,7 +103,7 @@ fn assert_not_supported_names_overwrite_output(xml_name: &str) {
     );
 
     // The report's own notes must explain the not-supported tier in terms of the real capability
-    // evaluation -- not merely say "not passing" (design.md: "a bare 'not passing' is useless").
+    // evaluation -- a bare "not passing" is useless.
     assert!(
         report.notes.iter().any(|n| n.contains("NOT SUPPORTED")),
         "{xml_name}: report notes must explain the not-supported tier: {:?}",
