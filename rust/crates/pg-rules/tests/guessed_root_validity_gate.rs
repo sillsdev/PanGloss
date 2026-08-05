@@ -1,13 +1,13 @@
-//! P11 chunk 3 unit tests (`rust/docs/p11-guesser-api-design.md` §4.4-1): the sentinel-delegation
-//! branch `pg_rules::validity::allomorphs_valid_impl` added for a guessed (fabricated) root.
+//! Unit tests for the sentinel-delegation branch `pg_rules::validity::allomorphs_valid_impl` added
+//! for a guessed (fabricated) root.
 //!
-//! Inert at this point in the port (chunk 4/5 land the real matcher and wire-up that PRODUCES a
-//! `Word` with `root_allomorph == Some(AllomorphId::GUESSED)`); these tests construct such a word
-//! **by hand** against a real loaded grammar, exactly the style `validity_gate.rs` already uses
-//! for the ordinary (non-guessed) sub-gates — real `AllomorphId`/`LexEntryId`/`MorphemeId` values
-//! looked up from the grammar, not arbitrary literals.
+//! Nothing in the matcher/wire-up yet PRODUCES a `Word` with
+//! `root_allomorph == Some(AllomorphId::GUESSED)`, so these tests construct such a word **by
+//! hand** against a real loaded grammar, exactly the style `validity_gate.rs` already uses for the
+//! ordinary (non-guessed) sub-gates — real `AllomorphId`/`LexEntryId`/`MorphemeId` values looked up
+//! from the grammar, not arbitrary literals.
 //!
-//! Each test isolates one delegated check named in §4.4-1:
+//! Each test isolates one delegated check:
 //! - the bound-root gate (copied verbatim from the pattern allomorph's `is_bound`);
 //! - the stem-name gate's PRIMARY clause only — and, the load-bearing negative case, that the
 //!   "exclude sibling stem names" loop must NOT run against the pattern's real siblings (it only
