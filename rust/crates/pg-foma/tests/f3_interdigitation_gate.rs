@@ -1,4 +1,4 @@
-//! ## Delanguaging Part C note (2026-07-25)
+//! ## Delanguaging Part C note
 //! Renamed off the real language's name (was `f3_amharic_gate.rs`). Still corpus-blocked: needs
 //! `samples/data/amharic-hc.xml` + `samples/data/amharic-words.txt` (gitignored). This grammar's
 //! own pathology is interdigitation (infixing) + boundary-fusion coalescence — Part C's synthetic-
@@ -8,8 +8,8 @@
 //! coverage as PROVEN only against this real grammar, no synthetic recipe yet), so no synthetic
 //! replacement exists for this gate. Kept `#[ignore]`d unconditionally.
 //!
-//! P1d gate (docs/fst-plan/foma-fst-plan.md §P1d, "Amharic capability stage — required, no
-//! fallback tier"): the emitter + `crate::preexpand` (rule-application pre-expansion and
+//! P1d gate ("Amharic capability stage — required, no fallback tier"): the emitter +
+//! `crate::preexpand` (rule-application pre-expansion and
 //! boundary-fusion composite probing) against the real Amharic grammar (76 lexical entries, 87
 //! `MorphologicalRule` + 1 `CompoundingRule`, 15 templates, 7 phonological rules over a
 //! 417-Segment char-def table), with the FULL ENGINE (`pg_parse::Morpher`) as the recall oracle —
@@ -18,8 +18,8 @@
 //! ## History: why this gate's verdict changed (P1c -> P1d)
 //!
 //! The P1c stage of this gate measured 4/36 (~11%) recall and recorded a fallback verdict. That
-//! verdict is SUPERSEDED by the revised plan §0 (settled architecture, John 2026-07-15): "We will
-//! never do a full HC backup, we will always use FST to propose and HC to prune." There is no
+//! verdict is SUPERSEDED by this repo's settled architecture: "We will never do a full HC backup,
+//! we will always use FST to propose and HC to prune." There is no
 //! fallback tier; a grammar below 100% proposer recall is a compiler capability gap to close.
 //! P1c's investigation classified all 32 misses into exactly two classes (no third):
 //!
