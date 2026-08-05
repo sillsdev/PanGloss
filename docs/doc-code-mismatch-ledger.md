@@ -99,7 +99,33 @@ Tier 4's defect is dead code reading authoritative. This one is worse: **live co
 the exact thing the comment above it explains it must not do**, in a commit about something else, and
 the comment's own safety argument turns out to be wrong. One instance, and it is not cosmetic.
 
-### `compile_metathesis_rule`'s pattern-lowering scope — **OPEN, needs a decision**
+### `compile_metathesis_rule`'s pattern-lowering scope — **RESOLVED: widening kept, comments corrected**
+
+**Read the correction below before the original write-up.** This entry's own charge sheet — "unowned,
+untested, and with no characteristics row" — was wrong on all three counts, and re-deriving it rather
+than trusting this file is what found that. `2639067a` changed three things in one commit:
+`replace.rs:2063`, `capability.rs:964` (the mirroring predicate, moved in **lockstep** — the exact
+failure the comment feared, and it did not happen), and `tests/phase_c_metathesis.rs`, where the test
+was renamed to `metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset` and rewritten to
+assert the net compiles and that `qp → pq` fires at the final boundary. `CharacteristicKind::
+Metathesis` already carries `Disposition::ConfigPredicate` with `MetathesisFaithfulSwapPredicate`
+returning `ConfirmOnly`, and its admission is computed by the very function that flipped — so the
+capability record tracks the widening by construction and no separate "anchored metathesis" row is
+missing.
+
+What was genuinely undone was **six stale comments**, not four: `replace.rs:311/1736/1795/2056`,
+`capability.rs:959`, and `phase_c_metathesis.rs:959-965`, whose section header said the shape "stays
+honestly unsupported" six lines above a test asserting it compiles. Fixed in `6df640d` (branch),
+comment-only, −29 lines net. `Baseline` remains live via `lower.rs:996` (`lower_span`), so the scope
+gate is not vacuous.
+
+**Two lessons this entry earned the hard way.** The comment sweep drove five categories to zero and
+could not see any of these: a comment that is simply *false about behavior* is not a date, a plan
+reference, a step marker, a wiring-status phrase, or history prose. And this ledger entry was itself a
+doc-code mismatch — Stage 4's own lesson ("findings need the same falsification the gates do")
+recurring one level up, in the file that exists to record it.
+
+The original write-up follows, unedited, because the part it got right is the part that mattered:
 
 `pg-foma/replace.rs`. Four comments say this function stays on the unwidened
 `PatternLowerScope::Baseline` tier — `:311` (module doc), `:1736`, `:1795`, and `:2056`, the block
@@ -123,13 +149,13 @@ consulted**, refusing only *interior* anchors. So:
   and the rule **compiles**.
 
 Net effect: metathesis rules carrying a word-boundary anchor moved from *refused as unsupported* to
-*compiled*, with no owner, no test, and no characteristics/capability row recording the widening.
-That may well be the more faithful behavior — but it is not what any comment in the file says, and
-nothing gates it.
+*compiled*. That is the more faithful behavior, and the owner decision was to keep it.
 
-**Resolve by picking one:** revert `:2063` to `Baseline`, or keep the widening and give it an owner —
-all four comments corrected, a capability/characteristics row for anchored metathesis, and a test
-that fails if the scope moves back. Do not leave it as is; today the file argues against its own code.
+Still true, and the reason this stays a Tier 4b instance rather than a filed-and-forgotten one: a
+constraint-stating comment was violated by a commit about something else, and **the comment's stated
+safety argument was false while the guard itself was fine**. The comment claimed the widening "costs
+nothing in practice"; it does cost something, and the cost is acceptable. Being right for a stated
+wrong reason is what no gate here catches.
 
 ## Tier 5 — OTHER CRATES (unverified, lower priority)
 
