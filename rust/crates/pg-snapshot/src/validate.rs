@@ -15,7 +15,7 @@
 //! which may reference either a `LexEntryInflType` — checkable — or a plain `LexEntryType`
 //! possibility list item never enumerated as its own top-level snapshot section).
 //!
-//! # Warning codes (`add-grammar-assessment` task 3.8)
+//! # Warning codes
 //!
 //! Every warning below carries a stable short code alongside its prose. The overwhelming
 //! majority of this module's checks are the *same* situation applied to a different reference
