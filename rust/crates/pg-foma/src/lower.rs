@@ -46,9 +46,8 @@ use crate::replace::SegAlphabet;
 // Natural-class member resolution (exact, from the model's own `NaturalClassKind` — never
 // re-derived through a matcher-oriented helper whose semantics are tuned for a different job).
 //
-// MOVED HERE from `replace.rs` (`lower-fst-pattern-environments` Stage 1B migration follow-on,
-// module top doc) -- logic byte-for-byte unchanged, `replace.rs` re-exports the still-`pub(crate)`
-// names below it needs (`Slot`, `pattern_slots`) at their old paths.
+// `replace.rs` re-exports the still-`pub(crate)` names below it needs (`Slot`, `pattern_slots`),
+// so callers that import them from `replace.rs` keep working.
 // =================================================================================================
 
 /// One class's members, resolved from [`NaturalClassKind`] with a given set of alpha-bound
