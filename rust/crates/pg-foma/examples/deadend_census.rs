@@ -1,12 +1,10 @@
-//! Phase 0 dead-end attribution census for the "better proposing FST" plan
-//! (`docs/superpowers/specs/2026-07-17-better-proposing-fst-plan.md`, "Phase 0 — dead-end
-//! attribution census"). The 2026-07-17 pre-filter census (`prefilter_census.rs`, merged at
-//! `571b8a3`) proved 91-98% of FAILING-candidate confirm time is spent on candidates whose
-//! restricted reparse produces ZERO derivations at all ("cascade dead-ends") on every grammar, at
-//! every sample size. This harness attributes WHY those cascades die, per grammar, weighted by wall
-//! time, so the plan's per-encoding go/no-go bars (Phase 0: "≥20% of failing time on some grammar
-//! AND projected end-to-end win ≥15% of that grammar's confirm") can be evaluated against real
-//! numbers instead of a guess.
+//! Dead-end attribution census for the proposing-FST pipeline. A prior pre-filter census
+//! (`prefilter_census.rs`, merged at `571b8a3`) proved 91-98% of FAILING-candidate confirm time is
+//! spent on candidates whose restricted reparse produces ZERO derivations at all ("cascade
+//! dead-ends") on every grammar, at every sample size. This harness attributes WHY those cascades
+//! die, per grammar, weighted by wall time, so a per-encoding go/no-go bar ("≥20% of failing time
+//! on some grammar AND projected end-to-end win ≥15% of that grammar's confirm") can be evaluated
+//! against real numbers instead of a guess.
 //!
 //! ## The six buckets (plan's own taxonomy)
 //! - d1: allomorph environment check failed against the intermediate shape
@@ -33,7 +31,7 @@
 //! complete candidate word ever exists — exactly the region that was a black box. This harness's
 //! only source changes (beyond this file) wire that existing-but-unused machinery up
 //! (`pg-rules/src/stratum.rs`, `pg-rules/src/morph.rs`, `pg-rules/src/trace.rs`) as ADDITIVE,
-//! `is_tracing()`-gated code — see those files' own 2026-07-17 doc comments for the fast-path
+//! `is_tracing()`-gated code — see those files' own doc comments for the fast-path
 //! argument that production behavior/cost is unchanged (`NoopSink::is_tracing()` is `false` on
 //! every existing `parse_word*`/`confirm_batch`/`confirm_all` call path).
 //!
@@ -60,7 +58,7 @@
 //! **Two known, documented coarsenings** (not hidden — their materiality is reported per grammar):
 //! 1. The phonological-rule UNAPPLY loop (`StratumAnalyzer::analyze`'s prule loop) does not advance
 //!    the trace cursor between successive prules within one stratum (every prule attempt in that
-//!    loop is a sibling under one parent — see `pg-rules/src/stratum.rs`'s own 2026-07-17 doc note).
+//!    loop is a sibling under one parent — see `pg-rules/src/stratum.rs`'s own doc note).
 //!    A dead end after N successful prule unapplications and a dead end after 1 are NOT
 //!    distinguished by depth; only "died during the prule loop at all" vs "died later, having
 //!    escaped the prule loop" is visible. This under-counts depth for Amharic-shaped multi-prule
@@ -415,7 +413,7 @@ fn reason_name(r: FailureReason) -> &'static str {
 /// A node represents a SUCCESSFUL rule (un)application step iff it is one of the six rule-
 /// application `TraceType`s AND carries an `output` snapshot with no `failure_reason` — the
 /// convention every trace-emitting call site in `pg-rules` already follows (see `crate::trace`'s
-/// module doc and `crate::morph`'s 2026-07-17 analysis-tracing addition). This is what
+/// module doc and `crate::morph`'s analysis-tracing addition). This is what
 /// [`find_deepest_frontier`] increments `depth` on.
 fn is_success_step(n: &TraceNode) -> bool {
     n.failure_reason.is_none()
@@ -434,7 +432,7 @@ fn is_success_step(n: &TraceNode) -> bool {
 /// A node represents a DEAD attempt — a frontier candidate — iff it carries a `failure_reason`
 /// (covers `Failed`, every synthesis-side `_not_applied`, and the analysis-side
 /// `morphological_rule_not_unapplied`/`compounding_rule_not_unapplied`-via-`morphological_rule_
-/// not_unapplied` reuse added 2026-07-17), OR it is a `PhonologicalRuleAnalysis` node recording a
+/// not_unapplied` reuse), OR it is a `PhonologicalRuleAnalysis` node recording a
 /// failed unapply (`phonological_rule_not_unapplied`, which — unlike its synthesis-side twin — was
 /// never given a `FailureReason` parameter, since it never had a call site until this census; see
 /// `pg-rules/src/trace.rs`'s doc on `morphological_rule_not_unapplied` for the sibling case that
@@ -1009,7 +1007,7 @@ fn run() {
 /// Amharic's deep composite/rule-chain recursion needs a big stack under release inlining (same
 /// trick `precision_bench`/`knob_probe`/`prefilter_census` use) — this census's tracing pass adds
 /// slightly MORE recursion depth than `prefilter_census`'s did (the analysis cascade is now traced
-/// too, adding one stack frame per `_traced` wrapper — see `pg-rules/src/morph.rs`'s 2026-07-17
+/// too, adding one stack frame per `_traced` wrapper — see `pg-rules/src/morph.rs`'s tracing
 /// addition), so this budget stays generous.
 fn main() {
     let handle = std::thread::Builder::new()
