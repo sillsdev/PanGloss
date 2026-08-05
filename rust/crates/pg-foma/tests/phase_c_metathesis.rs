@@ -60,6 +60,9 @@
 //! oracle's own behavior on it is irrelevant to what that witness checks).
 //!
 //! ## Two `pg_rules::metathesis::build_analysis_pattern` invariants this suite pins
+//! Numbered, because comments throughout this file refer to them as "gap 1" and "gap 2".
+//!
+//! **Gap 1 — physical position, not tag name, decides switch order.**
 //! `pg_rules::metathesis::synthesize`'s `synthesis_reorder`/`move_nodes_after` algorithm is driven
 //! by PHYSICAL position: whichever switch is physically LAST in `pattern.nodes` always ends up
 //! FIRST in the output, tag-name-agnostic (`left_switch`/`right_switch` naming does not predict the
@@ -68,6 +71,7 @@
 //! whose `left_switch` node is physically first (`pg_grammar_gen::build::metathesis::build`'s own
 //! demo rule uses exactly this ordering).
 //!
+//! **Gap 2 — a context node between the switches is kept, unless it is a boundary.**
 //! A context node strictly between the two switches keeps its slot in the rebuilt search pattern
 //! (`synthesis_reorder` does not drop it either) UNLESS it resolves to a `CharDefKind::Boundary`,
 //! which is excluded from the analysis match sequence regardless of pattern shape.
