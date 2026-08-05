@@ -158,9 +158,9 @@ fn unknown_morph_type_allomorph_is_skipped_with_a_warning() {
         .any(|w| w.contains("00000000-0000-0000-0000-00000000abcd")));
 }
 
-/// `add-grammar-assessment` task 3.8: the unrecognized-morph-type-guid warning above carries a
-/// specific, stable code -- pinned here alongside the existing prose assertion, exactly, so a
-/// future reword of the message is never itself a code change.
+/// The unrecognized-morph-type-guid warning above carries a specific, stable code -- pinned here
+/// alongside the existing prose assertion, exactly, so a future reword of the message is never
+/// itself a code change.
 #[test]
 fn unknown_morph_type_warning_carries_its_stable_code() {
     let (_, report) = pg_fwdata::import_file(&fixture_path()).unwrap();
@@ -191,9 +191,9 @@ fn dangling_environment_reference_does_not_crash_import() {
         .any(|w| w.contains("00000000-0000-0000-0000-0000000000ff")));
 }
 
-/// `add-grammar-assessment` task 3.8, requirement (b): two structurally different situations --
-/// pg-fwdata's "unrecognized morph-type guid" (import-time) and pg-snapshot's "dangling
-/// environment reference" (validate-time) -- must get different codes.
+/// Two structurally different situations -- pg-fwdata's "unrecognized morph-type guid"
+/// (import-time) and pg-snapshot's "dangling environment reference" (validate-time) -- must get
+/// different codes.
 #[test]
 fn structurally_different_warnings_get_different_codes() {
     let (snap, report) = pg_fwdata::import_file(&fixture_path()).unwrap();
