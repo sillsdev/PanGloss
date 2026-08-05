@@ -1,10 +1,9 @@
-//! `openspec/changes/cover-mpr-groups`: the last of the three net-new Stage-2 constructs
-//! (`STAGING.md`'s own ordering). Proposer-to-confirm containment for `MprGroupOutput::Append`'s
-//! `mpr-group.append-output` configuration predicate (design.md D2's "target: `ConfirmOnly` via the
-//! NON-TRACKING baseline"), plus the `mpr-group.overwrite-output` FailClosed witness (design.md D3)
-//! and the Append/Overwrite order-(in)dependence distinction (design.md D4, tasks.md 3.3).
+//! Proposer-to-confirm containment for `MprGroupOutput::Append`'s `mpr-group.append-output`
+//! configuration predicate (target: `ConfirmOnly` via a NON-TRACKING baseline), plus the
+//! `mpr-group.overwrite-output` FailClosed witness and the Append/Overwrite
+//! order-(in)dependence distinction.
 //!
-//! ## The non-tracking baseline this file proves, not merely asserts (design.md D2 blocker 2)
+//! ## The non-tracking baseline this file proves, not merely asserts
 //! Neither `crate::gate`'s static root-entry partition (keyed ONLY on `LexEntryDef::mpr`, never an
 //! accumulated derivation-chain value) nor the ordinary morphological affix-allomorph emitter
 //! (`crate::emit::build_deriv_chain`/`emit_rule_allomorphs`) ever reads `AffixAllomorphDef::
@@ -14,8 +13,8 @@
 //! line of `pg-foma` production code: `MprGroupAppendNonNarrowingPredicate` (`crate::capability`)
 //! documents and verifies this fact; it does not fix a narrowing bug, because there is none to fix.
 //!
-//! ## Synthetic, delanguaged fixture (`openspec/changes/STAGING.md`'s "Hard rule: synthetic data
-//! only" -- invented CVC root/affixes, no natural-language lexemes, named by construct)
+//! ## Synthetic, delanguaged fixture (invented CVC root/affixes, no natural-language lexemes,
+//! named by construct)
 //! One stratum, `morphologicalRuleOrder="unordered"` (needed so the cascade itself, not just the
 //! MPR gate, admits BOTH orderings as legal candidates for confirm to weigh -- under `Linear`,
 //! `Cascade::permutation`'s own non-decreasing-index restriction would already rule out the reverse
@@ -29,21 +28,20 @@
 //!   `requiredMPRFeatures`.
 //!   Root `eK` (`"k"`, `posV`) carries no `ruleFeatures` at all (starts with an EMPTY MPR set), so
 //!   `mrQ` can only apply once `mrP` has already fired and added the group's members via `mpr_add_
-//!   output` -- an order-DEPENDENT gate riding on top of an order-INVARIANT accumulation (design.md
-//!   D4's own distinction, see `append_output_is_order_invariant_overwrite_output_is_not` below for
-//!   the accumulation half in isolation).
+//!   output` -- an order-DEPENDENT gate riding on top of an order-INVARIANT accumulation (see
+//!   `append_output_is_order_invariant_overwrite_output_is_not` below for the accumulation half in
+//!   isolation).
 //!
 //! Two more roots (`eL`/`eM`) isolate the group-AWARE `all`-type semantics directly, independent of
 //! `out_mpr` timing: `eL` carries `ruleFeatures="mprX"` (PARTIAL group membership -- missing
 //! `mprY`), `eM` carries `ruleFeatures="mprX mprY"` (FULL group membership). Applying `mrQ` directly
 //! to each (no `mrP` involved at all) proves `Grammar::mpr_group_ok`'s `all`-type fold correctly
 //! REJECTS the partial match (a flat, group-UNAWARE overlap test would have wrongly ADMITTED `eL`,
-//! since `{mprX,mprY}` overlaps `{mprX}`) -- design.md D4's own group-(un)awareness contract, from
-//! the ordinary-affix-rule side rather than `cover-compounding`'s own `compound_match` side (that
-//! change's `tests/cover_compounding.rs::head_a_word_over_propose_confirm_prune` is the existing,
-//! NOT-re-derived-here, group-UNAWARE-side witness -- design.md D4: "recorded here as the contract's
-//! other half"; `MprSet::compound_match` is categorically out of scope for
-//! `mpr-group.append-output`/`mpr-group.overwrite-output`, spec.md's own requirement).
+//! since `{mprX,mprY}` overlaps `{mprX}`) -- the group-(un)awareness contract, from the
+//! ordinary-affix-rule side rather than the compounding side's own `compound_match`
+//! (`tests/cover_compounding.rs::head_a_word_over_propose_confirm_prune` is the existing,
+//! NOT-re-derived-here, group-UNAWARE-side witness for that other half; `MprSet::compound_match`
+//! is categorically out of scope for `mpr-group.append-output`/`mpr-group.overwrite-output`).
 
 mod common;
 
@@ -240,7 +238,7 @@ fn fixture_is_append_only_and_confirm_only() {
     );
 }
 
-/// **The load-bearing containment witness (tasks.md 3.1/3.2, design.md D2).** `"kpq"` (`mrP` fires
+/// **The load-bearing containment witness.** `"kpq"` (`mrP` fires
 /// first, its own `out_mpr` adding BOTH `mprX`/`mprY` via `Append` accumulation, THEN `mrQ`'s own
 /// `requiredMPRFeatures="mprX mprY"` gate is satisfied) is a genuine, oracle-confirmed analysis.
 /// `"kqp"` (the REVERSE order -- `mrQ` would have to fire FIRST, against `eK`'s still-EMPTY MPR set)
@@ -283,10 +281,10 @@ fn out_mpr_accumulation_then_gate_over_propose_confirm_prune() {
     );
 }
 
-/// **The group-aware `all`-type witness (design.md D4's group-(un)awareness contract, from the
+/// **The group-aware `all`-type witness (the group-(un)awareness contract, from the
 /// ordinary-affix-rule side -- module doc).** `eL` carries only `mprX` of the `{mprX,mprY}`
 /// `all`-type group `mrQ`'s own `requiredMPRFeatures` names -- a flat, group-UNAWARE overlap test
-/// (`MprSet::compound_match`, categorically OUT OF SCOPE for this predicate per spec.md) would have
+/// (`MprSet::compound_match`, categorically OUT OF SCOPE for this predicate) would have
 /// wrongly ADMITTED it; the group-AWARE `Grammar::mpr_group_ok` correctly EXCLUDES it, matching
 /// confirm exactly. `eM` (both members present) is the positive control proving the gate genuinely
 /// discriminates, not a vacuous always-reject.
@@ -314,17 +312,16 @@ fn all_type_group_excludes_partial_match_like_confirm() {
     );
 }
 
-/// **The Append/Overwrite order-(in)dependence distinction (tasks.md 3.3, design.md D4's third
-/// interaction).** A PURE model-level check (`pg_grammar::model::mpr_add_output` directly, no XML
-/// grammar, no FST compile) rather than an end-to-end fixture: an `Overwrite`-output `MprGroup` can
-/// never appear in a COMPILING grammar under this crate's own capability regime
-/// (`overwrite_group_composes_to_refuse`, below -- design.md D3), so the only honest way to
-/// "exercise it inside the same fixture" (tasks.md 4.2 -- read here as "the same test file", since
-/// no compiling grammar could ever host it) is to check the underlying algebra directly: the SAME
-/// two-output multiset (`mprX` then `mprY`, or `mprY` then `mprX`) reaches the IDENTICAL final
-/// accumulated state under `Append` (set union is commutative), but a DIFFERENT final state under
-/// `Overwrite` (each new output retracts every OTHER member of its own group first) -- literally the
-/// property `mpr-group.append-output`'s `ConfirmOnly` promotion depends on and
+/// **The Append/Overwrite order-(in)dependence distinction.** A PURE model-level check
+/// (`pg_grammar::model::mpr_add_output` directly, no XML grammar, no FST compile) rather than an
+/// end-to-end fixture: an `Overwrite`-output `MprGroup` can never appear in a COMPILING grammar
+/// under this crate's own capability regime (`overwrite_group_composes_to_refuse`, below), so the
+/// only honest way to exercise it "inside the same fixture" (read here as "the same test file",
+/// since no compiling grammar could ever host it) is to check the underlying algebra directly:
+/// the SAME two-output multiset (`mprX` then `mprY`, or `mprY` then `mprX`) reaches the IDENTICAL
+/// final accumulated state under `Append` (set union is commutative), but a DIFFERENT final state
+/// under `Overwrite` (each new output retracts every OTHER member of its own group first) --
+/// literally the property `mpr-group.append-output`'s `ConfirmOnly` promotion depends on and
 /// `mpr-group.overwrite-output`'s permanent `FailClosed` refuses to assume.
 #[test]
 fn append_output_is_order_invariant_overwrite_output_is_not() {
