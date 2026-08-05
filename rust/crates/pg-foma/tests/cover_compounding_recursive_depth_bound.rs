@@ -1,9 +1,8 @@
-//! `openspec/changes/plan-construct-coverage-completion` task 4.1 (design.md row 2): the depth-BOUND
-//! half of `Compounding`'s recursive split (piece 1, already landed) plus, now, the depth-BUDGETED
-//! CONSTRUCTION and its containment proof (pieces 2/3 -- the part this file's own tests originally
-//! found missing).
+//! The depth-BOUND half of `Compounding`'s recursive split (piece 1, already landed) plus the
+//! depth-BUDGETED CONSTRUCTION and its containment proof (pieces 2/3 -- the part this file's own
+//! tests originally found missing).
 //!
-//! Piece 1 of design.md row 2 ("bound the self-feeding depth... a max-cycle-length computation,
+//! Piece 1 ("bound the self-feeding depth... a max-cycle-length computation,
 //! extending the existing classifier") was DONE first: `crate::capability::compounding_max_depth`
 //! (`CompoundingDetail::max_depth`) turns the existing boolean `recursive` flag into an exact,
 //! always-finite stem-count bound -- see that function's own doc and its unit tests in
@@ -52,12 +51,12 @@ fn load() -> Grammar {
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// Task 4.1 piece 1, pinned against the real staged fixture (not just the synthetic unit-test
+/// Piece 1, pinned against the real staged fixture (not just the synthetic unit-test
 /// grammars in `capability.rs`): `cr1`'s `multipleApplication="9"` bounds at exactly `1 + 9 = 10`
 /// stems -- still true and still checked directly, even though the number no longer surfaces via a
 /// `Refuse` diagnostic (see the next test): `crate::capability::characterize` is the one source of
 /// truth the construction itself now consumes, and this asserts the number an operator would read
-/// there is the same one design.md row 2 always claimed.
+/// there is the same one this module has always claimed.
 #[test]
 fn characterize_reports_the_computed_depth_bound_for_the_staged_fixture() {
     let g = load();
@@ -172,13 +171,12 @@ fn raised_cap_oracle_finds_the_recursive_analysis_confirm_at_default_would_miss(
     );
 }
 
-/// **The load-bearing containment proof (task 4.1 pieces 2/3, the gap the module doc's own history
+/// **The load-bearing containment proof (pieces 2/3, the gap the module doc's own history
 /// records).** Propose (the real, unmodified, production `FomaProposer`) must CONTAIN the oracle's
 /// own raised-cap analysis (`Morpher::with_max_stem_count(3)`, non-vacuous per the previous test) --
 /// not merely propose SOMETHING, but propose the EXACT morpheme sequence confirm independently
-/// accepts. This is the proposer-to-confirm containment proof design.md row 2's own promotion
-/// criteria (b) requires, now checked against the REAL depth-budgeted compound loop rather than
-/// merely argued.
+/// accepts. This is the proposer-to-confirm containment proof this module's own promotion criteria
+/// requires, now checked against the REAL depth-budgeted compound loop rather than merely argued.
 #[test]
 fn depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis() {
     let g = load();
