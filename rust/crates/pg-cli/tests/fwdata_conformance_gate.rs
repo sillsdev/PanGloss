@@ -22,7 +22,7 @@
 //! untracked local corpora; either being absent makes the relevant test self-skip with a printed
 //! reason rather than fail.
 //!
-//! # Why every test in this file is `#[ignore]`d (revised 2026-07-17)
+//! # Why every test in this file is `#[ignore]`d
 //! The step cap stays `usize::MAX` (`Morpher::new(&g, usize::MAX)`): a *step* cap truncates the
 //! analysis cascade non-deterministically (`pg-parse/tests/batch_determinism.rs`'s own module
 //! doc), which would surface as spurious cross-compiler mismatches having nothing to do with
@@ -53,10 +53,10 @@
 //!
 //! # Known oracle drift (Sena 3) -- documented failure, not tolerance
 //! The committed `samples/data/sena-hc.xml` no longer corresponds byte-for-byte to the live
-//! `Sena 3.fwdata`: three lexeme forms were edited in FLEx after the oracle was exported
-//! (each entry's `DateModified` is 2026-06-16). Verified precisely by regenerating a fresh
-//! oracle with FieldWorks' own `GenerateHCConfig.exe` from the current `.fwdata` (2026-07-15)
-//! and diffing the digit-stripped line multisets: the ONLY content differences are
+//! `Sena 3.fwdata`: three lexeme forms were edited in FLEx after the oracle was exported.
+//! Verified precisely by regenerating a fresh oracle with FieldWorks' own
+//! `GenerateHCConfig.exe` from the current `.fwdata` and diffing the digit-stripped line
+//! multisets: the ONLY content differences are
 //! `peno`→`penohoho` (entry 2976cd0f), `guman`→`guman.hello.world`, and `mpaka`→`mpaka.la.la`
 //! (obvious "hello world"/"la la" test edits); everything else is Hvo drift. Each
 //! [`KNOWN_ORACLE_DRIFT`] entry is matched against the corpus by **substring**, not exact
