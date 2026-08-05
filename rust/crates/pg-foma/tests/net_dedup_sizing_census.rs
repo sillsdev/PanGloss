@@ -85,13 +85,12 @@ impl Sizing {
     }
 }
 
-// The exclusion list that stood here is GONE (2026-08-03). It named
-// `deep-optional-affix-nesting`/`recipe-template-generic` and left the load-bearing question open in
-// its own words: "Whether they abort in the BUILD half specifically is unknown — this census runs no
-// propose/confirm, so it might well survive them". It does. Measured: `finished_net_digests` for that
-// grammar's registry plans completes in 0.027s; the death was entirely in `apply_up` traversal
-// (`12^k` paths for a k-`x` word), never in construction. See `tests/apply_path_refusal_gate.rs` and
-// `pg_foma::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`. So this census now sweeps every
+// `deep-optional-affix-nesting`/`recipe-template-generic` are NOT excluded here: this census runs
+// no propose/confirm, and measurement shows it survives them -- `finished_net_digests` for that
+// grammar's registry plans completes in 0.027s, since the death seen elsewhere is entirely in
+// `apply_up` traversal (`12^k` paths for a k-`x` word), never in construction. See
+// `tests/apply_path_refusal_gate.rs` and
+// `pg_foma::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`. So this census sweeps every
 // discoverable fixture with no exclusion at all.
 
 fn measure_one_fixture(fixture: &FixtureRef) -> Result<Sizing, String> {
