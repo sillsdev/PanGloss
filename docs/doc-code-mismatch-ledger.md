@@ -197,6 +197,40 @@ Fix is a judgement call per message, not a sweep: say what the reader should *do
 construct name. Worth adding a companion check for plan patterns in string literals, scoped to
 production code so fixture XML and real paths do not trip it.
 
+### A test that asserts project state, while claiming to assert a property — **OPEN**
+
+`pg-foma/tests/subrecipe_dossier_contract.rs:241-248`. The test is named
+`subrecipe_dossier_logs_links_and_decision_triggers_are_dated` — a general property — and implements
+it as:
+
+```rust
+assert!(log.contains("| 2026-08-01 |"), "{name} needs a dated research-log row");
+```
+
+The name says *has a dated row*; the code says *has a row dated 2026-08-01*. So a dossier whose
+research log is updated to a later date, or a new dossier added next week, **fails a test whose stated
+contract it satisfies** — and the failure message will say "needs a dated research-log row" about a
+log that has one. Fix is to match `| 20\d\d-\d\d-\d\d |`.
+
+This is the same defect as everything else in this file, at the layer where it does the most damage: a
+test **looks authoritative and gates CI**, so it is the last place a frozen date should live. Note
+also what it makes true — `cargo test` currently lints markdown prose, which is Stage 5's separate
+argument for moving this file out of the test suite.
+
+### The generalisation worth keeping from this pass
+
+The defect is not "comments rot." It is **project state written into permanent artifacts**, and this
+sweep found it at four layers, each less visible and more authoritative than the last:
+
+| Layer | Instances | Who is misled | Caught by |
+|---|---|---|---|
+| Comments / doc comments | 1,606 → residue | maintainers | the ratchet (built) |
+| Production string literals | 18 | **end users**, via diagnostics | nothing |
+| Test assertions | 1 confirmed | CI, and whoever trusts it | nothing |
+| Guard comments the code later violated | 1 confirmed (Tier 4b) | anyone reasoning about capability | nothing |
+
+The ratchet covers only the top row — the row where being wrong costs least.
+
 ## Non-code mismatches
 
 | Where | Mismatch | Status |
