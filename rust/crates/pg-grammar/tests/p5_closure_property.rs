@@ -1,9 +1,8 @@
-//! P5 property test (`docs/p5-crosstable-featurestruct-design.md` §7.3, Design C in §3): for the
-//! Amharic table, `CharDefTable::unifiable_cds` (Design A, the build-time closure memo) must agree
-//! EXACTLY with a gate-free lane scan (Design C: `flat_unifiable` computed fresh, no precomputed
-//! closure consulted) on random `(edge cd, query cd)` pairs. The design's own words: "A is C plus
-//! an O(1) memo of that scan; there is no correctness reason to prefer C, so C survives only as the
-//! property-test oracle for A (assert A ≡ C on random inputs)."
+//! Property test: for the Amharic table, `CharDefTable::unifiable_cds` (Design A, the build-time
+//! closure memo) must agree EXACTLY with a gate-free lane scan (Design C: `flat_unifiable` computed
+//! fresh, no precomputed closure consulted) on random `(edge cd, query cd)` pairs. A is C plus an
+//! O(1) memo of that scan; there is no correctness reason to prefer C, so C survives only as the
+//! property-test oracle for A (assert A ≡ C on random inputs).
 //!
 //! Self-skips when the untracked sample grammar is absent (fresh clone / CI), matching this
 //! project's other bounded-corpus tests (`rust-conversion.md` §8, e.g. `pg-rules/tests/

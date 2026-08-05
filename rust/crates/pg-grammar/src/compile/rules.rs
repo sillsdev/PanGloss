@@ -194,9 +194,9 @@ fn build_subrule(
         }
     };
 
-    // Self-opaquing (P13, `rust/docs/p13-simultaneous-design.md`): a simplified, conservative
-    // port of `crate::load`'s `compute_self_opaquing` (not reusable here — it is a private
-    // `load.rs` function and this crate's own module-privacy keeps that loader frozen). Exact for
+    // Self-opaquing: a simplified, conservative port of `crate::load`'s `compute_self_opaquing`
+    // (not reusable here — it is a private `load.rs` function and this crate's own module-privacy
+    // keeps that loader frozen). Exact for
     // Iterative mode (always `false`) and epenthesis (`lhs` empty -> unconditionally `true` when
     // Simultaneous); for a feature-changing Simultaneous subrule this conservatively reports
     // `false` (no forced fixpoint repeat) rather than replicating the RHS/environment
