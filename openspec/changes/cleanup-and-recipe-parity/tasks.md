@@ -205,6 +205,45 @@ zeros — the gate is only meaningful if the baseline matches the tree it is che
       Removed 36 false positives on `main`'s tree and the last 2 here. Branch `dfa0ca2`, `main`
       `eb9f5ac`; header alignment `9084d40`.
 
+### 5.5 Round 2 of comment hygiene — claims, not words
+
+Round 1 drove five project-state categories to zero and **missed a live defect entirely** (5.4a: six
+comments contradicting the code for eight days). Round 2 adds three categories that sort comments by
+what a machine can falsify, on the finding that length is not the axis that rots — a one-line claim
+about another entity rots identically. Rules and rationale: `.claude/skills/code-comments/SKILL.md`.
+Checker and measured baseline: `78a7ee8`.
+
+| Category | Baseline | Target |
+|---|---:|---|
+| `cross-reference-claim` | 96 | **0** — pure defect: a behavioral claim about another entity with nothing checking it |
+| `docs-link-broken` | 0 | **hold at 0** |
+| `comment-block-too-long` | 2041 | ratchet down opportunistically; **not** a mandate to reach zero |
+| `long-blocks-anchored` | 1338 | watch it: rising while the row above falls means the escape hatch is becoming the norm |
+
+- [ ] 5.5a **Enable `rustdoc::broken_intra_doc_links`, or the anchor rule is decorative.** This is a
+      hole in the design as shipped, not a nice-to-have: the whole justification for letting a long
+      comment buy its length with an intra-doc link is that *rustdoc checks the path resolves*. The
+      lint warns by default, but nothing in this workspace denies it and **nothing in the build ever
+      runs rustdoc**, so today an anchor is validated by nobody. Needs three things together, or it
+      is worse than absent — a gate that looks enabled and is not: `[workspace.lints.rustdoc]` in
+      `rust/Cargo.toml`, `[lints] workspace = true` in every member crate (a bare `[workspace.lints]`
+      with no opt-in does *nothing*), and a doc build in the managed path so it actually executes.
+      Verify by falsification: break one link on purpose and require a non-zero exit.
+- [ ] 5.5b Drive `cross-reference-claim` to 0. Each hit resolves one of three ways, in preference
+      order: convert the claim to a test and cite the test; make the entity an intra-doc link; or
+      delete it if the code below already says it. **Do not blanket-delete** — see 5.5d.
+- [ ] 5.5c Sweep `comment-block-too-long` where it is cheap, treating the 2041 as a ratchet. Roughly
+      1200 are `///`/`//!` doc blocks and 800 are `//` implementation blocks; the second group is the
+      cheaper and higher-value half, since the first is often a struct/field doc doing its job.
+- [ ] 5.5d **Do not let this pass gut the interface docs.** Ousterhout's objection is correct and is
+      recorded in the skill: without an interface comment there is no abstraction, and reading a
+      function tells you what it does but never what it must *never* do. A negative constraint has no
+      representation in Rust except a test, so deleting the comment makes it invisible rather than
+      cheap. Convert or keep; never merely drop.
+- [ ] 5.5e Re-measure both new counts on `main`'s tree after the merge. The figures above are the
+      branch's; `main` still carries round 1's backlog, so its numbers will be higher and the
+      baseline files will conflict at the rebase exactly as round 1's did (see the rebase note above).
+
 ## 6. Divvun-derived proposer-precision experiments (owner-supplied 2026-07-31)
 
 Source: Divvun/Giella research pass (`docs/research/divvun/00`–`17`; read
