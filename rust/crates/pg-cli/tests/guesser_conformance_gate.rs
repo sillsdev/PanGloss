@@ -1,5 +1,4 @@
-//! HC-rust port gap G3 closure gate (`docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1;
-//! `docs/p11-guesser-api-design.md`): drives the staged
+//! Guesser conformance gate: drives the staged
 //! `conformance-staging/edge-cases/guesser-pattern-root-fallback/` fixture directly, through the
 //! same `pg_parse::Morpher`/`ParseOptions` surface `pg-cli`'s own `--guess` flag uses, proving:
 //!

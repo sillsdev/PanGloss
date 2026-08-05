@@ -38,8 +38,8 @@
 //!
 //! # Known, legitimate drift (Sena 3) — carried forward from `fwdata_conformance_gate.rs`
 //! Three lexeme forms in the committed `samples/data/sena-hc.xml` were edited in FLEx after the
-//! oracle was exported (`DateModified` 2026-06-16), verified there against a freshly regenerated
-//! oracle: `peno`->`penohoho` (entry `2976cd0f-f9a0-486b-a025-0142ab9888fb`), `guman`->`guman
+//! oracle was exported, verified there against a freshly regenerated oracle:
+//! `peno`->`penohoho` (entry `2976cd0f-f9a0-486b-a025-0142ab9888fb`), `guman`->`guman
 //! hello world` (entry `33f6b0d5-78e9-4301-ad05-f691b0801faf`), `mpaka`->`mpaka la la` (entry
 //! `ab672944-a2c4-4741-969f-01700b334572`) — GUIDs confirmed directly against a fresh
 //! `pangloss import` of the live `Sena 3.fwdata` (grepped its JSON for the edited surface forms).
@@ -459,8 +459,8 @@ impl<'g> GV<'g> {
     /// both reference corpora. `pg_rules::morph::classify_redup` (the only consumer) groups RHS
     /// `OutputAction`s by referenced LHS `Input` part and returns an empty map immediately
     /// (`hint` never read) unless some part is referenced *more than once* -- true only for an
-    /// actual reduplication pattern. Reduplication is Phase B / not implemented in the new
-    /// pipeline (`compile/mod.rs`'s own module doc) and absent from both Sena and Amharic, so
+    /// actual reduplication pattern. Reduplication is not implemented in the new pipeline
+    /// (`compile/mod.rs`'s own module doc) and absent from both Sena and Amharic, so
     /// `redup_hint` never reaches a read in either grammar. The two loaders also compute it from
     /// entirely different signals for a non-reduplicating allomorph (legacy: `redupMorphType`
     /// XML attribute, absent -> `Implicit`; new: `allo.morph_type`, e.g. `Prefix`/`Suffix`) --

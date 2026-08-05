@@ -1,13 +1,12 @@
-//! `pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]` —
-//! `openspec/changes/visualize-compilation-plan`'s CLI surface: renders `pg_foma::plan_diagram`'s
-//! versioned JSON projection of a grammar's reified compilation `Plan`, and/or the mermaid diagram
-//! rendered from it, mirroring `coverage`/`fst-health`'s own argument-parsing and stdout-vs-file
-//! convention (see `coverage.rs`/`fst_health.rs`).
+//! `pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]` renders
+//! `pg_foma::plan_diagram`'s versioned JSON projection of a grammar's reified compilation `Plan`,
+//! and/or the mermaid diagram rendered from it, mirroring `coverage`/`fst-health`'s own
+//! argument-parsing and stdout-vs-file convention (see `coverage.rs`/`fst_health.rs`).
 //!
 //! - No flags: prints the mermaid diagram (the default "how is my language handled" view).
 //! - `--json`: prints `pg_foma::plan_diagram::PlanDocument`'s canonical JSON instead. The JSON is
-//!   ALWAYS the complete, uncollapsed plan (design.md: "the JSON is the source artifact") — `--full`/
-//!   `--threshold` are mermaid-only and have no effect when combined with `--json`.
+//!   ALWAYS the complete, uncollapsed plan — it is the source artifact, so `--full`/`--threshold`
+//!   are mermaid-only and have no effect when combined with `--json`.
 //! - `--full`: opt-in full mermaid rendering (no sibling-leaf collapsing, regardless of size).
 //! - `--threshold=N`: overrides the default sibling-leaf collapsing threshold for mermaid rendering.
 //!   Mutually exclusive with `--full` (both named at once is a usage error, not a silent pick).

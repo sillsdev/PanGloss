@@ -713,7 +713,7 @@ mod tests {
     /// unconditionally here since this test's only concern is the runtime-feature declaration, not
     /// this fixture's own capability verdict (which may legitimately be `ConfirmOnly` or `Refuse`
     /// depending on how the reduplication-support predicate classifies it -- see
-    /// `pg_foma::peel`'s own module doc, "Task 2.2's recall proof").
+    /// `pg_foma::peel`'s own module doc on why that classification preserves recall).
     #[test]
     fn pack_redup_grammar_declares_reduplication_peel_runtime_feature() {
         let (result, out_path) = run_pack_raw(
