@@ -1,6 +1,5 @@
-//! GATE 2 (`docs/fst-plan/phase-c-generator-design.md` §5/§6, priority (2)): circumfix
-//! recall-parity gate -- the FIRST full end-to-end validation of generator + oracle + gate
-//! together (design doc §6).
+//! Circumfix recall-parity gate -- the FIRST full end-to-end validation of generator + oracle +
+//! gate together.
 //!
 //! ## Why the production ENUMERATION path, not `pg-foma/src/uflexc.rs`
 //! `pg-foma/src/emit.rs`'s `classify_affix` reads a circumfix rule's shape (leading AND trailing
@@ -26,8 +25,8 @@
 //! defeats `fsm_intersect` but not a bounded `apply_up` on that same tiny net).
 //!
 //! 100% recall is required here (unlike GATE 1): circumfix has no known compiler gap on the
-//! enumeration path (design doc §5's "Recall parity now" list), so this grammar's small size
-//! keeps this gate fast while still proving the full pipeline for real.
+//! enumeration path, so this grammar's small size keeps this gate fast while still proving the
+//! full pipeline for real.
 
 mod common;
 
@@ -201,8 +200,8 @@ fn circumfix_recall_parity_via_generator_and_oracle() {
 }
 
 // =================================================================================================
-// `openspec/changes/cover-circumfix-null-output-actions`: ordered output-action sequences (never
-// just the first `InsertSegments`) and null-role/subtractive LHS drops, both IN-SCOPE (must
+// Ordered output-action sequences (never just the first `InsertSegments`) and
+// null-role/subtractive LHS drops, both IN-SCOPE (must
 // compile) and OUT-OF-SCOPE (stays honestly unsupported). Synthetic, delanguaged, hand-authored
 // XML (`pg_grammar::load`, mirroring `crate::capability`'s own test-module style): `pg_grammar_gen`
 // has no knob for an ordered multi-`InsertSegments` RHS or a null-role LHS drop -- GATE 2's own
@@ -245,7 +244,7 @@ fn tag_sequences_for(
         .collect()
 }
 
-/// Synthetic, delanguaged fixture (task 2.2, design.md: "never silently reduced to the first
+/// Synthetic, delanguaged fixture ("never silently reduced to the first
 /// inserted segment"): a single-part-LHS prefix rule whose RHS is TWO ordered `InsertSegments`
 /// actions before the `CopyFromInput` -- `x` then `y` then the stem. This never routes through
 /// `build_structural_composites` at all (no LHS material is dropped: `lhs.len() == 1`), so it
@@ -431,8 +430,8 @@ fn null_role_structural_drop_recall_parity() {
 /// Synthetic, delanguaged fixture (D1's "cover-circumfix-null-..." row, OUT-OF-SCOPE case): the
 /// SAME 2-part-LHS drop shape as [`NULL_ROLE_STRUCTURAL_DROP_XML`], but the RHS uses
 /// `ModifyFromInput` (an ablaut/simulfix-style "process morph") instead of ever `CopyFromInput`ing
-/// either part. `classify_affix` reads this as `Role::Process` (design.md's "not compilable as
-/// strings" citation), which `crate::emit::is_structural_rule` never admits -- this construct must
+/// either part. `classify_affix` reads this as `Role::Process` (the "not compilable as
+/// strings" case), which `crate::emit::is_structural_rule` never admits -- this construct must
 /// stay HONESTLY unsupported: reported in `EmitReport::uncovered` at the standalone-rule
 /// classification stage (never reaching per-allomorph emission at all, since `Role::Process` is
 /// excluded from both the prefix and suffix derivation-rule lists), never silently compiled to any
