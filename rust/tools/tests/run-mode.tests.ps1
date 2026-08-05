@@ -175,8 +175,9 @@ Test-Case 'no passthrough args means no trailing "--" at all for cargo run' {
 # Get-ExhaustionConsumersFromMessage: parsing Microsoft-Windows-Resource-Exhaustion-Detector text
 # ---------------------------------------------------------------------------------------------
 
-# Real message text captured from this machine's System log (event ID 2004) on 2026-07-31 -- see
-# CLAUDE.md's memory/CPU section for the incident this event recorded.
+# Real message text captured from this machine's System log (event ID 2004) -- a genuine
+# low-virtual-memory diagnostic, not a synthetic string, so the parser is exercised against
+# Windows' actual message format.
 $script:RealExhaustionMessage = 'Windows successfully diagnosed a low virtual memory condition. The following programs consumed the most virtual memory: predict_census.exe (30004) consumed 118387073024 bytes, vmmemCmZygote (9984) consumed 853762048 bytes, and MsMpEng.exe (5320) consumed 529256448 bytes.'
 
 Test-Case 'parses all three consumers out of a real captured message' {
@@ -243,8 +244,8 @@ Test-Case 'Get-ResourceExhaustionEvents never throws, and always reports Queryab
 # Split-ExtraArgsSpec: the binder-proof passthrough channel.
 #
 # `pwsh -File pg.ps1 ... -- <cargo args>` cannot work -- under -File the bare `--` reaches the
-# parameter binder, which rejects it as an empty parameter name (verified 2026-07-31, with and
-# without [CmdletBinding()], quoting included). And omitting the separator silently misbinds a
+# parameter binder, which rejects it as an empty parameter name (verified with and without
+# [CmdletBinding()], quoting included). And omitting the separator silently misbinds a
 # single-dash cargo arg onto a same-prefix script parameter (`-p foo` -> -Package), which is the
 # self-concealing failure class this tooling exists to prevent. PANGLOSS_EXTRA_ARGS bypasses the
 # binder entirely; these tests pin its tokenizer.
