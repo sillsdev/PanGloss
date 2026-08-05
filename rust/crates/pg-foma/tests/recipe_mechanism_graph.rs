@@ -1,4 +1,4 @@
-//! Task 7.3: the reworked mechanism vocabulary.
+//! The mechanism vocabulary.
 //!
 //! Several assertions the initial commit made are deliberately gone, not relaxed. There is no
 //! longer a test that a declared `IdentityGuarantee::Unknown` fails a declared
@@ -201,8 +201,7 @@ fn recipe_mechanism_rejects_missing_producer() {
     ));
 }
 
-/// A mechanism with no typed source reference is a mechanism nobody can justify (task 7.4's
-/// "require typed source references").
+/// A mechanism with no typed source reference is a mechanism nobody can justify.
 #[test]
 fn recipe_mechanism_rejects_a_node_with_no_typed_source() {
     let mut orphan = morphotactics("morph");
