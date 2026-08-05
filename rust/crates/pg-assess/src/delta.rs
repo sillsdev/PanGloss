@@ -866,8 +866,8 @@ mod tests {
 
     #[test]
     fn incompatible_profiles_produce_a_valid_artifact_of_refusals() {
-        // Task 4.9: a refusal is still evidence. Every case is typed, and the artifact is well
-        // formed rather than an error exit with nothing to read.
+        // A refusal is still evidence. Every case is typed, and the artifact is well formed
+        // rather than an error exit with nothing to read.
         let base = report(vec![complete("c1", "w", &[id(&["a"])])]);
         let mut draft = report(vec![complete("c1", "w", &[id(&["a"])])])
             .draft()
