@@ -1,13 +1,13 @@
 //! A single importer/snapshot-validation warning: a stable short `code` alongside its existing
-//! human-readable `message` prose (`openspec/changes/add-grammar-assessment` task 3.8).
+//! human-readable `message` prose.
 //!
 //! `pangloss compare` diffs two assessment reports' warnings **by code and count only, never by
 //! message text** — so that rewording a message's prose is never itself reported as a change in
 //! the grammar's context. Every emission site across `pg-fwdata` and `pg-snapshot::validate`
 //! picks a code that names the actual situation it detected (e.g. `"fwdata.dangling-reference"`,
 //! `"snapshot.reference-out-of-scope"`); identical situations at different call sites
-//! intentionally share a code — no taxonomy of codes is designed up front (see that task's own
-//! wording), grouping instead follows each site's actual meaning.
+//! intentionally share a code — no taxonomy of codes is designed up front, grouping instead
+//! follows each site's actual meaning.
 //!
 //! # Caller compatibility
 //!
