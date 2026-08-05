@@ -288,6 +288,66 @@ re-measuring:
       branch's; `main` still carries round 1's backlog, so its numbers will be higher and the
       baseline files will conflict at the rebase exactly as round 1's did (see the rebase note above).
 
+### 5.7 NEXT ROUND — structure and comments as one pass, before the subrecipe build-out
+
+**Owner framing, and it is the organizing principle: cleaning up structure and cleaning up comments
+are the same job, because they need the same context.** A comment that has rotted past three lines is
+usually describing a function that does too much; you only pay the cost of understanding the module
+once, so do both in the same visit. Goal is the cleanest possible base before the subrecipe /
+mechanism-graph build-out (§1's owner decision) begins.
+
+**DELETE BEFORE POLISH.** This ordering is not stylistic — it was worth real time twice today. The
+`FailClosed` removal erased whole comment blocks that a sweep would otherwise have carefully rewritten,
+and the link-policy reversal invalidated ~90 link "fixes" made four hours earlier. Any module slated
+for deletion must be deleted first, or its cleanup is thrown away.
+
+- [ ] 5.7a **Take the Stage 3 cut first** (grill agenda, owner already approved in principle):
+      `ExecutableCandidate`, `PortablePlan`, `seal()`, `CertificationScope`, `ExecutionDisposition`,
+      `executable_candidate_gate.rs`. `Registry::executable_candidate` has exactly one caller
+      crate-wide — its own gate. **Note the boundary:** `LoweringAdapter` is extracted and KEPT, and
+      the mechanism-graph / dossier substrate is the *build-out target*, not a cut candidate — §1's
+      owner decision reversed the earlier framing on that. Deleting is cheap and needs one real build.
+- [ ] 5.7b **Per-module structure+comment passes**, in this order. These are the modules where the
+      backlog and the architectural weight coincide, and every one of them is on the path the
+      subrecipe work will touch:
+
+      | Module | Long blocks | Why it leads |
+      |---|---:|---|
+      | `pg-foma/capability.rs` | 141 | 7.4k lines; the capability spine the subrecipes gate on |
+      | `pg-foma/emit.rs` | 138 | the lexc emitter; largest single source of composite complexity |
+      | `pg-rules/rewrite.rs` | 79 | phonological rewrite core |
+      | `pg-rules/morph.rs` | 72 | morphological cascade |
+      | `pg-foma/recipe_runtime.rs` | 68 | **the subrecipe substrate itself — clean this before building on it** |
+      | `pg-rules/stratum.rs` | 63 | stratum analyzer |
+      | `pg-foma/replace.rs` | 61 | relational rule compiler |
+      | `pg-parse/morpher.rs` | 54 | the parse entry point |
+      | `pg-cli/main.rs` | 46 | 2.2k-line CLI; mostly extractable |
+      | `pg-foma/lower.rs` | 44 | pattern lowering |
+
+      Ten files hold 766 of 3,272 blocks (23%) — this is a **long tail, not a hotspot**, so treat the
+      list as "where the value is", never as "when we are done". Per module: read it, delete what is
+      dead, extract what is doing two jobs, and let the comments fall out of that — a block that
+      cannot be got under three lines usually marks the seam worth extracting.
+- [ ] 5.7c Finish `cross-reference-claim` at 0 and hold it. Ratchet `comment-block-too-long` down as
+      5.7b lands; it is **not** a target of zero and never was.
+- [ ] 5.7d Residue from round 2, each verified, none blocking:
+      - `EvidenceProvenance::Behavioral` is now unproducible — all 12 predicates return `Structural`.
+        Follow `FailClosed` out, or give it a producer.
+      - **A real check was lost with the vacuous test.** The deleted
+        `fail_closed_refusal_witness_resolves_to_an_actual_test` graded zero rows, but it uniquely
+        asserted a cited identifier lives in one of its own cited files and is preceded by `#[test]`.
+        The survivors only check the name exists somewhere. Generalising the strict form to all ~20
+        live citations would be a genuine strengthening.
+      - Five fixture rationales (`preflight.rs:456`, `selection.rs:424`, `pg-cli/pack.rs:524`,
+        `main.rs:1919`, `make_report.rs:1035`) describe an `Overwrite` MprGroup while the
+        `include_str!` points at `simultaneous-subrule-genuine-overlap`. A fixture swap landed without
+        its prose. Prose corrected; the swap itself is unreviewed.
+      - `COVERAGE_CLI_SCHEMA_VERSION` still `1` after JSON fields were removed.
+      - Dead `FailClosed` vocabulary survives in five `docs/`+`openspec/` files.
+- [ ] 5.7e Two checker precision items, both making a reported **0 narrower than it reads**: scoring is
+      per *physical line* (a wrapped claim counts twice), and `plan-reference` misses `plan §5.3`,
+      `§6.3`, `C# #446` spellings. Close these before anyone treats the zeros as complete.
+
 ## 6. Divvun-derived proposer-precision experiments (owner-supplied 2026-07-31)
 
 Source: Divvun/Giella research pass (`docs/research/divvun/00`–`17`; read
