@@ -600,7 +600,11 @@ switch ($Mode) {
         # a "pinned by `<test_name>`" citation over a link. `comment-hygiene.ps1` verifies citation
         # names against every item in the tree regardless of target kind, so that anchor is checked
         # everywhere this one is not.
-        $cargoArgs += @('doc', '--no-deps', '--document-private-items')
+        # `--keep-going` so ONE run reports every crate. Without it cargo stops at the first crate that
+        # fails, which turns a fixed-size backlog into an unknown number of serial 10-minute runs and
+        # makes the remaining total unanswerable -- 11 of 19 crates had never been examined at all
+        # before this was added, and nobody could have said so from the output.
+        $cargoArgs += @('doc', '--no-deps', '--document-private-items', '--keep-going')
     }
     'test' {
         if ($useNextest) {
