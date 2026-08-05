@@ -1,42 +1,34 @@
 //! The typed mechanism graph: six language-name-free mechanism kinds, the dependency/order edges
 //! between them, and the strategy-attributed bindings that say what executing one actually costs.
 //!
-//! # What changed in task 7.3, and why
-//! The initial vocabulary commit modelled a mechanism as a node plus a hand-written
-//! `InterfaceContract` on every edge. That shape had three defects, all of which this rework
-//! deletes rather than patches.
+//! # Why this vocabulary, and not a node-plus-hand-written-contract shape
+//! A node modelled with a hand-written `InterfaceContract` on every edge has three defects that
+//! this vocabulary is built to make impossible, not just avoid.
 //!
-//! **1. Duplicate wire provenance.** The same model id was written down two or three times. A
-//! node's `stratum` was repeated by `OrderedPhonologySpec::stratum` AND by both halves of every
-//! incident contract -- and `validate` then *asserted* the copies were equal, which is not
-//! validation, it is a consistency check on a redundancy that should not exist.
-//! `StructuralAllomorphSpec::rule` and `CopyProcessSpec::rule` repeated the `MRuleId` already
-//! carried by the node's own [`MechanismSource`]; `MorphotacticsSpec::rules` repeated the whole
-//! source list; `BoundaryCleanupSpec::table` repeated the symbol space's table. Provenance is now
-//! written exactly once: **typed source references live in [`MechanismNode::sources`]**, the active
-//! table lives in [`MechanismNode::symbol_space`], and the stratum lives in
-//! [`MechanismNode::stratum`]. Bodies carry only what those cannot express.
+//! **1. Duplicate wire provenance.** Writing the same model id down on both halves of an edge (or
+//! repeating a node's own source list in the edge body) invites the copies to drift, and a
+//! validator that then *asserts* the copies are equal is not validation -- it is a consistency
+//! check on a redundancy that should not exist. Provenance is written exactly once: **typed source
+//! references live in [`MechanismNode::sources`]**, the active table lives in
+//! [`MechanismNode::symbol_space`], and the stratum lives in [`MechanismNode::stratum`]. Bodies
+//! carry only what those cannot express.
 //!
-//! **2. Unproved blanket contracts.** `IdentityGuarantee`, `MultiplicityGuarantee`,
-//! `CopySpanGuarantee`, their four `*Requirement` mirrors and the `DynamicState` superset check
-//! were all *declarations*. Nothing derived them from anything; whoever wrote the edge wrote
-//! `Preserved`/`ExactMultiset` and the validator then confirmed that `Preserved` satisfies
-//! `Preserved`. Wave 3 measured the exact failure this invites: Amharic's
-//! `@templated-underlying-tokens` candidate was 2.2x cheaper than the winner and
-//! `identity-mismatch`ed -- a declared "identity is preserved" would have been simply false, and
-//! the graph would have validated anyway. Analysis identity and multiplicity are the **parity
-//! relation**, which is established by measuring a candidate against an oracle, never by an
-//! annotation on an edge. They are deleted here rather than left as a false comfort. Nothing in
-//! this module ranks or selects, so nothing needs them.
+//! **2. Unproved blanket contracts.** A type like `IdentityGuarantee` or `MultiplicityGuarantee` is
+//! a *declaration*: whoever writes the edge writes `Preserved`/`ExactMultiset`, and a validator
+//! that only confirms `Preserved` satisfies `Preserved` proves nothing. Measured case: a candidate
+//! 2.2x cheaper than the winner was `identity-mismatch`ed at runtime -- a declared "identity is
+//! preserved" on that edge would have been simply false, and the graph would have validated
+//! anyway. Analysis identity and multiplicity are the **parity relation**, established by measuring
+//! a candidate against an oracle, never by an annotation on an edge, so this vocabulary does not
+//! represent them at all. Nothing in this module ranks or selects, so nothing needs them.
 //!
-//! **3. Guarantees that did not name whose guarantee they were.** This is the defect the compound
-//! episode turned into a worked example. [`crate::capability::Disposition::ConfirmOnly`] is defined
-//! as *"recall-preserving only if the proposer proposes the superset"* -- a claim about a
-//! **proposer**, not about a grammar. `Compounding` nonetheless rested at `ConfirmOnly`
-//! grammar-wide while [`crate::uflexc`], the only lexicon emitter
+//! **3. Guarantees that did not name whose guarantee they were.**
+//! [`crate::capability::Disposition::ConfirmOnly`] is defined as *"recall-preserving only if the
+//! proposer proposes the superset"* -- a claim about a **proposer**, not about a grammar. Without a
+//! place to name which compiler makes that claim, one compiler's ability can be inherited by every
+//! compiler that touches the same construct: `Compounding` rested at `ConfirmOnly` grammar-wide
+//! while [`crate::uflexc`], the only lexicon emitter
 //! [`crate::enumerate::EmissionStrategy::PlanComposed`] has, could not propose a single compound.
-//! One compiler's ability was inherited by all three because the type recording it had nowhere to
-//! put the compiler's name.
 //!
 //! So this vocabulary makes that inexpressible. A [`MechanismNode`] owns **requirements**, never
 //! recall guarantees: [`MechanismNode::construct_requirements`] is a set of
@@ -605,10 +597,10 @@ pub enum InterfaceField {
 
 /// One mechanism.
 ///
-/// Owns its typed source references, its position in the symbol pipeline, and -- the part task 7.3
-/// re-grounded -- the typed **requirements** that decide whether a given compiler can represent it
-/// faithfully. It owns NO recall guarantee: see [`MechanismBinding`], which is the only type here
-/// that can express one, and cannot express one anonymously.
+/// Owns its typed source references, its position in the symbol pipeline, and the typed
+/// **requirements** that decide whether a given compiler can represent it faithfully. It owns NO
+/// recall guarantee: see [`MechanismBinding`], which is the only type here that can express one,
+/// and cannot express one anonymously.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MechanismNode {
     pub id: MechanismId,
