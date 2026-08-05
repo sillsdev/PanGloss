@@ -60,9 +60,9 @@
 //!
 //! **Outcome**: `common_feature_rules`, `simulfix_rules`/`modify_from_input_rules` (this file's
 //! sibling `csharp_port_affix_process.rs`) are now fully green and un-ignored. `anchor_rules`
-//! **is now also fully green and un-ignored** (P5, `docs/p5-crosstable-featurestruct-design.md`
-//! -- see the test's own doc: the residual finding was a narrower over-extended-identity-model bug,
-//! not the cross-table redesign originally suspected). `boundary_rules` and
+//! **is now also fully green and un-ignored** -- see that test's own doc: the residual finding was
+//! a narrower over-extended-identity-model bug, not the cross-table redesign originally suspected.
+//! `boundary_rules` and
 //! `deletion_rules_multi_position_reinsertion` each improved (documented per-test) but surfaced
 //! DIFFERENT, deeper, genuinely separate residual findings this fix does not reach (a bare-root
 //! epenthesis synthesis-confirm gap; and what was then believed to be an `ana_narrow`
@@ -83,13 +83,13 @@ use pg_parse::Morpher;
 /// Ports `RewriteRuleTests.AnchorRules` (RewriteRuleTests.cs:165-244): `RightSideAnchor`/
 /// `LeftSideAnchor` in environments, standalone and combined with segments.
 ///
-/// **FIXED (P5, `docs/p5-crosstable-featurestruct-design.md`).** Sub-case (1)'s
-/// `assert_morphs_eq(&m1.parse_word("gap"), &["10","11","12"])` used to fail, missing root "10":
-/// root "10"'s allomorph is `"ga̘p"` (ATR- "a̘", `cAUnderdot`) while surface "gap" segments its
-/// vowel as plain "a" (`cA`) -- two DIFFERENT concrete `char_def`s that pr3 (a consonant-only rule)
-/// never touches, so neither is ever `NO_CHAR_DEF`. The prior diagnosis attributed this to a needed
-/// multi-table/cross-stratum redesign, but the real root cause (P5 §1.1) was narrower and did not
-/// need per-table identity at all: C#'s root lookup is pure `FeatureStruct.IsUnifiable` with no
+/// **FIXED.** Sub-case (1)'s `assert_morphs_eq(&m1.parse_word("gap"), &["10","11","12"])` used to
+/// fail, missing root "10": root "10"'s allomorph is `"ga̘p"` (ATR- "a̘", `cAUnderdot`) while
+/// surface "gap" segments its vowel as plain "a" (`cA`) -- two DIFFERENT concrete `char_def`s that
+/// pr3 (a consonant-only rule) never touches, so neither is ever `NO_CHAR_DEF`. The prior diagnosis
+/// attributed this to a needed multi-table/cross-stratum redesign, but the real root cause was
+/// narrower and did not need per-table identity at all: C#'s root lookup is pure
+/// `FeatureStruct.IsUnifiable` with no
 /// separate char-def-identity gate in the first place -- `CharacterDefinitionTable.Add` only attaches
 /// a `StrRep` disjunction on the `fs == null` branch (zero authored phonological features, e.g.
 /// Sena); a feature-bearing segment (this fixture's `cA`/`cAUnderdot`, real Indonesian/Amharic
@@ -235,7 +235,7 @@ fn multiple_deletion_rules() {
 /// The C# contrast: `SynthesisRewriteRuleSpec`'s pattern walk starts BEFORE the first segment
 /// annotation, so position 0 is an ordinary application site.
 ///
-/// **FIXED (P1, 2026-07-09) — un-ignored; green.** TWO distinct bugs blocked sub-cases (5)/(6),
+/// **FIXED -- un-ignored; green.** TWO distinct bugs blocked sub-cases (5)/(6),
 /// and wave-4's probe matrix (direct `rewrite::synthesize` only) could only see the first:
 /// 1. `syn_epenthesis`'s missing word-initial site, exactly as diagnosed above — verified against
 ///    C# `SynthesisRewriteRuleSpec.cs:23-30` (empty-LHS pattern = one `Segment|Anchor` constraint,
@@ -397,7 +397,7 @@ fn boundary_rules() {
 /// epenthesis gap should re-run this exact fixture as a regression check for the POS gate combined
 /// with a working epenthesis path.
 ///
-/// **FIXED (P1, 2026-07-09) — un-ignored; green.** The bare-root epenthesis path now works (see
+/// **FIXED -- un-ignored; green.** The bare-root epenthesis path now works (see
 /// [`boundary_rules`]' updated doc: word-initial synthesis site + the multi-node analysis-target
 /// direction fix), and as predicted the separately-landed POS gate composes correctly with it:
 /// `taba` resolves to `pos2` only (posN fires the epenthesis; `pos1`/posV's confirm can't produce
@@ -491,10 +491,10 @@ fn common_feature_rules() {
 /// char_def fix does not and cannot touch this -- it's a grammar-load-time rejection, not an
 /// analysis-time miss. Unchanged/still fully blocked; reclassified to the correct root cause.
 ///
-/// **P13 update (`rust/docs/p13-simultaneous-design.md`): the load-time lint is gone, so this test
-/// now runs past sub-case (1) for the first time ever -- and, per this plan's own explicit warning
-/// ("un-ignoring is not automatic, re-verify each sub-case"), it surfaces TWO separate, genuinely
-/// new findings rather than going straight green:**
+/// **Update: the load-time lint is gone, so this test now runs past sub-case (1) for the first
+/// time ever -- and, per this suite's own rule ("un-ignoring is not automatic, re-verify each
+/// sub-case"), it surfaces TWO separate, genuinely new findings rather than going straight
+/// green:**
 ///
 /// - **Sub-case (7) (`"biiibuii" -> "18"`) was a fixture bug, now FIXED.** The shared
 ///   `csharp_port_common::LEXICON_XML`'s root `"18"` entry stored the WRONG shape ("bibabi" -- a
@@ -679,16 +679,16 @@ fn epenthesis_rules() {
 /// wrong expectation, and NOT the same root-19-boundary bug the rest of this file's `epenthesis_
 /// rules` was blocked on (root 25's shape has no morpheme boundary at all).
 ///
-/// **Root cause: a separate, PRE-EXISTING, already-documented-but-undecided gap** —
-/// `docs/p13-simultaneous-design.md` §2.3/§7 item 2 ("Faithful-Iterative epenthesis cascade"):
+/// **Root cause: a separate, PRE-EXISTING, already-documented-but-undecided gap in
+/// Faithful-Iterative epenthesis cascading.**
 /// `pg_rules::rewrite::syn_epenthesis` collects every candidate site against ONE unmutated snapshot
 /// of the shape and then splices all accepted sites in, unconditionally, regardless of the rule's
 /// declared `RewriteMode` — i.e. it is structurally **Simultaneous-shaped** even when a rule (like
 /// this one, both `rule1`/`rule2` default to `Iterative`) asks for `Iterative` semantics. C#'s real
 /// `IterativePhonologicalPatternRule` finds ONE match, applies it (mutating the live `Word`), and
 /// only THEN looks for the next match, now checking environments against the partially-rewritten
-/// shape (`docs/p13-simultaneous-design.md`'s own citation, `SimultaneousPhonologicalPatternRule.cs:
-/// 22-36` contrasted with the Iterative sibling) — a fundamentally different fixpoint walk than
+/// shape (`SimultaneousPhonologicalPatternRule.cs:22-36` contrasted with the Iterative sibling) —
+/// a fundamentally different fixpoint walk than
 /// "collect all candidate sites up front, then apply every one." Direct instrumentation here (a
 /// throwaway probe calling `pg_rules::rewrite::synthesize` directly on root 25's segmented shape,
 /// not checked in) confirms the mechanism precisely: `rule1` alone already produces its two
@@ -875,13 +875,13 @@ fn deletion_rules_multi_position_reinsertion() {
 
 /// Ports `RewriteRuleTests.MultipleApplicationRules` (RewriteRuleTests.cs:1809-1862).
 ///
-/// **FIXED (P13, 2026-07-10) -- un-ignored; green.** This test's entire point is that
+/// **FIXED -- un-ignored; green.** This test's entire point is that
 /// `RewriteApplicationMode.Simultaneous` and `.Iterative` produce DIFFERENT results on the same rule
 /// over overlapping-match input ("gigugu" needs Simultaneous semantics; "gigugi" needs Iterative).
 /// W1 item 4 originally left `RewriteMode::Simultaneous` parsed but silently executed identically to
 /// `Iterative`; a later hardening pass made it hard-fail at grammar-load time instead. Both gaps are
 /// now closed: `RewriteMode::Simultaneous` loads AND has real synthesis semantics
-/// (`pg_rules::rewrite::sim_feature`, `rust/docs/p13-simultaneous-design.md` §4.1/§4.2) --
+/// (`pg_rules::rewrite::sim_feature`) --
 /// `synthesize_with_mpr`/`synthesize_with_mpr_cached` dispatch on `(classify(rule, sr), rule.mode)`,
 /// collecting every accepted match against one pristine snapshot before applying any of them
 /// (mirroring C#'s `SimultaneousPhonologicalPatternRule.Apply` exactly), instead of `syn_feature`'s

@@ -1,4 +1,4 @@
-//! ## Delanguaging Part C note (2026-07-25)
+//! ## Delanguaging Part C note
 //! Renamed off the real language's name (was `sena_free_fluctuation_gate.rs`). Still corpus-
 //! blocked: needs `samples/data/sena-hc.xml` (gitignored). Part C's own synthetic-reproduction
 //! attempt (`pg_grammar_gen::build::chain`, see `pg-foma/tests/phase_c_chain_scale.rs`) targeted a

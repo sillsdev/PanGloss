@@ -1,16 +1,13 @@
-//! `openspec/changes/compile-right-to-left-rewrites`: `Dir::RightToLeft` REAL directional
-//! semantics, via [`pg_foma::replace::compile_rtl_branch_net`]'s reversal-plus-safety-net-union
-//! construction (that function's own doc: reverse the mirror rule, `fsm_union` with the plain
+//! `Dir::RightToLeft` REAL directional semantics, via
+//! [`pg_foma::replace::compile_rtl_branch_net`]'s reversal-plus-safety-net-union construction
+//! (that function's own doc: reverse the mirror rule, `fsm_union` with the plain
 //! `LeftToRight`-style compile — a documented, conservative response to a real, empirically-
 //! verified gap in this repo's own oracle, see the "Known, out-of-scope oracle gap" section
-//! below). BEFORE this change, a `multipleApplicationOrder="rightToLeftIterative"` rule was
-//! silently compiled as if `LeftToRight` (design doc §5's "SILENT MIS-MAP" row), then later
-//! honestly skipped (`is_fully_supported_shape` returning `false`, this file's OLD sole test).
-//! Now it compiles with real directional semantics.
+//! below).
 //!
-//! Synthetic, delanguaged fixtures (`openspec/changes/STAGING.md`'s "Hard rule: synthetic data
-//! only"), named by construct: `rtl-plain`, `rtl-feature-environment`, `rtl-deletion`,
-//! `rtl-epenthesis`, `rtl-distinct-leftmost-rightmost`. Each (except the last) is a
+//! Synthetic, delanguaged fixtures ("synthetic data only"), named by construct: `rtl-plain`,
+//! `rtl-feature-environment`, `rtl-deletion`, `rtl-epenthesis`, `rtl-distinct-leftmost-rightmost`.
+//! Each (except the last) is a
 //! proposer-to-confirm CONTAINMENT check against `pg_parse::Morpher` (this codebase's own full-HC
 //! oracle), following `tests/two_table_symbol_divergence.rs`'s established methodology exactly
 //! (`fst_candidate_set`/`oracle_candidate_set`, decode via `pg_foma::tags`).
@@ -848,13 +845,12 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
 }
 
 // =================================================================================================
-// `openspec/changes/plan-construct-coverage-completion` task 4.2: `PatternNode::Anchor`/
-// `PatternNode::Segments` are no longer disqualifying for a `Dir::RightToLeft` rewrite rule (a
-// same-table `Segments`, any `Anchor` -- `crate::lower::PatternLowerScope::RewriteRuleCompile`'s own
-// doc). Before this task, `pattern_slots` refused BOTH grammar-wide, for every rewrite-rule compile.
+// `PatternNode::Anchor`/`PatternNode::Segments` are no longer disqualifying for a
+// `Dir::RightToLeft` rewrite rule (a same-table `Segments`, any `Anchor` --
+// `crate::lower::PatternLowerScope::RewriteRuleCompile`'s own doc).
 // =================================================================================================
 
-/// **Particular care, per the task's own instruction**: an anchor is a claim about a WORD EDGE, and
+/// **Particular care**: an anchor is a claim about a WORD EDGE, and
 /// reversal SWAPS which edge is which. This is the bare-automaton-level proof (independent of any
 /// grammar/oracle, mirroring `rtl_distinct_leftmost_rightmost...`'s own first half) that
 /// `compile_rtl_branch_net`'s mirror-and-reverse construction swaps an `Anchor(Right)` to the
@@ -1181,9 +1177,9 @@ fn rtl_cross_table_segments_environment_matches_oracle() {
 /// 1. **End-to-end acceptance is real, both directions.** A real grammar whose LHS is authored as
 ///    ONE inline `Segments` literal (`<Segments><PhoneticShape>aa</PhoneticShape></Segments>`)
 ///    instead of two `<SimpleContext>` nodes now reports `is_fully_supported_shape() == true` and
-///    actually compiles (`compile_net` does not panic) — before task 4.2, `pattern_slots` refused
-///    ANY `Segments` occurrence unconditionally, so BOTH the `LeftToRight`- and `RightToLeft`-
-///    declared versions of this exact rule would have been silently skipped (`Ok(None)`).
+///    actually compiles (`compile_net` does not panic) — `pattern_slots` no longer refuses ANY
+///    `Segments` occurrence unconditionally, so BOTH the `LeftToRight`- and `RightToLeft`-declared
+///    versions of this exact rule compile instead of being silently skipped (`Ok(None)`).
 /// 2. **The reversal construction itself is genuinely direction-relevant, not a no-op, for THIS
 ///    shape.** A candid finding from building this test: comparing the FULL compiled nets'
 ///    `fst_candidate_set`s for `Dir::LeftToRight` vs. `Dir::RightToLeft` does NOT distinguish them
