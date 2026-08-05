@@ -124,12 +124,12 @@ fn multiplesegment_deletion_composition_matches_oracle() {
 
 /// `rust/conformance/rewrite/merge/expected.tsv` — history-matrix row 1 (`812aa48e`/#403/
 /// LT-22480, the C# merge-rule stale-index deletion bug). At fixture-freeze time this fixture's
-/// README recorded a DIVERGENCE ("Rust fails to find the valid parse" for `butbut`). Re-verified
-/// 2026-07-10 (P9/W12 closeout): Rust now MATCHES the oracle on all 3 words, including `butbut`.
+/// README recorded a DIVERGENCE ("Rust fails to find the valid parse" for `butbut`). Rust now
+/// MATCHES the oracle on all 3 words, including `butbut`.
 /// The grammar has exactly one lexical entry and zero morphological rules (pure phonology), so a
 /// surface accept has no alternate root/analysis it could be spuriously matching — this is a real
 /// positive demonstration that Rust's analysis-side now reverses the 2-segment-to-1 merge rule
-/// correctly. Root cause of the flip not chased to a single commit, but P10's
+/// correctly. Root cause of the flip not chased to a single commit, but the
 /// `GetSkippedOptionalNodes` fold (`63b0a89f`) is circumstantially the same family of segment-count
 /// bookkeeping fix and is the leading candidate. See the fixture README for the full history.
 #[test]
@@ -156,9 +156,9 @@ fn merge_matches_oracle() {
 }
 
 /// `rust/conformance/rewrite/multiplemerge/expected.tsv` — same history-matrix row 1 family
-/// (3-segment-to-2 merge). Re-verified 2026-07-10 alongside `merge_matches_oracle`: now MATCHES
-/// the oracle on all 3 words (previously diverged on `bttbtt` at freeze time). See that test's doc
-/// comment and the fixture README for the full history.
+/// (3-segment-to-2 merge). Now MATCHES the oracle on all 3 words (previously diverged on
+/// `bttbtt` at freeze time). See that test's doc comment and the fixture README for the full
+/// history.
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn multiplemerge_matches_oracle() {
