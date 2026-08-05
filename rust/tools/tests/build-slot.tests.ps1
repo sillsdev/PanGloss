@@ -110,9 +110,9 @@ Test-Case 'timing out returns null rather than throwing or hanging' {
 
 Test-Case 'a slot whose holder is KILLED is reclaimed by the kernel, not leaked' {
     # THE regression gate, and the whole reason this primitive changed. With a counted semaphore a
-    # killed holder's count was gone permanently and every worktree queued behind it forever, which
-    # is precisely the machine-wide deadlock observed on 2026-07-31. Kills a REAL holder because the
-    # behaviour under test belongs to the OS, not to this script.
+    # killed holder's count was gone permanently and every worktree queued behind it forever,
+    # exactly the machine-wide deadlock class a mutex's kernel-owned cleanup rules out. Kills a
+    # REAL holder because the behaviour under test belongs to the OS, not to this script.
     $holder = Start-SlotHolder -Slots 1
     Assert-Equal 'DENIED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 2) 'precondition: the slot is genuinely held'
     Stop-Process -Id $holder.Id -Force
