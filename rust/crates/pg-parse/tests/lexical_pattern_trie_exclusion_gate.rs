@@ -1,7 +1,7 @@
-//! P11 chunk 2 gate (`rust/docs/p11-guesser-api-design.md` §2, §5 chunk 2): a lexical-pattern root
-//! allomorph (`IsPattern`, e.g. a bare `[Any]*` entry) must be **excluded** from the root-allomorph
-//! trie, exactly as C#'s `Morpher` ctor partitions `IsPattern` allomorphs into `_lexicalPatterns`
-//! and never indexes them (`Morpher.cs:39-48,74-85`).
+//! A lexical-pattern root allomorph (`IsPattern`, e.g. a bare `[Any]*` entry) must be
+//! **excluded** from the root-allomorph trie, exactly as C#'s `Morpher` ctor partitions
+//! `IsPattern` allomorphs into `_lexicalPatterns` and never indexes them
+//! (`Morpher.cs:39-48,74-85`).
 //!
 //! Before this fix, `RootAllomorphTrie::build` indexed every allomorph unconditionally (its own doc
 //! note said so explicitly), and stored `OPTIONAL`/`ITERATIVE` flags are never consulted by the trie
