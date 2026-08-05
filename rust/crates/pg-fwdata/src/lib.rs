@@ -49,8 +49,8 @@ pub enum ImportError {
 
 /// Everything worth telling a caller about how the import went, beyond the `Snapshot` itself.
 /// Never a reason to fail the import (see the crate-level docs). Each warning carries a stable
-/// short code alongside its prose (`openspec/changes/add-grammar-assessment` task 3.8) — see
-/// [`pg_snapshot::Warning`]'s doc for the `code`/`message` contract `pangloss compare` relies on.
+/// short code alongside its prose — see [`pg_snapshot::Warning`]'s doc for the `code`/`message`
+/// contract `pangloss compare` relies on.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ImportReport {
     pub warnings: Vec<Warning>,
