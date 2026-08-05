@@ -36,9 +36,9 @@
 //! on the `fs == null` branch (zero authored phonological `<FeatureValue>`s, e.g. Sena); a
 //! feature-bearing grammar's segment carries `Type + features` and **no** `StrRep` at all
 //! (`XmlLanguageLoader.cs:670-673`). `matching_reps_for_node`'s concrete-identity gate (below)
-//! therefore falls back to [`CharDefTable::unifiable_cds`]'s build-time closure (Design A, P5,
-//! `docs/p5-crosstable-featurestruct-design.md` §6.3) when literal `char_def` equality misses —
-//! this is the synthesis-confirm counterpart of `root_trie.rs`'s same fallback, required because a
+//! therefore falls back to [`CharDefTable::unifiable_cds`]'s build-time closure (Design A) when
+//! literal `char_def` equality misses — this is the synthesis-confirm counterpart of
+//! `root_trie.rs`'s same fallback, required because a
 //! rule can leave a node's `char_def` at its as-segmented identity (`root_trie.rs`'s "Stale
 //! `char_def`" invariant) while the surface word it must confirm against was segmented in a
 //! different (but unifying) char-def.
@@ -276,10 +276,9 @@ fn match_nodes(input: &[u8], nodes: &[(Vec<String>, bool)], ipos: usize, npos: u
 
 #[cfg(test)]
 mod tests {
-    //! P5 (`docs/p5-crosstable-featurestruct-design.md` §7.2): closure-aware `matching_str_reps`
-    //! unit tests. `char_x`/`char_y` are a P5 closure-sibling pair (both `voi+`, no other authored
-    //! constraint, so their `FeatureStruct`s are identical -- exactly the scenario §1.1 documents:
-    //! a feature-bearing char-def carries no `StrRep`, so two distinct concrete char-defs whose
+    //! Closure-aware `matching_str_reps` unit tests. `char_x`/`char_y` are a closure-sibling pair
+    //! (both `voi+`, no other authored constraint, so their `FeatureStruct`s are identical -- a
+    //! feature-bearing char-def carries no `StrRep`, so two distinct concrete char-defs whose
     //! features unify legitimately cross-match); `char_z` (`voi-`) does not unify with either.
     use super::*;
     use pg_grammar::chardef::CharDefId;

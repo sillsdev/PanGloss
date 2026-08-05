@@ -1,7 +1,7 @@
 //! Part C (delanguaging) gate for `pg_grammar_gen::build::chain` (the deep standalone-affix-chain
 //! builder — that module's own doc). This is the MEASURED answer to Part C's own open risk: does a
 //! synthetic deep-chain grammar reproduce the real Aweti `apply_up`-explosion/OOM anchor
-//! (`docs/fst-plan/p6-deep-truncation-chain-report.md`) without the gitignored corpus?
+//! without the gitignored corpus?
 //!
 //! **Measured finding (`examples/deep_chain_scale_probe.rs`/`examples/deep_chain_compose_probe.rs`,
 //! run manually — see this crate's own delanguaging report for the full numbers): NO, not at this

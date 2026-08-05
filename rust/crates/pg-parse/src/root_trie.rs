@@ -27,11 +27,11 @@
 //!    `char_def` (a [`pg_grammar::chardef::CharDefId`], whose representations are unique per table).
 //!    For a feature-bearing grammar (Indonesian, Amharic, the C# test fixtures) C# attaches **no**
 //!    `StrRep` at all, so two distinct char-defs whose feature structs unify legitimately cross-match
-//!    lexical lookup in C# — see `docs/p5-crosstable-featurestruct-design.md` §1.1. `edge_matches`'s
-//!    build-time [`pg_grammar::chardef::CharDefTable::unifiable_cds`] closure (Design A, P5) is the
-//!    equality-miss fallback that restores this: a bitset probe, consulted only when `char_def`
-//!    equality itself misses, and entirely absent (`None`) for a zero-feature table so Sena/en/sp pay
-//!    nothing and keep the pre-P5 identity-only behavior bit-for-bit.
+//!    lexical lookup in C#. `edge_matches`'s build-time
+//!    [`pg_grammar::chardef::CharDefTable::unifiable_cds`] closure (Design A) is the equality-miss
+//!    fallback that restores this: a bitset probe, consulted only when `char_def` equality itself
+//!    misses, and entirely absent (`None`) for a zero-feature table so Sena/en/sp pay nothing and
+//!    keep the pre-P5 identity-only behavior bit-for-bit.
 //!
 //! So the match predicate is the exact port of C#'s full-`FeatureStruct` unification for concrete
 //! segments: **`char_def` equality, OR closure membership when the table has one (the `StrRep`
@@ -545,8 +545,8 @@ mod tests {
     }
 
     // ============================================================================================
-    // P5 (`docs/p5-crosstable-featurestruct-design.md` §7.1): the build-time unifiability closure
-    // (Design A) as an equality-miss fallback in `edge_matches`.
+    // The build-time unifiability closure (Design A) as an equality-miss fallback in
+    // `edge_matches`.
     // ============================================================================================
 
     #[test]
