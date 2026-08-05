@@ -169,8 +169,7 @@ fn resolve_pins(owners: &[Option<MorphemeOwner>], candidate: &Candidate) -> Opti
     })
 }
 
-/// Phase 0 census helper (candidate pre-filter plan,
-/// `docs/superpowers/specs/2026-07-16-candidate-prefilter-plan.md`): run exactly the same
+/// Census helper for candidate-failure attribution: run exactly the same
 /// restricted reparse [`confirm_all`] would for ONE candidate (same pin resolution via
 /// [`resolve_pins`], same tight per-candidate filter — root set + exact rule set, no slack) but
 /// return the raw [`ParseOutcome`] instead of routing matches into a bucket, and accept a
@@ -212,9 +211,9 @@ pub fn confirm_one_traced(
     ))
 }
 
-/// Batched confirm (John, 2026-07-15: "one reparse for the union of candidates", with his
-/// prediction "it may go from 122 reparses to 4 sets of around 30 — that is fine" borne out by
-/// measurement): candidates are grouped by their ROOT SET (designated root + extra compound
+/// Batched confirm ("one reparse for the union of candidates" — predicted to go from 122
+/// reparses to 4 sets of around 30, borne out by measurement): candidates are grouped by their
+/// ROOT SET (designated root + extra compound
 /// roots), and each group gets ONE `parse_word_selected` run whose filters admit the union of
 /// that group's rules; returned analyses are routed to the candidate they positionally match.
 /// Returns one bucket per input candidate (parallel by index), each bucket in its group
@@ -235,7 +234,7 @@ pub fn confirm_one_traced(
 ///    [`RULE_UNION_SLACK`] rules. Homogeneous candidate families (shared rule core, the antumira/
 ///    kakamwe shape) merge into a few parses; rule-diverse families (the kutongera shape) fall
 ///    back toward tight per-candidate parses automatically.
-/// 2. **Cross-root-set fusion** (2026-07-16, the "identical morpheme-derivation, different
+/// 2. **Cross-root-set fusion** (the "identical morpheme-derivation, different
 ///    proposed root" redundancy a tracer found costing ~1.8s of one Amharic word's *unbatched*
 ///    confirm, and — measured after step 1 above already existed — still ~54% of the *batched*
 ///    Sena confirm total): the analysis-phase mrule/template unapplication cascade
