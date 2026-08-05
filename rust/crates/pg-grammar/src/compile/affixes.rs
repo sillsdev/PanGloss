@@ -1,11 +1,11 @@
 //! Affix rules: concatenative (`MoAffixAllomorph`/plain-form) allomorphs
 //! (`LoadFormAffixProcessAllomorph`, HCLoader.cs:1441-1613, non-bracket branch only — bracket/
-//! reduplication forms are Phase B) and `MoAffixProcess`-style allomorphs
+//! reduplication forms are not implemented) and `MoAffixProcess`-style allomorphs
 //! (`LoadAffixProcessAllomorph`, HCLoader.cs:1334-1439), assembled into one [`AffixProcessRuleDef`]
 //! per (entry, MSA) pair (`LoadDerivAffixProcessRule`/`LoadInflAffixProcessRule`/
 //! `LoadUnclassifiedAffixProcessRule`, HCLoader.cs:926-1028).
 //!
-//! Circumfix cross-products (HCLoader.cs:1048-1332) are Phase B: an entry classified as a
+//! Circumfix cross-products (HCLoader.cs:1048-1332) are not implemented: an entry classified as a
 //! circumfix produces a warning and no rule.
 
 use pg_snapshot::lexicon::{Allomorph, LexEntry, Msa, RuleMapping};
@@ -23,7 +23,7 @@ use super::{Acc, Ctx};
 
 /// Which concatenative shape an affix morph type implies. `None` for morph types this compiler
 /// does not build a concatenative rule for (circumfix, bare clitic/particle, phrase-shaped) —
-/// callers treat that as Phase B and warn.
+/// callers treat that as unimplemented and warn.
 #[derive(Copy, Clone)]
 enum Shape {
     Prefix,
@@ -342,7 +342,7 @@ pub(crate) fn build_affix_rule(
 }
 
 /// `IsValidRuleForm` (HCLoader.cs:536-569), simplified: bracket-pattern (reduplication) forms are
-/// Phase B (warned, dropped) rather than gated on environment validity; the everyday
+/// not implemented (warned, dropped) rather than gated on environment validity; the everyday
 /// no-brackets/no-process-arity-check case matches C# exactly (unconditionally valid).
 fn is_valid_rule_form(allo: &Allomorph, warnings: &mut Vec<String>) -> bool {
     if let Some(process) = &allo.process {
@@ -355,7 +355,7 @@ fn is_valid_rule_form(allo: &Allomorph, warnings: &mut Vec<String>) -> bool {
         MorphType::Infix | MorphType::InfixingInterfix => !allo.positions.is_empty(),
         // Proclitic/Enclitic count as rule forms unconditionally in `IsValidRuleForm`
         // (HCLoader.cs:550-552) — same non-empty/non-abstract gate as prefix/suffix, and the
-        // same Phase-B bracket-form (reduplication) skip since HCLoader routes a bracketed
+        // same unimplemented bracket-form (reduplication) skip since HCLoader routes a bracketed
         // enclitic/proclitic form through the same reduplication branch (HCLoader.cs:1485-1519)
         // this compiler doesn't implement yet.
         MorphType::Prefix

@@ -55,8 +55,8 @@
 //!   — see that variant's own doc for the construction, and "Bounded quantifiers" below for the
 //!   compiled-vs-still-unsupported line and the confirm-engine finding that motivates it.
 //! - [`AlphaVar::plus`] == `false` ("disagree" polarity) — no reference-grammar rule needs it.
-//! - `RewriteMode::Simultaneous` whose subrules the `simultaneous.subrule-overlap` predicate (D3,
-//!   `crate::capability`) cannot prove pairwise non-overlapping (self-opaquing, an unresolved
+//! - `RewriteMode::Simultaneous` whose subrules the `simultaneous.subrule-overlap` predicate
+//!   (`crate::capability`) cannot prove pairwise non-overlapping (self-opaquing, an unresolved
 //!   overlap, or an unsupported pattern node in a lowered span) — see "`RewriteMode::Simultaneous`:
 //!   compiling the ADMITTED case" below for the (now real) admitted case.
 //! - MPR gating (`required_mpr`/`excluded_mpr` on a subrule) — flag-diacritic emission is

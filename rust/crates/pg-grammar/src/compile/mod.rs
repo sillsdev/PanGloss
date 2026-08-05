@@ -4,20 +4,20 @@
 //! its internal construction machinery (the [`crate::chardef`]/[`crate::featsys`]/[`crate::segment`]
 //! modules, `pg_featstruct::Interner`/`FeatureStructBuilder`) rather than duplicating it.
 //!
-//! Semantically this is a Rust port of FieldWorks' `HCLoader.cs`
-//! (`docs/fwdata-import-plan.md` §4) — the *front half* of the pipeline is new (LCM-shaped
-//! `Snapshot` data, not XML), but the *back half* (patterns, feature structs, char-def tables,
-//! the `Grammar` assembly order) is exactly what [`crate::load`] already builds, so this module
-//! leans on the same [`crate::model`] types and the same `chardef`/`featsys`/`segment` helpers.
+//! Semantically this is a Rust port of FieldWorks' `HCLoader.cs` — the *front half* of the pipeline
+//! is new (LCM-shaped `Snapshot` data, not XML), but the *back half* (patterns, feature structs,
+//! char-def tables, the `Grammar` assembly order) is exactly what [`crate::load`] already builds,
+//! so this module leans on the same [`crate::model`] types and the same
+//! `chardef`/`featsys`/`segment` helpers.
 //!
-//! ## Phasing (plan §4)
-//! **Phase A** (implemented): feature systems, phonemes/char-def synthesis, stems, environments,
+//! ## Coverage
+//! **Implemented**: feature systems, phonemes/char-def synthesis, stems, environments,
 //! inflectional/derivational/unclassified affixes (concatenative and `MoAffixProcess`-style),
 //! templates (+ null-affix synthesis for irregular slots), compounding (default + authored),
 //! rewrite rules, ad-hoc co-occurrence rules, strata, variants, parser parameters.
 //!
-//! **Phase B** (not implemented — each occurrence produces a warning, never an error, mirroring
-//! the existing loader's managed-fallback lint philosophy): metathesis rules, reduplication
+//! **Not implemented** (each occurrence produces a warning, never an error, mirroring the existing
+//! loader's managed-fallback lint philosophy): metathesis rules, reduplication
 //! (bracket-pattern affix forms), circumfix cross-products, clitic-as-affix-rule
 //! (`LoadCliticAffixProcessRule`) and clitic-as-stem stratum placement, user-defined `<Strata>`
 //! reorganization strings.
@@ -135,7 +135,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
     };
 
     // --- strata: Morphology (unordered), Clitics (unordered), Surface (linear) -----------------
-    // HCLoader.cs:227-233. Custom `<Strata>` reorganization (plan §4 Phase B) is not implemented;
+    // HCLoader.cs:227-233. Custom `<Strata>` reorganization is not implemented;
     // a snapshot that declares one gets a warning and the default 3-stratum layout regardless.
     // A present-but-EMPTY `<Strata />` element (Amharic authors one) parses to zero stratum rule
     // lists in HCLoader too (`m_strata.Count > 0` gates `CreateStrata`, HCLoader.cs:353-356) —

@@ -599,8 +599,8 @@ fn metathesis_rule_is_unsupported_and_warns_rather_than_erroring() {
     );
 }
 
-/// A circumfix entry is Phase B too (cross-product allomorphs, HCLoader.cs:1048-1332): it warns
-/// and contributes no rule, rather than crashing the whole compile.
+/// A circumfix entry is also unimplemented (cross-product allomorphs, HCLoader.cs:1048-1332): it
+/// warns and contributes no rule, rather than crashing the whole compile.
 #[test]
 fn circumfix_entry_is_unsupported_and_warns_rather_than_erroring() {
     let (mut snapshot, f) = fixture();
@@ -842,7 +842,7 @@ fn variant_entry_grammar_dense_ids_are_internally_consistent() {
     assert_grammar_ids_are_internally_consistent(&grammar);
 }
 
-// --- clitic morph types are Phase B (no dedicated Clitics-stratum handling) ---------------------
+// --- clitic morph types -------------------------------------------------------------------------
 
 #[test]
 fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {

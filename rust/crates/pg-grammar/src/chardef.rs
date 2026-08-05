@@ -123,9 +123,9 @@ pub struct CharDefTable {
     /// NFD-normalized representation -> owning char def. This is the exact lookup
     /// `CharacterDefinitionTable._charDefLookup` performs (`TryGetValue` in `GetShapeNodes`).
     lookup: HashMap<String, CharDefId>,
-    /// Static unifiability closure over segment char-defs (Design A, `docs/p5-crosstable-
-    /// featurestruct-design.md` §6.1). `None` ⇔ the grammar declared zero authored phonological
-    /// features (`PhonFeatureSystem::is_empty()`) — C#'s `StrRep` regime, so identity gating
+    /// Static unifiability closure over segment char-defs. `None` ⇔ the grammar declared zero
+    /// authored phonological features (`PhonFeatureSystem::is_empty()`) — C#'s `StrRep` regime,
+    /// so identity gating
     /// (char-def equality) stays exactly today's behavior, bit-for-bit. `Some(v)`: `v[i].contains
     /// (j)` ⇔ `flat_unifiable(lanes_i, lanes_j)` for segment char-defs `i`, `j` (reflexive,
     /// symmetric by construction). Boundary rows are left empty (`CdBits::empty()`) — C#

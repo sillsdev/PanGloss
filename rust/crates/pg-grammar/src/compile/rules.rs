@@ -1,6 +1,6 @@
 //! Phonological rules: rewrite rules (`LoadRewriteRule`, HCLoader.cs:2003-2101) placed on the
 //! stratum `NotOnClitics` selects (HCLoader.cs:313-317). Metathesis rules (HCLoader.cs:2103-2161)
-//! are Phase B — each produces a warning, not a rule.
+//! are not implemented — each produces a warning, not a rule.
 
 use pg_snapshot::phonology::{PhonContext, PhonologicalRule, RewriteRhs, RewriteRule};
 use pg_snapshot::Snapshot;

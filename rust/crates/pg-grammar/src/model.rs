@@ -429,7 +429,7 @@ pub struct RewriteSubruleDef {
     pub rhs: Pattern,
     pub left_env: Option<Pattern>,
     pub right_env: Option<Pattern>,
-    /// P13 (`rust/docs/p13-simultaneous-design.md` §4.3/§1.3): whether analysis un-application of
+    /// P13: whether analysis un-application of
     /// this subrule must repeat to a fixpoint (C# `AnalysisRewriteRule`'s `ReapplyType.
     /// SelfOpaquing`) rather than run once (`ReapplyType.Normal`). Computed ONCE at grammar-load
     /// time (`pg_grammar::load::load_rewrite_subrule`) — a static fact about the rule's own
@@ -447,7 +447,7 @@ pub struct RewriteSubruleDef {
     /// - **Narrow/Expansion** subrule (`0 < rhs.len() < lhs.len()` or `rhs.len() > lhs.len() > 0`):
     ///   irrelevant, always `false` — analysis for this kind is already unconditionally the
     ///   Simultaneous+Deletion-reapply shape regardless of `rule.mode`
-    ///   (`ana_narrow_deletion`/`ana_narrow_general`; see §2.2/§1.3 of the design doc), so this
+    ///   (`ana_narrow_deletion`/`ana_narrow_general`), so this
     ///   field is never read for that kind.
     pub self_opaquing: bool,
 }
@@ -478,19 +478,18 @@ pub struct MetathesisRuleDef {
     /// points at (internally renamed `"r"`; the C# naming is an implementation detail, not a
     /// "physically left" claim — see the loader doc for the full derivation).
     ///
-    /// CORRECTED (2026-07-25; this doc previously claimed "after synthesis, whatever `left_switch`
-    /// identifies always ends up FIRST in the output ... regardless of which one was physically
-    /// first" — verified FALSE by direct trace of `pg_rules::metathesis::synthesize`'s own
-    /// `synthesis_reorder`/`move_nodes_after` algorithm): what actually ends up FIRST in the
-    /// synthesized output is whichever of `left_switch`/`right_switch` is physically LAST in
-    /// `pattern.nodes` — tag-name-agnostic, driven purely by physical document-order position. For
-    /// every attested grammar (`left_switch` always tagging the physically-last of the two — the
-    /// only convention any real HermitCrab fixture this repo has seen uses, e.g.
-    /// `machine/conformance/languages/metathesis-phase-isolation`'s `mrSimpleMeta`/`mrComplexMeta`),
-    /// this coincides with the old claim. It does NOT hold for the reverse tagging (`left_switch`
-    /// physically first) — DTD-legal and reachable via `pg_grammar_gen::build::metathesis::build`'s
-    /// own recipe, see `pg_rules::metathesis::build_analysis_pattern`'s doc for the full citation
-    /// trail and how the analysis side was fixed to match this real behavior.
+    /// What ends up FIRST in the synthesized output is whichever of `left_switch`/`right_switch`
+    /// is physically LAST in `pattern.nodes` — tag-name-agnostic, driven purely by document-order
+    /// position and NOT by which member carries which tag (verified by direct trace of
+    /// `pg_rules::metathesis::synthesize`'s own `synthesis_reorder`/`move_nodes_after` algorithm).
+    /// Every attested grammar tags the physically-last of the two `left_switch` — the only
+    /// convention any real HermitCrab fixture this repo has seen uses, e.g.
+    /// `machine/conformance/languages/metathesis-phase-isolation`'s `mrSimpleMeta`/`mrComplexMeta`
+    /// — so there tag order and physical order agree. They do NOT agree under the reverse tagging
+    /// (`left_switch` physically first), which is DTD-legal and reachable via
+    /// `pg_grammar_gen::build::metathesis::build`'s own recipe; see
+    /// `pg_rules::metathesis::build_analysis_pattern`'s doc for the citation trail and how the
+    /// analysis side was fixed to match this real behavior.
     pub left_switch: u32,
     pub right_switch: u32,
 }
