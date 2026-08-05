@@ -157,7 +157,7 @@ launders unverified findings reproduces the defect it exists to document.
 | **Corrected agent claim** — that `pg-grammar/compile`'s "Phase B" labels marked a live gap | **Recast, not fixed-as-bug.** "Phase B" named a plan the reader cannot see; the underlying facts (metathesis, reduplication, circumfix cross-products, custom `<Strata>` are unimplemented and warn) are true and were kept, restated as "not implemented" (`ba3101c`). One genuinely false claim was removed: a section header calling clitics "Phase B" sat above a test asserting clitics *are* implemented |
 | `health.rs`: `Severity::overridable` returns `true` for `Critical`, while a spec says Critical `SHALL not publish` | **NO ACTION — there is no contradiction, and this one should not be re-opened.** The two statements are about different things: `spec.md:59` governs *publishing*, `overridable()` governs *the capability override*. Every override-side source agrees with the code (`design.md:13` "Error and Critical are BOTH overridable"; `IMPLEMENTATION-READINESS.md:99`; `spec.md:35` has an explicit force-compile-a-Critical scenario; `tasks.md 2.3` is checked off). `health.rs:110-113` already draws the distinction correctly — the only non-overridable floor is apply-time execution containment, which is not a `Severity` at all |
 
-## Defect in the checker itself, found 2026-08-04 — **OPEN**
+## Defect in the checker itself, found 2026-08-04 — **FIXED** (`dfa0ca2` on the branch, `eb9f5ac` on `main`)
 
 `rust/tools/comment-hygiene.ps1` scores with PowerShell `-match`, which is **case-insensitive by
 default**. So `Phase [A-Z]\b` matches "phase a" and `Stage \d[A-Z]?\b` matches "stage 1" — and this
@@ -165,12 +165,22 @@ repo uses exactly that lowercase vocabulary for real algorithm structure, e.g. `
 *"propose (stage 1) plus confirm (stage 2)"*, which is domain terminology and not project state.
 
 Consequence, and it cuts both ways: the ratchet over-counts, and worse, it pressures a sweep agent
-into rewriting correct technical prose to satisfy a regex. Measured on the residue at the time of
-writing: 4 genuine `step-marker` hits versus 3 case-insensitive-only false positives.
+into rewriting correct technical prose to satisfy a regex. Two of the four sweep agents hit this
+independently — one had to re-run its own pass case-insensitively to catch `Task 4.9`, the other
+correctly declined to "fix" `composite.rs`'s *"propose (stage 1) plus confirm (stage 2)"*.
 
-Fix is one character per pattern (`-cmatch`, or an inline `(?-i)`), but it **changes every count**,
-so it must land with a re-baseline and not while a sweep is in flight. Deliberately deferred to
-avoid moving the target under the agents.
+**Fixed by scoping, not by a blanket `-cmatch`**, and the distinction matters: a blanket
+case-sensitive match would have silently stopped catching `Task 4.9` alongside `task 4.9`. Only the
+two offending patterns became case-sensitive, via `(?-i:Phase [A-Z]\b)` / `(?-i:Stage \d[A-Z]?\b)`.
+Removed **36 false positives on `main`'s tree** (`step-marker` 399 → 363) and the last 2 on the branch.
+Landed with a re-baseline in the same commit, since the fix changes every count — and deliberately
+*after* the sweep finished, so the target did not move under the agents.
+
+Verified by falsification rather than assertion: at the zero baseline the gate exits 0; injecting one
+marker of each of the five categories exits 1 and names all five; the lowercase
+`stage 1`/`stage 2`/`phase a` line does not trip it. One caught wrinkle worth keeping — the first
+version of the explanatory comment used a literal task number as its example and the checker flagged
+its own documentation.
 
 ### The blind spot that matters more than the comments — **OPEN**
 
@@ -224,12 +234,27 @@ sweep found it at four layers, each less visible and more authoritative than the
 
 | Layer | Instances | Who is misled | Caught by |
 |---|---|---|---|
-| Comments / doc comments | 1,606 → residue | maintainers | the ratchet (built) |
+| Comments / doc comments | 1,606 → **0** | maintainers | the ratchet (built, and now a zero-tolerance gate) |
 | Production string literals | 18 | **end users**, via diagnostics | nothing |
 | Test assertions | 1 confirmed | CI, and whoever trusts it | nothing |
 | Guard comments the code later violated | 1 confirmed (Tier 4b) | anyone reasoning about capability | nothing |
 
-The ratchet covers only the top row — the row where being wrong costs least.
+The ratchet covers only the top row — the row where being wrong costs least. Banked as tasks
+`5.4b`/`5.4c`/`5.4a` respectively in the branch's `tasks.md`, ordered by that column rather than by
+size.
+
+**Where the sweep ended.** All five categories reached 0 across 159 `.rs` files and 3 `.ps1`, so the
+baseline is now 0 and the ratchet has become a zero-tolerance gate — sustainable only because the
+backlog is genuinely gone rather than tolerated. The whole change set was verified comment-only (zero
+non-comment lines changed across `d49bed5..HEAD`), and no crate denies `missing_docs` or a rustdoc
+lint, so comment-only edits structurally cannot fail a build.
+
+**One methodological note, because this file exists to stop exactly this.** My own first attempt at
+that aggregate verification **passed vacuously** — `git diff` had errored on a bad pathspec and
+produced no output, so the filter found no violations in nothing at all. "I could not look" read as
+"everything is fine," which is the failure this repo names elsewhere in its own build tooling. The
+re-run asserts the diff is non-empty before drawing any conclusion from it. Treat any green check in
+this ledger that cannot state what it examined as unverified.
 
 ## Non-code mismatches
 
