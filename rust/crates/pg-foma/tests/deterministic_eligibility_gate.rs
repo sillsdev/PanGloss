@@ -1,6 +1,6 @@
 //! Pins deterministic corpus eligibility: the step cap classifies, and nothing else may.
 //!
-//! Three defects, all observed on real corpora on 2026-08-01/02, are pinned here.
+//! Three defects, all observed on real corpora, are pinned here.
 //!
 //! 1. **Wall-clock exclusions were not reproducible.** Amharic word U+1264 U+1273 PASSED the oracle
 //!    in a 673-row run and was excluded as `oracle-timeout` in a 573-row run — same grammar, same

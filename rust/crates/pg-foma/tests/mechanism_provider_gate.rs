@@ -1,4 +1,4 @@
-//! Task 7.4: providers derive from the shared `GrammarSemantics` and from nothing else.
+//! Providers derive from the shared `GrammarSemantics` and from nothing else.
 //!
 //! Synthetic, delanguaged fixtures only (no natural-language names, per this repo's standing
 //! conformance rule), built through `pg_grammar::load` exactly as `capability.rs`'s own test module

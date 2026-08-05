@@ -1,18 +1,18 @@
-//! ## Delanguaging Part C note (2026-07-25)
-//! Renamed off the real language's name (was `f2_indonesian_gate.rs`). Still corpus-blocked: needs
-//! `samples/data/indonesian-hc.xml` + `samples/data/indonesian-words.txt` (gitignored). This
-//! grammar's own pathology is junction-aware nasal-place assimilation at a prefix/root boundary
-//! plus reduplication — Part C's synthetic-reproduction attempt targeted the OTHER historical
-//! anchor (a deep standalone-affix chain, `pg_grammar_gen::build::chain`; see
-//! `tests/phase_c_chain_scale.rs`'s own module doc) and never attempted junction/reduplication
-//! parity, so no synthetic replacement exists for this gate yet. Kept `#[ignore]`d unconditionally.
+//! ## Delanguaging note
+//! Still corpus-blocked: needs `samples/data/indonesian-hc.xml` +
+//! `samples/data/indonesian-words.txt` (gitignored). This grammar's own pathology is
+//! junction-aware nasal-place assimilation at a prefix/root boundary plus reduplication — a
+//! synthetic-reproduction attempt targeted the OTHER historical anchor (a deep standalone-affix
+//! chain, `pg_grammar_gen::build::chain`; see `tests/phase_c_chain_scale.rs`'s own module doc) and
+//! never attempted junction/reduplication parity, so no synthetic replacement exists for this gate
+//! yet. Kept `#[ignore]`d unconditionally.
 //!
-//! Phase P1 stage 2 gate (docs/fst-plan/foma-fst-plan.md §P1, gate F1, Indonesian leg): the
-//! junction-aware emitter (`pg_foma::emit` + `pg_foma::junctions::PhonologyProbe`) against the real
-//! Indonesian grammar (66 entries, 5 phonological rules: nasal-place assimilation of the `meN-`
-//! prefix's placeholder nasal, plus voiceless-obstruent deletion at the resulting prefix/root
-//! junction — `meN+tulis -> menulis`), with the FULL ENGINE (`pg_parse::Morpher`, a dev-dependency
-//! only) as the recall oracle, exactly like `tests/f1_large_lexicon_gate.rs`'s Sena leg.
+//! The junction-aware emitter (`pg_foma::emit` + `pg_foma::junctions::PhonologyProbe`) against the
+//! real Indonesian grammar (66 entries, 5 phonological rules: nasal-place assimilation of the
+//! `meN-` prefix's placeholder nasal, plus voiceless-obstruent deletion at the resulting
+//! prefix/root junction — `meN+tulis -> menulis`), with the FULL ENGINE (`pg_parse::Morpher`, a
+//! dev-dependency only) as the recall oracle, exactly like `tests/f1_large_lexicon_gate.rs`'s Sena
+//! leg.
 //!
 //! Reduplication (7 corpus words: `membagi-bagi`, `memijit-mijit`, `meminta-minta`,
 //! `mengamat-amati`, `mengayuh-ngayuh`, `menulis-nulis`, `menyewa-nyewa`) is explicitly OUT OF

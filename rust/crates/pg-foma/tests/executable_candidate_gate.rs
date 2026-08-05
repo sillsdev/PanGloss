@@ -1,6 +1,6 @@
-//! Task 7.5 of `openspec/changes/cleanup-and-recipe-parity`, gated from OUTSIDE the crate.
+//! Gated from OUTSIDE the crate.
 //!
-//! An integration test is the right place for this one, not a unit test: half of what task 7.5
+//! An integration test is the right place for this one, not a unit test: half of what this file
 //! claims is a claim about the crate's PUBLIC surface -- that
 //! [`pg_foma::recipe_registry::Registry::executable_candidate`] is the only way to obtain an
 //! [`pg_foma::executable_candidate::ExecutableCandidate`], that the type carries no `Deserialize`
