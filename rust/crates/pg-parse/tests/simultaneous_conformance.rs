@@ -1,6 +1,6 @@
-//! P13 conformance replay for the 4 oracle-verified `RewriteMode::Simultaneous` fixtures under
-//! `rust/conformance/rewrite/simultaneous-*/` (`rust/docs/p13-simultaneous-design.md` §5 step 6 /
-//! §6), following the same convention as `rewrite_conformance.rs`: load each fixture's `grammar.xml`
+//! Conformance replay for the 4 oracle-verified `RewriteMode::Simultaneous` fixtures under
+//! `rust/conformance/rewrite/simultaneous-*/`, following the same convention as
+//! `rewrite_conformance.rs`: load each fixture's `grammar.xml`
 //! exactly as authored, parse every word in `words.txt`, and check `Morpher::parse_word(...)
 //! .signature()` against the literal signature transcribed from that fixture's oracle-generated
 //! `expected.tsv`. Each fixture's own README documents the oracle-generating command and the full
