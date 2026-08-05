@@ -1,7 +1,6 @@
-//! Stable short warning codes emitted across `pg-fwdata`'s extractor
-//! (`openspec/changes/add-grammar-assessment` task 3.8).
+//! Stable short warning codes emitted across `pg-fwdata`'s extractor.
 //!
-//! No taxonomy of codes was designed up front (per that task's own instructions): each constant
+//! No taxonomy of codes was designed up front: each constant
 //! below exists because at least one emission site in `super` needed it, and any two call sites
 //! reporting the *same underlying situation* — regardless of which field or record class they
 //! happen to be checking — deliberately share one. The two most common situations
