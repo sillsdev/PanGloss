@@ -1,5 +1,5 @@
-//! P6 feasibility prototype (`docs/fst-plan/p6-prototype-report.md`): a FRESH, deliberately
-//! minimal `Grammar -> lexc` emitter whose lower tape is UNDERLYING morph spellings (in
+//! An underlying-morph-spelling lexc emitter: a FRESH, deliberately minimal `Grammar -> lexc`
+//! emitter whose lower tape is UNDERLYING morph spellings (in
 //! [`crate::replace::SegAlphabet`] token space — NOT surface spellings), meant to be composed
 //! with [`crate::replace::compile_and_compose_rules`]'s rule cascade rather than pre-probing
 //! junction phonology the way [`crate::emit`] does. This is NOT a refit of `emit.rs`: it does not
@@ -539,11 +539,10 @@ pub fn emit_underlying_filtered_with_budget(
         l.write(&mut out, "PrefixOrRoot", &mut counts);
     }
     out.push_str("\nLEXICON RootBare\n");
-    // Head-eligibility split (`crate::emit`'s own `TLPost`/`TLPostNoCmp` shape, design.md D3 head
-    // Gate): a root this grammar's compounding rules cannot head continues STRAIGHT to
-    // `SuffixOrEnd`, so it is never offered the compound loop -- precision, not recall. With no
-    // compound loop at all every root takes that same continuation, which is exactly the
-    // pre-existing emission, byte for byte.
+    // Head-eligibility split (mirrors `crate::emit`'s own `TLPost`/`TLPostNoCmp` shape): a root
+    // this grammar's compounding rules cannot head continues STRAIGHT to `SuffixOrEnd`, so it is
+    // never offered the compound loop -- precision, not recall. With no compound loop at all every
+    // root takes that same continuation, which is exactly the pre-existing emission, byte for byte.
     let mut any_head_line = false;
     for (l, head_eligible) in &root_lines {
         let continuation = if emit_compound && *head_eligible {
@@ -684,11 +683,10 @@ fn role_label(r: Role) -> &'static str {
 
 #[cfg(test)]
 mod emit_budget_tests {
-    //! `docs/fst-plan/phase-b-compose-budget-design.md` §6's own test plan for this module: 20
-    //! lexical entries (one allomorph each -- one root lexc line per entry, no prefixes/suffixes at
-    //! all), `line_cap=5`, must trip `EmitLineBudgetExceeded` reporting `lines: 6` -- the FIRST
-    //! line count that crosses the cap (proving incremental, first-crossing detection rather than a
-    //! check only after the whole lexc source is built).
+    //! This module's line-budget test: 20 lexical entries (one allomorph each -- one root lexc line
+    //! per entry, no prefixes/suffixes at all), `line_cap=5`, must trip `EmitLineBudgetExceeded`
+    //! reporting `lines: 6` -- the FIRST line count that crosses the cap (proving incremental,
+    //! first-crossing detection rather than a check only after the whole lexc source is built).
     use std::fmt::Write as _;
 
     use super::*;
