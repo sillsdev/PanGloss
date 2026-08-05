@@ -707,18 +707,13 @@ fn net_shape_of_the_production_compound_net_is_bounded_and_branching_is_reported
 /// The two fixtures that USED to kill the test process, kept as a named pair for
 /// [`net_shape_probe_of_the_two_process_aborting_fixtures`] — no longer excluded from anything here.
 ///
-/// The exclusion note that stood here said they die "somewhere inside `evaluate_plans`" with
-/// "`STATUS_STACK_BUFFER_OVERRUN`, i.e. Rust's stack-overflow handler, not an allocation failure",
-/// and left open whether the death was in CONSTRUCTION or in TRAVERSAL — the open question that
-/// decided whether a screen over a finished net could ever have helped.
-///
-/// **Both halves are now measured, and the note was wrong on the first (2026-08-03).** The message
-/// was the ALLOCATOR's, not the stack handler's; `0xc0000409` is what MSVC's `abort()` produces too.
-/// And the death is squarely in TRAVERSAL: the plan-composed net for this grammar BUILDS in 0.027s,
-/// while `apply_up` enumerates `12^k` paths for a k-`x` word (2,985,984 measured at k=6). So a static
-/// screen over a finished net *would* have had something to read — which is what makes this census's
-/// coverage of these two fixtures meaningful rather than vacuous. The traversal magnitude itself is
-/// now bounded by a typed refusal; see `tests/apply_path_refusal_gate.rs`.
+/// Both fixtures die in TRAVERSAL, not construction: the plan-composed net for this grammar BUILDS
+/// in 0.027s, while `apply_up` enumerates `12^k` paths for a k-`x` word (2,985,984 measured at
+/// k=6). The process-abort message (`0xc0000409`) is the ALLOCATOR's, the same code MSVC's
+/// `abort()` produces — not Rust's stack-overflow handler. So a static screen over a finished net
+/// *would* have something to read, which is what makes this census's coverage of these two
+/// fixtures meaningful rather than vacuous. The traversal magnitude itself is now bounded by a
+/// typed refusal; see `tests/apply_path_refusal_gate.rs`.
 const ABORTING_FIXTURES: &[&str] = &["deep-optional-affix-nesting", "recipe-template-generic"];
 
 /// Every discoverable conformance fixture whose grammar this crate can emit, screened on the

@@ -42,7 +42,7 @@ use pg_grammar::model::{Grammar, PhonRuleDef};
 /// starts. `net_dedup_sizing_census` measured this fixture's duplicate count; if that number ever goes
 /// to zero, this test failing is the correct and informative outcome.
 // Chosen FROM the sizing census, not by guessing, because these gates refuse to run vacuously and so
-// only a fixture that genuinely produces a duplicate network can exercise them. Measured 2026-08-03
+// only a fixture that genuinely produces a duplicate network can exercise them
 // (`net_dedup_sizing_census::distinct_finished_nets_versus_plan_count_per_fixture`):
 // `recipe-ordered-generic` is plans=7 digested=5 DISTINCT=4 duplicates=1.
 //
@@ -444,7 +444,7 @@ fn the_reuse_key_discriminates_grammar_corpus_mode_and_net() {
     );
 }
 
-/// **Task 7.13's Plan identity: an EXPLICIT canonical serialization, stable across two independent
+/// **This Plan identity is an EXPLICIT canonical serialization, stable across two independent
 /// constructions from two independent loads.**
 ///
 /// This is the property the RED test below shows `grammar_identity` does NOT have, and it is here
@@ -517,7 +517,7 @@ fn the_plan_document_identity_is_canonical_across_two_independent_constructions(
 /// projection precisely so that no field can be forgotten, and this asserts that property rather than
 /// trusting it. If a future member of the grammar tree acquires a hand-written `Debug` that elides
 /// content, a test like this is the only thing that notices.
-/// RED 2026-08-03 — this FAILS today, on its FIRST assertion, and the defect it exposes is real.
+/// RED — this FAILS today, on its FIRST assertion, and the defect it exposes is real.
 ///
 /// `grammar_identity` hashes the grammar's derived `Debug` projection. That projection is NOT
 /// CANONICAL, because the grammar tree holds hash-ordered collections as struct fields —
