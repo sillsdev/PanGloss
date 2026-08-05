@@ -5,11 +5,10 @@
 //! environments (`ncBackOrMid = {u, e}`, `ncMidOrFront = {e, i}`) genuinely intersect (shared member
 //! `e`) is checked here directly against the real lowered-span intersection
 //! (`crate::lower::spans_overlap`, via `crate::replace::is_fully_supported_shape`), not merely
-//! asserted in prose. Companion to `openspec/changes/plan-construct-coverage-completion` design.md
-//! row 6 (`SimultaneousRewrite`, verdict **NEEDS-ORACLE**) and tasks.md 5.2 -- this test is the
-//! "provably overlap" half of that task; the oracle-comparison half lives in the fixture's own
-//! `STAGING.md` (hc.dll ground truth vs. `pg_parse::Morpher`, run by hand, not by this test -- this
-//! crate does not depend on `pg-parse`).
+//! asserted in prose. Companion to `SimultaneousRewrite`'s own **NEEDS-ORACLE** verdict -- this
+//! test is the "provably overlap" half of establishing it; the oracle-comparison half lives in the
+//! fixture's own `STAGING.md` (hc.dll ground truth vs. `pg_parse::Morpher`, run by hand, not by
+//! this test -- this crate does not depend on `pg-parse`).
 
 use pg_foma::replace::is_fully_supported_shape;
 use pg_grammar::model::PhonRuleDef;
