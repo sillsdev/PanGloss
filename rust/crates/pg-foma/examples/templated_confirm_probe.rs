@@ -1,4 +1,4 @@
-//! Throwaway diagnostic (2026-07-18): localize the 8.86GB allocation-failure crash observed
+//! Throwaway diagnostic: localize the 8.86GB allocation-failure crash observed
 //! running `pangloss batch aweti.json aweti-words.txt out.tsv --engine=foma` after the
 //! morphotactic-pruning fix landed. Zero-word batches complete cleanly in ~13-15min (compile-side
 //! is fine); at least one word crashes identically. Builds `FomaAnalyzer` ONCE, then calls

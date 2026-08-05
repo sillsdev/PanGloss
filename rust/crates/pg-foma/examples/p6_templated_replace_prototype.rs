@@ -1,6 +1,5 @@
-//! P6 templated-morphotactics prototype driver (docs/fst-plan/p6-prototype-report.md §5.2/§6 item
-//! 2, docs/fst-plan/foma-fst-plan.md §P6): the Aweti sibling of `examples/p6_replace_prototype.rs`
-//! (Indonesian). Builds the composed network
+//! Templated-morphotactics prototype driver: the Aweti sibling of
+//! `examples/p6_replace_prototype.rs` (Indonesian). Builds the composed network
 //! `underlying-lexc(templated) .o. prule1 .o. .. .o. prule18 .o. boundary-cleanup` for Aweti (855
 //! entries, 135 mrules, 18 prules, 14 templates/43 slots, 3 strata) using
 //! [`pg_foma::emit::emit_underlying_templated`] instead of the enumeration-based

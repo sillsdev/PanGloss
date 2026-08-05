@@ -1,15 +1,14 @@
 //! Follow-up to `deep_chain_scale_probe.rs`: that probe found the bare deep standalone-affix-chain
 //! lexc net (no phonological-rule composition) stays fast at every `N` tried, up to N=24 — NOT
-//! reproducing the historical Aweti `apply_up` cliff. But the real Aweti gate's own cliff
-//! (`docs/fst-plan/p6-deep-truncation-chain-report.md`) was measured on the COMPOSED network
-//! (`lexc .o. 18-rule cascade .o. boundary-cleanup`, `pg-foma/tests/p6_aweti_gate.rs`'s own
-//! `run_full_corpus_recall`), never on bare lexc alone. This probe isolates that ONE missing
-//! variable: compose the SAME N=24 deep-chain lexc net against a trivial (semantically inert)
-//! identity rule net via `fsm_compose` + `fsm_minimize` — the same two operations
-//! `synthetic-stress-grammar-plan.md` §3's V1/V2 name as the actual blowup vectors ("composition
-//! intermediate blowup" / "determinize/minimize exponential worst case") — and re-measures the
-//! SAME apply-time probe word against the COMPOSED net, to see whether composition itself (not
-//! rule content) is the missing ingredient.
+//! reproducing the historical Aweti `apply_up` cliff. But the real Aweti gate's own cliff was
+//! measured on the COMPOSED network (`lexc .o. 18-rule cascade .o. boundary-cleanup`,
+//! `pg-foma/tests/p6_aweti_gate.rs`'s own `run_full_corpus_recall`), never on bare lexc alone.
+//! This probe isolates that ONE missing variable: compose the SAME N=24 deep-chain lexc net
+//! against a trivial (semantically inert) identity rule net via `fsm_compose` + `fsm_minimize` —
+//! the same two operations known as the actual blowup vectors ("composition intermediate blowup"
+//! / "determinize/minimize exponential worst case") — and re-measures the SAME apply-time probe
+//! word against the COMPOSED net, to see whether composition itself (not rule content) is the
+//! missing ingredient.
 //!
 //! Run with `cargo run -p pg-foma --release --example deep_chain_compose_probe`.
 
