@@ -2,13 +2,13 @@
 //! post-emission detection originally added to close what was BELIEVED to be a silent recall-loss
 //! class in [`pg_foma::emit::emit_underlying_templated`].
 //!
-//! ## Background (2026-07-25 regression investigation)
+//! ## Background
 //! `tests/p6_templated_morphotactics_gate.rs`'s own `BASELINE_MISSES` doc found that Aweti's
 //! `mrule105` (a standalone `AffixProcess` rule on a stratum ABOVE the root/template stratum) was
 //! correctly classified, declared, and had its lexicon entries written -- yet its tag was entirely
 //! absent from the compiled lexc network's own sigma, and NOTHING reported this.
 //!
-//! ## 2026-07-25 correction: root cause is NOT `lexc_merge_states`, and it is NOT recall loss
+//! ## Root cause: NOT `lexc_merge_states`, and NOT recall loss
 //! A follow-up investigation built a minimal reproduction depending on nothing but the `foma`
 //! crate (no PanGloss code at all) and found the true mechanism: `foma::lexcread`'s own
 //! `lexc_string_to_tokens` (the ENTRY-text tokenizer) fails to recognize a declared multichar
@@ -50,8 +50,8 @@ const UNREACHABLE_KIND: &str = "unreachable-after-lexc-compile";
 /// gate's own `extra_strata: 3` never reaches) layered OVER a templated stratum 0 (one circumfix
 /// rule wrapped in a single-slot `AffixTemplate`, `ConstructKnobs::circumfix_count`) -- the exact
 /// "standalone rule on a stratum above a templated root stratum" shape the module doc's background
-/// section describes, built at Aweti's own real per-zone rule-count scale (`docs/fst-plan/
-/// p6-deep-truncation-chain-report.md`'s "11-rule prefix / 24-rule suffix" figure). This shape is
+/// section describes, built at Aweti's own real per-zone rule-count scale ("11-rule prefix /
+/// 24-rule suffix"). This shape is
 /// kept as the HISTORICAL recipe that used to trip the `%0`-escape sigma artifact (module doc's
 /// correction) -- 24 morphemes pushes `tags::tag_width` to 2 digits, so ids 0-10 and 20 all get a
 /// zero-padded `0` in their tag text -- not because chaining/scale is actually load-bearing for the
@@ -77,7 +77,7 @@ fn stratum_scale_recipe() -> Recipe {
 
 /// (1) No false positive on the HISTORICAL trigger shape: this recipe used to make
 /// `verify_tags_reachable` report several tags (any whose zero-padded numeral text contains a `0`
-/// digit) as `UNREACHABLE_KIND`, but the 2026-07-25 follow-up investigation proved (via
+/// digit) as `UNREACHABLE_KIND`, but a follow-up investigation proved (via
 /// `foma::apply::apply_down` against the actual compiled net, both for this recipe and for a
 /// foma-crate-only minimal reproduction at the same "many chained levels" scale) that every one of
 /// those tags is genuinely reachable at the LANGUAGE level -- only the vendored `foma` crate's
