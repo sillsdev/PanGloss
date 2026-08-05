@@ -14,7 +14,7 @@
 //! sub-case had no way to reach 3 roots through the public API -- confirmed the coverage map's own
 //! note ("`MaxStemCount` itself untested") rather than a new finding.
 //!
-//! **G11 (2026-07-25): closed.** C#'s `Morpher.MaxStemCount` (Morpher.cs:72) is a settable
+//! **G11: closed.** C#'s `Morpher.MaxStemCount` (Morpher.cs:72) is a settable
 //! per-INSTANCE property, ctor default `2` (Morpher.cs:56) — `2` was always a faithful *default*,
 //! but hardcoding it in `pg_parse::Morpher` also dropped C#'s configurability, which is what
 //! actually blocked a genuine 3-stem compound (a real, supported C# construct, not a design gap).
@@ -28,11 +28,11 @@
 //! reconfiguration (cs:76-108) now that the knob exists.
 //!
 //! Two further findings surfaced while porting the remaining `SimpleRules` reconfigurations:
-//! `simple_rules_1_homophone_disjunction_finding` (P4, 2026-07-09: FIXED -- see that test's doc
+//! `simple_rules_1_homophone_disjunction_finding` (P4: FIXED -- see that test's doc
 //! comment for the root cause and repair; retained its original name/doc-comment history rather
 //! than renaming, to keep the finding's paper trail intact) and
 //! `simple_rules_3_prefix_commutes_with_compounding` (formerly `#[ignore]`d as a "compounding
-//! analysis never recurses into the non-head" engine gap -- resolved 2026-07-09 as a PORT bug, not
+//! analysis never recurses into the non-head" engine gap -- resolved as a PORT bug, not
 //! an engine gap: the C# reconfiguration keeps reconfiguration 2's nonHead+head output order, so
 //! the affixed span is the HEAD, and the live C# oracle confirms both engines behave identically;
 //! see that test's doc comment).
@@ -75,7 +75,7 @@ fn simple_rules_1_negative_cases() {
     assert_empty(&m1.parse_word("pʰusdat"));
 }
 
-/// **FIXED** (P4, 2026-07-09; name/doc history kept as-is rather than renaming, so the finding's
+/// **FIXED** (P4; name/doc history kept as-is rather than renaming, so the finding's
 /// paper trail stays intact). Entries "8" (dat, N) and "9" (dat, V) are literal homophones
 /// (identical surface, different category); compounding "pʰut" (5) with EITHER as non-head
 /// produces the byte-identical final shape "pʰutdat". C# keeps both as distinct analyses
@@ -148,7 +148,7 @@ fn simple_rules_2_negative_cases() {
 /// Ports `CompoundingRuleTests.SimpleRules` reconfiguration 3 (CompoundingRuleTests.cs:48-71): a
 /// V-requiring PAST prefix ("di+") commutes with compounding.
 ///
-/// **CORRECTED DIAGNOSIS** (P3, 2026-07-09; supersedes the prior "recursive non-head analysis"
+/// **CORRECTED DIAGNOSIS** (P3; supersedes the prior "recursive non-head analysis"
 /// finding this test used to document while `#[ignore]`d): the original port MIS-READ the C#
 /// reconfiguration. `CompoundingRuleTests.cs:48-71` inserts the prefix WITHOUT resetting
 /// `rule1.Subrules`, so rule1 still carries reconfiguration 2's `Rhs = { CopyFromInput("nonHead"),
@@ -326,7 +326,7 @@ fn prod_restrict_grammar(rule_mpr_attrs: &str, e5_attrs: &str, e8_attrs: &str) -
 /// order (each step's entry-side `MprFeatures` state carries over exactly as the C# mutations
 /// leave it — e.g. step 4 still has the head feature on entry `5`, because C# only removes it in
 /// step 5):
-/// 1. no restrictions — parses as C# does: both dat homophones, {"5 8", "5 9"} (P4, 2026-07-09:
+/// 1. no restrictions — parses as C# does: both dat homophones, {"5 8", "5 9"} (P4:
 ///    previously pinned at the known-collapsed {"5 8"} only, tracking the
 ///    [`simple_rules_1_homophone_disjunction_finding`] engine finding this step shared — now fixed,
 ///    see that test's doc comment for the root cause and repair).
