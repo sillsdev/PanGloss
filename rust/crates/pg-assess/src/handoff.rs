@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn no_artifact_field_prescribes_a_grammar_edit() {
-        // Task 6.7: PanGloss supplies material, never a diagnosis. Guarded structurally rather than
+        // PanGloss supplies material, never a diagnosis. Guarded structurally rather than
         // trusted, because prescriptive wording is exactly what creeps in over time.
         let report = report(&[id("a")]);
         let mut req = request("c1");

@@ -1,9 +1,9 @@
 //! The grammar-assessment evidence layer: structured analysis identity, canonical JSON, and the
 //! digests every assessment artifact is identified by.
 //!
-//! `openspec/changes/add-grammar-assessment`. This crate is merge unit 1 — the identity and digest
-//! foundation the four operations (`assess`, `compare`, `golden-diff`, `investigate`) are built on.
-//! It deliberately knows nothing about suites, reports, or the CLI.
+//! This crate is the identity and digest foundation the four operations (`assess`, `compare`,
+//! `golden-diff`, `investigate`) are built on. It deliberately knows nothing about suites,
+//! reports, or the CLI.
 //!
 //! The one idea everything here rests on: **an analysis identity is a value, not a reference**
 //! (ADR 0006). It carries stable source keys rather than the dense compiler-assigned ordinals
@@ -46,13 +46,11 @@ pub use outcome::{
 };
 /// The identity projection, re-exported from its owning crate.
 ///
-/// It USED to be `pg_assess::identity`, a module of this crate. It moved to `pg-parse` — the crate
-/// that owns [`pg_parse::WordAnalysis`], the thing it projects — so `pg-foma` could express the
-/// recipe parity relation with the SAME projector instead of either depending on this crate (the
-/// engine depending on the assessment layer is backwards) or forking the logic (two definitions of
-/// "the same analysis", free to drift). This re-export is what makes that move invisible here:
-/// `pg_assess::identity::*`, `crate::identity::*` inside this crate, every schema, and every
-/// digest call site are all unchanged.
+/// Owned by `pg-parse` rather than this crate: it projects [`pg_parse::WordAnalysis`], so putting
+/// it there lets `pg-foma` express the recipe parity relation with the SAME projector instead of
+/// either depending on this crate (the engine depending on the assessment layer is backwards) or
+/// forking the logic (two definitions of "the same analysis", free to drift). This re-export keeps
+/// `pg_assess::identity::*` and `crate::identity::*` working unchanged inside this crate.
 pub use pg_parse::identity;
 pub use pg_parse::identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};
 pub use report::{

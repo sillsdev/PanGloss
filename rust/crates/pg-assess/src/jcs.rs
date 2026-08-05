@@ -1,7 +1,7 @@
 //! RFC 8785 JSON Canonicalization Scheme.
 //!
 //! Every digest in this crate hashes JCS bytes, so two artifacts that differ only in key order or
-//! whitespace hash alike. `openspec/changes/add-grammar-assessment` design D3.
+//! whitespace hash alike.
 //!
 //! ## No floating point
 //!
