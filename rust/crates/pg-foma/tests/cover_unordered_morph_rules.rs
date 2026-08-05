@@ -1,10 +1,9 @@
-//! `openspec/changes/cover-unordered-morph-rules`: proposer-to-confirm containment for
-//! `MorphRuleOrder::Unordered`'s `unordered-application.chain-depth-bounded` configuration
-//! predicate (design.md D1's "target: ConfirmOnly"), plus a deterministic
-//! `unordered-application.unbounded` budget-refusal witness.
+//! Proposer-to-confirm containment for `MorphRuleOrder::Unordered`'s
+//! `unordered-application.chain-depth-bounded` configuration predicate (target disposition:
+//! `ConfirmOnly`), plus a deterministic `unordered-application.unbounded` budget-refusal witness.
 //!
-//! ## Synthetic, delanguaged fixture (`openspec/changes/STAGING.md`'s "Hard rule: synthetic data
-//! only" -- invented CVC root, no natural-language lexemes, named by construct only)
+//! ## Synthetic, delanguaged fixture (synthetic data only -- invented CVC root, no
+//! natural-language lexemes, named by construct only)
 //! One stratum, `morphologicalRuleOrder="unordered"`, TWO loose suffix rules declared in document
 //! order `mrP` (index 0) then `mrQ` (index 1) -- no `required_syn_fs`/feature interaction between
 //! them at all, no phonological rules, no `Role::Infix` rule, no templates. Both suffix, so cascade
@@ -22,12 +21,11 @@
 //! against this exact fixture, `linear_variant` below), while `"kpq"` (document order) IS reachable
 //! under EITHER `mrule_order`. Declaring THIS grammar's own stratum `Unordered` is therefore the
 //! MINIMAL change that makes `"kqp"` a genuine, oracle-confirmed analysis (`Cascade::combination`'s
-//! any-order walk, `cascade.rs`'s own "k!-walk over rule subsets" doc) -- spec.md's own scenario:
-//! "a word's analysis requires the stratum's rules to have applied in an order other than their
-//! declared document order."
+//! any-order walk, `cascade.rs`'s own "k!-walk over rule subsets" doc) -- exactly the scenario
+//! where "a word's analysis requires the stratum's rules to have applied in an order other than
+//! their declared document order."
 //!
 //! ## The distinguishing witness against the pre-existing morphotactic-legality convention
-//! (design.md D1 blocker 2 / spec.md's third requirement)
 //! This fixture has ZERO phonological rules and ZERO `Role::Infix` rules -- `crate::preexpand::
 //! should_run(g, phon) = phon.is_some() || any_infix_rule(g)` is `false` for it (both `mrP`/`mrQ`
 //! classify `Role::Suffix`: their RHS is `CopyFromInput` followed by a TRAILING `InsertSegments`,
@@ -38,8 +36,8 @@
 //! this integration test can observe; `crate::preexpand`/`crate::morphotactics` are crate-internal).
 //! The containment this file proves for `"kqp"` therefore comes ENTIRELY from
 //! `crate::emit::build_deriv_chain`'s ordinary derivation-layer construction (this change's own
-//! load-bearing finding, `crate::unordered`'s own module doc) -- not from that pruning automaton,
-//! proving design.md D1 blocker 2's own requirement that the two are NOT the same proof.
+//! load-bearing finding, `crate::unordered`'s own module doc) -- not from that pruning automaton;
+//! the two are NOT the same proof.
 
 mod common;
 
@@ -236,7 +234,7 @@ fn fixture_is_chain_depth_bounded_and_confirm_only() {
     );
 }
 
-/// **The positive witness (tasks.md 3.1/4.2, spec.md's own scenario).** `"kqp"` (rule index 1 --
+/// **The positive witness.** `"kqp"` (rule index 1 --
 /// `mrQ` -- firing before rule index 0 -- `mrP`, the REVERSE of document order) is a genuine,
 /// oracle-confirmed analysis under `Unordered`, and the FST proposer (via `crate::emit::
 /// build_deriv_chain`'s existing derivation-layer construction, not a new mechanism -- module doc)
@@ -306,7 +304,7 @@ fn linear_variant_of_the_same_grammar_does_not_confirm_the_reverse_order() {
     );
 }
 
-/// **The negative witness (tasks.md 3.2): an ordering the union proposal licenses but the exact
+/// **The negative witness: an ordering the union proposal licenses but the exact
 /// combination-cascade fold at confirm rejects.** `mrP`/`mrQ` both default to `multipleApplication
 /// = 1` (DTD default) -- `"kpp"`/`"kqq"` (the SAME rule applied twice) are over-proposed by
 /// `build_deriv_chain` (every level offers every rule, unconditional on a rule's own re-application
@@ -332,8 +330,8 @@ fn same_rule_reapplication_is_over_proposed_and_confirm_pruned() {
     }
 }
 
-/// **The distinguishing-from-legality-convention witness (design.md D1 blocker 2 / spec.md's third
-/// requirement, module doc).** This fixture has zero phonological rules -- the public proxy for
+/// **The distinguishing-from-legality-convention witness.** This fixture has zero phonological
+/// rules -- the public proxy for
 /// "`crate::preexpand::should_run` is false, so `crate::morphotactics::MorphotacticIndex`'s
 /// consuming callers never run for a single (root, rule) pair on this grammar" (module doc) --
 /// proving the containment proven above comes from `crate::emit::build_deriv_chain`, not the

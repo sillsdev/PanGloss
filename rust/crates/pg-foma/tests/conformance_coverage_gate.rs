@@ -1,6 +1,5 @@
-//! THE conformance-coverage cross-check (`openspec/changes/add-capability-characteristics-check`
-//! task 5.1; `plan-construct-coverage-completion` tasks.md 6.2 / design.md §D7 step 7), ADR 0001
-//! (`docs/adr/0001-honest-capability-boundary.md`): **BUILD-BREAKING as of 2026-07-25**.
+//! THE conformance-coverage cross-check (ADR 0001, honest capability boundary):
+//! **BUILD-BREAKING**.
 //!
 //! This test computes, for EVERY `CharacteristicKind` (`pg_foma::capability`) — not just the
 //! `Proven` ("supported") subset — whether the evidence its own disposition demands exists: a
@@ -114,9 +113,8 @@ fn passing_covered_constructs() -> HashSet<String> {
     covered
 }
 
-/// The ledger-wide cross-check, now **BUILD-BREAKING** (`openspec/changes/
-/// plan-construct-coverage-completion` tasks.md 6.2, design.md §D7 step 7: "This is the finish line,
-/// not a follow-on cleanup step"). Widened ledger-wide by G8, re-mapped by G9, flipped here.
+/// The ledger-wide cross-check, now **BUILD-BREAKING** -- this is the finish line, not a
+/// follow-on cleanup step. Widened ledger-wide by G8, re-mapped by G9, flipped here.
 ///
 /// # What flipping asserts, and what had to be true first
 /// It asserts **zero `Uncovered` and zero `Unmappable` rows** across all 20 `CharacteristicKind`s,
@@ -152,9 +150,8 @@ fn passing_covered_constructs() -> HashSet<String> {
 ///   `Covered` means "evidenced at its own disposition" (§D1: `ConfirmOnly → Admit` is a separate,
 ///   optional track).
 /// - That every CONFIGURATION inside a covered row is closed. Row-level coverage and
-///   configuration-level completeness are different questions, and §D7 requires both — see the
-///   open splits in `docs/conformance/circumfix-structural-composite-census.md`,
-///   `needs-decision-resolutions.md`, and `multitable-shared-representation-design.md`.
+///   configuration-level completeness are different questions, and §D7 requires both — several
+///   rows still have open configuration splits tracked elsewhere in this crate's conformance docs.
 ///
 /// The full report still prints on every run: a failure must say WHICH row regressed and how, not
 /// merely that a count moved.

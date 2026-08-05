@@ -10,23 +10,18 @@
 //!    inside `Morpher::parse_word_opts`) that separately blocks genuine 3-stem self-feeding
 //!    compounding, unrelated to the FST capability gate.
 //!
-//! **2026-07-27 update (`openspec/changes/plan-construct-coverage-completion` task 4.1, pieces
-//! 2/3):** this file's own top doc used to say "this test is the one that should FAIL... the day
-//! either layer is promoted" -- that day has arrived for the CAPABILITY layer (not the oracle
-//! layer): `crate::emit`'s "bounded compound loop" now unrolls enough extra non-head root levels to
-//! realize this rule's own computed `max_depth` bound (`build_compound_chain`, consuming
-//! `crate::capability::compounding_max_depth`'s precomputed number directly), and
-//! `CompoundingRecursionSafePredicate` now reaches `ConfirmOnly` unconditionally
-//! (`capability.rs`'s own doc, "the recursive split is now closed too") -- so
-//! `capability_gate_refuses_recursive_compounding_shape` (below) FAILED exactly as that doc
-//! predicted, and has been renamed/re-authored to `capability_gate_is_confirm_only_for_recursive_
-//! compounding_shape` rather than deleted, per this crate's own "re-author, do not delete a
-//! superseded regression pin" convention (see `rust/crates/pg-foma/tests/
-//! cover_compounding_recursive_depth_bound.rs`'s own containment/bound/budget tests for the full
-//! construction-side proof). The ORACLE layer is UNCHANGED: `Morpher`'s own `max_stem_count`
-//! default (2) was never touched by this task, so
-//! `genuinely_recursive_three_stem_compound_currently_confirms_zero_analyses` (below) still pins the
-//! real, current, unchanged oracle-default behavior and needed no edit.
+//! `crate::emit`'s bounded compound loop unrolls enough extra non-head root levels to realize
+//! this rule's own computed `max_depth` bound (`build_compound_chain`, consuming
+//! `crate::capability::compounding_max_depth`'s precomputed number directly), so
+//! `CompoundingRecursionSafePredicate` reaches `ConfirmOnly` unconditionally for this self-feeding
+//! shape (`capability.rs`'s own doc, "the recursive split is now closed too"). The test below is
+//! named for that verdict rather than deleted when the verdict changed, per this crate's own
+//! "re-author, do not delete a superseded regression pin" convention -- see
+//! `cover_compounding_recursive_depth_bound.rs`'s own containment/bound/budget tests for the full
+//! construction-side proof. The ORACLE layer is separate and unaffected: `Morpher`'s own
+//! `max_stem_count` default (2) permits at most one non-head split during analysis, so
+//! `genuinely_recursive_three_stem_compound_currently_confirms_zero_analyses` (below) still pins
+//! the real, current oracle-default behavior.
 
 use std::fs;
 use std::path::Path;
@@ -85,9 +80,10 @@ fn bare_roots_and_depth_one_compounds_parse_normally() {
 
 /// **The load-bearing witness.** `tevimafl` (ROOT1+ROOT2, cr1's first application) re-entering
 /// cr1's own head/non-head search a SECOND time with ROOT3 -- (ROOT1+ROOT2)+ROOT3, the exact
-/// self-feeding shape design.md D2 item 3 describes -- currently produces ZERO analyses from the
-/// standard oracle. This is NOT the FST capability gate's own doing (that verdict is a structural,
-/// always-on fact about the rule definition, proven separately above): it is
+/// self-feeding shape a `multipleApplication` compounding rule is meant to allow -- currently
+/// produces ZERO analyses from the standard oracle. This is NOT the FST capability gate's own
+/// doing (that verdict is a structural, always-on fact about the rule definition, proven
+/// separately above): it is
 /// `pg_rules::stratum::AnalyzerConfig::max_stem_count`'s own hardcoded default of 2 (mirroring C#'s
 /// `Morpher.MaxStemCount`), which permits at most ONE non-head ever being split off during
 /// analysis -- an independently-discovered, separate resource ceiling.
