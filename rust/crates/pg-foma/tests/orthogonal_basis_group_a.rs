@@ -1,7 +1,7 @@
-//! Task 7.8 of `openspec/changes/cleanup-and-recipe-parity`, **group A**: the first five of the
-//! remaining orthogonal-basis mechanisms, each exercised at least twice.
+//! **Group A**: the first five of the remaining orthogonal-basis mechanisms, each exercised at
+//! least twice.
 //!
-//! Group A owns exactly these five, and nothing else in 7.8's list:
+//! Group A owns exactly these five, and nothing else in the orthogonal-basis inventory:
 //!
 //! | Mechanism | Exercise 1 | Exercise 2 | Exercise 3 |
 //! |---|---|---|---|
@@ -47,7 +47,7 @@
 //! # WHICH RELATION each assertion uses, and why
 //!
 //! Conflating two of these once made an entire certification scope invisible (see
-//! [`pg_foma::parity`]'s own module doc and the 2026-08-01 fix). So each is named at its use site:
+//! [`pg_foma::parity`]'s own module doc). So each is named at its use site:
 //!
 //! - **MULTISET cardinality** — [`OccurrenceIdentities::raw_analyses`] against the committed
 //!   `parses:` ROW COUNT. `words.yaml` is sorted but NOT deduplicated
