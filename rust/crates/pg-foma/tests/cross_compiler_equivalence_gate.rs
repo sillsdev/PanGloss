@@ -28,10 +28,9 @@ const REQUIRED_STRATEGIES: [EmissionStrategy; 3] = [
     EmissionStrategy::TemplatedUnderlyingTokens,
 ];
 
-/// The role this gate's hand-built candidates carry, preserving exactly what its deleted
-/// `is_baseline: Vec<bool>` slice said (task 7.13): all three candidates share ONE baseline `Plan`,
-/// so the plan-COMPOSING one is that plan's own compilation and the two whole-grammar adapters --
-/// which never read a plan at all -- are not.
+/// The role this gate's hand-built candidates carry: all three candidates share ONE baseline
+/// `Plan`, so the plan-COMPOSING one is that plan's own compilation and the two whole-grammar
+/// adapters -- which never read a plan at all -- are not.
 fn baseline_role(strategy: EmissionStrategy) -> CandidateRole {
     if strategy == EmissionStrategy::PlanComposed {
         CandidateRole::Baseline
