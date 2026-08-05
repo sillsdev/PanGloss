@@ -1,7 +1,7 @@
-//! P11 chunk 5: the end-to-end guesser wire-up, ported against a hand-transcribed grammar rather
-//! than an oracle-verified fixture — the C# CLI (`hc.dll`'s `BatchCommand`) has **no `--guess`
-//! flag** at all (`rust/docs/p11-guesser-api-design.md` §6's open question #2), so there is no
-//! upstream tool to generate a golden TSV against, the same situation P9's Generation API faced
+//! The end-to-end guesser wire-up, ported against a hand-transcribed grammar rather than an
+//! oracle-verified fixture — the C# CLI (`hc.dll`'s `BatchCommand`) has **no `--guess` flag** at
+//! all, so there is no upstream tool to generate a golden TSV against, the same situation the
+//! Generation API faced
 //! (`csharp_port_generation.rs`'s own module doc). This file is verified directly against the C#
 //! unit test's own literal expected outcomes, not a byte-parity oracle diff.
 //!
