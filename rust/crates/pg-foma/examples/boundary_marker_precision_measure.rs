@@ -1,15 +1,14 @@
-//! Ad hoc measurement harness for the `finish_controllable_net` boundary-cleanup precision fix
-//! (`docs/fst-plan/large-lexicon-proposal-explosion.md`). NOT a test -- a throwaway-style probe
-//! (module doc convention already used by this crate's `boundary_cleanup_precision_probe.rs`,
-//! which the investigation that produced the design doc deleted after use; this one stays checked
-//! in a while the fix is being re-measured across sessions/agents).
+//! Ad hoc measurement harness for the `finish_controllable_net` boundary-cleanup precision fix.
+//! NOT a test -- a throwaway-style probe that stays checked in while the fix is being
+//! re-measured across sessions/agents, unlike a one-off investigation script that gets deleted
+//! after use.
 //!
 //! Drives ONLY public API (`pg_foma::recipe_runtime::evaluate_plans`, `pg_foma::enumerate::
 //! enumerate_default`, `pg_foma::recipe_registry::Registry`) -- never touches `recipe_runtime.rs`/
 //! `recipe_optimize.rs` internals, so it is safe to run against a checkout where those files are
 //! mid-edit by someone else. Reports ONE word at a time (unlike the `recipe-optimize` CLI, whose
 //! aggregate search/pilot/oracle machinery adds cost unrelated to the specific pathology this
-//! measures), so a per-word proposal count is directly comparable to the diagnosis doc's own table.
+//! measures), so a per-word proposal count is directly comparable across runs.
 //!
 //! Run: `cargo run --release -p pg-foma --example boundary_marker_precision_measure -- \
 //!   <grammar.xml> <words.txt>`
