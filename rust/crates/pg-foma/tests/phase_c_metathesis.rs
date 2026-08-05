@@ -957,11 +957,8 @@ fn metathesis_right_to_left_switch_index_remap_matches_the_derived_formula() {
 }
 
 // =================================================================================================
-// metathesis-anchor: a `finalBoundaryCondition="true"` pattern (mirrors `metathesis-phase-
-// isolation`'s own `mrComplexMeta` shape) stays honestly unsupported -- `pg_grammar::load::
-// load_metathesis_rule` lowers the boundary condition to a `PatternNode::Anchor` node INSIDE
-// `pattern.nodes`, and `pg_foma::replace::pattern_slots` refuses ANY `Anchor` occurrence
-// grammar-wide today (not a metathesis-specific gap).
+// metathesis-anchor: a `finalBoundaryCondition="true"` pattern compiles, as a ConfirmOnly swap
+// superset -- the edge anchor is stripped rather than enforced in the net.
 // =================================================================================================
 
 const ANCHOR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>

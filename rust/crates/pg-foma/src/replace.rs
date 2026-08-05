@@ -304,13 +304,8 @@
 //!   of this task's own scope (`crate::lower::UnsupportedPatternNode::AlphaDisagreePolarity`'s own
 //!   doc; `crate::capability::RightToLeftRewriteFaithfulReversalPredicate`'s own tests pin this
 //!   refusal with this specific named witness).
-//! - **This widening is scope-gated** (`crate::lower::PatternLowerScope`), NOT a blanket change to
-//!   `pattern_slots` for every caller: `crate::lower::lower_span` (`SimultaneousRewrite`'s own
-//!   `hc.dll`-oracle-verified span-intersection test) and `compile_metathesis_rule` (below,
-//!   `Metathesis`'s own already-closed task-4.6 row) both deliberately stay on the UNWIDENED
-//!   `PatternLowerScope::Baseline` tier — this task's own ownership boundary is `RightToLeftRewrite`
-//!   only, and a pattern-shape-lowering change must never silently reopen a DIFFERENT
-//!   characteristic's own closed/verified scope as a side effect.
+//! - **This widening is scope-gated** (`crate::lower::PatternLowerScope`), not a blanket change for
+//!   every `pattern_slots` caller: `crate::lower::lower_span` stays on `Baseline`.
 
 use foma::constructions::fsm_universal;
 use foma::options::FomaOptions;
@@ -1728,19 +1723,9 @@ pub type Subrule = RewriteSubruleDef;
 // never changes the product of their candidate-set sizes).
 // **Honest-unsupported (`Ok(None)`, reported `skipped` — never a silent wrong compile), EITHER
 // `Dir`:**
-// - Any pattern needing a malformed `Quantifier`, a disagree-polarity alpha var, or (for THIS
-//   function specifically — see below) `Segments`/`Anchor` anywhere. `pattern_slots` was widened
-//   to additionally accept a
-//   same-table `Segments`/any `Anchor` for the ORDINARY rewrite-rule compile path
-//   (`compile_rewrite_rule_subset`, via `crate::lower::PatternLowerScope::RewriteRuleCompile`) --
-//   `compile_metathesis_rule` (this function) deliberately stays on `PatternLowerScope::Baseline`
-//   instead (that call site's own doc has the full reasoning: `Metathesis`'s own admitted set is a
-//   separate, already-closed scope, not this one's to reopen; `slot_candidates` below would refuse
-//   an `Anchor` occurrence independently anyway, so this is a deliberate scope choice, not a
-//   residual gap). So `finalBoundaryCondition`/`initialBoundaryCondition` (`mrComplexMeta`'s own
-//   shape: an anchor lowers to a `PatternNode::Anchor` node INSIDE `pattern.nodes` for a
-//   `MetathesisRuleDef`, `pg_grammar::load::load_metathesis_rule`) still refuses HERE, even though
-//   an ordinary `RewriteRuleDef` carrying the identical node kind no longer does.
+// - Any pattern needing a malformed `Quantifier` or a disagree-polarity alpha var. An `Anchor` is
+//   admitted at a word edge (stripped below) and refused in the interior by `slot_candidates`;
+//   `phase_c_metathesis::metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset` pins it.
 // - A `Slot::Alpha` occurrence anywhere in the pattern — genuinely STRUCTURALLY IMPOSSIBLE for a
 //   `<MetathesisRule>`, not merely unattested: `pg_grammar::load::load_metathesis_rule` calls
 //   `load_one_pattern_node` with an EMPTY `VarTable::default()` (no `<Variables>` scope exists for a
@@ -1791,12 +1776,8 @@ pub type Subrule = RewriteSubruleDef;
 /// EITHER `Dir`, unchanged by the RTL construction added here), or [`Slot::Anchor`] (an anchor is a
 /// word-edge CONDITION, not a candidate segment value to enumerate/transpose — there is no sound
 /// notion of "the anchor that matched" reappearing, unchanged, at a swapped output position, unlike
-/// an ordinary segment). This last arm is unreachable in PRACTICE today: `compile_metathesis_rule`'s
-/// own `pattern_slots` call stays on `crate::lower::PatternLowerScope::Baseline`
-/// (that function's own doc has the scope boundary), which already refuses ANY `Anchor` occurrence before a `Slot::Anchor` value
-/// could ever reach this function — kept here anyway because `Slot` is a shared enum this match must
-/// stay exhaustive over (adding a variant elsewhere in this crate must not silently compile a
-/// wrong/no-op arm here).
+/// an ordinary segment). `compile_metathesis_swap_net` strips a leading/trailing anchor before
+/// calling this, so reaching the `Anchor` arm means an INTERIOR anchor.
 fn slot_candidates(
     slot: &Slot,
     table: &CharDefTable,
@@ -2053,13 +2034,9 @@ pub(crate) fn compile_metathesis_rule(
         .expect("owning_table_id_for_metathesis shares owning_table_for_metathesis's own lookup, which just resolved Some");
     let alias_map = RepresentationAliasMap::build(g);
     let mut next_occurrence = 0usize;
-    // `PatternLowerScope::Baseline`, deliberately: `Metathesis`'s own
-    // admitted set is a separate, already-closed scope, not this one's to reopen -- widening it here
-    // would be a silent, unowned side effect of a DIFFERENT pattern-shape lowering
-    // change. This costs nothing in practice: `slot_candidates` (below) independently refuses any
-    // `Slot::Anchor`/cross-table-`Segments` occurrence anyway, so the observable behavior would be
-    // identical either way -- `Baseline` is simply the more conservative, more obviously-correct
-    // choice, not a compromise.
+    // MUST stay in lockstep with `capability::metathesis_swap_construction_attempted`'s own scope --
+    // a disagreement there admits a different rule set than this compiles. Admits a word-edge
+    // `Anchor`; `metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset` pins the result.
     let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
     let Some(slots) = pattern_slots(g, table, &rule.pattern, &mut next_occurrence, scope) else {
         return Ok(None);

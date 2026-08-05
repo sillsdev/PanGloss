@@ -956,11 +956,8 @@ fn metathesis_swap_construction_attempted(
         return false;
     }
     let mut next_occurrence = 0usize;
-    // `PatternLowerScope::Baseline` -- MUST be the identical scope
-    // `crate::replace::compile_metathesis_rule` itself passes (that function's own doc:
-    // `Metathesis`'s own admitted set is deliberately left untouched here).
-    // Passing a different scope here than the real compile uses would let this predicate and the
-    // real compiler silently disagree on which rules are admitted.
+    // MUST stay the identical scope `crate::replace::compile_metathesis_rule` passes -- a different
+    // one here would let this predicate and the real compiler disagree on what is admitted.
     let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
     let Some(slots) =
         crate::replace::pattern_slots(g, table, &m.pattern, &mut next_occurrence, scope)
