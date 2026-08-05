@@ -135,15 +135,15 @@ pub struct SearchAccounting {
     pub expanded: u64,
     pub explored: u64,
     /// Candidates rejected by `recipe_optimizer`'s branch-and-bound because their `lower_bound`
-    /// exceeded the running incumbent (recipe-pipeline-hygiene D7). This is **structurally always
+    /// exceeded the running incumbent. This is **structurally always
     /// zero in production today**: both call sites that build a `BranchAndBoundCandidate` in
     /// `pg-cli/src/recipe_optimize.rs` set `exact_objective: None`, so `incumbent` (initialized to
     /// `u64::MAX`) never drops and no candidate's `lower_bound` can ever exceed it. Do not read
     /// this field as a live "the search pruned N candidates" signal until a real admissible bound
-    /// is wired (`exact_objective` populated from an actual completed-evaluation cost) — tracked as
-    /// an open question in `openspec/changes/cleanup-and-recipe-parity/design.md`, deferred pending
-    /// a cost model. See `recipe_optimizer::tests::pruned_is_structurally_zero_in_production_shaped_run`
-    /// for the pinning test.
+    /// is wired (`exact_objective` populated from an actual completed-evaluation cost) — an open
+    /// question, deferred pending a cost model. See
+    /// `recipe_optimizer::tests::pruned_is_structurally_zero_in_production_shaped_run` for the
+    /// pinning test.
     pub pruned: u64,
     pub unexplored: u64,
     pub unexplored_method: String,
@@ -212,11 +212,12 @@ pub struct RecipeOptimizationReport {
     pub winner_strategy: Option<String>,
     pub frontier: Vec<String>,
     pub candidates: Vec<CandidateReport>,
-    /// Task 7.13 deleted the four sibling fields that inlined the FULL TEXT of these artifacts
-    /// (`baseline_plan_json`, `baseline_mermaid`, `winner_plan_json`, `winner_mermaid`). Every run
-    /// wrote each artifact twice -- once as a file in the run directory, once verbatim inside
-    /// `report.json` -- and two copies of one artifact can disagree with no way to say which is
-    /// authoritative. These paths, relative to the run directory, name the single copy that is.
+    /// Only paths are carried here, never the FULL TEXT of these artifacts
+    /// (`baseline_plan_json`, `baseline_mermaid`, `winner_plan_json`, `winner_mermaid` do not
+    /// exist as fields): writing each artifact twice -- once as a file in the run directory, once
+    /// verbatim inside `report.json` -- would let two copies of one artifact disagree with no way
+    /// to say which is authoritative. These paths, relative to the run directory, name the single
+    /// copy that is.
     pub baseline_plan_json_path: Option<String>,
     pub baseline_plan_mermaid_path: Option<String>,
     pub winner_plan_json_path: Option<String>,

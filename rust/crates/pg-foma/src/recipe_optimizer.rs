@@ -137,8 +137,8 @@ pub struct OracleEligibilityConfig {
 /// Transitional, run-local evidence for a requested corpus's eligibility.
 ///
 /// This is deliberately diagnostic evidence on the existing recipe certification result, not a
-/// second corpus identity architecture. The versioned `CorpusSnapshot`/`CertificationScope`
-/// migration remains tracked by `cleanup-and-recipe-parity` task 7.12.
+/// second corpus identity architecture. A versioned `CorpusSnapshot`/`CertificationScope`
+/// migration remains a known follow-on, not built here.
 ///
 /// It is emitted for COMPLETE corpora too, not only incomplete ones. A run that excludes nothing
 /// still has to say so in band — "there were no exclusions" and "nobody looked" are different
@@ -423,8 +423,8 @@ impl Score {
     /// for this: it undercounts exactly the traversal a proposer pays before dedup collapses paths
     /// together, which is the whole quantity this term exists to price. Unit commensurability between
     /// a step and a raw path is asserted 1:1, not derived; if a future corpus shows the sum
-    /// mis-ranking, the documented fallback is to keep steps-first and add `raw_paths` as its own
-    /// lexicographic term instead of summing it in (design.md D4).
+    /// mis-ranking, the fallback is to keep steps-first and add `raw_paths` as its own
+    /// lexicographic term instead of summing it in.
     pub fn key(&self, id: &str) -> (u64, u64, u64, u64, String) {
         (
             self.confirmation_steps.saturating_add(self.raw_paths),
@@ -1576,10 +1576,10 @@ mod tests {
         assert_eq!(select_confirmed(&items), Some("large-fast".to_owned()));
     }
 
-    /// D4's motivating case, pinned as a synthetic fixture: the measured Sena shape where the
+    /// The motivating case, pinned as a synthetic fixture: the measured Sena shape where the
     /// plan-composed candidate proposes several-fold more (higher `raw_paths`) for a marginally
     /// LOWER confirm-step count, and the old steps-only key picked it on that alone. Measured
-    /// four-corpus numbers (design.md D4): plan-composed 575 proposals / 42 confirmation calls /
+    /// four-corpus numbers: plan-composed 575 proposals / 42 confirmation calls /
     /// 1192 confirmation_steps, vs hand-spun 127 proposals / 17 calls / 1252 steps. `raw_paths`
     /// (pre-dedup traversal, necessarily >= the post-dedup `proposals` count) is not one of the
     /// measured columns, so this fixture invents illustrative values consistent with "several-fold
