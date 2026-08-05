@@ -159,12 +159,13 @@ pub struct AccuracyCounters {
     /// genuine recall failure. [`verdict_from`] therefore refuses to report undergeneration when this
     /// is non-zero.
     ///
-    /// Before 2026-08-03 this path proposed with `ApplyBudget::unbounded()` on the reasoning that
-    /// "a bounded proposal set that trips reads as undergeneration" — true of a SILENT bound, and the
-    /// reason this counter is the fix rather than the bound being dropped again. Measured cost of
-    /// leaving it unbounded: `machine:edge-cases/deep-optional-affix-nesting` reaches 12^12 raw
-    /// `apply_up` paths for one 13-character word and exhausts committed memory
-    /// (see [`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`]'s measurement table).
+    /// This path proposes with a bounded
+    /// [`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`] rather than
+    /// `ApplyBudget::unbounded()`: a bounded proposal set that trips would otherwise read as
+    /// undergeneration, which this counter fixes by making the refusal visible instead. Leaving
+    /// it unbounded is not a safe fallback -- `machine:edge-cases/deep-optional-affix-nesting`
+    /// reaches 12^12 raw `apply_up` paths for one 13-character word and exhausts committed memory
+    /// (see that budget's own measurement table).
     pub apply_refusals: u64,
     /// **Full-HC confirmation calls performed. Structurally zero.**
     ///
