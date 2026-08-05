@@ -536,9 +536,9 @@ mod tests {
 
     // -- Encoder-level overclaim guard --------------------------------------------------------
     // These construct a guessed analysis directly (bypassing `pg_lexicon`/`pg-ffi`'s own
-    // `guess_fallback` plumbing entirely) and feed it straight to this module's `MAGIC` encoder,
-    // proving the guard in `write_word` itself refuses to emit it — not merely that today's call
-    // sites happen to avoid the case.
+    // `guess_fallback` plumbing entirely) and feed it straight to this module's `MAGIC` encoder.
+    // The test below, plain_format_encoder_refuses_to_emit_a_guessed_analysis_even_when_constructed_directly,
+    // pins the guard itself, not merely that today's call sites happen to avoid the case.
 
     fn guessed_analysis(surface: &str) -> ((String, String), WordAnalysis) {
         (

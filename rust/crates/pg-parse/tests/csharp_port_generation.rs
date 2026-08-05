@@ -75,9 +75,9 @@ fn generate_words_can_generate_returns_correct_word() {
 }
 
 /// Ports `MorpherTests.GenerateWords_CannotGenerate_ReturnsEmptyEnumerable` (MorpherTests.cs:321-346):
-/// a `PL`-suffix requiring `posN` cannot generate from root "32" ("sag", V) — the
+/// a `PL`-suffix requiring `posN` cannot generate from root "32" ("sag", V) — a POS mismatch on the
 /// `RequiredSyntacticFeatureStruct` gate (`SynthesisAffixProcessRule.cs:122`, ported at
-/// `pg_rules::morph::synth_syn_fs`) rejects it, so the whole `WordAnalysis` yields no words.
+/// `pg_rules::morph::synth_syn_fs`).
 #[test]
 fn generate_words_cannot_generate_returns_empty_enumerable() {
     let mrules = r#"

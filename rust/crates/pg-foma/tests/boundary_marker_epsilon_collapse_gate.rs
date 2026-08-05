@@ -17,11 +17,11 @@
 //! multi-representation marker family) `boundary_cleanup_net` itself branches on.
 //!
 //! # What the fix actually is
-//! NOT "exclude the marker family from cleanup" -- that was tried first and rejected, because
-//! excluding ANY `Boundary` char-def from deletion makes every entry containing it unreachable by a
-//! real surface query, which is a straight recall regression (the synthetic test below caught it
-//! immediately: `MultiplicityMismatch { word: "s", expected: 2, actual: 1 }`). The cleanup still
-//! blanket-deletes every `Boundary` char-def, exactly as it always did.
+//! NOT "exclude the marker family from cleanup" -- that was tried first and rejected: excluding ANY
+//! `Boundary` char-def from deletion is a straight recall regression, pinned by
+//! `null_morph_prefix_does_not_collapse_to_a_free_epsilon_loop`
+//! (`MultiplicityMismatch { word: "s", expected: 2, actual: 1 }`). The cleanup still blanket-deletes
+//! every `Boundary` char-def, exactly as it always did.
 //!
 //! The fix is `build::reroute_null_shaped_affix_chains`, applied to a group's RAW `uflexc` lexc source
 //! BEFORE it is compiled, so a line whose entire underlying text is drawn only from boundary tokens

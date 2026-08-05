@@ -237,7 +237,7 @@ fn right_is_word_boundary(pc: &PhonContext) -> bool {
 }
 
 /// `LoadPatternNode`'s recursive dispatch (HCLoader.cs:2313-2389), alpha-variable-aware version
-/// used by rewrite rules (unlike `affixes::phon_context_nodes`, which rejects alpha variables —
+/// used by rewrite rules (unlike [`super::affixes::phon_context_nodes`], which rejects alpha variables —
 /// `MoAffixProcess` input carries no variable scope in LCM).
 fn phon_context_nodes(
     pc: &PhonContext,

@@ -60,7 +60,7 @@ fn word_initial_epenthesis_matches_oracle() {
 /// deletion unapplication: ONE analysis pass inserts the deleted segment at ALL matching sites as
 /// OPTIONAL nodes, and root lookup's consume-or-skip branching over those optional nodes reaches
 /// every per-subset lexical entry; `Morpher.DeletionReapplications` defaults to 0, so the
-/// insert-after-an-insert entry `buiibuii` must stay unreachable from `bubu`). See the fixture
+/// insert-after-an-insert entry `buiibuii` can never be produced from `bubu`). See the fixture
 /// README for the full derivation and `csharp_port_rewrite.rs`'s
 /// `deletion_rules_multi_position_reinsertion` for the C# source anatomy.
 #[test]

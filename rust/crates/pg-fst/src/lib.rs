@@ -90,10 +90,10 @@ impl PartialOrd for Cmd {
     }
 }
 
-/// A capture register (C# `Register<TOffset>` with `TOffset == int`, plan §5.4). The engine keeps
+/// A capture register (C# `Register<TOffset>` with `TOffset == int`). The engine keeps
 /// a flat `Vec<Register>` scaffold of `register_count * 2` slots (two columns per register, as
 /// C#'s `Register[reg, col]`) reused across `Transduce` calls. `has` distinguishes an unset
-/// register from offset 0 — `GetOffsets` rejects unset/empty ranges (Fst.cs:122-125), so a bare
+/// register from offset 0 — [`Fst::get_offsets`] treats an unset/empty range as absent, so a bare
 /// `i32` would mis-report zero-width captures.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Register {

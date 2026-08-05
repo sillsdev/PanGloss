@@ -92,12 +92,65 @@ $categories = [ordered]@{
 # tense ("`load` rejected the grammar") almost always documents what an error variant MEANS, not a
 # live cross-reference, and including it measured ~25% false positives on this tree. `guaranteed` is
 # out for the same reason: "never guaranteed SMALL" is prose about a value, not a claim about a callee.
+#
+# WORD-BOUNDARIED, and `unreachable` excludes the macro form. Substring matching made identifiers
+# collide with claims: `unreachable!()` and a local `const UNREACHABLE_KIND` both tripped `unreachable`,
+# and two agents reworded correct technical vocabulary to satisfy the regex. That is the same failure
+# this file already records for `stage 1`/`phase a` -- a gate that pressures a cleanup pass into
+# damaging accurate prose is worse than no gate. `\b` alone fixes `UNREACHABLE_KIND` (the `_` is a word
+# character, so the boundary fails); the macro needs the explicit `(?!!)` because `!` is not.
 $claimVerbs = @(
-    'refuses', 'rejects', 'accepts unconditionally', 'already refuses',
-    'only caller', 'sole caller', 'called from exactly', 'zero callers', 'no production caller',
-    'unreachable', 'never called', 'never reached', 'cannot happen', 'cannot be reached',
-    'always returns', 'never returns', 'stays on', 'is not wired', 'never fires', 'always fires'
+    '\brefuses\b', '\brejects\b', '\baccepts unconditionally\b', '\balready refuses\b',
+    '\bonly caller\b', '\bsole caller\b', '\bcalled from exactly\b', '\bzero callers\b',
+    '\bno production caller\b', '\bunreachable\b(?!!)', '\bnever called\b', '\bnever reached\b',
+    '\bcannot happen\b', '\bcannot be reached\b', '\balways returns\b', '\bnever returns\b',
+    '\bstays on\b', '\bis not wired\b', '\bnever fires\b', '\balways fires\b'
 ) -join '|'
+
+# A citation to a test that pins the claim. This exists because the checker previously PUNISHED ITS
+# OWN PREFERRED FIX: the skill ranks "cite the pinning test" ahead of adding a link, but only `[`..`]`
+# suppressed a claim, so following the policy's first choice left the hit standing -- and self-defeated
+# when the cited test was itself named `..._rejects_...`. All four sweep agents hit this.
+#
+# The citation must name something that EXISTS: the name is checked against every `fn` in the tree, so
+# a citation is machine-verified rather than taken on faith. That is not a nicety -- this pass found
+# two comments citing tests (`overwrite_group_composes_to_refuse`,
+# `right_to_left_predicate_refuses_quantifier_shaped_rule`) that exist nowhere, both asserting the
+# OPPOSITE of the prose citing them. `dead-citation` makes that class catchable instead of luck.
+#
+# The name must be BACKTICKED and contain an underscore. Without both, the phrase matches ordinary
+# prose -- "pins this", "checked by the loader" -- and measured 122 hits that were almost entirely the
+# checker's own noise rather than dead citations. Requiring a code span makes a citation deliberate,
+# and requiring `_` distinguishes a snake_case fn from an English word.
+#
+# Backticks are safe to require now only BECAUSE the claim verbs above became word-boundaried: a test
+# named `..._refuses_...` no longer trips `\brefuses\b` (the surrounding `_` is a word character), so
+# citing it in a code span no longer re-flags the very line that resolves the claim. Those two changes
+# have to land together; either alone reintroduces the trap the agents hit.
+#
+# `(?i)` is REQUIRED and is not belt-and-braces. These patterns are evaluated with
+# [regex]::Matches, which is CASE-SENSITIVE by default -- the exact opposite of PowerShell's `-match`
+# used for the line-level categories above, whose case-INsensitivity is itself documented below as a
+# past bug. Both defaults have now caused one. Without `(?i)` a sentence starting "Pinned by `x`" is
+# not recognised as a citation, so the anchor silently fails to count and the block reads as
+# unanchored. Caught by falsification, not by review.
+$citationPhrase = '(?i)(?:pinned by|pins|asserted by|witnessed by|proved by|checked by)\s+`([a-z_][A-Za-z0-9_]*_[A-Za-z0-9_]*)`'
+
+# The `path/to/file.rs::test_name` form this repo already uses for curated evidence citations. Checked
+# the same way and for the same reason: two such citations in this tree named tests that exist nowhere,
+# and both were cited as proving a REFUSAL by prose sitting above a live test asserting ConfirmOnly. A
+# citation nobody resolves is indistinguishable from a citation that is simply wrong.
+#
+# The FILE is captured too, and a citation is only judged when that file exists in this tree. Measured
+# without that guard: 23 hits, essentially all false -- citations into `foma-rs` (`apply_init`,
+# `flag_purge`, `flag_build`) and into ported C# test names, none of which this index can see because
+# it scans only this repo's crates. Flagging them would report "dead citation" for references that are
+# perfectly good, just not local. Same rule this file already applies to docs links: "I could not look"
+# must not read as "it is broken."
+#
+# Names ending in `_` are skipped as line-wrap artifacts: a citation split across two comment lines is
+# truncated at the newline, which produced `..._confirms_the_reversed_tag_`.
+$citationPath = '(?i)([A-Za-z0-9_./\\-]+\.rs)::([a-z_][A-Za-z0-9_]*)'
 $identToken = '`[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z0-9_]+)*(\(\))?`'
 $intraDocLink = '\[`[^`]+`\]'
 
@@ -122,8 +175,26 @@ $files = @(
     Get-ChildItem -Path (Join-Path $repoRoot '.claude\hooks') -Filter '*.py' -File -ErrorAction SilentlyContinue
 ) | Where-Object { $_.FullName -notmatch '\\target\\' }
 
-$blockCategories = @('comment-block-too-long', 'cross-reference-claim', 'docs-link-broken')
+$blockCategories = @('comment-block-too-long', 'cross-reference-claim', 'docs-link-broken', 'dead-citation')
 foreach ($cat in $blockCategories) { $categories[$cat] = $null }
+
+# Every `fn` name in the tree, so a "pinned by X" citation can be checked rather than trusted. One
+# extra pass over files already being read; cheap enough not to need a cache.
+$fnNames = [System.Collections.Generic.HashSet[string]]::new()
+$rsBasenames = [System.Collections.Generic.HashSet[string]]::new()
+foreach ($f in $files) {
+    if ($f.Extension -ne '.rs') { continue }
+    [void]$rsBasenames.Add($f.Name)
+    foreach ($line in [System.IO.File]::ReadLines($f.FullName)) {
+        # Not just `fn`: a curated citation legitimately names a fixture constant
+        # (`f3_parity.rs::ENGINE_TIMEOUT`, `::GRAMMAR_XML`) or a type (`::TrieEdge`). Indexing only
+        # functions reported five such live references as dead -- the same false-positive direction as
+        # the foma-rs case, and the reason this category is worth nothing until its index is honest.
+        foreach ($m in [regex]::Matches($line, '\b(?:fn|struct|enum|trait|union|type|const|static|mod)\s+([A-Za-z_][A-Za-z0-9_]*)')) {
+            [void]$fnNames.Add($m.Groups[1].Value)
+        }
+    }
+}
 
 $counts = [ordered]@{}
 $hits = @{}
@@ -181,7 +252,38 @@ foreach ($f in $files) {
         $text = $blockLines -join "`n"
 
         if ($isRust) {
+            # Citations first: a verified "pinned by <fn>" is an anchor in its own right, and the
+            # STRONGEST one, because a test is the only falsifier that survives semantic drift. It
+            # must therefore be computed before the block-length check consults $anchor.
+            $blockCited = $false
+            $cited = [System.Collections.Generic.List[string]]::new()
+            foreach ($m in [regex]::Matches($text, $citationPhrase)) { $cited.Add($m.Groups[1].Value) }
+            foreach ($m in [regex]::Matches($text, $citationPath)) {
+                # Only judge a citation whose file is one of ours; see $citationPath's own note.
+                $base = [System.IO.Path]::GetFileName(($m.Groups[1].Value -replace '/', '\'))
+                if ($rsBasenames.Contains($base)) { $cited.Add($m.Groups[2].Value) }
+            }
+            foreach ($name in $cited) {
+                if ($name.EndsWith('_')) { continue }
+                # A citation wrapped across two comment lines is captured truncated, and the break is
+                # not always at an underscore -- `..._on_subrule` + `_finding` on the next line reads
+                # as a complete name. So a captured name that is a PREFIX of a real one counts as live.
+                # This trades a little strictness for removing a whole false-positive class; a gate that
+                # cries wolf on correct citations gets ignored, and then the real one is ignored with it.
+                if ($name.Length -ge 12) {
+                    $wrapped = $false
+                    foreach ($known in $fnNames) { if ($known.StartsWith($name)) { $wrapped = $true; break } }
+                    if ($wrapped) { $blockCited = $true; continue }
+                }
+                if ($fnNames.Contains($name)) {
+                    $blockCited = $true
+                } else {
+                    $counts['dead-citation']++
+                    if ($List) { $hits['dead-citation'] += "$rel`:$blockStart`: cites unknown fn ``$name``" }
+                }
+            }
             $anchor = Get-BlockAnchor -Text $text -RepoRoot $repoRoot
+            if (-not $anchor -and $blockCited) { $anchor = 'test-citation' }
             if ($blockLines.Count -gt $MaxBlockLines) {
                 if ($anchor) {
                     $anchoredLongBlocks++
@@ -194,6 +296,7 @@ foreach ($f in $files) {
                 }
             }
             foreach ($bl in $blockLines) {
+                if ($blockCited) { break }
                 if ($bl -match $intraDocLink) { continue }
                 if (($bl -match $claimVerbs) -and ($bl -match $identToken)) {
                     $counts['cross-reference-claim']++

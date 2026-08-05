@@ -144,10 +144,9 @@ pub enum AssessmentStatus {
     Failed,
 }
 
-/// Derive the report status from the outcomes actually recorded.
-///
-/// A case the caller marked `invalid` and did not ask to run is skipped by policy, not by
-/// containment, so it cannot drag an otherwise clean run down to `partial`.
+/// Derive the report status from the outcomes actually recorded. A case the caller marked
+/// `invalid` and did not ask to run is skipped by policy, not by containment, so it cannot drag
+/// an otherwise clean run down to `partial`.
 pub fn derive_status(outcomes: &[CaseOutcome]) -> AssessmentStatus {
     let mut any_complete = false;
     let mut any_runnable_unfinished = false;

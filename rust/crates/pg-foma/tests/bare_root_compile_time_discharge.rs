@@ -3,9 +3,10 @@
 //! allomorph is `isBound="true"`.
 //!
 //! # Why this is provably safe (not a heuristic)
-//! `pg_rules::validity::allomorphs_valid_impl`'s root arm (`AllomorphOwner::Root`) rejects a word
-//! outright whenever `def.is_bound && distinct_count == 1` (`FailureReason::BoundRoot` — C#
-//! `RootAllomorph.CheckAllomorphConstraints`: "cannot be the word's only allomorph"). A bare-root
+//! This crate's root validity check treats a word as invalid whenever a bound root allomorph is
+//! the word's only allomorph (`FailureReason::BoundRoot` — C#
+//! `RootAllomorph.CheckAllomorphConstraints`: "cannot be the word's only allomorph"; pinned by
+//! `pg_rules`'s own `bound_root_alone_is_rejected`). A bare-root
 //! candidate (the `"#"`-continuation `Root`/P6 `LEXICON` this test inspects) is BY CONSTRUCTION a
 //! word consisting of exactly that one root morph and nothing else, so `distinct_count` is
 //! trivially `1` for every such candidate. The gate therefore reduces, on this arc only, to

@@ -768,9 +768,9 @@ fn e_flag_type_elimination_not_equivalence_preserving() {
     // bug-for-bug port of the real C table -- see that file's row comments) has NO row whose
     // eliminated-flag type is FLAG_EQUAL ("E"). So when `flag_eliminate` is asked to eliminate an
     // E-typed attribute, the per-instance `flag_build` comparison against every other flag
-    // instance always returns NONE, `flag` never becomes nonzero, and NO FILTER is ever built for
-    // that instance -- yet `flag_purge` (which purges by NAME match unconditionally, not gated on
-    // whether a filter fired) still strips the "@E.F.1@" symbols from the network regardless.
+    // instance returns NONE every time (`flag` never becomes nonzero), so NO FILTER is ever built
+    // for that instance -- yet `flag_purge` (which purges by NAME match unconditionally, not gated
+    // on whether a filter fired) still strips the "@E.F.1@" symbols from the network regardless.
     // Net effect: "eliminating" an E-attribute silently degrades to STRIP (spec §1 position 3:
     // illegal paths become reachable) while still being invoked as if it were the exact Eliminate
     // arm (position 1). This was verified empirically against real C foma too (see eqtest3/4

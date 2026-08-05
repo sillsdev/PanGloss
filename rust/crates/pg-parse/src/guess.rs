@@ -3,7 +3,7 @@
 //! `Morpher.LexicalGuess` (`Morpher.cs:522-590` step 3, `match.ToString(table, false)`,
 //! `HermitCrabExtensions.cs:317-335`).
 //!
-//! **Why not `pg-fst`.** C# itself refuses to route this through its `Matcher`/`Pattern` engine
+//! **Why not `pg-fst`.** C# itself does not route this through its `Matcher`/`Pattern` engine
 //! — "the Matcher doesn't preserve the unifications of the nodes" (`Morpher.cs:138-140`) — and
 //! this port follows: [`match_nodes_with_pattern`] is a direct recursive walk over a small
 //! resolved node view ([`GuessNode`]), never through `pg_fst`'s FSA/pattern-compile machinery.
@@ -322,7 +322,7 @@ pub fn render_match(table: &CharDefTable, matched: &[GuessNode]) -> String {
 /// OWNING entry (`Morpher.cs:564-579`); every Rust lexical pattern has a real owning `LexEntryId`
 /// via `Grammar::allomorph_owners` (the loader never produces an ownerless allomorph), so this
 /// port always takes that branch — the "else" branch (leave the fabricated entry's fields
-/// initialized straight from `aw`) is unreachable here and not implemented.
+/// initialized straight from aw) is unreachable here and not implemented.
 ///
 /// No dedup across patterns or across this function's own output (§1.2: C#'s `.Distinct()` on the
 /// call site is a documented no-op — every yielded `Word` is a fresh clone with no `Equals`

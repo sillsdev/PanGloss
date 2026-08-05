@@ -67,7 +67,7 @@
 //! replay at all — today it lives in [`crate::coverage_ledger::containment_evidence_for`]'s
 //! curated [`crate::coverage_ledger::ContainmentEvidenceKind::RefusalWitness`] citations (a
 //! hand-reviewed table naming a specific Rust test, e.g. `tests/cover_mpr_groups.rs::
-//! overwrite_group_composes_to_refuse`), which the caller is responsible for translating into a
+//! overwrite_group_composes_to_confirm_only`), which the caller is responsible for translating into a
 //! `refusal_witnessed_kinds: &HashSet<CharacteristicKind>`.
 //!
 //! # The mapping (deliverable 1 — THE CONTRACT)
@@ -395,9 +395,9 @@ pub enum EvidenceRequirement {
     PassingFixture,
     /// [`Disposition::FailClosed`]: nothing compiles for this construct by design (an
     /// indelible override is the only escape hatch), so a passing ANALYSIS fixture is not even the
-    /// right kind of evidence to demand. Needs a REFUSAL witness instead — a fixture/test proving
-    /// `compose_envelope` genuinely refuses whenever this construct is observed (e.g. `tests/
-    /// cover_mpr_groups.rs::overwrite_group_composes_to_refuse`, the curated citation for
+    /// right kind of evidence to demand. Needs a REFUSAL witness instead: a fixture/test proving
+    /// [`crate::capability::compose_envelope`] refuses this construct, e.g. `tests/
+    /// cover_mpr_groups.rs::overwrite_group_composes_to_confirm_only` (the curated citation for
     /// [`CharacteristicKind::MprGroupOverwrite`] in [`crate::coverage_ledger::
     /// containment_evidence_for`]) — never a passing fixture, which cannot exist for a refused
     /// construct.

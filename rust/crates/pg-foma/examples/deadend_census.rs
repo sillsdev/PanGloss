@@ -20,13 +20,10 @@
 //! ## Why this needed NEW instrumentation (read before trusting the numbers)
 //! The previous census's `confirm_one_traced`/`parse_word_selected_traced` path traced only the
 //! SYNTHESIS half of the pipeline (`pg_rules::stratum::synthesize_stratum_traced` and the final
-//! `is_word_valid_traced`/`is_match_traced` gates) — confirmed by grep before writing a line of new
-//! code: `pg_rules::stratum::StratumAnalyzer`, which runs the ANALYSIS (unapply) cascade every
-//! restricted reparse starts from, had ZERO callers of `TraceSink::morphological_rule_unapplied`/
-//! `_not_unapplied`/`phonological_rule_unapplied`/`_not_unapplied` anywhere in the codebase before
-//! this commit (`rewrite::analyze_cached_traced` existed, built, but was explicitly documented as
-//! "not yet wired into the live per-word pipeline"). Since the prior census found validity-gate
-//! (post-synthesis) rejections are only 0-3% of failing time on every grammar, the dominant 91-98%
+//! `is_word_valid_traced`/`is_match_traced` gates); `pg_rules::stratum::StratumAnalyzer`, which runs
+//! the ANALYSIS (unapply) cascade every restricted reparse starts from, was untraced. Since the
+//! prior census found validity-gate (post-synthesis) rejections are only 0-3% of failing time on
+//! every grammar, the dominant 91-98%
 //! dead-end mass necessarily dies DURING analysis or synthesis apply-time checks that run before a
 //! complete candidate word ever exists — exactly the region that was a black box. This harness's
 //! only source changes (beyond this file) wire that existing-but-unused machinery up

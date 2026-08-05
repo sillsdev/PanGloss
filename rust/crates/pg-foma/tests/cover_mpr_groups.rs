@@ -35,8 +35,8 @@
 //! Two more roots (`eL`/`eM`) isolate the group-AWARE `all`-type semantics directly, independent of
 //! `out_mpr` timing: `eL` carries `ruleFeatures="mprX"` (PARTIAL group membership -- missing
 //! `mprY`), `eM` carries `ruleFeatures="mprX mprY"` (FULL group membership). Applying `mrQ` directly
-//! to each (no `mrP` involved at all) proves `Grammar::mpr_group_ok`'s `all`-type fold correctly
-//! REJECTS the partial match (a flat, group-UNAWARE overlap test would have wrongly ADMITTED `eL`,
+//! to each (no `mrP` involved at all) proves [`Grammar::mpr_group_ok`]'s `all`-type fold correctly
+//! excludes the partial match (a flat, group-UNAWARE overlap test would have wrongly admitted `eL`,
 //! since `{mprX,mprY}` overlaps `{mprX}`) -- the group-(un)awareness contract, from the
 //! ordinary-affix-rule side rather than the compounding side's own `compound_match`
 //! (`tests/cover_compounding.rs::head_a_word_over_propose_confirm_prune` is the existing,
@@ -314,15 +314,15 @@ fn all_type_group_excludes_partial_match_like_confirm() {
 
 /// **The Append/Overwrite order-(in)dependence distinction.** A PURE model-level check
 /// (`pg_grammar::model::mpr_add_output` directly, no XML grammar, no FST compile) rather than an
-/// end-to-end fixture: an `Overwrite`-output `MprGroup` can never appear in a COMPILING grammar
-/// under this crate's own capability regime (`overwrite_group_composes_to_refuse`, below), so the
-/// only honest way to exercise it "inside the same fixture" (read here as "the same test file",
-/// since no compiling grammar could ever host it) is to check the underlying algebra directly:
+/// end-to-end fixture: this order-dependence is a property of the accumulation algebra itself, so
+/// it is checked directly here rather than through `overwrite_group_composes_to_confirm_only`
+/// (below), which exercises capability composition on a compiling grammar instead:
 /// the SAME two-output multiset (`mprX` then `mprY`, or `mprY` then `mprX`) reaches the IDENTICAL
 /// final accumulated state under `Append` (set union is commutative), but a DIFFERENT final state
 /// under `Overwrite` (each new output retracts every OTHER member of its own group first) --
-/// literally the property `mpr-group.append-output`'s `ConfirmOnly` promotion depends on and
-/// `mpr-group.overwrite-output`'s permanent `FailClosed` refuses to assume.
+/// literally the property `mpr-group.append-output`'s `ConfirmOnly` promotion depends on, and
+/// which [`pg_foma::capability::MprGroupOverwriteFailClosedPredicate`] never gets to assume for
+/// `mpr-group.overwrite-output` (permanently `FailClosed` instead).
 #[test]
 fn append_output_is_order_invariant_overwrite_output_is_not() {
     use pg_grammar::model::{mpr_add_output, MprGroup, MprGroupMatchType, MprGroupOutput, MprSet};
@@ -381,15 +381,13 @@ fn append_output_is_order_invariant_overwrite_output_is_not() {
     );
 }
 
-/// **Deliverable 3's "Overwrite-group grammar stays FailClosed / overridable" -- the ledger half.**
 /// `compose_envelope` (`crate::capability`, the CHECK-ONLY capability ledger -- that module's own
-/// top doc: "does NOT wire a gate into any production compile path") must refuse this grammar,
-/// naming `mpr-group.overwrite-output`. This mirrors `pg_foma::capability_entry`'s own
-/// `evaluate_capability_refuses_recursive_compounding_grammar` precedent exactly: the FailClosed
-/// witness for a Stage-2 construct checks the LEDGER verdict, not `FomaAnalyzer::new` (which this
-/// crate does not yet wire to consult it for ANY construct -- `crate::capability`'s own top doc; the
-/// production flip and the ADR 0005 override are later, not-yet-landed work this change does not
-/// attempt).
+/// top doc: "does NOT wire a gate into any production compile path") is exercised here against a
+/// grammar declaring an `Overwrite`-output `MprGroup`. This fixture's ledger verdict is
+/// `ConfirmOnly` (see the assertion below), checking the LEDGER verdict itself, not
+/// `FomaAnalyzer::new` (which this crate does not yet wire to consult it for ANY construct --
+/// `crate::capability`'s own top doc; the production flip and the ADR 0005 override are later,
+/// not-yet-landed work this change does not attempt).
 #[test]
 fn overwrite_group_composes_to_confirm_only() {
     let g = load(overwrite_group_fixture_xml());

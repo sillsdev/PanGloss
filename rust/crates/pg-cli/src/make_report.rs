@@ -304,10 +304,10 @@ fn measure_latency_percentiles_ns(
 }
 
 /// Token-level analysis rate over `corpus_text` (this module's own top doc, "Coverage's token
-/// definition"): whitespace-separated tokens, every one counted in the denominator, a token this
-/// grammar's own segmentation rejects outright counting as a miss rather than an exclusion. `Err`
-/// only when the corpus contains no tokens at all (an empty/whitespace-only file) — a rate cannot be
-/// honestly computed over zero tokens, so this is a hard error rather than a fabricated `0.0`.
+/// definition"): whitespace-separated tokens, every one counted in the denominator (see the
+/// `continue` below for how a segmentation-rejected token is counted). `Err` only when the corpus
+/// contains no tokens at all (an empty/whitespace-only file) — a rate cannot be honestly computed
+/// over zero tokens, so this is a hard error rather than a fabricated `0.0`.
 fn measure_coverage_rate(
     analyzer: &mut FomaAnalyzer,
     g: &Grammar,
@@ -1032,9 +1032,10 @@ mod tests {
 </HermitCrabInput>
 "#;
 
-    /// A `MprGroup` with `outputType="overwrite"` -- `MprGroupOverwriteFailClosedPredicate` refuses
-    /// this UNCONDITIONALLY and PERMANENTLY (same fixture shape `pack.rs`'s own tests and `main.rs`'s
-    /// `capability_gate_tests` use for their "known-Refuse, by construction, forever" fixture).
+    /// A `MprGroup` with `outputType="overwrite"`, refused unconditionally and permanently by
+    /// [`pg_foma::capability::MprGroupOverwriteFailClosedPredicate`] (same fixture shape
+    /// `pack.rs`'s own tests and `main.rs`'s `capability_gate_tests` use for their
+    /// "known-Refuse, by construction, forever" fixture).
     const REFUSE_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
 
     fn run_make_report_raw(

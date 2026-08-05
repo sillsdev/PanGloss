@@ -156,9 +156,9 @@
 //! patch around. The
 //! `self_opaquing`-Refuse early-out is exactly what keeps the ADMITTED case inside the region where
 //! this asymmetry never actually bites: `self_opaquing` is REQUIRED true for the repeat-wrapper to
-//! ever trigger, and the admit predicate refuses any pair containing one (this crate's own
-//! `simultaneous_rule_admitted_for_compile` additionally refuses a LONE self-opaquing subrule too,
-//! stricter than the predicate's own pairwise-only algorithm — see that function's doc for why). So
+//! ever trigger, and the admit predicate refuses any pair containing one
+//! ([`crate::capability::simultaneous_rule_admitted_for_compile`] additionally refuses a LONE
+//! self-opaquing subrule too, stricter than the predicate's own pairwise-only algorithm). So
 //! for every
 //! rule this file now actually compiles under `Simultaneous`, confirm's analysis side runs
 //! `ana_feature`/`ana_epenthesis` exactly once, per subrule, with no fixpoint loop — the SAME shape
@@ -304,8 +304,9 @@
 //!   of this task's own scope (`crate::lower::UnsupportedPatternNode::AlphaDisagreePolarity`'s own
 //!   doc; `crate::capability::RightToLeftRewriteFaithfulReversalPredicate`'s own tests pin this
 //!   refusal with this specific named witness).
-//! - **This widening is scope-gated** (`crate::lower::PatternLowerScope`), not a blanket change for
-//!   every `pattern_slots` caller: `crate::lower::lower_span` stays on `Baseline`.
+//! - **This widening is scope-gated** ([`crate::lower::PatternLowerScope`]), not a blanket change
+//!   for every `pattern_slots` caller: [`crate::lower::lower_span`] stays on
+//!   [`crate::lower::PatternLowerScope::Baseline`].
 
 use foma::constructions::fsm_universal;
 use foma::options::FomaOptions;
@@ -2044,11 +2045,10 @@ pub(crate) fn compile_metathesis_rule(
     let left_idx = rule.left_switch as usize;
     let right_idx = rule.right_switch as usize;
     if left_idx == right_idx || left_idx >= slots.len() || right_idx >= slots.len() {
-        // Defensive only: the loader's own `load_metathesis_rule` already refuses to build a
-        // `MetathesisRuleDef` with `left_switch == right_switch`, and both indices are resolved
-        // from `pattern.nodes` itself, so both are always in bounds by construction. Never reached
-        // by any grammar this crate's own loader can produce; honest-unsupported rather than a
-        // panic if that invariant is ever violated some other way.
+        // Defensive only: no grammar loader in this tree constructs a [`MetathesisRuleDef`] with
+        // equal switches, and both indices are resolved from `pattern.nodes` itself, so both are
+        // always in bounds by construction. Honest-unsupported rather than a panic if that
+        // invariant is ever violated some other way.
         return Ok(None);
     }
 
@@ -2091,11 +2091,9 @@ pub(crate) fn compile_metathesis_rule(
                 &alias_map,
             )?
             else {
-                // Unreachable in practice: `mirror_slots` is the same multiset of atomic slots as
-                // `slots` (just reordered), so if the plain compile above didn't already refuse,
-                // neither can this — kept as an honest `Ok(None)` rather than an `unreachable!`
-                // panic, matching this file's own "approximate only upward, report don't hide"
-                // discipline.
+                // `mirror_slots` is [`reversed_slots`] of `slots`: the same multiset of atomic
+                // slots, just reordered. Kept as an honest `Ok(None)` rather than an
+                // `unreachable!` panic in case that equivalence is ever violated.
                 return Ok(None);
             };
             let reversed_net = fsm_reverse(mirror_net);

@@ -106,8 +106,8 @@ fn run_fixture(fixture: &str, root: &Path) -> Value {
             // These budgets have to scale with the registry, and they are not decoration: at
             // `--evaluations 8` this fixture reported `budget-exhausted` the moment the registry grew
             // a second whole-grammar compiler, because the pilot consumes evaluations too (measured:
-            // `usage.evaluations` = 10 for 5 candidates). An exhausted run cannot assert `complete`
-            // /`exact`, so the whole point of this gate would quietly become unreachable.
+            // `usage.evaluations` = 10 for 5 candidates). An exhausted run cannot assert `complete`/
+            // `exact`, so the whole point of this gate would quietly go untested.
             "--candidates",
             "32",
             "--evaluations",

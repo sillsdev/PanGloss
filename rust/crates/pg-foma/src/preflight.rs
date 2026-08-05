@@ -44,8 +44,10 @@
 //!   [`crate::capability::QuantifierPatternDetail::all_bounded`] occurrence marked `false`. Always
 //!   `Warning`, never `Critical` on its own (unknown cost is not itself Critical when construction
 //!   is recall-preserving) — an actual budget trip during the real compile is a completely
-//!   different, already-handled code path ([`crate::health_evaluator::compose_error_finding`]'s
-//!   `ResourceBudgetReached`/`ProvenBoundExceedsBudget` arms), never reached from this module.
+//!   different, already-handled code path: [`crate::health_evaluator::compose_error_finding`]'s
+//!   [`crate::health::FindingCode::ResourceBudgetReached`]/
+//!   [`crate::health::FindingCode::ProvenBoundExceedsBudget`] arms, which this module's own
+//!   findings never construct.
 //!
 //! # Bounded products
 //! [`unordered_stratum_findings`] reuses [`crate::capability::CharacteristicsProfile::
@@ -379,8 +381,8 @@ mod tests {
         );
 
         // This same grammar's capability gate also resolves to Refuse (an unbounded
-        // Unordered stratum is exactly `unordered-application.unbounded`, `capability.rs`'s own
-        // `compose_envelope_refuses_unordered_morph_rule_order_grammar` test) -- the generic
+        // Unordered stratum is exactly `unordered-application.unbounded`; capability.rs's own
+        // compose_envelope_refuses_unordered_morph_rule_order_grammar test) -- the generic
         // semantic-uncertainty finding must ALSO be present, naming the same construct in a less
         // specific (grammar-wide) way.
         assert!(
@@ -446,9 +448,10 @@ mod tests {
     }
 
     /// This module's semantic-uncertainty scenario: an `Overwrite`-output `MprGroup` resolves to
-    /// `CompileDecision::Refuse` (`capability.rs`'s own `compose_envelope_refuses_for_overwrite_
-    /// group_alone` fixture, ported verbatim -- this crate's repo-wide "port a fixture across a
-    /// module boundary" convention) — preflight must report it as a `Critical`
+    /// [`crate::capability::CompileDecision::Refuse`] (capability.rs's own
+    /// compose_envelope_refuses_for_overwrite_group_alone fixture, ported verbatim -- this crate's
+    /// repo-wide "port a fixture across a module boundary" convention) — preflight must report it
+    /// as a `Critical`
     /// `UnknownUnboundedConstruct` finding naming the Overwrite construct, before foma ever runs.
     /// `MprGroupOverwrite` (`MprGroupOverwriteFailClosedPredicate`, unconditional) is this crate's
     /// clearest permanently-refusing construct, which is why this fixture uses it rather than a

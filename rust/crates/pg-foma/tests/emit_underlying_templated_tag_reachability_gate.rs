@@ -77,14 +77,15 @@ fn stratum_scale_recipe() -> Recipe {
 
 /// (1) No false positive on the HISTORICAL trigger shape: this recipe used to make
 /// `verify_tags_reachable` report several tags (any whose zero-padded numeral text contains a `0`
-/// digit) as `UNREACHABLE_KIND`, but a follow-up investigation proved (via
+/// digit) as UNREACHABLE_KIND, but a follow-up investigation proved (via
 /// `foma::apply::apply_down` against the actual compiled net, both for this recipe and for a
 /// foma-crate-only minimal reproduction at the same "many chained levels" scale) that every one of
 /// those tags is genuinely reachable at the LANGUAGE level -- only the vendored `foma` crate's
 /// `sigma` bookkeeping was incomplete for them (a narrow upstream bug, filed as `divvun/foma-rs`;
 /// see `emit.rs`'s `verify_tags_reachable` doc). `verify_tags_reachable` was corrected to recognize
 /// this exact artifact (tag text contains `0` AND every individual character of it IS present in
-/// `sigma`) and no longer flag it, so this recipe must now report ZERO `UNREACHABLE_KIND` findings.
+/// sigma) and no longer flag it; this test pins that this recipe now reports ZERO UNREACHABLE_KIND
+/// findings.
 #[test]
 fn detection_does_not_false_positive_on_the_historical_zero_escape_shape() {
     let recipe = stratum_scale_recipe();
@@ -119,7 +120,7 @@ fn detection_does_not_false_positive_on_the_historical_zero_escape_shape() {
 
 /// (2) No false positive: an ORDINARY single-stratum templated grammar (this crate's own GATE 2
 /// circumfix recipe, `tests/phase_c_circumfix.rs`'s exact recipe shape -- small, no extra strata)
-/// must report ZERO `UNREACHABLE_KIND` findings. Every declared tag in a grammar this small is
+/// must report ZERO UNREACHABLE_KIND findings. Every declared tag in a grammar this small is
 /// genuinely reachable (verified independently by that gate's own 100%-recall assertion), so the
 /// new detection must stay silent here -- proving it does not fire on ordinary, healthy grammars.
 #[test]

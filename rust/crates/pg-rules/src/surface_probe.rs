@@ -34,9 +34,9 @@ pub struct ProbeSeg {
 
 /// Run every stratum's phonological-rule cascade over `shape` (C# `SurfacePhonology.SurfaceNodes`),
 /// then filter to SEGMENT-kind nodes only, preserving positions (deleted nodes are marked, never
-/// dropped -- see `crate::rewrite`'s module note). Returns `None` iff the cascade reaches a
+/// dropped -- see [`crate::rewrite`]'s module note). Returns `None` iff the cascade reaches a
 /// structurally-unrepresentable rule (`ProbeOutcome::Refused` -- an empty-LHS/Epenthesis rule or a
-/// metathesis rule; unreachable on the three reference grammars, see `crate::rewrite`'s note).
+/// metathesis rule; verified absent from the three reference grammars, see [`crate::rewrite`]'s note).
 ///
 /// `cache` (built ONCE by the caller, e.g. `SurfacePhonology::new` -> `RuleCache::build`, and reused
 /// across every probe) is not optional here: `SurfacePhonology` probes an affix underlying form

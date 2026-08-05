@@ -871,8 +871,7 @@ impl ComposeBudget {
     /// `depth <= limit` is accepted (the convention shared with every other cap
     /// in this module: the cap names the last depth that still fits, not the first depth that
     /// doesn't). `None` (the default; see this module's "Chain-depth dimension" section for why)
-    /// always returns `Ok` -- the zero-behavior-change no-op every existing caller and test
-    /// relies on when no cap is configured.
+    /// never trips, at any depth (pinned by `chain_depth_unbounded_budget_never_trips`).
     ///
     /// [`crate::peel::ReduplicationPeeler::propose_for_residual`] calls this once per genuine
     /// nested-reduplication layer it is about to use (see that module's own doc for why the

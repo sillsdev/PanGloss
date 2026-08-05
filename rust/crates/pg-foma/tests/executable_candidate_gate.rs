@@ -279,7 +279,8 @@ fn a_sealed_candidate_binds_digests_document_adapter_requirements_and_scope() {
 }
 
 /// A whole-grammar adapter gets the complementary requirement set: it recompiles the grammar its own
-/// way and never reads the plan, which is exactly why `recipe_runtime::build_candidate` refuses to
+/// way and never reads the plan, which is exactly why
+/// [`pg_foma::recipe_runtime::build_candidate`] refuses to
 /// be handed one ("evaluating this permutation there would measure the baseline network and report
 /// it as this permutation").
 #[test]

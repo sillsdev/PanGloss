@@ -12,8 +12,8 @@
 //!    not a false success.
 //! 3. A real budget trip (the ordering-multiplicity dimension) is reported as `BudgetTripped`.
 //! 4. An oversized protocol message is rejected before a child is even spawned (the sharper,
-//!    allocation-level version of this same property is `worker.rs`'s own
-//!    `read_frame_rejects_declared_length_over_limit_before_allocating` unit test).
+//!    allocation-level version of this same property is worker.rs's own
+//!    read_frame_rejects_declared_length_over_limit_before_allocating unit test).
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -224,7 +224,7 @@ fn budget_trip_is_reported_as_budget_tripped_through_the_full_supervisor_round_t
 
 /// Scenario 4: an oversized request is rejected as `ProtocolViolation` before any child is spawned
 /// at all (the frame-level, allocation-before-check property is unit-tested more sharply in
-/// `worker.rs`'s own `read_frame_rejects_declared_length_over_limit_before_allocating`, which
+/// worker.rs's own read_frame_rejects_declared_length_over_limit_before_allocating, which
 /// declares a `u64::MAX` length with zero payload bytes and proves the rejection happens before any
 /// attempt to allocate that many bytes; this test proves the supervisor's OWN pre-spawn guard using
 /// a real, if wasteful-on-purpose, oversized field).

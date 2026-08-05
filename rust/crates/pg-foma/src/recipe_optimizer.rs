@@ -345,8 +345,9 @@ pub struct Score {
     /// summed from `FomaWordDiagnostics::raw_paths` (see that field's doc). The propose-side
     /// counterpart to `confirmation_steps`: together they are the leading term of [`Self::key`].
     /// `#[serde(default)]` keeps older reports readable. Their containing report carries a
-    /// `score_schema_version`; validation rejects the legacy version so this default cannot be
-    /// compared as if it meant measured zero work.
+    /// `score_schema_version`; recipe_report.rs's test
+    /// validation_rejects_unknown_report_and_score_schema_versions pins that a legacy version
+    /// is rejected, so this default cannot be compared as if it meant measured zero work.
     #[serde(default)]
     pub raw_paths: u64,
 }
@@ -892,8 +893,8 @@ pub fn optimize_with_evaluator(
         // and only the second one changed.
         //
         // Downgrading `quality` here as well produced a report that could not be written AT ALL.
-        // `RecipeOptimizationReport::validate` refuses `Approximate` with `unexplored == 0`
-        // ("approximate search must quantify unexplored space"), and `unexplored` is zero by
+        // [`crate::recipe_report::RecipeOptimizationReport::validate`] refuses `Approximate` with
+        // `unexplored == 0` ("approximate search must quantify unexplored space"), and `unexplored` is zero by
         // construction on this path — every selected candidate was evaluated. So the child exited 1
         // with no `report.json`, and `write_supervisor_failure_report` never ran either (it fires
         // only on a deadline/memory KILL, not on a non-zero exit), which means an entire run's
@@ -1187,7 +1188,8 @@ mod tests {
     /// `Complete` while having already spent more than the caller's deadline.
     ///
     /// `quality` must nonetheless stay `Exact`, and that is not cosmetic: an `Approximate` result
-    /// with `unexplored == 0` is a combination `RecipeOptimizationReport::validate` REFUSES, so the
+    /// with `unexplored == 0` is a combination
+    /// [`crate::recipe_report::RecipeOptimizationReport::validate`] REFUSES, so the
     /// fix for the termination label used to make the whole report unwritable. See the arm's own
     /// comment in `optimize_with_evaluator`.
     #[test]
@@ -1256,7 +1258,8 @@ mod tests {
         );
         assert_eq!(outcome.search.termination, Termination::BudgetExhausted);
         // Nothing was left unexplored, so nothing may claim otherwise -- and the pair
-        // (`Approximate`, `unexplored == 0`) is exactly what the report validator rejects.
+        // (`Approximate`, `unexplored == 0`) is exactly what
+        // [`crate::recipe_report::RecipeOptimizationReport::validate`] rejects.
         assert_eq!(outcome.search.unexplored, 0);
         assert_eq!(
             outcome.search.quality,

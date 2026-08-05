@@ -44,8 +44,8 @@
 //! compacted (nothing else needs `MorphemeId` to stay dense — the gate's own multiset comparisons
 //! resolve `MorphemeId` by content, never by raw index), so no id remap is needed there. But a
 //! morpheme whose *sole* mrule was just dropped above is exactly as unreachable as that mrule was,
-//! and HCLoader's own XML export never visits an unreachable morpheme's `MorphemeCoOccurrenceRules`
-//! either (same "walks only what's stratum/template-reachable" principle) — so any co-occurrence
+//! and HCLoader's own XML export skips such a morpheme's `MorphemeCoOccurrenceRules` too
+//! (same "walks only what's stratum/template-reachable" principle) — so any co-occurrence
 //! rule keyed to (or targeting, via `others`) such a morpheme must be dropped too.
 
 use std::collections::HashMap as StdHashMap;

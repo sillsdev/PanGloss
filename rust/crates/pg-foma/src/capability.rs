@@ -280,7 +280,8 @@ impl CharacteristicKind {
             // admission-filter argument exists either, so the resting disposition is the
             // ConfigPredicate landing spot: ConfirmOnly unless/until
             // `MetathesisFaithfulSwapPredicate` proves the shape is in scope (it never proves
-            // `Admit` today) or Refuses an out-of-shape/`Dir::RightToLeft` rule.
+            // `Admit` today) or [`MetathesisFaithfulSwapPredicate`] refuses an out-of-shape/
+            // `Dir::RightToLeft` rule.
             CharacteristicKind::Metathesis => Disposition::ConfigPredicate,
             CharacteristicKind::Epenthesis => Disposition::ConfigPredicate,
             CharacteristicKind::SubruleGating => Disposition::Proven,
@@ -444,7 +445,7 @@ pub struct MultiTableDetail {
 /// [`crate::replace::owning_table`] directly, WITHOUT compiling any foma automaton (cheap, purely
 /// structural, no `FomaOptions`/`SegAlphabet` needed). `Simultaneous` mode is handled by its own
 /// [`CharacteristicKind::SimultaneousRewrite`] observation (whose own admitted set this does NOT
-/// touch — `crate::lower::lower_span` stays on `PatternLowerScope::Baseline`, unaffected), so this
+/// touch — [`crate::lower::lower_span`] stays on `PatternLowerScope::Baseline`, unaffected), so this
 /// detail is only ever computed for `Dir::RightToLeft` rules (`characterize`'s
 /// own `Dir::RightToLeft` arm) — a rule that is BOTH `Simultaneous` and `RightToLeft` gets both
 /// observations, and `RightToLeftRewriteFaithfulReversalPredicate`'s own verdict is irrelevant
@@ -505,8 +506,9 @@ pub struct MetathesisDetail {
     /// compile_metathesis_rule`'s own module doc for the full citation. A `Slot::Repeat`
     /// occurrence, by contrast, IS structurally reachable (`OptionalSegmentSequence` is DTD-legal
     /// inside a `<MetathesisRule>`'s own `<PhoneticSequence>`, just never attested in any fixture
-    /// this crate has authored) -- `crate::replace::slot_candidates` refuses it regardless of
-    /// `Dir`, so this stays an honest, reachable (not vacuous) scope line for either direction.
+    /// this crate has authored) -- refused regardless of `Dir` by [`crate::replace`]'s own
+    /// `slot_candidates`, so this stays an honest, reachable (not vacuous) scope line for either
+    /// direction.
     ///
     /// Does NOT check the cross-product tuple-budget dimension (`ComposeBudget::tuple_cap`) -- the
     /// same convention [`RightToLeftRewriteDetail`]/[`QuantifierPatternDetail`] already use: a
@@ -1345,7 +1347,7 @@ fn characterize_allomorph(
 /// stratum's own templates' slots (`SlotDef::rules`, which a `Compounding` rule id can appear in
 /// exactly like an `AffixProcess`/`Realizational` one, model.rs's own `SlotDef::rules` doc).
 /// `None` if `mid` is not found anywhere (should not happen for a well-formed [`Grammar`] — every
-/// caller of this function treats `None` maximally conservatively, never as "rank 0"/"unreachable").
+/// caller of this function treats `None` maximally conservatively, never as "rank 0" or ignorable).
 fn mrule_stratum_rank(g: &Grammar, mid: MRuleId) -> Option<usize> {
     for (si, sd) in g.strata.iter().enumerate() {
         if sd.mrules.contains(&mid) {
@@ -1484,8 +1486,9 @@ fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
 /// - `crate::emit::compound_extra_levels_checked` SIZES A CONSTRUCTION from this number
 ///   (`max_depth - 1` unrolled non-head root levels, shared by BOTH emitters), and
 /// - it is checked against a live budget on the way (`DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`, 200,
-///   overridable with `HC_COMPOUND_CHAIN_DEPTH_BUDGET`), which refuses with a typed
-///   `ComposeError::ChainDepthExceeded` rather than truncating.
+///   overridable with `HC_COMPOUND_CHAIN_DEPTH_BUDGET`), which
+///   refuses via a typed [`crate::compose_budget::ComposeError::ChainDepthExceeded`] rather than
+///   truncating.
 ///
 /// A reader who assumed otherwise would conclude that nothing
 /// depends on how large this number is. Something does.
@@ -2264,7 +2267,7 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
 /// `pg_foma::replace::SegAlphabet::token` is a PURE function of a `CharDefId`'s raw per-table
 /// index (`PUA_BASE + cd.0`), not of which table that index came from. Two tables sharing a
 /// representation `s` at DIFFERENT raw indices produce DIFFERENT tokens for the SAME spelling, so
-/// table B's rule — rendered using only table B's own token for `s` — simply NEVER FIRES on
+/// table B's rule — rendered using only table B's own token for `s` — simply produces no match on
 /// table-A-originated material spelled `s`. That is a FALSE NEGATIVE: under the
 /// propose-and-confirm invariant, the one error class that can never be recovered downstream (a
 /// proposer may over-approximate freely; an omission is final). A coincidental raw-index
@@ -2515,7 +2518,7 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 ///   spot every other `ConfigPredicate` characteristic in this registry already uses.
 /// - **Pattern shape outside scope** (`swap_construction_attempted == false` — an unresolvable
 ///   owning table, `left_switch == right_switch` or out of bounds, or a pattern
-///   `crate::replace::pattern_slots` refuses/that carries a `Slot::Alpha`/`Slot::Repeat`
+///   [`crate::replace::pattern_slots`] refuses/that carries a `Slot::Alpha`/`Slot::Repeat`
 ///   occurrence — `crate::replace::compile_metathesis_rule`'s own module doc, "Scope" section, has
 ///   the full, evidence-based account of which of these is genuinely reachable): [`PredicateVerdict
 ///   ::Refuse`] — the real compiler already honestly skips (`Ok(None)`) exactly this rule, never a
@@ -2808,7 +2811,7 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 /// imprecise for this one combined case, and [`CircumfixStructuralCompositePredicate`]'s own doc (its
 /// paragraph on the circumfix-plus-reduplication interaction) is where the actually-operative
 /// construction and its containment proof are recorded. `rhs_has_true_reduplication == true` with
-/// `classify_affix` returning anything OTHER than `CircumfixPrefix` or `Reduplication` cannot happen
+/// [`crate::emit::classify_affix`] returning anything OTHER than `CircumfixPrefix` or `Reduplication` cannot happen
 /// (`classify_affix`'s own structure: the reduplication check is the only other place
 /// `is_reduplicating` is consulted, immediately after the circumfix test), so this is an exhaustive
 /// two-way split, not a partial account.
@@ -3417,7 +3420,7 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 ///   in the WHOLE grammar (not just ones that themselves drop LHS material,
 ///   [`crate::emit::is_structural_rule`]'s own narrower test) — `crate::preexpand`'s ordinary
 ///   fusion/interdigitation probe cannot represent them correctly either (its own probe,
-///   `pg_rules::surface_probe::probe_synthesize`, refuses for every candidate in the affected
+///   [`pg_rules::surface_probe::probe_synthesize`], refuses for every candidate in the affected
 ///   stratum), so [`crate::emit`]'s module doc names [`crate::emit::build_structural_composites`]
 ///   as "their only remaining path to a phonology-resolved surface." That mechanism resynthesizes
 ///   every candidate surface via the REAL morphological engine
@@ -3625,8 +3628,9 @@ impl PredicateRegistry {
 /// coverage contract holds with a real, evidenced proof for every `FailClosed`/`ConfigPredicate`
 /// characteristic this crate's `model.rs` names. This registry has NO remaining bare
 /// [`FailClosedPlaceholder`]: every characteristic is discharged by a
-/// predicate that actually reads `profile`, not a stub that unconditionally refuses regardless of
-/// what the grammar contains. [`FailClosedPlaceholder`] itself stays defined (not dead code): it
+/// predicate that actually reads `profile`, not a bare
+/// [`FailClosedPlaceholder`] that unconditionally refuses regardless of what the grammar contains.
+/// [`FailClosedPlaceholder`] itself stays defined (not dead code): it
 /// remains the correct, conservative landing spot for any FUTURE `FailClosed`/`ConfigPredicate`
 /// characteristic added to `model.rs` before its own owning change ships a real predicate.
 pub fn default_registry() -> PredicateRegistry {

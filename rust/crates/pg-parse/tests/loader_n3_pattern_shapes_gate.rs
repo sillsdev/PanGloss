@@ -13,8 +13,8 @@
 //! What the loader-only scope did **not** cover, discovered while building this fixture: matching
 //! an *actual input word* against such a root allomorph at analysis time. `pg-parse::root_trie`'s
 //! `RootAllomorphTrie::add_path` inserted one edge per `Segment` node keyed by its literal
-//! `char_def`; a pattern-derived node has `char_def == NO_CHAR_DEF`, so its edge was unreachable
-//! by any real input text (the old `cd_ok` only treated a **query** segment's `NO_CHAR_DEF` as a
+//! `char_def`; a pattern-derived node has `char_def == NO_CHAR_DEF`, so its edge could never be
+//! found by any real input text (the old `cd_ok` only treated a **query** segment's `NO_CHAR_DEF` as a
 //! wildcard, never an **edge**'s).
 //!
 //! **FIXED (wave-4, N3 end-to-end):** `TrieEdge` now carries the stored node's `pg_shape::CdSet`

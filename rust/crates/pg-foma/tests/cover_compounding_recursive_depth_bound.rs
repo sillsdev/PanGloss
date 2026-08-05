@@ -372,11 +372,11 @@ fn many_rule_grammar_xml(rule_count: usize, roots: &[&str]) -> String {
 /// `CompoundingRule`s, none with `multipleApplication`, so it lands on `max_depth = 9` and
 /// `crate::emit::compound_extra_levels_checked` unrolls **8** non-head root levels for it.
 ///
-/// The OPERATIVE bound is much smaller and lives elsewhere entirely:
-/// `pg_rules::stratum::AnalyzerConfig::max_stem_count` (C#'s `Morpher.MaxStemCount`, ctor default
-/// **2**, `Morpher.cs:56`) rejects a `Compounding` rule as soon as
-/// `non_heads.len() + 1 >= max_stem_count`, so a DEFAULT-configured engine confirms at most two
-/// stems. `raised_cap_oracle_finds_the_recursive_analysis_confirm_at_default_would_miss` in this same
+/// The OPERATIVE bound is much smaller and lives elsewhere entirely: C#'s `Morpher.MaxStemCount`
+/// (ctor default **2**), ported as [`pg_rules::stratum::AnalyzerConfig::max_stem_count`], gates
+/// `Compounding` rule application as soon as `non_heads.len() + 1 >= max_stem_count`, so a
+/// DEFAULT-configured engine confirms at most two stems.
+/// `raised_cap_oracle_finds_the_recursive_analysis_confirm_at_default_would_miss` in this same
 /// file already pins that half against the staged fixture: at the default cap the 3-stem compound
 /// confirms ZERO analyses, and only `with_max_stem_count(3)` makes it one.
 ///

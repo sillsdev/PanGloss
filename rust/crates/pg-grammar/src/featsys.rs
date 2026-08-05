@@ -216,9 +216,9 @@ impl PhonFeatureSystem {
         self.features[flat.0 as usize].mask
     }
 
-    /// Finding N2: the feature's `defaultSymbol`, as a single-bit `SymbolBits`-style mask, or
-    /// `None` if the feature declared no default. `Type` (and every feature of a grammar with no
-    /// `defaultSymbol` attributes at all — all three reference grammars) always returns `None`.
+    /// The feature's `defaultSymbol`, as a single-bit `SymbolBits`-style mask, or `None` if the
+    /// feature declared no default. Type, and every feature of a grammar with no defaultSymbol
+    /// attributes at all (all three reference grammars), always returns None.
     #[inline]
     pub fn default_bits(&self, flat: FlatIndex) -> Option<u64> {
         self.features[flat.0 as usize].default_bits

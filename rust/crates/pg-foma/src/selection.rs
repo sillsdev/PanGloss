@@ -421,9 +421,10 @@ mod tests {
         </Language></HermitCrabInput>"#
     }
 
-    /// An `Overwrite`-output `MprGroup` (`capability.rs`'s own `compose_envelope_refuses_for_
-    /// overwrite_group_alone` fixture, reused verbatim) -- `compose_envelope` must permanently
-    /// `Refuse` it (`MprGroupOverwriteFailClosedPredicate`, unconditional), so a selector run over
+    /// An `Overwrite`-output `MprGroup`: capability.rs's own
+    /// compose_envelope_refuses_for_overwrite_group_alone fixture, reused verbatim.
+    /// `compose_envelope` must permanently `Refuse` it
+    /// (`MprGroupOverwriteFailClosedPredicate`, unconditional), so a selector run over
     /// this grammar's own candidates must find NONE admissible. A self-feeding
     /// (`multipleApplication="2"`) `Compounding` rule no longer serves this purpose, since
     /// `compounding.recursive` now composes to `ConfirmOnly` rather than `Refuse` -- this fixture

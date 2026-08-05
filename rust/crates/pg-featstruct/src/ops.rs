@@ -23,7 +23,7 @@
 //!   `NondestructiveUnify:1043-1053`) never fire.
 //! - **String features / `not`-negated symbolic values.** [`crate::tree::FeatureValue::Symbolic`]
 //!   carries no negation flag (unlike C#'s `not`/`notOther`-parameterized
-//!   `ISymbolicFeatureValueFlags` API), so every [`SymbolBits`] call below passes
+//!   `ISymbolicFeatureValueFlags` API), so every [`crate::SymbolBits`] call below passes
 //!   `not = false, not_other = false`. Inspecting the `(false, false)` arm of each op in
 //!   `bitvec.rs` shows the `mask` parameter is unused in that arm, so callers here pass a dummy
 //!   `NO_MASK` — this crate's tree model has no per-feature symbol-count metadata to give it.
@@ -35,7 +35,7 @@
 //!   features via a merge-walk is exactly equivalent and symmetric in outcome.
 //!   Leaf case ports `SimpleFeatureValue.IsUnifiableImpl`'s non-variable arm
 //!   (`SimpleFeatureValue.cs:58-62`: `Overlaps(false, otherSfv, false)`), i.e.
-//!   [`SymbolBits::overlaps`] — **non-empty intersection ⇒ unifiable; empty ⇒ the whole
+//!   [`crate::SymbolBits::overlaps`] — **non-empty intersection ⇒ unifiable; empty ⇒ the whole
 //!   structure fails to unify** (this is the "unify of two symbolic values is set intersection;
 //!   empty intersection fails" rule from the task brief).
 //! - **`unify`** ports `FeatureStruct.NondestructiveUnify` (`FeatureStruct.cs:1010-1068`): the
@@ -45,8 +45,8 @@
 //!   recursive unify fails (`:1036-1041`). Leaf case ports
 //!   `SimpleFeatureValue.NondestructiveUnify` (`SimpleFeatureValue.cs:397-415`), which clones and
 //!   runs `DestructiveUnify`'s non-variable arm (`SimpleFeatureValue.cs:171-176`:
-//!   `Overlaps` check then `IntersectWith`), i.e. [`SymbolBits::intersect_with`] guarded by
-//!   [`SymbolBits::overlaps`].
+//!   `Overlaps` check then `IntersectWith`), i.e. [`crate::SymbolBits::intersect_with`] guarded by
+//!   [`crate::SymbolBits::overlaps`].
 //! - **`subsumes(a, b)`**: **direction — `a` is the more general structure; `subsumes(a, b)` asks
 //!   "does `a` (fewer/looser constraints) subsume `b` (as-or-more-specific)?"**, matching C#
 //!   `a.Subsumes(b)`. Ports `FeatureStruct.SubsumesImpl` (`FeatureStruct.cs:930-957`), which walks
@@ -55,7 +55,7 @@
 //!   and recursively `a`'s value must subsume `b`'s value. `b`-only features are irrelevant (`a`
 //!   doesn't constrain them). Leaf case ports `SimpleFeatureValue.SubsumesImpl`'s non-variable arm
 //!   (`SimpleFeatureValue.cs:110-113`: `IsSupersetOf(false, otherSfv, false)`), i.e.
-//!   [`SymbolBits::is_superset_of`] — `a`'s allowed-symbol set must be a superset of `b`'s.
+//!   [`crate::SymbolBits::is_superset_of`] — `a`'s allowed-symbol set must be a superset of `b`'s.
 //!   Consequently `subsumes(EMPTY, x)` is always `true` (the walk over `EMPTY`'s zero features is
 //!   vacuous).
 //! - **`priority_union(a, b)`**: **`b`'s values win on conflict.** Ports the private recursive
@@ -93,8 +93,8 @@
 use crate::tree::{FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue};
 use std::cmp::Ordering;
 
-/// Dummy mask for the three `SymbolBits` ops used here ([`SymbolBits::overlaps`],
-/// [`SymbolBits::is_superset_of`], [`SymbolBits::intersect_with`]): all are called with
+/// Dummy mask for the three `SymbolBits` ops used here ([`crate::SymbolBits::overlaps`],
+/// [`crate::SymbolBits::is_superset_of`], [`crate::SymbolBits::intersect_with`]): all are called with
 /// `not = false, not_other = false`, and inspecting the `(false, false)` arm of each
 /// (`bitvec.rs`) shows `mask` is never read on that arm. This tree model has no per-feature
 /// symbol-count metadata to supply a real mask, and none is needed for the un-negated case.

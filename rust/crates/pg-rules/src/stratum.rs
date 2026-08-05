@@ -2034,7 +2034,7 @@ fn synth_apply_templates(
     // the guided walk (confirmation gate).
     //
     // W5 cs:29-30: `!input.RealizationalFeatureStruct.IsUnifiable(input.SyntacticFeatureStruct)`
-    // rejects outright, BEFORE `ChooseInflectionalStem` even runs (checked against the word as
+    // rejects outright, BEFORE [`choose_inflectional_stem`] even runs (checked against the word as
     // handed in, not the swapped stem).
     if !is_unifiable(&input.real_fs, &input.syn_fs) {
         return Vec::new();

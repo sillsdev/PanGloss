@@ -123,7 +123,7 @@ pub enum ProfileLabel {
     /// A pre-production capture of `crate::replace`/`crate::gate`'s experimental cascade,
     /// separate from the production constructor. The result is labeled
     /// `experimental_composition` and cannot satisfy production-profile gates —
-    /// `crate::health_evaluator::profile_findings` refuses to fold a profile carrying this label
+    /// [`crate::health_evaluator::profile_findings`] refuses to fold a profile carrying this label
     /// into a production [`crate::health::HealthReport`].
     ExperimentalComposition,
 }
@@ -220,8 +220,8 @@ pub struct CompileProfile {
     /// `EmitResult` (an early `Unsupported` verdict) — never a fabricated `0`.
     pub total_lexc_lines: Option<u64>,
     /// The compiled network's own final state count (`foma::types::Fsm::statecount`, a free read —
-    /// module doc "D2"). `None` iff the production path never reached a compiled network (see
-    /// judgment call 2 in this module's doc).
+    /// module doc "D2"). `None` when the production path stopped before a compiled network
+    /// existed, pinned by `fst_profile_finish_with_no_compiled_network_leaves_counts_none`.
     pub final_state_count: Option<i64>,
     /// The compiled network's own final arc count (`foma::types::Fsm::arccount`). Same `None`
     /// convention as [`Self::final_state_count`].

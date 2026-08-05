@@ -723,15 +723,13 @@ pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
             ),
         });
 
-        // Attribute a missing analysis to HermitCrab rejection vs. a proposer
-        // recall gap by running the case on both pipelines, and emit the pruned failure
-        // narrative from HermitCrab's own trace. `investigate` itself refuses the whole handoff
-        // below if `current_model_fingerprint` disagrees with the report, so anything gathered
-        // here only ever survives to reach a caller for the grammar the report actually
-        // describes. Best-effort throughout: if the case cannot be found yet, or the grammar
-        // fails to load, or HermitCrab itself cannot be run, this block simply contributes
-        // nothing — every asked-about identity then stays `Undetermined`, `investigate`'s own
-        // documented "never guess" default, rather than a fabricated attribution.
+        // Attribute a missing analysis to HermitCrab rejection vs. a proposer recall gap by
+        // running the case on both pipelines. [`pg_assess::investigate`] refuses the whole
+        // handoff below if `current_model_fingerprint` disagrees with the report, so anything
+        // gathered here only reaches a caller for the grammar the report actually describes.
+        // Best-effort: if the case, grammar, or HermitCrab run is unavailable, every asked-about
+        // identity stays `Undetermined` (that function's own "never guess" default) rather than
+        // a fabricated attribution.
         if let Some(case) = report.cases().iter().find(|c| c.case_id == case_id) {
             if let Ok((grammar, _warnings)) = load_grammar(grammar_path) {
                 if let Ok((hc_identities, hc_failures)) =

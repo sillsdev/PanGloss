@@ -105,8 +105,9 @@ fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -
     // `matching_reps_for_node`'s identity gate is "concrete singleton (char_def != NO_CHAR_DEF) OR
     // the given CdSet" — a concrete node's own `char_def` already supplies the singleton, so the
     // CdSet argument is only consulted for a `NO_CHAR_DEF` node, matching `Shape::node_cd_set`'s own
-    // `Singleton`/`Unrestricted`/`Members` cases exactly (a `Singleton` here is never reached: a
-    // concrete `char_def` short-circuits before the CdSet is even read).
+    // Singleton/Unrestricted/Members cases exactly: a concrete char_def short-circuits before the
+    // CdSet is even read, so the match arm below folds Singleton into Unrestricted rather than
+    // giving it a distinct case.
     let cd_set = match shape.node_cd_set(i) {
         EffectiveCdSet::Members(b) => pg_shape::CdSet::Members(b.clone()),
         EffectiveCdSet::Singleton(_) | EffectiveCdSet::Unrestricted => {

@@ -257,8 +257,8 @@ pub fn validate_manifest(m: &Manifest) -> Vec<String> {
     problems
 }
 
-/// Every required manifest path that is missing under `root`. `corpus-test` mode refuses to start
-/// cargo when this is non-empty.
+/// Every required manifest path missing under `root`; empty means all are present. Pinned by
+/// `a_missing_required_file_is_reported_against_a_synthetic_manifest`.
 pub fn missing_required_under(m: &Manifest, root: &Path) -> Vec<String> {
     let mut missing = Vec::new();
     for c in &m.corpora {

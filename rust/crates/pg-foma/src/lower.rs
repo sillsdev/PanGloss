@@ -791,9 +791,6 @@ impl std::fmt::Display for UnsupportedPatternNode {
 /// quantifier earlier in document order than the REAL failing node would otherwise be mis-blamed
 /// (this function's own precision bar, matching [`slots_from_nodes`]'s actual accept/reject order
 /// exactly — a diagnostic that mis-names its cause is worse than no diagnostic).
-///
-/// Never called on a pattern `pattern_slots` actually accepted for this SAME `scope` — `unreachable!`
-/// guards that invariant rather than silently reporting a wrong/default reason.
 pub(crate) fn diagnose_unsupported(
     g: &Grammar,
     table: &CharDefTable,
@@ -831,8 +828,8 @@ fn nodes_contain_alpha_context(nodes: &[PatternNode]) -> bool {
 /// reject decisions node-by-node (never a re-derived, independently-drifting approximation) so the
 /// reason it reports is always the REAL one. Returns `None` when `nodes` is (as far as this function
 /// can tell) fully lowerable — the top-level [`diagnose_unsupported`] treats that as a caller-bug
-/// `unreachable!`, since it is only ever invoked after `pattern_slots` has already rejected this
-/// exact `nodes` list.
+/// panic, since it is only ever invoked after [`pattern_slots`] has already rejected this exact
+/// `nodes` list.
 // `_g`/`_table` are threaded through only to keep this recursive walk's signature matching its
 // caller and its own recursive calls (`diagnose_unsupported`'s doc above); this function itself
 // never inspects either.

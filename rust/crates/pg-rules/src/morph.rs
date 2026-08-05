@@ -291,7 +291,7 @@ pub fn analyze_with_root_filter(
 // NEVER threaded a trace sink before this landing (confirmed by grep: zero production or test
 // callers of `TraceSink::morphological_rule_unapplied`/`_not_unapplied` existed before this commit,
 // unlike the synthesis-side `morphological_rule_applied`/`_not_applied`, wired since P12 chunk 4).
-// So this family's only caller is `crate::stratum::StratumAnalyzer::apply_one_mrule`, itself only
+// So this family's only caller is stratum.rs's StratumAnalyzer::apply_one_mrule, itself only
 // reached with a REAL sink via the census's own traced entry point
 // (`pg_parse::Morpher::parse_word_selected_traced`); every pre-existing `parse_word*` call path
 // keeps building `StratumAnalyzer` with `&NoopSink`, so `trace.is_tracing()` is `false` and each
@@ -2998,7 +2998,7 @@ fn synth_compound(g: &Grammar, word: &Word, rule: &CompoundingRuleDef) -> Vec<Wo
 /// one gate would have failed simultaneously on the same word (rare in practice). `HeadProdRestrictMprFeatures`
 /// alone routes through `CompoundingRuleNotApplied` (→ `TraceType::CompoundingRuleSynthesis`),
 /// matching C#'s cs:119-131 exactly — every OTHER gate here (including MPR/pattern in the loop)
-/// stays on the generic `MorphologicalRuleNotApplied` (→ `MorphologicalRuleSynthesis`), because
+/// stays on the generic MorphologicalRuleNotApplied (→ MorphologicalRuleSynthesis), because
 /// that is what C# itself does at every one of those other call sites (verified against
 /// `SynthesisCompoundingRule.cs` in full — `CompoundingRuleNotApplied` is used at exactly ONE site).
 #[allow(clippy::too_many_arguments)]

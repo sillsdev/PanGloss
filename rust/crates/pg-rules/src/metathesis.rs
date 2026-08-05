@@ -789,7 +789,7 @@ fn analyze_with_pattern(
 // origInput, input)` on success, `PhonologicalRuleNotUnapplied(_rule, -1, input)` on failure
 // (cs:49-55). Not yet wired into the live per-word pipeline for the same reason
 // `pg_rules::rewrite::analyze_cached_traced` isn't: `crate::stratum::StratumAnalyzer::analyze`
-// (the sole caller of `analyze`/`analyze_cached` today) is itself untraced -- a pre-existing,
+// (the sole caller of [`analyze`]/[`analyze_cached`] today) is itself untraced -- a pre-existing,
 // separately-documented P12 gap (see that function's doc). Built and unit-tested now so the
 // mechanism exists; a future pass that traces `StratumAnalyzer::analyze` calls these instead of
 // [`analyze`]/[`analyze_cached`].

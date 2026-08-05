@@ -1084,8 +1084,8 @@ mod tests {
     /// staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml`'s own shape) PLUS a
     /// second, ordinary, non-overlapping rule in the SAME ungated stratum -- both rule leaves are
     /// direct siblings under the same `Replace` node's `children`. Demonstrates the CONTRASTING,
-    /// node-LOCAL shape (unlike `multi_stratum_refused_fixture`'s grammar-wide refusal): only the
-    /// overlapping rule's own leaf refuses, the ordinary rule's own leaf stays `Admit`.
+    /// node-LOCAL shape (unlike `multi_stratum_refused_fixture`'s grammar-wide refusal); pinned by
+    /// `plan_diagram_node_local_refusal_leaves_unrelated_sibling_rule_admitted`.
     fn mixed_node_local_refusal_fixture() -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>

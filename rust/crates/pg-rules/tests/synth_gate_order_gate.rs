@@ -197,9 +197,9 @@ fn both_gates_reject_first_reported_reason_is_the_template_prohibition() {
 
     // Find every `MorphologicalRuleSynthesis` node sourced from `r`'s rule-level gate
     // (`subrule_index == Some(-1)`, `SynthesisAffixProcessRule.cs`'s four rule-level gates) --
-    // there must be exactly one (the FIRST gate that actually rejects short-circuits the rest;
-    // `synth_affix_cached` never fires a second rule-level `MorphologicalRuleNotApplied` for the
-    // same call), and its reason must be the template prohibition, not the syn-FS one.
+    // there must be exactly one (the FIRST gate that actually rejects short-circuits the rest, so
+    // the trace records at most one rule-level `MorphologicalRuleNotApplied` node per call --
+    // asserted below), and its reason must be the template prohibition, not the syn-FS one.
     let mut rule_level_reasons = Vec::new();
     fn walk(sink: &TreeTraceSink, h: TraceHandle, r: MRuleId, out: &mut Vec<FailureReason>) {
         let n = sink.node(h);

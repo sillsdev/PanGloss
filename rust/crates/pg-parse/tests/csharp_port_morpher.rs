@@ -18,11 +18,9 @@
 //! - `XmlLanguageSerializationTests.RoundTripXml` -- C# `XmlLanguageLoader.Load` ->
 //!   `XmlLanguageWriter.Save` byte-identity; Rust has no XML *writer* (load-only), so there is
 //!   nothing to round-trip against. Not a 1:1 gap by design.
-//! - `AnalyzeWord_CanGuess_ReturnsCorrectAnalysis` -- PORTED as
-//!   `guesser_gate.rs::analyze_word_can_guess_returns_correct_analysis`, against a
-//!   hand-transcribed XML fixture (no C# CLI `--guess` surface exists to oracle-generate a TSV, so
-//!   this is verified directly against the C# unit test's own literal expected values, the same
-//!   pattern the Generation API tests use).
+//! - `AnalyzeWord_CanGuess_ReturnsCorrectAnalysis` -- guessing is covered by
+//!   `pg-cli/tests/guesser_conformance_gate.rs`, not by a 1:1 port of this test. No C# CLI `--guess`
+//!   surface exists to oracle-generate a TSV against.
 //!
 //! **Architecture substitution for the 3 thread/memo tests** (`AnalyzeWord_ConcurrentRepeatedParsing_
 //! IsDeterministic`, `ParseWord_SingleThreaded_MatchesParallel_With{Compounding,AffixTemplate}`): C#

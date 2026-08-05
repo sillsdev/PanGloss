@@ -360,9 +360,9 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
     );
 }
 
-/// `NoopSink`'s five newly-wired-in-G4 methods are all `unreachable!()` (see `pg_rules::trace`'s
-/// module doc): a successful, non-panicking untraced parse over the SAME template grammar is
-/// direct proof none of them were invoked on that path.
+/// [`pg_rules::trace::NoopSink`]'s five G4 methods are all `unreachable!()` (see that module's
+/// doc): a successful, non-panicking untraced parse over the SAME template grammar is direct
+/// proof none of them were invoked on that path.
 #[test]
 fn g4_events_do_not_fire_when_tracing_is_off() {
     let g = template_grammar();

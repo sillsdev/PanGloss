@@ -404,7 +404,7 @@ pub(crate) fn all_spans(fst: &Fst, segs: &[Segment]) -> Vec<(usize, usize)> {
 /// this fix corrects). C# `IterativePhonologicalPatternRule.Apply`
 /// (`PhonologicalRules/IterativePhonologicalPatternRule.cs:17-48`) finds the match nearest the
 /// shape's `Matcher.Direction`-side edge first (`Matcher.Match(input)`, no explicit start ⇒ scan
-/// from the anchor in `Direction`), applies it (or, if `MatchSubrule` rejects it, just steps past
+/// from the anchor in `Direction`), applies it (or, if `MatchSubrule` declines it, just steps past
 /// its start), then resumes scanning FURTHER in that SAME `Direction`
 /// (`targetMatch.Range.GetEnd(Direction).GetNext(Direction)` /
 /// `GetStart(Direction).GetNext(Direction)`, cs:29,33) — i.e. for `LeftToRight` it always tries the
@@ -3299,10 +3299,10 @@ pub(crate) fn build_prule_cache(
 // originating position whatsoever, which this position-preserving model has nothing to anchor
 // them to. None of the three reference grammars (Indonesian/Sena/Amharic) has such a rule
 // (verified: every `PhonologicalRule`'s `PhoneticInput` is non-empty) or a `MetathesisRule`
-// (verified: zero `<MetathesisRule>` elements in any of the three), so [`probe_apply_rule`]
-// refuses (`ProbeOutcome::Refused`) rather than silently mis-track positions if either is ever
-// reached -- a conservative stance for a case the gate grammars never exercise, not a gap in the
-// covered cases.
+// (verified: zero `<MetathesisRule>` elements in any of the three), so
+// [`probe_apply_rule_cached`] refuses (`ProbeOutcome::Refused`) rather than silently mis-track positions
+// if either is ever reached -- a conservative stance for a case the gate grammars never exercise,
+// not a gap in the covered cases.
 
 /// Soft-delete sibling of [`syn_narrow`] (Iterative Narrow, i.e. deletion/narrowing/expansion).
 /// See the module note above for exactly what differs (one line: `deleted = true` instead of
@@ -3480,7 +3480,7 @@ fn probe_sim_narrow(
     true
 }
 
-/// Outcome of applying one [`RewriteRuleDef`]'s subrules to a probing [`MutShape`] ([`probe_apply_rule`]).
+/// Outcome of applying one [`RewriteRuleDef`]'s subrules to a probing [`MutShape`] ([`probe_apply_rule_cached`]).
 pub(crate) enum ProbeOutcome {
     NoMatch,
     Applied,

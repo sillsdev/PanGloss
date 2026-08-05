@@ -382,15 +382,15 @@ fn rtl_feature_environment_swap_matches_oracle() {
     //
     // FST-ONLY (no oracle comparison here): `pg_parse::Morpher` has an independent, PRE-EXISTING,
     // out-of-scope limitation for this specific shape -- discovered while writing this test,
-    // unrelated to RTL direction (reproduces identically for `LeftToRight`): `pg_rules::rewrite`'s
-    // analysis side (`ana_feature`) rejects ANY surface containing an occurrence of the rule's OWN
-    // LHS class (here, `ncVoiced`/'a') outright, REGARDLESS of whether the environment actually
-    // holds there -- i.e. it does not correctly recognize "the class is present but the rule's own
-    // environment doesn't license it, so leave it be" as a valid non-application. This is a
-    // characteristic of `pg_rules::rewrite`'s environment-gated-obligatory-rule analysis, entirely
-    // outside `replace.rs`'s single-owner boundary this change holds to -- flagged for a future
-    // investigation, not silently avoided (see this file's own top doc for the OTHER, direction-
-    // specific oracle gap this change already documents).
+    // unrelated to RTL direction (reproduces identically for `LeftToRight`). pg_rules::rewrite's
+    // analysis side (its private ana_feature) rejects ANY surface containing an occurrence of the
+    // rule's OWN LHS class (here, ncVoiced/'a') outright, REGARDLESS of whether the environment
+    // actually holds there -- i.e. it does not correctly recognize "the class is present but the
+    // rule's own environment doesn't license it, so leave it be" as a valid non-application. This
+    // is a characteristic of `pg_rules::rewrite`'s environment-gated-obligatory-rule analysis,
+    // entirely outside `replace.rs`'s single-owner boundary this change holds to -- flagged for a
+    // future investigation, not silently avoided (see this file's own top doc for the OTHER,
+    // direction-specific oracle gap this change already documents).
     let query_unchanged = alphabet.encode_query("xa").expect("'xa' must segment");
     let fst_unchanged = fst_candidate_set(&net, &query_unchanged);
     assert!(
@@ -1177,9 +1177,10 @@ fn rtl_cross_table_segments_environment_matches_oracle() {
 /// 1. **End-to-end acceptance is real, both directions.** A real grammar whose LHS is authored as
 ///    ONE inline `Segments` literal (`<Segments><PhoneticShape>aa</PhoneticShape></Segments>`)
 ///    instead of two `<SimpleContext>` nodes now reports `is_fully_supported_shape() == true` and
-///    actually compiles (`compile_net` does not panic) — `pattern_slots` no longer refuses ANY
-///    `Segments` occurrence unconditionally, so BOTH the `LeftToRight`- and `RightToLeft`-declared
-///    versions of this exact rule compile instead of being silently skipped (`Ok(None)`).
+///    actually compiles ([`compile_net`] does not panic) — the emitter's pattern_slots step no
+///    longer refuses any Segments occurrence unconditionally. Both the LeftToRight- and
+///    RightToLeft-declared versions of this exact rule now compile instead of being silently
+///    skipped (`Ok(None)`).
 /// 2. **The reversal construction itself is genuinely direction-relevant, not a no-op, for THIS
 ///    shape.** A candid finding from building this test: comparing the FULL compiled nets'
 ///    `fst_candidate_set`s for `Dir::LeftToRight` vs. `Dir::RightToLeft` does NOT distinguish them

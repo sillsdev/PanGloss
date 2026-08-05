@@ -267,10 +267,10 @@ fn non_document_order_analysis_is_proposed_and_confirmed() {
 }
 
 /// **The distinguishing property witness (module doc).** The IDENTICAL grammar, differing ONLY in
-/// `mrule_order="linear"`, must NOT confirm `"kqp"` at all -- `Cascade::permutation`'s own
-/// non-decreasing-index restriction (`pg_rules::cascade.rs`) makes rule index 1 (`mrQ`) firing
-/// before rule index 0 (`mrP`) unreachable. This is the real semantic difference `Unordered`'s
-/// promotion depends on, verified directly against the oracle rather than assumed.
+/// `mrule_order="linear"`, must NOT confirm `"kqp"` at all: this test pins that firing `mrQ`
+/// before `mrP` is unreachable under [`pg_rules::cascade::Cascade::permutation`]'s own
+/// non-decreasing-index restriction (rule index 1 before rule index 0) -- the real semantic
+/// difference `Unordered`'s promotion depends on.
 #[test]
 fn linear_variant_of_the_same_grammar_does_not_confirm_the_reverse_order() {
     let g = load(&fixture_xml("linear"));
@@ -305,11 +305,11 @@ fn linear_variant_of_the_same_grammar_does_not_confirm_the_reverse_order() {
 }
 
 /// **The negative witness: an ordering the union proposal licenses but the exact
-/// combination-cascade fold at confirm rejects.** `mrP`/`mrQ` both default to `multipleApplication
-/// = 1` (DTD default) -- `"kpp"`/`"kqq"` (the SAME rule applied twice) are over-proposed by
-/// `build_deriv_chain` (every level offers every rule, unconditional on a rule's own re-application
-/// cap) but confirm's `apply_one_mrule`/`MaxApplicationCount` gate prunes both to zero, exactly
-/// matching the oracle.
+/// combination-cascade fold at confirm prunes to zero.** `mrP`/`mrQ` both default to
+/// `multipleApplication = 1` (DTD default) -- `"kpp"`/`"kqq"` (the SAME rule applied twice) are
+/// over-proposed by `build_deriv_chain` (every level offers every rule, unconditional on a rule's
+/// own re-application cap) but confirm's `apply_one_mrule`/`MaxApplicationCount` gate prunes both
+/// to zero, exactly matching the oracle.
 #[test]
 fn same_rule_reapplication_is_over_proposed_and_confirm_pruned() {
     let g = load(&fixture_xml("unordered"));

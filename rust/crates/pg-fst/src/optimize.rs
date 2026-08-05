@@ -629,7 +629,7 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
     // every accepting state, ignoring arc constraints entirely. Ignoring constraints only ADDS
     // edges relative to what any real input could traverse, so the resulting distance never
     // over-estimates the number of arcs a real thread still needs — an admissible bound
-    // (`u32::MAX` = accept unreachable, i.e. a dead state). All arcs are unit-cost because the
+    // (`u32::MAX` = no accepting state is reachable, i.e. a dead state). All arcs are unit-cost because the
     // frozen automaton is epsilon-free, making plain BFS exact. O(states + arcs), once per
     // compile.
     let min_hops_to_accept = {

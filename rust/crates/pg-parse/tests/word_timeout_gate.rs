@@ -32,10 +32,9 @@ fn simple_grammar() -> pg_grammar::model::Grammar {
     build_grammar("", "", mrules, "mrEd", "")
 }
 
-/// `--word-timeout-ms` omitted (the default, `with_word_timeout` never called, mirroring every
-/// pre-existing `Morpher::new(...)` call site in this crate) must behave exactly as before this
-/// flag existed: full analyses, `timed_out` false, `capped` false (this grammar never approaches
-/// `usize::MAX` steps).
+/// `--word-timeout-ms` omitted (the default: `with_word_timeout` not called, just plain
+/// `Morpher::new`) must behave exactly as before this flag existed: full analyses, `timed_out`
+/// false, `capped` false (this grammar never approaches `usize::MAX` steps).
 #[test]
 fn no_word_timeout_is_unaffected() {
     let g = simple_grammar();

@@ -1,4 +1,4 @@
-//! Task #44: the P6 templated emitter's own "bounded compound loop" (`emit_underlying_templated`,
+//! The P6 templated emitter's own "bounded compound loop" (`emit_underlying_templated`,
 //! `pg_foma::emit`) used to hardcode exactly ONE extra non-head root level, regardless of any
 //! `CompoundingRuleDef`'s own `compounding_max_depth` bound -- so it could never propose a genuinely
 //! recursive (>2-stem) compound at all, even though `crate::capability::
@@ -24,8 +24,8 @@
 //! `compound_extra_levels`/license arguments (see `emit.rs`'s own "Per-group root sections" comment),
 //! so this file's coverage of the shared function is not narrowed by avoiding templates here.
 //!
-//! `emit_underlying_templated` has no production caller in this crate today (`grep` confirms zero
-//! call sites outside `tests/`) -- it is driven directly here, exactly like
+//! [`pg_foma::emit::emit_underlying_templated`] has no production caller in this crate today
+//! (`grep` confirms zero call sites outside `tests/`) -- it is driven directly here, exactly like
 //! `tests/p6_templated_morphotactics_gate.rs`'s own `run_emit_compile_compose`/`run_spot_check`
 //! helpers: emit -> `foma::lexcread::fsm_lexc_parse_string` -> `foma::apply::apply_init` ->
 //! `apply_up` -> `pg_foma::tags::decode_path`/`to_candidates`. No phonological rule composition is

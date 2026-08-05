@@ -610,8 +610,9 @@ fn insert_action_texts(rhs: &[OutputAction]) -> InsertText<'_> {
     }
 }
 
-/// `pub(crate)`: [`crate::peel`] reuses this too (its redup/suffix rules always resolve to
-/// `AffixProcess`/`Realizational`, so the `Compounding` `unreachable!` below is safe there as well).
+/// `pub(crate)`: [`crate::peel::ReduplicationPeeler`] reuses this too. Its `redup_rules` and
+/// `suffix_surfaces` (see its own `new`) are built only from `AffixProcess`/`Realizational`
+/// allomorphs, so a Compounding rule id never reaches this function from that caller either.
 pub(crate) fn owning_morpheme(g: &Grammar, mid: MRuleId) -> MorphemeId {
     match &g.mrules[mid.0 as usize] {
         MorphRuleDef::AffixProcess(def) => def.morpheme,
@@ -1132,9 +1133,9 @@ pub(crate) fn write_bare(out: &mut String, continuation: &str, counts: &mut Emit
 /// (`Some(allo.id)` from [`emit_rule_allomorphs`] and `Some(root.id)` from the root-entry writers;
 /// `None` only for composite entries, which are never an owner-side gate this step), and
 /// `surface` (this entry's own literal spelling, pre-escape) is checked against every covered
-/// constraint's set-side literal match regardless of owner. Under [`PrecisionConfig::Strip`] (`pk`
-/// built from that config) `tagged_lower` always returns exactly what this function wrote before
-/// the precision knob existed, so this is byte-identical to that version.
+/// constraint's set-side literal match regardless of owner. Under [`PrecisionConfig::Strip`],
+/// [`PrecisionEmit::tagged_lower`] is a byte-identical passthrough to the pre-precision-knob
+/// emitter (`precision_emit_tagged_lower_is_passthrough_under_strip` pins this).
 #[allow(clippy::too_many_arguments)]
 fn write_tag_entry(
     out: &mut String,
@@ -2389,14 +2390,12 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
 }
 
 /// Whether [`pg_rules::surface_probe::probe_synthesize`] would REFUSE for ANY word synthesized in
-/// this grammar — module doc, item 2. A purely STATIC, per-grammar fact (not per-word): the
-/// underlying cascade (`pg_rules::rewrite::probe_synthesize_stratum`) refuses unconditionally the
-/// moment it reaches an epenthesis-kind rewrite subrule (`RewriteRuleDef::lhs` empty — the DTD's
-/// "empty `<PhoneticInput>`" convention for an insertion-only rule) or ANY `PhonRuleDef::
-/// Metathesis`, regardless of whether that specific rule actually fires for the shape being probed
-/// — checking every rule in `g.prules` (not just ones reachable from a given stratum) is therefore
-/// a safe, conservative over-approximation of "could this ever refuse", cheap enough to run
-/// unconditionally.
+/// this grammar — module doc, item 2. A purely STATIC, per-grammar fact (not per-word), checking
+/// every rule in `g.prules` (not just ones reachable from a given stratum) regardless of whether
+/// that specific rule actually fires for the shape being probed — a safe, conservative
+/// over-approximation of "could this ever refuse", cheap enough to run unconditionally.
+/// `probe_would_refuse_detects_epenthesis` (below) pins this against the real cascade on a
+/// grammar whose epenthesis rule actually triggers it.
 ///
 /// `pub(crate)` (widened from private, no body change): `crate::enumerate::enumerate_default`
 /// mirrors this seam's decision structurally, and that module's own tests compare the enumerated
@@ -2560,16 +2559,17 @@ fn boundary_reps(table: &CharDefTable) -> Vec<String> {
 
 /// `surface` plus every SINGLE-boundary-insertion variant (each rep in `bnd_reps` at each interior
 /// character gap; `metathesis-phase-isolation`'s "mu+i"): a `MetathesisRule` can leave a
-/// boundary character INSIDE the surface word (`mi` + suffix `+u` --metathesis--> `mu+i`), but the
-/// only mechanism that renders a metathesized surface at all — [`Morpher::generate_words`] — strips
-/// every boundary (`include_boundaries = false`, `pg_parse::surface::to_plain_string`'s only
-/// generation call site), so its output "mui" can never match the boundary-bearing query "mu+i".
-/// The shape (which WOULD carry the boundary at its true position) is not exposed by
-/// `generate_words`' string-only API and `probe_surface` refuses on metathesis, so the exact
-/// position is unrecoverable at this layer — enumerate every interior insertion instead: bounded
-/// (one boundary, `bnd_reps.len() * (n-1)` extra strings for an n-char surface), upward-only
-/// (`crate::confirm` prunes; a spurious "m+ui" is simply never the query and matches nothing). A
-/// no-op when `bnd_reps` is empty (every grammar with no boundary definitions).
+/// boundary character INSIDE the surface word (`mi` + suffix `+u` --metathesis--> `mu+i`), but
+/// [`Morpher::generate_words`] strips every boundary (`include_boundaries = false`) before
+/// rendering, so its output "mui" can never match the boundary-bearing query "mu+i". The shape
+/// (which WOULD carry the boundary at its true position) is not exposed by `generate_words`'
+/// string-only API, and [`probe_surface`] (above) refuses whenever the [`pg_rules::surface_probe::
+/// probe_synthesize`] cascade it drives does (module doc, item 2 — metathesis is one of that
+/// cascade's refusal triggers), so the exact position is unrecoverable at this layer — enumerate
+/// every interior insertion instead: bounded (one boundary, `bnd_reps.len() * (n-1)` extra strings
+/// for an n-char surface), upward-only (`crate::confirm` prunes; a spurious "m+ui" is simply never
+/// the query and matches nothing). A no-op when `bnd_reps` is empty (every grammar with no boundary
+/// definitions).
 fn with_boundary_insertions(surface: &str, bnd_reps: &[String]) -> Vec<String> {
     let mut out = vec![surface.to_string()];
     if bnd_reps.is_empty() {
@@ -2954,8 +2954,9 @@ pub fn emit(g: &Grammar) -> EmitResult {
 /// byte-identical to the pre-knob emitter; under [`PrecisionConfig::AllFlags`], every
 /// `AllFlags`-coverable ENVIRONMENT gate-constraint instance (`crate::precision`'s module doc) is
 /// emitted as a real `@R@`+`@P@` flag scheme (require-only — exclude is declined this step, see
-/// `crate::precision`'s module doc finding 4) so `apply_up` refuses the illegal-environment
-/// paths those instances cover at lookup time.
+/// `crate::precision`'s module doc finding 4), shrinking the raw candidate set at lookup time
+/// without ever losing a confirmed analysis (`sena_precision_recall_invariance`/
+/// `indonesian_precision_recall_invariance` pin this on real grammars).
 ///
 /// Thin, env-driven wrapper over [`emit_with_budget`] (Fix 1's fail-fast enumeration budget,
 /// `crate::morphotactics::EnumerationBudget`'s own doc): builds the production budget from

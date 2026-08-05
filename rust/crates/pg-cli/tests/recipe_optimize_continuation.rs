@@ -375,16 +375,13 @@ fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
 /// A run that evaluated EVERY candidate it selected and only then discovered it had overrun an
 /// aggregate bound must still write its report.
 ///
-/// This is the failure mode that loses the most and shows the least. `optimize_with_evaluator`'s
-/// measured-overrun arm used to downgrade `quality` to `Approximate` alongside the termination
-/// label, but `unexplored` is zero by construction on that path — nothing was left unexplored — and
-/// `RecipeOptimizationReport::validate` refuses that pair outright. The worker then exited 1 with no
-/// `report.json`, and the supervisor's `partial-report.json` did not fire either (it is written on a
-/// deadline or memory KILL, never on a non-zero exit). Every candidate had been evaluated,
-/// certified and banked, and the only surviving trace was `progress.jsonl`.
-///
-/// Reproduced before the fix on this exact fixture and bound:
-/// `pangloss recipe-optimize: approximate search must quantify unexplored space`.
+/// This is the failure mode that loses the most and shows the least: the measured-overrun path
+/// leaves `unexplored` at zero by construction — nothing was left unexplored — so a report
+/// pairing that with `quality: Approximate` fails
+/// [`pg_foma::recipe_report::RecipeOptimizationReport::validate`]'s invariant. A worker that hit
+/// this would exit 1 with no `report.json`, and the supervisor's `partial-report.json` does not
+/// cover it either (that's written only on a deadline or memory KILL, never a non-zero exit) —
+/// losing every already-evaluated, certified, banked candidate, leaving only `progress.jsonl`.
 #[test]
 fn a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report() {
     let baseline = unbounded();

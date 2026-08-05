@@ -236,10 +236,10 @@ impl FomaProposer {
     }
 
     /// Emit `g`'s lexc source, compile it, and build the (word-independent) `ApplyHandle` once.
-    /// `Err` iff `foma`'s lexc compiler itself rejects the source (a bug in this crate's emitter,
-    /// not a grammar-content problem — the emitter's own `uncovered` list is how grammar CONTENT
-    /// gaps are reported, always alongside `Ok`) OR iff Fix 1's default-on enumeration budget
-    /// (`crate::morphotactics::EnumerationBudget`'s own doc) trips.
+    /// `Err` iff [`FomaError::LexcCompileFailed`] (a bug in this crate's emitter, not a
+    /// grammar-content problem — the emitter's own `uncovered` list is how grammar CONTENT gaps
+    /// are reported, always alongside `Ok`) OR iff Fix 1's default-on enumeration budget
+    /// ([`FomaError::EnumerationBudgetExceeded`]) trips.
     ///
     /// Thin, env-driven wrapper over [`Self::new_with_budget`] -- same convention
     /// `crate::emit::emit_with_precision` uses for the same reason (its own doc): reads

@@ -819,7 +819,7 @@ fn net_shape_census_over_every_discoverable_conformance_fixture() {
 /// is a failure:
 /// - emission and compile succeed → the screen WOULD have had something to read before any corpus
 ///   word was proposed, and the printed numbers say what it would have said;
-/// - emission or compile refuses (a typed `ComposeError`, a budget trip, a caught panic) → the
+/// - emission or compile fails (a typed `ComposeError`, a budget trip, a caught panic) → the
 ///   process death happens at or before net construction, so no screen on a finished net could have
 ///   helped, and that limitation is recorded rather than glossed.
 ///

@@ -220,7 +220,51 @@ Checker and measured baseline: `78a7ee8`.
 | `comment-block-too-long` | 2041 | ratchet down opportunistically; **not** a mandate to reach zero |
 | `long-blocks-anchored` | 1338 | watch it: rising while the row above falls means the escape hatch is becoming the norm |
 
-- [ ] 5.5a **Enable `rustdoc::broken_intra_doc_links`, or the anchor rule is decorative.** This is a
+### 5.6 Round 2 outcome, and what it uncovered
+
+**Comment categories reached: `cross-reference-claim` 96 → 0, `docs-link-broken` 0, `dead-citation` 0,
+`comment-block-too-long` 2041 → 1974 (ratchet, not a target).** Four Sonnet agents on disjoint slices;
+every agent claim re-derived centrally rather than relayed, which caught one bad link an agent had
+added (`[`affixes::phon_context_nodes`]`, unresolvable) and one over-broad claim.
+
+**The doc-link gate is live** (`1608ae8`): `[workspace.lints.rustdoc] broken_intra_doc_links = "deny"`,
+all 19 crates opted in, `pg.ps1 -Mode doc`. It found 11 real defects on its first two runs, including a
+doc comment pointing at `Grammar::allomorphs` — a field renamed to `allomorph_owners` long ago.
+
+**Three limits of that gate, each measured rather than assumed** — do not "improve" these without
+re-measuring:
+- `cargo doc` has no `--tests` and rejects `--all-targets`, so a link in `tests/*.rs` is
+  **structurally unvalidatable**. Use a `pinned by `<test>`` citation there instead; `comment-hygiene`
+  checks those everywhere.
+- Adding `--examples` produced **501 false "unresolved link" errors in the lib doc**, each noting the
+  link would resolve with `--document-private-items` — naming a target set stops that flag applying to
+  the lib. Strictly worse than the default.
+- You cannot link *through* a private module from outside its parent; `--document-private-items` makes
+  such items documented, not nameable. This answers the open question left in round 1.
+
+- [ ] 5.6a **Decide the fate of `Disposition::FailClosed` — the gate that pins it cannot fail.**
+      `grep '=> Disposition::FailClosed'` returns **nothing**: all three former FailClosed
+      characteristics are now `ConfigPredicate`. So `build_ledger`'s G8 branch,
+      `EvidenceRequirement::RefusalWitness` and `ContainmentEvidenceKind::RefusalWitness` have no live
+      row exercising them — and `fail_closed_row_is_covered_via_refusal_witness_regardless_of_passing_set`
+      asserts `ConfigPredicate` + `Dedicated` under a name promising FailClosed + RefusalWitness, while
+      passing `fully_covered_constructs()` where its doc claims "a completely empty passing-fixture
+      set". **It would pass with its own fix reverted.** Either retire the machinery as dead, or restore
+      a genuine FailClosed characteristic and make the test assert what its name says. Full derivation
+      in `docs/doc-code-mismatch-ledger.md` Tier 4c.
+- [ ] 5.6b Fix the false rationale string at `coverage_ledger.rs:421` ("FailClosed … proves
+      compose_envelope genuinely **Refuses**") — the cited witness asserts `ConfirmOnly`. Production
+      string, so it belongs with 5.4b's layer, not the comment layer. Needs a golden re-check.
+- [x] 5.6c Dead test citations fixed (3): `overwrite_group_composes_to_refuse` (×2),
+      `right_to_left_predicate_refuses_quantifier_shaped_rule`, and a false *"PORTED as
+      `guesser_gate.rs::analyze_word_can_guess_returns_correct_analysis`"* claim where neither file nor
+      test exists. `dead-citation` now catches this class automatically.
+- [ ] 5.6d Two checker precision items left open: scoring is per **physical line** (a wrapped claim
+      counts twice), and `plan-reference` misses `plan §5.3`/`§6.3`/`C# #446` spellings, so that
+      category's **0 is narrower than it reads**. Neither is load-bearing; both should be closed before
+      anyone treats the five zeros as complete.
+
+- [x] 5.5a **Enable `rustdoc::broken_intra_doc_links`, or the anchor rule is decorative.** This is a
       hole in the design as shipped, not a nice-to-have: the whole justification for letting a long
       comment buy its length with an intra-doc link is that *rustdoc checks the path resolves*. The
       lint warns by default, but nothing in this workspace denies it and **nothing in the build ever

@@ -120,7 +120,7 @@ fn the_registry_does_not_dedup_this_candidate_away() {
 ///
 /// It did not. `compile_templated_morphotactics` built its boundary-deletion regex by joining one
 /// `token -> 0` clause per boundary char-def, so a boundary-free grammar produced the EMPTY regex,
-/// which `fsm_parse_regex` rejects — and the whole compile failed with `CleanupCompileFailed("")`.
+/// which foma's fsm_parse_regex rejects — and the whole compile failed with `CleanupCompileFailed("")`.
 /// Measured: two synthetic conformance fixtures were unbuildable for this reason alone. The path had
 /// never been run against them; its only callers were the P6 gate and its own tests, all on grammars
 /// that do declare boundaries. Deleting nothing from a tape that has no boundary tokens on it is the

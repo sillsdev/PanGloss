@@ -389,9 +389,9 @@ impl<'g> Morpher<'g> {
     /// The shared implementation behind [`Self::parse_word_opts`] (traced with a no-op [`NoopSink`])
     /// and [`Self::parse_word_traced`] (traced with a real sink) — one body, parameterized by
     /// `trace`, so the two paths cannot drift. Every trace call is guarded by
-    /// `trace.is_tracing()` first (zero-cost-when-off requirement); `NoopSink`'s own methods
-    /// are `unreachable!()` and are never reached because of that guard. Both filters `None` — see
-    /// [`Self::parse_word_core_selected`] for the selector-restricted sibling.
+    /// `trace.is_tracing()` first (zero-cost-when-off requirement); [`NoopSink`]'s own methods
+    /// panic outright, which that guard keeps off the live call path. Both filters default to
+    /// `None` — see [`Self::parse_word_core_selected`] for the selector-restricted sibling.
     fn parse_word_core(
         &self,
         word: &str,

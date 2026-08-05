@@ -418,11 +418,11 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     .map_err(|e| RecipeOptimizeError::Runtime(e.to_string()))?;
     let policy = AdaptivePolicy::default();
     // Both denominators, because the pruning waterfall's first bucket is "the registry offered this
-    // instance and the grammar rejected it". `PruningWaterfall`'s own doc calls every field "a
+    // instance and the grammar rejected it". [`PruningWaterfall`]'s own doc calls every field "a
     // disjoint bucket of `generated`", so `generated` has to count what the registry OFFERED, not
-    // just what survived applicability -- otherwise `inapplicable` is structurally unreachable and
-    // renders as a permanent, unfalsifiable `0` (the same false-zero that doc criticises for
-    // `N_syntactic`, and `reconciles()` cannot catch it because both sides drop the same term).
+    // just what survived applicability -- otherwise [`PruningWaterfall::inapplicable`] would stay a
+    // permanent, unfalsifiable `0` (the same false-zero that doc criticises for `N_syntactic`, and
+    // `reconciles()` cannot catch it because both sides drop the same term).
     let facts = &characterization.facts;
     let compositional = facts.ordering_dependencies == 0
         && facts.gated_subrules == 0

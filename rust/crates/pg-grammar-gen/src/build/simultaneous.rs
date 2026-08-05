@@ -7,9 +7,8 @@
 //! nothing here should trip any OTHER budget/skip path first) with
 //! `multipleApplicationOrder="simultaneous"` (`machine/conformance/languages/templatic-root-modification/
 //! grammar.xml`'s own `prSimulFeeding`/`prEpenthesis` shape, reduced to the minimal unconditional
-//! case). Since `is_fully_supported_shape` rejects the WHOLE rule before `pattern_slots`/
-//! `resolve_alpha_tuples` ever run (module doc of that function), the rule's own LHS/RHS content
-//! is never actually compiled -- any two distinct segments suffice.
+//! case). The whole rule is screened out on shape alone, upstream of any LHS/RHS lowering, so the
+//! rule's own content is never compiled and any two distinct segments suffice.
 
 use crate::build::tables::TableSpec;
 use crate::ids::IdMinter;

@@ -6,19 +6,16 @@
 //! ## A correction to the research doc's own premise, discovered while authoring this fixture
 //! S1.2.2 of the research doc assumed a `Quantifier` node anywhere in an RTL rule's own
 //! LHS/RHS/environment is still an EXCLUDED shape (grouped with `Segments`/`Anchor`/disagreeing
-//! alpha-variables). Empirically, that is true for an UNBOUNDED quantifier (the shape
-//! `rust/crates/pg-foma/src/capability.rs`'s own
-//! `right_to_left_predicate_refuses_quantifier_shaped_rule` unit test probes, `min=1 max=-1` in the
-//! rule's own LHS) but NOT for a genuinely BOUNDED one in the rule's own ENVIRONMENT: this fixture's
-//! `rtl_reversal_construction_attempted` characterizes `true` (`crate::replace::pattern_slots`
-//! DOES accept a bounded `Quantifier`, per `compile-bounded-fst-quantifiers`'s own
-//! `Slot::Repeat` support), and `RightToLeftRewriteFaithfulReversalPredicate` correctly returns
-//! `ConfirmOnly`, not `Refuse`. This fixture is therefore NOT one of the three honestly-refused
-//! shapes this task otherwise pins -- it demonstrates the ALREADY-CORRECT, already-`ConfirmOnly`
-//! propose-and-confirm pipeline for a bounded-quantifier RTL environment, a genuine, useful
-//! conformance-coverage addition in its own right (see STAGING.md's own "A correction" section for
-//! the full account). This test is the one that should FAIL if this ever regresses back to
-//! `Refuse`.
+//! alpha-variables). Empirically, that is not so for a genuinely BOUNDED `Quantifier` in the
+//! rule's own ENVIRONMENT: this fixture's `rtl_reversal_construction_attempted` characterizes
+//! `true` (`crate::replace::pattern_slots` DOES accept a bounded `Quantifier`, per
+//! `compile-bounded-fst-quantifiers`'s own `Slot::Repeat` support), and
+//! `RightToLeftRewriteFaithfulReversalPredicate` correctly returns `ConfirmOnly`, not `Refuse`.
+//! This fixture is therefore NOT one of the three honestly-refused shapes this task otherwise
+//! pins -- it demonstrates the ALREADY-CORRECT, already-`ConfirmOnly` propose-and-confirm pipeline
+//! for a bounded-quantifier RTL environment, a genuine, useful conformance-coverage addition in
+//! its own right (see STAGING.md's own "A correction" section for the full account). This test is
+//! the one that should FAIL if this ever regresses back to `Refuse`.
 
 use std::fs;
 use std::path::Path;
@@ -51,10 +48,8 @@ fn fixture_rule_is_right_to_left() {
 }
 
 /// The capability gate's own verdict: `ConfirmOnly` -- a BOUNDED `Quantifier` in an RTL rule's own
-/// environment is within `crate::replace::pattern_slots`' supported shape (unlike an UNBOUNDED one,
-/// which stays `Refuse`d -- see `rust/crates/pg-foma/src/capability.rs`'s own
-/// `right_to_left_predicate_refuses_quantifier_shaped_rule` unit test). This is the module doc's
-/// own "correction to the research doc's premise" pinned executably.
+/// environment is within `crate::replace::pattern_slots`' supported shape. This is the module
+/// doc's own "correction to the research doc's premise" pinned executably.
 #[test]
 fn capability_gate_confirms_only_for_bounded_quantifier_in_rtl_environment() {
     let g = load();

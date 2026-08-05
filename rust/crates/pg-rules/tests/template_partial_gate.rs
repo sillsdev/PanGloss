@@ -229,8 +229,8 @@ fn gate1_partial_word_with_applicable_template_passes_through() {
     // One template whose required FS is trivially satisfied (empty FS on both sides) — so it IS
     // applicable — but whose single mandatory slot rule can never actually apply: the word starts
     // with no confirmed unapplication trail (`mrule_app_index == -1`, `Word::new`'s default), and
-    // `guided_synth` refuses to apply anything without one (`w.mrule_app_index < 0` short-circuits
-    // before even inspecting the rule). So the template always yields zero output here, isolating
+    // `stratum.rs`'s `guided_synth` short-circuits on `w.mrule_app_index < 0` before even
+    // inspecting the rule. So the template yields zero output here, isolating
     // gate 1 (the passthrough condition) from gate 2 (root-partial) and gate 3 (post-template rule
     // gating): `applicable = true`, the internal `out` map stays empty, and the only question left
     // is whether the passthrough fires.

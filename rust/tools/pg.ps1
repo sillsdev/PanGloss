@@ -585,6 +585,21 @@ switch ($Mode) {
         # `--document-private-items` is required, not a nicety: most of this workspace is private, and
         # rustdoc does not process a private item's doc comment without it -- so the majority of the
         # intra-doc links the comment policy relies on would go unvalidated.
+        #
+        # Coverage is lib + bins WITH private items, and deliberately nothing more. Both wider options
+        # were tried and measured, not assumed:
+        #   --all-targets  rejected outright by cargo doc (no such flag; there is no --tests either,
+        #                  so an intra-doc link in `tests/*.rs` is structurally unvalidatable here).
+        #   --examples     documents examples but then reports 501 "unresolved link" errors in the LIB
+        #                  doc, each noting the link "will resolve properly if you pass
+        #                  --document-private-items" -- i.e. naming a target set stops that flag
+        #                  applying to the lib. Strictly worse than the default: it turns a clean run
+        #                  into 501 false failures.
+        #
+        # Consequence for the comment policy, stated where someone will see it: in a test file, prefer
+        # a "pinned by `<test_name>`" citation over a link. `comment-hygiene.ps1` verifies citation
+        # names against every item in the tree regardless of target kind, so that anchor is checked
+        # everywhere this one is not.
         $cargoArgs += @('doc', '--no-deps', '--document-private-items')
     }
     'test' {

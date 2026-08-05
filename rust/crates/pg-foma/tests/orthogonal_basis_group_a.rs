@@ -86,9 +86,11 @@
 //! This file names its eleven fixtures explicitly and discovers nothing generically, so the three
 //! known-aborting/panicking fixtures (`machine:edge-cases/deep-optional-affix-nesting`,
 //! `staging:edge-cases/recipe-template-generic`, `machine:edge-cases/loader-pattern-shapes`) are
-//! never reached. `parity_divergence_census.rs`'s announced-exclusion + `catch_unwind` pattern is
-//! for sweeping tests; a named-fixture test needs neither, and adding an exclusion list here would
-//! only suggest a sweep that does not exist.
+//! never reached.
+//!
+//! `parity_divergence_census.rs`'s announced-exclusion + `catch_unwind` pattern is for sweeping
+//! tests; a named-fixture test needs neither, and adding an exclusion list here would only
+//! suggest a sweep that does not exist.
 //!
 //! Every identifier below names what it composes, never a language — this repo's standing
 //! conformance rule. Where an upstream fixture's own `<Language><Name>` is a language-flavoured

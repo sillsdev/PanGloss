@@ -286,7 +286,7 @@ impl RootAllomorphTrie {
     /// "match = `char_def` equality AND `flat_unifiable`" shortcut is only valid when the query
     /// segment itself carries a concrete literal identity. Without this, a root like Indonesian
     /// `pakai` (whose first phoneme, "p", is exactly this kind of reinstated-but-unidentified
-    /// segment during analysis of `memakai`) can never be found: the char_def-equality gate rejects
+    /// segment during analysis of memakai) can never be found: the char_def-equality gate rejects
     /// every edge outright, and the segment is not `optional` (it must be consumed, not skipped), so
     /// the whole-word search always fails.
     ///

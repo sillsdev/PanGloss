@@ -363,11 +363,10 @@ pub trait TraceSink {
     fn synthesize_word(&self, parent: TraceHandle, input: &Word) -> TraceHandle;
 }
 
-/// The always-present no-op [`TraceSink`]. Every method besides [`is_tracing`](TraceSink::is_tracing)
-/// is `unreachable!()` — never called, since every real call site checks `is_tracing()` first. Kept
-/// as a concrete (not `dyn`) type at call sites where possible so `is_tracing()` can const-fold away
-/// (§4.1's performance note); the initial landing (§5) also accepts `&dyn TraceSink` at the
-/// boundary, per the design's recommended fallback.
+/// The always-present no-op [`TraceSink`] (see the `impl` below for why every method but
+/// [`is_tracing`](TraceSink::is_tracing) panics). Kept as a concrete (not `dyn`) type at call sites
+/// where possible so `is_tracing()` can const-fold away; some call sites accept `&dyn TraceSink`
+/// at the boundary instead.
 pub struct NoopSink;
 
 impl TraceSink for NoopSink {

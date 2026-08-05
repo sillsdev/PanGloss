@@ -121,10 +121,23 @@ above wherever you can reach it:
 
 | Tier | Looks like | What to do | Who checks it |
 |---|---|---|---|
-| **Executable** | "this composes to `ConfirmOnly`", "`qp` becomes `pq` at a final boundary" | a doctest, or a named test the comment cites | `cargo test` — the only comment form the language *runs* |
-| **Linked** | any claim about a *different* entity: "X refuses Y", "the only caller is Z", "unreachable in practice" | write the entity as an intra-doc link — ``[`crate::lower::lower_span`]`` | `rustdoc::broken_intra_doc_links` (path resolves) |
+| **Executable** | "this composes to `ConfirmOnly`", "`qp` becomes `pq` at a final boundary" | a doctest, or **`pinned by `<test_name>``** | `cargo test`; the citation's *name* is verified against every item in the tree by `comment-hygiene.ps1` |
+| **Linked** | any claim about a *different* entity: "X refuses Y", "the only caller is Z", "unreachable in practice" | write the entity as an intra-doc link — ``[`crate::lower::lower_span`]`` | `rustdoc::broken_intra_doc_links` via `pg.ps1 -Mode doc` |
 | **Durable external** | a paper, an algorithm name, a DTD element, an upstream issue, foma's `.#.` semantics | keep it, one to three lines | nothing needed — it does not rot |
 | **Project state** | plans, dates, wiring status, history | delete | the hygiene ratchet |
+
+**Two hard coverage limits, because a gate you misjudge is worse than one you know is partial.**
+
+1. **In `tests/*.rs`, a link anchor is checked by nobody.** `cargo doc`'s target selection is
+   lib/bins/examples only — there is no `--tests`, and `--all-targets` is rejected. So inside a test
+   file, prefer **`pinned by `<test_name>``**: `comment-hygiene.ps1` verifies citation names against
+   every item in the tree regardless of target kind, so that anchor is checked everywhere the link
+   anchor is not.
+2. **You cannot link *through* a private module from outside its parent.** `--document-private-items`
+   makes private items *documented*, not *nameable*. `crate::compile::environment::validate_environment`
+   is unresolvable from `crate::segment` because `mod environment` is private to `compile`; the same
+   name links fine from inside `compile` as `super::environment::…`. Rust visibility (private = the
+   defining module **and its descendants**) governs link resolution too. From outside, use a code span.
 
 Know the limit of tier 2 rather than trusting it: a link proves the **path resolves**, not that the
 sentence about it is true. Renames and deletions are caught; semantic drift is not. That is exactly
