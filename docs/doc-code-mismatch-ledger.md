@@ -239,9 +239,11 @@ sweep found it at four layers, each less visible and more authoritative than the
 | Test assertions | 1 confirmed | CI, and whoever trusts it | nothing |
 | Guard comments the code later violated | 1 confirmed (Tier 4b) | anyone reasoning about capability | nothing |
 
-The ratchet covers only the top row — the row where being wrong costs least. Banked as tasks
-`5.4b`/`5.4c`/`5.4a` respectively in the branch's `tasks.md`, ordered by that column rather than by
-size.
+The ratchet covers only the top row — the row where being wrong costs least. Rows 2-4 are banked as
+tasks `5.4b`, `5.4c` and `5.4a` respectively in the branch's `tasks.md`. Note that the task order is
+**not** this table's order: `5.4a` (the guard comment, last row) leads, because it is the only item
+that changed behavior and the only one needing an owner decision. After it, the tasks do follow the
+"who is misled" column — user-facing diagnostics before CI before maintainers.
 
 **Where the sweep ended.** All five categories reached 0 across 159 `.rs` files and 3 `.ps1`, so the
 baseline is now 0 and the ratchet has become a zero-tolerance gate — sustainable only because the
