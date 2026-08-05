@@ -14,7 +14,7 @@
 //! which, and the message was the ALLOCATOR's (`memory allocation of N bytes failed`), not the stack
 //! handler's (`thread '...' has overflowed its stack`). This was heap exhaustion against procgov's
 //! 19GB job-object committed-memory cap, **not** unbounded recursion. Three measurements pin that
-//! (all 2026-08-03, all now folded into the tests below or into
+//! (all now folded into the tests below or into
 //! [`pg_foma::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`]'s own doc):
 //!
 //! - the three corpus words parse UNCAPPED (`Morpher::new(g, usize::MAX)`) in **0.185s**, so no

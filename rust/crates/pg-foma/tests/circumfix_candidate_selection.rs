@@ -1,6 +1,5 @@
-//! Containment + order-independence tests for census C1/C2/C3
-//! (`docs/conformance/circumfix-structural-composite-census.md`,
-//! `openspec/changes/plan-construct-coverage-completion` tasks 4.3a/4.3b/4.3c).
+//! Containment + order-independence tests for circumfix interactions with the other composite
+//! mechanisms -- see the C1/C2/C3 sections below for each precedence case.
 //!
 //! ## C1 (`emit::rule_role`/`emit::is_structural_rule` — non-first-allomorph selection)
 //! [`non_first_allomorph_circumfix_recall_parity`] is the proposer-to-confirm containment check for
@@ -23,7 +22,7 @@
 //! diagnostic) drops this rule cleanly the moment it reclassifies `CircumfixPrefix` — so the two
 //! composite mechanisms never both claim it and never both drop it.
 //!
-//! ## C2 (`emit::classify_affix` — reduplication-preempts-circumfix precedence; task 4.3c)
+//! ## C2 (`emit::classify_affix` — reduplication-preempts-circumfix precedence)
 //! [`circumfix_reduplication_recall_parity`] is the proposer-to-confirm containment check for
 //! `conformance-staging/edge-cases/circumfix-reduplication-precedence` (the staged fixture: one
 //! allomorph that is simultaneously circumfixing AND reduplicating — the same LHS part `Copy`d
@@ -282,7 +281,7 @@ fn circumfix_infix_interior_action_recall_parity() {
     assert_full_containment(&g, "kebzatan");
 }
 
-/// The ownership-handoff check task 4.3b asks for: once `mrCircInfix`'s allomorph reclassifies
+/// The ownership-handoff check: once `mrCircInfix`'s allomorph reclassifies
 /// `CircumfixPrefix` (instead of `Infix`), `crate::preexpand`'s own candidate set must drop it
 /// cleanly (read via the same public [`emit::composite_candidate_rules`] diagnostic this crate
 /// already exposes for exactly this kind of cross-mechanism check) -- never double-claimed by both
@@ -304,7 +303,7 @@ fn circumfix_infix_ownership_handoff_is_clean() {
 }
 
 // =================================================================================================
-// C2: circumfix-reduplication-precedence (task 4.3c, jointly decided with row 11's carve-out)
+// C2: circumfix-reduplication-precedence
 // =================================================================================================
 
 #[test]
@@ -313,7 +312,7 @@ fn circumfix_reduplication_recall_parity() {
     assert_full_containment(&g, "ketamtaman");
 }
 
-/// The ownership-handoff check task 4.3c asks for -- the OTHER direction from C1/C3's
+/// The ownership-handoff check for the OTHER direction from C1/C3's
 /// `crate::preexpand` handoff: once `mrCircRedup`'s allomorph reclassifies `CircumfixPrefix`
 /// (instead of `Reduplication`), `crate::peel::ReduplicationPeeler` must relinquish it cleanly, not
 /// merely stop being the PREFERRED mechanism while still nominally claiming the rule.
@@ -344,7 +343,7 @@ fn peel_relinquishes_circumfix_reduplication_cleanly() {
     );
 }
 
-/// Task 4.3c's own required pin: C1's and C3's selection outcomes must be UNPERTURBED by the C2
+/// A required pin: C1's and C3's selection outcomes must be UNPERTURBED by the C2
 /// fix. Re-runs both fixtures through the exact same public diagnostics
 /// (`emit::composite_candidate_rules`) their own dedicated tests above already use, asserting the
 /// identical expected values those tests assert -- if the C2 reordering had shifted anything about

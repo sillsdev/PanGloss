@@ -1,6 +1,6 @@
-//! The shared 3-assertion Phase C gate template (`docs/fst-plan/phase-c-generator-design.md` §4):
+//! The shared 3-assertion gate template used by every `phase_c_*.rs` gate:
 //! (a) recall via compose, (b) resource envelope, (c) honest failure. Every `phase_c_*.rs` gate
-//! builds its own net (the right pipeline differs per construct -- design doc §6) and then calls
+//! builds its own net (the right pipeline differs per construct) and then calls
 //! into this shared module for the actual assertions, so the assertions themselves stay identical
 //! across gates.
 //!
@@ -45,10 +45,9 @@
 //!
 //! ## (b) Resource envelope
 //! `Fsm.statecount`/`arccount` after building the gate's own net, `Instant`-timed compose+load,
-//! and per-word p99 timing over an oracle word list -- the same measures
-//! `docs/fst-plan/phase-b-compose-budget-design.md`'s own `ComposeBudget` checks, but read here
-//! directly off the `Fsm` rather than through that budget's checked wrappers (a gate wants to
-//! ASSERT specific numbers stay small, not merely that they didn't exceed a cap).
+//! and per-word p99 timing over an oracle word list -- the same measures `ComposeBudget` checks,
+//! but read here directly off the `Fsm` rather than through that budget's checked wrappers (a
+//! gate wants to ASSERT specific numbers stay small, not merely that they didn't exceed a cap).
 //!
 //! ## (c) Honest failure
 //! [`assert_compose_error`]: given a `Result<T, pg_foma::compose_budget::ComposeError>` from a
