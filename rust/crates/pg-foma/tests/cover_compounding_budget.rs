@@ -1,13 +1,13 @@
-//! `openspec/changes/cover-compounding` (design.md D2 item 2 / tasks.md 5.1): the compound
-//! HEAD x NON-HEAD root-pair budget (`HC_COMPOUND_PAIR_BUDGET`, `crate::compose_budget::
-//! compound_pair_budget_from_env`) must trip BEFORE any lexc text is emitted for a grammar whose
-//! license-gated cross product is too large — "never explode," an honest refusal instead of a
-//! multi-gigabyte network. Kept in its OWN test file/process (not alongside `tests/
-//! cover_compounding.rs`'s containment tests) because it mutates the process-global
-//! `HC_COMPOUND_PAIR_BUDGET` env var, and `cargo test` runs every OTHER file as a separate process
-//! (`crate::emit::emit_with_precision`'s own doc: "parallel test processes never race process-global
-//! env state") but multiple `#[test]` functions within ONE file/process run concurrently by default
-//! — this file has exactly one test, so there is nothing else in-process to race.
+//! The compound HEAD x NON-HEAD root-pair budget (`HC_COMPOUND_PAIR_BUDGET`,
+//! `crate::compose_budget::compound_pair_budget_from_env`) must trip BEFORE any lexc text is
+//! emitted for a grammar whose license-gated cross product is too large — "never explode," an
+//! honest refusal instead of a multi-gigabyte network. Kept in its OWN test file/process (not
+//! alongside `tests/cover_compounding.rs`'s containment tests) because it mutates the
+//! process-global `HC_COMPOUND_PAIR_BUDGET` env var, and `cargo test` runs every OTHER file as a
+//! separate process (`crate::emit::emit_with_precision`'s own doc: "parallel test processes never
+//! race process-global env state") but multiple `#[test]` functions within ONE file/process run
+//! concurrently by default — this file has exactly one test, so there is nothing else in-process
+//! to race.
 //!
 //! Reuses `pg_grammar_gen`'s own compounding generator (`tests/phase_c_compounding.rs`'s own
 //! `overbudget_recipe`, `compounding_rule_count: 3` -> 6 root entries, no MPR restrictions at all)
