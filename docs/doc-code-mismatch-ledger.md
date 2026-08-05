@@ -68,7 +68,7 @@ The original counts included doc links, which inflated every row. Re-measured ag
 |---|---:|---|
 | `pg-foma/health.rs` | 10 (`health_evaluator`, `preflight`) | **Promoted to Tier 1 — fixed** |
 | `pg-foma/health_evaluator.rs` | 5 (`worker.rs:469/489/514`) | **Accurate → Tier 3.** Its doc correctly describes itself as the evaluator that health.rs deferred |
-| `pg-foma/capability_entry.rs` | 6 (`preflight`, `readiness_verdict`) | **OPEN.** Claim is "COMPUTES a `CompileDecision`, does not consult one." Needs one check: does `preflight` act on the decision? |
+| `pg-foma/capability_entry.rs` | 6 (`preflight`, `readiness_verdict`) | **CONFIRMED STALE — the check was run.** `preflight` only *reports* (turns the decision into `HealthFinding`s, `preflight.rs:120-128`), so that caller alone would have left the claim standing. But `pg-cli/pack.rs::build_pack` (`:267-296`) **gates** on it: `Refuse` + `!allow_unproven` returns `Err` and writes no `.pgpack`. "Check-only, non-blocking; nothing alters what gets compiled" is false |
 | `pg-foma/readiness_policy.rs` | 5 (`readiness_verdict`) | **Accurate → Tier 3.** "Data-only" still holds; it is a threshold schema |
 | `pg-foma/profile.rs` | 16 (`analyzer.rs`) | **Mis-filed by this ledger.** `:122` documents an ENUM VARIANT (the Phase B experimental-cascade label), not module reachability. Not a Tier 2 item |
 
@@ -93,6 +93,44 @@ Here the doc is honest and the *code* is the problem: it looks like the system's
 | `executable_candidate::PortablePlan` | 56 references, all inside its own module plus one `lib.rs` export. No production consumer |
 | `Registry::executable_candidate` | Called from exactly one place crate-wide: its own gate file. Doc says so honestly (`recipe_registry.rs:625`) — the code is what should go |
 
+## Tier 4b — THE CODE MOVED UNDER A COMMENT THAT FORBADE IT (new class, found 2026-08-04)
+
+Tier 4's defect is dead code reading authoritative. This one is worse: **live code was changed to do
+the exact thing the comment above it explains it must not do**, in a commit about something else, and
+the comment's own safety argument turns out to be wrong. One instance, and it is not cosmetic.
+
+### `compile_metathesis_rule`'s pattern-lowering scope — **OPEN, needs a decision**
+
+`pg-foma/replace.rs`. Four comments say this function stays on the unwidened
+`PatternLowerScope::Baseline` tier — `:311` (module doc), `:1736`, `:1795`, and `:2056`, the block
+immediately above the assignment. The code at `:2063` sets `PatternLowerScope::RewriteRuleCompile`.
+
+Blame settles which side moved: the comment is from 2026-07-27 (`6418d9fa`); the code was flipped
+`Baseline` → `RewriteRuleCompile` on 2026-07-28 by `2639067a` *"complete four-grammar FST parity
+recipes"* — a commit about parity recipes, which updated none of the four comments. The comment had
+predicted precisely this: *"widening it here would be a silent, unowned side effect of a DIFFERENT
+pattern-shape lowering change."*
+
+**The comment's safety claim is also false, so this is a behavior change and not just drift.** It
+argues the widening "costs nothing in practice" because `slot_candidates` refuses any
+`Slot::Anchor`/cross-table-`Segments` occurrence anyway. But `compile_metathesis_swap_net`
+(`:1858-1872`) **strips a leading and/or trailing `Slot::Anchor` before `slot_candidates` is ever
+consulted**, refusing only *interior* anchors. So:
+
+- under `Baseline`, `lower.rs:445-449` refuses an `Anchor` node outright (`pattern_slots` → `None`)
+  and the rule was reported honestly unsupported;
+- under `RewriteRuleCompile` the anchor becomes a `Slot::Anchor`, gets stripped as leading/trailing,
+  and the rule **compiles**.
+
+Net effect: metathesis rules carrying a word-boundary anchor moved from *refused as unsupported* to
+*compiled*, with no owner, no test, and no characteristics/capability row recording the widening.
+That may well be the more faithful behavior — but it is not what any comment in the file says, and
+nothing gates it.
+
+**Resolve by picking one:** revert `:2063` to `Baseline`, or keep the widening and give it an owner —
+all four comments corrected, a capability/characteristics row for anchored metathesis, and a test
+that fails if the scope moves back. Do not leave it as is; today the file argues against its own code.
+
 ## Tier 5 — OTHER CRATES (unverified, lower priority)
 
 `pg-rules/stratum.rs:88,1254`, `pg-rules/rewrite.rs:1836`, `pg-rules/metathesis.rs:796`,
@@ -100,6 +138,23 @@ Here the doc is honest and the *code* is the problem: it looks like the system's
 `pg-wasm/pack.rs:165`, `pg-ffi/parse.rs:32`, `pg-cli/pack.rs:23`, `pg-cli/main.rs:713`,
 `pg-foma/peel.rs:120`, `pg-foma/emit.rs:1538,2546`, `pg-foma/conformance_coverage.rs:4`,
 `pg-foma/worker.rs:72`, `pg-foma/mechanism_provider.rs:49`, `pg-foma/executable_candidate.rs:58`.
+
+## Adjudicated 2026-08-04 by the comment sweep (independently re-verified, not taken on report)
+
+The mass comment sweep surfaced these. Each was re-checked against the code before being recorded;
+**two agent claims did not survive that check and are marked as corrected**, because a ledger that
+launders unverified findings reproduces the defect it exists to document.
+
+| Finding | Verdict |
+|---|---|
+| `capability.rs`: three `CharacteristicKind` variant docs claimed *"D5's first act: FailClosed"* for `Compounding`, `UnorderedMorphRuleApplication`, `MprGroupOverwrite` | **Confirmed stale, fixed.** `default_disposition` returns `ConfigPredicate` for all three (`:248`, `:261`, `:263`) — they were promoted out of `FailClosed` and the variant docs never followed |
+| `capability.rs` meet-correctness test: doc said the fixture *"must compose to `Refuse`"*, assertion expects `ConfirmOnly` | **Not a code bug — the assertion is right.** The row above explains why: `MprGroupOverwrite` is `ConfigPredicate`, so `ConfirmOnly` is correct. Doc fixed. **Residual cleanup:** the assert *message* at `:7633` still calls the Overwrite group "the Refuse-worthy half" — a string literal, so out of a comment-only sweep's scope |
+| `lower.rs`: `UnsupportedPatternNode::Quantifier` doc and `lower_span`'s doc both listed *"genuinely UNBOUNDED (`max == None`)"* among the shapes still refused | **Confirmed stale, fixed.** Neither `slots_from_nodes` nor `diagnose_unsupported_nodes` refuses on `max == None`; unbounded is accepted via native `E*`/`E^>N` |
+| `compose_budget.rs`: `ComposeError::ChainDepthExceeded` doc said *"not yet produced by any production call site"* | **Confirmed stale, fixed.** `peel.rs` wires `check_chain_depth` per reduplication layer and says so in its own doc |
+| `emit.rs`: a 44-line doc block describing `emit_underlying_templated` decorated `emit_line_budget_breach` instead | **Confirmed, fixed** (`09ca4d1`). The breach helper's own three-line description sat indented as a continuation bullet inside the block — the tell that two docs had merged. rustdoc showed the whole explanation on the wrong function and nothing on the emitter |
+| `pg-grammar-gen/build/strata.rs` claimed a *"still-open multi-table threading gap"* in `pg_foma::replace`; `build/tables.rs` said the same sites *"were fixed"* | **`tables.rs` is right; `strata.rs` was stale.** `owning_table`/`owning_table_id` do per-rule resolution with two tests pinning it. Swept the whole crate: the only production `char_tables[0]` left is `capability.rs:1252`, which is the `len() == 1` branch — the genuinely multi-table case refuses explicitly with a diagnostic. Every other hit is a `cfg(test)` single-table fixture |
+| **Corrected agent claim** — that `selection.rs` proves `CompileDecision` gates a real compile path | **The evidence was wrong, though the conclusion held via a different route.** `select_plan` has **zero** production callers repo-wide: its own `cfg(test)` block plus `grammar_semantics_owner_gate.rs` and `strategy_aware_capability_gate.rs`. That is not a defect — it matches Tier 3's declared constraint for `selection.rs`. What actually gates production is `pack.rs::build_pack`, per the Tier 2 row above |
+| **Corrected agent claim** — that `pg-grammar/compile`'s "Phase B" labels marked a live gap | **Recast, not fixed-as-bug.** "Phase B" named a plan the reader cannot see; the underlying facts (metathesis, reduplication, circumfix cross-products, custom `<Strata>` are unimplemented and warn) are true and were kept, restated as "not implemented" (`ba3101c`). One genuinely false claim was removed: a section header calling clitics "Phase B" sat above a test asserting clitics *are* implemented |
 
 ## Non-code mismatches
 
