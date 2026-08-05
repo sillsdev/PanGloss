@@ -25,8 +25,8 @@
 //! `tests/cover_unordered_morph_rules.rs`/`tests/cover_compounding.rs` already established for the
 //! other Stage-2 constructs.
 //!
-//! Synthetic, delanguaged fixture (`openspec/changes/STAGING.md`'s "Hard rule: synthetic data
-//! only" -- invented segments, no natural-language lexemes, named by construct): one root entry
+//! Synthetic, delanguaged fixture (synthetic data only -- invented segments, no natural-language
+//! lexemes, named by construct): one root entry
 //! ("x"), one ordinary `Role::Suffix` rule appending "y", and one obligatory, environment-gated
 //! epenthesis `PhonologicalRule` inserting "e" between an `ncX`-class segment and an `ncY`-class
 //! segment -- mirrors `tests/phase_c_right_to_left.rs`'s own `RTL_EPENTHESIS_XML` fixture shape

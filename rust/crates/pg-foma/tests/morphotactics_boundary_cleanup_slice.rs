@@ -1,5 +1,4 @@
-//! Task 7.7 of `openspec/changes/cleanup-and-recipe-parity`: the first
-//! `Morphotactics -> BoundaryCleanup` vertical slice.
+//! The first `Morphotactics -> BoundaryCleanup` vertical slice gate.
 //!
 //! # What a "vertical slice" is here
 //! Two ends joined by one gate. The TOP end is the typed mechanism graph
@@ -34,8 +33,8 @@
 //! `template-category-sharing/words.yaml`'s header records as having been MEASURED producing the
 //! wrong answer) cannot touch it. The honest limit of the claim: a defect in the shared
 //! `ApplyMorphologicalRules(input).Concat(ApplyTemplates(input))` interleaving itself would fail
-//! both, because both are template exercises and 7.7 asks for two of those. What is genuinely
-//! independent is the falsifier, and each has one the other does not detect.
+//! both, because both are template exercises and this slice asks for two of those. What is
+//! genuinely independent is the falsifier, and each has one the other does not detect.
 //!
 //! **Why the two cleanup exercises are independent.** One has a boundary producer and no boundary
 //! consumer; the other has a boundary consumer and no producer. Neither grammar can exercise the
@@ -45,14 +44,15 @@
 //!
 //! **1. Exact analysis/root/multiplicity parity -- and WHICH relation each assertion uses.**
 //! This matters enough to spell out, because a relation chosen for convenience is how the v1 scope
-//! was once made invisible (`pg_foma::parity`'s own module doc, and the 2026-08-01 fix that
-//! restored it). Three distinct relations appear below, named at every use site:
+//! was once made invisible (`pg_foma::parity`'s own module doc explains the fix). Three distinct
+//! relations appear below, named at every use site:
 //! - The PROGRAM's parity relation is deduplicated [`pg_foma::parity::OccurrenceIdentities`] SET
 //!   equality ([`OccurrenceIdentities::same_identities`]); multiplicity is deliberately NOT part of
 //!   it. That relation is used for the language-rename invariance check, where "the same analyses"
 //!   is exactly the question.
-//! - 7.7 additionally asks for MULTIPLICITY, which set equality drops. So the per-word check below
-//!   asserts the MULTISET cardinality too, via [`OccurrenceIdentities::raw_analyses`] against the
+//! - This slice additionally asks for MULTIPLICITY, which set equality drops. So the per-word
+//!   check below asserts the MULTISET cardinality too, via [`OccurrenceIdentities::raw_analyses`]
+//!   against the
 //!   committed `parses:` row count -- `words.yaml` is documented as sorted-but-NOT-deduped
 //!   (`pg_parse::result_signature`, `WordEntry::expected_signature`), so a repeated signature there
 //!   is a real, measured multiplicity and not a typo.
@@ -128,8 +128,7 @@ use pg_parse::Morpher;
 
 // ------------------------------------------------------------------------------------------------
 // The four exercises. Named by what they compose, never by a language (this repo's standing
-// conformance rule, and 7.7's own "no language-name routing" requirement restated at the naming
-// level).
+// conformance rule, restated at the naming level as "no language-name routing").
 // ------------------------------------------------------------------------------------------------
 
 /// Complete-template exercise 1: cross-template exclusion, plus a two-entry multiplicity row.
@@ -144,7 +143,7 @@ const CLEANUP_BOUNDARY_CONSUMER: &str = "recipe-ordered-generic";
 /// surface differ ONLY in root position.
 const ROOT_POSITION_WITNESS: &str = "head-ambiguous-compounding";
 
-/// Every exercise, in the order 7.7 lists them.
+/// Every exercise, in the order this slice lists them.
 const EXERCISES: &[&str] = &[
     TEMPLATE_EXCLUSION,
     TEMPLATE_SILENT_SLOT,
@@ -257,7 +256,7 @@ fn assert_word_parity(
         });
 
     // -- MULTIPLICITY. The multiset relation, strictly stronger than the program's set-equality
-    //    parity relation, which is what 7.7 asks for beyond it.
+    //    parity relation, which is what this slice asks for beyond it.
     assert_eq!(
         occurrence.raw_analyses() as usize,
         expect.raw_parses,
@@ -571,9 +570,9 @@ fn template_exercise_cross_template_exclusion() {
 /// The load-bearing POSITIVE claim: `monu` is one surface with TWO analyses -- the bare root, and
 /// template2's mandatory `mrVacuous` slot applied alone, a real morpheme that changes nothing
 /// visible. An engine whose composite pruning treats a silent-output rule as prunable loses the
-/// second one, which is the recall trap
-/// `docs/fst-plan/morphotactic-composite-pruning.md` records. This is a different failure DIRECTION
-/// from exercise 1 (under-generation inside one template, versus over-generation across two), and
+/// second one, which is a known recall trap for composite pruning. This is a different failure
+/// DIRECTION from exercise 1 (under-generation inside one template, versus over-generation across
+/// two), and
 /// exercise 1's grammar has no silent rule for this regression to touch.
 #[test]
 fn template_exercise_mandatory_silent_slot() {
@@ -801,12 +800,13 @@ fn cleanup_exercise_boundary_consumed_before_cleanup() {
 
 /// `root_index` discriminates two readings of ONE surface that agree on everything else.
 ///
-/// This is the falsifier for 7.7's root-position requirement, and it is written so that it CANNOT
-/// pass if root position is ignored: the full relation must keep two identities, and the root-blind
-/// projection of that same set must collapse to one. An assertion that only checked "two analyses
-/// exist" would pass under a root-blind relation as long as something else distinguished them; here
-/// nothing else does, by construction (the fixture's own `words.yaml` records that both readings
-/// render to the IDENTICAL flat signature string, which is why no signature diff can pin this).
+/// This is the falsifier for this slice's root-position requirement, and it is written so that it
+/// CANNOT pass if root position is ignored: the full relation must keep two identities, and the
+/// root-blind projection of that same set must collapse to one. An assertion that only checked
+/// "two analyses exist" would pass under a root-blind relation as long as something else
+/// distinguished them; here nothing else does, by construction (the fixture's own `words.yaml`
+/// records that both readings render to the IDENTICAL flat signature string, which is why no
+/// signature diff can pin this).
 #[test]
 fn root_index_discriminates_two_readings_of_one_surface() {
     let fixture = staged(ROOT_POSITION_WITNESS);
@@ -976,8 +976,8 @@ fn boundary_cleanup_applied_twice_equals_once() {
             // exercises declare exactly ONE boundary family today, so this branch does not execute.
             // The marker+separator shape it exists for lives only in
             // `boundary_marker_epsilon_collapse_gate.rs`'s un-staged inline grammar, which has no
-            // committed `words.yaml` and so cannot be a 7.7 exercise without hand-derived
-            // signatures. Staging it is owed -- see the cleanup dossier's exercise 1.
+            // committed `words.yaml` and so cannot be an exercise in this slice without
+            // hand-derived signatures. Staging it is still owed.
             inputs.push(format!("{seg}{}{}{seg}", boundaries[0], boundaries[1]));
         }
 
@@ -1118,9 +1118,10 @@ fn no_language_name_routing() {
 
 /// A guard against the slice quietly shrinking.
 ///
-/// 7.7 asks for two independent template exercises and two cleanup exercises. If a future edit
-/// pointed two of the four names at one fixture, or dropped one, every other test in this file would
-/// still pass while the slice covered less than it claims. This asserts the shape itself: four
+/// This slice asks for two independent template exercises and two cleanup exercises. If a future
+/// edit pointed two of the four names at one fixture, or dropped one, every other test in this
+/// file would still pass while the slice covered less than it claims. This asserts the shape
+/// itself: four
 /// distinct staged fixtures, two with an empty derived cleanup inventory and two with a non-empty
 /// one.
 #[test]

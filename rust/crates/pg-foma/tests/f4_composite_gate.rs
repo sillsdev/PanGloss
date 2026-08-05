@@ -1,7 +1,7 @@
-//! Phase P2 gate (docs/fst-plan/foma-fst-plan.md §P2, gate F2): the propose→confirm composite
-//! (`pg_foma::composite::FomaAnalyzer`) against the real Sena and Indonesian grammars, with the FULL
-//! ENGINE (`pg_parse::Morpher::parse_word_opts`, now a normal — not dev-only — dependency as of P2)
-//! as the parity oracle (plan D7: "our own full engine, because confirm IS our engine").
+//! Gate F2: the propose→confirm composite (`pg_foma::composite::FomaAnalyzer`) against the real
+//! Sena and Indonesian grammars, with the FULL ENGINE (`pg_parse::Morpher::parse_word_opts`, a
+//! normal, not dev-only, dependency) as the parity oracle -- our own full engine, because confirm
+//! IS our engine.
 //!
 //! (a) over-generation pruned: `mbali` (Sena) has far more proposed candidates than the engine has
 //!     analyses; `analyze_word` must return exactly the engine's analyses, not the candidate count.
