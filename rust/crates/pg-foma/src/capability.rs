@@ -5538,12 +5538,11 @@ mod tests {
         );
     }
 
-    /// Negative witness: a `finalBoundaryCondition="true"` metathesis pattern -- `pg_grammar::load`
-    /// lowers the boundary condition to a trailing `PatternNode::Anchor`, which
-    /// `crate::replace::pattern_slots` refuses grammar-wide (not a metathesis-specific gap) -- must
-    /// characterize `swap_construction_attempted == false`, and the predicate must `Refuse` it.
+    /// A `finalBoundaryCondition="true"` pattern lowers to a trailing [`crate::replace::Slot::Anchor`],
+    /// which is erased rather than enforced -- so the swap construction IS attempted and the verdict is
+    /// `ConfirmOnly`, an over-approximation confirm prunes, never `Refuse`.
     #[test]
-    fn metathesis_predicate_refuses_anchor_shaped_pattern() {
+    fn metathesis_predicate_confirm_only_for_anchor_shaped_pattern() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>MetaAnchor</Name>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>

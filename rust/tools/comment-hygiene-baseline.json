@@ -3,5 +3,8 @@
   "step-marker": 0,
   "wiring-status": 0,
   "date-in-comment": 0,
-  "history-prose": 0
+  "history-prose": 0,
+  "comment-block-too-long": 2041,
+  "cross-reference-claim": 96,
+  "docs-link-broken": 0
 }

@@ -5,9 +5,13 @@ description: >-
   code — module headers, `//!`/`///` docs, inline `//` notes, and commit-adjacent prose that has
   leaked into code. Enforces minimal comments that explain WHY, and forbids project state in
   source: no plan/spec/task/openspec references, no step-numbers, no dates, no wiring status, no
-  changelog narrative. Trigger on "add a comment", "document this module", "fix the doc comment",
-  "why is this commented", any doc/code mismatch cleanup, and whenever a plan reference is
-  encountered in code — remove it on sight.
+  changelog narrative. Also caps comment blocks at three lines unless they carry a machine-checked
+  anchor (intra-doc link, doctest, or an existing `docs/research/` path), and forbids bare
+  behavioral claims about other code entities ("X refuses Y", "the only caller is Z",
+  "unreachable") — those become a link or a test. Trigger on "add a comment", "document this
+  module", "fix the doc comment", "why is this commented", "this comment is too long", any
+  doc/code mismatch cleanup, and whenever a plan reference is encountered in code — remove it on
+  sight.
 ---
 
 # Comments and doc comments
@@ -102,14 +106,76 @@ Not:
 Every clause in the second example was true when written. All of it is false now, and it made a
 2,700-line production module read as an abandoned experiment.
 
-## Length
+## Sort every claim by what a machine can falsify
 
-Minimal. If a comment is longer than the code it describes, the reasoning belongs in a design doc
-and the comment should be one line pointing at the idea, not the plan.
+This is the rule that catches what the forbidden-list above cannot. The forbidden list finds project
+state. It does not find a comment that is simply **false about behavior** — and that is the class
+that cost this repo eight days of a capability widening nobody could see, because six comments said a
+function stayed on one lowering scope while the code passed another. None of the six was a date, a
+plan reference, a step marker, a wiring-status phrase, or history prose.
 
-A long comment is usually one of three things wearing a disguise: a design doc, a changelog, or an
-apology for code that should be clearer. Only the first is worth keeping, and it should not be
-here.
+**Length is not why such a comment rots.** Compress the worst of those six to one line —
+`// slot_candidates refuses Anchor anyway.` — and it is exactly as false. What rots is an
+**unverifiable claim about another code entity**. So classify by falsifiability, and prefer the tier
+above wherever you can reach it:
+
+| Tier | Looks like | What to do | Who checks it |
+|---|---|---|---|
+| **Executable** | "this composes to `ConfirmOnly`", "`qp` becomes `pq` at a final boundary" | a doctest, or a named test the comment cites | `cargo test` — the only comment form the language *runs* |
+| **Linked** | any claim about a *different* entity: "X refuses Y", "the only caller is Z", "unreachable in practice" | write the entity as an intra-doc link — ``[`crate::lower::lower_span`]`` | `rustdoc::broken_intra_doc_links` (path resolves) |
+| **Durable external** | a paper, an algorithm name, a DTD element, an upstream issue, foma's `.#.` semantics | keep it, one to three lines | nothing needed — it does not rot |
+| **Project state** | plans, dates, wiring status, history | delete | the hygiene ratchet |
+
+Know the limit of tier 2 rather than trusting it: a link proves the **path resolves**, not that the
+sentence about it is true. Renames and deletions are caught; semantic drift is not. That is exactly
+how the metathesis comments survived — every identifier in them still existed. **Only a test closes
+that gap**, which is why tier 1 does the real work and tier 2 is a floor, not a ceiling.
+
+The practical consequence, and it is the most useful sentence in this file: **when a comment's
+argument is load-bearing, the argument belongs in a test and the comment belongs in one line.** The
+metathesis guard's *stated reason* was false while the guard itself was fine. Being right for a wrong
+reason is what no gate catches, and a paragraph of prose reasoning is how you get there.
+
+## Length: three lines, and longer costs you an anchor
+
+**A comment block of three lines or fewer needs no justification. Over three lines, it must carry an
+anchor a machine can check** — an intra-doc link, a ``` doctest, or a path under `docs/research/`
+that exists. `rust\tools\comment-hygiene.ps1` enforces this as `comment-block-too-long`.
+
+Three, not one, and the reason is specific: **one claim plus the falsifier that keeps it honest.**
+One line holds a claim and nothing else, and a claim with no named falsifier is precisely what went
+stale. Three lines hold both:
+
+```rust
+// MUST stay in lockstep with `capability::metathesis_swap_construction_attempted` -- a
+// disagreement admits a different rule set than this compiles. Admits a word-edge `Anchor`;
+// `metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset` pins the result.
+```
+
+That replaced seven lines whose safety argument was false. It is shorter *and* it names the thing
+that would fail if someone moved the scope back.
+
+**Why an anchor rather than a marker.** A marker you can type becomes universal and then means
+nothing — this repo's documented failure mode for any gate that taxes ordinary work. An anchor cannot
+be applied thoughtlessly because it has to name something real. And so the escape hatch cannot
+quietly become the norm, the checker reports `long-blocks-anchored` as a separate, ungated number: if
+it climbs while `comment-block-too-long` falls, the rule is being satisfied rather than followed.
+
+**`docs/` is for research, not for behavior — and this is a hard line.** Moving a long internal
+explanation into `docs/` and linking it *relocates the rot and removes the only checker*: a page
+describing what `slot_candidates` refuses goes stale exactly as the comment did, and nothing compiles
+it. So an anchor under `docs/research/` is for durable external knowledge — a paper, an algorithm,
+upstream behavior — and an internal behavioral claim must be a test, never a doc page. The checker
+enforces the directory, and flags any `docs/…md` path in a comment that does not resolve
+(`docs-link-broken`, currently 0 — every `docs/` pointer in the tree is live).
+
+A caution earned by the checker's own first run, which is worth more than the count it produced. It
+reported nine broken links; **all nine were the checker's bug** — the pages live under `rust/docs/`
+and comments cite them relative to the crate root, so resolving only from the repo root called four
+live files missing. The near-miss was writing "nine broken links" into this file as a measured fact.
+So: a *link* check is only as trustworthy as its notion of where the target could be, and the failure
+direction matters — "I looked in the wrong place" reads as "the file is broken" exactly as easily as
+"I could not look" reads as "everything is fine."
 
 ## When you find a violation
 
@@ -125,6 +191,27 @@ ExecutableCandidate seals -- instead of a second enum kept in correspondence by 
 After: `// Keyed on the candidate's own adapter: a parallel enum would have to be kept in
 correspondence by hand.`
 
+## The counterweight — read this before deleting an interface comment
+
+This file is one-sided on purpose, and applied without judgment it will damage the codebase. The
+strongest argument against it is Ousterhout's, and it is correct: **without an interface comment there
+is no abstraction.** The reader must open the body, so all of its complexity is exposed. "Let the
+reader read the function" is a real cost, not a free win.
+
+Two things follow, and they bound every rule above.
+
+**Reading a function tells you what it does. It never tells you what it must never do.** Negative
+constraints — *refuses interior anchors*, *must stay in lockstep with the predicate*, *never add a
+filter that could reject a true analysis* — have no representation in Rust except a test. Deleting the
+comment does not make the constraint discoverable; it makes it invisible. Convert it (tier 1) or keep
+it (three lines). Never just drop it.
+
+**So the target is claims, not words.** A four-line struct doc explaining what a field means, with no
+assertion about another entity in it, is doing its job — anchor it or tighten it, do not gut it. The
+`comment-block-too-long` count is a *ratchet*, not a mandate to reach zero: unlike the project-state
+categories, a nonzero number here is not automatically a defect. The two categories worth driving to
+zero are `cross-reference-claim` and `docs-link-broken`, because those are pure defect.
+
 ## Why this rule is strict rather than advisory
 
 Doc rot compounds — a few percent drift per change becomes a majority mismatch within a dozen. And
@@ -136,8 +223,38 @@ That has already happened here. Four of this crate's most central modules descri
 unwired prototypes while being the capability gate, the rule compiler, the plan substrate, and the
 health schema.
 
+There is now measured evidence for a second reader this repo did not use to have. **Misleading natural
+language in code degrades LLM code reasoning by roughly 23% on average, and reasoning models show a
+"reasoning collapse" failure mode** ([CodeCrash](https://arxiv.org/pdf/2504.14119)): models trust the
+prose over the executable logic. Separately, across 1.3 billion AST-level changes in 1,500 systems,
+**changes that leave a comment inconsistent are about 1.5x more likely to be bug-introducing**
+([Wen et al.](https://www.inf.usi.ch/lanza/Downloads/Wen2019a.pdf)). A confidently wrong comment is
+not untidy; it is a measurable defect for both kinds of reader.
+
+## Do not rebuild what already exists
+
+Prefer the mechanism whose validation someone else maintains:
+
+| Want | Use | Status here |
+|---|---|---|
+| A comment that cannot silently go stale | a **doctest** — `cargo test` executes it | available, underused |
+| Validate an entity reference resolves | `#![deny(rustdoc::broken_intra_doc_links)]` | **not enabled** — the tier-2 anchor is unchecked until it is |
+| Long prose in markdown, still rendered as docs | `#[doc = include_str!("…")]` (note: error locations report against the `.rs` file) | unused |
+| Validate external URLs | [lychee](https://lychee.cli.rs/) | unused |
+| Validate `docs/…md` paths in comments | `comment-hygiene.ps1`'s `docs-link-broken` | built |
+| Cap comment block length | `comment-hygiene.ps1`'s `comment-block-too-long` | built |
+
+No mainstream linter caps comment *block* length — ESLint's `max-len` and `eslint-plugin-comment-length`
+cap line **width**, and [the block-length request](https://github.com/eslint/eslint/issues/4665) has
+sat open for years. So the block rules here are genuinely local invention; treat their thresholds as
+this repo's judgment rather than industry consensus.
+
 ## Sources
 
+- [CodeCrash: LLM fragility to misleading natural language in code](https://arxiv.org/pdf/2504.14119) — ~23% reasoning degradation; models trust prose over logic
+- [Wen et al., A large-scale empirical study on code-comment inconsistencies](https://www.inf.usi.ch/lanza/Downloads/Wen2019a.pdf) — inconsistent changes ~1.5x more bug-introducing
+- [Ousterhout, A Philosophy of Software Design](https://www.goodreads.com/work/quotes/61938796-a-philosophy-of-software-design) — the counterweight: without an interface comment there is no abstraction
+- [Rustdoc lints](https://doc.rust-lang.org/rustdoc/lints.html) — `broken_intra_doc_links`, the check the tier-2 anchor depends on
 - [Rust API Guidelines — Documentation](https://rust-lang.github.io/api-guidelines/documentation.html) (C-HIDDEN, C-LINK, C-CRATE-DOC)
 - [RFC 505 — API comment conventions](https://rust-lang.github.io/rfcs/0505-api-comment-conventions.html) and [RFC 1574](https://rust-lang.github.io/rfcs/1574-more-api-documentation-conventions.html)
 - [No ticket numbers in comments](https://sveljko.github.io/no_ticket_numbers_in_comments/)
