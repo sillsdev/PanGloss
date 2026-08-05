@@ -1,10 +1,9 @@
-//! `openspec/changes/cover-template-truncation-reduplication`: the in-scope reduplication-peel
-//! witness plus the deep/nested-chain budget-refusal witness, at the peeler-to-confirm boundary
-//! (design.md's own decision: "Test reduplication at the peeler-to-confirm boundary"). Companion
-//! to `crate::peel`'s own module doc ("Chain depth and nested reduplication") and its `#[cfg(test)]`
-//! unit tests, which exercise the SAME mechanism from inside the crate (this file proves the public
-//! API + the real `machine/conformance` fixture from outside it, the way every other `f*_gate.rs`
-//! file in this crate already does).
+//! The in-scope reduplication-peel witness plus the deep/nested-chain budget-refusal witness, at
+//! the peeler-to-confirm boundary ("Test reduplication at the peeler-to-confirm boundary").
+//! Companion to `crate::peel`'s own module doc ("Chain depth and nested reduplication") and its
+//! `#[cfg(test)]` unit tests, which exercise the SAME mechanism from inside the crate (this file
+//! proves the public API + the real `machine/conformance` fixture from outside it, the way every
+//! other `f*_gate.rs` file in this crate already does).
 //!
 //! ## In-scope: single-layer full-stem reduplication (must compile/propose, oracle containment)
 //! `machine/conformance/languages/suffixing-extension-slot-ordering`'s `mrRedup` (full-stem SUFFIX
@@ -25,9 +24,9 @@
 //! nested reduplication layers than a small configured `ComposeBudget::chain_depth_cap` admits --
 //! [`deep_self_similar_chain_is_refused_deterministically`] proves the refusal is a typed,
 //! deterministic `ComposeError::ChainDepthExceeded`, never a hang, a panic, or a silently-truncated
-//! candidate set. Synthetic/delanguaged per `openspec/changes/STAGING.md`'s "Hard rule: synthetic
-//! data only" -- this fixture is authored purely in this file, named by the construct it stresses
-//! (self-similar chain depth), not by any language.
+//! candidate set. Synthetic/delanguaged ("Hard rule: synthetic data only") -- this fixture is
+//! authored purely in this file, named by the construct it stresses (self-similar chain depth),
+//! not by any language.
 
 use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::composite::FomaAnalyzer;
@@ -55,7 +54,7 @@ fn load(path: &str) -> Grammar {
 /// See module doc's "In-scope" section. Containment (never mere non-emptiness): every FST-side
 /// confirmed analysis for "kimbiakimbia" must be one `pg_parse::Morpher` itself accepts for the
 /// same word -- the propose-and-confirm invariant (ADR 0001) checked at the exact boundary
-/// design.md names for this construct.
+/// this construct requires.
 #[test]
 fn kimbiakimbia_reduplication_is_recovered_with_oracle_containment() {
     let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
