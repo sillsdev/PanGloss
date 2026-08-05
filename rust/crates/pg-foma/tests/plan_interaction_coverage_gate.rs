@@ -1,10 +1,5 @@
-//! Integration test for Stage 3 of `openspec/changes/add-pairwise-grammar-interaction-coverage`
-//! (the REFRAMED design: tree-structured node/subtree interaction coverage over the reified
-//! compilation plan, not pairwise covering arrays over raw grammar "knobs" -- see that change's
-//! `design.md`/`proposal.md`/`specs/grammar-interactions/spec.md`, and `docs/adr/
-//! 0001-honest-capability-boundary.md`). **BUILD-BREAKING as of 2026-07-26**
-//! (`openspec/changes/plan-construct-coverage-completion` tasks.md 6.3, design.md §D7 step 7 --
-//! "Flip both cross-checks ... This is the finish line, not a follow-on cleanup step").
+//! Integration test for tree-structured node/subtree interaction coverage over the reified
+//! compilation plan, rather than pairwise covering arrays over raw grammar "knobs".
 //!
 //! Computes [`pg_foma::plan_interaction_coverage::compute_interaction_coverage`]'s report over every
 //! discoverable conformance fixture (`pg_conformance_fixtures::discover()` -- `machine/conformance/
@@ -59,8 +54,8 @@ use pg_foma::plan_interaction_coverage::{
     plan_and_profile, TupleStatus,
 };
 
-/// The coverage-report half, **build-breaking as of 2026-07-26**. See this file's own top-doc for
-/// exactly what it does and does not assert.
+/// The coverage-report half, **build-breaking**. See this file's own top-doc for exactly what it
+/// does and does not assert.
 #[test]
 fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
     let mut owned: Vec<(String, Plan, CharacteristicsProfile)> = Vec::new();
