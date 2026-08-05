@@ -107,8 +107,10 @@ All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
 ### 5.4 Work banked by the comment sweep (added 2026-08-04)
 
 The mass comment sweep was comment-only by construction, so everything it found that needs a **code**
-change was logged rather than fixed. Verdicts and evidence are in `docs/doc-code-mismatch-ledger.md`;
-these are the actionable residue, ordered by consequence, not by size.
+change was logged rather than fixed. Verdicts and evidence are in `docs/doc-code-mismatch-ledger.md`,
+which lives on **`main`**, not on this branch — it arrives here at the pre-merge rebase. Each item
+below therefore restates enough evidence to be actionable without it. These are the actionable
+residue, ordered by consequence, not by size.
 
 - [ ] 5.4a **Decide `compile_metathesis_rule`'s lowering scope — needs an owner decision, and it is
       the only item here that changes behavior.** `replace.rs:2063` sets
