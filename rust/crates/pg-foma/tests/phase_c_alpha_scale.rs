@@ -1,5 +1,5 @@
-//! GATE (`docs/fst-plan/phase-c-generator-design.md` §6, priority (4)): alpha-variable scale --
-//! recall-parity (up to `tuple_cap`) + `_overbudget` (`AlphaTupleBudgetExceeded`).
+//! GATE: alpha-variable scale -- recall-parity (up to `tuple_cap`) + `_overbudget`
+//! (`AlphaTupleBudgetExceeded`).
 //!
 //! See `pg_grammar_gen::build::alpha`'s own module doc for TWO load-bearing findings recorded
 //! there: two earlier rule shapes (a degenerate single occurrence, then a copy-from-left-neighbor

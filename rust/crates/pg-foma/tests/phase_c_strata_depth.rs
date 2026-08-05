@@ -1,14 +1,12 @@
-//! GATE (`docs/fst-plan/phase-c-generator-design.md` §6, priority (5)): stratum-depth scale --
-//! recall-parity only (no `_overbudget` variant in the stage-2 deliverables list for this
-//! construct).
+//! GATE: stratum-depth scale -- recall-parity only (no `_overbudget` variant for this construct).
 //!
 //! `pg_grammar_gen::build::strata`'s own module doc explains why every extra stratum REUSES table
 //! 0 rather than minting a new table per stratum: GATE 1 already covers multi-TABLE correctness
-//! (`openspec/changes/fix-multitable-fst-compilation` fixed `pg_foma::replace`'s former
-//! `table_of`/`resolve_alpha_tuples` hardcoded `char_tables[0]` default, design doc §5 -- GATE 1's
-//! own `tests/phase_c_multi_table.rs` is now inverted to assert the correct compile instead of
-//! detecting the wrongness); this gate is about multi-STRATUM CASCADING specifically, and stays a
-//! deliberately single-table recipe (`table_count: 1`) so it stays a clean, orthogonal probe of
+//! (a prior fix closed `pg_foma::replace`'s former `table_of`/`resolve_alpha_tuples` hardcoded
+//! `char_tables[0]` default -- GATE 1's own `tests/phase_c_multi_table.rs` is now inverted to
+//! assert the correct compile instead of detecting the wrongness); this gate is about
+//! multi-STRATUM CASCADING specifically, and stays a deliberately single-table recipe
+//! (`table_count: 1`) so it stays a clean, orthogonal probe of
 //! stratum depth alone, not a second multi-table exercise.
 //!
 //! Uses the PRODUCTION `pg_foma::emit::emit` path (same as GATE 2/circumfix): each extra stratum's

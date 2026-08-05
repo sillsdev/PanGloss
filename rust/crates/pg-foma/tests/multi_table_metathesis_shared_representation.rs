@@ -1,9 +1,9 @@
-//! Closes `docs/conformance/multitable-shared-representation-design.md`'s own "Residual gap this
-//! fix does NOT close" section: `crate::replace::compile_metathesis_swap_net` used to render every
+//! Closes a residual gap in cross-table representation aliasing:
+//! `crate::replace::compile_metathesis_swap_net` used to render every
 //! switch-position token DIRECTLY (`SegAlphabet::token`, table-blind, no cross-table alias
 //! expansion) instead of through the alias-expanded path `crate::replace::RepresentationAliasMap`/
-//! `SegAlphabet::render_tokens` gives ordinary rewrite rules (`tests/
-//! two_table_shared_representation_recall.rs`, task 4.4b). Fixture: `conformance-staging/edge-cases/
+//! `SegAlphabet::render_tokens` gives ordinary rewrite rules
+//! (`tests/two_table_shared_representation_recall.rs`). Fixture: `conformance-staging/edge-cases/
 //! multi-table-metathesis-shared-representation` -- combines that fixture's own two-table,
 //! misaligned-shared-representation structure with `right-to-left-metathesis-reversal`'s own
 //! multi-member-natural-class `MetathesisRule` shape, per this closing task's own instructions.

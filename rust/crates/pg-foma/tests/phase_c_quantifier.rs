@@ -1,5 +1,5 @@
-//! GATE (`docs/fst-plan/phase-c-generator-design.md` §6, priority (7)): quantifier /
-//! `OptionalSegmentSequence` compile gate -- pure test-writing, this pins the loader/compiler's
+//! GATE: quantifier / `OptionalSegmentSequence` compile gate -- pure test-writing, this pins the
+//! loader/compiler's
 //! ACTUAL disposition per shape, so a regression (a genuinely out-of-scope shape silently
 //! mis-compiling, or a now-supported shape silently regressing back to a bail) is caught.
 //!
@@ -9,7 +9,7 @@
 //! `compile_and_compose_rules_with_budget` reports that via `skipped.push(rule.xml_id.clone())`
 //! (design doc §5's "Honest skip now" list).
 //!
-//! ## Bounded quantifiers now compile (`openspec/changes/compile-bounded-fst-quantifiers`)
+//! ## Bounded quantifiers now compile
 //! A FINITELY bounded, alpha-free quantifier (`min`/`max` both concrete) compiles now, via
 //! `pg_foma::replace::Slot::Repeat` (that variant's own doc: foma's native `^{min,max}` bounded-
 //! repetition xre operator). `quantifier_bounded_environment_compiles_and_matches_oracle` (below) is
@@ -18,8 +18,7 @@
 //! own full-HC oracle) at BOTH its `min` and `max` boundary occurrence counts, plus a negative
 //! control below `min`.
 //!
-//! ## Genuinely unbounded quantifiers ALSO now compile (`openspec/changes/
-//! build-unbounded-quantifier-support`, tasks.md 4.5)
+//! ## Genuinely unbounded quantifiers ALSO now compile
 //! The construct's own ORIGINAL, unbounded (`max="-1"`) shape used to be this file's own
 //! honest-skip witness (`quantifier_rule_is_honestly_reported_skipped`, the generator-produced
 //! LHS-focus fixture, and `quantifier_unbounded_environment_stays_honestly_unsupported`, the
@@ -89,8 +88,8 @@ fn rules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
         .collect()
 }
 
-/// **Was honestly skipped; now compiles** (`openspec/changes/build-unbounded-quantifier-support`):
-/// the generator's own `build::quantifier` builder (`pg-grammar-gen/src/build/quantifier.rs`)
+/// **Was honestly skipped; now compiles.** The generator's own `build::quantifier` builder
+/// (`pg-grammar-gen/src/build/quantifier.rs`)
 /// always mints a genuinely UNBOUNDED (`max="-1"`) quantifier occupying the rule's WHOLE LHS focus
 /// (`<PhoneticInput>`) -- `pg_foma::replace::Slot::Repeat`'s `max: Option<u32>` widening now renders
 /// this via foma's native `E^>N`/`E*` operator (`crate::lower::render_slots`'s own doc), so this
@@ -165,9 +164,9 @@ fn quantifier_unbounded_lhs_focus_now_compiles() {
 }
 
 // =================================================================================================
-// Bounded quantifier, IN AN ENVIRONMENT (`openspec/changes/compile-bounded-fst-quantifiers`; this
-// file's own top doc, "Bounded quantifiers now compile" / "Why the environment, not the LHS/RHS
-// focus"): synthetic, delanguaged fixtures, named by construct.
+// Bounded quantifier, IN AN ENVIRONMENT (see this file's own top doc, "Bounded quantifiers now
+// compile" / "Why the environment, not the LHS/RHS focus"): synthetic, delanguaged fixtures,
+// named by construct.
 // =================================================================================================
 
 fn load(xml: &str) -> Grammar {
@@ -423,8 +422,7 @@ fn quantifier_bounded_environment_compiles_and_matches_oracle() {
     );
 }
 
-/// **Was out-of-scope; now compiles, oracle-exact containment** (`openspec/changes/
-/// build-unbounded-quantifier-support`): same shape as
+/// **Was out-of-scope; now compiles, oracle-exact containment.** Same shape as
 /// `quantifier_bounded_environment_compiles_and_matches_oracle` above, but the right-environment
 /// quantifier's own `max` is the DTD's unbounded Kleene sentinel (`max="-1"`) --
 /// `pg_foma::replace::pattern_slots` now ACCEPTS this (`crate::replace::Slot::Repeat`'s

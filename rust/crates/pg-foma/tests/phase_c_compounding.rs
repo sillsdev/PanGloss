@@ -1,7 +1,6 @@
-//! GATE (`docs/fst-plan/phase-c-generator-design.md` §6, priority (6)): compounding-rule scale --
-//! recall-parity + `_overbudget` (`EmitLineBudgetExceeded`, the first EMIT-scale exerciser in this
-//! suite -- every earlier stage-2 gate exercised a COMPOSE-path budget: V6 group cap for
-//! partition-k, V3 tuple cap for alpha-scale).
+//! GATE: compounding-rule scale -- recall-parity + `_overbudget` (`EmitLineBudgetExceeded`, the
+//! first EMIT-scale exerciser in this suite -- every earlier stage-2 gate exercised a COMPOSE-path
+//! budget: V6 group cap for partition-k, V3 tuple cap for alpha-scale).
 //!
 //! See `pg_grammar_gen::build::compounding`'s own module doc for why recall-parity and the
 //! overbudget variant deliberately use TWO DIFFERENT emitters: `pg_foma::emit::emit` (production
