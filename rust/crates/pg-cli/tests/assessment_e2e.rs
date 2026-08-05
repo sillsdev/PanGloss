@@ -386,7 +386,7 @@ fn setup_failure_produces_a_failed_artifact_rather_than_an_error_exit() {
     let broken = ws.write("broken.xml", "<Not-A-Grammar/>");
     let words = ws.write("words.txt", "k\nxk\n");
 
-    // Task 3.11. A caller that asked for evidence gets evidence: exiting non-zero with nothing to
+    // A caller that asked for evidence gets evidence: exiting non-zero with nothing to
     // read would tell CI only that something went wrong, and `compare` could not join the run.
     run_ok(&[
         "assess",
