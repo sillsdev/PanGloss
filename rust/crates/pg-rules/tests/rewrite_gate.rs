@@ -965,13 +965,12 @@ fn feature_change_word_final_anchor_environment() {
 }
 
 // =================================================================================================
-// P13 (`rust/docs/p13-simultaneous-design.md` §4.1's warning / §7 open question 1): multi-subrule
-// Simultaneous disjunction. `sim_feature`/`sim_narrow` are dispatched per subrule (Rust's existing
-// per-subrule-outer-loop architecture, `synthesize_with_mpr`'s `for sr in &rule.subrules` sharing
-// one `MutShape` across subrules) rather than as one collect-then-apply pass across the WHOLE rule
-// with per-position first-applicable-subrule dispatch (C#'s actual `RewriteRuleSpec.MatchSubrule`
-// mechanism, §1.2). The design doc flags this as an UNEXERCISED risk, not a known bug: a rule with
-// two Simultaneous subrules whose environments can BOTH hold at the SAME target position might
+// Multi-subrule Simultaneous disjunction. `sim_feature`/`sim_narrow` are dispatched per subrule
+// (Rust's existing per-subrule-outer-loop architecture, `synthesize_with_mpr`'s `for sr in
+// &rule.subrules` sharing one `MutShape` across subrules) rather than as one collect-then-apply
+// pass across the WHOLE rule with per-position first-applicable-subrule dispatch (C#'s actual
+// `RewriteRuleSpec.MatchSubrule` mechanism). This is an UNEXERCISED risk, not a known bug: a rule
+// with two Simultaneous subrules whose environments can BOTH hold at the SAME target position might
 // (a) apply only the first (correct, matching C#), (b) apply both (wrong), or (c) apply the second
 // because the first's own snapshot-based pass hadn't marked anything dirty before the second's
 // snapshot was taken (wrong). This test constructs exactly that overlapping-position case and
