@@ -18,12 +18,11 @@
 //! - `XmlLanguageSerializationTests.RoundTripXml` -- C# `XmlLanguageLoader.Load` ->
 //!   `XmlLanguageWriter.Save` byte-identity; Rust has no XML *writer* (load-only), so there is
 //!   nothing to round-trip against. Not a 1:1 gap by design.
-//! - `AnalyzeWord_CanGuess_ReturnsCorrectAnalysis` -- PORTED (P11 chunk 5, "PORT IT" decided
-//!   2026-07-10) as `guesser_gate.rs::analyze_word_can_guess_returns_correct_analysis`, against a
-//!   hand-transcribed XML fixture (no C# CLI `--guess` surface exists to oracle-generate a TSV --
-//!   see `rust/docs/p11-guesser-api-design.md` §6's open question #2 -- so this is verified
-//!   directly against the C# unit test's own literal expected values, the same pattern P9's
-//!   Generation API used).
+//! - `AnalyzeWord_CanGuess_ReturnsCorrectAnalysis` -- PORTED as
+//!   `guesser_gate.rs::analyze_word_can_guess_returns_correct_analysis`, against a
+//!   hand-transcribed XML fixture (no C# CLI `--guess` surface exists to oracle-generate a TSV, so
+//!   this is verified directly against the C# unit test's own literal expected values, the same
+//!   pattern the Generation API tests use).
 //!
 //! **Architecture substitution for the 3 thread/memo tests** (`AnalyzeWord_ConcurrentRepeatedParsing_
 //! IsDeterministic`, `ParseWord_SingleThreaded_MatchesParallel_With{Compounding,AffixTemplate}`): C#
@@ -285,7 +284,7 @@ const D_ENCLITIC_ENTRY: &str = r#"
 /// allomorph, `adjacency="anywhere"`, `type="exclude"`.
 #[test]
 fn analyze_word_cannot_analyze_due_to_allomorph_cooccurence_failure_returns_empty_enumerable() {
-    // Step 1 (MorpherTests.cs:128-161): the single exclusion rule alone already rejects "sagd".
+    // The single exclusion rule alone already rejects "sagd" (MorpherTests.cs:128-161).
     let coo1 = r#"
       <AllomorphCoOccurrenceRules>
         <AllomorphCoOccurrenceRule type="exclude" primaryAllomorph="a32" otherAllomorphs="subEd" adjacency="anywhere" />
@@ -294,9 +293,9 @@ fn analyze_word_cannot_analyze_due_to_allomorph_cooccurence_failure_returns_empt
     let g1 = build_grammar_cooccurrence(ED_SUFFIX_MRULE, "mrEd", "", coo1);
     assert_empty(&Morpher::new(&g1, usize::MAX).parse_word("sagd"));
 
-    // Step 2 (MorpherTests.cs:163-183, the LT-22156/#311 pin): adding a SECOND rule that excludes
-    // `dEnclitic` -- which never actually co-occurs with sag in this grammar, so its own
-    // `IsWordValid` is trivially satisfied -- must NOT rescue "sagd". Pre-90dcee64 C# used
+    // Adding a SECOND rule that excludes `dEnclitic` -- which never actually co-occurs with sag in
+    // this grammar, so its own `IsWordValid` is trivially satisfied -- must NOT rescue "sagd"
+    // (MorpherTests.cs:163-183, the LT-22156/#311 pin). Pre-90dcee64 C# used
     // `.Any(IsWordValid)`, under which this second (satisfied) rule alone would have made the
     // whole check pass; post-fix, every attached rule must pass, so rule1's failure still rejects
     // the word. Still empty.
