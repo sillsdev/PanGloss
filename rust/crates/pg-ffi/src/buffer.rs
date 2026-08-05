@@ -157,7 +157,7 @@ fn write_word(buf: &mut Vec<u8>, outcome: &ParseOutcome) {
     // with its structured record, then sort by (signature, morpheme_ids, root_morpheme_index,
     // pos_id) — see module docs for why the tiebreaker is load-bearing, not decorative.
     //
-    // Belt-and-braces overclaim guard (2026-07-25): this format ([`MAGIC`]) has no `guessed` bit
+    // Belt-and-braces overclaim guard: this format ([`MAGIC`]) has no `guessed` bit
     // anywhere in its layout, so a guessed analysis reaching this function would be encoded
     // byte-indistinguishable from a confirmed one — exactly the overclaim `hc_parse_word`/
     // `hc_parse_batch` must never commit. Today `guess_fallback: false` at every call site into
@@ -534,7 +534,7 @@ mod tests {
         assert!(decode(&[0, 0, 0, 0]).is_none());
     }
 
-    // -- Encoder-level overclaim guard (2026-07-25) ------------------------------------------
+    // -- Encoder-level overclaim guard --------------------------------------------------------
     // These construct a guessed analysis directly (bypassing `pg_lexicon`/`pg-ffi`'s own
     // `guess_fallback` plumbing entirely) and feed it straight to this module's `MAGIC` encoder,
     // proving the guard in `write_word` itself refuses to emit it — not merely that today's call
