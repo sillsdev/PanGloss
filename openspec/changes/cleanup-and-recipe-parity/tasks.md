@@ -109,8 +109,26 @@ All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
 The mass comment sweep was comment-only by construction, so everything it found that needs a **code**
 change was logged rather than fixed. Verdicts and evidence are in `docs/doc-code-mismatch-ledger.md`,
 which lives on **`main`**, not on this branch — it arrives here at the pre-merge rebase. Each item
-below therefore restates enough evidence to be actionable without it. These are the actionable
-residue, ordered by consequence, not by size.
+below therefore restates enough evidence to be actionable without it.
+
+**Sweep outcome:** 1,606 markers → **0 in all five categories**, across 159 `.rs` files and 3 `.ps1`,
+with the whole change set verified comment-only (zero non-comment lines changed across
+`d49bed5..HEAD`). No crate sets `#![deny(missing_docs)]` or denies a rustdoc lint, so comment-only
+edits structurally cannot fail a build — which is why no build was needed to trust this.
+
+**Ordering rule for what follows: by who is misled and how badly, not by size.** The sweep found the
+same defect — project state written into a permanent artifact — at four layers, and only the top one
+was ever covered by a gate:
+
+| Layer | Instances | Who is misled | Was it caught? |
+|---|---|---|---|
+| Comments / doc comments | 1,606 → 0 | maintainers | yes, the ratchet |
+| Production string literals | 18 (5.4b) | **end users**, via diagnostics | no |
+| Test assertions | 1 (5.4c) | CI, and whoever trusts it | no |
+| A guard comment the code later violated | 1 (5.4a) | anyone reasoning about capability | no |
+
+So 5.4a leads (it is the only behavior change and needs a decision), then 5.4b (only item whose
+audience is the user), then the rest.
 
 - [ ] 5.4a **Decide `compile_metathesis_rule`'s lowering scope — needs an owner decision, and it is
       the only item here that changes behavior.** `replace.rs:2063` sets
@@ -123,20 +141,24 @@ residue, ordered by consequence, not by size.
       the widening and own it — all four comments corrected, a characteristics/capability row for
       anchored metathesis, and a test that fails if the scope moves back. Do not leave it: the file
       currently argues against its own code.
-- [ ] 5.4b **Make the checker's counts honest, then re-baseline — do this before 5.4c, which depends
-      on it.** `comment-hygiene.ps1` scores with PowerShell `-match`, which is **case-insensitive**,
-      so `Phase [A-Z]\b` matches "phase a" and `Stage \d[A-Z]?\b` matches "stage 1" — vocabulary this
-      repo uses for real algorithm structure (`composite.rs:881`, *"propose (stage 1) plus confirm
-      (stage 2)"*). The ratchet therefore over-counts, and worse, it pressures a sweep into rewriting
-      correct domain prose to satisfy a regex. Fix with `-cmatch` (or inline `(?-i)`), then re-baseline
-      in the same commit, since the fix changes every count. The branch header alignment with `main`
-      is already done (`9084d40`).
-- [ ] 5.4c The ratchet is reporting-only in `doctor` by design. Decide whether a **category
-      regression** (not the backlog) should fail CI, now that it has demonstrably caught one real
-      regression created mid-sweep — the first gate on this branch observed firing on a live defect
-      rather than asserted to work. This is the "minimum sufficient gate as a hook, not prose"
-      argument applied to documentation. Do 5.4b first: gating on a metric that miscounts is how a
-      gate earns its way to being switched off.
+- [ ] 5.4b **Rewrite the 18 plan references that ship to users.** The checker reads comment lines
+      only — correctly, since a plan path in a string literal is often a file the code opens — so it
+      cannot see diagnostic and error *text* that cites internal openspec folders: `capability.rs` (5),
+      `coverage_ledger.rs` (5), `plan_interaction_coverage.rs` (2), and one each in `make_report.rs`,
+      `analyzer.rs`, `compose_budget.rs`, `conformance_coverage.rs`, `morphotactics.rs`,
+      `recipe_registry.rs` (production only; `tests/`, `examples/`, `cfg(test)` excluded). Example,
+      `analyzer.rs:98` — *"(openspec/changes/cover-unordered-morph-rules) rather than silently
+      truncated."* A user can be shown a pointer to a plan they cannot read. **Ranked above the
+      remaining items because it is the only one whose audience is the end user rather than a
+      maintainer.** Fix per message: say what the reader should DO, keep the construct name. Consider a
+      companion check scoped to production string literals.
+- [ ] 5.4c **Fix the test that freezes a date while claiming not to.**
+      `pg-foma/tests/subrecipe_dossier_contract.rs:241-248` is named
+      `subrecipe_dossier_logs_links_and_decision_triggers_are_dated` but asserts
+      `log.contains("| 2026-08-01 |")`. A dossier updated to a later date, or a new dossier added,
+      fails a test whose stated contract it satisfies — and the message will say "needs a dated
+      research-log row" about a log that has one. Match `| 20\d\d-\d\d-\d\d |` instead. Ranked here
+      because a test looks authoritative and gates CI, so a frozen date does the most damage there.
 - [ ] 5.4d Fix the stale assertion **message** in `capability.rs`'s
       `compose_envelope_meet_correctness_two_confirm_only_constructs` (`:7633`), which calls the
       `Overwrite`-output `MprGroup` "the Refuse-worthy half". The test's `ConfirmOnly` expectation is
@@ -146,6 +168,23 @@ residue, ordered by consequence, not by size.
       — the objective this change explicitly rejected — and has **zero consumers**. Already a Stage 4
       instance in the grill agenda; listed here so it is not lost if the grill defers. Last because
       it is the only item that is purely a deletion judgement, with nothing depending on it.
+- [ ] 5.4f **Decide whether the hygiene gate should fail CI, not just report in `doctor`.** Newly
+      worth asking, because the ratchet is no longer a ratchet: every category is now **0**, so it is
+      already a zero-tolerance gate in effect. It is also the one gate on this branch verified by
+      falsification rather than assertion (`dfa0ca2`: injecting one marker of each category exits 1 and
+      names all five; the lowercase `stage 1`/`phase a` line does not trip it). Counter-argument to
+      weigh: `doctor` deliberately keeps this non-fatal because a documentation finding that blocks
+      every managed build is the gate shape this repo has already watched get switched off. Failing
+      *CI* is a different lever from failing *every local build* — decide which.
+
+**Done during the sweep, recorded so the ordering above still reads correctly:**
+
+- [x] 5.4g Make the checker's counts honest, then re-baseline. PowerShell `-match` ignores case, so
+      `Stage \d` matched "stage 1" and `Phase [A-Z]` matched "phase a" — this codebase's own words for
+      propose/confirm structure, not project state. Scoped to `(?-i:...)` on those two patterns only,
+      deliberately not a blanket case-sensitive match, so a capitalised task number is still caught.
+      Removed 36 false positives on `main`'s tree and the last 2 here. Branch `dfa0ca2`, `main`
+      `eb9f5ac`; header alignment `9084d40`.
 
 ## 6. Divvun-derived proposer-precision experiments (owner-supplied 2026-07-31)
 
