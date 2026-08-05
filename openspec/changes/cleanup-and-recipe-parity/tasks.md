@@ -130,17 +130,23 @@ was ever covered by a gate:
 So 5.4a leads (it is the only behavior change and needs a decision), then 5.4b (only item whose
 audience is the user), then the rest.
 
-- [ ] 5.4a **Decide `compile_metathesis_rule`'s lowering scope — needs an owner decision, and it is
-      the only item here that changes behavior.** `replace.rs:2063` sets
-      `PatternLowerScope::RewriteRuleCompile` while four comments (`:311`, `:1736`, `:1795`, `:2056`)
-      say `Baseline`. The code was flipped on 2026-07-28 by `2639067a` ("complete four-grammar FST
-      parity recipes") — a commit about something else — and the comment above it had predicted
-      exactly that. Its safety argument is also false: `compile_metathesis_swap_net:1858-1872` strips
-      leading/trailing `Slot::Anchor` *before* the `slot_candidates` refusal it relies on, so anchored
-      metathesis moved from refused-as-unsupported to compiled. Either revert to `Baseline`, or keep
-      the widening and own it — all four comments corrected, a characteristics/capability row for
-      anchored metathesis, and a test that fails if the scope moves back. Do not leave it: the file
-      currently argues against its own code.
+- [x] 5.4a **`compile_metathesis_rule`'s lowering scope — owner decided: KEEP the widening, correct
+      the comments** (`6df640d`, comment-only). `replace.rs:2063` stays on
+      `PatternLowerScope::RewriteRuleCompile`, so a word-edge `Anchor` compiles as a ConfirmOnly swap
+      superset rather than being refused as unsupported.
+
+      **This item was over-charged when banked, and re-deriving it rather than trusting the ledger is
+      what found that.** The claim was "unowned, untested, no characteristics row" — wrong on all
+      three. `2639067a` moved `capability.rs:964` in lockstep (the very disagreement the comment
+      feared), rewrote `phase_c_metathesis.rs`'s test to
+      `metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset` asserting the net compiles
+      and `qp → pq` fires, and `CharacteristicKind::Metathesis` already tracks admission through the
+      function that flipped. Six comments were stale, not four (add `capability.rs:959` and
+      `phase_c_metathesis.rs:959-965`, whose header said the shape "stays honestly unsupported" six
+      lines above the test asserting it compiles). `Baseline` remains live via `lower_span`.
+
+      What survives as the real defect: the guard's *stated reason* was false while the guard was
+      fine — no gate here catches being right for a wrong reason.
 - [ ] 5.4b **Rewrite the 18 plan references that ship to users.** The checker reads comment lines
       only — correctly, since a plan path in a string literal is often a file the code opens — so it
       cannot see diagnostic and error *text* that cites internal openspec folders: `capability.rs` (5),
