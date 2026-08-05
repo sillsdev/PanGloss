@@ -169,7 +169,7 @@ fn same_recipe_fields_reproduce_identical_xml_across_independent_calls() {
     assert_eq!(xml_a, xml_b);
 }
 
-// --- Stage 2: build::gating (partition-k). ---
+// --- build::gating (partition-k). ---
 
 #[test]
 fn gating_recipe_loads_and_is_deterministic() {
@@ -198,7 +198,7 @@ fn gating_recipe_loads_and_is_deterministic() {
     );
 }
 
-// --- Stage 2: build::alpha (alpha-variable scale). ---
+// --- build::alpha (alpha-variable scale). ---
 
 #[test]
 fn alpha_recipe_loads_and_is_deterministic() {
@@ -222,7 +222,7 @@ fn alpha_recipe_loads_and_is_deterministic() {
     assert_eq!(g.prules.len(), 2, "alpha_var_count independent rules");
 }
 
-// --- Stage 2: build::strata (stratum-depth scale). ---
+// --- build::strata (stratum-depth scale). ---
 
 #[test]
 fn strata_recipe_loads_and_is_deterministic() {
@@ -241,7 +241,7 @@ fn strata_recipe_loads_and_is_deterministic() {
     assert_eq!(g.strata.len(), 3, "1 base stratum + 2 extra");
 }
 
-// --- Stage 2: build::compounding (compounding-rule scale). ---
+// --- build::compounding (compounding-rule scale). ---
 
 #[test]
 fn compounding_recipe_loads_and_is_deterministic() {
@@ -266,7 +266,7 @@ fn compounding_recipe_loads_and_is_deterministic() {
     assert_eq!(compounding_rules, 1);
 }
 
-// --- Stage 2: build::quantifier (HONEST-SKIP bail gate). ---
+// --- build::quantifier (HONEST-SKIP bail gate). ---
 
 #[test]
 fn quantifier_recipe_loads_and_is_deterministic() {
@@ -286,7 +286,7 @@ fn quantifier_recipe_loads_and_is_deterministic() {
     assert_eq!(g.prules.len(), 1);
 }
 
-// --- Stage 2: build::metathesis (HONEST-SKIP bail gate). ---
+// --- build::metathesis (HONEST-SKIP bail gate). ---
 
 #[test]
 fn metathesis_recipe_loads_and_is_deterministic() {
@@ -311,7 +311,7 @@ fn metathesis_recipe_loads_and_is_deterministic() {
     assert_eq!(metathesis_rules, 1);
 }
 
-// --- Stage 2: build::simultaneous (HONEST-SKIP bail gate, needs detection wiring). ---
+// --- build::simultaneous (HONEST-SKIP bail gate, needs detection wiring). ---
 
 #[test]
 fn simultaneous_recipe_loads_and_is_deterministic() {
@@ -331,7 +331,7 @@ fn simultaneous_recipe_loads_and_is_deterministic() {
     assert_eq!(g.prules.len(), 1);
 }
 
-// --- Stage 2: build::right_to_left (HONEST-SKIP bail gate, needs detection wiring). ---
+// --- build::right_to_left (HONEST-SKIP bail gate, needs detection wiring). ---
 
 #[test]
 fn right_to_left_recipe_loads_and_is_deterministic() {
