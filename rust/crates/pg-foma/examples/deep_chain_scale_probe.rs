@@ -1,7 +1,6 @@
 //! Part C (delanguaging) measurement tool: does a SYNTHETIC deep standalone-affix chain
-//! (`pg_grammar_gen::build::chain`) reproduce the real-language OOM/`apply_up`-explosion anchor
-//! documented in `docs/fst-plan/p6-deep-truncation-chain-report.md`, without needing the
-//! gitignored Aweti corpus at all?
+//! (`pg_grammar_gen::build::chain`) reproduce the real-language OOM/`apply_up`-explosion this
+//! shape is known to trigger, without needing the gitignored Aweti corpus at all?
 //!
 //! ## What this probes and why
 //! The report root-caused Aweti's pre-fix `apply_up` non-termination (and the historical
@@ -45,12 +44,11 @@ use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
 
 /// Hard wall-clock cutoff for the UNBOUNDED `propose()` call -- this is the "did it explode"
 /// signal itself, not a correctness bound. Chosen generously (well above the sub-10ms/word
-/// production target, `docs/fst-plan/synthetic-stress-grammar-plan.md` §3's V8) so a clean pass
-/// is unambiguous and a timeout is unambiguous too.
+/// production target) so a clean pass is unambiguous and a timeout is unambiguous too.
 const UNBOUNDED_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A small, deliberately tight apply-path cap for the honest-failure half of the probe -- mirrors
-/// every other Phase C gate's "explicit caps, never env vars" convention.
+/// the other scale gates' "explicit caps, never env vars" convention.
 const TIGHT_PATH_CAP: usize = 2_000;
 
 fn recipe(n: usize) -> Recipe {

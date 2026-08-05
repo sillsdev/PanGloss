@@ -1,11 +1,10 @@
-//! Phase 0 rejection census for the deterministic candidate pre-filter plan
-//! (`docs/superpowers/specs/2026-07-16-candidate-prefilter-plan.md`, "Phase 0 — rejection
-//! census"). Measures, per grammar, what fraction of FAILING-candidate confirm time is spent on
-//! candidates that a cheap deterministic predicate (env/co-occurrence/stem-name/bound-root —
-//! `pg_rules::validity`'s gate) could have rejected BEFORE the engine ever ran (category a), vs.
-//! candidates where the unapply/synthesis cascade never produced a derivation at all (category
-//! b), vs. everything else (category c) — the plan's own go/no-go gate: build the filter only if
-//! (a) is NOT under ~10% of failing time on every grammar.
+//! Rejection census for the deterministic candidate pre-filter design. Measures, per grammar,
+//! what fraction of FAILING-candidate confirm time is spent on candidates that a cheap
+//! deterministic predicate (env/co-occurrence/stem-name/bound-root — `pg_rules::validity`'s gate)
+//! could have rejected BEFORE the engine ever ran (category a), vs. candidates where the
+//! unapply/synthesis cascade never produced a derivation at all (category b), vs. everything else
+//! (category c) — the go/no-go gate for building the filter: only if (a) is NOT under ~10% of
+//! failing time on every grammar.
 //!
 //! ## Methodology (why this isn't just "sum per-candidate confirm_all times")
 //!

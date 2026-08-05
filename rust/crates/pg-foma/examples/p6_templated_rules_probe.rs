@@ -1,5 +1,5 @@
-//! P6 prototype stretch goal (docs/fst-plan/p6-prototype-report.md): do Aweti's 18 phonological
-//! rules compile via `pg_foma::replace`? Scope (per the prototype brief): rule COMPILE only. Does
+//! P6 prototype stretch goal: do Aweti's 18 phonological rules compile via `pg_foma::replace`?
+//! Scope (per the prototype brief): rule COMPILE only. Does
 //! NOT call `pg_foma::emit::emit()` (that is the exact OOM this whole P6 effort routes around —
 //! `examples/templated_probe.rs`'s own module doc: 4.9GB RSS, unfinished, in `preexpand::
 //! build_composites`) and does NOT attempt underlying-form lexc emission or root-scale

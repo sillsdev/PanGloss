@@ -1,6 +1,5 @@
-//! P6 MPR/POS subrule gating (`docs/fst-plan/foma-fst-plan.md` §P6 item 1 / `docs/fst-plan/
-//! p6-prototype-report.md` §3, §6 item 4): closes the recall gap the prototype report named but
-//! left open — a [`RewriteSubruleDef`] carrying `requiredPartsOfSpeech`/`requiredMPRFeatures`/
+//! MPR/POS subrule gating: closes a recall gap a prototype build named but left open — a
+//! [`RewriteSubruleDef`] carrying `requiredPartsOfSpeech`/`requiredMPRFeatures`/
 //! `excludedMPRFeatures` was compiled as if unconditional, so a rule that must NOT apply to one
 //! root (Indonesian `prule5`'s `excludedMPRFeatures="mpr1"`) or must ONLY apply to POS-restricted
 //! roots (Amharic `prule1`/`prule2`'s `requiredPartsOfSpeech`) fired for every root reaching it.
@@ -93,8 +92,7 @@
 //!    `2^(#gated subrules)`, but in practice bounded by the number of DISTINCT gating vectors
 //!    actually realized by the grammar's own entries (≤ `#entries`), an honest, measurable
 //!    per-grammar quantity — matches this repo's "keep old paths, measure don't guess" convention
-//!    (`docs/fst-plan/foma-fst-plan.md`'s keep-old-paths directive) rather than a blind assumption
-//!    it always stays small.
+//!    rather than a blind assumption it always stays small.
 //! 4. [`compile_gated_grammar`] builds ONE composed network PER GROUP: [`crate::uflexc::
 //!    emit_underlying_filtered`] restricted to that group's entries (affix chains unfiltered — see
 //!    their own doc), [`crate::replace::compile_and_compose_rules_gated`] with every gated
@@ -450,8 +448,7 @@ pub fn compile_gated_grammar_with_budget(
 
 #[cfg(test)]
 mod group_budget_tests {
-    //! `docs/fst-plan/phase-b-compose-budget-design.md` §6's own test plan for this module: a
-    //! hand-authored grammar with 4 INDEPENDENT ungrouped-MPR-gated subrules (`prule1`..`prule4`,
+    //! A hand-authored grammar with 4 INDEPENDENT ungrouped-MPR-gated subrules (`prule1`..`prule4`,
     //! each `requiredMPRFeatures="mprN"`) and 16 lexical entries whose own `ruleFeatures` realize
     //! every one of the 2^4 = 16 possible gating-key combinations (entry `i`'s `ruleFeatures` is
     //! exactly the subset of `{mpr1,mpr2,mpr3,mpr4}` corresponding to `i`'s own bits, `i` in

@@ -1,30 +1,26 @@
-//! ## Delanguaging Part C note (2026-07-25)
-//! Renamed off the real language's name (was `ffi_indonesian_parity.rs`). Still corpus-blocked:
-//! needs `samples/data/indonesian-hc.xml` + `samples/data/indonesian-words.txt` (gitignored). The
-//! actual property under test (transport/encoding fidelity between the FFI buffer path and the
-//! in-process `Morpher`) has nothing to do with Indonesian specifically — ANY loadable grammar with
-//! enough real analyses would do — but Part C's own synthetic-reproduction attempt targeted the
-//! deep-standalone-affix-chain anchor (`pg_grammar_gen::build::chain`, see
-//! `pg-foma/tests/phase_c_chain_scale.rs`), not a full end-to-end FFI encode/decode corpus. A
-//! synthetic replacement for THIS gate is likely the cheapest of this whole file list to build in
-//! a follow-on pass (any `pg_grammar_gen` recipe + its own oracle word list would do), but building
-//! it was out of this pass's scope. Kept `#[ignore]`d unconditionally.
+//! ## Still gated on a real-language corpus
+//! Corpus-blocked: needs `samples/data/indonesian-hc.xml` + `samples/data/indonesian-words.txt`
+//! (gitignored). The actual property under test (transport/encoding fidelity between the FFI
+//! buffer path and the in-process `Morpher`) has nothing to do with Indonesian specifically — ANY
+//! loadable grammar with enough real analyses would do. A synthetic replacement (any
+//! `pg_grammar_gen` recipe plus its own oracle word list) would be cheap to build but does not
+//! exist yet, so this stays `#[ignore]`d unconditionally until one does.
 //!
-//! The tightest gate for M8 (plan brief): transport fidelity, not the C# golden. This test calls
+//! The tightest gate available: transport fidelity, not the C# golden. This test calls
 //! the real `extern "C"` entry points — exactly as an external caller would, through
 //! `pangloss_ffi::{hc_grammar_load, hc_parse_word, hc_parse_batch, hc_buf_free, hc_grammar_free}`,
 //! never reaching into `pg-ffi` internals — and decodes the returned buffer with the crate's own
 //! public reference decoder (`pangloss_ffi::decode`). It compares the result, analysis-for-
 //! analysis, against `pg_parse::Morpher::parse_word`'s in-process result for **all 121 words** of
-//! the Indonesian corpus (not just the 68 that match the C# golden — see MEMORY
-//! `rust-parity-facts`). Any divergence here is an FFI/buffer-encoding bug, not a pre-existing
-//! engine parity gap, because both sides run the identical engine — the whole point is isolating
-//! transport bugs (UTF-8 handling, morpheme-id marshalling, buffer framing, canonical-order
-//! sorting) from that separate, already-tracked parity gap.
+//! the Indonesian corpus (not just the 68 that match the C# golden). Any divergence here is an
+//! FFI/buffer-encoding bug, not a pre-existing engine parity gap, because both sides run the
+//! identical engine — the whole point is isolating transport bugs (UTF-8 handling, morpheme-id
+//! marshalling, buffer framing, canonical-order sorting) from that separate, already-tracked
+//! parity gap.
 //!
 //! Self-skips (rather than fails) if the untracked sample corpus isn't present on disk, matching
-//! the existing convention in `pg-grammar`'s tests (plan §8: "corpora stay untracked local files
-//! with self-skipping tests").
+//! the existing convention in `pg-grammar`'s tests: corpora stay untracked local files with
+//! self-skipping tests.
 //!
 //! Test-timing policy: the default local `cargo test --workspace --release`
 //! run must stay under ~60s and must not depend on this gitignored fixture at all, so both tests

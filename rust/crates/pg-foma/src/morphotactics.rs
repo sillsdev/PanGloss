@@ -1,6 +1,6 @@
-//! Morphotactic pruning for `crate::preexpand::extend`/`crate::emit::struct_extend` (plan
-//! `docs/fst-plan/morphotactic-composite-pruning.md`, the Aweti scale fix): both composite chain
-//! builders used to chain **every** candidate rule onto every root at every depth, gated only by
+//! Morphotactic pruning for `crate::preexpand::extend`/`crate::emit::struct_extend` (the Aweti
+//! scale fix): both composite chain builders used to chain **every** candidate rule onto every
+//! root at every depth, gated only by
 //! the cheap `required_syn_fs` unifiability pre-filter -- exploring rule orders the engine can
 //! never actually produce in synthesis. This module builds, once per grammar, a subset-construction
 //! automaton over the engine's own morphotactics (`pg-rules/src/stratum.rs`: `synth_apply_mrules`,
@@ -10,7 +10,7 @@
 //! never widening it (recall-preserving by construction: pruned exploration is always a subset of
 //! flat exploration).
 //!
-//! ## The engine facts this automaton mirrors (plan doc "Fix" section)
+//! ## The engine facts this automaton mirrors
 //! 1. Strata fold in document order 0..n (`pg-parse/src/morpher.rs::synthesis_pipeline_selected`);
 //!    a stratum applies only to words whose root stratum is not deeper -- so a chain's rules come
 //!    from a **non-decreasing stratum sequence** starting at the root's own stratum. [`ChainState::
@@ -18,7 +18,7 @@
 //!    legal right now"; `None` means "mid-template only" (see point 3).
 //! 2. Loose rules (`sd.mrules`) run in a Linear or Unordered cascade (`synth_apply_mrules`,
 //!    stratum.rs:1710-1712). v1 over-approximates Linear as Unordered (any order) -- sound,
-//!    simpler, and the plan doc's explicitly named out-of-scope item.
+//!    simpler, and deliberately out of scope for this v1 to distinguish.
 //! 3. Template slot rules apply **only inside a template application, in ascending slot order**
 //!    (`synth_slots_generic`, stratum.rs:1339-1388): a non-optional slot that produces nothing
 //!    terminates the walk (`if !slot_optional(slot) { return; }`, stratum.rs:1373-1379). The

@@ -1,12 +1,11 @@
-//! HC-rust port gap G3 closure gate (`docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1;
-//! `docs/p11-guesser-api-design.md`): exercises the additive `hc_parse_word_opts`/
-//! `hc_parse_batch_opts` FFI entry points against the real `extern "C"` boundary (never reaching
-//! into `pg-ffi` internals), using the same synthetic lexical-pattern grammar as
-//! `conformance-staging/edge-cases/guesser-pattern-root-fallback/` and `pg-cli`'s own
-//! `guess_tests` module, so all three surfaces (library, CLI, FFI) are provably testing the exact
-//! same engine behavior. Unlike `ffi_transport_parity.rs`, this grammar is self-contained and
-//! synthetic (no gitignored corpus dependency), so every test here runs in the default
-//! `cargo test --workspace` suite — this IS the "FFI path agrees with the CLI/library path" gate.
+//! Exercises the additive `hc_parse_word_opts`/`hc_parse_batch_opts` FFI entry points against the
+//! real `extern "C"` boundary (never reaching into `pg-ffi` internals), using the same synthetic
+//! lexical-pattern grammar as `conformance-staging/edge-cases/guesser-pattern-root-fallback/` and
+//! `pg-cli`'s own `guess_tests` module, so all three surfaces (library, CLI, FFI) are provably
+//! testing the exact same engine behavior. Unlike `ffi_transport_parity.rs`, this grammar is
+//! self-contained and synthetic (no gitignored corpus dependency), so every test here runs in the
+//! default `cargo test --workspace` suite — this IS the "FFI path agrees with the CLI/library
+//! path" gate.
 
 use std::ffi::c_void;
 
@@ -242,15 +241,15 @@ fn pre_existing_hc_parse_word_still_works_unchanged_on_this_grammar() {
     }
 }
 
-// -- Guess-off overclaim fix (2026-07-25) ----------------------------------------------------
+// -- Guess-off analyses must never be an unmarked guess ---------------------------------------
 //
-// Before this fix, `hc_parse_word`/`hc_parse_batch` retried through `pg_lexicon`'s guesser
-// unconditionally on a total analysis miss and encoded the result through the `MAGIC` wire
-// format, which has no `guessed` bit at all -- a guessed analysis was byte-indistinguishable from
-// a confirmed one for any caller of those two symbols. "gag"/"gagd" are this file's own
-// guess-only words (see `guess_root_zero_matches_in_process_and_finds_nothing_for_the_pattern_
-// only_word` above: the plain, guess-off engine finds nothing for them at all), making them the
-// exact fixture this overclaim needs.
+// `hc_parse_word`/`hc_parse_batch` encode through the `MAGIC` wire format, which has no
+// `guessed` bit at all -- a guessed analysis would be byte-indistinguishable from a confirmed
+// one for any caller of those two symbols if either ever retried through `pg_lexicon`'s guesser
+// on a total analysis miss. "gag"/"gagd" are this file's own guess-only words (see
+// `guess_root_zero_matches_in_process_and_finds_nothing_for_the_pattern_only_word` above: the
+// plain, guess-off engine finds nothing for them at all), making them the exact fixture this
+// invariant needs.
 
 /// Gate: `hc_parse_word` AND `hc_parse_batch` return ZERO analyses for a guess-only word, not an
 /// unmarked guess.

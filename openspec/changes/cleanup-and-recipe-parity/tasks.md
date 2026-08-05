@@ -104,6 +104,39 @@ All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
       `docs/fst-plan/recipe-parity-plan-2026-07-30.md` and this change's evidence; branch ready
       for user-driven merge (rebase + `--ff-only`).
 
+### 5.4 Work banked by the comment sweep (added 2026-08-04)
+
+The mass comment sweep was comment-only by construction, so everything it found that needs a **code**
+change was logged rather than fixed. Verdicts and evidence are in `docs/doc-code-mismatch-ledger.md`;
+these are the actionable residue, ordered by consequence, not by size.
+
+- [ ] 5.4a **Decide `compile_metathesis_rule`'s lowering scope — needs an owner decision, and it is
+      the only item here that changes behavior.** `replace.rs:2063` sets
+      `PatternLowerScope::RewriteRuleCompile` while four comments (`:311`, `:1736`, `:1795`, `:2056`)
+      say `Baseline`. The code was flipped on 2026-07-28 by `2639067a` ("complete four-grammar FST
+      parity recipes") — a commit about something else — and the comment above it had predicted
+      exactly that. Its safety argument is also false: `compile_metathesis_swap_net:1858-1872` strips
+      leading/trailing `Slot::Anchor` *before* the `slot_candidates` refusal it relies on, so anchored
+      metathesis moved from refused-as-unsupported to compiled. Either revert to `Baseline`, or keep
+      the widening and own it — all four comments corrected, a characteristics/capability row for
+      anchored metathesis, and a test that fails if the scope moves back. Do not leave it: the file
+      currently argues against its own code.
+- [ ] 5.4b Fix the stale assertion **message** in `capability.rs`'s
+      `compose_envelope_meet_correctness_two_confirm_only_constructs` (`:7633`), which calls the
+      `Overwrite`-output `MprGroup` "the Refuse-worthy half". The test's `ConfirmOnly` expectation is
+      correct — `MprGroupOverwrite`'s disposition is `ConfigPredicate`, not `FailClosed` — so only the
+      message and the function name mislead. A string literal, hence out of a comment-only pass.
+- [ ] 5.4c Consider whether `Score::scalar_objective()` should exist. It returns bare `states + arcs`
+      — the objective this change explicitly rejected — and has **zero consumers**. Already a Stage 4
+      instance in the grill agenda; listed here so it is not lost if the grill defers.
+- [ ] 5.4d Re-baseline `rust/tools/comment-hygiene.ps1` once the sweep is finished, and bring the
+      branch copy in line with `main`'s (the branch header still cites a specific backlog size,
+      which is the kind of project state the checker itself forbids).
+- [ ] 5.4e The ratchet is reporting-only in `doctor` by design. Decide whether a **category
+      regression** (not the backlog) should fail CI, now that it has demonstrably caught one real
+      regression created mid-sweep. This is the "minimum sufficient gate as a hook, not prose"
+      argument applied to documentation.
+
 ## 6. Divvun-derived proposer-precision experiments (owner-supplied 2026-07-31)
 
 Source: Divvun/Giella research pass (`docs/research/divvun/00`–`17`; read

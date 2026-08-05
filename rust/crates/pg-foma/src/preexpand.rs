@@ -1,6 +1,6 @@
-//! Rule-application pre-expansion + boundary-fusion composite probing (plan
-//! `docs/fst-plan/foma-fst-plan.md` P1d): closes the two structural miss classes the P1c
-//! investigation found on Amharic (32/32 misses classified, no third class) --
+//! Rule-application pre-expansion + boundary-fusion composite probing: closes the two structural
+//! miss classes the P1c investigation found on Amharic (32/32 misses classified, no third
+//! class) --
 //!
 //! 1. **Interdigitation** (`Role::Infix` rules -- Amharic's `-pfv-`/`-conv-`, 24/32 of the P1c
 //!    misses): a standalone rule whose RHS interleaves `InsertSegments` actions AROUND a `Copy` of
@@ -100,14 +100,14 @@
 //! `RuleCache` [`build_composites`] builds once per grammar, so a rule's LHS FST is compiled once at
 //! cache-build time and read (not recompiled) on every one of its ~305k probes -- before this, each
 //! probe recompiled that FST from scratch (Thompson NFA build + determinize), which dominated
-//! Amharic's emit wall time (~35s of it). The **P6 successor** (replace-rule compilation,
-//! `docs/fst-plan/foma-fst-plan.md` P6 item 1) retires this bridge entirely by compiling
-//! interdigitating/fusing rules as real foma replace-calculus rules over root natural-class
+//! Amharic's emit wall time (~35s of it). The **P6 successor** (replace-rule compilation) retires
+//! this bridge entirely by compiling interdigitating/fusing rules as real foma replace-calculus
+//! rules over root natural-class
 //! patterns, composed directly into the network instead of enumerated per root and per chain --
 //! exactly the same successor already named for [`crate::junctions::PhonologyProbe`]'s own
 //! enumeration bridge.
 //!
-//! ## Morphotactic pruning (`docs/fst-plan/morphotactic-composite-pruning.md`, the Aweti scale fix)
+//! ## Morphotactic pruning (the Aweti scale fix)
 //! [`extend`]'s flat recursion above chains **every** candidate rule onto every root at every
 //! depth, gated only by the cheap `required_syn_fs` pre-filter -- workable at Amharic's scale
 //! (module doc, "SCALE BRIDGE") but not at Aweti's (855 roots x 123 candidate rules): the flat

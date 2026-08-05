@@ -155,7 +155,7 @@ pub fn select_plan(
     prules_in_order: &[&PhonRuleDef],
     budget: &ComposeBudget,
 ) -> SelectionOutcome {
-    // Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): derived ONCE, outside the loop.
+    // Derived once, outside the loop.
     // This function used to call `compose_envelope(g, ..)` per candidate, and each of those calls
     // re-ran the whole `capability::characterize` grammar walk -- real `Simultaneous`-mode
     // `foma::types::Fsm` construction included -- for a profile that cannot differ between
@@ -716,9 +716,9 @@ mod tests {
         );
     }
 
-    /// The load-bearing invariant (deliverable 3, bullet 4; design.md D3's own claim: "EVERY
-    /// capability-passing plan is recall-preserving, so all produce the identical confirmed set").
-    /// For every grammar this module's own fixtures exercise, every pair of ADMISSIBLE candidates
+    /// The load-bearing invariant: EVERY capability-passing plan is recall-preserving, so all
+    /// produce the identical confirmed set. For every grammar this module's own fixtures exercise,
+    /// every pair of ADMISSIBLE candidates
     /// [`select_plan`] considered must AGREE under [`differential_oracle`] -- proving selection
     /// among them can only ever trade cost, never correctness. Run over the two grammars whose
     /// candidate sets actually contain ≥2 admissible plans (the ordinary-Admit fixture collapses to
