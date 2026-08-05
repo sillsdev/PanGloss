@@ -301,12 +301,21 @@ mechanism-graph build-out (§1's owner decision) begins.
 and the link-policy reversal invalidated ~90 link "fixes" made four hours earlier. Any module slated
 for deletion must be deleted first, or its cleanup is thrown away.
 
-- [ ] 5.7a **Take the Stage 3 cut first** (grill agenda, owner already approved in principle):
-      `ExecutableCandidate`, `PortablePlan`, `seal()`, `CertificationScope`, `ExecutionDisposition`,
-      `executable_candidate_gate.rs`. `Registry::executable_candidate` has exactly one caller
-      crate-wide — its own gate. **Note the boundary:** `LoweringAdapter` is extracted and KEPT, and
-      the mechanism-graph / dossier substrate is the *build-out target*, not a cut candidate — §1's
-      owner decision reversed the earlier framing on that. Deleting is cheap and needs one real build.
+- [ ] 5.7a **Take the Stage 3 cut first — but the grill agenda's list is WRONG in two places, verified
+      by reference count before touching anything.** Do not delete from the agenda's list directly.
+
+      | Symbol | Code refs | Verdict |
+      |---|---:|---|
+      | `ExecutableCandidate` | 6, in 2 files | **delete** |
+      | `PortablePlan` | 22, in 3 files (incl. its own gate) | **delete** |
+      | `executable_candidate.rs` + `executable_candidate_gate.rs` | — | **delete** |
+      | `CertificationScope` | **0** | already gone; the agenda names a symbol that does not exist |
+      | `ExecutionDisposition` | 21, in 4 files | **KEEP — the agenda is wrong.** It is *defined* at `recipe_mechanism.rs:680` and consumed by `recipe_mechanism_graph.rs`: it belongs to the mechanism-graph substrate, which §1's owner decision makes the **build-out target**, not a cut candidate. Deleting it cuts into what we are keeping. |
+      | `LoweringAdapter` | 55, in 12 files | **extract and keep**, as the agenda says |
+
+      The corrected cut is therefore materially smaller and safer than the approved-in-principle one.
+      Needs one real build. `Registry::executable_candidate`'s single crate-wide caller (its own gate)
+      still holds — that part of the agenda checks out.
 - [ ] 5.7b **Per-module structure+comment passes**, in this order. These are the modules where the
       backlog and the architectural weight coincide, and every one of them is on the path the
       subrecipe work will touch:
