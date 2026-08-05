@@ -4047,53 +4047,9 @@ fn emit_with_budget_profiled_with_strategy(
     }
 }
 
-/// Templated-morphotactics emitter: [`emit_with_budget`]'s
-/// structural skeleton (template grouping, slot chains, derivation layers) refitted with
-/// [`TextMode::UnderlyingTokens`] instead of [`TextMode::SurfaceProbed`] — every leaf text site
-/// emits plain UNDERLYING text in `alphabet`'s token space, meant to be composed with
-/// [`crate::replace::compile_and_compose_rules`]'s rule cascade rather than this crate's own
-/// surface-junction machinery. Returns the SAME [`EmitResult`] shape [`emit_with_budget`] does, so
-/// a caller can inspect `report.tier`/`report.counts`/`report.uncovered` identically.
-///
-/// `allowed_entries`: mirrors `uflexc::emit_underlying_filtered`'s own convention exactly (that
-/// module's doc: "not a coverage gap — a DIFFERENT group's lexicon has it") — `crate::gate`'s
-/// static MPR/POS partition design, for whenever a templated grammar needs it. `None` (every
-/// caller today; Aweti has zero gated subrules — `crate::gate::find_gated_subrules` returns empty
-/// for it) includes every entry, unfiltered.
-///
-/// What this function deliberately does NOT do, and why:
-/// - **No FST precision knob.** [`PrecisionConfig::Strip`] only, hardcoded — every `write_tag_entry`/
-///   `build_deriv_chain`/`build_slot_chain` call below still takes a [`PrecisionEmit`] (unchanged
-///   function signatures), but it is always the pure-passthrough one (`crate::precision`'s own
-///   doc: "under `Strip` this is byte-identical to the pre-knob emitter").
-/// - **No junction probing, no bare-root phonology enrichment.** `phon` is `None` at every call
-///   site — the affix/root's own underlying spelling already IS the token text
-///   ([`TextMode::UnderlyingTokens`]'s whole point); this ALSO means every `{name}Stripped`
-///   sibling lexicon [`emit_with_budget`] writes (module doc, "Junction-aware affix/root
-///   emission") is skipped outright here, since nothing ever tests `phon.is_some()` true.
-/// - **No composite pipeline at all** (`crate::preexpand::build_composites_with_mode`,
-///   [`build_structural_composites`]) — this is the mechanism whose `O(roots × rules^depth)`
-///   eager Rust-side enumeration is exactly what OOMs on Aweti (855 roots × 135 mrules;
-///   `EmitReport::enum_budget_exceeded`'s own error text cites 2,833,559 fusion entries / 691MB
-///   lexc / ~8.8GB `apply_up` allocation for this grammar specifically), so skipping it
-///   unconditionally is the scale fix this function exists for. The [`EnumerationBudget`]
-///   plumbing is still threaded in and checked below regardless — defensive parity with
-///   [`emit_with_budget`]'s own shape, even though nothing in this function's own call graph
-///   (`collect_roots`/`build_deriv_chain`/`build_slot_chain` under this mode never recurse the way
-///   `struct_extend` does) can actually trip it today.
-/// - **Aweti's 41 single-sided-truncation `is_structural_rule` mrules are NOT specially handled.**
-///   Under [`TextMode::SurfaceProbed`], [`build_structural_composites`] is what gives these rules
-///   their CORRECT (LHS-material-dropped) surface; the ordinary two-entry `emit_rule_allomorphs`
-///   path this function DOES use emits each such allomorph's literal `InsertSegments` text
-///   verbatim, with no drop applied — upward-safe in the sense that it never emits LESS than a
-///   correct entry would (module doc convention throughout this crate), but it can genuinely MISS
-///   the correct underlying form for a root that needs the drop, if no OTHER allomorph of the same
-///   rule happens to cover it unconditionally. The general shape of the fix would be representing a
-///   structural allomorph via its OWN alternative underlying forms rather than the surface-probe
-///   composite path.
-///   Breach constructor for [`emit_underlying_templated`]: builds the same
-///   `EmitResult` shape every other breach in this module uses (`lexc_source` empty,
-///   `tier: FomaTier::Unsupported`), never `Result`-ifying this function's own signature.
+/// Breach constructor for [`emit_underlying_templated`]: builds the same `EmitResult` shape every
+/// other breach in this module uses (`lexc_source` empty, `tier: FomaTier::Unsupported`), never
+/// `Result`-ifying that function's own signature.
 fn emit_line_budget_breach(
     uncovered: Vec<UncoveredItem>,
     counts: EmitCounts,
@@ -4262,6 +4218,50 @@ fn verify_tags_reachable(
     }
 }
 
+/// Templated-morphotactics emitter: [`emit_with_budget`]'s
+/// structural skeleton (template grouping, slot chains, derivation layers) refitted with
+/// [`TextMode::UnderlyingTokens`] instead of [`TextMode::SurfaceProbed`] — every leaf text site
+/// emits plain UNDERLYING text in `alphabet`'s token space, meant to be composed with
+/// [`crate::replace::compile_and_compose_rules`]'s rule cascade rather than this crate's own
+/// surface-junction machinery. Returns the SAME [`EmitResult`] shape [`emit_with_budget`] does, so
+/// a caller can inspect `report.tier`/`report.counts`/`report.uncovered` identically.
+///
+/// `allowed_entries`: mirrors `uflexc::emit_underlying_filtered`'s own convention exactly (that
+/// module's doc: "not a coverage gap — a DIFFERENT group's lexicon has it") — `crate::gate`'s
+/// static MPR/POS partition design, for whenever a templated grammar needs it. `None` (every
+/// caller today; Aweti has zero gated subrules — `crate::gate::find_gated_subrules` returns empty
+/// for it) includes every entry, unfiltered.
+///
+/// What this function deliberately does NOT do, and why:
+/// - **No FST precision knob.** [`PrecisionConfig::Strip`] only, hardcoded — every `write_tag_entry`/
+///   `build_deriv_chain`/`build_slot_chain` call below still takes a [`PrecisionEmit`] (unchanged
+///   function signatures), but it is always the pure-passthrough one (`crate::precision`'s own
+///   doc: "under `Strip` this is byte-identical to the pre-knob emitter").
+/// - **No junction probing, no bare-root phonology enrichment.** `phon` is `None` at every call
+///   site — the affix/root's own underlying spelling already IS the token text
+///   ([`TextMode::UnderlyingTokens`]'s whole point); this ALSO means every `{name}Stripped`
+///   sibling lexicon [`emit_with_budget`] writes (module doc, "Junction-aware affix/root
+///   emission") is skipped outright here, since nothing ever tests `phon.is_some()` true.
+/// - **No composite pipeline at all** (`crate::preexpand::build_composites_with_mode`,
+///   [`build_structural_composites`]) — this is the mechanism whose `O(roots × rules^depth)`
+///   eager Rust-side enumeration is exactly what OOMs on Aweti (855 roots × 135 mrules;
+///   `EmitReport::enum_budget_exceeded`'s own error text cites 2,833,559 fusion entries / 691MB
+///   lexc / ~8.8GB `apply_up` allocation for this grammar specifically), so skipping it
+///   unconditionally is the scale fix this function exists for. The [`EnumerationBudget`]
+///   plumbing is still threaded in and checked below regardless — defensive parity with
+///   [`emit_with_budget`]'s own shape, even though nothing in this function's own call graph
+///   (`collect_roots`/`build_deriv_chain`/`build_slot_chain` under this mode never recurse the way
+///   `struct_extend` does) can actually trip it today.
+/// - **Aweti's 41 single-sided-truncation `is_structural_rule` mrules are NOT specially handled.**
+///   Under [`TextMode::SurfaceProbed`], [`build_structural_composites`] is what gives these rules
+///   their CORRECT (LHS-material-dropped) surface; the ordinary two-entry `emit_rule_allomorphs`
+///   path this function DOES use emits each such allomorph's literal `InsertSegments` text
+///   verbatim, with no drop applied — upward-safe in the sense that it never emits LESS than a
+///   correct entry would (module doc convention throughout this crate), but it can genuinely MISS
+///   the correct underlying form for a root that needs the drop, if no OTHER allomorph of the same
+///   rule happens to cover it unconditionally. The general shape of the fix would be representing a
+///   structural allomorph via its OWN alternative underlying forms rather than the surface-probe
+///   composite path.
 pub fn emit_underlying_templated(
     g: &Grammar,
     alphabet: &SegAlphabet,

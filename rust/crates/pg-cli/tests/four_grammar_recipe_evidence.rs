@@ -379,15 +379,15 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     // registry's DECLARED families, independent of which apply to this grammar.
     assert_eq!(template["counts"]["syntactic"], 9);
     assert_eq!(template["counts"]["attested"], 9);
-    // 3, not 2 (openspec/changes/cleanup-and-recipe-parity/specs/recipe-strategy-routing):
-    // `token-cascade-morphology` used to gate on `HasPhonology` alone, so a phonology-free grammar
-    // like this one never got it -- only the plan-composed baseline and the always-applicable
-    // surface-probed compiler (`Applicability::Always`) were distinct candidates. Widened to
-    // `HasPhonologyOrTemplates`, this grammar's `<AffixTemplate>` alone now qualifies it too, and it
-    // is a genuinely distinct candidate rather than a relabelled baseline -- it compiles 14 states /
-    // 91 arcs, same as the surface-probed one, where the plan-composed baseline compiles 2/13. All
-    // three confirm; all three do 1 confirmation call, so the work-first key ties them and the
-    // smaller network wins, which is why `winner_strategy` below is still the plan-composed one.
+    // 3, not 2: `token-cascade-morphology` used to gate on `HasPhonology` alone, so a
+    // phonology-free grammar like this one never got it -- only the plan-composed baseline and the
+    // always-applicable surface-probed compiler (`Applicability::Always`) were distinct candidates.
+    // Widened to `HasPhonologyOrTemplates`, this grammar's `<AffixTemplate>` alone now qualifies it
+    // too, and it is a genuinely distinct candidate rather than a relabelled baseline -- it
+    // compiles 14 states / 91 arcs, same as the surface-probed one, where the plan-composed
+    // baseline compiles 2/13. All three confirm; all three do 1 confirmation call, so the
+    // work-first key ties them and the smaller network wins, which is why `winner_strategy` below
+    // is still the plan-composed one.
     assert_eq!(template["counts"]["static_count"], 3);
     assert_eq!(template["counts"]["feasible"]["kind"], "exact");
     assert_eq!(template["counts"]["feasible"]["value"], 3);
