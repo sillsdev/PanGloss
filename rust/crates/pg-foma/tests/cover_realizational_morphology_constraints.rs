@@ -1,26 +1,23 @@
-//! `openspec/changes/cover-realizational-morphology-constraints`: proposer-to-confirm containment
-//! for `MorphRuleDef::Realizational` (real_fs head-wrapped presence-blocking) plus three of the
-//! constraint families ADR 0001 (`docs/adr/0001-honest-capability-boundary.md`) says stay
-//! confirm-only-by-default: `<StemName>` region gating, `<Family>`/`Word::CheckBlocking`, and
-//! `MorphemeCoOccurrenceRule` adjacency exclusion.
+//! Proposer-to-confirm containment for `MorphRuleDef::Realizational` (real_fs head-wrapped
+//! presence-blocking) plus three constraint families that stay confirm-only-by-default:
+//! `<StemName>` region gating, `<Family>`/`Word::CheckBlocking`, and `MorphemeCoOccurrenceRule`
+//! adjacency exclusion.
 //!
 //! ## Why these four, in one grammar
 //! `pg_grammar::model`'s own doc calls `StemName`/`Family`/`RealizationalRule` "the realizational
-//! cluster" (W5) — all three are ported together in `pg_rules::validity`/`pg_rules::morph`, and
-//! `MorphemeCoOccurrenceRule` (W6) sits in the same `allomorphs_valid_impl` gate `StemName` does.
-//! Exercising all four in one synthetic, delanguaged grammar (`openspec/changes/STAGING.md`'s
-//! "Hard rule: synthetic data only" — invented CVC roots, no natural-language lexemes, named by
-//! construct not language) is cheaper than four separate fixtures and, per this change's own
-//! design.md, is exactly the "one grammar, several rows" shape `machine/conformance/languages/
-//! fusional-realizational-morphology` (merged, `openspec/changes/cover-template-truncation-
-//! reduplication`'s sibling lane) already established for the real conformance suite; this file's
-//! grammar is smaller and single-owner (`pg-foma`'s own test tree, not the `machine/conformance`
-//! submodule), built to isolate JUST these four constructs from that fixture's `Compounding`/
-//! `MorphRuleOrder::Unordered` material (both still `Disposition::FailClosed` per `capability.rs`
-//! — a NET-NEW, no-prior-owner Stage-2 lane per `openspec/changes/STAGING.md`, items 9-10 — so a
-//! containment test that also depended on THEM would conflate two different constructs' proofs).
-//! `morphologicalRuleOrder="linear"` throughout, deliberately, for the same reason: `Disposition::
-//! Proven` today (`CharacteristicKind::OrderedMorphRuleApplication`), never `Unordered`'s `FailClosed`.
+//! cluster" — all three are ported together in `pg_rules::validity`/`pg_rules::morph`, and
+//! `MorphemeCoOccurrenceRule` sits in the same `allomorphs_valid_impl` gate `StemName` does.
+//! Exercising all four in one synthetic, delanguaged grammar (invented CVC roots, no
+//! natural-language lexemes, named by construct not language) is cheaper than four separate
+//! fixtures and is exactly the "one grammar, several rows" shape `machine/conformance/languages/
+//! fusional-realizational-morphology` already established for the real conformance suite; this
+//! file's grammar is smaller and single-owner (`pg-foma`'s own test tree, not the
+//! `machine/conformance` submodule), built to isolate JUST these four constructs from that
+//! fixture's `Compounding`/`MorphRuleOrder::Unordered` material (both still
+//! `Disposition::FailClosed` per `capability.rs`, so a containment test that also depended on THEM
+//! would conflate two different constructs' proofs). `morphologicalRuleOrder="linear"` throughout,
+//! deliberately, for the same reason: `Disposition::Proven` today
+//! (`CharacteristicKind::OrderedMorphRuleApplication`), never `Unordered`'s `FailClosed`.
 //!
 //! ## The proposer-overapproximates / confirm-prunes property this file proves
 //! Every construct below is `Disposition::ConfirmOnly` (`capability.rs`'s `RealizationalMorphology`/
@@ -43,7 +40,7 @@
 //! → confirm, the real production pipeline) checked against `pg_parse::Morpher` (this codebase's
 //! own full-HC oracle) for EXACT structured-set equality, never mere non-emptiness.
 //!
-//! ## `capability.rs` disposition note (deliverable 3)
+//! ## `capability.rs` disposition note
 //! `CharacteristicKind::RealizationalMorphology` and `::CoOccurrenceConstraint` are characterized
 //! unconditionally (`ObservationDetail::None`, no per-configuration split) at `Disposition::
 //! ConfirmOnly` — unlike `Reduplication`/`RightToLeftRewrite`/`Metathesis`/`MultiTable`/
@@ -58,17 +55,15 @@
 //! `ConfirmOnly`, unconditionally, by construction, not merely by omission. `default_disposition`
 //! already reflects this (`Disposition::ConfirmOnly` needs no registered `CapabilityPredicate` —
 //! only `FailClosed`/`ConfigPredicate` kinds do, `capability.rs`'s own `undischarged_kinds` doc) —
-//! so the "upgrade" this change makes is not a new predicate but this file: oracle-backed positive
-//! AND negative witnesses proving the `ConfirmOnly` claim is actually true (over-propose, never
-//! under-propose) rather than an unproven assertion, for all four constructs at once. `StemName`/
-//! `Family`/`Blocking` have no `CharacteristicKind` of their own because they are not `model.rs`
-//! ENUM variants (design.md D1's own per-enum-family granularity) — `StemName`/`FamilyDef` are
-//! plain structs, and `blockable`/`required_stem_name` are boolean/`Option` fields on the SAME
-//! `MorphRuleDef` rule shapes `Affixation`/`RealizationalMorphology` already characterize; folding
-//! them into a separate `CharacteristicKind` would double-count the same `ModelLocation::MorphRule`
-//! occurrence design.md D1's table does not ask for. This file's tests are the missing proof that
-//! these fields' `ConfirmOnly` handling is faithful wherever they DO occur, closing the "placeholder
-//! disposition, never actually proven" gap the task names.
+//! so what this file adds is not a new predicate but oracle-backed positive AND negative witnesses
+//! proving the `ConfirmOnly` claim is actually true (over-propose, never under-propose) rather than
+//! an unproven assertion, for all four constructs at once. `StemName`/`Family`/`Blocking` have no
+//! `CharacteristicKind` of their own because they are not `model.rs` ENUM variants: `StemName`/
+//! `FamilyDef` are plain structs, and `blockable`/`required_stem_name` are boolean/`Option` fields
+//! on the SAME `MorphRuleDef` rule shapes `Affixation`/`RealizationalMorphology` already
+//! characterize; folding them into a separate `CharacteristicKind` would double-count the same
+//! `ModelLocation::MorphRule` occurrence. This file's tests are the proof that these fields'
+//! `ConfirmOnly` handling is faithful wherever they DO occur.
 
 use std::collections::HashSet;
 
