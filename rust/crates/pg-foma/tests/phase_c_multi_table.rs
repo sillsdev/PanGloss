@@ -1,30 +1,22 @@
-//! GATE 1 (`docs/fst-plan/phase-c-generator-design.md` §5/§6, priority (1)): multi-table
-//! COMPILED-CORRECT gate.
+//! GATE 1: the multi-table COMPILED-CORRECT gate.
 //!
-//! ## History: DETECT-WRONG -> COMPILED (inverted by `fix-multitable-fst-compilation`)
-//! Until `openspec/changes/fix-multitable-fst-compilation` landed, `pg_foma::replace::table_of`
-//! hardcoded `&g.char_tables[0]` for EVERY natural-class resolution (and `resolve_alpha_tuples`
-//! carried the identical hardcoded default), and `pg_foma::replace::SegAlphabet::token` is a pure
-//! function of a `CharDefId`'s raw numeric index (`PUA_BASE + cd.0`) with no awareness of which
-//! table that index belongs to. Composing those two facts (see `pg_grammar_gen::build::tables`'s
-//! module doc for the full derivation): a phonological rule compiled for a stratum whose OWN table
-//! was NOT table 0 got its natural-class members resolved against table 0, then converted into
-//! tokens via the CALLER's (correctly table-1-scoped) alphabet -- silently naming whatever segment
-//! happened to sit at that same positional index in table 1, not the linguistically intended one.
-//! This file used to pin exactly that wrongness (two concrete, deterministic wrong behaviors: the
-//! voice+ root never devoiced, and the voice- root got spuriously rewritten to the voice+ root's
-//! own spelling) as a DETECT-WRONG gate, per design doc §5's staged plan: "this gate's own module
-//! doc records that it FLIPS to a recall-parity mode once the two hardcoded sites (`table_of` in
-//! `pg_foma::replace`, and the analogous `resolve_alpha_tuples`) are fixed to thread the owning
-//! stratum's real table through."
+//! ## Why table ownership must be threaded explicitly, not defaulted
+//! `pg_foma::replace::SegAlphabet::token` is a pure function of a `CharDefId`'s raw numeric index
+//! (`PUA_BASE + cd.0`) with no awareness of which table that index belongs to (see
+//! `pg_grammar_gen::build::tables`'s module doc for the full derivation), so any natural-class
+//! resolution that silently defaults to table 0 rather than the rule's own owning stratum's table
+//! will name whatever segment happens to sit at that same positional index in a DIFFERENT table --
+//! not the linguistically intended one. That failure mode is real and concretely observable: a
+//! phonological rule compiled for a stratum whose OWN table was NOT table 0, resolved against
+//! table 0 and then converted into tokens via the CALLER's (correctly table-1-scoped) alphabet,
+//! produces two deterministic wrong behaviors: a voice+ root that never devoices, and a voice-
+//! root spuriously rewritten to the voice+ root's own spelling.
 //!
-//! `fix-multitable-fst-compilation` did exactly that: [`pg_foma::replace`] no longer has a
-//! `table_of` function at all -- [`pg_foma::replace::pattern_slots`]/
-//! [`pg_foma::replace::resolve_alpha_tuples`] now take an explicit `&CharDefTable` parameter, and
-//! [`pg_foma::replace::compile_rewrite_rule_subset`] resolves it ONCE per rule via
-//! `pg_foma::replace::owning_table` (the rule's OWN stratum's `StratumDef::table` -- never an
-//! implicit table-zero default). This file is the inversion design doc §5 predicted: every
-//! assertion below is the OPPOSITE of what this file asserted before the fix, and now PASSES.
+//! [`pg_foma::replace::pattern_slots`]/[`pg_foma::replace::resolve_alpha_tuples`] take an explicit
+//! `&CharDefTable` parameter, and [`pg_foma::replace::compile_rewrite_rule_subset`] resolves it
+//! ONCE per rule via `pg_foma::replace::owning_table` (the rule's OWN stratum's
+//! `StratumDef::table` -- never an implicit table-zero default). Every assertion below checks that
+//! this design produces the linguistically-correct result.
 //!
 //! This recipe deliberately misaligns table 1's voice-feature-to-index assignment relative to
 //! table 0's (`ConstructKnobs { table_count: 2, .. }` -> `build::tables::build`'s `misaligned =
