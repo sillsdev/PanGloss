@@ -295,7 +295,7 @@ pub fn compare(
     let mut cases = Vec::new();
     let mut matched_candidates: BTreeSet<&str> = BTreeSet::new();
 
-    // Baseline order first (task 4.7): a reader scanning the delta sees their suite's own order.
+    // Baseline order first: a reader scanning the delta sees their suite's own order.
     for base in baseline.cases() {
         let matched = candidate_by_id
             .get(base.case_id.as_str())
@@ -560,7 +560,7 @@ fn context_differences(
         json!(candidate.is_reproducible()),
     );
     // By code and count, never by prose: rewording an importer warning is not a change in the
-    // grammar's context (task 3.8).
+    // grammar's context.
     note(
         "diagnostics",
         diagnostic_code_counts(&b.diagnostics),
