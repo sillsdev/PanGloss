@@ -1,6 +1,6 @@
-//! Regression test for `docs/fst-plan/bare-root-compile-time-discharge.md` (research report 12's
-//! `BoundRoot` finding): omitting the bare-root (`"#"`-continuation) lexc arc for a root lexical
-//! entry that has EXACTLY ONE allomorph and that allomorph is `isBound="true"`.
+//! Regression test for the `BoundRoot` bare-root compile-time discharge: omitting the bare-root
+//! (`"#"`-continuation) lexc arc for a root lexical entry that has EXACTLY ONE allomorph and that
+//! allomorph is `isBound="true"`.
 //!
 //! # Why this is provably safe (not a heuristic)
 //! `pg_rules::validity::allomorphs_valid_impl`'s root arm (`AllomorphOwner::Root`) rejects a word
@@ -24,8 +24,8 @@
 //!    confirms exactly one analysis, proving ordinary bare-root recall is untouched.
 //!
 //! Assertion 1 is the one that fails with the fix reverted (the old code emits `bnd`'s bare line
-//! unconditionally) and passes with it applied — exactly the "regression test that fails with your
-//! change reverted" the accompanying report asks for.
+//! unconditionally) and passes with it applied — a regression test that actually fails without
+//! the fix, not just one that happens to pass with it.
 
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::emit;
