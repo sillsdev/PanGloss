@@ -1,7 +1,7 @@
-//! PK2 (docs/superpowers/specs/2026-07-15-fst-precision-knob-design.md §8 sequencing item (2)):
-//! the C-foma oracle gate for `eliminate flag` fidelity. Spec §5's load-bearing risk: foma-rs's
-//! `flag_eliminate` (the `foma` crate, pinned `=0.1.1`, `src/flags.rs`) is "the least-tested corner
-//! of foma (upstream bugs where flags interact with `_eq`, github.com/mhulden/foma issue #60)".
+//! PK2: the C-foma oracle gate for `eliminate flag` fidelity. Spec §5's load-bearing risk:
+//! foma-rs's `flag_eliminate` (the `foma` crate, pinned `=0.1.1`, `src/flags.rs`) is "the
+//! least-tested corner of foma (upstream bugs where flags interact with `_eq`,
+//! github.com/mhulden/foma issue #60)".
 //! Before the tuner's `Eliminate` arm (spec §1 position 1) is ever enabled, per-attribute
 //! elimination must be equivalence-tested against the real C foma oracle. On any mismatch the
 //! design must degrade to `AllFlags` (spec §5: "never to wrong").
