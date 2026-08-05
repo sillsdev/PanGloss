@@ -1,17 +1,16 @@
-//! Sub-project 2 (`PanGloss-demo` repo, `docs/superpowers/specs/2026-07-14-add-to-dictionary-
-//! and-realize-inference-design.md`, "Sub-project 2: RealizeMap inference"): built-in English
-//! gloss-alias inference, so a grammar with no `realize.toml` sidecar (`crate::map`'s
-//! `RealizeMap::empty()` path) still gets natural-ish phrases out of the box instead of every
-//! affix falling straight through to [`crate::ir::GlossIr::extras`].
+//! Built-in English gloss-alias inference for the `PanGloss-demo` consumer, so a grammar with no
+//! `realize.toml` sidecar (`crate::map`'s `RealizeMap::empty()` path) still gets natural-ish
+//! phrases out of the box instead of every affix falling straight through to
+//! [`crate::ir::GlossIr::extras`].
 //!
 //! [`infer_english`] builds a [`RealizeMap`] directly from a grammar's affix-morpheme gloss
 //! strings — no sidecar file, no grammar-specific tuning. Token normalization: lowercase, then
 //! split on `.`, `-`, `_`, `:`; the resulting token set is matched against a small built-in
 //! alias table (Num/Poss/Case, below). Only glosses actually present in the input iterator get
 //! an entry (mirrors `RealizeMap::parse`'s "only what's in the file" shape) — an unmatched gloss
-//! is simply absent, never guessed. **A wrong phrase is worse than an honest residue**: the
-//! design's guiding rule for this whole sub-project, and the reason this table stays narrow and
-//! declines to match ambiguous or partial tokens rather than reaching for a "close enough" guess.
+//! is simply absent, never guessed. **A wrong phrase is worse than an honest residue**: this
+//! module's guiding rule, and the reason this table stays narrow and declines to match ambiguous
+//! or partial tokens rather than reaching for a "close enough" guess.
 //!
 //! Alias table:
 //! - **Num**: `pl`/`plur`/`plural` -> `Num::Pl`; `sg`/`sing`/`singular` -> `Num::Sg`.
