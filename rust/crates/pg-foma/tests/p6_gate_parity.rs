@@ -1,6 +1,6 @@
-//! P6 MPR/POS subrule-gating acceptance gate (`docs/fst-plan/p6-prototype-report.md` §6 item 4;
-//! see `pg-foma/src/gate.rs`'s module doc for the design and why it is a static partition, not a
-//! flag-diacritics encoding — a genuine, load-bearing toolkit finding, not a shortcut).
+//! MPR/POS subrule-gating acceptance gate (see `pg-foma/src/gate.rs`'s module doc for the design
+//! and why it is a static partition, not a flag-diacritics encoding — a genuine, load-bearing
+//! toolkit finding, not a shortcut).
 //!
 //! Both acceptance cases follow this file's own oracle/predicate: `pg_parse::Morpher` (the SAME
 //! full-engine oracle `f2_junction_gate.rs`/`f3_interdigitation_gate.rs` use), compared against the
@@ -25,8 +25,8 @@
 //! ## Case 2 — POS gating (Amharic `prule1`/`prule2`'s exact shape: 3 fixed segments -> 1, no
 //! environment, `requiredPartsOfSpeech`)
 //! Amharic's own grammar uses `<AffixTemplate>` morphotactics this prototype's `uflexc` emitter
-//! cannot emit (a separate, already-costed gap, `docs/fst-plan/p6-prototype-report.md` §6 item 2 —
-//! NOT attempted here), so an end-to-end Amharic corpus recall gate is out of reach for this step.
+//! cannot emit (a separate, already-costed gap — NOT attempted here), so an end-to-end Amharic
+//! corpus recall gate is out of reach for this step.
 //! Instead: a minimal, hand-authored, template-less grammar reproduces Amharic `prule1`'s EXACT
 //! rule shape (see `examples/p6_gate_explore_pos.rs`), with two lexical entries sharing the IDENTICAL
 //! underlying shape (`xyx`) and differing ONLY in part of speech — so the gate is the only thing

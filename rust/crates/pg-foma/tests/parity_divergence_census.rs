@@ -128,10 +128,10 @@ fn census(
     let mut skipped = Vec::new();
     for fixture in discover().into_iter().filter(include) {
         // A PANIC in one fixture's compilation must not cost us the whole corpus-wide number.
-        // Measured 2026-08-03: `machine:edge-cases/loader-pattern-shapes` panics in
-        // `replace.rs:498` with "char table too large for the PUA token scheme", and because that
-        // unwinds out of the loop it took the entire census with it -- the same
-        // one-bad-fixture-destroys-the-measurement shape as the process aborts above, but catchable.
+        // `machine:edge-cases/loader-pattern-shapes` panics in `replace.rs:498` with "char table
+        // too large for the PUA token scheme", and because that unwinds out of the loop it would
+        // take the entire census with it -- the same one-bad-fixture-destroys-the-measurement
+        // shape as the process aborts above, but catchable.
         //
         // Caught here rather than fixed here on purpose: the panic is a REAL defect in the
         // plan-composed compiler (a capacity wall in a Private-Use-Area token encoding, which cannot
@@ -168,9 +168,8 @@ fn measure_one_fixture(
 ) -> Result<FixtureDivergence, String> {
     // Named BEFORE any work on it, so that if a fixture aborts the PROCESS rather than failing the
     // test, the last line of captured output identifies the culprit. Without this the abort is
-    // anonymous: `report` never runs, so no per-fixture line is ever emitted, and a 250s process
-    // death tells you only that something in the corpus is fatal. Measured 2026-08-03 -- this census
-    // aborted at ~252s and the fixture responsible could not be named from the outside at all.
+    // anonymous: `report` never runs, so no per-fixture line is ever emitted, and a process death
+    // tells you only that something in the corpus is fatal, with the fixture responsible unnamed.
     eprintln!("census: entering {}", fixture.label());
     let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
         return Err(format!("{}: grammar failed to load", fixture.label()));
