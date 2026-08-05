@@ -1,5 +1,5 @@
-//! GATE (`docs/fst-plan/phase-c-generator-design.md` §6, priority (3)): partition-k / MPR-POS
-//! subrule gating -- recall-parity + `_overbudget` (`GroupBudgetExceeded`).
+//! GATE: partition-k / MPR-POS subrule gating -- recall-parity + `_overbudget`
+//! (`GroupBudgetExceeded`).
 //!
 //! ## Why `pg_foma::gate::compile_gated_grammar_with_budget`, not a hand-assembled compose
 //! Unlike GATE 1/GATE 2 (which build their own net by hand from `uflexc`/`emit`), this gate calls
