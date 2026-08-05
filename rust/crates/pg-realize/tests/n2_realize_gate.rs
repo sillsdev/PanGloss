@@ -40,7 +40,7 @@ fn load_grammar(xml_name: &str) -> Option<Grammar> {
     Some(pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {xml_name}: {e}")))
 }
 
-/// Gitignored real-language data (`samples/data/*-realize.toml`, revised 2026-07-29 -- see
+/// Gitignored real-language data (`samples/data/*-realize.toml` -- see
 /// `n1_ir_gate.rs`'s module doc). Every test in this file is unconditionally `#[ignore]`d and
 /// self-skips via `load_grammar` before reaching this call, so a missing file here still panics
 /// (a genuine error once execution has already committed to the fixture being present) — same
