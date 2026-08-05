@@ -177,6 +177,19 @@ audience is the user), then the rest.
       every managed build is the gate shape this repo has already watched get switched off. Failing
       *CI* is a different lever from failing *every local build* — decide which.
 
+**Rebase note, because this one will conflict and the resolution is not obvious.** The same checker
+fix landed on both sides (branch `dfa0ca2`, `main` `eb9f5ac`), so at the pre-merge rebase:
+
+- `rust/tools/comment-hygiene.ps1` — same content both sides; expect "already applied" or a trivial
+  conflict, resolved either way.
+- `rust/tools/comment-hygiene-baseline.json` — **will conflict, and the branch side is correct.** Take
+  all zeros. `main`'s non-zero baseline describes `main`'s tree, which still carries the backlog; this
+  branch is where the sweep cleared it. Taking `main`'s numbers would silently re-authorise 1,456
+  markers to reappear.
+
+After resolving, re-run `rust/tools/comment-hygiene.ps1` and confirm it still exits 0 against the
+zeros — the gate is only meaningful if the baseline matches the tree it is checking.
+
 **Done during the sweep, recorded so the ordering above still reads correctly:**
 
 - [x] 5.4g Make the checker's counts honest, then re-baseline. PowerShell `-match` ignores case, so
