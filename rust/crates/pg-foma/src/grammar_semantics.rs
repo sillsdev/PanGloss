@@ -35,7 +35,7 @@
 //! Stratum order and template-slot order are load-bearing for reachability/completability, and
 //! [`crate::enumerate::prules_in_order`]'s borrow-from-`g.prules` identity is load-bearing for
 //! [`crate::enumerate::rule_id_of`]'s pointer-identity `PRuleId` recovery. Neither is canonicalized,
-//! sorted, or rebuilt here -- [`GrammarSemantics::prules_in_order`] hands back the exact slice every
+//! sorted, or rebuilt here -- [`GrammarSemantics::prules_in_order()`] hands back the exact slice every
 //! compile seam already takes.
 //!
 //! The ONE thing this type does canonicalize is the entry partition's group order.
@@ -56,7 +56,7 @@
 //! names). `tests/grammar_semantics_owner_gate.rs` pins a fixture where they differ.
 //!
 //! So this type owns BOTH, under names that say which is which --
-//! [`GrammarSemantics::declared_phonology`] and [`GrammarSemantics::cascade_phonology`] -- and each
+//! [`GrammarSemantics::declared_phonology()`] and [`GrammarSemantics::cascade_phonology()`] -- and each
 //! consumer projects the one it already meant. This is deliberately NOT a unification: collapsing
 //! them would change which recipe families a grammar is offered, and this type's split is a
 //! consolidation of existing facts, not a behavior change.

@@ -9,7 +9,7 @@
 //! - **No confirm-engine integration.** The cheap tier as shipped elsewhere in this crate's own
 //!   product (`crate::composite::FomaAnalyzer`) would run `confirm(propose_P1(w)) ==
 //!   confirm(propose_P2(w))` through the trusted HC confirm engine. This module instead compares
-//!   the two plans' raw `apply_up` result SETS directly -- [`build::build_controllable`]'s own
+//!   the two plans' raw `apply_up` result SETS directly -- [`build_controllable`]'s own
 //!   `equivalence_tests` module's predicate, generalized to two arbitrary [`Plan`]s + a word list +
 //!   shortest-witness reporting. Wiring a real confirm pass in is
 //!   future work, not this module's.
@@ -21,7 +21,7 @@
 //! The soundness invariant this module depends on is:
 //! **a node's compiled artifact must be a pure function of its `NodeId`** for any `NodeId`-keyed
 //! memoization to be sound. That was **not true** in general for `Gate`/`Replace` pairing in an
-//! earlier construction -- [`build::build_controllable`] sidestepped it by being Gate-aware (re-deriving each group's
+//! earlier construction -- [`build_controllable`] sidestepped it by being Gate-aware (re-deriving each group's
 //! `subrule_ok` from the `Gate` node's own partition, never caching a compiled `Fsm` against a
 //! shared `Replace` `NodeId`) rather than by a generic `NodeId`-memoizing interpreter. This was
 //! closed at its root: `crate::enumerate::enumerate_default` now builds one `Replace` node
@@ -29,7 +29,7 @@
 //! `crate::plan::ReplaceCascadeSpec` (that struct's own doc), so distinct groups get distinct
 //! `Replace` `NodeId`s and `build_controllable` reads `subrule_ok` from the Replace node's own
 //! content, not the `Gate` node's partition (`build`'s own module doc). This module calls
-//! [`build::build_controllable`] itself for BOTH plans it diffs, so it inherits that same
+//! [`build_controllable`] itself for BOTH plans it diffs, so it inherits that same
 //! content-pure behavior -- it never memoizes a compiled artifact by `NodeId` across the two
 //! builds (still true, and now provably safe if it did). [`permute_gate_groups`] (below) is careful
 //! to keep this sound too: it reorders a `Gate` node's `groups` and `children` IN LOCKSTEP (each
@@ -38,7 +38,7 @@
 //! still resolved from the correct key at `build_controllable` time, on both plans.
 //!
 //! # The oracle's comparison methodology
-//! [`differential_oracle`] builds BOTH input plans via [`build::build_controllable`] (never
+//! [`differential_oracle`] builds BOTH input plans via [`build_controllable`] (never
 //! recomputing a partition/cascade itself -- same discipline as `build.rs`'s own module doc), then
 //! for every word in the caller-supplied word list computes `apply_up`'s full result-string set on
 //! each built net (an empty set, not a panic, for a plan whose build produced no net at all --
@@ -55,7 +55,7 @@
 //! A differential oracle needs two genuinely distinct [`Plan`]s that encode the SAME relation to be
 //! a non-vacuous same-relation exercise. [`permute_gate_groups`] builds one: a copy of the input
 //! plan with every `Gate` node's `partition.groups` (and paired `children`) reordered (reversed).
-//! Because [`build::build_controllable`] folds every group's compiled network together with
+//! Because [`build_controllable`] folds every group's compiled network together with
 //! [`crate::compose_budget::union_checked`] (commutative) and always finishes with
 //! [`crate::compose_budget::minimize_checked`], a `Gate` node's group ORDER cannot affect the final
 //! relation -- only membership does. Reordering therefore changes the `Gate` node's content address
@@ -65,7 +65,7 @@
 //!
 //! # Judgment call: `Result`, not a bare `OracleResult`
 //! [`differential_oracle`] returns `Result<OracleResult, ComposeError>`, not a bare `OracleResult` --
-//! [`build::build_controllable`] is itself fallible (a [`crate::compose_budget::ComposeBudget`] cap
+//! [`build_controllable`] is itself fallible (a [`crate::compose_budget::ComposeBudget`] cap
 //! can trip on either plan), and this module has no sound way to turn that failure into an
 //! `OracleResult` variant (neither "the two plans agree" nor "the two plans disagree" is true when
 //! one plan didn't build at all). Propagating `ComposeError` mirrors `build_controllable`'s own
@@ -75,8 +75,8 @@
 //! [`crate::plan::PlanNodeKind`] is a closed five-variant enum (that module's own doc). For a
 //! relation-preserving second topology to be worth shipping here it must clear TWO bars, not one:
 //! (a) the restructuring must be sound in the abstract sense [`permute_gate_groups`] already
-//! establishes for `Gate` (the built relation provably does not change), AND (b) [`build::
-//! build_controllable`] must actually be able to BUILD the restructured plan -- that interpreter is
+//! establishes for `Gate` (the built relation provably does not change), AND (b)
+//! [`build_controllable`] must actually be able to BUILD the restructured plan -- that interpreter is
 //! not a generic `Plan` walker, it is hard-shaped to exactly the seven adjacency tuples
 //! [`crate::plan_interaction_coverage::legal_adjacency_tuples`] documents as the closed set
 //! [`crate::enumerate::enumerate_default`] can ever produce (that module's own doc), and it panics --
@@ -516,7 +516,7 @@ pub enum PartitionGranularity {
 
 impl PartitionGranularity {
     /// The sizes of the sub-groups `total` entries are cut into, in order, summing to `total`
-    /// (`0` for `total == 0`, matching [`build::build_controllable`]'s own "an empty group
+    /// (`0` for `total == 0`, matching [`build_controllable`]'s own "an empty group
     /// contributes nothing" convention -- a zero-entry group is simply dropped, never fabricated).
     fn chunk_sizes(self, total: usize) -> Vec<usize> {
         match self {
@@ -588,7 +588,7 @@ fn lexicon_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> {
 /// A THIRD sound Gate-node restructuring, alongside [`permute_gate_groups`] (order) and
 /// [`permute_union_children`] (a different node kind entirely): this one changes a `Gate` node's
 /// partition CARDINALITY, not its order. [`permute_gate_groups`]'s own doc establishes that
-/// [`build::build_controllable`] folds every group's compiled net together with
+/// [`build_controllable`] folds every group's compiled net together with
 /// [`crate::compose_budget::union_checked`] (commutative) and always finishes with
 /// [`crate::compose_budget::minimize_checked`] -- that argument shows group ORDER is inert. This
 /// function needs one more step, but it is a standard one: **composition distributes over union**

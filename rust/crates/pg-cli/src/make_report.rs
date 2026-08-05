@@ -1354,7 +1354,7 @@ mod tests {
     // layer instead: [`render_markdown`] fed fixed, hand-picked (not hand-edited-into-the-golden)
     // inputs -- a fixed synthetic grammar, a fixed `Measurements` (same discipline
     // `readiness_verdict`'s own golden fixture uses), and the REAL, deterministic
-    // [`build_plan_document`]/[`render_mermaid`] output over that same fixed grammar (plan-diagram
+    // [`pg_foma::plan_diagram::build_plan_document`]/[`render_mermaid`] output over that same fixed grammar (plan-diagram
     // output is itself content-addressed and deterministic, per that module's own doc) --
     // everything here is either a fixed literal or the real generator's own deterministic
     // computation, never a live timer.

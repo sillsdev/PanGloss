@@ -39,7 +39,7 @@
 //!
 //!      `foma::apply::apply_up`/`apply_down` don't care (a run of single-char arcs concatenates to
 //!      the identical string, verified directly) — but anything that treats the tag as ONE
-//!      indivisible alphabet symbol, e.g. an `Fsm` built with a single [`fsm_construct_add_arc`]-
+//!      indivisible alphabet symbol, e.g. an `Fsm` built with a single [`foma::dynarray::fsm_construct_add_arc`]-
 //!      style arc labeled with the WHOLE tag string (exactly what
 //!      `p6_templated_morphotactics_gate.rs`'s own recall-counting `tag_string_fsm` helper does, to
 //!      intersect a candidate analysis's tag sequence against the compiled network's upper

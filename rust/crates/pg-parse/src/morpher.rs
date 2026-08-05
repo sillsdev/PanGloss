@@ -351,7 +351,7 @@ impl<'g> Morpher<'g> {
     /// is a new, additive entry point, not a signature change to the others).
     ///
     /// `lex_entry_filter` mirrors C#'s ONE `LexEntrySelector` read site
-    /// (`LexicalLookup`) exactly — see [`Self::lexical_lookup`]. `rule_filter`
+    /// (`LexicalLookup`) exactly — see [`Self::lexical_lookup_filtered`]. `rule_filter`
     /// mirrors [`pg_rules::stratum::RuleRef`]'s admission subset (stratum/template/mrule
     /// admission, both analysis AND synthesis stratum-descent) — see that type's doc for what has
     /// no `RuleRef` variant yet.
@@ -1134,7 +1134,7 @@ fn permute_rules(g: &Grammar, morphemes: &[GenMorpheme]) -> Vec<Vec<PermItem>> {
 
 /// `mrule is RealizationalAffixProcessRule` (Word.cs:321) — the one rule kind that never occupies an
 /// `mrule_apps` trail slot (see that field's doc); consulted by
-/// [`Morpher::morphological_rule_unapplied`]'s call in [`Morpher::generate_words`].
+/// [`Word::morphological_rule_unapplied`]'s call in [`Morpher::generate_words`].
 fn is_realizational_rule(g: &Grammar, id: MRuleId) -> bool {
     matches!(&g.mrules[id.0 as usize], MorphRuleDef::Realizational(_))
 }
@@ -1221,7 +1221,7 @@ impl<'g> Morpher<'g> {
     /// Returned in sorted order (a `BTreeSet`, not C#'s unordered `HashSet`) — a
     /// strengthening, not a behavior difference: the returned *set* of words is what C# guarantees.
     ///
-    /// Deliberately **not** filtered by [`Self::is_match`]: generation has no input surface string to
+    /// Deliberately **not** filtered by [`Self::is_match_traced`]: generation has no input surface string to
     /// match against — that gate is `Morpher.Synthesize`'s (the parse path, Morpher.cs:294/323), never
     /// `Morpher.GenerateWords`'s (Morpher.cs:218 calls only `IsWordValid`).
     ///
@@ -1449,7 +1449,7 @@ impl<'g> Morpher<'g> {
 
     /// Build a fresh root-level seed [`Word`] from `le`'s allomorph at `allo_idx` — C#'s
     /// `Word(RootAllomorph, FeatureStruct)` constructor + implicit `SetRootAllomorph`
-    /// (Word.cs:36-51,137-147). Unlike [`pg_rules::morph::seed_from_entry`] (which the blocking/
+    /// (Word.cs:36-51,137-147). Unlike `pg_rules::morph::seed_from_entry` (which the blocking/
     /// `ChooseInflectionalStem` sites use and which always takes the entry's *primary* allomorph),
     /// this takes an explicit index — `Morpher.GenerateWords` tries **every** allomorph of the root
     /// entry (`rootEntry.Allomorphs.SelectMany(...)`, Morpher.cs:195), not just the first.

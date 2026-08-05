@@ -100,7 +100,7 @@
 //! Sena, whose only multi-representation segment char-def is `char4`).
 //!
 //! ## Normalization
-//! [`kept_surface_text`] NFD-normalizes before matching (mirroring `pg_grammar::segment::segment`
+//! `kept_surface_text` NFD-normalizes before matching (mirroring `pg_grammar::segment::segment`
 //! and, downstream, `pg_parse`'s own `segment_with_features` — the real engine's query words are
 //! NFD-matched too). [`crate::analyzer`] NFD-normalizes its own query word the same way before
 //! calling `apply_up`, so lexc surface text and query text live in the same normalization space
@@ -135,7 +135,7 @@
 //! prefix derivation chain's FINAL level is genuinely root-adjacent (its `next == exit` IS a roots
 //! lexicon — `TLRoots`/`G{gi}Roots`, never true for `OuterPfx`'s `TmplDispatch` exit or any
 //! `T{ti}P` template slot chain, which are never root-adjacent by construction), that roots lexicon
-//! gets a `{name}Stripped` sibling ([`write_roots_lexicon`]) holding every root's OWN
+//! gets a `{name}Stripped` sibling (`write_roots_lexicon`) holding every root's OWN
 //! [`stripped_variants`] (root text with its first SEGMENT — not first character; multi-char
 //! representations like `"ny"`/`"ng"` are one segment — removed). Every `deletion_junctions` hit for
 //! a rule at that final level is routed to `{exit}Stripped` instead of `exit`; every ordinary
@@ -593,7 +593,7 @@ enum InsertText<'a> {
 /// Every `InsertSegments` action's underlying text/shape in `rhs`, in document order — NOT just the
 /// first (see [`InsertText::Text`]'s own doc for the soundness argument for why concatenating in
 /// document order is always correct here). This emitter re-derives kept surface text itself, see
-/// [`kept_surface_text`].
+/// `kept_surface_text`.
 fn insert_action_texts(rhs: &[OutputAction]) -> InsertText<'_> {
     let mut texts = Vec::new();
     let mut shapes = Vec::new();
@@ -921,7 +921,7 @@ pub(crate) fn pattern_variants(table: &CharDefTable, shape: &Shape) -> (Vec<Stri
 /// `:`/`>` (XRE-block/pair-separator/C-foma-NONRESERVED syntax), and `0` (lexc's bare-zero
 /// alignment-epsilon marker — gate F0's finding, `tests/f0_viability.rs`'s module doc: this
 /// applies to ANY text, not just tag numerals). `;`, `!`, and space can't normally survive
-/// [`kept_surface_text`] (they'd fail char-def lookup first), but escaping them is cheap
+/// `kept_surface_text` (they'd fail char-def lookup first), but escaping them is cheap
 /// insurance.
 fn escape_lexc_text(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -944,7 +944,7 @@ fn char_is_combining(c: char) -> bool {
 }
 
 /// Diacritics fix (real 100%-recall bug, not a reference-grammar gap): every "base char + trailing
-/// combining mark(s)" run occurring inside any char-def's OWN [`CharDef::representations_nfd`],
+/// combining mark(s)" run occurring inside any char-def's OWN [`pg_grammar::chardef::CharDef::representations_nfd`],
 /// collected across the whole surface [`CharDefTable`] and declared as lexc `Multichar_Symbols` so
 /// BOTH sides of the propose path agree these codepoints are ONE token.
 ///
@@ -1475,7 +1475,7 @@ pub(crate) struct CompoundLicense {
 /// **The (un)group-awareness contract (load-bearing — never reverse these):**
 /// - The three RULE-level restriction fields (`head_prod_restrictions_mpr`,
 ///   `non_head_prod_restrictions_mpr`; `output_prod_restrictions_mpr` is confirm-only, see below)
-///   are tested with [`MprSet::compound_match`] — group-UNAWARE, mirroring C#'s
+///   are tested with [`pg_grammar::model::MprSet::compound_match`] — group-UNAWARE, mirroring C#'s
 ///   `CompoundMprFeaturesMatch`, the ONLY semantics `pg_rules::morph::synth_compound`/
 ///   `resolve_non_head_roots` ever apply to these two fields (`morph.rs:2834,2938,3329,3357`).
 /// - Each SUBRULE's `required_mpr`/`excluded_mpr` is tested with [`Grammar::mpr_group_ok`] —
@@ -1587,7 +1587,7 @@ fn filter_roots_by_license<'a>(
 /// module doc's "Deliberate supersets" section already accepts).
 ///
 /// **Byte-identical to the pre-existing single-level construction when `levels == 1`**: level 1 reuses the EXACT
-/// pre-existing names (`{base}`, `{base}Pfx`, `{base}Roots`[`Stripped`]) and, since `levels == 1`
+/// pre-existing names (`{base}`, `{base}Pfx`, `{base}RootsStripped`) and, since `levels == 1`
 /// makes it also the LAST level, its root entries continue DIRECTLY to `exit` -- no dispatcher
 /// lexicon is ever written for the single-level case. Level `k >= 2` (only emitted when
 /// `levels >= 2`, a genuinely recursive/self-feeding `CompoundingRuleDef`) uses
@@ -5262,7 +5262,7 @@ mod structural_and_pattern_tests {
     }
 
     /// The actual bug: `dia-hc.xml`'s `é`/`î`/`ñ`/`ö` char-defs each have a single, precomposed
-    /// (NFC) `<Representation>`; [`CharDef::representations_nfd`] NFD-normalizes it to a 2-codepoint
+    /// (NFC) `<Representation>`; [`pg_grammar::chardef::CharDef::representations_nfd`] NFD-normalizes it to a 2-codepoint
     /// base+combining-mark run. [`combining_run_symbols`] must recover exactly these four runs (and
     /// nothing else — no plain-ASCII char-def contributes a run) so the emitter can declare them as
     /// lexc `Multichar_Symbols`.

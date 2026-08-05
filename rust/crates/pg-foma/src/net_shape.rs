@@ -42,7 +42,7 @@
 //! net, and `in == EPSILON` when screening an `apply_down` one. The null-morph pathology is
 //! precisely an `in != EPSILON, out == EPSILON` self-loop: invisible in the down direction,
 //! unbounded in the up direction. [`ApplyDirection`] is therefore a required argument, never
-//! defaulted, and [`shape_unit_tests::direction_decides_whether_a_zero_width_cycle_exists`] pins
+//! defaulted, and `shape_unit_tests::direction_decides_whether_a_zero_width_cycle_exists` pins
 //! the asymmetry on a two-arc net.
 //!
 //! # What foma already provides, and why that was not enough
@@ -70,7 +70,7 @@
 //!   into one. Truncating a word's proposal set would be read by [`crate::parity`] as disagreement,
 //!   which is worse than the cost the truncation saved.
 //! - Only ONE property is asserted as a defect: presence of a zero-width cycle. That is a
-//!   *structural* fact with no threshold to tune. Everything else ([`NetShape::branching_max`], the
+//!   *structural* fact with no threshold to tune. Everything else (`NetShape::branching_max`, the
 //!   quantiles, [`NetShape::apply_ambiguity_total`]) is reported as an **uncalibrated number**:
 //!   this project has no complete grammar to calibrate against, and a fabricated threshold would
 //!   read as a measurement.

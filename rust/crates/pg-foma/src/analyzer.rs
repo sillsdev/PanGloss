@@ -373,7 +373,7 @@ impl FomaProposer {
     }
 
     /// Propose every candidate analysis for `word`. NFD-normalizes first (matching
-    /// [`crate::emit::kept_surface_text`]'s own normalization — see that function's doc for why
+    /// `crate::emit::kept_surface_text`'s own normalization — see that function's doc for why
     /// this must be consistent on both sides regardless of the caller's on-disk encoding).
     /// Dedups by `(morphemes, root_index)`, preserving first-seen order across BOTH the
     /// `apply_up` path order and, within one path, the compound-split order (`tags::to_candidates`

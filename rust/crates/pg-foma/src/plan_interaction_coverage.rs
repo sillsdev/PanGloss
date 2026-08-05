@@ -98,7 +98,7 @@
 //! [`compute_interaction_coverage`] is a pure function over caller-supplied `(label, &Plan,
 //! &CharacteristicsProfile)` triples — mirrors [`crate::conformance_coverage::
 //! supported_coverage_report`]'s own "pure core, wired-up glue lives at the edge" split exactly: this
-//! module never calls [`pg_conformance_fixtures::discover`] itself (that dependency does not even
+//! module never calls `pg_conformance_fixtures::discover` itself (that dependency does not even
 //! exist for this crate's own `src/`, only its `dev-dependencies` — `tests/
 //! plan_interaction_coverage_gate.rs` supplies the corpus). Classification is PER FIXTURE, not a
 //! single tag aggregate over the whole corpus (see [`TupleStatus`]'s own doc for why that matters):

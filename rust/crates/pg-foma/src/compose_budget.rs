@@ -726,7 +726,7 @@ pub struct ComposeBudget {
     pub(crate) line_cap: usize,
     pub(crate) step_timeout: Option<Duration>,
     /// This crate's chain-depth dimension (this module's "Chain-depth dimension" section). `None`
-    /// (the default everywhere -- [`Self::from_env`], [`Self::with_caps`], [`Self::unbounded`])
+    /// (the default everywhere -- [`Self::from_env`], [`Self::with_caps`], `Self::unbounded`)
     /// means unbounded/off: [`Self::check_chain_depth`] always returns `Ok` and no existing
     /// caller's behavior changes. `Some(limit)` is already clamped to
     /// [`CHAIN_DEPTH_ABSOLUTE_CEILING`] by whichever constructor set it.
@@ -747,7 +747,7 @@ pub struct ComposeBudget {
     /// ships with THIS change (mirroring the four size caps' own default-ON convention), since
     /// promoting `unordered-application.chain-depth-bounded` off `FailClosed` needs a concrete
     /// bound to promote AGAINST, not an uncalibrated placeholder. [`Self::with_caps`]/
-    /// [`Self::unbounded`] leave it `None` (mirrors [`Self::chain_depth_cap`]'s own "tests opt in
+    /// `Self::unbounded` leave it `None` (mirrors [`Self::chain_depth_cap`]'s own "tests opt in
     /// via an explicit builder" convention) -- use [`Self::with_ordering_multiplicity_cap`].
     pub(crate) ordering_multiplicity_cap: Option<usize>,
 }
@@ -903,7 +903,7 @@ impl ComposeBudget {
     }
 
     /// This budget's currently configured ordering-multiplicity cap, if any (`None` = unbounded/
-    /// off -- only [`Self::with_caps`]/[`Self::unbounded`], never [`Self::from_env`], which always
+    /// off -- only [`Self::with_caps`]/`Self::unbounded`, never [`Self::from_env`], which always
     /// configures a real default; see this module's "Ordering-multiplicity dimension" section).
     ///
     /// `#[allow(dead_code)]`: [`Self::check_ordering_multiplicity`] reads the

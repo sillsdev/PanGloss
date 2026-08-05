@@ -2,8 +2,8 @@
 //!
 //! # Why this gate exists
 //! `crate::coverage_ledger::containment_evidence_for` returns hand-curated
-//! [`ContainmentEvidence`] citations of the form `tests/<file>.rs::<test_fn>`, and
-//! `build_ledger` grades a [`Disposition::FailClosed`] row `Covered` **iff** such a citation
+//! [`pg_foma::coverage_ledger::ContainmentEvidence`] citations of the form `tests/<file>.rs::<test_fn>`, and
+//! `build_ledger` grades a [`pg_foma::capability::Disposition::FailClosed`] row `Covered` **iff** such a citation
 //! exists with `kind == RefusalWitness` (G8: a refused construct can never have a passing
 //! analysis fixture, so the refusal witness is its only admissible evidence). That makes the
 //! ledger's own `Covered` verdict depend on a **string** — and nothing, before this file,

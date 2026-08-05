@@ -603,7 +603,7 @@ fn build_node(
 /// **three** independent [`crate::capability::characterize`] walks for one diagram — one in its own
 /// `plan_and_profile` call, a second in the `plan_and_profile` call inside
 /// [`build_plan_document_for_plan`] (whose `Plan` half would then be discarded), and a third inside
-/// [`compose_envelope`].
+/// [`crate::capability::compose_envelope`].
 pub fn build_plan_document(g: &Grammar) -> PlanDocument {
     build_plan_document_with_semantics(&GrammarSemantics::derive(g))
 }

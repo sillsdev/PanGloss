@@ -31,7 +31,7 @@
 //! behavior while the GO/NO-GO call is still open — see the E2 task's own log for why touching
 //! `emit.rs` itself was deferred to the (not-yet-authorized) mainline build step.
 //!
-//! ## The Infix splice mechanism ([`build_infix_composites`])
+//! ## The Infix splice mechanism ([`build_splice_composites`])
 //! For each (root allomorph × Infix rule) pair: seed a `pg_rules::word::Word` EXACTLY the way
 //! `crate::preexpand::process_root_work` does (feature-bearing re-segmentation via
 //! `pg_rules::shape_feat::segment_with_features`, the entry's own REAL `syn_fs`/`mpr` — never

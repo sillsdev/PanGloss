@@ -1,9 +1,9 @@
 //! Per-STRATEGY construct coverage: which of this crate's compilers can actually PROPOSE each
-//! [`CharacteristicKind`], and therefore whether that kind's [`Disposition`] is honest for the
+//! [`CharacteristicKind`], and therefore whether that kind's [`crate::capability::Disposition`] is honest for the
 //! compiler in use.
 //!
 //! # The hole this closes
-//! [`Disposition::ConfirmOnly`]'s own definition (`capability.rs`) is: *"Recall-preserving only if
+//! [`crate::capability::Disposition::ConfirmOnly`]'s own definition (`capability.rs`) is: *"Recall-preserving only if
 //! the proposer proposes the superset."* That is a claim about a PROPOSER, and until this module
 //! existed nothing in the capability layer knew which proposer was in use.
 //! [`crate::capability::characterize`] takes a bare `&Grammar`, [`crate::capability::

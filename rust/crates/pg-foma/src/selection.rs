@@ -130,7 +130,7 @@ impl SelectionOutcome {
     }
 }
 
-/// D3's selector: filter `candidates` to those [`compose_envelope`] does not `Refuse`, then pick the
+/// D3's selector: filter `candidates` to those [`crate::capability::compose_envelope`] does not `Refuse`, then pick the
 /// minimum `states + arcs` among the ones [`build_controllable`] can actually measure, tie-broken by
 /// root [`NodeId`] (module doc).
 ///

@@ -44,7 +44,7 @@ pub struct GatingBuild {
     /// (bit `j` of `i` == whether this entry carries `mprJ`, i.e. whether gated rule `j` fires for
     /// it) -- a gate resolves its own entries back out of the loaded `Grammar` by these ids
     /// (`tests/common/gate_template.rs`'s `entry_id_of` convention) and derives each entry's own
-    /// expected surface form directly from its OWN index `i` via [`expected_marker_state`].
+    /// expected surface form directly from its OWN index `i` via `expected_marker_state`.
     pub entry_xml_ids: Vec<String>,
 }
 

@@ -217,7 +217,7 @@ pub struct Word {
     /// for every (un)application (affix + compounding). `None` is C#'s `null` "unknown compounding
     /// rule" entry (Word.cs:317-327's doc: "used when generating a compound word, because the
     /// compounding rule is usually not known, just the non-head allomorph") — it never arises from
-    /// analysis, only from [`pg_parse`]'s `generate_words` seeding a bare `LexEntry` non-head
+    /// analysis, only from `pg_parse`'s `generate_words` seeding a bare `LexEntry` non-head
     /// directly into the unapplication trail (W7); the synthesis confirmation gate
     /// (`pg_rules::stratum::guided_synth`) matches a `None` slot against **any** `CompoundingRule`,
     /// exactly as C#'s `IsMorphologicalRuleApplicable`'s `curRule == null && rule is CompoundingRule`
@@ -372,7 +372,7 @@ impl Word {
     /// C# `Word.MorphologicalRuleUnapplied` (Word.cs:317-327), the direct-generation counterpart to
     /// the stratum orchestrator's inline bookkeeping (`apply_one_mrule`, which only ever pushes a
     /// known analysis-confirmed `Some(id)`): `mrule` is `None` for C#'s "unknown compounding rule"
-    /// null (only reachable from [`pg_parse`]'s `generate_words`, never from analysis). If `mrule` is
+    /// null (only reachable from `pg_parse`'s `generate_words`, never from analysis). If `mrule` is
     /// known, its unapplication count is recorded first regardless of rule kind (cs:319-320); then,
     /// unless `is_realizational` (a `RealizationalAffixProcessRule` never occupies an `mrule_apps`
     /// slot — cs:321 — because its confirmation gate is the realizational-FS subsumption check in

@@ -14,13 +14,13 @@
 //!
 //! | Bound | Field | Derived from |
 //! |---|---|---|
-//! | Stable semantic digest | [`ExecutableCandidate::semantic_digest`] | SHA-256 over [`crate::recipe_mechanism::MechanismGraph::canonical_projection`] (a byte-identical fresh-load projection) |
-//! | Portable Plan document | [`ExecutableCandidate::plan_document`] | [`PortablePlan::encode`] of the materialized [`Plan`] |
-//! | Plan document digest | [`ExecutableCandidate::plan_digest`] | SHA-256 over that document's canonical JSON |
-//! | Exact lowering adapter | [`ExecutableCandidate::adapter`] | the [`LoweringAdapter`] the candidate itself carries ([`crate::enumerate::LoweredCandidate::adapter`]), 1:1 with [`EmissionStrategy`] |
-//! | Existing runtime requirements | [`ExecutableCandidate::runtime_requirements`] | the checks [`crate::recipe_runtime`] already performs, made explicit |
-//! | Mechanism graph + bindings | [`ExecutableCandidate::mechanism_graph`] / [`ExecutableCandidate::mechanism_bindings`] | [`crate::mechanism_provider::derive_mechanism_graph`] + [`crate::recipe_mechanism::MechanismBinding::derive`] |
-//! | Certification scope | [`ExecutableCandidate::certification_scope`] | those bindings, per mechanism, naming the adapter |
+//! | Stable semantic digest | [`ExecutableCandidate::semantic_digest()`] | SHA-256 over [`crate::recipe_mechanism::MechanismGraph::canonical_projection`] (a byte-identical fresh-load projection) |
+//! | Portable Plan document | [`ExecutableCandidate::plan_document()`] | [`PortablePlan::encode`] of the materialized [`Plan`] |
+//! | Plan document digest | [`ExecutableCandidate::plan_digest()`] | SHA-256 over that document's canonical JSON |
+//! | Exact lowering adapter | [`ExecutableCandidate::adapter()`] | the [`LoweringAdapter`] the candidate itself carries ([`crate::enumerate::LoweredCandidate::adapter`]), 1:1 with [`EmissionStrategy`] |
+//! | Existing runtime requirements | [`ExecutableCandidate::runtime_requirements()`] | the checks [`crate::recipe_runtime`] already performs, made explicit |
+//! | Mechanism graph + bindings | [`ExecutableCandidate::mechanism_graph()`] / [`ExecutableCandidate::mechanism_bindings()`] | [`crate::mechanism_provider::derive_mechanism_graph`] + [`crate::recipe_mechanism::MechanismBinding::derive`] |
+//! | Certification scope | [`ExecutableCandidate::certification_scope()`] | those bindings, per mechanism, naming the adapter |
 //!
 //! # The Registry is the sole constructor, and that is enforced by a type
 //! [`ExecutableCandidate`]'s fields are private, it has no public constructor, and -- unlike every

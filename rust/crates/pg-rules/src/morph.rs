@@ -45,9 +45,9 @@
 //!   that grammar, both in C# and here.
 //! - **`blockable` / `RequiredStemName` / free-fluctuation** are not gated: blocking needs the M5
 //!   lexicon; stem names lint unsupported. `NonFinal`/partial gating that *is* computable from
-//!   [`WordFlags`] is applied. **`max_apps`** *is* gated, but — like the compounding root-allomorph
-//!   search noted just below — one layer up, in
-//!   [`crate::stratum::StratumAnalyzer::apply_one_mrule`] (the `Word::unapplied_rule_counts`
+//!   [`crate::word::WordFlags`] is applied. **`max_apps`** *is* gated, but — like the compounding
+//!   root-allomorph search noted just below — one layer up, in
+//!   `StratumAnalyzer::apply_one_mrule` (the `Word::unapplied_rule_counts`
 //!   multiset built for the M6 memo key doubles as this gate's input), not inside this module: this
 //!   module stays a pure semantics function of `(Grammar, Word, MorphRuleDef)` with no per-candidate
 //!   history to consult.
@@ -56,7 +56,7 @@
 //! - **Compounding analysis** produces the head/non-head split; the module itself still does
 //!   **not** run the C# root allomorph search over the non-head (`SearchRootAllomorphs`) — this
 //!   module stays free of the lexicon dependency. That gate is now closed one layer up, in
-//!   [`crate::stratum::StratumAnalyzer::apply_one_mrule`] (M5c: `non_head_root_matches` +
+//!   `StratumAnalyzer::apply_one_mrule` (M5c: `non_head_root_matches` +
 //!   [`crate::stratum::NonHeadRootFilter`]), wired from `pg-parse::Morpher` (which owns the
 //!   `RootAllomorphIndex`). Every output this module returns for a `Compounding` rule still needs
 //!   that filter applied by the caller — a bare call to [`analyze`] here does not prune anything.
@@ -3596,7 +3596,7 @@ pub(crate) fn build_compound_cache(
 /// One allomorph's precompiled matchers (`crate::cache::RuleCache`'s per-[`AllomorphId`]
 /// (pg_grammar::model::AllomorphId) slice; root allomorphs never populate these — only
 /// `AffixAllomorphDef`s have an `lhs`/`rhs` to compile). `synth_lhs` is [`compile_parts`]'s output
-/// for `allo.lhs` (used by [`synth_affix_allomorph`]); `ana_lhs` is [`build_ana_affix_lhs`]'s output
+/// for `allo.lhs` (used by `synth_affix_allomorph`); `ana_lhs` is [`build_ana_affix_lhs`]'s output
 /// (used by [`ana_affix_allomorph`]).
 pub(crate) struct AllomorphLhsCache {
     pub(crate) synth_lhs: Option<(Fst, Vec<String>)>,

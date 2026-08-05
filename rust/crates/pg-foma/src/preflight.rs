@@ -44,7 +44,7 @@
 //!   [`crate::capability::QuantifierPatternDetail::all_bounded`] occurrence marked `false`. Always
 //!   `Warning`, never `Critical` on its own (unknown cost is not itself Critical when construction
 //!   is recall-preserving) — an actual budget trip during the real compile is a completely
-//!   different, already-handled code path: [`crate::health_evaluator::compose_error_finding`]'s
+//!   different, already-handled code path: `crate::health_evaluator::compose_error_finding`'s
 //!   [`crate::health::FindingCode::ResourceBudgetReached`]/
 //!   [`crate::health::FindingCode::ProvenBoundExceedsBudget`] arms, which this module's own
 //!   findings never construct.

@@ -13,7 +13,7 @@
 //! declares a `MorphRuleDef::Compounding` rule, routing compound words through its template-less/
 //! structural-composite machinery. The `_overbudget` variant instead drives `pg_foma::uflexc::
 //! emit_underlying_filtered_with_budget`'s own root-entry line count over a tiny test
-//! [`ComposeBudget`] -- `uflexc.rs`'s own module doc
+//! `ComposeBudget` -- `uflexc.rs`'s own module doc
 //! records that it does not even SEE compounding rules ("no `CompoundingRuleDef` allomorph is even
 //! visible through `emit::allomorphs_of`, so there is nothing to enumerate wrongly, only something
 //! absent"), so this is a scale check on plain root-entry COUNT (the `entries_per_stratum` scale

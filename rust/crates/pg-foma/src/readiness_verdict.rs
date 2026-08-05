@@ -57,7 +57,7 @@
 //! [`LatencyMeasurement`] mirrors `tests/typology_speedup.rs`'s "never emit `0`" rule at this
 //! module's own layer (that harness's types are test-only and not importable as a library):
 //! [`LatencyMeasurement::BelowFloor`] records that the true value is somewhere under the stated
-//! floor, and [`compare_latency`] treats a below-floor measurement as a **safe** (conservative)
+//! floor, and `compare_latency` treats a below-floor measurement as a **safe** (conservative)
 //! comparison — the true value is less than the floor, so a floor at or under the threshold proves
 //! a pass; a floor above the threshold cannot be resolved finely enough to call, and is reported as
 //! [`CheckOutcome::NotAssessed`] (an honest "cannot tell", never a guessed `Pass` or `Fail`) rather
@@ -344,7 +344,7 @@ pub enum Tier {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReadinessReport {
     pub report_schema_version: u32,
-    /// The [`ThresholdPolicy::policy_id`] that produced this verdict.
+    /// The `ThresholdPolicy::policy_id` that produced this verdict.
     pub policy_id: String,
     pub device_class: String,
     pub tier: Tier,

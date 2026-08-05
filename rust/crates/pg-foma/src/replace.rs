@@ -24,27 +24,27 @@
 //!   collide with a token, since PUA codepoints are outside xre's entirely-ASCII reserved set.
 //!
 //! The price: the composed network's own lower tape is not human-legible orthography. That's
-//! fine for the propose→confirm contract: [`FomaProposer`]-equivalent callers only need
+//! fine for the propose→confirm contract: [`crate::analyzer::FomaProposer`]-equivalent callers only need
 //! the UPPER tape's tag sequence; a query word is transliterated into token space
 //! ([`SegAlphabet::encode_query`], reusing [`pg_grammar::segment::segment_phonemes_only`] — the
 //! same greedy longest-match the engine's own segmentation uses) before `apply_up`, and the
 //! result is decoded via [`crate::tags::decode_path`] exactly like the mainline proposer.
 //!
 //! ## alpha-variable expansion: tuple-indexed, not per-variable
-//! A rule's alpha-bound slots (RHS/LHS/environment [`PatternNode::Context`] nodes carrying
-//! [`AlphaVar`]s) are resolved by [`resolve_alpha_tuples`]: gather every slot referencing a given
-//! [`VarId`], enumerate the CROSS PRODUCT of each slot's own (non-alpha-feature) candidate
+//! A rule's alpha-bound slots (RHS/LHS/environment [`pg_grammar::model::PatternNode::Context`] nodes carrying
+//! [`pg_grammar::model::AlphaVar`]s) are resolved by [`resolve_alpha_tuples`]: gather every slot referencing a given
+//! [`pg_grammar::model::VarId`], enumerate the CROSS PRODUCT of each slot's own (non-alpha-feature) candidate
 //! members, then keep only the combinations where every pair of same-`VarId` slots agrees (same
 //! symbolic-feature value at that variable's lane — `AlphaVar::plus` polarity; `minus`/"disagree"
-//! is unimplemented, see the doc on [`AlphaOccurrence`]). This bounds the count of segment tuples
+//! is unimplemented, see the doc on `AlphaOccurrence`). This bounds the count of segment tuples
 //! satisfying the joint constraint (Amharic's 20-variable CV-merger: nc15=59 × nc16=6 ⇒ ≤354, never
 //! v^20) — implemented once, generically over N variables and N slots-per-variable, so the same
 //! code path that resolves Indonesian's single-variable prule4 is what would resolve Amharic's
 //! rule without modification.
 //!
 //! ## What this module does NOT attempt
-//! - [`PatternNode::Quantifier`] (`OptionalSegmentSequence`) that is inverted (`min > max`, `max`
-//!   concrete), pathologically large (a concrete `max` past [`MAX_QUANTIFIER_BOUND`]), or carries
+//! - [`pg_grammar::model::PatternNode::Quantifier`] (`OptionalSegmentSequence`) that is inverted (`min > max`, `max`
+//!   concrete), pathologically large (a concrete `max` past `MAX_QUANTIFIER_BOUND`), or carries
 //!   an alpha-bound occurrence anywhere in its own children — [`pattern_slots`] still returns
 //!   `None`/bails for exactly these configurations (a rule whose pattern needs one is reported
 //!   uncovered, not silently mis-rendered). A FINITELY bounded, alpha-free quantifier (`min`/`max`
@@ -54,7 +54,7 @@
 //!   (`max: Option<u32>`), rendered with foma's native `E*`/`E^>N` operator instead of `E^{min,max}`
 //!   — see that variant's own doc for the construction, and "Bounded quantifiers" below for the
 //!   compiled-vs-still-unsupported line and the confirm-engine finding that motivates it.
-//! - [`AlphaVar::plus`] == `false` ("disagree" polarity) — no reference-grammar rule needs it.
+//! - [`pg_grammar::model::AlphaVar::plus`] == `false` ("disagree" polarity) — no reference-grammar rule needs it.
 //! - `RewriteMode::Simultaneous` whose subrules the `simultaneous.subrule-overlap` predicate
 //!   (`crate::capability`) cannot prove pairwise non-overlapping (self-opaquing, an unresolved
 //!   overlap, or an unsupported pattern node in a lowered span) — see "`RewriteMode::Simultaneous`:
@@ -170,7 +170,7 @@
 //! case, so no superset-widening is required to stay recall-safe.
 //!
 //! ## Bounded quantifiers
-//! [`PatternNode::Quantifier`] (`<OptionalSegmentSequence min max>`) used to be `pattern_slots`'
+//! [`pg_grammar::model::PatternNode::Quantifier`] (`<OptionalSegmentSequence min max>`) used to be `pattern_slots`'
 //! unconditional bail (module doc, "What this module does NOT attempt") regardless of `min`/`max`.
 //! Now a FINITELY bounded, alpha-free quantifier — `max == Some(_)`, `min <= max <=
 //! [MAX_QUANTIFIER_BOUND]`, no `Slot::Alpha` occurrence anywhere in its own (possibly nested)
@@ -183,7 +183,7 @@
 //! `min` mandatory concatenated copies of the child net, then `max - min` further copies each
 //! wrapped in `fsm_optionality` — i.e. **exactly** the "bounded concatenation/optionality"
 //! construction this change's own proposal names, not an approximation of it) for free. Inverted
-//! (`min > max`, `max` concrete, no sound finite construction), over-[`MAX_QUANTIFIER_BOUND`]
+//! (`min > max`, `max` concrete, no sound finite construction), over-`MAX_QUANTIFIER_BOUND`
 //! (`max` concrete), or alpha-nested quantifiers are UNCHANGED: still `None`, still honestly
 //! reported uncovered by every existing caller.
 //!
@@ -201,7 +201,7 @@
 //! (`nfst-xre`'s `CatenateNPlus`/`RepeatNPlus`, `foma-0.4.2/src/regex.rs:258-268`'s own
 //! `concat(concat_n(net, N), kleene_plus(net))` — **`E^>N` means MORE THAN `N`, i.e. `N+1` or more,
 //! not `N` or more**, the off-by-one `crate::lower::render_slots` is careful to get right by
-//! rendering `min-1`, never `min`). [`MAX_QUANTIFIER_BOUND`] is never checked for this case
+//! rendering `min-1`, never `min`). `MAX_QUANTIFIER_BOUND` is never checked for this case
 //! (`crate::lower`'s own doc on that constant): a Kleene star/plus's own compiled net size does not
 //! depend on any repetition count at all, so "the bound is above the ceiling" is not even a
 //! meaningful question to ask of `max: None` — this is a DIFFERENT native construction, not a
@@ -209,7 +209,7 @@
 //! anywhere in this path (a finite cutoff must never masquerade as unbounded semantics —
 //! this is the SAME rule the original refusal existed to enforce, now honored by actually building
 //! the unbounded construction instead of refusing every quantifier that might need it). Inverted/
-//! over-[`MAX_QUANTIFIER_BOUND`]/alpha-nested quantifiers stay `None` exactly as before — those
+//! over-`MAX_QUANTIFIER_BOUND`/alpha-nested quantifiers stay `None` exactly as before — those
 //! checks are about a FINITE `max`'s own value and do not apply when there is no finite value to
 //! check (`crate::lower::slots_from_nodes`'s own Quantifier arm skips them entirely for `max: None`).
 //!
@@ -228,7 +228,7 @@
 //! [`resolve_alpha_tuples`]'s own `surviving` tuple count, exactly the same two-independent-axes
 //! shape [`ComposeBudget::tuple_cap`](crate::compose_budget::ComposeBudget::tuple_cap)'s own V3
 //! check already guards on the alpha axis; the quantifier axis gets its OWN eager, cheaper-than-any-
-//! `Fsm` preflight ([`MAX_QUANTIFIER_BOUND`], checked in `pattern_slots` before any regex is even
+//! `Fsm` preflight (`MAX_QUANTIFIER_BOUND`, checked in `pattern_slots` before any regex is even
 //! rendered, let alone parsed — the same "check the search result before the expensive part"
 //! principle [`ComposeBudget::tuple_cap`](crate::compose_budget::ComposeBudget::tuple_cap) already
 //! uses for alpha tuples),
@@ -775,7 +775,7 @@ mod representation_alias_map_tests {
 /// is an honest `None` a caller can route to its OWN "uncovered"/`Unsupported` handling, never a
 /// silent guess. [`compile_rewrite_rule_subset`] treats `None` exactly like an unsupported pattern
 /// construct (`Ok(None)`, reported `skipped` by its own caller); `capability.rs`'s
-/// `lower_subrule_span` rounds it to [`LoweredSpan::Unsupported`] (any approximation rounds toward
+/// `lower_subrule_span` rounds it to [`crate::capability::LoweredSpan::Unsupported`] (any approximation rounds toward
 /// `Refuse`).
 pub(crate) fn owning_table<'g>(g: &'g Grammar, rule: &RewriteRuleDef) -> Option<&'g CharDefTable> {
     let idx = g
@@ -1262,7 +1262,7 @@ pub fn compile_rewrite_rule_subset(
 }
 
 /// Compile every `Rewrite`-kind [`PhonRuleDef`] in `stratum_prules` order into individual foma
-/// nets and left-fold-compose them via [`fsm_compose`] (stratum/document order = feeding order —
+/// nets and left-fold-compose them via [`foma::constructions::fsm_compose`] (stratum/document order = feeding order —
 /// prule4's assimilated output is prule5's own deletion-context input, verified by hand against
 /// `menulis`/`memukul`). `Metathesis`-kind rules and any
 /// `Rewrite` rule this module can't render are skipped, their `xml_id`s returned in `skipped` so
@@ -1665,7 +1665,7 @@ pub type Subrule = RewriteSubruleDef;
 // SAME per-branch literal cross-product-union construction below, factored out so both the plain and
 // mirror orientations share it byte-for-byte) runs on the mirror pattern with the REMAPPED indices,
 // giving the mirror-rule's own swap relation. (3) [`fsm_reverse`] of that mirror net. (4)
-// [`fsm_union`] with the PLAIN net (the SAME `Dir::LeftToRight`-style compile over the ORIGINAL,
+// [`foma::constructions::fsm_union`] with the PLAIN net (the SAME `Dir::LeftToRight`-style compile over the ORIGINAL,
 // un-mirrored pattern/indices — the safety-net floor, identical role to [`compile_rtl_branch_net`]'s
 // own `plain_net`).
 //

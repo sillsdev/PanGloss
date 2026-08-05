@@ -51,7 +51,7 @@ pub struct PhonologyProbe<'g> {
     /// Subset of `alphabet` restricted to segments that actually appear as the FIRST real segment
     /// of some root allomorph's or some affix rule's authored text in THIS grammar (the Amharic
     /// hazard-1 fix: see [`neighbor_first_segments`]'s doc for the soundness
-    /// argument). Used ONLY for [`compute_deletion_junctions`]'s outer (C1) loop -- an affix's
+    /// argument). Used ONLY for [`PhonologyProbe::compute_deletion_junctions`]'s outer (C1) loop -- an affix's
     /// real right-neighbor in any synthesized word is always some root's or some rule's own first
     /// segment, a closed, enumerable set, so narrowing the C1 loop to it can never drop a
     /// deletion junction that could actually occur. The inner C2 loop stays over the FULL
@@ -78,14 +78,14 @@ pub struct PhonologyProbe<'g> {
     rule_cache: RuleCache,
     /// A dedicated rayon pool (NOT the global default pool -- `pg-parse`'s own batch parallelism,
     /// `pg-parse/src/batch.rs`, configures the global pool for ITS OWN stack needs, and this
-    /// crate must not fight it for that setting) for [`compute_variants`]/
-    /// [`compute_deletion_junctions`]'s alphabet-probe loops. Built ONCE per grammar (not once per
+    /// crate must not fight it for that setting) for [`PhonologyProbe::compute_variants`]/
+    /// [`PhonologyProbe::compute_deletion_junctions`]'s alphabet-probe loops. Built ONCE per grammar (not once per
     /// probed text -- 58 distinct texts on Amharic would otherwise pay pool-spawn cost 58 times)
     /// with [`crate::emit::PROBE_STACK_BYTES`]-sized worker stacks: `probe_synthesize`'s own
     /// recursion depth (same machinery, same overflow risk `emit.rs`'s `probe_surface` already
     /// works around) needs far more than rayon's default 2-8MB worker stack. `None` on
     /// wasm32-unknown-unknown, where building a pool would call `thread::spawn`, which aborts at
-    /// runtime there -- [`compute_variants`]/[`compute_deletion_junctions`] fall back to a plain
+    /// runtime there -- [`PhonologyProbe::compute_variants`]/[`PhonologyProbe::compute_deletion_junctions`] fall back to a plain
     /// sequential loop on that target instead of touching this field at all.
     #[cfg(not(target_arch = "wasm32"))]
     pool: rayon::ThreadPool,
@@ -365,7 +365,7 @@ impl<'g> PhonologyProbe<'g> {
     /// which thread computes it. The per-c1 "break at first hit" short-circuit is preserved
     /// exactly (it lives inside `probe_one`, unaffected by which iterator drives it), so this
     /// stays the same total probe count per c1 as the sequential version, not more. Same
-    /// wasm32/non-wasm32 split as [`compute_variants`]: one shared closure, driving iterator
+    /// wasm32/non-wasm32 split as [`Self::compute_variants`]: one shared closure, driving iterator
     /// swapped by `cfg`, collected into the same order-independent `BTreeSet`.
     fn compute_deletion_junctions(&self, underlying: &str) -> Vec<String> {
         let mut result: BTreeSet<String> = BTreeSet::new();

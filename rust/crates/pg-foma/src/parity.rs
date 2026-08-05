@@ -13,7 +13,7 @@
 //! - **Not multiset equality.** Multiplicity is NOT part of the relation. Two analyses that reach
 //!   the same identity by different derivational paths are one member of the set, not two, so a
 //!   candidate that finds an analysis twice agrees with an oracle that found it once. The
-//!   duplicate-path fact is real evidence and is retained ([`IdentityEvidence::duplicate_paths`]) —
+//!   duplicate-path fact is real evidence and is retained (`IdentityEvidence::duplicate_paths`) —
 //!   it is simply not the verdict.
 //! - **Deduplication is WITHIN one occurrence only.** Repeated corpus rows are separate
 //!   observations and are never collapsed against one another. That is why the unit of this module

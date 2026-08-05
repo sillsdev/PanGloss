@@ -15,8 +15,8 @@
 //!   every builder reads.
 //! - [`ids`]: deterministic per-prefix XML id minting, shared across every builder so two
 //!   builders never collide on an id within one render.
-//! - [`render`]: assembles the full `<HermitCrabInput>` document from a [`recipe::Recipe`].
-//! - [`oracle`] (feature `oracle`, needs the optional `pg-parse` dependency): bounded
+//! - [`mod@render`]: assembles the full `<HermitCrabInput>` document from a [`recipe::Recipe`].
+//! - `oracle` (feature `oracle`, needs the optional `pg-parse` dependency): bounded
 //!   Morpher-as-generator sweep -- ground truth for the recall-parity gates (GATE 2).
 //! - [`build`]: one submodule per construct row this crate synthesizes a stress grammar for --
 //!   see `build`'s own doc for what each implements.

@@ -129,7 +129,7 @@
 //! flag symbols are minted from the constraint's own `id` (never from `attr`, which embeds a `.`
 //! for human-readable reporting only — see [`flag_id`]'s doc for why that must never reach an
 //! actual flag symbol): a require `@R.ENV{id}.y@` and two positive-set symbols `@P.ENV{id}.y@` /
-//! `@P.ENV{id}.n@`. [`crate::emit::write_tag_entry`] is the single choke point every literal
+//! `@P.ENV{id}.n@`. `crate::emit::write_tag_entry` is the single choke point every literal
 //! spelling in the whole emitter passes through (verified by inspection: roots, affix derivation/
 //! slot chains, and P1d composite entries all call it, nothing writes a tagged entry any other
 //! way) — [`PrecisionEmit::tagged_lower`] is what it calls to build the entry's LOWER-tape text:
@@ -146,7 +146,7 @@
 //!   untouched, exactly matching the real engine, which only ever inspects the assembled PHONETIC
 //!   shape).
 //! - **Owner side**: the OWNING allomorph's own entries (identified the same way already
-//!   threaded above — `Some(allo.id)` from [`crate::emit::emit_rule_allomorphs`],
+//!   threaded above — `Some(allo.id)` from `crate::emit::emit_rule_allomorphs`,
 //!   `Some(root.id)` from `write_root_entries`/`write_stripped_root_entries`) additionally get
 //!   `@R.ENV{id}.y@` PREPENDED (require: only `y` is ever meaningful here — exclude is
 //!   declined, finding 4).
@@ -161,7 +161,7 @@
 //!   spell `L = "mi"`; the "i" entry alone is a proper suffix of "mi", so it gets `y`). Every
 //!   caller already writes ONE lexc entry per rendered spelling variant (`surface_variants`/
 //!   `pattern_variants`/`PhonologyProbe::variants`'s enumeration, each its own
-//!   [`crate::emit::write_tag_entry`] call) — so "any of the entry's own rendered variants" is
+//!   `crate::emit::write_tag_entry` call) — so "any of the entry's own rendered variants" is
 //!   already handled by construction; [`could_satisfy`] only needs to range over the
 //!   CONSTRAINT's own literal variants for the ONE surface it is called with.
 //!
@@ -179,7 +179,7 @@
 //! middle, end of the LOWER string) therefore doesn't matter for correctness — verified empirically
 //! against a real compiled network (require+set+adjacency+empty-morph-preserves-value, all four
 //! cases) during this step's implementation, not merely reasoned about; see this module's own
-//! [`tests`] for the equivalent property tests. `escape_lexc_text` is applied ONLY to the real
+//! `tests` for the equivalent property tests. `escape_lexc_text` is applied ONLY to the real
 //! surface text, never to a flag symbol (flag symbols are built already lexc-safe by
 //! construction, ASCII letters/digits/`@`/`.` only, escaped zeros — see [`flag_id`]).
 //!
@@ -553,7 +553,7 @@ fn render_pattern_literal(g: &Grammar, pattern: &Pattern) -> Option<Vec<String>>
 ///   symbol occupying an ENTIRE lexc side alone (its only use before this module) — a symbol
 ///   spliced onto the END of ordinary surface text is a materially different case this crate had
 ///   never exercised, and `%`-escaping does not fix it there. [`flag_id`] therefore avoids the
-///   digit `0` altogether: `Z` substitutes for it (never itself produced by [`u32::to_string`], so
+///   digit `0` altogether: `Z` substitutes for it (never itself produced by `u32::to_string`, so
 ///   the substitution is injective — no two ids can ever collide).
 fn flag_id(id: u32) -> String {
     id.to_string().replace('0', "Z")
@@ -756,7 +756,7 @@ impl PrecisionEmit {
         }
     }
 
-    /// Builds one entry's LOWER-tape text ([`crate::emit::write_tag_entry`]'s call): the owning
+    /// Builds one entry's LOWER-tape text (`crate::emit::write_tag_entry`'s call): the owning
     /// allomorph's `@R@` require prefix (if any — only when `owner` is `Some` and that allomorph
     /// carries a covered constraint), then `escaped` (or lexc's `0` epsilon marker when `surface`
     /// is empty), then — only when `surface` is non-empty — every coverable constraint's set-y/

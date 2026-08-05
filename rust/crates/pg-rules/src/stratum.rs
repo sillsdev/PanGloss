@@ -669,7 +669,7 @@ struct StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     /// every recursion argument. See [`analyze_stratum_scoped`].
     scope: Option<&'s MemoScope>,
     /// The non-head lexicon filter, or `None` (unfiltered — every pre-existing caller). See
-    /// [`NonHeadRootFilter`] and [`Self::non_head_root_matches`].
+    /// [`NonHeadRootFilter`] and `non_head_root_matches`.
     non_head_root_filter: Option<NonHeadRootFilter<'f>>,
     /// The mrule/template selector, or `None` (every pre-existing caller — every
     /// rule admitted). See [`RuleFilter`]'s doc.
@@ -1556,7 +1556,7 @@ fn synth_slots_generic<F>(
 ///
 /// - `IsMorphologicalRuleApplicable(rule)`: `mrule_app_index >= 0` and the rule at
 ///   that index equals `id`, OR that slot is C#'s null "unknown compounding rule" and
-///   `id` names a `CompoundingRule` — reachable when [`pg_parse`]'s `generate_words` seeds a
+///   `id` names a `CompoundingRule` — reachable when `pg_parse`'s `generate_words` seeds a
 ///   bare non-head `LexEntry` directly (the `None` variant of [`Word::mrule_apps`]'s element type;
 ///   analysis itself never produces one, see that field's doc).
 /// - `MorphologicalRuleApplied`: on success decrement `mrule_app_index`; for a
@@ -1628,7 +1628,7 @@ fn guided_synth(
 }
 
 /// The stratum a morphological rule belongs to (C# `IMorphologicalRule.Stratum`): the stratum whose
-/// `mrules` list or affix-template slots contain `id`. Used only for [`HasRemainingRulesFromStratum`]
+/// `mrules` list or affix-template slots contain `id`. Used only for [`has_remaining_rules_from_stratum`]
 /// filtering of the (few) final candidates, so a linear scan is fine.
 fn owning_stratum(g: &Grammar, id: MRuleId) -> Option<StratumId> {
     for (si, sd) in g.strata.iter().enumerate() {

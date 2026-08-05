@@ -58,7 +58,7 @@ impl Default for ScaleKnobs {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ConstructKnobs {
     /// Number of `<CharacterDefinitionTable>`s (and, one-to-one, strata) the grammar declares.
-    /// Read by [`crate::build::tables`] and [`crate::render`]'s stratum assembly. `1` is the
+    /// Read by [`crate::build::tables`] and [`crate::render::render`]'s stratum assembly. `1` is the
     /// ordinary single-table case (the circumfix gate's recipe); `>= 2` is the multi-table gate's
     /// detect-wrong shape -- table 1's segments are deliberately given a
     /// DIFFERENT voice-feature-to-index alignment than table 0's (see

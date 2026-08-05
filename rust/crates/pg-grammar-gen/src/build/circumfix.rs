@@ -14,7 +14,7 @@ use crate::ids::IdMinter;
 
 /// One circumfix rule: `prefix` + captured root + `suffix`, POS-preserving
 /// (`requiredPartsOfSpeech == outputPartOfSpeech == pos`), no `OutputHeadFeatures` (kept minimal
-/// -- the oracle's `real_fs` argument, [`crate::oracle`]'s own doc, stays unconstrained).
+/// -- the oracle's `real_fs` argument, `crate::oracle`'s own doc, stays unconstrained).
 #[derive(Debug, Clone)]
 pub struct CircumfixSpec {
     pub mrule_xml_id: String,

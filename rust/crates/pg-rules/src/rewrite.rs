@@ -1272,7 +1272,7 @@ enum SubruleOutcome {
     NotApplied(FailureReason),
 }
 
-/// [`SynthesisRewriteSubruleSpec::IsApplicable`]'s three gates, decomposed to name WHICH one failed
+/// `SynthesisRewriteSubruleSpec::IsApplicable`'s three gates, decomposed to name WHICH one failed
 /// (`SynthesisRewriteSubruleSpec.cs:31-77`) — a read-only re-derivation of exactly what
 /// [`subrule_applicable`] already checks (that function itself is untouched; this just re-runs its
 /// two halves separately so a caller can report the specific reason). `None` means the gate passed.

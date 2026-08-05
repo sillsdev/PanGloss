@@ -51,7 +51,7 @@
 //! count is zero.
 //!
 //! Relatedly, an admission key is COARSER than an identity (it carries no category), so
-//! [`AccuracyCounters::oracle_key_ambiguities`] counts the occurrences where one oracle admission
+//! `AccuracyCounters::oracle_key_ambiguities` counts the occurrences where one oracle admission
 //! key stood for analyses of more than one category. Zero means the two granularities coincide on
 //! that corpus; non-zero is reported rather than hidden, because there this check is weaker than
 //! identity containment and a reader must be able to see that.

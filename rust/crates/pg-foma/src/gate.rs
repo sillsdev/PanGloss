@@ -51,7 +51,7 @@
 //! stop fighting matched-context flags for this root-static gate and use a **static, flag-free
 //! partition** instead. It needs zero new
 //! foma primitives — only ones already proven in this file's own sibling modules (lexc, plain `->`
-//! rules with no flags, [`fsm_compose`], [`fsm_union`]) — and it is provably correct BY
+//! rules with no flags, [`foma::constructions::fsm_compose`], [`foma::constructions::fsm_union`]) — and it is provably correct BY
 //! CONSTRUCTION rather than by hoping a flag survives composition:
 //!
 //! This decision does not rule out context-free inserted flags for a future morphotactic legality
@@ -97,7 +97,7 @@
 //!    emit_underlying_filtered`] restricted to that group's entries (affix chains unfiltered — see
 //!    their own doc), [`crate::replace::compile_and_compose_rules_gated`] with every gated
 //!    subrule's inclusion decided by that group's own key (ungated subrules always included), then
-//!    `lexc_group .o. rules_group`. The per-group nets are then [`fsm_union`]ed into one final
+//!    `lexc_group .o. rules_group`. The per-group nets are then [`foma::constructions::fsm_union`]ed into one final
 //!    network.
 //!
 //! **Why the union is safe here** (the report's own §2.2 warning about union-of-complete-replace-

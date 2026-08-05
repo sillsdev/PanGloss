@@ -38,7 +38,7 @@ pub struct PackManifest {
     /// A stable identifier for the grammar this pack was compiled from (package/grammar identity;
     /// freeform — this schema step does not mint a grammar-ID registry).
     pub grammar_id: String,
-    /// Lowercase-hex SHA-256 over both framed payloads (see [`crate::format::fingerprint_bytes`]
+    /// Lowercase-hex SHA-256 over both framed payloads (see [`crate::format::fingerprint_hex`]
     /// for the exact bytes hashed). Binds the runtime and foma payloads together so they cannot be
     /// mixed across grammars — [`crate::format::read_pack`] recomputes this from the payload
     /// bytes it actually read and rejects a mismatch as

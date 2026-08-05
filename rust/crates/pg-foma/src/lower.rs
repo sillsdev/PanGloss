@@ -233,7 +233,7 @@ pub(crate) enum Slot {
     /// sits on (leading in a left environment = word-initial; trailing in a right environment =
     /// word-final -- `pg_grammar::compile::rules.rs`'s own construction: `Anchor(Left)` is always
     /// PREPENDED to `left_env`, `Anchor(Right)` always APPENDED to `right_env`), never from the tag
-    /// itself. This is exactly what makes [`crate::replace::compile_rtl_branch_net`]'s existing
+    /// itself. This is exactly what makes `compile_rtl_branch_net`'s existing
     /// mirror-and-reverse construction swap an anchor to the CORRECT opposite edge with NO
     /// anchor-specific code in that function at all: `reversed_slots` reverses this slot's own
     /// POSITION within its containing environment list (an atomic slot, no internal reversal, same

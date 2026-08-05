@@ -61,7 +61,7 @@
 //! - **Every gate group gets its OWN `Replace` node.** An EARLIER version of this module built one
 //!   Replace node SHARED by
 //!   every group, on the reasoning that [`ReplaceCascadeSpec`] is rule-level (`Vec<PRuleId>`) and
-//!   the per-group subrule-inclusion distinction lives on [`GatePartitionSpec::gated_subrules`] +
+//!   the per-group subrule-inclusion distinction lives on `GatePartitionSpec::gated_subrules` +
 //!   each group's own `key`, so duplicating it into `Replace` would be "redundant, not more
 //!   faithful." That turned out to be UNSOUND: `crate::build`'s `build_controllable` needs a
 //!   DIFFERENT `subrule_ok` per group, so a single shared `Replace` `NodeId` violates node purity
@@ -417,8 +417,8 @@ impl EmissionStrategy {
 /// # Which axes are emitted, and why
 ///
 /// **Emitted: gate-group order** (candidate `"gate-group-permuted"`, via [`permute_gate_groups`]).
-/// [`crate::oracle`]'s own module doc proves this is sound and non-vacuous: [`build::
-/// build_controllable`] folds every `Gate` group's compiled network together with
+/// [`crate::oracle`]'s own module doc proves this is sound and non-vacuous:
+/// [`crate::build::build_controllable`] folds every `Gate` group's compiled network together with
 /// [`crate::compose_budget::union_checked`] (commutative) and always finishes with
 /// [`crate::compose_budget::minimize_checked`], so a `Gate` node's group ORDER cannot affect the
 /// final relation — only membership does. Reordering the groups changes the `Gate` node's content
@@ -437,10 +437,10 @@ impl EmissionStrategy {
 /// - **Reordering the root `Union`'s composite-emission/structural-composite marker children.**
 ///   [`enumerate_default`]'s own module doc already notes `Union`'s commutativity makes child order
 ///   semantically inert; the reason this is still not a candidate axis is that neither marker leaf
-///   is interpreted by [`build::build_controllable`] at all (that module's own scope note: markers
+///   is interpreted by [`crate::build::build_controllable`] at all (that module's own scope note: markers
 ///   are a separate, black-box lexc-`String` artifact, "out of scope for this step"). Permuting
 ///   `Union` children would therefore change a content address without changing anything
-///   [`build::build_controllable`] can measure or build differently — no genuine topology choice,
+///   [`crate::build::build_controllable`] can measure or build differently — no genuine topology choice,
 ///   just churn.
 /// - **An alternative partition function for the `Gate` node** (grouping entries differently than
 ///   [`crate::gate::partition_entries`] does). No second partition-computing seam exists anywhere in
