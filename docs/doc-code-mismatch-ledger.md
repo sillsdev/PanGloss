@@ -172,6 +172,31 @@ Fix is one character per pattern (`-cmatch`, or an inline `(?-i)`), but it **cha
 so it must land with a re-baseline and not while a sweep is in flight. Deliberately deferred to
 avoid moving the target under the agents.
 
+### The blind spot that matters more than the comments — **OPEN**
+
+The checker scans **comment lines only**, and that is the right default: a plan path inside a string
+literal is often a real file the code opens. But it means the sweep could not see, and did not touch,
+**18 plan references sitting in production string literals** — `capability.rs` (5),
+`coverage_ledger.rs` (5), `plan_interaction_coverage.rs` (2), and one each in `make_report.rs`,
+`analyzer.rs`, `compose_budget.rs`, `conformance_coverage.rs`, `morphotactics.rs`,
+`recipe_registry.rs`. Production code only — `tests/`, `examples/`, and `cfg(test)` excluded.
+
+These are **not** paths the code opens. They are diagnostic and error text, e.g.:
+
+- `analyzer.rs:98` — *"(openspec/changes/cover-unordered-morph-rules) rather than silently truncated."*
+- `capability.rs:3393` — *"...operator, openspec/changes/build-unbounded-quantifier-support.)"*
+- `capability.rs:3781` — *"{kind:?} is FailClosed by default disposition (design.md D1)..."*
+
+So a user running `pangloss` can be shown a message citing an internal openspec change folder they
+have no access to. That is strictly worse than the same reference in a comment: a stale comment
+misleads a maintainer, a stale diagnostic misleads an end user and cannot be checked by any gate that
+reads comments. Same failure mode as the rest of this ledger — a pointer to project state, true when
+written — one layer further out.
+
+Fix is a judgement call per message, not a sweep: say what the reader should *do*, and keep the
+construct name. Worth adding a companion check for plan patterns in string literals, scoped to
+production code so fixture XML and real paths do not trip it.
+
 ## Non-code mismatches
 
 | Where | Mismatch | Status |
