@@ -344,17 +344,32 @@ function Get-BlockKind {
         # item is effectively private and its doc is implementation documentation. Requiring both is
         # what makes "is this an interface?" mean reachability rather than just spelling.
         if ($l -match '^\s*pub(\s|\()') { if ($InPublicModule) { return 'api' } else { return 'impl' } }
-        # An enum VARIANT or a struct FIELD in a public type is API surface, but neither ever carries a
-        # `pub` token -- the enclosing item's visibility governs them. Requiring the literal keyword read
-        # every variant doc as an implementation comment, so a caller-facing description of what a
-        # variant MEANS was capped at one line while the enum's own doc was not. A sweep agent hit this
-        # and shortened two real API docs rather than leave a violation it could not clear.
+        # No `pub` on the item's own line does not settle it. Two kinds of item INHERIT visibility from
+        # the declaration enclosing them and can never carry the keyword themselves:
         #
-        # Detected by shape: `Variant,` / `Variant(..)` / `Variant {` / `name: Type,` in a public module.
-        # Deliberately narrow -- it must not swallow ordinary statements, so it requires the line to look
-        # like a declaration and nothing else.
-        if ($InPublicModule -and $l -match '^\s*[A-Z][A-Za-z0-9_]*\s*(,|\(|\{|=)') { return 'api' }
-        if ($InPublicModule -and $l -match '^\s*[a-z_][A-Za-z0-9_]*\s*:\s*[A-Za-z_&<\[]') { return 'api' }
+        #   enum variants   -- `Variant,` in a `pub enum` is API; the same line in a private enum is not
+        #   trait items     -- `fn foo();` in a `pub trait` is API (14 such in this tree)
+        #
+        # Struct fields are NOT in that set and deliberately fall through to `impl`: a field needs its
+        # OWN `pub` to be reachable, so `xml_id: String,` inside a `pub struct` is implementation detail
+        # and its doc is held to the one-line cap. The `pub` branch above already catches public fields.
+        #
+        # So: walk OUT to the nearest enclosing declaration at a smaller indent and use its visibility.
+        # An earlier version guessed from the shape of the item's own line instead, which both missed
+        # trait items and wrongly promoted every private field.
+        $itemIndent = ($l -replace '^(\s*).*', '$1').Length
+        for ($k = $j - 1; $k -ge [Math]::Max(0, $j - 400); $k--) {
+            $c = $AllLines[$k]
+            if ($c.Trim() -eq '' -or $c -match '^\s*(///|//!|//)') { continue }
+            if ((($c -replace '^(\s*).*', '$1').Length) -ge $itemIndent) { continue }
+            if ($c -match '^\s*(pub(\([^)]*\))?\s+)?(enum|trait)\s+[A-Za-z_]') {
+                if ($c -match '^\s*pub' -and $InPublicModule) { return 'api' }
+                return 'impl'
+            }
+            # Any other enclosing construct (struct, impl, fn, mod): the item needed its own `pub`,
+            # and it did not have one.
+            if ($c -match '^\s*(pub(\([^)]*\))?\s+)?(struct|union|impl|fn|mod)\b') { return 'impl' }
+        }
         return 'impl'
     }
     return 'impl'
