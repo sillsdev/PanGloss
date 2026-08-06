@@ -1,20 +1,4 @@
-//! Pins deterministic corpus eligibility: the step cap classifies, and nothing else may.
-//!
-//! Three defects, all observed on real corpora, are pinned here.
-//!
-//! 1. **Wall-clock exclusions were not reproducible.** Amharic word U+1264 U+1273 PASSED the oracle
-//!    in a 673-row run and was excluded as `oracle-timeout` in a 573-row run — same grammar, same
-//!    caps, same binary; only machine load differed. Now a wall-clock trip is a whole-run
-//!    `OraclePreparationFault`, so a timed-out word is UNREPRESENTABLE as an eligibility outcome.
-//! 2. **The two bounds masked each other.** A word that would exhaust its step budget could trip
-//!    the 2-second clock first and be misrecorded as a timeout (re-running 669 words at a 120s net
-//!    instead of 2s moved the step-capped count from 4 to 12, recovering 80 Amharic words that were
-//!    never intractable). With the clock demoted, the deterministic axis is always the one observed.
-//! 3. **The generating configuration was unrecorded.** Two runs at different caps produced
-//!    indistinguishable "certifications".
-//!
-//! Plus the memory axis, which used to be a job-object kill that produced no row at all — "I could
-//! not look" reading as an outcome.
+//! Pins deterministic corpus eligibility: only the step cap classifies; a clock or memory fault must abort the run rather than produce a silent per-word exclusion.
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::recipe_optimizer::Certification;
@@ -55,14 +39,7 @@ fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::Lowere
         .collect()
 }
 
-/// REQUIREMENT (a). Before this change an expired deadline produced a per-word exclusion with
-/// `reason: "oracle-timeout"` and a `Certification::Truncated { stage: "oracle-timeout" }` — an
-/// eligibility verdict decided by a clock. It must now be a typed abort of the whole preparation
-/// run, naming the word it tripped on.
-///
-/// A zero-length net is the deterministic way to force the trip: `StepBudget::with_timeout`
-/// resolves the deadline to `Instant::now() + ZERO`, so the very first `over_budget()` sample after
-/// the (uncapped, at the default 20_000) step check finds the clock already past it. No timing race.
+/// A zero-length liveness net forces a deterministic trip: the deadline is already past on the first check, not a timing race.
 #[test]
 fn a_liveness_net_trip_aborts_the_run_and_can_never_be_an_exclusion() {
     let (grammar, words) = fixture();
@@ -98,9 +75,7 @@ fn a_liveness_net_trip_aborts_the_run_and_can_never_be_an_exclusion() {
     );
 }
 
-/// REQUIREMENT (a), the masking half. A word that exhausts its step cap must be classified by the
-/// step cap even when the clock is also armed; the clock may only ever abort. Here the step cap is
-/// tight enough that `menulik` exhausts it, and the (default, generous) net is armed as usual.
+/// The clock is armed too, but only the step cap may classify a word; the clock may only abort.
 #[test]
 fn a_step_capped_word_is_classified_by_the_step_cap_not_the_clock() {
     let (grammar, words) = fixture();
@@ -132,9 +107,7 @@ fn a_step_capped_word_is_classified_by_the_step_cap_not_the_clock() {
     );
 }
 
-/// REQUIREMENT (b). A declared memory ceiling must produce a typed, word-naming abort rather than
-/// the previous silent absence (a job-object kill emitting no row at all). A one-byte ceiling is
-/// the deterministic forcing function: any live process exceeds it.
+/// A one-byte memory ceiling deterministically trips, since any live process exceeds it.
 #[test]
 fn a_declared_memory_ceiling_aborts_the_run_with_a_typed_fault() {
     let (grammar, words) = fixture();
@@ -169,8 +142,7 @@ fn a_declared_memory_ceiling_aborts_the_run_with_a_typed_fault() {
         .contains("eligibility could not be determined"));
 }
 
-/// REQUIREMENT (b), the other direction: an explicitly unbounded ceiling is a stated choice and is
-/// recorded as such, and it costs no sampling.
+/// An explicitly unbounded ceiling is a recorded choice, not merely an omission, and costs no sampling.
 #[test]
 fn an_explicitly_unbounded_memory_ceiling_is_recorded_not_silent() {
     let (grammar, words) = fixture();
@@ -189,8 +161,7 @@ fn an_explicitly_unbounded_memory_ceiling_is_recorded_not_silent() {
     );
 }
 
-/// REQUIREMENT (c). The generating configuration is part of the evidence, and two runs at different
-/// caps over the SAME words must not be indistinguishable.
+/// Two runs over the same words at different caps must produce distinguishable evidence.
 #[test]
 fn the_evidence_binds_the_generating_configuration_and_distinguishes_two_caps() {
     let (grammar, words) = fixture();
@@ -211,9 +182,7 @@ fn the_evidence_binds_the_generating_configuration_and_distinguishes_two_caps() 
         DEFAULT_ORACLE_LIVENESS_NET.as_nanos() as u64
     );
 
-    // Same words, same (zero) exclusions, different cap: the WORD hashes are necessarily equal --
-    // they are hashes of the same strings -- so the ledger hash is the field that has to carry the
-    // configuration, and it must differ.
+    // Word hashes are equal (same strings); only the exclusion-ledger hash may carry the cap difference.
     let higher = evidence_at(RuntimeBudget {
         oracle_step_cap: Some(DEFAULT_ORACLE_STEP_CAP * 2),
         ..RuntimeBudget::default()
@@ -230,8 +199,7 @@ fn the_evidence_binds_the_generating_configuration_and_distinguishes_two_caps() 
     assert_ne!(higher.oracle_step_cap, defaults.oracle_step_cap);
 }
 
-/// REQUIREMENT (d). A run with nothing excluded still emits the ledger, over the RAW requested
-/// slice. "There were no exclusions" and "nobody looked" must not be the same artifact.
+/// Zero exclusions still emits a ledger over the raw requested slice -- "no exclusions" and "nobody looked" must not be indistinguishable.
 #[test]
 fn a_zero_exclusion_run_still_states_the_corpus_it_derived_that_zero_from() {
     let (grammar, words) = fixture();
@@ -246,9 +214,7 @@ fn a_zero_exclusion_run_still_states_the_corpus_it_derived_that_zero_from() {
     assert!(evidence.exclusions.is_empty());
 }
 
-/// PRESERVED. Exclusions are decided by the ORACLE, never by candidate outcome — asserted here by
-/// deriving the ledger both before any candidate is materialized and after a full evaluation of
-/// every candidate, and requiring the two to be identical.
+/// Exclusions are decided by the oracle alone, never by candidate outcome.
 #[test]
 fn exclusions_are_candidate_independent() {
     let (grammar, words) = fixture();

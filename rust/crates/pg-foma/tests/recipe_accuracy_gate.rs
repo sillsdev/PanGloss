@@ -23,8 +23,8 @@
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
-use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::junctions::PhonologyProbe;
+use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::recipe_accuracy::{candidate_admission_key, AccuracyVerdict};
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
 use pg_foma::recipe_runtime::{

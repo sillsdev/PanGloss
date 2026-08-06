@@ -1,18 +1,11 @@
-//! The projection from `pg_parse::WordAnalysis` to a stable-key identity, against real compiled
-//! grammars.
-//!
-//! The headline test here is `dense_ordinals_shift_but_identities_do_not`, which is the whole
-//! argument of ADR 0006 reduced to an executable claim: insert a part of speech and a lexical entry
-//! ahead of the existing ones — the most ordinary FieldWorks edit there is — and every dense
-//! ordinal behind them shifts, while the identities of the analyses that did not change stay equal.
+//! Projects `pg_parse::WordAnalysis` to a stable-key identity that survives a dense-ordinal reshuffle from an unrelated grammar edit (ADR 0006).
 
 use pg_assess::{AnalysisIdentity, AnalysisSet};
 use pg_grammar::model::Grammar;
 use pg_parse::morpher::Morpher;
 use pg_parse::ParseOptions;
 
-/// Two entries sharing the surface form `ab`, differing only in part of speech, so parsing `ab`
-/// yields exactly two analyses whose identities differ in both morpheme and category.
+/// Two entries sharing the surface form `ab`, differing only in part of speech.
 const BASELINE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -48,8 +41,7 @@ const BASELINE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-/// The same grammar after a linguist added one part of speech and one lexical entry *ahead* of the
-/// existing ones. Nothing about `ab` changed linguistically.
+/// The same grammar with one part of speech and one lexical entry inserted *ahead* of the existing ones.
 const AFTER_INSERTION_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -145,9 +137,7 @@ fn identities_carry_authored_keys_not_ordinals() {
 
 #[test]
 fn dense_ordinals_shift_but_identities_do_not() {
-    // ADR 0006 in one test. A part of speech and a lexical entry are inserted ahead of the
-    // existing ones — the document-order tables behind `MorphemeId` and `pos_id` both shift — and
-    // the analyses of `ab`, which nobody touched, must come out identical.
+    // The document-order tables behind `MorphemeId` and `pos_id` both shift on insertion; `ab`'s analyses must come out identical anyway.
     let baseline = load(BASELINE_XML);
     let candidate = load(AFTER_INSERTION_XML);
 
@@ -166,9 +156,7 @@ fn dense_ordinals_shift_but_identities_do_not() {
 
 #[test]
 fn a_deleted_entry_is_ordinary_removed_evidence() {
-    // The case that motivated identity-as-value: the candidate no longer defines `entryB`, so its
-    // analysis is simply absent from the candidate set. Nothing fails to resolve, because a
-    // baseline identity holds its own keys and never consults the candidate model.
+    // The candidate no longer defines `entryB`, so its analysis is simply absent; a baseline identity holds its own keys and never consults the candidate model.
     let baseline = load(BASELINE_XML);
     let candidate = load(&BASELINE_XML.replace(
         r#"          <LexicalEntry id="entryB" partOfSpeech="posV">
@@ -199,8 +187,7 @@ fn a_deleted_entry_is_ordinary_removed_evidence() {
 
 #[test]
 fn identities_survive_the_model_that_produced_them() {
-    // A report outlives its grammar. Once projected, an identity is a plain value: it can be
-    // compared long after every `Grammar` has been dropped.
+    // A report outlives its grammar: once projected, an identity is a plain value comparable long after the `Grammar` is dropped.
     let retained = {
         let grammar = load(BASELINE_XML);
         identities(&grammar, "ab")

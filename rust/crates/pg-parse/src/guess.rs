@@ -62,9 +62,7 @@ pub struct GuessNode {
     pub deleted: bool,
 }
 
-/// Table-derived lanes for a concrete `char_def` (empty for `NO_CHAR_DEF` or a zero-phon-feature
-/// table) — the same small resolution `root_trie.rs::char_def_lanes` performs for root-allomorph
-/// shapes, which (like a lexical-pattern shape) are stored feature-less at load time.
+/// Table-derived lanes for a concrete `char_def`; empty for `NO_CHAR_DEF` or a zero-phon-feature table.
 fn table_lanes(table: &CharDefTable, cd: u32, feat_width: usize) -> Vec<u64> {
     if cd == NO_CHAR_DEF || feat_width == 0 {
         return Vec::new();
@@ -121,10 +119,7 @@ fn cd_set_contains(cd_set: &CdSet, id: u32) -> bool {
     }
 }
 
-/// Unify two identity dimensions (a `(char_def, cd_set)` pair each), producing the NARROWED
-/// identity or `None` if incompatible. The four cases mirror `root_trie.rs::edge_matches`'s
-/// concrete/pattern/wildcard shape, but symmetrically (either side may be concrete or abstract,
-/// unlike the trie's query-vs-stored-edge asymmetry) and PRODUCING a result rather than a bool.
+/// Unifies two `(char_def, cd_set)` identity dimensions to the narrowed identity, or `None` if incompatible.
 fn unify_identity(a_cd: u32, a_set: &CdSet, b_cd: u32, b_set: &CdSet) -> Option<(u32, CdSet)> {
     match (a_cd != NO_CHAR_DEF, b_cd != NO_CHAR_DEF) {
         (true, true) => (a_cd == b_cd).then(|| (a_cd, CdSet::Unrestricted)),
@@ -134,8 +129,7 @@ fn unify_identity(a_cd: u32, a_set: &CdSet, b_cd: u32, b_set: &CdSet) -> Option<
     }
 }
 
-/// Intersect two abstract identity sets — `FeatureStruct.Unify`'s narrowing semantics applied to
-/// the identity dimension (§3's "class membership" refinement) rather than a phonological lane.
+/// Intersects two abstract identity sets (class-membership narrowing, not a phonological lane).
 fn unify_cd_set(a: &CdSet, b: &CdSet) -> Option<CdSet> {
     match (a, b) {
         (CdSet::Unrestricted, CdSet::Unrestricted) => Some(CdSet::Unrestricted),
@@ -153,12 +147,7 @@ fn unify_cd_set(a: &CdSet, b: &CdSet) -> Option<CdSet> {
     }
 }
 
-/// Lane-wise unify (intersect) two flat symbolic-feature constraints — `FeatureStruct.Unify` on
-/// the phonological-lane dimension (a lane AND; an absent lane on either side is unconstrained,
-/// i.e. all-ones, matching `pg_featstruct::flat_unifiable`'s convention). `None` if any lane's
-/// intersection is empty. Kept local to this module (rather than reusing `pg_fst::lanes::
-/// flat_unify`, which computes the identical arithmetic) so this file has no dependency edge onto
-/// the FST engine at all — see the module doc's "why not pg-fst" note.
+/// Lane-wise AND of two flat constraints (absent lane = unconstrained); `None` if any lane empties.
 fn unify_lanes(a: &[u64], b: &[u64]) -> Option<Vec<u64>> {
     let n = a.len().max(b.len());
     let mut out = Vec::with_capacity(n);
@@ -174,13 +163,7 @@ fn unify_lanes(a: &[u64], b: &[u64]) -> Option<Vec<u64>> {
     Some(out)
 }
 
-/// `Morpher.UnifyShapeNodes` (`Morpher.cs:640-647`): unify one input node against one pattern
-/// node, producing the unified node or `None` on failure. `Type` (kind) mismatch — a Segment node
-/// against a Boundary pattern node or vice versa — always fails, exactly as it would fail C#'s
-/// full-`FeatureStruct` unify (the type symbol is part of that FS). C#'s `fs.ValueEquals(node.FS)
-/// ? node : new ShapeNode(fs)` object-identity optimization has no analog for a value type — this
-/// constructs a freshly narrowed `GuessNode` whenever unification succeeds, which is behaviorally
-/// identical content either way.
+/// Unifies one input node against one pattern node; a kind mismatch fails (`Morpher.cs:640-647`).
 fn unify_shape_nodes(node: &GuessNode, pattern: &GuessNode) -> Option<GuessNode> {
     if node.kind != pattern.kind {
         return None;
@@ -197,10 +180,7 @@ fn unify_shape_nodes(node: &GuessNode, pattern: &GuessNode) -> Option<GuessNode>
         char_def,
         lanes,
         cd_set,
-        // Inert for `match_nodes_with_pattern`'s own control flow: the recursion only ever reads
-        // `optional`/`iterative` off the ORIGINAL `pattern` slice (`pattern[p]`), never off an
-        // already-unified node in `prefix` — matching C#, whose `MatchNodesWithPattern` likewise
-        // never re-reads a freshly unified `ShapeNode`'s own (default, unset) annotation flags.
+        // Inert here: the recursion reads optional/iterative off the original pattern slice only, never off `prefix`.
         optional: false,
         iterative: false,
         deleted: false,
@@ -219,13 +199,7 @@ pub fn match_nodes_with_pattern(nodes: &[GuessNode], pattern: &[GuessNode]) -> V
     match_rec(nodes, pattern, 0, 0, false, &[])
 }
 
-/// The recursion `match_nodes_with_pattern` seeds: `n`/`p` are cursors into `nodes`/`pattern`;
-/// `obligatory` suppresses skip-of-`p` immediately after consuming at `p` via the iterative-reuse
-/// branch (derivation dedup — skip-after-iterate would duplicate the consume-then-advance path);
-/// `prefix` is the matched-so-far node list. Literal port of `Morpher.cs:597-625`, branch order
-/// preserved exactly (skip, then end-of-nodes check, then consume, then iterate-reuse, then
-/// advance) since C#'s own `results.AddRange` order is what an unstable-sort-independent test
-/// (like this module's ported `TestMatchNodesWithPattern` cases) can still pin the *count* of.
+/// `n`/`p` are cursors into nodes/pattern; `obligatory` suppresses a duplicate skip-after-iterate path; `prefix` is the matched-so-far list.
 fn match_rec(
     nodes: &[GuessNode],
     pattern: &[GuessNode],
@@ -335,11 +309,7 @@ pub fn lexical_guess(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
-    // G4: `Morpher.cs:378-379` -- `LexicalGuess`'s own `if (_traceManager.IsTracing)
-    // _traceManager.LexicalLookup(input.Stratum, input);`, the SAME `TraceType::LexicalLookup`
-    // hook `Morpher::lexical_lookup_filtered` fires for the real-lexicon path (see that method's
-    // doc) -- structurally the analogous entry point here (once per call, before any pattern
-    // matching), with the same `aw.trace.unwrap_or(parent)` resolved-cursor idiom.
+    // Mirrors `Morpher::lexical_lookup_filtered`'s trace hook (Morpher.cs:378-379): once per call, before pattern matching.
     if trace.is_tracing() {
         let node_parent = aw.trace.unwrap_or(parent);
         trace.lexical_lookup(node_parent, aw.stratum, aw);
@@ -357,9 +327,7 @@ pub fn lexical_guess(
             .expect("lexical_patterns pair must resolve to a real allomorph on its owning entry");
         let pattern_nodes = nodes_of(&pattern_def.shape.shape, table, feat_width);
 
-        // Per-pattern dedup by rendered string (§1.3 step 4 / HISTORY row 12): two DIFFERENT
-        // patterns producing the same string must each still yield a guess (cross-pattern
-        // homographs are real) — this set resets for every pattern, never shared across them.
+        // Per-pattern dedup by rendered string: cross-pattern homographs are real, so this set resets for every pattern.
         let mut shape_set: HashSet<String> = HashSet::default();
         for m in match_nodes_with_pattern(&input_nodes, &pattern_nodes) {
             let shape_string = render_match(table, &m);
@@ -367,8 +335,7 @@ pub fn lexical_guess(
                 continue;
             }
 
-            // §1.3 step 6: fabricate the owning entry — net effect ≡ the pattern's owning entry,
-            // except Id/Gloss (= shape_string) and the allomorph list (the fabricated root alone).
+            // Fabricates the owning entry: same as the pattern's, except Id/Gloss and the allomorph list.
             let owning_entry = &g.entries[pattern_entry.0 as usize];
             let fab_stratum = g.morphemes[owning_entry.morpheme.0 as usize].stratum;
             let fab_table = &g.char_tables[g.strata[fab_stratum.0 as usize].table.0 as usize];

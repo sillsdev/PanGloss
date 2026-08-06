@@ -81,8 +81,7 @@ pub(crate) struct GrammarHandle {
     /// sound if either type ever gains a `Drop` impl later.
     pub(crate) morpher: Morpher<'static>,
     pub(crate) runtime: pg_lexicon::SuppliedLexiconRuntime,
-    /// Owned, immutable-with-respect-to-the-grammar proposer pieces. The foma runtime itself
-    /// needs mutable access while proposing, so calls briefly check the pieces out under a lock.
+    /// The foma runtime needs mutable access while proposing, so calls briefly check the pieces out under a lock.
     official_backend: Mutex<OfficialBackend>,
     #[cfg(test)]
     force_next_foma_panic: std::sync::atomic::AtomicBool,
@@ -100,12 +99,9 @@ pub(crate) struct GrammarHandle {
 impl GrammarHandle {
     fn new(grammar: Grammar, grammar_source: &str) -> Box<GrammarHandle> {
         let grammar = Arc::new(grammar);
-        // SAFETY: `grammar` is heap-allocated and, per the struct docs above, never moved or
-        // mutated again for the lifetime of the `GrammarHandle` being constructed — only this
-        // function ever had `&mut` access to it, and that access ends here. The transmuted
-        // lifetime therefore only asserts something true: the referent outlives every use of
-        // `morpher`, because both are dropped together (as fields of the same struct) and
-        // `morpher` (declared first) drops before `grammar` is freed.
+        // SAFETY: `grammar` is heap-allocated and never moved or mutated again after this point;
+        // `morpher` (declared first) drops before `grammar` is freed, so the transmuted `'static`
+        // lifetime only asserts that the referent outlives every use of `morpher`.
         let grammar_ref: &'static Grammar = unsafe { &*(grammar.as_ref() as *const Grammar) };
         let morpher = native_v1_morpher(grammar_ref);
         let runtime = pg_lexicon::SuppliedLexiconRuntime::with_policy(
@@ -187,8 +183,7 @@ impl GrammarHandle {
             OfficialBackend::MorpherFallback { diagnostic } => {
                 *backend = OfficialBackend::MorpherFallback { diagnostic };
                 drop(backend);
-                // `None` deliberately selects the unified runtime's authoritative grammar
-                // Morpher, not an overlay-only path.
+                // `None` deliberately selects the unified runtime's authoritative grammar Morpher, not an overlay-only path.
                 return self.runtime.analyze_word_opts(word, None, guess_fallback);
             }
         };
@@ -623,9 +618,7 @@ impl GrammarHandle {
     }
 }
 
-// Compile-time proof the handle can be shared across host threads, per plan §4.2 ("immutable and
-// Send + Sync"). If a future field addition ever breaks this, it fails to compile right here
-// instead of silently becoming a data race reachable only under concurrent FFI load.
+// Compile-time proof the handle is Send + Sync; a future field that breaks this fails to compile here rather than becoming a data race under concurrent FFI load.
 const _: fn() = || {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<GrammarHandle>();
@@ -721,8 +714,7 @@ pub unsafe extern "C" fn hc_grammar_free(handle: HcGrammarHandle) {
         }
     });
     if let Err(payload) = result {
-        // No error channel on this signature (plan §4.2: `void` return) — the panic is still
-        // caught (never crosses the boundary), just not reportable beyond a diagnostic.
+        // No error channel on this signature (void return); the panic is caught but not reportable beyond a diagnostic.
         eprintln!(
             "hc_grammar_free: caught panic: {}",
             crate::error::panic_message(payload)

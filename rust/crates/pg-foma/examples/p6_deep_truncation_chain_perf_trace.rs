@@ -1,8 +1,4 @@
-//! Bounded Task-4 runtime trace for the real Aweti grammar.
-//!
-//! Every word shares one 50,000-path allowance across its direct proposal and all reduplication
-//! peel-root proposals. A cap trip is printed as `UNMEASURED`; partial candidates are never sent to
-//! confirmation. An external watchdog is still required around this process.
+//! Runtime trace for the real Aweti grammar: a 50,000-path allowance shared across a word's direct and reduplication-peel proposals; a cap trip prints `UNMEASURED` and never reaches confirmation.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

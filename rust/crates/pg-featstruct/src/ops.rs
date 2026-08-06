@@ -93,11 +93,6 @@
 use crate::tree::{FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue};
 use std::cmp::Ordering;
 
-/// Dummy mask for the three `SymbolBits` ops used here (`crate::SymbolBits::overlaps`,
-/// `crate::SymbolBits::is_superset_of`, `crate::SymbolBits::intersect_with`): all are called with
-/// `not = false, not_other = false`, and inspecting the `(false, false)` arm of each
-/// (`bitvec.rs`) shows `mask` is never read on that arm. This tree model has no per-feature
-/// symbol-count metadata to supply a real mask, and none is needed for the un-negated case.
 const NO_MASK: u64 = 0;
 
 /// Port of `FeatureStruct.IsUnifiableImpl` (`FeatureStruct.cs:839-862`) for the tree/no-variable
@@ -186,8 +181,7 @@ pub fn unify(a: &FeatureStruct, b: &FeatureStruct) -> Option<FeatureStruct> {
 fn unify_value(a: &FeatureValue, b: &FeatureValue) -> Option<FeatureValue> {
     match (a, b) {
         (FeatureValue::Symbolic(sa), FeatureValue::Symbolic(sb)) => {
-            // SimpleFeatureValue.NondestructiveUnify -> DestructiveUnify's non-variable arm
-            // (SimpleFeatureValue.cs:171-176): Overlaps guard, then IntersectWith.
+            // DestructiveUnify's non-variable arm: overlap-guard, then intersect (SimpleFeatureValue.cs:171-176).
             if sa.overlaps(false, *sb, false, NO_MASK) {
                 Some(FeatureValue::Symbolic(
                     sa.intersect_with(false, *sb, false, NO_MASK),
@@ -381,10 +375,7 @@ pub fn add(
     builder.build()
 }
 
-/// One key's `add`: `a` is `None` when the key is absent from the accumulator (seed-from-empty
-/// case, `FeatureStruct.cs:489-497`). Returns `None` when the result is "uninstantiated" (all
-/// symbols allowed / substruct empty), signaling the caller to delete the key
-/// (`FeatureStruct.cs:499-500`).
+/// `a` is `None` for a seed-from-empty key; a `None` result means uninstantiated, drop the key.
 fn add_value(
     feat: FeatId,
     a: Option<&FeatureValue>,
@@ -406,8 +397,7 @@ fn add_value(
                 }
                 None => crate::bitvec::SymbolBits::EMPTY,
             };
-            // SymbolicFeatureValue.UnionWith's non-variable arm (SymbolicFeatureValue.cs:164-171):
-            // plain bitset OR (the `(false, false)` arm ignores `mask`, see `NO_MASK`'s doc).
+            // Plain bitset OR (SymbolicFeatureValue.cs:164-171); mask is unused in this un-negated arm.
             let merged = sa.union_with(false, *sb, false, NO_MASK);
             if merged.has_all(mask_of(feat)) {
                 None
@@ -475,11 +465,7 @@ pub fn subtract(a: &FeatureStruct, b: &FeatureStruct) -> FeatureStruct {
                     }
                 }
                 _ => {
-                    // Feature-kind mismatch (see module docs' shared rationale): keep `a`'s value
-                    // untouched rather than the C# graceful-false/no-op some of the sibling ops
-                    // use — `SubtractImpl`'s `Dereference<SimpleFeatureValue>`/`<FeatureStruct>`
-                    // failure returns `true` (`SimpleFeatureValue.cs:336-337`,
-                    // `FeatureStruct.cs:528`'s implicit `Dereference` guard), i.e. "no change".
+                    // Feature-kind mismatch: keep a's value untouched, matching C#'s Dereference-failure no-op.
                     debug_assert!(
                         false,
                         "feature-kind mismatch (Symbolic vs Complex under the same FeatId); a \
@@ -500,9 +486,7 @@ mod tests {
     use crate::bitvec::SymbolBits;
     use crate::tree::FeatId;
 
-    // ---- symbol-bit helpers for the hand-ported tests -------------------------------------
-    // Each C# `FeatureSymbol` becomes one bit, in declaration order (bit i = i-th declared
-    // symbol), matching tree.rs's documented convention.
+    // Symbol i (1-based) is bit (i-1), in declaration order, matching tree.rs's convention.
 
     fn sym(bits: u64) -> FeatureValue {
         FeatureValue::Symbolic(SymbolBits(bits))
@@ -516,18 +500,13 @@ mod tests {
         b.build()
     }
 
-    // ---- hand cases ported from FeatureStructTests.cs --------------------------------------
-    //
-    // "simple" fixture (FeatureStructTests.cs TestBinaryOperation:614-629): features
-    // a={a1,a2,a3}, b={b1,b2,b3}, c={c1,c2,c3} -> FeatId(0)=a, FeatId(1)=b, FeatId(2)=c;
-    // symbol i (1-based, e.g. a1) -> bit (i-1) (e.g. a1 -> bit 0, a2 -> bit 1).
+    // "simple" fixture (FeatureStructTests.cs:614-629): a=FeatId(0), b=FeatId(1), c=FeatId(2), 3 symbols each.
 
     const FA: FeatId = FeatId(0);
     const FB: FeatId = FeatId(1);
     const FC: FeatId = FeatId(2);
 
-    /// Mirrors `Unify` test case 0 (FeatureStructTests.cs:29-30, fixture at :623-625):
-    /// fs1={a:a1,b:b1}, fs2={a:a2,c:c2} -> disjoint on `a` -> whole unify fails.
+    /// Mirrors `Unify` case 0 (FeatureStructTests.cs:29-30): disjoint on `a` -> whole unify fails.
     #[test]
     fn unify_simple_disjoint_fails() {
         let a = fs(&[(FA, sym(0b001)), (FB, sym(0b001))]);
@@ -535,8 +514,7 @@ mod tests {
         assert_eq!(unify(&a, &b), None);
     }
 
-    /// Mirrors `IsUnifiable` test case 0 (FeatureStructTests.cs:213-214): same fixture, expects
-    /// `false`.
+    /// Mirrors `IsUnifiable` case 0 (FeatureStructTests.cs:213-214): same fixture, expects `false`.
     #[test]
     fn is_unifiable_simple_disjoint_is_false() {
         let a = fs(&[(FA, sym(0b001)), (FB, sym(0b001))]);
@@ -544,9 +522,7 @@ mod tests {
         assert!(!is_unifiable(&a, &b));
     }
 
-    /// Mirrors `Unify` test case 1 (FeatureStructTests.cs:30, fixture at :627-629):
-    /// fs1={a:{a1,a2},b:b1,c:c2}, fs2={a:a2,c:c2} -> a intersects to {a2}, b passes through
-    /// (only in fs1), c intersects to {c2} (equal on both sides) -> {a2,b1,c2}.
+    /// Mirrors `Unify` case 1 (FeatureStructTests.cs:30): `a` intersects, `b` passes through -> {a2,b1,c2}.
     #[test]
     fn unify_simple_overlap_succeeds() {
         let a = fs(&[(FA, sym(0b011)), (FB, sym(0b001)), (FC, sym(0b010))]);
@@ -555,8 +531,7 @@ mod tests {
         assert_eq!(unify(&a, &b), Some(expected));
     }
 
-    /// Mirrors `IsUnifiable` test case 1 (FeatureStructTests.cs:214): same fixture, expects
-    /// `true`, and cross-checks `is_unifiable(a,b) == unify(a,b).is_some()`.
+    /// Mirrors `IsUnifiable` case 1 (FeatureStructTests.cs:214): expects `true`, cross-checked against `unify`.
     #[test]
     fn is_unifiable_simple_overlap_is_true() {
         let a = fs(&[(FA, sym(0b011)), (FB, sym(0b001)), (FC, sym(0b010))]);
@@ -565,8 +540,7 @@ mod tests {
         assert_eq!(is_unifiable(&a, &b), unify(&a, &b).is_some());
     }
 
-    /// Mirrors `PriorityUnion` test case 0 (FeatureStructTests.cs:264-265): `b` overwrites the
-    /// common feature `a` (not an intersection, unlike unify) -> {a2,b1,c2}.
+    /// Mirrors `PriorityUnion` case 0 (FeatureStructTests.cs:264-265): `b` overwrites the shared feature.
     #[test]
     fn priority_union_simple_overwrite() {
         let a = fs(&[(FA, sym(0b001)), (FB, sym(0b001))]);
@@ -575,11 +549,7 @@ mod tests {
         assert_eq!(priority_union(&a, &b), expected);
     }
 
-    // "complex" fixture (FeatureStructTests.cs TestBinaryOperation:631-683): complex features
-    // cx1, cx2, cx3, cx4, each holding one symbolic feature (a/b/c/d respectively, 3 symbols
-    // each) -> FeatId(0)=cx1, FeatId(1)=cx2, FeatId(2)=cx3, FeatId(3)=cx4; the nested leaf
-    // feature inside each is FeatId(10) (a single reusable slot, since each cx's payload is a
-    // one-feature FS in the fixture).
+    // "complex" fixture (FeatureStructTests.cs:631-683): cx1..cx4 = FeatId(0..3), each wrapping FeatId(10).
 
     const CX1: FeatId = FeatId(0);
     const CX2: FeatId = FeatId(1);
@@ -591,9 +561,7 @@ mod tests {
         FeatureValue::Complex(fs(&[(LEAF, sym(bits))]))
     }
 
-    /// Mirrors `Unify` test case 2 (FeatureStructTests.cs:32-44, fixture at :645-663):
-    /// fs1={cx1:{a1},cx2:{b1},cx4:{d1}}, fs2={cx1:{a2},cx3:{c2},cx4:{d2,d3}} -> `cx1`'s nested
-    /// symbolic values ({a1} vs {a2}) are disjoint at depth 2 -> whole unify fails.
+    /// Mirrors `Unify` case 2 (FeatureStructTests.cs:32-44): `cx1`'s nested values are disjoint -> fails.
     #[test]
     fn unify_complex_disjoint_fails_at_depth2() {
         let a = fs(&[(CX1, leaf(0b001)), (CX2, leaf(0b001)), (CX4, leaf(0b001))]);
@@ -601,8 +569,7 @@ mod tests {
         assert_eq!(unify(&a, &b), None);
     }
 
-    /// Mirrors `IsUnifiable` test case 2 (FeatureStructTests.cs:216): same fixture, expects
-    /// `false`.
+    /// Mirrors `IsUnifiable` case 2 (FeatureStructTests.cs:216): same fixture, expects `false`.
     #[test]
     fn is_unifiable_complex_disjoint_is_false() {
         let a = fs(&[(CX1, leaf(0b001)), (CX2, leaf(0b001)), (CX4, leaf(0b001))]);
@@ -610,10 +577,7 @@ mod tests {
         assert!(!is_unifiable(&a, &b));
     }
 
-    /// Mirrors `Unify` test case 3 (FeatureStructTests.cs:33-44, fixture at :665-683):
-    /// fs1={cx1:{a1,a2},cx2:{b1},cx4:{d1}}, fs2={cx1:{a2},cx3:{c2},cx4:{d1,d2}} -> cx1 intersects
-    /// to {a2}, cx2/cx3 pass through (present on only one side each), cx4 intersects to {d1} ->
-    /// succeeds at depth 2.
+    /// Mirrors `Unify` case 3 (FeatureStructTests.cs:33-44): nested intersections all succeed at depth 2.
     #[test]
     fn unify_complex_succeeds_at_depth2() {
         let a = fs(&[(CX1, leaf(0b011)), (CX2, leaf(0b001)), (CX4, leaf(0b001))]);
@@ -627,8 +591,7 @@ mod tests {
         assert_eq!(unify(&a, &b), Some(expected));
     }
 
-    /// Mirrors `IsUnifiable` test case 3 (FeatureStructTests.cs:217): same fixture, expects
-    /// `true`.
+    /// Mirrors `IsUnifiable` case 3 (FeatureStructTests.cs:217): same fixture, expects `true`.
     #[test]
     fn is_unifiable_complex_succeeds_is_true() {
         let a = fs(&[(CX1, leaf(0b011)), (CX2, leaf(0b001)), (CX4, leaf(0b001))]);
@@ -636,11 +599,7 @@ mod tests {
         assert!(is_unifiable(&a, &b));
     }
 
-    /// Mirrors `PriorityUnion` test case 2 (FeatureStructTests.cs:267-278, fixture at
-    /// :645-663): `cx1` and `cx4` are both-complex conflicts, but `PriorityUnion` still
-    /// overwrites wholesale at the leaf (`b` wins, no intersection) since the *nested* leaf
-    /// value is symbolic, not complex — only complex-vs-complex triggers the recursive merge,
-    /// and here that recursion bottoms out at a symbolic overwrite one level down.
+    /// Mirrors `PriorityUnion` case 2 (FeatureStructTests.cs:267-278): recursion bottoms out at a symbolic overwrite, `b` wins.
     #[test]
     fn priority_union_complex_overwrite_at_depth2() {
         let a = fs(&[(CX1, leaf(0b001)), (CX2, leaf(0b001)), (CX4, leaf(0b001))]);
@@ -654,10 +613,7 @@ mod tests {
         assert_eq!(priority_union(&a, &b), expected);
     }
 
-    /// A genuine both-complex conflict one level up: `cx1` in `a` is the *complex* fixture used
-    /// as `LEAF`'s container, `cx1` in `b` wraps another complex layer — exercises the
-    /// recursive-merge branch of `priority_union` (not the overwrite branch), confirming
-    /// `b`'s inner leaf wins while unrelated inner features on each side pass through.
+    /// Both sides complex at `cx1`: exercises `priority_union`'s recursive-merge branch, not the overwrite branch.
     #[test]
     fn priority_union_recurses_when_both_sides_complex_at_depth2() {
         // a.cx1 = { leaf: a1, cx2-nested-only-in-a: b1 }; b.cx1 = { leaf: a2 }.
@@ -671,9 +627,7 @@ mod tests {
         assert_eq!(priority_union(&a, &b), expected);
     }
 
-    // ---- subsumes: direction and EMPTY behavior (no direct C# unit test exists for
-    // FeatureStruct.Subsumes in FeatureStructTests.cs; ported straight from
-    // FeatureStruct.cs:930-957 / SimpleFeatureValue.cs:104-154 reading) --------------------
+    // subsumes has no direct C# unit test; ported from FeatureStruct.cs:930-957 reading.
 
     #[test]
     fn subsumes_empty_subsumes_everything() {
@@ -693,8 +647,7 @@ mod tests {
 
     #[test]
     fn subsumes_fails_when_a_has_a_feature_b_lacks() {
-        // a constrains `b` (FeatId(1)), which `other` doesn't have at all -> false immediately
-        // (FeatureStruct.cs:951-954), regardless of any other feature agreeing.
+        // a constrains FeatId(1), absent from b -> false immediately (FeatureStruct.cs:951-954).
         let a = fs(&[(FA, sym(0b001)), (FB, sym(0b001))]);
         let b = fs(&[(FA, sym(0b001))]);
         assert!(!subsumes(&a, &b));
@@ -702,20 +655,14 @@ mod tests {
         assert!(subsumes(&b, &a));
     }
 
-    // ---- add: analysis-side widening (FeatureStruct.cs:453-505) -- no direct C# unit test
-    // exists for FeatureStruct.Add in FeatureStructTests.cs; hand-ported from the source
-    // reading, reusing the "simple" (FA/FB/FC, 3 symbols each) and "complex" (CX1..CX4/LEAF)
-    // fixtures above so each case can be directly contrasted with the matching unify/
-    // priority_union case.
+    // add has no direct C# unit test; hand-ported from FeatureStruct.cs:453-505 reading.
 
     /// Every fixture feature here has 3 symbols (bits 0..=2) -> full domain is `0b111`.
     fn mask3(_: FeatId) -> u64 {
         0b111
     }
 
-    /// A feature present only in `a` is untouched (`FeatureStruct.AddImpl` only walks `other`'s
-    /// keys, `FeatureStruct.cs:481`); a feature present only in `b` is copied in verbatim (as if
-    /// seeded from an empty value and unioned, `FeatureStruct.cs:489-500`).
+    /// `a`-only feature passes through untouched; `b`-only feature is seeded from empty and unioned in.
     #[test]
     fn add_singleton_keys_pass_through_or_are_seeded() {
         let a = fs(&[(FA, sym(0b001))]);
@@ -724,9 +671,7 @@ mod tests {
         assert_eq!(add(&a, &b, &mask3), expected);
     }
 
-    /// Same feature on both sides: contrast with `unify`, which *intersects* -- `add` instead
-    /// *unions* the two value sets (`SymbolicFeatureValue.cs:164-171`'s `UnionWith`), and here
-    /// the union (`0b011`) doesn't cover the feature's full 3-symbol domain, so the key survives.
+    /// Unlike `unify` (intersect), `add` unions the two sets; here the union misses full domain coverage, so the key survives.
     #[test]
     fn add_conflicting_values_unions_not_intersects() {
         let a = fs(&[(FA, sym(0b001))]);
@@ -734,11 +679,7 @@ mod tests {
         assert_eq!(add(&a, &b, &mask3), fs(&[(FA, sym(0b011))]));
     }
 
-    /// Reuses `unify_simple_disjoint_fails`'s exact fixture (FeatureStructTests.cs:29-30, :623-
-    /// 625: fs1={a:a1,b:b1}, fs2={a:a2,c:c2}) -- `unify` fails outright on this input because `a`
-    /// is disjoint on both sides; `add` never fails (`FeatureStruct.cs`'s `Add`/`AddImpl` have no
-    /// failure return path) and instead unions `a` (`0b011`), passes `b` through (only in `a`),
-    /// and seeds `c` from empty (only in `b`).
+    /// Reuses `unify_simple_disjoint_fails`'s fixture, where `unify` fails outright; `add` has no failure path.
     #[test]
     fn add_never_fails_where_unify_would() {
         let a = fs(&[(FA, sym(0b001)), (FB, sym(0b001))]);
@@ -748,10 +689,7 @@ mod tests {
         assert_eq!(add(&a, &b, &mask3), expected);
     }
 
-    /// When the union of a shared feature's two value sets covers every symbol declared for that
-    /// feature, the feature is *uninstantiated* (`SimpleFeatureValue.cs:543-546` composed with
-    /// `SymbolicFeatureValue.cs:134-137`'s `HasAllSet`) and `FeatureStruct.AddImpl` deletes the
-    /// key outright (`FeatureStruct.cs:499-500`) rather than keeping it at "all values allowed".
+    /// A union covering every declared symbol is "uninstantiated"; `AddImpl` deletes the key rather than keeping "all allowed".
     #[test]
     fn add_full_domain_union_deletes_the_key() {
         let a = fs(&[(FA, sym(0b011)), (FB, sym(0b001))]);
@@ -760,18 +698,14 @@ mod tests {
         assert_eq!(add(&a, &b, &mask3), expected);
     }
 
-    /// Same deletion rule applies to a `b`-only key seeded from empty: if `b`'s own value already
-    /// spans the full domain, "seed from empty and union" produces the same uninstantiated value,
-    /// so the key is dropped instead of being materialized at "all values allowed".
+    /// Same deletion rule for a seed-from-empty key: if `b` alone spans the full domain, the key is dropped too.
     #[test]
     fn add_seed_from_empty_at_full_domain_still_deletes() {
         let b = fs(&[(FA, sym(0b111))]);
         assert_eq!(add(&FeatureStruct::EMPTY, &b, &mask3), FeatureStruct::EMPTY);
     }
 
-    /// A nested `FeatureStruct` value on both sides recurses (mirroring `unify`'s and
-    /// `priority_union`'s complex-vs-complex branches), but the leaf op is still union, not
-    /// intersection or overwrite.
+    /// A nested value on both sides recurses (mirroring `unify`/`priority_union`), but the leaf op is still union.
     #[test]
     fn add_recurses_into_nested_complex_values() {
         let a = fs(&[(CX1, leaf(0b001))]);
@@ -779,10 +713,7 @@ mod tests {
         assert_eq!(add(&a, &b, &mask3), fs(&[(CX1, leaf(0b011))]));
     }
 
-    /// The nested-struct analogue of `add_full_domain_union_deletes_the_key`: when the inner
-    /// leaf's union spans its full domain, the inner key is deleted, the inner struct becomes
-    /// empty, and `FeatureStruct.cs:504`'s `_definite.Count > 0` check then deletes the *outer*
-    /// key too, cascading the "uninstantiated" deletion up one level.
+    /// Nested-struct analogue of `add_full_domain_union_deletes_the_key`: deletion cascades up to the outer key too.
     #[test]
     fn add_nested_complex_deletion_cascades_to_parent_key() {
         let a = fs(&[(CX1, leaf(0b011)), (CX2, leaf(0b001))]);
@@ -791,11 +722,7 @@ mod tests {
         assert_eq!(add(&a, &b, &mask3), expected);
     }
 
-    // ---- property tests over a small universe (2-3 features, <=3 symbols, depth <=2) --------
-    // Universe: FA, FB symbolic (3 symbols -> bits 0..=2, each either absent or one of the 7
-    // non-empty subsets — authored grammars never produce an unsatisfiable/empty symbol value,
-    // so we don't generate SymbolBits::EMPTY); FC complex, wrapping a depth-1 sub-FS that itself
-    // only varies FA (absent, or one of 7 non-empty subsets) -> total nesting depth 2.
+    // Universe: FA/FB symbolic (absent or one of 7 non-empty 3-bit subsets), FC a depth-1 nested FA.
 
     fn symbol_options() -> Vec<Option<SymbolBits>> {
         let mut v = vec![None];
@@ -920,9 +847,7 @@ mod tests {
         }
     }
 
-    /// `add(a, EMPTY)` never touches anything (there's nothing in `b` to fold in) -- this is the
-    /// one identity `add` shares with `unify`/`priority_union` despite its different leaf op,
-    /// since an `a`-only key is always a verbatim passthrough.
+    /// `add(a, EMPTY)` is a no-op, the one identity `add` shares with `unify`/`priority_union` despite its different leaf op.
     #[test]
     fn property_add_with_empty_b_is_identity() {
         let u = universe();
@@ -931,11 +856,7 @@ mod tests {
         }
     }
 
-    /// Every feature `add(a, b)` still constrains must be a **superset** of what `b` alone
-    /// specifies at that feature (union only ever loosens `a`'s constraint at a shared feature,
-    /// or copies `b`'s constraint in unchanged at a `b`-only feature) -- i.e. `add(a, b)` is
-    /// always unifiable with `b` itself (loosening can never create a new conflict), unless the
-    /// deletion rule removed the feature entirely, which only makes the result *more* permissive.
+    /// Union only loosens or copies `b`'s constraint through, so `add(a, b)` is always unifiable with `b` itself.
     #[test]
     fn property_add_result_is_unifiable_with_b() {
         let u = universe();
@@ -950,8 +871,7 @@ mod tests {
         }
     }
 
-    /// `subtract(a, EMPTY)` is the identity: `b` has no features to walk, so `a` passes through
-    /// unchanged (`FeatureStruct.cs:535`'s loop over `otherFS._definite` never executes).
+    /// `subtract(a, EMPTY)` is the identity: `b` has no features to walk, so `a` passes through unchanged.
     #[test]
     fn property_subtract_with_empty_b_is_identity() {
         let u = universe();
@@ -960,9 +880,7 @@ mod tests {
         }
     }
 
-    /// `subtract(a, a)` removes every feature `a` has (each shared symbolic value ExceptWith's
-    /// itself to the empty set, deleting the key; each shared complex value recurses to the same
-    /// base case), leaving `EMPTY`.
+    /// `subtract(a, a)` empties every feature (symbolic ExceptWith-self, complex recurses), leaving `EMPTY`.
     #[test]
     fn property_subtract_self_is_empty() {
         let u = universe();
@@ -975,8 +893,7 @@ mod tests {
         }
     }
 
-    /// Hand case: `a={a: a1|a2, b: b1}`, `b={a: a1}` -> `a`'s `a`-lane loses bit a1, keeping a2;
-    /// `b`-only feature is irrelevant to `a`; `a`'s `b`-only feature passes through untouched.
+    /// Hand case: `a`'s `a`-lane loses the bit shared with `b`, keeping the rest; `b`-only lanes pass through.
     #[test]
     fn subtract_removes_bits_present_in_b() {
         let a = fs(&[(FA, sym(0b011)), (FB, sym(0b001))]);
@@ -985,9 +902,7 @@ mod tests {
         assert_eq!(result, fs(&[(FA, sym(0b010)), (FB, sym(0b001))]));
     }
 
-    /// Hand case: subtracting away *every* allowed symbol at a feature drops that feature's key
-    /// entirely (C#'s `IsSatisfiable`-false removal), rather than leaving an empty/unsatisfiable
-    /// `SymbolBits(0)` value sitting in the result.
+    /// Subtracting away every allowed symbol drops that feature's key rather than leaving an empty `SymbolBits(0)`.
     #[test]
     fn subtract_drops_feature_emptied_to_zero_bits() {
         let a = fs(&[(FA, sym(0b011)), (FB, sym(0b001))]);

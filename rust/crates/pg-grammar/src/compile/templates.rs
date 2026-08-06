@@ -1,10 +1,4 @@
-//! Affix templates (`LoadAffixTemplate`, HCLoader.cs:1673-1735) and null-affix synthesis for
-//! irregular-form slots (`LoadNullAffixProcessRule`, HCLoader.cs:1771-1806).
-//!
-//! A template is skipped entirely if none of its slots end up with at least one loaded affix
-//! rule (HCLoader.cs:297-299: `slots.Where(s => s.Affixes.Any(msa => m_morphemes.ContainsKey
-//! (msa))`) — this compiler mirrors that by dropping any slot whose `Acc::slot_rules` entry is
-//! empty/absent, then dropping the whole template if every slot was dropped.
+//! Affix templates and null-affix synthesis for irregular-form slots. A template is skipped entirely if none of its slots end up with at least one loaded affix rule.
 
 use hashbrown::HashMap;
 
@@ -92,8 +86,7 @@ fn build_template(
     slot_registry: &HashMap<&str, &AffixSlot>,
     warnings: &mut Vec<String>,
 ) -> Result<Option<TemplateId>, GrammarError> {
-    // Combined slot order: suffix slots as declared, then prefix slots reversed
-    // (`SuffixSlotsRS.Concat(PrefixSlotsRS.Reverse())`, HCLoader.cs:297).
+    // Combined slot order: suffix slots as declared, then prefix slots reversed.
     let mut combined: Vec<(&str, bool)> = tmpl
         .suffix_slots
         .iter()
@@ -124,8 +117,7 @@ fn build_template(
             .collect();
 
         if !infl_types_for_slot.is_empty() {
-            // Block ordinary affixes in this slot from applying to irregularly-inflected forms
-            // (HCLoader.cs:1710-1719).
+            // Block ordinary affixes in this slot from applying to irregularly-inflected forms.
             let mut excl = crate::model::MprSet::EMPTY;
             for it in &infl_types_for_slot {
                 if let Some(s) = ctx.mpr.lex_entry_infl_type(&it.guid) {
@@ -134,8 +126,7 @@ fn build_template(
             }
             exclude_from_rules(&rules, excl, acc);
 
-            // Null-affix synthesis (HCLoader.cs:1725-1729), unless the slot is optional (an
-            // irregular form can simply leave an optional slot empty).
+            // Null-affix synthesis, unless the slot is optional (an irregular form can leave it empty).
             if !affix_slot.optional {
                 for it in &infl_types_for_slot {
                     if let Some(id) = build_null_affix_rule(it, is_prefix, ctx, acc, warnings) {
@@ -187,9 +178,7 @@ fn exclude_from_rules(rule_ids: &[MRuleId], excl: crate::model::MprSet, acc: &mu
     }
 }
 
-/// `LoadNullAffixProcessRule` (HCLoader.cs:1771-1806): a rule that matches any word and inserts
-/// nothing but the null-boundary marker, gated on the irregular-form's own MPR feature so it
-/// only "fills" the slot for words already tagged as that inflection type.
+/// A rule that matches any word and inserts nothing but the null-boundary marker, gated on the irregular-form's MPR feature so it only "fills" the slot for words tagged as that inflection type.
 fn build_null_affix_rule(
     it: &LexEntryInflType,
     is_prefix: bool,

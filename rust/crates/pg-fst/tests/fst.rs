@@ -1,9 +1,4 @@
-//! Acceptance-gate tests for the M2 FST engine.
-//!
-//! Correctness = "the automaton accepts exactly the right strings and reports the right capture
-//! spans." Expected results are reasoned independently (hand-written oracles / by-hand spans),
-//! not read back from the engine. The alphabet is one-hot symbol bits in lane 0:
-//! `a = 0b001, b = 0b010, c = 0b100`; a natural class is the union of those bits.
+//! Acceptance-gate tests for the M2 FST engine; alphabet is one-hot bits in lane 0 (`a=0b001,b=0b010,c=0b100`).
 
 use pg_fst::{CompileInput, CompileNode, Direction, FstResult, Segment, Transduce, ENTIRE_MATCH};
 
@@ -68,13 +63,9 @@ fn both(nodes: Vec<CompileNode>) -> (pg_fst::Fst, pg_fst::Fst) {
     )
 }
 
-// =============================================================================================
 // Class 1: hand-built patterns, accept/reject over enumerated strings (independent oracle).
-// =============================================================================================
 
-/// Assert both the determinized and the epsilon-removed automaton accept exactly the strings the
-/// oracle accepts, over the whole enumerated input space. This simultaneously proves language
-/// correctness (vs an independent oracle) and determinization language-equivalence (det == nondet).
+/// Asserts both det and nondet automata match an independent oracle over the whole enumerated input space.
 fn check_language(nodes: Vec<CompileNode>, max_len: usize, oracle: impl Fn(&[u8]) -> bool) {
     let (det, nondet) = both(nodes);
     for s in enumerate(max_len) {
@@ -164,13 +155,9 @@ fn lang_overlapping_natural_classes() {
     });
 }
 
-// =============================================================================================
 // Class 2: determinization / epsilon-removal parity, incl. captured spans over the input space.
-// =============================================================================================
 
-/// Collect the set of *entire-match* spans found (unanchored, all matches) — used to confirm the
-/// determinized and nondeterministic automata not only accept the same language but report the
-/// same match spans (the advisor's "compare captured spans, not just accept/reject").
+/// Collects entire-match spans (unanchored, all matches), to confirm det/nondet report the same spans.
 fn entire_spans(fst: &pg_fst::Fst, s: &[u8]) -> Vec<(i32, i32)> {
     let results = Transduce::new(fst, input(s)).all_matches();
     let mut spans: Vec<(i32, i32)> = results
@@ -202,9 +189,7 @@ fn det_and_nondet_report_same_entire_spans() {
     }
 }
 
-// =============================================================================================
 // Class 3: registers / capture groups — exact start/end offsets reasoned by hand.
-// =============================================================================================
 
 #[test]
 fn capture_simple_group_span() {
@@ -249,11 +234,7 @@ fn capture_group_over_multiple_segments() {
     assert_eq!(fst.get_offsets("g", &res.registers), Some((1, 3)));
 }
 
-/// The discriminating ambiguous-capture test (advisor's load-bearing case): overlapping
-/// alternations put the same capture group at different indices along different parses. We assert
-/// the *set* of (g1, g2) span pairs equals the two hand-reasoned parses of "abc":
-///   [a][bc] -> g1=(0,1), g2=(1,3)
-///   [ab][c] -> g1=(0,2), g2=(2,3)
+/// Overlapping alternations put the same capture group at different indices; asserts the (g1,g2) pairs match both hand-reasoned parses of "abc".
 #[test]
 fn capture_ambiguous_alternation_spans() {
     let nodes = vec![
@@ -303,8 +284,7 @@ fn capture_ambiguous_alternation_spans() {
 
 #[test]
 fn capture_group_in_quantifier_last_iteration() {
-    // (g:a)+ on "aaa": the group register holds the LAST iteration's span (2,3) in the single best
-    // match (greedy, longest). Reasoned from the register overwrite each iteration.
+    // (g:a)+ on "aaa": the group register holds the last iteration's span (2,3) in the single best match.
     let nodes = vec![CompileNode::Quantifier {
         min: 1,
         max: None,
@@ -322,12 +302,9 @@ fn capture_group_in_quantifier_last_iteration() {
     assert_eq!(fst.get_offsets("g", &res.registers), Some((2, 3)));
 }
 
-// =============================================================================================
 // Class 4: result ordering — ResultCompare on both determinism branches and both directions.
-// =============================================================================================
 
-/// Build a trivial FST just to obtain a `Transduce` with the desired (deterministic, direction)
-/// so we can exercise `ResultCompare` in isolation on hand-built `FstResult`s.
+/// A trivial FST just to get a `Transduce` with the desired determinism/direction for isolated ordering checks.
 fn comparator(deterministic: bool, dir: Direction) -> pg_fst::Fst {
     CompileInput::new(vec![CompileNode::Constraint(sym(A))])
         .deterministic(deterministic)
@@ -383,9 +360,7 @@ fn result_compare_direction_flips_length_preference() {
 
 #[test]
 fn result_compare_order_is_final_tiebreak() {
-    // Nondeterministic branch, equal accept priority AND equal next_ann: falls straight through
-    // to Order (T-C tore out the Priorities zip that used to sit between these — see
-    // rust-optimizations-phase2.md and result_compare's doc comment).
+    // Equal priority and equal next_ann falls straight through to Order, the final tiebreak.
     let fst = comparator(false, Direction::LeftToRight);
     let t = Transduce::new(&fst, Vec::new());
     let x = mk_result(0, 2, 2);
@@ -393,8 +368,7 @@ fn result_compare_order_is_final_tiebreak() {
     assert_eq!(t.result_compare(&x, &y), std::cmp::Ordering::Less); // 2 < 7
 }
 
-/// Entire-match spans in the *raw* `all_matches()` order (no re-sort) — used to verify the
-/// engine emits results in `ResultCompare` order end-to-end.
+/// Entire-match spans in raw `all_matches()` order (no re-sort), to verify end-to-end ordering.
 fn entire_spans_in_order(
     fst: &pg_fst::Fst,
     segs: Vec<Segment>,
@@ -411,8 +385,7 @@ fn entire_spans_in_order(
 
 #[test]
 fn ordering_deterministic_end_to_end() {
-    // a b?  on "ab", start-anchored: matches "ab"(next_ann=2) and "a"(next_ann=1). Deterministic
-    // ResultCompare: same accept priority, -NextAnnotation => longer first. Hand-reasoned order.
+    // a b? on "ab": same accept priority, so -NextAnnotation orders the longer match first.
     let nodes = vec![
         CompileNode::Constraint(sym(A)),
         CompileNode::Quantifier {
@@ -430,9 +403,7 @@ fn ordering_deterministic_end_to_end() {
 
 #[test]
 fn ordering_nondeterministic_end_to_end() {
-    // a a?  on "aa", start-anchored, epsilon-removed (nondeterministic). Two matches "aa" and "a"
-    // with different NextAnnotation, so the nondeterministic branch orders by -NextAnnotation:
-    // longer first.
+    // a a? on "aa" (nondeterministic): two matches differ in NextAnnotation, longer sorts first.
     let nodes = vec![
         CompileNode::Constraint(sym(A)),
         CompileNode::Quantifier {
@@ -454,11 +425,7 @@ fn ordering_nondeterministic_end_to_end() {
 
 #[test]
 fn ordering_nondeterministic_tie_falls_through_to_order_end_to_end() {
-    // Two parses of "aa" with the SAME entire span (0,2) but the capture group at different
-    // positions -> equal NextAnnotation. C# breaks this with a `Priorities` zip (Fst.cs:431);
-    // T-C tore that out as byte-parity-only (rust-optimizations-phase2.md), so this now falls
-    // straight through to Order. Both survive Distinct (different registers); we assert the
-    // wiring still produces a well-defined, self-consistent order.
+    // Two parses share entire span (0,2) with different capture positions, so both survive as distinct results ordered by Order.
     let nodes = vec![CompileNode::Alternation(vec![
         vec![
             CompileNode::Group {
@@ -511,9 +478,7 @@ fn integration_longest_match_wins_single() {
     assert_eq!(fst.get_offsets(ENTIRE_MATCH, &res.registers), Some((0, 2)));
 }
 
-// =============================================================================================
 // Structural sanity: CSR shape and multi-start matching.
-// =============================================================================================
 
 #[test]
 fn unanchored_finds_match_at_any_start() {
@@ -531,12 +496,7 @@ fn unanchored_finds_match_at_any_start() {
     assert_eq!(spans, vec![(1, 3)]);
 }
 
-// =============================================================================================
-// Class 5: RightToLeft traversal (Fst.Transduce `_dir` handling; AnalysisRewriteRule runs the
-// matcher reversed). The SAME forward-built automaton is walked from the opposite physical end,
-// so an R2L walk accepts the *reversed* reading of the input. All expected values below are
-// hand-reasoned PHYSICAL spans; `get_offsets` performs the R2L un-swap (Fst.cs:128-137).
-// =============================================================================================
+// Class 5: RightToLeft traversal walks the same automaton from the opposite end; expected spans are hand-reasoned PHYSICAL positions.
 
 fn compile_dir(nodes: Vec<CompileNode>, det: bool, dir: Direction) -> pg_fst::Fst {
     CompileInput::new(nodes)
@@ -561,11 +521,7 @@ fn entire_span_first(
         .and_then(|r| fst.get_offsets(ENTIRE_MATCH, &r.registers))
 }
 
-/// GUARD #3 (asymmetric language). Pattern `a b c` compiled once, walked both directions. L2R
-/// consumes the input left-to-right so it accepts physical `a b c`; R2L walks the same automaton
-/// from the right, so traversal index 0 is the physically-last segment — it accepts physical
-/// `c b a` and REJECTS `a b c`. This proves R2L walks right-to-left rather than reproducing the
-/// L2R set. Checked for both determinized and epsilon-removed compilations.
+/// GUARD #3: pattern `a b c` walked both directions; R2L accepts the physical reversal `c b a`, not `a b c`.
 #[test]
 fn rtl_asymmetric_language_walks_right_to_left() {
     let nodes = vec![
@@ -603,9 +559,7 @@ fn rtl_asymmetric_language_walks_right_to_left() {
     }
 }
 
-/// GUARD #1 (anchoring flips start<->end under reversal). Pattern `a b` (automaton) R2L-accepts
-/// physical `b a`. `startAnchor` under R2L binds to the physical END (rightmost, traversal index
-/// 0); `endAnchor` binds to the physical START (leftmost, consumed last).
+/// GUARD #1: under R2L, `startAnchor` binds the physical end and `endAnchor` binds the physical start.
 #[test]
 fn rtl_start_anchor_binds_physical_end() {
     let nodes = vec![
@@ -614,8 +568,7 @@ fn rtl_start_anchor_binds_physical_end() {
     ];
     let fst = compile_dir(nodes, true, Direction::RightToLeft);
 
-    // "b a": R2L traversal is [a (phys 1), b (phys 0)]; rightmost segment 'a' matches the first
-    // arc, so a start-anchored (rightmost-anchored) match succeeds.
+    // R2L traversal of "b a" is [a, b]; rightmost 'a' matches the first arc, so start-anchored succeeds.
     assert!(
         Transduce::new(&fst, input(&[B, A]))
             .anchored(true, false)
@@ -623,9 +576,7 @@ fn rtl_start_anchor_binds_physical_end() {
         "b a start-anchored R2L"
     );
 
-    // "b a c": rightmost segment is now 'c'. Start-anchored R2L must begin there -> arc 'a' vs 'c'
-    // fails, so NO start-anchored match. But unanchored still finds "b a" at physical (0,2). This
-    // is the discriminator: the anchor bound to the physical END, not the L2R start.
+    // "b a c": rightmost is now 'c', so start-anchored R2L fails; unanchored still finds "b a" at (0,2).
     assert!(
         !Transduce::new(&fst, input(&[B, A, C]))
             .anchored(true, false)
@@ -647,8 +598,7 @@ fn rtl_end_anchor_binds_physical_start() {
     ];
     let fst = compile_dir(nodes, true, Direction::RightToLeft);
 
-    // "b a": consuming both segments ends at the physically-leftmost segment 'b' (traversal end),
-    // so an end-anchored (leftmost-anchored) match succeeds. Physical entire span (0,2).
+    // "b a": consuming both segments ends at leftmost 'b', so end-anchored R2L succeeds at (0,2).
     assert!(
         Transduce::new(&fst, input(&[B, A]))
             .anchored(false, true)
@@ -660,9 +610,7 @@ fn rtl_end_anchor_binds_physical_start() {
         Some((0, 2))
     );
 
-    // "c b a": R2L matches "a b" consuming physical segments 2,1, ending at traversal index 2 with
-    // the leftmost 'c' still unconsumed -> end-anchor requires reaching data end, so NO match.
-    // Unanchored still matches at physical (1,3). Proves end-anchor bound to the physical START.
+    // "c b a": leftmost 'c' stays unconsumed, so end-anchored R2L fails; unanchored still matches (1,3).
     assert!(
         !Transduce::new(&fst, input(&[C, B, A]))
             .anchored(false, true)
@@ -676,11 +624,7 @@ fn rtl_end_anchor_binds_physical_start() {
     );
 }
 
-/// GUARD #2 (capture offsets under reversal). Pattern `a (g:b) c` walked R2L against physical
-/// `c b a`. Register offsets are direction-relative (measured from the right), and `get_offsets`
-/// un-swaps them. Hand-reasoned PHYSICAL spans: the whole match covers `[0,3)` and group `g`
-/// wraps the single 'b', which sits at physical index 1 occupying `[1,2)`. A start<->end offset
-/// direction bug would surface here (e.g. `(2,3)` or a swapped/None span).
+/// GUARD #2: `get_offsets` un-swaps direction-relative registers back to hand-reasoned PHYSICAL spans.
 #[test]
 fn rtl_capture_group_offsets() {
     let nodes = vec![
@@ -709,10 +653,7 @@ fn rtl_capture_group_offsets() {
     );
 }
 
-/// GUARD #4 (hand-built automaton, det + nondet match sets under R2L). Pattern `(a|b) c` R2L
-/// accepts the reversed readings: physical `c a` and `c b` (the automaton's first arc `(a|b)` is
-/// matched against the rightmost segment, `c` against the leftmost). Enumerate all length-2
-/// strings and compare the R2L accept set to a hand-reasoned oracle, for both compilations.
+/// GUARD #4: pattern `(a|b) c` under R2L accepts physical `c a`/`c b`; checked against a hand-reasoned oracle.
 #[test]
 fn rtl_hand_built_match_set() {
     let nodes = vec![
@@ -722,8 +663,7 @@ fn rtl_hand_built_match_set() {
         ]),
         CompileNode::Constraint(sym(C)),
     ];
-    // Oracle: R2L accepts physical `s` iff its reversal is in the L2R language {(a|b) c}, i.e.
-    // s == [c, a] or s == [c, b].
+    // Oracle: R2L accepts `s` iff its reversal is in the L2R language {(a|b) c}.
     let oracle = |s: &[u8]| s.len() == 2 && s[0] == C && (s[1] == A || s[1] == B);
     for det in [true, false] {
         let rtl = compile_dir(nodes.clone(), det, Direction::RightToLeft);

@@ -74,9 +74,7 @@ fn write_value(value: &Value, out: &mut String) -> Result<(), JcsError> {
 }
 
 fn write_object(map: &Map<String, Value>, out: &mut String) -> Result<(), JcsError> {
-    // RFC 8785 §3.2.3: members are sorted by the UTF-16 code units of their names. That is not
-    // the same as Rust's byte-wise `str` ordering: UTF-8 sorts U+E000..U+FFFF before astral
-    // characters, while UTF-16 sorts astral characters (surrogate pairs, 0xD800..0xDFFF) first.
+    // RFC 8785 §3.2.3 sorts keys by UTF-16 code units, not Rust's byte-wise UTF-8 order.
     let mut keys: Vec<&String> = map.keys().collect();
     keys.sort_by(|a, b| utf16_cmp(a, b));
 
@@ -132,17 +130,14 @@ mod tests {
 
     #[test]
     fn array_order_is_preserved() {
-        // Arrays are sequences, not sets: canonicalization must not reorder them. Analysis sets
-        // are sorted by `AnalysisSet` before they reach here, never by JCS.
+        // Arrays are ordered sequences; canonicalization must not reorder them.
         let v = json!([3, 1, 2]);
         assert_eq!(canonicalize(&v).unwrap(), "[3,1,2]");
     }
 
     #[test]
     fn astral_keys_sort_by_utf16_not_utf8() {
-        // U+10000 (astral, surrogate pair 0xD800 0xDC00) sorts BEFORE U+E000 in UTF-16, but AFTER
-        // it in UTF-8 byte order. A byte-wise sort here would silently produce different digests
-        // from a conforming implementation.
+        // U+10000 sorts before U+E000 in UTF-16 but after it in UTF-8 byte order.
         let mut map = Map::new();
         map.insert("\u{10000}".to_string(), json!(1));
         map.insert("\u{e000}".to_string(), json!(2));
@@ -171,8 +166,7 @@ mod tests {
     #[test]
     fn c0_controls_without_a_short_escape_use_the_six_character_form() {
         let v = json!({ "k": "\u{1}\u{1f}" });
-        // Assembled from code points rather than typed as a literal: lowercase hex, four
-        // digits, per RFC 8785 section 3.2.2.2.
+        // Built from code points so the hex stays lowercase, four digits, per RFC 8785 §3.2.2.2.
         let expected = format!("{{\"k\":\"\\u{:04x}\\u{:04x}\"}}", 0x1, 0x1f);
         assert_eq!(canonicalize(&v).unwrap(), expected);
     }

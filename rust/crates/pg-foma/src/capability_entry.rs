@@ -36,10 +36,21 @@
 //! `crate::capability::default_registry` — the same two spines
 //! already connected, just assembled from a bare `&Grammar` in
 //! one call instead of by hand at every call site.
+//!
+//! # One verdict, three compilers
+//! The scalar `CompileDecision` this module returns is a DERIVED fact: the primary judgement is
+//! per-`crate::enumerate::EmissionStrategy`, and the whole-grammar answer is the best any of them
+//! offers (`crate::capability::StrategyEnvelope::global`). A caller that needs to know WHICH
+//! compiler declined, and on what, wants `evaluate_capability_across_strategies` instead — a
+//! `Refuse` from `evaluate_capability` means every compiler declined, and a non-`Refuse` says
+//! nothing about the compiler the caller was actually about to use.
 
 use pg_grammar::model::Grammar;
 
-use crate::capability::{compose_envelope_with_semantics, default_registry, CompileDecision};
+use crate::capability::{
+    compose_envelope_across_strategies, compose_envelope_with_semantics, default_registry,
+    CompileDecision, StrategyEnvelope,
+};
 use crate::emit::surface_table;
 use crate::enumerate::enumerate_default;
 use crate::grammar_semantics::GrammarSemantics;
@@ -76,6 +87,20 @@ pub fn evaluate_capability_with_semantics(semantics: &GrammarSemantics<'_>) -> C
     let plan = enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref());
     let registry = default_registry();
     compose_envelope_with_semantics(semantics, &plan, &registry)
+}
+
+/// Every compiler's own verdict for `g`, assembled exactly as `evaluate_capability` assembles the
+/// derived scalar one — which is `crate::capability::StrategyEnvelope::global` over this.
+///
+/// **Check-only**, on the same terms as `evaluate_capability`: nothing here builds an `Fsm` or
+/// alters a compile path.
+pub fn evaluate_capability_across_strategies(g: &Grammar) -> StrategyEnvelope {
+    let semantics = GrammarSemantics::derive(g);
+    let alphabet = SegAlphabet::new(surface_table(g));
+    let phon = PhonologyProbe::new_with_semantics(&semantics);
+
+    let plan = enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref());
+    compose_envelope_across_strategies(&semantics, &plan, &default_registry())
 }
 
 #[cfg(test)]

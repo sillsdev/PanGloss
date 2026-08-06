@@ -1,30 +1,4 @@
-//! ## Still gated on a real-language corpus
-//! Corpus-blocked: needs `samples/data/indonesian-hc.xml` + `samples/data/indonesian-words.txt`
-//! (gitignored). The actual property under test (transport/encoding fidelity between the FFI
-//! buffer path and the in-process `Morpher`) has nothing to do with Indonesian specifically — ANY
-//! loadable grammar with enough real analyses would do. A synthetic replacement (any
-//! `pg_grammar_gen` recipe plus its own oracle word list) would be cheap to build but does not
-//! exist yet, so this stays `#[ignore]`d unconditionally until one does.
-//!
-//! The tightest gate available: transport fidelity, not the C# golden. This test calls
-//! the real `extern "C"` entry points — exactly as an external caller would, through
-//! `pangloss_ffi::{hc_grammar_load, hc_parse_word, hc_parse_batch, hc_buf_free, hc_grammar_free}`,
-//! never reaching into `pg-ffi` internals — and decodes the returned buffer with the crate's own
-//! public reference decoder (`pangloss_ffi::decode`). It compares the result, analysis-for-
-//! analysis, against `pg_parse::Morpher::parse_word`'s in-process result for **all 121 words** of
-//! the Indonesian corpus (not just the 68 that match the C# golden). Any divergence here is an
-//! FFI/buffer-encoding bug, not a pre-existing engine parity gap, because both sides run the
-//! identical engine — the whole point is isolating transport bugs (UTF-8 handling, morpheme-id
-//! marshalling, buffer framing, canonical-order sorting) from that separate, already-tracked
-//! parity gap.
-//!
-//! Self-skips (rather than fails) if the untracked sample corpus isn't present on disk, matching
-//! the existing convention in `pg-grammar`'s tests: corpora stay untracked local files with
-//! self-skipping tests.
-//!
-//! Test-timing policy: the default local `cargo test --workspace --release`
-//! run must stay under ~60s and must not depend on this gitignored fixture at all, so both tests
-//! here are unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
+//! Corpus-gated (needs `samples/data/indonesian-hc.xml`, gitignored): compares the FFI batch path against `Morpher::parse_word` for all 121 words to isolate transport bugs from the engine-parity gap.
 
 mod support;
 
@@ -69,16 +43,13 @@ fn ffi_batch_matches_in_process_for_full_corpus() {
         "test data assumption stale: expected 121 Indonesian words"
     );
 
-    // In-process baseline: an independent grammar load (pg-ffi's internal Grammar is private to
-    // the crate), under the SAME step-cap/memo config the FFI handle builds internally, so a
-    // config mismatch can't masquerade as an encoding bug.
+    // Independent in-process grammar load under the SAME step-cap/memo config the FFI handle uses, so a config mismatch can't masquerade as an encoding bug.
     let grammar = pg_grammar::load(&xml).expect("load indonesian grammar in-process");
     let morpher = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP).with_memo(DEFAULT_MEMO);
 
     let handle = load_handle(&xml);
 
-    // FFI path: one hc_parse_batch call over the whole corpus — exercises the real rayon path,
-    // not just hc_parse_word's single-threaded one (that's covered separately, below).
+    // hc_parse_batch exercises the real rayon path, not hc_parse_word's single-threaded one (covered separately below).
     let hcstrs: Vec<HcStr> = words
         .iter()
         .map(|w| HcStr {
@@ -94,10 +65,7 @@ fn ffi_batch_matches_in_process_for_full_corpus() {
     assert_eq!(ffi_decoded.len(), 121);
     unsafe { hc_buf_free(&mut out) };
 
-    // Byte-stability: re-run the identical call in the same process and require a byte-identical
-    // buffer. Guards against HashMap-iteration-order nondeterminism (documented in MEMORY
-    // rust-parity-facts for step-cap-truncated words) leaking through the canonical sort — if the
-    // sort's tiebreaker were incomplete, this would be the assertion that catches it.
+    // Byte-stability: an identical repeated call must produce a byte-identical buffer, catching an incomplete tiebreaker in the canonical sort.
     let mut out2 = HcResultBuf::EMPTY;
     let code2 = unsafe { hc_parse_batch(handle, hcstrs.as_ptr(), hcstrs.len(), 4, &mut out2) };
     assert_eq!(code2, HC_OK);
@@ -110,10 +78,7 @@ fn ffi_batch_matches_in_process_for_full_corpus() {
 
     unsafe { hc_grammar_free(handle) };
 
-    // Analysis-for-analysis comparison: for each word, run Morpher::parse_word directly
-    // in-process and encode it through the SAME public encoder the FFI uses (`encode_single`) —
-    // "same encoder, two callers", not a hand-rolled reimplementation of the wire format that
-    // could itself disagree with the real one.
+    // Encodes the in-process result through the SAME public encoder the FFI uses (`encode_single`), not a hand-rolled reimplementation that could itself disagree.
     let mut mismatches = Vec::new();
     for (i, word) in words.iter().enumerate() {
         let outcome = morpher.parse_word(word);

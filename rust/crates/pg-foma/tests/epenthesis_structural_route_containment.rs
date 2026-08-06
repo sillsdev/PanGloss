@@ -1,37 +1,4 @@
-//! `crate::capability::EpenthesisStructuralRoutePredicate`'s own containment witness: replacing
-//! `CharacteristicKind::Epenthesis`'s predicate rests on two pieces of evidence, both
-//! verified here end-to-end rather than merely asserted:
-//!
-//! 1. **PROPOSE side** (`crate::emit`): an empty-LHS `PhonologicalRule` makes
-//!    `crate::emit::probe_would_refuse` return `true`, which widens `crate::emit::
-//!    structural_candidate_rules` to route every ordinary `Role::Prefix`/`Role::Suffix`/
-//!    `Role::Infix` morph rule through `crate::emit::build_structural_composites` -- the
-//!    surface-probe-free path that resynthesizes every candidate via the REAL morphological
-//!    engine (`pg_rules::morph::synthesize`/`Morpher::generate_words`), never a literal-text splice
-//!    or an FST regex approximation of the epenthesis rule itself.
-//! 2. **CONFIRM side** (`pg_rules::rewrite`): `syn_epenthesis`/`ana_epenthesis` (the oracle
-//!    `pg_parse::Morpher` itself calls through its own stratum cascade) were freshly re-verified to
-//!    round-trip correctly for an environment-gated, natural-class-RHS epenthesis rule
-//!    (`pg-rules/tests/rewrite_gate.rs::epenthesis_natural_class_rhs_round_trips_with_environment`).
-//!
-//! This file proves the END-TO-END consequence of both: the real propose->confirm composite
-//! (`pg_foma::composite::FomaAnalyzer`, the SAME engine `run-conformance.sh --engine=foma` drives)
-//! OVER-PROPOSES for an obligatory-epenthesis grammar (the raw, un-inserted-into concatenation is
-//! still a candidate) and CONFIRM prunes to EXACTLY the full-HC oracle's (`pg_parse::Morpher`) own
-//! analysis set -- the "propose broadly, confirm prunes" shape ADR 0001 names as the default,
-//! confirm-only-by-default landing spot for every `ConfigPredicate` characteristic in
-//! `crate::capability`, and the same containment-test methodology `tests/cover_mpr_groups.rs`/
-//! `tests/cover_unordered_morph_rules.rs`/`tests/cover_compounding.rs` already established for the
-//! other Stage-2 constructs.
-//!
-//! Synthetic, delanguaged fixture (synthetic data only -- invented segments, no natural-language
-//! lexemes, named by construct): one root entry
-//! ("x"), one ordinary `Role::Suffix` rule appending "y", and one obligatory, environment-gated
-//! epenthesis `PhonologicalRule` inserting "e" between an `ncX`-class segment and an `ncY`-class
-//! segment -- mirrors `tests/phase_c_right_to_left.rs`'s own `RTL_EPENTHESIS_XML` fixture shape
-//! (whose own doc records that `pg_parse::Morpher`'s previously-suspected "no analysis at all" gap
-//! did not reproduce), extended with a real suffixation rule so the grammar actually exercises
-//! `structural_candidate_rules`' `Role::Suffix` widening, not just bare-root phonology.
+//! `EpenthesisStructuralRoutePredicate`'s containment witness: propose over-generates for an obligatory-epenthesis grammar, and confirm prunes to exactly the full-HC oracle's analysis set.
 
 mod common;
 
@@ -49,12 +16,7 @@ fn load(xml: &str) -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// Root "x" (`eX`) + a `Role::Suffix` rule (`mrSuf`, appends "y") + an obligatory epenthesis rule
-/// (`prEpenthesis`, inserts "e" between an `ncX`-class segment and an `ncY`-class segment). Naive
-/// concatenation of root+suffix ("x"+"y" = "xy") is NOT a licensed surface: the epenthesis rule
-/// obligatorily inserts "e" between them, so the real surface is "xey" -- exactly the shape
-/// `crate::emit::probe_would_refuse`'s module doc names as defeating `crate::preexpand`'s ordinary
-/// probe for ANY affix rule sharing this cascade.
+/// Root "x" + a suffix rule appending "y" + an obligatory epenthesis rule inserting "e" between them, so the real surface is "xey", never the naive "xy" concatenation.
 fn fixture_xml() -> &'static str {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -138,10 +100,7 @@ fn analysis_set(v: &[WordAnalysis]) -> HashSet<(Vec<u32>, i32)> {
         .collect()
 }
 
-/// Deliverable 1 / capability.rs judgment call check: this fixture's own `Epenthesis` occurrence
-/// must characterize `epenthesis.structural-composite-route` and compose to `ConfirmOnly` -- proving
-/// the containment test below exercises the disposition `EpenthesisStructuralRoutePredicate`
-/// actually ships, not an accident of some other predicate meeting it down.
+/// This fixture's `Epenthesis` occurrence must compose to `ConfirmOnly`, proving the containment test below exercises the disposition `EpenthesisStructuralRoutePredicate` actually ships.
 #[test]
 fn fixture_has_epenthesis_and_composes_to_confirm_only() {
     let g = load(fixture_xml());
@@ -169,10 +128,7 @@ fn fixture_has_epenthesis_and_composes_to_confirm_only() {
     );
 }
 
-/// Runs `word` through both the real propose->confirm composite and the full-HC oracle, and asserts
-/// EXACT structured-set equality between them (never mere containment) -- same helper shape as
-/// `tests/cover_mpr_groups.rs`/`tests/cover_unordered_morph_rules.rs`'s own
-/// `assert_confirm_matches_oracle`.
+/// Runs `word` through both the real propose->confirm composite and the full-HC oracle, and asserts exact structured-set equality between them, never mere containment.
 fn assert_confirm_matches_oracle(
     analyzer: &mut FomaAnalyzer,
     morpher: &Morpher,
@@ -201,14 +157,7 @@ fn assert_confirm_matches_oracle(
     outcome
 }
 
-/// **The load-bearing containment witness (deliverable 2).** "xey" (root "x" + suffix "y", with the
-/// obligatory epenthetic "e" inserted between them) is a genuine, oracle-confirmed analysis. "xy"
-/// (the raw, un-inserted-into concatenation) must still be PROPOSED (`crate::emit::
-/// build_deriv_chain`/the structural-composite route offer the suffix unconditionally, the same
-/// non-tracking baseline `MprGroupAppendNonNarrowingPredicate`'s own doc describes) but must confirm
-/// to ZERO analyses (obligatory epenthesis, never optional) -- proving PROPOSE over-generates past
-/// what CONFIRM (the oracle-backed `pg_rules::rewrite::ana_epenthesis` fold) admits, and that the
-/// pruned set matches the oracle exactly in both cases.
+/// The load-bearing containment witness: "xey" is a genuine, oracle-confirmed analysis; "xy" (the raw, un-inserted-into concatenation) must still be proposed but confirm to zero analyses, since epenthesis here is obligatory, never optional.
 #[test]
 fn epenthesis_over_propose_confirm_prune_matches_oracle_exactly() {
     let g = load(fixture_xml());
@@ -240,9 +189,7 @@ fn epenthesis_over_propose_confirm_prune_matches_oracle_exactly() {
          obligatory, so the un-inserted-into spelling is never a valid surface"
     );
 
-    // "x" alone (entryX's own unaffected spelling, no suffix applied at all -- environment absent,
-    // no cascade concern) must also round-trip, as a positive control that the fixture's own root
-    // is independently well-formed.
+    // "x" alone must also round-trip, as a positive control that the root is independently well-formed.
     let bare = assert_confirm_matches_oracle(&mut analyzer, &morpher, "x", true);
     assert_eq!(
         bare.confirmed, 1,

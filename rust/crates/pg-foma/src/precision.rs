@@ -238,8 +238,7 @@ use crate::emit::{allomorphs_of, surface_variants};
 /// (module doc, "Deliberately out of scope").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConstraintFamily {
-    /// Allomorph-selection environments (`RequiredEnvironments`/`ExcludedEnvironments`) — the
-    /// only family this step populates.
+    /// Allomorph-selection environments; the only family this step populates.
     Environment,
     /// MPR feature gating on an allomorph (`required_mpr`/`excluded_mpr`). Not populated.
     Mpr,
@@ -275,20 +274,9 @@ pub enum EnvOwnerKind {
 /// diacritic (module doc's three findings).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnvCoverage {
-    /// A single-environment, `require == true`, no-right, single-literal-segment-run left context
-    /// (no natural class / anchor / quantifier) — safe to encode as a real `KeepFlag` (module doc
-    /// findings 1-4: every other shape, and every exclude, is `Unsupported`). `literal_variants` is
-    /// every accepted spelling of the left pattern's literal text (`surface_variants` — the SAME
-    /// representation-cartesian-product/NFD-normalization convention `crate::emit`'s own root/
-    /// affix spellings use, so a plain `str::ends_with` comparison against an emitted entry's
-    /// surface is apples-to-apples).
+    /// A single, `require == true`, no-right, literal-left environment; `literal_variants` is every accepted spelling of it.
     LeftLiteral { literal_variants: Vec<String> },
-    /// Declined this step — always behaves as `Strip` under every preset. `reason` is a short,
-    /// machine-stable tag (module doc): `"or-ambiguous"`, `"exclude-left-persistent-unsound"`,
-    /// `"right-context"`, `"anchor-or-compound-left"`, `"non-literal-left"`, `"no-pattern"`,
-    /// `"overflow"`, `"unsegmentable"`, `"prule-tail-rewrite-risk"` (new finding 5:
-    /// `prule_tail_rewrite_risk` — a phonological rewrite rule's output could plausibly combine
-    /// into the literal in a way this emitter's purely textual surface spellings would never show).
+    /// Declined this step (behaves as `Strip`); `reason` is a short, stable tag naming why (module doc).
     Unsupported { reason: &'static str },
 }
 
@@ -363,8 +351,7 @@ impl ConstraintCatalog {
 
         for mid in (0..g.mrules.len() as u32).map(MRuleId) {
             if matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_)) {
-                // No allomorph environments live on a compounding rule (module doc; `allomorphs_of`
-                // already returns `&[]` for this variant, but skip explicitly for clarity).
+                // A compounding rule has no allomorph environments; skipped explicitly for clarity.
                 continue;
             }
             for allo in allomorphs_of(g, mid) {
@@ -420,9 +407,7 @@ fn classify(g: &Grammar, env: &EnvironmentDef, sibling_count: usize) -> EnvCover
             reason: "or-ambiguous",
         };
     }
-    // Finding 4 (module doc): exclude-left is out of THIS step's scope (conservative — the
-    // recall-invariance corpus has zero exclude environments to test an exclude arm against), not
-    // because the corrected mechanism below couldn't represent it.
+    // Exclude-left is out of scope: the recall corpus has zero exclude environments to test against.
     if !env.require {
         return EnvCoverage::Unsupported {
             reason: "exclude-left-persistent-unsound",
@@ -455,10 +440,7 @@ fn classify(g: &Grammar, env: &EnvironmentDef, sibling_count: usize) -> EnvCover
     let literal_table = &g.char_tables[seg_table.0 as usize];
     match surface_variants(literal_table, &shape.text) {
         Some((variants, false)) if !variants.is_empty() => {
-            // New finding 5 (module doc): decline whenever a phonological rewrite rule could
-            // plausibly rewrite word-internal material into (a suffix of) this literal — this
-            // emitter's textual surface spellings would never show that, so the y-test below could
-            // silently under-set `y` for a real context. Declining is always recall-safe (Strip).
+            // Declines whenever a rewrite rule could plausibly produce a suffix of this literal, since the y-test can't see that.
             if prule_tail_rewrite_risk(g, &variants) {
                 EnvCoverage::Unsupported {
                     reason: "prule-tail-rewrite-risk",
@@ -476,18 +458,11 @@ fn classify(g: &Grammar, env: &EnvironmentDef, sibling_count: usize) -> EnvCover
     }
 }
 
-/// New finding 5 (module doc): `true` when we cannot cheaply PROVE that no phonological rewrite
-/// rule in `g` could ever rewrite word-internal material into (a suffix of) one of
-/// `literal_variants` — the safe default whenever this can't be decided cheaply, per the
-/// architecture's "approximate only upward, never guess downward" rule (a wrong `y`/`n` from
-/// `could_satisfy` IS a downward approximation risk, unlike an over-eager `y`, which is always
-/// safe). `false` (no risk at all) for the common case of a grammar with zero phonological rules
-/// (Sena) — the loop below is then a no-op.
+/// `true` when we cannot cheaply prove no phonological rule could produce a suffix of `literal_variants`; the safe default.
 fn prule_tail_rewrite_risk(g: &Grammar, literal_variants: &[String]) -> bool {
     for prule in &g.prules {
         let PhonRuleDef::Rewrite(rule) = prule else {
-            // A `MetathesisRule` has no literal RHS pattern at all to render (it reorders/
-            // feature-unions existing spans) -- cannot cheaply prove it can't produce the literal.
+            // A `MetathesisRule` has no literal RHS to render (it reorders/unions spans); can't cheaply prove no overlap.
             return true;
         };
         for subrule in &rule.subrules {
@@ -507,11 +482,7 @@ fn prule_tail_rewrite_risk(g: &Grammar, literal_variants: &[String]) -> bool {
     false
 }
 
-/// Attempts to render `pattern`'s literal spelling for `prule_tail_rewrite_risk`'s substring
-/// check. `Some(variants)` only when EVERY node is a `PatternNode::Segments` sharing the SAME
-/// char-def table (the same literal shape `classify`'s own left-pattern check already accepts) —
-/// `None` (cannot cheaply render, caller must decline) for a `Context`/`CharDef`/`Quantifier`/
-/// `Anchor` node, mixed tables, or a representation-variant overflow.
+/// `Some(variants)` only when every node is `Segments` sharing one char-def table; `None` otherwise (caller declines).
 fn render_pattern_literal(g: &Grammar, pattern: &Pattern) -> Option<Vec<String>> {
     let mut table_id: Option<TableId> = None;
     let mut text = String::new();
@@ -533,43 +504,13 @@ fn render_pattern_literal(g: &Grammar, pattern: &Pattern) -> Option<Vec<String>>
     }
 }
 
-/// Lexc-safe embedding of a constraint's `id` for use INSIDE a flag diacritic's name field
-/// (`@[R|P].ENV{id}.[y|n]@`) — NEVER `EnvConstraint::attr`, which embeds a `.` for human-readable
-/// reporting only. Two independent reasons this must be dot-free AND zero-digit-free:
-/// - foma-rs's `flag_check` DFA (`crates/foma/src/flags.rs`, verified empirically against the
-///   real crate) treats every dot-delimited run after the type letter as ANOTHER field: a name
-///   containing a literal `.` (e.g. the old `"ENV.0007"`) makes a P/U/N/E-typed symbol (exactly 2
-///   fields allowed) INVALID — not a flag at all, silently degrading to an ordinary literal
-///   multichar symbol no real surface text can ever match — while an R/D-typed symbol (value
-///   optional) silently SPLITS at the embedded dot, giving every constraint the SAME flag name
-///   ("ENV") distinguished only by value, i.e. one shared piece of cross-constraint state instead
-///   of independent ones. This step's format (`ENV{id}`, no dot) keeps every constraint's name
-///   distinct and always `flag_check`-valid.
-/// - A literal `0` digit ANYWHERE in a flag symbol's text breaks matching for that WHOLE symbol
-///   once it is spliced next to other text on the same lexc tape (verified empirically against a
-///   real compiled network during this step: `@P.ENV10.n@` and even the lexc-escaped
-///   `@P.ENV1%0.n@` — `crate::tags::lexc_tag`'s own zero-escaping convention — BOTH fail to match
-///   at all when appended after a surface like `"seru"`; `@P.ENV1Z.n@`, with the zero digit
-///   replaced, works correctly. `crate::tags::lexc_tag`'s `%0` convention is only proven for a tag
-///   symbol occupying an ENTIRE lexc side alone (its only use before this module) — a symbol
-///   spliced onto the END of ordinary surface text is a materially different case this crate had
-///   never exercised, and `%`-escaping does not fix it there. `flag_id` therefore avoids the
-///   digit `0` altogether: `Z` substitutes for it (never itself produced by `u32::to_string`, so
-///   the substitution is injective — no two ids can ever collide).
+/// Two independently verified foma-rs bugs (dot-delimited flag fields, digit-`0` match failure)
+/// make dot-free and zero-digit-free mandatory here; see `docs/research/pg-foma-precision-design-notes.md`.
 fn flag_id(id: u32) -> String {
     id.to_string().replace('0', "Z")
 }
 
-/// The y-test (module doc, "Emission mechanism"): does `surface` (one entry's own concrete,
-/// already-rendered spelling — every caller already writes one lexc entry PER variant, so no
-/// further variant enumeration is needed here) satisfy the adjacency context for ANY of
-/// `literal_variants`? Two disjuncts, both upward-safe:
-/// - `surface.ends_with(l)`: the whole literal is spelled out within this one entry's own text.
-/// - `surface` is a PROPER SUFFIX of `l` (shorter than `l`, and `l.ends_with(surface)`): the
-///   literal's context is completed ACROSS a morpheme boundary by whatever comes before this entry
-///   (the "miseru" cross-boundary case — module doc, "Two failed encodings").
-///   Empty literal variants never match (an empty environment literal is meaningless and would
-///   match trivially/vacuously otherwise). When in doubt this returns `true` — never narrows.
+/// Two disjuncts, both upward-safe: whole-literal `ends_with`, or `surface` is a boundary-spanning proper suffix of `l`.
 fn could_satisfy(surface: &str, literal_variants: &[String]) -> bool {
     literal_variants.iter().any(|l| {
         !l.is_empty()
@@ -583,18 +524,13 @@ fn could_satisfy(surface: &str, literal_variants: &[String]) -> bool {
 /// rewrite-rule arm's three positions (unwired this step — module doc, "Deliberately out of scope").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrecisionAction {
-    // Gate-constraint arm (design §1, position list 1).
-    /// Compiled into network topology (`eliminate flag`) — exact, zero lookup cost. Never assigned
-    /// by anything in this crate yet (design §8 item (2), the PK2 oracle gate, and item (3), the
-    /// tuner, are later steps) — kept as a variant so `PrecisionReport`'s decision type doesn't
-    /// need to change shape when they land.
+    /// Compiled into network topology, exact and zero lookup cost; kept as a variant for later steps.
     Eliminate,
-    /// Flag stays in the network; `apply_up` obeys it at runtime. This step's `AllFlags` preset
-    /// assigns this to every `EnvConstraint::is_coverable` instance.
+
+    /// Flag stays in the network; `apply_up` obeys it at runtime.
     KeepFlag,
-    /// Fully permissive — no flag at all (v1's existing, only-ever behavior). Assigned to every
-    /// `Unsupported` instance under every preset, and to everything under
-    /// `PrecisionConfig::Strip`.
+
+    /// Fully permissive, no flag at all; the assignment for every `Unsupported` instance under `Strip`.
     Strip,
     // Rewrite-rule arm (design §1, position list 2) — stubbed, unwired (design §8 item (4)).
     Compose,
@@ -610,16 +546,13 @@ pub enum PrecisionAction {
 pub enum PrecisionConfig {
     #[default]
     Strip,
-    /// "Simplest FST" (design §3): every `AllFlags`-coverable environment constraint (this step:
-    /// `EnvCoverage::LeftLiteral`, a require-only left-literal instance) is emitted as a real
-    /// `@R@`+`@P@` flag scheme (`crate::precision::PrecisionEmit`); everything else stays `Strip`,
-    /// exactly as today.
+    /// "Simplest FST": every coverable environment constraint gets a real `@R@`+`@P@` flag scheme.
     AllFlags,
-    /// "All FST" (design §3) — later step (design §8 item (3), the tuner). `crate::emit` treats
-    /// this identically to `Strip` for now (no `Eliminate` arm exists yet).
+
+    /// "All FST": a later tuner step; treated identically to `Strip` for now.
     FullCompile,
-    /// The half-and-half budget dial (design §3) — later step. `crate::emit` treats this
-    /// identically to `Strip` for now.
+
+    /// The half-and-half budget dial: a later step; treated identically to `Strip` for now.
     Auto(u32),
 }
 
@@ -680,8 +613,7 @@ impl ConstraintCatalog {
 
 // --- Emission runtime (the `AllFlags` preset's flag scheme; module doc "Emission mechanism") ----
 
-/// One `EnvConstraint::is_coverable` instance's runtime flag symbols + literal test data
-/// (module doc, "Emission mechanism").
+/// One coverable instance's runtime flag symbols + literal test data.
 struct EnvSetRule {
     sym_y: String,
     sym_n: String,
@@ -695,14 +627,9 @@ struct EnvSetRule {
 /// scratch buffer and synthesizes NO `LEXICON` blocks — every flag is inline text on the entry's
 /// own LOWER tape (module doc: "linear by construction").
 pub(crate) struct PrecisionEmit {
-    /// Keyed by the OWNING allomorph id → the `@R.ENV{id}.y@` require symbol to PREPEND to that
-    /// allomorph's own entries' LOWER text (require only — exclude is declined, module doc finding
-    /// 4). Empty unless `config == AllFlags` (so `tagged_lower` is a pure passthrough under `Strip`).
+    /// Keyed by owning allomorph id to its `@R@` require symbol; empty unless `config == AllFlags`.
     owner_require: BTreeMap<AllomorphId, String>,
-    /// Every covered constraint's set-y/set-n symbols + literal variants, in catalog (id-ascending)
-    /// order — `Self::tagged_lower` appends ONE of `sym_y`/`sym_n` per rule, per non-empty-surface
-    /// entry, in this fixed order (module doc: every entry gets AT MOST one symbol per constraint).
-    /// Empty unless `config == AllFlags`.
+    /// Every covered constraint's set-y/set-n symbols + literals, in catalog order; empty unless `AllFlags`.
     set_rules: Vec<EnvSetRule>,
     /// Every flag symbol this instance can emit, for `crate::emit`'s `Multichar_Symbols` section
     /// (lexc requires every multi-character token used in an entry to be pre-declared there, the
@@ -725,10 +652,7 @@ impl PrecisionEmit {
                 let EnvCoverage::LeftLiteral { literal_variants } = &c.coverage else {
                     continue;
                 };
-                // Only `require == true` is ever coverable (`classify`, module doc finding 4 — a
-                // persistent-flag `@D@` disallow is declined, this step's scope), so a covered
-                // instance's gate is always `@R@`; the assertion documents that invariant at the
-                // emission seam.
+                // Only require==true is coverable (exclude is declined by classify), so the gate here is always the require symbol.
                 debug_assert!(
                     c.require,
                     "only require==true environments are coverable this step (exclude-left is \
@@ -821,11 +745,7 @@ mod tests {
         pg_grammar::load(&xml).unwrap()
     }
 
-    /// Sena has 144 `<RequiredEnvironments>` elements in its XML (grep-verified): mostly
-    /// right-context (`/_ [V]`, deferred) or word-edge anchors, but a real handful are single,
-    /// literal-left, no-right instances the catalog must classify `LeftLiteral` — both on ROOT
-    /// allomorphs (`/ma_`/`/na_`, the dominant coverable shape here) and on one rule allomorph
-    /// (`/mb_`, `msubrule60`). Everything else stays `Unsupported`.
+    /// Sena has 144 `<RequiredEnvironments>` elements; a handful are literal-left, no-right instances the catalog must cover.
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn sena_catalog_finds_the_expected_left_literal_instances() {
@@ -879,9 +799,7 @@ mod tests {
         assert_eq!(catalog.env[0].attr.len(), "ENV.".len() + 4);
     }
 
-    /// Indonesian has zero `<RequiredEnvironments>`/`<ExcludedEnvironments>` elements at all (grep-
-    /// verified) — the catalog must be empty, and `AllFlags`'s decision table is then trivially all
-    /// `Strip` (nothing to cover) rather than erroring.
+    /// Indonesian declares zero environments; the catalog is empty and `AllFlags` decides trivially all `Strip`.
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn indonesian_catalog_is_empty() {
@@ -898,16 +816,10 @@ mod tests {
         assert!(report.decisions.is_empty());
     }
 
-    /// A multi-environment allomorph (module doc finding 1, "OR, not AND") must be `Unsupported {
-    /// reason: "or-ambiguous" }` for EVERY one of its environments, even ones that would otherwise
-    /// look like a trivially coverable `LeftLiteral` shape in isolation.
+    /// A multi-environment allomorph is `Unsupported { reason: "or-ambiguous" }` for every one of its environments.
     #[test]
     fn multi_environment_allomorph_is_or_ambiguous_even_if_individually_simple() {
-        // `edge-cases/disjunctive-recheck` is the one fixture the model doc (`pg-rules/src/
-        // validity.rs`) explicitly names for the W3.2 free-fluctuation/disjunctive-allomorph
-        // re-check; load it defensively and skip if it doesn't declare environments (its own
-        // fixture is scoped to a different gate, so this is a best-effort structural probe rather
-        // than a load-bearing assertion about that specific file).
+        // This fixture is scoped to a different gate, so this is a best-effort structural probe.
         let g = load_conformance("edge-cases/disjunctive-recheck/grammar.xml");
         let catalog = ConstraintCatalog::build(&g);
         for c in &catalog.env {
@@ -943,9 +855,7 @@ mod tests {
         }
     }
 
-    /// `PrecisionEmit::tagged_lower` is a byte-identical passthrough under `Strip` regardless of
-    /// `owner` (the property `crate::emit`'s default path depends on): non-empty surface returns
-    /// `escaped` unchanged, empty surface returns lexc's `"0"` epsilon marker.
+    /// Under `Strip`, `tagged_lower` is a byte-identical passthrough regardless of `owner`.
     #[test]
     fn precision_emit_tagged_lower_is_passthrough_under_strip() {
         let catalog = one_constraint_catalog(0, AllomorphId(7), "mb");
@@ -959,8 +869,7 @@ mod tests {
         assert_eq!(pk.tagged_lower("", "", None), "0");
     }
 
-    /// Under `AllFlags`, the flag symbols are dot-free in the name field (`flag_id`, not `attr`)
-    /// and follow the `@[R|P].ENV{id}.[y|n]@` shape.
+    /// Under `AllFlags`, flag symbols are dot-free (`flag_id`, not `attr`) and follow `@[R|P].ENV{id}.[y|n]@`.
     #[test]
     fn precision_emit_flag_symbols_are_dot_free_in_the_name_field() {
         let catalog = one_constraint_catalog(7, AllomorphId(3), "mb");
@@ -975,16 +884,13 @@ mod tests {
         );
     }
 
-    /// Under `AllFlags`, the owner allomorph's LOWER text gets the `@R@` require prefix, and EVERY
-    /// non-empty-surface entry (owner or not) gets exactly one of `@P@` y/n appended, matching
-    /// `could_satisfy`. No flag text is emitted for an empty surface.
+    /// Under `AllFlags`, the owner gets the require prefix, every non-empty entry gets one y/n set flag, empty gets none.
     #[test]
     fn precision_emit_tagged_lower_gates_owner_and_sets_on_every_entry() {
         let catalog = one_constraint_catalog(7, AllomorphId(3), "mb");
         let pk = PrecisionEmit::build(&catalog, PrecisionConfig::AllFlags);
 
-        // The owner's own entry (surface "i", allomorph id 3): @R@ prefix + surface + its OWN
-        // set-flag (based on ITS OWN surface "i", which does not end in "mb" -> "n").
+        // Owner's own entry: surface "i" doesn't end in "mb", so its own set-flag is "n".
         let owner_lower = pk.tagged_lower("i", "i", Some(AllomorphId(3)));
         assert_eq!(owner_lower, "@R.ENV7.y@i@P.ENV7.n@");
 
@@ -1003,8 +909,7 @@ mod tests {
         assert_eq!(empty_plain_lower, "0");
     }
 
-    /// `could_satisfy`'s two disjuncts: whole-literal `ends_with`, and the boundary-spanning
-    /// "proper suffix of the literal" case (module doc: the "miseru" cross-boundary recall break).
+    /// `could_satisfy`'s two disjuncts: whole-literal `ends_with`, and the boundary-spanning proper-suffix case.
     #[test]
     fn could_satisfy_covers_whole_literal_and_boundary_spanning_suffix() {
         // Whole literal spelled within one entry.
@@ -1013,8 +918,7 @@ mod tests {
         assert!(could_satisfy("i", &["mi".to_string()]));
         // Not a match either way.
         assert!(!could_satisfy("ku", &["mi".to_string()]));
-        // Representation variants: matches if ANY literal variant matches (here "an" is a proper
-        // suffix of both "man" and "nan").
+        // Matches if any literal variant matches: "an" is a proper suffix of both "man" and "nan".
         assert!(could_satisfy("an", &["man".to_string(), "nan".to_string()]));
         // An entry EQUAL to the literal itself still satisfies (ends_with is reflexive).
         assert!(could_satisfy("mb", &["mb".to_string()]));
@@ -1022,10 +926,7 @@ mod tests {
         assert!(!could_satisfy("mb", &[String::new()]));
     }
 
-    /// `flag_id` never contains the digit `0` (verified empirically: a `0` breaks matching for
-    /// the WHOLE symbol once spliced onto a surface, `%`-escaped or not — module doc, `flag_id`'s
-    /// own doc) nor a `.` (the `flag_check` DFA finding — module doc, "Two failed encodings"), and
-    /// the `0`->`Z` substitution stays injective (distinct ids never collide).
+    /// `flag_id` excludes the digit `0` and the dot, and the `0`->`Z` substitution stays injective.
     #[test]
     fn flag_id_has_no_zero_digit_and_never_contains_a_dot() {
         assert_eq!(flag_id(7), "7");
@@ -1042,8 +943,7 @@ mod tests {
         }
     }
 
-    /// New finding 5: a grammar with zero phonological rules (the common case, e.g. Sena) is never
-    /// at risk — the loop is a no-op.
+    /// A grammar with zero phonological rules (e.g. Sena) has no risk at all: the loop is a no-op.
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn prule_tail_rewrite_risk_is_false_with_no_phonological_rules() {

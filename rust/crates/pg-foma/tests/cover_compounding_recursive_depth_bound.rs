@@ -1,33 +1,5 @@
-//! The depth-BOUND half of `Compounding`'s recursive split (piece 1, already landed) plus the
-//! depth-BUDGETED CONSTRUCTION and its containment proof (pieces 2/3 -- the part this file's own
-//! tests originally found missing).
-//!
-//! Piece 1 ("bound the self-feeding depth... a max-cycle-length computation,
-//! extending the existing classifier") was DONE first: `crate::capability::compounding_max_depth`
-//! (`CompoundingDetail::max_depth`) turns the existing boolean `recursive` flag into an exact,
-//! always-finite stem-count bound -- see that function's own doc and its unit tests in
-//! `capability.rs` (`compounding_max_depth_scales_with_multiple_application`,
-//! `..._scales_with_co_located_rule_count`, `..._is_asymmetric_across_strata`,
-//! `..._matches_compounding_recursive_boolean_exactly`).
-//!
-//! Pieces 2/3 (a depth-budgeted faithful cross-product construction; a no-false-negative
-//! containment proof) are now DONE too, in `crate::emit`: the "bounded compound loop" (that
-//! module's own doc) no longer hardcodes exactly one extra root -- `build_compound_chain` unrolls
-//! `max_depth - 1` extra (non-head) root LEVELS, consuming this predicate's own precomputed bound
-//! directly (one source of truth), and `crate::capability::CompoundingRecursionSafePredicate` now
-//! reaches `ConfirmOnly` unconditionally for every observed `Compounding` rule, recursive or not
-//! (`capability.rs`'s own doc, "the recursive split is now closed too"). Growth is checked eagerly,
-//! before any lexc text is written, against `crate::emit::DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` -- a
-//! genuinely oversized `multipleApplication` value gets a typed `FomaTier::Unsupported` outcome, not
-//! a hang or an OOM (`compound_chain_depth_budget_trips_before_any_lexc_emitted`, below).
-//!
-//! Fixture: `conformance-staging/edge-cases/recursive-endocentric-compounding` (already staged;
-//! reused as-is, not duplicated -- its own `STAGING.md`/`grammar.xml` document the shape: `cr1
-//! multipleApplication="9"`, so `compounding_max_depth` bounds it at exactly 10 stems). The
-//! bound-respected and budget tests below use small, self-contained inline fixtures instead of the
-//! staged one (mirroring this crate's own `capability.rs` inline-XML convention) since they need
-//! SPECIFIC, small, exactly-controlled depth numbers the staged fixture's own `multipleApplication="9"`
-//! does not give them.
+//! The compounding recursion depth bound and its depth-budgeted construction; see
+//! `docs/research/pg-foma-cover-compounding-recursive-depth-bound-design-notes.md` for the argument.
 
 use std::fs;
 use std::path::Path;
@@ -51,12 +23,7 @@ fn load() -> Grammar {
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// Piece 1, pinned against the real staged fixture (not just the synthetic unit-test
-/// grammars in `capability.rs`): `cr1`'s `multipleApplication="9"` bounds at exactly `1 + 9 = 10`
-/// stems -- still true and still checked directly, even though the number no longer surfaces via a
-/// `Refuse` diagnostic (see the next test): `crate::capability::characterize` is the one source of
-/// truth the construction itself now consumes, and this asserts the number an operator would read
-/// there is the same one this module has always claimed.
+/// `cr1`'s `multipleApplication="9"` bounds at exactly `1 + 9 = 10` stems, pinned against the real staged fixture rather than a synthetic grammar.
 #[test]
 fn characterize_reports_the_computed_depth_bound_for_the_staged_fixture() {
     let g = load();
@@ -71,11 +38,7 @@ fn characterize_reports_the_computed_depth_bound_for_the_staged_fixture() {
     );
 }
 
-/// This fixture's self-feeding `CompoundingRule` composes to `ConfirmOnly`: the construction gap
-/// that would otherwise force `Refuse` is closed (`crate::capability::
-/// CompoundingRecursionSafePredicate`'s own doc, "the recursive split is now closed too"). Kept as
-/// its own test (not merged into the characterize test above) since it checks
-/// a DIFFERENT public surface (`evaluate_capability`/`compose_envelope`, not `characterize` directly).
+/// This fixture's self-feeding `CompoundingRule` composes to `ConfirmOnly` rather than `Refuse`, checked via `evaluate_capability` rather than `characterize` directly.
 #[test]
 fn capability_gate_is_now_confirm_only_for_the_computed_depth_bound() {
     let g = load();
@@ -88,20 +51,14 @@ fn capability_gate_is_now_confirm_only_for_the_computed_depth_bound() {
     );
 }
 
-/// `crate::emit::build_compound_chain`
-/// unrolls enough extra non-head levels to realize this fixture's own computed bound (10 stems), so
-/// the real, unmodified, production `FomaProposer` (exactly what `FomaAnalyzer`/`pangloss
-/// --engine=foma` uses) DOES propose the genuine 3-stem self-feeding compound `tevimaflisra` --
-/// an "exactly one extra root, regardless of any rule's bound" loop could not.
+/// `build_compound_chain` unrolls enough extra non-head levels to realize the fixture's computed bound (10 stems), so the production proposer now proposes the genuine 3-stem self-feeding compound `tevimaflisra`.
 #[test]
 fn depth_budgeted_compound_loop_now_proposes_the_bounded_recursive_shape() {
     let g = load();
     let mut proposer =
         FomaProposer::new(&g).expect("fixture must compile (a single, simple CompoundingRule)");
 
-    // Sanity: the SAME proposer still proposes the ordinary depth-1 compounds (and bare roots)
-    // fine -- proving the non-empty result below is a genuine EXTENSION, not a broken compile that
-    // happens to propose garbage for everything.
+    // Sanity: the same proposer still proposes ordinary depth-1 compounds and bare roots fine.
     for word in ["tevi", "mafl", "isra", "tevimafl", "maflisra"] {
         assert!(
             !proposer.propose(word).is_empty(),

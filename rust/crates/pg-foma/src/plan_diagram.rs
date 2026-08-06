@@ -87,9 +87,7 @@ use crate::plan_interaction_coverage::plan_for_semantics;
 /// wire-incompatible change to `PlanDocument`'s shape.
 pub const PLAN_DIAGRAM_SCHEMA_VERSION: u32 = 1;
 
-// =================================================================================================
-// Capability verdicts: DiagnosticView + NodeVerdict, the real evaluation's serializable projection
-// =================================================================================================
+// Capability verdicts: DiagnosticView + NodeVerdict, the real evaluation's serializable projection.
 
 /// An owned, serializable projection of `CapabilityDiagnostic` (which does not itself derive
 /// `serde` traits) — same fields, `predicate` widened from `&'static str` to `String` only because
@@ -145,10 +143,7 @@ impl NodeVerdict {
     }
 }
 
-/// Converts a single predicate's `PredicateVerdict` into the same three-way `CompileDecision`
-/// lattice `crate::capability`'s own (private) `verdict_to_decision` uses — restated here (not
-/// imported: that helper is private) as the one-line, unambiguous mapping
-/// (`Admit`->`Admit`, `ConfirmOnly`->`ConfirmOnly`, `Refuse(d)`->`Refuse(vec![d])`).
+/// Restates `crate::capability`'s private `verdict_to_decision` mapping, since that helper is not importable.
 fn predicate_verdict_to_decision(v: PredicateVerdict) -> CompileDecision {
     match v {
         PredicateVerdict::Admit => CompileDecision::Admit,
@@ -157,14 +152,7 @@ fn predicate_verdict_to_decision(v: PredicateVerdict) -> CompileDecision {
     }
 }
 
-/// Mirrors `crate::capability`'s own private `node_decision` exactly (same registry, same
-/// `CharacteristicsProfile`, same `crate::capability::meet`) over ONLY that module's public API
-/// — this module does not, and per this change's scope may not, modify `capability.rs`, so a node's
-/// real bottom-up verdict is recomputed here by calling the SAME predicates/registry `compose_
-/// envelope` calls, not by inventing a different, potentially-drifting rule. See this module's own
-/// top-doc "Capability verdicts, read from the real evaluation" section, and the `plan_diagram_root_
-/// verdict_matches_compose_envelope` test that pins this mirror agrees with the real
-/// `compose_envelope` at the root.
+/// Mirrors `crate::capability`'s private `node_decision` exactly, over only that module's public API, since this module must not modify `capability.rs`; pinned against the real `compose_envelope` by `plan_diagram_root_verdict_matches_compose_envelope`.
 fn node_decision_mirror(
     plan: &Plan,
     profile: &CharacteristicsProfile,
@@ -177,8 +165,7 @@ fn node_decision_mirror(
         return cached.clone();
     }
     let Some(kind) = plan.get(node_id) else {
-        // Dangling id: not a capability judgment (see `capability::node_decision`'s own doc for the
-        // identical defensive choice) -- vacuously Admit.
+        // Dangling id: not a capability judgment, vacuously Admit (same defensive choice as `capability::node_decision`).
         return CompileDecision::Admit;
     };
 
@@ -206,10 +193,7 @@ fn node_decision_mirror(
     decision
 }
 
-/// Every node's own `CompileDecision`, keyed by `NodeId` — the per-node granularity `compose_
-/// envelope` itself never exposes (it only ever returns the single whole-plan decision at the
-/// root). See `node_decision_mirror`'s own doc for why this is a faithful mirror, not a second,
-/// independently-invented computation.
+/// Every node's own `CompileDecision`, keyed by `NodeId`; `compose_envelope` itself only ever returns the single whole-plan decision at the root.
 fn per_node_verdicts(
     plan: &Plan,
     profile: &CharacteristicsProfile,
@@ -229,9 +213,7 @@ fn per_node_verdicts(
     cache
 }
 
-// =================================================================================================
-// Linguistic labelling: derived from the plan's own payload + the same Grammar, nothing else
-// =================================================================================================
+// Linguistic labelling: derived from the plan's own payload + the same Grammar, nothing else.
 
 fn stratum_label_at(g: &Grammar, index: usize) -> String {
     g.strata
@@ -330,9 +312,7 @@ fn compose_strategy_name(s: ComposeStrategy) -> &'static str {
     }
 }
 
-/// Stable, exhaustively-matched tags for `FragmentSpec` variants — used both as the JSON
-/// payload's `fragment` field and as the mermaid summarizer's collapsing group key (see
-/// `render_mermaid`'s own doc).
+/// Stable, exhaustively-matched tags for `FragmentSpec` variants: the JSON payload's `fragment` field, and the mermaid summarizer's collapsing group key.
 fn fragment_tag(fragment: &FragmentSpec) -> &'static str {
     match fragment {
         FragmentSpec::LexiconFragment { .. } => "lexicon_fragment",
@@ -390,9 +370,7 @@ fn replace_label(
     }
 }
 
-// =================================================================================================
-// The JSON document
-// =================================================================================================
+// The JSON document.
 
 /// An owned, serializable projection of `GatedSubruleRef` (which does not derive `serde` traits).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -631,9 +609,7 @@ pub fn build_plan_document_for_plan_with_semantics(
     let verdicts = per_node_verdicts(plan, profile, &registry);
     let overall = compose_envelope_with_semantics(semantics, plan, &registry);
 
-    // `plan.iter()` yields `BTreeMap<NodeId, _>`'s own key order (`Plan`'s own doc: "iteration order
-    // is itself deterministic") -- already exactly the content-address order this document's
-    // determinism depends on, so no additional sort is needed here.
+    // `plan.iter()` yields deterministic content-address order already, so no additional sort is needed here.
     let nodes: Vec<PlanDocumentNode> = plan
         .iter()
         .map(|(id, kind)| {
@@ -650,9 +626,7 @@ pub fn build_plan_document_for_plan_with_semantics(
     }
 }
 
-// =================================================================================================
-// Mermaid rendering: a pure function over PlanDocument
-// =================================================================================================
+// Mermaid rendering: a pure function over PlanDocument.
 
 /// The default readability threshold above which `render_mermaid` collapses sibling leaf children
 /// into a summary node (see this module's top-doc "Honest summarization" section). Chosen well
@@ -734,8 +708,7 @@ fn leaf_group_key(node: &PlanDocumentNode) -> String {
     }
 }
 
-/// The number of distinct nodes reachable from `root` over `by_id`'s own `children` edges,
-/// independent of any collapsing decision -- `MermaidRender::total_node_count`'s own computation.
+/// The number of distinct nodes reachable from `root`, independent of any collapsing decision.
 fn reachable_node_count(by_id: &HashMap<&str, &PlanDocumentNode>, root: &str) -> usize {
     let mut seen: HashSet<String> = HashSet::new();
     let mut stack = vec![root.to_string()];
@@ -797,10 +770,7 @@ pub fn render_mermaid(doc: &PlanDocument, mode: RenderMode) -> MermaidRender {
             ));
         }
 
-        // Partition this node's OWN children into leaf-kind groups (collapse candidates, keyed by
-        // fragment tag) vs. everything else -- a PER-PARENT-EDGE decision, never a whole-plan
-        // blanket rule (this module's top-doc: a shared leaf can be drawn in full under one parent
-        // and folded into a summary under another).
+        // Partition this node's children into leaf-kind groups vs. everything else; a per-parent-edge decision, never a whole-plan blanket rule.
         let mut leaf_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut other_children: Vec<String> = Vec::new();
         for child_id in &node.children {
@@ -881,12 +851,9 @@ mod tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Fixtures
-    // ---------------------------------------------------------------------------------------
+    // Fixtures.
 
-    /// An ordinary, ungated, single-stratum grammar: one rewrite rule, one lexical entry. No
-    /// capability gaps at all -- everything should read `Admit`.
+    /// An ordinary, ungated, single-stratum grammar: one rewrite rule, one lexical entry, no capability gaps at all.
     fn ordinary_fixture() -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -931,14 +898,7 @@ mod tests {
         .to_string()
     }
 
-    /// A 2-group gated grammar (mirrors `enumerate.rs`'s own `gated_two_group_fixture`), PLUS a
-    /// second, completely independent, UNGATED stratum with its own plain rewrite rule and its own
-    /// entry -- the "unrelated sibling subtree" the content-address test needs. `e0_has_mpr1`
-    /// toggles whether entry `e0` ALSO carries `ruleFeatures="mpr1"`: `false` realizes both gate-key
-    /// values (2 partition groups); `true` collapses both entries onto the SAME key (1 group) --
-    /// a genuine structural change to the Gate/Replace/lexicon subtree, while `pruleIndep`'s own
-    /// leaf (addressed purely by its own `PRuleId`, per `FragmentSpec::RewriteRule`'s own doc: "no
-    /// grammar data embedded beyond stable ids") must stay byte-identical either way.
+    /// A 2-group gated grammar plus an independent ungated stratum; `e0_has_mpr1` toggles 2 vs 1 partition groups, while the independent stratum's leaf must stay byte-identical either way.
     fn gated_plus_independent_stratum_fixture(e0_has_mpr1: bool) -> String {
         let e0_attr = if e0_has_mpr1 {
             r#" ruleFeatures="mpr1""#
@@ -1000,12 +960,7 @@ mod tests {
       <Stratum characterDefinitionTable="t1" phonologicalRules="pruleIndep">
         <Name>Independent</Name>
         <LexicalEntries>
-          <!-- Always tagged ruleFeatures="mpr1": `gate::partition_entries` buckets EVERY grammar-wide
-               entry (gate.rs's own doc), not only entries in the gated rule's own stratum, so this
-               entry's own gate key participates in the SAME partition as e0/e1. Pinning it to the
-               "true" side in both fixture variants keeps this stratum's own partitioning contribution
-               constant across the baseline/changed toggle, so the group-count difference the content-
-               address test asserts is caused ONLY by e0's own toggle, not by this unrelated entry. -->
+          <!-- Always tagged ruleFeatures="mpr1": gate::partition_entries buckets every grammar-wide entry, so pinning this one keeps its contribution constant across the e0 toggle. -->
           <LexicalEntry id="e2" partOfSpeech="posV" ruleFeatures="mpr1">
             <Allomorphs><Allomorph id="allo2"><PhoneticShape>s</PhoneticShape></Allomorph></Allomorphs>
             <Gloss>e2</Gloss>
@@ -1019,10 +974,7 @@ mod tests {
         )
     }
 
-    /// A 2-stratum grammar (distinguishable stratum names in every leaf label) plus an
-    /// `MprGroupOutput::Overwrite` MPR group -- the permanent carve-out (`mpr-group.overwrite-
-    /// output`) that all three reference grammars exercise today. Used by the render test:
-    /// asserts BOTH stratum names appear AND a refusal is visible.
+    /// A 2-stratum grammar plus an `Overwrite` MPR group, the permanent carve-out; the render test asserts both stratum names appear and a refusal is visible.
     fn multi_stratum_refused_fixture() -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1080,12 +1032,7 @@ mod tests {
         .to_string()
     }
 
-    /// One `Simultaneous` rule with two genuinely-overlapping subrules (adapted from `conformance-
-    /// staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml`'s own shape) PLUS a
-    /// second, ordinary, non-overlapping rule in the SAME ungated stratum -- both rule leaves are
-    /// direct siblings under the same `Replace` node's `children`. Demonstrates the CONTRASTING,
-    /// node-LOCAL shape (unlike `multi_stratum_refused_fixture`'s grammar-wide refusal); pinned by
-    /// `plan_diagram_node_local_refusal_leaves_unrelated_sibling_rule_admitted`.
+    /// One `Simultaneous` rule with genuinely-overlapping subrules plus an ordinary sibling rule in the same stratum, demonstrating a node-local refusal, contrasting `multi_stratum_refused_fixture`'s grammar-wide one.
     fn mixed_node_local_refusal_fixture() -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1161,12 +1108,7 @@ mod tests {
         .to_string()
     }
 
-    /// Three sibling, ungated, mutually-independent phonological rules in ONE stratum, cascaded in
-    /// one `Replace` node's `children` -- exclusively so (no gating, no second stratum to share
-    /// leaves with), so collapsing this one parent's 3-member leaf group into a single summary node
-    /// unambiguously reduces the emitted node count (unlike a shared-leaf scenario, where two
-    /// parents collapsing the SAME leaf set each still need their own summary node -- see
-    /// `render_mermaid`'s own doc for why collapsing is a per-parent-edge decision).
+    /// Three sibling, ungated, mutually-independent rules in one stratum with no shared leaves, so collapsing this one parent's leaf group unambiguously reduces the emitted node count.
     fn three_rule_ungated_fixture() -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1224,9 +1166,7 @@ mod tests {
         .to_string()
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 1. JSON: round trip, determinism
-    // ---------------------------------------------------------------------------------------
+    // 1. JSON: round trip, determinism.
 
     #[test]
     fn plan_diagram_round_trip() {
@@ -1249,8 +1189,7 @@ mod tests {
         );
     }
 
-    /// An unchanged grammar planned twice must produce identical serialized JSON, including node
-    /// identities.
+    /// An unchanged grammar planned twice must produce identical serialized JSON, including node identities.
     #[test]
     fn plan_diagram_determinism() {
         let g = load(&gated_plus_independent_stratum_fixture(false));
@@ -1264,9 +1203,7 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 2. The content-address property, pinned
-    // ---------------------------------------------------------------------------------------
+    // 2. The content-address property, pinned.
 
     #[test]
     fn plan_diagram_content_address_property_moves_affected_nodes_not_unrelated_siblings() {
@@ -1276,8 +1213,7 @@ mod tests {
         let doc_baseline = build_plan_document(&baseline);
         let doc_changed = build_plan_document(&changed);
 
-        // Sanity: the change actually altered the Gate's own shape (2 groups -> 1) -- otherwise
-        // this would not be exercising a real content change at all.
+        // Sanity: the change actually altered the Gate's own shape (2 groups -> 1).
         let gate_group_count = |doc: &PlanDocument| -> usize {
             doc.nodes
                 .iter()
@@ -1304,9 +1240,7 @@ mod tests {
             "the Gate/root identity must move when the grammar's gating structure changes"
         );
 
-        // The unrelated, ungated stratum's own rewrite-rule leaf is UNTOUCHED: its content address
-        // is `FragmentSpec::RewriteRule { rule: PRuleId }` alone (plan.rs's own doc: "no grammar
-        // data embedded beyond stable ids"), never a function of the OTHER stratum's gating.
+        // The unrelated, ungated stratum's leaf is untouched: its content address is the `PRuleId` alone, never a function of the other stratum's gating.
         let indep_leaf_id = |doc: &PlanDocument| -> String {
             doc.nodes
                 .iter()
@@ -1323,9 +1257,7 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 3. Capability verdicts: real evaluation, whole-plan AND node-local shapes
-    // ---------------------------------------------------------------------------------------
+    // 3. Capability verdicts: real evaluation, whole-plan AND node-local shapes.
 
     #[test]
     fn plan_diagram_ordinary_grammar_admits_every_node() {
@@ -1341,12 +1273,7 @@ mod tests {
         }
     }
 
-    /// The root's OWN per-node verdict (computed by this module's `node_decision_mirror`) must
-    /// equal the real, unmodified `compose_envelope` verdict -- pins that the mirror is faithful,
-    /// not a second, independently-drifting computation. Holds for `default_registry` because that
-    /// registry's own test proves it leaves no `ConfigPredicate` characteristic undischarged (so `compose
-    /// _envelope`'s extra `disposition_floor` fold-in, which this module's per-node mirror does NOT
-    /// replicate, is always a no-op for it).
+    /// The root's own per-node verdict must equal the real, unmodified `compose_envelope` verdict, pinning that the mirror is faithful, not a second, independently-drifting computation.
     #[test]
     fn plan_diagram_root_verdict_matches_compose_envelope() {
         for xml in [
@@ -1367,10 +1294,7 @@ mod tests {
         }
     }
 
-    /// A grammar-wide characteristic with no distinct `PlanNodeKind` (`mpr-group.overwrite-output`,
-    /// the permanent carve-out all three reference grammars exercise) legitimately marks EVERY node
-    /// refused -- see this module's own top-doc for why this is the real algorithm's answer, not a
-    /// rendering bug.
+    /// A grammar-wide characteristic with no distinct `PlanNodeKind` legitimately marks every node refused; the real algorithm's answer, not a rendering bug.
     #[test]
     fn plan_diagram_grammar_wide_confirm_only_marks_every_node_confirm_only() {
         let g = load(&multi_stratum_refused_fixture());
@@ -1385,10 +1309,7 @@ mod tests {
         );
     }
 
-    /// The CONTRASTING, node-LOCAL shape: only the genuinely-overlapping rule's own leaf refuses;
-    /// the ordinary sibling rule's own leaf (same Replace parent) stays Admit. Proves per-node
-    /// verdicts are never inferred from a node merely existing (both are `RewriteRule` leaves; only
-    /// one is refused, based on ITS OWN content).
+    /// Node-local refusal: only the overlapping rule's leaf refuses; the ordinary sibling leaf stays Admit, proving verdicts are never inferred from a node merely existing.
     #[test]
     fn plan_diagram_node_local_refusal_leaves_unrelated_sibling_rule_admitted() {
         let g = load(&mixed_node_local_refusal_fixture());
@@ -1421,9 +1342,7 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 4. Linguistic labelling
-    // ---------------------------------------------------------------------------------------
+    // 4. Linguistic labelling.
 
     #[test]
     fn plan_diagram_labels_name_stratum_and_rule_not_only_node_kind() {
@@ -1445,12 +1364,9 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 5. Mermaid rendering
-    // ---------------------------------------------------------------------------------------
+    // 5. Mermaid rendering.
 
-    /// A multi-stratum fixture's diagram distinguishes the strata, and a refused
-    /// construct is marked refused.
+    /// A multi-stratum fixture's diagram distinguishes the strata, and a refused construct is marked refused.
     #[test]
     fn plan_diagram_render_distinguishes_strata_and_marks_refusal() {
         let g = load(&multi_stratum_refused_fixture());
@@ -1512,10 +1428,7 @@ mod tests {
         assert!(render.mermaid.contains("summarization: not applied"));
     }
 
-    /// Collapsing a large sibling-leaf group never erases the surrounding structure: `Gate`/
-    /// `Compose`/`Union`/lexicon-fragment nodes are never leaf-collapse candidates (`render_mermaid`
-    /// only groups children whose OWN kind is `Leaf`), so they still render individually alongside
-    /// the one summary node replacing the 3 collapsed rewrite-rule leaves.
+    /// Collapsing a large sibling-leaf group never erases the surrounding structure: non-`Leaf` nodes still render individually alongside the summary node.
     #[test]
     fn plan_diagram_render_collapsing_leaves_non_leaf_structure_intact() {
         let g = load(&three_rule_ungated_fixture());
@@ -1552,13 +1465,9 @@ mod tests {
         assert!(render.mermaid.contains("flowchart TD"));
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 6. Golden rendered diagram for one small synthetic fixture
-    // ---------------------------------------------------------------------------------------
+    // 6. Golden rendered diagram for one small synthetic fixture.
 
-    /// The single small synthetic fixture the golden mermaid diagram is regenerated from --
-    /// deliberately tiny (one stratum, one rule, one entry) so the golden text stays short and
-    /// reviewable.
+    /// The single small synthetic fixture the golden mermaid diagram is regenerated from, deliberately tiny so the golden text stays short and reviewable.
     fn golden_fixture_grammar() -> Grammar {
         load(&ordinary_fixture())
     }
@@ -1576,9 +1485,7 @@ mod tests {
         assert_plan_diagram_golden(actual, expected);
     }
 
-    /// `#[ignore]`d regeneration helper, same precedent as `coverage_ledger::
-    /// regenerate_coverage_ledger_golden_json`: run with `--ignored` after a REVIEWED, deliberate
-    /// rendering change, never hand-edit `plan_diagram_golden.mmd`.
+    /// Regeneration helper: run with `--ignored` after a reviewed rendering change, never hand-edit `plan_diagram_golden.mmd`.
     #[test]
     #[ignore = "regeneration helper, not a gate: run with --ignored to rewrite the golden from this \
                 test's own computation after a reviewed rendering change"]

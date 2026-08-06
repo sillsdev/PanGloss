@@ -1,17 +1,4 @@
-//! Recipe-candidate census: for each grammar named on the command line, report which seeded recipe
-//! FAMILIES the registry offers it and how many DISTINCT candidate plans those families materialize
-//! to (content-addressed plan roots, so semantics-preserving rewrites that collapse back onto the
-//! baseline are counted once).
-//!
-//! This is the cheap half of `pangloss recipe-optimize`'s own preflight — `enumerate_default` +
-//! `Registry::seeded` + `recipe_space::characterize` — and nothing else: no foma compile, no word
-//! list, no runtime evaluation. It exists so "did a change to a grammar predicate move the
-//! measurement space?" is answerable in one run rather than by reading two optimizer reports.
-//!
-//! ```text
-//! pg.ps1 -Mode run -Example recipe_candidate_census -- [--budget N] <grammar> [<grammar> ...]
-//! ```
-//! `<grammar>` is any path `pangloss` itself accepts: `.xml` (HC), `.json` (snapshot), `.fwdata`.
+//! For each grammar named on the command line, reports the seeded recipe families offered and how many distinct candidate plans they materialize (content-addressed plan roots, so semantics-preserving rewrites count once), using only `enumerate_default` + `Registry::seeded` + `recipe_space::characterize` — no foma compile, word list, or runtime evaluation.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -53,9 +40,7 @@ fn load(path: &str) -> Result<Grammar, String> {
     }
 }
 
-/// Raw structural statistics, printed alongside the census so a change in the family set is
-/// attributable to a grammar fact rather than to an opaque predicate. These are counts of what is
-/// IN the grammar; none of them is a second derivation of an applicability predicate.
+/// Raw grammar counts, not a second derivation of any applicability predicate.
 fn print_facts(g: &Grammar) {
     let prules = prules_in_order(g);
     let gated = find_gated_subrules(g, &prules);

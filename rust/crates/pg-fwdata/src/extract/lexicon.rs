@@ -16,9 +16,7 @@ pub fn extract_lexicon(
     _feature_systems: &FeatureSystems,
     _morphology: &Morphology,
 ) -> Lexicon {
-    // `LexEntry` is declared `owner="none"` in LCM (no `ownerguid`, and `LexDb` has no ordered
-    // `Entries` sequence) — the parser tracked file-encounter order directly; see
-    // `RawGraph::lex_entry_order`'s doc comment.
+    // `LexEntry` is `owner="none"` in LCM (no ordered `Entries` sequence), so the parser tracks file-encounter order directly via `RawGraph::lex_entry_order`.
     let order = ctx.graph.lex_entry_order.clone();
     let entries = order.iter().filter_map(|g| extract_entry(ctx, g)).collect();
     Lexicon { entries }
@@ -34,9 +32,7 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
             format!("lexicon.entries: entry {guid} has no LexemeForm"),
         );
     }
-    // HCLoader.cs:263 — `AlternateFormsOS.Concat(LexemeFormOA)`: alternates first, lexeme form
-    // last. This order is disjunctive-ordering-significant (see `Allomorph`'s doc), not merely
-    // cosmetic.
+    // Alternates first, lexeme form last (HCLoader.cs:263); this order is disjunctive-ordering-significant, not cosmetic.
     let mut allomorph_guids = rec.node.objsur_list("AlternateForms");
     allomorph_guids.extend(lexeme_form_guid);
     let allomorphs: Vec<Allomorph> = allomorph_guids
@@ -62,18 +58,7 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
         .iter()
         .filter_map(|g| extract_msa(ctx, g))
         .collect();
-    // HCLoader resolves an MSA's gloss via `LexEntry.SenseWithMsa`, which searches
-    // `AllSenses` — every sense transitively owned by the entry, i.e. senses AND their
-    // subsenses recursively (`LexSense.SensesOS`, `AllSenses` at
-    // OverridesLing_Lex.cs:5019-5030: `senses.Add(this); foreach (subsense) senses.AddRange
-    // (subsense.AllSenses)`, pre-order). A `LexSense` can itself own further `LexSense`s (FLEx's
-    // "subsenses" feature: e.g. Sena's "guman" entry has a top sense glossed "find"/"encontrar"
-    // whose own `<Senses>` list owns a subsense glossed "consult"/"consultar" pointing at a
-    // *different*, POS-less MSA on the same entry) — flattening the whole tree here (rather than
-    // just the entry's direct `Senses` list) is required so `sense_gloss`'s per-MSA lookup in
-    // `pg-grammar::compile::lexicon` can find a subsense's gloss for its own MSA, exactly like
-    // legacy's `AllSenses`-based search does. Order is preserved (pre-order, parent before its
-    // subsenses) to mirror `AllSenses`, though `sense_gloss` itself doesn't depend on order.
+    // Flattens the whole sense tree (not just direct Senses), pre-order, mirroring C#'s `AllSenses` -- needed so `sense_gloss`'s per-MSA lookup can find a subsense's gloss for its own MSA.
     let senses: Vec<Sense> = extract_senses_recursive(ctx, &rec.node.objsur_list("Senses"));
     let entry_refs: Vec<EntryRef> = rec
         .node
@@ -208,9 +193,7 @@ fn extract_affix_process(ctx: &mut Ctx, rec: &Record) -> AffixProcess {
     AffixProcess { input, output }
 }
 
-/// `part` fields are 1-based positions into the owning `MoAffixProcess.InputOS` list, resolved
-/// via `ContentRA.IndexInOwner + 1` in `HCLoader` (HCLoader.cs:1383/1416) — we resolve the same
-/// index by finding the referenced guid's position in `input_guids`.
+/// `part` fields are 1-based positions into the owning `MoAffixProcess.InputOS` list, found here by position in `input_guids`.
 fn extract_rule_mapping(
     ctx: &mut Ctx,
     guid: &str,
@@ -350,9 +333,7 @@ fn extract_msa(ctx: &mut Ctx, guid: &str) -> Option<Msa> {
     }
 }
 
-/// Flattens a list of top-level sense guids and every subsense transitively owned by each
-/// (`LexSense.SensesOS`) into one pre-order `Vec<Sense>` — see `extract_entry`'s doc for why
-/// this must mirror HCLoader's recursive `AllSenses`, not just the entry's direct `Senses` list.
+/// Flattens top-level sense guids and every transitively-owned subsense into one pre-order `Vec<Sense>`, mirroring HCLoader's recursive `AllSenses`.
 fn extract_senses_recursive(ctx: &mut Ctx, guids: &[String]) -> Vec<Sense> {
     let mut out = Vec::new();
     for g in guids {
@@ -381,9 +362,8 @@ fn extract_entry_ref(ctx: &mut Ctx, guid: &str) -> Option<EntryRef> {
     let component_lexemes = rec.node.objsur_list("ComponentLexemes");
     let variant_entry_types = rec.node.objsur_list("VariantEntryTypes");
     let complex_entry_types = rec.node.objsur_list("ComplexEntryTypes");
-    // "pg-fwdata picks `variant` when both are somehow non-empty" (docs/snapshot-format.md §6) —
-    // and, symmetrically, when *neither* is populated (an otherwise-unclassified LexEntryRef),
-    // `Variant` with an empty type list is the more common/expected shape in real data.
+    // `variant` wins when both, or neither, type list is populated -- see docs/snapshot-format.md §6.
+    // An empty-typed `Variant` is the more common shape for an otherwise-unclassified `LexEntryRef` in real data.
     if !complex_entry_types.is_empty() && variant_entry_types.is_empty() {
         Some(EntryRef::ComplexForm {
             guid: guid.to_string(),

@@ -77,3 +77,62 @@ oracle is ever regenerated), tolerating `WORD_TIMEOUT` noise: a root is only fla
 corpus word containing it plain-matched with zero timeouts and zero mismatches, never merely
 because a thin root's one qualifying word happened to time out. Confirmed live drift is reported
 separately, never counted as a conformance failure.
+
+# `fwdata_grammar_equivalence_gate.rs` notes
+
+The primary correctness gate for the `.fwdata` import pipeline going forward, superseding this
+file's own behavioral gate for that purpose: an uncapped `Morpher` search hung indefinitely on real
+Sena corpus input (see above), a genuine combinatorial blowup unrelated to either compiler's
+correctness. This gate instead compares the two compiled `Grammar` structs directly for semantic
+equivalence — no `Morpher`, no analysis, no parsing of any kind — which directly tests what the
+import pipeline is supposed to guarantee, with none of the parser's own performance
+characteristics in the loop.
+
+## Why not compare `Grammar` structs field-by-field
+
+The two pipelines key everything by incompatible id schemes: the legacy HC-XML export uses
+session-scoped `Hvo` integers baked into the XML at export time, the new pipeline uses FieldWorks
+GUIDs. A raw struct/index comparison would show wall-to-wall spurious diffs even for an identical
+grammar. Every category is instead reduced to a canonical, id-free string before comparing (the
+`GV` canonicalizer), keyed by content — grapheme, name, resolved feature/symbol names, structural
+shape — never by id.
+
+## Granularity
+
+Two comparison strategies are used, deliberately. Most categories (phonemes, natural classes,
+syntactic features, MPR names/groups, phon rules, templates, morphological rules) reduce to one
+fully-resolved canonical string per item, compared as a sorted multiset (order across items is not
+meaningful; internal structure of one item — an allomorph's LHS part order, a template's slot
+order — is preserved, never sorted, since position there *is* semantics). Lexical entries need a
+different treatment: a stable pairing key (gloss + owning stratum + syntactic FS + MPR set +
+partial flag, deliberately excluding allomorph surface forms and any id) groups the two sides'
+entries so a surface-form edit shows up as "one paired entry, forms differ" rather than "one entry
+only in legacy + one unrelated entry only in new" (which a naive full-content key would produce,
+defeating the known-oracle-drift allowlist). See `EntryKey`/`compare_entries`.
+
+## Known, legitimate drift (Sena 3)
+
+The same three lexeme edits described above (`peno`→`penohoho`, `guman`→`guman hello world`,
+`mpaka`→`mpaka la la`, GUIDs confirmed directly against a fresh `pangloss import` of the live
+`Sena 3.fwdata`) must surface here as exactly those three paired-entry value mismatches and nothing
+else. `SENA_ENTRY_DRIFT` documents each by the new-pipeline entry's GUID; `compare_entries` resolves
+each to its pairing key and asserts the pairing still mismatches — self-invalidating, exactly like
+`KNOWN_ORACLE_DRIFT` above.
+
+## Bounded scope
+
+`model.rs`'s own module doc records that all three reference grammars contain zero
+`RealizationalRule`, `StemName`, `Family`-with-entries, `MorphemeCoOccurrenceRule`/
+`AllomorphCoOccurrenceRule`, and `FootFeatures`. This gate asserts both pipelines agree the count is
+zero for each (`check_zero_construct`) rather than building bespoke canonicalizers for constructs
+neither corpus exercises. `properties` (arbitrary XML `<Properties>` key/value pairs) is a known,
+permanent, non-bug divergence — the legacy loader parses them from XML, the new pipeline never
+populates them (every `properties:` push site in `compile/{lexicon,affixes}.rs` is `Vec::new()`) —
+so it is deliberately excluded from every canonical signature, not compared.
+
+## Test-timing policy
+
+Same self-skipping convention as above. The default local test run must not depend on a real
+FieldWorks project checkout or the gitignored `samples/data/*-hc.xml` fixtures at all, so both
+tests here are unconditionally `#[ignore]`d regardless of speed; the self-skip guards keep
+`--include-ignored` runs green when either is absent.

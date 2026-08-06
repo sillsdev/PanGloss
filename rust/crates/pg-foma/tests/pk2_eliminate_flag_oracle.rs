@@ -1,79 +1,5 @@
-//! PK2: the C-foma oracle gate for `eliminate flag` fidelity. Spec §5's load-bearing risk:
-//! foma-rs's `flag_eliminate` (the `foma` crate, pinned `=0.1.1`, `src/flags.rs`) is "the
-//! least-tested corner of foma (upstream bugs where flags interact with `_eq`,
-//! github.com/mhulden/foma issue #60)".
-//! Before the tuner's `Eliminate` arm (spec §1 position 1) is ever enabled, per-attribute
-//! elimination must be equivalence-tested against the real C foma oracle. On any mismatch the
-//! design must degrade to `AllFlags` (spec §5: "never to wrong").
-//!
-//! ## Method
-//!
-//! Every network below is a single Rust `&str` regex source, shared VERBATIM between:
-//!   - **foma-rs** (`foma::regex::fsm_parse_regex` + `foma::flags::flag_eliminate` +
-//!     `foma::apply::apply_init`/`ApplyHandle::up`), and
-//!   - **real C foma 0.10.0alpha** running under WSL (`wsl foma -q -f script.foma` to compile
-//!     +`eliminate flag ATTR` + `save stack net.fst`, then `wsl flookup net.fst` to batch-apply;
-//!     `flookup`'s DEFAULT direction is apply-UP, matching `ApplyHandle::up` -- verified empirically
-//!     below, see `win_to_wsl_path`'s callers).
-//!
-//! For each (network, attribute) pair we compute four "legs" over the same fixed word list and
-//! assert they agree as SETS per word (a word with no legal analysis maps to the empty set; C-foma
-//! prints `+?` for this, filtered out in `parse_flookup_output`):
-//!   1. **foma-rs baseline**: flags left in the network; `apply_up` obeys them (`ApplyHandle`'s
-//!      `obey_flags` defaults to 1 in `foma-0.1.1/src/apply.rs::apply_init` -- verified empirically
-//!      by `rs_flags_obeyed_by_default_baseline` below, since v1's live pipeline (`FomaProposer`)
-//!      currently only ever STRIPS flags before this point and so has never exercised this path).
-//!   2. **foma-rs eliminated**: `flag_eliminate(opts, net, Some(attr))`, then `apply_up`.
-//!   3. **C-foma baseline**: same source, `save stack` with no elimination, `flookup` (apply-up).
-//!   4. **C-foma eliminated**: same source + `eliminate flag ATTR`, `save stack`, `flookup`.
-//!
-//! Legs 3-4 (anything that shells to `wsl`) SKIP GRACEFULLY (`eprintln!` + early return) when
-//! `wsl foma`/`wsl flookup` are unavailable, matching this crate's tolerance for missing external
-//! tooling on other machines/CI. Legs 1-2 (foma-rs-internal) always run.
-//!
-//! A mismatch found by this file is a SUCCESSFUL gate finding, not something to hide: where real
-//! divergence exists (see the E-flag-type test at the bottom) the test asserts the divergence
-//! itself and documents it, rather than papering over it.
-//!
-//! ## Battery (task item 2, a-e)
-//! - `battery_a_unify_agreement_across_stem_boundary` -- (a) Beesley & Karttunen separated
-//!   dependency: determiner/noun NUM agreement via `@U@`.
-//! - `battery_b_positive_require_and_disallow_combos` -- (b) `@P@`+`@R@` and `@P@`+`@D@`.
-//! - `battery_c_three_independent_attributes_chained_elimination` -- (c) three flags (one pair
-//!   with a prefix-colliding name, `NUM`/`NUMBER`, to stress `flag_purge`'s name-boundary guard)
-//!   eliminated one at a time, checked at every checkpoint (Karttunen-style chain).
-//! - `battery_d_flags_coexist_with_multichar_tags` -- (d) `<R:0001>`-shaped tag symbols alongside
-//!   flags; asserts elimination never touches the tag.
-//! - `battery_e_reduplication_shaped_flags_and_affix_issue60_risk` -- (e) the closest reproducible
-//!   analog of issue #60's crash shape (flag diacritics + a reduplication-shaped stem + affixation);
-//!   true generative reduplication is not a regular-language operation foma-rs/C-foma's regex
-//!   parser exposes (and out of pg-foma's FST scope per the design doc's "reduplication stays the
-//!   peel"), so this uses finite PRE-COPIED stems (`catcat`, `dogdog`) standing in for a
-//!   reduplicated shape -- documented here, not hidden. `_eq` in issue #60 turned out to be the
-//!   REPORTER's own xfst function name, not a foma builtin (confirmed via the issue text) -- there
-//!   is no `_eq(...)` construct in foma-rs's regex parser to substitute for.
-//!
-//! Plus:
-//! - `rs_flags_obeyed_by_default_baseline` -- the load-bearing assumption every leg above depends
-//!   on, checked first.
-//! - `e_flag_type_elimination_not_equivalence_preserving` -- `@E@` (FLAG_EQUAL) is a DIFFERENT,
-//!   separately-discovered divergence (not issue #60): `foma-0.1.1/src/flags.rs`'s `flag_build`
-//!   row table (a literal bug-for-bug port of the real C table) has NO rows with the eliminated
-//!   flag's type == `FLAG_EQUAL`, so eliminating an E-attribute never builds a filter -- it silently
-//!   degrades to Strip (illegal paths become reachable) while still calling itself "eliminated".
-//!   **This is the headline finding of this file, not a footnote**: spec §5's gate criterion
-//!   ("apply_up set-equality between foma-rs and C-foma") is NECESSARY BUT NOT SUFFICIENT. E
-//!   PASSES that oracle check (both engines agree: eliminated = `{a,b}`, since foma is a
-//!   bug-for-bug port) while VIOLATING spec §1's equivalence-preservation invariant (eliminated
-//!   `{a,b}` != keepflag/baseline `{}`). A tuner that only ran the §5 oracle check would wrongly
-//!   enable Eliminate for an E-tester. The real per-attribute gate must ALSO assert
-//!   `eliminated == baseline` WITHIN one engine (this file already computes both sides of that
-//!   check for every battery). Which direction is "wrong" here (does legit `@E.F.1@` semantics
-//!   make `a`/`b` legal or illegal?) is NOT resolved by this investigation -- so no arm is
-//!   asserted safe for E; only that Eliminate is unsafe for it. Structurally this generalizes:
-//!   `flag_build`'s table only has rows for eliminated-type U/R/D, so ANY eliminated type absent
-//!   from those rows (E confirmed; N/C/P are structurally identical - no rows either) silently
-//!   strips instead of eliminating. The positive verdict below is scoped to U/R/D accordingly.
+//! The C-foma oracle gate for `eliminate flag` fidelity: per-attribute elimination equivalence-tested against the real C foma oracle before any tuner enables an `Eliminate` arm; on any mismatch the design must degrade to `AllFlags`, never to wrong.
+//! Method, battery coverage, and the headline E-flag finding: docs/research/pk2-eliminate-flag-oracle-findings.md.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -87,12 +13,9 @@ use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::types::Fsm;
 
-/* ------------------------------------------------------------------------------------------- */
-/* foma-rs side                                                                                 */
-/* ------------------------------------------------------------------------------------------- */
+// foma-rs side.
 
-/// Compile `source`, `apply_up` every word in `words`, with no elimination (flags obeyed at
-/// runtime -- this crate's "baseline"/"flagged" leg).
+/// Compile `source`, `apply_up` every word in `words`, with no elimination (this crate's "baseline"/"flagged" leg).
 fn rs_baseline_up(source: &str, words: &[&str]) -> BTreeMap<String, BTreeSet<String>> {
     let opts = FomaOptions::default();
     let net = fsm_parse_regex(&opts, source, None, None)
@@ -100,9 +23,7 @@ fn rs_baseline_up(source: &str, words: &[&str]) -> BTreeMap<String, BTreeSet<Str
     apply_up_all(&net, words)
 }
 
-/// Compile `source`, eliminate each attribute in `attrs` IN ORDER (chained -- each call sees the
-/// previous elimination's output network, matching C-foma's `eliminate flag` REPL semantics of
-/// successive commands against the same stack), then `apply_up` every word.
+/// Compile `source`, eliminate each attribute in `attrs` in order, chained so each call sees the previous output network, matching C-foma's REPL semantics.
 fn rs_eliminated_up(
     source: &str,
     attrs: &[&str],
@@ -127,12 +48,9 @@ fn apply_up_all(net: &Fsm, words: &[&str]) -> BTreeMap<String, BTreeSet<String>>
     out
 }
 
-/* ------------------------------------------------------------------------------------------- */
-/* C-foma (WSL) side                                                                            */
-/* ------------------------------------------------------------------------------------------- */
+// C-foma (WSL) side.
 
-/// Whether `wsl foma` and `wsl flookup` are both callable on this machine. Cached: spawning WSL is
-/// slow (~1-2s) and every C-foma leg checks this first.
+/// Whether `wsl foma` and `wsl flookup` are both callable on this machine. Cached: spawning WSL is slow and every C-foma leg checks this first.
 fn wsl_available() -> bool {
     static CACHE: OnceLock<bool> = OnceLock::new();
     *CACHE.get_or_init(|| {
@@ -148,9 +66,7 @@ fn wsl_available() -> bool {
     })
 }
 
-/// Scratch directory for this test binary's generated `.foma` scripts / `.fst` binaries.
-/// `CARGO_TARGET_TMPDIR` is cargo's own per-test-target tmp dir (stable across runs) -- this file
-/// must be self-contained on any machine, not tied to any one session's scratch path.
+/// Scratch directory for this test binary's generated `.foma` scripts / `.fst` binaries, under cargo's stable per-test-target tmp dir.
 fn scratch_dir() -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("pk2_oracle");
     std::fs::create_dir_all(&dir).expect("create pk2_oracle scratch dir");
@@ -169,9 +85,7 @@ fn win_to_wsl_path(p: &Path) -> String {
     format!("/mnt/{drive}{}", &s[2..])
 }
 
-/// Outcome of driving a C-foma script through `wsl foma -q -f`. `Failed` is itself a gate finding
-/// (spec §5's crash risk, github.com/mhulden/foma issue #60) -- callers must handle it and report
-/// it, never let it propagate as a Rust panic that would take down the whole test binary.
+/// Outcome of driving a C-foma script through `wsl foma -q -f`; `Failed` is itself a gate finding callers must report, never a Rust panic.
 enum CFomaOutcome {
     Ok {
         fst_path: PathBuf,
@@ -183,8 +97,7 @@ enum CFomaOutcome {
     },
 }
 
-/// Write `regex source; [eliminate flag ATTR ...]; save stack TAG.fst` to `TAG.foma` under the
-/// scratch dir, run it under `wsl foma -q -f`, and report whether `TAG.fst` was produced.
+/// Write the compile+eliminate+save script to `TAG.foma`, run it under `wsl foma -q -f`, and report whether `TAG.fst` was produced.
 fn run_c_foma_script(tag: &str, regex_source: &str, eliminate_attrs: &[&str]) -> CFomaOutcome {
     let dir = scratch_dir();
     let script_path = dir.join(format!("{tag}.foma"));
@@ -226,11 +139,7 @@ fn run_c_foma_script(tag: &str, regex_source: &str, eliminate_attrs: &[&str]) ->
     }
 }
 
-/// Batch-apply `words` against a saved binary net via `wsl flookup`. `flookup`'s DEFAULT direction
-/// (no `-i`) is apply-UP (empirically verified: on `regex a:x | a:y;`, `flookup` with no flag fed
-/// "x" returns "a", and `flookup -i` fed "a" returns {"x","y"} -- i.e. unflagged = up, `-i` = down),
-/// matching `ApplyHandle::up`. Returns word -> set of upper-side results (`+?` => empty set, i.e.
-/// no analysis).
+/// Batch-apply `words` against a saved binary net via `wsl flookup`; its default direction (no `-i`) is apply-up, matching `ApplyHandle::up` (empirically verified).
 fn flookup_up(fst_path: &Path, words: &[&str]) -> BTreeMap<String, BTreeSet<String>> {
     let wsl_fst = win_to_wsl_path(fst_path);
     let mut child = Command::new("wsl")
@@ -268,10 +177,7 @@ fn flookup_up(fst_path: &Path, words: &[&str]) -> BTreeMap<String, BTreeSet<Stri
     out
 }
 
-/// Full C-foma leg: compile (+ optional chained eliminations), save, flookup. Returns `None` (with
-/// an `eprintln!` explaining why) when WSL is unavailable OR when foma itself failed/crashed on
-/// this script -- both are graceful-skip conditions for callers, but the crash case is additionally
-/// a reportable finding, which callers should log.
+/// Full C-foma leg: compile, save, flookup; returns `None` when WSL is unavailable or when foma itself failed/crashed (a reportable finding, logged by the caller).
 fn c_foma_leg(
     tag: &str,
     regex_source: &str,
@@ -291,16 +197,14 @@ fn c_foma_leg(
         } => {
             eprintln!(
                 "FINDING {tag}: C-foma script FAILED (status={status}) -- this is itself a gate \
-                 result (spec §5 / issue #60 crash risk), not a harness bug:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+                 result (issue #60 crash risk), not a harness bug:\nstdout:\n{stdout}\nstderr:\n{stderr}"
             );
             None
         }
     }
 }
 
-/* ------------------------------------------------------------------------------------------- */
-/* Shared assertion helper                                                                      */
-/* ------------------------------------------------------------------------------------------- */
+// Shared assertion helper.
 
 /// Print a word -> legal-analyses table for `label`, for both eyeballing and the report.
 fn print_table(label: &str, map: &BTreeMap<String, BTreeSet<String>>) {
@@ -315,29 +219,17 @@ fn print_table(label: &str, map: &BTreeMap<String, BTreeSet<String>>) {
     }
 }
 
-/* ------------------------------------------------------------------------------------------- */
-/* Shared network sources                                                                       */
-/* ------------------------------------------------------------------------------------------- */
+// Shared network sources.
 
-/// The exact network from `foma-0.1.1/src/flags.rs`'s own `flag_eliminate_end_to_end` unit test,
-/// covering U/R/D flags across three independently-named attributes F, G, H (task item 2b:
-/// `@P.F.x@`+`@U.F.x@`(unify), `@P.G.x@`+`@R.G@`(require), `@P.H.x@`+`@D.H@`(disallow)).
-/// Verified against real C foma via `wsl foma -q -f` / `apply up` during investigation: legal set
-/// = {a, c, e}.
+/// The exact network from `foma-0.1.1/src/flags.rs`'s own `flag_eliminate_end_to_end` unit test, covering U/R/D flags across three independently-named attributes; legal set verified against real C foma = {a, c, e}.
 const FLAGTEST_SRC: &str = r#"["@P.F.1@" a "@U.F.1@"] | ["@P.F.2@" b "@U.F.1@"] | ["@P.G.1@" c "@R.G@"] | [d "@R.G@"] | [e "@D.H@"] | ["@P.H.1@" f "@D.H@"]"#;
 const FLAGTEST_WORDS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
 
-/* ------------------------------------------------------------------------------------------- */
-/* Load-bearing assumption: foma-rs obeys flags by default                                      */
-/* ------------------------------------------------------------------------------------------- */
+// Load-bearing assumption: foma-rs obeys flags by default.
 
 #[test]
 fn rs_flags_obeyed_by_default_baseline() {
-    // Every "baseline" leg in this file depends on ApplyHandle obeying flag diacritics by
-    // default (foma-0.1.1/src/apply.rs::apply_init sets `obey_flags = 1`). v1's live pipeline
-    // (FomaProposer) currently only ever STRIPS flags before this point (spec §1 position 3),
-    // so this has never actually been exercised on a still-flagged network before -- verify it
-    // directly rather than trusting the source read.
+    // Every "baseline" leg here depends on ApplyHandle obeying flag diacritics by default; verify directly rather than trusting the source read, since the live pipeline only ever strips flags before this point.
     let got = rs_baseline_up(FLAGTEST_SRC, &FLAGTEST_WORDS);
     print_table("rs baseline (flags obeyed?)", &got);
     let legal: BTreeSet<String> = got
@@ -353,15 +245,11 @@ fn rs_flags_obeyed_by_default_baseline() {
     );
 }
 
-/* ------------------------------------------------------------------------------------------- */
-/* (a) Unify agreement across a stem boundary (Beesley & Karttunen separated dependency)        */
-/* ------------------------------------------------------------------------------------------- */
+// (a) Unify agreement across a stem boundary (Beesley & Karttunen separated dependency).
 
 #[test]
 fn battery_a_unify_agreement_across_stem_boundary() {
-    // Determiner/noun NUM agreement: two positions, not locally adjacent in the grammar sense
-    // (separated by the flag mechanism, not string adjacency), must agree via the SAME @U@
-    // attribute. Classic Beesley 1998 / B&K 2003 ch.7 "separated dependency" pattern.
+    // Determiner/noun NUM agreement, separated by the flag mechanism rather than string adjacency, must agree via the same @U@ attribute (Beesley 1998 / B&K 2003 ch.7).
     let src = r#"[["@U.NUM.sg@" t h e] | ["@U.NUM.pl@" t h e s e]] [["@U.NUM.sg@" c a t] | ["@U.NUM.pl@" c a t s]]"#;
     let words = ["thecat", "thesecats", "thecats", "thesecat"];
     let legal_expected: BTreeSet<String> = ["thecat", "thesecats"]
@@ -407,9 +295,7 @@ fn battery_a_unify_agreement_across_stem_boundary() {
     );
 }
 
-/* ------------------------------------------------------------------------------------------- */
-/* (b) @P@+@R@ and @P@+@D@ combos (plus @P@+@U@)                                                */
-/* ------------------------------------------------------------------------------------------- */
+// (b) @P@+@R@ and @P@+@D@ combos (plus @P@+@U@).
 
 #[test]
 fn battery_b_positive_require_and_disallow_combos() {
@@ -449,10 +335,7 @@ fn battery_b_positive_require_and_disallow_combos() {
         "battery_b: foma-rs vs C-foma baseline must agree"
     );
 
-    // Task item 2b explicitly asks for `@P.F.x@` + `@R.F.x@` -- i.e. REQUIRE *with a value*, a
-    // distinct set of rows in flag_build's decision table ("R flag, with value", keyed on
-    // `null_req = Some(false)`) from the valueless `@R.G@` already covered by FLAGTEST_SRC above.
-    // K set to 1 then required to equal 1 -> legal; K set to 2 then required to equal 1 -> illegal.
+    // REQUIRE *with a value* is a distinct set of rows in flag_build's decision table from the valueless `@R.G@` already covered by FLAGTEST_SRC above.
     let rvalue_src = r#"["@P.K.1@" g "@R.K.1@"] | ["@P.K.2@" h "@R.K.1@"]"#;
     let rvalue_words = ["g", "h"];
     let rvalue_legal: BTreeSet<String> = ["g"].iter().map(|s| s.to_string()).collect();
@@ -502,18 +385,11 @@ fn battery_b_positive_require_and_disallow_combos() {
     );
 }
 
-/* ------------------------------------------------------------------------------------------- */
-/* (c) Three independent attributes, chained elimination (Karttunen-style), incl. a             */
-/*     prefix-colliding attribute-name pair to stress flag_purge's name-boundary guard           */
-/* ------------------------------------------------------------------------------------------- */
+// (c) Three independent attributes, chained elimination (Karttunen-style), incl. a prefix-colliding attribute-name pair to stress flag_purge's name-boundary guard.
 
 #[test]
 fn battery_c_three_independent_attributes_chained_elimination() {
-    // pos1/pos2: NUM agreement (must match, like battery_a). pos3: NUMBER -- a name that is a
-    // PREFIX of "NUM" reversed / NUM is a prefix of NUMBER -- stresses flag_purge's name-boundary
-    // check (foma-0.1.1/src/flags.rs::flag_purge: `csym.starts_with(name_b) && csym.len() >
-    // name_b.len() && (csym[name_b.len()] == b'.' || == b'@')`), independent of NUM. pos4: CASE,
-    // independent of both.
+    // pos1/pos2: NUM agreement. pos3: NUMBER, a name that is a prefix of NUM, stressing flag_purge's name-boundary check. pos4: CASE, independent of both.
     let src = r#"[["@U.NUM.sg@" a] | ["@U.NUM.pl@" p]] [["@U.NUM.sg@" b] | ["@U.NUM.pl@" q]] [["@U.NUMBER.x@" c] | ["@U.NUMBER.y@" d]] [["@U.CASE.nom@" e] | ["@U.CASE.acc@" f]]"#;
     let words = [
         "abce", "abcf", "abde", "abdf", "pqce", "pqcf", "pqde", "pqdf", // legal: NUM agrees
@@ -574,20 +450,15 @@ fn battery_c_three_independent_attributes_chained_elimination() {
     );
 }
 
-/* ------------------------------------------------------------------------------------------- */
-/* (d) Flags coexisting with multichar tag symbols (must never leak into/corrupt tags)          */
-/* ------------------------------------------------------------------------------------------- */
+// (d) Flags coexisting with multichar tag symbols (must never leak into/corrupt tags).
 
 #[test]
 fn battery_d_flags_coexist_with_multichar_tags() {
-    // `<R:0001>`-shaped multichar symbols are pg-foma's own tag alphabet (see src/tags.rs). This
-    // network puts a real tag symbol immediately after a flag-gated stem to make sure elimination
-    // never touches it.
+    // Puts a real `<R:0001>`-shaped tag symbol immediately after a flag-gated stem to make sure elimination never touches it.
     let src = r#"[["@U.NUM.sg@" c a t] | ["@U.NUM.pl@" c a t s]] "<R:0001>""#;
     let words = ["cat<R:0001>", "cats<R:0001>", "cat", "cats"]; // last two: missing the tag, must fail
 
-    // Sanity: the tag shape is never mistaken for a flag by foma-rs's own flag_check DFA (it
-    // requires the "@X.a@" shape; "<R:0001>" starts with '<', not '@').
+    // Sanity: the tag shape is never mistaken for a flag (flag_check requires the "@X.a@" shape).
     assert!(
         !flag_check("<R:0001>"),
         "a pg-foma tag symbol must never be classified as a flag diacritic"
@@ -609,8 +480,7 @@ fn battery_d_flags_coexist_with_multichar_tags() {
         "battery_d: baseline sanity (tag required)"
     );
 
-    // foma-rs internal: eliminate NUM, then check (1) apply_up sets still agree, (2) the tag
-    // symbol is still present in sigma post-elimination, (3) no NUM flag symbols remain.
+    // Checks apply_up sets still agree, the tag symbol survives in sigma, and no NUM flag symbols remain.
     let opts = FomaOptions::default();
     let net = fsm_parse_regex(&opts, src, None, None).expect("compiles");
     let eliminated_net = flag_eliminate(&opts, net, Some("NUM"));
@@ -654,26 +524,11 @@ fn battery_d_flags_coexist_with_multichar_tags() {
     );
 }
 
-/* ------------------------------------------------------------------------------------------- */
-/* (e) Reduplication-shaped stem + flag + affix: the closest reproducible analog of the         */
-/*     issue-#60 crash risk (flag diacritics interacting badly with reduplication+affixation)    */
-/* ------------------------------------------------------------------------------------------- */
+// (e) Reduplication-shaped stem + flag + affix: the closest reproducible analog of the issue-#60 crash risk.
 
 #[test]
 fn battery_e_reduplication_shaped_flags_and_affix_issue60_risk() {
-    // github.com/mhulden/foma issue #60: eliminating flag diacritics while reduplicating a stem
-    // and adding a prefix/suffix crashes real C foma ("double free corruption" / "error core
-    // dumped"). `_eq` in that report turned out (confirmed via the issue text) to be the
-    // REPORTER's OWN xfst function name, not a foma builtin -- there is no `_eq(...)` regex
-    // construct in foma-rs to substitute for.
-    //
-    // True generative reduplication (copying an unbounded stem) is not expressible as a finite
-    // regular-language regex in either compiler's parser, and is explicitly out of pg-foma's FST
-    // scope (design doc: "Reduplication: unchanged (proposer-agnostic peel)"). The closest
-    // reproducible construct: finite PRE-COPIED stems ("catcat", "dogdog") standing in for the
-    // OUTPUT SHAPE of a reduplicated root, combined with a flag-gated suffix (affixation) and a
-    // multichar tag -- reduplication-shaped, flagged, and affixed, all three risk ingredients from
-    // the issue, without requiring a copy operator neither compiler's regex language has.
+    // True generative reduplication is not expressible as a finite regex in either compiler's parser, so this uses finite pre-copied stems ("catcat", "dogdog") standing in for the output shape, combined with a flag-gated suffix and a multichar tag.
     let src = r#"[["@P.NUM.sg@" c a t c a t] | ["@P.NUM.pl@" d o g d o g]] [["@U.NUM.pl@" s] | ["@U.NUM.sg@"]] "<R:0002>""#;
     let words = [
         "catcat<R:0002>",
@@ -699,10 +554,8 @@ fn battery_e_reduplication_shaped_flags_and_affix_issue60_risk() {
     print_table("battery_e rs eliminated(NUM)", &eliminated);
     assert_eq!(
         baseline, eliminated,
-        "battery_e: foma-rs handles this reduplication-shaped+flag+affix combo WITHOUT crashing \
-         or losing equivalence (the Rust port leaks memory instead of double-freeing per \
-         flags.rs's own doc comments, so a C-style crash is not expected here, but correctness is \
-         still asserted)"
+        "battery_e: foma-rs must handle this reduplication-shaped+flag+affix combo without losing \
+         equivalence"
     );
 
     if !wsl_available() {
@@ -757,27 +610,11 @@ fn battery_e_reduplication_shaped_flags_and_affix_issue60_risk() {
     }
 }
 
-/* ------------------------------------------------------------------------------------------- */
-/* @E@ (FLAG_EQUAL) divergence: NOT issue #60, a separately-discovered non-equivalence           */
-/* ------------------------------------------------------------------------------------------- */
+// `@E@` (FLAG_EQUAL) divergence: not issue #60, a separately-discovered non-equivalence; full argument in docs/research/pk2-eliminate-flag-oracle-findings.md.
 
 #[test]
 fn e_flag_type_elimination_not_equivalence_preserving() {
-    // Discovered during investigation (NOT the issue-#60 shape -- a distinct divergence in the
-    // SAME risk area). foma-0.1.1/src/flags.rs::flag_build's 25-row decision table (a literal
-    // bug-for-bug port of the real C table -- see that file's row comments) has NO row whose
-    // eliminated-flag type is FLAG_EQUAL ("E"). So when `flag_eliminate` is asked to eliminate an
-    // E-typed attribute, the per-instance `flag_build` comparison against every other flag
-    // instance returns NONE every time (`flag` never becomes nonzero), so NO FILTER is ever built
-    // for that instance -- yet `flag_purge` (which purges by NAME match unconditionally, not gated
-    // on whether a filter fired) still strips the "@E.F.1@" symbols from the network regardless.
-    // Net effect: "eliminating" an E-attribute silently degrades to STRIP (spec §1 position 3:
-    // illegal paths become reachable) while still being invoked as if it were the exact Eliminate
-    // arm (position 1). This was verified empirically against real C foma too (see eqtest3/4
-    // during investigation): baseline (flags obeyed) already fails BOTH "a" and "b" for this
-    // network -- i.e. real C foma's runtime apply doesn't even honor `@E@` as a passing condition
-    // once the attribute has been SET by a prior @P@, an orthogonal quirk in the *runtime* apply
-    // path, separate from the *elimination* non-equivalence asserted below.
+    // flag_build's decision table has no row for FLAG_EQUAL, so eliminating an E-typed attribute never builds a filter, yet flag_purge still strips the symbol, degrading silently to Strip.
     let src = r#"["@P.F.1@" a "@E.F.1@"] | ["@P.F.2@" b "@E.F.1@"]"#;
     let words = ["a", "b"];
 
@@ -786,26 +623,12 @@ fn e_flag_type_elimination_not_equivalence_preserving() {
     let eliminated = rs_eliminated_up(src, &["F"], &words);
     print_table("e_flag rs eliminated(F, an E-typed attribute)", &eliminated);
 
-    // This IS the per-attribute gate that spec §5's oracle criterion alone would miss: §5 only
-    // asks for foma-rs/C-foma agreement (an E-tester passes that -- see below, both engines land
-    // on {a,b}), but spec §1's actual safety property is `Eliminate == KeepFlag` (baseline, flags
-    // obeyed) WITHIN one engine. That fails here: eliminated {a,b} != baseline {}. Note the
-    // direction is NOT resolved by this investigation -- {} could be the runtime under-generating
-    // (a recall bug, the dangerous direction) rather than {a,b} over-generating (the safe,
-    // HC-confirm-prunable direction), since `@E.F.1@`'s true intended semantics were never pinned
-    // down here. So this test asserts ONLY the non-equivalence, not that KeepFlag/Strip is "the"
-    // safe arm -- do not assign Eliminate to an E-typed constraint (if pg-foma's emitter ever
-    // produces one; it cannot be confirmed from this crate alone that it does), and treat E's
-    // correct runtime semantics as an open question rather than assuming any arm is safe for it.
+    // This assertion is only the non-equivalence; which side is "wrong" is an open question (see the linked doc), so no arm is asserted safe for E.
     assert_ne!(
         baseline, eliminated,
         "FINDING (headline of this file): eliminating an @E@-typed attribute in foma-rs is NOT \
-         equivalence-preserving (flag_build has no rows for FLAG_EQUAL, so no filter is built, but \
-         flag_purge strips the symbol anyway -- this degrades silently to Strip, i.e. spec §1 \
-         position 1 silently behaves like position 3). The spec §5 oracle check (foma-rs vs \
-         C-foma agreement) does NOT catch this by itself -- see the cross-oracle check below, \
-         where both engines agree on the (wrong) eliminated result. The real per-attribute gate \
-         must ALSO require eliminated == baseline within one engine, which is exactly this assertion."
+         equivalence-preserving; a foma-rs/C-foma agreement check alone does not catch this -- see \
+         docs/research/pk2-eliminate-flag-oracle-findings.md"
     );
 
     if !wsl_available() {
@@ -816,9 +639,7 @@ fn e_flag_type_elimination_not_equivalence_preserving() {
         return;
     };
     print_table("e_flag C-foma baseline", &c_baseline);
-    // Informational only (not asserted as a hard gate condition): does C-foma's *baseline*
-    // runtime-apply behavior on this E-flagged network match foma-rs's baseline? If not, the
-    // divergence starts even before elimination enters the picture.
+    // Informational only: if C-foma's own baseline already disagrees, the divergence starts before elimination enters the picture.
     if baseline != c_baseline {
         eprintln!(
             "FINDING: foma-rs and C-foma already disagree on the UN-eliminated E-flagged \

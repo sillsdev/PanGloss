@@ -232,10 +232,7 @@ pub type AdmissionKey = (Vec<u32>, i32);
 /// One analysis's `AdmissionKey`. Mirrors `confirm_batch`'s own
 /// `(wa.morpheme_ids.clone(), wa.root_morpheme_index)`.
 pub fn admission_key(analysis: &WordAnalysis) -> AdmissionKey {
-    (
-        analysis.morpheme_ids.clone(),
-        analysis.root_morpheme_index,
-    )
+    (analysis.morpheme_ids.clone(), analysis.root_morpheme_index)
 }
 
 /// Counted evidence about HOW two identity sets diverged, accumulated over a whole run.
@@ -318,11 +315,15 @@ impl IdentityDivergence {
 
     /// Field-wise saturating sum, so accumulating over a corpus or a run cannot wrap.
     pub fn absorb(&mut self, other: Self) {
-        self.occurrences_compared = self.occurrences_compared.saturating_add(other.occurrences_compared);
+        self.occurrences_compared = self
+            .occurrences_compared
+            .saturating_add(other.occurrences_compared);
         self.occurrences_not_compared = self
             .occurrences_not_compared
             .saturating_add(other.occurrences_not_compared);
-        self.oracle_identities = self.oracle_identities.saturating_add(other.oracle_identities);
+        self.oracle_identities = self
+            .oracle_identities
+            .saturating_add(other.oracle_identities);
         self.candidate_identities = self
             .candidate_identities
             .saturating_add(other.candidate_identities);

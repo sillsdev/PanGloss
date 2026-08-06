@@ -1,7 +1,4 @@
-//! Gate 0 (design doc §2's "the cheap gate-0 self-check"): every stage-1 builder's recipe renders
-//! XML `pg_grammar::load` accepts, and `render(recipe)` is deterministic -- the SAME recipe
-//! rendered twice produces byte-identical XML. Not `#[ignore]`d: everything here is generated,
-//! no external fixture needed, and every check is fast (well under a second).
+//! Every stage-1 builder's recipe renders XML `pg_grammar::load` accepts, and rendering is deterministic.
 
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
 
@@ -50,8 +47,7 @@ fn multi_table_recipe_loads_and_is_deterministic() {
     let g = load(&xml);
     assert_eq!(g.char_tables.len(), 2);
     assert_eq!(g.strata.len(), 2);
-    // Table 0 and table 1 must never share a character (build::tables's own doc/tests already
-    // pin this at the builder level; re-verified here post-load as a true end-to-end check).
+    // Table 0 and table 1 must never share a character; re-verified here end-to-end, not just at the builder level.
     let mut seen = std::collections::HashSet::new();
     for t in &g.char_tables {
         for (_, cd) in t.iter() {
@@ -111,8 +107,7 @@ fn circumfix_recipe_loads_and_is_deterministic() {
     let g = load(&xml);
     assert_eq!(g.entries.len(), 3);
     assert_eq!(g.templates.len(), 1);
-    // Exactly one AffixProcess-kind circumfix rule, no phonological rules at all (single table,
-    // no devoice demo).
+    // Exactly one AffixProcess-kind circumfix rule; no phonological rules (single table, no devoice demo).
     assert_eq!(g.prules.len(), 0);
     let affix_process_rules = g
         .mrules
@@ -149,9 +144,7 @@ fn circumfix_recipe_with_multiple_rules_loads() {
     assert_eq!(affix_process_rules, 2);
 }
 
-// --- Different seeds/names must not collide on ids or accidentally produce identical output when
-// the knobs themselves differ; same name+seed+knobs must always match (already covered above,
-// re-asserted here across two independently-constructed recipes for extra confidence). ---
+// --- Different seeds/names must not collide on ids; same name+seed+knobs must always match. ---
 
 #[test]
 fn same_recipe_fields_reproduce_identical_xml_across_independent_calls() {

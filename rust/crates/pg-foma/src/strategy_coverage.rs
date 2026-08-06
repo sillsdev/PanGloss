@@ -389,6 +389,27 @@ pub fn unrepresentable_kinds(strategy: EmissionStrategy) -> Vec<CharacteristicKi
         .collect()
 }
 
+/// Every `EmissionStrategy` whose row is `StrategyRepresentation::Represents` for EVERY
+/// `CharacteristicKind` -- a compiler this account records no gap of any size against.
+///
+/// This is a structural premise of `crate::capability::StrategyEnvelope::global`, not a report. That
+/// function derives the whole-grammar verdict as the best any compiler offers, and it equals the
+/// verdict a single compiler-blind pass would produce exactly when some compiler contributes a
+/// coverage floor of `Admit` for every construct -- i.e. when this list is non-empty. Empty it, and
+/// the whole-grammar verdict starts depending on which constructs a grammar happens to use.
+pub fn strategies_representing_every_kind() -> Vec<EmissionStrategy> {
+    ALL_STRATEGIES
+        .iter()
+        .copied()
+        .filter(|&strategy| {
+            CharacteristicKind::ALL.iter().all(|&kind| {
+                representation_of(strategy, kind).representation
+                    == StrategyRepresentation::Represents
+            })
+        })
+        .collect()
+}
+
 /// Every `EmissionStrategy` whose proposer emits at least SOME material for `kind` (i.e. is not
 /// `StrategyRepresentation::CannotRepresent`). This is the set a coverage claim for `kind` has to
 /// be measured against: evidence demonstrated on a strict subset of it is INHERITED coverage, which
@@ -506,6 +527,18 @@ mod tests {
                 "{strategy:?}"
             );
         }
+    }
+
+    // The premise `crate::capability::StrategyEnvelope::global` rests on: one compiler with no gap.
+    #[test]
+    fn some_strategy_represents_every_kind() {
+        assert_eq!(
+            strategies_representing_every_kind(),
+            vec![EmissionStrategy::TunedSurfaceProbed],
+            "the mainline compiler is the one with no recorded gap; if that changes, \
+             capability::StrategyEnvelope::global's identity to the compiler-blind verdict changes \
+             with it"
+        );
     }
 
     #[test]

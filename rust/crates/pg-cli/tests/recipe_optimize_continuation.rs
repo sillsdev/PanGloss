@@ -145,7 +145,10 @@ fn with_confirmation_work(tag: &str, allowance: u64) -> Run {
 fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
     let run = unbounded();
     assert!(run.worker_succeeded, "an unbounded run must not fail");
-    let report = run.report.as_ref().expect("an unbounded run writes a report");
+    let report = run
+        .report
+        .as_ref()
+        .expect("an unbounded run writes a report");
     let statuses = run.statuses();
 
     // Non-vacuity FIRST: without both kinds present this test asserts nothing.
@@ -179,7 +182,10 @@ fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
     for row in &run.rows {
         assert!(!row["id"].as_str().unwrap().is_empty());
         assert!(!row["realized_strategy"].as_str().unwrap().is_empty());
-        assert!(row["score"].is_object(), "a banked row carries its measurement");
+        assert!(
+            row["score"].is_object(),
+            "a banked row carries its measurement"
+        );
         assert!(!row["certification"]["status"].as_str().unwrap().is_empty());
     }
     // The report's candidate table is sorted by id for canonical output, so compare as sets.
@@ -312,7 +318,8 @@ fn a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report() {
     // One unit under the whole corpus's cost: every candidate is still reached, since the running total only passes the bound once the last one is added.
     let allowance = total - 1;
     assert!(
-        (1..confirmations.len()).all(|index| confirmations[..index].iter().sum::<u64>() <= allowance),
+        (1..confirmations.len())
+            .all(|index| confirmations[..index].iter().sum::<u64>() <= allowance),
         "the derived bound must not stop the run early, or this test exercises the deficit path \
          instead ({confirmations:?})"
     );

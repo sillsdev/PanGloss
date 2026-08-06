@@ -51,24 +51,14 @@ use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::types::Fsm;
 
-/// Compile-time check that `Fsm` is `Send`: `call_with_deadline`'s wall-clock
-/// wrapper depends on being able to move an OWNED `Fsm` into a spawned worker thread and its result
-/// back out over an `mpsc` channel. Verified by direct inspection of `foma = "=0.4.0"`'s own
-/// `src/types.rs`: `Fsm` owns only `SmolStr`/`Vec<_>`/`Option<Box<_>>`/plain integers via its own
-/// `LineTable` storage seam -- no `Rc`/`RefCell`/raw pointer anywhere in its transitive fields. If a
-/// future `foma` version ever adds one of those, this line stops compiling -- the documented
-/// contingency ("if `Fsm` is NOT `Send`, implement everything EXCEPT
-/// `call_with_deadline`/`step_timeout`") applies at that point, rather than the wrapper silently
-/// becoming unsound.
+/// Compile-time proof that `Fsm` is `Send`, required to move it into `call_with_deadline`'s worker thread; a future non-`Send` field breaks this build rather than silently miscompiling.
 #[allow(dead_code)]
 fn assert_send<T: Send>() {}
 const _: fn() = || {
     assert_send::<Fsm>();
 };
 
-// --- Defaults / env overrides (mirrors `crate::morphotactics::EnumerationBudget`'s own
-// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET` convention: `HC_*`-prefixed, parsed as the field's
-// own numeric type, unset/unparsable falls back to the documented default). ------------------------
+// Defaults / env overrides: `HC_*`-prefixed, parsed as the field's own type, falling back to the documented default when unset/unparsable.
 
 /// `HC_COMPOSE_STATE_BUDGET`: ceiling on `Fsm::statecount` after any checked compose/union/minimize
 /// call. Calibration basis (measured on the
@@ -194,23 +184,8 @@ pub(crate) fn step_timeout_from_env() -> Option<Duration> {
         .map(Duration::from_millis)
 }
 
-// --- Chain-depth dimension: deterministically closes stack overflow from a deep derivation/
-// unapplication chain (Aweti's 24-level chain needed a 1 GiB stack workaround before this). --------
-//
-// `ComposeBudget::check_chain_depth` is called by `crate::peel::ReduplicationPeeler`'s
-// nested-reduplication recursion, once per genuine reduplication layer it is about to use.
-// `emit.rs`/`preexpand.rs`/`gate.rs`/`replace.rs`/`pg-rules`'s OWN general derivation/unapplication
-// recursion has no call site here -- threading a real per-word step counter through THAT recursive
-// apply/derivation path remains a separate, larger follow-on. `ComposeBudget::chain_depth_cap`
-// defaults to `None` (unbounded) everywhere -- `ComposeBudget::from_env`,
-// `ComposeBudget::with_caps`, and `ComposeBudget::unbounded` all leave it off -- so this is a
-// zero-behavior-change no-op for every caller that does not explicitly configure a cap.
-//
-// Unlike the four size caps above (state/arc/tuple/group -- default ON with a calibrated
-// production default), chain depth mirrors `step_timeout_from_env`'s **default-OFF** shape:
-// there is no calibrated default yet, so this dimension stays
-// `Option<usize>` and off until a caller opts in, rather than shipping an uncalibrated numeric
-// default that could silently start rejecting real grammars.
+// Chain-depth dimension: closes stack overflow from a deep derivation/unapplication chain, but only where wired (`check_chain_depth`'s
+// callers) and off by default. See docs/research/pg-foma-compose-budget-design-notes.md for scope and why the default is off.
 
 /// Absolute ceiling for the chain-depth dimension: a
 /// versioned, hard-coded, deliberately high non-disableable limit above all default, app, and
@@ -251,48 +226,8 @@ pub(crate) fn clamp_chain_depth_cap(configured: usize) -> usize {
     configured.min(CHAIN_DEPTH_ABSOLUTE_CEILING)
 }
 
-// --- Ordering-multiplicity dimension: `Unordered` application's chain-depth multiplication is a
-// required budget extension, not an open question. ------------------------------------
-//
-// `MorphRuleOrder::Unordered`'s any-order/any-subset walk (`pg_rules::cascade::Cascade::
-// combination`, this crate's own citation of that module's "k!-walk over rule subsets" doc) adds a
-// COMBINATORIAL dimension the plain `ComposeBudget::chain_depth_cap` above was never calibrated
-// against: that dimension bounds ORDINARY derivation/unapplication chain length (a single word's
-// nested-reduplication depth, the Aweti 24-level chain), a fundamentally different quantity
-// from "how many DISTINCT orderings of a stratum's own loose rules exist to propose a union over."
-// Reusing `chain_depth_cap` for both would let an unrelated calibration decision on one silently
-// move the other -- exactly the trap `HC_COMPOSE_TUPLE_BUDGET`'s own doc names for NOT reusing
-// `DEFAULT_TUPLE_BUDGET` for the compounding pair-budget. This is therefore its own field, own env
-// var, own error variant.
-//
-// **Judgment call / finding (flagged, not silently assumed):** the theoretical danger is
-// "O(n!)" (`cascade.rs`'s own "k!-walk" naming) -- but `crate::unordered::check_unordered_strata_bound`
-// (this dimension's own, first, production call site) checks a stratum's plain loose-rule COUNT,
-// not a literally-enumerated ordering count. Two reasons this is still the correct, conservative
-// quantity to gate on: (1) `n!` (or, under `multi_app = true` -- production's own
-// `pg_rules::stratum.rs::run_mrule_cascade` choice for BOTH `Linear`/`Unordered` -- the even larger
-// `n^d`-shaped reachable-node count `combination_rec`'s unbounded multi-application walk can visit)
-// is monotonically increasing in `n` alone, so a cap on `n` is a sound, if coarse, proxy for the
-// real danger without this crate's own compile-time gate needing to compute a factorial/exponential
-// itself; (2) no real large-scale `Unordered`-stratum grammar exists yet to calibrate the TRUE
-// joint (rule-count x chain-depth) bound -- so, exactly
-// like every other budget in this module, `DEFAULT_ORDERING_MULTIPLICITY_BUDGET` below is a
-// conservative placeholder pending real-grammar measurement (evidence + proposed diff +
-// human-reviewed commit), not a final number.
-//
-// **Calibration basis (measured, this change):** every `Unordered` stratum in this repo's own
-// reference/conformance corpus, as of this writing --
-// `machine/conformance/languages/{fusional-realizational-morphology (16 loose rules),
-// suffixing-evidential-adjacency-chain (11), metathesis-phase-isolation/templatic-root-modification
-// (7), suffixing-vowel-harmony (6), polysynthetic-stratal-derivation-chain (5)}`,
-// `conformance-staging/edge-cases/*` (<=3), and -- the real ceiling --
-// `samples/data/sena-hc.xml` (25 loose rules in its own largest `Unordered` stratum; measured via
-// this change's own compile-time gate tripping on every one of these, since NOTHING in
-// `crate::analyzer`/`crate::emit` branched on `MorphRuleOrder` before this change). 100 leaves ~4x
-// headroom above that measured ceiling -- generous, but the HARD RULE this crate follows is
-// "existing behavior unchanged": a default that regresses Sena (this crate's own baseline
-// emission-path gate, `tests/f1_sena_gate.rs`) would violate that regardless of how principled the
-// calibration reasoning is otherwise.
+// Ordering-multiplicity dimension: bounds an `Unordered` stratum's own combinatorial rule-ordering walk, a distinct quantity from
+// chain depth. See docs/research/pg-foma-compose-budget-design-notes.md for the judgment call and the calibration basis.
 pub(crate) const DEFAULT_ORDERING_MULTIPLICITY_BUDGET: usize = 100;
 
 pub(crate) fn ordering_multiplicity_budget_from_env() -> usize {
@@ -302,50 +237,8 @@ pub(crate) fn ordering_multiplicity_budget_from_env() -> usize {
         .unwrap_or(DEFAULT_ORDERING_MULTIPLICITY_BUDGET)
 }
 
-// --- Apply-path dimension: in-process cooperative magnitude budgets, not "the
-// watchdog" (which is compile-only). -------------------------------------------------------------
-//
-// Every dimension above this point guards `crate::replace`/`crate::gate`/`crate::emit`'s
-// COMPILE-time composition path -- one process, one grammar, killable in principle by a future
-// out-of-process worker. The apply
-// path is different in kind, not just in call site: `analyzer::FomaProposer::propose` drives
-// `foma::apply::apply_up` **in-process, per word, in the caller's own process** (`analyzer.rs`'s
-// own doc: the `ApplyHandle` is built once and reused across every `propose` call). This can never
-// be a watchdog's job: "a native thread cannot be safely hard-killed
-// in Rust" once it is running inside the same process serving the caller, and a per-word worker
-// process would defeat the whole point of reusing one compiled `ApplyHandle` (`analyzer.rs`'s own
-// "Reuses `self.handle` across calls rather than rebuilding it per word" doc). The only sound
-// containment left is a **deterministic, magnitude-only**
-// counter checked cooperatively while `propose` decodes `apply_up`'s own result iterator, mirroring
-// this module's own chain-depth dimension shape (`Option<usize>`, default off, a typed incomplete
-// outcome naming the dimension and value it hit) rather than a wall-clock kill.
-//
-// **What this closes, and what it does not.** `FomaError::EnumerationBudgetExceeded`'s own doc
-// names the motivating disaster (Aweti's eager-enumeration path: an ~8.8GB `apply_up` allocation
-// that killed the process outright) -- that is the ENTRY-side (lexc-emission) budget, already
-// shipped. This dimension is the OUTPUT side of the same call: even a grammar whose emitted lexc
-// source is modest in size can still compile to a network that proposes a combinatorially large
-// number of decoded paths/candidates for one particular pathological input word (a stress grammar
-// with heavy ambiguity, or an adversarial word crafted to hit every cycle in the network) --
-// `FomaProposer::propose`'s decode loop had no cap of its own before this dimension existed. Like
-// every other magnitude-only dimension in this module, a low or zero yield is never treated as
-// pathological (magnitude-only, never yield-based -- a low-yield / high-rejection
-// computation is not pathological) -- only the raw decoded-path count and the deduped-candidate
-// count are checked, never rejection share or confirm outcome.
-//
-// **Default `None` (unbounded/off) everywhere** (`ApplyBudget::from_env` when both
-// `HC_APPLY_PATH_BUDGET`/`HC_APPLY_CANDIDATE_BUDGET` are unset, `ApplyBudget::unbounded`) --
-// mirroring `chain_depth_cap_from_env`'s own "no calibrated default yet" shape rather than the
-// four compile-time size caps' default-ON shape: no real-grammar measurement of a legitimate
-// worst-case decoded-path/candidate count exists yet -- evidence + proposed diff + human-reviewed
-// commit is where that calibration happens. `FomaProposer::propose` (analyzer.rs) stays byte-for-byte unchanged
-// (it calls `FomaProposer::propose_budgeted` with `ApplyBudget::unbounded`, which can never
-// trip) -- this is a zero-behavior-change-when-unset addition for every existing caller, exactly
-// like every other budget dimension in this module.
-//
-// The grammar-diagnostics report records each word's `ApplyOutcome` directly (Complete vs.
-// Incomplete plus the tripped dimension/value/limit) as the in-process, per-word containment
-// evidence this dimension's design calls for -- never a watchdog PID, never a wall-clock kill, for this dimension.
+// Apply-path dimension: in-process cooperative magnitude counting for `apply_up`'s decode loop, since a watchdog cannot safely
+// hard-kill a thread serving the caller. See docs/research/pg-foma-compose-budget-design-notes.md for why and what it closes.
 
 /// `HC_APPLY_PATH_BUDGET`: ceiling on the raw number of `apply_up` result strings
 /// `crate::analyzer::FomaProposer::propose_budgeted` decodes for one word, checked as they are
@@ -371,39 +264,8 @@ pub(crate) fn apply_candidate_budget_from_env() -> Option<usize> {
         .and_then(|v| v.parse::<usize>().ok())
 }
 
-// --- The apply-path dimension's first CALIBRATED default -------------------------------------
-//
-// A grammar with `k` all-optional template slots, each firing a distinct `MorphologicalRule` whose
-// `multipleApplication` is the DTD default 1 and each inserting the identical literal segment, has
-// a legitimate analysis count of `C(k_slots, k)` and a legal-ORDERED-derivation count of
-// `P(k_slots, k)`. A plan-composed net can instead propose `k_slots^k` raw `apply_up` paths --
-// strictly more than `P(k_slots, k)`, i.e. it admits the SAME rule firing repeatedly, which
-// `multipleApplication = 1` forbids. This grows fast enough that a real fixture with 12 such slots
-// produced 2,985,984 raw paths for 924 real analyses at k=6 (confirm still filters back down to
-// exactly 924 -- recall is not the problem, magnitude is), and at k=12 the raw-path count
-// (8.9 x 10^12) is large enough that `apply_up`'s eager enumeration exhausts committed memory and
-// aborts the process outright, with no compile-time budget in this module positioned to catch it
-// (the plan-composed net itself builds and parses other words fine; only the propose call for the
-// pathological word dies).
-//
-// **Why 1,000,000, and why it is a refusal rather than a truncation.** A cap here cannot lose an
-// analysis: `FomaAnalyzer::analyze_word_with_diagnostics_budgeted` returns
-// `ProfiledFomaApplyOutcome::Incomplete` and confirms NOTHING for that word, and
-// `recipe_runtime::measure_and_certify_inner` turns that into a whole-candidate
-// `Certification::ResourceBreach` naming the dimension, the value and the limit. There is no code
-// path on which a partial proposal set is compared against the oracle, so this can never manufacture
-// the recall failure a truncated proposal set would. The number itself sits between the two
-// magnitudes that matter: every plan-composed net in this repo's conformance corpus is at most 479
-// arcs (`recipe_runtime`'s own measured note), and 1,000,000 raw paths bounds the decode loop's
-// retained strings at tens of MB, while the ONE known pathological fixture is 3x over it at k=6 and
-// 8.9 million times over it at k=12. It is a containment boundary, not an operating target: a
-// grammar that legitimately needs a million distinct proposals for one short word is asking for a
-// different construction, not a bigger buffer.
-//
-// **Scope.** These constants are resolved ONLY by `recipe_runtime::RuntimeBudget` (the recipe
-// optimizer / census evaluation path -- where the process actually dies). `ApplyBudget::from_env`,
-// `ApplyBudget::unbounded` and `FomaProposer::propose` are untouched, so ordinary `pangloss`
-// analysis behavior is byte-identical to before this existed.
+// The apply-path dimension's first calibrated default, resolved only by `recipe_runtime::RuntimeBudget` (ordinary `pangloss`
+// analysis is untouched). See docs/research/pg-foma-compose-budget-design-notes.md for the derivation of 1,000,000.
 pub const DEFAULT_EVALUATION_APPLY_PATH_BUDGET: usize = 1_000_000;
 
 /// The distinct-candidate half of `DEFAULT_EVALUATION_APPLY_PATH_BUDGET`'s calibration.
@@ -445,13 +307,9 @@ impl ApplyDimension {
 /// incomplete outcome, never "fails".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyOutcome<T> {
-    /// The budget never tripped; `T` is the complete result (possibly empty -- a legitimate zero-
-    /// analysis outcome: zero analyses is a valid complete result).
+    /// The budget never tripped; a complete result, possibly with zero analyses.
     Complete(T),
-    /// A magnitude cap was reached before the traversal finished. `value` is the count at the
-    /// moment of the trip (always `limit + 1` by construction -- checked immediately after each
-    /// increment, the same "checked one past the limit" convention [`ComposeBudget::
-    /// check_chain_depth`] uses).
+    /// A magnitude cap was reached; `value` is the count at the moment of the trip (always `limit + 1` by construction).
     Incomplete {
         dimension: ApplyDimension,
         value: usize,
@@ -536,73 +394,46 @@ impl NetSizeMeasure {
 /// the dimension it guards against in its own doc line.
 #[derive(Debug, Clone)]
 pub enum ComposeError {
-    /// V1/V2: a checked compose/union/minimize call returned a network whose `statecount`/`arccount`
-    /// exceeds `ComposeBudget::state_cap`/`ComposeBudget::arc_cap`. `site` names the call site
-    /// (design doc §4's own site labels, e.g. `"compile_rewrite_rule_subset alpha-tuple fold"`).
+    /// A checked compose/union/minimize call returned a network exceeding `state_cap`/`arc_cap`; `site` names the call site.
     NetSizeExceeded {
         measure: NetSizeMeasure,
         value: i32,
         limit: usize,
         site: &'static str,
     },
-    /// V3: `crate::replace::resolve_alpha_tuples` produced more surviving assignments than
-    /// `ComposeBudget::tuple_cap`, checked BEFORE the per-tuple compile loop runs.
+    /// `resolve_alpha_tuples` produced more surviving assignments than `tuple_cap`, checked before the per-tuple compile loop runs.
     AlphaTupleBudgetExceeded {
         surviving: usize,
         limit: usize,
         rule_xml_id: String,
     },
-    /// V6: `crate::gate::partition_entries` produced more groups than `ComposeBudget::group_cap`,
-    /// checked BEFORE any per-group compile work runs.
+    /// `partition_entries` produced more groups than `group_cap`, checked before any per-group compile work runs.
     GroupBudgetExceeded {
         groups: usize,
         limit: usize,
         gated_subrules: usize,
     },
-    /// V4: a templated/underlying-form lexc emitter wrote more lines than
-    /// `ComposeBudget::line_cap`, checked incrementally so a pathological grammar bails during
-    /// the first group's emission.
+    /// A templated/underlying-form lexc emitter wrote more lines than `line_cap`, checked incrementally per group.
     EmitLineBudgetExceeded { lines: usize, limit: usize },
-    /// V2: `call_with_deadline` timed out waiting for a checked call -- the worker thread is
-    /// ABANDONED, not killed (module doc). Always terminal for this grammar; never retry the
-    /// identical call.
+    /// `call_with_deadline` timed out; the worker thread is abandoned, not killed. Always terminal for this grammar; never retry.
     ComposeStepTimedOut {
         elapsed: Duration,
         limit: Duration,
         site: &'static str,
     },
-    /// This crate's chain-depth dimension (this module's "Chain-depth dimension" section):
-    /// `ComposeBudget::check_chain_depth` found a caller-reported cumulative derivation/
-    /// unapplication step count exceeding `ComposeBudget::chain_depth_cap`. Deterministically
-    /// closes the stack-overflow failure class (the Aweti 24-level chain; the 1 GiB-stack
-    /// workaround) instead of merely raising the point at which it recurs.
+    /// `check_chain_depth` found a cumulative derivation/unapplication step count exceeding `chain_depth_cap`.
     ChainDepthExceeded {
         depth: usize,
         limit: usize,
         site: &'static str,
     },
-    /// This module's own "Ordering-multiplicity dimension" extension:
-    /// `ComposeBudget::check_ordering_multiplicity`
-    /// found an `Unordered` stratum's loose-rule count exceeding
-    /// `ComposeBudget::ordering_multiplicity_cap` -- the `unordered-application.unbounded`
-    /// configuration predicate's own compile-time trip wire (`crate::capability::
-    /// UnorderedOrderingUnionPredicate`'s doc). Named as its OWN dimension, distinct from
-    /// `Self::ChainDepthExceeded`, so compilation reports the
-    /// ordering-multiplicity dimension as the named blocking dimension, not the plain
-    /// chain-depth one.
+    /// `check_ordering_multiplicity` found an `Unordered` stratum's loose-rule count exceeding `ordering_multiplicity_cap`.
     OrderingMultiplicityExceeded {
         rule_count: usize,
         limit: usize,
         site: &'static str,
     },
-    /// `DEFAULT_COMPOUND_PAIR_BUDGET`'s dimension, as a TYPED error rather than
-    /// `crate::emit`'s `FomaTier::Unsupported`/`EnumBudgetExceeded` refusal payload -- what
-    /// `crate::uflexc`'s own bounded compound loop returns, since that emitter's whole public
-    /// surface is `Result<UEmitReport, ComposeError>` and it has no `EmitResult` to refuse with.
-    /// Same quantity, same `HC_COMPOUND_PAIR_BUDGET` knob, same "check the search result before the
-    /// expensive part" discipline as `crate::emit`'s own check -- only the presentation differs
-    /// (`crate::emit::compound_extra_levels_checked`'s own doc makes the same split for the
-    /// chain-depth dimension).
+    /// `DEFAULT_COMPOUND_PAIR_BUDGET`'s dimension as a typed error, returned by `crate::uflexc`'s bounded compound loop.
     CompoundPairBudgetExceeded {
         heads: usize,
         non_heads: usize,
@@ -942,8 +773,7 @@ impl ComposeBudget {
     }
 }
 
-/// Checks `net`'s `statecount`/`arccount` against `budget`'s caps (V1/V2, design doc §4). Shared by
-/// every checked wrapper below.
+/// Checks `net`'s `statecount`/`arccount` against `budget`'s caps; shared by every checked wrapper below.
 fn check_size(net: &Fsm, budget: &ComposeBudget, site: &'static str) -> Result<(), ComposeError> {
     if net.statecount < 0 || net.statecount as usize > budget.state_cap {
         return Err(ComposeError::NetSizeExceeded {
@@ -982,8 +812,7 @@ where
         .stack_size(DEADLINE_WORKER_STACK_BYTES)
         .spawn(move || {
             let result = f();
-            // The receiver may already be gone (we timed out and returned) -- a `send` failure
-            // here just means nobody's listening anymore, not a bug; deliberately ignored.
+            // The receiver may already be gone (timed out); an ignored `send` failure just means nobody's listening.
             let _ = tx.send(result);
         })
         .expect("spawn compose-budget deadline worker thread");
@@ -1217,20 +1046,14 @@ mod compose_budget_tests {
         assert!(msg.contains("ABANDONED"));
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Chain-depth dimension. Schema/budget-type only --
-    // these tests exercise `check_chain_depth` directly (no `Fsm`/foma call involved) and prove
-    // the default is a zero-behavior-change no-op, exactly like `compose_budget_tests`'s own
-    // tests above prove for the four size caps.
-    // ---------------------------------------------------------------------------------------
+    // Chain-depth dimension: exercises `check_chain_depth` directly, no `Fsm`/foma call involved.
 
     #[test]
     fn chain_depth_unbounded_budget_never_trips() {
-        // `unbounded()` (the same constructor `unbounded_budget_never_trips_on_small_fixture`
-        // above already uses for the size dimensions) must also leave chain depth off.
+        // `unbounded()` must also leave chain depth off, like the size dimensions above.
         let budget = ComposeBudget::unbounded();
         assert_eq!(budget.chain_depth_cap(), None);
-        // Well past the motivating Aweti 24-level chain (module doc) and still `Ok`.
+        // Well past the motivating Aweti 24-level chain and still `Ok`.
         budget
             .check_chain_depth(1_000_000, "chain_depth_unbounded_budget_never_trips")
             .expect("unbounded chain-depth budget must never trip, at any depth");
@@ -1238,9 +1061,7 @@ mod compose_budget_tests {
 
     #[test]
     fn chain_depth_with_caps_defaults_to_unbounded() {
-        // `with_caps` cannot take a 7th positional argument without breaking every existing call
-        // site across this crate (this module's own doc on `with_caps`) -- prove it still leaves
-        // chain depth off by default, the same zero-behavior-change guarantee `unbounded()` gives.
+        // `with_caps` has no chain-depth parameter; prove it still leaves chain depth off by default.
         let budget = ComposeBudget::with_caps(
             usize::MAX,
             usize::MAX,
@@ -1291,9 +1112,7 @@ mod compose_budget_tests {
 
     #[test]
     fn chain_depth_absolute_ceiling_clamps_excessive_configured_cap() {
-        // Requesting a cap far above the absolute ceiling must clamp down to the ceiling, not
-        // accept the requested value verbatim (this
-        // module's doc on `CHAIN_DEPTH_ABSOLUTE_CEILING`).
+        // A cap far above the absolute ceiling must clamp down to it, not pass through verbatim.
         let budget =
             ComposeBudget::unbounded().with_chain_depth_cap(CHAIN_DEPTH_ABSOLUTE_CEILING + 1_000);
         assert_eq!(
@@ -1301,8 +1120,7 @@ mod compose_budget_tests {
             Some(CHAIN_DEPTH_ABSOLUTE_CEILING),
             "a configured cap above the absolute ceiling must clamp to the ceiling itself"
         );
-        // One past the (clamped) ceiling must trip, reporting the ceiling as the limit -- never
-        // the caller's original, larger requested value.
+        // One past the clamped ceiling must trip, reporting the ceiling as the limit, not the original request.
         let err = budget
             .check_chain_depth(
                 CHAIN_DEPTH_ABSOLUTE_CEILING + 1,
@@ -1319,10 +1137,7 @@ mod compose_budget_tests {
 
     #[test]
     fn chain_depth_cap_from_env_clamps_to_absolute_ceiling() {
-        // Exercises the exact clamp `chain_depth_cap_from_env` applies to a parsed env value,
-        // without touching process-global env state (this module's own "tests should use
-        // explicit-caps constructors, never env vars" convention -- the clamp itself is a pure
-        // function precisely so this is possible).
+        // Exercises `chain_depth_cap_from_env`'s clamp via the pure function, without touching process-global env state.
         assert_eq!(
             clamp_chain_depth_cap(CHAIN_DEPTH_ABSOLUTE_CEILING + 1_000),
             CHAIN_DEPTH_ABSOLUTE_CEILING
@@ -1348,9 +1163,7 @@ mod compose_budget_tests {
         assert!(msg.contains("HC_COMPOSE_CHAIN_DEPTH_BUDGET"));
     }
 
-    // ---------------------------------------------------------------------------------------
     // Ordering-multiplicity dimension.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn ordering_multiplicity_unbounded_budget_never_trips() {
@@ -1366,8 +1179,7 @@ mod compose_budget_tests {
 
     #[test]
     fn ordering_multiplicity_with_caps_defaults_to_unbounded() {
-        // `with_caps` cannot take an 8th positional argument without breaking every existing call
-        // site across this crate -- prove it still leaves this dimension off by default.
+        // `with_caps` has no ordering-multiplicity parameter; prove it still leaves this dimension off by default.
         let budget = ComposeBudget::with_caps(
             usize::MAX,
             usize::MAX,
@@ -1430,9 +1242,7 @@ mod compose_budget_tests {
 
     #[test]
     fn ordering_multiplicity_from_env_defaults_to_a_calibrated_bound() {
-        // Unlike chain_depth_cap (default None/uncalibrated), from_env must configure a REAL
-        // default -- this change's own promotion needs a concrete bound, not an uncalibrated
-        // placeholder (this module's "Ordering-multiplicity dimension" section doc).
+        // Unlike chain_depth_cap, from_env must configure a real, calibrated default for this dimension.
         let budget = ComposeBudget::from_env();
         assert_eq!(
             budget.ordering_multiplicity_cap(),
@@ -1455,11 +1265,7 @@ mod compose_budget_tests {
         assert!(msg.contains("HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET"));
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Apply-path dimension. Schema/budget-
-    // type tests only, exercised directly against `ApplyBudget` -- the decode-loop wiring itself
-    // is `analyzer.rs`'s own `propose_budgeted` tests.
-    // ---------------------------------------------------------------------------------------
+    // Apply-path dimension: schema/budget-type tests only; decode-loop wiring is `analyzer.rs`'s own `propose_budgeted` tests.
 
     #[test]
     fn apply_budget_unbounded_has_no_caps() {
@@ -1481,12 +1287,7 @@ mod compose_budget_tests {
 
     #[test]
     fn apply_budget_from_env_defaults_to_unbounded_when_unset() {
-        // Mirrors `chain_depth_cap_from_env`'s own default-off convention -- no calibrated default
-        // exists yet for either apply-path dimension. Reads real env (this crate's own convention:
-        // only `from_env` touches env, tests otherwise use `with_caps`/`unbounded`), so this only
-        // asserts the fallback given whatever this test process's env actually has -- consistent
-        // with `ordering_multiplicity_from_env_defaults_to_a_calibrated_bound`'s own shape one
-        // dimension up, adapted for an unset-by-default var.
+        // Reads real env (only `from_env` does); asserts the fallback only when the var is genuinely unset in this test process.
         if std::env::var("HC_APPLY_PATH_BUDGET").is_err() {
             assert_eq!(ApplyBudget::from_env().path_cap(), None);
         }

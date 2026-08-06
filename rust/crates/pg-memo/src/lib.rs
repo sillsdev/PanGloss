@@ -38,13 +38,7 @@ use pg_featstruct::FeatureStruct;
 use pg_grammar::model::{MRuleId, StratumId};
 use pg_shape::Shape;
 
-/// Fixed-seed hash map/set (T0 fix, rust-conversion.md §13.1/§13.2): `AnalysisScope`'s tables are
-/// read back inside the per-word analysis cascade that `--step-cap` can interrupt mid-iteration, so
-/// (per the fix-order note "partial application reintroduces the gap") they use the same
-/// process-stable hasher as every other accumulator in the `pg-parse`/`pg-rules` pipeline instead of
-/// `std::collections::{HashMap, HashSet}`'s randomly-seeded default. `DefaultHasher::default()` is
-/// SipHash-1-3 with fixed (non-random) keys, unlike `RandomState` — verified empirically to give
-/// identical iteration order across separate process invocations before relying on it here.
+/// Fixed-seed hash map/set: `AnalysisScope`'s tables are read back inside a `--step-cap`-interruptible cascade, so they use the same process-stable hasher as every other accumulator in the pipeline, never a randomly-seeded default.
 type HashMap<K, V> = std::collections::HashMap<K, V, BuildHasherDefault<DefaultHasher>>;
 type HashSet<T> = std::collections::HashSet<T, BuildHasherDefault<DefaultHasher>>;
 
@@ -68,8 +62,7 @@ pub struct AnalysisStateKey {
     syntactic_fs: FeatureStruct,
     realizational_fs: FeatureStruct,
     non_head_count: u32,
-    /// The per-rule unapplication multiset (C# `Word.UnappliedRuleCounts`). A `BTreeMap` so equal
-    /// multisets built up in different unapplication orders compare and hash identically.
+    /// The per-rule unapplication multiset; a `BTreeMap` so equal multisets built up in different orders compare and hash identically.
     rule_counts: BTreeMap<MRuleId, u32>,
 }
 
@@ -131,10 +124,7 @@ impl<W> MemoEntry<W> {
     }
 }
 
-/// OOM guard (C# `AnalysisScope.MaxMemoEntries`, AnalysisScope.cs:38): past the cap, keep searching
-/// correctly, just stop growing the table — a positive memo holds actual word lists (not a boolean),
-/// so it is the one that can grow unboundedly. Correctness is unaffected past the cap; only the hit
-/// rate degrades.
+/// OOM guard: past the cap, keep searching correctly, just stop growing the table; only the hit rate degrades.
 const MAX_MEMO_ENTRIES: usize = 100_000;
 
 /// Per-parse cache carrier (C# `AnalysisScope`, AnalysisScope.cs:21-63). One instance per
@@ -196,8 +186,7 @@ mod tests {
         ShapeBuilder::new().finish()
     }
 
-    /// Fold a rule-unapplication *sequence* into the count multiset, exactly as the cascade does via
-    /// `Word::record_unapplication`.
+    /// Fold a rule-unapplication sequence into the count multiset, as the cascade does via `Word::record_unapplication`.
     fn counts_from(seq: &[u32]) -> BTreeMap<MRuleId, u32> {
         let mut m = BTreeMap::new();
         for &id in seq {
@@ -258,8 +247,7 @@ mod tests {
 
     #[test]
     fn in_progress_guard_blocks_reentry() {
-        // Synthetic: real analysis never re-enters (every unapplication grows the multiset, so a
-        // child key differs from its parent), so the fall-through guard is exercised directly.
+        // Synthetic: real analysis never re-enters, so the fall-through guard is exercised directly.
         let mut scope: AnalysisScope<u32> = AnalysisScope::new();
         let k = key_with(BTreeMap::new(), 0);
         assert!(scope.in_progress.insert(k.clone()), "first entry is fresh");

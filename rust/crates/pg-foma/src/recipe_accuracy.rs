@@ -222,11 +222,9 @@ impl AccuracyCounters {
 pub enum AccuracyVerdict {
     /// Every oracle admission key on every checked occurrence was proposed. No undergeneration.
     NoLoss,
-    /// At least one oracle analysis was never proposed. The witnesses are capped at
-    /// `MISS_WITNESS_SAMPLE`; `AccuracyCounters::oracle_keys_missed` is exact.
+    /// At least one oracle analysis was never proposed; witnesses capped at `MISS_WITNESS_SAMPLE`, `oracle_keys_missed` stays exact.
     Undergenerated { misses: Vec<AccuracyMiss> },
-    /// The check could not be performed — the candidate did not build, or the corpus itself was
-    /// refused. **Never a pass.** "I could not look" must not read as "nothing was lost".
+    /// The check could not be performed (build failure or a refused corpus) -- never a pass.
     NotDetermined { reason: String },
 }
 
@@ -289,12 +287,7 @@ pub fn check_occurrence(
     counters
 }
 
-/// Whether any admission key in `oracle` stands for analyses of more than one category.
-///
-/// Compares `pos_id` rather than the projected `AnalysisIdentity::category` on purpose: the POS
-/// symbol lookup is injective, so equal ordinals mean equal categories, and this needs no grammar,
-/// cannot fail, and costs no string allocation — which matters because the whole point of this path
-/// is that it is pure set work over data already in hand.
+/// Whether any admission key in `oracle` stands for more than one category; compares `pos_id` (injective) rather than the projected category, so this needs no grammar.
 fn oracle_key_is_ambiguous(oracle: &[WordAnalysis]) -> bool {
     let mut seen: Vec<(AdmissionKey, Option<u32>)> = Vec::with_capacity(oracle.len());
     for analysis in oracle {
@@ -315,10 +308,7 @@ fn oracle_key_is_ambiguous(oracle: &[WordAnalysis]) -> bool {
 /// Separate from `check_occurrence` so the per-occurrence check stays a pure function of its own
 /// inputs, and so the witness cap is applied in exactly one place.
 pub fn verdict_from(counters: &AccuracyCounters, mut misses: Vec<AccuracyMiss>) -> AccuracyVerdict {
-    // Checked FIRST and unconditionally: a refused reduplication peel makes the proposal set
-    // incomplete, so neither answer can be given honestly -- "no loss" would be a pass over a
-    // truncated set, and "undergenerated" would blame the compilation for a budget refusal. Note
-    // this is checked BEFORE the miss count precisely because a refusal can produce misses.
+    // Checked first: a refused peel makes the set incomplete, so neither "no loss" nor "undergenerated" would be honest.
     if counters.peel_refusals > 0 {
         return AccuracyVerdict::NotDetermined {
             reason: format!(
@@ -329,9 +319,7 @@ pub fn verdict_from(counters: &AccuracyCounters, mut misses: Vec<AccuracyMiss>) 
             ),
         };
     }
-    // Same rule, the other incompleteness dimension: a proposal refused by the per-word apply-path
-    // envelope is an incomplete proposal set, so it can be neither a pass nor a recall failure.
-    // Checked here, beside the peel refusal and before the miss count, for the identical reason.
+    // Same rule for the other incompleteness dimension: an apply-path-refused proposal set can be neither a pass nor a recall failure.
     if counters.apply_refusals > 0 {
         return AccuracyVerdict::NotDetermined {
             reason: format!(
@@ -342,9 +330,7 @@ pub fn verdict_from(counters: &AccuracyCounters, mut misses: Vec<AccuracyMiss>) 
             ),
         };
     }
-    // Agreeing about nothing is not agreement -- the same guard `certify_corpus` carries. A corpus
-    // whose oracle found no analysis at ALL requires no key of anybody, so containment holds
-    // vacuously and would certify a candidate whose network is empty.
+    // Agreeing about nothing is not agreement: an oracle with zero analyses would make containment hold vacuously for an empty network.
     if counters.occurrences_checked > 0 && counters.oracle_keys_required == 0 {
         return AccuracyVerdict::NotDetermined {
             reason: format!(
@@ -389,8 +375,7 @@ mod tests {
     #[test]
     fn a_proposed_key_for_every_oracle_analysis_is_no_loss_and_the_check_fires() {
         let oracle = [analysis(&[0, 1], 0), analysis(&[2], 0)];
-        // Deliberately over-proposing: the FST proposes and HC prunes, so extra keys are the design
-        // and must never read as a defect.
+        // Deliberately over-proposing: extra keys are the design (FST proposes, HC prunes), never a defect.
         let proposals = [proposal(&[0, 1], 0), proposal(&[2], 0), proposal(&[9], 0)];
         let mut misses = Vec::new();
         let counters = check_occurrence("w", 0, &oracle, &proposals, &mut misses);
@@ -411,8 +396,7 @@ mod tests {
     #[test]
     fn a_missing_key_is_named_exactly_and_never_rounded_off() {
         let oracle = [analysis(&[0, 1], 0), analysis(&[2], 0)];
-        // `[2]` is absent, and `[0, 1]` at root_index 1 is a DIFFERENT key -- headedness is part of
-        // the key, so a near-miss is a miss.
+        // `[2]` is absent, and `[0, 1]` at root_index 1 is a different key -- headedness is part of the key.
         let proposals = [proposal(&[0, 1], 0), proposal(&[0, 1], 1)];
         let mut misses = Vec::new();
         let counters = check_occurrence("w", 3, &oracle, &proposals, &mut misses);
@@ -432,9 +416,7 @@ mod tests {
 
     #[test]
     fn root_index_discriminates_headedness_exactly_as_confirm_does() {
-        // The compound-headedness discrimination `AnalysisIdentity` makes load-bearing via
-        // `root_index`: same morpheme sequence, different head. Both readings must be required
-        // separately, so proposing one cannot cover the other.
+        // Same morpheme sequence, different head (`root_index`): both readings are required separately.
         let oracle = [analysis(&[0, 1], 0), analysis(&[0, 1], 1)];
         let mut misses = Vec::new();
         let counters = check_occurrence("w", 0, &oracle, &[proposal(&[0, 1], 0)], &mut misses);
@@ -445,9 +427,7 @@ mod tests {
 
     #[test]
     fn duplicate_oracle_paths_collapse_and_do_not_demand_duplicate_proposals() {
-        // The parity relation is deduplicated SET containment, not multiset containment: an oracle
-        // that reached one analysis by three derivational paths agrees with a candidate that
-        // proposed the key once.
+        // Deduplicated set containment, not multiset: three derivational paths to one analysis still need only one proposed key.
         let oracle = [analysis(&[0], 0), analysis(&[0], 0), analysis(&[0], 0)];
         let mut misses = Vec::new();
         let counters = check_occurrence("w", 0, &oracle, &[proposal(&[0], 0)], &mut misses);
@@ -458,8 +438,7 @@ mod tests {
 
     #[test]
     fn an_ambiguous_oracle_key_is_reported_rather_than_hidden() {
-        // Two oracle analyses sharing an admission key but differing in category: here key
-        // containment is COARSER than identity containment, and the report has to say so.
+        // Two oracle analyses share an admission key but differ in category; key containment is coarser than identity containment.
         let mut second = analysis(&[0], 0);
         second.pos_id = Some(7);
         let mut first = analysis(&[0], 0);
@@ -492,9 +471,7 @@ mod tests {
 
     #[test]
     fn a_truncated_proposal_set_is_undetermined_rather_than_a_recall_failure() {
-        // A refused reduplication peel makes the proposal set incomplete. Blaming the compilation
-        // for that would manufacture a recall failure out of a budget refusal, and calling it
-        // no-loss would pass over a truncated set. Neither is allowed.
+        // A refused peel makes the set incomplete -- neither blaming the compilation nor calling it no-loss is honest.
         let counters = AccuracyCounters {
             occurrences_checked: 3,
             oracle_keys_required: 4,
@@ -522,9 +499,7 @@ mod tests {
 
     #[test]
     fn agreeing_about_nothing_is_not_agreement() {
-        // The vacuous-pass guard `certify_corpus` already carries: if the oracle found no analysis
-        // for any occurrence, every containment test is trivially satisfied and an empty network
-        // would "pass".
+        // If the oracle found no analysis at all, containment holds trivially and an empty network would "pass".
         let vacuous = AccuracyCounters {
             occurrences_checked: 5,
             oracle_keys_required: 0,

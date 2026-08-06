@@ -72,7 +72,6 @@ pub struct ConstructKnobs {
     pub template_slot_optional: bool,
 
     // Present so a recipe literal can name every construct knob up front even before its own builder exists.
-
     /// Partition-k scale, `crate::build::gating`.
     pub gated_subrule_count: usize,
     /// Alpha-scale, `crate::build::alpha`.

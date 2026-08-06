@@ -259,10 +259,9 @@ fn an_inert_reduplication_hint_creates_no_copy_process_mechanism() {
         kinds(&inert_graph)
     );
     assert!(
-        !inert_graph
-            .nodes
-            .iter()
-            .any(|n| n.construct_requirements.contains(&CharacteristicKind::Reduplication)),
+        !inert_graph.nodes.iter().any(|n| n
+            .construct_requirements
+            .contains(&CharacteristicKind::Reduplication)),
         "an inert hint created a Reduplication requirement"
     );
 
@@ -360,14 +359,23 @@ fn a_derived_graph_is_a_canonical_spine_terminating_in_cleanup() {
         .copied()
         .filter(|k| observed.contains(k))
         .collect();
-    assert_eq!(observed, expected_order, "nodes are not in composition order");
+    assert_eq!(
+        observed, expected_order,
+        "nodes are not in composition order"
+    );
     assert_eq!(observed.last(), Some(&MechanismKind::BoundaryCleanup));
-    assert_eq!(graph.edges.len(), graph.nodes.len() - 1, "not a single chain");
+    assert_eq!(
+        graph.edges.len(),
+        graph.nodes.len() - 1,
+        "not a single chain"
+    );
 
     // Cleanup's source is the character table it cleans -- the one source kind with no
     // `ModelLocation` counterpart -- and its body carries the table's own boundary inventory.
     let cleanup = graph
-        .node(&MechanismId(MechanismKind::BoundaryCleanup.label().to_owned()))
+        .node(&MechanismId(
+            MechanismKind::BoundaryCleanup.label().to_owned(),
+        ))
         .expect("cleanup exists");
     assert!(cleanup
         .sources
@@ -394,7 +402,9 @@ fn the_static_partition_body_is_sorted_by_gate_key_and_by_member() {
     graph.validate().expect("derived graph validates");
 
     let partition = graph
-        .node(&MechanismId(MechanismKind::StaticPartition.label().to_owned()))
+        .node(&MechanismId(
+            MechanismKind::StaticPartition.label().to_owned(),
+        ))
         .expect("a gated grammar derives a StaticPartition mechanism");
     let MechanismBody::StaticPartition(groups) = &partition.body else {
         panic!("wrong body: {:?}", partition.body);

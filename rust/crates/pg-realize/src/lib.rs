@@ -160,11 +160,7 @@ pub fn leipzig(bundle: &GlossBundle, surface_word: &str) -> String {
 mod tests {
     use super::*;
 
-    /// A one-feature, one-table, no-rules grammar with two lexical entries: a glossed root
-    /// ("house", `<Gloss>house</Gloss>`) and an unglossed one ("mystery", no `<Gloss>`) — enough
-    /// to exercise `gloss_bundle`'s morpheme-resolution paths without a real HermitCrab rule
-    /// pipeline. Pattern follows `pg-parse/src/surface.rs` / `pg-cli/src/main.rs`'s embedded-XML
-    /// test fixtures.
+    /// A one-feature, one-table, no-rules grammar with a glossed root ("house") and an unglossed one ("mystery").
     const MINI_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -212,9 +208,7 @@ mod tests {
             .unwrap_or_else(|e| panic!("fixture grammar failed to load: {e}"))
     }
 
-    /// Synthetic `WordAnalysis`es don't need a real parse — `gloss_bundle` only reads
-    /// `Grammar::morphemes` by ordinal, so a hand-built `WordAnalysis` exercises the same code
-    /// paths as a real one while keeping the fixture minimal (no rules needed at all).
+    /// A hand-built `WordAnalysis` exercises the same paths as a real parse, since `gloss_bundle` only reads `Grammar::morphemes` by ordinal.
     fn wa(morpheme_ids: Vec<u32>, root_morpheme_index: i32, guessed: bool) -> WordAnalysis {
         let morpheme_count = morpheme_ids.len();
         WordAnalysis {
@@ -282,8 +276,7 @@ mod tests {
     fn guessed_root_plus_real_affix_renders_mixed_leipzig() {
         let g = grammar();
         let house = morpheme_ordinal(&g, "leHouse");
-        // A guessed root (index 0) followed by a real, glossed morpheme (index 1) -- exercises
-        // both branches of the same bundle at once.
+        // A guessed root (index 0) followed by a real, glossed morpheme (index 1) exercises both branches at once.
         let bundle = gloss_bundle(&g, &wa(vec![u32::MAX, house], 0, true));
         assert_eq!(bundle.tokens.len(), 2);
         assert!(bundle.tokens[0].is_root);
@@ -294,8 +287,7 @@ mod tests {
     #[test]
     fn out_of_range_ordinal_never_panics_and_renders_bracket_question() {
         let g = grammar();
-        // 999 is not a valid ordinal into `g.morphemes` for this 2-entry fixture -- defensive
-        // path only, the real engine never emits this, but gloss_bundle must not panic on it.
+        // 999 is not a valid ordinal into `g.morphemes` for this 2-entry fixture; gloss_bundle must not panic on it.
         let bundle = gloss_bundle(&g, &wa(vec![999], -1, false));
         assert_eq!(bundle.tokens.len(), 1);
         assert_eq!(bundle.tokens[0].gloss, None);
@@ -334,8 +326,7 @@ mod tests {
 
     #[test]
     fn properties_are_carried_through_when_present() {
-        // Reuse the guesser-style fixture pattern with a <Properties> entry to confirm
-        // MorphemeInfo::properties survives the resolution unchanged.
+        // A <Properties> entry confirms MorphemeInfo::properties survives resolution unchanged.
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>

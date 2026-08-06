@@ -24,9 +24,7 @@ use pg_rules::trace::TraceSink;
 
 use crate::tags::Candidate;
 
-/// Per-candidate buckets of confirmed matches: outer index parallels the candidate slice,
-/// inner entries are `(analysis, morpheme-join display string, surface display string)` —
-/// see `confirm_batch`'s doc for why matches are collected this way.
+/// Per-candidate buckets of confirmed matches; outer index parallels the candidate slice. See `confirm_batch`'s doc for the collection rationale.
 type ConfirmedBuckets = Vec<Vec<(EngineAnalysis, String, String)>>;
 
 /// How many rules beyond a chunk's largest member's own rule set the chunk's union may admit
@@ -89,10 +87,7 @@ fn owner_of(owners: &[Option<MorphemeOwner>], m: MorphemeId) -> Option<MorphemeO
     owners.get(m.0 as usize).copied().flatten()
 }
 
-/// `replay.rs::analyses_match` (`replay.rs:200-208`): positional identity comparison, ported
-/// verbatim except for the candidate type (this crate's `Candidate` instead of `hc-hybrid`'s).
-/// Plan §2's "positional match trap" — element-wise, not set-wise; morphemes in the wrong order or
-/// wrong `root_index` is a silent loss, never a false negative match.
+/// Positional identity comparison, element-wise not set-wise: morphemes in the wrong order or wrong `root_index` is a silent loss, never a false negative match.
 fn analyses_match(wa: &EngineAnalysis, candidate: &Candidate) -> bool {
     wa.root_morpheme_index == candidate.root_index
         && wa.morpheme_ids.len() == candidate.morphemes.len()
@@ -127,10 +122,7 @@ pub fn confirm_all(
         .unwrap_or_default()
 }
 
-/// One candidate's resolved pins: designated root entry, non-root rule set, extra (compound)
-/// roots — the inputs `replay.rs:143-177` derives per candidate before building its filters.
-/// `None` reproduces the original's rejection cases (root slot not a `LexEntry`; a non-root
-/// morpheme owned by neither a `LexEntry` nor an `MRule`).
+/// One candidate's resolved pins: root entry, non-root rule set, extra compound roots; `None` when the root isn't a `LexEntry` or a non-root morpheme is unowned.
 struct CandidatePins {
     root_entry: LexEntryId,
     rules: HashSet<MRuleId>,
@@ -324,8 +316,7 @@ fn confirm_batch_impl(
         }
     }
 
-    // 2) Sub-chunk each root group: a member joins a chunk only if the chunk's rule union stays
-    //    within RULE_UNION_SLACK of its largest member's own rule set (see doc above).
+    // 2) Sub-chunk each root group: a member joins only if the chunk's rule union stays within RULE_UNION_SLACK of the largest member's own set.
     struct Chunk {
         members: Vec<usize>,
         union_rules: HashSet<MRuleId>,
@@ -361,20 +352,13 @@ fn confirm_batch_impl(
         }
     }
 
-    // 3) Cross-root-set fusion (see doc above): merge `work` entries whose `rule_filter`
-    //    predicate would be BYTE-IDENTICAL — same admitted-`MRuleId` set, same `any_extra_roots`
-    //    (`Compounding`-admission) flag — regardless of which root set they came from. Keyed by
-    //    the rule set's sorted `MRuleId` list + the flag, so equality is exact, never slack-based.
+    // 3) Cross-root-set fusion: merge `work` entries with byte-identical rule_filter predicates (same rule set + any_extra_roots flag), keyed exactly, never slack-based.
     struct FusedChunk {
-        /// Union of every fused member's own root set, sorted + deduped (widens only
-        /// `lex_entry_filter`; the analysis-phase-determining fields below are untouched).
+        /// Union of every fused member's own root set, sorted+deduped; widens only `lex_entry_filter`.
         root_keys: Vec<u32>,
         members: Vec<usize>,
         union_rules: HashSet<MRuleId>,
-        /// Carried through from each original chunk's own root-set length, NEVER recomputed from
-        /// `root_keys` post-fusion — fusion can turn a single-root chunk's root set into a
-        /// multi-entry union, and re-deriving the flag from that union's length would flip
-        /// `Compounding` admission for members whose own pins never asked for it (see doc above).
+        /// Carried through from the original chunk, never recomputed from `root_keys` post-fusion, or `Compounding` admission would flip for members that never asked for it.
         any_extra_roots: bool,
     }
     let mut fused: rustc_hash::FxHashMap<(Vec<u32>, bool), FusedChunk> =
@@ -411,9 +395,7 @@ fn confirm_batch_impl(
         let any_extra_roots = chunk.any_extra_roots;
         let root_key = &chunk.root_keys;
 
-        // Route each outcome analysis to the (at most one) group member it positionally matches.
-        // Defensive `entry().or_insert()` keeps first-wins semantics if a caller ever passes
-        // duplicate candidate keys despite the composite's own dedup.
+        // Routes each outcome analysis to the group member it positionally matches; `entry().or_insert()` keeps first-wins semantics for any duplicate key.
         let mut by_key: rustc_hash::FxHashMap<(Vec<u32>, i32), usize> =
             rustc_hash::FxHashMap::default();
         for &i in members {
@@ -450,9 +432,7 @@ fn confirm_batch_impl(
                 diagnostics.confirmation_steps.saturating_add(outcome.steps);
         }
 
-        // `outcome.analyses[i]` and `outcome.structured[i]` describe the SAME analysis
-        // (ParseOutcome's own doc, `pg-parse/src/morpher.rs:79-120`) — zip so a routed match
-        // keeps both.
+        // `outcome.analyses[i]` and `outcome.structured[i]` describe the same analysis; zip so a routed match keeps both.
         for (wa, (join, surface)) in outcome.structured.into_iter().zip(outcome.analyses) {
             let key = (wa.morpheme_ids.clone(), wa.root_morpheme_index);
             if let Some(&i) = by_key.get(&key) {
@@ -481,8 +461,7 @@ mod tests {
         Some(pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load grammar: {e}")))
     }
 
-    /// A bare-root word ("ajar", per `replay.rs`'s own equivalent test) confirms to a non-empty set
-    /// of matches, all sharing the expected root entry.
+    /// A bare-root word confirms to a non-empty set of matches, all sharing the expected root entry.
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn confirm_bare_root_word_verifies() {
@@ -492,8 +471,7 @@ mod tests {
         };
         let morpher = Morpher::new(&g, usize::MAX);
         let owners = build_morpheme_owners(&g);
-        // "ajar" is a bare root (entry25/entry26 homograph, per replay.rs's own fixture comment) —
-        // find its morpheme id from the grammar itself rather than hard-coding one that might drift.
+        // Finds "ajar"'s morpheme id from the grammar itself (entry25/entry26 homograph) rather than hard-coding one that might drift.
         let entry = g
             .entries
             .iter()
@@ -522,8 +500,7 @@ mod tests {
         }
     }
 
-    /// A candidate whose designated "root" position is out of range (or empty) must confirm to
-    /// nothing, never panic.
+    /// A candidate whose root position is out of range (or empty) must confirm to nothing, never panic.
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn confirm_rejects_out_of_range_root_index() {
@@ -540,8 +517,7 @@ mod tests {
         assert!(confirm_all(&g, &owners, &morpher, &bogus, "ajar").is_empty());
     }
 
-    /// A non-root morpheme id that resolves to neither a `LexEntry` nor an `MRule` (e.g. a
-    /// `MorphemeId` that doesn't exist in this grammar at all) must confirm to nothing.
+    /// A non-root morpheme id owned by neither a `LexEntry` nor an `MRule` must confirm to nothing.
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn confirm_rejects_unowned_non_root_morpheme() {

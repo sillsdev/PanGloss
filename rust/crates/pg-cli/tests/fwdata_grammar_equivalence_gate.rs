@@ -1,76 +1,5 @@
-//! T4 grammar-equivalence gate (`docs/fwdata-import-plan.md` §5.2) — the primary correctness
-//! gate for the `.fwdata` import pipeline going forward, superseding the parse-behavioral gate
-//! in `fwdata_conformance_gate.rs` for that purpose (see that file's module doc for why: an
-//! uncapped `Morpher` search hung indefinitely on real Sena corpus input, a genuine
-//! combinatorial blowup unrelated to either compiler's correctness).
-//!
-//! For Sena 3 and Amharic, this test imports the real `.fwdata` project through the *new*
-//! pipeline (`pg_fwdata::import_file` -> `Snapshot` -> `pg_grammar::compile_project` ->
-//! `Grammar`) and independently loads the committed HC-XML oracle through the *legacy* pipeline
-//! (`pg_grammar::load`), then compares the two resulting `pg_grammar::model::Grammar` structs
-//! for **semantic equivalence — no `pg_parse::Morpher`, no analysis, no parsing of any kind**.
-//! This directly tests what T2/T3/T4 are supposed to guarantee (the compiler produces the same
-//! grammar the legacy XML pipeline does), with none of the parser's own performance
-//! characteristics in the loop.
-//!
-//! # Why not compare `Grammar` structs field-by-field
-//! The two pipelines key everything by *incompatible id schemes*: the legacy HC-XML export uses
-//! session-scoped `Hvo` integers baked into the XML at export time, the new pipeline uses
-//! FieldWorks GUIDs. A raw struct/index comparison would show wall-to-wall spurious diffs even
-//! for an identical grammar. Every category below is instead reduced to a **canonical, id-free
-//! string** before comparing — see the `GV` (`Grammar` view) canonicalizer below, keyed by
-//! content (grapheme, name, resolved feature/symbol names, structural shape) never by id.
-//!
-//! # Granularity
-//! Two different comparison strategies are used, deliberately:
-//! - Most categories (phonemes, natural classes, syntactic features, MPR names/groups, phon
-//!   rules, templates, morphological rules) are reduced to one fully-resolved canonical string
-//!   per item, then compared as a **sorted multiset** between the two grammars (order across
-//!   items is not meaningful; internal structure of one item, e.g. an allomorph's LHS part
-//!   order or a template's slot order, is preserved, never sorted, since position there *is*
-//!   semantics).
-//! - Lexical entries are the one category needing a different treatment: a stable **pairing
-//!   key** (gloss + owning stratum + syntactic FS + MPR set + partial flag — deliberately
-//!   excluding allomorph surface forms and any id) groups the two sides' entries so that a
-//!   surface-form edit shows up as "one paired entry, forms differ" rather than "one entry only
-//!   in legacy + one unrelated entry only in new" (which a naive full-content key would produce,
-//!   defeating the known-oracle-drift allowlist below). See `EntryKey`/`compare_entries`.
-//!
-//! # Known, legitimate drift (Sena 3) — carried forward from `fwdata_conformance_gate.rs`
-//! Three lexeme forms in the committed `samples/data/sena-hc.xml` were edited in FLEx after the
-//! oracle was exported, verified there against a freshly regenerated oracle:
-//! `peno`->`penohoho` (entry `2976cd0f-f9a0-486b-a025-0142ab9888fb`), `guman`->`guman
-//! hello world` (entry `33f6b0d5-78e9-4301-ad05-f691b0801faf`), `mpaka`->`mpaka la la` (entry
-//! `ab672944-a2c4-4741-969f-01700b334572`) — GUIDs confirmed directly against a fresh
-//! `pangloss import` of the live `Sena 3.fwdata` (grepped its JSON for the edited surface forms).
-//! At this grammar-equivalence level that must surface as *exactly those three* paired-entry
-//! value mismatches and nothing else. `SENA_ENTRY_DRIFT` documents each by the new-pipeline
-//! entry's GUID; `compare_entries` resolves each to its pairing key and asserts the pairing
-//! still mismatches (self-invalidating: an entry that unexpectedly matches means the oracle was
-//! regenerated and the drift entry is stale and must be removed, exactly like
-//! `fwdata_conformance_gate.rs`'s `KNOWN_ORACLE_DRIFT` convention).
-//!
-//! # Bounded scope
-//! `model.rs`'s own module doc records that all three reference grammars (Indonesian/Amharic/
-//! Sena) contain **zero** `RealizationalRule`, `StemName`, `Family`-with-entries,
-//! `MorphemeCoOccurrenceRule`/`AllomorphCoOccurrenceRule`, and `FootFeatures`. This test asserts
-//! both pipelines agree the count is zero for each (see `check_zero_construct`) rather than
-//! building bespoke canonicalizers for constructs neither corpus exercises; `properties`
-//! (arbitrary XML `<Properties>` key/value pairs) is a known, permanent, non-bug divergence — the
-//! legacy loader parses them from XML, the new pipeline never populates them at all (verified:
-//! every `properties:` push site in `compile/{lexicon,affixes}.rs` is `Vec::new()`) — so it is
-//! deliberately excluded from every canonical signature below, not compared.
-//!
-//! # Self-skipping
-//! Same convention as `fwdata_conformance_gate.rs`: both the real FieldWorks project directory
-//! and the committed oracle XML are untracked local corpora; either being absent makes the
-//! relevant test self-skip with a printed reason rather than fail.
-//!
-//! # Test-timing policy
-//! The default local `cargo test --workspace --release` run must not depend on a real FieldWorks
-//! project checkout or the gitignored `samples/data/*-hc.xml` fixtures at all, so both tests here
-//! are unconditionally `#[ignore = "..."]`d regardless of speed; the self-skip guards above already
-//! keep `--include-ignored` runs green when either is absent.
+//! The T4 grammar-equivalence gate for the `.fwdata` import pipeline: imports Sena 3/Amharic through the new pipeline, independently loads the committed HC-XML oracle through the legacy pipeline, and compares the two `Grammar` structs for semantic equivalence with no `Morpher`, analysis, or parsing at all.
+//! Method, comparison strategy, and known drift: docs/research/pg-cli-fwdata-conformance-gate-notes.md.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -81,16 +10,7 @@ use pg_grammar::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::*;
 use pg_grammar::nfd::nfd;
 
-/// FieldWorks' HC-XML exporter (`GenerateHCConfig.exe`/`XmlLanguageWriter`) substitutes the
-/// literal placeholder `"***"` for a genuinely empty optional text field (`<Name>`/abbreviation
-/// elements) rather than emitting an empty element. Confirmed directly, not assumed: the
-/// committed `samples/data/sena-hc.xml` has `<PartOfSpeech id="pos103656"><Name>***</Name>
-/// </PartOfSpeech>`, which corresponds to the live `Sena 3.fwdata`'s "Irregular Verb - ti" part
-/// of speech -- its snapshot `abbreviation` field is the empty string (verified via `pangloss
-/// import` + grepping the resulting JSON). This is a serialization artifact of the legacy export
-/// path, not real grammar content (the same POS, feature, or template either way; legacy
-/// resolves every reference by `Hvo`/id, never by this display text), so every canonical string
-/// below normalizes it to the empty string before comparing, exactly like `norm_opt_label`'s doc.
+/// FieldWorks' HC-XML exporter substitutes the literal placeholder `"***"` for a genuinely empty optional text field rather than emitting an empty element; a serialization artifact, not real grammar content, so it normalizes to empty here.
 fn norm_label(s: &str) -> String {
     if s == "***" {
         String::new()
@@ -99,8 +19,7 @@ fn norm_label(s: &str) -> String {
     }
 }
 
-/// `norm_label` over an `Option<String>` (`None` and `Some("")` and `Some("***")` are all "no
-/// label", equivalent for comparison purposes).
+/// `norm_label` over an `Option<String>`: `None`, `Some("")`, and `Some("***")` are all "no label".
 fn norm_opt_label(s: &Option<String>) -> String {
     match s {
         Some(s) => norm_label(s),
@@ -110,8 +29,7 @@ fn norm_opt_label(s: &Option<String>) -> String {
 
 // --- self-skipping helpers (mirrors fwdata_conformance_gate.rs's project_fwdata/sample_path) ---
 
-/// Locates a FieldWorks project's `.fwdata` file, or `None` if the FieldWorks checkout isn't
-/// present on this machine.
+/// Locates a FieldWorks project's `.fwdata` file, or `None` if the checkout isn't present.
 fn project_fwdata(project_dir_name: &str) -> Option<PathBuf> {
     let base = std::env::var("PANGLOSS_FW_PROJECTS_DIR")
         .map(PathBuf::from)
@@ -131,20 +49,14 @@ fn sample_path(name: &str) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// Imports `<fwdata_path>` through the new pipeline, returning the compiled `Grammar`. Panics on
-/// hard failure (import/compile *should* always succeed on these corpora, per
-/// `fwdata_conformance_gate.rs`'s own `import_and_compile`) -- warnings are printed, not asserted
-/// on, since this test's job is grammar-content equivalence, not warning-shape.
+/// Imports `<fwdata_path>` through the new pipeline; warnings are printed, not asserted on, since this test's job is grammar-content equivalence, not warning-shape.
 fn import_and_compile(fwdata_path: &Path) -> Grammar {
     let (snapshot, report) =
         pg_fwdata::import_file(fwdata_path).expect("import must succeed, not hard-error");
     let validate_warnings = snapshot.validate();
     let (grammar, compile_warnings) =
         pg_grammar::compile_project(&snapshot).expect("compile_project must succeed");
-    // `report.warnings`/`validate_warnings` are `pg_snapshot::Warning`; `compile_warnings` is
-    // still plain `String` -- print each list separately rather than through one `.chain()`
-    // (they no longer share an iterator `Item` type; this loop only ever printed them, never
-    // asserted on the combined sequence).
+    // `compile_warnings` no longer shares an iterator Item type with the other two, so print separately rather than through one `.chain()`.
     for w in report.warnings.iter().chain(&validate_warnings) {
         eprintln!("  (new pipeline) {w}");
     }
@@ -159,17 +71,9 @@ fn load_legacy(xml_path: &Path) -> Grammar {
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load oracle grammar: {e}"))
 }
 
-// =================================================================================================
 // Canonicalization: reduce a `Grammar` to id-free, content-keyed strings.
-// =================================================================================================
 
-/// A read-only view over one `Grammar` providing canonical (id-free) string renderings of every
-/// category `docs/fwdata-import-plan.md`'s task asks this gate to compare. Both corpora are
-/// known to have exactly one `CharacterDefinitionTable` and the standard 3-stratum
-/// Morphology/Clitics/Surface layout (verified against `pg_grammar::compile::mod.rs`, which
-/// hardcodes both; `pg-grammar/src/lib.rs`'s own doc records the same for the legacy XML path on
-/// all three reference grammars) -- `new` asserts both invariants up front so a violation is a
-/// loud, immediate failure rather than a confusing downstream index panic.
+/// A read-only view over one `Grammar` providing canonical (id-free) string renderings of every category this gate compares; `new` asserts the single-table/3-stratum invariants up front so a violation fails loudly, not as a confusing index panic.
 struct GV<'g> {
     g: &'g Grammar,
 }
@@ -249,13 +153,7 @@ impl<'g> GV<'g> {
         names.join(",")
     }
 
-    /// Content-only signature of a natural class (its member set / feature constraints),
-    /// independent of `name` or `xml_id`. Used both as `Self::natclass_name`'s fallback
-    /// identity for the many *unnamed* natural classes both corpora declare (`xml_id` is a raw
-    /// GUID on the new side and an Hvo-derived string on the legacy side -- falling back to it
-    /// would key every unnamed class differently between pipelines even when their content is
-    /// identical, the exact `natural classes` mismatch this replaced) and as the content half of
-    /// `Self::canon_natclass_full`.
+    /// Content-only signature of a natural class, independent of `name`/`xml_id`, since `xml_id` differs by pipeline (GUID vs. Hvo-derived) even for identical content.
     fn natclass_signature(&self, id: NatClassId) -> String {
         let nc = &self.g.natural_classes[id.0 as usize];
         match &nc.kind {
@@ -299,9 +197,7 @@ impl<'g> GV<'g> {
     }
 
     fn canon_alpha_var(&self, v: &AlphaVar) -> String {
-        // Coreference identity (`v.var`) is deliberately not encoded -- see the module doc's
-        // "bounded scope" section: Sena has zero phonological features (hence zero alpha
-        // variables at all) and this is only added if Amharic evidence demands it.
+        // Coreference identity (`v.var`) is deliberately not encoded; Sena has zero alpha variables at all.
         format!(
             "{}{}",
             if v.plus { "+" } else { "-" },
@@ -319,9 +215,7 @@ impl<'g> GV<'g> {
         }
     }
 
-    /// `SegmentedText.text` is the original authored phonetic-shape string, independent of any
-    /// id -- comparing it directly (NFD-normalized) is far simpler than resolving the internal
-    /// `Shape` and just as content-faithful, since both pipelines segment the same phonology.
+    /// `SegmentedText.text` is the original authored phonetic-shape string, independent of any id; comparing it directly (NFD-normalized) is simpler than resolving the internal `Shape`.
     fn canon_segmented_text(&self, st: &SegmentedText) -> String {
         nfd(&st.text)
     }
@@ -348,8 +242,7 @@ impl<'g> GV<'g> {
         }
     }
 
-    /// Node order is preserved (not sorted): position within a pattern is structural, not
-    /// incidental (advisor guidance: "a Pattern's nodes ... preserve order").
+    /// Node order is preserved (not sorted): position within a pattern is structural, not incidental.
     fn canon_pattern(&self, p: &Pattern) -> String {
         p.nodes
             .iter()
@@ -373,9 +266,7 @@ impl<'g> GV<'g> {
         )
     }
 
-    /// Unlike a pattern's own nodes, an allomorph's set of environments has no meaningful order
-    /// (`RequiredEnvironments`/`ExcludedEnvironments` are each evaluated independently, any one
-    /// matching is sufficient) -- sorted for comparison.
+    /// Unlike a pattern's own nodes, an allomorph's set of environments has no meaningful order, so it is sorted for comparison.
     fn canon_envs(&self, envs: &[EnvironmentDef]) -> String {
         let mut v: Vec<String> = envs.iter().map(|e| self.canon_env(e)).collect();
         v.sort();
@@ -415,8 +306,7 @@ impl<'g> GV<'g> {
             .join(">")
     }
 
-    /// LHS part order corresponds to `MorphologicalInput` position, referenced by index from the
-    /// RHS (`PartRef::Input`) -- structural, preserved.
+    /// LHS part order corresponds to `MorphologicalInput` position, referenced by index from the RHS; structural, preserved.
     fn canon_lhs(&self, lhs: &[Pattern]) -> String {
         lhs.iter()
             .map(|p| self.canon_pattern(p))
@@ -455,18 +345,7 @@ impl<'g> GV<'g> {
         )
     }
 
-    /// Deliberately excludes `a.redup_hint`: confirmed behaviorally inert for every allomorph in
-    /// both reference corpora. `pg_rules::morph::classify_redup` (the only consumer) groups RHS
-    /// `OutputAction`s by referenced LHS `Input` part and returns an empty map immediately
-    /// (`hint` never read) unless some part is referenced *more than once* -- true only for an
-    /// actual reduplication pattern. Reduplication is not implemented in the new pipeline
-    /// (`compile/mod.rs`'s own module doc) and absent from both Sena and Amharic, so
-    /// `redup_hint` never reaches a read in either grammar. The two loaders also compute it from
-    /// entirely different signals for a non-reduplicating allomorph (legacy: `redupMorphType`
-    /// XML attribute, absent -> `Implicit`; new: `allo.morph_type`, e.g. `Prefix`/`Suffix`) --
-    /// this is real, latent divergence in an otherwise-dead field, not something worth gating a
-    /// green build on; see this test's final report for the pointer to fix it properly whenever
-    /// reduplication support lands.
+    /// Deliberately excludes `a.redup_hint`: inert for every allomorph in both corpora today, but the two loaders compute it from different signals, a latent divergence to fix when reduplication support lands.
     fn canon_affix_allomorph(&self, a: &AffixAllomorphDef) -> String {
         format!(
             "reqfs={}|reqmpr={}|exclmpr={}|outmpr={}|envs=[{}]|lhs=[{}]|rhs=[{}]|coocc={}",
@@ -505,10 +384,7 @@ impl<'g> GV<'g> {
         format!("{kind}|reps={}|feats=[{}]", reps.join(","), feats.join(";"))
     }
 
-    /// Top-level canonical string for the `natural classes` category: `natclass_name`'s label
-    /// (real name, or the content signature itself when unnamed) plus the content signature
-    /// again. Printing the content twice for unnamed classes is harmless (still a correct,
-    /// content-keyed multiset element) and keeps this one shape for every class, named or not.
+    /// `natclass_name`'s label plus the content signature again; printing the content twice for unnamed classes is harmless and keeps one shape for every class.
     fn canon_natclass_full(&self, id: NatClassId) -> String {
         format!("{}|{}", self.natclass_name(id), self.natclass_signature(id))
     }
@@ -631,11 +507,7 @@ impl<'g> GV<'g> {
         )
     }
 
-    /// One full canonical string per morphological rule, dispatched by kind. Used both as a
-    /// top-level/per-stratum multiset element (rules have no known drift, so unlike lex entries
-    /// they don't need a separate pairing key) and inside a template slot's own canon (so a
-    /// slot's rule references resolve to the same content-based identity used everywhere else,
-    /// regardless of `MRuleId` numbering).
+    /// One full canonical string per morphological rule, dispatched by kind; used as both a top-level multiset element and inside a template slot's own canon, so rule references resolve to the same identity regardless of `MRuleId` numbering.
     fn canon_mrule(&self, id: MRuleId) -> String {
         match &self.g.mrules[id.0 as usize] {
             MorphRuleDef::AffixProcess(d) => {
@@ -686,12 +558,7 @@ impl<'g> GV<'g> {
         }
     }
 
-    /// The template's *shape* only (name/final/reqfs/slot names+optionality, in slot order) --
-    /// deliberately excludes which specific rules occupy each slot. See `TemplateKey`'s doc for
-    /// why: Sena's noun-class-agreement templates are ~20 structurally-identical, unnamed
-    /// templates that differ *only* in which single rule sits in their one slot, so pairing on
-    /// full content (like every other category) mispairs them the same way a naive full-content
-    /// key would mispair a lex entry across the known allomorph-drift edit.
+    /// The template's shape only, deliberately excluding which specific rules occupy each slot; see `TemplateKey`'s doc for why (Sena's ~20 structurally-identical, unnamed agreement templates).
     fn template_key(&self, t: &AffixTemplateDef) -> TemplateKey {
         TemplateKey {
             name: norm_opt_label(&t.name),
@@ -705,12 +572,7 @@ impl<'g> GV<'g> {
         }
     }
 
-    /// The rule content actually occupying `t`'s slots (paired with `Self::template_key`) --
-    /// for each slot, in slot order (positional, preserved), the sorted set of that slot's rule
-    /// signatures (sorted: a slot's rule order is meaningful *within* one template, but the
-    /// ambiguity this key/content split exists to resolve is specifically about which physical
-    /// template object holds which rule set, not about intra-slot rule order, and no reference
-    /// grammar has more than one rule in a colliding-key slot to lose order over).
+    /// The rule content actually occupying `t`'s slots, paired with `Self::template_key`: per slot, in slot order, the sorted set of that slot's rule signatures.
     fn template_content(&self, t: &AffixTemplateDef) -> Vec<String> {
         t.slots
             .iter()
@@ -746,9 +608,7 @@ impl<'g> GV<'g> {
     }
 }
 
-/// Pairing key for a lex entry: stable across the known Sena surface-form drift (does NOT
-/// include allomorph forms or any id), stable across the two pipelines (does NOT include GUID/
-/// Hvo). See the module doc's "granularity" section.
+/// Pairing key for a lex entry: stable across the known Sena surface-form drift and across the two pipelines, since it excludes allomorph forms, GUID, and Hvo.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct EntryKey {
     gloss: String,
@@ -758,14 +618,7 @@ struct EntryKey {
     partial: bool,
 }
 
-/// Pairing key for an affix template: its *shape*, deliberately excluding which rule(s) fill its
-/// slots. Sena authors roughly twenty near-identical, unnamed noun-class-agreement templates
-/// (same `reqfs`, same single slot name) that differ only in which one class-agreement rule sits
-/// in that slot -- HermitCrab's synthesis tries every template whose `reqfs` matches a candidate
-/// word, so which *physical template object* packages which rule is not itself meaningful content
-/// (equivalent to how a lex entry's GUID isn't); what's meaningful is the multiset of rule-sets
-/// available for a given shape, which `GV::template_content` captures and `compare_templates`
-/// compares per key exactly like `compare_entries` does for `EntryKey`.
+/// Pairing key for an affix template: its shape, deliberately excluding which rule(s) fill its slots, since which physical template object packages which rule is not itself meaningful content (Sena has ~20 near-identical, unnamed agreement templates differing only in slot content).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct TemplateKey {
     name: String,
@@ -774,13 +627,9 @@ struct TemplateKey {
     slots: Vec<(String, bool)>,
 }
 
-// =================================================================================================
-// Comparison drivers
-// =================================================================================================
+// Comparison drivers.
 
-/// Sorted-multiset diff: returns one line per canonical string whose count differs between the
-/// two sides (present N times on one side, M times on the other, N != M covers pure presence/
-/// absence too, at N=0 or M=0).
+/// Sorted-multiset diff: returns one line per canonical string whose count differs between the two sides (covering pure presence/absence too, at N=0 or M=0).
 fn diff_multisets(new_items: Vec<String>, legacy_items: Vec<String>) -> Vec<String> {
     fn counts(items: Vec<String>) -> BTreeMap<String, i64> {
         let mut m = BTreeMap::new();
@@ -833,10 +682,7 @@ fn check_category(
     }
 }
 
-/// See the module doc's "bounded scope" section: both pipelines are expected to report zero for
-/// these constructs on both reference corpora. A nonzero-but-equal count is not itself a failure
-/// (this test doesn't have a canonicalizer for these yet), but it IS new territory worth a
-/// human's attention, so it's printed loudly rather than silently passed.
+/// Both pipelines are expected to report zero for these constructs; a nonzero-but-equal count is not itself a failure (no canonicalizer exists yet) but is printed loudly as new territory.
 fn check_zero_construct(
     failures: &mut Vec<String>,
     language: &str,
@@ -861,13 +707,7 @@ fn check_zero_construct(
     }
 }
 
-/// One documented, GUID-anchored known-oracle-drift lex entry (see the module doc). `new_guid`
-/// must be the exact string stored in the new-pipeline `Grammar::morphemes[..].xml_key` for that
-/// entry's stem morpheme -- for a `Msa::Stem`-built entry that is the owning **MSA's** guid, NOT
-/// the `LexEntry`'s own guid (`compile/lexicon.rs::build_stem_entry` sets `xml_key: guid.clone()`
-/// from the `Msa::Stem { guid, .. }` it destructures, i.e. the MSA). Resolved directly against a
-/// fresh `pangloss import` of the live `Sena 3.fwdata` (grepped the resulting JSON for each entry's
-/// `"msas": [{"guid": ...}]`).
+/// One documented, GUID-anchored known-oracle-drift lex entry; `new_guid` must be the owning MSA's guid (not the `LexEntry`'s own), since `build_stem_entry` sets `xml_key` from the destructured `Msa::Stem`.
 struct KnownEntryDrift {
     new_guid: &'static str,
     reason: &'static str,
@@ -920,8 +760,7 @@ fn compare_entries(
     let new_map = build_map(nv);
     let leg_map = build_map(lv);
 
-    // Resolve each allowlisted GUID to the new-side pairing key (hard failure if it doesn't
-    // resolve -- the allowlist itself would be pointing at a nonexistent/renamed entry).
+    // Resolve each allowlisted GUID to the new-side pairing key; hard failure if it doesn't resolve.
     let mut drift_keys: HashMap<EntryKey, &KnownEntryDrift> = HashMap::new();
     for d in drift {
         match nv
@@ -994,11 +833,7 @@ fn compare_entries(
     }
 }
 
-/// Keyed template comparison (see `TemplateKey`'s doc): groups both sides' templates by shape,
-/// then compares each shape's (count, sorted per-template rule-content multiset) -- exactly the
-/// same count+multiset-per-key pattern `compare_entries` uses for lex entries, applied to
-/// templates because template *names* here are frequently absent/duplicated (unlike entries,
-/// which have gloss as a discriminating key; template shape plays that role instead).
+/// Keyed template comparison: groups both sides' templates by shape, then compares each shape's (count, sorted rule-content multiset), the same pattern `compare_entries` uses since template names are frequently absent/duplicated.
 fn compare_templates(
     failures: &mut Vec<String>,
     language: &str,
@@ -1065,9 +900,7 @@ fn compare_templates(
     }
 }
 
-/// The full grammar-equivalence comparison for one language. Collects failure descriptions
-/// rather than asserting inline, so every category (and, for Sena, both languages via the
-/// caller) gets a chance to report before the test fails on the first mismatch.
+/// The full grammar-equivalence comparison for one language; collects failure descriptions rather than asserting inline, so every category gets a chance to report before the test fails.
 fn compare_grammars(
     language: &str,
     new_g: &Grammar,
@@ -1078,14 +911,7 @@ fn compare_grammars(
     let nv = GV::new(new_g);
     let lv = GV::new(legacy_g);
 
-    // 1. Phonemes (character-definition table). Excludes a known, verified-inert extra: the new
-    // pipeline's `pg-fwdata` extraction includes every declared `PhBdryMarker`/boundary object
-    // unconditionally, including a "#" word-boundary marker present in the live `Sena 3.fwdata`
-    // that the legacy exporter drops (absent from `sena-hc.xml` entirely -- grepped). It is
-    // unreferenced by any environment/pattern in either grammar (grepped `sena-hc.xml` for any
-    // `#` segment/boundary attribute: zero hits), so it can never affect any parse/synthesis
-    // outcome -- a table-inventory artifact of the two boundary-marker inventories, not grammar
-    // content.
+    // 1. Phonemes. Excludes a known, verified-inert extra: a "#" word-boundary marker the new pipeline extracts unconditionally but the legacy exporter drops, unreferenced by any environment/pattern in either grammar.
     let is_inert_extra_boundary = |cd: &CharDef| {
         matches!(cd.kind(), CharDefKind::Boundary) && cd.representations_nfd() == ["#"]
     };
@@ -1259,8 +1085,7 @@ fn compare_grammars(
         leg_items,
     );
 
-    // 9. Per-stratum content (catches a rule/entry/template landing on the wrong stratum, e.g.
-    //    the historical "template-only-rule stratum leak" bug this gate must be able to catch).
+    // 9. Per-stratum content, to catch a rule/entry/template landing on the wrong stratum.
     let new_strata = nv.strata_by_name();
     let leg_strata = lv.strata_by_name();
     let mut stratum_names: Vec<&String> = new_strata.keys().chain(leg_strata.keys()).collect();
@@ -1334,9 +1159,7 @@ fn compare_grammars(
     failures
 }
 
-// =================================================================================================
-// Tests
-// =================================================================================================
+// Tests.
 
 #[test]
 #[ignore = "needs a real FieldWorks project checkout + local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]

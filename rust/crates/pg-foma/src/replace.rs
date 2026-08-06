@@ -325,9 +325,7 @@ use pg_grammar::model::{
 
 use crate::compose_budget::{compose_checked, union_checked, ComposeBudget, ComposeError};
 
-/// Private-Use-Area base codepoint every `CharDefId` is offset from. `CharDefId`s in every
-/// reference grammar are far below `0xF8FF - 0xE000` (6400) entries, so no grammar in scope can
-/// overflow the PUA block.
+/// Private-Use-Area base codepoint every `CharDefId` is offset from; no in-scope grammar has enough char-defs to overflow the PUA block.
 const PUA_BASE: u32 = 0xE000;
 
 /// Cross-table representation aliasing: a normalized
@@ -391,14 +389,7 @@ impl RepresentationAliasMap {
         }
     }
 
-    /// Every `(TableId, CharDefId)` — ALWAYS including `(table_id, cd)` itself — that shares any
-    /// normalized representation with `cd` (resolved in `table`, which the caller asserts is
-    /// `table_id`'s own table). Order is insertion order (grammar's own `char_tables` order, then
-    /// each table's own char-def order) and deduplicated, so a single-table grammar (or a
-    /// multi-table grammar where `cd`'s spelling happens to be unique to its own table) always
-    /// returns exactly `[(table_id, cd)]` — the design's own recall-safety argument ("only ever
-    /// ADDS alternatives") made concrete: this never returns an EMPTY set, and never omits the
-    /// atom's own table/cd pair.
+    /// Every `(TableId, CharDefId)` sharing a normalized representation with `cd`, always including `(table_id, cd)` itself; never empty.
     fn aliases_for(
         &self,
         table: &CharDefTable,
@@ -416,11 +407,7 @@ impl RepresentationAliasMap {
             }
         }
         if !out.contains(&(table_id, cd)) {
-            // Defensive only: `cd`'s own representations always index back to `(table_id, cd)`
-            // itself in `by_repr` (built from the same `CharDefTable::iter`/
-            // `representations_nfd` data) -- this branch exists so a future change to how the
-            // map is built/consulted can never silently DROP the atom's own token, never to
-            // paper over a real bug (see `RepresentationAliasMap` build's own doc).
+            // Defensive: guards against a future change to the map silently dropping the atom's own token.
             out.push((table_id, cd));
         }
         out
@@ -442,17 +429,7 @@ impl RepresentationAliasMap {
 /// emission, and query encoding for one grammar/table pair.
 pub struct SegAlphabet<'t> {
     table: &'t CharDefTable,
-    /// This alphabet's own table identity plus the grammar-wide `RepresentationAliasMap`,
-    /// together — only ever both-or-neither: no defaulted `TableId` — a `TableId` with no alias map to consult
-    /// would be exactly the same "implicit default" mistake class `owning_table` was introduced
-    /// to remove; an alias map with no `TableId` to alias FROM is meaningless). `None` for every
-    /// call site built via `Self::new` (every pre-existing caller in this crate: `emit.rs`,
-    /// `uflexc.rs`, `gate.rs`, `enumerate.rs`, `oracle.rs`, `capability.rs`, `capability_entry.rs`,
-    /// `plan_interaction_coverage.rs`, every test module) — `None` is an honest "this alphabet was
-    /// never asked to alias," never a silent guess of table 0. Only `Self::render_tokens` reads
-    /// this field; every other method (`Self::token`/`Self::encode_shape`/
-    /// `Self::encode_query`) is completely unaffected by it (design item 4: query/shape encoding
-    /// must never alias).
+    /// Table identity plus alias map, always both or neither; `None` (via `Self::new`) means this alphabet was never asked to alias.
     aliasing: Option<(TableId, &'t RepresentationAliasMap)>,
 }
 
@@ -506,10 +483,7 @@ impl<'t> SegAlphabet<'t> {
                     .aliases_for(self.table, table_id, cd)
                     .into_iter()
                     .map(|(_tid, acd)| {
-                        // `PUA_BASE + acd.0` -- table-blind by construction (module doc's own
-                        // "Symbol alphabet" section), which is exactly the mechanism this alias
-                        // union relies on: the SAME formula every alphabet already uses for its
-                        // own table's tokens, applied here to ANOTHER table's char-def.
+                        // Same PUA formula as this alphabet's own tokens, applied to another table's char-def.
                         char::from_u32(PUA_BASE + acd.0)
                             .expect("char table too large for the PUA token scheme")
                     })
@@ -581,12 +555,7 @@ impl<'t> SegAlphabet<'t> {
     }
 }
 
-// =================================================================================================
-// `crate::lower` is the sole/canonical home for the `Slot`/`pattern_slots`/`resolve_alpha_tuples`/
-// `render_slots`/`AlphaAssignment`/`TupleReport` pattern/environment-lowering vocabulary.
-// Re-exported here at the SAME paths/visibility every caller in this file and outside it already
-// depends on, so nothing importing from `pg_foma::replace` needs to change.
-// =================================================================================================
+// Re-exported from `crate::lower` (canonical home) at the same paths so existing callers need no change.
 pub(crate) use crate::lower::{pattern_slots, render_slots, resolve_alpha_tuples, Slot};
 pub use crate::lower::{AlphaAssignment, TupleReport};
 
@@ -600,10 +569,7 @@ mod representation_alias_map_tests {
     use super::*;
 
     fn two_table_shared_repr_grammar() -> Grammar {
-        // Table A ("t0"): one segment, "x", at raw index 0. Table B ("t1"): "z" (index 0, decoy --
-        // deliberately misaligns "x"'s own index across the two tables, module doc), "x" (index 1,
-        // the SHARED representation), "y" (index 2). No rules/strata needed at all for this
-        // unit-level probe -- only `Grammar::char_tables` matters to `RepresentationAliasMap`.
+        // Table A: "x" at index 0. Table B: "z"(0, decoy - misaligned index), "x"(1, shared), "y"(2).
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -628,8 +594,7 @@ mod representation_alias_map_tests {
         pg_grammar::load(XML).unwrap_or_else(|e| panic!("alias-map unit probe failed to load: {e}"))
     }
 
-    /// The multimap itself: "x" (shared) maps to BOTH tables' own `(TableId, CharDefId)`; "z"/"y"
-    /// (unique to table B) map to exactly their own single pair.
+    /// "x" (shared) maps to both tables' pairs; "z"/"y" (unique to table B) map to their own single pair.
     #[test]
     fn build_maps_shared_representation_to_every_owning_table_and_cd() {
         let g = two_table_shared_repr_grammar();
@@ -641,8 +606,7 @@ mod representation_alias_map_tests {
         let cd_b_z = table_b.lookup_nfd("z").expect("table B declares z");
         let cd_b_x = table_b.lookup_nfd("x").expect("table B declares x");
         let cd_b_y = table_b.lookup_nfd("y").expect("table B declares y");
-        // Misalignment sanity: the shared spelling "x" really does sit at DIFFERENT raw indices in
-        // the two tables -- the whole reason this fix is needed at all.
+        // Sanity: "x" sits at different raw indices in the two tables -- why this fix is needed.
         assert_ne!(
             cd_a_x.0, cd_b_x.0,
             "the fixture's own misalignment must hold"
@@ -657,9 +621,7 @@ mod representation_alias_map_tests {
         assert!(aliases_x.contains(&(TableId(0), cd_a_x)));
         assert!(aliases_x.contains(&(TableId(1), cd_b_x)));
 
-        // "z"/"y" are unique to table B -- aliases_for degenerates to the singleton, exactly
-        // `Self::token`'s own pre-aliasing behavior (recall-safety: only ever ADDS, never
-        // removes or alters the unshared case).
+        // "z"/"y" are unique to table B: aliases_for degenerates to the singleton.
         assert_eq!(
             map.aliases_for(table_b, TableId(1), cd_b_z),
             vec![(TableId(1), cd_b_z)]
@@ -670,10 +632,7 @@ mod representation_alias_map_tests {
         );
     }
 
-    /// `SegAlphabet::render_tokens`: an alphabet built via `SegAlphabet::new` (no table
-    /// identity -- every pre-existing call site in this crate) never aliases, REGARDLESS of
-    /// whether the grammar has a shared representation -- `[self.token(cd)]` always, the
-    /// byte-identical-to-today behavior `tests/p6_gate_parity.rs`/`tests/f3_parity.rs` depend on.
+    /// `SegAlphabet::new` never aliases, regardless of shared representations -- the byte-identical-to-today behavior existing parity tests depend on.
     #[test]
     fn render_tokens_never_aliases_without_a_table_id() {
         let g = two_table_shared_repr_grammar();
@@ -683,10 +642,7 @@ mod representation_alias_map_tests {
         assert_eq!(alphabet.render_tokens(cd_b_x), vec![alphabet.token(cd_b_x)]);
     }
 
-    /// `SegAlphabet::render_tokens` via `SegAlphabet::with_table_id`: the shared "x" atom
-    /// renders as the UNION of both tables' own tokens (deduplicated, and ALWAYS including the
-    /// alphabet's own `token(cd)` -- the "only ever ADDS" recall-safety property made concrete),
-    /// while the unshared "z"/"y" atoms degenerate to exactly the single-token case.
+    /// `with_table_id` renders the shared "x" atom as the union of both tables' tokens (deduplicated); unshared atoms degenerate to the single-token case.
     #[test]
     fn render_tokens_aliases_the_shared_atom_and_degenerates_for_the_unshared_ones() {
         let g = two_table_shared_repr_grammar();
@@ -724,9 +680,7 @@ mod representation_alias_map_tests {
         );
     }
 
-    /// Design item 4: `encode_shape`/`encode_query` never alias, regardless of whether the
-    /// alphabet was built via `SegAlphabet::new` or `SegAlphabet::with_table_id` -- a query
-    /// word must stay single-token, never ambiguous.
+    /// `encode_shape`/`encode_query` never alias, regardless of construction path -- a query word must stay single-token.
     #[test]
     fn encode_query_is_unaffected_by_table_id_aliasing() {
         let g = two_table_shared_repr_grammar();
@@ -835,51 +789,21 @@ pub(crate) fn owning_table_id_for_metathesis(
     owning_table_id_for_prule_position(g, idx)
 }
 
-/// Shared tail of `owning_table`/`owning_table_for_metathesis`: given a rule's own position
-/// (`PRuleId`, found by the caller's own variant-specific `xml_id` lookup) in `g.prules`, find the
-/// stratum whose `prules` list contains it and return that stratum's own `CharDefTable`. `None`
-/// (never a panic, never an implicit table-zero guess) when no stratum's own `prules` list
-/// contains it — see `owning_table`'s own doc for the full case this covers: a rule wired into
-/// no stratum at all.
+/// Shared tail of `owning_table`/`owning_table_for_metathesis`: finds the stratum owning this rule position's table, or `None` if wired into none.
 fn owning_table_for_prule_position(g: &Grammar, idx: usize) -> Option<&CharDefTable> {
     let table_id = owning_table_id_for_prule_position(g, idx)?;
     Some(&g.char_tables[table_id.0 as usize])
 }
 
-/// `owning_table_for_prule_position`'s own `TableId` half, factored out so
-/// `owning_table_id` never re-derives the stratum lookup independently (see that function's own
-/// doc for why: two independent derivations could silently disagree; sharing this one cannot).
+/// `owning_table_for_prule_position`'s own `TableId` half, factored out so `owning_table_id` shares this lookup rather than re-deriving it.
 fn owning_table_id_for_prule_position(g: &Grammar, idx: usize) -> Option<TableId> {
     let target = PRuleId(idx as u32);
     let stratum = g.strata.iter().find(|s| s.prules.contains(&target))?;
     Some(stratum.table)
 }
 
-/// `slots` in REVERSE document order (the mirror-rule construction, module doc): never mutates in
-/// place, so the caller's own document-order `Vec<Slot>` (needed unchanged for the safety-net plain
-/// branch, `compile_rtl_branch_net`'s doc) is untouched.
-///
-/// # Recurses into a `Slot::Repeat`'s own `children`
-/// A shallow, non-recursing reversal is wrong here — see this crate's own
-/// `rtl_repeat_children_reversal_tests` module below for the concrete witness.
-/// A `Slot::Repeat{children, ..}` is NOT an atomic, single-token "position" the way
-/// `Slot::Fixed`/`Slot::Union`/`Slot::Alpha` are — it is itself a variable-length SEQUENCE (each
-/// repetition contributes `children.len()` tokens, repeated some number of times). Reversing the
-/// TRUE flattened token sequence such a group can produce requires reversing the ORDER of tokens
-/// WITHIN each repetition too — i.e. recursing into `children` — not merely reordering which
-/// TOP-LEVEL slot comes before/after which other one while leaving `children` in document order.
-/// A shallow `.iter().rev().cloned()` (this function's own PRE-FIX shape) gets this wrong whenever
-/// a `Repeat`'s own `children` has 2+ HETEROGENEOUS entries: `reversing([Fixed(y), Repeat{[a,b]},
-/// Fixed(x)])` must give `[Fixed(x), Repeat{[b,a]}, Fixed(y)]` (the quantifier group's own interior
-/// reversed too, not just its position among its siblings) — `rtl_repeat_children_reversal_tests`
-/// (below) demonstrates the shallow version compiles a `Dir::RightToLeft` reversed branch net whose
-/// own language is provably NOT the true reverse (the compiled net requires the WRONG, swapped
-/// environment content) BEFORE this recursive fix, and the true reverse AFTER it. Recursing is safe
-/// for the SAME reason the top-level reversal is: `Slot::Repeat`'s own `min`/`max` bound is
-/// direction-invariant (reversing a language does not change how many times a repeated group can
-/// occur), so only `children`'s own internal order needs to flip, never `min`/`max` themselves —
-/// including the `max: None` (genuinely unbounded) case, which carries no numeric bound to touch
-/// at all.
+/// `slots` in reverse document order; recurses into a `Slot::Repeat`'s own `children`, or a heterogeneous quantifier group compiles a wrong RTL branch net.
+/// See `docs/research/pg-foma-replace-design-notes.md`, "`reversed_slots`: why it must recurse into `Slot::Repeat` children".
 fn reversed_slots(slots: &[Slot]) -> Vec<Slot> {
     slots
         .iter()
@@ -895,20 +819,7 @@ fn reversed_slots(slots: &[Slot]) -> Vec<Slot> {
         .collect()
 }
 
-/// Renders one COMPLETE branch's xre source text (`"LHS -> RHS"`, optionally with `|| L _`/`|| _
-/// R`/`|| L _ R`), given slot lists ALREADY in the final order/environment-role this branch wants
-/// to render (document order for the ordinary `LeftToRight`-style branch; mirrored — reversed and
-/// left/right-swapped — for `compile_rtl_branch_net`'s intermediate mirror-rule compile).
-///
-/// Empty `lhs`/`rhs` render as foma's own epenthesis/deletion literals, `"[..]"`/`"0"` (foma's xre
-/// grammar rejects a literally-blank LHS/RHS operand — confirmed empirically by bisection:
-/// `"0 -> x || a _ b"` silently compiles to a rule that NEVER inserts on either tape, while
-/// `"[..] -> x || a _ b"`, foma's own documented epenthesis notation — `foma::rewrite`'s own test
-/// `rewrite_epenthesis`, `"[..] -> x"` inserting `x` at every position — behaves correctly). The
-/// RHS `"0"` deletion literal is exercised by the reference grammars; the LHS `"[..]"` epenthesis
-/// literal has no existing caller yet (`rule.lhs.nodes.is_empty()` is
-/// [`CharacteristicKind::Epenthesis`](crate::capability::CharacteristicKind::Epenthesis)'s own
-/// trigger), so this changes no existing test's compiled output.
+/// Renders one complete branch's xre source text. Empty `lhs`/`rhs` render as `"[..]"`/`"0"`: foma's xre grammar requires a non-blank operand.
 fn render_branch_regex(
     alphabet: &SegAlphabet,
     lhs_slots: &[Slot],
@@ -945,35 +856,8 @@ fn render_branch_regex(
     }
 }
 
-/// Compiles one branch (one subrule, one alpha-tuple assignment) into a foma `Fsm`, dispatching on
-/// `dir` (module doc, "`Dir::RightToLeft`: the reversal construction"):
-/// - `Dir::LeftToRight`: `render_branch_regex` over the slots AS GIVEN (document order), compiled
-///   with plain foma `->` — byte-identical to what this file has always done (no behavior change
-///   for any `LeftToRight` rule).
-/// - `Dir::RightToLeft`: `fsm_union(plain_net, reversed_net)` where `plain_net` is the SAME
-///   `LeftToRight`-style compile (the safety-net floor, module doc) and `reversed_net` is
-///   `fsm_reverse` of the MIRROR rule's compile — LHS/RHS reversed, environments swapped-and-
-///   reversed (`left_env' = reverse(right_env)`, `right_env' = reverse(left_env)`).
-///
-/// # Worked example (`tests/phase_c_right_to_left.rs`'s own `rtl-distinct-leftmost-rightmost`
-/// witness, "aa -> b" on "aaa")
-/// Plain `LeftToRight` compile of `"aa -> b"` prefers the LEFTMOST non-overlapping match: applied
-/// to `"aaa"` it yields `"ba"` (positions 0-1 replaced, trailing "a" survives). The mirror rule
-/// reverses LHS ("aa" reversed is still "aa", a palindrome) and RHS ("b" reversed is "b") — same
-/// xre text — so `fsm_reverse` of that mirror compile yields a network that, on the SAME un-
-/// reversed input `"aaa"`, prefers the RIGHTMOST non-overlapping match instead: `"ab"` (positions
-/// 1-2 replaced, leading "a" survives). `reversed_net` alone therefore genuinely differs from
-/// `plain_net` on this input (proof the construction is not "compiled as LeftToRight"); the
-/// returned `fsm_union(plain_net, reversed_net)` accepts BOTH `"ba"` and `"ab"` as valid rewrites
-/// of `"aaa"` (module doc's safety-net rationale).
-///
-/// No spurious THIRD "did nothing" path is introduced by this union (contrast the alpha-tuple
-/// union-is-wrong finding two sections up): both `plain_net` and `reversed_net` are already
-/// COMPLETE, OBLIGATORY replace transducers over the FULL rule (not a partition of a shared
-/// context space the way per-tuple branches are) — neither one has an identity-elsewhere escape
-/// hatch at a position where its own LHS/environment matches, so unioning them only ever adds the
-/// second branch's own genuinely-distinct obligatory rewrite(s), never a "nothing happened"
-/// alternative.
+/// Compiles one branch into a foma `Fsm`: `Dir::LeftToRight` renders the slots as given; `Dir::RightToLeft` unions that with `fsm_reverse` of the mirror rule's compile (LHS/RHS reversed, environments swapped-and-reversed).
+/// Worked example and why the union introduces no spurious identity path: `docs/research/pg-foma-replace-design-notes.md`, "`compile_rtl_branch_net`: worked example pinning the union's necessity".
 #[allow(clippy::too_many_arguments)]
 fn compile_rtl_branch_net(
     opts: &FomaOptions,
@@ -997,8 +881,7 @@ fn compile_rtl_branch_net(
         Dir::RightToLeft => {
             let mirror_lhs = reversed_slots(lhs_slots);
             let mirror_rhs = reversed_slots(rhs_slots);
-            // Swap: the mirror rule's own left environment is the REVERSED original right
-            // environment, and vice versa (module doc).
+            // Swap: the mirror rule's own left environment is the reversed original right environment, and vice versa.
             let mirror_left = reversed_slots(right_slots);
             let mirror_right = reversed_slots(left_slots);
             let mirror_regex = render_branch_regex(
@@ -1028,33 +911,8 @@ fn compile_rtl_branch_net(
     }
 }
 
-// =================================================================================================
-// One subrule -> one or more concrete xre replace-rule instances, COMPOSED (not unioned!) at the
-// Fsm level. Two false starts, both empirically confirmed and worth recording (prototype
-// report's "foma-rs API findings"):
-//   1. Comma-joining full `LHS -> RHS || L _ R` branches in ONE regex string is rejected by this
-//      vendored xre grammar's parser whenever the branches don't share one RHS (this foma-rs's
-//      comma only joins multiple ENVIRONMENTS for a SHARED `LHS -> RHS`, or fully bare
-//      `LHS -> RHS` rules with no `||` at all — confirmed by direct bisection).
-//   2. `fsm_union`-folding N independently-compiled per-tuple nets is WRONG, not just
-//      syntactically awkward: each per-tuple net is a COMPLETE replace transducer whose own
-//      "elsewhere" case is already identity (everything outside ITS OWN context passes through
-//      unchanged). Unioning N such complete nets reintroduces a SPURIOUS "did nothing" path at
-//      every position — including ones where some OTHER tuple's context obligatorily applies —
-//      because from any ONE tuple's-net point of view, a position outside its own context is
-//      just ordinary passthrough, and union keeps that path alongside the correct one. Verified
-//      empirically: `apply_down` on a hand-built "meⁿ+baca" underlying string through the union
-//      returned BOTH the correct "mem+baca" path AND a spurious "meⁿ+baca" (unconverted
-//      placeholder) path.
-// The fix: since the 14 tuples' contexts are, BY THE JOINT-AGREEMENT FILTER'S OWN CONSTRUCTION,
-// mutually exclusive (a concrete following segment has exactly one place-of-articulation value,
-// so at most one tuple's right-environment ever matches a given position), `fsm_compose`-folding
-// them SEQUENTIALLY is correct: tuple K's net only ever sees the placeholder if every earlier
-// tuple in the fold left it untouched (not in ITS context), and once any ONE tuple rewrites it to
-// a concrete segment, no LATER tuple's LHS (always the literal placeholder) can match it again.
-// This is the exact same "feeding order" argument the OUTER stratum-level cascade
-// (`compile_and_compose_rules`) already relies on — the fix is to apply it one level deeper too.
-// =================================================================================================
+// One subrule compiles to one or more xre replace-rule instances, composed (not unioned) via fsm_compose: alpha tuples are mutually exclusive by construction, so sequential composition is correct.
+// Two rejected alternatives: docs/research/pg-foma-replace-design-notes.md, "Per-subrule composition: two rejected constructions".
 
 /// Compile one `RewriteRuleDef` (all its subrules, all their alpha tuples) into ONE foma `Fsm`
 /// (union of every subrule × tuple instance), and report the alpha-tuple expansion for every
@@ -1144,25 +1002,14 @@ pub fn compile_rewrite_rule_subset(
     if !is_fully_supported_shape(g, rule) {
         return Ok(None);
     }
-    // Resolved ONCE per rule (LHS is shared
-    // across every subrule, module doc), never re-derived per subrule/slot and never an implicit
-    // `g.char_tables[0]` default -- see `owning_table`'s own doc for how it finds the rule's
-    // owning stratum. `None` (a rule absent from every stratum's own cascade) is treated
-    // exactly like an unsupported pattern construct -- uncovered, reported `skipped` by this
-    // function's own callers, never a silent table-zero guess.
+    // Resolved once per rule, never an implicit table-zero default; `None` is treated like an unsupported construct, reported `skipped` by callers.
     let Some(table) = owning_table(g, rule) else {
         return Ok(None);
     };
-    // `owning_table_id` derives from the exact same stratum lookup as `owning_table` just above
-    // (`owning_table_id_for_prule_position`/`owning_table_for_prule_position` share
-    // `owning_table_id_for_prule_position`), so it is guaranteed `Some` here too.
+    // `owning_table_id` shares `owning_table`'s own stratum lookup, so it is guaranteed `Some` here too.
     let table_id = owning_table_id(g, rule)
         .expect("owning_table_id shares owning_table's own lookup, which just resolved Some");
-    // Cross-table representation aliasing: built once per rule (cheap,
-    // `RepresentationAliasMap::build`'s own doc) rather than threaded down from the outer
-    // cascade functions, so this stays entirely inside `compile_rewrite_rule_subset` --
-    // `compile_and_compose_rules(_gated)_with_budget`'s own public signatures (external callers
-    // in `gate.rs`/`build.rs`) need no change at all.
+    // Built once per rule rather than threaded from the outer cascade functions, so callers outside this file need no signature change.
     let alias_map = RepresentationAliasMap::build(g);
     let render_alphabet = SegAlphabet::with_table_id(table, table_id, &alias_map);
     let mut net: Option<Fsm> = None;
@@ -1172,18 +1019,9 @@ pub fn compile_rewrite_rule_subset(
         if !allowed(subrule_index) {
             continue;
         }
-        // One shared occurrence counter per subrule: the LHS is textually shared across every
-        // subrule of a rule but its alpha slots are numbered FRESH per subrule (HC's variable
-        // scoping is per-subrule, module doc), so `lhs_slots` is (re)computed here, not hoisted
-        // above the loop.
+        // Alpha slots are numbered fresh per subrule (HC's variable scoping is per-subrule), so `lhs_slots` is recomputed here, not hoisted above the loop.
         let mut next_occurrence = 0usize;
-        // `PatternLowerScope::RewriteRuleCompile`: this is the ONE real production compile
-        // path for an ordinary rewrite rule, EITHER `Dir` -- widening it to additionally accept a
-        // same-table `Segments`/any `Anchor` (`crate::lower::PatternLowerScope`'s own doc) benefits
-        // `Dir::LeftToRight` and `Dir::RightToLeft` alike, since this floor has always been Dir-
-        // agnostic (`is_fully_supported_shape`'s own doc). `crate::capability::
-        // rtl_reversal_construction_attempted` MUST pass this SAME scope value, or the capability
-        // predicate and this real compiler could silently diverge on which rules are admitted.
+        // `crate::capability::rtl_reversal_construction_attempted` must pass this same scope value, or the capability predicate and this compiler could silently diverge on which rules are admitted.
         let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
         let Some(lhs_slots) = pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope)
         else {
@@ -1217,9 +1055,7 @@ pub fn compile_rewrite_rule_subset(
                 right_slots.as_slice(),
             ],
         );
-        // V3 (design doc §4): checked BEFORE the per-tuple compile loop -- the cheapest-possible
-        // predictor, same principle as `EnumerationBudget`'s own "check the search result before
-        // the expensive part".
+        // Checked before the per-tuple compile loop: the cheapest-possible predictor.
         if report.surviving > budget.tuple_cap() {
             return Err(ComposeError::AlphaTupleBudgetExceeded {
                 surviving: report.surviving,
@@ -1244,8 +1080,7 @@ pub fn compile_rewrite_rule_subset(
             )?;
             net = Some(match net {
                 None => branch_net,
-                // Sequential composition, NOT union — see the module-level doc above this
-                // function for why union is wrong here.
+                // Sequential composition, not union -- see the per-subrule composition note above this loop.
                 Some(prev) => compose_checked(
                     opts,
                     prev,
@@ -1370,10 +1205,7 @@ fn compile_and_compose_rules_internal(
         let rule = match pr {
             PhonRuleDef::Rewrite(rule) => rule,
             PhonRuleDef::Metathesis(m) => {
-                // Attempts the dedicated swap relation (module doc on `compile_metathesis_rule`)
-                // instead of an unconditional skip. A shape left honestly unsupported (module
-                // doc's "Scope" section) still falls through to the SAME `skipped` report every
-                // unsupported construct uses, never a silent wrong compile.
+                // A shape left honestly unsupported falls through to the same `skipped` report every unsupported construct uses, never a silent wrong compile.
                 match compile_metathesis_rule(opts, g, alphabet, m, budget)? {
                     Some(net) => {
                         composed = Some(match composed {
@@ -1392,12 +1224,7 @@ fn compile_and_compose_rules_internal(
                 continue;
             }
         };
-        // Direction/mode fidelity (module doc): every reference-grammar rule this prototype has
-        // seen is `Iterative`/`LeftToRight`, compiled via plain foma `->` (unioned per alpha-tuple,
-        // see `compile_rewrite_rule`'s doc). A `RightToLeft` or `Simultaneous` rule is honestly
-        // reported `skipped` instead -- `compile_rewrite_rule_subset`'s own `is_fully_supported_
-        // shape` check (that function's doc) makes this a detected, reported gap rather
-        // than a silent mis-map.
+        // `is_fully_supported_shape` detects an unsupported RightToLeft/Simultaneous shape and reports it `skipped`, never a silent mis-map.
         match compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true, budget)? {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
@@ -1483,10 +1310,7 @@ pub fn compile_and_compose_rules_gated_with_budget(
         let rule = match pr {
             PhonRuleDef::Rewrite(rule) => rule,
             PhonRuleDef::Metathesis(m) => {
-                // A `MetathesisRuleDef` carries no subrules at all (no MPR/POS gating surface,
-                // module doc on `MetathesisRuleDef`), so `subrule_ok`/gating simply does not
-                // apply -- every group compiles the SAME metathesis relation
-                // `compile_and_compose_rules_with_budget` does.
+                // A `MetathesisRuleDef` carries no subrules, so gating does not apply -- every group compiles the same metathesis relation.
                 match compile_metathesis_rule(opts, g, alphabet, m, budget)? {
                     Some(net) => {
                         composed = Some(match composed {
@@ -1505,9 +1329,7 @@ pub fn compile_and_compose_rules_gated_with_budget(
                 continue;
             }
         };
-        // See `compile_and_compose_rules_with_budget`'s own doc: mode/dir detection now lives in
-        // `compile_rewrite_rule_subset` itself (`is_fully_supported_shape`), so an unsupported
-        // shape is reported `skipped` for every group, never silently mis-compiled.
+        // Mode/dir detection lives in `compile_rewrite_rule_subset` (`is_fully_supported_shape`), so an unsupported shape is reported `skipped`, never silently mis-compiled.
         let allowed = |sub_idx: usize| subrule_ok(rule_pos, sub_idx);
         match compile_rewrite_rule_subset(opts, g, alphabet, rule, &allowed, budget)? {
             Some((net, reports)) => {
@@ -1563,222 +1385,11 @@ pub fn is_fully_supported_shape(g: &Grammar, rule: &RewriteRuleDef) -> bool {
 /// this module reads directly (`mode`/`dir` are read via `is_fully_supported_shape` instead).
 pub type Subrule = RewriteSubruleDef;
 
-// =================================================================================================
-// Metathesis: the dedicated swap relation.
-//
-// A `MetathesisRuleDef` (model.rs's own doc, cited there) is ONE match pattern plus two switch
-// POSITIONS (`left_switch`/`right_switch`, each a single index into `pattern.nodes` — never a
-// range: the model has no way to represent a multi-node switch group at all, unlike the oracle's
-// own generalized `pg_rules::metathesis` machinery, which handles a possibly-wider *compiled
-// segment* span defensively even though no DTD-legal, C#-loadable grammar can ever produce one
-// wider than one node — see that module's own doc). Synthesis reorders the two switch nodes'
-// OWN VALUES: whichever switch is PHYSICALLY LAST in `pattern.nodes` ends up FIRST in the output;
-// whichever is physically first ends up last; every node strictly between them (if any) keeps its
-// own slot, value unchanged (`pg_rules::metathesis::synthesis_reorder`'s own `move_nodes_after`
-// algorithm, hand-traced and cross-checked against both of this repo's real HermitCrab-conformant
-// fixtures — `machine/conformance/languages/metathesis-phase-isolation`'s `mrSimpleMeta`/
-// `mrComplexMeta` — which both author `left_switch` physically AFTER `right_switch`, the only
-// shape a genuine (non-vacuous) metathesis rule would ever use). This characterization is
-// tag-name-agnostic (it never matters whether the physically-last node happens to be tagged
-// `leftSwitch` or `rightSwitch`): it is a literal POSITIONAL swap of the window's two endpoint
-// slots, with any interior/exterior context passed through unchanged — exactly the shape a plain
-// foma `->` replace rule's own LHS/RHS concatenation can render directly, no new `foma`/`pg-fst`
-// primitive needed (contrast `compile_rtl_branch_net`'s own reversal construction, which DOES
-// need one).
-//
-// # The relation: per-branch literal cross product, unioned (mirrors `resolve_alpha_tuples`)
-// A switch (or any other pattern position) may be a natural-class UNION with more than one member,
-// and the value that matched at one endpoint must reappear, UNCHANGED, at its own (possibly
-// swapped) output position — an identity-preservation requirement a plain "[classA] ... [classB]
-// -> [classB] ... [classA]" rendering would NOT satisfy (foma's `->` builds a nondeterministic
-// cross product of the two SIDES' own languages when they are not both singletons, silently
-// pairing ANY classA member with ANY classB member rather than the one that actually matched at a
-// given occurrence — exactly the failure mode `resolve_alpha_tuples`'s own module doc already
-// found and fixed for alpha variables). `compile_metathesis_rule` applies the SAME fix: resolve
-// every slot's own candidate members, enumerate the full cross product (no joint-agreement filter
-// is needed here — unlike alpha variables, metathesis has no shared-`VarId` agreement constraint
-// linking two positions; every combination is independently a real candidate underlying shape),
-// and for each concrete assignment render ONE fully-literal branch — `"<pos0> <pos1> ... ->
-// <pos0'> <pos1'> ..."`, document order, every non-switch position IDENTICAL text on both sides,
-// the two switch positions' own concrete tokens TRANSPOSED — then union every branch together.
-// This union is safe for the SAME reason `compile_rtl_branch_net`'s own safety-net union is
-// (that function's own doc): each branch is a COMPLETE, fully-literal replace transducer with no
-// "did nothing" escape hatch at a position its own (fully concrete, non-overlapping-by-construction
-// — a real input position holds exactly one concrete token) literal context matches, so unioning
-// adds no spurious identity path.
-//
-// # Cross-table representation aliasing, closing a residual gap
-// An ordinary rewrite rule's atoms render via `SegAlphabet::render_tokens` — a render-TIME union over every table
-// sharing a spelling, applied in `crate::lower::render_slots`'s `Slot::Fixed`/`Slot::Union` arms.
-// That shape is WRONG for this construction: `slot_candidates` feeds directly into the per-branch
-// literal cross product above, whose whole point is identity preservation between a matched value
-// and its (possibly swapped) output position — exactly the same reason `render_slots`'s own
-// `Slot::Alpha` arm deliberately does NOT alias (that function's own doc: "an alpha occurrence's
-// resolved segment is chosen per-tuple ... out of this step's scope"). Rendering LHS position `lo`
-// as a bracketed union `[τ_A(s) | τ_B(s)]` and RHS position `hi` as the SAME independently-rendered
-// union would let foma's `->` pair EITHER alias on the input with EITHER alias on the output — an
-// input token from table A could emit table B's token at the swapped position, a new correctness
-// bug strictly worse than the false negative being fixed (module doc above already names this exact
-// failure mode for natural-class unions; a text-level cross-table union is the identical mistake,
-// just introduced at a different axis).
-//
-// The fix instead pushes the aliasing DOWN into `slot_candidates` itself: every slot's own
-// candidate `CharDefId` set is expanded, member-by-member, to every `(table, cd)` pair sharing that
-// member's normalized representation (`RepresentationAliasMap::aliases_for`, the SAME grammar-wide
-// multimap built above, reused unchanged). This composes cleanly with the existing cross-product
-// construction with NO change to that construction's own shape: each branch still fixes exactly ONE
-// concrete `CharDefId` per slot (now possibly drawn from another table, but still a single value,
-// never a union), and `rhs_vals.swap(lo, hi)` still transposes that SAME `Vec<CharDefId>` element —
-// so whichever alias's token matched at `lo` is EXACTLY the token emitted at `hi`, by construction,
-// for every branch. Switch-position identity is therefore preserved by the SAME argument the module
-// doc already makes for ordinary natural-class members (each branch is a single point in the cross
-// product, not a union), extended one level: "candidate member" now ranges over aliased
-// `(table, cd)` pairs instead of only this table's own char-defs, but the per-branch enumeration
-// that keeps the swap identity-preserving is untouched. `tests/
-// multi_table_metathesis_shared_representation.rs`'s own
-// `current_compile_fires_on_table_a_originated_material_and_preserves_identity` pins this directly:
-// with a shared representation across two tables AND a multi-member switch class, every combination
-// of aliased/non-aliased candidates at both switch positions is checked to reproduce EXACTLY the fed
-// values at their transposed positions, never substituting a different alias — the same precision
-// property `metathesis_multi_member_classes_transpose_precisely_not_naively`
-// (`tests/phase_c_metathesis.rs`) already established for the single-table case, extended to the
-// cross-table one.
-//
-// Degenerates to byte-identical behavior for every existing (non-shared-representation) grammar:
-// `RepresentationAliasMap::aliases_for`'s own contract guarantees the expansion is exactly
-// `[cd]` — no reordering, no duplication — whenever `cd`'s spelling is unique to its own table,
-// which is every grammar `tests/phase_c_metathesis.rs`/`tests/p6_gate_parity.rs` already cover.
-//
-// # `Dir::RightToLeft`: the SAME mirror-and-reverse construction
-// A from-scratch RTL-metathesis construction was never actually needed —
-// `compile_rtl_branch_net`'s reverse-mirror-then-`fsm_reverse` technique is not rewrite-rule-
-// specific (it operates on `Vec<Slot>` and `Fsm`), so it transfers directly. [`compile_metathesis_
-// rule`] now runs the SAME four moves for `Dir::RightToLeft`: (1) `reversed_slots` over the
-// rule's own pattern (`pattern_slots`' output, document order) gives the MIRROR pattern, and
-// `left_switch`/`right_switch` are remapped to their mirrored indices — since a `MetathesisRuleDef`
-// pattern can never carry a `Slot::Repeat`/`Slot::Alpha` occurrence by the time this remap runs
-// (`slot_candidates` already refused any such shape for EITHER direction, see below), every slot
-// is atomic (`Slot::Fixed`/`Slot::Union`), so `reversed_slots` is a PURE index reversal here:
-// index `i` in the `N`-slot original moves to index `N - 1 - i` in the mirror — `mirror_left_idx =
-// N - 1 - left_idx`, `mirror_right_idx = N - 1 - right_idx`. (2) `compile_metathesis_swap_net` (the
-// SAME per-branch literal cross-product-union construction below, factored out so both the plain and
-// mirror orientations share it byte-for-byte) runs on the mirror pattern with the REMAPPED indices,
-// giving the mirror-rule's own swap relation. (3) `fsm_reverse` of that mirror net. (4)
-// `foma::constructions::fsm_union` with the PLAIN net (the SAME `Dir::LeftToRight`-style compile over the ORIGINAL,
-// un-mirrored pattern/indices — the safety-net floor, identical role to `compile_rtl_branch_net`'s
-// own `plain_net`).
-//
-// **The switch-index remap, worked out.** Let `P` be the original `N`-slot pattern, `S` be `P` with
-// the two switch positions `lo`/`hi` (`= left_idx.min(right_idx)`/`.max(...)`) transposed (the
-// literal metathesis relation), and `R(X)` be `X` reversed. The mirror construction needs `R(S)` —
-// the reverse of the SWAPPED pattern — expressed as "`R(P)` with SOME pair of positions swapped",
-// since that is the only shape `compile_metathesis_swap_net` knows how to build. Direct
-// index algebra: for `mlo = N - 1 - hi`, `mhi = N - 1 - lo`, `R(S)` equals `R(P)` with positions
-// `mlo`/`mhi` transposed, verified position-by-position: at `j = mlo` (so `N - 1 - j = hi`),
-// `R(S)[mlo] = S[hi] = P[lo]`, matching "`R(P)` with `mlo`/`mhi` swapped"'s own `R(P)[mhi] = P[N - 1
-// - mhi] = P[lo]` at that same position; symmetrically at `j = mhi`; and for every OTHER `j` (so
-// `N - 1 - j = k \notin \{lo, hi\}`), `R(S)[j] = S[k] = P[k] = R(P)[j]` unchanged either way. So the
-// mirror rule is exactly: pattern `R(P)` (i.e. `reversed_slots` of the original), switches at
-// `N - 1 - left_idx`/`N - 1 - right_idx` (equivalently `mlo`/`mhi` as a SET — [`compile_metathesis_
-// swap_net`]'s own `lo`/`hi` re-derivation via `.min()`/`.max()` makes which named argument holds
-// which value immaterial). Pinned by `tests/phase_c_metathesis.rs`'s own
-// `metathesis_right_to_left_switch_index_remap_is_pinned_against_an_off_by_one`, which asserts the
-// REMAPPED indices exactly (an off-by-one — e.g. `N - left_idx` instead of `N - 1 - left_idx` —
-// would silently transpose the WRONG pair of the mirror's own slots).
-//
-// **Empirical finding: `pg_rules::metathesis` is direction-BLIND, at least for the shape checked**
-// (mirrors `compile_rtl_branch_net`'s own citation of the identical pre-fix finding for ordinary
-// `Iterative` rewrite rules): a throwaway probe (`rust/crates/pg-foma/tests/
-// zzz_scratch_metathesis_dir_probe.rs`, deleted after recording this finding) declared the SAME
-// two-adjacent-same-class-switch `MetathesisRule` under both `Dir::LeftToRight` and
-// `Dir::RightToLeft` and called `pg_rules::metathesis::synthesize` directly on an OVERLAPPING-window
-// input ("pqp", where positions 0-1 and 1-2 both match the switch pattern): both directions
-// synthesized identically ("qpp", the LEFTMOST window's swap) — `pg_rules::metathesis::
-// match_candidates` sorts candidates ascending (leftmost-first) REGARDLESS of `rule.dir`, and the
-// application loop always takes the first (i.e. leftmost) sorted candidate. This is exactly the
-// justification `compile_rtl_branch_net`'s own safety-net union already relies on for rewrite
-// rules, transferred to metathesis on the SAME evidence (not assumed to transfer): a
-// theoretically-faithful reversal-only compile would under-propose relative to what THIS repo's own
-// confirm engine actually needs for recall, so the union with the plain branch is the
-// recall-safe choice, not merely a defensive one.
-//
-// # Disposition: `ConfirmOnly`, never `Admit`, for BOTH directions now
-// The per-branch cross-product union (below) is already not proven oracle-exact beyond the
-// specific attested shapes `tests/phase_c_metathesis.rs` checks, and the ADDITIONAL `Dir::
-// RightToLeft` safety-net union (`plain ∪ reverse(mirror)`) is, like `compile_rtl_branch_net`'s
-// own, a proven SUPERSET of the true relation, never proven exact — so `Dir::RightToLeft` shares
-// the SAME `ConfirmOnly` disposition `Dir::LeftToRight` already had, for the identical reason RTL
-// rewrite is `ConfirmOnly` rather than `Admit`. See `crate::capability::
-// MetathesisFaithfulSwapPredicate`'s own doc.
-//
-// # Scope this change compiles faithfully vs. leaves honestly unsupported
-// **Faithful (`ConfirmOnly`, never `Admit` — no proven no-false-negative admission-filter
-// argument exists), EITHER `Dir`:** the rule resolves to a real owning `CharDefTable`
-// (`owning_table_for_metathesis`); its WHOLE pattern (both switches, every interior/exterior
-// context node) is a shape `pattern_slots` accepts with no `Slot::Alpha`/`Slot::Repeat`
-// occurrence anywhere; `left_switch != right_switch` (the loader's own load-time invariant,
-// defensively re-checked here); and the full slot-candidate cross product stays within
-// `budget.tuple_cap()` (checked independently for the plain and, for `Dir::RightToLeft`, the mirror
-// orientation too — though the two totals are always EQUAL, since reordering a pattern's own slots
-// never changes the product of their candidate-set sizes).
-// **Honest-unsupported (`Ok(None)`, reported `skipped` — never a silent wrong compile), EITHER
-// `Dir`:**
-// - Any pattern needing a malformed `Quantifier` or a disagree-polarity alpha var. An `Anchor` is
-//   admitted at a word edge (stripped below) and refused in the interior by `slot_candidates`;
-//   `phase_c_metathesis::metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset` pins it.
-// - A `Slot::Alpha` occurrence anywhere in the pattern — genuinely STRUCTURALLY IMPOSSIBLE for a
-//   `<MetathesisRule>`, not merely unattested: `pg_grammar::load::load_metathesis_rule` calls
-//   `load_one_pattern_node` with an EMPTY `VarTable::default()` (no `<Variables>` scope exists for a
-//   `<MetathesisRule>` at all — the DTD gives it none), so `load_simple_context`'s own
-//   `vars.by_xml_id(var_xml)` lookup for ANY `<AlphaVariable>` inside a `<MetathesisRule>`'s
-//   `<SimpleContext>` always fails, erroring the WHOLE grammar load
-//   (`GrammarError::Unsupported("AlphaVariable ... referenced outside a variable scope")`) before a
-//   `Slot::Alpha` could ever be produced. A grammar carrying one never reaches this function at all.
-// - A `Slot::Repeat` occurrence anywhere in the pattern — by contrast, GENUINELY REACHABLE: the DTD
-//   (`HermitCrabInput.dtd`: `<!ELEMENT PhoneticSequence (Segment | Segments | SimpleContext |
-//   OptionalSegmentSequence | BoundaryMarker)*>`) is the SAME element a `<MetathesisRule>`'s own
-//   `<StructuralDescription><PhoneticTemplate><PhoneticSequence>` uses, and `load_one_pattern_node`
-//   (`pg_grammar::load`) handles `OptionalSegmentSequence` unconditionally, independent of the empty
-//   `vars` table that blocks `Slot::Alpha` above (a quantifier's own `min`/`max` carry no variable
-//   reference at all) — so a `<MetathesisRule>` pattern CAN structurally contain an
-//   `OptionalSegmentSequence`, DTD-legal and loader-legal, just never attested in any fixture this
-//   crate has authored. `slot_candidates` returns `None` for ANY `Slot::Repeat` regardless of
-//   `Dir` (see its own `match` arm below; already true for `Dir::LeftToRight` before this change),
-//   so this stays an honest, REACHABLE
-//   scope line for both directions after this change too — not silently inherited, stated here and
-//   in `crate::capability::MetathesisFaithfulSwapPredicate`'s own witness text.
-// - No resolvable owning table (`owning_table_for_metathesis` returning `None`).
-// - The slot-candidate cross product exceeds `budget.tuple_cap()` — reported via the SAME
-//   `ComposeError::AlphaTupleBudgetExceeded` variant `compile_rewrite_rule_subset`'s own alpha-
-//   tuple check uses (a deliberate reuse, not a new error variant: both are "how many concrete
-//   per-position assignments must this rule's cascade fold over", the same shape, just driven by
-//   slot-candidate cardinality here rather than `AlphaVar` occurrence cardinality).
-//
-// # Big-O
-// `O(P · N)` states/arcs for the WHOLE rule, where `P` is the surviving cross-product size (bounded
-// by `budget.tuple_cap()`, default 5,000 — module doc on `ComposeBudget`) and `N` is the
-// pattern's own node count (each branch is one small literal-concatenation `Fsm`, `fsm_union`-folded
-// `P` times) — linear in both, the same shape `resolve_alpha_tuples`'s own per-tuple fold already
-// has, never exponential.
-// =================================================================================================
+// Metathesis: the dedicated swap relation. Disposition is ConfirmOnly, never Admit, both directions.
+// See docs/research/pg-foma-replace-design-notes.md, "Metathesis: the dedicated swap relation".
 
-/// Every `CharDefId` a slot may concretely resolve to, in this rule's own document order, WITH
-/// cross-table representation aliasing applied member-by-member (module doc's "Cross-table
-/// representation aliasing" section): each member is expanded to every `(table, cd)` pair sharing its own
-/// normalized representation (`RepresentationAliasMap::aliases_for`), deduplicated, in insertion
-/// order. `table`/`table_id` are this rule's own owning table/id (the caller's job to resolve
-/// correctly and pass together — never defaulted, same discipline `SegAlphabet::with_table_id`'s
-/// own doc requires). Degenerates to EXACTLY the pre-aliasing `[cd]`/`members.clone()` shape for
-/// every member whose spelling is unique to its own table (`RepresentationAliasMap::aliases_for`'s
-/// own contract) — byte-identical for every grammar with no shared cross-table representation.
-///
-/// `None` for `Slot::Alpha` (structurally impossible for a `<MetathesisRule>`, module doc above),
-/// `Slot::Repeat` (structurally reachable but never attested — module doc above; out of scope
-/// EITHER `Dir`, unchanged by the RTL construction added here), or `Slot::Anchor` (an anchor is a
-/// word-edge CONDITION, not a candidate segment value to enumerate/transpose — there is no sound
-/// notion of "the anchor that matched" reappearing, unchanged, at a swapped output position, unlike
-/// an ordinary segment). `compile_metathesis_swap_net` strips a leading/trailing anchor before
-/// calling this, so reaching the `Anchor` arm means an INTERIOR anchor.
+/// Every `CharDefId` a slot may resolve to, with cross-table representation aliasing applied member-by-member; `None` for `Slot::Alpha`/`Slot::Repeat`/`Slot::Anchor`.
+/// See `docs/research/pg-foma-replace-design-notes.md`, "Metathesis: the dedicated swap relation".
 fn slot_candidates(
     slot: &Slot,
     table: &CharDefTable,
@@ -1805,25 +1416,7 @@ fn slot_candidates(
     }
 }
 
-/// The per-branch literal cross-product swap construction (module doc's "The relation" section),
-/// factored out of `compile_metathesis_rule` so BOTH the plain orientation (document-order
-/// `slots`, `Dir::LeftToRight`'s own compile and `Dir::RightToLeft`'s safety-net floor) and the
-/// mirror orientation (`reversed_slots` of `slots`, plus the correspondingly remapped switch
-/// indices — module doc's "The switch-index remap, worked out") share EXACTLY the same candidate-
-/// resolution, budget-check, and cross-product-union logic, never two independently-maintained
-/// copies. `left_idx`/`right_idx` are indices into `slots` itself (the caller's own orientation —
-/// this function never reorders/remaps anything, that is entirely the caller's job).
-///
-/// Returns `Ok(None)` for the same honest-unsupported reasons `compile_metathesis_rule`'s own doc
-/// lists (a `Slot::Alpha`/`Slot::Repeat`/vacuous-empty-class occurrence anywhere in `slots`), and
-/// `Err(ComposeError::AlphaTupleBudgetExceeded)` if the candidate cross product exceeds
-/// `budget.tuple_cap()` — both checked BEFORE any regex is rendered or `Fsm` is built (module doc's
-/// Big-O note).
-///
-/// `table`/`table_id`/`aliases` thread the rule's own owning table plus the grammar-wide
-/// `RepresentationAliasMap` into `slot_candidates` (module doc's "Cross-table representation
-/// aliasing" section) — the SAME triple for both the plain and (for `Dir::RightToLeft`) the mirror
-/// orientation's call, since aliasing is a per-member expansion that does not depend on slot order.
+/// The per-branch literal cross-product swap construction, shared by the plain and mirror (RTL) orientations; `left_idx`/`right_idx` index into `slots` as given.
 #[allow(clippy::too_many_arguments)]
 fn compile_metathesis_swap_net(
     opts: &FomaOptions,
@@ -1867,8 +1460,7 @@ fn compile_metathesis_swap_net(
         }
     }
 
-    // Cheapest-possible-predictor check (module doc's Big-O note; mirrors `resolve_alpha_tuples`'s
-    // own V3 discipline): computed BEFORE any regex is rendered or `Fsm` is built.
+    // Checked before any regex is rendered or `Fsm` is built.
     let total: usize = candidates.iter().map(Vec::len).product();
     if total > budget.tuple_cap() {
         return Err(ComposeError::AlphaTupleBudgetExceeded {
@@ -1878,9 +1470,7 @@ fn compile_metathesis_swap_net(
         });
     }
 
-    // Full cross product, no joint-agreement filter (module doc: metathesis has no shared-`VarId`
-    // agreement constraint between positions — every combination is independently a real candidate
-    // underlying shape).
+    // No joint-agreement filter: metathesis has no shared-VarId constraint between positions.
     let mut assignments: Vec<Vec<CharDefId>> = vec![Vec::with_capacity(effective_slots.len())];
     for members in &candidates {
         let mut next = Vec::with_capacity(assignments.len() * members.len());
@@ -1926,16 +1516,8 @@ fn compile_metathesis_swap_net(
     Ok(net)
 }
 
-/// The `Dir::RightToLeft` mirror's own switch indices, given the ORIGINAL (document-order) pattern's
-/// slot count `n` and its own `left_idx`/`right_idx` (module doc's "switch-index remap, worked out"
-/// section has the full derivation this pins). Since `reversed_slots` is a PURE index reversal for
-/// a metathesis pattern (no `Slot::Repeat`/`Slot::Alpha` can survive to this point — [`compile_
-/// metathesis_rule`]'s own doc), index `i` in the `n`-slot original moves to index `n - 1 - i` in the
-/// mirror: `(n - 1 - left_idx, n - 1 - right_idx)`. Factored into its own function (rather than left
-/// inline) specifically so `metathesis_mirror_switch_index_remap_tests` (below) can pin the exact
-/// arithmetic independently of building a whole `Fsm` — the single most likely bug in this
-/// construction (module doc has the full derivation), so it gets its own direct, off-by-one-
-/// sensitive regression test rather than only an indirect behavioral one.
+/// The `Dir::RightToLeft` mirror's own switch indices: `(n - 1 - left_idx, n - 1 - right_idx)`. Factored out so `metathesis_mirror_switch_index_remap_tests` can pin the arithmetic without building a whole `Fsm`.
+/// Derivation: `docs/research/pg-foma-replace-design-notes.md`, "Metathesis: the dedicated swap relation".
 fn metathesis_mirror_switch_indices(n: usize, left_idx: usize, right_idx: usize) -> (usize, usize) {
     (n - 1 - left_idx, n - 1 - right_idx)
 }
@@ -1947,12 +1529,7 @@ mod metathesis_mirror_switch_index_remap_tests {
     //! see the module doc's "switch-index remap, worked out" derivation.
     use super::metathesis_mirror_switch_indices;
 
-    /// An ASYMMETRIC placement (switches at the two lowest indices of a 5-slot pattern, not
-    /// centered/self-mirroring) — chosen so an off-by-one in EITHER direction lands on a
-    /// DIFFERENT, still in-bounds pair rather than panicking or coincidentally landing on the
-    /// correct answer (a symmetric placement like `n=4, {0,3}` is its own mirror image under a
-    /// `n - left_idx` off-by-one too, in a way that could mask a bug — see the second case below
-    /// for that contrast).
+    /// Asymmetric placement, chosen so an off-by-one in either direction lands on a different, still in-bounds pair rather than masking a bug.
     #[test]
     fn asymmetric_five_slot_placement_matches_the_derived_formula_exactly() {
         let n = 5;
@@ -1962,12 +1539,7 @@ mod metathesis_mirror_switch_index_remap_tests {
             (4, 3),
             "correct remap: n - 1 - left_idx, n - 1 - right_idx"
         );
-        // An off-by-one toward `n - left_idx` (no `- 1` at all) would give (5, 4) -- OUT OF BOUNDS
-        // for a 5-slot pattern (valid indices 0..=4) -- and an off-by-one the OTHER way (`n - 2 -
-        // left_idx`) would give (3, 2), a DIFFERENT, still in-bounds pair. Neither equals the
-        // correct (4, 3) pinned above, so a regression to either formula fails this assertion
-        // directly (never silently, and never merely by panicking on an out-of-bounds index that
-        // some OTHER off-by-one direction might not even trigger).
+        // `n - left_idx` (no `-1`) would give (5, 4), out of bounds; `n - 2 - left_idx` would give (3, 2). Neither equals the correct (4, 3).
         assert_ne!(
             (n - left_idx, n - right_idx),
             (4, 3),
@@ -1980,11 +1552,7 @@ mod metathesis_mirror_switch_index_remap_tests {
         );
     }
 
-    /// A 4-slot pattern with switches at the two OUTER positions (`{0, 3}`) — included to document
-    /// (not to rely on for the actual pin above) that this SPECIFIC symmetric placement is its own
-    /// mirror image (`{0,3}` remaps to `{3,0}`, the same SET) under the CORRECT formula, so it alone
-    /// would not distinguish the correct formula from every possible off-by-one and is not this
-    /// test module's load-bearing case — `asymmetric_five_slot_placement_...` above is.
+    /// Documents (not a load-bearing witness) that `{0,3}` on a 4-slot pattern is its own mirror image under the correct formula, so alone it can't distinguish correct from off-by-one.
     #[test]
     fn four_slot_outer_placement_is_its_own_mirror_set_not_a_useful_off_by_one_witness() {
         let (mirror_left, mirror_right) = metathesis_mirror_switch_indices(4, 0, 3);
@@ -2027,17 +1595,12 @@ pub(crate) fn compile_metathesis_rule(
     let Some(table) = owning_table_for_metathesis(g, rule) else {
         return Ok(None);
     };
-    // Shares `owning_table_for_prule_position`'s own lookup with `owning_table_for_metathesis`
-    // (both derive from the exact same stratum search), so this is guaranteed `Some` here too --
-    // same discipline `compile_rewrite_rule_subset`'s own `owning_table`/`owning_table_id` pair
-    // uses.
+    // Shares `owning_table_for_metathesis`'s own stratum lookup, so this is guaranteed `Some` here too.
     let table_id = owning_table_id_for_metathesis(g, rule)
         .expect("owning_table_id_for_metathesis shares owning_table_for_metathesis's own lookup, which just resolved Some");
     let alias_map = RepresentationAliasMap::build(g);
     let mut next_occurrence = 0usize;
-    // MUST stay in lockstep with `capability::metathesis_swap_construction_attempted`'s own scope --
-    // a disagreement there admits a different rule set than this compiles. Admits a word-edge
-    // `Anchor`; `metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset` pins the result.
+    // Must stay in lockstep with `capability::metathesis_swap_construction_attempted`'s own scope, or the two could admit different rule sets.
     let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
     let Some(slots) = pattern_slots(g, table, &rule.pattern, &mut next_occurrence, scope) else {
         return Ok(None);
@@ -2045,10 +1608,7 @@ pub(crate) fn compile_metathesis_rule(
     let left_idx = rule.left_switch as usize;
     let right_idx = rule.right_switch as usize;
     if left_idx == right_idx || left_idx >= slots.len() || right_idx >= slots.len() {
-        // Defensive only: no grammar loader in this tree constructs a `MetathesisRuleDef` with
-        // equal switches, and both indices are resolved from `pattern.nodes` itself, so both are
-        // always in bounds by construction. Honest-unsupported rather than a panic if that
-        // invariant is ever violated some other way.
+        // Defensive: both are always in bounds by construction; honest-unsupported rather than a panic if that ever changes.
         return Ok(None);
     }
 
@@ -2071,10 +1631,7 @@ pub(crate) fn compile_metathesis_rule(
     match rule.dir {
         Dir::LeftToRight => Ok(Some(plain_net)),
         Dir::RightToLeft => {
-            // Module doc's "switch-index remap, worked out": `slots` never contains a
-            // `Slot::Repeat`/`Slot::Alpha` here (the plain compile above already returned early
-            // otherwise), so every slot is atomic and `reversed_slots` is a pure index reversal —
-            // index `i` moves to `n - 1 - i`.
+            // `slots` never contains a `Slot::Repeat`/`Slot::Alpha` here, so every slot is atomic and `reversed_slots` is a pure index reversal.
             let mirror_slots = reversed_slots(&slots);
             let (mirror_left_idx, mirror_right_idx) =
                 metathesis_mirror_switch_indices(slots.len(), left_idx, right_idx);
@@ -2091,9 +1648,7 @@ pub(crate) fn compile_metathesis_rule(
                 &alias_map,
             )?
             else {
-                // `mirror_slots` is `reversed_slots` of `slots`: the same multiset of atomic
-                // slots, just reordered. Kept as an honest `Ok(None)` rather than an
-                // `unreachable!` panic in case that equivalence is ever violated.
+                // Kept as an honest `Ok(None)` rather than `unreachable!` in case this equivalence is ever violated.
                 return Ok(None);
             };
             let reversed_net = fsm_reverse(mirror_net);
@@ -2122,14 +1677,7 @@ mod compose_budget_tests {
     use super::*;
     use crate::compose_budget::NetSizeMeasure;
 
-    /// 6 segments (`c1`..`c6`), all matching the sole natural class `ncBig` (zero explicit
-    /// `FeatureValue`s -- an "Any" class, same shape as the real Indonesian grammar's own `nc1`),
-    /// each also carrying a nonzero `featA` bit (required for `resolve_alpha_tuples`'s own
-    /// self-agreement check to pass: a segment whose alpha-bound feature lane is entirely UNSET
-    /// would fail `lane_value(cd, feat) & lane_value(cd, feat) != 0` against itself). One
-    /// `PhonologicalRule` (`prule_alpha`): LHS = fixed `c1`, RHS = `ncBig` alpha-bound to `var1`, no
-    /// environment -- the minimal shape that produces >1 alpha assignment without needing a second
-    /// occurrence.
+    /// 6 segments, all matching the sole natural class `ncBig` (an "Any" class); each carries a nonzero `featA` bit so alpha self-agreement passes.
     const SYNTH_ALPHA_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -2220,9 +1768,7 @@ mod compose_budget_tests {
         panic!("prule_alpha not found in synthetic fixture");
     }
 
-    /// V3 (design doc §4): `resolve_alpha_tuples` for `prule_alpha` surfaces EXACTLY 6 surviving
-    /// assignments (module doc); a `tuple_cap` below that must trip `AlphaTupleBudgetExceeded`
-    /// BEFORE any per-tuple compile work happens.
+    /// `resolve_alpha_tuples` surfaces exactly 6 surviving assignments; a `tuple_cap` below that must trip `AlphaTupleBudgetExceeded` before any per-tuple compile work.
     #[test]
     fn alpha_tuple_budget_trips_on_synthetic_rule() {
         let g = synth_alpha_grammar();
@@ -2252,10 +1798,7 @@ mod compose_budget_tests {
         }
     }
 
-    /// V1 (design doc §4): composing the 6 per-tuple branch nets left-to-right must trip
-    /// `NetSizeExceeded` on the second fold (`compose_checked`'s own site inside
-    /// `compile_rewrite_rule_subset`) once `state_cap` is small enough -- the tuple budget itself
-    /// stays unbounded here so this test isolates the state-size check specifically.
+    /// Composing the 6 per-tuple branch nets must trip `NetSizeExceeded` once `state_cap` is small enough; the tuple budget stays unbounded to isolate the state-size check.
     #[test]
     fn state_budget_trips_on_tiny_cascade() {
         let g = synth_alpha_grammar();
@@ -2264,12 +1807,7 @@ mod compose_budget_tests {
         let opts = FomaOptions::default();
         let rule = synth_alpha_rule(&g);
 
-        // NOTE: these single-occurrence branch nets ("c1 -> cK" for varying K) each compile/compose
-        // to a tiny (often single-state, self-looping) automaton -- composing them sequentially
-        // does not grow the state count the way a real multi-rule cascade would, so this test uses
-        // `state_cap=0` (guaranteed to trip on ANY non-empty composed net) rather than the design
-        // doc's illustrative "cap=2", which this specific hand-authored fixture's nets are too
-        // small to cross.
+        // These single-occurrence branch nets stay tiny under composition, so `state_cap=0` is used to guarantee a trip on any non-empty composed net.
         let budget =
             ComposeBudget::with_caps(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
         let err = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
@@ -2286,8 +1824,7 @@ mod compose_budget_tests {
         );
     }
 
-    /// `ComposeBudget::unbounded` must never trip on this small fixture -- proves the checked
-    /// wrappers are pure passthrough when every cap is `usize::MAX` and `step_timeout` is `None`.
+    /// Proves the checked wrappers are pure passthrough when every cap is `usize::MAX` and `step_timeout` is `None`.
     #[test]
     fn unbounded_budget_never_trips_on_small_fixture() {
         let g = synth_alpha_grammar();
@@ -2307,29 +1844,13 @@ mod compose_budget_tests {
     }
 }
 
-/// A positive witness for `owning_table`: a synthetic,
-/// delanguaged "two-table-symbol-divergence" fixture -- two `<CharacterDefinitionTable>`s with
-/// DIFFERENT segment counts (2 vs 3), two strata (each owning one of the tables), and an
-/// alpha-bound `Simultaneous`-free rewrite rule on the SECOND stratum whose RHS natural class
-/// (`ncBig`, an "Any"-style `FeatureNaturalClass` with zero explicit `FeatureValue` constraints)
-/// matches EVERY segment of whichever table it is resolved against. The two tables' differing
-/// CARDINALITY (not just differing feature-to-index alignment, `tests/phase_c_multi_table.rs`'s
-/// own mechanism) makes this a doubly-independent proof: `resolve_alpha_tuples`'s own
-/// `surviving` tuple count is a DIRECT, deterministic readout of WHICH table `ncBig` resolved
-/// against (2 members if table 0, 3 if table 1) -- table 0's cardinality is the exact wrong answer
-/// the old hardcoded `let table = &g.char_tables[0]` default would have produced.
+/// A positive witness for `owning_table`: two tables with different segment counts (2 vs 3), so an alpha-bound rule's `surviving` tuple count directly reveals which table it resolved against.
 #[cfg(test)]
 mod owning_table_tests {
     use super::*;
     use pg_grammar::model::PhonRuleDef;
 
-    /// Table 0 ("t0", stratum "S0"): 2 segments. Table 1 ("t1", stratum "S1"): 3 segments --
-    /// deliberately a DIFFERENT cardinality from table 0 (module doc), so a rule resolving `ncBig`
-    /// against the wrong table produces a DIFFERENT, wrong `surviving` count, not merely a
-    /// same-count coincidentally-plausible one. `prule_alpha_t1` belongs to stratum "S1" (table
-    /// "t1") via `phonologicalRules="prule_alpha_t1"`; stratum "S0" carries no rule of its own --
-    /// it exists purely so this grammar genuinely has TWO strata each owning ITS OWN table
-    /// ("two strata, two tables"), not just two orphaned tables.
+    /// Table 0 (stratum "S0"): 2 segments. Table 1 (stratum "S1"): 3 segments -- deliberately different cardinalities so resolving against the wrong table gives a different, wrong `surviving` count.
     const TWO_TABLE_ALPHA_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -2431,9 +1952,7 @@ mod owning_table_tests {
         panic!("prule {xml_id:?} not found in g.prules");
     }
 
-    /// Positive witness: `owning_table` resolves `prule_alpha_t1` to table 1 (3
-    /// segments), never table 0 (2 segments) -- the fixture's own sanity check that the two
-    /// tables genuinely differ in cardinality, and that stratum "S1" (not "S0") owns this rule.
+    /// `owning_table` resolves `prule_alpha_t1` to table 1 (3 segments), never table 0 (2 segments).
     #[test]
     fn owning_table_resolves_to_the_rules_own_stratum_table_not_table_zero() {
         let g = two_table_alpha_grammar();
@@ -2465,12 +1984,7 @@ mod owning_table_tests {
         );
     }
 
-    /// Positive witness, full compile-level proof: `resolve_alpha_tuples`'s own
-    /// `surviving` tuple count for `prule_alpha_t1`'s alpha-bound RHS (`ncBig`, matches every
-    /// segment of WHICHEVER table it resolves against) is EXACTLY 3 -- table 1's own cardinality,
-    /// reached by resolving against table 1 (this rule's real owning table, via `owning_table`),
-    /// never table 0's 2 (what the old hardcoded `g.char_tables[0]` default would have produced --
-    /// the NEGATIVE case this witness rules out).
+    /// Full compile-level proof: `resolve_alpha_tuples`'s own `surviving` count for `prule_alpha_t1` is exactly 3 (table 1's cardinality), never table 0's 2.
     #[test]
     fn resolve_alpha_tuples_surviving_count_reflects_the_owning_table_not_table_zero() {
         let g = two_table_alpha_grammar();
@@ -2498,54 +2012,10 @@ mod owning_table_tests {
     }
 }
 
-// =================================================================================================
-// The RTL + Repeat-children mirror bug. `reversed_slots`' own doc (above) already
-// explains WHY a shallow, non-recursing reversal is wrong for a `Slot::Repeat` with 2+ heterogeneous
-// `children`; this module is the REPRODUCTION that justifies actually applying that fix, rather
-// than fixing it on reasoning alone.
-// =================================================================================================
-
 #[cfg(test)]
 mod rtl_repeat_children_reversal_tests {
-    //! Reproduction: does the SHALLOW, non-recursing `slots.iter().rev().cloned()`
-    //! `reversed_slots` used to have (before this crate's own fix, above) actually compile a WRONG
-    //! `Dir::RightToLeft` reversed branch net for a rule whose quantifier group has 2+ HETEROGENEOUS
-    //! children? The existing conformance-staging fixture (`conformance-staging/edge-cases/
-    //! right-to-left-bounded-quantifier-rewrite`) does NOT detect this: its quantifier wraps a
-    //! single `<SimpleContext>` (one child), trivially palindromic under any reversal (correct or
-    //! shallow), so the shallow bug was accidentally invisible there. This module authors a
-    //! synthetic RTL rule whose quantifier group has TWO heterogeneous children (`a` then `b`, never
-    //! equal) and demonstrates the defect CONCRETELY: the compiled mirror net's own language, built
-    //! via the shallow (pre-fix) reversal, differs from the true reverse.
-    //!
-    //! # Why a `Slot::Repeat` needs recursion, not just top-level reordering
-    //! A `Slot::Repeat{children, ..}` is not an atomic, single-token "position" the way
-    //! `Slot::Fixed`/`Slot::Union`/`Slot::Alpha` are -- it is itself a variable-length SEQUENCE (each
-    //! repetition contributes `children.len()` tokens). Reversing the TRUE flattened token sequence
-    //! such a group can produce requires reversing the order of tokens WITHIN each repetition too,
-    //! not merely reordering which TOP-LEVEL slot comes before/after which other one while leaving
-    //! `children` in document order -- `reversed_slots`' own doc (above) has the full argument.
-    //!
-    //! # Reproduction strategy: isolate the `reversed_net`, don't just inspect `Slot` data
-    //! Rather than merely inspecting the shallow reversal's OUTPUT `Slot` structure (a real bug
-    //! either way, but not yet proof it changes compiled BEHAVIOR), this builds the actual
-    //! `Dir::RightToLeft` mirror-then-`fsm_reverse` construction TWICE -- once via
-    //! `shallow_reversed_slots_pre_fix` (the OLD, pre-fix shape, kept here purely as a historical/
-    //! regression witness), once via the crate's own (now-fixed, recursing) `super::reversed_slots`
-    //! -- and runs `apply_down` on concrete underlying strings through EACH resulting `reversed_net`
-    //! in ISOLATION (before the safety-net union with `plain_net`, module doc's "safety-net union"
-    //! section -- unioning would let `plain_net` mask the divergence for a same-position match,
-    //! since `plain_net` already covers the environment's TRUE content regardless of this bug). The
-    //! two isolated nets disagree concretely on which underlying string gets rewritten (below) --
-    //! REPRODUCED, not merely theorized -- which is why `reversed_slots` above was actually changed
-    //! to recurse, not left alone on reasoning-only grounds.
-    //!
-    //! # Interaction with unbounded quantifiers
-    //! Widening `Slot::Repeat.max` to `Option<u32>` means
-    //! a genuinely UNBOUNDED (`max: None`) quantifier is now ALSO a case `reversed_slots` must
-    //! handle correctly -- `reproduce_for_max_attr` (below) is parameterized over the DTD's own
-    //! `max` attribute text and is run for BOTH a finitely bounded (`"2"`) and a genuinely unbounded
-    //! (`"-1"`) quantifier group, proving the fix covers both, not just the pre-existing bounded case.
+    //! Reproduces the shallow (pre-fix) `reversed_slots` shape compiling a wrong RTL branch net.
+    //! See `docs/research/pg-foma-replace-design-notes.md`, "`reversed_slots`: why it must recurse into `Slot::Repeat` children".
 
     use std::collections::HashMap;
 
@@ -2553,19 +2023,12 @@ mod rtl_repeat_children_reversal_tests {
 
     use super::*;
 
-    /// The historical, PRE-FIX `reversed_slots` shape: a shallow `.rev().cloned()` that does not
-    /// recurse into a `Slot::Repeat`'s own `children`. Kept ONLY in this test module (never in
-    /// production) as a concrete negative witness -- proof the recursive fix above was not a no-op.
+    /// The pre-fix `reversed_slots` shape: a shallow reversal that never recurses into `Slot::Repeat` children. Kept only here as a negative witness.
     fn shallow_reversed_slots_pre_fix(slots: &[Slot]) -> Vec<Slot> {
         slots.iter().rev().cloned().collect()
     }
 
-    /// Builds `fsm_reverse(mirror rule net)` for a rule whose ONLY environment is `right_slots`
-    /// (mirrors `compile_rtl_branch_net`'s own `Dir::RightToLeft` arm exactly, that function's own
-    /// worked-example doc), using WHICHEVER `reverse_fn` the caller supplies for `Slot` reversal --
-    /// letting this test compile the SAME construction via `shallow_reversed_slots_pre_fix` and via
-    /// the crate's own (fixed) `super::reversed_slots` for direct, isolated comparison (no
-    /// safety-net union with `plain_net` -- this function only ever returns the REVERSED branch).
+    /// Builds `fsm_reverse(mirror rule net)` for a rule whose only environment is `right_slots`, using whichever `reverse_fn` the caller supplies -- lets this test compare the shallow and fixed reversals in isolation (no union with `plain_net`).
     fn isolated_reversed_env_net(
         opts: &FomaOptions,
         alphabet: &SegAlphabet,
@@ -2577,9 +2040,7 @@ mod rtl_repeat_children_reversal_tests {
     ) -> Fsm {
         let mirror_lhs = reverse_fn(lhs_slots);
         let mirror_rhs = reverse_fn(rhs_slots);
-        // Swap, mirroring `compile_rtl_branch_net`'s own convention: the mirror rule's own left
-        // environment is the reversed ORIGINAL right environment; there is no left_env in this
-        // fixture, so the mirror's own right environment is simply empty.
+        // Swap: the mirror's own left environment is the reversed original right environment; this fixture has no left_env, so the mirror's right environment is empty.
         let mirror_left = reverse_fn(right_slots);
         let mirror_right: Vec<Slot> = Vec::new();
         let mirror_regex = render_branch_regex(
@@ -2595,9 +2056,7 @@ mod rtl_repeat_children_reversal_tests {
         fsm_reverse(mirror_net)
     }
 
-    /// Every `apply_down` result for `word` against `net` (order-independent set-free collection --
-    /// this fixture's own nets are deterministic per word, so a single-element `Vec` is expected
-    /// throughout).
+    /// Every `apply_down` result for `word` against `net`; this fixture's nets are deterministic per word, so a single-element `Vec` is expected throughout.
     fn apply_down_all(net: &Fsm, word: &str) -> Vec<String> {
         let mut h = apply_init(net);
         h.down(word).collect()
@@ -2607,13 +2066,7 @@ mod rtl_repeat_children_reversal_tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
     }
 
-    /// Synthetic, delanguaged fixture: an RTL rewrite rule `t -> d`, gated by a right environment
-    /// `(a b)^{1,max_attr}` -- TWO heterogeneous children (`a` then `b`, never equal), non-
-    /// palindromic, so a correct reversal must swap them to `(b a)^{1,max_attr}`. `max_attr` is
-    /// either a concrete bound (`"2"`, `compile-bounded-fst-quantifiers`'s own shape) or `"-1"`
-    /// (genuinely unbounded, `build-unbounded-quantifier-support`) -- the bug is in `reversed_slots`
-    /// itself, independent of which quantifier variant carries it, so both are exercised below (this
-    /// module's own top doc, "The two tasks interact").
+    /// RTL rewrite rule `t -> d` gated by a right environment `(a b)^{1,max_attr}` -- two heterogeneous, non-palindromic children, so a correct reversal must swap them.
     fn rtl_hetero_repeat_xml(max_attr: &str) -> String {
         format!(
             r#"<HermitCrabInput><Language><Name>RtlHeteroRepeat</Name>
@@ -2646,9 +2099,7 @@ mod rtl_repeat_children_reversal_tests {
         )
     }
 
-    /// Shared body: builds the isolated reversed-branch net both ways for `max_attr`, and
-    /// demonstrates the divergence between the pre-fix shallow reversal and the crate's own (fixed)
-    /// `reversed_slots`.
+    /// Shared body: builds the isolated reversed-branch net both ways and demonstrates the divergence between the shallow and fixed reversal.
     fn reproduce_for_max_attr(max_attr: &str) {
         let g = load(&rtl_hetero_repeat_xml(max_attr));
         let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
@@ -2676,9 +2127,7 @@ mod rtl_repeat_children_reversal_tests {
              compile-bounded-fst-quantifiers; max=\"-1\": build-unbounded-quantifier-support)",
         );
 
-        // Sanity: exactly one top-level `Slot::Repeat`, with 2 HETEROGENEOUS children -- this is
-        // the shape a shallow reversal gets wrong (module doc): it only reorders the OUTER,
-        // single-element list (a no-op here), never the Repeat's own 2-element `children`.
+        // Sanity: exactly one top-level `Slot::Repeat` with 2 heterogeneous children -- the shape a shallow reversal gets wrong.
         assert_eq!(right_slots.len(), 1);
         match &right_slots[0] {
             Slot::Repeat { children, .. } => {
@@ -2695,7 +2144,7 @@ mod rtl_repeat_children_reversal_tests {
             values: HashMap::new(),
         };
 
-        // The crate's own (now-fixed, recursing) construction.
+        // The crate's own (fixed, recursing) construction.
         let reversed_fixed = isolated_reversed_env_net(
             &opts,
             &alphabet,
@@ -2705,8 +2154,7 @@ mod rtl_repeat_children_reversal_tests {
             &asg,
             reversed_slots,
         );
-        // The OLD, shallow, pre-fix construction -- kept as a historical/regression witness (module
-        // doc).
+        // The old, shallow, pre-fix construction, kept as a regression witness.
         let reversed_old_shallow = isolated_reversed_env_net(
             &opts,
             &alphabet,
@@ -2722,8 +2170,7 @@ mod rtl_repeat_children_reversal_tests {
         let query_dab = alphabet.encode_query("dab").expect("'dab' must segment");
         let query_dba = alphabet.encode_query("dba").expect("'dba' must segment");
 
-        // --- The FIXED (recursing) construction matches the rule's OWN stated environment: 't'
-        // followed by 'a' THEN 'b' (never 'b' then 'a'). ---
+        // The fixed (recursing) construction matches the rule's own stated environment: 't' followed by 'a' then 'b'.
         assert_eq!(
             apply_down_all(&reversed_fixed, &query_tab),
             vec![query_dab.clone()],
@@ -2737,10 +2184,7 @@ mod rtl_repeat_children_reversal_tests {
              must pass through unchanged (max={max_attr:?})"
         );
 
-        // --- The OLD, shallow (pre-fix) construction gets this BACKWARDS: it silently left the
-        // quantifier's own 2 children in DOCUMENT order instead of reversing them, so its own
-        // compiled language requires 'b' THEN 'a' -- the WRONG environment, exactly the swap of what
-        // the rule declares. ---
+        // The old, shallow construction gets this backwards: it never reverses the 2 children, so it requires 'b' then 'a' -- the wrong environment.
         assert_eq!(
             apply_down_all(&reversed_old_shallow, &query_tab),
             vec![query_tab.clone()],
@@ -2770,9 +2214,7 @@ mod rtl_repeat_children_reversal_tests {
         reproduce_for_max_attr("2");
     }
 
-    /// Reproduction + regression pin, GENUINELY UNBOUNDED quantifier (`max="-1"`) -- pins the
-    /// "interaction with unbounded quantifiers" note above: `max: None` inside a reversed slot
-    /// list hits the SAME defect as the bounded case, and the SAME fix covers it.
+    /// Same reproduction, genuinely unbounded quantifier (`max="-1"`): `max: None` hits the same defect and the same fix covers it.
     #[test]
     fn rtl_repeat_children_reversal_bug_reproduced_and_fixed_unbounded() {
         reproduce_for_max_attr("-1");

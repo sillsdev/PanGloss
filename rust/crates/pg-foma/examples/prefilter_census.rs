@@ -1,56 +1,7 @@
-//! Rejection census for the deterministic candidate pre-filter design. Measures, per grammar,
-//! what fraction of FAILING-candidate confirm time is spent on candidates that a cheap
-//! deterministic predicate (env/co-occurrence/stem-name/bound-root — `pg_rules::validity`'s gate)
-//! could have rejected BEFORE the engine ever ran (category a), vs. candidates where the
-//! unapply/synthesis cascade never produced a derivation at all (category b), vs. everything else
-//! (category c) — the go/no-go gate for building the filter: only if (a) is NOT under ~10% of
-//! failing time on every grammar.
-//!
-//! ## Methodology (why this isn't just "sum per-candidate confirm_all times")
-//!
-//! `pg_foma::confirm::confirm_batch`'s whole point is that batching/fusion (root-set grouping,
-//! `RULE_UNION_SLACK` sub-chunking, cross-root-set fusion) makes REAL production confirm time
-//! much less than the sum of per-candidate reparses — confirm.rs's own doc measures cross-
-//! root-set fusion alone at ~54% of batched Sena confirm. Timing per-candidate unbatched calls
-//! would measure a workload the real filter never runs in, and the bias direction (inflating
-//! category (b), which repeats cascade work every unbatched call, OR inflating category (a) via
-//! repeated synthesis) can't be signed — exactly the failure mode that makes a census built that
-//! way untrustworthy near the plan's ~10% gate.
-//!
-//! So TIME comes from a **counterfactual under the real batched/fused confirm**, per word:
-//!   - `baseline`       = `confirm_batch(all candidates)`
-//!   - `keep_confirming` = `confirm_batch(only candidates that end up confirming)`
-//!   - `minus_x`        = `confirm_batch(all candidates EXCEPT the ones classified category x)`
-//!     for each of x in {a, b, c}
-//!   - category x's share of FAILING time = `(baseline - minus_x) / (baseline - keep_confirming)`
-//!
-//! This is literally "how much of the failing-candidate time would a perfect category-x
-//! predicate have saved, run through the real fused confirm path" — the actual go/no-go
-//! quantity. It is not required to be perfectly additive across a+b+c (removing candidates
-//! changes which chunks fuse, so marginals overlap or leave gaps); the RATIO is the decision
-//! signal, not the sum — reported as such.
-//!
-//! CLASSIFICATION (which category a failing candidate belongs to) is a SEPARATE, untimed pass,
-//! using `pg_foma::confirm::confirm_one_traced` (census-only, additive — never on a production
-//! path): first a cheap untraced call reads `ParseOutcome::candidates_generated` (no tracing
-//! overhead) — `== 0` is category (b) by construction (the synthesis cascade produced not one
-//! candidate word to test). Only if `candidates_generated > 0` does a second, TRACED call run
-//! (tracing forces `merge_equivalent = false` and disables the analysis memo — see
-//! `pg-parse/src/morpher.rs`'s own doc on why — so this expensive path is scoped to the smaller
-//! subset that needs it). The resulting trace tree's `Failed` nodes are walked for
-//! `FailureReason`s; precedence is (a) validity-gate reasons > (b) cascade/surface reasons > (c)
-//! everything else (see `classify_reasons` below) — a candidate reaching a validity-gate `Failed`
-//! node on ANY explored branch demonstrates a deterministic predicate over its own fixed
-//! morpheme/allomorph set could have rejected it (the plan's "does ANY allomorph of this morpheme
-//! survive" upward-safe framing), independent of which cascade branch happened to reach the gate.
-//!
-//! ## Usage
-//!
-//!   cargo run -p pg-foma --release --example prefilter_census -- <sena|indonesian|amharic> [word_cap]
-//!
-//! Prints a markdown report: counts per category, the raw `FailureReason` histogram within (a),
-//! and the time-share ratios above. Not part of `cargo test` — a measurement tool, like
-//! `precision_bench`/`knob_probe`.
+//! Rejection census for the deterministic candidate pre-filter design.
+//! See `docs/research/pg-foma-prefilter-census-design-notes.md` for what is measured and the counterfactual-timing methodology.
+
+//! Usage: `cargo run -p pg-foma --release --example prefilter_census -- <sena|indonesian|amharic> [word_cap]`; prints a markdown report (category counts, `FailureReason` histogram, time-share ratios). Not part of `cargo test`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -72,13 +23,7 @@ use pg_rules::trace::{FailureReason, TraceType, TreeTraceSink};
 
 const ENGINE_TIMEOUT: Duration = Duration::from_secs(10);
 
-// -------------------------------------------------------------------------------------------
-// Sample loading + propose/peel plumbing — copied (not imported: examples can't depend on test
-// code, and this crate's own analyzer hardcodes `emit::emit(g)`/Strip already, matching this
-// census's use of the SAME production network) from `examples/precision_bench.rs`, which itself
-// copied it from `tests/pk1_precision_recall_invariance.rs`. See that file for the property-level
-// justification of each step.
-// -------------------------------------------------------------------------------------------
+// Sample loading + propose/peel plumbing, copied from `examples/precision_bench.rs` rather than imported: examples can't depend on test code.
 
 fn sample_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -130,9 +75,7 @@ fn propose_and_peel(
     word: &str,
 ) -> Vec<Candidate> {
     let mut candidates = propose(net, word);
-    // Real corpus/census words, never an adversarial synthetic stress string -- an unbounded
-    // chain-depth budget is safe here (`pg_foma::peel`'s own module doc, "Chain depth and nested
-    // reduplication", ADR 0003).
+    // Real corpus words, never adversarial synthetic stress strings, so an unbounded chain-depth budget is safe here.
     let budget = ComposeBudget::from_env();
     let peeled = peeler
         .peel_candidates(g, word, &budget, &mut |r: &str| propose(net, r))
@@ -151,31 +94,19 @@ fn propose_and_peel(
     candidates
 }
 
-// -------------------------------------------------------------------------------------------
 // Category model.
-// -------------------------------------------------------------------------------------------
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 enum Category {
-    /// Derives at least one candidate word but is rejected by `pg_rules::validity`'s gate — the
-    /// deterministically pre-checkable rejection the plan's Phase 2 filters would target.
+    /// Derives at least one candidate but is rejected by `pg_rules::validity`'s gate: deterministically pre-checkable.
     A,
-    /// Either `candidates_generated == 0` (the cascade never produced a derivation to test), or
-    /// the only `Failed` reasons hit are `PartialParse`/`SurfaceFormMismatch` (cascade-completion/
-    /// surface-match dead ends, not a pre-checkable morpheme-level gate).
+    /// `candidates_generated == 0`, or only `PartialParse`/`SurfaceFormMismatch` reasons: a cascade dead end, not pre-checkable.
     B,
-    /// Everything else: `ObligatorySyntacticFeatures`, pin-resolution `None`, or a candidate whose
-    /// restricted reparse generated candidates and even matched SOMETHING but never routed to
-    /// this candidate's own key (positional-routing mismatch).
+    /// Everything else: `ObligatorySyntacticFeatures`, pin-resolution `None`, or a positional-routing mismatch.
     C,
 }
 
-/// The validity-gate `FailureReason`s `pg_rules::validity::allomorphs_valid_impl` actually emits
-/// (confirmed by reading that function's body — NOT all 23 `FailureReason` variants exist there;
-/// see this file's own doc / the census report's caveat). `DisjunctiveAllomorph` and
-/// `RequiredSyntacticFeatureStruct` are flagged separately below as edge cases (still counted in
-/// (a) — the plan's Phase 2 order already lists them separately from the flagship env/
-/// co-occurrence checks).
+/// The validity-gate `FailureReason`s `pg_rules::validity::allomorphs_valid_impl` actually emits; not all `FailureReason` variants exist there.
 const VALIDITY_GATE_REASONS: &[FailureReason] = &[
     FailureReason::Environments,
     FailureReason::AllomorphCoOccurrenceRules,
@@ -226,11 +157,7 @@ fn reason_name(r: FailureReason) -> &'static str {
     }
 }
 
-/// Walk every `Failed`-type node reachable from `sink`'s root, collecting `failure_reason`s.
-/// `pg_rules::trace::TraceSink::failed` is the only method that sets `TraceNode::failure_reason`
-/// on a `TraceType::Failed` node (the other `_not_applied` sites use `TraceType::
-/// {Phonological,Morphological}RuleSynthesis` with their own reason, included too — same
-/// "this branch dead-ended with reason X" semantics for this census's purposes).
+/// Walks every `Failed`-type node reachable from `sink`'s root, collecting `failure_reason`s.
 fn collect_failure_reasons(sink: &TreeTraceSink) -> Vec<FailureReason> {
     let mut out = Vec::new();
     let Some(root) = sink.root() else { return out };
@@ -257,9 +184,7 @@ fn classify_reasons(reasons: &[FailureReason]) -> Category {
     }
 }
 
-// -------------------------------------------------------------------------------------------
 // Per-word measurement.
-// -------------------------------------------------------------------------------------------
 
 struct WordCensus {
     total_candidates: usize,
@@ -267,9 +192,7 @@ struct WordCensus {
     failing: usize,
     cat_counts: [usize; 3], // A, B, C
     reason_hist: rustc_hash::FxHashMap<&'static str, usize>,
-    /// Numerators/denominator for this word's contribution to the aggregate time-share ratios
-    /// (see module doc). `None` when there were no failing candidates (nothing to attribute) or
-    /// the denominator was non-positive (measurement noise on a near-zero-cost word).
+    /// This word's numerators for the aggregate time-share ratios; `None` when there was nothing to attribute or the denominator was non-positive.
     time_shares: Option<[f64; 3]>, // (baseline-minus_x) for x in A,B,C
     denom: f64, // baseline - keep_confirming
 }
@@ -362,8 +285,7 @@ fn measure_word(
             .iter()
             .enumerate()
             .filter(|(i, _)| {
-                // Keep every confirming candidate untouched, plus every failing candidate NOT of
-                // this category.
+                // Keep every confirming candidate untouched, plus every failing candidate not of this category.
                 match failing_idx.iter().position(|&fi| fi == *i) {
                     Some(pos) => cat_of[pos] != target,
                     None => true,
@@ -398,9 +320,7 @@ fn measure_word(
     }
 }
 
-// -------------------------------------------------------------------------------------------
 // Aggregation + report.
-// -------------------------------------------------------------------------------------------
 
 struct GrammarReport {
     name: String,
@@ -628,9 +548,7 @@ fn run() {
     }
 }
 
-/// Amharic's deep composite/rule-chain recursion needs a big stack under release inlining (same
-/// trick `precision_bench`/`knob_probe` use) — the tracing pass here adds MORE recursion depth
-/// than either of those (full `TreeTraceSink` cascades, memo off), so this budget is generous.
+/// Amharic's deep composite/rule-chain recursion needs a big stack under release inlining, more than `precision_bench`/`knob_probe` need.
 fn main() {
     let handle = std::thread::Builder::new()
         .stack_size(512 * 1024 * 1024)

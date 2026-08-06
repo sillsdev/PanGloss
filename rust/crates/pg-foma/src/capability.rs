@@ -59,8 +59,10 @@ use pg_grammar::model::{
     PartRef, PhonRuleDef, ReduplicationHint, RewriteMode, StratumId,
 };
 
+use crate::enumerate::EmissionStrategy;
 use crate::grammar_semantics::GrammarSemantics;
 use crate::plan::{FragmentSpec, NodeId, Plan, PlanNodeKind};
+use crate::strategy_coverage::ALL_STRATEGIES;
 
 // =================================================================================================
 // Disposition + CharacteristicKind + the characterizer
@@ -1975,6 +1977,20 @@ pub trait CapabilityPredicate {
     fn id(&self) -> PredicateId;
     /// Which `CharacteristicKind`(s) this predicate claims to discharge.
     fn discharges(&self) -> &[CharacteristicKind];
+    /// Which `crate::enumerate::EmissionStrategy`s this predicate's judgement actually constrains —
+    /// the compilers whose proposer could exhibit the shape it refuses.
+    ///
+    /// **Defaults to EVERY strategy, and that default is load-bearing.** A predicate's subject
+    /// matter is a claim about a COMPILER (see `Disposition::ConfirmOnly`'s own definition), so a
+    /// predicate that has not been examined compiler by compiler cannot honestly be said to leave
+    /// any of them alone. Overriding this narrows what gets gated for the strategies dropped, which
+    /// is a behaviour change requiring per-compiler evidence — never a cleanup, and never a
+    /// side effect of adding a predicate. `compose_envelope_across_strategies` derives the
+    /// whole-grammar verdict from the per-strategy ones, so with every predicate at this default the
+    /// derived verdict is exactly what a single strategy-blind pass produced.
+    fn constrains_strategies(&self) -> &[EmissionStrategy] {
+        ALL_STRATEGIES
+    }
     /// This predicate's verdict for `plan_node`, given the grammar-wide `profile` (see this
     /// module's own top-doc for why `plan_node: &PlanNodeKind` rather than the literal
     /// `&PlanNode` — `crate::plan` has no type by that name).
@@ -3071,13 +3087,14 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
                         "stratum {} (Unordered, {} loose rules)",
                         detail.stratum.0, detail.rule_count
                     ),
-                    witness: "unordered-application.unbounded: this stratum's own loose-rule count \
+                    witness:
+                        "unordered-application.unbounded: this stratum's own loose-rule count \
                               exceeds crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET, \
                               the calibrated joint bound design.md/spec.md require before \
                               unordered-application.chain-depth-bounded's ConfirmOnly proposal \
                               applies. Refused; an explicit capability override is the on-ramp \
                               to force-compile it."
-                        .to_string(),
+                            .to_string(),
                 });
             }
         }
@@ -3697,7 +3714,7 @@ fn disposition_floor(disposition: Disposition) -> CompileDecision {
 fn node_decision(
     plan: &Plan,
     profile: &CharacteristicsProfile,
-    registry: &PredicateRegistry,
+    predicates: &[&dyn CapabilityPredicate],
     relevant_kinds: &HashSet<CharacteristicKind>,
     node_id: NodeId,
     cache: &mut HashMap<NodeId, CompileDecision>,
@@ -3717,10 +3734,10 @@ fn node_decision(
     for &child in kind.children() {
         decision = meet(
             decision,
-            node_decision(plan, profile, registry, relevant_kinds, child, cache),
+            node_decision(plan, profile, predicates, relevant_kinds, child, cache),
         );
     }
-    for predicate in registry.predicates() {
+    for predicate in predicates {
         if predicate
             .discharges()
             .iter()
@@ -3811,10 +3828,29 @@ pub fn compose_envelope(g: &Grammar, plan: &Plan, registry: &PredicateRegistry) 
 /// `compose_envelope` over an already-derived `GrammarSemantics` -- the primary form, so a
 /// caller with several plans for one grammar characterizes ONCE. Behaviorally identical:
 /// `compose_envelope` is this function with a freshly derived owner.
+///
+/// # This is a DERIVED fact
+/// There is no such thing as a compiler-independent capability verdict: `Disposition::ConfirmOnly`
+/// is defined as *"recall-preserving only if the proposer proposes the superset"*, which is a claim
+/// about a proposer. So the primary judgement is per-`crate::enumerate::EmissionStrategy`
+/// (`compose_envelope_for_strategy`), and this whole-grammar answer is derived from those:
+/// `StrategyEnvelope::global`, i.e. the BEST any compiler can offer, refusing only when every
+/// compiler refuses. `StrategyEnvelope::declining` says which compiler declined and why, which a
+/// scalar decision cannot. That this derivation returns what the compiler-blind form returned is
+/// pinned by `per_strategy_derivation_is_identical_on_every_conformance_fixture`.
 pub fn compose_envelope_with_semantics(
     semantics: &GrammarSemantics<'_>,
     plan: &Plan,
     registry: &PredicateRegistry,
+) -> CompileDecision {
+    compose_envelope_across_strategies(semantics, plan, registry).global()
+}
+
+// Narrowing a predicate away lands its kind on the default-disposition floor, never out of account.
+fn compose_over_predicates(
+    semantics: &GrammarSemantics<'_>,
+    plan: &Plan,
+    predicates: &[&dyn CapabilityPredicate],
 ) -> CompileDecision {
     let profile = semantics.characteristics();
     let relevant_kinds: HashSet<CharacteristicKind> = profile
@@ -3826,64 +3862,39 @@ pub fn compose_envelope_with_semantics(
 
     let mut cache = HashMap::new();
     let mut decision = match plan.root() {
-        Some(root) => node_decision(plan, profile, registry, &relevant_kinds, root, &mut cache),
+        Some(root) => node_decision(plan, profile, predicates, &relevant_kinds, root, &mut cache),
         None => CompileDecision::Admit,
     };
 
     for &kind in &relevant_kinds {
-        if !registry.discharges(kind) {
-            decision = meet(
-                decision,
-                disposition_floor(kind.default_disposition()),
-            );
+        if !predicates.iter().any(|p| p.discharges().contains(&kind)) {
+            decision = meet(decision, disposition_floor(kind.default_disposition()));
         }
     }
 
     decision
 }
 
-/// `compose_envelope_with_semantics` made STRATEGY-AWARE: the same whole-plan decision, met with
-/// the per-strategy construct account `crate::strategy_coverage` owns, for the compiler that will
-/// actually realize this candidate.
-///
-/// # Why a strategy-blind envelope is not enough
-/// `Disposition::ConfirmOnly`'s own definition is *"Recall-preserving only if the proposer
-/// proposes the superset."* That precondition is a claim about a PROPOSER, and
-/// `compose_envelope_with_semantics` has no proposer in hand: it sees a `&Grammar` (via
-/// `GrammarSemantics`) and a `Plan`, neither of which names a compiler. So the disposition
-/// table was being checked against the UNION of every compiler's abilities rather than against the
-/// one in use. `Compounding` rested at a non-refusing disposition on the strength of
-/// `crate::emit`'s compilers while `crate::uflexc` -- the only lexicon emitter
-/// `crate::enumerate::EmissionStrategy::PlanComposed` has -- could not propose a compound at all.
-/// The hole survived because nothing could express the question.
-///
-/// # What this adds, precisely
-/// Every OBSERVED `CharacteristicKind` (all of them, not just the non-`Proven` ones -- a
-/// `Proven` disposition is just as strategy-conditional as a `ConfirmOnly` one, and a compiler that
-/// cannot emit an affix has not earned `Proven` for `Affixation`) is looked up in
-/// `crate::strategy_coverage::representation_of` and folded in via `meet`:
-/// `crate::strategy_coverage::StrategyRepresentation::Represents` contributes `Admit`,
-/// `RepresentsWithKnownGap` contributes `CompileDecision::ConfirmOnly`, and `CannotRepresent`
-/// contributes a `CompileDecision::Refuse` naming the strategy, the construct and the citation.
-///
-/// It can only ever LOWER a candidate's decision, never raise it -- `meet` is a greatest lower
-/// bound and this function starts from the strategy-blind answer. So a caller that was refusing
-/// before still refuses.
-///
-/// # Memoization
-/// Takes the SAME `GrammarSemantics` every strategy shares. The grammar-only
-/// `GrammarSemantics::characteristics` memo is deliberately NOT re-keyed on the strategy: see
-/// `crate::strategy_coverage`'s module doc for the full argument (in short -- `characterize`
-/// answers "which constructs does the grammar contain", which cannot vary by compiler, while the
-/// strategy-dependent half has no grammar input at all, so the two are split rather than merged).
-pub fn compose_envelope_for_strategy(
-    semantics: &GrammarSemantics<'_>,
-    plan: &Plan,
-    strategy: crate::enumerate::EmissionStrategy,
+// Positions, not references, so two strategies' predicate sets compare cheaply for walk reuse.
+fn constraining_predicate_indices(
     registry: &PredicateRegistry,
-) -> CompileDecision {
-    let mut decision = compose_envelope_with_semantics(semantics, plan, registry);
+    strategy: EmissionStrategy,
+) -> Vec<usize> {
+    registry
+        .predicates()
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.constrains_strategies().contains(&strategy))
+        .map(|(i, _)| i)
+        .collect()
+}
 
+// `Proven` kinds are folded in too: a compiler that cannot emit an affix has not earned `Proven`.
+fn with_strategy_coverage(
+    semantics: &GrammarSemantics<'_>,
+    strategy: EmissionStrategy,
+    mut decision: CompileDecision,
+) -> CompileDecision {
     let observed: HashSet<CharacteristicKind> = semantics
         .characteristics()
         .observations()
@@ -3891,9 +3902,7 @@ pub fn compose_envelope_for_strategy(
         .map(|o| o.kind)
         .collect();
 
-    // Deterministic order: `HashSet` iteration is not stable, and a `Refuse`'s diagnostic `Vec`
-    // order is observable (it is compared in tests and rendered in reports). Walk
-    // `CharacteristicKind::ALL` instead, filtered to what was observed.
+    // `CharacteristicKind::ALL` order, not the set's: a `Refuse`'s diagnostic `Vec` order is observable.
     for &kind in CharacteristicKind::ALL {
         if !observed.contains(&kind) {
             continue;
@@ -3904,13 +3913,197 @@ pub fn compose_envelope_for_strategy(
     decision
 }
 
-/// One observed construct's contribution to `compose_envelope_for_strategy`'s decision, from the
-/// per-strategy account alone (the disposition table's own contribution is already folded in by
-/// `compose_envelope_with_semantics`).
-fn strategy_floor(
-    strategy: crate::enumerate::EmissionStrategy,
-    kind: CharacteristicKind,
+/// One compiler's verdict for one grammar+plan: the primary unit of capability judgement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StrategyVerdict {
+    pub strategy: EmissionStrategy,
+    pub decision: CompileDecision,
+}
+
+/// Every `crate::enumerate::EmissionStrategy`'s own verdict for one grammar+plan, and the
+/// whole-grammar verdict derived from them.
+///
+/// This is the shape the capability gate actually has, made explicit. A single scalar decision
+/// cannot express "this grammar is compilable, but not by the compiler you were about to use" nor
+/// "no compiler can do this, and here is what each one choked on" — both of which are ordinary
+/// states for a three-compiler crate, and the second of which is what a caller needs to act on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StrategyEnvelope {
+    verdicts: Vec<StrategyVerdict>,
+}
+
+impl StrategyEnvelope {
+    /// Every strategy's verdict, in `crate::strategy_coverage::ALL_STRATEGIES` order.
+    pub fn verdicts(&self) -> &[StrategyVerdict] {
+        &self.verdicts
+    }
+
+    /// `strategy`'s own verdict, or `None` if it was not composed — which cannot happen for an
+    /// `ALL_STRATEGIES` member of an envelope from `compose_envelope_across_strategies`;
+    /// pinned by `per_strategy_derivation_is_identical_on_every_conformance_fixture`.
+    pub fn decision_for(&self, strategy: EmissionStrategy) -> Option<&CompileDecision> {
+        self.verdicts
+            .iter()
+            .find(|v| v.strategy == strategy)
+            .map(|v| &v.decision)
+    }
+
+    /// Every strategy that refused, with its diagnostics — the "which compiler declined, for what
+    /// reason" report `global`'s scalar answer cannot carry.
+    pub fn declining(&self) -> Vec<(EmissionStrategy, &[CapabilityDiagnostic])> {
+        self.verdicts
+            .iter()
+            .filter_map(|v| match &v.decision {
+                CompileDecision::Refuse(diagnostics) => Some((v.strategy, diagnostics.as_slice())),
+                CompileDecision::Admit | CompileDecision::ConfirmOnly => None,
+            })
+            .collect()
+    }
+
+    /// The whole-grammar verdict: the BEST any compiler offers, so `Refuse` iff EVERY strategy
+    /// refuses — pinned by `global_refuses_only_when_every_strategy_refuses`. The dual of `meet` —
+    /// a join, because a grammar one compiler can handle is compilable even if another cannot.
+    ///
+    /// A refusing result carries the diagnostics EVERY refusing strategy shares — the reasons that
+    /// hold no matter which compiler is chosen, which is exactly the claim a whole-grammar refusal
+    /// makes. When the strategies refuse for entirely disjoint reasons that intersection is empty,
+    /// and an empty-diagnostic refusal would be unactionable, so the union is reported instead;
+    /// `declining` keeps the per-strategy attribution either way.
+    pub fn global(&self) -> CompileDecision {
+        let mut refusals: Vec<&[CapabilityDiagnostic]> = Vec::new();
+        let mut confirm_only = false;
+        for verdict in &self.verdicts {
+            match &verdict.decision {
+                CompileDecision::Admit => return CompileDecision::Admit,
+                CompileDecision::ConfirmOnly => confirm_only = true,
+                CompileDecision::Refuse(diagnostics) => refusals.push(diagnostics),
+            }
+        }
+        if confirm_only {
+            return CompileDecision::ConfirmOnly;
+        }
+        // No strategies at all is vacuous, not a refusal -- there is no compiler to have declined.
+        let Some((first, rest)) = refusals.split_first() else {
+            return CompileDecision::Admit;
+        };
+        let shared: Vec<CapabilityDiagnostic> = first
+            .iter()
+            .filter(|&d| rest.iter().all(|other| other.contains(d)))
+            .cloned()
+            .collect();
+        if !shared.is_empty() {
+            return CompileDecision::Refuse(shared);
+        }
+        let mut union: Vec<CapabilityDiagnostic> = Vec::new();
+        for diagnostics in &refusals {
+            for d in *diagnostics {
+                if !union.contains(d) {
+                    union.push(d.clone());
+                }
+            }
+        }
+        CompileDecision::Refuse(union)
+    }
+}
+
+/// THE primary capability judgement: every compiler's own verdict for `plan`, each computed
+/// DIRECTLY from the predicates that constrain that compiler met with that compiler's
+/// `crate::strategy_coverage` rows.
+///
+/// # Why this is not a global verdict, narrowed
+/// It used to be. `compose_envelope_for_strategy` computed a strategy-BLIND decision first and
+/// `meet`-narrowed the per-strategy rows into it, which meant a per-compiler answer could only ever
+/// be worse than the blind one — a predicate that describes a shape only a PROTOTYPE compiler can
+/// exhibit still refused the mainline compiler, and no amount of per-strategy evidence could undo
+/// it. Composing each strategy from its own predicate set removes that floor: the blind verdict is
+/// not an input to any per-strategy answer any more, it is `StrategyEnvelope::global`'s output.
+///
+/// # Cost
+/// The plan walk is run once per DISTINCT predicate set, not once per strategy. With every
+/// predicate at `CapabilityPredicate::constrains_strategies`'s default (all strategies) there is
+/// exactly one such set, so this costs the same single walk the strategy-blind form did — the
+/// per-candidate cost `crate::selection` and `crate::grammar_semantics` care about does not move
+/// until a predicate is genuinely reclassified.
+pub fn compose_envelope_across_strategies(
+    semantics: &GrammarSemantics<'_>,
+    plan: &Plan,
+    registry: &PredicateRegistry,
+) -> StrategyEnvelope {
+    let mut walked: Vec<(Vec<usize>, CompileDecision)> = Vec::new();
+    let mut verdicts = Vec::with_capacity(ALL_STRATEGIES.len());
+
+    for &strategy in ALL_STRATEGIES {
+        let indices = constraining_predicate_indices(registry, strategy);
+        let base = match walked.iter().find(|(seen, _)| *seen == indices) {
+            Some((_, decision)) => decision.clone(),
+            None => {
+                let predicates: Vec<&dyn CapabilityPredicate> = indices
+                    .iter()
+                    .map(|&i| registry.predicates()[i].as_ref())
+                    .collect();
+                let decision = compose_over_predicates(semantics, plan, &predicates);
+                walked.push((indices, decision.clone()));
+                decision
+            }
+        };
+        verdicts.push(StrategyVerdict {
+            strategy,
+            decision: with_strategy_coverage(semantics, strategy, base),
+        });
+    }
+
+    StrategyEnvelope { verdicts }
+}
+
+/// ONE compiler's capability verdict for `plan`: the predicates that constrain `strategy`, met with
+/// `strategy`'s own rows in the per-strategy construct account `crate::strategy_coverage` owns.
+///
+/// # Why the judgement is per-compiler
+/// `Disposition::ConfirmOnly`'s own definition is *"Recall-preserving only if the proposer
+/// proposes the superset."* That precondition is a claim about a PROPOSER, so there is no
+/// compiler-independent verdict to be had: a disposition checked without a strategy in hand is
+/// being checked against the UNION of every compiler's abilities. `Compounding` rested at a
+/// non-refusing disposition on the strength of `crate::emit`'s compilers while `crate::uflexc` --
+/// the only lexicon emitter `crate::enumerate::EmissionStrategy::PlanComposed` has -- could not
+/// propose a compound at all. The hole survived because nothing could express the question.
+///
+/// # Composed, not narrowed
+/// This function does NOT compute a whole-grammar decision and then restrict it. The predicate set
+/// is filtered by `CapabilityPredicate::constrains_strategies` FIRST and the plan is walked with
+/// that set, so a predicate that constrains only some compilers cannot refuse the others. The
+/// whole-grammar answer runs the other way: `compose_envelope_with_semantics` is
+/// `StrategyEnvelope::global` over these verdicts.
+///
+/// # What the coverage account contributes
+/// Every OBSERVED `CharacteristicKind` is looked up in
+/// `crate::strategy_coverage::representation_of` and folded in via `meet`:
+/// `crate::strategy_coverage::StrategyRepresentation::Represents` contributes `Admit`,
+/// `RepresentsWithKnownGap` contributes `CompileDecision::ConfirmOnly`, and `CannotRepresent`
+/// contributes a `CompileDecision::Refuse` naming the strategy, the construct and the citation.
+///
+/// # Memoization
+/// Takes the SAME `GrammarSemantics` every strategy shares. The grammar-only
+/// `GrammarSemantics::characteristics` memo is deliberately NOT re-keyed on the strategy: see
+/// `crate::strategy_coverage`'s module doc for the full argument (in short -- `characterize`
+/// answers "which constructs does the grammar contain", which cannot vary by compiler, while the
+/// strategy-dependent half has no grammar input at all, so the two are split rather than merged).
+pub fn compose_envelope_for_strategy(
+    semantics: &GrammarSemantics<'_>,
+    plan: &Plan,
+    strategy: EmissionStrategy,
+    registry: &PredicateRegistry,
 ) -> CompileDecision {
+    let predicates: Vec<&dyn CapabilityPredicate> =
+        constraining_predicate_indices(registry, strategy)
+            .into_iter()
+            .map(|i| registry.predicates()[i].as_ref())
+            .collect();
+    let base = compose_over_predicates(semantics, plan, &predicates);
+    with_strategy_coverage(semantics, strategy, base)
+}
+
+// The per-strategy account's contribution alone; `compose_over_predicates` folds in the dispositions.
+fn strategy_floor(strategy: EmissionStrategy, kind: CharacteristicKind) -> CompileDecision {
     use crate::strategy_coverage::StrategyRepresentation;
 
     let row = crate::strategy_coverage::representation_of(strategy, kind);
@@ -7510,6 +7703,291 @@ mod tests {
         assert_eq!(
             compose_envelope(&g, &plan, &registry),
             CompileDecision::ConfirmOnly
+        );
+    }
+
+    // The pre-refactor whole-grammar composition verbatim: one walk, entire registry, no strategy.
+    fn compiler_blind_reference(
+        semantics: &GrammarSemantics<'_>,
+        plan: &Plan,
+        registry: &PredicateRegistry,
+    ) -> CompileDecision {
+        let predicates: Vec<&dyn CapabilityPredicate> =
+            registry.predicates().iter().map(|p| p.as_ref()).collect();
+        compose_over_predicates(semantics, plan, &predicates)
+    }
+
+    // Returns the verdict so a caller can tally which of the three the corpus actually reached.
+    fn assert_per_strategy_derivation_is_identical(label: &str, g: &Grammar) -> CompileDecision {
+        let semantics = GrammarSemantics::derive(g);
+        let alphabet = SegAlphabet::new(crate::emit::surface_table(g));
+        let phon = PhonologyProbe::new_with_semantics(&semantics);
+        let plan = enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref());
+        let registry = default_registry();
+
+        let blind = compiler_blind_reference(&semantics, &plan, &registry);
+        let envelope = compose_envelope_across_strategies(&semantics, &plan, &registry);
+
+        assert_eq!(
+            envelope.global(),
+            blind,
+            "{label}: the verdict derived from the per-compiler ones differs from the \
+             compiler-blind verdict it replaced"
+        );
+        assert_eq!(
+            compose_envelope_with_semantics(&semantics, &plan, &registry),
+            blind,
+            "{label}: the public whole-grammar entry point moved"
+        );
+
+        for &strategy in ALL_STRATEGIES {
+            let composed = compose_envelope_for_strategy(&semantics, &plan, strategy, &registry);
+            // The OLD per-strategy form: the compiler-blind verdict, narrowed by the coverage rows.
+            let narrowed = with_strategy_coverage(&semantics, strategy, blind.clone());
+            assert_eq!(
+                composed, narrowed,
+                "{label}: {strategy:?}'s composed-from-its-own-predicates verdict differs from the \
+                 narrowed-from-blind verdict it replaced"
+            );
+            assert_eq!(
+                envelope.decision_for(strategy),
+                Some(&composed),
+                "{label}: {strategy:?}'s row in the envelope differs from asking for it directly"
+            );
+        }
+
+        blind
+    }
+
+    fn decision_label(decision: &CompileDecision) -> &'static str {
+        match decision {
+            CompileDecision::Admit => "admit",
+            CompileDecision::ConfirmOnly => "confirm-only",
+            CompileDecision::Refuse(_) => "refuse",
+        }
+    }
+
+    // Covers the derivation over both fixture roots; NOT the shared plan walk both sides call.
+    #[test]
+    fn per_strategy_derivation_is_identical_on_every_conformance_fixture() {
+        let fixtures = pg_conformance_fixtures::discover();
+        let machine = fixtures
+            .iter()
+            .filter(|f| f.root == pg_conformance_fixtures::Root::Machine)
+            .count();
+        let staging = fixtures
+            .iter()
+            .filter(|f| f.root == pg_conformance_fixtures::Root::Staging)
+            .count();
+        // Fail closed: an absent corpus must not read as a passing identity check.
+        assert!(
+            machine > 0 && staging > 0,
+            "no conformance corpus to check against (machine={machine} staging={staging}) -- \
+             `rust/tools/conformance.ps1` initializes the machine/conformance submodule"
+        );
+
+        let mut tally: HashMap<&'static str, usize> = HashMap::new();
+        let mut load_failed = 0usize;
+        for f in &fixtures {
+            let Ok(g) = pg_grammar::load(&f.load_grammar_xml()) else {
+                load_failed += 1;
+                continue;
+            };
+            let decision = assert_per_strategy_derivation_is_identical(&f.label(), &g);
+            *tally.entry(decision_label(&decision)).or_default() += 1;
+        }
+
+        let checked: usize = tally.values().sum();
+        println!(
+            "per_strategy_derivation_is_identical: checked={checked} load_failed={load_failed} \
+             verdicts={tally:?}"
+        );
+        assert_eq!(
+            checked,
+            machine + staging - load_failed,
+            "every loadable fixture must have been checked"
+        );
+        // A real floor, not `> 0`: a passing run must assert the corpus size it actually saw.
+        assert!(
+            checked >= 35,
+            "only {checked} of {} fixtures were checked (machine={machine} staging={staging} \
+             load_failed={load_failed}) -- too few for this to be an exhaustive claim",
+            machine + staging
+        );
+    }
+
+    // The corpus need not reach a `Refuse` or a compiler disagreement; these fixtures reach both.
+    #[test]
+    fn per_strategy_derivation_is_identical_across_all_three_verdicts() {
+        const ORDINARY_XML: &str = r#"<HermitCrabInput><Language><Name>Ordinary</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+
+        // Where the compilers disagree: PlanComposed emits no lexc line for a RealizationalRule.
+        const REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <RealizationalRule id="rr1">
+                  <Name>Realiz</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="sub1">
+                      <MorphologicalInput><PhoneticSequence id="s0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
+                      <MorphologicalOutput><CopyFromInput index="s0" /></MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </RealizationalRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+
+        let refusing_xml = unordered_stratum_xml(
+            crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,
+        );
+
+        let mut seen: Vec<&'static str> = Vec::new();
+        for (label, xml) in [
+            ("ordinary", ORDINARY_XML.to_string()),
+            ("realizational", REALIZATIONAL_XML.to_string()),
+            ("unordered-unbounded", refusing_xml),
+        ] {
+            let g = load(&xml);
+            let decision = assert_per_strategy_derivation_is_identical(label, &g);
+            let seen_label = decision_label(&decision);
+            if !seen.contains(&seen_label) {
+                seen.push(seen_label);
+            }
+        }
+
+        seen.sort_unstable();
+        assert_eq!(
+            seen,
+            vec!["admit", "confirm-only", "refuse"],
+            "the synthetic set must exercise all three verdicts, or the identity claim is only \
+             proven for whichever one it happened to hit"
+        );
+    }
+
+    // The precondition making the identity above hold by construction; pinned by `some_strategy_represents_every_kind`.
+    #[test]
+    fn no_registered_predicate_is_narrowed_to_a_subset_of_the_compilers() {
+        let registry = default_registry();
+        for predicate in registry.predicates() {
+            let constrained = predicate.constrains_strategies();
+            for &strategy in ALL_STRATEGIES {
+                assert!(
+                    constrained.contains(&strategy),
+                    "predicate {} no longer constrains {strategy:?} -- an evidence-backed \
+                     behaviour change, not a refactor; the identity tests above pin the old \
+                     behaviour and must be revisited with it",
+                    predicate.id()
+                );
+            }
+        }
+    }
+
+    // Hand-built verdicts, so the join claim does not wait on finding a grammar of each shape.
+    #[test]
+    fn global_refuses_only_when_every_strategy_refuses() {
+        fn diagnostic(id: PredicateId) -> CapabilityDiagnostic {
+            CapabilityDiagnostic {
+                predicate: id,
+                construct: "X".to_string(),
+                witness: "w".to_string(),
+            }
+        }
+        fn envelope(decisions: [CompileDecision; 3]) -> StrategyEnvelope {
+            StrategyEnvelope {
+                verdicts: ALL_STRATEGIES
+                    .iter()
+                    .copied()
+                    .zip(decisions)
+                    .map(|(strategy, decision)| StrategyVerdict { strategy, decision })
+                    .collect(),
+            }
+        }
+        let shared = diagnostic("shared");
+        let only_a = diagnostic("only-a");
+        let only_b = diagnostic("only-b");
+
+        assert_eq!(
+            envelope([
+                CompileDecision::Refuse(vec![shared.clone()]),
+                CompileDecision::ConfirmOnly,
+                CompileDecision::Refuse(vec![shared.clone()]),
+            ])
+            .global(),
+            CompileDecision::ConfirmOnly,
+            "one non-refusing compiler is enough"
+        );
+        assert_eq!(
+            envelope([
+                CompileDecision::Refuse(vec![shared.clone()]),
+                CompileDecision::Admit,
+                CompileDecision::Refuse(vec![shared.clone()]),
+            ])
+            .global(),
+            CompileDecision::Admit
+        );
+        // Unanimous for a shared reason: that reason alone, without the compiler-specific extras.
+        assert_eq!(
+            envelope([
+                CompileDecision::Refuse(vec![shared.clone(), only_a.clone()]),
+                CompileDecision::Refuse(vec![shared.clone()]),
+                CompileDecision::Refuse(vec![shared.clone(), only_b.clone()]),
+            ])
+            .global(),
+            CompileDecision::Refuse(vec![shared.clone()])
+        );
+        // Unanimous for disjoint reasons: the union, since an empty-diagnostic refusal is unactionable.
+        assert_eq!(
+            envelope([
+                CompileDecision::Refuse(vec![only_a.clone()]),
+                CompileDecision::Refuse(vec![only_b.clone()]),
+                CompileDecision::Refuse(vec![only_a.clone()]),
+            ])
+            .global(),
+            CompileDecision::Refuse(vec![only_a.clone(), only_b.clone()])
+        );
+
+        let declining = envelope([
+            CompileDecision::Refuse(vec![only_a.clone()]),
+            CompileDecision::ConfirmOnly,
+            CompileDecision::Refuse(vec![only_b.clone()]),
+        ]);
+        let reported: Vec<EmissionStrategy> =
+            declining.declining().iter().map(|(s, _)| *s).collect();
+        assert_eq!(
+            reported,
+            vec![
+                EmissionStrategy::PlanComposed,
+                EmissionStrategy::TemplatedUnderlyingTokens
+            ],
+            "the envelope must name which compilers declined, which a scalar decision cannot"
         );
     }
 }

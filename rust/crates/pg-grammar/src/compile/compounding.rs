@@ -1,6 +1,4 @@
-//! Compound rules: authored (`LoadEndoCompoundingRule`/`LoadExoCompoundingRule`,
-//! HCLoader.cs:1842-2001) or, when the snapshot declares none and `NoDefaultCompounding` is not
-//! set, the two synthesized defaults (`DefaultCompoundingRules`, HCLoader.cs:1808-1840).
+//! Compound rules: authored, or — when the snapshot declares none and `NoDefaultCompounding` is not set — the two synthesized `DefaultCompoundingRules` defaults.
 
 use pg_snapshot::morphology::{CompoundConstituentRequirement, CompoundOutcome, CompoundRule};
 use pg_snapshot::Snapshot;
@@ -87,8 +85,7 @@ fn head_nonhead_patterns(ctx: &Ctx) -> (Vec<Pattern>, Vec<Pattern>) {
     )
 }
 
-/// `DefaultCompoundingRules` (HCLoader.cs:1808-1840): "Default Left Head Compounding" (head first)
-/// and "Default Right Head Compounding" (head second), both with no POS/MPR requirements.
+/// The two synthesized defaults, head-first and head-second, both with no POS/MPR requirements.
 fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Vec<MRuleId> {
     let mut out = Vec::new();
     for (name, head_first) in [
@@ -127,8 +124,7 @@ fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Vec<MRuleId> {
     out
 }
 
-/// `Copy(head), "+", Copy(nonhead)` or the reverse, depending on which constituent comes first in
-/// the output surface form.
+/// `Copy(head), "+", Copy(nonhead)` or the reverse, depending on which constituent comes first.
 fn plus_join(head_first: bool, ctx: &Ctx) -> Vec<OutputAction> {
     let plus =
         crate::segment::segment(ctx.table, "+").expect("'+' always segments (morph boundary)");
@@ -220,8 +216,7 @@ fn build_endo(
     Some(mrule_id)
 }
 
-/// `LoadExoCompoundingRule` (HCLoader.cs:1922-2001): produces *two* rules, one per output-head
-/// order, since an exocentric compound's own morphosyntax is stipulated rather than inherited.
+/// Produces *two* rules, one per output-head order, since an exocentric compound's morphosyntax is stipulated rather than inherited.
 #[allow(clippy::too_many_arguments)]
 fn build_exo(
     name: &str,

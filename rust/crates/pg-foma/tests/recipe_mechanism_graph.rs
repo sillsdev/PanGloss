@@ -1,15 +1,4 @@
-//! The mechanism vocabulary.
-//!
-//! Several assertions the initial commit made are deliberately gone, not relaxed. There is no
-//! longer a test that a declared `IdentityGuarantee::Unknown` fails a declared
-//! `IdentityRequirement::Preserved`, nor the multiplicity/copy-span/dynamic-state equivalents:
-//! those compared two hand-written declarations to each other and would have passed just as
-//! happily on Amharic's measured `identity-mismatch` candidate, which declared nothing and was
-//! simply wrong. Analysis identity and multiplicity are the parity relation, measured against an
-//! oracle, and this vocabulary no longer pretends to assert them.
-//!
-//! What replaces them is checks an edge cannot fake, because the edge no longer carries anything:
-//! symbol space, boundary state and stratum are computed from the two endpoint NODES.
+//! An edge carries no identity/multiplicity claims of its own -- symbol space, boundary state and stratum are all computed from its two endpoint nodes.
 
 use std::collections::BTreeSet;
 
@@ -54,8 +43,7 @@ fn recipe_mechanism_wire_ids_round_trip_every_native_domain() {
     round_trip!(MprId(13), MprId);
 }
 
-/// The `ModelLocation -> MechanismSource` join is total. This is what lets a provider attribute a
-/// characteristic observation to a mechanism without touching `Grammar`.
+/// The `ModelLocation -> MechanismSource` join is total, so a provider can attribute an observation to a mechanism without touching `Grammar`.
 #[test]
 fn recipe_mechanism_sources_convert_every_model_location_variant() {
     let cases = [
@@ -206,9 +194,12 @@ fn recipe_mechanism_rejects_missing_producer() {
 fn recipe_mechanism_rejects_a_node_with_no_typed_source() {
     let mut orphan = morphotactics("morph");
     orphan.sources.clear();
-    let err = graph(vec![orphan, cleanup("cleanup")], vec![edge("morph", "cleanup")])
-        .validate()
-        .unwrap_err();
+    let err = graph(
+        vec![orphan, cleanup("cleanup")],
+        vec![edge("morph", "cleanup")],
+    )
+    .validate()
+    .unwrap_err();
     assert_eq!(
         err,
         MechanismGraphError::MissingSource {
@@ -230,9 +221,7 @@ fn recipe_mechanism_rejects_self_edge() {
     );
 }
 
-/// Symbol space is now a NODE fact, so a mismatch is a genuine disagreement between two
-/// mechanisms rather than a contradiction inside one hand-written contract. Both the alphabet and
-/// the table are part of it.
+/// Symbol space is a NODE fact, so a mismatch is a disagreement between two mechanisms, not a contradiction inside one hand-written contract.
 #[test]
 fn recipe_mechanism_rejects_symbol_space_and_table_mismatch() {
     let mut alphabet = morphotactics("morph");
@@ -302,11 +291,7 @@ fn recipe_mechanism_rejects_boundary_cleanup_before_another_consumer() {
     ));
 }
 
-/// Boundary state is DERIVED from the mechanism kind, so the only node that can leave boundaries
-/// removed is a cleanup -- and a cleanup with an outgoing edge is caught by `CleanupNotTerminal`
-/// first. This test records that the boundary rule is therefore structurally unviolable rather
-/// than merely checked: the two derived answers are what they must be, and no vocabulary a caller
-/// can write changes either.
+/// Boundary state is derived from the mechanism kind; only a cleanup node can leave boundaries removed, and a cleanup with an outgoing edge is caught by `CleanupNotTerminal` first.
 #[test]
 fn recipe_mechanism_boundary_state_is_derived_not_declared() {
     assert_eq!(morphotactics("m").boundary_input(), BoundaryState::Present);
@@ -398,24 +383,21 @@ fn recipe_mechanism_accepts_composable_morphotactics_cleanup_graph() {
     .expect("the complete morphotactics-to-cleanup graph is composable");
 }
 
-// -------------------------------------------------------------------------------------------
-// Bindings: the only place a disposition exists, and it always names its compiler.
-// -------------------------------------------------------------------------------------------
+// --- Bindings: the only place a disposition exists, and it always names its compiler. ---
 
-/// THE ROW THIS REWORK EXISTS FOR. A mechanism requiring `RealizationalMorphology` is refused by
-/// `PlanComposed` -- whose only lexicon emitter writes no line for a realizational rule -- and
-/// exact for the whole-grammar compilers. Same node, same graph, three different answers, each
-/// carrying the compiler's name. Under the initial commit's vocabulary this fact was
-/// inexpressible: `ExecutionDisposition` lived on an edge contract with no strategy anywhere in
-/// the module.
+/// A mechanism requiring `RealizationalMorphology` is refused by `PlanComposed` (its only lexicon emitter writes no line for a realizational rule) yet exact for the whole-grammar compilers -- same node, same graph, three different answers, each carrying its compiler's name.
 #[test]
 fn recipe_mechanism_binding_answers_per_compiler_and_never_anonymously() {
     let mut node = morphotactics("morph");
     node.construct_requirements = [CharacteristicKind::RealizationalMorphology]
         .into_iter()
         .collect();
-    let g = graph(vec![node, cleanup("cleanup")], vec![edge("morph", "cleanup")]);
-    g.validate().expect("graph is composable regardless of compiler");
+    let g = graph(
+        vec![node, cleanup("cleanup")],
+        vec![edge("morph", "cleanup")],
+    );
+    g.validate()
+        .expect("graph is composable regardless of compiler");
 
     let refused = g.refusals(EmissionStrategy::PlanComposed);
     assert_eq!(refused.len(), 1);

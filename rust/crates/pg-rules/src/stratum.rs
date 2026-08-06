@@ -15,8 +15,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::hash_map::Entry;
 use std::rc::Rc;
-// `std::time::Instant` panics on wasm32-unknown-unknown, and the deadline check below runs on every
-// parse. `web_time` re-exports std's `Duration` unchanged, so this substitutes `Instant` alone.
+// `std::time::Instant` panics on wasm32-unknown-unknown; `web_time` substitutes only `Instant`, reusing std's `Duration` unchanged.
 use web_time::{Duration, Instant};
 
 use pg_featstruct::{add, is_unifiable, subsumes, subtract, unify};
@@ -53,9 +52,7 @@ pub enum RuleRef {
     Stratum(StratumId),
     /// Mirrors C#'s template-level gate (`AnalysisAffixTemplateRule`).
     Template(TemplateId),
-    /// The morphological-rule-level gate shared, textually identically, by C#'s
-    /// `AnalysisAffixProcessRule`, `AnalysisCompoundingRule`, and
-    /// `AnalysisRealizationalAffixProcessRule` — one `MRuleId` covers all three.
+    /// The morphological-rule-level gate; one `MRuleId` covers affix-process, compounding, and realizational rules alike.
     MRule(MRuleId),
 }
 
@@ -74,9 +71,7 @@ use crate::{metathesis, morph, rewrite};
 /// per `parse_word` call (see `pg_memo::AnalysisScope`) and hands it in via `analyze_stratum_scoped`.
 pub type MemoScope = RefCell<AnalysisScope<Word>>;
 
-/// A key→word dedup set preserving first-seen order — the memoized cascade's accumulator, the exact
-/// analog of the plain `Cascade`'s internal `Acc`. Callers sort downstream, so insertion order is
-/// only for determinism.
+/// A key→word dedup set preserving first-seen order, analogous to the plain `Cascade`'s internal `Acc`.
 struct OrderedDedup {
     seen: HashMap<WordKey, ()>,
     items: Vec<Word>,
@@ -121,8 +116,7 @@ pub struct StepBudget {
     cap: usize,
     steps: Cell<usize>,
     capped: Cell<bool>,
-    /// The `--word-timeout-ms` deadline as an absolute instant, or `None` for no wall-clock bound.
-    /// A second, orthogonal bound — not a re-expression of `cap`.
+    /// The `--word-timeout-ms` deadline, a second bound orthogonal to `cap`, or `None` for no wall-clock bound.
     deadline: Option<Instant>,
     timed_out: Cell<bool>,
     synthesis_counting: bool,
@@ -155,9 +149,7 @@ impl StepBudget {
         self
     }
 
-    /// True (and latches `capped`/`timed_out`) once either bound is exhausted. Consulted at every
-    /// (un)application attempt and every recursion entry. The step cap is checked first, being the
-    /// cheaper of the two; see this type's doc for why the clock is then read unconditionally.
+    /// True (and latches `capped`/`timed_out`) once either bound is exhausted; the cheaper step cap is checked first.
     fn over_budget(&self) -> bool {
         if self.steps.get() >= self.cap {
             self.capped.set(true);
@@ -166,9 +158,7 @@ impl StepBudget {
         self.deadline_expired()
     }
 
-    /// The wall-clock-only check ordinary parsing and generation use for synthesis. It deliberately
-    /// omits the step-cap branch so analysis effort cannot starve synthesis and `--step-cap`
-    /// behavior stays byte-identical; with no deadline armed it is a complete no-op.
+    /// Wall-clock-only, deliberately omitting the step-cap branch so analysis effort cannot starve synthesis.
     fn deadline_expired(&self) -> bool {
         if let Some(deadline) = self.deadline {
             if Instant::now() >= deadline {
@@ -218,14 +208,10 @@ impl StepBudget {
 mod step_budget_timeout_tests {
     use super::*;
 
-    /// The deadline must fire from the wall-clock path, not the step cap: an uncapped
-    /// (`usize::MAX`) budget with a short real deadline armed, ticked as fast as possible, must
-    /// break out promptly rather than running the artificially huge iteration bound to completion.
+    /// An uncapped (`usize::MAX`) budget with a short deadline armed must break out promptly, not run the huge iteration bound to completion.
     #[test]
     fn wall_clock_deadline_fires_independent_of_an_uncapped_step_cap() {
-        const N_HUGE: u64 = 200_000_000; // large enough that running it to completion unchecked
-                                         // takes far longer than the deadline below on any dev/CI
-                                         // machine — the "step-cap-irrelevant infinite-ish loop".
+        const N_HUGE: u64 = 200_000_000; // large enough to run far longer than the deadline below on any dev/CI machine
         let timeout = Duration::from_millis(30);
         let budget = StepBudget::new(usize::MAX).with_timeout(Some(timeout));
 
@@ -252,8 +238,7 @@ mod step_budget_timeout_tests {
             i < N_HUGE,
             "the loop must break out well before the artificial huge bound, not run to completion"
         );
-        // Generous upper bound for slow CI machines, yet far tighter than running the full N_HUGE
-        // loop would ever be — loose enough to absorb scheduler jitter around the 30ms deadline.
+        // Generous for slow CI machines, but far tighter than a full N_HUGE run.
         assert!(
             elapsed < Duration::from_secs(2),
             "elapsed {elapsed:?} should stay close to the {timeout:?} deadline, not balloon toward \
@@ -261,8 +246,7 @@ mod step_budget_timeout_tests {
         );
     }
 
-    /// A deadline that is already in the past at construction time (the `--word-timeout-ms=0`
-    /// smoke-test shape) must fire on the very first `over_budget()` check.
+    /// A deadline already in the past at construction time must fire on the first `over_budget()` check.
     #[test]
     fn zero_deadline_fires_on_the_first_check() {
         let budget = StepBudget::new(usize::MAX).with_timeout(Some(Duration::from_millis(0)));
@@ -276,9 +260,7 @@ mod step_budget_timeout_tests {
         assert!(!budget.capped());
     }
 
-    /// The failure shape a step-count-gated wall-clock cadence misses: fewer ticks in total than one
-    /// cadence interval, with real time elapsing between them. Reading the clock only at step 0
-    /// would run the loop to completion; reading it on every armed call fires the deadline on time.
+    /// Fewer ticks than one cadence interval, with real time elapsing between them: reading the clock only at step 0 would run to completion.
     #[test]
     fn wall_clock_deadline_fires_even_when_total_ticks_never_reach_the_old_check_interval() {
         const N: u64 = 200; // well under the old 1024-tick cadence interval
@@ -321,9 +303,7 @@ mod step_budget_timeout_tests {
         );
     }
 
-    /// `with_timeout(None)` (the default, `--word-timeout-ms` omitted) must be a complete no-op:
-    /// the budget behaves exactly as a plain `StepBudget::new(cap)` would, for as many steps as
-    /// the cap allows.
+    /// `with_timeout(None)` must be a complete no-op, behaving exactly as a plain `StepBudget::new(cap)` would.
     #[test]
     fn no_timeout_never_times_out() {
         let budget = StepBudget::new(5).with_timeout(None);
@@ -377,9 +357,7 @@ pub struct StratumAnalysis {
     pub capped: bool,
 }
 
-// =================================================================================================
 // Analysis stratum rule.
-// =================================================================================================
 
 /// Analyze (unapply) `input` through `stratum` — a faithful port of C#'s `AnalysisStratumRule`.
 /// The primary analysis entry point: lexical lookup runs this per stratum, deepest first, and
@@ -501,35 +479,27 @@ pub fn analyze_stratum_scoped_filtered_ruled_traced(
     .analyze(input)
 }
 
-/// The stratum orchestrator. Borrows the caller's `StepBudget` (see that type's doc) rather than
-/// owning its own step counter — one `StratumAnalyzer` no longer means one budget.
+/// The stratum orchestrator. Borrows the caller's `StepBudget` rather than owning its own step counter.
 struct StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     g: &'g Grammar,
     stratum_id: StratumId,
     stratum: &'g pg_grammar::model::StratumDef,
     order: MorphRuleOrder,
-    /// The stratum's morphological rules **reversed** — C# reverses for both Linear and Unordered.
-    /// The cascade indexes this reversed list; the closure maps `i -> reversed[i]` so the correct
-    /// `MRuleId` is recorded regardless of order.
+    /// The stratum's morphological rules reversed; the cascade indexes this list, so the closure maps `i -> reversed[i]` to record the correct `MRuleId`.
     reversed_mrules: Vec<MRuleId>,
     cfg: AnalyzerConfig,
     budget: &'b StepBudget,
-    /// The order-invariant memo, or `None` for the unmemoized baseline. Threaded here rather than
-    /// through every recursion argument. See `analyze_stratum_scoped`.
+    /// The order-invariant memo, or `None` for the unmemoized baseline; see `analyze_stratum_scoped`.
     scope: Option<&'s MemoScope>,
     /// The non-head lexicon filter, or `None` for unfiltered. See `NonHeadRootFilter`.
     non_head_root_filter: Option<NonHeadRootFilter<'f>>,
     /// The mrule/template selector, or `None` to admit every rule. See `RuleFilter`.
     rule_filter: Option<RuleFilter<'r>>,
-    /// The compile-once FST cache; `None` recompiles per call. See `crate::cache`'s module doc,
-    /// and `analyze_stratum_scoped` for why the fallback is still needed.
+    /// The compile-once FST cache; `None` recompiles per call. See `analyze_stratum_scoped` for why the fallback is still needed.
     cache: Option<&'c RuleCache>,
-    /// The analysis-side trace sink. Only `analyze_stratum_scoped_filtered_ruled_traced` passes a
-    /// real one; every other entry point passes `NoopSink`, so `trace.is_tracing()` is false and
-    /// every gated call below takes its fast path.
+    /// The analysis-side trace sink; every entry point but `analyze_stratum_scoped_filtered_ruled_traced` passes `NoopSink`.
     trace: &'t dyn TraceSink,
-    /// The ambient trace cursor. Call sites resolve `word.trace.unwrap_or(parent)`, so a chain of
-    /// successful (un)applications nests under the deepest event fired on that branch.
+    /// The ambient trace cursor; call sites resolve `word.trace.unwrap_or(parent)` so successful (un)applications nest under the deepest event on that branch.
     parent: TraceHandle,
 }
 
@@ -572,9 +542,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         self.rule_filter.is_none_or(|f| f(r))
     }
 
-    /// The order-independent memo key for `w` (C# `new AnalysisStateKey(word)`). Clones the shape +
-    /// both feature structs + the unapplication multiset — the same clone cost `WordKey` already pays
-    /// per dedup, and the memo removes far more expansions than it adds key-builds.
+    /// The order-independent memo key for `w`; clones the same fields `WordKey` already clones per dedup.
     fn state_key(&self, w: &Word) -> AnalysisStateKey {
         AnalysisStateKey::new(
             w.shape.clone(),
@@ -586,8 +554,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         )
     }
 
-    /// True once the shared budget is exhausted. Consulted at every (un)application attempt and
-    /// every recursion entry. Delegates to the shared `StepBudget` — see that type's doc.
+    /// True once the shared budget is exhausted; delegates to the shared `StepBudget`.
     fn over_budget(&self) -> bool {
         self.budget.over_budget()
     }
@@ -596,12 +563,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         self.budget.tick()
     }
 
-    /// Unapply a single morphological rule and record C#'s `Word.MorphologicalRuleUnapplied`
-    /// bookkeeping on every output. Analysis only ever grows these lists, so each dedup-key index is
-    /// always `len - 1`. `morph::analyze` is left semantics-pure — the bookkeeping lives here.
+    /// Unapply a single morphological rule and record the bookkeeping on every output; `morph::analyze` stays semantics-pure.
     fn apply_one_mrule(&self, id: MRuleId, w: &Word) -> Vec<Word> {
-        // C#'s shared top-of-`Apply` selector gate, checked before the budget tick: a
-        // rejected-by-gate rule was never attempted (same convention as the two gates below).
+        // Checked before the budget tick: a rejected-by-gate rule was never attempted.
         if !self.rule_admitted(RuleRef::MRule(id)) {
             return Vec::new();
         }
@@ -609,23 +573,18 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             return Vec::new();
         }
         let rule = &self.g.mrules[id.0 as usize];
-        // `Morpher.MaxStemCount` depth gate; see `AnalyzerConfig::max_stem_count`. Outside `tick()`
-        // for the same reason as the gate above.
+        // Depth gate; see `AnalyzerConfig::max_stem_count`. Outside `tick()`, same reason as the gate above.
         if matches!(rule, MorphRuleDef::Compounding(_))
             && w.non_heads.len() as u32 + 1 >= self.cfg.max_stem_count
         {
             return Vec::new();
         }
-        // `MaxApplicationCount`: once this rule has been unapplied on `w`'s trail `max_apps` times
-        // it is skipped for this candidate. Outside `tick()`, and uniform across rule kinds,
-        // matching C#'s identical placement in both rule types' `Apply` wrappers.
+        // Once unapplied on `w`'s trail `max_apps` times, skipped for this candidate; outside `tick()`.
         if w.unapplied_rule_counts.get(&id).copied().unwrap_or(0) >= u32::from(rule.max_apps()) {
             return Vec::new();
         }
         self.tick();
-        // The non-head root filter is threaded into `morph::ana_compound` rather than post-filtering
-        // its returned words: root-allomorph resolution and the per-candidate pin must join the same
-        // per-subrule duplicate-elimination scope C# uses, which only `ana_compound_subrule` has.
+        // Threaded into `morph::ana_compound` rather than post-filtering: root-allomorph resolution must join `ana_compound_subrule`'s own per-subrule dedup scope.
         let node_parent = w.trace.unwrap_or(self.parent);
         let mut outs = match (rule, self.non_head_root_filter) {
             (MorphRuleDef::Compounding(_), Some(filter)) => match self.cache {
@@ -655,27 +614,20 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             },
         };
         for o in &mut outs {
-            // Analysis always records the *known* rule (never C#'s null "unknown compounding rule"
-            // — that only arises from generation seeding a bare non-head directly).
+            // Analysis always records the known rule; the null case only arises from generation seeding a bare non-head directly.
             o.mrule_apps.push(Some(id));
             o.mrule_app_index = o.mrule_apps.len() as i32 - 1;
-            // The order-invariant count multiset, paired with the `mrule_apps.push` above. Consumed
-            // only by `Self::state_key`, so the unmemoized path computes it unread.
+            // Paired with the `mrule_apps.push` above; only `Self::state_key` reads it.
             o.record_unapplication(id);
-            // Compounding analysis (`morph::ana_compound`) has already pushed the split-off
-            // non-head; C# `NonHeadUnapplied` pairs that push with this index bump.
+            // `morph::ana_compound` already pushed the split-off non-head; this pairs that push with the index bump.
             o.non_head_app_index = o.non_heads.len() as i32 - 1;
         }
         outs
     }
 
-    /// Run the morphological-rule cascade over the reversed rule list: a permutation cascade
-    /// (multi-app) for a `Linear` stratum, a combination cascade for `Unordered`. Deduped by full
-    /// word key; run uncapped, with the shared budget enforced inside the closure.
+    /// The mrule cascade over the reversed rule list: permutation for `Linear`, combination for `Unordered`, deduped by full word key.
     fn run_mrule_cascade(&self, input: &Word) -> Vec<Word> {
-        // The memoized walk replaces the plain one only on an Unordered stratum with a scope
-        // present — the `k!` walk is what memoization targets. Linear strata and the no-scope
-        // baseline use the plain cascade unchanged.
+        // Memoization targets only the Unordered `k!` walk; Linear strata use the plain cascade.
         if let (MorphRuleOrder::Unordered, Some(scope)) = (self.order, self.scope) {
             return self.mrule_cascade_memoized(input, scope);
         }
@@ -690,17 +642,14 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         out.words
     }
 
-    /// The memoized analog of `Cascade::combination`: the same deduped reachable set (results of ≥1
-    /// unapplication, not `input` itself), with every interior node's subtree memoized by
-    /// `AnalysisStateKey`. Memoizing only the top-level entry forfeits the win.
+    /// The memoized analog of `Cascade::combination`, memoizing every interior node's subtree, not just the top-level entry.
     fn mrule_cascade_memoized(&self, input: &Word, scope: &MemoScope) -> Vec<Word> {
         let mut out = OrderedDedup::new();
         self.memo_apply_rules(input, &mut out, scope);
         out.into_items()
     }
 
-    /// The memo wrapper around one node's subtree expansion. Returns the subtree-local results for
-    /// storage and replay; `out` is the shared deduped accumulator the caller reads.
+    /// The memo wrapper around one node's subtree expansion; `out` is the shared deduped accumulator.
     fn memo_apply_rules(
         &self,
         input: &Word,
@@ -712,8 +661,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         }
         let key = self.state_key(input);
 
-        // Positive-replay or nogood hit: replay each stored result onto this arrival's own
-        // trail/non-head prefix. An empty entry (a nogood) replays nothing.
+        // Positive-replay or nogood hit: replay each stored result onto this arrival's own trail/non-head prefix.
         {
             let s = scope.borrow();
             if let Some(entry) = s.memo.get(&key) {
@@ -736,9 +684,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             }
         }
 
-        // In-flight re-entry guard: a key already expanding on the stack falls through to a plain
-        // unmemoized expansion for this arrival (correctness-neutral). In analysis this cannot fire
-        // — every unapplication grows the rule multiset — but it is ported faithfully.
+        // In-flight re-entry guard: a key already expanding falls through to a plain unmemoized expansion (correctness-neutral; cannot fire in analysis).
         let fresh = scope.borrow_mut().in_progress.insert(key.clone());
         if !fresh {
             return self.memo_apply_rules_raw(input, out, scope);
@@ -746,8 +692,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
         let results = self.memo_apply_rules_raw(input, out, scope);
 
-        // Clear the guard, then store (nogood or positive) if under the cap. The prefix lengths are
-        // this node's own trail/non-head lengths, so a replay can split each stored result.
+        // Clear the guard, then store if under the cap; prefix lengths let a replay split each stored result.
         {
             let mut s = scope.borrow_mut();
             s.in_progress.remove(&key);
@@ -765,9 +710,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         results
     }
 
-    /// One node's un-memoized expansion: recurse from rule 0 each level, self-loop-guarded, with the
-    /// descent itself memoized. C#'s `HasReachableRoot` gate is intentionally omitted — the baseline
-    /// cascade has no such gate, so adding it would break the memo-on == memo-off invariant.
+    /// One node's un-memoized expansion, with the descent itself memoized; no reachable-root gate, matching the baseline cascade.
     fn memo_apply_rules_raw(
         &self,
         input: &Word,
@@ -790,8 +733,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         local
     }
 
-    /// Port of `AnalysisStratumRule.ApplyMorphologicalRules`: run the mrule cascade, then per
-    /// stratum order interleave templates.
+    /// Run the mrule cascade, then per stratum order interleave templates.
     fn apply_mrules(&self, input: &Word) -> Vec<Word> {
         if self.over_budget() {
             return Vec::new();
@@ -810,8 +752,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         result
     }
 
-    /// Port of `AnalysisStratumRule.ApplyTemplates`: run the template batch, then per stratum order
-    /// interleave mrules and yield the template output when it changed the word.
+    /// Run the template batch, then per stratum order interleave mrules and yield the template output when it changed the word.
     fn apply_templates(&self, input: &Word) -> Vec<Word> {
         if self.over_budget() {
             return Vec::new();
@@ -838,9 +779,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         result
     }
 
-    /// The template `RuleBatch`, memoized in the separate `TemplateMemo` table when a scope is
-    /// present. On a pathological word the battery runs far more often than there are distinct
-    /// keys, so collapsing equal-keyed arrivals to one run plus replay is the bulk of the memo win.
+    /// The template `RuleBatch`, memoized separately from the mrule memo when a scope is present.
     fn run_template_batch(&self, input: &Word) -> Vec<Word> {
         let Some(scope) = self.scope else {
             return self.run_template_batch_raw(input);
@@ -886,8 +825,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         results
     }
 
-    /// The un-memoized template battery: non-disjunctive union of every affix template's analysis
-    /// output, deduped by key (no early exit).
+    /// The un-memoized template battery: non-disjunctive union of every affix template's output, deduped by key.
     fn run_template_batch_raw(&self, input: &Word) -> Vec<Word> {
         let mut seen: HashMap<WordKey, ()> = HashMap::default();
         let mut out = Vec::new();
@@ -901,9 +839,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         out
     }
 
-    /// Port of `AnalysisAffixTemplateRule.Apply`: gate on the template's required syntactic FS via a
-    /// real `unify` (this narrows), unapply slots top-down, then `add` — a widening union, never
-    /// `unify` or `priority_union` — the unified FS onto each output's syntactic FS.
+    /// Gate on the template's required syntactic FS via `unify` (narrows), unapply slots top-down, then `add` (widening union) onto each output's syntactic FS.
     fn analyze_template(&self, tid: TemplateId, input: &Word) -> Vec<Word> {
         if !self.rule_admitted(RuleRef::Template(tid)) {
             return Vec::new();
@@ -914,9 +850,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             return Vec::new();
         }
         let fs = unify(&input.syn_fs, req).unwrap_or_else(|| input.syn_fs.clone());
-        // `BeginUnapplyTemplate` fires once per `Apply`, right after the required-syn-FS gate and
-        // before the slot walk. `input.trace` is untouched above, so the parent is resolved once
-        // here and reused below.
+        // Fires once per `Apply`, right after the required-syn-FS gate and before the slot walk.
         let node_parent = input.trace.unwrap_or(self.parent);
         if self.trace.is_tracing() {
             self.trace.begin_unapply_template(node_parent, tid, input);
@@ -941,10 +875,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         }
     }
 
-    /// Port of `AnalysisAffixTemplateRule.ApplySlots`: from `index` down, unapply each slot's rule
-    /// batch and recurse into earlier slots. Reaching a non-optional slot forces a return — its
-    /// material had to be consumed here, so that path survives only via the recursion its batch
-    /// spawned. Falling past slot 0 adds the fully-unapplied word.
+    /// From `index` down, unapply each slot's rule batch and recurse into earlier slots; a non-optional slot forces a return, since its material had to be consumed here.
     fn template_unapply_slots(
         &self,
         tid: TemplateId,
@@ -975,8 +906,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             .or_insert_with(|| in_word.clone());
     }
 
-    /// One slot's non-disjunctive `RuleBatch`: the union of its alternative rules' analysis
-    /// outputs, deduped.
+    /// One slot's non-disjunctive `RuleBatch`: the deduped union of its alternative rules' outputs.
     fn apply_slot_batch(&self, slot: &SlotDef, in_word: &Word) -> Vec<Word> {
         let mut seen: HashMap<WordKey, ()> = HashMap::default();
         let mut out = Vec::new();
@@ -992,30 +922,22 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
     /// Port of `AnalysisStratumRule.Apply`.
     fn analyze(&self, mut input: Word) -> StratumAnalysis {
-        // `BeginUnapplyStratum` fires against the word exactly as received, before the clone below.
-        // Only rule-level events reassign a word's own `.trace`, never this local binding, so the
-        // parent resolved here is reused for the matching `EndUnapplyStratum` calls.
+        // Fires against the word exactly as received, before the clone below; the resolved parent is reused for the matching end-event calls.
         let node_parent = input.trace.unwrap_or(self.parent);
         if self.trace.is_tracing() {
             self.trace
                 .begin_unapply_stratum(node_parent, self.stratum_id, &input);
         }
 
-        // Every word this stratum produces records the incoming word as its `Source`, so
-        // `expand_alternatives` can later walk the per-stratum spine. The snapshot is taken WITH the
-        // previous stratum's alternatives; the seed's own are then cleared, as C#'s clone does.
+        // Records the incoming word as `Source` so `expand_alternatives` can later walk the per-stratum spine.
         let source = Rc::new(input.clone());
         input.stratum = self.stratum_id;
         input.source = Some(source.clone());
         input.alternatives.clear();
 
-        // C#'s `_prulesRule.Apply(input)`: a linear cascade over the prules reversed, applied in
-        // place — C# discards the cascade's return value and uses `input` itself. Modelled as an
-        // in-place fold, with no per-prule cursor advance (a deliberately coarser trace depth).
+        // A linear cascade over the prules reversed, applied in place with no per-prule cursor advance (a deliberately coarser trace depth).
         for &pid in self.stratum.prules.iter().rev() {
-            // The one (un)application site in this module needing its own budget check. Deadline
-            // only, never the step cap — see `StepBudget::deadline_expired` for why conflating the
-            // two here would risk golden parity.
+            // The one (un)application site here needing its own budget check: deadline only, never the step cap.
             if self.budget.synthesis_over_budget() {
                 break;
             }
@@ -1063,9 +985,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             }
         }
 
-        // The FIRST `EndUnapplyStratum` exit, for `input` itself — the post-prule candidate that
-        // always survives as its own analysis. C# reaches it before any nested template/mrule event
-        // because its `mruleOutWords` is lazy; this port is eager, so the call is placed first.
+        // The first end-event, for `input` itself, placed before any nested template/mrule event since C#'s lazy evaluation reaches it first there and this port is eager.
         if self.trace.is_tracing() {
             self.trace
                 .end_unapply_stratum(node_parent, self.stratum_id, &input);
@@ -1079,8 +999,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         }
 
         let mut output_keys: HashMap<WordKey, ()> = HashMap::default();
-        // Shape -> index into `words` of the canonical word for that shape. The seed's shape is
-        // deliberately NOT registered, so a mrule output matching it becomes its own canonical.
+        // Shape -> canonical word index; the seed's shape is deliberately not registered.
         let mut shape_word: HashMap<Shape, usize> = HashMap::default();
         let mut words: Vec<Word> = Vec::new();
         output_keys.insert(input.dedup_key(), ());
@@ -1088,16 +1007,13 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
         for w in mrule_out {
             if self.cfg.merge_equivalent {
-                // A repeat shape does not enter the output; it folds into the canonical word's
-                // alternatives and is skipped.
+                // A repeat shape folds into the canonical word's alternatives instead of entering the output.
                 if let Some(&idx) = shape_word.get(&w.shape) {
                     words[idx].alternatives.push(w);
                     continue;
                 }
             }
-            // The SECOND `EndUnapplyStratum` exit, once per surviving candidate. C# adds to the
-            // output set unconditionally before this call, so an exact key-duplicate still fires
-            // the event — do NOT gate it on the `output_keys.insert` below.
+            // The second end-event, once per surviving candidate; must NOT be gated on the `output_keys.insert` below, since a key-duplicate still fires it.
             if self.trace.is_tracing() {
                 let w_parent = w.trace.unwrap_or(node_parent);
                 self.trace
@@ -1121,15 +1037,12 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     }
 }
 
-/// C# `AffixTemplateSlot.Optional`: a slot with no rules is always optional; otherwise its declared
-/// flag.
+/// A slot with no rules is always optional; otherwise its declared flag.
 fn slot_optional(slot: &SlotDef) -> bool {
     slot.rules.is_empty() || slot.optional
 }
 
-// =================================================================================================
 // Synthesis affix-template rule (self-contained; the driver below is gated on lexicon state).
-// =================================================================================================
 
 /// Mirrors C#'s `SynthesisAffixTemplateRule.Apply` + `ApplySlots`: slots applied bottom-up, a
 /// non-optional slot that produced nothing terminating the path. The **ungated** walk — every slot
@@ -1141,8 +1054,7 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
     let mut out: HashMap<WordKey, Word> = HashMap::default();
     let apply =
         |g: &Grammar, rid: MRuleId, w: &Word| morph::synthesize(g, w, &g.mrules[rid.0 as usize]);
-    // No natural `parse_word`-scoped deadline here, so this builds its own budget with none armed:
-    // the deadline check is then a no-op and this entry point stays cap-only.
+    // Builds its own budget with none armed, so this entry point stays cap-only.
     let budget = StepBudget::new(cap);
     synth_slots_generic(
         g,
@@ -1161,10 +1073,7 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
     out.into_values().collect()
 }
 
-/// The production pipeline's slot walk: `synthesize_template`'s structure, but each rule goes
-/// through `guided_synth` (confirms the analysis, decrements `mrule_app_index`) and the caller's
-/// step budget is shared. `BeginApplyTemplate` fires once here, at the top-level entry;
-/// `EndApplyTemplate` is per-recursion-level and so lives in `synth_slots_generic`.
+/// `synthesize_template`'s structure, but each rule goes through `guided_synth` and the caller's step budget is shared.
 #[allow(clippy::too_many_arguments)]
 fn guided_template_apply(
     g: &Grammar,
@@ -1203,10 +1112,7 @@ fn end_apply_template(
     }
 }
 
-/// Port of `SynthesisAffixTemplateRule.ApplySlots` (bottom-up), parameterized by `apply` so one walk
-/// serves the ungated and guided callers; an empty return means "did not apply". `budget` is
-/// consulted for its deadline only — `cap`/`steps` stay the sole step-count authority, since
-/// conflating the two would risk golden parity (see `StepBudget::deadline_expired`).
+/// Bottom-up, parameterized by `apply` so one walk serves the ungated and guided callers; `budget` is consulted for its deadline only, never step-count.
 #[allow(clippy::too_many_arguments)]
 fn synth_slots_generic<F>(
     g: &Grammar,
@@ -1273,23 +1179,9 @@ fn synth_slots_generic<F>(
         .or_insert_with(|| input.clone());
 }
 
-// =================================================================================================
 // Synthesis stratum rule.
-// =================================================================================================
 
-/// Guided single-rule synthesis: C#'s `SynthesisAffixProcessRule.Apply` entry gate plus its
-/// `MorphologicalRuleApplied` bookkeeping, which together make synthesis **confirm the analysis** —
-/// a rule may re-apply only if it is the current expected rule on the word's unapplication stack,
-/// and applying it advances that stack (decrementing `mrule_app_index`, and `non_head_app_index`
-/// too for a compounding rule). A null pending slot matches any compounding rule; only
-/// `generate_words` seeding a bare non-head directly produces one.
-///
-/// C#'s `MaxApplicationCount` is **not** enforced: it needs a per-word count this port does not
-/// carry. The guided index bounds re-applications to the analysis history length, so the only
-/// remaining over-generation is a multi-application rule (reduplication).
-///
-/// Trace events for both success and failure are emitted inside `morph::synthesize_cached_traced`,
-/// never here — emitting in both places would double-fire.
+/// Guided single-rule synthesis confirms the analysis: a rule re-applies only as the word's current expected unapplication; `MaxApplicationCount` is not enforced (needs a per-word count this port lacks).
 fn guided_synth(
     g: &Grammar,
     id: MRuleId,
@@ -1313,9 +1205,7 @@ fn guided_synth(
     if !applicable {
         return Vec::new();
     }
-    // The resolved cursor is threaded INTO `synthesize_cached_traced` rather than applied after the
-    // fact: the `synth_*_cached` functions fire both the applied and not-applied events at their own
-    // internal gates, with the real subrule index, and set each successful output's `.trace`.
+    // Threaded INTO `synthesize_cached_traced` rather than applied after: it fires applied/not-applied events at its own internal gates and sets each output's `.trace`.
     let node_parent = w.trace.unwrap_or(parent);
     let mut outs = morph::synthesize_cached_traced(
         g,
@@ -1335,9 +1225,7 @@ fn guided_synth(
     outs
 }
 
-/// The stratum a morphological rule belongs to (C# `IMorphologicalRule.Stratum`): the stratum whose
-/// `mrules` list or affix-template slots contain `id`. Used only for `has_remaining_rules_from_stratum`
-/// filtering of the (few) final candidates, so a linear scan is fine.
+/// The stratum whose `mrules` list or affix-template slots contain `id`; a linear scan is fine since only a few final candidates use it.
 fn owning_stratum(g: &Grammar, id: MRuleId) -> Option<StratumId> {
     for (si, sd) in g.strata.iter().enumerate() {
         if sd.mrules.contains(&id) {
@@ -1354,10 +1242,7 @@ fn owning_stratum(g: &Grammar, id: MRuleId) -> Option<StratumId> {
     None
 }
 
-/// Port of `Word.HasRemainingRulesFromStratum`: the word still has a pending unapplied rule
-/// belonging to `stratum`, so it left that stratum without finishing — a partial parse. When the
-/// pending slot is the null "unknown compounding rule", the pending non-head's own stratum stands
-/// in for the not-yet-chosen compounding rule's.
+/// The word still has a pending unapplied rule belonging to `stratum`, so it left without finishing; a null pending slot's stratum comes from the pending non-head instead.
 fn has_remaining_rules_from_stratum(g: &Grammar, w: &Word, stratum: StratumId) -> bool {
     if w.mrule_app_index < 0 {
         return false;
@@ -1385,9 +1270,7 @@ pub fn synthesize_stratum(
     cap: usize,
     cache: &RuleCache,
 ) -> Vec<Word> {
-    // No production call site: `pg-parse` threads its own per-`parse_word` budget through
-    // `synthesize_stratum_traced` directly. A freshly built no-timeout budget makes the deadline
-    // check a no-op for this function's test callers.
+    // No production call site: `pg-parse` threads its own budget through `synthesize_stratum_traced` directly; this exists for test callers.
     let budget = StepBudget::new(cap);
     synthesize_stratum_traced(
         g,
@@ -1401,9 +1284,7 @@ pub fn synthesize_stratum(
     )
 }
 
-/// `synthesize_stratum`'s traced sibling and the single source of truth both share. The caller
-/// passes a real handle once, at the top of the per-word synthesis pipeline; every deeper call
-/// resolves the cursor off the `Word` itself, mirroring C#'s `Word.CurrentTrace`.
+/// `synthesize_stratum`'s traced sibling; the caller passes a real handle once, and every deeper call resolves the cursor off the `Word` itself.
 #[allow(clippy::too_many_arguments)]
 pub fn synthesize_stratum_traced(
     g: &Grammar,
@@ -1471,11 +1352,7 @@ pub fn synthesize_stratum_traced(
             continue;
         }
         let mut nw = w.clone();
-        // Trailing in-place prule fold, then clear the final flag. `synthesize_with_mpr_cached`
-        // rather than the bare `synthesize`: a subrule's POS/MPR applicability gate must see this
-        // word's actual syntactic FS and MPR set, never assumed-empty ones. `break` (not `return`)
-        // leaves `nw.shape` however far the fold got and falls through to this candidate's own
-        // bookkeeping, matching the analysis-side prule loop.
+        // Uses `synthesize_with_mpr_cached`, not bare `synthesize`, so the POS/MPR gate sees real state; `break` (not `return`) keeps `nw.shape` as far as the fold got.
         for &pid in &sd.prules {
             if budget.synthesis_over_budget() {
                 break;
@@ -1534,11 +1411,7 @@ fn synth_apply_mrules(
         return Vec::new();
     }
     let key = |w: &Word| w.dedup_key();
-    // The guided cascade: a rule applies only if it is the word's current expected unapplication.
-    // Because `guided_synth` strictly decrements `mrule_app_index`, the multi-application cascade
-    // terminates once the stack is exhausted — synthesis's analog of the analysis step budget. The
-    // wall-clock check belongs inside the closure: neither `cap` nor the cascade's own internal cap
-    // is a step COUNT with any notion of elapsed time.
+    // The guided cascade terminates once `guided_synth`'s strictly-decrementing stack is exhausted; the wall-clock check must live inside the closure since neither cap is time-aware.
     let apply_rule = |i: usize, w: &Word| -> Vec<Word> {
         if steps.get() >= cap {
             return Vec::new();
@@ -1570,11 +1443,7 @@ fn synth_apply_mrules(
     result
 }
 
-/// Whether `word`'s root *entry* is flagged partial. Distinct from `Word::flags.is_partial`, which
-/// starts from the same flag but can also be set by a partial affix rule. The guessed-root arm is
-/// load-bearing, not defensive: this runs at the top of every `synth_apply_templates` call, and
-/// indexing `allomorph_owners` with the guessed sentinel panics. It resolves the pattern entry the
-/// guess was fabricated from — a real `LexEntryId` — which is where C# copies `IsPartial` from too.
+/// Whether `word`'s root *entry* (distinct from `Word::flags.is_partial`) is flagged partial; the guessed-root arm is load-bearing since indexing `allomorph_owners` with the guessed sentinel panics.
 fn root_is_partial(g: &Grammar, word: &Word) -> bool {
     match word.root_allomorph {
         Some(allo) if allo == AllomorphId::GUESSED => match word.root_runtime() {
@@ -1591,17 +1460,7 @@ fn root_is_partial(g: &Grammar, word: &Word) -> bool {
     }
 }
 
-/// `SynthesisAffixTemplatesRule.ChooseInflectionalStem`. If the root belongs to a family and
-/// `real_fs` is non-empty, walk the family in document order for the most specific applicable
-/// relative. `best` starts as `input` and is swapped when a relative's lexical syntactic FS is
-/// `real_fs`-unifiable, is subsumed by `best`'s CURRENT FS (the comparison must be against `best`,
-/// which may already have been swapped, not against the original `input`), and adds a non-empty
-/// remainder that is itself `real_fs`-unifiable — so the extra specificity is something the
-/// realizational features actually select. A swap reseeds from `input`'s `real_fs`, not the
-/// relative's own FS, since a bare `LexEntry` has no realizational FS.
-///
-/// A guessed root returns unchanged, and that is faithful rather than merely safe: C#'s guess
-/// fabrication never sets the fabricated entry's family, so it would see none there either.
+/// Walks the root's family (if any) in document order for the most specific applicable relative, swapping in against `best`'s CURRENT (possibly already-swapped) FS, never the original `input`; a guessed root returns unchanged, faithfully (C#'s fabrication never sets a family either).
 fn choose_inflectional_stem(g: &Grammar, input: &Word) -> Word {
     let Some(root_id) = input.root_allomorph else {
         return input.clone();
@@ -1659,20 +1518,16 @@ fn synth_apply_templates(
     if budget.synthesis_over_budget() {
         return Vec::new();
     }
-    // Try each applicable template, marking each output final when the word is partial or the
-    // template is. The realizational/syntactic unifiability check returns early BEFORE
-    // `choose_inflectional_stem` runs — it is checked against the word as handed in.
+    // The realizational/syntactic unifiability check returns early BEFORE `choose_inflectional_stem` runs, against the word as handed in.
     if !is_unifiable(&input.real_fs, &input.syn_fs) {
         return Vec::new();
     }
-    // C# rebinds `input` to the chosen stem, so every use below reads the POST-swap word. Shadow
-    // the parameter to match.
+    // Shadowed so every use below reads the POST-swap word.
     let input = choose_inflectional_stem(g, input);
     let input = &input;
     let in_key = input.dedup_key();
     let mut out: HashMap<WordKey, Word> = HashMap::default();
-    // A template applies only if the root morpheme is not partial. The root does not change across
-    // templates, so the check is hoisted; a partial root leaves the passthrough below to fire.
+    // The root does not change across templates, so this check is hoisted out of the loop.
     let root_partial = root_is_partial(g, input);
     let mut applicable = false;
     for &tid in &sd.templates {
@@ -1689,13 +1544,7 @@ fn synth_apply_templates(
             out.entry(w.dedup_key()).or_insert(w);
         }
     }
-    // No template output: pass the input through (marked final) UNLESS it is non-partial AND some
-    // template was applicable, in which case the applicable-but-unapplied word is dropped. Gating
-    // on `!applicable` alone would wrongly drop a partial word that had an applicable template.
-    //
-    // This insertion must happen BEFORE the mrule recursion below. The passthrough is as much a
-    // recursion candidate as a genuine template hit; computing it afterwards would make a stratum
-    // with no templates at all skip that recursion on every call, since `out` would still be empty.
+    // No template output: pass the input through UNLESS it is non-partial AND some template was applicable, else a templateless stratum would skip the mrule recursion below entirely.
     if out.is_empty() {
         if input.flags.is_partial || !applicable {
             let mut w = input.clone();
@@ -1704,8 +1553,7 @@ fn synth_apply_templates(
             }
             out.insert(w.dedup_key(), w);
         } else if trace.is_tracing() {
-            // The complementary branch adds NOTHING to the output, unlike the passthrough above:
-            // the word is dropped, just with a trace event recorded first.
+            // Unlike the passthrough above, this branch drops the word, recording only a trace event.
             let node_parent = input.trace.unwrap_or(parent);
             trace.applicable_templates_not_applied(node_parent, stratum, input);
         }
@@ -1714,8 +1562,7 @@ fn synth_apply_templates(
     match sd.mrule_order {
         MorphRuleOrder::Linear => {}
         MorphRuleOrder::Unordered => {
-            // For each changed template output — including the passthrough inserted just above,
-            // when present — also run the mrules on it.
+            // For each changed template output, including the passthrough above when present, also run the mrules on it.
             let templated: Vec<Word> = out.values().cloned().collect();
             for t in templated {
                 if t.dedup_key() != in_key {

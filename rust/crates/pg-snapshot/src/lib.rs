@@ -82,15 +82,13 @@ pub const FORMAT_VERSION: u32 = 1;
 /// Errors from `Snapshot::from_json`.
 #[derive(Debug, Error)]
 pub enum SnapshotError {
-    /// The document isn't well-formed JSON, or doesn't match the `Snapshot` shape at all
-    /// (missing/mistyped required fields).
+    /// The document isn't well-formed JSON, or doesn't match the `Snapshot` shape (missing/mistyped required fields).
     #[error("invalid snapshot JSON: {0}")]
     Json(#[from] serde_json::Error),
     /// The document parsed, but its `"format"` tag isn't the one this crate understands.
     #[error("unrecognized snapshot format {found:?}; expected {FORMAT_TAG:?}")]
     UnknownFormat { found: String },
-    /// The document parsed and its format tag matched, but its `"version"` is one this build
-    /// doesn't know how to read.
+    /// The document parsed and matched the format tag, but its `"version"` is one this build doesn't know how to read.
     #[error("unsupported snapshot version {found}; this build supports version {FORMAT_VERSION}")]
     UnsupportedVersion { found: u32 },
 }
@@ -188,9 +186,7 @@ mod tests {
         }
     }
 
-    /// A small but structurally rich snapshot: one closed feature, one phoneme, one POS, one
-    /// lex entry with a stem MSA and a sense referencing it. Used by the round-trip and
-    /// validation tests below.
+    /// A small but structurally rich snapshot: one closed feature, one phoneme, one POS, one lex entry with a stem MSA and a sense referencing it.
     fn sample_snapshot() -> Snapshot {
         let noun_pos_guid = "11111111-1111-1111-1111-111111111111".to_string();
         let number_feature_guid = "22222222-2222-2222-2222-222222222222".to_string();
@@ -372,9 +368,7 @@ mod tests {
     #[test]
     fn validate_reports_dangling_sense_msa_reference_as_warning_not_error() {
         let mut snap = sample_snapshot();
-        // Point the sense at a nonexistent MSA guid — mirrors the plan's motivating example of
-        // a stale FieldWorks reference (§1): must produce a warning, and `from_json` must still
-        // succeed on the round-tripped JSON (dangling refs are never a hard error).
+        // Points the sense at a nonexistent MSA guid (a stale FieldWorks reference): must warn, and `from_json` must still succeed on the round-tripped JSON.
         snap.lexicon.entries[0].senses[0].msa =
             Some("00000000-0000-0000-0000-000000000000".to_string());
         let json = snap.to_json();
@@ -466,9 +460,7 @@ mod tests {
         assert_eq!(hit.code, "snapshot.dangling-reference");
     }
 
-    /// Two structurally different situations -- a plain dangling cross-reference vs. a sense's
-    /// MSA reference that resolves fine globally but not within its own owning entry -- must get
-    /// different codes.
+    /// Two structurally different situations -- a dangling cross-reference vs. a sense's MSA resolving fine globally but not within its own entry -- must get different codes.
     #[test]
     fn validate_out_of_scope_reference_gets_a_different_code_than_dangling_reference() {
         let mut snap = sample_snapshot();
@@ -491,10 +483,7 @@ mod tests {
         assert_eq!(dangling_warning.code, "snapshot.dangling-reference");
     }
 
-    /// The same check, fired with two different dangling guids (so the interpolated `message`
-    /// text necessarily differs), must still produce the identical `code` both times -- the code
-    /// depends on which situation was detected, never on the specific text of the message (task
-    /// 3.8 requirement (a)).
+    /// The same check, fired with two different dangling guids (different interpolated `message` text), must still produce the identical `code` both times.
     #[test]
     fn validate_dangling_reference_code_is_stable_regardless_of_message_text() {
         let mut snap_a = sample_snapshot();
@@ -514,9 +503,7 @@ mod tests {
         assert_eq!(warnings_a[0].code, warnings_b[0].code);
     }
 
-    /// Existing prose is unchanged by this task -- same wording
-    /// `validate_reports_dangling_sense_msa_reference_as_warning_not_error` already asserted a
-    /// substring of before codes existed, now pinned exactly.
+    /// Pins the same warning prose that `validate_reports_dangling_sense_msa_reference_as_warning_not_error` already asserts as a substring, now exactly.
     #[test]
     fn validate_warning_prose_is_unchanged_at_representative_sites() {
         let mut snap = sample_snapshot();

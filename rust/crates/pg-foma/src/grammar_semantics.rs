@@ -74,7 +74,9 @@ use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use pg_grammar::chardef::CharDefKind;
-use pg_grammar::model::{Grammar, LexEntryId, MorphRuleDef, PRuleId, PhonRuleDef, TableId, TemplateId};
+use pg_grammar::model::{
+    Grammar, LexEntryId, MorphRuleDef, PRuleId, PhonRuleDef, TableId, TemplateId,
+};
 
 use crate::capability::{characterize, rhs_has_true_reduplication, CharacteristicsProfile};
 use crate::enumerate::prules_in_order;
@@ -197,8 +199,12 @@ impl<'g> GrammarSemantics<'g> {
         // must stay a borrow of `g.prules` (its pointer identity is load-bearing for
         // `enumerate::rule_id_of`), so the id form cannot be recovered from it after the fact
         // without that pointer trick -- it is simply collected here from the same source.
-        let prule_ids_in_order: Vec<PRuleId> =
-            grammar.strata.iter().flat_map(|s| s.prules.iter()).copied().collect();
+        let prule_ids_in_order: Vec<PRuleId> = grammar
+            .strata
+            .iter()
+            .flat_map(|s| s.prules.iter())
+            .copied()
+            .collect();
 
         // `TemplateId` is a dense index into `g.templates` (model.rs), so the declared set is
         // exactly `0..len`. Both loaders keep `g.templates` and per-stratum membership in lockstep

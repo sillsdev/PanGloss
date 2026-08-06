@@ -71,8 +71,7 @@ use crate::rewrite::{compile_env_allomorph, left_env_ok, right_env_ok, EnvFst};
 use crate::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, Word};
 
-/// Morphological rules and lexical entries all resolve char-defs/patterns against table 0 in every
-/// reference grammar (same convention as `morph.rs`/`rewrite.rs`).
+/// Every reference grammar resolves char-defs/patterns against table 0, matching `morph.rs`/`rewrite.rs`.
 const TABLE: TableId = TableId(0);
 
 /// C# `Allomorph.IsWordValid`'s environment clause (Allomorph.cs:110-125) for one morph occurrence:
@@ -113,10 +112,7 @@ pub fn environments_ok(
     })
 }
 
-/// The `crate::cache::RuleCache`-aware sibling of `environments_ok`: `envs` and `env_cache` must
-/// correspond positionally (`env_cache[i]` is `(left, right)` for `envs[i]`) — every production call
-/// site gets both from the same `cache.allomorph(id).envs`/owning def's `environments`, so they are
-/// always in lockstep.
+/// Cached sibling of `environments_ok`; `env_cache[i]` must be `(left, right)` for `envs[i]`, positionally.
 fn environments_ok_cached(
     g: &Grammar,
     envs: &[EnvironmentDef],
@@ -134,8 +130,7 @@ fn environments_ok_cached(
         .any(|(env, (left, right))| env_side_ok(env, left, right, &segs, start, end))
 }
 
-/// One environment's require/exclude check, shared by `environments_ok` and
-/// `environments_ok_cached`.
+/// One environment's require/exclude check, shared by `environments_ok` and `environments_ok_cached`.
 fn env_side_ok(
     env: &EnvironmentDef,
     left: &Option<EnvFst>,
@@ -153,10 +148,7 @@ fn env_side_ok(
     }
 }
 
-/// How an allomorph's environments are matched by `allomorphs_valid_impl`: freshly compiled per
-/// call (`environments_ok`, standalone-fixture tests) or read from the `RuleCache` (the real
-/// per-word pipeline). Threaded so the W3.2 disjunctive loop's *candidate* environment checks go
-/// through the same machinery as the used allomorph's own check.
+/// Environment-matching mode: freshly compiled per call, or read from the `RuleCache`; threaded so the disjunctive loop's candidates share it too.
 enum EnvCheck<'a> {
     Fresh,
     Cached(&'a RuleCache),
@@ -181,17 +173,12 @@ impl EnvCheck<'_> {
     }
 }
 
-/// C# `RootAllomorph.ConstraintsEqual` (RootAllomorph.cs:106-112): environments as a set +
-/// `IsBound` equality. `StemName` is genuinely NOT compared here even in C# (verified against the
-/// override itself, which calls only `base.ConstraintsEqual(other) && IsBound == otherAllo.
-/// IsBound` — no `StemName` reference at all), so `stem_name_gates_ok`'s checks stay entirely
-/// separate from `FreeFluctuatesWith`.
+/// Compares environments as a set plus `is_bound`; `stem_name` is deliberately excluded, matching C#'s own override.
 fn root_constraints_equal(a: &RootAllomorphDef, b: &RootAllomorphDef) -> bool {
     crate::morph::env_set_equal(&a.environments, &b.environments) && a.is_bound == b.is_bound
 }
 
-/// C# `StemName.IsRequiredMatch` (StemName.cs:31-34): `fs` (a word's accumulated syntactic FS)
-/// matches iff at least one region subsumes it.
+/// Matches iff at least one of `sn`'s regions subsumes `fs`, mirroring C# `StemName.IsRequiredMatch`.
 fn stem_name_required_match(
     g: &Grammar,
     sn: StemNameId,
@@ -203,11 +190,7 @@ fn stem_name_required_match(
         .any(|&r| pg_featstruct::subsumes(g.fs_interner.get(r), fs))
 }
 
-/// C# `StemName.IsExcludedMatch` (StemName.cs:36-44): every region THIS stem name declares that
-/// `exclude_from`'s stem name does NOT also declare (the set difference — shared regions are
-/// exempted, since both stem names agree those describe a valid match) must fail to subsume `fs`.
-/// `exclude_from = None` mirrors C#'s `stemName == null` branch (`Except(Enumerable.Empty<...>())`
-/// — nothing is exempted, i.e. every region of `sn` is checked).
+/// Every region of `sn` not also declared by `exclude_from` must fail to subsume `fs`; shared regions are exempt.
 fn stem_name_excluded_match(
     g: &Grammar,
     sn: StemNameId,
@@ -225,13 +208,7 @@ fn stem_name_excluded_match(
         .all(|&r| !pg_featstruct::subsumes(g.fs_interner.get(r), fs))
 }
 
-/// C# `RootAllomorph.CheckAllomorphConstraints`'s `StemName` clause (RootAllomorph.cs:65-91, W5):
-/// `allo`'s own stem name (if any) must be a required match against `fs`, AND every OTHER
-/// allomorph of the same entry that carries its own stem name must find `fs` an excluded match
-/// (relative to `allo`'s stem name, so shared regions between the two don't conflict). Runs on
-/// both the primary allomorph being validated (`fs` = the word's current syntactic FS) and, in the
-/// W3.2 disjunctive re-check, a passed-over candidate (RootAllomorph.cs:56 delegates the SAME
-/// method to the disjunctive check via `disjunctiveAllomorph.CheckAllomorphConstraints`).
+/// `allo`'s stem name must required-match `fs`, and every sibling allomorph's own stem name must exclude-match it.
 fn stem_name_gates_ok(
     g: &Grammar,
     allos: &[RootAllomorphDef],
@@ -241,10 +218,7 @@ fn stem_name_gates_ok(
     stem_name_gate_reason(g, allos, idx, fs).is_none()
 }
 
-/// P12 chunk 3: `stem_name_gates_ok`'s reason-reporting sibling (§3.2: Rust already distinguishes
-/// required-vs-excluded internally -- this just reports which one failed instead of folding both
-/// into one bool). `stem_name_gates_ok` is a thin wrapper over this, so the traced and untraced
-/// paths cannot disagree on which allomorphs pass.
+/// Reason-reporting sibling of `stem_name_gates_ok`, which wraps this so traced and untraced paths agree.
 fn stem_name_gate_reason(
     g: &Grammar,
     allos: &[RootAllomorphDef],
@@ -271,18 +245,13 @@ fn stem_name_gate_reason(
     }
 }
 
-/// C# `Allomorph.FreeFluctuatesWith` (Allomorph.cs:80-98): the full `minIndex..maxIndex`
-/// adjacent-pair `ConstraintsEqual` walk — unlike `morph.rs::free_fluctuates_with` (whose call
-/// sites only ever compare adjacent allomorphs), the validity gate compares arbitrary index pairs,
-/// so the general walk is required. `i == j` returns true vacuously (C#'s `this == other` guard).
+/// Walks every adjacent pair between `i` and `j`, unlike `morph.rs::free_fluctuates_with`'s adjacent-only callers; `i == j` is vacuously true.
 fn free_fluctuates<T>(allos: &[T], i: usize, j: usize, eq: impl Fn(&T, &T) -> bool) -> bool {
     let (lo, hi) = if i < j { (i, j) } else { (j, i) };
     (lo..hi).all(|k| eq(&allos[k], &allos[k + 1]))
 }
 
-/// The candidate index set for the W3.2 disjunctive re-check: the recorded passed-over indices
-/// (C# `Word.GetDisjunctiveAllomorphApplications`), falling back to every earlier index
-/// (`?? Enumerable.Range(0, Index)`, Allomorph.cs:127) when nothing was recorded (root morphs).
+/// Recorded passed-over indices, or every earlier index when none were recorded (root morphs).
 fn disjunctive_candidates(m: &MorphRecord, own_index: usize) -> Vec<usize> {
     match &m.passed_over {
         Some(list) => list.iter().map(|&x| x as usize).collect(),
@@ -290,27 +259,9 @@ fn disjunctive_candidates(m: &MorphRecord, own_index: usize) -> Vec<usize> {
     }
 }
 
-// --- W6: co-occurrence rules (`MorphemeCoOccurrenceRule`/`AllomorphCoOccurrenceRule`) ------------
-//
-// C# `Allomorph.CheckAllomorphConstraints` (Allomorph.cs:158-204), the tail every override
-// (`RootAllomorph`/`AffixProcessAllomorph`) delegates to via `base.CheckAllomorphConstraints(...)`
-// AFTER its own extra check (bound-root / required-syntactic-FS) and BEFORE `Allomorph.IsWordValid`
-// checks `Environments` (Allomorph.cs:105-125) — hence these gates sit between the bound-root/
-// required-syn-fs check and the environments check in `allomorphs_valid_impl` below, matching C#'s
-// call order exactly. History row `90dcee64` (#311/LT-22156, `rust/conformance/HISTORY-MATRIX.md`):
-// post-fix, EVERY attached rule must pass (`foreach ... return false` on first failure) — never
-// "at least one passes" (the pre-fix `.Any(...)`, the bug this row fixed). `Vec::iter().all(...)`
-// below is exactly that AND-across-rules fold.
+// W6: co-occurrence gates sit between the bound-root/required-syn-fs check and the environments check; every attached rule must pass (AND, not "any").
 
-/// C# `MorphCoOccurrenceRule<T>.CoOccurs` (`MorphCoOccurrenceRule.cs:92-170`), generic over
-/// whichever id space the rule cares about (`MorphemeId` for `MorphemeCoOccurrenceRule`,
-/// `AllomorphId` for `AllomorphCoOccurrenceRule` — C#'s own `MorphCoOccurrenceRule<T>` base is
-/// generic the same way). `morph_list` is `Word.AllomorphsInMorphOrder` projected to `T` (`key_of`
-/// applied to each entry, C#'s `GetMorphObject`); `others` is the rule's declared list, consumed
-/// left-to-right (`Anywhere` aside, order matters: `others[0]`/`others[last]` are tested
-/// positionally, not as a set). A line-for-line port, including the two `Adjacent*` branches'
-/// single-other special case (`else if key != next/prevMorphObj`): with exactly one declared
-/// `other`, "adjacent" means directly next to the KEY itself, not to another `other`.
+/// Generic co-occurrence walk over whichever id space the rule uses; `others` is consumed left-to-right, positionally, not as a set.
 fn co_occurs<T: Copy + PartialEq>(
     key: T,
     others: &[T],
@@ -378,8 +329,7 @@ fn co_occurs<T: Copy + PartialEq>(
     rest.is_empty()
 }
 
-/// C# `MorphCoOccurrenceRule<T>.IsWordValid` (`MorphCoOccurrenceRule.cs:82-87`): `require` (C#
-/// `ConstraintType.Require`) passes iff `co_occurs`; `exclude` (the DTD default) passes iff NOT.
+/// `require` passes iff `co_occurs`; `exclude` (the DTD default) passes iff it does not.
 fn co_occurrence_rule_ok<T: Copy + PartialEq>(
     require: bool,
     key: T,
@@ -395,11 +345,7 @@ fn co_occurrence_rule_ok<T: Copy + PartialEq>(
     }
 }
 
-/// Every rule in `rules` must pass against `key` — the AND-across-rules fold `90dcee64` requires.
-/// Factored out of `morpheme_co_occurrence_ok` so the P11 §4.4-1 guessed-root branch of
-/// `allomorphs_valid_impl` can evaluate the PATTERN's rule list keyed on the GUESSED (sentinel)
-/// morpheme id, exactly as `allomorph_co_occurrence_ok` already lets its caller separate "whose
-/// rules" from "which id is the primary key".
+/// Every rule in `rules` must pass against `key`; factored out so the guessed-root branch can key on a different id than "whose rules" it checks.
 fn morpheme_co_occurrence_rules_ok(
     rules: &[MorphemeCoOccurrenceRuleDef],
     key: MorphemeId,
@@ -416,8 +362,7 @@ fn morpheme_co_occurrence_rules_ok(
     })
 }
 
-/// Every `MorphemeCoOccurrenceRule` attached to `morpheme` (C# `Morpheme.
-/// MorphemeCoOccurrenceRules`) must pass — the AND-across-rules fold `90dcee64` requires.
+/// Every `MorphemeCoOccurrenceRule` attached to `morpheme` must pass (AND across rules).
 fn morpheme_co_occurrence_ok(
     g: &Grammar,
     morpheme: MorphemeId,
@@ -430,11 +375,7 @@ fn morpheme_co_occurrence_ok(
     )
 }
 
-/// Every `AllomorphCoOccurrenceRule` in `rules` (an allomorph's own `co_occurrence` field, C#
-/// `Allomorph.AllomorphCoOccurrenceRules`) must pass, tested against `key` — same AND-across-rules
-/// fold as `morpheme_co_occurrence_ok`. `key` is a parameter (not always `rules`'s own owning
-/// allomorph id) because the W3.2 disjunctive re-check calls this with the candidate's OWN rules
-/// but the ORIGINALLY USED allomorph as the co-occurrence key — see that call site's comment.
+/// Every rule in `rules` must pass against `key`; `key` is a parameter because the disjunctive re-check checks a candidate's own rules against the originally-used allomorph.
 fn allomorph_co_occurrence_ok(
     rules: &[AllomorphCoOccurrenceRuleDef],
     key: AllomorphId,
@@ -487,9 +428,7 @@ pub fn allomorphs_valid_cached_traced(
     allomorphs_valid_impl(g, w, EnvCheck::Cached(cache), trace, parent)
 }
 
-/// Emit `Failed(parent, w, reason)` (guarded by `is_tracing()`) and return `false` -- every early
-/// return in `allomorphs_valid_impl` goes through this so the trace call and the `false` result
-/// can never drift apart.
+/// Emits the trace failure (guarded by `is_tracing()`) and returns `false`, keeping the two in lockstep.
 fn fail(trace: &dyn TraceSink, parent: TraceHandle, w: &Word, reason: FailureReason) -> bool {
     if trace.is_tracing() {
         trace.failed(parent, w, reason);
@@ -511,8 +450,7 @@ fn allomorphs_valid_impl(
     let mut sorted: Vec<&MorphRecord> = w.morphs.iter().collect();
     sorted.sort_by_key(|m| m.order);
 
-    // C# `Word.Allomorphs.Count` (Word.cs:121-124): `_allomorphs` is a dict keyed by allomorph id,
-    // so this is the count of *distinct* allomorphs used, not the number of morph records/pieces.
+    // Distinct allomorphs used (deduped by id), not morph-record/piece count.
     let distinct_count = {
         let mut ids: Vec<u32> = sorted.iter().map(|m| m.allomorph.0).collect();
         ids.sort_unstable();
@@ -524,9 +462,7 @@ fn allomorphs_valid_impl(
     // two anchors (the `p - 1` convention `morph.rs::copy_part` and friends already rely on).
     let last_interior = w.shape.len().saturating_sub(3) as u32;
 
-    // W6: `Word.AllomorphsInMorphOrder` projected to each id space the co-occurrence rules key on
-    // (C# `MorphCoOccurrenceRule<T>.GetMorphObject`) — computed once, since it's the same list for
-    // every morph checked below (the word itself doesn't change across this loop).
+    // Computed once: the same morph list is used for every morph checked in this loop.
     let morph_list_allomorphs: Vec<AllomorphId> = sorted.iter().map(|m| m.allomorph).collect();
     let morph_list_morphemes: Vec<MorphemeId> = sorted.iter().map(|m| m.morpheme).collect();
 
@@ -536,10 +472,7 @@ fn allomorphs_valid_impl(
             .get(i + 1)
             .map_or(last_interior, |n| n.order.saturating_sub(1));
 
-        // P11 §4.4-1: the fabricated (guessed) root has no `allomorph_owners` row at all — the
-        // one place this indexing would otherwise panic. Delegate every check to the REAL
-        // lexical-pattern allomorph the guess was matched against (`Word::guessed_root`), never
-        // to `g.allomorph_owners[AllomorphId::GUESSED]`.
+        // The guessed root has no `allomorph_owners` row; delegate checks to the real pattern allomorph it was matched against instead.
         if m.allomorph == AllomorphId::GUESSED {
             let Some(gr) = m
                 .runtime_root
@@ -549,8 +482,7 @@ fn allomorphs_valid_impl(
                     crate::word::RuntimeRoot::Supplied(_) => None,
                 })
             else {
-                // A supplied ordinary root, or a supplied compound non-head whose record has
-                // been folded into the head word, has no grammar allomorph restrictions.
+                // A supplied root, or a compound non-head folded into the head word, has no grammar allomorph restrictions.
                 continue;
             };
             let allos = &g.entries[gr.pattern_entry.0 as usize].allomorphs;
@@ -562,17 +494,13 @@ fn allomorphs_valid_impl(
             if def.is_bound && distinct_count == 1 {
                 return fail(trace, parent, w, FailureReason::BoundRoot);
             }
-            // W5 stem-name gate, PRIMARY clause only: the "exclude sibling stem names" loop
-            // iterates the FABRICATED entry's allomorphs in C# — exactly one, itself — so it is a
-            // no-op here; do NOT iterate the pattern's real siblings (§4.4-1).
+            // Primary stem-name clause only; the fabricated entry has exactly one allomorph, so the sibling-exclusion loop is a no-op here.
             if let Some(sn) = def.stem_name {
                 if !stem_name_required_match(g, sn, &w.syn_fs) {
                     return fail(trace, parent, w, FailureReason::RequiredStemName);
                 }
             }
-            // W6: the pattern's own rule lists, keyed on the GUESSED (sentinel) ids as the
-            // primary — mirrors C#'s fabricated-object identity; the sentinel correctly never
-            // equals any real id in `morph_list_allomorphs`/`morph_list_morphemes`.
+            // Keyed on the guessed sentinel ids, which never equal any real id in the morph lists.
             if !allomorph_co_occurrence_ok(&def.co_occurrence, m.allomorph, &morph_list_allomorphs)
             {
                 return fail(trace, parent, w, FailureReason::AllomorphCoOccurrenceRules);
@@ -585,13 +513,11 @@ fn allomorphs_valid_impl(
             ) {
                 return fail(trace, parent, w, FailureReason::MorphemeCoOccurrenceRules);
             }
-            // Environments are identical objects to the pattern's in C# — reuse the pattern
-            // allomorph's own (cached) matcher, no per-guess compilation.
+            // Reuses the pattern allomorph's own cached environment matcher; no per-guess compilation.
             if !check.envs_ok(g, gr.pattern_allo, &def.environments, &w.shape, start, end) {
                 return fail(trace, parent, w, FailureReason::Environments);
             }
-            // No W3.2 disjunctive re-check: the fabricated entry has exactly one allomorph
-            // (itself), so C#'s `Enumerable.Range(0, Index)`/passed-over candidate set is empty.
+            // No disjunctive re-check: the fabricated entry has exactly one allomorph, so the candidate set is empty.
             continue;
         }
 
@@ -602,16 +528,11 @@ fn allomorphs_valid_impl(
                 if def.is_bound && distinct_count == 1 {
                     return fail(trace, parent, w, FailureReason::BoundRoot);
                 }
-                // W5 (`RootAllomorph.CheckAllomorphConstraints`'s `StemName` clause,
-                // RootAllomorph.cs:65-91): between the bound-root gate and the W6 co-occurrence
-                // gates, matching C#'s exact order.
+                // Stem-name gate sits between the bound-root gate and the co-occurrence gates, matching C#'s order.
                 if let Some(reason) = stem_name_gate_reason(g, allos, idx as usize, &w.syn_fs) {
                     return fail(trace, parent, w, reason);
                 }
-                // W6 (`RootAllomorph.CheckAllomorphConstraints` -> `base.CheckAllomorphConstraints`,
-                // Allomorph.cs:93,158-179): allomorph-level rules, then morpheme-level rules, both
-                // BEFORE the environments check below (C#'s exact `CheckAllomorphConstraints`-then-
-                // `Environments` order in `Allomorph.IsWordValid`).
+                // Allomorph-level rules, then morpheme-level rules, both before the environments check below, matching C#'s order.
                 if !allomorph_co_occurrence_ok(
                     &def.co_occurrence,
                     m.allomorph,
@@ -625,18 +546,8 @@ fn allomorphs_valid_impl(
                 if !check.envs_ok(g, m.allomorph, &def.environments, &w.shape, start, end) {
                     return fail(trace, parent, w, FailureReason::Environments);
                 }
-                // W3.2 disjunctive re-check (Allomorph.cs:127-152), root arm: an earlier-indexed
-                // allomorph of the same lexical entry that doesn't free-fluctuate with the used
-                // one, whose environments are absent-or-satisfied at this morph's span, and whose
-                // own constraints hold (`RootAllomorph.CheckAllomorphConstraints` = the bound-root
-                // gate plus, per W6, the candidate's OWN allomorph-co-occurrence rules — Allomorph.
-                // cs:137's `disjunctiveAllomorph.CheckAllomorphConstraints(null, this, word)` reads
-                // `disjunctiveAllomorph.AllomorphCoOccurrenceRules` but keys `IsWordValid` on the
-                // ORIGINALLY USED allomorph, i.e. `this` = `m.allomorph`, not `cand.id`; the
-                // morpheme-level rules are the SAME set/key as the primary check just above, since
-                // disjunctive alternatives share one morpheme, so re-checking them here would be a
-                // provable no-op and is omitted) rejects the word — the first-listed matching
-                // allomorph wins.
+                // The candidate's own allomorph-co-occurrence rules are checked here; morpheme-level rules are provably a
+                // no-op per candidate and are intentionally omitted -- see docs/research/pg-rules-validity-design-notes.md.
                 for ci in disjunctive_candidates(m, idx as usize) {
                     let cand = &allos[ci];
                     if free_fluctuates(allos, ci, idx as usize, root_constraints_equal) {
@@ -656,11 +567,7 @@ fn allomorphs_valid_impl(
                 }
             }
             AllomorphOwner::Affix(mr, idx) => {
-                // C# `AffixProcessAllomorph.CheckAllomorphConstraints` is shared verbatim by
-                // `AffixProcessRule` and `RealizationalAffixProcessRule` allomorphs (both are the
-                // same C# class — `MorphRuleDef::affix_allomorphs` centralizes the lookup, see its
-                // doc); `Morpher.IsWordValid`'s `word.Allomorphs.All(...)` walk doesn't care which
-                // rule kind owns the allomorph it's validating.
+                // Shared by `AffixProcessRule` and `RealizationalAffixProcessRule` allomorphs; `affix_allomorphs` centralizes the lookup.
                 let allos = g.mrules[mr.0 as usize].affix_allomorphs().expect(
                     "compounding rules mint no AllomorphId (no per-allomorph registry entry)",
                 );
@@ -673,9 +580,7 @@ fn allomorphs_valid_impl(
                         FailureReason::RequiredSyntacticFeatureStruct,
                     );
                 }
-                // W6 (`AffixProcessAllomorph.CheckAllomorphConstraints` -> `base.
-                // CheckAllomorphConstraints`, AffixProcessAllomorph.cs:104): same ordering as the
-                // root arm above.
+                // Same allomorph-then-morpheme co-occurrence ordering as the root arm above.
                 if !allomorph_co_occurrence_ok(
                     &def.co_occurrence,
                     m.allomorph,
@@ -689,12 +594,7 @@ fn allomorphs_valid_impl(
                 if !check.envs_ok(g, m.allomorph, &def.environments, &w.shape, start, end) {
                     return fail(trace, parent, w, FailureReason::Environments);
                 }
-                // W3.2 disjunctive re-check, affix arm: candidates are the passed-over subrule
-                // indices recorded during synthesis (`MorphRecord::passed_over`); the candidate's
-                // `AffixProcessAllomorph.CheckAllomorphConstraints` is its required-syntactic-FS
-                // subsumption against the word's accumulated syn FS, plus (W6) its own allomorph-
-                // co-occurrence rules keyed on the originally used allomorph — same rationale as
-                // the root arm's disjunctive loop above.
+                // Same disjunctive re-check shape as the root arm above (see its comment).
                 for ci in disjunctive_candidates(m, idx as usize) {
                     let cand = &allos[ci];
                     if free_fluctuates(allos, ci, idx as usize, |a, b| {

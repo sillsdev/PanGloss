@@ -1,8 +1,4 @@
-//! Unit tests over the hand-written synthetic fixture (`tests/data/fixture.fwdata`), covering:
-//! parts of speech (Noun/Verb), an affix template with a slot, an inflectional-affix MSA filling
-//! that slot, one phonological rewrite rule, one environment, one natural class, and a dangling
-//! `objsur` (both a raw dangling environment guid and an allomorph with an unrecognized morph
-//! type) proving pg-fwdata warns and skips rather than panicking.
+//! Unit tests over the hand-written synthetic fixture `tests/data/fixture.fwdata`, covering the full extraction surface plus dangling-reference and unknown-morph-type warnings.
 
 use std::path::{Path, PathBuf};
 
@@ -15,8 +11,7 @@ fn fixture_path() -> PathBuf {
 #[test]
 fn imports_without_error() {
     let (_, report) = pg_fwdata::import_file(&fixture_path()).expect("fixture must import");
-    // At least the unknown-morph-type allomorph and the dangling environment guid should be
-    // reported.
+    // At least the unknown-morph-type allomorph and the dangling environment guid should be reported.
     assert!(
         !report.warnings.is_empty(),
         "expected at least the deliberately-planted warnings"

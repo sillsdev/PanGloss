@@ -1,85 +1,27 @@
-//! **Settles the one soundness hazard the confirmation-free accuracy path rests on.**
-//!
-//! `pg_foma::recipe_accuracy` detects undergeneration by checking that a candidate proposed the
-//! admission key of every oracle analysis, performing NO full-HC confirmation. That is a sound test
-//! for undergeneration on its own. It is equivalent to full certification only if the OTHER
-//! direction is free — if a candidate's confirmed identity set can never contain an identity the
-//! oracle's set lacks.
-//!
-//! The argument for that direction is strong: the candidate's confirm is a RESTRICTED
-//! `Morpher::parse_word_selected` while the oracle is the same engine unrestricted, so the candidate
-//! explores a subset of the search space. It is not airtight, and the gap is narrow and specific:
-//! `pg_rules::word::WordKey` — the analysis-search dedup key — deliberately EXCLUDES the syntactic
-//! feature struct, while `pg_parse::identity::AnalysisIdentity::category` is projected from it via
-//! `WordAnalysis::pos_id`. Two search states differing only in `syn_fs` therefore collapse to one
-//! map entry, and which one survives is decided first-wins by traversal order — which the
-//! restriction perturbs. So a restricted run could in principle surface a category the unrestricted
-//! run deduplicated away: a CANDIDATE-ONLY IDENTITY.
-//!
-//! That was inference, never an observation. This file measures it, because building containment on
-//! an unmeasured assumption would silently certify a wrong answer on the day it stopped holding.
-//!
-//! # What is measured, and what a zero here does and does not license
-//!
-//! `pg_foma::parity::IdentityDivergence::candidate_only_identities`, counted on the ORDINARY
-//! certification path (inside `certify_corpus` itself, sharing its one projection pass — not a
-//! second reimplementation that could disagree with the verdict about what it looked at) and
-//! accumulated per run by `RunEvaluationCache`.
-//!
-//! A zero licenses exactly one claim: on these fixtures, at these corpora, confirmation never
-//! yielded an identity the oracle lacked, so undergeneration is the only way certification can fail
-//! and the containment check detects it. It does NOT license removing confirmation from the
-//! certification path, and it does not make the accuracy verdict a certification. It makes the
-//! accuracy verdict a trustworthy fast SCREEN.
-//!
-//! A non-zero is a finding, not a nuisance: it would mean the parity relation and the compilation
-//! disagree about analysis identity somewhere, which is worth more than any speedup.
-//!
-//! # Why "compared nothing" is asserted too
-//!
-//! `occurrences_compared` is asserted non-zero, and
-//! `IdentityDivergence::supports_free_containment` encodes the same rule in the type. A run that was
-//! refused (a step-capped oracle occurrence, a build failure) reports zero candidate-only identities
-//! because it compared nothing at all, and this repository's standing rule is that "I could not look"
-//! must never read as "everything is fine".
+//! Measures the one soundness hazard the confirmation-free accuracy path in `pg_foma::recipe_accuracy`
+//! rests on; see `docs/research/pg-foma-parity-divergence-census-design-notes.md` for the argument.
 
 use pg_conformance_fixtures::{discover, FixtureRef, Root};
 use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
-use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::junctions::PhonologyProbe;
+use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::parity::IdentityDivergence;
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
 use pg_foma::recipe_runtime::{evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
-/// How many corpus occurrences of each fixture the census checks.
-///
-/// A word subset is legitimate here and a proposal-set subset never would be: each corpus row is an
-/// independent observation of the divergence, so measuring 8 of them measures 8 real observations,
-/// whereas truncating a word's proposal set would fabricate a recall failure. Bounded so the census
-/// spans every fixture at a cost the ordinary test suite can carry on every run — an unbounded sweep
-/// over every word of every fixture is the corpus battery, which belongs to `-Mode corpus-test`.
+/// A word subset is fine here since each corpus row is an independent observation; a proposal-set subset would fabricate a recall failure instead.
 const OCCURRENCES_PER_FIXTURE: usize = 8;
 
-/// Fixtures the FULL registry candidate set is measured on.
-///
-/// Chosen for the hazard rather than for coverage: the divergence is about how a RESTRICTION
-/// perturbs `WordKey` dedup order, so what matters is grammars where one admission key can plausibly
-/// carry more than one category, or where several genuinely different restrictions exist.
-/// `template-category-sharing` shares categories across templates by construction;
-/// `head-ambiguous-compounding` has two readings of one surface form differing only in headedness;
-/// `recipe-gated-generic` is the fixture the run-cache gate already uses and materializes several
-/// distinct candidates including both whole-grammar compilers.
+/// Chosen for the hazard, not coverage: grammars where one admission key can plausibly carry more than one category, or where several genuinely different restrictions exist.
 const REGISTRY_CENSUS_FIXTURES: [&str; 3] = [
     "template-category-sharing",
     "head-ambiguous-compounding",
     "recipe-gated-generic",
 ];
 
-/// `pg_foma::emit::surface_table`, which is `pub(crate)`: the surface char-def table is the LAST
-/// stratum's, not `char_tables[0]`, and on a multi-stratum grammar those differ. Replicated rather
-/// than approximated so the census builds its candidates over the same alphabet the evaluator does.
+/// Replicates the pub(crate) `pg_foma::emit::surface_table`: the surface table is the last stratum's, not `char_tables[0]`.
 fn surface_table(grammar: &Grammar) -> &pg_grammar::chardef::CharDefTable {
     let surface_stratum = grammar
         .strata
@@ -127,20 +69,7 @@ fn census(
     let mut measured = Vec::new();
     let mut skipped = Vec::new();
     for fixture in discover().into_iter().filter(include) {
-        // A PANIC in one fixture's compilation must not cost us the whole corpus-wide number.
-        // `machine:edge-cases/loader-pattern-shapes` panics in `replace.rs:498` with "char table
-        // too large for the PUA token scheme", and because that unwinds out of the loop it would
-        // take the entire census with it -- the same one-bad-fixture-destroys-the-measurement
-        // shape as the process aborts above, but catchable.
-        //
-        // Caught here rather than fixed here on purpose: the panic is a REAL defect in the
-        // plan-composed compiler (a capacity wall in a Private-Use-Area token encoding, which cannot
-        // scale to the grammar sizes this project targets) and it deserves a typed refusal at its own
-        // call site, not a workaround in a test. What belongs in the test is refusing to let it erase
-        // every other fixture's evidence. Each caught panic is reported as a named skip with its
-        // message, so it stays loud and countable; `assert_no_candidate_only_identity` still requires
-        // a positively clean comparison somewhere, so a corpus that panicked everywhere cannot read
-        // as agreement.
+        // Caught, not fixed here: a panicking fixture is a real compiler defect but must not erase every other fixture's evidence.
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             measure_one_fixture(&fixture, &select_plans)
         }));
@@ -160,16 +89,12 @@ fn census(
     (measured, skipped)
 }
 
-/// One fixture's measurement. `Err` carries a human-readable reason for a legible skip; a panic is
-/// caught by the caller and turned into one too.
+/// One fixture's measurement; `Err` is a human-readable skip reason, and the caller turns a panic into one too.
 fn measure_one_fixture(
     fixture: &FixtureRef,
     select_plans: &impl Fn(&Grammar) -> Vec<LoweredCandidate>,
 ) -> Result<FixtureDivergence, String> {
-    // Named BEFORE any work on it, so that if a fixture aborts the PROCESS rather than failing the
-    // test, the last line of captured output identifies the culprit. Without this the abort is
-    // anonymous: `report` never runs, so no per-fixture line is ever emitted, and a process death
-    // tells you only that something in the corpus is fatal, with the fixture responsible unnamed.
+    // Logged before any work, so a process abort's last output line still names the culprit fixture.
     eprintln!("census: entering {}", fixture.label());
     let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
         return Err(format!("{}: grammar failed to load", fixture.label()));
@@ -190,8 +115,7 @@ fn measure_one_fixture(
     }
     let Ok(mut cache) = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
     else {
-        // An oracle preparation fault is a whole-run abort, not a per-word outcome. Recorded as
-        // "could not look", never folded into the measurement.
+        // An oracle preparation fault is a whole-run abort, recorded as "could not look", never a measurement.
         return Err(format!("{}: oracle preparation faulted", fixture.label()));
     };
     evaluate_plans_with_cache(
@@ -286,31 +210,7 @@ fn assert_no_candidate_only_identity(label: &str, measured: &[FixtureDivergence]
     );
 }
 
-/// **The exclusion list is GONE, and this note records what it was and why it no longer exists.**
-///
-/// Two fixtures — `machine:edge-cases/deep-optional-affix-nesting` and
-/// `staging:edge-cases/recipe-template-generic`, which
-/// `tests/apply_path_refusal_gate.rs::the_two_aborting_fixtures_are_one_grammar` proves are ONE
-/// grammar under two names — used to abort the whole test PROCESS inside `evaluate_plans`, killing
-/// this census at ~251.9s with "memory allocation of 52 bytes failed" and exit `0xc0000409`. They
-/// were excluded because an aborting fixture does not FAIL a census, it destroys the measurement,
-/// and this census is the only producer of the candidate-only-identity count that
-/// `recipe_accuracy`'s containment relation rests on.
-///
-/// The exclusion note that stood here read the symptom as unbounded recursion, on the reasoning that
-/// `0xc0000409` is `STATUS_STACK_BUFFER_OVERRUN`. **That was wrong**, and the correction is worth
-/// keeping: `0xc0000409` is also what MSVC's `abort()` produces, and the MESSAGE decides which — this
-/// one was the allocator's, not the stack handler's. It was heap exhaustion from `apply_up`
-/// enumerating `12^k` paths for a k-`x` word (2,985,984 measured at k=6, ~8.9 x 10^12 implied at
-/// k=12). See `apply_path_refusal_gate`'s module doc for the three measurements that rule recursion
-/// out, and `pg_foma::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET` for the calibration.
-///
-/// Both fixtures are now IN this census and both certify as a `Certification::ResourceBreach` naming
-/// the per-word apply dimension — a typed refusal, in ~3s, instead of a dead process.
-const _: () = ();
-
-/// The census: EVERY discoverable fixture, one candidate each — the baseline, i.e. the default
-/// compilation of that grammar, which is what a regression screen would actually be run on.
+/// Every discoverable fixture, one candidate each: the default compilation a regression screen would actually run on.
 #[test]
 fn no_fixture_produces_a_candidate_only_identity() {
     let (measured, skipped) = census(|_| true, baseline_only);
@@ -329,14 +229,7 @@ fn no_fixture_produces_a_candidate_only_identity() {
     assert_no_candidate_only_identity("baseline census", &measured);
 }
 
-/// The same measurement with the FULL registry candidate set, on the hazard-bearing fixtures.
-///
-/// Worth having separately because the hazard is about how the RESTRICTION perturbs dedup order, and
-/// different candidates restrict differently — one candidate per fixture exercises one restriction
-/// shape per grammar. This exercises several per grammar, including both whole-grammar compilers.
-/// Bounded to `REGISTRY_CENSUS_FIXTURES` rather than swept over everything: a full
-/// registry-by-fixture cross product IS the corpus battery, and this must stay runnable on every
-/// change.
+/// The same measurement with the full registry candidate set, restricted to the hazard-bearing fixtures.
 #[test]
 fn no_registry_candidate_produces_a_candidate_only_identity() {
     let (measured, skipped) = census(

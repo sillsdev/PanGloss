@@ -74,42 +74,17 @@ use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeKind, Shape, NO_CHAR_DEF};
 #[derive(Debug, Default)]
 struct TrieNode {
     edges: Vec<TrieEdge>,
-    /// `(allomorph, owning entry)` pairs accepted at this node (homographs accumulate here, exactly
-    /// as C# `AcceptInfos` accumulate on a shared accepting state, `RootAllomorphTrie.cs:50-52`).
+    /// `(allomorph, owning entry)` pairs accepted at this node; homographs accumulate here.
     accepts: Vec<(AllomorphId, LexEntryId)>,
 }
 
-/// A trie edge: the segment's `char_def` (the `StrRep` analog) plus its phonological feature lanes
-/// (for the unifiability refinement), and the target node.
-///
-/// Wave-4 (loader N3 end-to-end): a **pattern-derived** root-allomorph node (`[NatClass]` in a
-/// `<PhoneticShape>`, loaded by `pg_grammar::segment::segment_with_patterns`) has
-/// `char_def == NO_CHAR_DEF` and carries its natural class's member set as a `CdSet` instead.
-/// Such an edge stores that set here; matching a concrete query segment against it goes by **set
-/// membership** (the `StrRep`-compatibility analog: the set was precomputed as exactly the table
-/// entries the class unifies with — `pg_grammar::segment`'s `nat_class_cd_set`) plus lane
-/// unifiability, which together are this port's rendering of C#'s arc-condition `FeatureStruct`
-/// unification against a class-only (no-`StrRep`) condition (`RootAllomorphTrie.cs:39-40,61-63` +
-/// the FSA's `UseUnification = true`).
-///
-/// Stored-node `OPTIONAL`/`ITERATIVE` flags (`([NatClass])` / `[NatClass]*`) are deliberately NOT
-/// modeled: C#'s own `AddNode` creates one unconditional arc per shape node — the node's
-/// `Annotation.Optional`/iterative marks never reach the arc condition (a frozen `FeatureStruct`
-/// clone, `RootAllomorphTrie.cs:61-63`) — so a stored optional class node is mandatory in the C#
-/// trie too. Matching that (mis)behavior exactly is the parity-faithful choice. P11 chunk 2: this
-/// scenario cannot actually arise for a trie-indexed allomorph any more — any node carrying
-/// `ITERATIVE`, or `OPTIONAL` on a non-boundary node, makes the *whole allomorph* `IsPattern`
-/// (`RootAllomorphDef::is_pattern`), and `RootAllomorphTrie::build` now excludes pattern allomorphs
-/// from the trie entirely (see that function's doc). A `Segment` node with these flags reaching
-/// this edge type is therefore unreachable post-fix; the paragraph above records the historical
-/// C# behavior this port would replicate *if* such a node ever did reach here (defense in depth,
-/// not a live path).
+/// A trie edge: the segment's `char_def` plus lanes and the target node. A pattern-derived edge (wave-4)
+/// stores a class member set instead -- see docs/research/pg-parse-root-trie-design-notes.md.
 #[derive(Debug)]
 struct TrieEdge {
     char_def: u32,
     lanes: Vec<u64>,
-    /// The stored node's char-def-set — consulted only when `char_def == NO_CHAR_DEF` (a concrete
-    /// edge is an implicit singleton of its own `char_def`, mirroring `Shape::node_cd_set`).
+    /// The stored node's char-def-set, consulted only when `char_def == NO_CHAR_DEF`; a concrete edge is an implicit singleton.
     cd_set: CdSet,
     target: usize,
 }
@@ -175,13 +150,7 @@ impl RootAllomorphTrie {
         self.nodes.len()
     }
 
-    /// Add one root allomorph path. `segs` is the pre-resolved `(char_def, lanes, cd_set)` sequence
-    /// of the allomorph's `Segment` nodes. Edges are grouped by `char_def` so shared prefixes share
-    /// a path (C# `AddNode` arc reuse via `ValueEquals`, `RootAllomorphTrie.cs:39-63`); a
-    /// pattern-derived (`NO_CHAR_DEF`) node additionally requires `cd_set` + lane equality to reuse
-    /// an edge — the analog of `ValueEquals` distinguishing two different class conditions (two
-    /// concrete nodes with the same `char_def` always resolve identical lanes from the table, so
-    /// the `char_def`-only key remains exact for them).
+    /// Adds one root allomorph path, grouping edges by `char_def` so shared prefixes share a path; a pattern-derived edge also requires matching `cd_set`/lanes to reuse an edge.
     fn add_path(&mut self, segs: &[(u32, Vec<u64>, CdSet)], allo: AllomorphId, entry: LexEntryId) {
         let mut cur = 0usize;
         for (cd, lanes, cd_set) in segs {
@@ -218,10 +187,7 @@ impl RootAllomorphTrie {
         self.search_segs_opt(&segs, table_ref.unif_closure_rows())
     }
 
-    /// Core search over a pre-resolved input `(char_def, lanes)` segment sequence, **all segments
-    /// mandatory** (the internal-unit-test entry point). Delegates to `Self::search_segs_opt`
-    /// with `closure = None` — every existing unit test exercises the Sena-regime (no closure)
-    /// behavior; the P5 closure-aware unit tests below pass a closure explicitly instead.
+    /// Test-only entry point: all segments mandatory, delegates to `Self::search_segs_opt` with `closure = None`.
     #[cfg(test)]
     fn search_segs(&self, segs: &[(u32, Vec<u64>)]) -> Vec<(AllomorphId, LexEntryId)> {
         let with_opt: Vec<(u32, Vec<u64>, bool)> =
@@ -229,8 +195,7 @@ impl RootAllomorphTrie {
         self.search_segs_opt(&with_opt, None)
     }
 
-    /// Same as `Self::search_segs`, but threading an explicit closure (P5, §7.1's unit tests) —
-    /// lets a test exercise the equality-miss fallback without needing a real `CharDefTable`.
+    /// Same as `Self::search_segs`, but threading an explicit closure to exercise the equality-miss fallback without a real `CharDefTable`.
     #[cfg(test)]
     fn search_segs_with_closure(
         &self,
@@ -242,21 +207,8 @@ impl RootAllomorphTrie {
         self.search_segs_opt(&with_opt, closure)
     }
 
-    /// Does this edge accept a query segment `(cd, lanes)`? The match predicate of the whole trie
-    /// (see module doc): for a **concrete** edge, `char_def` equality (the `StrRep` analog) OR —
-    /// Design A, P5 — membership of `cd` in the edge char-def's build-time unifiability closure
-    /// (`closure`, `None` for a zero-feature table: Sena/en/sp keep the pre-P5 identity-only
-    /// behavior bit-for-bit); for a **pattern-derived** edge (`char_def == NO_CHAR_DEF`, wave-4 /
-    /// loader N3 end-to-end), membership of the query's `char_def` in the edge's stored `CdSet`
-    /// (precomputed as exactly the table entries the class unifies with). A `NO_CHAR_DEF` **query**
-    /// segment has no literal identity to compare and passes the char-def gate against *any* edge
-    /// (its features still gate below) — including a pattern edge, where C# would unify the
-    /// reinserted node's class-features against the stored class-features; this port's pattern
-    /// edges carry their class identity in `cd_set` (their `lanes` are empty ⇒ trivially unifiable),
-    /// so this is an over-approximation for that (query-pattern × edge-pattern) corner only — safe,
-    /// because every trie hit is re-verified by synthesis-confirm downstream. In every case the
-    /// phonological-lane unifiability refinement also applies, so a closure hit that fails the lane
-    /// conjunct (a query carrying divergent shape lanes) still correctly rejects.
+    /// Does this edge accept a query segment `(cd, lanes)`? Concrete edges match by `char_def` equality or build-time closure
+    /// membership; pattern edges by `CdSet` membership. See docs/research/pg-parse-root-trie-design-notes.md for the `NO_CHAR_DEF` case.
     fn edge_matches(e: &TrieEdge, cd: u32, lanes: &[u64], closure: Option<&[CdBits]>) -> bool {
         let cd_ok = cd == NO_CHAR_DEF
             || e.char_def == cd
@@ -270,32 +222,8 @@ impl RootAllomorphTrie {
         cd_ok && flat_unifiable(lanes, &e.lanes)
     }
 
-    /// Core search over a pre-resolved input `(char_def, lanes, optional)` segment sequence. Follows
-    /// **all** edges that match the current input segment (`char_def` equal *and* lanes unifiable),
-    /// preserving C#'s nondeterministic unification traversal; in practice the char-def key makes at
-    /// most one edge per node match a concrete segment.
-    ///
-    /// A query segment whose `char_def` is `NO_CHAR_DEF` has no known literal identity — this is
-    /// this port's analog of a C# node whose `StrRep` feature is left unspecified, which happens for
-    /// material an analysis-side phonological rule re-inserted from a **natural-class-only** LHS
-    /// (e.g. Indonesian `prule5`'s "Voiceless obstruent deletion" reinstates a deleted segment typed
-    /// only as `nc13`/"voiceless obstruent", not as any specific literal phoneme —
-    /// `pg_rules::rewrite::new_seg_node`'s `_ => u32::MAX` fallback). C# unification treats an
-    /// unspecified `StrRep` as compatible with *any* value, so such a node must match every trie edge
-    /// whose phonological lanes unify, regardless of the edge's own `char_def` — the module doc's
-    /// "match = `char_def` equality AND `flat_unifiable`" shortcut is only valid when the query
-    /// segment itself carries a concrete literal identity. Without this, a root like Indonesian
-    /// `pakai` (whose first phoneme, "p", is exactly this kind of reinstated-but-unidentified
-    /// segment during analysis of memakai) can never be found: the char_def-equality gate rejects
-    /// every edge outright, and the segment is not `optional` (it must be consumed, not skipped), so
-    /// the whole-word search always fails.
-    ///
-    /// **Optional segments are skippable** — the faithful analog of C#'s transducer treating an
-    /// `Optional` shape annotation as matchable-or-skippable (`Transduce` over the shape's Segment
-    /// annotations, `RootAllomorphTrie.Search`). An optional input segment (e.g. the epenthetic node
-    /// a deletion prule's *analysis* re-inserts, marked `OPTIONAL` by `rewrite::analyze`) may be
-    /// consumed by a trie edge *or* left unconsumed, so the underlying root `/ajar/` still matches the
-    /// analysis shape `aj[?]ar`. Without this, prule-bearing grammars (Indonesian) find no root.
+    /// Follows every edge that matches an input segment (preserving C#'s nondeterministic traversal) and skips optional segments.
+    /// See docs/research/pg-parse-root-trie-design-notes.md for why a `NO_CHAR_DEF` query is a wildcard and optional segments skippable.
     fn search_segs_opt(
         &self,
         segs: &[(u32, Vec<u64>, bool)],
@@ -304,8 +232,7 @@ impl RootAllomorphTrie {
         let mut active: Vec<usize> = vec![0];
         for (cd, lanes, optional) in segs {
             let mut next: Vec<usize> = Vec::new();
-            // Consume branch: follow matching edges — see `Self::edge_matches` for the full
-            // concrete/pattern/wildcard predicate.
+            // Consume branch: follow every matching edge (see `Self::edge_matches`).
             for &node in &active {
                 for e in &self.nodes[node].edges {
                     if Self::edge_matches(e, *cd, lanes, closure) && !next.contains(&e.target) {
@@ -313,8 +240,7 @@ impl RootAllomorphTrie {
                     }
                 }
             }
-            // Skip branch (optional only): the segment is absent in the underlying form, so the trie
-            // position is carried forward unchanged.
+            // Skip branch (optional only): the trie position carries forward unchanged.
             if *optional {
                 for &node in &active {
                     if !next.contains(&node) {
@@ -340,12 +266,7 @@ impl RootAllomorphTrie {
     }
 }
 
-/// The `(char_def, phon-lanes, cd_set)` sequence of a shape's `Segment` nodes, resolving lanes from
-/// the char-def table (root allomorph shapes are stored feature-less, `feat_width == 0`).
-/// Boundaries and anchors are skipped (the C# `Segment`-only filter, `Morpher.cs:40`). A
-/// pattern-derived node (`char_def == NO_CHAR_DEF`, loader N3) contributes its stored `CdSet`
-/// (the class's member set); a concrete node's set is never consulted (implicit singleton), stored
-/// as the free `CdSet::Unrestricted`.
+/// The `(char_def, phon-lanes, cd_set)` sequence of a shape's `Segment` nodes (boundaries/anchors skipped); a pattern-derived node's `CdSet` is its class member set, a concrete node's is `Unrestricted`.
 fn shape_segments(
     shape: &Shape,
     table: &CharDefTable,
@@ -365,10 +286,7 @@ fn shape_segments(
     out
 }
 
-/// The `(char_def, phon-lanes)` sequence of an *input* shape's `Segment` nodes. Prefers the shape's
-/// own feature lanes when it carries a matching-width feature matrix (a feature-bearing shape from
-/// the rewrite bridge, whose lanes may diverge from the char-def after a feature-change rule); else
-/// resolves lanes from the char-def table, matching the build side.
+/// The `(char_def, phon-lanes)` sequence of an input shape's `Segment` nodes; prefers the shape's own lanes when width matches (post feature-change), else resolves from the char-def table.
 fn shape_search_segments(
     shape: &Shape,
     table: &CharDefTable,
@@ -462,19 +380,14 @@ pub fn collect_lexical_patterns(grammar: &Grammar) -> Vec<(AllomorphId, LexEntry
 mod tests {
     use super::*;
 
-    /// Test helper: a concrete-node path (the pre-wave-4 2-tuple form) — `cd_set` never consulted
-    /// for a concrete edge, stored as the free `Unrestricted`.
+    /// Test helper: a concrete-node path; `cd_set` is never consulted for a concrete edge.
     fn concrete(segs: &[(u32, Vec<u64>)]) -> Vec<(u32, Vec<u64>, CdSet)> {
         segs.iter()
             .map(|(cd, l)| (*cd, l.clone(), CdSet::Unrestricted))
             .collect()
     }
 
-    // A tiny hand-built trie over a 1-lane "feature system". Segments are `(char_def, lanes)`:
-    //   cd 10 = "p", concrete lanes [0b01]
-    //   cd 11 = "a", concrete lanes [0b10]
-    //   cd 12 = "b", concrete lanes [0b01]
-    // Roots: A = /p a/  (allo 100, entry 0);  B = /p a b/ (allo 101, entry 1);  C = /a/ (allo 102, entry 2)
+    // A tiny hand-built trie: cd 10="p"[0b01], cd 11="a"[0b10], cd 12="b"[0b01]; roots A=/pa/, B=/pab/, C=/a/.
     fn tiny_trie() -> RootAllomorphTrie {
         let mut t = RootAllomorphTrie {
             nodes: vec![TrieNode::default()],
@@ -519,9 +432,7 @@ mod tests {
     #[test]
     fn feature_unification_matches_underspecified_input() {
         let t = tiny_trie();
-        // Input first segment carries char_def 10 but a *superset* lane [0b11]; it unifies with the
-        // stored [0b01] (0b11 & 0b01 = 0b01 ≠ 0). Root A is found — this is unification, not string
-        // identity (C# UseUnification=true).
+        // Superset lane [0b11] unifies with stored [0b01] (AND != 0); this is unification, not identity.
         let got = t.search_segs(&[(10, vec![0b11]), (11, vec![0b10])]);
         assert_eq!(got, vec![(AllomorphId(100), LexEntryId(0))]);
     }
@@ -529,8 +440,7 @@ mod tests {
     #[test]
     fn feature_conflict_rejects_despite_char_def_match() {
         let t = tiny_trie();
-        // Same char_def 10, but lanes [0b10] conflict with the stored [0b01] (AND = 0). C#'s full-FS
-        // unification would reject: char_def/StrRep matches but the phonological features clash.
+        // Same char_def, but lanes [0b10] conflict with stored [0b01] (AND = 0): features clash despite char_def match.
         let got = t.search_segs(&[(10, vec![0b10]), (11, vec![0b10])]);
         assert!(got.is_empty(), "feature conflict must reject, got {got:?}");
     }
@@ -538,30 +448,24 @@ mod tests {
     #[test]
     fn char_def_mismatch_rejects() {
         let t = tiny_trie();
-        // First segment char_def 99 has no edge at the root node ⇒ no match, even though lanes could
-        // unify with anything. This is the StrRep discriminator (crucial for zero-phon-feature Sena).
+        // char_def 99 has no edge at the root node, so no match even though lanes could unify.
         let got = t.search_segs(&[(99, vec![0b01]), (11, vec![0b10])]);
         assert!(got.is_empty(), "char_def mismatch must reject, got {got:?}");
     }
 
-    // ============================================================================================
-    // The build-time unifiability closure (Design A) as an equality-miss fallback in
-    // `edge_matches`.
-    // ============================================================================================
+    // The build-time unifiability closure (Design A) as an equality-miss fallback in `edge_matches`.
 
     #[test]
     fn closure_cross_matches_a_distinct_unifiable_char_def_only_when_provided() {
         let t = tiny_trie();
-        // Declare cd 10 ("p", stored lanes [0b01]) and cd 99 (a distinct char_def, simulating a
-        // second table's "a̘"-analog) as P5 closure siblings.
+        // Declares cd 10 and cd 99 (a distinct char_def) as closure siblings.
         let mut closure = vec![CdBits::empty(); 100];
         closure[10].insert(10);
         closure[10].insert(99);
         closure[99].insert(99);
         closure[99].insert(10);
 
-        // With Some(closure) and lane-compatible input (query cd 99, lanes [0b01] unify with the
-        // stored edge's [0b01]), the equality-miss fallback lets root A's edge match.
+        // With Some(closure) and lane-compatible input, the equality-miss fallback lets root A's edge match.
         let got = t.search_segs_with_closure(&[(99, vec![0b01]), (11, vec![0b10])], Some(&closure));
         assert_eq!(
             got,
@@ -569,8 +473,7 @@ mod tests {
             "closure hit must cross-match"
         );
 
-        // The exact same query with closure = None (the Sena/zero-feature regime) must NOT match --
-        // this is the "closure absent ⇒ bit-for-bit today's behavior" invariant (design §3).
+        // The same query with closure = None must not match: closure absent means bit-for-bit prior behavior.
         let got_none = t.search_segs_with_closure(&[(99, vec![0b01]), (11, vec![0b10])], None);
         assert!(
             got_none.is_empty(),

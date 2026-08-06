@@ -88,11 +88,20 @@
 //! - **`Leaf`** -- no children, nothing to restructure. Not a candidate kind at all.
 //! - **`Gate`** -- sound and buildable, TWO independent ways: `permute_gate_groups` (order,
 //!   already shipped, see above) and `refine_gate_partition` (cardinality -- splitting one
-//!   group's entries into several disjoint sub-groups sharing its own unchanged `Replace` node;
-//!   composition distributes over union, so this cannot change what the `Gate` node accepts either
-//!   -- see that function's own doc for the full argument). The two are independent axes of the SAME
-//!   node kind, not the same restructuring twice: order-permuting never changes
-//!   `partition.groups.len()`, refining never changes group ORDER.
+//!   group's entries into several disjoint sub-groups sharing its own unchanged `Replace` node).
+//!   The soundness argument: composition distributes over union
+//!   (`(A ∪ B) .o. R == (A .o. R) ∪ (B .o. R)` for any relation `R`, a basic fact about relational
+//!   composition, true independent of anything foma-specific). Read one eligible group's own
+//!   entries as `A ∪ B` (an arbitrary partition of that same entry set into disjoint pieces) and its
+//!   own `Replace` cascade as `R`: splitting the group's `LexiconFragment` into several smaller
+//!   `LexiconFragment`s, each still composed with the group's own, unchanged `Replace` node (so
+//!   `subrule_ok` is identical for every sub-group), and re-unioning them back together produces
+//!   exactly the original group's compiled net, byte for byte, before the outer union-of-all-groups
+//!   fold even runs. A group with fewer than 2 entries, or a fixture where no group is eligible, is
+//!   a genuine no-op: `Plan::add_node`'s content addressing dedups the reconstruction straight back
+//!   to the same `NodeId`. The two Gate restructurings are independent axes of the same node kind,
+//!   not the same restructuring twice: order-permuting never changes `partition.groups.len()`,
+//!   refining never changes group order.
 //! - **`Union`** -- **sound, and now shipped**: `permute_union_children`. `Union`'s own doc
 //!   (`plan.rs`) is "merges independently-compiled branches" -- a set union over whatever its
 //!   children denote, and set union is commutative, so reordering `children` cannot change what the
@@ -187,11 +196,7 @@ use crate::replace::SegAlphabet;
 pub enum OracleResult {
     /// Every word compared produced identical `apply_up` result sets on both plans.
     Agree,
-    /// At least one word disagreed. `word` is the SHORTEST such word, ties broken
-    /// lexicographically; `only_in_a`/`only_in_b` are the symmetric difference of the two plans'
-    /// `apply_up` result sets for THAT word (a pattern borrowed from CFG-equivalence tooling); `plan_a_label`/
-    /// `plan_b_label` echo `differential_oracle`'s own `labels` argument, so a caller printing this
-    /// variant does not need to thread the labels through separately.
+    /// At least one word disagreed; `word` is the shortest such word (lexicographic tie-break), and `only_in_a`/`only_in_b` are the symmetric difference of the two plans' `apply_up` results for it.
     Disagree {
         word: String,
         only_in_a: BTreeSet<String>,
@@ -201,12 +206,7 @@ pub enum OracleResult {
     },
 }
 
-/// Every raw string `apply_up` yields for `word` against `net` (module doc: the same predicate
-/// `crate::build`'s own `equivalence_tests` uses), encoded through `alphabet.encode_query` first.
-/// `None` (no net at all -- `crate::gate::GatedCompileResult::net`'s `None` case) or a query that
-/// fails to encode against this grammar's segment table both yield the EMPTY set, never a panic --
-/// "this plan recognizes nothing" and "this word doesn't parse against this plan's net" are both
-/// legitimate, comparable outcomes for a differential run, not error conditions.
+/// Every raw string `apply_up` yields for `word` against `net`; `None` net or a failed encode both yield the empty set, never a panic — both are legitimate, comparable outcomes.
 fn apply_up_results(net: Option<&Fsm>, alphabet: &SegAlphabet, word: &str) -> HashSet<String> {
     let mut out = HashSet::new();
     let Some(net) = net else {
@@ -222,12 +222,7 @@ fn apply_up_results(net: Option<&Fsm>, alphabet: &SegAlphabet, word: &str) -> Ha
     out
 }
 
-/// The pure selection core (module doc): given each word's two `apply_up` result sets, returns
-/// `Agree` if all agree, else `Disagree` naming the SHORTEST disagreeing word (`char` count, ties
-/// broken lexicographically by the word itself -- a total, deterministic order, so ties are broken
-/// deterministically). Factored out of
-/// `differential_oracle` so it can be unit-tested directly against synthetic `(word, results_a,
-/// results_b)` triples, independent of building any real `Fsm`.
+/// The pure selection core: given each word's two `apply_up` result sets, returns `Agree` or `Disagree` naming the shortest disagreeing word; factored out so it is unit-testable without building a real `Fsm`.
 fn resolve_verdict(
     per_word: Vec<(String, HashSet<String>, HashSet<String>)>,
     plan_a_label: &str,
@@ -243,8 +238,7 @@ fn resolve_verdict(
         })
         .collect();
 
-    // Shortest-first, lexicographic tie-break: sort by (char count, word) and take the first --
-    // deterministic regardless of `per_word`'s own input order.
+    // Shortest-first, lexicographic tie-break, deterministic regardless of `per_word`'s input order.
     disagreements.sort_by(|(word_x, ..), (word_y, ..)| {
         (word_x.chars().count(), word_x).cmp(&(word_y.chars().count(), word_y))
     });
@@ -261,27 +255,12 @@ fn resolve_verdict(
     }
 }
 
-/// The cheap, always-on differential-correctness tier: builds BOTH `plan_a` and `plan_b` via
-/// `build_controllable` (never recomputing a partition/cascade itself), then compares their
-/// `apply_up` result sets over every word in `words`. Returns `Ok(OracleResult::Agree)` iff every
-/// word's two result sets are identical; otherwise `Ok(OracleResult::Disagree { .. })` naming the
-/// shortest disagreeing word (module doc, `resolve_verdict`). `labels` are `(plan_a`'s label,
-/// `plan_b`'s label`)`, echoed back on a `Disagree` for a caller's own reporting -- purely
-/// diagnostic, no bearing on the comparison itself.
-///
-/// `opts`/`g`/`alphabet`/`prules_in_order`/`budget` are threaded straight through to both
-/// `build_controllable` calls -- the SAME grammar-derived inputs both plans must have been
-/// enumerated against (mismatched inputs would make "the two plans encode the same relation" an
-/// incoherent claim to begin with; this function does not attempt to detect that caller error, the
-/// same trust convention `build_controllable` itself documents for its own `prules_in_order`
-/// parameter).
+/// The cheap, always-on differential-correctness tier: builds both plans via `build_controllable`, then compares their `apply_up` result sets over every word in `words`.
+/// `opts`/`g`/`alphabet`/`prules_in_order`/`budget` must be the SAME grammar-derived inputs both plans were enumerated against; this function does not detect a caller mismatch.
 ///
 /// # Errors
-/// Propagates a `ComposeError` from either `build_controllable` call unchanged (module doc's
-/// judgment-call note: no `OracleResult` variant means "one plan didn't build").
-#[allow(clippy::too_many_arguments)] // mirrors build_controllable's own args, taken for BOTH plans
-                                     // plus labels/words -- same convention as this crate's other
-                                     // many-parameter entry points (replace.rs/preexpand.rs/emit.rs).
+/// Propagates a `ComposeError` from either `build_controllable` call unchanged.
+#[allow(clippy::too_many_arguments)] // mirrors build_controllable's own args, taken for both plans plus labels/words
 pub fn differential_oracle(
     plan_a: &Plan,
     plan_b: &Plan,
@@ -310,37 +289,14 @@ pub fn differential_oracle(
     Ok(resolve_verdict(per_word, label_a, label_b))
 }
 
-/// The shape of the callback `copy_plan_transforming`/`copy_node` thread through their recursive
-/// copy for a `Gate` node: given that node's own `NodeId` plus its own `(partition, children)`,
-/// returns the `(partition, children)` to install in the copy. Takes the node's `NodeId` (not just
-/// its content) so a caller can single out ONE specific node by identity and leave every other `Gate`
-/// node in the plan untouched -- `apply_permutation_at` needs exactly that; the
-/// whole-plan generator (`permute_gate_groups`) simply ignores the id and transforms every `Gate`
-/// node uniformly. Named purely to satisfy `clippy::type_complexity` -- not a new abstraction beyond
-/// what `copy_plan_transforming`'s own doc already describes.
+/// The callback `copy_plan_transforming`/`copy_node` thread through for a `Gate` node; takes the node's `NodeId` so a caller can single out one node by identity, which `apply_permutation_at` needs.
 type GateTransform<'a> =
     dyn FnMut(NodeId, &GatePartitionSpec, &[NodeId]) -> (GatePartitionSpec, Vec<NodeId>) + 'a;
 
-/// The `Union`-node counterpart of `GateTransform`, used by `permute_union_children`:
-/// given a `Union` node's own `NodeId` and its own `children`, returns the `children` to install in
-/// the copy.
+/// The `Union`-node counterpart of `GateTransform`, used by `permute_union_children`.
 type UnionTransform<'a> = dyn FnMut(NodeId, &[NodeId]) -> Vec<NodeId> + 'a;
 
-/// Recursively rebuilds `plan` into a fresh `Plan` arena, applying `transform_gate` to every `Gate`
-/// node's own `(id, partition, children)` and `transform_union` to every `Union` node's own `(id,
-/// children)` as each is encountered -- BEFORE recursing into whichever children the callback decides
-/// to keep, so a transform that drops a child entirely never even copies that subtree into the new
-/// plan. A single unified walk (rather than two near-duplicate copies of the same five-arm match) so
-/// `permute_gate_groups`, `permute_union_children`, and `apply_permutation_at`
-/// all exercise the identical recursion, and this module's own test-only "drop a gate group"
-/// deliberately-wrong-plan constructor keeps sharing it too -- one shared walk rather than
-/// several near-duplicate copies.
-///
-/// Every non-`Gate`/non-`Union` node is copied verbatim (same fragment/provenance/strategy/cascade,
-/// children recursively copied) -- `Plan::add_node`'s own content-addressed dedup means an
-/// unaffected subtree copied this way still interns to a stable `NodeId`, just possibly a different
-/// one than in the source plan if any of ITS descendants changed (which, for every transform this
-/// module ships, only ever happens below the ONE targeted `Gate`/`Union` node, if any).
+/// Recursively rebuilds `plan` into a fresh arena, applying `transform_gate`/`transform_union` BEFORE recursing into the kept children, so a dropped child's subtree is never copied; one shared walk for every caller that mutates a plan.
 fn copy_plan_transforming(
     plan: &Plan,
     transform_gate: &mut GateTransform<'_>,
@@ -497,15 +453,9 @@ pub fn permute_union_children(plan: &Plan) -> Plan {
     )
 }
 
-// -------------------------------------------------------------------------------------------------
-// Partition refinement: a THIRD sound Gate-node restructuring (cardinality, not order)
-// -------------------------------------------------------------------------------------------------
+// Partition refinement: a third sound Gate-node restructuring (cardinality, not order).
 
-/// How finely `refine_gate_partition` subdivides each eligible partition group's own entries.
-/// Both variants are sound by the SAME argument (this section's own doc); they differ only in how
-/// many pieces a group is cut into, which is exactly what makes them genuinely different candidate
-/// `Plan`s (different `Gate.partition.groups.len()`, different content address) rather than the same
-/// restructuring wearing two names.
+/// How finely `refine_gate_partition` subdivides each eligible partition group's entries; both variants are sound by the same argument, differing only in piece count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PartitionGranularity {
     /// Split an eligible group into at most 2 contiguous sub-groups.
@@ -515,17 +465,12 @@ pub enum PartitionGranularity {
 }
 
 impl PartitionGranularity {
-    /// The sizes of the sub-groups `total` entries are cut into, in order, summing to `total`
-    /// (`0` for `total == 0`, matching `build_controllable`'s own "an empty group
-    /// contributes nothing" convention -- a zero-entry group is simply dropped, never fabricated).
+    /// The sizes of the sub-groups `total` entries are cut into, in order, summing to `total` (`0` for `total == 0`, matching `build_controllable`'s "empty group contributes nothing" convention).
     fn chunk_sizes(self, total: usize) -> Vec<usize> {
         match self {
             Self::Bisect => {
                 if total < 2 {
-                    // Nothing to split: 0 or 1 entries has no non-trivial bisection. Returning
-                    // `vec![total]` (not `vec![]`) keeps the single existing entry (if any) in
-                    // its own unsplit group, so this is a true no-op on such a group -- not a
-                    // silent drop.
+                    // Nothing to split: `vec![total]`, not `vec![]`, keeps a true no-op rather than a silent drop.
                     vec![total]
                 } else {
                     let half = total / 2;
@@ -537,14 +482,7 @@ impl PartitionGranularity {
     }
 }
 
-/// One gate group's `Compose` shape, as `crate::enumerate::enumerate_default` always builds it
-/// (that module's own "Shape" doc): exactly 2 children, `[0]` the group's `LexiconFragment` leaf,
-/// `[1]` its own `Replace` node, `ComposeStrategy::Static`. Duplicated from `crate::build`'s
-/// private `gate_group_children` rather than shared across the module boundary (this module is a
-/// `Plan`-to-`Plan` rewrite, not a builder -- the same "don't reach into `build.rs`" discipline this
-/// module's own doc already follows for `permute_gate_groups`/`permute_union_children`). No
-/// strategy guard: `ComposeStrategy` has only `Static`, so every `Compose` node is `Static` by
-/// construction.
+/// One gate group's `Compose` shape: exactly 2 children, `[0]` the group's `LexiconFragment` leaf, `[1]` its `Replace` node; duplicated from `crate::build`'s private `gate_group_children` rather than shared across the module boundary.
 fn gate_group_parts(plan: &Plan, compose_id: NodeId) -> (NodeId, NodeId) {
     let PlanNodeKind::Compose { children, .. } = plan
         .get(compose_id)
@@ -562,8 +500,7 @@ fn gate_group_parts(plan: &Plan, compose_id: NodeId) -> (NodeId, NodeId) {
     (children[0], children[1])
 }
 
-/// A gate group's `LexiconFragment` leaf, resolved to its `entries` list (mirrors `crate::build`'s
-/// private `lexicon_fragment_entries` -- same duplication rationale as `gate_group_parts`).
+/// A gate group's `LexiconFragment` leaf, resolved to its `entries` list; same duplication rationale as `gate_group_parts`.
 fn lexicon_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> {
     let PlanNodeKind::Leaf { fragment, .. } = plan
         .get(lexicon_id)
@@ -585,43 +522,10 @@ fn lexicon_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> {
     })
 }
 
-/// A THIRD sound Gate-node restructuring, alongside `permute_gate_groups` (order) and
-/// `permute_union_children` (a different node kind entirely): this one changes a `Gate` node's
-/// partition CARDINALITY, not its order. `permute_gate_groups`'s own doc establishes that
-/// `build_controllable` folds every group's compiled net together with
-/// `crate::compose_budget::union_checked` (commutative) and always finishes with
-/// `crate::compose_budget::minimize_checked` -- that argument shows group ORDER is inert. This
-/// function needs one more step, but it is a standard one: **composition distributes over union**
-/// (`(A ∪ B) .o. R == (A .o. R) ∪ (B .o. R)` for any relation `R`) -- a basic fact about relational
-/// composition, true independent of anything `foma`-specific. Read one eligible group's own entries
-/// as `A ∪ B` (an arbitrary partition of that SAME entry set into disjoint pieces) and its own
-/// `Replace` cascade as `R`: splitting the group's `LexiconFragment` into several smaller
-/// `LexiconFragment`s, each still composed with the group's OWN, UNCHANGED `Replace` node (so
-/// `subrule_ok` -- read from that node's own `cascade.gated_subrules`/`group_key`, the same
-/// content-pure discipline this module's top doc discusses -- is identical for every sub-group), and re-unioning them back together produces
-/// EXACTLY the original group's compiled net, byte for byte, before the outer union-of-all-groups
-/// fold even runs. Refining a partition therefore cannot change what the whole `Gate` node accepts,
-/// for the same underlying reason `permute_gate_groups` cannot: only ENTRY MEMBERSHIP matters to the
-/// final accepted relation, and refinement (like reordering) never touches membership -- it only
-/// changes how many pieces the union is built from and in what shape.
-///
-/// A group with fewer than 2 entries (nothing to split) or a fixture where NO group is eligible
-/// (module-external callers are expected to gate on `Applicability` before even reaching this
-/// function, e.g. `recipe_registry`'s own `HasSplittableGateGroup`) is a genuine no-op: every
-/// `LexiconFragment`/`Compose` this function reconstructs for such a group has IDENTICAL content to
-/// the original (same entries, same `Replace` id, same strategy), so `Plan::add_node`'s content
-/// addressing dedups it straight back to the SAME `NodeId` -- never a forced, purposeless rebuild.
-///
-/// Reuses each ORIGINAL group's own `Replace` `NodeId` for every one of its sub-groups (recomputed
-/// via a plain recursive copy, never re-derived) -- content addressing dedups it back to ONE
-/// stored node automatically, since none of `cascade.rules`/`gated_subrules`/`group_key` changed;
-/// only each sub-group's OWN `LexiconFragment` leaf (a smaller `entries` subset) and its wrapping
-/// `Compose` node are genuinely new.
+/// A third sound Gate-node restructuring (cardinality, not order); soundness argument in this module's own doc under "Second-topology generators".
 ///
 /// # Panics
-/// Via `Plan::add_node`'s own debug-only invariant, or the assertions in `gate_group_parts`/
-/// `lexicon_entries`, if `plan` is not shaped the way `crate::enumerate::enumerate_default`
-/// always builds it -- not a new invariant this function introduces.
+/// Via `Plan::add_node`'s debug-only invariant, or the assertions in `gate_group_parts`/`lexicon_entries`, if `plan` is not shaped the way `enumerate_default` always builds it.
 pub fn refine_gate_partition(plan: &Plan, granularity: PartitionGranularity) -> Plan {
     let root = plan
         .root()
@@ -694,10 +598,7 @@ fn refine_node(
             for (group, &compose_id) in partition.groups.iter().zip(children.iter()) {
                 let (lexicon_id, replace_id) = gate_group_parts(old_plan, compose_id);
                 let entries = lexicon_entries(old_plan, lexicon_id);
-                // The group's own Replace node's CONTENT is untouched by refinement (same rules,
-                // same gated_subrules, same group_key) -- copying it recursively re-derives the
-                // SAME NodeId via content addressing, so every sub-group split from this group
-                // below shares that ONE copy, never a re-derivation per sub-group.
+                // The Replace node's content is untouched, so recursive copy re-derives the SAME NodeId; every sub-group below shares that one copy.
                 let new_replace_id = refine_node(old_plan, replace_id, new_plan, granularity);
                 let mut offset = 0usize;
                 for size in granularity.chunk_sizes(entries.len()) {
@@ -733,26 +634,9 @@ fn refine_node(
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Seeded random subtree mutation
-// -------------------------------------------------------------------------------------------------
+// Seeded random subtree mutation.
 
-/// A tiny, deterministic, seedable pseudo-random source (SplitMix64, Vigna 2015) -- used ONLY by
-/// `mutate_plan_seeded` to pick a reproducible mutation target and permutation.
-///
-/// Hand-rolled rather than a dependency, on purpose: this task's own hard rule is no new crate
-/// dependencies, and SplitMix64 is a handful of lines of well-known public-domain arithmetic (the
-/// same generator many `rand`-crate seeders use internally to expand a single seed) -- there is no
-/// quality reason to pull in an external RNG crate for something this small. It makes no
-/// cryptographic-security claim, and needs none: `mutate_plan_seeded`'s only requirement is
-/// reproducibility, not unpredictability.
-///
-/// Why not `std`'s `DefaultHasher`/`RandomState`, the system clock, or a thread-local RNG: every one
-/// of those is either unseeded, reseeds per process, or reads the clock -- any of which would make
-/// the SAME seed produce a DIFFERENT mutation on a second run, and an oracle failure that cannot be
-/// replayed from its own reported seed is worthless (this task's own "no wall-clock, no thread-local
-/// RNG" requirement -- mirrors `crate::plan::NodeId`'s own `StableHasher` doc making the identical
-/// argument for content addressing).
+/// A tiny, deterministic, seedable pseudo-random source (SplitMix64, Vigna 2015), hand-rolled rather than a dependency, used only by `mutate_plan_seeded` for a reproducible mutation target and permutation; no wall-clock or thread-local RNG, since a seed must replay the same mutation on a second run.
 struct SplitMix64(u64);
 
 impl SplitMix64 {
@@ -760,8 +644,7 @@ impl SplitMix64 {
         SplitMix64(seed)
     }
 
-    /// Advances the generator and returns the next 64-bit output (Vigna's SplitMix64 step: golden-
-    /// ratio increment, then a fixed 3-round bit-mixing finalizer).
+    /// Advances the generator: golden-ratio increment, then a fixed 3-round bit-mixing finalizer.
     fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
@@ -770,19 +653,14 @@ impl SplitMix64 {
         z ^ (z >> 31)
     }
 
-    /// A pseudo-uniform index in `0..bound` (`bound` must be `> 0`). Plain modulo, not Lemire's
-    /// unbiased-rejection trick: `bound` here is always a small plan-node/child count (never remotely
-    /// close to `u64::MAX`), so the modulo bias is negligible for a test/fuzz-harness RNG that makes
-    /// no statistical-uniformity claim -- not worth the extra complexity.
+    /// A pseudo-uniform index in `0..bound`. Plain modulo, not Lemire's rejection trick: `bound` is always a small plan-node/child count, so the bias is negligible for this fuzz-harness RNG.
     fn next_below(&mut self, bound: usize) -> usize {
         assert!(bound > 0, "next_below requires a positive bound");
         (self.next_u64() % bound as u64) as usize
     }
 }
 
-/// A uniformly-random permutation of `0..n`, drawn from `rng` by Fisher-Yates (the standard unbiased
-/// in-place shuffle) -- the permutation `mutate_plan_seeded` applies to a target's children (and,
-/// for a `Gate`, its paired `partition.groups` in lockstep -- `apply_permutation_at`'s own doc).
+/// A uniformly-random permutation of `0..n` by Fisher-Yates, applied to a target's children (and, for a `Gate`, its paired groups in lockstep).
 fn random_permutation(rng: &mut SplitMix64, n: usize) -> Vec<usize> {
     let mut perm: Vec<usize> = (0..n).collect();
     for i in (1..n).rev() {
@@ -792,21 +670,14 @@ fn random_permutation(rng: &mut SplitMix64, n: usize) -> Vec<usize> {
     perm
 }
 
-/// One node `mutate_plan_seeded` is allowed to target: a `Gate` with `>= 2` groups, or a `Union`
-/// with `>= 2` children -- module doc's finding that these are the ONLY two node kinds with a proven
-/// relation-preserving restructuring. `child_count` is the length any permutation drawn for this node
-/// must have (`partition.groups.len()` for a `Gate`, `children.len()` for a `Union`).
+/// One node `mutate_plan_seeded` may target: a `Gate` with `>= 2` groups, or a `Union` with `>= 2` children, the only two kinds with a proven relation-preserving restructuring.
 struct MutationTarget {
     node_id: NodeId,
     kind: &'static str,
     child_count: usize,
 }
 
-/// Every `MutationTarget` in `plan`, in `Plan::iter`'s own content-address order (that method's
-/// own doc: deterministic, not insertion order and not a `HashMap` order) -- so the SAME plan always
-/// yields the SAME target list regardless of how it was built, which is what makes indexing into this
-/// list by an RNG draw reproducible. A `Gate`/`Union` with fewer than 2 children is excluded: there is
-/// no non-trivial permutation of 0 or 1 items, so it is not a real mutation target.
+/// Every `MutationTarget` in `plan`, in `Plan::iter`'s deterministic content-address order, so the same plan always yields the same list, making an RNG draw's index reproducible.
 fn eligible_mutation_targets(plan: &Plan) -> Vec<MutationTarget> {
     plan.iter()
         .filter_map(|(id, kind)| match kind {
@@ -827,10 +698,7 @@ fn eligible_mutation_targets(plan: &Plan) -> Vec<MutationTarget> {
         .collect()
 }
 
-/// Copies `plan` unchanged (every `Gate`/`Union` node's children kept in their original order) --
-/// `copy_plan_transforming` with two pass-through callbacks. Used where a caller needs an owned
-/// `Plan` but has nothing to mutate (e.g. `mutate_plan_seeded` on a plan with zero eligible
-/// targets).
+/// Copies `plan` unchanged via `copy_plan_transforming` with two pass-through callbacks; used where a caller needs an owned `Plan` but has nothing to mutate.
 fn identity_copy(plan: &Plan) -> Plan {
     copy_plan_transforming(
         plan,
@@ -847,17 +715,7 @@ fn identity_copy(plan: &Plan) -> Plan {
     )
 }
 
-/// Applies exactly ONE permutation at exactly one target node -- a random
-/// relation-preserving restructuring at a randomly chosen subtree, built on the SAME
-/// `copy_plan_transforming` walk `permute_gate_groups`/`permute_union_children` use, just
-/// parameterized by a single `(target, permutation)` pair resolved at runtime instead of a fixed
-/// whole-plan rule. Every OTHER `Gate`/`Union` node in `plan` is copied with its children in their
-/// ORIGINAL order -- only `target`'s own children (and, if `target` is a `Gate`, its paired
-/// `partition.groups`, in lockstep -- the same soundness discipline `permute_gate_groups`'s own
-/// doc states) are reordered by `permutation`.
-///
-/// # Panics (debug only)
-/// If `permutation`'s length does not match `target`'s own child count.
+/// Applies exactly one permutation at exactly one target node (debug-asserted to match its child count); every other `Gate`/`Union` node is copied unchanged.
 fn apply_permutation_at(plan: &Plan, target: NodeId, permutation: &[usize]) -> Plan {
     let reorder = |children: &[NodeId]| -> Vec<NodeId> {
         debug_assert_eq!(
@@ -981,9 +839,7 @@ pub fn mutate_plan_seeded(plan: &Plan, seed: u64) -> MutationOutcome {
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Failure minimisation to a named recipe
-// -------------------------------------------------------------------------------------------------
+// Failure minimisation to a named recipe.
 
 /// One step in a `minimize_disagreement` repro sequence: a named, replayable plan transform.
 /// `transform` lives behind an `Rc` (not a `Box`) purely so `MutationStep` can be `Clone` --
@@ -1010,11 +866,7 @@ impl MutationStep {
     }
 }
 
-/// Applies every step in `steps`, in order, starting from `base` -- step *i* transforms the OUTPUT of
-/// step *i-1*, not `base` itself (module doc: this is what makes dropping an earlier step change a
-/// later step's own behavior). Requires at least one step (asserted): an empty chain would mean "the
-/// mutated plan is `base` itself", which every caller in this module already special-cases rather
-/// than routing through here.
+/// Applies every step in `steps` in order, starting from `base`; step *i* transforms the output of step *i-1*, not `base` itself, which is what makes dropping an earlier step change a later one's behavior.
 fn apply_step_chain(base: &Plan, steps: &[MutationStep]) -> Plan {
     assert!(
         !steps.is_empty(),
@@ -1133,8 +985,7 @@ pub fn minimize_disagreement(
                 OracleResult::Disagree { .. } => {
                     current = candidate;
                     shrank = true;
-                    // Don't advance i: the list shrank by one, so index i now names the NEXT
-                    // element -- re-check it rather than skip over it.
+                    // Don't advance i: the list shrank by one, so index i now names the next element.
                 }
                 OracleResult::Agree => {
                     i += 1;
@@ -1213,15 +1064,7 @@ mod tests {
             .collect()
     }
 
-    /// One MPR-gated subrule and two entries realizing both truth values of that gate key -- the
-    /// same shape as `enumerate.rs`'s own private `gated_two_group_fixture` / `build.rs`'s own
-    /// duplicate of it (`gated_two_group_fixture_xml`), duplicated here again for the same reason
-    /// those two modules each duplicate it rather than share it across a `#[cfg(test)]` boundary.
-    /// Synthetic and delanguaged per this repo's own conformance-grammar convention: `e0` (no
-    /// `ruleFeatures`) realizes gate key `[false]` (its underlying "p" surfaces unchanged); `e1`
-    /// (`ruleFeatures="mpr1"`) realizes `[true]` (its underlying "p" surfaces as "q") -- so "p" and
-    /// "q" are the two words that can only ever be produced by exactly one of the two gate groups,
-    /// which is exactly the property both this module's Agree and Disagree tests need.
+    /// One MPR-gated subrule and two entries realizing both truth values of that gate key: `e0` surfaces "p" unchanged, `e1` surfaces "p" as "q", so each word is producible by exactly one gate group.
     fn oracle_gated_two_group_fixture_xml() -> &'static str {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1271,13 +1114,7 @@ mod tests {
 "#
     }
 
-    /// Test-only deliberately-WRONG second topology (module doc, `copy_plan_transforming`): drops the
-    /// LAST gate group (post `enumerate_default`'s own sort-by-key, this is the group with the
-    /// lexicographically-largest key -- `[true]` on the two-group fixture, i.e. entry `e1`, the ONLY
-    /// entry that ever produces surface "q"). A real under-generating topology, not a no-op:
-    /// `differential_oracle` run against the un-truncated plan must catch this. Also reused, as a
-    /// deliberately-UNSOUND `MutationStep`, to prove `minimize_disagreement` converges on the
-    /// real culprit when mixed in among genuinely sound mutation steps (`minimisation` tests below).
+    /// Test-only deliberately-wrong second topology: drops the last gate group (the only entry that ever produces surface "q"), a real under-generating topology `differential_oracle` must catch.
     fn drop_last_gate_group(plan: &Plan) -> Plan {
         copy_plan_transforming(
             plan,
@@ -1302,10 +1139,7 @@ mod tests {
         )
     }
 
-    /// A test-only `MutationStep` wrapping `drop_last_gate_group` -- the SAME deliberately-wrong
-    /// breakage the oracle's own non-vacuity test uses, repackaged as a step so
-    /// `minimize_disagreement` can be handed a sequence that mixes genuinely sound mutations with one
-    /// real bug and be proven to find exactly the bug, discarding everything harmless around it.
+    /// A test-only `MutationStep` wrapping `drop_last_gate_group`, so `minimize_disagreement` can be proven to find exactly the real bug among genuinely sound mutations.
     fn breakage_step() -> MutationStep {
         MutationStep {
             description: "BREAKAGE(test-only, deliberately unsound): drop_last_gate_group"
@@ -1314,12 +1148,7 @@ mod tests {
         }
     }
 
-    /// A grammar with ONE ordinary (should_run=true), ungated phonological rule -- `partition_entries`
-    /// collapses to a single group (module doc: not itself a `MutationTarget`), but `should_run`
-    /// being `true` means `enumerate_default`'s root is a `Union` wrapping that single-group `Gate`
-    /// plus a composite-emission marker leaf (`enumerate.rs`'s own "Shape" doc) -- exactly the shape
-    /// `permute_union_children` needs a real grammar to exercise. Synthetic/delanguaged per this
-    /// repo's convention: `c1` ("p") unconditionally surfaces as `c2` ("b").
+    /// A grammar with one ordinary, ungated rule whose `should_run=true` root is a `Union` wrapping a single-group `Gate` plus a marker leaf, the shape `permute_union_children` needs to exercise.
     fn oracle_union_root_fixture_xml() -> &'static str {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1365,16 +1194,7 @@ mod tests {
 "#
     }
 
-    /// An ungated grammar (no MPR features declared at all, so `partition_entries` collapses to
-    /// exactly 1 group -- `enumerate.rs`'s own "ungated grammar collapses to a single-group Gate")
-    /// whose one group holds THREE entries, not one -- the smallest fixture that can distinguish
-    /// `PartitionGranularity::Bisect` (2 sub-groups: 2+1) from `PartitionGranularity::FanOut`
-    /// (3 singleton sub-groups) from EACH OTHER, not just from baseline. No phonological rule at
-    /// all (irrelevant to what this fixture exercises -- partition CARDINALITY, not the rewrite
-    /// cascade), so `should_run` is `false` and the plan root collapses directly to the bare `Gate`
-    /// node (`enumerate.rs`'s own "root is Gate directly" case). Synthetic/delanguaged: three
-    /// distinct one-segment surface forms ("p"/"t"/"k"), one per entry, so each entry's own analysis
-    /// is independently checkable via `apply_up`.
+    /// An ungated grammar whose single group holds three entries, the smallest fixture that can distinguish `Bisect` (2 sub-groups) from `FanOut` (3 singletons) from each other, not just from baseline.
     fn oracle_three_entry_ungated_fixture_xml() -> &'static str {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1415,15 +1235,7 @@ mod tests {
 "#
     }
 
-    /// A grammar with TWO ungated, ordinary phonological rules in one cascade (`pr1` then `pr2`) --
-    /// used only to prove `Replace`'s cascade-order finding empirically: reversing `cascade.rules`
-    /// (+ its rule-leaf children) must make `build_controllable` panic, since it cross-validates the
-    /// cascade against `prules_in_order` POSITIONALLY (`build.rs`'s own `validate_replace_cascade`).
-    /// Synthetic/delanguaged: `c1` ("p") -> `c2` ("b") via `pr1`, `c2` ("b") -> `c3` ("d") via `pr2`
-    /// (a real feeding cascade, so the two rules are not accidentally interchangeable even in
-    /// principle -- not load-bearing for THIS test, which only needs `build_controllable` to panic
-    /// before ever reaching `apply_up`, but avoids the reversed cascade being a coincidental identity
-    /// besides).
+    /// Two ungated rules in one cascade, used to prove reversing `cascade.rules` makes `build_controllable` panic (it cross-validates positionally against `prules_in_order`).
     fn oracle_two_rule_cascade_fixture_xml() -> &'static str {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1476,11 +1288,7 @@ mod tests {
 "#
     }
 
-    /// Test-only deliberately-WRONG restructuring for `Compose` (module doc's `Compose` finding):
-    /// swaps a gate group's `Compose` node's two children (`[lexicon fragment, Replace]` ->
-    /// `[Replace, lexicon fragment]`). Everything else copied verbatim -- a standalone walker (not
-    /// built on `copy_plan_transforming`, which has no `Compose` hook by design: production code
-    /// never needs one, module doc's finding that no sound `Compose` generator exists).
+    /// Test-only deliberately-wrong restructuring: swaps a gate group's `Compose` node's two children, since `copy_plan_transforming` has no `Compose` hook by design (no sound generator exists).
     fn swap_compose_children(plan: &Plan) -> Plan {
         fn copy(old_plan: &Plan, old_id: NodeId, new_plan: &mut Plan) -> NodeId {
             match old_plan
@@ -1555,13 +1363,7 @@ mod tests {
         new_plan
     }
 
-    /// Test-only deliberately-WRONG restructuring for `Replace` (module doc's `Replace` finding):
-    /// reverses a `Replace` node's `cascade.rules` AND its rule-leaf `children` together (so the
-    /// `Replace` node itself stays internally consistent -- `cascade.rules.len() == children.len()`,
-    /// and `children[i]`'s own `FragmentSpec::RewriteRule` still names `cascade.rules[i]` -- the
-    /// point of this test is that build_controllable rejects the CASCADE ORDER itself, not a
-    /// secondary internal-consistency bug). Everything else copied verbatim; a standalone walker for
-    /// the same reason `swap_compose_children` is.
+    /// Test-only deliberately-wrong restructuring: reverses a `Replace` node's `cascade.rules` and its rule-leaf `children` together, keeping the node's own internal consistency intact so only the cascade order itself is under test.
     fn reverse_replace_cascade(plan: &Plan) -> Plan {
         fn copy(old_plan: &Plan, old_id: NodeId, new_plan: &mut Plan) -> NodeId {
             match old_plan
@@ -1651,9 +1453,7 @@ mod tests {
         items.iter().map(|s| s.to_string()).collect()
     }
 
-    // -----------------------------------------------------------------------------------------
     // Outcome 1: two genuinely distinct, SAME-relation plans -> Agree.
-    // -----------------------------------------------------------------------------------------
 
     #[test]
     fn permuted_gate_groups_is_a_genuinely_different_plan() {
@@ -1715,9 +1515,7 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------------------------
     // Outcome 2: a deliberately WRONG second plan -> the oracle actually catches it.
-    // -----------------------------------------------------------------------------------------
 
     #[test]
     fn differential_oracle_catches_a_dropped_gate_group_as_a_real_disagreement() {
@@ -1789,15 +1587,12 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------------------------
     // Outcome 3: shortest-witness tie-break, tested directly against the pure selection core.
-    // -----------------------------------------------------------------------------------------
 
     #[test]
     fn resolve_verdict_reports_the_shortest_disagreeing_word_regardless_of_input_order() {
         let per_word = vec![
-            // A LONGER disagreement, listed FIRST -- proves selection is by length, not by
-            // first-encountered order.
+            // A LONGER disagreement, listed FIRST, proves selection is by length, not order.
             ("longerword".to_string(), hs(&["X"]), hs(&["Y"])),
             ("hi".to_string(), hs(&["A"]), hs(&["B"])),
             // An agreeing word, to prove agreements are simply excluded, not treated as a tie.
@@ -1839,9 +1634,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------------------------
     // The `Union` second-topology generator, on a real grammar.
-    // -----------------------------------------------------------------------------------------
 
     #[test]
     fn enumerate_default_on_union_fixture_has_a_union_root_with_two_children() {
@@ -1925,10 +1718,7 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------------------------
-    // `Compose`/`Replace` have NO sound generator -- confirmed empirically (module
-    // doc), not just argued: reordering either is mechanically rejected by build_controllable.
-    // -----------------------------------------------------------------------------------------
+    // `Compose`/`Replace` have NO sound generator, confirmed empirically: reordering either is mechanically rejected by build_controllable.
 
     #[test]
     #[should_panic(expected = "expected a Leaf node as a gate-group Compose node's first child")]
@@ -1943,10 +1733,7 @@ mod tests {
         let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
         let swapped = swap_compose_children(&plan);
 
-        // build_controllable enforces children[0] == LexiconFragment / children[1] == Replace
-        // POSITIONALLY (build.rs's own `lexicon_fragment_entries`), so swapping them must panic
-        // before any apply_up comparison is even attempted -- proof, not just argument, that no
-        // sound Compose-child-reordering generator exists for this crate's only Compose shape.
+        // build_controllable enforces the Compose children positionally, so swapping them must panic before any apply_up comparison.
         let _ = build_controllable(&swapped, &opts, &g, &alphabet, &ro, &budget);
     }
 
@@ -1963,18 +1750,11 @@ mod tests {
         let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
         let reversed = reverse_replace_cascade(&plan);
 
-        // build_controllable's own validate_replace_cascade cross-checks cascade.rules against
-        // prules_in_order POSITIONALLY, so a reversed 2-rule cascade must panic -- proof, not just
-        // argument, that no sound Replace-cascade-reordering generator exists.
+        // validate_replace_cascade cross-checks cascade.rules against prules_in_order positionally, so a reversed cascade must panic.
         let _ = build_controllable(&reversed, &opts, &g, &alphabet, &ro, &budget);
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Partition refinement: a THIRD sound Gate-node restructuring (cardinality, not order),
-    // proven by the SAME two bars the module's other generators are proven by: apply-based
-    // agreement with baseline (semantics-preserving), and a root NodeId that actually differs
-    // (content-distinct -- otherwise `Registry::materialize_distinct` would dedup it away).
-    // -----------------------------------------------------------------------------------------
+    // Partition refinement, proven by the same two bars as the module's other generators: apply-based agreement with baseline, and a root NodeId that actually differs.
 
     fn gate_group_count(plan: &Plan) -> usize {
         plan.iter()
@@ -2102,9 +1882,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------------------------
     // Seeded random subtree mutation.
-    // -----------------------------------------------------------------------------------------
 
     #[test]
     fn mutate_plan_seeded_is_deterministic_for_the_same_seed() {
@@ -2160,11 +1938,7 @@ mod tests {
         let budget = ComposeBudget::unbounded();
         let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
 
-        // This fixture has 2 eligible MutationTargets (its 2-group Gate, AND the root Union
-        // wrapping it plus a composite-emission marker -- should_run is true here too, since ANY
-        // phonological rule at all makes PhonologyProbe::new Some, and this fixture's one gated
-        // subrule IS one). Scan seeds for one that actually draws the Gate, rather than assuming
-        // any seed does.
+        // This fixture has 2 eligible targets (its Gate and the root Union); scan seeds for one that draws the Gate.
         let mut exercised = false;
         for seed in 0u64..20 {
             let outcome = mutate_plan_seeded(&plan, seed);
@@ -2212,11 +1986,7 @@ mod tests {
         let budget = ComposeBudget::unbounded();
         let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
 
-        // This fixture's Gate node has only 1 group (ungated), so its only eligible
-        // MutationTarget is the root Union (Gate + composite-emission marker) -- any seed must
-        // draw the Union. Scan a few seeds for one that draws the NON-identity permutation (a
-        // real, exercised swap), rather than asserting on a hand-picked seed reasoned about but
-        // never run.
+        // This fixture's only eligible target is the root Union; scan seeds for one that draws the non-identity permutation.
         let mut exercised = false;
         for seed in 0u64..20 {
             let outcome = mutate_plan_seeded(&plan, seed);
@@ -2255,9 +2025,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------------------------
     // Failure minimisation to a named recipe.
-    // -----------------------------------------------------------------------------------------
 
     #[test]
     #[should_panic(expected = "does not actually disagree")]
@@ -2270,9 +2038,7 @@ mod tests {
         let budget = ComposeBudget::unbounded();
         let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
 
-        // Every step here is sound (mutate_plan_seeded draws), so the full chain must Agree --
-        // minimize_disagreement must refuse to "minimise" a non-disagreement rather than silently
-        // returning something.
+        // Every step here is sound, so the full chain must Agree; minimize_disagreement must refuse to "minimise" a non-disagreement.
         let steps = vec![MutationStep::from_seed(1), MutationStep::from_seed(2)];
         let _ = minimize_disagreement(
             &plan,
@@ -2297,10 +2063,7 @@ mod tests {
         let budget = ComposeBudget::unbounded();
         let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
 
-        // Four sound, harmless mutation steps with the ONE real bug (drop_last_gate_group,
-        // deliberately unsound -- the same breakage the oracle's own non-vacuity test uses)
-        // spliced into the middle -- minimisation must discard every sound step and converge on
-        // exactly the one that actually causes the disagreement.
+        // Four sound, harmless steps with one real bug spliced into the middle; minimisation must discard every sound step and converge on that one.
         let steps = vec![
             MutationStep::from_seed(1),
             MutationStep::from_seed(2),
@@ -2339,8 +2102,7 @@ mod tests {
              oracle's own non-vacuity test"
         );
 
-        // Confirm the recipe actually reproduces: replaying ONLY the surviving step from the base
-        // plan must still disagree, with the SAME witness word.
+        // Replaying only the surviving step from the base plan must still disagree, with the same witness word.
         let replayed = apply_step_chain(&plan, &[breakage_step()]);
         let replay_result = differential_oracle(
             &plan,
@@ -2364,9 +2126,7 @@ mod tests {
             }
         }
 
-        // Report the recipe's own Display format verbatim: a recipe a human can
-        // act on -- this IS that format, printed here so a test failure or a
-        // `--nocapture` run shows exactly what a human would paste into a bug report.
+        // Printed so a test failure or `--nocapture` run shows exactly what a human would paste into a bug report.
         println!("{recipe}");
     }
 }

@@ -94,7 +94,9 @@ pub fn derive_mechanism_graph(semantics: &GrammarSemantics<'_>) -> MechanismGrap
             .entry(mechanism_kind_for(observation.kind))
             .or_default();
         entry.requirements.insert(observation.kind);
-        entry.sources.insert(MechanismSource::from(&observation.location));
+        entry
+            .sources
+            .insert(MechanismSource::from(&observation.location));
     }
 
     // A terminal cleanup exists whenever any other mechanism does, consuming the boundary symbols they needed to see; its source is the character table it cleans, since a cleanup isn't derived from an observed construct and a source-less node is rejected.
@@ -164,7 +166,10 @@ fn body_for(kind: MechanismKind, semantics: &GrammarSemantics<'_>) -> MechanismB
                 .map(Into::into)
                 .collect(),
             // Honestly `None` today: a documented absence over an invented estimate.
-            max_depth: semantics.characteristics().cardinality.max_derivation_chain_depth,
+            max_depth: semantics
+                .characteristics()
+                .cardinality
+                .max_derivation_chain_depth,
         }),
         MechanismKind::OrderedPhonology => MechanismBody::OrderedPhonology(OrderedPhonologySpec {
             rule_order: semantics

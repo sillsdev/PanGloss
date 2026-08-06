@@ -1,51 +1,5 @@
-//! GATE 1: the multi-table COMPILED-CORRECT gate.
-//!
-//! ## Why table ownership must be threaded explicitly, not defaulted
-//! `pg_foma::replace::SegAlphabet::token` is a pure function of a `CharDefId`'s raw numeric index
-//! (`PUA_BASE + cd.0`) with no awareness of which table that index belongs to (see
-//! `pg_grammar_gen::build::tables`'s module doc for the full derivation), so any natural-class
-//! resolution that silently defaults to table 0 rather than the rule's own owning stratum's table
-//! will name whatever segment happens to sit at that same positional index in a DIFFERENT table --
-//! not the linguistically intended one. That failure mode is real and concretely observable: a
-//! phonological rule compiled for a stratum whose OWN table was NOT table 0, resolved against
-//! table 0 and then converted into tokens via the CALLER's (correctly table-1-scoped) alphabet,
-//! produces two deterministic wrong behaviors: a voice+ root that never devoices, and a voice-
-//! root spuriously rewritten to the voice+ root's own spelling.
-//!
-//! `pg_foma::replace::pattern_slots`/`pg_foma::replace::resolve_alpha_tuples` take an explicit
-//! `&CharDefTable` parameter, and `pg_foma::replace::compile_rewrite_rule_subset` resolves it
-//! ONCE per rule via `pg_foma::replace::owning_table` (the rule's OWN stratum's
-//! `StratumDef::table` -- never an implicit table-zero default). Every assertion below checks that
-//! this design produces the linguistically-correct result.
-//!
-//! This recipe deliberately misaligns table 1's voice-feature-to-index assignment relative to
-//! table 0's (`ConstructKnobs { table_count: 2, .. }` -> `build::tables::build`'s `misaligned =
-//! true` path), so a correct compile is not merely "coincidentally didn't break" but PROVABLY
-//! resolves the linguistically-intended segment despite the two tables disagreeing about which
-//! raw index means which voice value. The demo rule is an unconditional "devoice" rewrite
-//! (`ncVoicedAny -> ncVoicelessAny`, no environment) on stratum 1 (table 1). Worked through
-//! concretely (2 segments per table: table 0 = {voice+ at index 1, voice- at index 0}, table 1 =
-//! {voice+ at index 0, voice- at index 1}):
-//! - `owning_table` resolves `rule`'s owning stratum (stratum 1) and returns table 1 -- so
-//!   `ncVoicedAny`/`ncVoicelessAny` are now resolved against TABLE 1 ITSELF, yielding table-1-local
-//!   `CharDefId`s that name table 1's OWN voice+/voice- segments directly, not table 0's.
-//! - The SAME alphabet (also built from table 1) converts those table-1-local ids into table 1's
-//!   own tokens -- consistent, single-table-per-rule token space, no cross-table reinterpretation.
-//! - So the COMPILED rule, in table 1's real token semantics, correctly reads as "voice+ ->
-//!   voice-" -- true devoicing, targeting the RIGHT segment.
-//!
-//! Two concretely correct, deterministic, assertable behaviors follow, both checked below via the
-//! shared compose-recall helper (`tests/common/gate_template.rs`):
-//! 1. The root that SHOULD devoice (voice+) has its own unrewritten spelling become UNREACHABLE as
-//!    its surface form (the obligatory rewrite fires), and its CORRECT devoiced form (the voiceless
-//!    root's own spelling) IS reachable.
-//! 2. The root that should stay unchanged (voice-, already voiceless) keeps its own spelling
-//!    reachable, and is never spuriously rewritten to the OTHER root's spelling.
-//!
-//! Single-table grammars are BYTE IDENTICAL under this fix: every stratum's `table: TableId` is 0
-//! in a single-table grammar, so `owning_table` always resolves to `g.char_tables[0]` -- the exact
-//! value the old hardcoded default returned. `tests/p6_gate_parity.rs`'s byte-exact Amharic
-//! state/arc-count regression guard (single-table) staying green is that invariant's own proof.
+//! Multi-table compiled-correctness gate: two tables with deliberately misaligned voice-feature indices, checking that rule compilation resolves each rule's own stratum table rather than defaulting to table 0.
+//! Full argument and worked example: docs/research/pg-foma-replace-design-notes.md.
 
 mod common;
 
@@ -112,8 +66,7 @@ fn multi_table_rewrite_compiles_correctly_against_its_owning_table() {
         .iter()
         .find(|r| !r.voice_plus)
         .expect("table 1 must have a voice- root");
-    // Sanity on the recipe's own shape (not the bug): the two roots must be spelled differently,
-    // or the whole demonstration is vacuous.
+    // Sanity, not the bug under test: a vacuous demonstration if the two roots share a spelling.
     assert_ne!(root_voiced.ch, root_voiceless.ch);
 
     let entry_voiced = entry_id_of(&g, &root_voiced.entry_xml_id);
@@ -127,8 +80,7 @@ fn multi_table_rewrite_compiles_correctly_against_its_owning_table() {
     let table1_chardef = &g.char_tables[1];
     let alphabet1 = SegAlphabet::new(table1_chardef);
     let opts = FomaOptions::default();
-    // Never usize::MAX / no artificial caps: this gate is about the CORRECT compile, not about
-    // the budget mechanism itself.
+    // Unbounded caps: this gate is about the correct compile, not the budget mechanism.
     let budget = ComposeBudget::with_caps(
         usize::MAX,
         usize::MAX,
@@ -173,8 +125,7 @@ fn multi_table_rewrite_compiles_correctly_against_its_owning_table() {
         &budget,
     )
     .unwrap_or_else(|e| panic!("devoice rule compile must not hit any budget: {e}"));
-    // The rule must still compile (not be reported skipped) -- the fix changes WHICH table its
-    // natural classes resolve against, not whether the rule is a supported shape at all.
+    // The fix changes WHICH table natural classes resolve against, not whether the rule compiles at all.
     assert!(
         skipped.is_empty(),
         "the devoice rule must compile (not be reported skipped): {skipped:?}"
@@ -186,7 +137,7 @@ fn multi_table_rewrite_compiles_correctly_against_its_owning_table() {
         foma::constructions::fsm_compose(&opts, lexc_net, rule_net),
     );
 
-    // Resource envelope (design doc §4b): this is a two-entry, one-rule cascade -- must stay tiny.
+    // Resource envelope: a two-entry, one-rule cascade must stay tiny.
     assert_net_size_within(&composed, 200, 2_000);
 
     let voiced_own_spelling = alphabet1

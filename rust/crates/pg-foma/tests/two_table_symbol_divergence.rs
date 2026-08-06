@@ -1,56 +1,5 @@
-//! PROPOSER-TO-CONFIRM CONTAINMENT for the multi-table construct -- named by construct
-//! ("two-table-symbol-divergence"), synthetic and delanguaged, no language nouns anywhere.
-//! Hand-authored XML (mirroring `pg_foma::replace`'s/`pg_foma::capability`'s
-//! own test-module convention) rather than `pg_grammar_gen`'s recipe generator: the generator's
-//! own `build::tables` module always adds a per-segment-unique `featId` feature (needed for ITS
-//! OWN unrelated purpose, avoiding `generate_words` surface collisions -- that module's own doc),
-//! which turns out to defeat `pg_parse::Morpher`'s un-apply of an environment-free feature-changing
-//! rewrite (a real, PRE-EXISTING, separate characteristic of `pg-rules`' analysis engine unrelated
-//! to this change -- see this file's own "Known, out-of-scope anomaly" note below). This fixture
-//! sidesteps that by declaring only ONE phonological feature (`featVoice`) per table.
-//!
-//! ## What this proves, beyond `tests/phase_c_multi_table.rs`
-//! `phase_c_multi_table.rs` (GATE 1, now inverted) proves recall-via-compose for ONE stratum's own
-//! rule. This file proves the STRONGER claim: two strata where the same symbol differs between
-//! tables, each compiled rule uses its own table AND proposer-to-confirm results match the oracle
-//! -- using this codebase's own established containment methodology
-//! (`tests/f2_junction_gate.rs`'s `engine_sequences`/`candidates_cover`, `tests/f3_parity.rs`'s
-//! "multiset parity" framing, `tests/p6_templated_morphotactics_gate.rs` test (c)'s `apply_up` ->
-//! `tags::decode_path` -> `tags::to_candidates` decode): decode every raw `apply_up` result off the
-//! P6-compiled net into `pg_foma::tags::Candidate`s, and assert that set is EXACTLY EQUAL (not
-//! just a superset or subset) to `pg_parse::Morpher`'s own oracle analysis set for the same surface
-//! word -- `pg_rules::rewrite` (Morpher's own rewrite engine) already resolves every rule against
-//! its real owning stratum's table via an explicit `TableId` parameter at every call site (verified
-//! by inspection), so it is a trustworthy oracle for exactly the bug this change fixes: the
-//! proposer (`pg_foma::replace`) used to be the ONLY table-zero-biased link in this chain.
-//!
-//! Since this fixture is deliberately tiny (2 entries per stratum, 1 rule, no MPR/POS gating, no
-//! compounding), the decoded FST candidate set is already sound with no possible false positive a
-//! separate `pg_foma::confirm` pass would need to prune -- direct set equality against the oracle
-//! is the faithful, minimal realization of "propose, then confirm, must equal the oracle" for a
-//! grammar this small.
-//!
-//! ## Scope: stratum 1 only (matches GATE 1's own established scope)
-//! Only stratum 1 (the LAST stratum, table 1) is checked against the oracle. A bare, unaffixed root
-//! declared on a NON-final stratum (stratum 0 here) with no morphological rule bridging it forward
-//! is never a complete surface word by itself in this architecture (`pg_grammar_gen::build::strata`
-//! 's own module doc: extra strata need an OBLIGATORY rule specifically to let a root reach the
-//! surface) -- `tests/phase_c_multi_table.rs`/GATE 1 never queries stratum 0 via the oracle either,
-//! for the same reason. Table 0 exists here purely so the fixture genuinely has TWO strata each
-//! owning their OWN table, not one orphaned second table.
-//!
-//! ## Known, out-of-scope anomaly (documented, not hidden)
-//! `pg_parse::Morpher`'s root lookup, when run over the UNFILTERED whole grammar, returns a THIRD,
-//! spurious analysis for surface "k" naming stratum 0's own root ("p") -- table 0's and table 1's
-//! segments happen to share the same RAW per-table index (0), and `pg-parse`'s own root-allomorph
-//! trie appears not to disambiguate cross-stratum/cross-table `CharDefId` identity the way
-//! `pg_foma::replace::owning_table` now does for rewrite-rule compilation. This is a DIFFERENT
-//! component (`pg-parse`'s root trie, not `pg_foma::replace`'s rewrite compiler or `pg-rules`'
-//! rewrite engine) and a DIFFERENT bug class, entirely out of scope for `replace.rs`'s single-owner
-//! boundary this change holds to -- flagged here for a future investigation, not silently avoided.
-//! This file's own oracle comparison is restricted to stratum 1's own two morphemes (the exact
-//! candidate universe the compiled net below actually contains) so this unrelated anomaly cannot
-//! contaminate the containment assertion this change is responsible for.
+//! Proposer-to-confirm containment for the multi-table construct where the same symbol diverges between tables --
+//! see docs/research/pg-foma-replace-design-notes.md for the methodology, scope, and a known out-of-scope anomaly.
 
 use std::collections::HashSet;
 
@@ -67,10 +16,7 @@ use pg_foma::uflexc::emit_underlying_filtered_with_budget;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions};
 
-/// Two tables, deliberately MISALIGNED (table 0: index 0 = voice+, index 1 = voice-; table 1:
-/// index 0 = voice-, index 1 = voice+ -- the SAME mechanism `tests/phase_c_multi_table.rs`/
-/// `pg_grammar_gen::build::tables` use), two strata each owning one table, ONE obligatory
-/// environment-free devoice rewrite on stratum 1 only (`ncVoicedAny -> ncVoicelessAny`).
+/// Two tables, deliberately misaligned (table 0: index 0 = voice+, index 1 = voice-; table 1: index 0 = voice-, index 1 = voice+); one obligatory devoice rewrite on stratum 1 only.
 const TWO_TABLE_SYMBOL_DIVERGENCE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -162,9 +108,7 @@ fn entry_id_of(g: &Grammar, xml_id: &str) -> LexEntryId {
     )
 }
 
-/// Every DECODED `apply_up` candidate for `query` against `net`, as `(root_index, morpheme ids)`
-/// pairs -- the FST-proposer half of the containment check (module doc). `net` is small by
-/// construction, so an unbounded raw `apply_up` enumeration is safe.
+/// The FST-proposer half of the containment check: every decoded `apply_up` candidate for `query` against `net`, as `(root_index, morpheme ids)` pairs.
 fn fst_candidate_set(net: &foma::types::Fsm, query: &str) -> HashSet<(i32, Vec<u32>)> {
     let mut out = HashSet::new();
     let mut handle = apply_init(net);
@@ -179,10 +123,7 @@ fn fst_candidate_set(net: &foma::types::Fsm, query: &str) -> HashSet<(i32, Vec<u
     out
 }
 
-/// The full-HC oracle's own candidate set for `surface`, in the SAME `(root_index, morpheme ids)`
-/// shape, restricted to `allowed_morphemes` (module doc: the exact candidate universe the compiled
-/// net actually contains -- sidesteps the documented, out-of-scope cross-table root-lookup anomaly
-/// this file's own top doc names).
+/// The full-HC oracle's candidate set for `surface`, in the same `(root_index, morpheme ids)` shape, restricted to `allowed_morphemes` to sidestep the documented cross-table root-lookup anomaly.
 fn oracle_candidate_set(
     morpher: &Morpher,
     surface: &str,
@@ -269,8 +210,7 @@ fn stratum_1_devoice_rewrite_proposer_confirm_matches_oracle() {
     let net = fsm_minimize(&opts, fsm_compose(&opts, lexc_net, rule_net));
     let morpher = Morpher::new(&g, usize::MAX);
 
-    // --- Surface "k": both the voice- root (its own unchanged spelling) AND the voice+ root
-    // (devoiced) share this ONE surface form. Proposer-decode set must EQUAL the oracle set. ---
+    // --- Surface "k": both the voice- root (unchanged) and the voice+ root (devoiced) share this one surface form. ---
     let query_k = alphabet1
         .encode_query("k")
         .expect("'k' must segment against table 1");
@@ -290,9 +230,7 @@ fn stratum_1_devoice_rewrite_proposer_confirm_matches_oracle() {
          table, never table 0's)"
     );
 
-    // --- Surface "g": the voice+ root's raw (undevoiced) spelling must never be a valid surface
-    // form at all -- the devoice rule is obligatory. Neither the oracle nor the FST proposes
-    // anything for it. ---
+    // --- Surface "g": the voice+ root's raw spelling is never a valid surface form; the devoice rule is obligatory. ---
     let oracle_g = oracle_candidate_set(&morpher, "g", &allowed_morphemes);
     assert!(
         oracle_g.is_empty(),

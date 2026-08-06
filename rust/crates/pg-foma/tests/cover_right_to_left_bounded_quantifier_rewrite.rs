@@ -1,21 +1,5 @@
-//! `conformance-staging/edge-cases/right-to-left-bounded-quantifier-rewrite`'s own regression gate
-//! (docs/conformance/representative-typology-basis.md S1.2.2): pins the CURRENT, honest behavior
-//! for a `Dir::RightToLeft` rewrite rule whose own environment contains a BOUNDED
-//! `PatternNode::Quantifier` (`OptionalSegmentSequence min=0 max=2`).
-//!
-//! ## A correction to the research doc's own premise, discovered while authoring this fixture
-//! S1.2.2 of the research doc assumed a `Quantifier` node anywhere in an RTL rule's own
-//! LHS/RHS/environment is still an EXCLUDED shape (grouped with `Segments`/`Anchor`/disagreeing
-//! alpha-variables). Empirically, that is not so for a genuinely BOUNDED `Quantifier` in the
-//! rule's own ENVIRONMENT: this fixture's `rtl_reversal_construction_attempted` characterizes
-//! `true` (`crate::replace::pattern_slots` DOES accept a bounded `Quantifier`, per
-//! `compile-bounded-fst-quantifiers`'s own `Slot::Repeat` support), and
-//! `RightToLeftRewriteFaithfulReversalPredicate` correctly returns `ConfirmOnly`, not `Refuse`.
-//! This fixture is therefore NOT one of the three honestly-refused shapes this task otherwise
-//! pins -- it demonstrates the ALREADY-CORRECT, already-`ConfirmOnly` propose-and-confirm pipeline
-//! for a bounded-quantifier RTL environment, a genuine, useful conformance-coverage addition in
-//! its own right (see STAGING.md's own "A correction" section for the full account). This test is
-//! the one that should FAIL if this ever regresses back to `Refuse`.
+//! Pins that a BOUNDED `Quantifier` in an RTL rule's own environment is `ConfirmOnly`, not `Refuse`,
+//! correcting docs/conformance/representative-typology-basis.md S1.2.2's assumption that grouped it as excluded.
 
 use std::fs;
 use std::path::Path;
@@ -47,9 +31,7 @@ fn fixture_rule_is_right_to_left() {
     assert_eq!(r.dir, Dir::RightToLeft);
 }
 
-/// The capability gate's own verdict: `ConfirmOnly` -- a BOUNDED `Quantifier` in an RTL rule's own
-/// environment is within `crate::replace::pattern_slots`' supported shape. This is the module
-/// doc's own "correction to the research doc's premise" pinned executably.
+/// The capability gate returns `ConfirmOnly` for a bounded `Quantifier` in an RTL rule's own environment.
 #[test]
 fn capability_gate_confirms_only_for_bounded_quantifier_in_rtl_environment() {
     let g = load();
@@ -63,9 +45,7 @@ fn capability_gate_confirms_only_for_bounded_quantifier_in_rtl_environment() {
     );
 }
 
-/// The oracle correctly applies the alternation up to (and not beyond) the bounded quantifier's
-/// own `max="2"`, and never accepts a root's own raw, un-rewritten underlying shape as a valid
-/// surface form (the rule is obligatory wherever its environment matches).
+/// The oracle applies the alternation only within the quantifier's bound, and never accepts the raw, un-rewritten shape since the rule is obligatory.
 #[test]
 fn oracle_applies_the_bound_correctly() {
     let g = load();

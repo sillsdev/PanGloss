@@ -1,28 +1,4 @@
-//! Regression gate for the "cross-table surface-match gate" defect (a follow-up to
-//! `conformance-staging/edge-cases/multi-table-metathesis-shared-representation`'s own STAGING.md):
-//! `pg_parse::Morpher::is_match_traced` renders a synthesized word's concrete char-def identities
-//! via `pg_parse::surface::matching_reps_for_node` against the grammar's OUTERMOST stratum's table.
-//! For an ordinary word that is exactly correct (a fully-synthesized word's own current stratum IS
-//! the outermost one), but a `MetathesisRule`-relocated segment used to carry its ORIGIN table's raw
-//! `char_def` index all the way there (`pg_rules::metathesis::synthesis_reorder` moved segments
-//! without ever resetting `char_def`, unlike every rewrite-rule identity-changing path,
-//! `syn_feature`/`sim_feature`, which reset a changed node's `char_def` to `NO_CHAR_DEF`) — an
-//! apples-to-oranges raw-index collision once a WORD's own root was entered on a DIFFERENT
-//! (inner) stratum's table than the metathesis rule's own (outer) stratum.
-//!
-//! Grammar shape mirrors the conformance fixture above (inline here, not read from that file, so
-//! this gate is self-contained and cannot go stale if that fixture's own XML changes): two
-//! `CharacterDefinitionTable`s at DELIBERATELY MISALIGNED raw indices for the same two spellings
-//! ("m"/"x") -- `t0` ("Inner", `m`=raw 0, `x`=raw 1) and `t1` ("Outer", `z`=raw 0 [decoy], `m`=raw 1,
-//! `x`=raw 2, `w`=raw 3 [decoy]). `ROOT1` (Inner stratum, table `t0`) is spelled "mx"; the obligatory
-//! `MetathesisRule` lives on the Outer stratum (table `t1`) and swaps ROOT1's material to surface
-//! "xm". `ROOT2` (Outer stratum, table `t1`, spelled "wx") is a same-table positive control using
-//! `ncSwitchA`'s OTHER, table-`t1`-only member "w" -- proving ordinary same-table metathesis recall
-//! is untouched by this fix. `ncSwitchA`/`ncSwitchB` are `FeatureNaturalClass`es (table-agnostic by
-//! construction, `pg_rules::bridge::nat_class_lanes`'s `Feature` branch never reads `self.table`) so
-//! this fixture isolates the ONE remaining table-dependent mechanism: the surface-match gate's own
-//! raw `char_def` comparison, not natural-class resolution (already covered by
-//! `pg-rules/src/cache.rs`'s `owning_table_tests`).
+//! Metathesis-relocated segments must reset `char_def`, or a stale raw index collides across tables at the surface-match gate.
 
 use pg_parse::Morpher;
 
@@ -127,12 +103,7 @@ fn load() -> pg_grammar::model::Grammar {
         .unwrap_or_else(|e| panic!("cross-table metathesis surface-match probe grammar loads: {e}"))
 }
 
-/// The direct inverse of the defect: a root entered on a DIFFERENT (inner) stratum's table than the
-/// metathesis rule's own (outer) stratum must still analyze once correctly metathesized. Before this
-/// fix, `synthesis_reorder` never reset the relocated segment's `char_def`, so it kept carrying
-/// table `t0`'s raw index into `is_match_traced`'s comparison against table `t1` -- an
-/// apples-to-oranges collision that rejected every genuinely correct candidate (empty signature "-",
-/// not a graceful acceptance), reproduced by this test failing if the reset is ever removed again.
+/// A root on a different (inner) stratum's table than the metathesis rule's (outer) stratum must still analyze once correctly metathesized.
 #[test]
 fn cross_table_metathesized_root_matches_its_own_surface() {
     let g = load();
@@ -153,8 +124,7 @@ fn cross_table_metathesized_root_matches_its_own_surface() {
     );
 }
 
-/// ROOT1's own raw (un-metathesized) spelling must never be a valid surface form -- metathesis is
-/// obligatory. Negative control: proves the fix does not make the gate vacuously permissive.
+/// ROOT1's raw, un-metathesized spelling must never be a valid surface form; metathesis is obligatory.
 #[test]
 fn cross_table_root_raw_spelling_still_rejected() {
     let g = load();
@@ -166,9 +136,7 @@ fn cross_table_root_raw_spelling_still_rejected() {
     );
 }
 
-/// ROOT2 (same-table control, Outer stratum throughout, never crosses tables): correctly
-/// metathesized "xw" must keep matching -- proves this fix does not regress ordinary same-table
-/// metathesis recall.
+/// ROOT2 (same-table control) correctly metathesized to "xw" must keep matching, so ordinary same-table metathesis recall is unaffected.
 #[test]
 fn same_table_metathesis_recall_is_unaffected() {
     let g = load();

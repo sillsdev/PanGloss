@@ -46,19 +46,11 @@ struct FeatureDef {
     symbol_index: HashMap<String, u32>,
     symbol_names: Vec<String>,
     mask: u64,
-    /// Finding N2: `defaultSymbol` resolved to a single-bit `SymbolBits`-style mask (the referenced
-    /// symbol's dense index), or `None` if the feature declared no default. Consumed by
-    /// `pg_rules::rewrite`'s `UseDefaults` confirm step (the phonological rewrite-rule matcher —
-    /// C#'s `FeatureStruct.IsUnifiable`/`Subsumes`/`DestructiveUnify(..., useDefaults: true, ...)`
-    /// substitute this value for an otherwise-unconstrained lane; see that module for the four C#
-    /// call sites that set `MatcherSettings.UseDefaults = true`).
+    /// A single-bit mask (the default symbol's dense index), or `None` if the feature declared no default; consumed by `pg_rules::rewrite`'s `UseDefaults` confirm step.
     default_bits: Option<u64>,
 }
 
-/// The internal XML-id the synthetic `Type` feature is registered under. Not a real XML
-/// attribute value — no `<SymbolicFeature id="...">` in any HC XML can ever collide with it,
-/// since real ids come from author-controlled XML `id` attributes and this string is chosen to
-/// be distinguishable at a glance in dumps/diagnostics.
+/// The internal XML-id the synthetic `Type` feature is registered under; chosen so no authored `<SymbolicFeature id="...">` can collide with it.
 const TYPE_XML_ID: &str = "__hc_type__";
 
 /// Dense symbol index of the `Type` feature's `Segment` symbol (see `PhonFeatureSystem::type_flat`).
@@ -96,10 +88,7 @@ pub struct PhonFeatureSystem {
 }
 
 impl Default for PhonFeatureSystem {
-    /// Zero authored features (matches `from_raw(vec![])`) — the synthetic `Type` feature is
-    /// still present (see struct docs). `FlatIndex` deliberately does not implement `Default`
-    /// (a bare `FlatIndex(0)` would be a footgun anywhere a real feature's index is expected), so
-    /// this impl is hand-written rather than derived.
+    /// Zero authored features still carry the synthetic `Type` feature; hand-written because `FlatIndex` deliberately has no `Default` (a bare `FlatIndex(0)` would be a footgun).
     fn default() -> Self {
         Self::from_raw(Vec::new()).expect("zero raw features never errors")
     }
@@ -127,11 +116,7 @@ impl PhonFeatureSystem {
                 symbol_names.push(sym_name);
             }
             let mask = full_mask(symbol_names.len() as u32);
-            // Finding N2: resolve `defaultSymbol` against this same feature's own symbols (C#
-            // `_possibleSymbols[value]`, an indexer that throws `KeyNotFoundException` on an
-            // unresolvable id; ported as a `GrammarError::Semantic`, matching this loader's
-            // general "malformed reference -> Semantic error" convention elsewhere, e.g.
-            // `load.rs::resolve_chardef`).
+            // `defaultSymbol` resolves against this feature's own symbols; an unresolvable id becomes a `GrammarError::Semantic`, matching this loader's malformed-reference convention.
             let default_bits = match &f.default_symbol {
                 Some(sym_id) => {
                     let idx = symbol_index.get(sym_id).ok_or_else(|| {
@@ -165,11 +150,7 @@ impl PhonFeatureSystem {
             xml_id: TYPE_XML_ID.to_string(),
             name: "Type".to_string(),
             symbol_index: type_symbol_index,
-            // Display strings only (the `type_symbol_index` lookup keys above are unrelated
-            // internal sentinels, unchanged) -- C# `HCFeatureSystem.cs:39-40` gives `Segment`/
-            // `Boundary` lower-case `Description`s (`"segment"`/`"boundary"`), which is what
-            // `FeatureStruct.ToString()`-style dumps print (F2, `SurfacePhonology`'s
-            // `DeletionJunctions` golden shows `Type:segment`, never `Type:Segment`).
+            // Display strings only (lookup keys above are unrelated, unchanged sentinels); C# gives `Segment`/`Boundary` lower-case descriptions, which is what dumps print.
             symbol_names: vec!["segment".to_string(), "boundary".to_string()],
             mask: full_mask(2),
             default_bits: None,
@@ -294,8 +275,7 @@ mod tests {
 
     #[test]
     fn zero_authored_features_still_carries_type() {
-        // Plan §13.1 Tier-1 #1: a grammar with zero authored `<PhonologicalFeatureSystem>`
-        // features (Sena) still gets `len() == 1` (the synthetic `Type` feature), not 0.
+        // A grammar with zero authored `<PhonologicalFeatureSystem>` features (Sena) still gets `len() == 1` for the synthetic `Type` feature, not 0.
         let fs = PhonFeatureSystem::from_raw(vec![]).unwrap();
         assert!(fs.is_empty(), "zero *authored* features");
         assert_eq!(
