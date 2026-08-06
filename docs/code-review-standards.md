@@ -19,7 +19,7 @@ it as a warning; **CI invokes the checker directly and honours the exit code.**
 |---|---|
 | Implementation comment (`//`, `///` on a private item, or `//!` in a private module / test file) | **one line** |
 | API docstring (`///` / `//!` on a `pub` / `pub(crate)` item, or a public module's header) | long form as appropriate |
-| An implementation comment over one line | must claim `SAFETY:`, `INVARIANT:`, `TRAP:`, `WHY-NOT:`, `PORT-CORRESPONDENCE:` or `PORT-DIVERGENCE:`; past three lines it also needs an anchor |
+| An implementation comment over one line | only `SAFETY:` (an unsafe proof obligation) may exceed one line, up to three. Everything else: write the paragraph in `docs/research/` and cite it in one line — the document REPLACES the comment |
 | Code-to-code doc links (`` [`Foo`] ``) | **banned** — plain backticks; the LSP navigates |
 | Links to research (`docs/research`, papers, upstream issues) | keep; they are checked |
 | Project state — plans, dates, wiring status, history prose | **banned** |

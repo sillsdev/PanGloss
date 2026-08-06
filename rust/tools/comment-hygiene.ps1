@@ -170,18 +170,30 @@ $intraDocLink = '\[`[^`]+`\]'
 # call makes sense, and hazards. Descriptive prose is absent on purpose: the code, the LSP and git
 # already provide it.
 $exceptionTags = @(
-    'SAFETY:',     # Rust's own convention for an unsafe block's proof obligation.
-    'INVARIANT:',  # A property the code must preserve that is not locally checkable; breaking it is silent.
-    'TRAP:',       # A hazard in surrounding behaviour that a plausible edit would trip.
-    'WHY-NOT:',              # A rejected alternative that looks better than it is, and why it fails.
-    'PORT-CORRESPONDENCE:',  # This code must match the C# oracle exactly; here is the behaviour it matches.
-    'PORT-DIVERGENCE:'       # This code deliberately differs from the C# oracle; here is what and why.
+    'SAFETY:'   # An unsafe block's proof obligation. The ONLY class that buys extra lines.
 )
 
-# The port tag is SPLIT rather than one `PORT:` on purpose. Forcing the author to pick a direction makes
-# the claim checkable: a reviewer can read the cited C# and ask "does ours match?" for one, and "is the
-# stated difference real and intended?" for the other. A single tag lets a comment stay vague about
-# which it is, and vague is the state in which a claim quietly stops being true.
+# ONE class, and it survived a cull the others did not.
+#
+# The rule is one line. A reference document REPLACES a long comment rather than licensing one: if the
+# knowledge needs a paragraph, it belongs in `docs/research/` and the comment is the single line that
+# points there. Under that rule almost nothing needs an allowance, because a one-line comment requires
+# no justification in the first place -- which is precisely what made the earlier tag set redundant.
+#
+# `TRAP:`, `INVARIANT:` and `WHY-NOT:` were dropped for exactly that reason. Each states something a
+# single line can carry ("apply_up cost lives in abandoned branches, so a path count is a floor, not a
+# bound"), and where it genuinely cannot, the argument is a document, not a comment. Keeping unused
+# tags around would only offer three ready-made ways to buy length.
+#
+# `PORT-CORRESPONDENCE:` / `PORT-DIVERGENCE:` were dropped as LENGTH licenses but kept as review
+# vocabulary in the skill: they classify a claim so a reviewer knows what to verify, and that value does
+# not depend on the comment being long.
+#
+# `SAFETY:` stays because it is the one obligation with no external home. Measured: 209 unsafe sites in
+# this tree, concentrated at the FFI boundary (json_api.rs 87, grammar.rs 25, parse.rs 12), with 14 of
+# 19 crates forbidding unsafe entirely. An FFI precondition -- what the caller must guarantee about a
+# pointer's validity and lifetime -- is a proof about THIS call site, so there is nothing to point at.
+# It is also Rust's own convention and what clippy's undocumented_unsafe_blocks expects.
 
 # PORT: earns its place on the same ground the skill already grants a paper or an upstream issue: the
 # knowledge is DURABLE because its subject is external and frozen. This crate ports FieldWorks'

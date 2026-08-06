@@ -205,26 +205,30 @@ wrong. If an implementation comment wants a paragraph, that is a signal, and it 
 destinations: **lift it to the API docstring** if a caller needs it, or **make it a test** if it is a
 claim that could stop being true. Prose in the body is the option that rots.
 
-**An implementation comment may exceed one line only by CLAIMING one of these, by name:**
+**A reference document REPLACES a long comment; it does not license one.** If the knowledge needs a
+paragraph, write it in `docs/research/` and let the comment be the single line that points there. That
+is the whole answer for rejected alternatives, port divergences, algorithm derivations and measured
+rationale — all of which used to be reasons to write twelve lines in the body.
 
-| Tag | For |
-|---|---|
-| `SAFETY:` | an unsafe block's proof obligation (Rust's own convention) |
-| `INVARIANT:` | a property the code must preserve that is not locally checkable; breaking it is silent |
-| `TRAP:` | a hazard in surrounding behaviour that a plausible edit would trip |
-| `WHY-NOT:` | a rejected alternative that looks better than it is, and why it fails |
-| `PORT-CORRESPONDENCE:` | this must match the C# oracle exactly; here is the behaviour it matches |
-| `PORT-DIVERGENCE:` | this deliberately differs from the C# oracle; here is what and why |
+**Exactly one class buys extra lines: `SAFETY:`** — an unsafe block's proof obligation, up to three
+lines, and past that it needs an anchor like anything else.
 
-Past three lines a claim also needs an anchor. There is no generic escape and you may not invent a
-class. The port tag is **split so you must pick a direction** — that is what makes it checkable, since
-a reviewer can read the cited C# and ask "does ours match?" or "is the stated difference real?". A
-single vague tag lets a comment avoid saying which, and vague is the state in which a claim quietly
-stops being true.
+It is the only one because it is the only obligation with **no external home**: an FFI precondition is a
+proof about *this* call site (what the caller must guarantee about a pointer's validity and lifetime),
+so there is nothing to point at. It is also Rust's own convention and what clippy's
+`undocumented_unsafe_blocks` expects. Measured: 209 unsafe sites here, concentrated at the FFI boundary,
+with 14 of 19 crates forbidding unsafe entirely.
 
-**Each class's count is printed on every build**, so leaning on one shows up as a number. If `TRAP:`
-ever becomes the most-claimed class, it has turned into the generic escape hatch this design exists to
-prevent.
+**`TRAP:`, `INVARIANT:` and `WHY-NOT:` were tried and removed.** Each states something one line can
+carry — *"apply_up cost lives in abandoned branches, so a path count is a floor, not a bound"* is a
+complete trap in one line — and where it genuinely cannot, the argument is a document. Keeping them
+would have offered three ready-made ways to buy length.
+
+**`PORT-CORRESPONDENCE:` / `PORT-DIVERGENCE:` survive as review vocabulary, not as length licenses.**
+Prefix a one-line comment with one when it makes a claim about the C# oracle. The split forces you to
+say which, and that is what makes it checkable: a reviewer reads the cited C# and asks either "does ours
+match?" or "is the stated difference real and intended?". A single vague tag lets a comment avoid
+answering, and vague is the state in which a claim quietly stops being true.
 
 **There is no accepted count.** The checker is zero-tolerance: every violation is reported and every one
 is meant to go. It is a warning locally and fatal in CI. The ratchet it replaced was right against an
