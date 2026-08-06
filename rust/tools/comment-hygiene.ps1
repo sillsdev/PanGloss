@@ -301,8 +301,26 @@ $counts = [ordered]@{}
 $hits = @{}
 foreach ($cat in $categories.Keys) { $counts[$cat] = 0; $hits[$cat] = @() }
 $apiDocsLong = 0
+$referenceBacked = 0
 $claimed = [ordered]@{}
 foreach ($t in $exceptionTags) { $claimed[$t] = 0 }
+
+# A checked pointer to somewhere the long form actually lives. Looser than Get-BlockAnchor on purpose:
+# this only buys a SECOND LINE, whereas an anchor licenses a whole SAFETY: argument, so it admits an
+# external URL that cannot be validated offline. A paper or an upstream issue is durable in the way
+# this rule cares about even though no local check can follow it.
+function Get-BlockReference {
+    param([string]$Text, [string]$RepoRoot, [bool]$Cited)
+    if ($Cited) { return 'test-citation' }
+    if ($Text -match 'https?://') { return 'url' }
+    foreach ($m in [regex]::Matches($Text, '(?:rust/)?docs/[A-Za-z0-9._/\-]+\.md')) {
+        $p = $m.Value -replace '/', '\'
+        if ((Test-Path (Join-Path $RepoRoot $p)) -or (Test-Path (Join-Path $RepoRoot (Join-Path 'rust' $p)))) {
+            return 'docs'
+        }
+    }
+    return $null
+}
 
 # Is this block an API docstring or an implementation comment? The standard distinction (Ousterhout's
 # interface vs implementation documentation; Java's doc vs implementation comments) is what decides
@@ -430,7 +448,23 @@ foreach ($f in $files) {
                 foreach ($t in $exceptionTags) {
                     if ($text -match ('(?m)^\s*(?:///|//!|//|\*)\s*' + [regex]::Escape($t))) { $tag = $t; break }
                 }
-                if (-not $tag) {
+                # TWO lines when one of them is a checked reference: the pointer gets its own line so the
+                # other can say WHY you would follow it. A bare `see docs/research/<topic>.md` is close
+                # to useless -- the reader cannot tell whether it is worth the detour -- and forcing the
+                # summary and the pointer to share one line is how you get neither.
+                #
+                # The angle brackets in that example are load-bearing: a literal path here made the
+                # checker flag its own documentation as a dead link, which is the second time this file
+                # has caught its own prose.
+                #
+                # Deliberately capped at two. Three would reintroduce room for an argument, and the
+                # argument is the thing that belongs in the document.
+                $reference = if ($blockLines.Count -eq 2) {
+                    Get-BlockReference -Text $text -RepoRoot $repoRoot -Cited $blockCited
+                } else { $null }
+                if ($reference) {
+                    $referenceBacked++
+                } elseif (-not $tag) {
                     $counts['impl-comment-too-long']++
                     if ($List) {
                         $hits['impl-comment-too-long'] +=
@@ -513,6 +547,7 @@ foreach ($cat in $categories.Keys) {
 # you can see which one is being leaned on. `TRAP:` quietly becoming the most-claimed class would mean
 # it has turned into the generic escape hatch this design exists to avoid.
 Write-Host ("  {0,-24} {1,5}  (informational, not gated)" -f 'api-docstrings-long', $apiDocsLong) -ForegroundColor Gray
+Write-Host ("  {0,-24} {1,5}  (2-line: summary + checked reference)" -f 'reference-backed', $referenceBacked) -ForegroundColor Gray
 foreach ($t in $exceptionTags) {
     Write-Host ("  {0,-24} {1,5}  (claimed exception)" -f ("  " + $t), $claimed[$t]) -ForegroundColor Gray
 }
