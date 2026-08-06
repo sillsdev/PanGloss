@@ -207,14 +207,12 @@ impl<'de> Deserialize<'de> for Disposition {
 
 fn provenance_wire_name(provenance: EvidenceProvenance) -> &'static str {
     match provenance {
-        EvidenceProvenance::Behavioral => "behavioral",
         EvidenceProvenance::Structural => "structural",
     }
 }
 
 fn provenance_from_wire_name(s: &str) -> Option<EvidenceProvenance> {
     match s {
-        "behavioral" => Some(EvidenceProvenance::Behavioral),
         "structural" => Some(EvidenceProvenance::Structural),
         _ => None,
     }

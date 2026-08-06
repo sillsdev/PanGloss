@@ -17,7 +17,7 @@ use pg_rules::shape_feat::segment_with_features;
 use pg_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
 use pg_rules::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
 use pg_rules::word::{
-    GuessedRoot, MorphRecord, ResolvedRoot, RuntimeRoot, SuppliedAuthorityData, Word, WordKey,
+    MorphRecord, ResolvedRoot, RuntimeRoot, SuppliedAuthorityData, Word, WordKey,
 };
 use rustc_hash::FxHashMap as HashMap;
 
@@ -405,7 +405,7 @@ impl<'g> Morpher<'g> {
                     scope,
                     Some(filter),
                     rule_filter,
-                    &self.cache,
+                    Some(&self.cache),
                     &budget,
                     trace,
                     node_parent,
@@ -1215,54 +1215,8 @@ impl<'g> Morpher<'g> {
         surface::to_plain_string(table, &w.shape, false)
     }
 
-    /// Fabricate a hypothetical root for `shape_text` under `exemplar`'s class assignment, then run
-    /// it through the ordinary pipeline. Pick an exemplar whose FIRST allomorph has no environment
-    /// or stem-name restriction — the validity gate applies it and would reject a valid class.
-    pub fn synthesize_guessed_stem(
-        &self,
-        exemplar: LexEntryId,
-        shape_text: &str,
-        rule: Option<MRuleId>,
-    ) -> Vec<String> {
-        let g = self.g;
-        let entry = &g.entries[exemplar.0 as usize];
-        let Some(first_allo) = entry.allomorphs.first() else {
-            return Vec::new();
-        };
-        let stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
-        let table = &g.char_tables[g.strata[stratum.0 as usize].table.0 as usize];
-        let Ok(shape) = segment_with_features(g, table, shape_text) else {
-            return Vec::new();
-        };
-
-        let mut w = Word::new(shape, stratum);
-        w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
-        w.mpr = entry.mpr;
-        w.flags.is_partial = entry.partial;
-        w.root_allomorph = Some(AllomorphId::GUESSED);
-        let runtime = RuntimeRoot::Guessed(GuessedRoot {
-            pattern_allo: first_allo.id,
-            pattern_entry: exemplar,
-            text: shape_text.to_string(),
-        });
-        w.root_runtime_id = Some(shape_text.to_string());
-        w.morphs = vec![
-            MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
-                .with_runtime_root(runtime),
-        ];
-
-        if let Some(rid) = rule {
-            w.morphological_rule_unapplied(is_realizational_rule(g, rid), Some(rid));
-        }
-
-        let mut out: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        self.collect_valid_surfaces(self.synthesis_pipeline(w), &mut out);
-        out.into_iter().collect()
-    }
-
-    /// Synthesize a supplied root whose grammatical class is already resolved. Unlike
-    /// `Self::synthesize_guessed_stem` it borrows no exemplar restrictions and can replay a whole
-    /// multi-rule derivation; bounded exploration is deliberately left to the caller.
+    /// Synthesize a supplied root whose grammatical class is already resolved. It can replay a
+    /// whole multi-rule derivation; bounded exploration is deliberately left to the caller.
     pub fn synthesize_resolved_stem(
         &self,
         shape_text: &str,

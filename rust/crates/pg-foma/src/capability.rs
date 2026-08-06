@@ -1941,9 +1941,6 @@ pub type PredicateId = &'static str;
 /// Where a predicate's evidence comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvidenceProvenance {
-    /// Evidence comes from testing black-box behavior (e.g. foma `apply_up`/`apply_down` oracle
-    /// witnesses) — automata are not directly inspectable on this path.
-    Behavioral,
     /// Evidence comes from directly inspecting compositional structure (lowered automata, or —
     /// as `SimultaneousSubruleOverlapPredicate` does today — directly-readable model fields like
     /// `required_mpr`/`excluded_mpr`/`self_opaquing`).
@@ -1986,7 +1983,7 @@ pub trait CapabilityPredicate {
         profile: &CharacteristicsProfile,
         plan_node: &PlanNodeKind,
     ) -> PredicateVerdict;
-    /// `EvidenceProvenance::Behavioral` or `EvidenceProvenance::Structural`.
+    /// What kind of evidence backs this predicate's verdict.
     fn provenance(&self) -> EvidenceProvenance;
 }
 

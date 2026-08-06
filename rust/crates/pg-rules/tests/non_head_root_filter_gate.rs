@@ -1,10 +1,10 @@
-//! M5c acceptance gate — the compounding-analysis **non-head root filter**, the completion of
+//! Acceptance gate for the compounding-analysis **non-head root filter** —
 //! `AnalysisCompoundingRule.Apply`'s root-allomorph-search gate (AnalysisCompoundingRule.cs:61-125):
 //! "for computational complexity reasons, we ensure that the non-head is a root, otherwise we assume
 //! it is not a valid analysis and throw it away."
 //!
-//! `pg-rules` cannot depend on `pg-parse` (crate-boundary: `pg-parse` depends on `pg-rules`, not the
-//! reverse — plan §5.1 crate map), so `pg_rules::stratum::NonHeadRootFilter` is injected. These
+//! `pg-rules` cannot depend on `pg-parse` (`pg-parse` depends on `pg-rules`, not the
+//! reverse), so `pg_rules::stratum::NonHeadRootFilter` is injected. These
 //! tests stand in for `pg-parse`'s `RootAllomorphIndex::search` with a hand-written closure over a
 //! tiny hand-built lexicon (`Grammar::entries`), exercising `analyze_stratum_scoped_filtered`
 //! directly — no need for a real trie.
@@ -226,7 +226,7 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
         &AnalyzerConfig::default(),
         None,
         Some(filter),
-        &cache,
+        Some(&cache),
         &StepBudget::new(usize::MAX),
     );
     assert!(!out.capped);
@@ -257,7 +257,7 @@ fn split_dropped_when_non_head_is_not_a_root() {
         &AnalyzerConfig::default(),
         None,
         Some(filter),
-        &cache,
+        Some(&cache),
         &StepBudget::new(usize::MAX),
     );
     assert!(!out.capped);
@@ -302,7 +302,7 @@ fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
         &AnalyzerConfig::default(),
         None,
         Some(filter),
-        &cache,
+        Some(&cache),
         &StepBudget::new(usize::MAX),
     );
     assert!(
@@ -341,7 +341,7 @@ fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
         &AnalyzerConfig::default(),
         None,
         Some(filter),
-        &cache,
+        Some(&cache),
         &StepBudget::new(usize::MAX),
     );
     assert!(
@@ -377,6 +377,6 @@ fn unfiltered_backward_compat_ignores_the_gate_entirely() {
     assert!(!out.capped);
     assert!(
         has_apa_ka_split(&g, &out.words),
-        "no filter configured: the split must survive exactly as before M5c"
+        "no filter configured: the split must survive"
     );
 }

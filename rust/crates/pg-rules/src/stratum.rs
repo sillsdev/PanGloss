@@ -406,28 +406,16 @@ pub fn analyze_stratum_scoped(
     scope: Option<&MemoScope>,
     budget: &StepBudget,
 ) -> StratumAnalysis {
-    // No `RuleCache`: this entry point and `analyze_stratum` are test-only, and hand-built fixtures
-    // do not always register their `AffixAllomorphDef.id`s in `Grammar::allomorph_owners`, which the
-    // cache requires. `None` recompiles per call instead — see `crate::cache`'s module doc.
-    StratumAnalyzer::new(
-        g,
-        stratum,
-        *cfg,
-        scope,
-        None,
-        None,
-        None,
-        budget,
-        &crate::trace::NoopSink,
-        TraceHandle::DUMMY,
-    )
-    .analyze(input)
+    analyze_stratum_scoped_filtered(g, stratum, input, cfg, scope, None, None, budget)
 }
 
 /// Identical to `analyze_stratum_scoped`, plus the compounding non-head root filter (C#'s
-/// `AnalysisCompoundingRule.Apply` root-allomorph-search gate). `cache` is mandatory: this is the
-/// production entry point, and the cache is built once per `Morpher` and shared across every
-/// stratum, candidate, and worker of a parse.
+/// `AnalysisCompoundingRule.Apply` root-allomorph-search gate). Production callers pass
+/// `Some(cache)` — the cache is built once per `Morpher` and shared across every stratum,
+/// candidate, and worker of a parse. `None` recompiles matchers per call, which is what the
+/// unfiltered entry points above hand in: hand-built fixtures do not always register their
+/// `AffixAllomorphDef.id`s in `Grammar::allomorph_owners`, which the cache requires — see
+/// `crate::cache`'s module doc.
 #[allow(clippy::too_many_arguments)]
 pub fn analyze_stratum_scoped_filtered(
     g: &Grammar,
@@ -436,7 +424,7 @@ pub fn analyze_stratum_scoped_filtered(
     cfg: &AnalyzerConfig,
     scope: Option<&MemoScope>,
     non_head_root_filter: Option<NonHeadRootFilter>,
-    cache: &RuleCache,
+    cache: Option<&RuleCache>,
     budget: &StepBudget,
 ) -> StratumAnalysis {
     analyze_stratum_scoped_filtered_ruled(
@@ -463,7 +451,7 @@ pub fn analyze_stratum_scoped_filtered_ruled(
     scope: Option<&MemoScope>,
     non_head_root_filter: Option<NonHeadRootFilter>,
     rule_filter: Option<RuleFilter>,
-    cache: &RuleCache,
+    cache: Option<&RuleCache>,
     budget: &StepBudget,
 ) -> StratumAnalysis {
     analyze_stratum_scoped_filtered_ruled_traced(
@@ -493,7 +481,7 @@ pub fn analyze_stratum_scoped_filtered_ruled_traced(
     scope: Option<&MemoScope>,
     non_head_root_filter: Option<NonHeadRootFilter>,
     rule_filter: Option<RuleFilter>,
-    cache: &RuleCache,
+    cache: Option<&RuleCache>,
     budget: &StepBudget,
     trace: &dyn TraceSink,
     parent: TraceHandle,
@@ -505,7 +493,7 @@ pub fn analyze_stratum_scoped_filtered_ruled_traced(
         scope,
         non_head_root_filter,
         rule_filter,
-        Some(cache),
+        cache,
         budget,
         trace,
         parent,
