@@ -40,8 +40,7 @@ import os
 import re
 import sys
 
-# Anchored at a command boundary so `--features cargo-something` or a path containing "cargo" cannot
-# trip it, and \b after the verb so `cargo test-helper` (a hypothetical alias) is not caught either.
+# Anchored at a command boundary, and \b after the verb, so a flag value or an alias cannot trip it.
 BARE_CARGO = re.compile(
     r"(?:^|[;&|(]|\s)cargo\s+(?:\+[\w.-]+\s+)?(build|test|check|run|nextest\s+run)\b"
 )

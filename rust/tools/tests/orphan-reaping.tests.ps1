@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Covers: Test-ParentAlive / Test-ReapableScanProcess (rust/tools/_common.ps1) -- the liveness and
   selection rules behind `pg.ps1 -Mode gc`'s process sweeps. Everything runs against synthetic
   process records, so this NEVER enumerates, spawns, or terminates a real process.
@@ -27,8 +28,7 @@ $liveShell = New-FakeProc -Pid_ 100 -Name 'pwsh.exe'  -ParentPid 1  -Created $no
 $childScan = New-FakeProc -Pid_ 101 -Name 'find.exe'  -ParentPid 100 -Created $now.AddMinutes(-10)
 # An orphan: parent 999 appears nowhere in the snapshot.
 $orphanScan = New-FakeProc -Pid_ 102 -Name 'find.exe' -ParentPid 999 -Created $now.AddMinutes(-35)
-# The PID-reuse trap: parent PID 200 EXISTS, but was created after the child, so it cannot be the
-# process that spawned it -- the real parent is gone.
+# The PID-reuse trap: parent PID 200 exists but was created after the child, so it cannot be the real parent.
 $recycled = New-FakeProc -Pid_ 201 -Name 'find.exe'   -ParentPid 200 -Created $now.AddMinutes(-35)
 $reusedPid = New-FakeProc -Pid_ 200 -Name 'notepad.exe' -ParentPid 1 -Created $now.AddMinutes(-1)
 
@@ -65,9 +65,7 @@ Test-Case 'a freshly started orphan is left alone even at high CPU (age threshol
 }
 
 Test-Case 'PLAY NICELY: no Rust build process is ever reapable by the scan sweep' {
-    # The load-bearing test. Each of these is an orphan, ancient, and burning enormous CPU -- the
-    # worst case on every threshold at once -- and every one must still be refused purely on name,
-    # because it could belong to a build running in another worktree.
+    # Worst case on every threshold at once; each must still be refused purely by name -- it could be another worktree's build.
     foreach ($n in 'cargo.exe', 'rustc.exe', 'link.exe', 'cc1.exe', 'cargo-nextest.exe', 'sccache.exe') {
         $rust = New-FakeProc -Pid_ 300 -Name $n -ParentPid 999 -Created $now.AddHours(-3)
         Assert-False (Test-ReapableScanProcess -Proc $rust -Snapshot ($snapshot + $rust) -CpuSeconds 999999 -Now $now) `

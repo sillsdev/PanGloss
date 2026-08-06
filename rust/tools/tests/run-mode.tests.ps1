@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Covers: Resolve-RunTarget and Get-ExhaustionConsumersFromMessage (rust/tools/_common.ps1) -- the
   pure decision/parsing logic behind `pg.ps1 -Mode run` and the resource-exhaustion history surfaced
   by `pg.ps1 -Mode doctor`.
@@ -16,9 +17,7 @@
 . "$PSScriptRoot\_test-harness.ps1"
 . "$PSScriptRoot\..\_common.ps1"
 
-# ---------------------------------------------------------------------------------------------
-# Resolve-RunTarget: selector validation (exactly one of Example/Bin/Exe)
-# ---------------------------------------------------------------------------------------------
+# --- Resolve-RunTarget: selector validation (exactly one of Example/Bin/Exe) ---
 
 Test-Case 'zero selectors is rejected' {
     $r = Resolve-RunTarget
@@ -42,11 +41,7 @@ Test-Case 'exactly one selector (Exe) is accepted' {
 }
 
 Test-Case 'two selectors is rejected, not silently resolved by picking one' {
-    # This is the regression this suite exists to pin: a Where-Object result that unwraps to a
-    # single Hashtable when exactly one selector survives has a .Count of 2 (its KEY count, "Name"
-    # and "Value") rather than 1 -- which would make the ONE-selector case (below) fail as "got 2"
-    # and, symmetrically, could make a genuine two-selector error slip through if the arithmetic
-    # were reversed instead of fixed. Assert both directions explicitly.
+    # A Where-Object result that unwraps to a single Hashtable reports .Count as its KEY count (2), not 1.
     $r = Resolve-RunTarget -Example 'foo' -Exe 'bar.exe'
     Assert-False $r.Ok 'passing two selectors must be rejected, not silently resolved'
 }
@@ -57,16 +52,12 @@ Test-Case 'three selectors is rejected' {
 }
 
 Test-Case 'the exactly-one-selector case is not misreported as two (the Where-Object unwrap trap)' {
-    # The specific bug caught by hand-testing before trusting this in pg.ps1: a Hashtable surviving
-    # a Where-Object filter alone reports .Count as its KEY count. Pin the exact failure text would
-    # have shown ("got 2") to make sure it never regresses back to that.
+    # Pins the exact failure text ("got 2") a lone-surviving Hashtable's key-count bug would have shown.
     $r = Resolve-RunTarget -Exe 'C:\some\already-built.exe'
     Assert-True $r.Ok "a single -Exe selector must be accepted, not rejected as if two were passed ($($r.Detail))"
 }
 
-# ---------------------------------------------------------------------------------------------
-# Resolve-RunTarget: the -Exe path (no cargo involved)
-# ---------------------------------------------------------------------------------------------
+# --- Resolve-RunTarget: the -Exe path (no cargo involved) ---
 
 Test-Case '-Exe launches the path directly, not through cargo' {
     $r = Resolve-RunTarget -Exe 'C:\some\already-built.exe'
@@ -87,8 +78,7 @@ Test-Case '-Exe passes extra args straight through to the binary' {
 }
 
 Test-Case '-Exe strips exactly one leading literal "--" separator' {
-    # '--' is the conventional "everything after here is for the child" marker (this file's own
-    # header comment examples are written this way); it must not be forwarded as argv[1].
+    # '--' is the conventional "everything after here is for the child" marker; must not forward as argv[1].
     $r = Resolve-RunTarget -Exe 'C:\some\already-built.exe' -ExtraArgs @('--', '--grammar', 'foo.xml')
     Assert-Equal 2 $r.LaunchArgs.Count
     Assert-Equal '--grammar' $r.LaunchArgs[0]
@@ -96,8 +86,7 @@ Test-Case '-Exe strips exactly one leading literal "--" separator' {
 }
 
 Test-Case '-Exe does not strip a "--" that is not the FIRST token' {
-    # Only a LEADING '--' is the separator convention; one appearing later is the caller's own
-    # argument and must reach the binary unchanged.
+    # Only a leading '--' is the separator convention; one appearing later is the caller's own argument.
     $r = Resolve-RunTarget -Exe 'C:\some\already-built.exe' -ExtraArgs @('--grammar', '--', 'foo.xml')
     Assert-Equal 3 $r.LaunchArgs.Count
     Assert-Equal '--grammar' $r.LaunchArgs[0]
@@ -111,9 +100,7 @@ Test-Case '-Package is not consulted at all when -Exe is used' {
     Assert-False (@($r.LaunchArgs) -contains 'pg-foma') '-Package must be ignored on the -Exe path'
 }
 
-# ---------------------------------------------------------------------------------------------
-# Resolve-RunTarget: the -Example / -Bin path (goes through `cargo run`)
-# ---------------------------------------------------------------------------------------------
+# --- Resolve-RunTarget: the -Example / -Bin path (goes through `cargo run`) ---
 
 Test-Case '-Example builds a `cargo run --release --example NAME` command' {
     $r = Resolve-RunTarget -Example 'predict_census'
@@ -171,13 +158,9 @@ Test-Case 'no passthrough args means no trailing "--" at all for cargo run' {
     Assert-False (@($r.LaunchArgs) -contains '--') 'an empty passthrough list must not still emit a bare --'
 }
 
-# ---------------------------------------------------------------------------------------------
-# Get-ExhaustionConsumersFromMessage: parsing Microsoft-Windows-Resource-Exhaustion-Detector text
-# ---------------------------------------------------------------------------------------------
+# --- Get-ExhaustionConsumersFromMessage: parsing Microsoft-Windows-Resource-Exhaustion-Detector text ---
 
-# Real message text captured from this machine's System log (event ID 2004) -- a genuine
-# low-virtual-memory diagnostic, not a synthetic string, so the parser is exercised against
-# Windows' actual message format.
+# Real message text captured from a System log event ID 2004, not a synthetic string.
 $script:RealExhaustionMessage = 'Windows successfully diagnosed a low virtual memory condition. The following programs consumed the most virtual memory: predict_census.exe (30004) consumed 118387073024 bytes, vmmemCmZygote (9984) consumed 853762048 bytes, and MsMpEng.exe (5320) consumed 529256448 bytes.'
 
 Test-Case 'parses all three consumers out of a real captured message' {
@@ -191,8 +174,7 @@ Test-Case 'parses all three consumers out of a real captured message' {
 }
 
 Test-Case 'GB is derived from bytes, not a separate unit the message never actually provides' {
-    # The real message only ever says "bytes" (no KB/MB/GB variants observed) -- GB is OUR
-    # conversion for readability, not a second thing parsed from the text.
+    # The real message only ever says "bytes"; GB is our own conversion, not a second thing parsed from the text.
     $consumers = Get-ExhaustionConsumersFromMessage -Message $script:RealExhaustionMessage
     Assert-Equal 110.3 $consumers[0].GB
 }
@@ -203,9 +185,7 @@ Test-Case 'an empty or null message parses to zero consumers, not an error' {
 }
 
 Test-Case 'unrecognized message text parses to zero consumers rather than throwing' {
-    # Parsing is best-effort by design (see the function's own comment: Microsoft does not publish
-    # a stable grammar for this text). A future Windows build changing the wording must degrade to
-    # "could not parse", never crash the doctor run that was trying to surface useful history.
+    # Best-effort by design: Microsoft publishes no stable grammar, so a wording change must degrade, never crash.
     $consumers = Get-ExhaustionConsumersFromMessage -Message 'some totally different message shape'
     Assert-Equal 0 $consumers.Count
 }
@@ -221,17 +201,10 @@ Test-Case 'a two-consumer message (fewer than the usual three) still parses corr
     Assert-Equal 2.0 $consumers[1].GB
 }
 
-# ---------------------------------------------------------------------------------------------
-# Get-ResourceExhaustionEvents: the live-query wrapper must never throw, on any machine
-# ---------------------------------------------------------------------------------------------
+# --- Get-ResourceExhaustionEvents: the live-query wrapper must never throw, on any machine ---
 
 Test-Case 'Get-ResourceExhaustionEvents never throws, and always reports Queryable one way or the other' {
-    # The one test that touches the real machine/log. Deliberately asserts only the CONTRACT every
-    # caller (pg.ps1 -Mode doctor) relies on -- it always returns an object with Queryable/Events,
-    # regardless of whether this machine has exhaustion history, denies access to the System log, or
-    # lacks the provider entirely -- never the live CONTENT, which would make this test's outcome
-    # depend on this specific machine's history (exactly the trap Get-AvailableMemoryGB's own test
-    # avoids by asserting shape, not value).
+    # The one test that touches the real machine/log; asserts only the contract, never the live content.
     $r = Get-ResourceExhaustionEvents -Since ((Get-Date).AddDays(-7))
     Assert-True ($null -ne $r.Queryable) 'Queryable must always be present (true or false), never absent'
     Assert-True ($null -ne $r.Events) 'Events must always be an (possibly empty) collection, never null'
@@ -240,16 +213,7 @@ Test-Case 'Get-ResourceExhaustionEvents never throws, and always reports Queryab
     }
 }
 
-# ---------------------------------------------------------------------------------------------
-# Split-ExtraArgsSpec: the binder-proof passthrough channel.
-#
-# `pwsh -File pg.ps1 ... -- <cargo args>` cannot work -- under -File the bare `--` reaches the
-# parameter binder, which rejects it as an empty parameter name (verified with and without
-# [CmdletBinding()], quoting included). And omitting the separator silently misbinds a
-# single-dash cargo arg onto a same-prefix script parameter (`-p foo` -> -Package), which is the
-# self-concealing failure class this tooling exists to prevent. PANGLOSS_EXTRA_ARGS bypasses the
-# binder entirely; these tests pin its tokenizer.
-# ---------------------------------------------------------------------------------------------
+# --- Split-ExtraArgsSpec: the binder-proof passthrough channel; see pg.ps1's own header for why it exists. ---
 
 Test-Case 'a simple spec splits on whitespace' {
     $a = Split-ExtraArgsSpec '-p pg-foma --no-capture'
@@ -279,8 +243,7 @@ Test-Case 'an empty or absent spec yields no arguments, not a one-element blank'
 }
 
 Test-Case 'a bare -- in the spec is preserved for cargo, not eaten' {
-    # The env channel is a raw argv carrier: if the caller needs cargo's own `--` separator it must
-    # arrive intact. This is the one place `--` is safe, precisely because no binder is involved.
+    # The env channel is a raw argv carrier, so cargo's own `--` separator must arrive intact -- no binder is involved.
     $a = Split-ExtraArgsSpec '-- --nocapture'
     Assert-Equal 2 $a.Count "got: $($a -join '|')"
     Assert-Equal '--' $a[0]

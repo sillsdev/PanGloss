@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Managed entry point for the PanGloss Rust workspace. Run from any
   worktree -- it resolves its own paths (Get-RepoRoot/Get-RustRoot), same as build.ps1/test.ps1
   always have.
@@ -78,6 +79,30 @@
     rust\tools\pg.ps1 -Mode run -Bin pangloss -- batch --threads 1 --word-timeout-ms 5000
     rust\tools\pg.ps1 -Mode run -Exe C:\path\to\already-built.exe -- --some-flag
     rust\tools\pg.ps1 -Mode run -Exe .\predict_census.exe -RunMemoryGB 40   # deliberate large-mem experiment
+
+  -Filter vs -TestTarget (documented here because getting this backwards cost seven wrong invocations
+  in one session): -Filter narrows EXECUTION ONLY -- appended as a bare positional to the test runner,
+  it matches TEST NAMES as a substring, never file names or test-target names, and cargo still
+  compiles and links every test target in the package regardless. -TestTarget narrows COMPILATION --
+  it maps to cargo's `--test <name>`, building and linking ONE test binary instead of every target in
+  the package, which for pg-foma is ~78 separate binaries and the difference between a ~10s warm run
+  and a ~996s cold one. A zero-match -Filter fails loudly ("no tests to run", exit 4); a PARTIAL match
+  is silent -- it runs some tests, exits 0, and omits the ones you meant.
+
+  -Jobs / -TestThreads: 0 means "derive from the machine" (Get-CargoJobBudget: logical cores minus
+  the interactive reserve, narrowed further by available memory, split across build slots) -- see
+  docs/research/build-resource-governance.md. A positive value overrides the derivation outright for
+  one run, e.g. at the console with no remote session to protect. They are separate knobs because they
+  bound different phases: -Jobs caps compilation, -TestThreads caps how many test processes execute.
+
+  -RunMemoryGB (run mode only): overrides the job object's committed-memory ceiling for one run; 0
+  derives the same machine-proportional cap an ordinary build gets. This is the mechanism for a
+  deliberate large-memory experiment (e.g. 40GB) without touching PANGLOSS_JOB_MEM_GB, which would
+  also change every ordinary build's cap for as long as the env var stayed set.
+
+  -BuildSlotTimeoutSeconds (default 1800 = 30 minutes): long enough that a normal queued build never
+  trips it, short enough that a genuinely wedged holder (crashed mid-build without releasing) is
+  reported rather than blocking every other worktree's build silently forever.
 #>
 # PositionalBinding = $false is a CORRECTNESS gate, not style. Without it every string parameter
 # below is implicitly positional, so a stray or misplaced cargo flag is silently absorbed as the
@@ -99,58 +124,26 @@ param(
     [string]$Base = '',
     [string]$Branch = '',
     [string]$Package = '',
-    # `-Filter` narrows EXECUTION ONLY. It is appended as a bare positional to `cargo nextest run`
-    # (or after `--` for libtest), where it matches TEST NAMES as a SUBSTRING -- never file names,
-    # never test-target/binary names. Cargo still compiles and LINKS every test target in the
-    # package regardless, which for pg-foma is ~78 separate binaries. If what you want is "run the
-    # tests in <file>.rs", you want -TestTarget, not -Filter.
-    #
-    # This distinction is documented here because it was got wrong SEVEN times in one session (five
-    # file names passed to -Filter, plus two subagents that concluded -TestTarget's underlying flag
-    # was unreachable). A zero-match run fails loudly -- nextest prints "error: no tests to run" and
-    # exits 4 -- but the PARTIAL match is silent: it runs some tests, exits 0, and omits the ones you
-    # meant. That produced a confidently-filed bug report about a harness defect that did not exist.
+    # Narrows EXECUTION only, by test NAME substring -- never file/target names. See this script's own header.
     [string]$Filter = '',
-    # `-TestTarget` narrows COMPILATION: it maps to cargo's `--test <name>`, building and linking ONE
-    # test binary instead of every target in the package. This is the difference that matters for
-    # loop speed -- measured: a warm tree running 13 tests via -TestTarget took 10.6s, while a cold
-    # dependency graph for the same package took ~996s and exceeded the 595s agent tool cap. Three
-    # agent batches produced ZERO measurements by paying the cold, all-targets cost repeatedly.
-    #
-    # Reachable before this parameter existed only as
-    # `$env:PANGLOSS_EXTRA_ARGS = '--test <name>'`, which is why two agents concluded it did not
-    # exist at all. Undiscoverable is the same as absent.
+    # Narrows COMPILATION: maps to cargo's `--test <name>`. See this script's own header.
     [string]$TestTarget = '',
-    # run only: exactly ONE of these three selects what to run -- see the header comment above and
-    # the -Mode run validation block below for the full contract.
+    # run only: exactly ONE of these three selects what to run -- see this script's own header.
     [string]$Example = '',
     [string]$Bin = '',
     [string]$Exe = '',
-    # run only: override the job object's committed-memory ceiling for one run. 0 = derive the same
-    # machine-proportional cap a build gets (Get-JobMemoryCapGB -MaxConcurrent $MaxConcurrent) --
-    # see that function's comment for the derivation. A positive value bypasses the derivation
-    # entirely (same pattern as -Jobs/-TestThreads below), which is deliberately how a caller runs
-    # the "what if this needs 40GB" experiment CLAUDE.md's background section calls for, without
-    # touching PANGLOSS_JOB_MEM_GB (which would also change every ordinary build's cap for as long
-    # as the env var stayed set).
+    # run only: overrides the job's committed-memory ceiling for one run; 0 derives the machine-proportional default.
     [int]$RunMemoryGB = 0,
     [switch]$DebugProfile,
     [switch]$NoNextest,
     [int]$MaxConcurrent = 2,
-    # 0 = derive from the machine (Get-CargoJobBudget: logical cores, minus the interactive
-    # reserve, split across the build slots). Pass a number to override for one run -- e.g. at the
-    # console with no remote session to protect.
+    # 0 = derive from the machine; see this script's own header.
     [int]$Jobs = 0,
-    # 0 = same derivation as -Jobs. Separate knob because it governs a DIFFERENT phase: -Jobs caps
-    # compilation, this caps how many test processes execute at once. Capping only the first leaves
-    # the run's second half uncapped.
+    # 0 = same derivation as -Jobs, but for a different phase: this caps test-process execution, not compilation.
     [int]$TestThreads = 0,
-    # CPU priority for cargo and everything it spawns. BelowNormal by default so sshd and Chrome
-    # Remote Desktop's encoder preempt compiler work; 'Normal' restores the old behavior.
+    # BelowNormal by default so sshd and Chrome Remote Desktop's encoder preempt compiler work.
     [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
-    # 30 minutes: long enough that a normal queued build never trips this, short enough that a
-    # genuinely wedged holder (crashed mid-build without releasing) is reported rather than
-    # blocking every other worktree's build silently forever.
+    # 30 minutes: long enough not to trip on a normal queue, short enough to report a genuinely wedged holder.
     [int]$BuildSlotTimeoutSeconds = 1800,
     [switch]$NoSccache,
     [ValidateSet('strict', 'development', 'off')][string]$BaseMode = 'development',
@@ -160,48 +153,26 @@ param(
 
 . "$PSScriptRoot\_common.ps1"
 
-# FIRST thing after loading the library, before any mode dispatch, preflight, or Cargo argument is
-# built: refuse if the script and the working directory disagree about which worktree this is. Placed
-# here because every mode below (build/test/run/gc/doctor) resolves paths from the CWD-derived repo
-# root, so a mismatch would mis-target all of them equally -- and because a refusal is only useful
-# before work starts. See Assert-ScriptAndCwdAgreeOnWorktree for what this cost when it was absent.
+# FIRST thing after loading the library: every mode below resolves paths from the CWD-derived repo root.
 Assert-ScriptAndCwdAgreeOnWorktree -ScriptRoot $PSScriptRoot
 
-# Binder-proof passthrough channel. `pwsh -File pg.ps1 ... -- <cargo args>` CANNOT work: under -File
-# the bare `--` reaches PowerShell's parameter binder, which rejects it as an empty parameter name.
-# Worse, dropping the `--` silently misbinds any single-dash cargo argument that prefix-matches a
-# parameter here (`-p foo` binds to -Package; cargo never sees it). Both verified -- see
-# Split-ExtraArgsSpec for the full reproduction. Nothing inside this script can intercept either
-# case, because binding fails or mis-resolves before the first line of the body runs.
-#
-# So callers that cannot use the call operator get an env var, which bypasses the binder entirely:
-#   $env:PANGLOSS_EXTRA_ARGS = '-p pg-foma --no-capture'; pwsh -File rust\tools\pg.ps1 -Mode test
-# Appended AFTER $ExtraArgs so an explicitly-typed argument still wins on cargo's own last-wins rule.
+# Binder-proof passthrough for callers that cannot use the call operator; appended AFTER $ExtraArgs so an explicit arg still wins.
 if ($env:PANGLOSS_EXTRA_ARGS) {
     $ExtraArgs = @($ExtraArgs) + @(Split-ExtraArgsSpec $env:PANGLOSS_EXTRA_ARGS)
 }
 
-# The optimized-but-not-fat-LTO profile rust/Cargo.toml declares as `[profile.pg-test-opt]`
-# (inherits = "release", lto = "thin", codegen-units = 16, reduced debug info) -- see that file's
-# comment for why `test`/`corpus-test` must not default to release's fat LTO/codegen-units=1.
+# The thin-LTO profile rust/Cargo.toml declares as `[profile.pg-test-opt]`; see that file's comment for why.
 $script:TestOptProfile = 'pg-test-opt'
 
 $repoRoot = Get-RepoRoot
 $rustRoot = Get-RustRoot
 
 if ($Mode -eq 'new-worktree') {
-    # The bootstrap half of the exact-base contract. Without it, Write-WorktreeMeta is never called,
-    # no worktree has metadata, and Test-WorktreeBase can only ever report "unverified" -- the check
-    # exists but has nothing to check against. This is the observed failure it prevents: a worktree
-    # requested at one commit materialized at a DIFFERENT one (an older session's tip), and nothing
-    # compared the two before minutes of building measured the wrong tree.
+    # The bootstrap half of the exact-base contract: without it, no worktree has metadata and Test-WorktreeBase can only report "unverified".
     if (-not $Path) { Write-Host '[pg] new-worktree requires -Path' -ForegroundColor Red; exit 2 }
     if (-not $Base) { Write-Host '[pg] new-worktree requires -Base (a revision: branch, tag, or SHA)' -ForegroundColor Red; exit 2 }
 
-    # Resolve to a full object ID BEFORE creating anything, and peel to a commit so an annotated tag
-    # records the commit it points at rather than the tag object. A branch name resolved later (or
-    # left unresolved) is exactly how a worktree ends up on a different commit than intended: the
-    # branch can move between the request and the creation.
+    # Resolve to a full object ID before creating anything: a branch name resolved later is exactly how a worktree ends up on the wrong commit.
     $resolved = (git rev-parse --verify "$Base^{commit}" 2>$null)
     if ($LASTEXITCODE -ne 0 -or -not $resolved) {
         Write-Host "[pg] cannot resolve -Base '$Base' to a commit in this repository." -ForegroundColor Red
@@ -227,12 +198,7 @@ if ($Mode -eq 'new-worktree') {
     Write-Host "[pg] requested '$($meta.requested_revision)' -> resolved $($meta.resolved_object_id)" -ForegroundColor DarkGray
     Write-Host '[pg] NOTE: private corpora under samples/data/ are gitignored and are NOT copied into a new worktree. Corpus-backed suites there will refuse under -Mode corpus-test until you populate it or set PANGLOSS_CORPUS_ROOT.' -ForegroundColor Yellow
 
-    # Born ready: initialize the (public, non-gitignored) `machine` conformance submodule right now
-    # rather than leaving every fresh worktree to fail `w91_affix_shapes_covered_by_upstream_fixtures`
-    # with "machine submodule initialized?" the first time someone runs `-Mode test` here. Unlike the
-    # private-corpus note above, this data is fetchable by this tool, so a failure here is something
-    # to fail LOUDLY on rather than merely note -- same distinct exit code -Mode test/corpus-test use
-    # for the identical failure, since the underlying problem (submodule unavailable) is the same one.
+    # Born ready: initializes the machine conformance submodule now rather than leaving every fresh worktree to fail it later.
     $conformanceResult = Initialize-ConformanceSubmodule -RepoRoot $newRoot
     if ($conformanceResult.Ok) {
         Write-Host "[pg] conformance submodule ($($conformanceResult.Mode)): $($conformanceResult.Detail)" -ForegroundColor Green
@@ -247,11 +213,7 @@ if ($Mode -eq 'new-worktree') {
 }
 
 if ($Mode -eq 'run') {
-    # Fail fast, before any of the (comparatively expensive) preflight machinery below runs, on the
-    # usage errors: exactly one of -Example/-Bin/-Exe, and (for -Exe specifically) a path that
-    # actually exists. Resolve-RunTarget (_common.ps1) owns the selector/argument logic itself so
-    # it stays unit-testable in rust/tools/tests/ without launching cargo or a probe binary; the
-    # existence check stays here because it is the one part of this that touches the filesystem.
+    # Fail fast on usage errors before the expensive preflight machinery below runs; the -Exe existence check stays here since it touches the filesystem.
     $runTargetCheck = Resolve-RunTarget -Example $Example -Bin $Bin -Exe $Exe
     if (-not $runTargetCheck.Ok) {
         Write-Host "[pg] $($runTargetCheck.Detail)" -ForegroundColor Red
@@ -264,36 +226,17 @@ if ($Mode -eq 'run') {
 }
 
 if ($NoSccache) {
-    # Explicit and noisy on purpose: forcing MaxConcurrent to 1 means a caller can't accidentally combine no-cache
-    # with the normal 2-way concurrency and double the uncached CPU/disk contention.
+    # Explicit and noisy: forcing MaxConcurrent to 1 stops no-cache from also doubling uncached CPU/disk contention.
     Write-Host '[pg] NO-CACHE EMERGENCY MODE (-NoSccache): this build will not share compiled artifacts with any other worktree. Forcing MaxConcurrent=1.' -ForegroundColor Magenta
     $MaxConcurrent = 1
 }
 
-# Computed AFTER the -NoSccache block above, because that block can lower MaxConcurrent and the
-# job budget is per-slot: a run that just became the only permitted build should get the whole
-# budget rather than half of it.
-#
-# Exported as CARGO_BUILD_JOBS rather than appended as `-j`, for two reasons. It reaches cargo
-# subcommands that don't take `-j` in the same position (nextest's `--cargo-profile` form), and it
-# beats rust/.cargo/config.toml's static `jobs` floor in Cargo's precedence order (CLI > env >
-# config) without overriding an explicit `-j` a caller put in $ExtraArgs, which still wins.
-#
-# Both budgets below are then narrowed by AVAILABLE MEMORY, not just by cores. Threads were capped
-# and bytes were not, and this machine was taken down twice by the uncapped half: a polite 7-wide
-# build whose test processes each reached several GB still drove available memory to nothing, and a
-# daemon blocked on a page fault stalls a remote session just as completely as one starved of CPU
-# (BelowNormal priority buys nothing there -- it is not waiting for the scheduler).
+# Computed AFTER -NoSccache (which can lower MaxConcurrent) since the job budget is per-slot, and narrowed by
+# available memory as well as cores. docs/research/build-resource-governance.md
 $availableMemGB = Get-AvailableMemoryGB
 $memCheck = Test-MemoryReserve -AvailableGB $availableMemGB
 
-# `build` and `release` both land on [profile.release] (lto = "fat", codegen-units = 1) unless
-# -DebugProfile takes `build` off it; test/corpus-test use pg-test-opt (thin LTO) instead. `run`
-# with -Example/-Bin compiles through `cargo run`, which lands on the same fat-LTO release profile
-# by the same rule -- but `run -Exe` compiles nothing at all, so it must NOT be counted here (this
-# budget only estimates COMPILE-time job memory; the job object's own commit ceiling, computed
-# separately below in the `run` branch, is what actually bounds the running probe). The distinction
-# matters more than any other input to this budget -- see Get-PerJobMemoryGB.
+# `run -Exe` compiles nothing, so it must not be counted in this COMPILE-time job memory estimate -- see Get-PerJobMemoryGB.
 $fatLto = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile)) -or (($Mode -eq 'run') -and (-not $Exe) -and (-not $DebugProfile))
 $perJobMemGB = Get-PerJobMemoryGB -FatLto:$fatLto
 
@@ -304,18 +247,8 @@ $jobsBudget = Resolve-ConcurrencyBudget -CpuBudget (Get-CargoJobBudget -MaxConcu
 if (-not $jobsExplicit) { $Jobs = $jobsBudget.Value }
 $env:CARGO_BUILD_JOBS = "$Jobs"
 
-# The EXECUTION half of the same problem. CARGO_BUILD_JOBS bounds compilation only; once cargo
-# finishes building, nextest (and libtest) fan out test processes at their own default of one per
-# logical core -- 20 here, with no nextest.toml in this repo to say otherwise. So a capped build
-# was followed immediately by an uncapped 20-wide test run, which is the heavier half: these suites
-# spawn real processes (pangloss.exe, worker_test_child.exe, a C and C++ toolchain for
-# pg-ffi::header_abi), and corpus/foma cases can reach many GB of RSS each
-# (CLAUDE.md, "Probe pathological grammars single-threaded"). 20 of those at once is a memory
-# storm as much as a CPU one, and memory pressure is what actually freezes a remote session.
-#
-# Sized against a HEAVIER per-process memory allowance than compilation gets: a rustc is
-# predictable, whereas a test process in this workspace can be an entire grammar compile and is not
-# bounded by anything we control.
+# The EXECUTION half: CARGO_BUILD_JOBS bounds compilation only, and nextest/libtest fan out test processes
+# at their own uncapped default. Sized against a heavier per-process allowance. docs/research/build-resource-governance.md
 $testThreadsExplicit = ($TestThreads -gt 0)
 $testThreadsBudget = Resolve-ConcurrencyBudget -CpuBudget (Get-CargoJobBudget -MaxConcurrent $MaxConcurrent) `
     -MemoryBudget (Get-MemoryProcessBudget -AvailableGB $availableMemGB -PerProcessGB $script:MemoryPerTestProcessGB -MaxConcurrent $MaxConcurrent) `
@@ -350,17 +283,8 @@ if ($usedSccache -and -not $sccacheHealth.Ok) {
     exit $script:ExitCodeCacheUnavailable
 }
 
-# Must come after the health check above (that's what starts the daemon) and before cargo runs
-# (priority is inherited at spawn). Covers the rustc processes the sccache SERVER spawns, which are
-# NOT cargo's children and so do not pick up the priority set in Invoke-CargoWithReaper -- see
-# Set-SccacheServerPriority for the measurement that showed most of the fan-out was escaping.
-#
-# Deliberately NOT guarded on `$Priority -ne 'Normal'`. The sccache server is long-lived and shared
-# across every build on the machine, so whatever priority one run leaves on it persists into the
-# next. With a `Normal` early-out, a single `-Priority Idle` run would strand the daemon at Idle
-# indefinitely and a later `-Priority Normal` -- someone explicitly asking for full speed -- would
-# silently keep compiling at Idle. Setting it unconditionally makes the daemon track the priority
-# actually requested, in both directions.
+# Must come after the health check (starts the daemon) and before cargo runs (priority is inherited at spawn).
+# Called unconditionally, even for 'Normal' -- see docs/research/build-resource-governance.md.
 if ($usedSccache) {
     $null = Set-SccacheServerPriority -Priority $Priority
 }
@@ -377,34 +301,26 @@ if ($Mode -eq 'corpus-test') {
     $corpusState = Test-CorpusPresent -RepoRoot $repoRoot -Manifest $corpusManifest
 }
 
-# The `machine` conformance submodule: needed by `test` (conformance_fixtures_gate is NOT
-# #[ignore]d -- it runs in the ordinary suite) and `corpus-test` (same suite, plus corpus-gated
-# ones), and reported (not just checked) by `doctor` since a fresh, never-tested worktree is
-# exactly the state doctor exists to catch before someone burns a build finding out the hard way.
-# Not computed for build/release/gc/run: those modes don't reach conformance_fixtures_gate at all,
-# and a git invocation on every one of THOSE would be exactly the "tax on ordinary work" this
-# design elsewhere refuses to add -- Initialize-ConformanceSubmodule's own fast path already makes
-# the already-initialized case a single Test-Path, but there is no reason to pay even that outside
-# the modes that need it.
+# Not computed for build/release/gc/run: those modes never reach conformance_fixtures_gate, so even a fast-path Test-Path is an avoidable tax.
 $conformanceCheck = $null
 if ($Mode -eq 'test' -or $Mode -eq 'corpus-test' -or $Mode -eq 'doctor') {
     $conformanceCheck = Initialize-ConformanceSubmodule -RepoRoot $repoRoot
 }
 
-# Reported on EVERY managed build, not only in doctor -- it previously ran in doctor alone, which is
-# the mode nobody runs before an ordinary build, so a comment regression could survive indefinitely.
-#
-# Deliberately NOT folded into the unsafe/exit-code decision. A stale comment cannot make a build
-# wrong, and a documentation finding that blocks every managed build is the exact gate shape this repo
-# has already watched get switched off and then protect nothing. Loud, never fatal.
-#
-# The ratchet fails only on a category GROWING, so a red line means markers were ADDED since the
-# baseline -- not that the standing backlog still exists.
-#
-# Costs ~7s per invocation against ~400 files, which is why it prints its own timing: if that ever
-# becomes the reason someone reaches for bare cargo, the cost has outgrown the benefit and it should
-# move to changed-files-only rather than be quietly dropped.
 function Invoke-CommentHygieneReport {
+    <#
+      .DESCRIPTION
+      Reported on EVERY managed build, not only in doctor -- doctor is the mode nobody runs before an
+      ordinary build, so a comment regression there could survive indefinitely.
+
+      Deliberately NOT folded into the unsafe/exit-code decision: a documentation finding that blocks
+      every managed build is the gate shape this repo has already watched get switched off and then
+      protect nothing. Loud, never fatal.
+
+      Prints its own timing (costs a few seconds per invocation against several hundred files): if
+      that cost ever becomes the reason someone reaches for bare cargo, it has outgrown the benefit
+      and should move to changed-files-only rather than be quietly dropped.
+    #>
     param([Parameter(Mandatory)][string]$ToolRoot)
     $hygiene = Join-Path $ToolRoot 'comment-hygiene.ps1'
     if (-not (Test-Path $hygiene)) { return }
@@ -415,27 +331,26 @@ function Invoke-CommentHygieneReport {
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[pg] comment hygiene: clean (${secs}s)." -ForegroundColor Green
     } else {
-        # A WARNING here and fatal in CI, deliberately. There is no accepted count -- every violation
-        # listed is meant to go -- but blocking every local build on documentation is how a gate gets
-        # switched off, and a switched-off gate protects nothing.
+        # Warning here, fatal in CI: blocking every local build on documentation is how a gate gets switched off.
         Write-Host "[pg] comment hygiene: violations present -- warning here, fatal in CI (${secs}s)." -ForegroundColor Yellow
         $hygieneOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
     }
 }
 
-# Formatting is APPLIED, not merely checked, before any mode that is about to compile. Deciding line
-# breaks and spacing by tool removes a whole class of diff churn and of "who reformatted this" argument,
-# and it is the one cleanup that is provably semantics-preserving.
-#
-# Applying rather than checking is safe HERE specifically because agents in this repo are instructed not
-# to build: the compile modes are the coordinator's path, so this never rewrites a file out from under an
-# agent mid-edit. If that ever changes, this must become a check.
-#
-# No rustfmt.toml on purpose. Stock defaults already match this repo's conventions -- max_width 100 is
-# both rustfmt's default and the width the comments here wrap to -- and a config file is an invitation to
-# relitigate settings that nothing depends on. `wrap_comments` stays off, so this never rewrites comment
-# TEXT; that is the comment checker's job and the two must not fight over the same lines.
 function Invoke-RustFmt {
+    <#
+      .DESCRIPTION
+      Formatting is APPLIED, not merely checked, before any mode that is about to compile: it is the
+      one cleanup that is provably semantics-preserving, and removes a whole class of diff churn.
+      Safe specifically because agents in this repo are instructed not to build -- the compile modes
+      are the coordinator's path, so this never rewrites a file out from under an agent mid-edit. If
+      that ever changes, this must become a check instead.
+
+      No rustfmt.toml on purpose: stock defaults already match this repo's conventions, and a config
+      file is an invitation to relitigate settings nothing depends on. `wrap_comments` stays off, so
+      this never rewrites comment TEXT -- that is the comment checker's job, and the two must not
+      fight over the same lines.
+    #>
     param([Parameter(Mandatory)][string]$RustRoot)
     if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { return }
     $before = & cargo fmt --all --manifest-path (Join-Path $RustRoot 'Cargo.toml') -- --check 2>&1
@@ -445,8 +360,7 @@ function Invoke-RustFmt {
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[pg] rustfmt: applied ($hunks hunk(s) reformatted -- they are in your working tree now)." -ForegroundColor Yellow
     } else {
-        # A parse error is the usual cause, and it will fail the build a moment later with a better
-        # message. Never fatal here: refusing to build because the formatter tripped helps nobody.
+        # A parse error is the usual cause and will fail the build a moment later with a better message.
         Write-Host '[pg] rustfmt: could not run (syntax error?) -- continuing to the build for a real diagnostic.' -ForegroundColor Yellow
     }
 }
@@ -486,9 +400,7 @@ if (-not $diskCheck.Ok) {
     exit $script:ExitCodeLowDisk
 }
 
-# The spawn gate. gc/doctor are exempt by construction: gc is the recovery action for exactly this
-# state (refusing to run it when memory is low would leave no way out but a reboot), and doctor is
-# reached above and reports rather than exits here.
+# The spawn gate; gc/doctor are exempt by construction -- gc is the recovery action, doctor only reports.
 if (-not $memCheck.Ok) {
     Write-Host "[pg] $($memCheck.Detail)" -ForegroundColor Red
     $top = @(Get-TopMemoryConsumers -Top 5)
@@ -501,12 +413,10 @@ if (-not $memCheck.Ok) {
     exit $script:ExitCodeLowMemory
 }
 
-# Not in doctor: doctor reports it in its own findings section further up, and this path runs for every
-# mode, so an unguarded call ran the ~7s scan twice there.
+# Not in doctor: it reports this in its own findings section further up, so an unguarded call would scan twice there.
 if ($Mode -ne 'doctor') { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }
 
-# Only for modes that actually compile. `gc` and `run` must not rewrite source as a side effect, and
-# `doctor` is explicitly a read-only environment report.
+# Only for modes that actually compile: `gc`/`run` must not rewrite source, and `doctor` is read-only.
 if ($Mode -in @('build', 'test', 'corpus-test', 'release', 'doc')) { Invoke-RustFmt -RustRoot $rustRoot }
 
 if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
@@ -516,12 +426,7 @@ if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
     exit $script:ExitCodeMissingCorpus
 }
 
-# ($Mode -eq 'test' -or 'corpus-test') refused BEFORE starting cargo -- the same fail-closed shape
-# as the corpus-missing gate just above, for the same reason: conformance_fixtures_gate is part of
-# the ordinary (non-#[ignore]d) suite, so letting cargo start without it would fail minutes later
-# with a confusing panic instead of this actionable message. $conformanceCheck was already computed
-# above (Initialize-ConformanceSubmodule attempted the auto-init as a side effect); this only acts
-# on the result.
+# Same fail-closed shape as the corpus-missing gate above: conformance_fixtures_gate is part of the ordinary suite.
 if (($Mode -eq 'test' -or $Mode -eq 'corpus-test') -and $conformanceCheck -and -not $conformanceCheck.Ok) {
     Write-Host "[pg] conformance submodule unavailable BEFORE starting cargo: $($conformanceCheck.Detail)" -ForegroundColor Red
     if ($conformanceCheck.RecoveryCommand) {
@@ -531,22 +436,12 @@ if (($Mode -eq 'test' -or $Mode -eq 'corpus-test') -and $conformanceCheck -and -
 }
 
 if ($Mode -eq 'doctor') {
-    # Conformance IS folded into $unsafe (unlike the exhaustion history below): a missing/failed
-    # submodule describes the environment RIGHT NOW, exactly like disk/memory/base/sccache do --
-    # not something that already happened and was already recovered from, which is the dividing
-    # line this file draws for the exhaustion log. A doctor run that reports "safe" on a worktree
-    # that would immediately fail conformance_fixtures_gate is the exact "I could not look read as
-    # everything is fine" failure this repo's own rules elsewhere warn against.
+    # Conformance IS folded into $unsafe: it describes the environment RIGHT NOW, same as disk/memory/base/sccache.
+    # docs/research/build-resource-governance.md
     $unsafe = ($baseCheck.Checked -and -not $baseCheck.Ok) -or (-not $diskCheck.Ok) -or (-not $memCheck.Ok) -or ($usedSccache -and -not $sccacheHealth.Ok) -or ($conformanceCheck -and -not $conformanceCheck.Ok)
 
-    # Exhaustion HISTORY, deliberately NOT folded into $unsafe above. The four checks that DO gate
-    # $unsafe all describe the environment RIGHT NOW (disk/memory/base/sccache); an exhaustion event
-    # describes something that already happened and the machine already recovered from on its own.
-    # Failing doctor on old history would mean a single incident blocks every managed build for the
-    # whole 7-day window for no actionable reason -- the actionable response to "predict_census.exe
-    # hit 118GB three days ago" is "stop invoking it directly, use pg.ps1 -Mode run", not "doctor
-    # exits 1 today". So this is reported prominently -- loud enough that it isn't scrollback -- but
-    # never gates the exit code.
+    # Exhaustion HISTORY is deliberately NOT folded into $unsafe: it describes something already recovered from.
+    # docs/research/build-resource-governance.md
     $exhaustion = Get-ResourceExhaustionEvents -Since ((Get-Date).AddDays(-7))
     if (-not $exhaustion.Queryable) {
         Write-Host "[pg] resource-exhaustion history: $($exhaustion.Detail)" -ForegroundColor DarkGray
@@ -575,17 +470,10 @@ if ($Mode -eq 'doctor') {
 }
 
 if ($Mode -eq 'gc') {
-    # Reap dead-parent orphans first (cheap, always safe) regardless of -Apply -- an orphaned
-    # rustc/link process holding file locks is exactly what would make a real deletion below fail
-    # partway through.
-    # One snapshot shared by both sweeps, so they cannot disagree about which processes were live
-    # at the moment the decision was taken.
+    # Reap dead-parent orphans first, regardless of -Apply: an orphaned rustc/link holding file locks would fail a real deletion below.
     $procSnapshot = Get-ProcessSnapshot
     Remove-OrphanedCargoProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
-    # Same dead-parent rule, applied to filesystem scanners. Kept as a separate sweep rather than
-    # more names in the list above because the two have different risk profiles: reaping a compiler
-    # can destroy work another worktree is waiting on, reaping an orphaned scanner cannot (its
-    # output already has no reader), so only this one carries CPU/age thresholds.
+    # Separate sweep: reaping a compiler can destroy work another worktree awaits; reaping a scanner cannot.
     Remove-OrphanedScanProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
 
     $classification = Get-TargetClassification -RepositoryId $repoId
@@ -609,12 +497,7 @@ if ($Mode -eq 'gc') {
     exit 0
 }
 
-# `run` builds its own launch command below (cargo run --example/--bin, or a bare .exe) rather than
-# falling through this cargo-invocation-shaping block, which exists for build/test/corpus-test/
-# release's very different needs (profile selection, nextest wiring, workspace-wide vs -p). Guarding
-# the whole block on Mode rather than threading a dozen extra conditions through it keeps `run`'s
-# much simpler command construction from being tangled into logic (nextest flags, --workspace) that
-# does not apply to it and, for the -Exe case, involves no cargo at all.
+# `run` builds its own, much simpler launch command below rather than falling through this cargo-invocation-shaping block.
 if ($Mode -ne 'run') {
 
 # build / test / corpus-test / release all run cargo from here.
@@ -630,38 +513,12 @@ switch ($Mode) {
         $cargoArgs += @('build', '--release')
     }
     'doc' {
-        # The only thing in this repo that runs rustdoc, and therefore the only thing that enforces
-        # `[workspace.lints.rustdoc] broken_intra_doc_links = "deny"` (rust/Cargo.toml). Without this
-        # mode that deny is unreachable and the comment policy's link anchors are checked by nobody.
-        #
-        # `--document-private-items` is required, not a nicety: most of this workspace is private, and
-        # rustdoc does not process a private item's doc comment without it -- so the majority of the
-        # intra-doc links the comment policy relies on would go unvalidated.
-        #
-        # Coverage is lib + bins WITH private items, and deliberately nothing more. Both wider options
-        # were tried and measured, not assumed:
-        #   --all-targets  rejected outright by cargo doc (no such flag; there is no --tests either,
-        #                  so an intra-doc link in `tests/*.rs` is structurally unvalidatable here).
-        #   --examples     documents examples but then reports 501 "unresolved link" errors in the LIB
-        #                  doc, each noting the link "will resolve properly if you pass
-        #                  --document-private-items" -- i.e. naming a target set stops that flag
-        #                  applying to the lib. Strictly worse than the default: it turns a clean run
-        #                  into 501 false failures.
-        #
-        # Consequence for the comment policy, stated where someone will see it: in a test file, prefer
-        # a "pinned by `<test_name>`" citation over a link. `comment-hygiene.ps1` verifies citation
-        # names against every item in the tree regardless of target kind, so that anchor is checked
-        # everywhere this one is not.
-        # `--keep-going` so ONE run reports every crate. Without it cargo stops at the first crate that
-        # fails, which turns a fixed-size backlog into an unknown number of serial 10-minute runs and
-        # makes the remaining total unanswerable -- 11 of 19 crates had never been examined at all
-        # before this was added, and nobody could have said so from the output.
+        # The only thing here running rustdoc; see this repo's own CLAUDE.md for why each flag below is required.
         $cargoArgs += @('doc', '--no-deps', '--document-private-items', '--keep-going')
     }
     'test' {
         if ($useNextest) {
-            # nextest's own flag, BEFORE `--` (it selects how many test processes run at once).
-            # libtest's identically-named flag has to go after `--` instead -- see $trailing below.
+            # nextest's own flag goes BEFORE `--`; libtest's identically-named one goes after -- see $trailing below.
             $cargoArgs += @('nextest', 'run', '--test-threads', "$TestThreads")
             if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
         } else {
@@ -670,12 +527,7 @@ switch ($Mode) {
         }
     }
     'corpus-test' {
-        # MUST run ignored tests. Every corpus-backed suite in this repo is `#[ignore]`d precisely
-        # BECAUSE it needs the private corpus ("needs local gitignored corpus data ...; run with
-        # --include-ignored"), so a corpus-test that respects the default ignore filter runs ZERO
-        # corpus tests -- measured: `Starting 0 tests across 58 binaries (660 tests skipped)`. That
-        # failure is self-concealing: the run trips the zero-executed-cases guard, which looks like
-        # the guard working rather than the mode never having executed a corpus test at all.
+        # MUST run ignored tests: every corpus-backed suite is #[ignore]d precisely because it needs the private corpus.
         if ($useNextest) {
             $cargoArgs += @('nextest', 'run', '--run-ignored', 'all', '--test-threads', "$TestThreads")
             if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
@@ -687,28 +539,20 @@ switch ($Mode) {
 }
 if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
 
-# Placed BEFORE the runner-specific branches below because `--test` is a CARGO argument, not a
-# nextest or libtest one: it selects which target cargo compiles, so it is valid for both runners and
-# must not land after a `--` separator. Both `cargo nextest run` and `cargo test` accept it.
+# Before the runner-specific branches: `--test` is a CARGO argument, valid for both runners, and must not land after `--`.
 if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
 
 if ($useNextest) {
     if ($Filter) { $cargoArgs += $Filter }
-    # nextest's own flag name for "print stdout even for passing tests" -- without it,
-    # PANGLOSS_CORPUS_CASES lines from PASSING tests would be swallowed, and a fully successful
-    # corpus run would misreport as zero cases executed.
+    # Without this, PANGLOSS_CORPUS_CASES lines from PASSING tests are swallowed and misreport as zero cases.
     if ($Mode -eq 'corpus-test') { $cargoArgs += '--no-capture' }
 } else {
     $trailing = @()
     if ($Filter) { $trailing += $Filter }
-    # libtest's spelling of the nextest flag above. Only applies to the `test`/`corpus-test` modes;
-    # `build`/`release` never reach this branch, and passing it to them would be an error.
     if ($Mode -eq 'test' -or $Mode -eq 'corpus-test') { $trailing += @('--test-threads', "$TestThreads") }
     if ($Mode -eq 'corpus-test') {
-        # plain `cargo test` hides passing tests' stdout the same way; same reason as above.
         $trailing += '--nocapture'
-        # The `cargo test` spelling of nextest's `--run-ignored all` above -- same reason: without it
-        # this mode cannot execute a single corpus-backed test, since they are all `#[ignore]`d.
+        # libtest's spelling of nextest's --run-ignored all: without it, every corpus test (all #[ignore]d) is skipped.
         $trailing += '--include-ignored'
     }
     if ($trailing.Count -gt 0) { $cargoArgs += @('--') + $trailing }
@@ -721,58 +565,25 @@ if ($Mode -eq 'corpus-test') { $env:PANGLOSS_CORPUS_REQUIRED = '1' }
 
 $runPlan = $null
 if ($Mode -eq 'run') {
-    # Re-resolve (rather than caching the earlier check's result): the earlier call above only
-    # existed to fail fast before spending time on preflight; this is the one whose LaunchExe/
-    # LaunchArgs/Label actually get used below. Using -Exe's already-resolved absolute path here
-    # (rather than the raw -Exe string) is deliberate -- WorkingDirectory for the launched process
-    # is $rustRoot, not wherever the caller's shell happened to be, so a relative -Exe path must be
-    # resolved against the CALLER's cwd now, before that context is gone.
+    # Resolves -Exe to an absolute path against the CALLER's cwd now, before WorkingDirectory switches to $rustRoot below.
     $exeResolved = if ($Exe) { (Resolve-Path -LiteralPath $Exe).ProviderPath } else { '' }
     $runPlan = Resolve-RunTarget -Example $Example -Bin $Bin -Exe $exeResolved -Package $Package -DebugProfile:$DebugProfile -ExtraArgs $ExtraArgs
     if (-not $runPlan.Ok) {
-        # Unreachable in practice (the identical check above already exited on this), but Resolve-
-        # RunTarget is a general-purpose function and must not assume its caller already validated.
+        # Unreachable in practice, but Resolve-RunTarget is general-purpose and must not assume its caller already validated.
         Write-Host "[pg] $($runPlan.Detail)" -ForegroundColor Red
         exit 2
     }
 }
 
-# DELIBERATE CHOICE: `run` takes a build slot too, exactly like build/test/corpus-test/release.
-# This was weighed both ways and is not an oversight:
-#
-#   AGAINST taking the slot: a probe can run for hours (that is the whole point of `run` --
-#   predict_census-shaped binaries are not a five-minute cargo build), and Enter-BuildSlot's
-#   $BuildSlotTimeoutSeconds (default 1800) exists to report a WAITER stuck queuing behind a wedged
-#   holder. If `run` occupied a slot for hours, a build queued behind it would eventually hit that
-#   same timeout and exit $script:ExitCodeBuildSlotTimeout with a "held it" message that (correctly)
-#   points at the run, not at anything broken.
-#
-#   FOR taking the slot: that timeout firing is exactly the graceful degradation this design wants.
-#   The alternative -- `run` NOT counting against the semaphore -- breaks the property the rest of
-#   this file relies on to avoid a reservation ledger: "at most $MaxConcurrent heavy operations
-#   share the machine's headroom at once, so each one's job-object cap (Get-JobMemoryCapGB, divided
-#   by $MaxConcurrent) is safe by construction." A `run` outside that count is an UNBOUNDED extra
-#   consumer on top of up to $MaxConcurrent full-cap builds -- precisely the "several things assume
-#   they have the whole machine's headroom, simultaneously" shape that took this box to zero memory
-#   in the first place (CLAUDE.md's "Memory headroom" section). Costing a queued build a wait (which
-#   fails loud and clear, is retryable, and points at the actual cause) is strictly preferable to
-#   costing the machine an unaccounted-for 40-118GB job.
-#
-# So: a build stalled behind a long `run` is a KNOWN, documented, recoverable cost. An unbounded
-# machine-wide worst case is what this whole file exists to rule out. Take the slot.
+# DELIBERATE CHOICE, weighed both ways, not an oversight: `run` takes a build slot too, so the machine-wide
+# headroom bound stays true by construction. docs/research/build-resource-governance.md
 $sem = Enter-BuildSlot -MaxConcurrent $MaxConcurrent -TimeoutSeconds $BuildSlotTimeoutSeconds
 if (-not $sem) {
     Write-Host "[pg] timed out after ${BuildSlotTimeoutSeconds}s waiting for a build slot (max $MaxConcurrent concurrent across all worktrees) -- another worktree's build (or a long-running 'pg.ps1 -Mode run') is holding it." -ForegroundColor Red
     exit $script:ExitCodeBuildSlotTimeout
 }
 
-# Re-check memory after the slot wait, which is allowed to last 30 minutes -- the reading the
-# preflight gate approved is precisely the one most likely to be stale by the time a queued build
-# actually starts. This is only a courtesy check that turns a hopeless start into a clear message;
-# it is deliberately NOT the thing that bounds the machine. Several waiters can pass it in the same
-# instant, and that is fine, because Enter-BuildSlot caps concurrent builds at 2 and each one then
-# runs inside a job object with a hard commit ceiling. Two bounded builds cannot exhaust the box, so
-# the race stops mattering without a reservation ledger to maintain.
+# Re-checks memory after the slot wait (up to 30 min): a courtesy message, not what bounds the machine -- the job object does.
 $memCheckNow = Test-MemoryReserve -AvailableGB (Get-AvailableMemoryGB)
 if (-not $memCheckNow.Ok) {
     Exit-BuildSlot -Semaphore $sem
@@ -784,12 +595,7 @@ if (-not $memCheckNow.Ok) {
 $code = 1
 try {
     if ($Mode -eq 'run') {
-        # Same derivation a build gets by default (Get-JobMemoryCapGB, divided across $MaxConcurrent
-        # slots) -- see this file's header comment and the build-slot comment above for why `run`
-        # is sized as one of those slots rather than given its own separate budget. -RunMemoryGB
-        # bypasses the derivation outright for one invocation (e.g. the documented 40GB experiment)
-        # without touching PANGLOSS_JOB_MEM_GB, which would also change every ordinary build's cap
-        # for as long as the env var stayed set.
+        # Same derivation an ordinary build gets by default; -RunMemoryGB bypasses it for one invocation. See this script's own header.
         $runMemGB = if ($RunMemoryGB -gt 0) { $RunMemoryGB } else { Get-JobMemoryCapGB -MaxConcurrent $MaxConcurrent }
         $runCpuRate = Get-JobCpuRatePercent
         Write-Host "[pg] run ($($runPlan.Label)): $($runPlan.LaunchExe) $($runPlan.LaunchArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }))" -ForegroundColor Cyan
@@ -821,12 +627,7 @@ try {
     }
 } finally {
     Exit-BuildSlot -Semaphore $sem
-    # Post-run disk check, because the preflight one cannot catch this. Preflight runs BEFORE cargo,
-    # so it happily passes at 46GB free and tells you nothing about the state cargo left behind --
-    # and a fleet of parallel agents crosses the floor MIDWAY, which is exactly how this machine
-    # reached 7GB free with no gate having fired. Reported after the fact rather than blocking (the
-    # build already happened; failing it retroactively helps nobody), but reported LOUDLY, because
-    # the next invocation is the one that dies and the cause is by then invisible.
+    # Post-run disk check: preflight runs BEFORE cargo and cannot see space consumed during the build itself.
     $freeAfter = if ($targetDir) { Get-FreeSpaceGB $targetDir } else { $null }
     if ($null -ne $freeAfter -and $freeAfter -lt 15) {
         Write-Host "[pg] WARNING: only ${freeAfter}GB free on the target drive after this run." -ForegroundColor Red
@@ -835,10 +636,7 @@ try {
     }
 }
 
-# nextest exits 4 for "no tests to run". That is already loud, but it does not say WHY, and the most
-# common why on this repo is a TEST TARGET name passed to -Filter, which matches TEST NAMES. Naming the
-# alternative here turns a wasted full-package compile into a one-line correction. Measured cause for
-# this existing: seven such invocations in one session, five of them file/target names.
+# nextest exits 4 for "no tests to run" but doesn't say WHY; the most common cause is a test TARGET name passed to -Filter.
 if ($code -eq 4 -and $Filter -and -not $TestTarget) {
     $targets = @()
     try {
@@ -854,8 +652,7 @@ if ($code -eq 4 -and $Filter -and -not $TestTarget) {
 }
 
 if ($Mode -eq 'release' -and $code -eq 0 -and $targetDir) {
-    # A failed build never registers a release deliverable -- only
-    # mark `preserved` after cargo itself reports success.
+    # A failed build never registers a release deliverable -- mark `preserved` only after cargo itself reports success.
     Write-TargetOwnership -TargetDir $targetDir -RepositoryId $repoId -WorktreePath $repoRoot -Preserved | Out-Null
 }
 

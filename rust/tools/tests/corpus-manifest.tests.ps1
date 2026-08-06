@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Covers: Get-CorpusManifest / Get-CorpusRoot / Test-CorpusPresent (rust/tools/_common.ps1) --
   the PowerShell-side mirror of pg_conformance_fixtures::corpus's Rust reader. Uses a synthetic
   manifest + synthetic corpus files under a temp directory; never reads the real
@@ -32,8 +33,7 @@ $manifestJson = @'
 Set-Content -Path (Join-Path $toolsDir 'corpus-manifest.json') -Value $manifestJson
 
 $corpusRoot = New-TestTempDir -Prefix 'pg-corpus-manifest-data'
-# -NoNewline: plain Set-Content appends the host's line ending, which would make the byte-count
-# assertion below depend on Windows CRLF vs some other host's convention rather than the string.
+# -NoNewline avoids a host line-ending suffix, so the byte-count assertion below depends only on the string.
 Set-Content -Path (Join-Path $corpusRoot 'present.txt') -Value 'hello' -NoNewline
 # absent.txt and optional.txt deliberately never created.
 

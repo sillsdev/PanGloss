@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Covers: Test-MemoryReserve, Get-MemoryProcessBudget, Get-PerJobMemoryGB and
   Resolve-ConcurrencyBudget (rust/tools/_common.ps1) -- the memory half of the "do not spawn
   without headroom" gate.
@@ -11,9 +12,7 @@
 . "$PSScriptRoot\_test-harness.ps1"
 . "$PSScriptRoot\..\_common.ps1"
 
-# ---------------------------------------------------------------------------------------------
-# Test-MemoryReserve: the hard spawn gate
-# ---------------------------------------------------------------------------------------------
+# --- Test-MemoryReserve: the hard spawn gate ---
 
 Test-Case 'plenty of available memory is Ok' {
     $r = Test-MemoryReserve -AvailableGB 40 -MinFreeGB 8
@@ -32,9 +31,7 @@ Test-Case 'available memory exactly at the reserve is Ok (>=, not >)' {
 }
 
 Test-Case 'unknown available memory does not block the build' {
-    # Same rule as Test-DiskReserve's null case, and the same trap: a [double] parameter would
-    # coerce $null to 0.0, making "could not measure" indistinguishable from "nothing left" and
-    # blocking every build on any machine where the CIM query fails.
+    # A [double] parameter would coerce $null to 0.0, making "could not measure" indistinguishable from "nothing left".
     $r = Test-MemoryReserve -AvailableGB $null -MinFreeGB 8
     Assert-True $r.Ok 'an unqueryable memory counter must not itself fail the preflight'
     Assert-Equal $null $r.AvailableGB
@@ -48,11 +45,7 @@ Test-Case 'default reserve is used when -MinFreeGB is not passed' {
     Assert-False $notOk.Ok
 }
 
-# ---------------------------------------------------------------------------------------------
-# Proportional sizing. A flat threshold cannot be correct on two machine sizes at once, and the
-# failure is asymmetric: too low on a big box risks the machine, too high on a small box blocks
-# ordinary work -- and a gate that blocks ordinary work gets set to 0, protecting nobody.
-# ---------------------------------------------------------------------------------------------
+# --- Proportional sizing: a flat threshold is either too low on a big box or blocks a small one. ---
 
 Test-Case 'the reserve scales with installed memory instead of being a flat number' {
     $small = Get-InteractiveReserveGB -TotalGB 16
@@ -61,8 +54,7 @@ Test-Case 'the reserve scales with installed memory instead of being a flat numb
 }
 
 Test-Case 'a 16GB developer machine is not asked to keep half its RAM free' {
-    # The concrete regression: a flat 8GB reserve is 50% of a 16GB box, so no build could start
-    # unless half of RAM were free.
+    # A flat 8GB reserve is 50% of a 16GB box, so no build could start unless half of RAM were free.
     $floor = Get-SpawnFloorGB -TotalGB 16
     Assert-True ($floor -lt (16 * 0.35)) "spawn floor ${floor}GB is too large a share of a 16GB machine"
     Assert-True ($floor -ge $script:MinBuildRoomGB) "must still leave room for the build to progress (got $floor)"
@@ -75,14 +67,12 @@ Test-Case 'the reserve is clamped at both ends' {
 }
 
 Test-Case 'an unmeasurable machine gets the floor, not the ceiling' {
-    # Guessing high would refuse builds on a machine we know nothing about, and the job object
-    # bounds the damage either way.
+    # Guessing high would refuse builds on an unmeasurable machine; the job object bounds the damage either way.
     Assert-Equal $script:InteractiveReserveFloorGB (Get-InteractiveReserveGB -TotalGB $null)
 }
 
 Test-Case 'all permitted builds together still leave the machine its reserve' {
-    # Holds at BOTH sizes -- the property a flat 45%-of-RAM job cap broke on 16GB, where
-    # 7.2GB x 2 slots = 14.4GB of 16GB left the OS nothing.
+    # Holds at both sizes -- a flat 45%-of-RAM job cap broke this on 16GB (7.2GB x 2 slots left the OS nothing).
     foreach ($total in @(8, 16, 32, 64, 128)) {
         $reserve = Get-InteractiveReserveGB -TotalGB $total
         $cap = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB $total
@@ -91,9 +81,7 @@ Test-Case 'all permitted builds together still leave the machine its reserve' {
     }
 }
 
-# ---------------------------------------------------------------------------------------------
-# Get-MemoryProcessBudget: available memory -> a concurrency number
-# ---------------------------------------------------------------------------------------------
+# --- Get-MemoryProcessBudget: available memory -> a concurrency number ---
 
 Test-Case 'budget subtracts the reserve before dividing' {
     # 40 available - 8 reserve = 32 usable; at 4GB/process that is 8, NOT 10.
@@ -109,8 +97,7 @@ Test-Case 'budget divides by MaxConcurrent so two slots together stay inside the
 }
 
 Test-Case 'budget floors at 1, never 0' {
-    # Reaching here means Test-MemoryReserve already passed, so the honest answer is "one at a
-    # time". A 0 would be reported as a concurrency setting while actually meaning "cannot run".
+    # The honest answer past this point is "one at a time"; a 0 would report as a setting meaning "cannot run".
     $n = Get-MemoryProcessBudget -AvailableGB 9 -PerProcessGB 4 -ReserveGB 8 -MaxConcurrent 2
     Assert-Equal 1 $n
 }
@@ -130,9 +117,7 @@ Test-Case 'a nonsensical per-process allowance yields no opinion rather than a d
     Assert-Equal $null (Get-MemoryProcessBudget -AvailableGB 40 -PerProcessGB -1 -ReserveGB 8)
 }
 
-# ---------------------------------------------------------------------------------------------
-# Get-PerJobMemoryGB: fat-LTO linking is the outlier that took the machine down
-# ---------------------------------------------------------------------------------------------
+# --- Get-PerJobMemoryGB: fat-LTO linking is the outlier that took the machine down ---
 
 Test-Case 'fat-LTO builds assume a heavier per-job allowance than thin-LTO ones' {
     $thin = Get-PerJobMemoryGB
@@ -147,11 +132,7 @@ Test-Case 'the fat-LTO allowance actually narrows concurrency where the thin one
 }
 
 Test-Case 'an idle machine is NOT throttled: the gate costs nothing when memory is free' {
-    # The other half of the contract, and the one an over-cautious constant silently breaks. A
-    # draft of this gate assumed 8GB per fat-LTO job and cut every `-Mode build` from 7 jobs to 2;
-    # measurement then put the real peak at 0.71GB (see $script:MemoryPerLtoLinkJobGB). A gate that
-    # taxes every ordinary build gets turned off, and then protects nothing -- so "does it stay out
-    # of the way at rest" is as much a requirement as "does it refuse under pressure".
+    # A gate that taxes every ordinary build gets turned off and then protects nothing under real pressure.
     $total = Get-TotalMemoryGB
     if ($null -eq $total) { return }  # unmeasurable: nothing to calibrate against
     $cpu = Get-CargoJobBudget -MaxConcurrent 2
@@ -163,8 +144,7 @@ Test-Case 'an idle machine is NOT throttled: the gate costs nothing when memory 
 }
 
 Test-Case 'a machine under real pressure IS throttled below the cores-only cap' {
-    # The half that does the protecting: same budgets, but with most of the memory already spoken
-    # for by something else (another worktree's build, a corpus test holding several GB).
+    # The half that does the protecting: same budgets, but most memory is already spoken for by something else.
     $cpu = Get-CargoJobBudget -MaxConcurrent 2
     foreach ($perProc in @((Get-PerJobMemoryGB), (Get-PerJobMemoryGB -FatLto), $script:MemoryPerTestProcessGB)) {
         $n = Get-MemoryProcessBudget -AvailableGB 14 -PerProcessGB $perProc -MaxConcurrent 2
@@ -178,9 +158,7 @@ Test-Case 'test processes are assumed heavier than a thin-LTO compile job' {
     Assert-True ($script:MemoryPerTestProcessGB -gt $script:MemoryPerCompileJobGB)
 }
 
-# ---------------------------------------------------------------------------------------------
-# Resolve-ConcurrencyBudget: which constraint won, and does the record say so
-# ---------------------------------------------------------------------------------------------
+# --- Resolve-ConcurrencyBudget: which constraint won, and does the record say so ---
 
 Test-Case 'the lower of the cpu and memory budgets wins, and reports memory as the binder' {
     $r = Resolve-ConcurrencyBudget -CpuBudget 7 -MemoryBudget 3
@@ -208,27 +186,16 @@ Test-Case 'unmeasurable memory falls back to the cpu budget rather than to 1' {
 }
 
 Test-Case 'an explicit override is never narrowed by either budget' {
-    # -Jobs/-TestThreads exist for the case where the operator is at the console and knows better;
-    # silently overriding them would make the printed number a lie.
+    # An explicit -Jobs/-TestThreads means the operator knows better; overriding it would make the printed number a lie.
     $r = Resolve-ConcurrencyBudget -CpuBudget 16 -MemoryBudget 2 -Explicit
     Assert-Equal 16 $r.Value
     Assert-Equal 'explicit' $r.Bound
 }
 
-# ---------------------------------------------------------------------------------------------
-# Wiring: the gate has to have a distinct exit code, and the live query has to answer sanely
-# ---------------------------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------------------------
-# Job-object enforcement (procgov). The pure-arithmetic gates above decide how WIDE to go; these
-# cover the ceiling that actually bounds a runaway, which is enforced by the kernel rather than by
-# anything in this repo. Nothing here launches procgov or a build -- Get-ProcGovArgs is pure.
-# ---------------------------------------------------------------------------------------------
+# --- Job-object enforcement (procgov): the kernel-enforced ceiling on top of the pure-arithmetic gates above. ---
 
 Test-Case 'the job memory cap is derived from installed RAM, not from current load' {
-    # Independent of what is running RIGHT NOW: a ceiling that shrank because another build was
-    # already going would fail the second build at a size the first was allowed. It DOES scale with
-    # the slot count, which is the point -- see the "all permitted builds" test below.
+    # Independent of what is running right now: a ceiling that shrank with load would fail one build at a size the other was allowed.
     $a = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 64
     $b = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 64
     Assert-Equal $a $b 'the cap must be a pure function of installed memory and slot count'
@@ -238,17 +205,14 @@ Test-Case 'the job memory cap is derived from installed RAM, not from current lo
 }
 
 Test-Case 'two concurrent builds cannot together exceed installed memory' {
-    # THE property that makes a reservation ledger unnecessary: with builds capped at 2 by
-    # Enter-BuildSlot and each capped by a job object, the machine-wide worst case is bounded by
-    # construction, so several waiters racing on the same free-memory reading cannot exhaust the box.
+    # The property that makes a reservation ledger unnecessary: with slots capped and each job-object capped, the machine-wide worst case is bounded by construction.
     $total = 64
     $cap = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB $total
     Assert-True ((2 * $cap) -lt $total) "2 builds at ${cap}GB each must stay under ${total}GB total"
 }
 
 Test-Case 'the job memory cap floors at 4GB on a tiny machine' {
-    # A cap below this fails ordinary linking, and a limit that breaks every build gets removed
-    # rather than tuned -- which would leave no limit at all.
+    # A cap below this fails ordinary linking, and a limit that breaks every build gets removed rather than tuned.
     Assert-Equal 4 (Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 2)
 }
 
@@ -257,9 +221,8 @@ Test-Case 'an unmeasurable machine gets no cap rather than a fabricated one' {
 }
 
 Test-Case 'the CPU rate ceiling leaves the interactive reserve free' {
-    # This is the bound -j provably cannot give: rust-lang/rust#81957 -- -j caps codegen workers
-    # within one rustc, not threads across instances. Measured here: -j7 produced 112 threads and
-    # 17.7 of 20 cores busy.
+    # -j caps codegen workers within one rustc, not threads across instances -- this is the bound it cannot give.
+    # https://github.com/rust-lang/rust/issues/81957
     $pct = Get-JobCpuRatePercent -ReserveThreads 6
     if ($null -ne $pct) {
         Assert-True ($pct -lt 100) "a ceiling of $pct% would enforce nothing"
@@ -277,15 +240,13 @@ Test-Case 'procgov args carry both ceilings, recurse to children, and terminate 
     Assert-Contains $a '--maxjobmem=28G'
     Assert-Contains $a '--cpurate=70'
     Assert-Contains $a '--priority=BelowNormal'
-    # -r is load-bearing, not cosmetic: without it the limits bind the cargo process alone and every
-    # rustc/link.exe -- where all the memory and CPU actually goes -- escapes the job entirely.
+    # -r is load-bearing: without it the limits bind cargo alone and every rustc/link.exe escapes the job.
     Assert-Contains $a '-r'
     Assert-Contains $a '--terminate-job-on-exit'
 }
 
 Test-Case 'the wrapped command and its arguments survive in order after the -- separator' {
-    # A wrapper that reordered or dropped cargo's arguments would be the self-concealing failure
-    # this repo already guards against elsewhere (see pg.ps1's PositionalBinding note).
+    # A wrapper that reordered or dropped cargo's arguments would be a self-concealing failure.
     $a = Get-ProcGovArgs -JobMemoryGB 8 -CpuRatePercent 50 -Exe 'cargo' -CmdArgs @('nextest', 'run', '--test-threads', '7')
     $sep = [array]::IndexOf($a, '--')
     Assert-True ($sep -ge 0) 'the -- separator must be present'
@@ -309,8 +270,7 @@ Test-Case 'low memory has its own exit code, distinct from low disk' {
 }
 
 Test-Case 'Get-AvailableMemoryGB answers with a plausible number or null, and never throws' {
-    # The one test that touches the real machine. It asserts only the contract every caller relies
-    # on -- a positive number no larger than installed RAM, or $null -- not any particular value.
+    # The one test that touches the real machine; asserts only the contract, not any particular value.
     $avail = Get-AvailableMemoryGB
     $total = Get-TotalMemoryGB
     if ($null -ne $avail) {
@@ -321,9 +281,7 @@ Test-Case 'Get-AvailableMemoryGB answers with a plausible number or null, and ne
     }
 }
 Test-Case 'procgov preserves an inherited console while retaining every resource limit' {
-    # procgov's --nogui hides whichever console it inherits. With Start-Process -NoNewWindow
-    # that console is the user's Windows Terminal, so --nogui minimizes the entire terminal.
-    # The remedy must leave the load-bearing job-object flags intact.
+    # procgov's --nogui hides whichever console it inherits, which under -NoNewWindow is the user's own terminal.
     $a = Get-ProcGovArgs -JobMemoryGB 28 -CpuRatePercent 70 -Priority 'BelowNormal' -Exe 'cargo' -CmdArgs @('build')
     Assert-Contains $a '--maxjobmem=28G'
     Assert-Contains $a '--cpurate=70'

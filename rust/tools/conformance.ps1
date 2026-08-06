@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Standalone front end onto Initialize-ConformanceSubmodule (rust/tools/_common.ps1) -- matches how
   build.ps1/test.ps1 front-end pg.ps1: this script exists so the same logic pg.ps1 wires into its
   own `test`/`corpus-test`/`new-worktree` preflight can also be run directly, on demand, without

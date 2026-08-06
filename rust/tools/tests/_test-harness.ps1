@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Minimal test harness for rust/tools/tests/*.tests.ps1 -- plain PowerShell asserting with `throw`
   on failure, deliberately NOT Pester: the build-hardening design rules out taking a Pester
   dependency, so these tests must run with nothing installed beyond PowerShell itself.
@@ -52,9 +53,7 @@ function Assert-Contains {
 }
 
 function New-TestTempDir {
-    # Every test that needs a filesystem fixture gets an isolated directory under the OS temp
-    # root, never anywhere near a real cache root -- this is the mechanism that keeps these tests
-    # from ever touching C:\cargo-targets or G:\cargo-build-cache, not just a convention.
+    # Isolated directory under the OS temp root, never a real cache root, so a fixture can never touch it.
     param([string]$Prefix = 'pg-tools-test')
     $dir = Join-Path ([System.IO.Path]::GetTempPath()) "$Prefix-$([guid]::NewGuid().ToString('N'))"
     New-Item -ItemType Directory -Force -Path $dir | Out-Null

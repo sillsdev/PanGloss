@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Covers: Test-DiskReserve (rust/tools/_common.ps1). Takes a free-space NUMBER rather than
   querying a real drive, precisely so this is testable without touching any real disk -- these
   tests never call Get-FreeSpaceGB or reference C:\cargo-targets / G:\cargo-build-cache.

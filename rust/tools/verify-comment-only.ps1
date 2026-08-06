@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Proves that a change which claims to touch only comments actually touches only comments.
 
   Why this exists, precisely. A comment sweep's single Edit removed 204 lines from
@@ -67,11 +68,8 @@ if ($LASTEXITCODE -ne 0) {
 $candidates = New-Object System.Collections.Generic.List[object]
 $violations = New-Object System.Collections.Generic.List[object]
 
-# A `-U0` diff line carries no surrounding context, so whether it sat inside a delimited comment block
-# cannot be read off the line itself. Both sides' full contents are therefore fetched once per file
-# and turned into comment-line masks, which the classifier indexes by line number. Reading the diff
-# line with a regex instead would misjudge every `<# #>` body line as code -- and would put this tool
-# back into disagreement with `comment-hygiene.ps1`, which is the drift the shared file rules out.
+# A `-U0` diff line carries no context, so both sides' full contents are masked and indexed by line
+# number instead. See docs/research/comment-hygiene-checker-design.md
 $oldRef, $newRef = if ($Range -match '^(.+?)\.\.\.?(.+)$') { $Matches[1], $Matches[2] }
                    elseif ($Staged) { 'HEAD', ':' }
                    else { 'HEAD', '' }

@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Which source lines are comment lines. Dot-sourced by `comment-hygiene.ps1` (to decide what to
   score) and by `verify-comment-only.ps1` (to decide what a comment-only edit is allowed to touch).
 
@@ -53,10 +54,8 @@ $lineCommentTokenByExt = @{
     '.py'   = '#'
 }
 
-# Comment-or-not for EVERY line of a file, as a bool array indexed 0-based by line number. This is
-# the single implementation of the question; both tools index into it rather than each running their
-# own regex, because a delimited block's body can only be recognized with whole-file state and two
-# state machines would eventually disagree -- which is the drift this file exists to rule out.
+# Comment-or-not for every line, as a 0-indexed bool array; the single implementation, because two
+# state machines would drift. See docs/research/comment-hygiene-checker-design.md
 function Get-CommentLineMask {
     param([string[]]$Lines, [string]$Extension)
     $start = $commentLineByExt[$Extension]
@@ -76,7 +75,10 @@ function Get-CommentLineMask {
                 $inDelimited = if ($delims.Same) { ($closes % 2) -eq 1 } else { $closes -eq 0 }
             }
         }
-        if ($isComment -and $line -match '^\s*#Requires\b') { $isComment = $false }
+        # Directives that merely look like comments; neither can be shortened.
+        if ($isComment -and ($line -match '^\s*#Requires\b' -or ($i -eq 0 -and $line -match '^#!'))) {
+            $isComment = $false
+        }
         $mask[$i] = [bool]$isComment
     }
     return $mask

@@ -1,5 +1,6 @@
 <#
-  Counts comment-hygiene violations in Rust sources and fails when a category grows.
+  .DESCRIPTION
+  Counts comment-hygiene violations in Rust sources and PowerShell tooling, and fails if any remain.
 
   ZERO TOLERANCE. Every violation is reported and every one is meant to go; there is no accepted
   count and no baseline file.
@@ -55,11 +56,20 @@
   docs page describing internal behavior rots exactly as the comment did with nothing compiling it.
 
   SCRIPTS ARE HELD TO THE SAME RULES, and the interface/implementation split is what makes that
-  possible. A delimited block at the top of a script, or immediately before a `function`, is
-  PowerShell COMMENT-BASED HELP -- the documented interface, rendered by Get-Help. That is the exact
-  analogue of a Rust doc comment on a public item, so it gets the same treatment: scored for stale
-  project state, never capped for length. Every `#` run, and any delimited block sitting elsewhere,
-  is an implementation comment and takes the one-line cap.
+  possible. PowerShell COMMENT-BASED HELP -- the documented interface -- is the exact analogue of a
+  Rust doc comment on a public item, so it gets the same treatment: scored for stale project state,
+  never capped for length. Every `#` run, and every delimited block that is not help, is an
+  implementation comment and takes the one-line cap.
+
+  TWO CONDITIONS, and the second is not optional. The block must sit at the top of a script or at a
+  function's own head, AND it must carry a help keyword (`.SYNOPSIS`, `.DESCRIPTION`, ...). Position
+  alone was the first version of this rule and it was WRONG: measured across this tree, 67 delimited
+  blocks sat in a help position, 0 carried a keyword, and Get-Help returned nothing for a single one
+  of them. They were block comments wearing help's clothes. Worse, position alone is a typeable
+  marker -- wrap any comment in a delimited block, put it at the head of a function, and the cap is
+  gone -- which is this file's own documented failure mode for any escape hatch. Requiring the
+  keyword makes "the documented interface" a fact Get-Help will confirm rather than a claim about
+  where the text sits.
 
   Not every anchor survives the crossing: a doctest and a `pinned by <fn>` citation are Rust
   mechanisms and simply never occur in a script. What remains is a `docs/research/*.md` path or a
@@ -79,41 +89,23 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
-# One claim plus the falsifier that keeps it honest fits in three lines. One line cannot hold both,
-# and a claim with no named falsifier is exactly what went stale for eight days.
+# A claim plus its falsifier fits in three lines; one line cannot hold both.
 $MaxBlockLines = 3
 
-# Each category is scored separately so one kind of cleanup cannot silently pay for another kind of
-# regression -- a single total would let 50 new plan references hide behind 50 deleted dates.
+# Scored separately so one kind of cleanup cannot silently pay for another kind of regression.
 $categories = [ordered]@{
-    'plan-reference'  = 'openspec[/\\]changes|tasks\.md|design\.md|docs/fst-plan|IMPLEMENTATION-READINESS|spec\.md'
-    # `Phase`/`Stage` are case-SENSITIVE via `(?-i:...)`; everything else stays case-insensitive.
-    # PowerShell's `-match` ignores case, and this codebase uses "stage 1"/"stage 2" for real
-    # algorithm structure (propose then confirm), so a blanket match flags correct domain vocabulary
-    # and pressures a cleanup pass into rewriting it. Scoping the two patterns rather than making the
-    # whole line case-sensitive is deliberate: a capitalised task number must still be caught too.
+    # Left-boundaried: unanchored, these match the tail of a legitimate research filename.
+    'plan-reference'  = 'openspec[/\\]changes|(?<![\w-])(tasks|design|spec)\.md|docs/fst-plan|IMPLEMENTATION-READINESS'
+    # `Phase`/`Stage` are case-SENSITIVE so "stage 1"/"stage 2" as real algorithm vocabulary survives.
+    # See docs/research/comment-hygiene-checker-design.md
     'step-marker'     = 'Step \d+ of \d+|Step \d+ \(|§P\d|(?-i:Phase [A-Z]\b)|(?-i:Stage \d[A-Z]?\b)|task \d+\.\d+|D\d+ decision'
     'wiring-status'   = 'purely additive|Purely additive|not wired|NOT wired|reachable from no|Reachable from no|not yet consumed|Not yet consumed'
     'date-in-comment' = '\b20\d\d-\d\d-\d\d\b'
     'history-prose'   = 'used to read|previously read|this paragraph|renamed from|was stale|corrected in place'
 }
 
-# A behavioral assertion about a NAMED entity other than the line of code below. Requires both a
-# claim verb and a backticked identifier, so ordinary prose about the local statement is not caught.
-# The fix is never deletion by default: turn it into an intra-doc link, or into the test that pins it.
-#
-# PRESENT-TENSE ACTIVE ONLY, and that is the whole precision of this category. "`x` refuses `y`" is a
-# claim about what another entity does right now, which is what silently stopped being true. Past
-# tense ("`load` rejected the grammar") almost always documents what an error variant MEANS, not a
-# live cross-reference, and including it measured ~25% false positives on this tree. `guaranteed` is
-# out for the same reason: "never guaranteed SMALL" is prose about a value, not a claim about a callee.
-#
-# WORD-BOUNDARIED, and `unreachable` excludes the macro form. Substring matching made identifiers
-# collide with claims: `unreachable!()` and a local `const UNREACHABLE_KIND` both tripped `unreachable`,
-# and two agents reworded correct technical vocabulary to satisfy the regex. That is the same failure
-# this file already records for `stage 1`/`phase a` -- a gate that pressures a cleanup pass into
-# damaging accurate prose is worse than no gate. `\b` alone fixes `UNREACHABLE_KIND` (the `_` is a word
-# character, so the boundary fails); the macro needs the explicit `(?!!)` because `!` is not.
+# Present-tense active only, word-boundaried, `unreachable` excluding the macro: each narrowing fixed
+# a measured false-positive class. See docs/research/comment-hygiene-checker-design.md
 $claimVerbs = @(
     '\brefuses\b', '\brejects\b', '\baccepts unconditionally\b', '\balready refuses\b',
     '\bonly caller\b', '\bsole caller\b', '\bcalled from exactly\b', '\bzero callers\b',
@@ -122,153 +114,58 @@ $claimVerbs = @(
     '\bstays on\b', '\bis not wired\b', '\bnever fires\b', '\balways fires\b'
 ) -join '|'
 
-# A citation to a test that pins the claim. This exists because the checker previously PUNISHED ITS
-# OWN PREFERRED FIX: the skill ranks "cite the pinning test" ahead of adding a link, but only `[`..`]`
-# suppressed a claim, so following the policy's first choice left the hit standing -- and self-defeated
-# when the cited test was itself named `..._rejects_...`. All four sweep agents hit this.
-#
-# The citation must name something that EXISTS: the name is checked against every `fn` in the tree, so
-# a citation is machine-verified rather than taken on faith. That is not a nicety -- this pass found
-# two comments citing tests (`overwrite_group_composes_to_refuse`,
-# `right_to_left_predicate_refuses_quantifier_shaped_rule`) that exist nowhere, both asserting the
-# OPPOSITE of the prose citing them. `dead-citation` makes that class catchable instead of luck.
-#
-# The name must be BACKTICKED and contain an underscore. Without both, the phrase matches ordinary
-# prose -- "pins this", "checked by the loader" -- and measured 122 hits that were almost entirely the
-# checker's own noise rather than dead citations. Requiring a code span makes a citation deliberate,
-# and requiring `_` distinguishes a snake_case fn from an English word.
-#
-# Backticks are safe to require now only BECAUSE the claim verbs above became word-boundaried: a test
-# named `..._refuses_...` no longer trips `\brefuses\b` (the surrounding `_` is a word character), so
-# citing it in a code span no longer re-flags the very line that resolves the claim. Those two changes
-# have to land together; either alone reintroduces the trap the agents hit.
-#
-# `(?i)` is REQUIRED and is not belt-and-braces. These patterns are evaluated with
-# [regex]::Matches, which is CASE-SENSITIVE by default -- the exact opposite of PowerShell's `-match`
-# used for the line-level categories above, whose case-INsensitivity is itself documented below as a
-# past bug. Both defaults have now caused one. Without `(?i)` a sentence starting "Pinned by `x`" is
-# not recognised as a citation, so the anchor silently fails to count and the block reads as
-# unanchored. Caught by falsification, not by review.
+# A machine-checked citation to the test that pins a claim; `(?i)` is load-bearing because
+# [regex]::Matches is case-SENSITIVE. See docs/research/comment-hygiene-checker-design.md
 $citationPhrase = '(?i)(?:pinned by|pins|asserted by|witnessed by|proved by|checked by)\s+`([a-z_][A-Za-z0-9_]*_[A-Za-z0-9_]*)`'
 
-# The `path/to/file.rs::test_name` form this repo already uses for curated evidence citations. Checked
-# the same way and for the same reason: two such citations in this tree named tests that exist nowhere,
-# and both were cited as proving a REFUSAL by prose sitting above a live test asserting ConfirmOnly. A
-# citation nobody resolves is indistinguishable from a citation that is simply wrong.
-#
-# The FILE is captured too, and a citation is only judged when that file exists in this tree. Measured
-# without that guard: 23 hits, essentially all false -- citations into `foma-rs` (`apply_init`,
-# `flag_purge`, `flag_build`) and into ported C# test names, none of which this index can see because
-# it scans only this repo's crates. Flagging them would report "dead citation" for references that are
-# perfectly good, just not local. Same rule this file already applies to docs links: "I could not look"
-# must not read as "it is broken."
-#
-# Names ending in `_` are skipped as line-wrap artifacts: a citation split across two comment lines is
-# truncated at the newline, which produced `..._confirms_the_reversed_tag_`.
+# The `file.rs::test_name` citation form; only judged when the named file is one of ours, so
+# "I could not look" never reads as "it is broken". See docs/research/comment-hygiene-checker-design.md
 $citationPath = '(?i)([A-Za-z0-9_./\\-]+\.rs)::([a-z_][A-Za-z0-9_]*)'
 $identToken = '`[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z0-9_]+)*(\(\))?`'
 $intraDocLink = '\[`[^`]+`\]'
 
-# The ONLY grounds on which an implementation comment may exceed one line. An author must CLAIM one
-# by name; there is no generic escape.
-#
-# Enumerated deliberately, and narrow. A free-form marker becomes universal and then means nothing --
-# this file already records that failure mode for a different gate. A closed set is different in kind:
-# you cannot invent a class, each claim is falsifiable ("what change does this TRAP prevent?"), and the
-# per-class counts are printed, so inflation of any one class is visible rather than silent.
-#
-# The set comes from what long comments demonstrably bought here, and from the standard advice that
-# comments must carry what code cannot -- a design decision's rationale, the conditions under which a
-# call makes sense, and hazards. Descriptive prose is absent on purpose: the code, the LSP and git
-# already provide it.
+# The only grounds on which an implementation comment may exceed one line: a closed, named set, so a
+# class cannot be invented. See docs/research/comment-hygiene-checker-design.md
 $exceptionTags = @(
     'SAFETY:'   # An unsafe block's proof obligation. The ONLY class that buys extra lines.
 )
 
-# ONE class, and it survived a cull the others did not.
-#
-# The rule is one line. A reference document REPLACES a long comment rather than licensing one: if the
-# knowledge needs a paragraph, it belongs in `docs/research/` and the comment is the single line that
-# points there. Under that rule almost nothing needs an allowance, because a one-line comment requires
-# no justification in the first place -- which is precisely what made the earlier tag set redundant.
-#
-# `TRAP:`, `INVARIANT:` and `WHY-NOT:` were dropped for exactly that reason. Each states something a
-# single line can carry ("apply_up cost lives in abandoned branches, so a path count is a floor, not a
-# bound"), and where it genuinely cannot, the argument is a document, not a comment. Keeping unused
-# tags around would only offer three ready-made ways to buy length.
-#
-# `PORT-CORRESPONDENCE:` / `PORT-DIVERGENCE:` were dropped as LENGTH licenses but kept as review
-# vocabulary in the skill: they classify a claim so a reviewer knows what to verify, and that value does
-# not depend on the comment being long.
-#
-# `SAFETY:` stays because it is the one obligation with no external home. Measured: 209 unsafe sites in
-# this tree, concentrated at the FFI boundary (json_api.rs 87, grammar.rs 25, parse.rs 12), with 14 of
-# 19 crates forbidding unsafe entirely. An FFI precondition -- what the caller must guarantee about a
-# pointer's validity and lifetime -- is a proof about THIS call site, so there is nothing to point at.
-# It is also Rust's own convention and what clippy's undocumented_unsafe_blocks expects.
+# One class survived the cull; TRAP:/INVARIANT:/WHY-NOT:/PORT-* and FIXTURE: were all rejected, each
+# for a recorded reason. See docs/research/comment-hygiene-checker-design.md
 
-# PORT: earns its place on the same ground the skill already grants a paper or an upstream issue: the
-# knowledge is DURABLE because its subject is external and frozen. This crate ports FieldWorks'
-# HermitCrab, and the C# does not change under us -- so a comment recording "the CLR does X, we do Y,
-# and here is why they differ" ages far better than one describing our own code, which is the thing
-# that actually moves. One line cannot carry three clauses.
-#
-# It is measured, not assumed: 297 of the over-long private blocks mention the C# oracle in their FIRST
-# line alone, the largest identifiable class by a wide margin, and that is a lower bound.
-#
-# SCOPE IT TIGHTLY WHEN REVIEWING. PORT: licenses a correspondence or a divergence. It does NOT license
-# narrating what the C# does -- that is description, and description is what this whole rule exists to
-# remove. A PORT: block that never says what THIS code does in response is misfiled.
-#
-# `FIXTURE:` was considered for the second-largest class (211 blocks of test-fixture rationale) and
-# REJECTED, on this session's own evidence: a fixture was swapped and five rationale comments went
-# stale describing the wrong grammar. Fixture rationale rots exactly the way this rule exists to
-# prevent, because its subject is our own test data. If such a comment needs length it can cite the
-# test, which the anchor rule already handles.
-
-# Comment lines only. A plan path inside a string literal is usually a real file the code opens.
-# Defines $commentLineByExt; shared with verify-comment-only.ps1 so the two cannot disagree.
+# Comment lines only, shared with verify-comment-only.ps1 so the two cannot disagree.
 . (Join-Path $PSScriptRoot '_comment-lines.ps1')
 
-# Tooling is included, not just crates. The first version scanned only `rust/crates` and so missed
-# every violation in the scripts that enforce the rule -- a checker exempt from its own check.
+# Tooling is scanned too: the first version covered only `rust/crates` and so exempted the scripts
+# that enforce the rule. See docs/research/comment-hygiene-checker-design.md
 $files = @(
     Get-ChildItem -Path (Join-Path $repoRoot 'rust\crates') -Filter '*.rs' -Recurse -File
     Get-ChildItem -Path (Join-Path $repoRoot 'rust\tools') -Filter '*.ps1' -Recurse -File
     Get-ChildItem -Path (Join-Path $repoRoot '.claude\hooks') -Filter '*.py' -File -ErrorAction SilentlyContinue
 ) | Where-Object { $_.FullName -notmatch '\\target\\' }
 
-# `comment-block-too-long` is RETIRED and replaced by the two below. It applied one length to every
-# comment regardless of kind, which is the wrong axis: an API docstring IS the abstraction and should
-# run as long as the contract needs, while an implementation comment explains code the reader is
-# already looking at. Conflating them produced 3,269 violations and no way to tell the two apart.
+# `comment-block-too-long` is RETIRED: one length for every comment was the wrong axis.
+# See docs/research/comment-hygiene-checker-design.md
 $blockCategories = @('impl-comment-too-long', 'unanchored-exception', 'cross-reference-claim', 'docs-link-broken', 'dead-citation')
 foreach ($cat in $blockCategories) { $categories[$cat] = $null }
 
-# Every `fn` name in the tree, so a "pinned by X" citation can be checked rather than trusted. One
-# extra pass over files already being read; cheap enough not to need a cache.
+# Every declared name in the tree, so a citation is checked rather than trusted.
 $fnNames = [System.Collections.Generic.HashSet[string]]::new()
 $rsBasenames = [System.Collections.Generic.HashSet[string]]::new()
 foreach ($f in $files) {
     if ($f.Extension -ne '.rs') { continue }
     [void]$rsBasenames.Add($f.Name)
     foreach ($line in [System.IO.File]::ReadLines($f.FullName)) {
-        # Not just `fn`: a curated citation legitimately names a fixture constant
-        # (`f3_parity.rs::ENGINE_TIMEOUT`, `::GRAMMAR_XML`) or a type (`::TrieEdge`). Indexing only
-        # functions reported five such live references as dead -- the same false-positive direction as
-        # the foma-rs case, and the reason this category is worth nothing until its index is honest.
+        # Not just `fn`: a citation legitimately names a fixture constant or a type, and indexing
+        # only functions reported five live references as dead. See docs/research/comment-hygiene-checker-design.md
         foreach ($m in [regex]::Matches($line, '\b(?:fn|struct|enum|trait|union|type|const|static|mod)\s+([A-Za-z_][A-Za-z0-9_]*)')) {
             [void]$fnNames.Add($m.Groups[1].Value)
         }
     }
 }
 
-# Is THIS FILE's own module public? `//!` documents the module it sits in, so its visibility is
-# declared in the PARENT file, not this one -- which is why a `//!` block could previously hide any
-# amount of prose in a private module and be waved through as "API".
-#
-# Resolved by path rather than by matching module names globally: two crates can both have a `plan`
-# module with different visibility, and a name-keyed map would silently pick one.
+# Is THIS FILE's own module public? `//!` visibility is declared in the PARENT file, and is resolved
+# by path because two crates can both have a `plan` module. See docs/research/comment-hygiene-checker-design.md
 $publicModuleFile = [System.Collections.Generic.HashSet[string]]::new()
 foreach ($f in $files) {
     if ($f.Extension -ne '.rs') { continue }
@@ -276,8 +173,7 @@ foreach ($f in $files) {
     $stem = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
     # A crate root is the public front page by definition.
     if ($stem -eq 'lib' -or $stem -eq 'main') { [void]$publicModuleFile.Add($f.FullName); continue }
-    # `tests/` and `examples/` are their own crate roots, but nobody consumes their docs -- they are not
-    # an API, so their headers are held to the implementation cap like any other private prose.
+    # `tests/`/`examples/` are crate roots nobody consumes the docs of, so they are not an API.
     if ($f.FullName -match '\\(tests|examples|benches)\\') { continue }
     if ($stem -eq 'mod') {
         $stem = Split-Path $dir -Leaf
@@ -308,10 +204,8 @@ $referenceBacked = 0
 $claimed = [ordered]@{}
 foreach ($t in $exceptionTags) { $claimed[$t] = 0 }
 
-# A checked pointer to somewhere the long form actually lives. Looser than Get-BlockAnchor on purpose:
-# this only buys a SECOND LINE, whereas an anchor licenses a whole SAFETY: argument, so it admits an
-# external URL that cannot be validated offline. A paper or an upstream issue is durable in the way
-# this rule cares about even though no local check can follow it.
+# A checked pointer to where the long form lives; looser than an anchor because it buys only a
+# second line. See docs/research/comment-hygiene-checker-design.md
 function Get-BlockReference {
     param([string]$Text, [string]$RepoRoot, [bool]$Cited)
     if ($Cited) { return 'test-citation' }
@@ -325,26 +219,28 @@ function Get-BlockReference {
     return $null
 }
 
-# Is this block an API docstring or an implementation comment? The standard distinction (Ousterhout's
-# interface vs implementation documentation; Java's doc vs implementation comments) is what decides
-# the cap, so getting it right is the whole point of this function.
-#
-# `//!` is a module/crate front page and always counts as API. `///` documents the NEXT item, so the
-# item's visibility decides -- and attributes and blank lines sit between the two, which is why this
-# skips forward rather than reading one line. Anything else (`//`, `/* */`) is implementation.
-# The PowerShell arm of the same interface/implementation split. `<# #>` at the top of a script, or
-# immediately before a `function`, is COMMENT-BASED HELP -- the documented interface, rendered by
-# `Get-Help`. That is the exact analogue of a Rust doc comment on a public item, so it earns the same
-# treatment: scored for stale project state, never capped for length. Measured over this tree, all 23
-# such blocks are one of those two positions and none is inline, so the rule has no awkward middle.
-#
-# Everything else in a script -- `#` runs, a `<# #>` block sitting in the middle of a body -- is an
-# implementation comment and takes the one-line cap. The compliable escape there is a
-# `docs/research/*.md` path or a URL; the doctest and `pinned by` anchors are Rust mechanisms and
-# simply never appear.
+# The script arm of the interface/implementation split: comment-based help is uncapped, everything
+# else takes the one-line cap. See docs/research/comment-hygiene-checker-design.md
 function Get-BlockKindScript {
-    param([string]$FirstLine, [string[]]$AllLines, [int]$StartIdx)
+    param([string]$FirstLine, [string]$Text, [string[]]$AllLines, [int]$StartIdx, [string]$Extension)
+    # Python needs no keyword: a docstring is bound to `__doc__`, so there position IS the mechanism.
+    # See docs/research/comment-hygiene-checker-design.md
+    if ($Extension -eq '.py') {
+        if ($FirstLine -notmatch '^\s*"""') { return 'impl' }
+        for ($k = $StartIdx - 2; $k -ge 0; $k--) {
+            $c = $AllLines[$k]
+            if ($c.Trim() -eq '' -or $c -match '^#!') { continue }
+            if ($c -match '^\s*(def|class)\s') { return 'api' }
+            return 'impl'
+        }
+        return 'api'
+    }
     if ($FirstLine -notmatch '^\s*<#') { return 'impl' }
+    # Position is NOT enough: without a help keyword Get-Help renders nothing, and position alone is a
+    # typeable marker. See docs/research/comment-hygiene-checker-design.md
+    if ($Text -notmatch '(?m)^\s*\.(SYNOPSIS|DESCRIPTION|PARAMETER|EXAMPLE|NOTES|OUTPUTS|INPUTS|LINK|COMPONENT|ROLE|FUNCTIONALITY|FORWARDHELPTARGETNAME|EXTERNALHELP)\b') {
+        return 'impl'
+    }
     for ($k = $StartIdx - 2; $k -ge 0; $k--) {
         $c = $AllLines[$k]
         if ($c.Trim() -eq '') { continue }
@@ -354,6 +250,8 @@ function Get-BlockKindScript {
     return 'api'   # nothing above it: the file header
 }
 
+# Interface or implementation, for Rust: `//!` takes the module's visibility, `///` the next item's.
+# See docs/research/comment-hygiene-checker-design.md
 function Get-BlockKind {
     param([string]$FirstLine, [string[]]$AllLines, [int]$EndIdx, [bool]$InPublicModule)
     if ($FirstLine -match '^\s*//!') { if ($InPublicModule) { return 'api' } else { return 'impl' } }
@@ -362,26 +260,11 @@ function Get-BlockKind {
         $l = $AllLines[$j]
         if ($l -match '^\s*#!?\[') { continue }
         if ($l.Trim() -eq '') { continue }
-        # `pub(crate)` counts as API: it is a real interface for every other module in the crate, and
-        # its callers are exactly as unable to see the body as an external caller is.
-        #
-        # But `pub` INSIDE A PRIVATE MODULE reaches nobody -- the module gate closes over it, so the
-        # item is effectively private and its doc is implementation documentation. Requiring both is
-        # what makes "is this an interface?" mean reachability rather than just spelling.
+        # `pub(crate)` is API, but `pub` inside a PRIVATE module reaches nobody; requiring both makes
+        # this mean reachability rather than spelling. See docs/research/comment-hygiene-checker-design.md
         if ($l -match '^\s*pub(\s|\()') { if ($InPublicModule) { return 'api' } else { return 'impl' } }
-        # No `pub` on the item's own line does not settle it. Two kinds of item INHERIT visibility from
-        # the declaration enclosing them and can never carry the keyword themselves:
-        #
-        #   enum variants   -- `Variant,` in a `pub enum` is API; the same line in a private enum is not
-        #   trait items     -- `fn foo();` in a `pub trait` is API (14 such in this tree)
-        #
-        # Struct fields are NOT in that set and deliberately fall through to `impl`: a field needs its
-        # OWN `pub` to be reachable, so `xml_id: String,` inside a `pub struct` is implementation detail
-        # and its doc is held to the one-line cap. The `pub` branch above already catches public fields.
-        #
-        # So: walk OUT to the nearest enclosing declaration at a smaller indent and use its visibility.
-        # An earlier version guessed from the shape of the item's own line instead, which both missed
-        # trait items and wrongly promoted every private field.
+        # Enum variants and trait items INHERIT visibility and never carry `pub`; struct fields do not.
+        # So walk out to the enclosing declaration rather than guessing. See docs/research/comment-hygiene-checker-design.md
         $itemIndent = ($l -replace '^(\s*).*', '$1').Length
         for ($k = $j - 1; $k -ge [Math]::Max(0, $j - 400); $k--) {
             $c = $AllLines[$k]
@@ -391,8 +274,7 @@ function Get-BlockKind {
                 if ($c -match '^\s*pub' -and $InPublicModule) { return 'api' }
                 return 'impl'
             }
-            # Any other enclosing construct (struct, impl, fn, mod): the item needed its own `pub`,
-            # and it did not have one.
+            # Any other enclosing construct: the item needed its own `pub` and did not have one.
             if ($c -match '^\s*(pub(\([^)]*\))?\s+)?(struct|union|impl|fn|mod)\b') { return 'impl' }
         }
         return 'impl'
@@ -400,15 +282,10 @@ function Get-BlockKind {
     return 'impl'
 }
 
-# Returns the anchor kind a block carries, or $null. A docs path counts only under docs/research/
-# AND only if the file is really there -- an anchor nobody can follow is not an anchor.
+# The anchor a block carries, or $null; a docs path must really exist to count as one.
 function Get-BlockAnchor {
     param([string]$Text, [string]$RepoRoot)
-    # An intra-doc link is deliberately NOT an anchor any more. It only ever proved that a path
-    # resolved, so it licensed length without licensing truth -- and treating it as an anchor rewarded
-    # adding links at the same time the repo concluded code-to-code links should be deleted (the LSP
-    # already navigates; 551 broken ones had gone unnoticed). The three anchors left all survive
-    # semantic drift.
+    # An intra-doc link is NOT an anchor: it licensed length without licensing truth. See docs/research/comment-hygiene-checker-design.md
     if ($Text -match '```') { return 'doctest' }
     if ($Text -match 'include_str!') { return 'include-str' }
     foreach ($m in [regex]::Matches($Text, '(?:rust/)?docs/research/[A-Za-z0-9._/\-]+\.md')) {
@@ -429,14 +306,12 @@ foreach ($f in $files) {
     $blockLines = New-Object System.Collections.Generic.List[string]
     $blockStart = 0
 
-    # A block ends at the first non-comment line (or EOF), so the sentinel below runs the same
-    # evaluation once more after the loop rather than duplicating it.
+    # The sentinel lets end-of-block evaluation run once after the loop instead of being duplicated.
     $realLines = @([System.IO.File]::ReadLines($f.FullName))
     $allLines = $realLines + @('<<EOF-SENTINEL>>')
     $delims = $blockCommentByExt[$f.Extension]
-    # A delimited block's body lines carry no marker, so a line-start pattern reports them as code and
-    # the whole body escapes every rule. 387 body lines -- every script header in the tree -- were
-    # invisible that way, which is how five dates sat unreported in tooling headers.
+    # A delimited block's body lines carry no marker, so 387 of them were once scored by nothing.
+    # See docs/research/comment-hygiene-checker-design.md
     $mask = Get-CommentLineMask -Lines $realLines -Extension $f.Extension
 
     foreach ($line in $allLines) {
@@ -461,13 +336,10 @@ foreach ($f in $files) {
         $text = $blockLines -join "`n"
 
         if ($isRust -or $delims) {
-            # Citations first: a verified "pinned by <fn>" is an anchor in its own right, and the
-            # STRONGEST one, because a test is the only falsifier that survives semantic drift. It
-            # must therefore be computed before the block-length check consults $anchor.
+            # Citations first: a verified citation IS an anchor, so it must precede the length check.
             $blockCited = $false
             $cited = [System.Collections.Generic.List[string]]::new()
-            # Rust only: a citation names a Rust item, and $fnNames is built from Rust sources, so a
-            # script's prose would be judged against a symbol table it was never written against.
+            # Rust only: $fnNames is a Rust symbol table, and a script was never written against it.
             foreach ($m in $(if ($isRust) { [regex]::Matches($text, $citationPhrase) } else { @() })) { $cited.Add($m.Groups[1].Value) }
             foreach ($m in $(if ($isRust) { [regex]::Matches($text, $citationPath) } else { @() })) {
                 # Only judge a citation whose file is one of ours; see $citationPath's own note.
@@ -476,11 +348,8 @@ foreach ($f in $files) {
             }
             foreach ($name in $cited) {
                 if ($name.EndsWith('_')) { continue }
-                # A citation wrapped across two comment lines is captured truncated, and the break is
-                # not always at an underscore -- `..._on_subrule` + `_finding` on the next line reads
-                # as a complete name. So a captured name that is a PREFIX of a real one counts as live.
-                # This trades a little strictness for removing a whole false-positive class; a gate that
-                # cries wolf on correct citations gets ignored, and then the real one is ignored with it.
+                # A citation wrapped across two lines is captured truncated, so a PREFIX of a real name
+                # counts as live. See docs/research/comment-hygiene-checker-design.md
                 if ($name.Length -ge 12) {
                     $wrapped = $false
                     foreach ($known in $fnNames) { if ($known.StartsWith($name)) { $wrapped = $true; break } }
@@ -500,28 +369,19 @@ foreach ($f in $files) {
                 Get-BlockKind -FirstLine $blockLines[0] -AllLines $allLines -EndIdx ($lineNo - 1) `
                     -InPublicModule $publicModuleFile.Contains($f.FullName)
             } else {
-                Get-BlockKindScript -FirstLine $blockLines[0] -AllLines $allLines -StartIdx $blockStart
+                Get-BlockKindScript -FirstLine $blockLines[0] -Text $text -AllLines $allLines `
+                    -StartIdx $blockStart -Extension $f.Extension
             }
             if ($kind -eq 'api') {
-                # An API docstring may run as long as the contract needs. Counted, never gated: the
-                # number is worth watching, but capping an interface is how you destroy the abstraction.
+                # Counted, never gated: capping an interface is how you destroy the abstraction.
                 if ($blockLines.Count -gt $MaxBlockLines) { $apiDocsLong++ }
             } elseif ($blockLines.Count -gt 1) {
                 $tag = $null
                 foreach ($t in $exceptionTags) {
                     if ($text -match ('(?m)^\s*(?:///|//!|//|\*|#)\s*' + [regex]::Escape($t))) { $tag = $t; break }
                 }
-                # TWO lines when one of them is a checked reference: the pointer gets its own line so the
-                # other can say WHY you would follow it. A bare `see docs/research/<topic>.md` is close
-                # to useless -- the reader cannot tell whether it is worth the detour -- and forcing the
-                # summary and the pointer to share one line is how you get neither.
-                #
-                # The angle brackets in that example are load-bearing: a literal path here made the
-                # checker flag its own documentation as a dead link, which is the second time this file
-                # has caught its own prose.
-                #
-                # Deliberately capped at two. Three would reintroduce room for an argument, and the
-                # argument is the thing that belongs in the document.
+                # TWO lines, so the pointer gets its own and the other can say why to follow it.
+                # See docs/research/comment-hygiene-checker-design.md
                 $reference = if ($blockLines.Count -eq 2) {
                     Get-BlockReference -Text $text -RepoRoot $repoRoot -Cited $blockCited
                 } else { $null }
@@ -535,9 +395,7 @@ foreach ($f in $files) {
                     }
                 } else {
                     $claimed[$tag]++
-                    # A claim buys three lines on the tag alone; past that it must also be falsifiable.
-                    # The graduation matters: the short form covers "state the hazard", while anything
-                    # longer is an argument, and an argument is exactly what rots without a test.
+                    # A tag buys three lines; past that the argument must also be falsifiable.
                     if ($blockLines.Count -gt $MaxBlockLines -and -not $anchor) {
                         $counts['unanchored-exception']++
                         if ($List) {
@@ -547,11 +405,8 @@ foreach ($f in $files) {
                     }
                 }
             }
-            # A doc block on a #[test] is SELF-ANCHORING for this category: the claim's falsifier is the
-            # very item the block documents, sitting directly beneath it. "This test proves X refuses Y"
-            # cannot rot unnoticed the way the same sentence can three modules away -- if it stops being
-            # true, the test fails. Demanding a `pinned by` citation there would ask a test to cite
-            # itself, which was three of the four hits when this was measured.
+            # A doc on a #[test] is SELF-ANCHORING: its falsifier is the item directly beneath it.
+            # See docs/research/comment-hygiene-checker-design.md
             $documentsATest = -not $isRust   # the claim category below is Rust-only; see its own note
             for ($j = $lineNo - 1; $isRust -and $j -lt [Math]::Min($lineNo + 11, $allLines.Count); $j++) {
                 $l2 = $allLines[$j]
@@ -571,12 +426,8 @@ foreach ($f in $files) {
             }
         }
 
-        # Applies to every language: a docs path that does not resolve is broken wherever it appears.
-        #
-        # Both `docs/...` and `rust/docs/...` are written in this tree, so a match is resolved against
-        # the repo root AND against `rust/`. Capturing only from `docs/` and testing one location
-        # reported three live files as missing -- the inverse of this repo's "I could not look must
-        # not read as everything is fine": I looked in the wrong place and called the file broken.
+        # Every language. Resolved against the repo root AND `rust/`, because testing one location
+        # reported three live files as missing. See docs/research/comment-hygiene-checker-design.md
         foreach ($m in [regex]::Matches($text, '(?:rust/)?docs/[A-Za-z0-9._/\-]+\.md')) {
             $p = $m.Value -replace '/', '\'
             $found = (Test-Path (Join-Path $repoRoot $p)) -or (Test-Path (Join-Path $repoRoot (Join-Path 'rust' $p)))
@@ -594,24 +445,15 @@ if ($List) {
     foreach ($cat in $categories.Keys) {
         if ($hits[$cat].Count -eq 0) { continue }
         Write-Host "";  Write-Host "### $cat ($($counts[$cat]))" -ForegroundColor Cyan
-        # High enough to list a whole category: truncating at 40 silently hid 56 of 96 hits while a
-        # cleanup pass was being partitioned from this output, which is how work goes unassigned.
+        # High enough to list a whole category: truncating at 40 once hid 56 of 96 hits.
         $hits[$cat] | Select-Object -First $ListLimit | ForEach-Object { Write-Host "  $_" }
         if ($hits[$cat].Count -gt $ListLimit) { Write-Host "  ... $($hits[$cat].Count - $ListLimit) more" }
     }
     Write-Host ''
 }
 
-# ZERO TOLERANCE, not a ratchet. The ratchet was the right instrument against an inherited backlog
-# nobody had budgeted to clear -- it stopped the number growing while cleanup happened. It is the wrong
-# instrument now, for two reasons the ratchet itself surfaced: a baseline records the CURRENT count as
-# acceptable, so 4,330 violations read as "passing"; and re-baselining after a rule change quietly
-# relabels old debt as the new normal, which happened twice in one session here.
-#
-# Every violation is reported and every violation must go. Locally this is a WARNING (pg.ps1 prints it
-# and never fails the build -- a documentation finding that blocks every managed build is the gate shape
-# this repo has watched get switched off). In CI it is fatal: run this script directly and honour the
-# exit code.
+# ZERO TOLERANCE, not a ratchet: a baseline records the current count as acceptable, and 4,330 once
+# read as "passing". See docs/research/comment-hygiene-checker-design.md
 $total = 0
 foreach ($cat in $categories.Keys) {
     $now = [int]$counts[$cat]
@@ -620,9 +462,7 @@ foreach ($cat in $categories.Keys) {
     Write-Host ("  {0,-24} {1,5}" -f $cat, $now) -ForegroundColor $color
 }
 
-# Reported, never gated. Per class on purpose: a closed set of exceptions is only trustworthy while
-# you can see which one is being leaned on. `TRAP:` quietly becoming the most-claimed class would mean
-# it has turned into the generic escape hatch this design exists to avoid.
+# Reported never gated, and per class: you must be able to see which exception is being leaned on.
 Write-Host ("  {0,-24} {1,5}  (informational, not gated)" -f 'api-docstrings-long', $apiDocsLong) -ForegroundColor Gray
 Write-Host ("  {0,-24} {1,5}  (2-line: summary + checked reference)" -f 'reference-backed', $referenceBacked) -ForegroundColor Gray
 foreach ($t in $exceptionTags) {

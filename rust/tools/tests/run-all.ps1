@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Runs every rust/tools/tests/*.tests.ps1 file as its own child pwsh process (each one calls
   `exit` via Write-TestSummary, which would otherwise tear down this aggregator too) and prints
   one overall pass/fail summary. Non-zero exit if any file failed.

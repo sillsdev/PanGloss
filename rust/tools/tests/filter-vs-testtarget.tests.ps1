@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Covers: Get-FilterZeroMatchHint and Assert-ScriptAndCwdAgreeOnWorktree (rust/tools/_common.ps1) --
   the two guards added after the same operator mistake recurred seven times in one session.
 
@@ -29,9 +30,7 @@ $targets = @(
     'parity_divergence_census'
 )
 
-# ---------------------------------------------------------------------------------------------
-# The exact seven-times mistake: a test TARGET name handed to a TEST-NAME filter.
-# ---------------------------------------------------------------------------------------------
+# --- A test TARGET name handed to a TEST-NAME filter -- the recurring mistake this guard exists for. ---
 
 Test-Case 'a filter that names a test TARGET is told to use -TestTarget instead' {
     $hint = Get-FilterZeroMatchHint -Filter 'orthogonal_basis_group_b' -TestTargets $targets
@@ -61,29 +60,22 @@ Test-Case 'a filter that matches no target still explains the two mechanisms' {
 }
 
 Test-Case 'no filter yields no hint' {
-    # The hint must never fire on a run that did not use -Filter at all -- a zero-test run has other
-    # causes (an empty package, everything #[ignore]d) and blaming the filter would misdirect.
+    # A zero-test run has other causes (empty package, everything #[ignore]d); blaming the filter would misdirect.
     Assert-Equal 0 (Get-FilterZeroMatchHint -Filter '' -TestTargets $targets).Count 'empty filter must produce no hint'
 }
 
 Test-Case 'an empty target list degrades to the explanation, never to a throw' {
-    # Target discovery is a filesystem walk that can legitimately return nothing (wrong package name,
-    # a crate with no tests/ dir). It must not turn a helpful hint into an error.
+    # Target discovery is a filesystem walk that can legitimately return nothing; must not error on that.
     $hint = Get-FilterZeroMatchHint -Filter 'net_dedup' -TestTargets @()
     Assert-True ($hint.Count -ge 1) 'must still explain the mechanism with no targets known'
     $text = ($hint | ForEach-Object { $_.Text }) -join "`n"
     Assert-True ($text -notmatch 'Did you mean') 'must not suggest from an empty list'
 }
 
-# ---------------------------------------------------------------------------------------------
-# The worktree guard's decision. Asserted via the same resolution the guard uses, so that a future
-# edit that stops comparing repo roots fails here.
-# ---------------------------------------------------------------------------------------------
+# --- The worktree guard's decision, asserted via the same resolution the guard itself uses. ---
 
 Test-Case 'the guard is a no-op when the script and cwd share a worktree' {
-    # Running FROM this repo, against THIS repo's own copy of the script: must not refuse. If this
-    # ever fails, every ordinary managed build on the machine is refusing, which is the one regression
-    # that would be worse than the bug the guard fixes.
+    # Running from this repo against its own script must not refuse -- a failure here would refuse every ordinary build.
     $scriptRoot = Join-Path (Split-Path $PSScriptRoot -Parent) ''
     $scriptRepo = (Resolve-Path (Join-Path $scriptRoot '..\..')).Path.TrimEnd('\', '/')
     Push-Location $scriptRepo
@@ -94,9 +86,7 @@ Test-Case 'the guard is a no-op when the script and cwd share a worktree' {
 }
 
 Test-Case 'a foreign cwd resolves to a DIFFERENT repo root than the script (the bug the guard catches)' {
-    # Not asserting the exit -- that would end this test process. Asserting the CONDITION the guard
-    # branches on, using a real second worktree if one exists. Skipped with a printed reason rather
-    # than passing vacuously when there is no second worktree to stand in.
+    # Asserts the CONDITION the guard branches on, not the exit (which would end this test process).
     $scriptRepo = (Resolve-Path (Join-Path (Split-Path $PSScriptRoot -Parent) '..\..')).Path.TrimEnd('\', '/')
     $other = @(Get-ChildItem -Path (Join-Path $scriptRepo '.claude\worktrees') -Directory -ErrorAction SilentlyContinue |
         Where-Object { Test-Path (Join-Path $_.FullName 'rust\tools\pg.ps1') } | Select-Object -First 1)
@@ -111,10 +101,5 @@ Test-Case 'a foreign cwd resolves to a DIFFERENT repo root than the script (the 
     } finally { Pop-Location }
 }
 
-# REQUIRED, and omitting it is the reason this line has a comment. `Test-Case` records failures and
-# prints them, but the SCRIPT still exits 0 unless Write-TestSummary is called -- so a *.tests.ps1
-# without this line reports FAIL lines and a success exit code, i.e. it cannot gate anything. This
-# file shipped that way for one revision and only a deliberate mutation of the code under test
-# revealed it: the passing run looked identical either way. Same defect class as every "green gate
-# that never fails" this repo has had to fix.
+# REQUIRED: without this call the script still exits 0 after printing FAIL lines, so nothing gates on it.
 Write-TestSummary

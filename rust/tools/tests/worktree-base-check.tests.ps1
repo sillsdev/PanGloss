@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Covers: Test-WorktreeBase strict/development/off modes (rust/tools/_common.ps1), built against
   real temp `git init` repos so merge-base/ancestor logic is exercised for real, not mocked.
   Never touches the real checkout.
@@ -44,11 +45,7 @@ Test-Case 'development mode: accepts a descendant HEAD (the recorded base is sti
 $repoUnrelated = New-TestTempDir -Prefix 'pg-base-check-unrelated'
 git -C $repoUnrelated init -q -b main | Out-Null
 New-Commit -Repo $repoUnrelated -File 'c.txt' -Content 'c' -Message 'C' | Out-Null
-# Point this SEPARATE repo's recorded base at commitA from the other repo above -- commitA is not
-# an object $repoUnrelated's object database even knows about, which is exactly what "the worktree
-# was rewound/rebased/checked-out-to-something-unrelated out from under its recorded base" looks
-# like from Test-WorktreeBase's point of view (merge-base --is-ancestor can't find it => not an
-# ancestor => Ok = $false).
+# Records a base commitA has never heard of, simulating a worktree checked out to something unrelated.
 Write-WorktreeMeta -RepoRoot $repoUnrelated -RequestedRevision 'main' -ResolvedObjectId $commitA -Branch 'main' | Out-Null
 
 Test-Case 'development mode: rejects a recorded base with no relation to current HEAD history' {

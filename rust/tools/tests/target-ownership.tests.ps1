@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Covers: Get-TargetOwnershipPath / Write-TargetOwnership (rust/tools/_common.ps1), including the
   different-repository refusal and the monotonic `preserved` flag. Operates entirely on a plain
   temp directory standing in for a target dir -- never a real cache root.

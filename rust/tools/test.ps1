@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Test entry point for the PanGloss Rust workspace. THIN FRONT END: all actual policy (target-dir
   redirection, sccache wiring, worktree base-commit check, disk/build-slot gates, ownership markers,
   the optimized pg-test-opt profile) now lives in rust/tools/pg.ps1. This script just translates
@@ -26,6 +27,10 @@
   which never reaches the binder:
     $env:PANGLOSS_EXTRA_ARGS = '--no-capture'; pwsh -File rust\tools\test.ps1 -Package pg-foma
   Verified; see Split-ExtraArgsSpec in _common.ps1 for the reproduction.
+
+  -Gc routes through pg.ps1's marker-aware gc, which deletes strictly less than the old name-only
+  sweep it replaces: nothing goes until a managed build has written an ownership marker, so a fresh
+  worktree's first -Gc is a safe no-op rather than a silent skip -- it is reported either way.
 #>
 # See pg.ps1's own note: without this, `test.ps1 --no-capture` binds "--no-capture" to -Package,
 # which turns a passthrough flag into a package name and fails (or worse, filters) rather than
@@ -37,8 +42,7 @@ param(
     [switch]$DebugProfile,
     [switch]$NoNextest,
     [int]$MaxConcurrent = 2,
-    # See build.ps1's equivalent: 0/empty means "let pg.ps1 decide" rather than restating its
-    # defaults in a second place.
+    # 0/empty means "let pg.ps1 decide" rather than restating its defaults in a second place.
     [int]$Jobs = 0,
     [int]$TestThreads = 0,
     [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = '',
@@ -48,15 +52,11 @@ param(
 )
 
 if ($Gc) {
-    # Matches this flag's old behavior, now routed through pg.ps1's marker-aware gc -- see build.ps1's
-    # equivalent comment for why that deletes strictly less than the old name-only sweep did.
+    # See this script's own help header for what -Gc does and doesn't delete.
     & "$PSScriptRoot\pg.ps1" -Mode gc -Apply
 }
 
-# A hashtable, not an array: splatting an ARRAY of ('-Name','value',...) strings passes them as
-# plain POSITIONAL arguments (each string becomes one positional value, dashes and all) -- it does
-# NOT parse "-Name" tokens as parameter names the way typing them on a command line would. Only
-# hashtable splatting (@ht below) maps keys to named parameters.
+# A hashtable, not an array: array splatting passes each string as a positional argument, dashes and all.
 $pgArgs = @{ Mode = 'test' }
 if ($Package) { $pgArgs.Package = $Package }
 if ($Filter) { $pgArgs.Filter = $Filter }

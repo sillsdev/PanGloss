@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Covers: Get-WorktreeMetaPath / Write-WorktreeMeta / Read-WorktreeMeta (rust/tools/_common.ps1),
   the worktree side of the exact-base contract (design doc part 2). Uses a temp git repo only --
   never touches the real checkout's own .pangloss-worktree.json.

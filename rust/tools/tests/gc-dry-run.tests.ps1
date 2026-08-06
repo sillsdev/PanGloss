@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Covers: Get-TargetClassification / Invoke-TargetGc (rust/tools/_common.ps1) -- gc's
   classification and the only function allowed to delete a managed target directory. Everything
   runs against a temp directory standing in for a cache root, with -Roots/-LiveSlugs passed
@@ -37,8 +38,7 @@ $dirDisposable = New-FakeTarget -Root $root -Name 'dir-disposable' -Marker @{
 $dirOtherRepo = New-FakeTarget -Root $root -Name 'dir-other-repo' -Marker @{
     schema_version = 1; repository_id = 'REPO2'; worktree_path = 'C:\wt2'; created_utc = 'x'; last_used_utc = 'x'; preserved = $false
 }
-# 'sccache' is the shared compiler-cache directory, never a target dir -- Get-ManagedTargetDirs
-# must skip it by name even though it has no ownership marker either.
+# The shared compiler-cache directory, never a target dir; must be skipped by name despite having no marker.
 $sccacheDir = Join-Path $root 'sccache'
 New-Item -ItemType Directory -Force -Path $sccacheDir | Out-Null
 
@@ -101,10 +101,7 @@ Test-Case '-Apply with no busy processes deletes ONLY the disposable directory' 
 }
 
 Test-Case 'a disposable path outside every configured root is refused, not deleted' {
-    # The deletion-time containment re-check. Get-ManagedTargetDirs only ever enumerates under the
-    # configured roots, so this cannot arise from the normal call path -- it guards the NEXT caller
-    # that hand-builds or re-normalizes a classification list, in the one function in this repo that
-    # recursively force-deletes directories.
+    # The deletion-time containment re-check, guarding a future caller that hand-builds a classification list.
     $outside = Join-Path ([System.IO.Path]::GetTempPath()) "pg-gc-outside-$PID"
     New-Item -ItemType Directory -Force -Path $outside | Out-Null
     $forged = @([PSCustomObject]@{ Path = $outside; Class = 'disposable'; SizeGB = 0; Detail = 'forged' })

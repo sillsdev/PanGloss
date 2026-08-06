@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Build entry point for the PanGloss Rust workspace. THIN FRONT END: all actual policy (target-dir
   redirection, sccache wiring, worktree base-commit check, disk/build-slot gates, ownership
   markers) now lives in rust/tools/pg.ps1. This script just translates its own
@@ -21,6 +22,11 @@
   env channel instead, which never touches the binder:
     $env:PANGLOSS_EXTRA_ARGS = '--features foo'; pwsh -File rust\tools\build.ps1
   Verified; see Split-ExtraArgsSpec in _common.ps1 for the reproduction.
+
+  -Gc routes through pg.ps1's marker-aware gc (reap orphans, then delete stale disposable target
+  dirs) rather than the old name-only sweep it replaces. Consequence worth knowing: nothing deletes
+  until a managed build has actually written an ownership marker, so a fresh worktree's first -Gc is
+  a safe no-op, not a silent skip -- it is reported either way.
 #>
 # See pg.ps1's own note: without this, `build.ps1 --features foo` binds "--features" to -Package and
 # the documented `-- --features foo` passthrough below never reaches cargo either.
@@ -29,9 +35,7 @@ param(
     [string]$Package = '',
     [switch]$DebugProfile,
     [int]$MaxConcurrent = 2,
-    # Both default to "let pg.ps1 decide" (0 / empty) rather than restating its defaults here --
-    # duplicating the numbers is exactly the two-copies-that-drift problem this front end exists to
-    # avoid. Present only so a console user can override without dropping down to pg.ps1.
+    # Both default to "let pg.ps1 decide" (0/empty) rather than restating its defaults here.
     [int]$Jobs = 0,
     [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = '',
     [switch]$Gc,
@@ -40,17 +44,11 @@ param(
 )
 
 if ($Gc) {
-    # Matches this flag's old behavior (reap orphans + delete stale caches before building), now
-    # routed through pg.ps1's marker-aware gc instead of the old name-only sweep. Consequence worth
-    # knowing: nothing currently carries an ownership marker, so this deletes NOTHING until managed
-    # builds have written markers -- strictly safer than the old sweep, and reported rather than silent.
+    # See this script's own help header for what -Gc does and doesn't delete.
     & "$PSScriptRoot\pg.ps1" -Mode gc -Apply
 }
 
-# A hashtable, not an array: splatting an ARRAY of ('-Name','value',...) strings passes them as
-# plain POSITIONAL arguments (each string becomes one positional value, dashes and all) -- it does
-# NOT parse "-Name" tokens as parameter names the way typing them on a command line would. Only
-# hashtable splatting (@ht below) maps keys to named parameters.
+# A hashtable, not an array: array splatting passes each string as a positional argument, dashes and all.
 $pgArgs = @{ Mode = 'build' }
 if ($Package) { $pgArgs.Package = $Package }
 if ($DebugProfile) { $pgArgs.DebugProfile = $true }

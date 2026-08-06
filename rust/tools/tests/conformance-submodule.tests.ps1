@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Covers: Test-ConformanceSubmodulePresent / Get-ConformancePinnedCommit /
   Get-ConformanceSubmoduleSizeMB / Initialize-ConformanceSubmodule (rust/tools/_common.ps1) -- the
   auto-init that replaces "someone runs `git submodule update` by hand in every fresh worktree".
@@ -20,11 +21,7 @@
 . "$PSScriptRoot\..\_common.ps1"
 
 function New-FakeGitRepoWithMachineGitlink {
-    # A real, local, offline `git init` repo (same technique worktree-base-check.tests.ps1 uses)
-    # carrying a synthetic gitlink (mode 160000) at path `machine`, pointed at $Sha -- exactly the
-    # tree shape `git ls-tree HEAD -- machine` sees in the real repo, without cloning or fetching
-    # anything. $Sha need not be a real, resolvable commit: ls-tree only reads what the SUPERPROJECT's
-    # own tree recorded, never dereferences into the submodule's own object database.
+    # A synthetic gitlink (mode 160000) at `machine`; $Sha need not resolve, since ls-tree never dereferences it.
     param(
         [string]$Sha = '73599a89d5596bdc53c8fc6521962721bcc36bfa',
         [string]$Url = '',
@@ -46,9 +43,7 @@ function New-FakeGitRepoWithMachineGitlink {
     return $repo
 }
 
-# ---------------------------------------------------------------------------------------------
-# Fast path: the sentinel file alone decides "already initialized", at no git cost.
-# ---------------------------------------------------------------------------------------------
+# --- Fast path: the sentinel file alone decides "already initialized", at no git cost. ---
 
 Test-Case 'Test-ConformanceSubmodulePresent is false when the sentinel is absent' {
     $repo = New-TestTempDir -Prefix 'pg-conformance-empty'
@@ -69,13 +64,7 @@ Test-Case 'Initialize-ConformanceSubmodule takes the fast path (Ok, AlreadyPrese
     New-Item -ItemType Directory -Force -Path (Join-Path $repo 'machine\conformance') | Out-Null
     Set-Content -Path (Join-Path $repo 'machine\conformance\constructs.txt') -Value 'placeholder'
 
-    # Shadow `git` with a counting stub in THIS scope. Because _common.ps1 was dot-sourced into the
-    # same scope, Initialize-ConformanceSubmodule resolves the bare word `git` dynamically at call
-    # time and will hit this function instead of git.exe if it (wrongly) tries to invoke git at all
-    # on the fast path -- PowerShell's command resolution always prefers a function over an external
-    # executable of the same name. This is what actually proves "no git invoked", rather than just
-    # inferring it from the result being correct (which the fast path AND a lucky failure could both
-    # produce).
+    # Shadows `git` with a counting stub: PowerShell prefers a same-scope function over the real executable.
     $script:GitCallCount = 0
     function git { $script:GitCallCount++ }
 
@@ -86,18 +75,13 @@ Test-Case 'Initialize-ConformanceSubmodule takes the fast path (Ok, AlreadyPrese
         Assert-Equal 'already-present' $r.Mode
         Assert-Equal 0 $script:GitCallCount 'the fast path must never invoke git'
     } finally {
-        # function:git (NOT function:global:git -- the function: PSDrive has no scope segment in
-        # its path; that variant silently fails to match anything with -ErrorAction
-        # SilentlyContinue swallowing it, which leaked this stub into every later test in this file
-        # and made them fail in a very confusing way: real `git` calls silently became no-ops.
+        # function:git, not function:global:git -- the function: PSDrive has no scope segment in its path.
         Remove-Item function:git -ErrorAction SilentlyContinue
         Remove-Item -Recurse -Force $repo -ErrorAction SilentlyContinue
     }
 }
 
-# ---------------------------------------------------------------------------------------------
-# Pin resolution: reads the SUPERPROJECT's own tree, not .gitmodules' branch name.
-# ---------------------------------------------------------------------------------------------
+# --- Pin resolution: reads the SUPERPROJECT's own tree, not .gitmodules' branch name. ---
 
 Test-Case 'Get-ConformancePinnedCommit reads the gitlink SHA recorded in HEAD, not a live remote' {
     $sha = '73599a89d5596bdc53c8fc6521962721bcc36bfa'
@@ -116,13 +100,10 @@ Test-Case 'Get-ConformancePinnedCommit returns $null (never throws) when there i
     Remove-Item -Recurse -Force $repo -ErrorAction SilentlyContinue
 }
 
-# ---------------------------------------------------------------------------------------------
-# Missing submodule is detected, and the failure path is actionable -- entirely offline.
-# ---------------------------------------------------------------------------------------------
+# --- Missing submodule is detected, and the failure path is actionable -- entirely offline. ---
 
 Test-Case 'a missing submodule with no resolvable pin fails closed with an actionable, non-empty recovery command' {
-    # No .gitmodules AND no gitlink at all: Get-ConformancePinnedCommit can't resolve anything, so
-    # this must fail BEFORE any git clone is even attempted -- the cheapest possible failure.
+    # No .gitmodules or gitlink at all, so this must fail before any git clone is even attempted.
     $repo = New-TestTempDir -Prefix 'pg-conformance-unresolvable'
     git -C $repo init -q -b main | Out-Null
     Set-Content -Path (Join-Path $repo 'readme.txt') -Value 'no submodule here'
@@ -139,10 +120,7 @@ Test-Case 'a missing submodule with no resolvable pin fails closed with an actio
 }
 
 Test-Case 'a submodule whose init cannot reach its remote fails closed with the distinct exit code and an actionable message' {
-    # The URL is a nonexistent LOCAL path, not a real host -- `git clone` fails immediately and
-    # deterministically (no DNS, no timeout, no dependency on this machine's actual connectivity),
-    # which is exactly what "network unreachable" looks like from Initialize-ConformanceSubmodule's
-    # point of view: the clone step fails, and nothing else in the sequence can proceed past it.
+    # A nonexistent LOCAL path, not a real host: `git clone` fails immediately, deterministically, and offline.
     $badUrl = (Join-Path ([System.IO.Path]::GetTempPath()) "pg-does-not-exist-$([guid]::NewGuid().ToString('N'))\repo.git") -replace '\\', '/'
     $repo = New-FakeGitRepoWithMachineGitlink -Url $badUrl
 
@@ -152,17 +130,14 @@ Test-Case 'a submodule whose init cannot reach its remote fails closed with the 
     Assert-Equal 'failed' $r.Mode
     Assert-True ($r.Detail -like '*git clone*') "Detail must explain what failed; got: $($r.Detail)"
     Assert-True ($r.RecoveryCommand -like '*submodule update --init*') "RecoveryCommand must name the exact command to run by hand; got: $($r.RecoveryCommand)"
-    # "I could not look" must never read as "everything is fine" -- Ok=$false plus a populated
-    # Detail/RecoveryCommand is what makes this legible instead of a silent false positive.
+    # Ok=$false plus a populated RecoveryCommand: "I could not look" must never read as "everything is fine".
     Assert-True ($r.RecoveryCommand.Length -gt 0)
     Assert-False (Test-ConformanceSubmodulePresent -RepoRoot $repo) 'a failed init must not leave a false-positive sentinel behind'
 
     Remove-Item -Recurse -Force $repo -ErrorAction SilentlyContinue
 }
 
-# ---------------------------------------------------------------------------------------------
-# Exit code: distinct from every other preflight failure this repo already defines.
-# ---------------------------------------------------------------------------------------------
+# --- Exit code: distinct from every other preflight failure this repo already defines. ---
 
 Test-Case 'the conformance-submodule exit code is distinct from every other preflight exit code' {
     Assert-Equal 18 $script:ExitCodeConformanceSubmoduleMissing
@@ -177,9 +152,7 @@ Test-Case 'the conformance-submodule exit code is distinct from every other pref
     }
 }
 
-# ---------------------------------------------------------------------------------------------
-# Size reporting: a pure helper, no filesystem surprises.
-# ---------------------------------------------------------------------------------------------
+# --- Size reporting: a pure helper, no filesystem surprises. ---
 
 Test-Case 'Get-ConformanceSubmoduleSizeMB is 0 for a repo with no machine/ directory at all' {
     $repo = New-TestTempDir -Prefix 'pg-conformance-size'

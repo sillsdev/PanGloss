@@ -343,8 +343,16 @@ PowerShell already has a documentation-comment mechanism of its own:
 
 | In a script | Counts as | Length |
 |---|---|---|
-| `<# … #>` at the top of the file, or immediately before a `function` | comment-based help — the documented interface, rendered by `Get-Help` | free, exactly like a Rust API docstring |
-| every `#` run, and any `<# … #>` elsewhere | implementation comment | one line; two with a checked reference |
+| a delimited block at the top of a file or at a `function`'s head, **carrying a help keyword** (`.SYNOPSIS`, `.DESCRIPTION`, …) | comment-based help — the documented interface, rendered by `Get-Help` | free, exactly like a Rust API docstring |
+| every `#` run, and every delimited block that is not help | implementation comment | one line; two with a checked reference |
+
+**The keyword is not decoration.** Position alone was the first version of this rule and it was
+wrong: 67 delimited blocks in this tree sat in a help position, none carried a keyword, and
+`Get-Help` returned nothing for any of them. Without the keyword a block is a comment wearing help's
+clothes — and "wrap it in a delimited block and put it at the top of a function" is a typeable
+marker, which is how an escape hatch becomes universal and stops meaning anything. With it,
+`Get-Help pg.ps1` genuinely prints the thing, so the classification is a fact rather than a claim
+about where the text sits.
 
 So the escape hatch a script wants is usually not a `docs/research/*.md` pointer at all — it is to
 move the argument **up into the file's own help header**, where length is free and where an operator
