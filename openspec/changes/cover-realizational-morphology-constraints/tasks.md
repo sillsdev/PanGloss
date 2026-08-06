@@ -32,4 +32,7 @@
       (each test proves both `candidates_generated>0` (recall) and `confirmed==0`/exact-match
       (rejection) per construct row)
 - [ ] 3.3 Publish final ledger updates without family-level inference
-      (not_run — no coverage-ledger artifact exists in the repo to verify against)
+      BLOCKED ON Q2, not on a missing artifact. pg-foma/src/coverage_ledger.rs (52KB) and its 22-row
+      golden exist, and ealizational_morphology has a row reading confirm_only / covered. The
+      blocker is that ALL 22 rows read covered, which is exactly the blanket claim Q2 in
+      docs/open-questions.md calls vacuous. Publishing against it would certify inheritance.

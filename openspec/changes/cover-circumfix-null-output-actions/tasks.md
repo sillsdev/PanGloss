@@ -32,5 +32,7 @@
       (`cargo test -p pg-foma --test phase_c_circumfix`; `pg-rules --test morph_gate`/`stratum_gate`
       pass)
 - [ ] 3.2 Update only individually witnessed ledger rows
-      (not_run — no coverage-ledger artifact exists in the repo to update; only conceptual references
-      in `STAGING.md`/`define-grammar-coverage-contract`)
+      BLOCKED ON Q2, not on a missing artifact. The earlier note claimed no coverage ledger exists;
+      it does — `pg-foma/src/coverage_ledger.rs` plus a 22-row golden — and `circumfix_output_action`
+      has a row reading config_predicate / covered. The real blocker is that ALL 22 rows read
+      `covered`, the blanket claim Q2 in docs/open-questions.md calls vacuous.
