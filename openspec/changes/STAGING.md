@@ -41,9 +41,18 @@ fail-closed), unordered (existing derivation-chain superset + bounded/unbounded 
 set, ADR 0005 trust stamp, health admission, non-gating Ed25519, validate-before-allocate); WASM
 load-compat reworked to `required ⊆ provided` + trust stamp (`pg-wasm/src/pack.rs`); the
 `pangloss diagnose` build/assessment reports reusing the signature + health units. **Explicitly NOT
-done** (each change's own `tasks.md` is precise): `add-fst-compilation-health-audit` has only its
-evaluator library — no preflight walker, proposal/confirmation counts, dedup tracking, or
-`pangloss fst-health` command; `make-wasm-analysis-only` has NOT removed the compiler from WASM
+done** (each change's own `tasks.md` is precise — **except where audited and found false, below**):
+
+~~`add-fst-compilation-health-audit` has only its evaluator library — no preflight walker,
+proposal/confirmation counts, dedup tracking, or `pangloss fst-health` command~~ — **FALSE, audited
+2026-08-06.** All four exist: `preflight.rs` (27KB, 13 functions), `ProposalVolume`/`ConfirmationWork`
+counts, `DuplicateAnalysisOverlap`, and the shipped `pangloss fst-health` command (19KB module doing
+both preflight-only and observed modes). Genuinely missing were remedy population on the CLI's own
+findings, refusal on Critical admission, and the change's own verification run. Archived; succeeded by
+`recipe-scoped-fst-health`. Note the caveat this repairs: "each change's `tasks.md` is precise" is not
+safe to assume — those notes were true when written and carry no timestamp.
+
+`make-wasm-analysis-only` has NOT removed the compiler from WASM
 (`PanGlossGrammar::new` still compiles from XML); `add-grammar-diagnostics` defers everything needing
 a second pipeline, file artifacts, or the PowerShell/CI/skill layer; `add-reference-hermitcrab-parity`
 has the Rust gloss-signature unit but zero of the C# oracle harness.

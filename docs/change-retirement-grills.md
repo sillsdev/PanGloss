@@ -37,7 +37,17 @@ which rules join a cascade, which route a circumfix takes.
 **Choices:** (a) retire; (b) audit then retire; (c) keep. Chose (b); the audit found nothing missing.
 </details>
 
-### A2 — `add-fst-compilation-health-audit` (1 done / 18 open)
+### A2 — `add-fst-compilation-health-audit` — RETIRED 2026-08-06 (read 1/18, was ~13/18)
+
+**Resolved.** Four "not done" notes were false: the preflight walker (27KB), proposal/confirmation
+counts, dedup tracking, and the shipped `fst-health` command all exist. Genuinely missing: remedies
+never populated on CLI findings, nothing refuses a Critical package, verification unrun. Archived and
+succeeded by `recipe-scoped-fst-health`, which carries those three and rescopes health per recipe —
+naming which recipe compiled the grammar, which did not and why, with actionable guidance and
+conditional "this would work under recipe X if…" routes. STAGING.md's matching false claim corrected.
+
+<details><summary>original grill</summary>
+
 
 *For:* one Rust implementation consuming existing compiler measurements into preflight and observed
 warnings.
@@ -46,8 +56,9 @@ warnings.
 STAGING.md claims this change "has only its evaluator library — no … `pangloss fst-health` command".
 **That claim is false**, which makes STAGING.md itself stale here.
 
-**Choices:** (a) retire and correct STAGING.md; (b) audit the 18 tasks against the shipped command
-first; (c) keep. **Recommendation: (b) then retire.**
+**Choices:** (a) retire and correct STAGING.md; (b) audit first; (c) keep. Chose audit, then retire
+into a rescoped successor.
+</details>
 
 ### A3 — `add-grammar-diagnostics` (8 done / 14 open)
 
