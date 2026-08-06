@@ -1,7 +1,7 @@
 <#
   Proves that a change which claims to touch only comments actually touches only comments.
 
-  Why this exists, precisely. On 2026-08-06 a comment sweep's single Edit removed 204 lines from
+  Why this exists, precisely. A comment sweep's single Edit removed 204 lines from
   `orthogonal_basis_group_a.rs` and added 2. Only the first ~102 removed lines were the module doc it
   meant to shorten; the rest were the `use` block, two type definitions and four `const` items. The
   file stopped parsing and the whole pg-foma integration suite went with it. Nothing caught it: the
@@ -17,6 +17,13 @@
   result. It cannot tell a good comment from a bad one -- `comment-hygiene.ps1` does that -- and it
   cannot tell that a deleted comment SHOULD have been kept. What it can tell you, cheaply and with no
   compiler, is that the code is untouched, which is the property a sweep is actually claiming.
+
+  A trailing comment is the one shape the line-start test gets wrong on its own: editing
+  `let x = 1; // note` is a comment-only edit, but the line as a whole is code. So a second pass
+  excuses any changed line whose CODE PORTION appears unchanged on the other side of the diff.
+  Matching is per-file and per-code-portion, so a line that really changed has no partner to excuse
+  it. Without this the tool fails entirely legitimate sweeps, and a gate that taxes ordinary work
+  gets switched off and then protects nobody.
 
   Three things it reports that are TRUE but usually benign, so a reader is not surprised by them.
   rustfmt reflow, which `pg.ps1` applies on every managed build: shortening a comment can let the
@@ -59,6 +66,31 @@ if ($LASTEXITCODE -ne 0) {
 
 $candidates = New-Object System.Collections.Generic.List[object]
 $violations = New-Object System.Collections.Generic.List[object]
+
+# A `-U0` diff line carries no surrounding context, so whether it sat inside a delimited comment block
+# cannot be read off the line itself. Both sides' full contents are therefore fetched once per file
+# and turned into comment-line masks, which the classifier indexes by line number. Reading the diff
+# line with a regex instead would misjudge every `<# #>` body line as code -- and would put this tool
+# back into disagreement with `comment-hygiene.ps1`, which is the drift the shared file rules out.
+$oldRef, $newRef = if ($Range -match '^(.+?)\.\.\.?(.+)$') { $Matches[1], $Matches[2] }
+                   elseif ($Staged) { 'HEAD', ':' }
+                   else { 'HEAD', '' }
+$maskCache = @{}
+function Get-SideMask {
+    param([string]$File, [string]$Ref)
+    $key = "$Ref`u{1}$File"
+    if ($maskCache.ContainsKey($key)) { return $maskCache[$key] }
+    $spec = if ($Ref -eq ':') { ":$File" } elseif ($Ref -eq '') { $null } else { "${Ref}:$File" }
+    $lines = if ($null -eq $spec) {
+        if (Test-Path $File) { @(Get-Content -LiteralPath $File) } else { @() }
+    } else {
+        $out = & git show $spec 2>$null
+        if ($LASTEXITCODE -ne 0) { @() } else { @($out) }
+    }
+    $m = Get-CommentLineMask -Lines $lines -Extension ([System.IO.Path]::GetExtension($File))
+    $maskCache[$key] = $m
+    return $m
+}
 $unclassified = New-Object System.Collections.Generic.List[string]
 $stats = [ordered]@{}
 
@@ -98,7 +130,8 @@ foreach ($line in $diff) {
 
     if (-not $pattern) { continue }          # not a language we classify; reported separately
     if ($text.Trim() -eq '') { continue }    # blank-line churn is not code
-    if ($text -match $pattern) { continue }
+    $mask = if ($sign -eq '+') { Get-SideMask -File $file -Ref $newRef } else { Get-SideMask -File $file -Ref $oldRef }
+    if ($no -ge 1 -and $no -le $mask.Count -and $mask[$no - 1]) { continue }
 
     $candidates.Add([pscustomobject]@{
         File = $file
@@ -109,10 +142,7 @@ foreach ($line in $diff) {
     })
 }
 
-# Second pass: excuse a code line whose CODE PORTION is unchanged, i.e. only its trailing comment
-# moved. Editing `let x = 1; // note` is a comment-only edit, but the line as a whole is code, so the
-# line-start test above cannot see that and would fail an entirely legitimate sweep. Matching is
-# per-file and per-code-portion, so a line that really changed still has no partner to excuse it.
+# Second pass: excuse a code line whose code portion is unchanged (see this script's help header).
 $codeOnOtherSide = @{}
 foreach ($c in $candidates) {
     $key = "$($c.File)`u{1}$($c.Side)`u{1}$($c.Code)"
@@ -136,8 +166,7 @@ if ($stats.Count -eq 0) {
 
 foreach ($k in $stats.Keys) {
     $s = $stats[$k]
-    # Printed even when clean: a large one-sided deletion count is the signature of an over-selected
-    # `old_string`, and a reviewer can see lopsidedness that the pass/fail rule cannot judge.
+    # Printed even when clean: a lopsided deletion count is the signature the rule cannot judge.
     Write-Host ("  {0,6} {1,-7} {2}" -f "+$($s.Added)", "-$($s.Removed)", $k)
 }
 

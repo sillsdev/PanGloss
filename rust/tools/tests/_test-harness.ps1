@@ -1,7 +1,7 @@
 <#
   Minimal test harness for rust/tools/tests/*.tests.ps1 -- plain PowerShell asserting with `throw`
-  on failure, deliberately NOT Pester (per docs/superpowers/specs/
-  2026-07-29-categorical-build-hardening-design.md task list: "do NOT add a Pester dependency").
+  on failure, deliberately NOT Pester: the build-hardening design rules out taking a Pester
+  dependency, so these tests must run with nothing installed beyond PowerShell itself.
 
   Dot-source this from a *.tests.ps1 file, then:
     Test-Case "description" { <body that throws on failure, e.g. via Assert-*> }

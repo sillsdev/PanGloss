@@ -54,9 +54,21 @@
   external knowledge (a paper, an algorithm, an upstream bug) rather than internal behavior, since a
   docs page describing internal behavior rots exactly as the comment did with nothing compiling it.
 
-  BLOCK RULES ARE RUST-ONLY, on purpose rather than for convenience: every valid escape above is a
-  Rust mechanism. PowerShell and Python have no machine-checked anchor, so the rule would there be a
-  cap with no way to comply. Those files keep the line-level categories.
+  SCRIPTS ARE HELD TO THE SAME RULES, and the interface/implementation split is what makes that
+  possible. A delimited block at the top of a script, or immediately before a `function`, is
+  PowerShell COMMENT-BASED HELP -- the documented interface, rendered by Get-Help. That is the exact
+  analogue of a Rust doc comment on a public item, so it gets the same treatment: scored for stale
+  project state, never capped for length. Every `#` run, and any delimited block sitting elsewhere,
+  is an implementation comment and takes the one-line cap.
+
+  Not every anchor survives the crossing: a doctest and a `pinned by <fn>` citation are Rust
+  mechanisms and simply never occur in a script. What remains is a `docs/research/*.md` path or a
+  URL, which is enough for the cap to be compliable -- and the escape a script actually wants is
+  usually to move the argument up into its own help header, where length is free.
+
+  A delimited block's BODY lines carry no marker of their own, so a line-start pattern reads them as
+  code and the whole body escapes every rule. That was the state until this was written: 387 body
+  lines -- every script header in the tree -- unscored, hiding five dates and a plan reference.
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
@@ -320,6 +332,28 @@ function Get-BlockReference {
 # `//!` is a module/crate front page and always counts as API. `///` documents the NEXT item, so the
 # item's visibility decides -- and attributes and blank lines sit between the two, which is why this
 # skips forward rather than reading one line. Anything else (`//`, `/* */`) is implementation.
+# The PowerShell arm of the same interface/implementation split. `<# #>` at the top of a script, or
+# immediately before a `function`, is COMMENT-BASED HELP -- the documented interface, rendered by
+# `Get-Help`. That is the exact analogue of a Rust doc comment on a public item, so it earns the same
+# treatment: scored for stale project state, never capped for length. Measured over this tree, all 23
+# such blocks are one of those two positions and none is inline, so the rule has no awkward middle.
+#
+# Everything else in a script -- `#` runs, a `<# #>` block sitting in the middle of a body -- is an
+# implementation comment and takes the one-line cap. The compliable escape there is a
+# `docs/research/*.md` path or a URL; the doctest and `pinned by` anchors are Rust mechanisms and
+# simply never appear.
+function Get-BlockKindScript {
+    param([string]$FirstLine, [string[]]$AllLines, [int]$StartIdx)
+    if ($FirstLine -notmatch '^\s*<#') { return 'impl' }
+    for ($k = $StartIdx - 2; $k -ge 0; $k--) {
+        $c = $AllLines[$k]
+        if ($c.Trim() -eq '') { continue }
+        if ($c -match '^\s*function\s') { return 'api' }
+        return 'impl'
+    }
+    return 'api'   # nothing above it: the file header
+}
+
 function Get-BlockKind {
     param([string]$FirstLine, [string[]]$AllLines, [int]$EndIdx, [bool]$InPublicModule)
     if ($FirstLine -match '^\s*//!') { if ($InPublicModule) { return 'api' } else { return 'impl' } }
@@ -397,11 +431,17 @@ foreach ($f in $files) {
 
     # A block ends at the first non-comment line (or EOF), so the sentinel below runs the same
     # evaluation once more after the loop rather than duplicating it.
-    $allLines = @([System.IO.File]::ReadLines($f.FullName)) + @('<<EOF-SENTINEL>>')
+    $realLines = @([System.IO.File]::ReadLines($f.FullName))
+    $allLines = $realLines + @('<<EOF-SENTINEL>>')
+    $delims = $blockCommentByExt[$f.Extension]
+    # A delimited block's body lines carry no marker, so a line-start pattern reports them as code and
+    # the whole body escapes every rule. 387 body lines -- every script header in the tree -- were
+    # invisible that way, which is how five dates sat unreported in tooling headers.
+    $mask = Get-CommentLineMask -Lines $realLines -Extension $f.Extension
 
     foreach ($line in $allLines) {
         $lineNo++
-        $isComment = ($line -ne '<<EOF-SENTINEL>>') -and ($line -match $commentLine)
+        $isComment = ($line -ne '<<EOF-SENTINEL>>') -and $mask[$lineNo - 1]
 
         if ($isComment) {
             if ($blockLines.Count -eq 0) { $blockStart = $lineNo }
@@ -420,14 +460,16 @@ foreach ($f in $files) {
         if ($blockLines.Count -eq 0) { continue }
         $text = $blockLines -join "`n"
 
-        if ($isRust) {
+        if ($isRust -or $delims) {
             # Citations first: a verified "pinned by <fn>" is an anchor in its own right, and the
             # STRONGEST one, because a test is the only falsifier that survives semantic drift. It
             # must therefore be computed before the block-length check consults $anchor.
             $blockCited = $false
             $cited = [System.Collections.Generic.List[string]]::new()
-            foreach ($m in [regex]::Matches($text, $citationPhrase)) { $cited.Add($m.Groups[1].Value) }
-            foreach ($m in [regex]::Matches($text, $citationPath)) {
+            # Rust only: a citation names a Rust item, and $fnNames is built from Rust sources, so a
+            # script's prose would be judged against a symbol table it was never written against.
+            foreach ($m in $(if ($isRust) { [regex]::Matches($text, $citationPhrase) } else { @() })) { $cited.Add($m.Groups[1].Value) }
+            foreach ($m in $(if ($isRust) { [regex]::Matches($text, $citationPath) } else { @() })) {
                 # Only judge a citation whose file is one of ours; see $citationPath's own note.
                 $base = [System.IO.Path]::GetFileName(($m.Groups[1].Value -replace '/', '\'))
                 if ($rsBasenames.Contains($base)) { $cited.Add($m.Groups[2].Value) }
@@ -454,8 +496,12 @@ foreach ($f in $files) {
             $anchor = Get-BlockAnchor -Text $text -RepoRoot $repoRoot
             if (-not $anchor -and $blockCited) { $anchor = 'test-citation' }
 
-            $kind = Get-BlockKind -FirstLine $blockLines[0] -AllLines $allLines -EndIdx ($lineNo - 1) `
-                -InPublicModule $publicModuleFile.Contains($f.FullName)
+            $kind = if ($isRust) {
+                Get-BlockKind -FirstLine $blockLines[0] -AllLines $allLines -EndIdx ($lineNo - 1) `
+                    -InPublicModule $publicModuleFile.Contains($f.FullName)
+            } else {
+                Get-BlockKindScript -FirstLine $blockLines[0] -AllLines $allLines -StartIdx $blockStart
+            }
             if ($kind -eq 'api') {
                 # An API docstring may run as long as the contract needs. Counted, never gated: the
                 # number is worth watching, but capping an interface is how you destroy the abstraction.
@@ -463,7 +509,7 @@ foreach ($f in $files) {
             } elseif ($blockLines.Count -gt 1) {
                 $tag = $null
                 foreach ($t in $exceptionTags) {
-                    if ($text -match ('(?m)^\s*(?:///|//!|//|\*)\s*' + [regex]::Escape($t))) { $tag = $t; break }
+                    if ($text -match ('(?m)^\s*(?:///|//!|//|\*|#)\s*' + [regex]::Escape($t))) { $tag = $t; break }
                 }
                 # TWO lines when one of them is a checked reference: the pointer gets its own line so the
                 # other can say WHY you would follow it. A bare `see docs/research/<topic>.md` is close
@@ -506,8 +552,8 @@ foreach ($f in $files) {
             # cannot rot unnoticed the way the same sentence can three modules away -- if it stops being
             # true, the test fails. Demanding a `pinned by` citation there would ask a test to cite
             # itself, which was three of the four hits when this was measured.
-            $documentsATest = $false
-            for ($j = $lineNo - 1; $j -lt [Math]::Min($lineNo + 11, $allLines.Count); $j++) {
+            $documentsATest = -not $isRust   # the claim category below is Rust-only; see its own note
+            for ($j = $lineNo - 1; $isRust -and $j -lt [Math]::Min($lineNo + 11, $allLines.Count); $j++) {
                 $l2 = $allLines[$j]
                 if ($l2 -match '^\s*#\[test\]|^\s*#\[tokio::test\]') { $documentsATest = $true; break }
                 if ($l2 -match '^\s*#!?\[') { continue }

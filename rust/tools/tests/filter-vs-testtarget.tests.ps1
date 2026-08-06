@@ -15,7 +15,7 @@
   to the test runner, where it matches TEST NAMES as a SUBSTRING. It never matches file names or
   test-target names, and it never reduces what cargo COMPILES. `-TestTarget` maps to cargo's
   `--test <name>` and does reduce compilation -- to one binary instead of ~78 for pg-foma. Measured
-  2026-08-03: 10.6s warm via -TestTarget versus ~996s cold for the whole package.
+  on this machine: 10.6s warm via -TestTarget versus ~996s cold for the whole package.
 #>
 . "$PSScriptRoot\_test-harness.ps1"
 . "$PSScriptRoot\..\_common.ps1"

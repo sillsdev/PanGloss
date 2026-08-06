@@ -336,6 +336,32 @@ prose over the executable logic. Separately, across 1.3 billion AST-level change
 ([Wen et al.](https://www.inf.usi.ch/lanza/Downloads/Wen2019a.pdf)). A confidently wrong comment is
 not untidy; it is a measurable defect for both kinds of reader.
 
+## PowerShell and Python are held to the same rules
+
+Scripts are not exempt. The interface/implementation split is what makes that workable, because
+PowerShell already has a documentation-comment mechanism of its own:
+
+| In a script | Counts as | Length |
+|---|---|---|
+| `<# … #>` at the top of the file, or immediately before a `function` | comment-based help — the documented interface, rendered by `Get-Help` | free, exactly like a Rust API docstring |
+| every `#` run, and any `<# … #>` elsewhere | implementation comment | one line; two with a checked reference |
+
+So the escape hatch a script wants is usually not a `docs/research/*.md` pointer at all — it is to
+move the argument **up into the file's own help header**, where length is free and where an operator
+reading `Get-Help` will actually find it. Inline `#` prose explaining a design decision is the shape
+to avoid.
+
+Two anchors do not survive the crossing: a doctest and a `pinned by `<test>`` citation are Rust
+mechanisms and never occur in a script. A `docs/research/*.md` path and a URL still work.
+
+**Watch the closing token.** Writing PowerShell's block-comment terminator inside a `<# … #>` header —
+even in backticks, even as an example — ends the header there, and every line after it becomes code.
+That is a parse error, not a lint finding, and it has already happened once.
+
+Until this was enforced, a delimited block's body lines carried no marker a line-start pattern could
+see, so **387 body lines — every script header in the tree — were scored by nothing at all**, hiding
+five dates and a plan reference.
+
 ## Do not rebuild what already exists
 
 Prefer the mechanism whose validation someone else maintains:

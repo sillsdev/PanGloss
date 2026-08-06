@@ -2,8 +2,8 @@
   Covers: Enter-BuildSlot / Exit-BuildSlot (rust/tools/_common.ps1) after the switch from ONE
   counted semaphore to N named mutexes, plus the diagnostic slot ledger and commit-charge reporting.
 
-  Why this file exists: the semaphore it replaced DEADLOCKED every worktree on this machine on
-  2026-07-31. A counted semaphore never restores its count when the holder dies, and in agent
+  Why this file exists: the semaphore it replaced DEADLOCKED every worktree on this machine.
+  A counted semaphore never restores its count when the holder dies, and in agent
   workflows the holder dies routinely (tool timeouts, agent stop/resume, detached invocations whose
   parent conversation is gone). Observed: 4+ worktrees waiting 20+ minutes with zero compilers alive
   machine-wide, recoverable only by hand-releasing the semaphore until it threw. The leak-on-kill
