@@ -1,29 +1,5 @@
-//! Strategy-AWARE capability accounting: a compiler that cannot represent a construct must not be
-//! offered as selectable for a grammar that uses it.
-//!
-//! # The defect this pins
-//! `capability::Disposition::ConfirmOnly` is defined as *"Recall-preserving only if the proposer
-//! proposes the superset."* That precondition is a claim about a PROPOSER, and the capability layer
-//! had no proposer in hand: `characterize(g: &Grammar)` takes no strategy, and
-//! `enumerate::EmissionStrategy` appeared nowhere in `capability.rs`, `coverage_ledger.rs`,
-//! `conformance_coverage.rs` or `gate.rs`. So a `ConfirmOnly` disposition was being checked against
-//! the UNION of every compiler's abilities.
-//!
-//! The consequence was measured, not hypothesized: `Compounding` rested at a non-refusing
-//! disposition while `crate::uflexc` -- the only lexicon emitter `EmissionStrategy::PlanComposed`
-//! has -- emitted a structurally single-root continuation graph that could not propose ANY compound.
-//! One compiler's coverage was silently inherited by all three, and the ledger's cited evidence for
-//! it (`tests/cover_compounding.rs`) exercised only `FomaAnalyzer::new`, i.e.
-//! `EmissionStrategy::TunedSurfaceProbed`.
-//!
-//! That specific hole is now fixed (uflexc grew a bounded compound loop). These tests pin the
-//! ACCOUNTING, against a hole of the identical shape that is still live today:
-//! `MorphRuleDef::Realizational`. `uflexc`'s mrule loop reports every such rule in `skipped` as
-//! `kind=realizational-rule` and `continue`s past it -- no lexc line is written for the rule at all,
-//! so `PlanComposed`'s proposer returns zero candidates for any word requiring it, while both
-//! whole-grammar compilers handle it through `emit.rs`'s shared rule accessors.
-//!
-//! Synthetic, delanguaged fixtures only (this repo's standing rule for conformance-shaped grammars).
+//! Strategy-aware capability accounting: a compiler that cannot represent a construct must not be offered as selectable for a grammar that uses it.
+//! See docs/research/pg-foma-strategy-aware-capability-gate-notes.md for the defect this pins and why.
 
 use foma::options::FomaOptions;
 
@@ -44,9 +20,7 @@ use pg_foma::selection::select_plan;
 use pg_foma::strategy_coverage::{representation_of, StrategyRepresentation};
 use pg_grammar::model::{Grammar, MorphRuleDef};
 
-/// A minimal grammar whose ONLY morphological rule is a `RealizationalRule` -- reused verbatim from
-/// `capability.rs`'s own `compose_envelope_confirm_only_for_realizational_rule_alone` fixture, so
-/// this file is not litigating a second, differently-shaped grammar's characterization.
+/// A minimal grammar whose only morphological rule is a `RealizationalRule`, reused verbatim from `capability.rs`'s own fixture so this file is not litigating a second, differently-shaped grammar.
 const REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -75,9 +49,7 @@ const REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone<
   </Strata>
 </Language></HermitCrabInput>"#;
 
-/// The same grammar with the realizational rule removed -- the negative control. Nothing about this
-/// grammar is strategy-conditional, so every strategy must reach the identical verdict and the
-/// strategy-aware filter must be a no-op on it.
+/// The negative control: nothing here is strategy-conditional, so every strategy must reach the identical verdict and the strategy-aware filter must be a no-op.
 const NO_REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>PlainAlone</Name>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -95,9 +67,7 @@ const NO_REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>PlainAlon
   </Strata>
 </Language></HermitCrabInput>"#;
 
-/// `ComposeBudget::unbounded()` is `#[cfg(test)]`-only inside the crate, so an integration test
-/// builds the equivalent never-trips budget through the public constructor (the same shape
-/// `tests/grammar_semantics_owner_gate.rs` uses).
+/// `ComposeBudget::unbounded()` is `#[cfg(test)]`-only inside the crate, so an integration test builds the equivalent never-trips budget through the public constructor.
 fn unbounded_budget() -> ComposeBudget {
     ComposeBudget::with_caps(
         usize::MAX,
@@ -120,10 +90,7 @@ fn enumerated_plan(g: &Grammar) -> Plan {
     enumerate_default(g, &alphabet, &ro, phon.as_ref())
 }
 
-/// Two candidates carrying the IDENTICAL plan and differing ONLY in `EmissionStrategy` -- which is
-/// exactly the axis a strategy-blind envelope cannot see. `PlanComposed` first so a filter that
-/// silently did nothing would leave it chosen (it is the minimum-`NodeId` candidate: the roots are
-/// equal, so the tie-break cannot rescue the assertion).
+/// Two candidates with the identical plan differing only in `EmissionStrategy`; `PlanComposed` first so a filter that silently did nothing would leave it chosen (the roots tie, so no tie-break can rescue the assertion).
 fn two_strategy_candidates(plan: &Plan) -> Vec<LoweredCandidate> {
     vec![
         LoweredCandidate {
@@ -136,20 +103,13 @@ fn two_strategy_candidates(plan: &Plan) -> Vec<LoweredCandidate> {
             label: "tuned-surface-probed",
             plan: plan.clone(),
             adapter: LoweringAdapter::TunedSurfaceEmit,
-            // A whole-grammar adapter never reads a plan, so it is not "the baseline plan's
-            // compilation" under any reading -- it is a different compiler.
+            // A whole-grammar adapter never reads a plan, so it is a different compiler, never "the baseline plan's compilation".
             role: CandidateRole::Alternative,
         },
     ]
 }
 
-/// THE TEST THE ORIGINAL DEFECT NEEDED. A grammar whose only morphological rule is one
-/// `PlanComposed`'s proposer emits nothing for must not offer a `PlanComposed` candidate as
-/// selectable -- and must still offer the compiler that CAN represent it.
-///
-/// Falsified before the fix by construction: `select_plan` called `compose_envelope_with_semantics`,
-/// which takes no strategy at all, so both candidates reached the same `ConfirmOnly` decision, both
-/// were admissible, and index 0 (`PlanComposed`) was chosen.
+/// A grammar whose only rule is one `PlanComposed`'s proposer emits nothing for must not offer a `PlanComposed` candidate as selectable, and must still offer the compiler that can represent it.
 #[test]
 fn a_strategy_that_cannot_represent_a_construct_is_not_selectable_for_a_grammar_using_it() {
     let g = load(REALIZATIONAL_XML);
@@ -194,8 +154,7 @@ fn a_strategy_that_cannot_represent_a_construct_is_not_selectable_for_a_grammar_
         "the only representable strategy must be the chosen one"
     );
 
-    // The refusal has to be legible, not just a bool: it names the strategy, the construct, and the
-    // account that produced it.
+    // The refusal has to be legible, not just a bool: it names the strategy, the construct, and the account that produced it.
     let CompileDecision::Refuse(diagnostics) = &plan_composed.decision else {
         panic!("expected a Refuse carrying diagnostics");
     };
@@ -211,10 +170,7 @@ fn a_strategy_that_cannot_represent_a_construct_is_not_selectable_for_a_grammar_
     );
 }
 
-/// The strategy-BLIND envelope reaches `ConfirmOnly` on exactly the same grammar and plan -- i.e.
-/// the old accounting genuinely could not see the hole, and the assertion above is not passing for
-/// some incidental reason. This is the "before" half of the before/after evidence, expressed as a
-/// standing test rather than a one-off measurement.
+/// The "before" half of the evidence: the strategy-blind envelope reaches `ConfirmOnly` on this same grammar and plan, so the old accounting genuinely could not see the hole.
 #[test]
 fn the_strategy_blind_envelope_cannot_see_the_hole() {
     let g = load(REALIZATIONAL_XML);
@@ -228,20 +184,14 @@ fn the_strategy_blind_envelope_cannot_see_the_hole() {
     );
 }
 
-/// THE MEMO TRAP, pinned. `GrammarSemantics` memoizes `characteristics()` as a function of the
-/// GRAMMAR alone. That memo is deliberately kept (see `strategy_coverage`'s module doc for the
-/// reasoning), so the risk is that a second strategy reading through the same owner silently gets
-/// the first one's answer -- reintroducing the inheritance bug in a harder-to-see place. One shared
-/// `GrammarSemantics`, two strategies, two different answers.
+/// The memo trap: `GrammarSemantics` memoizes `characteristics()` per grammar, so a second strategy reading the same owner could silently inherit the first one's answer. One shared owner must still give two different answers.
 #[test]
 fn two_strategies_get_their_own_answers_from_one_shared_semantics() {
     let g = load(REALIZATIONAL_XML);
     let plan = enumerated_plan(&g);
     let registry = default_registry();
 
-    // ONE owner, shared -- and deliberately warmed first, so the memo is already populated by the
-    // time either strategy asks. A strategy-keyed answer that leaked out of the grammar-only memo
-    // would show up here as two equal verdicts.
+    // One shared owner, deliberately warmed first; a strategy-keyed leak would show up here as two equal verdicts.
     let semantics = GrammarSemantics::derive(&g);
     let _ = semantics.characteristics();
 
@@ -268,8 +218,7 @@ fn two_strategies_get_their_own_answers_from_one_shared_semantics() {
         "two strategies asking one shared GrammarSemantics must not receive the same verdict"
     );
 
-    // Order-independence: asking in the reverse order gives the same two answers. A memo poisoned
-    // by whoever asked first would fail this and pass the pair above.
+    // Order-independence: a memo poisoned by whoever asked first would fail this while passing the pair above.
     let semantics_reversed = GrammarSemantics::derive(&g);
     let tuned_first = compose_envelope_for_strategy(
         &semantics_reversed,
@@ -287,10 +236,7 @@ fn two_strategies_get_their_own_answers_from_one_shared_semantics() {
     assert_eq!(plan_composed_second, plan_composed);
 }
 
-/// The negative control: on a grammar that uses no strategy-conditional construct, the
-/// strategy-aware filter changes nothing at all -- same decision for every strategy, same decision
-/// as the strategy-blind envelope, and the first candidate still chosen. Without this, the test
-/// above would be satisfied by a filter that simply refused `PlanComposed` always.
+/// The negative control: with no strategy-conditional construct, the filter must be a no-op -- otherwise the test above would be satisfied by a filter that simply refused `PlanComposed` always.
 #[test]
 fn a_grammar_using_no_strategy_conditional_construct_is_unaffected() {
     let g = load(NO_REALIZATIONAL_XML);
@@ -337,10 +283,7 @@ fn a_grammar_using_no_strategy_conditional_construct_is_unaffected() {
     );
 }
 
-/// The account can only LOWER a decision, never raise it. `compose_envelope_for_strategy` starts
-/// from the strategy-blind answer and `meet`s the per-strategy rows in, and `meet` is a greatest
-/// lower bound -- so no grammar/strategy pair can be made MORE admissible by this change. Checked
-/// over both fixtures and every strategy rather than argued from the code.
+/// The account can only lower a decision, never raise it: `meet` is a greatest lower bound, so no grammar/strategy pair can become more admissible by this change.
 #[test]
 fn the_strategy_account_never_raises_a_decision() {
     fn rank(decision: &CompileDecision) -> u8 {
@@ -371,9 +314,7 @@ fn the_strategy_account_never_raises_a_decision() {
     }
 }
 
-/// The table itself, at the point that matters: the hole is per-strategy, and the two whole-grammar
-/// compilers do not share it. A table that answered `CannotRepresent` for every strategy would pass
-/// the selection test above while being just as blind as what it replaced.
+/// The hole is per-strategy: a table answering `CannotRepresent` for every strategy would pass the selection test above while being just as blind as what it replaced.
 #[test]
 fn the_account_is_per_strategy_not_a_blanket_refusal() {
     assert_eq!(

@@ -139,12 +139,7 @@ pub fn representation_of(
     }
 }
 
-/// `EmissionStrategy::PlanComposed`, whose ONLY lexicon emitter is `crate::uflexc`
-/// (`crate::build::build_controllable` is the interpreter; that module's own doc names uflexc as
-/// its emitter). uflexc is an explicitly minimal prototype -- "deliberately simpler (self-looping
-/// prefix/suffix chains rather than `emit.rs`'s rule-count-bounded, template-aware derivation
-/// layers)", its own module doc -- so it is the strategy with real holes, and the one whose holes
-/// were previously invisible.
+/// `EmissionStrategy::PlanComposed`'s only lexicon emitter, `crate::uflexc`, is an explicitly minimal prototype, so it is the strategy with real holes -- previously invisible to a strategy-blind account.
 fn plan_composed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static str) {
     use CharacteristicKind::*;
     use StrategyRepresentation::*;
@@ -155,15 +150,7 @@ fn plan_composed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static 
             "uflexc::emit_underlying_filtered -- Role::Prefix/Role::Suffix allomorphs become \
              prefix/suffix continuation-chain lines",
         ),
-        // THE LIVE HOLE OF EXACTLY THE COMPOUNDING SHAPE. `uflexc`'s mrule loop matches
-        // `MorphRuleDef::Realizational` and does `skipped.push(".. kind=realizational-rule");
-        // continue;` -- the whole rule, never one allomorph -- with its own comment stating the
-        // reason: "this module never attempts the syntactic feature-realization mechanism
-        // `RealizationalRuleDef` needs at all". No lexc line is ever written for such a rule, so
-        // the compiled net has no arc carrying its morph tag and the proposer returns ZERO
-        // candidates for any word requiring it. `RealizationalMorphology` rests at
-        // `Disposition::ConfirmOnly`, whose precondition is that the proposer proposes the
-        // superset; for this compiler that precondition is simply false.
+        // A live hole: `uflexc` skips every `MorphRuleDef::Realizational` rule wholesale, so no lexc line is ever written and the proposer returns zero candidates for any word requiring it.
         RealizationalMorphology => (
             CannotRepresent,
             "uflexc::emit_underlying_filtered -- MorphRuleDef::Realizational is reported in \
@@ -171,23 +158,19 @@ fn plan_composed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static 
              for the rule at all (uflexc module doc: it never attempts the syntactic \
              feature-realization mechanism RealizationalRuleDef needs)",
         ),
-        // Was CannotRepresent until the bounded compound loop landed; now a real, budget-bounded,
-        // unrolled compound chain over `emit::compound_license`'s head/non-head split.
+        // Now a real, budget-bounded, unrolled compound chain over `emit::compound_license`'s head/non-head split.
         Compounding => (
             Represents,
             "uflexc's bounded compound loop (emit::build_compound_chain + emit::compound_license) \
              -- unrolled to emit::compound_extra_levels_checked levels; before it existed this row \
              was CannotRepresent and nothing in the capability layer could say so",
         ),
-        // Rule ORDER is a property of the cascade `build_controllable` composes, not of the
-        // lexicon; uflexc's chains are order-agnostic and the cascade preserves authored order.
+        // Rule order is a property of the cascade `build_controllable` composes, not of the lexicon.
         OrderedMorphRuleApplication => (
             Represents,
             "build::build_controllable composes the Plan's Replace cascade in authored order",
         ),
-        // uflexc's prefix/suffix chains SELF-LOOP (its own module doc), so any order of the loose
-        // rules in a stratum is already a path through the emitted graph -- the ordering-union
-        // superset `UnorderedOrderingUnionPredicate` describes, reached structurally.
+        // uflexc's prefix/suffix chains self-loop, so any order of a stratum's loose rules is already a path through the emitted graph.
         UnorderedMorphRuleApplication => (
             Represents,
             "uflexc's self-looping prefix/suffix continuation chains admit every order of a \
@@ -199,30 +182,20 @@ fn plan_composed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static 
             "MPR accumulation/overwrite is enforced at confirm time (pg_rules::validity) for every \
              strategy alike; no lexicon emitter represents or filters on it",
         ),
-        // Every rewrite-mode/direction/metathesis/epenthesis/quantifier fact belongs to the
-        // compiled rule cascade (crate::replace), which `build_controllable` composes with the
-        // uflexc lexicon -- the SAME cascade the other two strategies use. These rows are
-        // therefore strategy-invariant.
+        // Every rewrite/metathesis/epenthesis/quantifier fact belongs to the compiled rule cascade, the same one every strategy composes with its own lexicon, so these rows are strategy-invariant.
         IterativeRewrite | SimultaneousRewrite | LeftToRightRewrite | RightToLeftRewrite
         | Metathesis | Epenthesis | QuantifierPattern => (
             Represents,
             "compiled by crate::replace's rule cascade, which build::build_controllable composes \
              with the uflexc lexicon -- the same cascade every strategy uses",
         ),
-        // Gating is what the Plan's Gate node IS; build_controllable builds one network per
-        // partition group and unions them.
+        // Gating is what the Plan's Gate node is; build_controllable builds one network per partition group and unions them.
         SubruleGating => (
             Represents,
             "build::build_controllable builds one network per crate::gate partition group and \
              unions them; uflexc takes each group's own allowed_entries",
         ),
-        // A drops-LHS-material allomorph classifies `CircumfixPrefix`/`Process`/`None` under
-        // `emit::classify_affix` whenever the dropped part is not at an edge, and uflexc's mrule
-        // loop `skipped.push("... role={other}")`s every role that is not exactly Prefix/Suffix.
-        // But it is NOT a whole-construct hole: an allomorph that drops a trailing LHS part while
-        // inserting only leading material still classifies `Role::Prefix` and IS emitted -- with
-        // the dropped part not actually dropped, i.e. emitted but not faithful. Both halves are
-        // real, so this is the documented-partial verdict, not a refusal.
+        // Not a whole-construct hole: a Prefix/Suffix-classified allomorph that also drops non-edge material is still emitted, just without the drop applied -- a documented partial, not a refusal.
         CircumfixOutputAction => (
             RepresentsWithKnownGap,
             "uflexc::emit_underlying_filtered skips every allomorph whose emit::classify_affix role \
@@ -230,10 +203,7 @@ fn plan_composed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static 
              no structural-composite path (emit::build_structural_composites) to resynthesize \
              dropped material for the ones it does emit",
         ),
-        // Reduplication is peeled OUTSIDE the compiled FST for every strategy (crate::peel;
-        // capability.rs's Reduplication arm: "peeled, never compiled into the FST itself"), so the
-        // lexicon emitter is not the mechanism. uflexc additionally skips `role=reduplication`
-        // allomorphs, which is consistent with -- not additional to -- that division.
+        // Reduplication is peeled outside the compiled FST for every strategy, so the lexicon emitter is not the mechanism; uflexc's own skip of these allomorphs is consistent with that division, not an extra gap.
         Reduplication => (
             Represents,
             "reduplication is handled by crate::peel outside the compiled FST for every strategy \
@@ -271,11 +241,7 @@ fn plan_composed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static 
     }
 }
 
-/// `EmissionStrategy::TunedSurfaceProbed` -- `emit::emit_with_budget` plus the junction probe,
-/// pre-expansion and structural-composite pipelines, reached via `analyzer::FomaProposer::new`.
-/// This is the mainline, whole-grammar compiler every `tests/cover_*.rs` containment witness in
-/// `crate::coverage_ledger` was written against, and it is the reference against which the other
-/// two strategies' rows are gaps.
+/// `EmissionStrategy::TunedSurfaceProbed`, the mainline whole-grammar compiler every containment witness in `crate::coverage_ledger` was written against; the other two strategies' rows are gaps against it.
 fn tuned_surface_probed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static str) {
     use CharacteristicKind::*;
     use StrategyRepresentation::*;
@@ -308,10 +274,7 @@ fn tuned_surface_probed(kind: CharacteristicKind) -> (StrategyRepresentation, &'
     }
 }
 
-/// `EmissionStrategy::TemplatedUnderlyingTokens` -- `emit::emit_underlying_templated` plus a real
-/// compiled rewrite cascade, via `templated_compile::compile_templated_morphotactics`. Shares
-/// `emit.rs`'s morphotactic machinery (so it handles `Realizational` exactly as the mainline does),
-/// but that function's own doc enumerates what it deliberately drops.
+/// `EmissionStrategy::TemplatedUnderlyingTokens` shares `emit.rs`'s morphotactic machinery but composes a real rewrite cascade; that function's own doc enumerates what it deliberately drops.
 fn templated_underlying_tokens(kind: CharacteristicKind) -> (StrategyRepresentation, &'static str) {
     use CharacteristicKind::*;
     use StrategyRepresentation::*;
@@ -319,8 +282,7 @@ fn templated_underlying_tokens(kind: CharacteristicKind) -> (StrategyRepresentat
         "emit::emit_underlying_templated shares emit.rs's collect_roots/build_deriv_chain/\
                   build_slot_chain morphotactics with the mainline compiler";
     match kind {
-        // `emit.rs`'s rule accessors treat Realizational exactly like AffixProcess (morpheme,
-        // allomorphs, required_syn_fs), and this emitter uses those same accessors.
+        // `emit.rs`'s rule accessors treat Realizational exactly like AffixProcess, and this emitter uses those same accessors.
         Affixation | RealizationalMorphology => (Represents, shared),
         Compounding => (
             Represents,
@@ -345,13 +307,7 @@ fn templated_underlying_tokens(kind: CharacteristicKind) -> (StrategyRepresentat
             "emit_underlying_templated takes crate::gate's allowed_entries with uflexc's own \
              convention (that function's own doc)",
         ),
-        // The emitter's own doc, verbatim: it runs "No composite pipeline at all"
-        // (`preexpand::build_composites_with_mode`, `emit::build_structural_composites`), which
-        // under `TextMode::SurfaceProbed` is exactly what gives a dropped-material allomorph its
-        // correct output. The ordinary two-entry path emits the literal InsertSegments text with
-        // no drop applied, so it "can genuinely MISS the correct underlying form for a root that
-        // needs the drop, if no OTHER allomorph of the same rule happens to cover it
-        // unconditionally". Material IS emitted, so this is a documented partial, not a refusal.
+        // Runs no composite pipeline, so a single-sided-truncation allomorph is emitted with its literal text and no drop applied -- material IS emitted, so this is a documented partial, not a refusal.
         CircumfixOutputAction => (
             RepresentsWithKnownGap,
             "emit::emit_underlying_templated's own doc: \"No composite pipeline at all\" -- \
@@ -446,8 +402,7 @@ mod tests {
         }
     }
 
-    /// `ALL_STRATEGIES` really is every variant. `EmissionStrategy` has no reflection, so this
-    /// pins the count and each label rather than deriving it.
+    /// `EmissionStrategy` has no reflection, so this pins the count and each label rather than deriving it.
     #[test]
     fn all_strategies_lists_every_emission_strategy() {
         let labels: Vec<&str> = ALL_STRATEGIES.iter().map(|s| s.label()).collect();
@@ -461,9 +416,7 @@ mod tests {
         );
     }
 
-    /// THE ROW THIS MODULE EXISTS FOR. `PlanComposed`'s only lexicon emitter never writes a line
-    /// for a `MorphRuleDef::Realizational` rule, so it cannot propose one -- exactly the shape the
-    /// compounding hole had, and exactly what a strategy-blind account cannot say.
+    /// The row this module exists for: `PlanComposed` never writes a line for a `Realizational` rule, so it cannot propose one -- exactly what a strategy-blind account cannot say.
     #[test]
     fn plan_composed_cannot_represent_realizational_morphology() {
         assert_eq!(
@@ -476,9 +429,7 @@ mod tests {
         );
     }
 
-    /// ...and the two whole-grammar compilers CAN, which is precisely why a strategy-blind account
-    /// read the construct as covered. The union of the three compilers' abilities is not any one
-    /// compiler's ability.
+    /// The two whole-grammar compilers CAN, which is why a strategy-blind account read the construct as covered: the union of abilities is not any one compiler's ability.
     #[test]
     fn the_whole_grammar_compilers_can_represent_realizational_morphology() {
         for &strategy in &[
@@ -494,8 +445,7 @@ mod tests {
         }
     }
 
-    /// The strategies genuinely disagree -- if they did not, this table would be a
-    /// strategy-indexed copy of one answer and the whole module would be theatre.
+    /// If the strategies never disagreed, this table would be a strategy-indexed copy of one answer.
     #[test]
     fn at_least_one_kind_is_answered_differently_by_two_strategies() {
         let disagreements: Vec<CharacteristicKind> = CharacteristicKind::ALL
@@ -515,9 +465,7 @@ mod tests {
         );
     }
 
-    /// The compounding row is now `Represents` for every strategy (the hole is fixed), which is
-    /// why the accounting -- not the hole -- is what this change is about. Pinned so a regression
-    /// in the bounded compound loop shows up here as a reviewed table edit.
+    /// Pinned so a regression in the bounded compound loop shows up here as a reviewed table edit.
     #[test]
     fn compounding_is_representable_by_every_strategy_now() {
         for &strategy in ALL_STRATEGIES {

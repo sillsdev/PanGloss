@@ -133,8 +133,7 @@ pub struct GrammarSemantics<'g> {
 }
 
 impl std::fmt::Debug for GrammarSemantics<'_> {
-    /// Deliberately shallow: the memoized fields are printed as "computed / not yet computed" rather
-    /// than forced, so a `{:?}` in a log can never turn a cheap derive into an expensive one.
+    /// Deliberately shallow: memoized fields print as "computed / not yet computed" rather than being forced, so a `{:?}` in a log can never turn a cheap derive into an expensive one.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GrammarSemantics")
             .field("gated_subrules", &self.gated_subrules.len())
@@ -195,10 +194,7 @@ impl<'g> GrammarSemantics<'g> {
             })
             .sum();
 
-        // The SAME stratum-cascade walk `prules_in_order` performs, kept as ids. `prules_in_order`
-        // must stay a borrow of `g.prules` (its pointer identity is load-bearing for
-        // `enumerate::rule_id_of`), so the id form cannot be recovered from it after the fact
-        // without that pointer trick -- it is simply collected here from the same source.
+        // The same stratum-cascade walk `prules_in_order` performs, kept as ids since `prules_in_order` must stay a borrow (its pointer identity is load-bearing for `enumerate::rule_id_of`).
         let prule_ids_in_order: Vec<PRuleId> = grammar
             .strata
             .iter()
@@ -206,17 +202,12 @@ impl<'g> GrammarSemantics<'g> {
             .copied()
             .collect();
 
-        // `TemplateId` is a dense index into `g.templates` (model.rs), so the declared set is
-        // exactly `0..len`. Both loaders keep `g.templates` and per-stratum membership in lockstep
-        // (module doc), so there is no second form of this fact either.
+        // `TemplateId` is a dense index into `g.templates`, so the declared set is exactly `0..len`.
         let template_ids: Vec<TemplateId> = (0..grammar.templates.len() as u32)
             .map(TemplateId)
             .collect();
 
-        // The grammar's FIRST character-definition table and its boundary inventory. `None` only
-        // for a grammar that declares no table at all. Deliberately the primary table only: nothing
-        // in this type's scope models per-mechanism table divergence, and reporting a union across
-        // tables would silently claim a symbol inventory no single table has.
+        // The grammar's first character-definition table only, deliberately: a union across tables would silently claim a symbol inventory no single table has.
         let primary_table = (!grammar.char_tables.is_empty()).then_some(TableId(0));
         let primary_table_boundary_symbols = grammar
             .char_tables
@@ -423,9 +414,7 @@ impl<'g> GrammarSemantics<'g> {
     }
 }
 
-/// How many of `rule`'s allomorphs genuinely reduplicate. The per-allomorph decision is
-/// `crate::capability::rhs_has_true_reduplication`, the single authority for the fact (see that
-/// function's doc for why the `redup_hint != Implicit` shortcut callers used to carry is a trap).
+/// How many of `rule`'s allomorphs genuinely reduplicate, per `crate::capability::rhs_has_true_reduplication`, the single authority for this fact.
 fn reduplicative_allomorphs_in(rule: &MorphRuleDef) -> u64 {
     let allomorphs = match rule {
         MorphRuleDef::AffixProcess(def) => &def.allomorphs,
@@ -446,8 +435,7 @@ mod tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
     }
 
-    /// A grammar whose single `<PhonologicalRule>` is declared globally but named by NO stratum's
-    /// `phonologicalRules` attribute -- the module doc's declared-vs-cascade split, made concrete.
+    /// A grammar whose single `<PhonologicalRule>` is declared globally but named by no stratum's `phonologicalRules` attribute: the declared-vs-cascade split, made concrete.
     const ORPHANED_PRULE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -485,9 +473,7 @@ mod tests {
 </HermitCrabInput>
 "#;
 
-    /// The two phonology facts are genuinely distinct, and this fixture separates them. Without the
-    /// split, whichever single predicate survived would have changed one of the two consumers'
-    /// answers on this shape.
+    /// The two phonology facts are genuinely distinct: without the split, whichever single predicate survived would change one of the two consumers' answers on this shape.
     #[test]
     fn declared_and_cascade_phonology_are_distinct_facts() {
         let g = load(ORPHANED_PRULE_XML);
@@ -508,9 +494,7 @@ mod tests {
         );
     }
 
-    /// `derive` is a pure function: two derivations from the same load, and a derivation from a
-    /// second independent load of the same source, agree on every eager fact and on both memoized
-    /// ones.
+    /// `derive` is pure: two derivations from the same load, and one from a second independent load, agree on every eager and memoized fact.
     #[test]
     fn derivation_is_deterministic_across_independent_loads() {
         let g1 = load(ORPHANED_PRULE_XML);

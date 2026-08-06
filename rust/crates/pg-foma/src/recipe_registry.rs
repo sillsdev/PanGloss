@@ -84,47 +84,16 @@ impl Applicability {
     pub fn matches_semantics(&self, semantics: &GrammarSemantics<'_>) -> bool {
         match self {
             Self::Always => true,
-            // A PROJECTION of the real mechanism, not a third reimplementation of it. The
-            // gated-subrule universe is whatever `gate::find_gated_subrules` says it is -- the same
-            // call `gate::compile_gated_grammar_with_budget`, `enumerate::enumerate_default` and
-            // `recipe_space::GrammarFacts::from_grammar` all make -- so this predicate cannot drift
-            // away from the compile path it is supposed to be describing.
-            //
-            // The re-derivation this replaces disagreed with the mechanism in three ways, one of
-            // them a real bug:
-            //  1. It required `!grammar.mpr_features.is_empty()`, a precondition NO other
-            //     derivation of this fact has (`gate::is_gated`, `capability::characterize`'s
-            //     `SubruleGating`). A grammar gating purely on `required_pos` and declaring no MPR
-            //     features at all is gated by every other measure -- `recipe_space` reports its
-            //     gated subrules -- yet was never offered `FAMILY_CLASS_EXCEPTION_CASCADE`.
-            //  2. It counted `required_mpr`/`excluded_mpr` bits belonging to an `Any`-type
-            //     `MprGroup`, which `gate::is_gated` deliberately masks out (that module's caveat:
-            //     `Any`-type restrictions are not partitioned on in this prototype), so the
-            //     registry could offer a gate-permutation family over a partition the gate
-            //     mechanism would then refuse to split.
-            //  3. It scanned `grammar.prules` wholesale rather than the stratum-cascade slice
-            //     everything downstream actually compiles, so a rule no stratum references counted.
+            // A projection of `gate::find_gated_subrules`, the same call every compile-path consumer makes, so this predicate cannot drift from the mechanism it describes.
             Self::HasGatedExceptions => semantics.has_gated_exceptions(),
             Self::HasTemplates => semantics.declared_templates(),
             Self::HasMorphology => semantics.has_morphology(),
             Self::HasReduplication => semantics.has_reduplication(),
             Self::HasMetathesis => semantics.has_metathesis(),
             Self::HasMultipleStrata => semantics.stratum_count() > 1,
-            // Deliberately an OVER-approximation, and sound because of it. Whether a `Gate` group is
-            // genuinely splittable is a property of the built Plan (a group needs >=2 entries), and
-            // this predicate only sees the Grammar. Two or more lexical entries is the necessary
-            // condition; when it holds but no group actually turns out splittable,
-            // `oracle::refine_gate_partition` is a documented no-op whose rebuilt nodes
-            // content-address straight back to the originals, so `materialize_distinct` dedups the
-            // candidate away. Over-approximating therefore costs one wasted materialization at worst;
-            // under-approximating would silently drop a real candidate, which is the error that
-            // matters.
+            // Deliberately over-approximates splittability: a false positive wastes one materialization (deduped away by `materialize_distinct`), a false negative would silently drop a real candidate.
             Self::HasSplittableGateGroup => semantics.entry_count() >= 2,
-            // `declared_phonology`, NOT `cascade_phonology`. These two are different questions and
-            // genuinely disagree on a rule declared globally but named by no stratum
-            // (`grammar_semantics`'s module doc). This arm keeps the grammar-wide reading it always
-            // had -- switching predicates here would change which
-            // families a grammar is offered.
+            // `declared_phonology`, not `cascade_phonology`: they disagree on a rule declared globally but named by no stratum, and switching here would change which families a grammar is offered.
             Self::HasPhonology => semantics.declared_phonology(),
             Self::HasPhonologyOrTemplates => {
                 semantics.declared_phonology() || semantics.declared_templates()
@@ -564,8 +533,7 @@ impl Registry {
         &self,
         context: &MaterializerContext<'_>,
     ) -> Result<Vec<(RecipeInstance, LoweredCandidate)>, MaterializeError> {
-        // ONE derivation for the whole batch: shared by the instance enumeration below
-        // AND by every per-instance applicability re-check inside `materialize_with_semantics`.
+        // One derivation shared by the instance enumeration below and every per-instance applicability re-check inside `materialize_with_semantics`.
         let semantics = GrammarSemantics::derive(context.grammar);
         let mut seen = BTreeSet::<(NodeId, &'static str)>::new();
         let mut candidates = Vec::new();
@@ -658,27 +626,17 @@ fn expand_family(family: &RecipeFamily) -> Vec<RecipeInstance> {
         .collect()
 }
 
-/// The plan rewrites a seeded family may apply. Every one must be SEMANTICS-PRESERVING: it may
-/// change a Plan's shape and therefore its content address, never the relation the compiled network
-/// accepts. Each variant below cites the argument that makes it safe -- none is safe by assumption.
+/// A seeded family's plan rewrite; every variant must be semantics-preserving (may change the Plan's shape/content-address, never the accepted relation).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SafeTransform {
     Identity,
-    /// Reorders a `Gate` node's partition groups. Safe because `build_controllable` folds the groups
-    /// with `union_checked` (commutative) and always finishes with `minimize_checked`, so only group
-    /// MEMBERSHIP reaches the accepted relation (`oracle::permute_gate_groups`' own doc).
+    /// Reorders a `Gate` node's partition groups; safe because `build_controllable` folds groups commutatively via `union_checked`.
     GatePermutation,
     /// Reorders a root `Union`'s children. Same commutativity argument, different node kind.
     UnionPermutation,
-    /// Splits each eligible `Gate` group's entry set into at most 2 contiguous sub-groups, each still
-    /// composed with that group's OWN unchanged `Replace` node. Safe because composition distributes
-    /// over union -- `(A ∪ B) .o. R == (A .o. R) ∪ (B .o. R)` -- so re-unioning the pieces reproduces
-    /// the original group's net exactly (`oracle::refine_gate_partition`'s own doc). This is a
-    /// genuinely different axis from the two above: it changes partition CARDINALITY, not order.
+    /// Splits each eligible `Gate` group into up to 2 contiguous sub-groups over its own unchanged `Replace` node; safe because composition distributes over union.
     PartitionBisect,
-    /// The same refinement taken to its limit: one singleton sub-group per entry. Distinct from
-    /// `PartitionBisect` whenever a group holds more than two entries, and it stresses the
-    /// many-small-unions shape rather than the few-large-unions one.
+    /// `PartitionBisect` taken to its limit: one singleton sub-group per entry, stressing the many-small-unions shape instead of few-large-unions.
     PartitionFanOut,
 }
 
@@ -687,10 +645,7 @@ struct SeededFamily {
     id: &'static str,
     applicability: Applicability,
     transform: SafeTransform,
-    /// Which compiler realizes this family. `PlanComposed` for every plan-rewrite family (the
-    /// `transform` is then what varies); a whole-grammar strategy for a family whose whole point is
-    /// that it compiles the grammar a DIFFERENT way, in which case `transform` is `Identity` because
-    /// that compiler does not interpret a plan at all.
+    /// Which compiler realizes this family: `PlanComposed` for plan-rewrite families (`transform` varies), or a whole-grammar strategy whose `transform` is always `Identity`.
     adapter: LoweringAdapter,
     ordering: &'static [(&'static str, &'static str)],
 }
@@ -702,9 +657,7 @@ impl SeededFamily {
             version: REGISTRY_SCHEMA_VERSION,
             parameters: vec![Parameter {
                 name: "topology".to_owned(),
-                // For a whole-grammar strategy the varying axis is the COMPILER, not the plan
-                // rewrite, so name that instead — otherwise every such family would report
-                // `topology=baseline` and read as a relabelled duplicate of the baseline.
+                // For a whole-grammar strategy the varying axis is the compiler, not the plan rewrite, so name that instead of reporting a relabelled `topology=baseline`.
                 domain: vec![if !self.adapter.interprets_plan() {
                     self.adapter.strategy().label().to_owned()
                 } else {
@@ -720,9 +673,7 @@ impl SeededFamily {
                 depends_on: Vec::new(),
             }],
             applicability: self.applicability,
-            // Registry minimization evidence records that these exact plan-rewrite transforms
-            // preserve the compositional relation. The production gate is structural and runs
-            // before pilot/evaluation; it never builds a candidate to discover a tie.
+            // Proven relation-preserving by registry minimization evidence, so the gate is structural and never builds a candidate just to discover a tie.
             search_policy: match self.transform {
                 SafeTransform::Identity => FamilySearchPolicy::AlwaysSearch,
                 SafeTransform::GatePermutation
@@ -770,18 +721,7 @@ impl Materializer for SeededFamily {
             label: self.id,
             plan,
             adapter: self.adapter,
-            // DERIVED, never declared -- the same discipline imposed on `MechanismEdge`.
-            // A family whose transform is `Identity` hands back
-            // `context.baseline` VERBATIM, so under the one adapter that interprets a plan that
-            // candidate IS this grammar's default compilation and nothing else can be. Every other
-            // family rewrites the assembly tree (an alternative by construction), and a whole-grammar
-            // adapter never reads the plan at all, so calling it "the baseline plan's compilation"
-            // would be a category error -- it is a different compiler, which measurement showed to
-            // be a decisive axis for candidate selection.
-            //
-            // At most one such candidate survives a batch: `materialize_distinct` dedups on
-            // `(plan root, strategy label)`, and every `Identity` + plan-composing family produces
-            // the identical root under the identical label.
+            // Derived, never declared: `Identity` under a plan-interpreting adapter hands back the baseline plan verbatim, so it alone is this grammar's default compilation.
             role: if self.transform == SafeTransform::Identity && self.adapter.interprets_plan() {
                 CandidateRole::Baseline
             } else {
@@ -791,12 +731,7 @@ impl Materializer for SeededFamily {
     }
 }
 
-// Family ids: the single source of truth for every seeded family's identity string. Defined here,
-// used IN `SEEDS` below (not duplicated as literals), so decision sites elsewhere (`pg-cli`'s
-// `recipe_optimize.rs` baseline detection, any test asserting on family identity) reference these
-// constants instead of comparing strings -- a rename then fails the build at every use site rather
-// than silently changing behavior: family identities are
-// compiler-checked at decision sites.
+// Family ids are defined once here and used by `SEEDS` below (not duplicated as literals), so a rename fails the build at every decision site instead of silently changing behavior.
 pub const FAMILY_ORDERED_MORPHOPHONOLOGY: &str = "ordered-morphophonology";
 pub const FAMILY_CLASS_EXCEPTION_CASCADE: &str = "class-exception-cascade";
 pub const FAMILY_COMPLETE_TEMPLATE: &str = "complete-template";
@@ -831,9 +766,7 @@ const SEEDS: &[SeededFamily] = &[
     },
     SeededFamily {
         id: FAMILY_SPECIALIZED_BRANCH,
-        // A "specialized branch" IS a narrower partition of the same entries over the same cascade,
-        // so bisection is what this family actually names -- it was previously a fourth relabelled
-        // copy of UnionPermutation, contributing nothing the baseline did not already contribute.
+        // A "specialized branch" is a narrower partition of the same entries over the same cascade, which is exactly what bisection names.
         applicability: Applicability::HasSplittableGateGroup,
         transform: SafeTransform::PartitionBisect,
         adapter: LoweringAdapter::ControllablePlanCompose,
@@ -855,20 +788,14 @@ const SEEDS: &[SeededFamily] = &[
     },
     SeededFamily {
         id: FAMILY_LAYERED_MORPHOLOGY,
-        // Maximal refinement: one sub-group per entry, the many-small-unions shape. Applicability
-        // moves from HasMultipleStrata to HasSplittableGateGroup because what this transform needs is
-        // a splittable partition, not multiple strata -- the old predicate gated it on a property it
-        // never used, which is part of why it silently reduced to the baseline everywhere.
+        // Maximal refinement (one sub-group per entry); gated on `HasSplittableGateGroup` because that is the property this transform actually needs, not `HasMultipleStrata`.
         applicability: Applicability::HasSplittableGateGroup,
         transform: SafeTransform::PartitionFanOut,
         adapter: LoweringAdapter::ControllablePlanCompose,
         ordering: &[("lower-stratum", "upper-stratum")],
     },
     SeededFamily {
-        // The OTHER whole-grammar compiler, offered explicitly rather than only reachable as a
-        // post-failure rescue. On a marker-carrying grammar the baseline already falls back here, so
-        // this adds nothing there; on a marker-free grammar the baseline composes its plan instead,
-        // and this is the only way the surface-probed compiler ever gets compared against it.
+        // The other whole-grammar compiler, offered explicitly rather than only reachable as the baseline's post-failure rescue.
         id: FAMILY_SURFACE_PROBE_MORPHOLOGY,
         applicability: Applicability::Always,
         transform: SafeTransform::Identity,
@@ -876,19 +803,9 @@ const SEEDS: &[SeededFamily] = &[
         ordering: &[("morphology", "phonology")],
     },
     SeededFamily {
-        // The first family that varies the COMPILER rather than the plan shape. Every family above
-        // rewrites the assembly tree, and measurement says that cannot change the compiled network:
-        // on eight marker-free fixtures all of them produced bit-identical states/arcs/proposals and
-        // differed only in build time, upward. This one instead compiles the grammar to a different
-        // lexc entirely -- plain char-def tokens plus a real rewrite cascade, rather than phonology
-        // baked in by the surface probe and its expressive gaps patched with synthesized composite
-        // entries. `transform` is `Identity` because that compiler does not interpret a plan at all.
+        // The first family that varies the compiler rather than the plan shape: it compiles to a different lexc (plain char-def tokens plus a real rewrite cascade) instead of surface-probe-baked phonology.
         id: FAMILY_TOKEN_CASCADE_MORPHOLOGY,
-        // Widened from `HasPhonology`: a template-bearing, phonology-free grammar (the measured
-        // Sena shape) has no rewrite cascade to justify this family on `HasPhonology` alone, but its
-        // morphotactics are exactly what this compiler represents faithfully and `uflexc` does not.
-        // See `Applicability::HasPhonologyOrTemplates`'s doc for the full argument and why this
-        // stays one family rather than two.
+        // Widened from `HasPhonology`: a phonology-free, template-bearing grammar has morphotactics this compiler represents faithfully with no rewrite cascade to justify (see `Applicability::HasPhonologyOrTemplates`).
         applicability: Applicability::HasPhonologyOrTemplates,
         transform: SafeTransform::Identity,
         adapter: LoweringAdapter::TemplatedUnderlyingEmit,
@@ -958,17 +875,7 @@ mod tests {
         plan
     }
 
-    /// **The baseline fact is DERIVED and lives ON the candidate, and it is not position.**
-    ///
-    /// A positional `i == 0` rule and a caller-supplied parallel `&[bool]` are both rejected
-    /// alternatives: this asserts what replaced them, and it is not vacuous: it checks that the ONE
-    /// candidate whose plan is the baseline plan verbatim is the one marked `Baseline`, and that a
-    /// plan-REWRITING family is marked `Alternative` even though its plan is equally applicable — a
-    /// distinction position cannot express, since `materialize_distinct` orders candidates by FAMILY ID
-    /// and `ordered-morphophonology` sorts after `class-exception-cascade`, `complete-template`,
-    /// `copy-branch` and `bounded-metathesis`. Element zero was therefore NOT the default compilation
-    /// on any grammar those families apply to, which is exactly how a permutation came to be measured
-    /// on the baseline's own network and reported as confirmed.
+    /// The baseline fact is derived from the candidate (Identity plus a plan-interpreting adapter), never from position -- rejected alternatives were a positional `i == 0` rule and a caller-supplied `&[bool]`.
     #[test]
     fn the_baseline_role_follows_the_baseline_plan_and_never_the_position() {
         let grammar = minimal_grammar();
@@ -1193,17 +1100,9 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-    // =============================================================================================
-    // Cross-derivation agreement: the registry's grammar predicates vs. the REAL mechanisms
-    //
-    // Each fact below has more than one derivation in this crate, and a disagreement between them
-    // silently changes which candidates a grammar is offered — a measurement-space bug that never
-    // surfaces as a failure, only as a different number. These tests assert every derivation
-    // against the SAME synthetic grammar so they cannot drift apart again.
-    // =============================================================================================
+    // Cross-derivation agreement: each fact below has more than one derivation in this crate, so these tests assert them all against the same synthetic grammar to keep them from drifting apart.
 
-    /// A `PhonologicalSubrule` gated purely on `requiredPartsOfSpeech`, in a grammar that declares
-    /// NO `MorphologicalPhonologicalRuleFeature`s at all. Synthetic and delanguaged.
+    /// A `PhonologicalSubrule` gated purely on `requiredPartsOfSpeech`, in a grammar declaring no MPR features at all.
     fn pos_gated_no_mpr_features_grammar() -> Grammar {
         let xml = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1252,12 +1151,7 @@ mod tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
     }
 
-    /// The bug this pins: `HasGatedExceptions` used to require `!grammar.mpr_features.is_empty()`,
-    /// a precondition NO other derivation of the same fact carries. On this grammar
-    /// `gate::find_gated_subrules` (the real mechanism every compile path uses) and
-    /// `recipe_space::GrammarFacts` both report a gated subrule, while the registry refused to
-    /// offer `FAMILY_CLASS_EXCEPTION_CASCADE` — two parts of the system disagreeing about the same
-    /// grammar. All four assertions are made together so no single one can be "fixed" in isolation.
+    /// `HasGatedExceptions` must track `gate::find_gated_subrules` with no extra `mpr_features` precondition, agreeing with `recipe_space::GrammarFacts` and the offered family.
     #[test]
     fn pos_only_gating_without_mpr_features_agrees_across_every_derivation() {
         let g = pos_gated_no_mpr_features_grammar();
@@ -1299,9 +1193,7 @@ mod tests {
         );
     }
 
-    /// One `MorphologicalRule` whose output carries a non-default `redupMorphType`, but whose RHS
-    /// copies the single input part exactly ONCE — no part is echoed, so nothing here reduplicates.
-    /// `echoed` switches the RHS to copy that part twice, which IS reduplication.
+    /// One `MorphologicalRule` with a non-default `redupMorphType` whose RHS copies the input part once (not reduplication); `echoed` copies it twice, which is.
     fn redup_hint_grammar(echoed: bool) -> Grammar {
         let copies = if echoed {
             r#"<CopyFromInput index="stem" /><CopyFromInput index="stem" />"#
@@ -1360,12 +1252,7 @@ mod tests {
         pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
     }
 
-    /// The bug this pins: `Applicability::HasReduplication` and
-    /// `recipe_space::reduplication_count` both used to fire on ANY non-`Implicit` `redup_hint`,
-    /// the exact trap `capability::rhs_has_true_reduplication`'s doc names — `Implicit` is the
-    /// DTD's default for every ordinary affix, so a merely non-default hint says nothing about
-    /// whether a part is actually echoed. `FAMILY_COPY_BRANCH` was therefore offered to grammars
-    /// with no reduplication in them, and `GrammarFacts.reduplicative_allomorphs` counted them.
+    /// `Applicability::HasReduplication` and `recipe_space::reduplication_count` must both consume `rhs_has_true_reduplication`, never a merely non-`Implicit` `redup_hint`.
     #[test]
     fn non_default_redup_hint_without_an_echoed_part_is_reduplication_free_everywhere() {
         let g = redup_hint_grammar(false);
@@ -1408,9 +1295,7 @@ mod tests {
         );
     }
 
-    /// The other half of the same contract: a genuinely reduplicating grammar (one input part
-    /// echoed twice) must still be detected by all three derivations, so the fix above is a
-    /// narrowing of a false positive and not a loss of the real signal.
+    /// The other half of the same contract: a genuinely reduplicating grammar must still be detected by all three derivations.
     #[test]
     fn a_genuinely_echoed_part_is_reduplication_everywhere() {
         let g = redup_hint_grammar(true);

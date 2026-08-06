@@ -1,5 +1,4 @@
-//! Portable evidence gate for the four promoted synthetic conformance grammars.
-//! It invokes the production CLI and derives word lists from each checked-in words.yaml.
+//! Portable evidence gate for the four promoted synthetic conformance grammars: invokes the production CLI and derives word lists from each checked-in words.yaml.
 
 use serde_json::Value;
 use std::fs;
@@ -14,11 +13,7 @@ fn repo_file(relative: &str) -> PathBuf {
         .join(relative)
 }
 
-/// Asserts a report's pruning ledger accounts for every candidate it generated, and returns the
-/// ledger for further inspection. Applied to EVERY report this test reads, not just one: the ledger
-/// is what makes a shrinking bucket readable. When an applicability predicate tightens, an instance
-/// should move between buckets (`duplicates` -> `inapplicable`), never vanish -- and only this
-/// identity can tell those two apart.
+/// Asserts a report's pruning ledger accounts for every generated candidate, so a tightened applicability predicate moves an instance between buckets rather than making it vanish.
 fn accounted_pruning(report: &Value, label: &str) -> Value {
     let pruning = &report["pruning"];
     let accounted = [
@@ -47,13 +42,7 @@ fn accounted_pruning(report: &Value, label: &str) -> Value {
     pruning.clone()
 }
 
-/// `topology=` values that name a whole-grammar `EmissionStrategy` rather than a plan rewrite.
-///
-/// A candidate carrying one of these was compiled by its own compiler, which builds the
-/// composite/structural material `build_controllable` skips. It therefore has NO marker gap, and the
-/// attribution rule that applies to plan-composed candidates -- "a failure must be reported as the
-/// builder limitation that caused it, not as a word-level grammar fault" -- does not apply to it.
-/// Its verdict, pass or fail, is a real measurement of a real network and must be read as one.
+/// `topology=` values naming a whole-grammar `EmissionStrategy`: these build their own composite/structural material, so they have no marker gap and the plan-composed attribution rule does not apply.
 const WHOLE_GRAMMAR_TOPOLOGIES: [&str; 2] = ["templated-underlying-tokens", "tuned-surface-probed"];
 
 fn is_whole_grammar_candidate(candidate: &Value) -> bool {
@@ -103,11 +92,7 @@ fn run_fixture(fixture: &str, root: &Path) -> Value {
             out.to_str().unwrap(),
             "--seed",
             "17",
-            // These budgets have to scale with the registry, and they are not decoration: at
-            // `--evaluations 8` this fixture reported `budget-exhausted` the moment the registry grew
-            // a second whole-grammar compiler, because the pilot consumes evaluations too (measured:
-            // `usage.evaluations` = 10 for 5 candidates). An exhausted run cannot assert `complete`/
-            // `exact`, so the whole point of this gate would quietly go untested.
+            // Sized to the registry, not a historical count: at 8 evaluations this fixture reported budget-exhausted once the registry grew a second whole-grammar compiler.
             "--candidates",
             "32",
             "--evaluations",
@@ -127,9 +112,7 @@ fn run_template_characterization(root: &Path, search_all_families: bool) -> Valu
         fixture,
         root,
         |words| {
-            // Characterization deliberately uses the C(12, 0)=1 boundary
-            // observation. The C(12, 6)=924 midpoint and C(12, 12) endpoint
-            // remain in the promoted full-HC oracle, outside this bounded pilot.
+            // Deliberately uses the C(12, 0)=1 boundary; the C(12, 6)/C(12, 12) cases stay in the promoted full-HC oracle, outside this bounded pilot.
             vec![words.first().unwrap().clone()]
         },
     );
@@ -175,13 +158,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     let mpr = run_fixture("edge-cases/mpr-gated-exception", &root);
     assert_eq!(mpr["termination"], "complete");
     assert_eq!(mpr["counts"]["feasible"]["kind"], "exact");
-    // 4, not 3, on BOTH counts, and this is the first real recipe result this project has produced.
-    // The registry now offers a candidate that varies the COMPILER rather than the plan shape
-    // (`token-cascade-morphology` = `EmissionStrategy::TemplatedUnderlyingTokens`), and on this
-    // grammar it compiles a genuinely different network -- 25 states / 32 arcs against the baseline's
-    // 27/38 -- AND confirms against full HC on every corpus word with non-zero proposals. So it is
-    // selected over the baseline on a deterministic size difference rather than a build-time
-    // tie-break. Every plan-shape candidate, by contrast, still ties the baseline exactly at 27/38.
+    // 4, not 3: the compiler-varying token-cascade-morphology candidate compiles a genuinely smaller network (25/32 states/arcs vs. baseline 27/38) and confirms, so it wins on size, not a tie-break.
     assert_eq!(mpr["counts"]["feasible"]["value"], 5);
     assert_eq!(mpr["pruning"]["confirmed"], 5);
     assert!(mpr["usage"]["memory_peak"].as_u64().unwrap() > 0);
@@ -190,9 +167,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     assert_eq!(mpr["replay_parameters"]["search_all_families"], "false");
     accounted_pruning(&mpr, "mpr-gated-exception");
     assert_eq!(mpr["candidates"].as_array().unwrap().len(), 5);
-    // Pin the new axis by id, not just by count: a count alone would still pass if the
-    // token-cascade candidate were replaced by yet another plan permutation, which is the
-    // degeneracy this axis exists to escape.
+    // Pinned by id, not just count, so a swap to another plan permutation cannot pass vacuously.
     assert!(
         mpr["candidates"]
             .as_array()
@@ -230,12 +205,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         serde_json::from_str(&fs::read_to_string(mpr_out.join("winner.plan.json")).unwrap())
             .unwrap();
     assert_eq!(mpr["baseline"], baseline_plan["root"]);
-    // The winner's id is NO LONGER its plan root, and asserting that it is would be asserting
-    // something false. This winner is a whole-grammar strategy: its compiler derives its own topology
-    // and never interprets the plan it carries, so it shares the BASELINE plan and its id is
-    // suffixed to stay distinct. `winner.plan.*` therefore renders a plan the winner did not compile
-    // -- which is why the report now states `winner_strategy`, so a reader of that diagram is told
-    // rather than misled.
+    // A whole-grammar winner shares the baseline's plan (its compiler never interprets it), so its id is suffixed to stay distinct; `winner.plan.*` renders a plan it did not itself compile, hence `winner_strategy`.
     assert_eq!(mpr["winner_strategy"], "templated-underlying-tokens");
     let winner_id = mpr["winner"].as_str().expect("a winner id");
     let winner_root = winner_plan["root"].as_str().expect("a plan root");
@@ -255,22 +225,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         .iter()
         .any(|candidate| candidate["id"] == winner_id));
 
-    // These two fixtures now CONFIRM, where they previously produced no winner at all (their
-    // candidates failed with a `multiplicity-mismatch` on one word -- `pur` and `akutat`
-    // respectively). Both plans need composite/structural marker subtrees `build_controllable`
-    // cannot build, so an earlier version of this test expected a non-certifying result attributed
-    // to that limitation.
-    //
-    // HONEST CAVEAT: the flip to confirming was NOT isolated to a specific change. The controllable
-    // build path is byte-for-byte unchanged across it, and the only edits in the window were
-    // strictly-stricter ones (a guard rejecting an all-empty corpus comparison, and a fallback that
-    // fires only after a failure). So the improvement is real and reproducible on demand, but its
-    // cause is unexplained and worth pinning down before anyone leans on it.
-    //
-    // The assertions below are therefore written so they cannot pass vacuously: a confirmation must
-    // come with real proposals and a real corpus hash over every fixture word. An all-empty
-    // comparison -- which `certify_word` would quite correctly call equal, and which certified three
-    // Amharic candidates with zero proposals before it was guarded -- fails these.
+    // These two fixtures now confirm (previously `multiplicity-mismatch`); the flip is real and reproducible but its cause is unexplained, so assertions below require real proposals and a real hash, never an all-empty vacuous pass.
     for (fixture, words_expected) in [
         ("languages/metathesis-phase-isolation", 19usize),
         ("languages/polysynthetic-stratal-derivation-chain", 0usize),
@@ -278,11 +233,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         let report = run_fixture(fixture, &root);
         let candidates = report["candidates"].as_array().unwrap();
         assert!(!candidates.is_empty(), "{fixture}: no candidates evaluated");
-        // IN-BAND ELIGIBILITY DERIVATION, at the artifact boundary. The run must publish the ledger
-        // it derived from the RAW words file -- counts that reconcile, and the oracle configuration
-        // it was derived under. Without this an artifact reporting "zero exclusions" is
-        // indistinguishable from one handed a pre-filtered word list, which is precisely why the
-        // Amharic certification is labelled provisional.
+        // The run must publish the corpus ledger it derived from the raw words file, or "zero exclusions" would be indistinguishable from a pre-filtered word list.
         let corpus = &report["corpus"];
         assert!(
             corpus.is_object(),
@@ -324,12 +275,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         for candidate in candidates {
             let status = candidate["certification"]["status"].as_str().unwrap_or("");
             if status != "full-hc-confirmed" {
-                // A whole-grammar strategy is exempt, and not as a convenience: it has no marker gap,
-                // so there is no builder limitation to attribute, and relabelling its verdict
-                // `unsupported` would hide a real measurement behind a notice that does not apply.
-                // Measured: `templated-underlying-tokens` reports `multiplicity-mismatch` with
-                // non-zero proposals on these two fixtures, while CONFIRMING on
-                // `mpr-gated-exception` above -- the same strategy, two honest and different results.
+                // A whole-grammar strategy has no marker gap, so nothing to attribute; relabelling it `unsupported` would hide a real measurement.
                 if is_whole_grammar_candidate(candidate) {
                     assert_ne!(
                         status, "unsupported",
@@ -338,9 +284,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
                     );
                     continue;
                 }
-                // A non-confirming PLAN-COMPOSED candidate is legitimate, but it must be attributed
-                // rather than reporting a bare word-level symptom for what is really a builder
-                // limitation.
+                // A non-confirming plan-composed candidate is legitimate but must be attributed to the builder limitation, not reported as a bare word-level fault.
                 assert_eq!(
                     status, "unsupported",
                     "{fixture}: a non-confirming candidate must be attributed, got {:?}",
@@ -374,28 +318,16 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     let template = run_template_characterization(&root, false);
     assert_eq!(template["termination"], "complete");
     assert_eq!(template["quality"], "exact");
-    // 9 seeded families: the seven original plan-rewrite families plus the two whole-grammar
-    // compilers (`token-cascade-morphology`, `surface-probe-morphology`). These two counts are of the
-    // registry's DECLARED families, independent of which apply to this grammar.
+    // 9 seeded families: seven plan-rewrite plus two whole-grammar compilers, counted independent of which apply to this grammar.
     assert_eq!(template["counts"]["syntactic"], 9);
     assert_eq!(template["counts"]["attested"], 9);
-    // 3, not 2: `token-cascade-morphology` used to gate on `HasPhonology` alone, so a
-    // phonology-free grammar like this one never got it -- only the plan-composed baseline and the
-    // always-applicable surface-probed compiler (`Applicability::Always`) were distinct candidates.
-    // Widened to `HasPhonologyOrTemplates`, this grammar's `<AffixTemplate>` alone now qualifies it
-    // too, and it is a genuinely distinct candidate rather than a relabelled baseline -- it
-    // compiles 14 states / 91 arcs, same as the surface-probed one, where the plan-composed
-    // baseline compiles 2/13. All three confirm; all three do 1 confirmation call, so the
-    // work-first key ties them and the smaller network wins, which is why `winner_strategy` below
-    // is still the plan-composed one.
+    // 3, not 2: widening to HasPhonologyOrTemplates makes this template-bearing, phonology-free grammar qualify for token-cascade-morphology too; all three confirm and tie on work, so the smaller plan-composed network still wins.
     assert_eq!(template["counts"]["static_count"], 3);
     assert_eq!(template["counts"]["feasible"]["kind"], "exact");
     assert_eq!(template["counts"]["feasible"]["value"], 3);
     assert_eq!(template["pilot"]["sample_size"], 3);
     assert_eq!(template["winner_strategy"], "plan-composed");
-    // One syntactic duplicate remains, while one applicable plan-rewrite instance is declared
-    // not searched by the recorded compositional-topology policy. The single-entry applicability
-    // predicate still accounts for `specialized-branch` separately as `inapplicable`.
+    // One syntactic duplicate remains; the single-entry applicability predicate still separately declares `specialized-branch` inapplicable.
     let template_pruning = accounted_pruning(&template, "recipe-template-generic");
     assert_eq!(template_pruning["duplicates"], 1);
     assert_eq!(template_pruning["declared_not_searched"], 1);
@@ -405,8 +337,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
          families; an `inapplicable` bucket this small means the report is counting applicability \
          rejections as something else: {template_pruning:?}"
     );
-    // 3, not 2, mirroring `static_count`/`feasible` above: `token-cascade-morphology` is now a third
-    // surviving, evaluated, confirming candidate for this phonology-free templated grammar.
+    // 3, not 2, mirroring static_count/feasible: token-cascade-morphology is now a third surviving, confirming candidate.
     assert_eq!(template["pruning"]["evaluated"], 3);
     assert_eq!(template["pruning"]["confirmed"], 3);
     assert_eq!(template["strategy"], "exhaustive");

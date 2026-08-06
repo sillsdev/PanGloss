@@ -1,43 +1,5 @@
-//! Proposer-to-confirm containment for `MorphRuleOrder::Unordered`'s
-//! `unordered-application.chain-depth-bounded` configuration predicate (target disposition:
-//! `ConfirmOnly`), plus a deterministic `unordered-application.unbounded` budget-refusal witness.
-//!
-//! ## Synthetic, delanguaged fixture (synthetic data only -- invented CVC root, no
-//! natural-language lexemes, named by construct only)
-//! One stratum, `morphologicalRuleOrder="unordered"`, TWO loose suffix rules declared in document
-//! order `mrP` (index 0) then `mrQ` (index 1) -- no `required_syn_fs`/feature interaction between
-//! them at all, no phonological rules, no `Role::Infix` rule, no templates. Both suffix, so cascade
-//! APPLICATION order directly determines surface CONCATENATION order (each new suffix appends at
-//! the current end): applying `mrP` then `mrQ` yields `"kpq"`; applying `mrQ` then `mrP` yields
-//! `"kqp"`.
-//!
-//! ## The distinguishing property this fixture pins (empirically verified against the real oracle,
-//! `pg_parse::Morpher` -- NOT hand-derived, `docs/adr/0001`'s own discipline)
-//! `pg_rules::cascade::Cascade::permutation` (`Linear`) only ever recurses to a NON-DECREASING rule
-//! index (`permutation_rec`'s own doc: "never revisits an index behind the current one") -- so
-//! under a HYPOTHETICAL `morphologicalRuleOrder="linear"` declaration of this SAME grammar,
-//! `"kqp"` (rule index 1 firing before rule index 0) is NOT a reachable analysis at all: `Morpher::
-//! parse_word_opts("kqp", ..)` returns an EMPTY `structured` set under `Linear` (verified directly
-//! against this exact fixture, `linear_variant` below), while `"kpq"` (document order) IS reachable
-//! under EITHER `mrule_order`. Declaring THIS grammar's own stratum `Unordered` is therefore the
-//! MINIMAL change that makes `"kqp"` a genuine, oracle-confirmed analysis (`Cascade::combination`'s
-//! any-order walk, `cascade.rs`'s own "k!-walk over rule subsets" doc) -- exactly the scenario
-//! where "a word's analysis requires the stratum's rules to have applied in an order other than
-//! their declared document order."
-//!
-//! ## The distinguishing witness against the pre-existing morphotactic-legality convention
-//! This fixture has ZERO phonological rules and ZERO `Role::Infix` rules -- `crate::preexpand::
-//! should_run(g, phon) = phon.is_some() || any_infix_rule(g)` is `false` for it (both `mrP`/`mrQ`
-//! classify `Role::Suffix`: their RHS is `CopyFromInput` followed by a TRAILING `InsertSegments`,
-//! the suffix shape `crate::emit::classify_affix` recognizes), so `crate::preexpand::
-//! build_composites`/`crate::morphotactics::MorphotacticIndex::next_state` (the "Linear-as-Unordered"
-//! pruning convention `morphotactics.rs`'s own module doc names) are NEVER CONSULTED for a single
-//! (root, rule) pair on this grammar -- confirmed by `g.prules.is_empty()` below (the public proxy
-//! this integration test can observe; `crate::preexpand`/`crate::morphotactics` are crate-internal).
-//! The containment this file proves for `"kqp"` therefore comes ENTIRELY from
-//! `crate::emit::build_deriv_chain`'s ordinary derivation-layer construction (this change's own
-//! load-bearing finding, `crate::unordered`'s own module doc) -- not from that pruning automaton;
-//! the two are NOT the same proof.
+//! Proposer-to-confirm containment for `MorphRuleOrder::Unordered`'s chain-depth-bounded configuration (target disposition `ConfirmOnly`), plus a deterministic unbounded-budget-refusal witness.
+//! See docs/research/pg-foma-cover-unordered-morph-rules-notes.md for the fixture and the two distinguishing-witness arguments.
 
 mod common;
 
@@ -52,8 +14,7 @@ use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions, WordAnalysis};
 
-/// `mrule_order`: `"unordered"` or `"linear"` -- the ONLY difference between the two fixture
-/// variants this file compares (module doc's "distinguishing property").
+/// `mrule_order`: `"unordered"` or `"linear"`, the only difference between the two fixture variants this file compares.
 fn fixture_xml(mrule_order: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
@@ -109,9 +70,7 @@ fn fixture_xml(mrule_order: &str) -> String {
     )
 }
 
-/// A chain-depth-bounded `Unordered` stratum's OWN loose-rule count exceeding the calibrated
-/// `pg_foma::compose_budget` default -- generated programmatically (never hand-typed), same
-/// generator shape `crate::unordered`'s own test-only `stratum_xml` uses.
+/// A chain-depth-bounded `Unordered` stratum whose loose-rule count exceeds the calibrated `pg_foma::compose_budget` default, generated programmatically rather than hand-typed.
 fn unbounded_fixture_xml(rule_count: u32) -> String {
     let mut rules = String::new();
     let mut segs = String::new();
@@ -170,17 +129,14 @@ fn load(xml: &str) -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// `(morpheme_ids, root_morpheme_index)` multiset key -- same shape `tests/cover_compounding.rs::
-/// analysis_set` uses.
+/// `(morpheme_ids, root_morpheme_index)` multiset key, same shape `tests/cover_compounding.rs::analysis_set` uses.
 fn analysis_set(v: &[WordAnalysis]) -> HashSet<(Vec<u32>, i32)> {
     v.iter()
         .map(|a| (a.morpheme_ids.clone(), a.root_morpheme_index))
         .collect()
 }
 
-/// Runs `word` through both the real propose→confirm composite and the full-HC oracle, and asserts
-/// EXACT structured-set equality between them (never mere containment) -- same helper shape as
-/// `cover_compounding.rs::assert_confirm_matches_oracle`.
+/// Runs `word` through both the real propose-confirm composite and the full-HC oracle, and asserts exact structured-set equality (never mere containment).
 fn assert_confirm_matches_oracle(
     analyzer: &mut FomaAnalyzer,
     morpher: &Morpher,
@@ -209,10 +165,7 @@ fn assert_confirm_matches_oracle(
     outcome
 }
 
-/// Deliverable 3 / capability.rs judgment call check: this fixture's OWN `Unordered` stratum must
-/// characterize `unordered-application.chain-depth-bounded` and compose to `ConfirmOnly` -- proving
-/// the containment tests below exercise this construct's own resting disposition, not an accident
-/// of some other predicate meeting it down.
+/// This fixture's `Unordered` stratum must characterize as chain-depth-bounded and compose to `ConfirmOnly`, proving the containment tests below exercise its resting disposition, not an accident.
 #[test]
 fn fixture_is_chain_depth_bounded_and_confirm_only() {
     let g = load(&fixture_xml("unordered"));
@@ -234,12 +187,7 @@ fn fixture_is_chain_depth_bounded_and_confirm_only() {
     );
 }
 
-/// **The positive witness.** `"kqp"` (rule index 1 --
-/// `mrQ` -- firing before rule index 0 -- `mrP`, the REVERSE of document order) is a genuine,
-/// oracle-confirmed analysis under `Unordered`, and the FST proposer (via `crate::emit::
-/// build_deriv_chain`'s existing derivation-layer construction, not a new mechanism -- module doc)
-/// PROPOSES it, and confirm accepts it exactly. `"kpq"` (document order) is proposed/confirmed too,
-/// proving ordinary (Linear-reachable) recall is unaffected by this change.
+/// The positive witness: `"kqp"` (`mrQ` before `mrP`, reverse of document order) is genuinely oracle-confirmed and proposed under `Unordered`; `"kpq"` still works too, so ordinary recall is unaffected.
 #[test]
 fn non_document_order_analysis_is_proposed_and_confirmed() {
     let g = load(&fixture_xml("unordered"));
@@ -266,12 +214,7 @@ fn non_document_order_analysis_is_proposed_and_confirmed() {
     );
 }
 
-/// **The distinguishing property witness (module doc).** The IDENTICAL grammar, differing ONLY in
-/// `mrule_order="linear"`, must NOT confirm `"kqp"` at all, pinned by
-/// `linear_variant_of_the_same_grammar_does_not_confirm_the_reverse_order`: firing `mrQ` before
-/// `mrP` is out of scope for `pg_rules::cascade::Cascade::permutation`'s own non-decreasing-index
-/// restriction (rule index 1 before rule index 0) -- the real semantic difference `Unordered`'s
-/// promotion depends on.
+/// The identical grammar, differing only in `mrule_order="linear"`, must not confirm `"kqp"` at all: firing `mrQ` before `mrP` is out of scope for `Cascade::permutation`'s non-decreasing-index restriction.
 #[test]
 fn linear_variant_of_the_same_grammar_does_not_confirm_the_reverse_order() {
     let g = load(&fixture_xml("linear"));
@@ -290,9 +233,7 @@ fn linear_variant_of_the_same_grammar_does_not_confirm_the_reverse_order() {
          Cascade::permutation never revisits an index behind the current one"
     );
 
-    // The FST proposer still PROPOSES kqp (build_deriv_chain is order-blind at propose time) --
-    // confirm alone is what draws the Linear/Unordered distinction. This is this change's own
-    // negative-witness shape, mirrored here for the Linear grammar specifically.
+    // The FST proposer still proposes kqp (order-blind at propose time); confirm alone draws the Linear/Unordered distinction.
     let mut analyzer = FomaAnalyzer::new(&g).expect("Linear fixture must compile too");
     let outcome = analyzer.analyze_word("kqp");
     assert!(
@@ -305,12 +246,7 @@ fn linear_variant_of_the_same_grammar_does_not_confirm_the_reverse_order() {
     );
 }
 
-/// **The negative witness: an ordering the union proposal licenses but the exact
-/// combination-cascade fold at confirm prunes to zero.** `mrP`/`mrQ` both default to
-/// `multipleApplication = 1` (DTD default) -- `"kpp"`/`"kqq"` (the SAME rule applied twice) are
-/// over-proposed by `build_deriv_chain` (every level offers every rule, unconditional on a rule's
-/// own re-application cap) but confirm's `apply_one_mrule`/`MaxApplicationCount` gate prunes both
-/// to zero, exactly matching the oracle.
+/// The negative witness: `"kpp"`/`"kqq"` (the same rule applied twice, over `multipleApplication = 1`) are over-proposed by `build_deriv_chain` but confirm's `MaxApplicationCount` gate prunes both to zero.
 #[test]
 fn same_rule_reapplication_is_over_proposed_and_confirm_pruned() {
     let g = load(&fixture_xml("unordered"));
@@ -331,12 +267,7 @@ fn same_rule_reapplication_is_over_proposed_and_confirm_pruned() {
     }
 }
 
-/// **The distinguishing-from-legality-convention witness.** This fixture has zero phonological
-/// rules -- the public proxy for
-/// "`crate::preexpand::should_run` is false, so `crate::morphotactics::MorphotacticIndex`'s
-/// consuming callers never run for a single (root, rule) pair on this grammar" (module doc) --
-/// proving the containment proven above comes from `crate::emit::build_deriv_chain`, not the
-/// pre-existing "Linear-as-Unordered" pruning convention.
+/// Zero phonological rules is the public proxy for "`should_run` is false, so `MorphotacticIndex`'s consumers never run", proving the containment above comes from `build_deriv_chain`, not that pruning convention.
 #[test]
 fn no_phonology_isolates_build_deriv_chain_from_the_legality_pruning_convention() {
     let g = load(&fixture_xml("unordered"));
@@ -347,10 +278,7 @@ fn no_phonology_isolates_build_deriv_chain_from_the_legality_pruning_convention(
     );
 }
 
-/// **Task 7's other half: `unordered-application.unbounded` stays refused.** A stratum whose own
-/// loose-rule count exceeds `pg_foma::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET` must
-/// deterministically fail to compile via `FomaAnalyzer::new` -- an honest, typed refusal (never a
-/// silent truncation, never an attempt to actually build the oversized network).
+/// A stratum whose loose-rule count exceeds the calibrated budget must deterministically fail to compile with a typed refusal, never a silent truncation or an attempt to build the oversized network.
 #[test]
 fn unbounded_unordered_stratum_deterministically_refuses_to_compile() {
     let xml = unbounded_fixture_xml(101);
@@ -367,8 +295,7 @@ fn unbounded_unordered_stratum_deterministically_refuses_to_compile() {
         ),
     }
 
-    // The SAME refusal surfaces through the public product API (`FomaAnalyzer::new`, which builds
-    // a `FomaProposer` internally) -- never a panic, never a hang building a 101-level chain.
+    // The same refusal surfaces through the public product API, never a panic or a hang building a 101-level chain.
     match FomaAnalyzer::new(&g) {
         Err(FomaError::UnorderedOrderingMultiplicityExceeded { .. }) => {}
         Err(other) => panic!("expected UnorderedOrderingMultiplicityExceeded, got {other}"),
@@ -376,10 +303,7 @@ fn unbounded_unordered_stratum_deterministically_refuses_to_compile() {
     }
 }
 
-/// The capability characterization for the SAME unbounded grammar must independently report
-/// `unordered-application.unbounded` (`Refuse`), agreeing with the real compile-time refusal above
-/// (both read the SAME calibrated constant -- `crate::unordered`'s own module doc) rather than being
-/// a second, silently-divergent source of truth.
+/// The capability characterization for the same unbounded grammar must independently report `Refuse`, agreeing with the compile-time refusal above by reading the same calibrated constant.
 #[test]
 fn unbounded_unordered_stratum_composes_to_refuse() {
     let xml = unbounded_fixture_xml(101);

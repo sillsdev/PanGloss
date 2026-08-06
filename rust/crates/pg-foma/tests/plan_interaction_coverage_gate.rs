@@ -1,49 +1,5 @@
-//! Integration test for tree-structured node/subtree interaction coverage over the reified
-//! compilation plan, rather than pairwise covering arrays over raw grammar "knobs".
-//!
-//! Computes `pg_foma::plan_interaction_coverage::compute_interaction_coverage`'s report over every
-//! discoverable conformance fixture (`pg_conformance_fixtures::discover()` -- `machine/conformance/
-//! **` + `conformance-staging/**`), prints it, and now **fails the build** if any required
-//! `pg_foma::plan_interaction_coverage::AdjacencyTuple` is `Uncovered`. This mirrors
-//! `conformance_coverage_gate.rs`'s own flip discipline exactly (that module's own doc;
-//! `docs/conformance/shared-construct-id-analysis.md`'s "a green build-breaking gate that can
-//! silently start lying is worse than an advisory report, because the green light is what gets
-//! cited" rule). See `pg_foma::plan_interaction_coverage`'s own module top-doc for the tuple model,
-//! the orthogonality-retirement evidence, and -- the pre-flip question this task required be asked
-//! and answered, not assumed -- why this flip does NOT face the sibling's "shared coarser construct
-//! id lets a finer characteristic inherit unfalsifiable coverage" problem: every `AdjacencyTuple` is
-//! already this module's own finest-grained unit, and a tuple can only be credited from an actual
-//! parent-child edge present in a caller-supplied, per-fixture reified `Plan`, never from the mere
-//! co-presence of both node kinds somewhere in the same grammar.
-//!
-//! # What this gate does NOT assert (unchanged by the flip)
-//! - That every tag on a tuple's `tags` field was itself exercised BY that specific edge -- `tags`
-//!   is informative context (which characteristics were observed anywhere on the tuple's endpoints
-//!   across the corpus), never the coverage signal itself (`TupleStatus`'s own doc).
-//! - That every characteristic/configuration reachable through a covered tuple is itself proven --
-//!   e.g. `(Union, Leaf/StructuralCompositeMarker)` being `Covered` says a fixture's plan realizes
-//!   that SHAPE, not that every circumfix candidate-selection gap
-//!   (`docs/conformance/circumfix-structural-composite-census.md`) is closed. Tuple-level coverage
-//!   and configuration-level completeness are different questions, the same distinction
-//!   `conformance_coverage_gate.rs`'s own doc draws for its 20 `CharacteristicKind` rows.
-//!
-//! # The fuzz slice (deliverable 5) -- also a hard assertion, unchanged by this flip
-//! For every discovered fixture whose plan's `Gate` node has >=2 partition groups,
-//! `pg_foma::plan_interaction_coverage::fuzz_gate_group_reordering_for_grammar` builds the
-//! grammar's default plan and its `permute_gate_groups` twin and asserts `differential_oracle`
-//! reports `Agree`. This assertion was already hard before today's flip of the coverage-report half
-//! above: it re-confirms a mechanized correctness property (Gate-group order-invariance,
-//! `crate::gate`'s own "why the union is safe here" argument plus union commutativity) on every REAL
-//! corpus grammar, not a coverage-completeness claim. A real disagreement here would be a genuine
-//! regression, never something to paper over.
-//!
-//! # Non-blocking, additive: what this file does NOT do
-//! - Does not modify `machine/conformance/` fixtures, `conformance-staging/`, or any production
-//!   compile path (`plan.rs`/`enumerate.rs`/`build.rs`/`oracle.rs`/`capability.rs` are read/reused
-//!   only, per this task's own hard rule).
-//! - Does not touch `conformance_coverage_gate.rs`/`conformance_fixtures_gate.rs` -- a separate,
-//!   independent cross-check over a different axis (conformance-construct coverage vs. plan-node-
-//!   interaction coverage).
+//! Integration test for tree-structured node/subtree interaction coverage over the reified compilation plan (rather than pairwise covering arrays over raw grammar "knobs"); build-breaking if any required `AdjacencyTuple` is `Uncovered`.
+//! See docs/research/pg-foma-plan-interaction-coverage-gate-notes.md for what this gate does and does not assert, and the separate fuzz-slice correctness check it also runs.
 
 use pg_conformance_fixtures::discover;
 use pg_foma::capability::CharacteristicsProfile;
@@ -54,8 +10,7 @@ use pg_foma::plan_interaction_coverage::{
     plan_and_profile, TupleStatus,
 };
 
-/// The coverage-report half, **build-breaking**. See this file's own top-doc for exactly what it
-/// does and does not assert.
+/// The coverage-report half, build-breaking; see this file's own top-doc for exactly what it does and does not assert.
 #[test]
 fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
     let mut owned: Vec<(String, Plan, CharacteristicsProfile)> = Vec::new();
@@ -63,9 +18,7 @@ fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
     for f in discover() {
         let xml = f.load_grammar_xml();
         let Ok(g) = pg_grammar::load(&xml) else {
-            // A fixture this preview can't even load contributes nothing either way -- not this
-            // test's job to diagnose a grammar-load failure (conformance_fixtures_gate.rs already
-            // gates that for real).
+            // A fixture this preview can't even load contributes nothing either way; diagnosing a grammar-load failure is conformance_fixtures_gate.rs's job, not this test's.
             continue;
         };
         let (plan, profile) = plan_and_profile(&g);
@@ -83,12 +36,7 @@ fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
         .collect();
     let report = compute_interaction_coverage(&refs);
 
-    // Non-vacuity first, same order the sibling gate uses: a report that enumerated nothing (or
-    // shrank/grew the tuple set silently) would make the build-breaking assertion below pass
-    // trivially, which is the failure mode this whole subsystem's gates are written against. The
-    // literal `7`/`2` here are pinned constants (not derived from `legal_adjacency_tuples()`/
-    // `retired_interactions()` themselves, which would be tautological), so a future change to
-    // either function's returned count fails this assertion loudly rather than silently.
+    // Non-vacuity first: a report that silently shrank/grew the tuple set would make the build-breaking assertion below pass trivially, so `7`/`2` here are pinned literals, never derived from the functions they check.
     assert_eq!(
         report.required.len(),
         7,
@@ -148,8 +96,7 @@ fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
     );
 }
 
-/// The fuzz-slice half (deliverable 5). See this file's own top-doc for why this IS a hard
-/// assertion, unlike the coverage report above.
+/// The fuzz-slice half; see this file's own top-doc for why this is a hard assertion, unlike the coverage report above.
 #[test]
 fn gate_group_reordering_agrees_on_every_multi_group_corpus_fixture() {
     let mut checked = 0usize;
@@ -164,9 +111,7 @@ fn gate_group_reordering_agrees_on_every_multi_group_corpus_fixture() {
         };
         let (plan, _profile) = plan_and_profile(&g);
         if gate_group_count(&plan) < 2 {
-            // Reordering a single group (or a plan with no Gate node at all) is a no-op -- not a
-            // real exercise of retirement #2's own claim (module top-doc), so skip it rather than
-            // padding the count with vacuous Agrees.
+            // Reordering a single group (or no Gate node at all) is a no-op, so skip it rather than padding the count with vacuous Agrees.
             skipped_single_group += 1;
             continue;
         }

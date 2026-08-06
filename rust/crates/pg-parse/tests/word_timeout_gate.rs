@@ -1,23 +1,11 @@
-//! `--word-timeout-ms` end-to-end regression guard, at the `Morpher::parse_word` level
-//! (`docs/budget-model.md`'s addendum; `pg-cli`'s `batch` subcommand is the CLI-facing consumer,
-//! covered separately by `pg-cli/src/main.rs`'s own `#[cfg(test)]` module, which exercises the
-//! flag-parsing + TSV-row-shape plumbing this file does not touch).
-//!
-//! Neither `Morpher::with_word_timeout` nor `ParseOutcome::timed_out` existed before this change,
-//! so this whole file is "red" (does not compile) against the pre-change engine — the regression
-//! guard the task asked for.
+//! `--word-timeout-ms` end-to-end regression guard, at the `Morpher::parse_word` level; `pg-cli`'s `batch` flag-parsing/TSV plumbing is covered separately by `pg-cli/src/main.rs`'s own tests.
 
 mod csharp_port_common;
 use csharp_port_common::build_grammar;
 use pg_parse::Morpher;
 use std::time::{Duration, Instant};
 
-/// The shared simple V-requiring `ed_suffix` grammar every other `csharp_port_morpher.rs` test in
-/// this crate reuses (entry "32" = "sag", `MorpherTests.AnalyzeWord_CanAnalyzeUnordered_...`'s
-/// shape) — chosen here purely because it is already known-good and cheap to build, not because it
-/// is itself pathological; the deadline in each test below is what forces the timeout, not the
-/// grammar's own difficulty (see `pg-rules/src/stratum.rs`'s `step_budget_timeout_tests` for the
-/// dedicated "actually slow" stress case).
+/// A known-good, cheap-to-build grammar; the deadline in each test below is what forces the timeout, not the grammar's own difficulty.
 fn simple_grammar() -> pg_grammar::model::Grammar {
     let mrules = r#"
       <MorphologicalRule id="mrEd" requiredPartsOfSpeech="posV"><Name>ed_suffix</Name><MorphemeId>PAST</MorphemeId>
@@ -32,9 +20,7 @@ fn simple_grammar() -> pg_grammar::model::Grammar {
     build_grammar("", "", mrules, "mrEd", "")
 }
 
-/// `--word-timeout-ms` omitted (the default: `with_word_timeout` not called, just plain
-/// `Morpher::new`) must behave exactly as before this flag existed: full analyses, `timed_out`
-/// false, `capped` false (this grammar never approaches `usize::MAX` steps).
+/// `--word-timeout-ms` omitted must behave exactly as if the flag never existed: full analyses, `timed_out` false, `capped` false.
 #[test]
 fn no_word_timeout_is_unaffected() {
     let g = simple_grammar();
@@ -48,13 +34,7 @@ fn no_word_timeout_is_unaffected() {
     );
 }
 
-/// `with_word_timeout(Some(0ms))` deterministically expires before construction even finishes
-/// (`StepBudget::with_timeout` resolves the deadline to `Instant::now() + 0`), so the very first
-/// `over_budget()` check inside `parse_word`'s analysis loop must catch it — independent of
-/// `--step-cap`, which stays at `usize::MAX` (uncapped) here specifically to prove the timeout
-/// does not depend on the step cap ever being reached. Deterministic (no timing race): any
-/// `Instant::now()` sampled even a few nanoseconds after construction is `>=` the already-elapsed
-/// deadline.
+/// `with_word_timeout(Some(0ms))` deterministically expires before construction finishes, so the first `over_budget()` check must catch it, independent of `--step-cap` (left uncapped here).
 #[test]
 fn zero_ms_word_timeout_fires_and_reports_no_analyses() {
     let g = simple_grammar();
@@ -76,17 +56,14 @@ fn zero_ms_word_timeout_fires_and_reports_no_analyses() {
         outcome.analyses.is_empty(),
         "an immediately-expired budget must abort before finding any analyses"
     );
-    // A generous bound: a real analysis of this grammar/word takes microseconds, so even with
-    // scheduling noise this must stay far below "ran to completion normally".
+    // A generous bound: a real analysis takes microseconds, so this must stay far below "ran to completion normally" even with scheduling noise.
     assert!(
         elapsed < Duration::from_secs(1),
         "elapsed {elapsed:?} should be near-instant"
     );
 }
 
-/// A `--word-timeout-ms` long enough to never fire is a no-op vs. omitting the flag entirely --
-/// the two code paths (`deadline: None` vs. `deadline: Some(far_future)`) must agree exactly on
-/// this word.
+/// A `--word-timeout-ms` long enough to never fire must be a no-op vs. omitting the flag entirely: the two code paths must agree exactly on this word.
 #[test]
 fn generous_word_timeout_matches_no_timeout() {
     let g = simple_grammar();

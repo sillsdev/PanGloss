@@ -144,8 +144,7 @@ fn unknown_morph_type_allomorph_is_skipped_with_a_warning() {
         .iter()
         .find(|e| e.citation_form.iter().any(|f| f.form == "ranna"))
         .expect("the run entry must be present");
-    // Only the valid lexeme-form allomorph should have survived; the extra alternate form with
-    // an unrecognized morph-type guid must have been dropped.
+    // Only the valid lexeme-form allomorph should have survived; the extra alternate form with an unrecognized morph-type guid must have been dropped.
     assert_eq!(run_entry.allomorphs.len(), 1);
     assert!(report
         .warnings
@@ -153,9 +152,7 @@ fn unknown_morph_type_allomorph_is_skipped_with_a_warning() {
         .any(|w| w.contains("00000000-0000-0000-0000-00000000abcd")));
 }
 
-/// The unrecognized-morph-type-guid warning above carries a specific, stable code -- pinned here
-/// alongside the existing prose assertion, exactly, so a future reword of the message is never
-/// itself a code change.
+/// The unrecognized-morph-type-guid warning carries a specific, stable code, so a future reword of the message is never itself a code change.
 #[test]
 fn unknown_morph_type_warning_carries_its_stable_code() {
     let (_, report) = pg_fwdata::import_file(&fixture_path()).unwrap();
@@ -176,8 +173,7 @@ fn dangling_environment_reference_does_not_crash_import() {
         .iter()
         .find(|e| e.citation_form.iter().any(|f| f.form == "-s"))
         .unwrap();
-    // The dangling guid is still carried through (pg-fwdata doesn't dereference environment
-    // guids on allomorphs) — `Snapshot::validate()` is where it's flagged.
+    // The dangling guid is still carried through (pg-fwdata doesn't dereference environment guids on allomorphs); `Snapshot::validate()` is where it's flagged.
     assert_eq!(suffix_entry.allomorphs.len(), 1);
     assert_eq!(suffix_entry.allomorphs[0].environments.len(), 2);
     let warnings = snap.validate();
@@ -186,9 +182,7 @@ fn dangling_environment_reference_does_not_crash_import() {
         .any(|w| w.contains("00000000-0000-0000-0000-0000000000ff")));
 }
 
-/// Two structurally different situations -- pg-fwdata's "unrecognized morph-type guid"
-/// (import-time) and pg-snapshot's "dangling environment reference" (validate-time) -- must get
-/// different codes.
+/// Two structurally different situations -- import-time "unrecognized morph-type guid" and validate-time "dangling environment reference" -- must get different codes.
 #[test]
 fn structurally_different_warnings_get_different_codes() {
     let (snap, report) = pg_fwdata::import_file(&fixture_path()).unwrap();
@@ -207,12 +201,7 @@ fn structurally_different_warnings_get_different_codes() {
     assert_eq!(dangling_env_warning.code, "snapshot.dangling-reference");
 }
 
-/// The exact prose
-/// this warning has always carried is pinned exactly here (not just a substring, as the tests
-/// above check) at this representative site. Guids per `tests/data/fixture.fwdata`: the
-/// `MoStemAllomorph` with the planted unrecognized morph type is
-/// `00000000-0000-0000-0000-000000000044`, referencing `MorphType`
-/// `00000000-0000-0000-0000-00000000abcd`.
+/// This warning's exact prose is pinned here (not just a substring, as the tests above check).
 #[test]
 fn import_warning_prose_is_unchanged() {
     let (_, report) = pg_fwdata::import_file(&fixture_path()).unwrap();

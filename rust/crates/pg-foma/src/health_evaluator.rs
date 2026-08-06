@@ -145,18 +145,10 @@ use crate::health::{
 };
 use crate::profile::{CompileProfile, ProfileLabel};
 
-/// The fraction of a calibrated compose-budget
-/// dimension (`DEFAULT_STATE_BUDGET`/`DEFAULT_ARC_BUDGET`/`DEFAULT_LINE_BUDGET`) at or above
-/// which `profile_findings` raises an "approaching, not yet tripped" `Severity::Warning`
-/// finding.
-/// A single flat threshold, not a banded severity scale — see this module's "Judgment calls" item
-/// 9 for why.
+/// Fraction of a calibrated compose-budget dimension at or above which `profile_findings` raises an "approaching, not yet tripped" `Severity::Warning`; a flat threshold, not a banded scale.
 const APPROACHING_BUDGET_WARNING_FRACTION: f64 = 0.8;
 
-/// One "approaching, not yet tripped" `Severity::Warning` finding, or `None` when `value` is
-/// below `APPROACHING_BUDGET_WARNING_FRACTION` of `limit` (this module's own "Ideal: nothing to
-/// report" convention, mirroring `payload_size_finding`). Shared by every `profile_findings`
-/// dimension so the threshold/severity policy lives in exactly one place.
+/// One "approaching, not yet tripped" `Severity::Warning` finding, or `None` below threshold; shared by every `profile_findings` dimension so the policy lives in one place.
 fn approaching_budget_finding(
     code: FindingCode,
     metric: Metric,
@@ -275,11 +267,7 @@ pub struct ApplyBudgetTrip {
     pub word: Option<String>,
 }
 
-/// A short, stable, applicable remedy shared by every budget-tripped compile-time finding this
-/// module builds: fall back to the full morphological-parser engine, or (only for a caller who
-/// understands why this grammar's composition is this large) raise the specific tripped budget's
-/// own env var and re-run. Never a grammar edit (`requires_linguistic_equivalence: false`) — this
-/// is host/engine-selection and resource-envelope advice, not a source-grammar change.
+/// Shared remedy for every budget-tripped finding: fall back to the full engine, or raise the tripped budget's env var. Never a grammar edit (`requires_linguistic_equivalence: false`).
 fn retry_full_engine_remedy() -> Remedy {
     Remedy {
         rank: 1,
@@ -293,11 +281,7 @@ fn retry_full_engine_remedy() -> Remedy {
     }
 }
 
-/// `severity_for_size_bytes`'s own band boundaries, returned as the crossed threshold for
-/// every non-`Severity::Ideal` band — e.g. an `Severity::Error` finding's threshold is
-/// `100_000_000` (the `Severity::Warning` band's own ceiling, the boundary this payload crossed
-/// to become Error). Mirrors `crate::health`'s own golden test's worked Error finding
-/// (`threshold: Some(MetricValue::Bytes(100_000_000))` for a 150,000,000-byte payload).
+/// `severity_for_size_bytes`'s own band boundaries, returned as the crossed threshold for every non-`Severity::Ideal` band (the ceiling of the band just below).
 fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
     match severity {
         Severity::Ideal => {
@@ -310,10 +294,7 @@ fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
     }
 }
 
-/// Maps a final FST payload byte count to a `HealthFinding` via
-/// `severity_for_size_bytes` (reused unchanged, never re-derived). `None` when the payload is
-/// within the Ideal band — `crate::health`'s own convention: "Ideal: Within every band; nothing
-/// to report."
+/// Maps a final FST payload byte count to a `HealthFinding` via `severity_for_size_bytes`; `None` when the payload is within the Ideal band.
 fn payload_size_finding(bytes: u64) -> Option<HealthFinding> {
     let severity = severity_for_size_bytes(bytes);
     if severity == Severity::Ideal {
@@ -337,9 +318,7 @@ fn payload_size_finding(bytes: u64) -> Option<HealthFinding> {
     })
 }
 
-/// `crate::emit::FomaTier::Partial`'s `uncovered` construct occurrences — see this module's
-/// "Judgment calls" item 3 for the `Severity::Warning`/`FindingCode::UnknownUnboundedConstruct`
-/// choice.
+/// `crate::emit::FomaTier::Partial`'s `uncovered` construct occurrences, reported at `Severity::Warning`.
 fn partial_tier_finding(report: &EmitReport, uncovered_count: usize) -> HealthFinding {
     let affected: Vec<String> = report
         .uncovered
@@ -366,9 +345,7 @@ fn partial_tier_finding(report: &EmitReport, uncovered_count: usize) -> HealthFi
     }
 }
 
-/// `crate::emit::FomaTier::Unsupported` — see this module's "Judgment calls" item 4 for the
-/// `Severity::Critical` choice (deliberately diverging from
-/// `FindingCode::UnknownUnboundedConstruct`'s general "not itself Critical" framing).
+/// `crate::emit::FomaTier::Unsupported`, deliberately reported at `Severity::Critical` rather than the usual "not itself Critical" framing.
 fn unsupported_tier_finding(reason: &str) -> HealthFinding {
     HealthFinding {
         code: FindingCode::UnknownUnboundedConstruct,
@@ -389,8 +366,7 @@ fn unsupported_tier_finding(reason: &str) -> HealthFinding {
     }
 }
 
-/// `crate::emit::EnumBudgetExceeded` (Fix 1, the fail-fast eager-enumeration budget) — see this
-/// module's "Judgment calls" item 5 for the `Metric::UnknownUnboundedWork` reuse.
+/// The fail-fast eager-enumeration budget's trip, reusing `Metric::UnknownUnboundedWork`.
 fn enum_budget_finding(exceeded: &EnumBudgetExceeded) -> HealthFinding {
     HealthFinding {
         code: FindingCode::ResourceBudgetReached,
@@ -413,8 +389,7 @@ fn enum_budget_finding(exceeded: &EnumBudgetExceeded) -> HealthFinding {
     }
 }
 
-/// Every `crate::emit::EmitReport`-sourced finding: the tier disposition (`Full` produces none,
-/// `Partial`/`Unsupported` each produce one) plus the enumeration-budget finding when present.
+/// Every `crate::emit::EmitReport`-sourced finding: the tier disposition plus the enumeration-budget finding when present.
 fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
     let mut findings = Vec::new();
     match &report.tier {
@@ -432,8 +407,7 @@ fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
     findings
 }
 
-/// Every `crate::compose_budget::ComposeError` variant, exhaustively — see this module's
-/// "Judgment calls" item 1 for the `ResourceBudgetReached`/`ProvenBoundExceedsBudget` split.
+/// Every `crate::compose_budget::ComposeError` variant, exhaustively.
 fn compose_error_finding(err: &ComposeError) -> HealthFinding {
     match err {
         ComposeError::NetSizeExceeded {
@@ -695,9 +669,7 @@ mod tests {
     use crate::emit::{EmitCounts, UncoveredItem};
     use std::time::Duration;
 
-    // ---------------------------------------------------------------------------------------
     // fst_health_evaluator_size_bands: payload-size-only inputs, every severity band.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn fst_health_evaluator_ideal_payload_produces_no_finding() {
@@ -722,8 +694,7 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_error_payload_matches_health_schema_worked_scenario() {
-        // crate::health's own worked scenario: "FST payload is exactly 100,000,000 bytes" -> Warning
-        // is the UPPER edge of Warning; one byte more crosses into Error.
+        // 100,000,000 bytes is the upper edge of Warning; one byte more crosses into Error.
         let report = evaluate_health(Some(100_000_001), None, &[], &[], None);
         assert_eq!(report.findings[0].severity, Severity::Error);
         assert_eq!(
@@ -740,9 +711,7 @@ mod tests {
         assert_eq!(report.admission(), Severity::Critical);
     }
 
-    // ---------------------------------------------------------------------------------------
     // fst_health_evaluator_emit_report: FomaTier + enum-budget-exceeded mapping.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn fst_health_evaluator_full_tier_produces_no_finding() {
@@ -837,9 +806,7 @@ mod tests {
         assert_eq!(health.admission(), Severity::Critical);
     }
 
-    // ---------------------------------------------------------------------------------------
     // fst_health_evaluator_compose_errors: every ComposeError variant maps to a finding.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn fst_health_evaluator_net_size_exceeded_is_resource_budget_reached_observed() {
@@ -945,9 +912,7 @@ mod tests {
         assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
     }
 
-    // ---------------------------------------------------------------------------------------
     // fst_health_evaluator_apply_budget_trips
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn fst_health_evaluator_apply_budget_trip_decoded_paths() {
@@ -979,9 +944,7 @@ mod tests {
         assert!(finding.affected.is_empty());
     }
 
-    // ---------------------------------------------------------------------------------------
     // fst_health_evaluator_empty_report_is_ideal
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn fst_health_evaluator_empty_report_is_ideal() {
@@ -991,10 +954,7 @@ mod tests {
         assert_eq!(health.schema_version, crate::health::HEALTH_SCHEMA_VERSION);
     }
 
-    // ---------------------------------------------------------------------------------------
-    // fst_health_evaluator_profile: IntermediateNetworkGrowth/CompileWorkBudget populate from
-    // `crate::profile::CompileProfile`, and the production-only `ProfileLabel` gate.
-    // ---------------------------------------------------------------------------------------
+    // fst_health_evaluator_profile: IntermediateNetworkGrowth/CompileWorkBudget populate from `crate::profile::CompileProfile`, and the production-only `ProfileLabel` gate.
 
     fn synthetic_profile(
         label: ProfileLabel,
@@ -1014,9 +974,7 @@ mod tests {
         }
     }
 
-    /// A profile whose values sit comfortably below
-    /// the 80% threshold must still produce nothing (Ideal), proving the approaching-budget code
-    /// path is real gating, not an unconditional finding.
+    /// Comfortably-below-threshold values must produce nothing (Ideal), proving the approaching-budget path is real gating, not unconditional.
     #[test]
     fn fst_health_evaluator_profile_below_threshold_produces_no_finding() {
         // 50% of DEFAULT_STATE_BUDGET/DEFAULT_ARC_BUDGET/DEFAULT_LINE_BUDGET.
@@ -1035,10 +993,7 @@ mod tests {
         assert_eq!(health.admission(), Severity::Ideal);
     }
 
-    /// A profile whose final network state count sits at 90%
-    /// of `DEFAULT_STATE_BUDGET` produces a real, Observed
-    /// `IntermediateNetworkGrowth`/`IntermediateStateCount` Warning finding with the exact measured
-    /// value and the calibrated budget as its threshold.
+    /// 90% of `DEFAULT_STATE_BUDGET` produces an Observed `IntermediateNetworkGrowth` Warning with the exact measured value and the calibrated budget as its threshold.
     #[test]
     fn fst_health_evaluator_profile_network_growth_approaching_budget_produces_warning() {
         let states = (DEFAULT_STATE_BUDGET as f64 * 0.9) as i64;
@@ -1089,11 +1044,7 @@ mod tests {
         );
     }
 
-    /// The production-only gate: a profile
-    /// labeled `ExperimentalComposition` must be refused OUTRIGHT by `profile_findings`/
-    /// `evaluate_health`, even when its own values would otherwise trip every dimension at once --
-    /// proving this is a hard label check, not merely "these particular synthetic values happen not
-    /// to cross the threshold."
+    /// A profile labeled `ExperimentalComposition` must be refused outright even when its values would otherwise trip every dimension at once.
     #[test]
     fn fst_health_evaluator_experimental_composition_profile_is_refused() {
         let profile = synthetic_profile(
@@ -1111,14 +1062,9 @@ mod tests {
         assert_eq!(health.admission(), Severity::Ideal);
     }
 
-    // ---------------------------------------------------------------------------------------
     // fst_health_evaluator_golden: a representative multi-source compile, byte-for-byte golden.
-    // ---------------------------------------------------------------------------------------
 
-    /// One representative compile's measurements: a Warning-band payload, a Partial-tier emit
-    /// report with one uncovered construct, and one compile-time net-size budget trip -- three
-    /// distinct measurement sources feeding one report, the shape a real caller (e.g.
-    /// `pangloss fst-health`) assembles.
+    /// Three distinct measurement sources (payload size, an emit report, a compose error) feeding one report, the shape a real caller assembles.
     fn representative_inputs() -> (u64, EmitReport, ComposeError) {
         let payload_bytes = 25_000_000u64; // Warning band
         let emit_report = EmitReport {

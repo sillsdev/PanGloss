@@ -121,11 +121,7 @@ pub mod test_confirmation_concurrency {
     }
 }
 
-/// Per-word timer for `FomaAnalyzer::analyze_words`'s reported durations.
-/// `std::time::Instant::now()` COMPILES on wasm32-unknown-unknown but ABORTS at runtime
-/// ("time not implemented on this platform") — the same compiles-but-aborts trap as
-/// `SystemTime::now`/`thread::spawn` (see `rust/tools/f4-wasm-smoke.js`'s reason for existing).
-/// The wasm32 arm therefore reports `Duration::ZERO` instead of timing; native is unchanged.
+/// Per-word timer; `Instant::now()` compiles but aborts at runtime on wasm32, so that arm reports `Duration::ZERO` instead of timing.
 #[cfg(not(target_arch = "wasm32"))]
 mod word_timer {
     pub struct Timer(std::time::Instant);
@@ -417,14 +413,7 @@ pub struct FomaAnalyzer<'g> {
     peeler: ReduplicationPeeler,
     morpher: Morpher<'g>,
     owners: Vec<Option<MorphemeOwner>>,
-    /// The `ComposeBudget` `Self::propose_candidates` threads into every
-    /// `ReduplicationPeeler::peel_candidates` call (`crate::peel`'s own module doc).
-    /// Built ONCE here from `HC_COMPOSE_*` env vars (mirrors `ComposeBudget::from_env`'s own "read
-    /// env exactly once, in the production entry point" convention/doc) rather than per word —
-    /// `ComposeBudget` is `Copy`, so re-reading it per word would be pure waste, not a correctness
-    /// concern either way. Production's default (`HC_COMPOSE_CHAIN_DEPTH_BUDGET` unset) leaves
-    /// `chain_depth_cap` at `None` (unbounded) — this addition is a zero-behavior-change no-op for
-    /// every existing caller of this type unless that env var is explicitly set.
+    /// The budget `Self::propose_candidates` threads into every `peel_candidates` call; read once from `HC_COMPOSE_*` env vars here rather than per word, since `ComposeBudget` is `Copy`.
     peel_budget: ComposeBudget,
     #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
     confirmation_concurrency_probe: Option<test_confirmation_concurrency::Probe>,
@@ -485,11 +474,7 @@ impl<'g> FomaAnalyzer<'g> {
     pub fn analyze_word(&mut self, word: &str) -> FomaOutcome {
         let (candidates, peel_used, peel_chain_depth_error) = self.propose_candidates(word);
         let candidates_generated = candidates.len();
-        // `HC_DEBUG_CANDIDATES=1` (diagnostic-only, off by default, same env-gated-diagnostic
-        // precedent as `HC_PREEXPAND_FLAT`/`HC_PREEXPAND_PROBE_CAP`): prints the proposed-candidate
-        // count right after `propose_candidates` returns, before `confirm_batch` runs -- the fast
-        // way to tell whether a runaway is in propose/peel vs. confirm without a debugger attached
-        // (used to localize an allocation-failure crash to inside `propose_candidates` on Aweti).
+        // HC_DEBUG_CANDIDATES=1 (diagnostic-only, off by default): the fast way to tell whether a runaway is in propose/peel vs. confirm without a debugger attached.
         if std::env::var("HC_DEBUG_CANDIDATES").is_ok() {
             eprintln!(
                 "[HC_DEBUG_CANDIDATES] word={word:?} candidates_generated={candidates_generated}"
@@ -497,10 +482,7 @@ impl<'g> FomaAnalyzer<'g> {
         }
         let mut analyses = Vec::new();
         let mut structured = Vec::new();
-        // Batched confirm: ONE union re-parse routes every outcome analysis to
-        // its candidate's bucket — content-identical to per-candidate confirm_all (soundness
-        // argument in `confirm::confirm_batch`'s doc) at 1/N the re-parse cost. Buckets come back
-        // in candidate order, each in outcome order, preserving the previous concatenation order.
+        // Batched confirm: one union re-parse routes every outcome to its candidate's bucket, content-identical to per-candidate confirm_all at 1/N the re-parse cost.
         for bucket in confirm::confirm_batch(self.g, &self.owners, &self.morpher, &candidates, word)
         {
             for (wa, join, surface) in bucket {
@@ -570,8 +552,7 @@ impl<'g> FomaAnalyzer<'g> {
         })
     }
 
-    /// `Self::propose_candidates` under one cumulative budget, using counters rather than the
-    /// clocked diagnostic proposal.
+    /// `Self::propose_candidates` under one cumulative budget, using counters rather than the clocked diagnostic proposal.
     #[allow(clippy::type_complexity)]
     fn propose_candidates_budgeted(
         &mut self,
@@ -781,22 +762,11 @@ impl<'g> FomaAnalyzer<'g> {
         )
     }
 
-    /// `propose(word)` UNION `peel_candidates(word, propose)`, deduped by `(morphemes,
-    /// root_index)` — the pre-confirm half of `Self::analyze_word`/`Self::analyze_words`,
-    /// factored out so the batch path can run this stage sequentially over every word (see
-    /// `Self::analyze_words`'s doc for why it stays sequential) before handing the results to
-    /// confirm. Returns the deduped candidate list, whether the redup peel contributed anything
-    /// for this word, and `Some` iff the peel hit its configured chain-depth budget for
-    /// this word (`self.peel_budget`; `FomaOutcome::peel_chain_depth_error`'s own doc) — a refused
-    /// peel contributes zero candidates of its own for this word, but never touches `propose`'s
-    /// own (unaffected) candidates.
+    /// `propose(word)` union `peel_candidates(word, propose)`, deduped by `(morphemes, root_index)`; the pre-confirm half of `Self::analyze_word`/`Self::analyze_words`, factored out to run sequentially over every word.
     fn propose_candidates(&mut self, word: &str) -> (Vec<Candidate>, bool, Option<ComposeError>) {
         let mut candidates: Vec<Candidate> = self.proposer.propose(word);
 
-        // Disjoint field borrows: `proposer` borrows only `self.proposer` (mutably); the
-        // `peel_candidates` call below borrows only `self.peeler` (immutably) and copies `self.g`
-        // (a `&Grammar`) — no conflict, since neither touches the other's field. `self.peel_budget`
-        // is `Copy`, copied out by value for the same reason.
+        // Disjoint field borrows: `proposer` and the `peel_candidates` call below touch different fields, so no conflict; `self.peel_budget` is `Copy`, copied out for the same reason.
         let peel_budget = self.peel_budget;
         let (peeled, peel_chain_depth_error): (Vec<Candidate>, Option<ComposeError>) = {
             let proposer = &mut self.proposer;
@@ -820,11 +790,7 @@ impl<'g> FomaAnalyzer<'g> {
             }
         }
 
-        // Distinct candidates yield disjoint matched sequences (confirm's
-        // `analyses_match` is keyed on exactly a candidate's own `(morphemes, root_index)`), so no
-        // cross-candidate double-count is possible once this list itself has no duplicate key —
-        // asserted here (debug-only: a real invariant of the dedup above, not a runtime check meant
-        // to fire in release).
+        // Distinct candidates yield disjoint matched sequences (confirm keys on exactly `(morphemes, root_index)`), so no double-count is possible once this list has no duplicate key.
         debug_assert!(
             {
                 let mut seen: Vec<(Vec<u32>, i32)> = Vec::with_capacity(candidates.len());
@@ -1233,8 +1199,7 @@ mod tests {
         assert!(!outcome.peel_used);
     }
 
-    /// Sanity: `mbali` confirms to a non-empty outcome whose size does not exceed
-    /// `candidates_generated` (confirm only prunes, never invents).
+    /// Sanity: `mbali` confirms to a non-empty outcome no larger than `candidates_generated` (confirm only prunes, never invents).
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn mbali_confirms_within_candidate_bound() {
@@ -1251,12 +1216,7 @@ mod tests {
         assert_eq!(outcome.structured.len(), engine.structured.len());
     }
 
-    /// Regression guard: `FomaAnalyzer::analyze_words`'s parallel-confirm
-    /// batch path must produce, per word, the exact same confirmed-analysis multiset as calling
-    /// `FomaAnalyzer::analyze_word` on that word alone — compared via `pg_parse::result_signature`
-    /// (order-independent over the analysis set), the same fingerprint the CLI's own TSV rows use.
-    /// Includes a word with zero candidates (`"zzzqxxxnonsense"`) alongside real corpus words so the
-    /// batch path's empty-outcome handling is covered too, not just the confirms-something case.
+    /// Regression guard: the parallel-confirm batch path must produce, per word, the exact same confirmed-analysis multiset as calling `analyze_word` alone, including a word with zero candidates.
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn analyze_words_matches_analyze_word_per_word() {
@@ -1424,8 +1384,7 @@ mod tests {
 
     #[test]
     fn an_unbounded_budget_leaves_analyze_word_unchanged() {
-        // The whole safety argument for routing production through the budgeted entry point: every
-        // cap check is `Some(cap) if count > cap`, so `None` can never trip.
+        // The whole safety argument for routing production through the budgeted entry point: every cap check is `Some(cap) if count > cap`, so `None` can never trip.
         let g = pg_grammar::load(DIAGNOSTICS_FIXTURE)
             .unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
         let mut analyzer = FomaAnalyzer::new(&g).expect("analyzer compiles");
@@ -1449,8 +1408,7 @@ mod tests {
 
     #[test]
     fn the_budgeted_production_path_agrees_with_the_diagnostic_one() {
-        // Two budgeted paths would be two contracts. They share the cumulative-budget semantics and
-        // must agree on results, or `assess` and `diagnose` would disagree about the same word.
+        // Two budgeted paths would be two contracts; they must agree on results, or `assess` and `diagnose` would disagree about the same word.
         let g = pg_grammar::load(DIAGNOSTICS_FIXTURE)
             .unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
         let mut analyzer = FomaAnalyzer::new(&g).expect("analyzer compiles");
@@ -1495,9 +1453,7 @@ mod tests {
                 assert_eq!(value, 1);
                 assert_eq!(limit, 0);
             }
-            // The distinction the assessment contract rests on: this must not come back as a
-            // complete outcome with an empty analysis list, which would read as "no analysis
-            // exists" rather than "we stopped looking".
+            // Must not come back as a complete outcome with an empty analysis list, which would read as "no analysis exists" rather than "we stopped looking".
             FomaApplyOutcome::Complete(_) => {
                 panic!("path-cap=0 must not confirm a partial proposal")
             }

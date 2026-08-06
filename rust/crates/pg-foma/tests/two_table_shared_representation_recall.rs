@@ -1,43 +1,5 @@
-//! The RECALL-side counterpart to `tests/cover_bistratal_overlapping_segment_representation.rs`
-//! (the refusal/verdict-side pin).
-//! Fixture: `conformance-staging/edge-cases/two-table-shared-representation-recall`.
-//!
-//! Proves, in three steps, over the REAL production compile path (`pg_foma::replace`, never a
-//! hand-rolled token-math simulation):
-//!
-//! 1. **The loss is real.** A rule net compiled the PRE-FIX way (`SegAlphabet::token`, table-blind,
-//!    no aliasing -- exactly what `render_slots`/`render_branch_regex` produced before cross-table
-//!    aliasing existed) never fires when fed a token drawn from a DIFFERENT table's raw index for
-//!    the same spelling, even though the ORACLE (`pg_parse::Morpher`, which resolves every
-//!    segment via genuine feature-lane unification, never a raw-index comparison) correctly
-//!    analyzes the corresponding surface word.
-//! 2. **The fix closes it.** The SAME rule, compiled via the CURRENT (fixed)
-//!    `pg_foma::replace::compile_and_compose_rules_with_budget`, DOES fire on that exact material --
-//!    cross-table representation aliasing (`crate::replace::RepresentationAliasMap`/`SegAlphabet::
-//!    render_tokens`, internal to `compile_rewrite_rule_subset` now) renders the rule's atom as a
-//!    union over every table's own token for the shared spelling.
-//! 3. **Containment holds end to end.** The full compiled pipeline (lexc ∘ rules), decoded via
-//!    `apply_up` (this crate's own `tags` decode, `two_table_symbol_divergence.rs`'s established
-//!    methodology), finds EXACTLY the analyses `pg_parse::Morpher` finds -- no more, no less -- for
-//!    every word in the fixture.
-//!
-//! ## A separate, orthogonal, OUT-OF-SCOPE finding surfaced while authoring this fixture
-//! `pg_parse::Morpher::parse_word_opts("y", ..).signature()`'s SURFACE half renders empty
-//! (`"ROOT1|"`, not `"ROOT1|y"`) for the cross-stratum-synthesized analysis below, even though the
-//! MORPHEME-level analysis (root identity, `structured`) is exactly correct -- confirmed NOT
-//! multi-table-specific (an equivalent single-table environment-free feature-changing rule renders
-//! its surface half correctly, `"ROOT|y"`), and confirmed to persist regardless of which table is
-//! `TableId(0)`. This looks like a genuine (if narrow) `pg_parse`/`pg_rules` synthesis-side
-//! stratum-bookkeeping gap (`pg_rules::stratum::synthesize_stratum_traced` never updates a
-//! candidate `Word`'s own `.stratum` field the way `analyze`'s un-apply direction does, so
-//! `Morpher::surface_of`'s `g.strata[w.stratum.0].table` lookup for a root synthesized past its own
-//! entry stratum may resolve the WRONG table) -- a different crate (`pg-rules`/`pg-parse`), a
-//! different bug class, entirely out of scope for this task's `pg-foma`-only single-owner boundary
-//! (mirrors this codebase's own "report don't hide" precedent, e.g. `tests/
-//! cover_bistratal_overlapping_segment_representation.rs`'s STAGING.md "index out of bounds"
-//! finding). This file's own containment check therefore compares MORPHEME-level `structured`
-//! analyses (root + morpheme ids), never the surface-string half of `signature()` -- exactly
-//! `two_table_symbol_divergence.rs`'s own established methodology, chosen for the identical reason.
+//! The recall-side counterpart to `tests/cover_bistratal_overlapping_segment_representation.rs` (the refusal/verdict-side pin): proves cross-table representation aliasing over the real compile path.
+//! See docs/research/pg-foma-two-table-shared-representation-recall-notes.md for the three-step argument and an out-of-scope pg_parse/pg_rules finding surfaced while authoring this fixture.
 
 use std::collections::HashSet;
 use std::fs;
@@ -117,12 +79,7 @@ fn fixture_shares_a_representation_at_deliberately_misaligned_indices() {
     );
 }
 
-/// Step 1: THE LOSS IS REAL. Hand-render the SAME rule the pre-fix `render_slots`/
-/// `render_branch_regex` would have produced -- a bare, table-blind token, no aliasing -- and show
-/// it does NOT transform table-A's own "x" token (fed as if it were emitted, table-blindly, by
-/// `SegAlphabet::encode_shape` for an Inner-stratum root -- exactly what `emit_underlying_filtered_
-/// with_budget`/`uflexc.rs` actually does today, module doc). A positive control alongside proves
-/// the naive net is otherwise a faithful compile of "x -> y": it DOES fire on table B's OWN "x".
+/// Step 1: the loss is real. Hand-rendering the pre-fix, table-blind rule shows it does not transform table A's own "x" token, though a positive control proves it correctly compiles "x -> y".
 #[test]
 fn pre_fix_equivalent_rule_never_fires_on_table_a_originated_material() {
     let g = load();
@@ -136,9 +93,7 @@ fn pre_fix_equivalent_rule_never_fires_on_table_a_originated_material() {
     let cd_b_x = table_b.lookup_nfd("x").unwrap();
     let cd_b_y = table_b.lookup_nfd("y").unwrap();
 
-    // Exactly what pre-fix `render_branch_regex` rendered for an environment-free "ncBx -> ncBy"
-    // rule (a singleton Union renders as a bare token, module doc) -- `SegAlphabet::token`, no
-    // aliasing, is untouched by this task's fix (still `PUA_BASE + cd.0`).
+    // Exactly what pre-fix rendering produced for an environment-free "ncBx -> ncBy" rule: `SegAlphabet::token`, no aliasing.
     let naive_regex = format!(
         "{} -> {}",
         alphabet_b.token(cd_b_x),
@@ -147,8 +102,7 @@ fn pre_fix_equivalent_rule_never_fires_on_table_a_originated_material() {
     let naive_net = fsm_parse_regex(&opts, &naive_regex, None, None)
         .unwrap_or_else(|| panic!("naive regex must compile: {naive_regex:?}"));
 
-    // Positive control: table B's OWN "x" token DOES get rewritten by the naive net -- proving the
-    // naive net is a genuine, correctly-compiled "x -> y" rule, not vacuously broken.
+    // Positive control: table B's own "x" token does get rewritten, proving the naive net is not vacuously broken.
     let mut h = apply_init(&naive_net);
     let table_b_x_text = alphabet_b.token(cd_b_x).to_string();
     let table_b_down: Vec<String> = h.down(&table_b_x_text).collect();
@@ -158,10 +112,7 @@ fn pre_fix_equivalent_rule_never_fires_on_table_a_originated_material() {
         "sanity: the naive net must correctly rewrite table B's OWN \"x\" token to \"y\""
     );
 
-    // THE LOSS: table A's own "x" token (a DIFFERENT raw index -- what an Inner-stratum root's
-    // emitted material table-blindly carries, module doc) is NOT recognized by the naive net's
-    // LHS at all -- it passes through unchanged (foma replace-rule identity-elsewhere semantics),
-    // never becoming "y". This is the exact false negative the design doc's headline finding names.
+    // The loss: table A's own "x" token (a different raw index) is not recognized at all and passes through unchanged instead of becoming "y".
     let mut h = apply_init(&naive_net);
     let table_a_x_text = alphabet_a.token(cd_a_x).to_string();
     let table_a_down: Vec<String> = h.down(&table_a_x_text).collect();
@@ -179,9 +130,7 @@ fn pre_fix_equivalent_rule_never_fires_on_table_a_originated_material() {
     );
 }
 
-/// Step 2: THE FIX CLOSES IT. The SAME rule, compiled via the CURRENT (fixed)
-/// `compile_and_compose_rules_with_budget`, fires on the exact same table-A-originated material
-/// step 1 showed the naive net missing.
+/// Step 2: the fix closes it. The same rule, compiled via the current, fixed compiler, fires on the exact table-A-originated material step 1 showed the naive net missing.
 #[test]
 fn current_compile_fires_on_table_a_originated_material() {
     let g = load();
@@ -232,11 +181,7 @@ fn current_compile_fires_on_table_a_originated_material() {
     );
 }
 
-/// Step 3: CONTAINMENT holds end to end over the REAL lexc-emission + rule-compile pipeline
-/// (`emit_underlying_filtered_with_budget` + `compile_and_compose_rules_with_budget`, both exactly
-/// what a real compile does), decoded via `apply_up`/`tags` -- `two_table_symbol_divergence.rs`'s
-/// own established methodology. Compares MORPHEME-level `(root_index, morpheme ids)` sets, not
-/// `signature()`'s surface half (module doc's own "separate, orthogonal, out-of-scope finding").
+/// Step 3: containment holds end to end over the real lexc-emission + rule-compile pipeline, comparing morpheme-level `(root_index, morpheme ids)` sets, never `signature()`'s surface half.
 #[test]
 fn fst_propose_confirm_matches_oracle_across_the_table_boundary() {
     let g = load();
@@ -316,9 +261,7 @@ fn fst_propose_confirm_matches_oracle_across_the_table_boundary() {
             .collect()
     };
 
-    // --- "y": ROOT1 (Inner stratum, table A), devoiced through the Outer stratum's own rule.
-    // Proposer decode set must EQUAL the oracle set (both nonempty) -- the exact cross-table
-    // recall this task's fix targets.
+    // "y": ROOT1 (table A) devoiced through the Outer stratum's rule; proposer and oracle sets must be equal and nonempty.
     let fst_y = fst_candidates("y");
     let oracle_y = oracle_candidates("y");
     assert_eq!(
@@ -332,9 +275,7 @@ fn fst_propose_confirm_matches_oracle_across_the_table_boundary() {
          cross-table recall this task's aliasing fix makes possible"
     );
 
-    // --- "x": the rule is obligatory (phonological rules always apply where their context
-    // matches), so ROOT1's own raw, undevoiced spelling must never be a valid surface form.
-    // Neither the oracle nor the FST proposes anything for it.
+    // "x": the rule is obligatory, so ROOT1's raw, undevoiced spelling must never be a valid surface form for either the oracle or the FST.
     let oracle_x = oracle_candidates("x");
     assert!(
         oracle_x.is_empty(),
@@ -355,8 +296,7 @@ fn fst_propose_confirm_matches_oracle_across_the_table_boundary() {
         "CONTAINMENT: FST and oracle must agree \"z\" has no analysis"
     );
 
-    // --- "q": ROOT2 (Outer stratum, table B), same-table, unaffected by the rule -- a positive
-    // control proving ordinary same-table recall is untouched by the aliasing fix.
+    // "q": ROOT2 (table B), same-table and unaffected by the rule; a positive control that ordinary same-table recall is untouched by the fix.
     let fst_q = fst_candidates("q");
     let oracle_q = oracle_candidates("q");
     assert_eq!(
@@ -370,14 +310,7 @@ fn fst_propose_confirm_matches_oracle_across_the_table_boundary() {
     );
 }
 
-/// Design item 4 (`encode_shape`/`encode_query` must not alias): the SAME `SegAlphabet` API this
-/// fixture's own containment test above already relies on (`encode_query`) always encodes a
-/// concrete query word to exactly ONE token per segment, deterministically -- never a bracketed
-/// union, regardless of whether the grammar has a shared cross-table representation. (The
-/// alias-aware constructor, `SegAlphabet::with_table_id`, is `pub(crate)`-only, exercised directly
-/// by `pg_foma::replace`'s own internal unit tests; this integration test pins the PUBLIC
-/// `encode_query` contract every external caller -- `capability_entry.rs`, `gate.rs`, `oracle.rs`,
-/// this file's own containment test above -- actually depends on.)
+/// `encode_query` must always encode a concrete query word to exactly one token per segment, deterministically, never a bracketed union, regardless of any shared cross-table representation.
 #[test]
 fn encode_query_stays_single_token_never_ambiguous() {
     let g = load();

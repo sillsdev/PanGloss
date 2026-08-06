@@ -1,27 +1,5 @@
-//! N0 integration gate (`docs/natural-phrases-plan.md` N0): parse real sample-grammar words
-//! end-to-end through `Morpher` -> `pg_realize::gloss_bundle` -> `pg_realize::leipzig`, and pin
-//! the exact resulting strings.
-//!
-//! The sample grammars are untracked local corpus files (per `rust-conversion.md` §8 / the
-//! precedent in `pg-parse/tests/root_trie_gate.rs` etc.) -- present on this development machine
-//! but not guaranteed present elsewhere (CI, a fresh clone), so every real-grammar test self-skips
-//! when the file is absent rather than failing.
-//!
-//! Every pinned string below was obtained by first running the parse, inspecting the actual
-//! `WordAnalysis`/gloss output, and cross-checking each token against the grammar XML's own
-//! `<Gloss>` elements (task instruction: run first, read the XML, THEN pin) -- notably the
-//! Amharic perfective-aspect rule's gloss is literally the string `-pfv-` (a templatic-morphology
-//! marker authored with hyphens already inside it), which is why `beg--pfv--pfv.3m` has doubled
-//! dashes: that is `leipzig`'s plain `-`-join faithfully reproducing real grammar data, not a
-//! rendering bug.
-//!
-//! ## Test-timing policy
-//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
-//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. The 5 tests
-//! here that load a real sample grammar are unconditionally `#[ignore = "..."]`d (the existing
-//! self-skip above already keeps `--include-ignored` green when the fixture is absent); the two
-//! guessed-root tests at the bottom of this file use a fully synthetic inline grammar and stay in
-//! the default run.
+//! N0 integration gate: parses real sample-grammar words end-to-end through `Morpher` -> `pg_realize::gloss_bundle` -> `pg_realize::leipzig`, and pins the exact resulting strings.
+//! See docs/natural-phrases-plan.md N0 for the plan; the doubled dashes in `beg--pfv--pfv.3m` are real grammar data (a `-pfv-` gloss), not a rendering bug. Sample grammars are gitignored, so real-grammar tests self-skip when absent; the two guessed-root tests below use a synthetic inline grammar and always run.
 
 use std::path::{Path, PathBuf};
 
@@ -41,8 +19,7 @@ fn load_grammar(xml_name: &str) -> Option<Grammar> {
     Some(pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {xml_name}: {e}")))
 }
 
-/// Parse `word`, assert it produced exactly one analysis (the common case for these pinned
-/// words), and return its Leipzig rendering.
+/// Parse `word`, assert it produced exactly one analysis, and return its Leipzig rendering.
 fn single_analysis_leipzig(g: &Grammar, word: &str) -> String {
     let m = Morpher::new(g, usize::MAX);
     let outcome = m.parse_word(word);
@@ -89,8 +66,7 @@ fn amharic_pinned_leipzig_strings() {
     };
     // root only ("stomach").
     assert_eq!(single_analysis_leipzig(&g, "ሆድ"), "stomach");
-    // root ("go") + perfective-aspect template rule (gloss authored as the literal string
-    // "-pfv-") + 3rd-person-masculine perfective agreement rule ("pfv.3m").
+    // root ("go") + perfective-aspect template rule (gloss literally "-pfv-") + 3sm perfective agreement rule ("pfv.3m").
     assert_eq!(single_analysis_leipzig(&g, "ሄደ"), "go--pfv--pfv.3m");
     assert_eq!(single_analysis_leipzig(&g, "ለመነ"), "beg--pfv--pfv.3m");
 }
@@ -104,18 +80,13 @@ fn sena_pinned_leipzig_strings() {
         eprintln!("skipping: sena-hc.xml not present on disk");
         return;
     };
-    // Sena glosses are Portuguese + bare noun-class digits (design doc's "pure fallback"
-    // corpus) -- these three happen to have exactly one surviving analysis each.
+    // Sena glosses are Portuguese plus bare noun-class digits; these three happen to have exactly one surviving analysis each.
     assert_eq!(single_analysis_leipzig(&g, "uyu"), "este");
     assert_eq!(single_analysis_leipzig(&g, "miseru"), "4-caso");
     assert_eq!(single_analysis_leipzig(&g, "pya"), "8-ASSOC");
 }
 
-/// Sena's `mbali` is the free-fluctuation multi-analysis case documented in
-/// `pg-parse/src/lib.rs::result_signature` and `free_fluctuation_gate.rs` -- confirms
-/// `gloss_bundle`/`leipzig` produce one Leipzig string per `outcome.structured[i]`, same index
-/// order as `outcome.analyses`, without collapsing or reordering the (deliberately undeduped)
-/// candidate set.
+/// Sena's `mbali` is the free-fluctuation multi-analysis case; confirms `gloss_bundle`/`leipzig` produce one string per `outcome.structured[i]`, same order as `outcome.analyses`, undeduped.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_multi_analysis_gloss_lines_match_analyses_count_and_order() {
@@ -138,19 +109,13 @@ fn sena_multi_analysis_gloss_lines_match_analyses_count_and_order() {
         .map(|wa| pg_realize::leipzig(&pg_realize::gloss_bundle(&g, wa), "mbali"))
         .collect();
     assert_eq!(glosses.len(), outcome.analyses.len());
-    // None of the glosses is empty (every analysis has a root, and every morpheme here has a
-    // gloss in the Sena XML) -- a real robustness signal, not a tautology, since gloss_bundle
-    // could otherwise silently drop tokens.
+    // None of the glosses is empty; gloss_bundle could otherwise silently drop tokens.
     assert!(glosses.iter().all(|s| !s.is_empty()), "{glosses:?}");
 }
 
 // --- Parity: the --gloss path must never perturb the frozen signature ------------------------
 
-/// The gloss path reads `ParseOutcome` after it is fully built; it must never be able to change
-/// `result_signature`'s output. Computing the signature both before and after walking every
-/// analysis through `gloss_bundle`/`leipzig` (which only reads `&ParseOutcome`/`&Grammar`, never
-/// mutates either) pins that non-interference for real multi-morpheme, multi-analysis words
-/// across all three sample grammars.
+/// The gloss path only reads `&ParseOutcome`/`&Grammar`, never mutates either, so it must never change `result_signature`'s output; checked before and after across all three sample grammars.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/{indonesian,amharic,sena}-hc.xml); run with --include-ignored"]
 fn gloss_path_never_perturbs_parity_signature() {
@@ -185,13 +150,7 @@ fn gloss_path_never_perturbs_parity_signature() {
 
 // --- Guessed-root path -------------------------------------------------------------------------
 
-/// The three sample grammars have no `IsPattern` lexical entry (verified: no `<PhoneticShape>`
-/// starting with `[` anywhere in `samples/data/*.xml`), so the guess branch can never fire
-/// against them -- ported here from the same hand-transcribed-grammar approach
-/// `pg-parse/tests/guesser_gate.rs` uses (that file's own module doc explains why: there is no
-/// upstream C# CLI `--guess` flag to diff a golden TSV against either). One V-requiring `+d`
-/// suffix rule (`<MorphemeId>PAST</MorphemeId>`, no `<Gloss>`) and one `[Any]*` lexical-pattern
-/// entry with an empty syntactic FS, matching `guesser_gate.rs`'s fixture.
+/// The three sample grammars have no `IsPattern` lexical entry, so the guess branch can never fire against them; this hand-transcribed fixture mirrors `pg-parse/tests/guesser_gate.rs`'s own instead.
 const GUESS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -250,9 +209,7 @@ fn guess_grammar() -> Grammar {
         .unwrap_or_else(|e| panic!("guess-gate fixture grammar failed to load: {e}"))
 }
 
-/// A bare guessed root ("gag", no lexicon entry, no affix): `gloss_bundle` must produce a single
-/// `is_root: true`, gloss-less token, and `leipzig` must render it as `*gag*` (the surface word
-/// between asterisks), matching this crate's own doc'd guessed-root rendering rule.
+/// A bare guessed root ("gag"): `gloss_bundle` must produce a single `is_root: true`, gloss-less token, rendered by `leipzig` as `*gag*`.
 #[test]
 fn guessed_root_only_word_renders_starred_surface() {
     let g = guess_grammar();
@@ -275,10 +232,7 @@ fn guessed_root_only_word_renders_starred_surface() {
     assert_eq!(pg_realize::leipzig(&bundle, "gag"), "*gag*");
 }
 
-/// A guessed root plus a real, glossed... well, gloss-less-by-construction (`ed_suffix` has no
-/// `<Gloss>`, only a `<MorphemeId>PAST</MorphemeId>`) affix rule ("gagd" = guessed root "gag" +
-/// `ed_suffix`): two tokens, root starred, the real affix rendered `[?]` since it has no
-/// `<Gloss>` element (a fresh, real defensive case distinct from the guessed sentinel).
+/// A guessed root plus a real affix that is itself gloss-less (`ed_suffix` has a `MorphemeId` but no `Gloss`): two tokens, root starred, affix rendered `[?]`.
 #[test]
 fn guessed_root_plus_real_affix_word_renders_starred_plus_bracket() {
     let g = guess_grammar();
@@ -287,8 +241,7 @@ fn guessed_root_plus_real_affix_word_renders_starred_plus_bracket() {
     let outcome = m.parse_word_opts("gagd", &opts);
 
     assert!(outcome.guessed);
-    // Two co-existing guesses for "gagd" (guesser_gate.rs's own headline pin); the 2-morph one
-    // (guessed root + PAST suffix) sorts first.
+    // Two co-existing guesses for "gagd"; the 2-morph one (guessed root + PAST suffix) sorts first.
     assert_eq!(outcome.structured.len(), 2);
     let two_morph = &outcome.structured[0];
     assert_eq!(two_morph.morpheme_ids.len(), 2);

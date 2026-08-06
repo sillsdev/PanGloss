@@ -121,3 +121,30 @@ grounds that a tool's own header is documentation for a human operator rather th
 code. The current state is the second one by accident, not by decision.
 
 **Ask:** close the hole, or make the exemption explicit?
+
+## Defects surfaced by the one-line comment sweep
+
+Reading every long comment in the tree turned up things the length rules were never looking for.
+Recorded here rather than fixed, because each is outside the sweep's scope.
+
+**D1 — a synthesized root can render its surface against the wrong character table.**
+`Morpher::parse_word_opts("y", ..).signature()` renders the surface half empty (`ROOT1|` where
+`ROOT1|y` is expected) for a cross-stratum-synthesized analysis, while the morpheme-level analysis is
+correct. Suspected mechanism: `Morpher::surface_of` (`pg-parse/src/morpher.rs:691`) resolves the
+table as `g.strata[w.stratum.0].table`, but `pg_rules::stratum::synthesize_stratum_traced` never
+updates a candidate `Word`'s `.stratum` the way the un-apply direction does — there is exactly one
+`.stratum` assignment in `stratum.rs`, and it is not on the synthesize path. So a root synthesized
+past its own entry stratum keeps a stale stratum and looks up a table that need not contain its
+segments. Found while moving a fixture's module doc out; the original comment recorded it as a known
+oddity and it was never filed.
+
+**D2 — a comment asserted a bound the code did not enforce.** `phase_c_circumfix.rs` documented a
+"sub-10ms trip-wire" directly above `assert!(p99 < Duration::from_millis(50))`. Fixed in passing (the
+comment was wrong, not the code), but it is worth naming as a class: no length rule can catch a
+comment that is simply false about the line beneath it, which is why the falsifiability tiers exist.
+
+**D3 — `Get-BlockKind` caps an API docstring that sits before a multi-line attribute.** It skips
+attribute lines matching `#[`, but a continuation line does not match, so the walk stops there and
+calls the item private. Measured: 5 doc blocks in the tree sit before a multi-line attribute, and
+none currently produces a violation — so this is latent, not active. Fix it when no sweep is running,
+since the sweeps execute that script.

@@ -1,21 +1,4 @@
-//! `crate::uflexc`'s bounded compound loop (`uflexc.rs`'s own "Bounded compound loop" section),
-//! and specifically the constraint that silently breaks it: **the non-head root set must be
-//! GRAMMAR-WIDE, not `allowed_entries`.**
-//!
-//! `uflexc::emit_underlying_filtered_with_budget` is called ONCE PER GATE-PARTITION GROUP
-//! (`crate::gate`'s static-partition design; `crate::build::build_controllable`) and the per-group
-//! networks are then `fsm_union`ed. A compound loop restricted to the calling group's own
-//! `allowed_entries` therefore still cannot propose a compound whose head and non-head fall in
-//! DIFFERENT partition groups: neither group's network contains such a path, so neither does the
-//! union. A fix that passes a single-group fixture (the `compounding-non-recursive` fixture RED-1
-//! uses declares no phonological rules at all, so it partitions into exactly one group) and fails
-//! on a partitioned grammar is the likely failure mode, which is what
-//! `compound_levels_are_grammar_wide_under_a_real_gate_partition` exists to catch.
-//!
-//! The other half of the same constraint is that the BARE-ROOT lexicon must stay partitioned --
-//! `crate::gate`'s "groups are lexically disjoint by construction" argument for why unioning the
-//! per-group nets is safe rests on it -- so every assertion below checks both directions, never
-//! just "the compound section got bigger".
+//! `crate::uflexc`'s bounded compound loop: the non-head root set must be grammar-wide, not `allowed_entries`, since emission runs once per gate-partition group and unions the results afterward.
 
 use std::collections::HashSet;
 
@@ -29,12 +12,7 @@ use pg_foma::tags;
 use pg_foma::uflexc::emit_underlying_filtered_with_budget;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 
-/// Head root `fasu` is `posH`; non-head root `bel` is `posN`. `prule1`'s only subrule is gated
-/// `requiredPartsOfSpeech="posH"`, so `gate::entry_gate_key` gives the two entries DIFFERENT keys
-/// and `gate::partition_entries` puts them in different groups -- exactly the shape the module doc
-/// above describes. The rewrite itself (`x -> y`) is deliberately inert on both roots' spellings:
-/// the partition is decided statically from each entry's own POS, never from whether the rule would
-/// actually fire, so an inert rule keeps the test about the PARTITION and nothing else.
+/// Head root `fasu` (posH) and non-head root `bel` (posN) fall in different gate-partition groups; the inert `x -> y` rewrite keeps the test about the partition alone, never about whether the rule fires.
 const PARTITIONED_COMPOUNDING_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -115,9 +93,7 @@ const PARTITIONED_COMPOUNDING_XML: &str = r#"<?xml version="1.0" encoding="utf-8
 </HermitCrabInput>
 "#;
 
-/// The same grammar with the `CompoundingRule` (and therefore `morphologicalRules="cr1"`) removed:
-/// the no-compounding control, which must emit byte-for-byte what this module emitted before the
-/// compound loop existed -- no `AfterRoot`, no `UCmp*`, every root continuing to `SuffixOrEnd`.
+/// The no-compounding control: same grammar with `CompoundingRule` removed, so no `AfterRoot`/`UCmp*` should be emitted at all.
 fn no_compounding_xml() -> String {
     let start = PARTITIONED_COMPOUNDING_XML
         .find("        <MorphologicalRuleDefinitions>")
@@ -179,10 +155,7 @@ fn lexicon_body<'a>(lexc: &'a str, name: &str) -> Vec<&'a str> {
     out
 }
 
-/// THE constraint (module doc): with a genuinely gated grammar whose head and non-head land in
-/// DIFFERENT partition groups, every group's emitted lexc must still offer the grammar-wide
-/// non-head root in its compound level, while its BARE-ROOT lexicon stays restricted to that
-/// group's own entries.
+/// With head/non-head in different partition groups, every group's lexc must still offer the grammar-wide non-head root in its compound level, while its bare-root lexicon stays restricted to its own entries.
 #[test]
 fn compound_levels_are_grammar_wide_under_a_real_gate_partition() {
     let g = pg_grammar::load(PARTITIONED_COMPOUNDING_XML).expect("fixture must load");
@@ -257,9 +230,7 @@ fn compound_levels_are_grammar_wide_under_a_real_gate_partition() {
             "group {gi}'s RootBare must contain the head root iff the group owns it: {bare:?}"
         );
 
-        // A head-eligible root reaches the compound loop through `AfterRoot`, never straight to
-        // `SuffixOrEnd` (the head/no-compound split `crate::emit`'s TLPost/TLPostNoCmp makes).
-        // Both entries are head-eligible here (`cr1` declares no head restriction at all).
+        // A head-eligible root reaches the compound loop through `AfterRoot`, never straight to `SuffixOrEnd`; both entries are head-eligible here since `cr1` declares no head restriction.
         for line in &bare {
             assert!(
                 line.ends_with("AfterRoot ;"),
@@ -267,17 +238,14 @@ fn compound_levels_are_grammar_wide_under_a_real_gate_partition() {
             );
         }
 
-        // Structural validity: an undefined continuation lexicon is a lexc compile failure, so this
-        // catches a compound section that references a lexicon it never wrote.
+        // Structural validity: an undefined continuation lexicon is a lexc compile failure, catching a compound section that references a lexicon it never wrote.
         let net = fsm_lexc_parse_string(&FomaOptions::default(), None, lexc)
             .unwrap_or_else(|| panic!("group {gi}'s emitted lexc must compile:\n{lexc}"));
         assert!(net.statecount > 0);
     }
 }
 
-/// The no-compounding control: a grammar with no `CompoundingRuleDef` must emit no compound
-/// machinery at all, with every root continuing straight to `SuffixOrEnd` -- the pre-compound-loop
-/// emission, unchanged.
+/// A grammar with no `CompoundingRuleDef` must emit no compound machinery at all, every root continuing straight to `SuffixOrEnd`.
 #[test]
 fn a_grammar_without_compounding_emits_no_compound_machinery() {
     let xml = no_compounding_xml();
@@ -306,21 +274,7 @@ fn a_grammar_without_compounding_emits_no_compound_machinery() {
     }
 }
 
-/// Acceptance item 2: the bounded unroll must stay BOUNDED. Emits the same staged
-/// `compounding-non-recursive` fixture RED-1 uses, compiles it, and pins the compiled network's
-/// size. MEASURED on this fixture (5 entries, 1 non-recursive `CompoundingRuleDef`, so exactly one
-/// extra non-head level), by running this test with the compound loop force-disabled and then
-/// enabled:
-///
-/// | | states | arcs | lexc lines |
-/// |---|---|---|---|
-/// | before (no compound loop) | 14 | 17 | 28 |
-/// | after (bounded compound loop) | 18 | 25 | 45 |
-///
-/// An additive +4 states / +8 arcs for one extra non-head level over 5 licensed root allomorphs --
-/// bounded, not multiplicative. The ceilings below are generous relative to that (a self-feeding
-/// compound loop, or a compound level accidentally re-emitting a whole partitioned lexicon per
-/// group, would blow straight through them) while leaving room for incidental emission changes.
+/// The bounded unroll must stay bounded: additive growth (one extra non-head level over the licensed root allomorphs), never multiplicative; ceilings below are generous but would catch a self-feeding loop.
 #[test]
 fn the_compound_unroll_stays_bounded_on_the_staged_fixture() {
     let fixture = pg_conformance_fixtures::discover()
@@ -337,9 +291,7 @@ fn the_compound_unroll_stays_bounded_on_the_staged_fixture() {
 
     let net = fsm_lexc_parse_string(&FomaOptions::default(), None, &report.lexc_source)
         .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", report.lexc_source));
-    // Printed, not only asserted: the before/after figures in this test's own doc were read off
-    // this line (run with `--no-capture`), and re-reading them after a change is how the "stays
-    // bounded" claim stays honest rather than becoming a number nobody can reproduce.
+    // Printed, not only asserted, so the "stays bounded" claim stays reproducible rather than becoming a number nobody can check.
     eprintln!(
         "[compound-unroll] compounding-non-recursive: {} states / {} arcs, {} lexc lines",
         net.statecount,
@@ -347,8 +299,7 @@ fn the_compound_unroll_stays_bounded_on_the_staged_fixture() {
         report.lexc_source.lines().count()
     );
 
-    // Exactly one extra non-head level for a non-recursive rule: `UCmp2` would mean the depth bound
-    // `crate::emit::compound_extra_levels_checked` computed was wrong for this grammar.
+    // Exactly one extra non-head level for a non-recursive rule; `UCmp2` would mean the depth bound was computed wrong for this grammar.
     assert!(
         report.lexc_source.contains("LEXICON UCmpRoots"),
         "the compound loop must be emitted for this fixture:\n{}",

@@ -488,9 +488,7 @@ mod tests {
         let mut closure = vec![CdBits::empty(); 100];
         closure[10].insert(99);
         closure[99].insert(10);
-        // ...but this query's lanes for cd 99 are [0b10], which conflicts with the stored edge's
-        // [0b01] (AND = 0). Design A's soundness argument (§3): the closure hit is REFINED by the
-        // existing `flat_unifiable` conjunct, never a substitute for it.
+        // ...but this query's lanes for cd 99 are [0b10], conflicting with the stored edge's [0b01]: the closure hit is refined by the existing `flat_unifiable` conjunct, never a substitute for it.
         let got = t.search_segs_with_closure(&[(99, vec![0b10]), (11, vec![0b10])], Some(&closure));
         assert!(
             got.is_empty(),
@@ -501,8 +499,7 @@ mod tests {
     #[test]
     fn closure_present_but_unrelated_char_defs_still_reject() {
         let t = tiny_trie();
-        // A closure exists (Some), but declares no relation at all for cd 99 (an all-empty row) --
-        // must behave exactly like the no-closure case for this cd.
+        // A closure exists but declares no relation for cd 99 (an all-empty row), so it must behave exactly like the no-closure case.
         let closure = vec![CdBits::empty(); 100];
         let got = t.search_segs_with_closure(&[(99, vec![0b01]), (11, vec![0b10])], Some(&closure));
         assert!(
@@ -555,13 +552,7 @@ mod tests {
 
     #[test]
     fn zero_phon_feature_discrimination_is_by_char_def() {
-        // A synthetic feat_width-0 stratum (all lanes empty), exercising that width directly.
-        // NOTE: post plan §13.1 Tier-1 #1, no *real* grammar (including Sena) ever actually
-        // constructs a `RootAllomorphTrie` at `feat_width == 0` any more — `grammar.phon_features
-        // .len()` is always >= 1 now (the always-appended synthetic `Type` feature), so this test
-        // is a decoupled unit-level exercise of the width-0 codepath, not a live "Sena" analog.
-        // Discrimination is purely by char_def; two distinct roots of equal length must not
-        // cross-match.
+        // A synthetic feat_width-0 stratum (all lanes empty): no real grammar builds one any more (phon_features always has the synthetic Type feature), so this is a decoupled exercise of the width-0 codepath.
         let mut t = RootAllomorphTrie {
             nodes: vec![TrieNode::default()],
             table: TableId(0),
@@ -591,9 +582,7 @@ mod tests {
         assert_eq!(t.allomorph_count(), 2);
     }
 
-    // ============================================================================================
-    // Wave-4: pattern-derived (NO_CHAR_DEF + CdSet) edges — loader N3 end-to-end.
-    // ============================================================================================
+    // Pattern-derived (NO_CHAR_DEF + CdSet) edges, loader N3 end-to-end.
 
     /// A root "b[Vowel]t" (cd 20="b", cd 22="t"; Vowel = {21, 23}) — the loader-N3 fixture shape.
     fn pattern_trie() -> RootAllomorphTrie {
@@ -636,8 +625,7 @@ mod tests {
     #[test]
     fn pattern_edge_rejects_a_non_member() {
         let t = pattern_trie();
-        // "bit" (24 not in {21, 23}): the membership gate must reject even though a NO_CHAR_DEF
-        // edge exists at that position and the (empty) lanes trivially unify.
+        // "bit" (24 not in {21, 23}): the membership gate must reject even though a NO_CHAR_DEF edge exists there and the empty lanes trivially unify.
         assert!(t
             .search_segs(&[(20, vec![]), (24, vec![]), (22, vec![])])
             .is_empty());
@@ -646,8 +634,7 @@ mod tests {
     #[test]
     fn no_char_def_query_still_passes_a_pattern_edge() {
         let t = pattern_trie();
-        // A reinserted/unidentified query segment (NO_CHAR_DEF) keeps its wildcard behavior against
-        // pattern edges too (the documented over-approximation in `edge_matches`).
+        // A reinserted/unidentified query segment (NO_CHAR_DEF) keeps its wildcard behavior against pattern edges too.
         assert_eq!(
             t.search_segs(&[(20, vec![]), (NO_CHAR_DEF, vec![]), (22, vec![])]),
             vec![(AllomorphId(300), LexEntryId(9))],
@@ -656,8 +643,7 @@ mod tests {
 
     #[test]
     fn distinct_class_edges_do_not_merge() {
-        // Two pattern roots whose classes differ must get separate edges (ValueEquals-analog
-        // grouping): "x[A]" with A={1} and "x[B]" with B={2}.
+        // Two pattern roots whose classes differ must get separate edges: "x[A]" with A={1} and "x[B]" with B={2}.
         let mut t = RootAllomorphTrie {
             nodes: vec![TrieNode::default()],
             table: TableId(0),

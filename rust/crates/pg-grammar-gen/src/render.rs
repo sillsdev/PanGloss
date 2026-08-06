@@ -150,11 +150,7 @@ pub struct RenderedGrammar {
 
 const POS_XML_ID: &str = "posV";
 
-/// A 2-segment slice of `table`'s own segments starting at `start`, wrapped as a standalone
-/// `TableSpec` (same xml id, borrowed segments cloned) -- lets `build::metathesis`/
-/// `build::simultaneous`/`build::right_to_left`/`build::compounding` (each of which only ever
-/// reads `segments[0]`/`segments[1]`) mint `N` independent, non-overlapping rule instances from one
-/// shared table by giving instance `n` its own private pair at `[2n, 2n+1]`.
+/// A 2-segment slice of `table` starting at `start`, wrapped as a standalone `TableSpec`; lets each rule-building module mint `N` independent instances from one shared table via private pairs.
 fn sub_table_pair(table: &TableSpec, start: usize) -> TableSpec {
     TableSpec {
         xml_id: table.xml_id.clone(),
@@ -162,11 +158,7 @@ fn sub_table_pair(table: &TableSpec, start: usize) -> TableSpec {
     }
 }
 
-/// Mint one `<LexicalEntry>` with a single-allomorph `shape` spelling, part of speech `pos`, and
-/// `<MorphemeId>` text `morph_id` -- returns `(xml, entry_xml_id)`. Shared by every
-/// construct whose gate doesn't need real linguistic root material (alpha/quantifier/metathesis/
-/// simultaneous/rtl), which only need SOME valid, loadable root for their own single- or
-/// multi-rule demonstration (module doc).
+/// Mint one `<LexicalEntry>` with a single-allomorph `shape` spelling, returning `(xml, entry_xml_id)`; shared by every construct that just needs some valid, loadable root.
 fn one_entry_xml(ids: &mut IdMinter, pos: &str, shape: &str, morph_id: &str) -> (String, String) {
     let entry_xml_id = ids.next("entry");
     let allo_xml_id = ids.next("allo");
@@ -190,10 +182,7 @@ pub fn render(recipe: &Recipe) -> String {
 /// a gate needs.
 pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
     let mut ids = IdMinter::new();
-    // One throwaway draw: proves the RNG is wired end-to-end (module doc) without letting it
-    // affect any correctness-critical choice below (character assignment, voice-polarity
-    // alignment, etc. are all knob-driven, never RNG-driven -- GATE 1/GATE 2's own correctness
-    // depends on those staying deterministic-by-construction, not just deterministic-by-seed).
+    // One throwaway draw proves the RNG is wired end-to-end without affecting any correctness-critical choice below, which all stay knob-driven, never RNG-driven.
     let mut rng = Rng::seeded(recipe.name, recipe.seed);
     let _ = rng.next_u64();
 
@@ -210,13 +199,7 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
     let has_rtl = c.rtl_rule_count > 0;
     let has_chain = c.chain_rule_count > 0;
 
-    // Circumfix affix material needs its own declared characters distinct from root characters
-    // (module doc of `build::circumfix`) -- pad the requested segment inventory up so table 0 has
-    // enough (roots + 2 affix letters), never SHRINK an explicit larger request. Every
-    // "replaces stratum 0" construct (module doc) has its OWN segment requirement, folded into the
-    // same max() -- each recipe activates exactly one of these, so only one term is ever load-
-    // bearing, but computing the max of all of them is simpler and safe than a construct-keyed
-    // match.
+    // Circumfix affix material needs characters distinct from root characters, so pad table 0's inventory up (never shrink an explicit larger request); each "replaces stratum 0" construct folds its own requirement into the same max().
     let mut min_inventory_for_table0 = if has_circumfix {
         recipe.scale.entries_per_stratum.max(1) + 2
     } else {
@@ -265,8 +248,7 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
         &mut ids,
     );
 
-    // --- "Replaces stratum 0" construct builders (module doc): built ONCE, before the
-    // per-table loop, since every one of them consumes table 0's own segments. ---
+    // "Replaces stratum 0" construct builders: built once, before the per-table loop, since every one consumes table 0's own segments.
     let gating_build = has_gating
         .then(|| build::gating::build(c.gated_subrule_count, POS_XML_ID, &tb.tables[0], &mut ids));
     let alpha_build =
@@ -354,9 +336,7 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
             }
         } else {
             let n_roots = recipe.scale.entries_per_stratum.max(1);
-            // Reserve the LAST two segments of table 0 for circumfix affix material when this
-            // stratum carries circumfix rules (module doc); roots draw from the remaining segments,
-            // cycling if `n_roots` exceeds what's left.
+            // Reserve the last two segments of table 0 for circumfix affix material; roots draw from the rest, cycling if `n_roots` exceeds what's left.
             let root_pool_len = if ti == 0 && has_circumfix {
                 table.segments.len().saturating_sub(2).max(1)
             } else {
@@ -422,13 +402,7 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
             }
         }
 
-        // The demo devoicing rule (module doc of `build::tables`) sits on the LAST stratum only
-        // (GATE 1's own 2-table shape puts it on table/stratum 1; a `table_count > 2` recipe
-        // would still put it on the final one -- not something this module currently varies).
-        // Every construct-specific phonological/metathesis rule targets stratum 0 (module doc:
-        // single-table recipes), merged into the SAME attribute alongside the devoice id when both
-        // happen to apply (never true in practice -- GATE 1 and every other construct-specific
-        // gate are mutually exclusive per recipe -- but merging is harmless either way).
+        // The demo devoicing rule always sits on the last stratum; every construct-specific phonological rule targets stratum 0, merged into the same attribute (harmless since the two are mutually exclusive per recipe).
         let mut phon_ids: Vec<&str> = Vec::new();
         if ti == table_count - 1 {
             if let Some(id) = tb.devoice_rule_xml_id.as_deref() {
@@ -461,14 +435,7 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
             format!(" phonologicalRules=\"{}\"", phon_ids.join(" "))
         };
 
-        // `CompoundingRule`s are STRATUM-ATTACHED obligatory rules, exactly like `build::strata`'s
-        // own per-stratum rule (mirrors `pg-foma/src/morphotactics.rs`'s own `FIXTURE_STRATA`
-        // precedent: `<Stratum morphologicalRules="...">`, NOT wrapped in an `<AffixTemplate>`) --
-        // found empirically while building the compounding recall gate: a `<CompoundingRule>`
-        // declared inside `<MorphologicalRuleDefinitions>` but never referenced by the owning
-        // stratum's own `morphologicalRules` id-list is dead XML the synthesis cascade
-        // (`pg_rules::stratum::synth_apply_mrules`, which iterates `sd.mrules` -- the STRATUM's own
-        // wired list, not every declared rule) never even attempts.
+        // `CompoundingRule`s are stratum-attached obligatory rules, never wrapped in an `<AffixTemplate>`: a rule not listed in the owning stratum's `morphologicalRules` id-list is dead XML the synthesis cascade never attempts.
         let mut morph_ids: Vec<&str> = Vec::new();
         if ti == 0 {
             for cb in &compounding_builds {
@@ -501,8 +468,7 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
         });
     }
 
-    // --- Stratum-depth: additional strata reusing table 0, appended
-    // AFTER the base per-table loop's own strata (document order = cascade order). ---
+    // Stratum-depth: additional strata reusing table 0, appended after the base per-table loop's own strata (document order = cascade order).
     let extra_strata_build = has_extra_strata.then(|| {
         build::strata::build(
             c.extra_strata,
