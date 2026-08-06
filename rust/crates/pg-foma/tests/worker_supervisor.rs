@@ -1,19 +1,4 @@
-//! Integration tests for `pg_foma::worker`'s SUPERVISOR half (`run_compile_worker`): these spawn a
-//! REAL child process (this crate's own `worker_test_child` test-support binary, `src/bin/
-//! worker_test_child.rs`) via `std::process::Command`, exactly as `pg-cli`'s production hidden
-//! subcommand will. `worker.rs`'s own `#[cfg(test)] mod tests` already covers the CHILD half
-//! (`run_worker_child`) in-process against in-memory buffers; this file is what needs a real
-//! spawned process: wall-clock kill timing, and an end-to-end round trip through the real protocol
-//! framing over actual OS pipes.
-//!
-//! Four scenarios (`harden-foma-resource-safety`'s own required test list):
-//! 1. A normal compile succeeds through the worker and its result matches the in-process compile.
-//! 2. A deliberately-tiny wall timeout is killed and reported as `WallTimeoutKilled` -- not a crash,
-//!    not a false success.
-//! 3. A real budget trip (the ordering-multiplicity dimension) is reported as `BudgetTripped`.
-//! 4. An oversized protocol message is rejected before a child is even spawned (the sharper,
-//!    allocation-level version of this same property is worker.rs's own
-//!    read_frame_rejects_declared_length_over_limit_before_allocating unit test).
+//! Integration tests for `pg_foma::worker`'s supervisor half: spawns a real child process to exercise wall-clock kill timing and protocol framing over OS pipes, unlike `worker.rs`'s in-process unit tests.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -24,10 +9,7 @@ use pg_foma::worker::{
     WatchdogEnvelope, WorkerOutcome, V1_WORKER_LIMITS,
 };
 
-/// Serializes every test in this file that mutates process-wide environment variables
-/// (`PANGLOSS_WORKER_TEST_SLEEP_MS`/`PANGLOSS_WORKER_TEST_CRASH`, read by `worker_test_child`'s own
-/// `main`) -- `cargo test` runs tests in this file as threads within one process, so unsynchronized
-/// `std::env::set_var` calls across tests would race.
+/// Serializes every test that touches the process-wide env vars `worker_test_child` reads, since tests in this file run as threads in one process and unsynchronized `set_var` calls would race.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn child_exe() -> PathBuf {
@@ -74,10 +56,7 @@ const CLEAN_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-/// A synthetic `Unordered` stratum with 3 loose rules -- exceeding a `ordering_multiplicity_cap` of
-/// 2 trips a REAL `ComposeError::OrderingMultiplicityExceeded` through this crate's real production
-/// wiring (`FomaProposer::new_with_budget_and_profile`), the same fixture shape `worker.rs`'s own
-/// `run_worker_child_reports_budget_tripped_for_a_real_ordering_multiplicity_breach` unit test uses.
+/// A synthetic `Unordered` stratum with 3 loose rules, exceeding an `ordering_multiplicity_cap` of 2 to trip a real `ComposeError::OrderingMultiplicityExceeded` through production wiring.
 const UNORDERED_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>WorkerSupervisorBudgetTripFixture</Name>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -110,14 +89,10 @@ const UNORDERED_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>WorkerSu
   </Strata>
 </Language></HermitCrabInput>"#;
 
-/// Scenario 1: a normal compile succeeds through the worker and its result matches the in-process
-/// compile (same final state/arc counts from the identical grammar).
+/// A normal compile succeeds through the worker with state/arc counts matching the in-process compile.
 #[test]
 fn normal_compile_succeeds_through_worker_and_matches_in_process_compile() {
-    // Every test in this file spawns a child that inherits this process's environment; the
-    // crash/sleep-hook tests mutate that environment for their own duration, so EVERY test here
-    // (not only the ones that mutate) must serialize on the same lock to avoid a concurrent thread's
-    // env mutation bleeding into this test's own spawned child.
+    // Every spawned child inherits this process's environment, so every test serializes on the lock to avoid a concurrent thread's env mutation bleeding into its own spawned child.
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let path = write_grammar("normal", CLEAN_XML);
     let request =
@@ -152,11 +127,7 @@ fn normal_compile_succeeds_through_worker_and_matches_in_process_compile() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// Scenario 2: a deliberately-tiny wall timeout kills a deliberately-slow child and is reported as
-/// `WallTimeoutKilled` -- not `ChildCrashed`, not a false `Completed(Success)`. Uses
-/// `worker_test_child`'s own `PANGLOSS_WORKER_TEST_SLEEP_MS` test-only hook (see that binary's own
-/// doc) to make the child provably slower than the armed deadline without needing a real
-/// adversarial grammar.
+/// A tiny wall timeout kills a deliberately-slow child and reports `WallTimeoutKilled`, not a crash or a false success.
 #[test]
 fn tiny_wall_timeout_is_killed_and_reported_as_timeout_not_crash_or_false_success() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -196,11 +167,7 @@ fn tiny_wall_timeout_is_killed_and_reported_as_timeout_not_crash_or_false_succes
     let _ = std::fs::remove_file(&path);
 }
 
-/// Scenario 3: a real budget trip (the ordering-multiplicity dimension, the one production call
-/// site that returns a `ComposeError`-backed failure before ever handing lexc to the foma compiler)
-/// is reported as `Completed(BudgetTripped)` through the FULL supervisor round trip (spawn, write
-/// request over a real pipe, read result over a real pipe) -- `worker.rs`'s own unit test proves the
-/// same mapping in-process; this proves it survives the real IPC framing too.
+/// A real ordering-multiplicity budget trip is reported as `Completed(BudgetTripped)` through the full spawn-and-pipe round trip, not just in-process.
 #[test]
 fn budget_trip_is_reported_as_budget_tripped_through_the_full_supervisor_round_trip() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -222,12 +189,7 @@ fn budget_trip_is_reported_as_budget_tripped_through_the_full_supervisor_round_t
     let _ = std::fs::remove_file(&path);
 }
 
-/// Scenario 4: an oversized request is rejected as `ProtocolViolation` before any child is spawned
-/// at all (the frame-level, allocation-before-check property is unit-tested more sharply in
-/// worker.rs's own read_frame_rejects_declared_length_over_limit_before_allocating, which
-/// declares a `u64::MAX` length with zero payload bytes and proves the rejection happens before any
-/// attempt to allocate that many bytes; this test proves the supervisor's OWN pre-spawn guard using
-/// a real, if wasteful-on-purpose, oversized field).
+/// An oversized request is rejected as `ProtocolViolation` before any child is spawned at all.
 #[test]
 fn oversized_request_is_rejected_as_protocol_violation_before_any_child_is_spawned() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -242,10 +204,7 @@ fn oversized_request_is_rejected_as_protocol_violation_before_any_child_is_spawn
     }
 }
 
-/// Bonus (not one of the four required scenarios, but cheap and directly proves
-/// `WorkerOutcome::ChildCrashed` is reachable and distinct from `WallTimeoutKilled`/
-/// `ProtocolViolation`): a child that exits abnormally before writing any result frame at all is
-/// classified as a crash, using `worker_test_child`'s own `PANGLOSS_WORKER_TEST_CRASH` hook.
+/// A child that exits abnormally before writing any result frame is classified as `ChildCrashed`, distinct from a timeout or protocol violation.
 #[test]
 fn abnormal_child_exit_with_no_result_frame_is_reported_as_child_crashed() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());

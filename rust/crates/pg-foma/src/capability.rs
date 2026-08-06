@@ -64,9 +64,7 @@ use crate::grammar_semantics::GrammarSemantics;
 use crate::plan::{FragmentSpec, NodeId, Plan, PlanNodeKind};
 use crate::strategy_coverage::ALL_STRATEGIES;
 
-// =================================================================================================
-// Disposition + CharacteristicKind + the characterizer
-// =================================================================================================
+// ---- Disposition + CharacteristicKind + the characterizer ----
 
 /// A characteristic's capability disposition. Ordered here from "most trusted" to
 /// "least" purely for reading convenience — no code relies on `Disposition`'s ordinal value.
@@ -232,101 +230,34 @@ impl CharacteristicKind {
         match self {
             CharacteristicKind::Affixation => Disposition::Proven,
             CharacteristicKind::RealizationalMorphology => Disposition::ConfirmOnly,
-            // `crate::emit::compound_license` license-gates the lexicon into head-eligible/
-            // non-head-eligible subsets (the `compound_match`/`mpr_group_ok` (un)group-awareness
-            // contract) and proposes their budget-bounded, depth-budgeted cross product through
-            // the "bounded compound loop" lexc construction (`build_compound_chain`) -- a
-            // genuinely faithful (over-approximating, never under-proposing) FST proposal for
-            // EVERY observed configuration, recursive or not, for either
-            // split. No proven no-false-negative admission-filter argument exists, so the resting
-            // disposition is the same ConfigPredicate landing spot every other construct in this
-            // file uses -- still `ConfigPredicate` at the KIND level (a predicate IS registered,
-            // `CompoundingRecursionSafePredicate`), even though that predicate's own `evaluate()`
-            // no longer has a real split within it (see its own doc: `ConfirmOnly`
-            // unconditionally once any `Compounding` rule is observed).
+            // Faithful, depth-budgeted proposal exists but no admission-filter proof; see `CompoundingRecursionSafePredicate`'s own doc.
             CharacteristicKind::Compounding => Disposition::ConfigPredicate,
             CharacteristicKind::OrderedMorphRuleApplication => Disposition::Proven,
-            // `crate::emit::build_deriv_chain`'s existing derivation-layer construction (used for
-            // BOTH Linear and Unordered strata's loose Prefix/Suffix/None-role rules identically,
-            // unconditional on `required_syn_fs`/rule order) is, on inspection, ALREADY an
-            // ordering-union proposal -- a genuinely faithful (superset, never under-proposing)
-            // FST proposal for `unordered-application.chain-depth-bounded` (`crate::unordered`'s
-            // own module doc). No proven no-false-negative admission-filter argument exists, so
-            // the resting disposition is the same `ConfigPredicate` landing spot every other
-            // construct in this file uses: `ConfirmOnly` for `chain-depth-bounded`, `Refuse` for
-            // `unbounded` (a stratum's own loose-rule count exceeding the calibrated
-            // `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`), per `UnorderedOrderingUnionPredicate`'s own
-            // split.
+            // Already an ordering-union proposal but unproven; see `UnorderedOrderingUnionPredicate`'s own doc for the chain-depth-bounded/unbounded split.
             CharacteristicKind::UnorderedMorphRuleApplication => Disposition::ConfigPredicate,
             CharacteristicKind::MprGroupAppend => Disposition::ConfirmOnly,
             CharacteristicKind::MprGroupOverwrite => Disposition::ConfigPredicate,
             CharacteristicKind::IterativeRewrite => Disposition::Proven,
             CharacteristicKind::SimultaneousRewrite => Disposition::ConfigPredicate,
             CharacteristicKind::LeftToRightRewrite => Disposition::Proven,
-            // The reversal-plus-safety-net-union construction
-            // (`crate::replace::compile_rtl_branch_net`) makes RTL rewrite compilation faithful
-            // (never a silent LTR mis-compile) for the same pattern shapes any other rewrite rule
-            // already needs -- but no proven no-false-positive
-            // admission-filter argument exists either, so the resting disposition is the
-            // ConfigPredicate landing spot: ConfirmOnly unless/until
-            // `RightToLeftRewriteFaithfulReversalPredicate` proves `Admit` (it never does today --
-            // see that predicate's own doc) or Refuses an out-of-shape rule.
+            // Faithful via `compile_rtl_branch_net` but unproven; see `RightToLeftRewriteFaithfulReversalPredicate`'s own doc.
             CharacteristicKind::RightToLeftRewrite => Disposition::ConfigPredicate,
-            // The dedicated swap-relation construction (`crate::replace::compile_metathesis_rule`)
-            // makes metathesis compilation faithful for any `pattern_slots`-acceptable shape, in
-            // either `Dir` -- pinned by
-            // `metathesis_predicate_confirm_only_for_right_to_left_rule`. No proven
-            // no-false-negative admission-filter argument exists, so the resting disposition stays
-            // ConfigPredicate: ConfirmOnly for an in-scope shape, Refuse otherwise.
+            // Faithful via `compile_metathesis_rule` but unproven, pinned by `metathesis_predicate_confirm_only_for_right_to_left_rule`.
             CharacteristicKind::Metathesis => Disposition::ConfigPredicate,
             CharacteristicKind::Epenthesis => Disposition::ConfigPredicate,
             CharacteristicKind::SubruleGating => Disposition::Proven,
             CharacteristicKind::CircumfixOutputAction => Disposition::ConfigPredicate,
-            // `crate::peel::ReduplicationPeeler` now faithfully PEELS (never compiles into the FST
-            // itself, retaining the established division between compiled template morphology and
-            // peeled reduplication) every `AffixProcessRule` whose RHS truly reduplicates, with its
-            // nested-chain recursion chain-depth-budgeted (never a silent recall gap OR an
-            // unbounded blow-up). A `RealizationalRule` allomorph carrying the same true-redup RHS
-            // shape is never peel-eligible (a real, faithfully-preserved C# quirk, `crate::
-            // peel::is_reduplication_rule`'s own doc) -- but no proven
-            // no-false-negative admission-filter argument exists, so the resting disposition is
-            // the ConfigPredicate landing spot: ConfirmOnly for the peel-eligible case, Refuse for
-            // the `RealizationalRule` carve-out, per `ReduplicationPeelSupportedPredicate`'s own
-            // doc.
+            // `ReduplicationPeeler` faithfully peels but is unproven; see `ReduplicationPeelSupportedPredicate`'s own doc for the peel-eligible/`RealizationalRule` split.
             CharacteristicKind::Reduplication => Disposition::ConfigPredicate,
             CharacteristicKind::CoOccurrenceConstraint => Disposition::ConfirmOnly,
             CharacteristicKind::NaturalClassDefinition => Disposition::Proven,
-            // Rewrite-rule compilation threads each rule's own owning table faithfully (no
-            // implicit table-zero default), but no no-false-positive admission-filter proof
-            // exists yet, so the resting
-            // disposition is the ConfigPredicate landing spot: ConfirmOnly unless/until
-            // `MultiTableFaithfulThreadingPredicate` proves `Admit` for the specific configuration
-            // observed (pairwise-disjoint table representations).
+            // Threads each rule's own owning table faithfully but unproven; see `MultiTableFaithfulThreadingPredicate`'s own doc.
             CharacteristicKind::MultiTable => Disposition::ConfigPredicate,
-            // A finitely bounded OR genuinely unbounded, alpha-free quantifier now compiles
-            // faithfully (`crate::replace::Slot::Repeat`'s `max: Option<u32>`), but no proven
-            // no-false-negative admission-filter argument exists -- ConfirmOnly-by-default landing
-            // spot, same shape `RightToLeftRewrite`/`MultiTable` already use. A rule whose pattern
-            // shape blocks `crate::replace::pattern_slots` from even ATTEMPTING to compile it (an
-            // inverted or over-budget-finite or alpha-nested quantifier, or some other unsupported
-            // construct elsewhere in the same rule) stays refused, per
-            // `QuantifierBoundedExpansionPredicate`'s own split -- an unbounded quantifier is no
-            // longer, by itself, such a case.
+            // Bounded or unbounded alpha-free quantifiers compile faithfully but unproven; see `QuantifierBoundedExpansionPredicate`'s own doc.
             CharacteristicKind::QuantifierPattern => Disposition::ConfigPredicate,
-            // `crate::emit` has no stem-name-aware admission filter at all (confirmed by grep —
-            // `precision.rs`'s own `ConstraintFamily::StemName` says "Not populated" too), so a
-            // stem-restricted root allomorph is proposed unconditionally and discharged ONLY by
-            // `pg_rules::validity::stem_name_gate_reason` at confirm time. `ConfirmOnly` is the
-            // honest resting disposition — never `Proven`, since no admission-filter argument
-            // exists; the superset proposal is already faithful and never under-proposes, which
-            // is the bar for a first-class non-failure verdict.
+            // `crate::emit` has no stem-name-aware admission filter; `pg_rules::validity::stem_name_gate_reason` discharges it only at confirm time.
             CharacteristicKind::StemName => Disposition::ConfirmOnly,
-            // Same shape: the disjunctive-allomorph re-check has no compile-time
-            // ordering/preference machinery in `crate::emit` at all (every allomorph of a
-            // multi-allomorph root entry is proposed uniformly) — confirm is the only place
-            // "first-listed matching allomorph wins" is ever enforced. `ConfirmOnly`:
-            // over-proposing every allomorph is still a faithful superset, never a silent recall
-            // loss.
+            // Same shape: `crate::emit` proposes every allomorph uniformly; confirm enforces "first-listed wins".
             CharacteristicKind::FreeFluctuation => Disposition::ConfirmOnly,
         }
     }
@@ -692,10 +623,7 @@ pub struct CharacteristicObservation {
 }
 
 impl CharacteristicObservation {
-    /// `disposition` is always derived from `kind` via `CharacteristicKind::default_disposition`
-    /// — there is no code path that can push an observation whose disposition disagrees with its
-    /// own kind's default entry (a correctness invariant this constructor enforces structurally
-    /// rather than by convention at each of `characterize`'s many call sites).
+    /// `disposition` is always derived from `kind`, enforced structurally rather than by convention at each call site.
     fn new(kind: CharacteristicKind, location: ModelLocation, detail: ObservationDetail) -> Self {
         CharacteristicObservation {
             disposition: kind.default_disposition(),
@@ -851,49 +779,16 @@ impl CharacteristicsProfile {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// Private per-construct characterization helpers
-// -------------------------------------------------------------------------------------------
+// ---- Private per-construct characterization helpers ----
 
-/// `RightToLeftRewriteDetail::reversal_construction_attempted`'s own computation:
-/// re-runs `crate::replace::pattern_slots`
-/// over every LHS/RHS/environment pattern this rule's subrules carry, EXACTLY the same shape
-/// `crate::replace::compile_rewrite_rule_subset` itself checks before ever compiling a foma
-/// automaton — `false` the instant any one of them returns `None` (a malformed `Quantifier`, a
-/// disagree-polarity alpha var, or a cross-table `Segments`; a same-table `Segments` and any
-/// `Anchor` no longer disqualify), or the rule has no resolvable owning table
-/// (`crate::replace::owning_table`
-/// returning `None`). Cheap and purely structural: no `foma::options::FomaOptions`/
-/// `crate::replace::SegAlphabet` needed, unlike the real compile.
-///
-/// Thin `bool` wrapper over `rtl_reversal_diagnosis`: kept as its own named function,
-/// unchanged in SIGNATURE, because `characterize`'s own quantifier-scan block
-/// reuses it VERBATIM for
-/// `QuantifierPatternDetail::compile_attempted` rather than re-deriving the identical "is this
-/// rule's whole pattern shape compilable at all" structural probe a second time -- that reuse site
-/// only ever needed the `bool`, never the richer diagnosis. Despite its RTL-flavored name (this
-/// function predates the second use), this check is entirely `Dir`-agnostic — it never reads
-/// `r.dir` at all.
+/// Re-runs `compile_rewrite_rule_subset`'s own admission floor structurally, `Dir`-agnostic.
+/// See docs/research/pg-foma-capability-design-notes.md.
 fn rtl_reversal_construction_attempted(g: &Grammar, r: &pg_grammar::model::RewriteRuleDef) -> bool {
     rtl_reversal_diagnosis(g, r).is_ok()
 }
 
-/// `RightToLeftRewriteDetail::unsupported_reason`'s own computation — names the specific shape
-/// rather than a generic "unsupported pattern": the SAME structural probe
-/// `rtl_reversal_construction_attempted` runs, but
-/// returning `Ok(())` (attempted) or `Err(reason)` instead of collapsing straight to a `bool` --
-/// `Err(None)` for "no resolvable owning table" (a non-pattern-shape reason
-/// `crate::lower::UnsupportedPatternNode` has no variant for), `Err(Some(reason))` for the FIRST
-/// pattern this rule's subrules carry that `crate::replace::pattern_slots` itself would reject,
-/// via `crate::lower::diagnose_unsupported` (checked in LHS, RHS, left-env, right-env order,
-/// subrules in document order -- the same order `crate::replace::compile_rewrite_rule_subset`'s own
-/// loop checks them in, so the reported reason is always the REAL first-encountered one, never a
-/// re-derived approximation that could silently name the wrong node).
-///
-/// `PatternLowerScope::RewriteRuleCompile`: MUST be the identical scope
-/// `compile_rewrite_rule_subset` itself passes to `pattern_slots` — passing a different one here
-/// would let this predicate and the real compiler silently disagree on which rules are admitted,
-/// exactly the class of bug `crate::lower::PatternLowerScope`'s own doc warns against.
+/// Names the specific failing shape, checked in the same order the real compiler checks it in.
+/// See docs/research/pg-foma-capability-design-notes.md.
 fn rtl_reversal_diagnosis(
     g: &Grammar,
     r: &pg_grammar::model::RewriteRuleDef,
@@ -904,10 +799,7 @@ fn rtl_reversal_diagnosis(
         return Err(None);
     };
     for sr in &r.subrules {
-        // Mirrors `compile_rewrite_rule_subset`'s own loop: a fresh occurrence counter per
-        // subrule (LHS is re-walked per subrule too, in step with the real compiler), though for
-        // this Some/None-only probe the actual occurrence NUMBERING is irrelevant -- only whether
-        // `pattern_slots` returns `None` anywhere matters.
+        // Mirrors `compile_rewrite_rule_subset`'s own loop: a fresh occurrence counter per subrule.
         let mut next_occurrence = 0usize;
         if crate::replace::pattern_slots(g, table, &r.lhs, &mut next_occurrence, scope).is_none() {
             return Err(Some(diagnose_unsupported(g, table, &r.lhs, scope)));
@@ -929,19 +821,8 @@ fn rtl_reversal_diagnosis(
     Ok(())
 }
 
-/// `MetathesisDetail::swap_construction_attempted`'s own computation, Dir-agnostic:
-/// re-runs the SAME structural admission floor `crate::replace::compile_metathesis_rule`
-/// itself checks before ever rendering an xre regex -- a resolvable owning table, in-bounds
-/// distinct switch indices, and a whole pattern `crate::replace::pattern_slots` accepts with no
-/// `crate::replace::Slot::Alpha`/`crate::replace::Slot::Repeat` occurrence anywhere. Deliberately
-/// does NOT branch on `m.dir` any more: `crate::replace::compile_metathesis_rule` now compiles
-/// `Dir::RightToLeft` via the SAME mirror-and-reverse construction `compile_rtl_branch_net` uses
-/// for RTL rewrite rules, over this IDENTICAL structural floor (that function's own module doc,
-/// "switch-index remap, worked out" -- the remap is pure index arithmetic over an already-checked
-/// slot list, introducing no NEW way to fail), so the floor is genuinely Dir-agnostic now, not
-/// merely relaxed. Cheap and purely structural: no `foma::options::FomaOptions`/`crate::replace::
-/// SegAlphabet`/`ComposeBudget` needed, unlike the real compile (mirrors
-/// `rtl_reversal_construction_attempted`'s own already-Dir-agnostic convention).
+/// Re-runs `compile_metathesis_rule`'s own structural admission floor, genuinely `Dir`-agnostic now.
+/// See docs/research/pg-foma-capability-design-notes.md.
 fn metathesis_swap_construction_attempted(
     g: &Grammar,
     m: &pg_grammar::model::MetathesisRuleDef,
@@ -953,8 +834,7 @@ fn metathesis_swap_construction_attempted(
         return false;
     }
     let mut next_occurrence = 0usize;
-    // MUST stay the identical scope `crate::replace::compile_metathesis_rule` passes -- a different
-    // one here would let this predicate and the real compiler disagree on what is admitted.
+    // Must stay the identical scope `compile_metathesis_rule` passes; see this fn's own doc.
     let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
     let Some(slots) =
         crate::replace::pattern_slots(g, table, &m.pattern, &mut next_occurrence, scope)
@@ -973,10 +853,7 @@ fn metathesis_swap_construction_attempted(
     })
 }
 
-/// `true` iff `nodes` (at ANY nesting depth — a `PatternNode::Quantifier`'s own `children` is
-/// itself a `&[PatternNode]`, recursed into) contains at least one `PatternNode::Quantifier`
-/// occurrence. Exhaustively matched (no catch-all) over every `PatternNode` variant, mirroring this
-/// module's own "adding a `model.rs` variant breaks this build" discipline (module top doc).
+/// `true` iff `nodes` contains a `PatternNode::Quantifier` at any nesting depth, exhaustively matched.
 fn nodes_have_quantifier(nodes: &[pg_grammar::model::PatternNode]) -> bool {
     use pg_grammar::model::PatternNode;
     nodes.iter().any(|n| match n {
@@ -988,11 +865,7 @@ fn nodes_have_quantifier(nodes: &[pg_grammar::model::PatternNode]) -> bool {
     })
 }
 
-/// `true` iff `nodes` contains a `PatternNode::Quantifier` whose OWN `max` is `None` (the DTD's
-/// `max="-1"` Kleene sentinel), at ANY nesting depth — recurses into a bounded quantifier's own
-/// `children` too, so a bounded-outer/unbounded-inner nesting is still caught (an outer bound alone
-/// never proves the whole construct finite). Exhaustively matched, same discipline as
-/// `nodes_have_quantifier`.
+/// `true` iff `nodes` contains an unbounded `max="-1"` quantifier, recursing into bounded children too since an outer bound alone doesn't prove the whole construct finite.
 fn nodes_have_unbounded_quantifier(nodes: &[pg_grammar::model::PatternNode]) -> bool {
     use pg_grammar::model::PatternNode;
     nodes.iter().any(|n| match n {
@@ -1009,9 +882,7 @@ fn nodes_have_unbounded_quantifier(nodes: &[pg_grammar::model::PatternNode]) -> 
     })
 }
 
-/// `true` iff `r`'s own LHS, or any of its subrules' RHS/left-env/right-env, contains a
-/// `PatternNode::Quantifier` occurrence anywhere (`characterize`'s own trigger for observing
-/// `CharacteristicKind::QuantifierPattern` at all).
+/// `true` iff `r` contains a `Quantifier` anywhere; `characterize`'s trigger for `QuantifierPattern`.
 fn rule_has_quantifier(r: &pg_grammar::model::RewriteRuleDef) -> bool {
     if nodes_have_quantifier(&r.lhs.nodes) {
         return true;
@@ -1034,9 +905,7 @@ fn rule_has_quantifier(r: &pg_grammar::model::RewriteRuleDef) -> bool {
     false
 }
 
-/// `true` iff `r`'s own LHS, or any of its subrules' RHS/left-env/right-env, contains a genuinely
-/// UNBOUNDED `PatternNode::Quantifier` occurrence anywhere (
-/// `QuantifierPatternDetail::all_bounded`'s own negation).
+/// `true` iff `r` contains a genuinely unbounded `Quantifier`; `all_bounded`'s own negation.
 fn rule_has_unbounded_quantifier(r: &pg_grammar::model::RewriteRuleDef) -> bool {
     if nodes_have_unbounded_quantifier(&r.lhs.nodes) {
         return true;
@@ -1102,17 +971,7 @@ pub fn rhs_has_true_reduplication(rhs: &[OutputAction]) -> bool {
     counts.values().any(|&c| c > 1)
 }
 
-/// `true` iff `allo` has a multi-part LHS and its RHS never `Copy`s at least one of those parts —
-/// i.e. real subtracted/discontinuous material (a circumfix wrapping the stem, or subtractive
-/// morphology dropping a captured part outright). Independently re-derives the same structural
-/// test `crate::emit::rhs_drops_lhs_material` uses for its own (unrelated: which compile ROUTE to
-/// use) purpose — NOT imported (that fn is a private, unrelated-purpose helper in a module this
-/// step must not modify), just the same well-defined predicate over the same frozen shapes.
-///
-/// This is deliberately NOT "does `allo.rhs` contain any `OutputAction` at all": every ordinary
-/// concatenative affix (a ubiquitous `Copy(stem) + InsertSegments(affix)` shape) uses `OutputAction`
-/// too, so flagging every occurrence would fail-close every ordinary affixation grammar — the same
-/// over-triggering trap `rhs_has_true_reduplication`'s doc names for `ReduplicationHint`.
+/// `true` iff `allo` has a multi-part LHS with a dropped part, not merely any `OutputAction` at all.
 fn allomorph_drops_lhs_material(allo: &AffixAllomorphDef) -> bool {
     if allo.lhs.len() <= 1 {
         return false;
@@ -1126,12 +985,7 @@ fn allomorph_drops_lhs_material(allo: &AffixAllomorphDef) -> bool {
     (0..allo.lhs.len() as u16).any(|i| !copied.contains(&i))
 }
 
-/// Exhaustively (no catch-all) matched per `OutputAction` occurrence (model.rs:686) purely for the
-/// no-catch-all discipline itself — adding a fifth `OutputAction` variant breaks this build. Every
-/// arm reports the same label-only outcome today: the real [`CharacteristicKind::
-/// CircumfixOutputAction`] trigger is `allomorph_drops_lhs_material`'s structural test above, not
-/// a per-variant capability difference (see that function's own doc for why "any `OutputAction` at
-/// all" would over-trigger).
+/// Exhaustively matched purely for the no-catch-all discipline; the real trigger is `allomorph_drops_lhs_material`'s structural test, not a per-variant capability difference.
 fn output_action_label(action: &OutputAction) -> &'static str {
     match action {
         OutputAction::Copy(_) => "copy",
@@ -1141,9 +995,7 @@ fn output_action_label(action: &OutputAction) -> &'static str {
     }
 }
 
-/// Exhaustively (no catch-all) matched per `CoOccurrenceAdjacency` value (model.rs:508) purely for
-/// the discipline itself — every variant folds into the same [`CharacteristicKind::
-/// CoOccurrenceConstraint`]/`ConfirmOnly` outcome.
+/// Exhaustively matched purely for the discipline; every variant folds into the same `ConfirmOnly` outcome.
 fn co_occurrence_adjacency_label(
     adjacency: pg_grammar::model::CoOccurrenceAdjacency,
 ) -> &'static str {
@@ -1157,15 +1009,7 @@ fn co_occurrence_adjacency_label(
     }
 }
 
-/// Computes `MultiTableDetail` for `g`: every pair of
-/// distinct `char_tables` is checked for a shared normalized representation (any `<Representation>`
-/// text any `CharDef` in one table claims, NFD-normalized exactly like
-/// `pg_grammar::chardef::CharDefTable::lookup_nfd`'s own key) — `O(table_count^2 *
-/// avg_table_size)`, cheap for any grammar in scope (table counts are small; this is a
-/// characterization-time cost, not a per-word one). See
-/// `MultiTableFaithfulThreadingPredicate`'s own doc for why pairwise representation-disjointness
-/// is exactly the structural condition that makes per-rule table-correct resolution
-/// (`pg_foma::replace::owning_table`) faithful with no residual cross-table token-collision risk.
+/// Computes `MultiTableDetail`: checks every pair of `char_tables` for a shared NFD representation.
 fn multi_table_detail(g: &Grammar) -> MultiTableDetail {
     let table_count = g.char_tables.len();
     let rep_sets: Vec<HashSet<&str>> = g
@@ -1199,36 +1043,8 @@ fn multi_table_detail(g: &Grammar) -> MultiTableDetail {
     }
 }
 
-/// Lowers one `Simultaneous`-mode subrule's span via `crate::lower::lower_span`, for
-/// `SubruleGateInfo::span` — see that field's own doc for why this runs HERE (inside
-/// `characterize`, which owns a live `&Grammar`) rather than inside
-/// `SimultaneousSubruleOverlapPredicate::evaluate` itself.
-///
-/// Builds a fresh `crate::replace::SegAlphabet`/`foma::options::FomaOptions` per call rather
-/// than threading them through `characterize`'s own signature — cheap (`SegAlphabet::new` only
-/// borrows a table reference; `FomaOptions::default()` is a plain value struct), and keeps
-/// `characterize`'s signature (`fn characterize(g: &Grammar) -> CharacteristicsProfile`) untouched.
-///
-/// # `owning_table`, not `g.char_tables[0]`
-/// This function used to unconditionally read `g.char_tables.first()` — a single-table assumption
-/// left over from when rewrite COMPILATION (`pg_foma::replace`), not this predicate, was the only
-/// path threading per-rule table identity. Now that `crate::replace::owning_table` exists, this
-/// function threads the rule's OWN owning table through, exactly like `replace.rs`'s own compile
-/// path does — closing the gap for a genuinely multi-table grammar (a real risk: table 0's
-/// alphabet is not guaranteed to be the natural-class/alpha-variable alphabet a rule wired to a
-/// DIFFERENT stratum's table actually resolves against, per
-/// `MultiTableFaithfulThreadingPredicate`'s own doc on why per-rule table identity matters).
-/// `owning_table` returning `None` (no `<Strata>` block wires this rule to any stratum at all —
-/// several of this module's own minimal unit fixtures deliberately omit `<Strata>` entirely) is
-/// handled gracefully, never a panic and never a wrong `Admit`:
-/// - **Exactly one table declared** (the ordinary single-table case, and every pre-existing unit
-///   fixture in this module's own test suite): falls back to that one table. Unambiguous by
-///   construction — there is no SECOND table `owning_table`'s `None` could have silently confused
-///   this with — so this preserves every existing test's behavior byte-for-byte.
-/// - **Zero or 2+ tables declared, but no owning stratum resolved**: genuinely ambiguous (which of
-///   several tables' alphabets should this rule's patterns resolve against?) or simply absent —
-///   conservatively `LoweredSpan::Unsupported` (any approximation rounds toward `Refuse`), naming
-///   the table count, rather than guessing table 0.
+/// Lowers one `Simultaneous`-mode subrule's span via the rule's own `owning_table`, not `g.char_tables[0]`.
+/// See docs/research/pg-foma-capability-design-notes.md.
 fn lower_subrule_span(
     g: &Grammar,
     rule: &pg_grammar::model::RewriteRuleDef,
@@ -1279,19 +1095,14 @@ fn characterize_allomorph(
     allomorph_index: usize,
     allo: &AffixAllomorphDef,
 ) {
-    // Exhaustive `ReduplicationHint` match (model.rs:679), written unconditionally per allomorph
-    // (not gated behind `rhs_has_true_reduplication` below) so a new variant breaks this build
-    // regardless of whether any fixture exercises real reduplication.
+    // Exhaustive match, unconditional, so a new variant breaks this build regardless of fixtures.
     let _hint_label = match allo.redup_hint {
         ReduplicationHint::Prefix => "prefix",
         ReduplicationHint::Suffix => "suffix",
         ReduplicationHint::Implicit => "implicit",
     };
     if rhs_has_true_reduplication(&allo.rhs) {
-        // `crate::peel::ReduplicationPeeler::new`'s own `is_reduplication_rule` (that fn's own
-        // doc): only `MorphRuleDef::AffixProcess` is ever peel-eligible -- re-derived here (not
-        // imported: `crate::peel` is a separate, unrelated-purpose module this step must not
-        // modify) over the same frozen `g.mrules[rule.0]` shape.
+        // Re-derives `ReduplicationPeeler::is_reduplication_rule`'s own peel-eligibility test.
         let peel_eligible_rule_kind =
             matches!(g.mrules[rule.0 as usize], MorphRuleDef::AffixProcess(_));
         observations.push(CharacteristicObservation::new(
@@ -1308,8 +1119,7 @@ fn characterize_allomorph(
         ));
     }
 
-    // Exhaustive `OutputAction` match (model.rs:686) per action, discipline-only (see
-    // `output_action_label`'s own doc).
+    // Exhaustive match per action, discipline-only; see `output_action_label`'s own doc.
     for action in &allo.rhs {
         let _ = output_action_label(action);
     }
@@ -1338,11 +1148,7 @@ fn characterize_allomorph(
     }
 }
 
-/// The stratum index owning `mid` — either directly (`StratumDef::mrules`) or via one of that
-/// stratum's own templates' slots (`SlotDef::rules`, which a `Compounding` rule id can appear in
-/// exactly like an `AffixProcess`/`Realizational` one, model.rs's own `SlotDef::rules` doc).
-/// `None` if `mid` is not found anywhere (should not happen for a well-formed `Grammar` — every
-/// caller of this function treats `None` maximally conservatively, never as "rank 0" or ignorable).
+/// The stratum index owning `mid`, directly or via a template slot; `None` if not found anywhere.
 fn mrule_stratum_rank(g: &Grammar, mid: MRuleId) -> Option<usize> {
     for (si, sd) in g.strata.iter().enumerate() {
         if sd.mrules.contains(&mid) {
@@ -1361,32 +1167,8 @@ fn mrule_stratum_rank(g: &Grammar, mid: MRuleId) -> Option<usize> {
     None
 }
 
-/// The `compounding.non-recursive` vs `compounding.recursive` reachability pass — a graph-
-/// reachability pass over `Grammar.mrules`. Returns the `MRuleId`s of every `Compounding` rule
-/// this pass could NOT prove non-recursive.
-///
-/// **What "recursive" means here**: `pg_rules::morph::synth_compound`'s own `word: &Word` head
-/// argument is an ARBITRARY already-derived word, not restricted to a fresh lexical root
-/// (`morph.rs:2820-2821` — the spike's own cited evidence) — so a `Compounding` rule `r` is
-/// recursive iff some `Compounding` application's OUTPUT could reach `r`'s own head/non-head stem
-/// search, i.e. `r` fires again (or a DIFFERENT compounding rule fires) on a word that has ALREADY
-/// been through a compounding application.
-///
-/// **The reachability test (deliberately coarse, rounding every uncertainty toward "recursive"):**
-/// - `r.max_apps() > 1`: `r` itself may apply more than once in one derivation, so a second
-///   application's head can be the first application's own compound output — direct self-recursion,
-///   regardless of stratum/template structure.
-/// - A DISTINCT `Compounding` rule `r2 != r` exists with `mrule_stratum_rank(r2) <= mrule_stratum_rank(r)`:
-///   either `r2` sits in a STRICTLY EARLIER stratum (word output flows forward through subsequent
-///   strata — the standard sequential-stratum architecture, so `r2`'s compound output can
-///   legitimately arrive at `r`'s stratum as an ordinary candidate word) or `r2` shares `r`'s OWN
-///   stratum. The same-stratum case is intentionally NOT refined by `MorphRuleOrder`
-///   (`Linear`-order's real forward-only restriction, or template slot order, would in principle let
-///   some same-stratum pairs be proven safe) — two co-located rules are treated as mutually
-///   reachable unconditionally. This over-flags some pairs a finer analysis could clear, but is
-///   the conservative direction absent a real motivating grammar that needs the extra precision.
-/// - `mrule_stratum_rank` returning `None` for either rule (should not happen for a well-formed
-///   grammar) is treated as "cannot prove non-recursive" — recursive, never silently ignored.
+/// The `compounding.non-recursive` vs `compounding.recursive` reachability pass, deliberately coarse.
+/// See docs/research/pg-foma-capability-design-notes.md.
 fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
     let compounding_rules: Vec<(MRuleId, &pg_grammar::model::CompoundingRuleDef)> = g
         .mrules
@@ -1425,112 +1207,8 @@ fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
     recursive
 }
 
-/// Extends `compounding_recursive`'s existing ONE-HOP boolean reachability test into an actual
-/// finite MAXIMUM DEPTH bound over the SAME "feeds" edge — turning a boolean into a bound, not a
-/// replacement classifier (`compounding_recursive` above is byte-for-byte unchanged; this is an
-/// additional pass computed alongside it).
-///
-/// **Depth unit**: total STEM count (lexical roots) reachable in a single compounding derivation
-/// chain ending in an application of `r`. `2` is the ordinary head+non-head shape today's
-/// `crate::emit::compound_license`/"bounded compound loop" construction already covers faithfully
-/// (`compounding.non-recursive`); `>= 3` is "recursive/self-feeding."
-/// `recursive(r) == (max_depth(r) > 2)` always holds: the minimum legal `multipleApplication`/
-/// `max_apps` is `1` (DTD default), so `compounding_recursive`'s "some other rule qualifies" test
-/// (self `max_apps > 1`, or ANY distinct co-located/earlier rule at all) can only ever be triggered
-/// by a configuration that also pushes this function's sum to `>= 3` — see this module's own
-/// `compounding_max_depth_matches_compounding_recursive_boolean_exactly` test for a direct,
-/// from-scratch proof of the equivalence (not merely asserted here).
-///
-/// **The bound itself (deliberately conservative — the same judgment call
-/// `crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`'s own doc makes for
-/// `UnorderedOrderingUnionPredicate`'s cardinality proxy: sound but generous, since no real
-/// large-scale recursive-compounding grammar exists yet to calibrate a tighter one against):** for
-/// the set of every `CompoundingRuleDef` that can transitively feed `r` — the TRANSITIVE CLOSURE of
-/// the SAME one-hop "feeds" edge `compounding_recursive` already tests (`r2 -> r` iff `r2 == r` with
-/// `max_apps(r2) > 1`, or `r2 != r` with `mrule_stratum_rank(r2) <= mrule_stratum_rank(r)`, or either
-/// rank lookup fails — the identical conservative "cannot prove non-recursive" fallback
-/// `compounding_recursive` itself uses) —
-///
-/// `max_depth(r) = 1 + max_apps(r) + sum(max_apps(r2) for r2 in ancestors(r), r2 != r)`
-///
-/// where `ancestors(r)` is the transitive closure of DISTINCT predecessors (a plain visited-set
-/// BFS over a finite rule graph — terminates regardless of cycles, since every node is visited at
-/// most once). This over-counts, never under-counts: it does not verify the individual rules'
-/// applications can actually chain into ONE legal derivation (no `MorphRuleOrder`/subrule-gating
-/// cross-check between the rules, no check that a cyclic pair can really alternate that many times
-/// in practice) — it sums every rule's own worst-case application count that COULD feed `r` at all,
-/// counting each contributing rule's `max_apps` exactly ONCE regardless of how many distinct paths
-/// lead back to it (a `HashSet`, not a path-multiplicity sum) — the safe direction for a bound
-/// nothing downstream has verified a tighter one against yet.
-///
-/// **Always finite — no "genuinely unboundable" shape exists for `Compounding`, unlike
-/// `CharacteristicKind::QuantifierPattern`'s real `max == -1` Kleene case (that predicate's own
-/// doc):** `pg_grammar::model::CompoundingRuleDef::max_apps` is a plain `u16` (`model.rs`'s own
-/// doc: "`multipleApplication` attr; C# default `MaxApplicationCount = 1`") with NO "-1 = unlimited"
-/// sentinel anywhere in the model — checked directly against `model.rs`, not assumed; the DTD's
-/// `multipleApplication` enumerated attribute tops out at `9` (this crate's own
-/// `recursive-endocentric-compounding` fixture uses that exact ceiling). A finite grammar has a
-/// finite `CompoundingRuleDef` set, each with a finite `max_apps`, so this sum is always computable
-/// and this function always terminates — a grammar shape where the depth bound is unboundable
-/// would still stay `Refuse`, but that case is never exercised for this construct; that alone does
-/// NOT unblock a promotion to `ConfirmOnly` (a separate, construction-side gap, not a
-/// bound-side one).
-///
-/// **This number is CONSUMED, by two things — it is not a dead computation nobody reads.**
-///
-/// - `crate::emit::compound_extra_levels_checked` SIZES A CONSTRUCTION from this number
-///   (`max_depth - 1` unrolled non-head root levels, shared by BOTH emitters), and
-/// - it is checked against a live budget on the way (`DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`, 200,
-///   overridable with `HC_COMPOUND_CHAIN_DEPTH_BUDGET`): exceeding it is a typed
-///   `crate::compose_budget::ComposeError::ChainDepthExceeded`, never a silent truncation.
-///
-/// A reader who assumed otherwise would conclude that nothing
-/// depends on how large this number is. Something does.
-///
-/// # This number is a RULE-COUNT CEILING. It is not a typological depth, and the two must not be conflated
-///
-/// The formula sums `max_apps` across the transitive closure of rules that COULD feed `r`. So it
-/// answers "how many compounding APPLICATIONS could this grammar's rule set contribute in the
-/// worst case", which is grammar-counting. It does NOT answer "how deeply do compounds NEST", which is
-/// typology. Eight ways to compound is not nine levels of nesting.
-///
-/// Measured consequence, stated with the number so it is actionable: the private `sena`
-/// grammar declares **8** `CompoundingRule`s, none with `multipleApplication`, so every `max_apps` is
-/// the DTD default 1 and this function returns `1 + 1 + 7 = 9`. `compound_extra_levels` is therefore
-/// **8**, and both emitters unroll eight non-head root levels for a grammar in which no single
-/// derivation was ever shown to chain eight compounding applications. That is also precisely the
-/// multiplier that turned 7 null-shaped `^0+` prefix allomorphs into 56 self-looping lexc lines in the
-/// epsilon-cycle regression (`crate::net_shape`'s own gate).
-///
-/// # The OPERATIVE bound is `max_stem_count`, and it is 2 — with 3 attested
-///
-/// The engine's own limit on compound depth is not this ceiling at all. It is
-/// `pg_rules::stratum::AnalyzerConfig::max_stem_count`, checked in `StratumAnalyzer::apply_one_mrule`
-/// (`w.non_heads.len() + 1 >= max_stem_count` rejects the rule outright), surfaced as
-/// `pg_parse::Morpher::with_max_stem_count`, and defaulting to **2** — C#'s own `Morpher.MaxStemCount`
-/// ctor default (`Morpher.cs:56`). C#'s own `CompoundingRuleTests.SimpleRules` raises it to **3** for a
-/// genuine three-root compound (`cs:87,105`). So the reference implementation's own answer to "how deep
-/// can a compound go" is 2 by default and 3 when someone means it — which is exactly the "at most two,
-/// maybe three" figure this bound gets compared against, and it is a fact about the ENGINE, already in
-/// this tree, not a number anyone had to invent.
-///
-/// `tests/cover_compounding_recursive_depth_bound.rs` pins the gap directly and non-vacuously: on the
-/// `recursive-endocentric-compounding` fixture the proposer proposes the 3-stem compound while the
-/// DEFAULT-configured oracle confirms **zero** analyses for it, and containment only becomes a real
-/// claim once `with_max_stem_count(3)` is set.
-///
-/// # What to do about it, deliberately NOT done here
-///
-/// Sizing the construction by `min(this ceiling, the operative stem bound)` is the correct shape: keep
-/// this function exactly as it is (a sound refusal ceiling — never under-counting is what makes the
-/// `ChainDepthExceeded` refusal trustworthy) and stop letting it choose how many levels to BUILD.
-/// That is not a doc change, because the operative bound has to travel from whoever configures
-/// `max_stem_count` to `crate::emit`, and the three containment tests in
-/// `tests/cover_compounding_recursive_depth_bound.rs` that deliberately raise `max_stem_count` must move
-/// in lockstep with it or the change would silently reduce a raised-cap caller's recall. Left as an
-/// explicit, named, measured follow-up rather than a half-threaded knob: recall is not negotiable, and
-/// the plumbing decision (env var, as every other budget in `crate::compose_budget` does it, versus a
-/// threaded `FomaOptions` field) deserves to be made on purpose.
+/// Extends `compounding_recursive`'s one-hop boolean into a finite max-depth bound: a rule-count ceiling, not a typological nesting depth (the operative bound is `max_stem_count`, not this).
+/// See docs/research/pg-foma-capability-design-notes.md.
 fn compounding_max_depth(g: &Grammar) -> HashMap<MRuleId, usize> {
     let compounding_rules: Vec<(MRuleId, &pg_grammar::model::CompoundingRuleDef)> = g
         .mrules
@@ -1550,9 +1228,7 @@ fn compounding_max_depth(g: &Grammar) -> HashMap<MRuleId, usize> {
             .unwrap_or(0)
     };
 
-    // Same one-hop relation `compounding_recursive` tests, factored out so both the self-loop
-    // and the distinct-rule cases share one definition -- never duplicated/drifted between the
-    // two functions.
+    // Same one-hop relation `compounding_recursive` tests, factored out to avoid drift between the two.
     let feeds_one_hop = |r2: MRuleId, r: MRuleId| -> bool {
         if r2 == r {
             return max_apps_of(r2) > 1;
@@ -1565,10 +1241,7 @@ fn compounding_max_depth(g: &Grammar) -> HashMap<MRuleId, usize> {
 
     let mut result = HashMap::new();
     for &(r, _) in &compounding_rules {
-        // Transitive closure BFS over DISTINCT predecessors only (self-loops are handled
-        // separately below via `max_apps(r)` itself, always counted once regardless of whether
-        // `r` self-feeds) -- terminates on any finite rule graph, cycles included, since
-        // `ancestors` is a visited set (each rule pushed onto `frontier` at most once).
+        // Transitive closure BFS over distinct predecessors; terminates on any finite graph, cycles included.
         let mut ancestors: HashSet<MRuleId> = HashSet::new();
         let mut frontier: Vec<MRuleId> = vec![r];
         while let Some(cur) = frontier.pop() {
@@ -1578,12 +1251,7 @@ fn compounding_max_depth(g: &Grammar) -> HashMap<MRuleId, usize> {
                 }
             }
         }
-        // A genuine CYCLE among distinct rules (e.g. two co-located rules that mutually feed one
-        // another) can walk back to `r` itself via a back-edge -- `ancestors` is keyed on
-        // "distinct from the CURRENT frontier node" at each hop, not "distinct from `r`", so `r`
-        // can be (re-)discovered as someone else's own predecessor partway through the walk. `r`'s
-        // own contribution is already counted once, unconditionally, via `max_apps_of(r)` below;
-        // remove it here so a cycle never double-counts it.
+        // A genuine cycle can rediscover `r` as its own ancestor; remove it to avoid double-counting.
         ancestors.remove(&r);
         let ancestor_sum: usize = ancestors.iter().map(|&r2| max_apps_of(r2) as usize).sum();
         result.insert(r, 1 + max_apps_of(r) as usize + ancestor_sum);
@@ -1592,19 +1260,8 @@ fn compounding_max_depth(g: &Grammar) -> HashMap<MRuleId, usize> {
 }
 
 thread_local! {
-    /// How many times `characterize` has run on THIS thread.
-    /// `crate::grammar_semantics::GrammarSemantics` exists specifically to stop this number from
-    /// scaling with the number of consumers/candidate plans, and a claim like that is worthless
-    /// without a way to observe it -- so the observation ships with the fix rather than being a
-    /// one-off measurement in a report nobody can re-run.
-    ///
-    /// **Thread-local on purpose.** A process-global counter cannot be read reliably from a test:
-    /// Rust runs the tests in one binary on parallel threads, so any other test that characterizes
-    /// concurrently would pollute the reading. Every derivation site this task governs runs on its
-    /// caller's own thread, so a thread-local count is exactly "how much did MY invocation do".
-    /// The honest limitation: work a future path moved onto a rayon worker would not be counted
-    /// here, so a test asserting a small number must also assert the number is non-zero, or it
-    /// could pass by measuring nothing.
+    /// How many times `characterize` has run on this thread, kept thread-local since tests run in parallel.
+    /// See docs/research/pg-foma-capability-design-notes.md.
     static CHARACTERIZE_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
@@ -1631,8 +1288,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
     CHARACTERIZE_CALLS.with(|c| c.set(c.get().saturating_add(1)));
     let mut observations = Vec::new();
 
-    // Computed ONCE, grammar-wide, before the per-rule walk below -- a rule-graph reachability
-    // pass, not a per-rule check.
+    // A rule-graph reachability pass, computed once grammar-wide, not a per-rule check.
     let compounding_recursive_set = compounding_recursive(g);
     // The depth-BOUND sibling pass, computed alongside the boolean one above (never replacing it).
     let compounding_max_depth_map = compounding_max_depth(g);
@@ -1649,12 +1305,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                 ));
             }
             MorphRuleDef::Compounding(_) => {
-                // `compounding.non-recursive` (target `ConfirmOnly`) vs `compounding.recursive`
-                // (`Refuse`) — see
-                // `CompoundingDetail`'s own doc. `CharacteristicKind::Compounding`'s own
-                // `default_disposition` is the PRE-predicate resting spot (`ConfigPredicate`);
-                // `CompoundingRecursionSafePredicate` reads this detail to decide `ConfirmOnly` vs
-                // `Refuse`.
+                // `CompoundingRecursionSafePredicate` reads this detail to decide `ConfirmOnly` vs `Refuse`.
                 observations.push(CharacteristicObservation::new(
                     CharacteristicKind::Compounding,
                     ModelLocation::MorphRule(id),
@@ -1676,19 +1327,14 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
             }
         }
 
-        // `AffixProcess`/`Realizational` share one allomorph shape (model.rs:576-590's own
-        // uniform accessor) -- walk it once here rather than duplicating the match above.
+        // `AffixProcess`/`Realizational` share one allomorph shape; walk it once via the uniform accessor.
         if let Some(allomorphs) = mrule.affix_allomorphs() {
             for (ai, allo) in allomorphs.iter().enumerate() {
                 characterize_allomorph(&mut observations, g, id, ai, allo);
             }
         }
 
-        // `CompoundingRule`'s own subrules carry `OutputAction`s too (model.rs:725) -- matched
-        // exhaustively for the same discipline, but minting no NEW characteristic: `Compounding`
-        // is already captured by one observation at the rule level above, so a per-subrule
-        // `CircumfixOutputAction`/`Reduplication` observation here would be redundant, not more
-        // faithful.
+        // Matched exhaustively for discipline; mints no new characteristic (`Compounding` is already captured at the rule level above).
         if let MorphRuleDef::Compounding(def) = mrule {
             for sub in &def.subrules {
                 for action in &sub.rhs {
@@ -1724,9 +1370,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
 
     // --- MprGroup / MprGroupOutput (model.rs:824-842) ---------------------------------------
     for (i, group) in g.mpr_groups.iter().enumerate() {
-        // `MprGroupMatchType` (model.rs:825) has no disposition of its own (only
-        // `MprGroupOutput` does) -- matched exhaustively anyway, no-op, purely so a third
-        // match-type variant is forced through this file rather than silently ignored.
+        // `MprGroupMatchType` has no disposition of its own; matched anyway so a third variant is forced through this file rather than silently ignored.
         match group.match_type {
             MprGroupMatchType::All | MprGroupMatchType::Any => {}
         }
@@ -1785,10 +1429,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                         ObservationDetail::None,
                     )),
                     Dir::RightToLeft => {
-                        // Computed via `rtl_reversal_diagnosis` directly (not
-                        // `rtl_reversal_construction_attempted` + a second re-derivation) so
-                        // `reversal_construction_attempted`/`unsupported_reason` can never disagree
-                        // with each other -- one call, one shared source of truth.
+                        // One call, one shared source of truth: the two fields below can never disagree.
                         let diagnosis = rtl_reversal_diagnosis(g, r);
                         observations.push(CharacteristicObservation::new(
                             CharacteristicKind::RightToLeftRewrite,
@@ -1801,9 +1442,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                         ));
                     }
                 }
-                // "Epenthesis" is an empty-`lhs` RULE, not a subrule field (model.rs:417's own
-                // doc: "empty pattern if absent (epenthesis rules)" is on `RewriteRuleDef.lhs`,
-                // one level up from where a per-subrule field would sit).
+                // "Epenthesis" is an empty-`lhs` RULE, on `RewriteRuleDef.lhs`, not a subrule field.
                 if r.lhs.nodes.is_empty() {
                     observations.push(CharacteristicObservation::new(
                         CharacteristicKind::Epenthesis,
@@ -1826,11 +1465,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                         ));
                     }
                 }
-                // `PatternNode::Quantifier`: a grammar-level structural fact about which pattern
-                // nodes this rule's own
-                // LHS/RHS/environment patterns use, independent of `RewriteMode`/`Dir` (both
-                // already characterized above) -- see `CharacteristicKind::QuantifierPattern`'s
-                // own doc.
+                // A grammar-level structural fact about pattern nodes used, independent of `RewriteMode`/`Dir` (both already characterized above).
                 if rule_has_quantifier(r) {
                     observations.push(CharacteristicObservation::new(
                         CharacteristicKind::QuantifierPattern,
@@ -1883,8 +1518,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
         }
     }
 
-    // --- AllomorphCoOccurrenceRuleDef (model.rs:508/535), on ROOT allomorphs ----------------
-    // (affix-allomorph co-occurrence is already covered inside `characterize_allomorph` above).
+    // Root allomorphs; affix-allomorph co-occurrence is already covered by `characterize_allomorph`.
     for entry in &g.entries {
         for allo in &entry.allomorphs {
             for co in &allo.co_occurrence {
@@ -1898,10 +1532,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
         }
     }
 
-    // --- Grammar-level: Grammar::char_tables.len() > 1 (model.rs:1100) ----------------------
-    // (`fix-multitable-fst-compilation`). Attributed to the FIRST stratum whose own table
-    // differs from the base (stratum 0's) table -- a real `ModelLocation`, not a synthetic one,
-    // while the actual DETAIL below is grammar-wide (every table pair, not just that one stratum).
+    // Attributed to the first stratum whose table differs from the base, though the detail below is grammar-wide.
     if g.char_tables.len() > 1 {
         let detail = multi_table_detail(g);
         let location = g
@@ -1933,9 +1564,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
     }
 }
 
-// =================================================================================================
-// CapabilityPredicate + PredicateVerdict + EvidenceProvenance + CapabilityDiagnostic
-// =================================================================================================
+// ---- CapabilityPredicate + PredicateVerdict + EvidenceProvenance + CapabilityDiagnostic ----
 
 /// A predicate's stable identity (e.g. `"simultaneous.subrule-overlap"`).
 pub type PredicateId = &'static str;
@@ -2003,15 +1632,9 @@ pub trait CapabilityPredicate {
     fn provenance(&self) -> EvidenceProvenance;
 }
 
-// -------------------------------------------------------------------------------------------
-// The worked simultaneous.subrule-overlap predicate
-// -------------------------------------------------------------------------------------------
+// ---- The worked simultaneous.subrule-overlap predicate ----
 
-/// Extracts the `PRuleId` a rewrite-rule `PlanNodeKind::Leaf` is addressed by, if `plan_node`
-/// is one. Any other node shape (this predicate is only meaningful at a rewrite-rule leaf) yields
-/// `None`, which `SimultaneousSubruleOverlapPredicate::evaluate` treats as "not applicable here,"
-/// i.e. vacuously `Admit` — not a capability judgment, just "wrong node kind to ask this predicate
-/// about."
+/// Extracts the `PRuleId` a rewrite-rule leaf is addressed by; any other node shape yields `None`, treated as vacuous `Admit`.
 fn rewrite_rule_of(plan_node: &PlanNodeKind) -> Option<PRuleId> {
     match plan_node {
         PlanNodeKind::Leaf {
@@ -2022,13 +1645,7 @@ fn rewrite_rule_of(plan_node: &PlanNodeKind) -> Option<PRuleId> {
     }
 }
 
-/// The "cheap orthogonality early-out": `true` iff NO lexical entry can ever satisfy
-/// both `a` and `b`'s MPR gates simultaneously, because one subrule REQUIRES an MPR feature the
-/// other EXCLUDES (in either direction). This is a SUFFICIENT, not necessary, condition for
-/// disjointness — deliberately conservative in the safe direction: it can miss some genuinely
-/// disjoint pairs (falling through to the stricter overlap test below, never to a wrong `Admit`),
-/// but it can never wrongly call two OVERLAPPING gates disjoint (each direction is a direct MprSet
-/// containment fact, not a heuristic).
+/// The cheap orthogonality early-out: a sufficient, not necessary, condition for MPR-gate disjointness.
 fn mpr_gates_disjoint(a: &SubruleGateInfo, b: &SubruleGateInfo) -> bool {
     a.required_mpr.overlaps(b.excluded_mpr) || b.required_mpr.overlaps(a.excluded_mpr)
 }
@@ -2089,8 +1706,7 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
             return PredicateVerdict::Admit;
         };
         let Some(detail) = profile.simultaneous_detail(rule) else {
-            // Not observed as a Simultaneous rule at all (e.g. it's Iterative) -- Iterative is
-            // Proven, this predicate has nothing to say about it.
+            // Not observed as Simultaneous at all (e.g. Iterative, which is Proven already).
             return PredicateVerdict::Admit;
         };
 
@@ -2105,25 +1721,14 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
     }
 }
 
-/// The per-pair decision, over an ALREADY-lowered `&[SubruleGateInfo]` — factored out of
-/// `SimultaneousSubruleOverlapPredicate::evaluate` so
-/// `simultaneous_rule_admitted_for_compile` (below, `crate::
-/// replace`'s own compile-time consumer) can share the IDENTICAL overlap algorithm rather than
-/// re-derive it — the gate (this predicate, used by `compose_envelope`) and the actual compiler
-/// (`crate::replace::is_fully_supported_shape`) must never disagree on what counts as a genuine
-/// overlap witness. `Ok(())` iff every unordered pair of `subrules` is provably safe to treat as
-/// non-overlapping; `Err((i, j, witness))` names the FIRST offending pair (document order) and a
-/// human-readable reason. Byte-for-byte the same three witness wordings this predicate has always
-/// used (self_opaquing / genuine lowered-span intersection / unsupported span) — moved, not
-/// reworded, so existing witness-text assertions in this module's own test suite are unaffected.
+/// The per-pair decision, factored out so the gate and the real compiler share the identical algorithm and can never disagree on what counts as an overlap witness.
 fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize, usize, String)> {
     for i in 0..subrules.len() {
         for j in (i + 1)..subrules.len() {
             let a = &subrules[i];
             let b = &subrules[j];
 
-            // If either subrule is self_opaquing, do not attempt Admit -- checked BEFORE
-            // the mpr-gate early-out, unconditionally.
+            // If either subrule is self_opaquing, do not attempt Admit; checked before the mpr-gate early-out.
             if a.self_opaquing || b.self_opaquing {
                 return Err((
                     a.index,
@@ -2140,9 +1745,7 @@ fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize,
                 continue;
             }
 
-            // The real automaton intersection (see this type's own doc). Either span being
-            // Unsupported rounds to Refuse (any approximation rounds toward Refuse), naming
-            // the unhandled construct rather than silently admitting it.
+            // Either span being Unsupported rounds to Refuse, naming the construct, never silently admitting.
             let opts = foma::options::FomaOptions::default();
             match (&a.span, &b.span) {
                 (LoweredSpan::Ok(span_a), LoweredSpan::Ok(span_b)) => {
@@ -2255,9 +1858,7 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
         .map_err(|(i, j, witness)| format!("subrules {i} and {j}: {witness}"))
 }
 
-// -------------------------------------------------------------------------------------------
-// MultiTable: the config-predicate `fix-multitable-fst-compilation` registers
-// -------------------------------------------------------------------------------------------
+// ---- MultiTable: the config-predicate `fix-multitable-fst-compilation` registers ----
 
 /// The capability predicate for `MultiTable`: a `Grammar` with more than one
 /// `CharacterDefinitionTable` is faithfully compilable by `pg_foma::replace` now that every
@@ -2367,19 +1968,12 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
             // Not observed at all (<= 1 table) -- nothing for this predicate to say (module doc).
             return PredicateVerdict::Admit;
         };
-        // The real risk from a shared representation is a false NEGATIVE (a table-B rule failing
-        // to fire on table-A-originated material spelled the same way), which
-        // `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` closes at render
-        // time for rewrite rules (module doc's own "Metathesis needs a different mechanism"
-        // paragraph names the one still-open case, metathesis rules). `ConfirmOnly` for EVERY
-        // multi-table grammar, disjoint or shared alike -- never `Refuse` for this characteristic.
+        // A shared representation's false-negative risk is closed at render time; metathesis is the one still-open case, so `ConfirmOnly` covers every multi-table grammar either way.
         PredicateVerdict::ConfirmOnly
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// RightToLeftRewrite: the config-predicate `compile-right-to-left-rewrites` registers
-// -------------------------------------------------------------------------------------------
+// ---- RightToLeftRewrite: the config-predicate `compile-right-to-left-rewrites` registers ----
 
 /// The capability predicate for `RightToLeftRewrite`: a `Dir::
 /// RightToLeft` rewrite rule is now faithfully COMPILABLE (never a silent LTR mis-compile) by
@@ -2446,15 +2040,11 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
             return PredicateVerdict::Admit;
         };
         let Some(detail) = profile.right_to_left_detail(rule) else {
-            // Not observed as `Dir::RightToLeft` at all (e.g. it's `LeftToRight`) -- nothing for
-            // this predicate to say (module doc).
+            // Not observed as `Dir::RightToLeft` at all; nothing for this predicate to say.
             return PredicateVerdict::Admit;
         };
         if !detail.reversal_construction_attempted {
-            // Name the SPECIFIC failing shape when one was found (`unsupported_reason`), rather
-            // than a laundry-list "could be any of these" message -- falling back to the "no
-            // owning table" phrasing only for the one case
-            // `crate::lower::UnsupportedPatternNode` has no variant for.
+            // Names the specific failing shape rather than a laundry-list "could be any of these" message.
             let witness = match detail.unsupported_reason {
                 Some(reason) => format!(
                     "this rule's own LHS/RHS/environment pattern needs a construct \
@@ -2478,9 +2068,7 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// Metathesis: the config-predicate `compile-fst-metathesis` registers
-// -------------------------------------------------------------------------------------------
+// ---- Metathesis: the config-predicate `compile-fst-metathesis` registers ----
 
 /// The capability predicate for `Metathesis`: a `PhonRuleDef::Metathesis`
 /// rule is faithfully COMPILABLE via `crate::replace::compile_metathesis_rule`'s dedicated swap
@@ -2571,8 +2159,7 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
             return PredicateVerdict::Admit;
         };
         let Some(detail) = profile.metathesis_detail(rule) else {
-            // Not observed as PhonRuleDef::Metathesis at all -- nothing for this predicate to say
-            // (module doc).
+            // Not observed as `PhonRuleDef::Metathesis` at all; nothing for this predicate to say.
             return PredicateVerdict::Admit;
         };
         if !detail.swap_construction_attempted {
@@ -2602,9 +2189,7 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// CircumfixOutputAction: the config-predicate `cover-circumfix-null-output-actions` registers
-// -------------------------------------------------------------------------------------------
+// ---- CircumfixOutputAction: the config-predicate `cover-circumfix-null-output-actions` registers ----
 
 /// The capability predicate for `CircumfixOutputAction`: an
 /// `AffixAllomorphDef` whose RHS drops real LHS material — a circumfix wrapping the stem, a
@@ -2761,9 +2346,7 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// Reduplication: the config-predicate `cover-template-truncation-reduplication` registers
-// -------------------------------------------------------------------------------------------
+// ---- Reduplication: the config-predicate `cover-template-truncation-reduplication` registers ----
 
 /// The capability predicate for `Reduplication`: a truly reduplicating `AffixAllomorphDef` is
 /// faithfully PROPOSABLE via `crate::peel::ReduplicationPeeler` -- deliberately NOT via FST
@@ -2894,9 +2477,7 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// Compounding: the config-predicate `cover-compounding` registers
-// -------------------------------------------------------------------------------------------
+// ---- Compounding: the config-predicate `cover-compounding` registers ----
 
 /// The capability predicate for `Compounding`: splits
 /// `CharacteristicKind::Compounding` at CONFIGURATION-PREDICATE granularity (never a blanket
@@ -2990,15 +2571,7 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
-        // `crate::emit`'s "bounded compound loop" now unrolls
-        // `max_depth - 1` extra non-head root levels (`build_compound_chain`), consuming this
-        // predicate's own precomputed `CompoundingDetail::max_depth` bound directly -- so every
-        // observed `Compounding` rule, `detail.recursive` true or false, gets the SAME faithful,
-        // over-approximating proposal (this predicate's own doc, "the recursive split is now closed
-        // too"). No configuration remains for this predicate to `Refuse` on structural grounds; a
-        // pathologically deep grammar's own COST is refused separately, at compile time, by
-        // `crate::emit`'s own `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` (this predicate's own doc, "Cost
-        // stays a SEPARATE concern").
+        // Every observed `Compounding` rule gets the same faithful proposal; cost is refused separately at compile time by `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`.
         profile
             .compounding_details()
             .next()
@@ -3006,9 +2579,7 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// UnorderedMorphRuleApplication: the config-predicate `cover-unordered-morph-rules` registers
-// -------------------------------------------------------------------------------------------
+// ---- UnorderedMorphRuleApplication: the config-predicate `cover-unordered-morph-rules` registers ----
 
 /// The capability predicate for `UnorderedMorphRuleApplication`:
 /// splits it at CONFIGURATION-PREDICATE
@@ -3106,9 +2677,7 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// MprGroupAppend / MprGroupOverwrite: the config-predicates `cover-mpr-groups` registers
-// -------------------------------------------------------------------------------------------
+// ---- MprGroupAppend / MprGroupOverwrite: the config-predicates `cover-mpr-groups` registers ----
 
 /// The capability predicate for `MprGroupAppend`: the
 /// NON-TRACKING baseline for `MprGroupOutput::Append` groups. The split is drawn
@@ -3269,9 +2838,7 @@ impl CapabilityPredicate for MprGroupOverwritePredicate {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// QuantifierPattern: the config-predicate `compile-bounded-fst-quantifiers` registers
-// -------------------------------------------------------------------------------------------
+// ---- QuantifierPattern: the config-predicate `compile-bounded-fst-quantifiers` registers ----
 
 /// The capability predicate for `QuantifierPattern`, covering both bounded and the genuinely
 /// unbounded case: a
@@ -3351,11 +2918,7 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
             // Not observed to use Quantifier at all -- nothing for this predicate to say (doc).
             return PredicateVerdict::Admit;
         };
-        // `detail.all_bounded` is not
-        // consulted here at all -- a genuinely unbounded quantifier is not, by itself, a
-        // reason to Refuse (doc above, "Disposition"). Whether THIS rule's whole pattern shape
-        // actually compiles (bounded or unbounded) is exactly what `detail.compile_attempted`
-        // already answers, so that is now the ONLY gate this predicate checks.
+        // `all_bounded` is not consulted: an unbounded quantifier alone is not a reason to Refuse; `compile_attempted` is the only gate.
         if !detail.compile_attempted {
             return PredicateVerdict::Refuse(CapabilityDiagnostic {
                 predicate: self.id(),
@@ -3376,9 +2939,7 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// Epenthesis
-// -------------------------------------------------------------------------------------------
+// ---- Epenthesis ----
 
 /// The capability predicate for `Epenthesis`. `CharacteristicKind::Epenthesis`'s own trigger
 /// (`RewriteRuleDef::lhs.nodes.is_empty()`, `characterize`'s own comment on model.rs:417's "empty
@@ -3507,9 +3068,7 @@ impl CapabilityPredicate for EpenthesisStructuralRoutePredicate {
     }
 }
 
-// =================================================================================================
-// The predicate registry (the "no silent vacuous pass" coverage check)
-// =================================================================================================
+// ---- The predicate registry (the "no silent vacuous pass" coverage check) ----
 
 /// A collection of `CapabilityPredicate`s, queryable for whether a `CharacteristicKind` is
 /// discharged by at least one of them.
@@ -3579,9 +3138,7 @@ pub fn undischarged_kinds(registry: &PredicateRegistry) -> Vec<CharacteristicKin
         .collect()
 }
 
-// =================================================================================================
-// Bottom-up envelope composition + the compile decision
-// =================================================================================================
+// ---- Bottom-up envelope composition + the compile decision ----
 
 /// The overall, whole-plan compile decision `compose_envelope` returns: a node verdict is the
 /// meet of its children's verdicts and its own predicate, with `Refuse` dominating and any
@@ -3641,9 +3198,7 @@ pub fn meet(a: CompileDecision, b: CompileDecision) -> CompileDecision {
     }
 }
 
-/// Widens one predicate's `PredicateVerdict` (a single-diagnostic verdict) into a
-/// `CompileDecision` (a `Vec` of diagnostics) so it can be `meet`-folded together with other
-/// nodes'/observations' decisions.
+/// Widens a single-diagnostic `PredicateVerdict` into a `CompileDecision` so it can be `meet`-folded.
 fn verdict_to_decision(verdict: PredicateVerdict) -> CompileDecision {
     match verdict {
         PredicateVerdict::Admit => CompileDecision::Admit,
@@ -3652,29 +3207,8 @@ fn verdict_to_decision(verdict: PredicateVerdict) -> CompileDecision {
     }
 }
 
-/// The overall decision floor for an observed, non-`Proven` `CharacteristicKind` that NO
-/// registered predicate discharges at all — there is no `evaluate` call to make for it, only
-/// `kind`'s own default `Disposition` to fold in directly, restated as a
-/// `CompileDecision`.
-///
-/// - `Disposition::ConfirmOnly`/`Disposition::ConfigPredicate` rest at
-///   `CompileDecision::ConfirmOnly` absent a predicate proving `Admit` — exactly
-///   `Disposition::ConfigPredicate`'s own doc ("`ConfirmOnly` unless/until a registered predicate
-///   proves `Admit`") and `Disposition::ConfirmOnly`'s own doc (recall-preserving only if the
-///   proposer proposes the superset — never promotable to `Admit` without a proof this function has
-///   no predicate to supply). This is the landing spot for e.g. an observed
-///   `CharacteristicKind::CoOccurrenceConstraint`: `default_registry` intentionally registers no
-///   predicate for it at all (`ConfirmOnly` already IS its resting disposition —
-///   there is nothing to prove up to `Admit` and no coverage gap either, since
-///   `undischarged_kinds` only requires coverage for `ConfigPredicate` kinds).
-///   `CharacteristicKind::MprGroupAppend` rests at the SAME `ConfirmOnly` disposition, but (unlike
-///   `CoOccurrenceConstraint`) DOES have a registered predicate,
-///   `MprGroupAppendNonNarrowingPredicate` — registered anyway, to positively verify the baseline
-///   never uses tracked accumulated MPR state to reject a candidate, even though
-///   `undischarged_kinds` would not have required it.
-/// - `Disposition::Proven` never actually reaches this function in practice (callers only invoke
-///   it for observations already filtered to `disposition != Proven`); matched here anyway for the
-///   same no-catch-all discipline the rest of this module holds itself to.
+/// The decision floor for an observed, non-`Proven` kind no registered predicate discharges at all.
+/// See docs/research/pg-foma-capability-design-notes.md.
 fn disposition_floor(disposition: Disposition) -> CompileDecision {
     match disposition {
         Disposition::Proven => CompileDecision::Admit,
@@ -3682,35 +3216,8 @@ fn disposition_floor(disposition: Disposition) -> CompileDecision {
     }
 }
 
-/// Computes `node_id`'s bottom-up `CompileDecision` within `plan`: a node's
-/// verdict is the meet of its children's verdicts and its own node-level predicate, memoized by
-/// `NodeId` in `cache` so a node shared by multiple parents (content-addressed DAG sharing)
-/// is evaluated exactly once, not once per parent referencing it.
-///
-/// A node's "own predicate verdicts" are every predicate in `registry` whose
-/// `CapabilityPredicate::discharges` names a `CharacteristicKind` present in `relevant_kinds`
-/// (every kind `compose_envelope` found the profile observed with a non-`Proven` disposition). The
-/// guard matters because a predicate is free to ignore both `profile` and `plan_node`: calling one
-/// at every node of every plan regardless of whether its characteristic was ever observed could
-/// force an ordinary grammar to `Refuse` over a construct it never uses. Gating on "was this kind
-/// observed anywhere" makes a predicate a pure no-op at every node when its construct genuinely
-/// does not
-/// occur in this grammar, which is always safe (there is nothing to refuse if the construct is
-/// absent) — never a shortcut that could skip a predicate whose construct actually IS present.
-///
-/// A predicate whose construct DOES occur (e.g. `SimultaneousSubruleOverlapPredicate`) is still
-/// called at literally EVERY node the walk visits, not just the "right" one — correctness relies on
-/// well-behaved predicates already being self-gating on node applicability (the contract every
-/// predicate holds itself to: `evaluate` "may return `Refuse` too eagerly, never `Admit` too eagerly", and
-/// `SimultaneousSubruleOverlapPredicate::evaluate`'s own early `Admit` returns for a non-
-/// `RewriteRule` leaf, or a `RewriteRule` leaf whose `PRuleId` isn't the observed `Simultaneous`
-/// rule), not on this function pre-filtering by node shape. This is also exactly how a
-/// `CharacteristicKind::SimultaneousRewrite` observation's `ModelLocation::PhonRule` gets
-/// "mapped" onto its plan node: `crate::enumerate::enumerate_default` mints one
-/// `Leaf { fragment: FragmentSpec::RewriteRule { rule }, .. }` per `PRuleId`, the walk below visits
-/// every leaf, and the predicate's own `PRuleId`-keyed lookup
-/// (`CharacteristicsProfile::simultaneous_detail`) does the actual matching — no separate
-/// `ModelLocation -> NodeId` lookup table is built, because the walk already provides it.
+/// Computes `node_id`'s bottom-up `CompileDecision`, memoized by `NodeId` so shared DAG nodes are evaluated exactly once.
+/// See docs/research/pg-foma-capability-design-notes.md.
 fn node_decision(
     plan: &Plan,
     profile: &CharacteristicsProfile,
@@ -3722,10 +3229,7 @@ fn node_decision(
     if let Some(cached) = cache.get(&node_id) {
         return cached.clone();
     }
-    // A dangling id (not interned in this plan) would be a caller/plan-construction bug, not a
-    // capability judgment -- fold in as vacuously Admit rather than panic, since this function's
-    // job is a conservative DECISION over a well-formed Plan, not plan validation (`crate::plan`
-    // owns that).
+    // A dangling id is a caller/plan-construction bug, not a capability judgment; fold in as Admit rather than panic.
     let Some(kind) = plan.get(node_id) else {
         return CompileDecision::Admit;
     };
@@ -4147,11 +3651,7 @@ mod tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
     }
 
-    /// `crate::enumerate::enumerate_default`'s own test-module helper, duplicated here (not
-    /// shared -- test modules don't share private helpers across files): the grammar's
-    /// phonological rules in cascade order, as literal borrows of `g.prules` (required for
-    /// `enumerate_default`'s pointer-identity `PRuleId` recovery -- see `enumerate::rule_id_of`'s
-    /// own doc).
+    /// `g`'s phonological rules in cascade order, as literal borrows, for `enumerate_default`'s pointer-identity `PRuleId` recovery.
     fn prules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
         g.strata
             .iter()
@@ -4160,10 +3660,7 @@ mod tests {
             .collect()
     }
 
-    /// Builds `g`'s enumerated `crate::plan::Plan` via the REAL `enumerate_default` seam,
-    /// exactly the way a real caller would -- these
-    /// `compose_envelope` tests exercise the full characterize+enumerate+compose pipeline end to
-    /// end, not a hand-built `Plan`.
+    /// Builds `g`'s `Plan` via the real `enumerate_default` seam, so these tests exercise the full pipeline end to end, not a hand-built `Plan`.
     fn enumerated_plan(g: &Grammar) -> Plan {
         let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(g);
@@ -4171,15 +3668,9 @@ mod tests {
         enumerate_default(g, &alphabet, &ro, phon.as_ref())
     }
 
-    // ---------------------------------------------------------------------------------------
-    // characterize(): ConfigPredicate triggers
-    // ---------------------------------------------------------------------------------------
+    // ---- characterize(): ConfigPredicate triggers ----
 
-    /// `MorphRuleDef::Compounding` characterizes at the
-    /// `ConfigPredicate` landing spot, and a single, isolated,
-    /// `multipleApplication`-default (1) `CompoundingRule` characterizes as `compounding.non-recursive`
-    /// (`CompoundingDetail::recursive == false`) — `compounding_recursive`'s reachability pass finds
-    /// no other `Compounding` rule and no self-application to flag.
+    /// A single, isolated, `multipleApplication`-default(1) `CompoundingRule` characterizes as `compounding.non-recursive` at the `ConfigPredicate` landing spot.
     #[test]
     fn characterize_marks_compounding_config_predicate_and_non_recursive() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4231,9 +3722,7 @@ mod tests {
             !details[0].recursive,
             "a single isolated CompoundingRule must characterize non-recursive: {details:?}"
         );
-        // The depth bound for the ordinary head+non-head
-        // shape is exactly 2 stems -- the number `compounding.non-recursive`'s own construction
-        // already covers faithfully.
+        // The depth bound for the ordinary head+non-head shape is exactly 2 stems.
         assert_eq!(
             details[0].max_depth, 2,
             "an isolated multipleApplication-default(1) CompoundingRule must bound at exactly 2 \
@@ -4241,9 +3730,7 @@ mod tests {
         );
     }
 
-    /// A `CompoundingRule` with
-    /// `multipleApplication > 1` self-feeds (the rule may re-apply to its own prior compound output)
-    /// and must characterize `compounding.recursive`.
+    /// A `CompoundingRule` with `multipleApplication > 1` self-feeds and must characterize `compounding.recursive`.
     #[test]
     fn characterize_marks_compounding_recursive_via_multiple_application() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4292,11 +3779,7 @@ mod tests {
         );
     }
 
-    /// The depth bound must SCALE with `multipleApplication`,
-    /// not just cross the non-recursive/recursive threshold -- pins an exact, larger number
-    /// (`multipleApplication="5"` -> `max_depth = 6`), and doubles as a "never a hang" witness: this
-    /// grammar's reachability pass must terminate promptly despite a real self-loop in the "feeds"
-    /// graph.
+    /// The depth bound must scale with `multipleApplication`, not just cross the recursive threshold; also a "never a hang" witness for the self-loop in the "feeds" graph.
     #[test]
     fn compounding_max_depth_scales_with_multiple_application() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4341,9 +3824,7 @@ mod tests {
         );
     }
 
-    /// TWO `CompoundingRule`s sharing one
-    /// stratum must BOTH characterize recursive — either rule's output could feed the other's
-    /// head/non-head search (the coarse, deliberately conservative same-stratum co-location test).
+    /// Two `CompoundingRule`s sharing one stratum must both characterize recursive: either's output could feed the other's search.
     #[test]
     fn characterize_marks_compounding_recursive_via_distinct_rule_same_stratum() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4401,8 +3882,7 @@ mod tests {
             details.iter().all(|d| d.recursive),
             "two co-located CompoundingRules must both characterize recursive: {details:?}"
         );
-        // max_depth(cr1) = 1 (base) + max_apps(cr1)=1 + max_apps(cr2)=1 = 3, and
-        // symmetrically for cr2 (each is the other's own ancestor under same-stratum co-location).
+        // max_depth(cr1) = 1 + max_apps(cr1) + max_apps(cr2) = 3, symmetrically for cr2.
         assert!(
             details.iter().all(|d| d.max_depth == 3),
             "two co-located CompoundingRules (max_apps=1 each) must both bound at exactly 3 \
@@ -4410,9 +3890,7 @@ mod tests {
         );
     }
 
-    /// THREE co-located `CompoundingRule`s (not just two) must
-    /// scale the bound accordingly (`1 + 1 + 1 + 1 = 4`) and must all agree (a genuine mutual cycle
-    /// of size 3, not just a pair) -- also a "never a hang" witness for a larger reachability graph.
+    /// Three co-located `CompoundingRule`s scale the bound to `1+1+1+1=4` and must all agree, a genuine mutual cycle of size 3.
     #[test]
     fn compounding_max_depth_scales_with_co_located_rule_count() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4491,11 +3969,7 @@ mod tests {
         );
     }
 
-    /// The bound is NOT always symmetric across a rule pair --
-    /// two DISTINCT strata where only the EARLIER rule feeds the LATER one (never the reverse) must
-    /// give the earlier rule its own isolated (non-recursive, depth-2) bound while the later rule's
-    /// bound reflects being fed (recursive, depth-3). Pins the directionality
-    /// `compounding_max_depth`'s own doc claims, not just the same-stratum symmetric cases above.
+    /// The bound is not always symmetric: an earlier-stratum rule feeding a later one gives the earlier rule an isolated depth-2 bound while the later rule reflects being fed (depth-3).
     #[test]
     fn compounding_max_depth_is_asymmetric_across_strata() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4577,12 +4051,7 @@ mod tests {
         );
     }
 
-    /// (`compounding_max_depth`'s own doc, "Depth unit" paragraph): a direct, from-scratch
-    /// proof that `detail.recursive == (detail.max_depth > 2)` holds across every shape the tests
-    /// above exercise -- not merely asserted in the doc comment, checked here against
-    /// `compounding_recursive`/`compounding_max_depth` run independently over four distinct grammars
-    /// (isolated non-recursive; self multipleApplication=2; two co-located; earlier-feeds-later
-    /// asymmetric).
+    /// A direct, from-scratch proof that `detail.recursive == (detail.max_depth > 2)` holds across every shape the tests above exercise.
     #[test]
     fn compounding_max_depth_matches_compounding_recursive_boolean_exactly() {
         fn one_rule_xml(multiple_application: &str) -> String {
@@ -4652,11 +4121,7 @@ mod tests {
         }
     }
 
-    /// `MorphRuleOrder::Unordered` characterizes
-    /// `ConfigPredicate` -- this zero-rule stratum is trivially
-    /// `within_bound` (`UnorderedStratumDetail`'s own doc), so its resolved verdict (proven by
-    /// `compose_envelope_confirm_only_for_unordered_within_bound` below) is `ConfirmOnly`, not
-    /// `Refuse`.
+    /// `MorphRuleOrder::Unordered` characterizes `ConfigPredicate`; this zero-rule stratum is trivially `within_bound`, so its resolved verdict is `ConfirmOnly`, not `Refuse`.
     #[test]
     fn characterize_marks_unordered_morph_rule_order_config_predicate() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4724,17 +4189,7 @@ mod tests {
         );
     }
 
-    /// `cover-realizational-morphology-constraints`: `MorphRuleDef::Realizational` characterizes
-    /// `RealizationalMorphology`/`ConfirmOnly`, UNCONDITIONALLY — unlike `Reduplication`/
-    /// `RightToLeftRewrite`/`Metathesis`/`MultiTable`/`QuantifierPattern` (all `ConfigPredicate`,
-    /// because a real compiled/faithful construction exists for SOME of their shapes), no shape of
-    /// `RealizationalRule` has, or could have, a proven no-false-negative admission filter (the
-    /// module top doc's own argument: `real_fs`/`IsBlocked` depend on the word's accumulated FS, not
-    /// anything the FST proposer can see at a single transition) — so there is no Admit-vs-Refuse
-    /// split for a predicate to discriminate; every occurrence is `ConfirmOnly` by construction, not
-    /// merely by omission. `tests/cover_realizational_morphology_constraints.rs` (the crate's own
-    /// integration-test tree) is this claim's oracle-backed proposer-to-confirm containment proof;
-    /// this test pins the `characterize()`/`default_disposition()` mapping itself.
+    /// `MorphRuleDef::Realizational` characterizes `ConfirmOnly` unconditionally: no shape has, or could have, a proven no-false-negative admission filter, since `IsBlocked` depends on the word's accumulated FS.
     #[test]
     fn characterize_marks_realizational_rule_confirm_only() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4779,13 +4234,7 @@ mod tests {
         );
     }
 
-    /// `cover-realizational-morphology-constraints`: a `<MorphemeCoOccurrenceRule>` characterizes
-    /// `CoOccurrenceConstraint`/`ConfirmOnly`, unconditionally — `pg_rules::validity`'s co-occurrence
-    /// check depends on which OTHER morphemes end up in the SAME final derivation (an
-    /// unbounded-window fact no per-transition FST filter can see), so every `CoOccurrenceAdjacency`
-    /// variant (model.rs:508) is confirm-only alike; `co_occurrence_adjacency_label`'s own
-    /// exhaustive match over the enum is the discipline-only proof that adding a variant would break
-    /// this file's build, not a source of per-variant disposition splitting.
+    /// A `<MorphemeCoOccurrenceRule>` characterizes `ConfirmOnly` unconditionally: the co-occurrence check depends on other morphemes in the same final derivation, an unbounded-window fact no per-transition FST filter can see.
     #[test]
     fn characterize_marks_morpheme_co_occurrence_confirm_only() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4840,9 +4289,7 @@ mod tests {
         );
     }
 
-    /// `cover-realizational-morphology-constraints`: an `<AllomorphCoOccurrenceRule>` (attached to a
-    /// ROOT allomorph, distinct from the per-morpheme rule above per `AllomorphCoOccurrenceRuleDef`'s
-    /// own doc) characterizes the SAME `CoOccurrenceConstraint`/`ConfirmOnly`.
+    /// An `<AllomorphCoOccurrenceRule>` on a root allomorph characterizes the same `ConfirmOnly`.
     #[test]
     fn characterize_marks_allomorph_co_occurrence_confirm_only() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4889,9 +4336,7 @@ mod tests {
         );
     }
 
-    /// Two tables with DISJOINT representations characterize
-    /// `MultiTable`/`ConfigPredicate` (`ConfirmOnly` unless/until a predicate proves
-    /// `Admit`), since per-rule table resolution is faithful.
+    /// Two tables with disjoint representations characterize `MultiTable`/`ConfigPredicate`.
     #[test]
     fn characterize_marks_disjoint_multi_table_config_predicate() {
         let g = load(TWO_TABLE_DISJOINT_XML);
@@ -4915,10 +4360,7 @@ mod tests {
         assert!(detail.shared_representation_witness.is_none());
     }
 
-    /// Positive witness: `MultiTableFaithfulThreadingPredicate` admits `ConfirmOnly`
-    /// (never `Refuse`) for two tables with disjoint representations — the exact
-    /// `two-table-symbol-divergence` shape `tests/two_table_symbol_divergence.rs` proves matches
-    /// the oracle end to end.
+    /// Positive witness: the predicate admits `ConfirmOnly`, never `Refuse`, for disjoint tables.
     #[test]
     fn multi_table_predicate_confirm_only_when_tables_disjoint() {
         let g = load(TWO_TABLE_DISJOINT_XML);
@@ -4933,12 +4375,7 @@ mod tests {
         );
     }
 
-    /// Positive witness: two tables that SHARE
-    /// a literal representation must `ConfirmOnly`, not `Refuse` — a shared
-    /// representation is a FALSE-NEGATIVE risk (render-time cross-table aliasing,
-    /// `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` for rewrite rules,
-    /// `crate::replace::slot_candidates`'s own alias-expanded candidate sets for `MetathesisRule`,
-    /// closes it for both), not a false-positive one.
+    /// Positive witness: two tables sharing a literal representation must `ConfirmOnly`, not `Refuse` — a false-negative risk closed at render time, not a false-positive one.
     #[test]
     fn multi_table_predicate_confirm_only_when_tables_share_a_representation() {
         let g = load(TWO_TABLE_OVERLAPPING_XML);
@@ -4963,8 +4400,7 @@ mod tests {
         );
     }
 
-    /// A single-table grammar never observes `MultiTable` at all, and the predicate vacuously
-    /// `Admit`s -- the byte-identical, never-buggy ordinary case.
+    /// A single-table grammar never observes `MultiTable`, and the predicate vacuously `Admit`s.
     #[test]
     fn multi_table_predicate_admits_vacuously_for_single_table_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SingleTable</Name>
@@ -4989,9 +4425,7 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // RightToLeftRewrite
-    // ---------------------------------------------------------------------------------------
+    // ---- RightToLeftRewrite ----
 
     const RTL_PLAIN_XML: &str = r#"<HermitCrabInput><Language><Name>RtlPlain</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
@@ -5014,9 +4448,7 @@ mod tests {
       <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtl"><Name>S</Name></Stratum></Strata>
     </Language></HermitCrabInput>"#;
 
-    /// `characterize` marks a plain (in-shape) `Dir::RightToLeft` rule `ConfigPredicate`, with
-    /// `reversal_construction_attempted == true` -- the reversal construction can genuinely be
-    /// attempted for this rule's own LHS/RHS shape (both fixed single segments, no environment).
+    /// A plain, in-shape `Dir::RightToLeft` rule characterizes `ConfigPredicate` with `reversal_construction_attempted == true`.
     #[test]
     fn characterize_marks_right_to_left_rewrite_config_predicate_when_shape_supported() {
         let g = load(RTL_PLAIN_XML);
@@ -5045,9 +4477,7 @@ mod tests {
         );
     }
 
-    /// Positive witness: `RightToLeftRewriteFaithfulReversalPredicate` returns `ConfirmOnly`
-    /// (never `Admit` -- no proven no-false-positive admission filter exists, module doc) for an
-    /// in-shape `Dir::RightToLeft` rule.
+    /// Positive witness: the predicate returns `ConfirmOnly`, never `Admit`, for an in-shape rule.
     #[test]
     fn right_to_left_predicate_confirm_only_for_supported_shape() {
         let g = load(RTL_PLAIN_XML);
@@ -5060,8 +4490,7 @@ mod tests {
         );
     }
 
-    /// A plain `Dir::LeftToRight` rule never observes `RightToLeftRewrite` at all, and the
-    /// predicate vacuously `Admit`s -- the byte-identical, never-touched ordinary case.
+    /// A plain `Dir::LeftToRight` rule never observes `RightToLeftRewrite`, and the predicate vacuously `Admit`s.
     #[test]
     fn right_to_left_predicate_admits_vacuously_for_left_to_right_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>LtrPlain</Name>
@@ -5104,13 +4533,7 @@ mod tests {
         );
     }
 
-    /// A positive `ConfirmOnly` witness: a `Dir::RightToLeft` rule whose LHS
-    /// is a genuinely UNBOUNDED (`max="-1"`) `Quantifier` (`OptionalSegmentSequence`).
-    /// `pattern_slots` ACCEPTS a well-formed unbounded quantifier (`crate::replace::Slot::Repeat`'s
-    /// `max: Option<u32>` widening), so `rtl_reversal_construction_attempted` (the SAME Dir-agnostic
-    /// structural probe `QuantifierPatternDetail::compile_attempted` also reuses) succeeds for
-    /// this rule too, and the predicate must `ConfirmOnly` it (never silently `Admit` --
-    /// still no proven no-false-positive admission-filter argument).
+    /// A positive `ConfirmOnly` witness: a `Dir::RightToLeft` rule whose LHS is a genuinely unbounded `Quantifier`, which `pattern_slots` accepts, so the predicate must `ConfirmOnly`, never silently `Admit`.
     #[test]
     fn right_to_left_predicate_confirm_only_for_unbounded_quantifier_shaped_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlQuantifier</Name>
@@ -5160,16 +4583,9 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // `Anchor`/`Segments` do not disqualify a `Dir::RightToLeft` rule (a same-table `Segments`,
-    // any `Anchor`); a cross-table `Segments` and a disagree-polarity alpha var still do, with a
-    // PRECISE named witness (`unsupported_reason`) instead of a laundry-list message.
-    // ---------------------------------------------------------------------------------------
+    // ---- `Anchor`/same-table `Segments` do not disqualify; cross-table/disagree-polarity still do ----
 
-    /// Positive witness: an `Anchor`-shaped `Dir::RightToLeft` rule (right environment is JUST
-    /// `finalBoundaryCondition="true"`, an empty `<PhoneticSequence/>`) characterizes
-    /// `reversal_construction_attempted == true`, and the predicate
-    /// `ConfirmOnly`s it.
+    /// Positive witness: an `Anchor`-shaped `Dir::RightToLeft` rule characterizes `reversal_construction_attempted == true`, and the predicate `ConfirmOnly`s it.
     #[test]
     fn right_to_left_predicate_confirm_only_for_anchor_shaped_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlAnchor</Name>
@@ -5231,10 +4647,7 @@ mod tests {
         );
     }
 
-    /// Positive witness: a same-table `Segments` node (`<Segments><PhoneticShape>a</PhoneticShape>`,
-    /// no `characterDefinitionTable` attribute -- defaults to the pattern's own table) in a
-    /// `Dir::RightToLeft` rule's own right environment now characterizes
-    /// `reversal_construction_attempted == true`, and the predicate `ConfirmOnly`s it.
+    /// Positive witness: a same-table `Segments` node in a `Dir::RightToLeft` rule's right environment characterizes `reversal_construction_attempted == true`, and the predicate `ConfirmOnly`s it.
     #[test]
     fn right_to_left_predicate_confirm_only_for_same_table_segments_shaped_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlSegments</Name>
@@ -5293,9 +4706,7 @@ mod tests {
         );
     }
 
-    /// Positive witness: a `Segments` node referencing a DIFFERENT `CharacterDefinitionTable` is
-    /// admitted to candidate construction as a table-qualified feature constraint. It remains
-    /// `ConfirmOnly`, since confirmation prunes the deliberately recall-safe token union.
+    /// Positive witness: a cross-table `Segments` node is admitted as a table-qualified feature constraint, staying `ConfirmOnly` since confirmation prunes the recall-safe token union.
     #[test]
     fn right_to_left_predicate_accepts_cross_table_segments_for_confirmation() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlCrossTableSegments</Name>
@@ -5355,13 +4766,7 @@ mod tests {
         );
     }
 
-    /// Negative witness: a disagree-polarity (`polarity="minus"`) `AlphaVariable` stays refused --
-    /// deliberately, NOT because of anything reversal-specific (`crate::replace` module doc's own
-    /// "Additional RightToLeftRewrite pattern shapes" section: this is an orthogonal,
-    /// pre-existing gap in `resolve_alpha_tuples`' own joint-agreement filter, unrelated to
-    /// direction). `unsupported_reason` names it precisely
-    /// (`UnsupportedPatternNode::AlphaDisagreePolarity`), and the predicate `Refuse`s naming the
-    /// same construct.
+    /// Negative witness: a disagree-polarity `AlphaVariable` stays refused, but not for anything reversal-specific — an orthogonal, pre-existing gap unrelated to direction.
     #[test]
     fn right_to_left_predicate_refuses_disagree_polarity_alpha_var_shaped_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlDisagree</Name>
@@ -5439,14 +4844,9 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Metathesis
-    // ---------------------------------------------------------------------------------------
+    // ---- Metathesis ----
 
-    /// Synthetic, delanguaged fixture: two adjacent, distinct, singleton-class switch segments,
-    /// no `multipleApplicationOrder` (defaults `Dir::LeftToRight`) -- the well-formed switch-tag
-    /// convention (`leftSwitch` on the node physically LAST), the exact shape
-    /// `tests/phase_c_metathesis.rs`'s own containment fixture proves oracle-exact.
+    /// Two adjacent, distinct, singleton-class switch segments, no `multipleApplicationOrder` (defaults `Dir::LeftToRight`), the well-formed switch-tag convention.
     const METATHESIS_PLAIN_XML: &str = r#"<HermitCrabInput><Language><Name>MetaPlain</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>
@@ -5474,9 +4874,7 @@ mod tests {
       <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="mrPlain"><Name>S</Name></Stratum></Strata>
     </Language></HermitCrabInput>"#;
 
-    /// `characterize` marks a plain, in-shape `Dir::LeftToRight` metathesis rule `ConfigPredicate`,
-    /// with `swap_construction_attempted == true` -- the swap construction can genuinely be
-    /// attempted for this rule's own pattern shape (two singleton-class switches, no environment).
+    /// A plain, in-shape `Dir::LeftToRight` metathesis rule characterizes `ConfigPredicate` with `swap_construction_attempted == true`.
     #[test]
     fn characterize_marks_metathesis_config_predicate_when_shape_supported() {
         let g = load(METATHESIS_PLAIN_XML);
@@ -5505,9 +4903,7 @@ mod tests {
         );
     }
 
-    /// Positive witness: `MetathesisFaithfulSwapPredicate` returns `ConfirmOnly` (never `Admit`
-    /// -- no proven no-false-negative admission filter exists, module doc) for an in-shape
-    /// `Dir::LeftToRight` metathesis rule.
+    /// Positive witness: the predicate returns `ConfirmOnly`, never `Admit`, for an in-shape rule.
     #[test]
     fn metathesis_predicate_confirm_only_for_supported_shape() {
         let g = load(METATHESIS_PLAIN_XML);
@@ -5520,8 +4916,7 @@ mod tests {
         );
     }
 
-    /// A grammar with no `PhonRuleDef::Metathesis` at all never observes `Metathesis`, and the
-    /// predicate vacuously `Admit`s -- the byte-identical, never-touched ordinary case.
+    /// A grammar with no `PhonRuleDef::Metathesis` never observes it, and the predicate vacuously `Admit`s.
     #[test]
     fn metathesis_predicate_admits_vacuously_for_rule_without_metathesis() {
         let g = load(RTL_PLAIN_XML);
@@ -5540,19 +4935,7 @@ mod tests {
         );
     }
 
-    /// Positive witness: a `Dir::RightToLeft` metathesis rule, otherwise identical in shape to
-    /// `METATHESIS_PLAIN_XML` above, characterizes `swap_construction_attempted == true` and the
-    /// predicate returns `ConfirmOnly` -- the
-    /// mirror-and-reverse construction (`crate::replace::compile_metathesis_rule`'s module doc,
-    /// "`Dir::RightToLeft`" section) makes this rule genuinely compilable, matching
-    /// `RightToLeftRewrite`'s own disposition and for the identical reason (a proven superset of
-    /// the true RTL relation, sound under propose-and-confirm, not proven exact -- never `Admit`).
-    /// The construction's own exactness against `pg_rules::metathesis` (the containment obligation)
-    /// and its genuine divergence from compiling as if `Dir::LeftToRight` are pinned at the FST
-    /// level in `rust/crates/pg-foma/tests/phase_c_metathesis.rs`
-    /// (`metathesis_right_to_left_reversal_matches_oracle_exactly`/
-    /// `metathesis_right_to_left_differs_from_compiling_as_left_to_right`), not here -- this test's
-    /// own job is only the capability-gate verdict.
+    /// Positive witness: a `Dir::RightToLeft` metathesis rule, otherwise identical to `METATHESIS_PLAIN_XML`, characterizes `swap_construction_attempted == true` and `ConfirmOnly`, this test's job being only the capability-gate verdict.
     #[test]
     fn metathesis_predicate_confirm_only_for_right_to_left_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>MetaRtl</Name>
@@ -5607,9 +4990,7 @@ mod tests {
         );
     }
 
-    /// A `finalBoundaryCondition="true"` pattern lowers to a trailing `crate::replace::Slot::Anchor`,
-    /// which is erased rather than enforced -- so the swap construction IS attempted and the verdict is
-    /// `ConfirmOnly`, an over-approximation confirm prunes, never `Refuse`.
+    /// A trailing `Slot::Anchor` is erased rather than enforced, so the swap construction is attempted and the verdict is `ConfirmOnly`, never `Refuse`.
     #[test]
     fn metathesis_predicate_confirm_only_for_anchor_shaped_pattern() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>MetaAnchor</Name>
@@ -5655,17 +5036,9 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // CircumfixOutputAction
-    // ---------------------------------------------------------------------------------------
+    // ---- CircumfixOutputAction ----
 
-    /// Synthetic, delanguaged fixture: a single `MorphologicalRule` whose only allomorph has a
-    /// 2-part `MorphologicalInput` (`qA`, `qB`) but a RHS that `CopyFromInput`s only `qA` — a
-    /// null-role subtractive shape: `qB` is matched/consumed
-    /// but never reaches the output. `classify_affix` reads this as `Role::None` (no `InsertSegments`
-    /// at all, so no leading/trailing insert), and `crate::emit::is_structural_rule`'s own
-    /// `Role::None` branch admits it (`rhs_drops_lhs_material` is `true`: `qB` is never copied) — the
-    /// IN-SCOPE case this change compiles faithfully via `build_structural_composites`.
+    /// A 2-part LHS (`qA`, `qB`) whose RHS `CopyFromInput`s only `qA`: a null-role subtractive shape that `classify_affix` reads as `Role::None`, the in-scope case `is_structural_rule` admits.
     const CIRCUMFIX_STRUCTURAL_XML: &str = r#"<HermitCrabInput><Language><Name>CircStruct</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -5694,13 +5067,7 @@ mod tests {
       </Strata>
     </Language></HermitCrabInput>"#;
 
-    /// Same 2-part-LHS-drop shape, but the RHS uses `ModifyFromInput` (an ablaut/simulfix-style
-    /// "process morph", never compilable as literal strings) instead of ever `CopyFromInput`ing
-    /// either part -- `classify_affix` reads this as `Role::Process` (no `Copy` action at all, but a
-    /// `Modify` is present), which `crate::emit::is_structural_rule`'s own match falls through to its
-    /// `_ => false` arm for -- the OUT-OF-SCOPE case that must stay honestly unsupported (the real
-    /// compiler already reports it `uncovered` via `has_unemittable_action`, never silently
-    /// mis-compiled).
+    /// Same 2-part-LHS-drop shape, but the RHS uses `ModifyFromInput` instead of `CopyFromInput`: `classify_affix` reads this as `Role::Process`, the out-of-scope case that must stay honestly unsupported.
     const CIRCUMFIX_PROCESS_XML: &str = r#"<HermitCrabInput><Language><Name>CircProcess</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -5730,20 +5097,14 @@ mod tests {
     </Language></HermitCrabInput>"#;
 
     fn mrule_leaf(rule: MRuleId) -> PlanNodeKind {
-        // `CircumfixOutputAction` has no dedicated `Provenance`/`FragmentSpec` pairing of its own
-        // (module doc, "Judgment call: constructs with no distinct plan node") -- any
-        // `PlanNodeKind` works for `CircumfixStructuralCompositePredicate::evaluate`, which
-        // ignores `plan_node` entirely (same node-agnostic convention `leaf_for`'s own callers
-        // already rely on for `MultiTableFaithfulThreadingPredicate`). `Provenance::MorphRule`
-        // is the closest-fitting tag, reused here purely for readability at the call site.
+        // Node-agnostic: `CircumfixStructuralCompositePredicate::evaluate` ignores `plan_node` entirely.
         PlanNodeKind::Leaf {
             fragment: FragmentSpec::LexiconFragment { entries: None },
             provenance: Provenance::MorphRule(rule),
         }
     }
 
-    /// `characterize` marks the IN-SCOPE (`Role::None`, structurally routed) drop shape
-    /// `ConfigPredicate`, with `structural_composite_attempted == true`.
+    /// The in-scope `Role::None` drop shape characterizes `ConfigPredicate` with `structural_composite_attempted == true`.
     #[test]
     fn characterize_marks_circumfix_output_action_config_predicate_when_structural() {
         let g = load(CIRCUMFIX_STRUCTURAL_XML);
@@ -5773,10 +5134,7 @@ mod tests {
         );
     }
 
-    /// `characterize` marks the OUT-OF-SCOPE (`Role::Process`, never structurally routed) drop
-    /// shape with `structural_composite_attempted == false`, even though it is STILL observed as
-    /// `CircumfixOutputAction` (the characteristic fires on the structural shape alone, independent
-    /// of which `OutputAction` variant realizes it -- module doc on `output_action_label`).
+    /// The out-of-scope `Role::Process` drop shape is still observed as `CircumfixOutputAction`, independent of which `OutputAction` variant realizes it.
     #[test]
     fn characterize_marks_circumfix_output_action_not_structural_for_process_role() {
         let g = load(CIRCUMFIX_PROCESS_XML);
@@ -5804,9 +5162,7 @@ mod tests {
         );
     }
 
-    /// Positive witness: `CircumfixStructuralCompositePredicate` returns `ConfirmOnly` (never
-    /// `Admit` -- no proven no-false-negative admission filter exists, module doc) for the IN-SCOPE
-    /// structural drop shape.
+    /// Positive witness: the predicate returns `ConfirmOnly`, never `Admit`, for the in-scope shape.
     #[test]
     fn circumfix_output_action_predicate_confirm_only_for_structural_case() {
         let g = load(CIRCUMFIX_STRUCTURAL_XML);
@@ -5820,9 +5176,7 @@ mod tests {
         );
     }
 
-    /// Negative witness: `CircumfixStructuralCompositePredicate` `Refuse`s the OUT-OF-SCOPE
-    /// `Role::Process` drop shape -- the real compiler already honestly skips it everywhere, but a
-    /// grammar depending on it must be refused rather than silently missing recall.
+    /// The out-of-scope `Role::Process` drop shape, checked against the predicate's actual verdict.
     #[test]
     fn circumfix_output_action_predicate_refuses_non_structural_case() {
         let g = load(CIRCUMFIX_PROCESS_XML);
@@ -5834,9 +5188,7 @@ mod tests {
         );
     }
 
-    /// A grammar with no LHS-material-dropping allomorph at all (the ordinary affix fixture already
-    /// used elsewhere in this module) never observes `CircumfixOutputAction`, and the predicate
-    /// vacuously `Admit`s -- the byte-identical, never-touched ordinary case.
+    /// A grammar with no LHS-material-dropping allomorph never observes `CircumfixOutputAction`, and the predicate vacuously `Admit`s.
     #[test]
     fn circumfix_output_action_predicate_admits_vacuously_without_a_drop() {
         let g = load(RTL_PLAIN_XML);
@@ -5856,16 +5208,9 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Reduplication
-    // ---------------------------------------------------------------------------------------
+    // ---- Reduplication ----
 
-    /// Synthetic, delanguaged fixture: an `AffixProcessRule` whose only allomorph `CopyFromInput`s
-    /// the SAME part twice — `rhs_has_true_reduplication`'s own trigger, independent of the
-    /// `redupMorphType` attribute (`characterize_allomorph`'s own doc: the hint's mere presence is
-    /// not the trigger). The IN-SCOPE case: `crate::peel::ReduplicationPeeler::new`'s own
-    /// `is_reduplication_rule` peels any `AffixProcessRule` allomorph classifying
-    /// `Role::Reduplication`.
+    /// An `AffixProcessRule` allomorph `CopyFromInput`s the same part twice, the in-scope peel-eligible case.
     const REDUP_AFFIX_PROCESS_XML: &str = r#"<HermitCrabInput><Language><Name>RedupAffixProcess</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -5895,10 +5240,7 @@ mod tests {
       </Strata>
     </Language></HermitCrabInput>"#;
 
-    /// Same true-reduplication RHS shape, but owned by a `RealizationalRule` instead of an
-    /// `AffixProcessRule` — the OUT-OF-SCOPE case: `crate::peel::ReduplicationPeeler::new`'s own
-    /// `is_reduplication_rule` never classifies a `RealizationalRule` allomorph at all, regardless
-    /// of its RHS shape (a real, faithfully-preserved C# quirk, that function's own doc).
+    /// Same shape, but owned by a `RealizationalRule`: the out-of-scope case, a real C# quirk.
     const REDUP_REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RedupRealizational</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -5928,8 +5270,7 @@ mod tests {
       </Strata>
     </Language></HermitCrabInput>"#;
 
-    /// `characterize` marks the IN-SCOPE (`AffixProcessRule`-owned) true-reduplication shape
-    /// `ConfigPredicate`, with `peel_eligible_rule_kind == true`.
+    /// The in-scope `AffixProcessRule`-owned shape characterizes `ConfigPredicate` with `peel_eligible_rule_kind == true`.
     #[test]
     fn characterize_marks_reduplication_config_predicate_for_affix_process_rule() {
         let g = load(REDUP_AFFIX_PROCESS_XML);
@@ -5956,10 +5297,7 @@ mod tests {
         );
     }
 
-    /// `characterize` still observes `Reduplication` for the OUT-OF-SCOPE (`RealizationalRule`)
-    /// shape (the characteristic fires on the true-redup RHS shape alone, independent of owning
-    /// rule kind — mirroring `CircumfixOutputAction`'s own "still observed, just not attempted"
-    /// convention), but reports `peel_eligible_rule_kind == false`.
+    /// The out-of-scope `RealizationalRule` shape still observes `Reduplication`, but reports `peel_eligible_rule_kind == false`.
     #[test]
     fn characterize_marks_reduplication_not_peel_eligible_for_realizational_rule() {
         let g = load(REDUP_REALIZATIONAL_XML);
@@ -5984,9 +5322,7 @@ mod tests {
         );
     }
 
-    /// Positive witness: `ReduplicationPeelSupportedPredicate` returns `ConfirmOnly` (never
-    /// `Admit` — no proven no-false-negative admission filter exists, that predicate's own doc) for
-    /// the IN-SCOPE `AffixProcessRule`-owned shape.
+    /// Positive witness: the predicate returns `ConfirmOnly`, never `Admit`, for the in-scope shape.
     #[test]
     fn reduplication_predicate_confirm_only_for_affix_process_rule() {
         let g = load(REDUP_AFFIX_PROCESS_XML);
@@ -6000,9 +5336,7 @@ mod tests {
         );
     }
 
-    /// Negative witness: `ReduplicationPeelSupportedPredicate` `Refuse`s the OUT-OF-SCOPE
-    /// `RealizationalRule`-owned shape — the real peeler already honestly never proposes it, but a
-    /// grammar depending on it must be refused rather than silently missing recall.
+    /// Negative witness: the predicate `Refuse`s the out-of-scope `RealizationalRule`-owned shape.
     #[test]
     fn reduplication_predicate_refuses_realizational_rule() {
         let g = load(REDUP_REALIZATIONAL_XML);
@@ -6018,9 +5352,7 @@ mod tests {
         }
     }
 
-    /// A grammar with no true reduplication at all (the ordinary affix fixture already used
-    /// elsewhere in this module) never observes `Reduplication`, and the predicate vacuously
-    /// `Admit`s — the byte-identical, never-touched ordinary case.
+    /// A grammar with no true reduplication never observes it, and the predicate vacuously `Admit`s.
     #[test]
     fn reduplication_predicate_admits_vacuously_without_true_reduplication() {
         let g = load(RTL_PLAIN_XML);
@@ -6040,15 +5372,9 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // QuantifierPattern
-    // ---------------------------------------------------------------------------------------
+    // ---- QuantifierPattern ----
 
-    /// Synthetic, delanguaged fixture: an ordinary fixed-segment feature rewrite (`a -> b`) gated
-    /// by a BOUNDED quantifier (`min="1" max="2"`) in its own right environment — the shape
-    /// `tests/phase_c_quantifier.rs`'s own containment fixture proves oracle-exact (`crate::replace`
-    /// module doc's "Confirm-engine finding": a quantifier used INSIDE an environment has no
-    /// width-matching gap, unlike one used as the LHS/RHS focus itself).
+    /// An ordinary fixed-segment rewrite gated by a bounded (`min="1" max="2"`) quantifier in its right environment.
     const QUANT_BOUNDED_ENV_XML: &str = r#"<HermitCrabInput><Language><Name>QuantBoundedEnv</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>
@@ -6075,8 +5401,7 @@ mod tests {
       <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prQuantBounded"><Name>S</Name></Stratum></Strata>
     </Language></HermitCrabInput>"#;
 
-    /// Same shape, but the right-environment quantifier is genuinely UNBOUNDED (`max="-1"`, the
-    /// DTD's own Kleene sentinel) — the out-of-scope config this change must never silently compile.
+    /// Same shape, but the right-environment quantifier is genuinely unbounded (`max="-1"`).
     const QUANT_UNBOUNDED_ENV_XML: &str = r#"<HermitCrabInput><Language><Name>QuantUnboundedEnv</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>
@@ -6103,8 +5428,7 @@ mod tests {
       <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prQuantUnbounded"><Name>S</Name></Stratum></Strata>
     </Language></HermitCrabInput>"#;
 
-    /// `characterize` marks a rule using a BOUNDED environment quantifier `ConfigPredicate`, with
-    /// `all_bounded == true` and `compile_attempted == true`.
+    /// A bounded environment quantifier characterizes `ConfigPredicate` with `all_bounded == true` and `compile_attempted == true`.
     #[test]
     fn characterize_marks_quantifier_pattern_config_predicate_when_bounded() {
         let g = load(QUANT_BOUNDED_ENV_XML);
@@ -6134,8 +5458,7 @@ mod tests {
         );
     }
 
-    /// Positive witness: `QuantifierBoundedExpansionPredicate` returns `ConfirmOnly` (never
-    /// `Admit`/`Refuse`) for a bounded, compile-attempted quantifier rule.
+    /// Positive witness: the predicate returns `ConfirmOnly`, never `Admit`/`Refuse`, for a bounded rule.
     #[test]
     fn quantifier_predicate_confirm_only_for_bounded_shape() {
         let g = load(QUANT_BOUNDED_ENV_XML);
@@ -6148,11 +5471,7 @@ mod tests {
         );
     }
 
-    /// `characterize` marks a rule using an UNBOUNDED environment quantifier with
-    /// `all_bounded == false` -- still an accurate STRUCTURAL fact (`QuantifierPatternDetail::
-    /// all_bounded`'s own doc: informational only since `build-unbounded-quantifier-support`, no
-    /// longer disposition-driving -- see `quantifier_predicate_confirm_only_for_unbounded_shape`
-    /// immediately below for what actually drives this rule's verdict now).
+    /// An unbounded environment quantifier characterizes `all_bounded == false`, still accurate but no longer disposition-driving.
     #[test]
     fn characterize_marks_quantifier_unbounded_as_not_all_bounded() {
         let g = load(QUANT_UNBOUNDED_ENV_XML);
@@ -6166,12 +5485,7 @@ mod tests {
         );
     }
 
-    /// A positive `ConfirmOnly` witness: `QuantifierBoundedExpansionPredicate`
-    /// does not `Refuse` a rule merely for using a genuinely unbounded quantifier -- this fixture's
-    /// quantifier is used in a RIGHT ENVIRONMENT (well-formed, alpha-free, non-empty children), so
-    /// `crate::replace::pattern_slots` accepts the rule's whole pattern shape
-    /// (`compile_attempted == true`), and the predicate must `ConfirmOnly` it (never `Admit` --
-    /// still no proven no-false-negative admission-filter argument).
+    /// A positive `ConfirmOnly` witness: the predicate does not `Refuse` merely for an unbounded quantifier, once `pattern_slots` accepts the whole pattern shape.
     #[test]
     fn quantifier_predicate_confirm_only_for_unbounded_shape() {
         let g = load(QUANT_UNBOUNDED_ENV_XML);
@@ -6193,8 +5507,7 @@ mod tests {
         );
     }
 
-    /// A rule that never uses `Quantifier` at all never observes `QuantifierPattern`, and the
-    /// predicate vacuously `Admit`s (reuses `RTL_PLAIN_XML`, already Quantifier-free).
+    /// A rule that never uses `Quantifier` never observes `QuantifierPattern`, and the predicate vacuously `Admit`s.
     #[test]
     fn quantifier_predicate_admits_vacuously_for_rule_without_quantifier() {
         let g = load(RTL_PLAIN_XML);
@@ -6239,9 +5552,7 @@ mod tests {
       </Strata>
     </Language></HermitCrabInput>"#;
 
-    /// An ordinary affix + iterative-rewrite grammar (no Compounding, no Unordered strata, no MPR
-    /// groups, no Simultaneous/RightToLeft/Metathesis rules, no true reduplication, no dropped-LHS
-    /// output) must characterize with NO ConfigPredicate observations at all.
+    /// An ordinary affix + iterative-rewrite grammar must characterize with no `ConfigPredicate` observations.
     #[test]
     fn ordinary_affix_and_iterative_rewrite_grammar_characterizes_proven() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>Ordinary</Name>
@@ -6317,9 +5628,7 @@ mod tests {
             .any(|o| o.kind == CharacteristicKind::OrderedMorphRuleApplication));
     }
 
-    // ---------------------------------------------------------------------------------------
-    // simultaneous.subrule-overlap
-    // ---------------------------------------------------------------------------------------
+    // ---- simultaneous.subrule-overlap ----
 
     const SIMULTANEOUS_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>SimultaneousOverlapProbe</Name>
       <MorphologicalPhonologicalRuleFeatures>
@@ -6397,9 +5706,7 @@ mod tests {
         }
     }
 
-    /// Admit when the two subrules' MPR gates are provably disjoint (one requires what the other
-    /// excludes) -- the "cheap orthogonality early-out" for the common well-authored
-    /// case, and neither subrule is self_opaquing.
+    /// Admit when the two subrules' MPR gates are provably disjoint and neither is self_opaquing.
     #[test]
     fn simultaneous_predicate_admits_mpr_disjoint_subrules() {
         let g = load(SIMULTANEOUS_PROBE_XML);
@@ -6418,10 +5725,7 @@ mod tests {
         );
     }
 
-    /// Refuse when neither subrule declares an MPR gate at all (overlap cannot be ruled out) and
-    /// no `lower.rs` automaton intersection exists yet to prove non-overlap precisely -- the
-    /// conservative fallback this step actually implements (see
-    /// `SimultaneousSubruleOverlapPredicate`'s own doc).
+    /// Refuse when neither subrule declares an MPR gate, so overlap cannot be ruled out.
     #[test]
     fn simultaneous_predicate_refuses_when_overlap_cannot_be_ruled_out() {
         let g = load(SIMULTANEOUS_PROBE_XML);
@@ -6442,8 +5746,7 @@ mod tests {
         }
     }
 
-    /// Refuse when a subrule is self_opaquing -- do not attempt Admit regardless of mpr
-    /// gating.
+    /// Refuse when a subrule is self_opaquing; do not attempt Admit regardless of mpr gating.
     #[test]
     fn simultaneous_predicate_refuses_self_opaquing_subrule() {
         let g = load(SIMULTANEOUS_PROBE_XML);
@@ -6496,27 +5799,10 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // The real automaton intersection replacing the
-    // conservative unconditional-Refuse fallback. No `PhonologicalFeatureSystem` in any of these
-    // three fixtures -- deliberately: every `Context` node's self-opaquing pin-bit computation
-    // (`pg_grammar::load::pattern_node_pin_bits`) is vacuously empty with zero declared features,
-    // so `self_opaquing` is `false` for every subrule below regardless of environment shape,
-    // isolating exactly the NEW code path (the survives-both-early-outs branch) these tests target
-    // -- the SAME reason `SIMULTANEOUS_PROBE_XML`'s own `prAdmit`/`prRefuseOverlap` rules avoid
-    // self-opaquing by declaring no `Environment` at all; these need a real environment, so they
-    // avoid it via "no features to mismatch on" instead. Also no MPR features declared, so
-    // `mpr_gates_disjoint` is `false` (two empty `MprSet`s never overlap) for every pair -- the
-    // mpr-gate early-out never fires either, so every case here is decided purely by the NEW
-    // lowered-span intersection.
-    // ---------------------------------------------------------------------------------------
+    // ---- The real automaton intersection, isolated from the self-opaquing/mpr-gate early-outs ----
+    // See docs/research/pg-foma-capability-design-notes.md.
 
-    /// Two subrules whose RIGHT environments are mutually exclusive `SegmentNaturalClass`es
-    /// (`Front` = {`i`}, `Back` = {`u`}, no shared segment) -- genuinely CANNOT overlap at the
-    /// shared focus position. Neither is mpr-disjoint nor self-opaquing, so the PRIOR
-    /// unconditional-`Refuse` fallback would have rounded this pair to `Refuse`; the real
-    /// automaton intersection now proves their spans disjoint and `Admit`s -- strictly fewer
-    /// refusals, never more.
+    /// Two subrules whose right environments are mutually exclusive `SegmentNaturalClass`es genuinely cannot overlap; the real automaton intersection proves their spans disjoint and `Admit`s.
     #[test]
     fn simultaneous_predicate_admits_genuinely_non_overlapping_subrules_via_lowered_span() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerAdmit</Name>
@@ -6554,9 +5840,7 @@ mod tests {
         };
         assert_eq!(r.mode, RewriteMode::Simultaneous);
         assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
-        // No MPR features declared anywhere in this fixture -- both subrules' gates are empty, so
-        // `mpr_gates_disjoint` cannot possibly short-circuit this pair (two empty `MprSet`s never
-        // "overlap"); the outcome below is decided purely by the new lowered-span intersection.
+        // No MPR features declared, so `mpr_gates_disjoint` cannot short-circuit; decided purely by the lowered-span intersection.
         assert!(r.subrules[0].required_mpr.is_empty() && r.subrules[0].excluded_mpr.is_empty());
         assert!(r.subrules[1].required_mpr.is_empty() && r.subrules[1].excluded_mpr.is_empty());
 
@@ -6571,9 +5855,7 @@ mod tests {
         );
     }
 
-    /// Two subrules whose RIGHT environments genuinely OVERLAP (one accepts `{Front, Back}`, the
-    /// other accepts `{Back}` alone -- a shared member, not an identical automaton) must still
-    /// `Refuse`, with a witness naming the real intersection.
+    /// Two subrules whose right environments genuinely overlap (a shared member, not identical automata) must still `Refuse`, with a witness naming the real intersection.
     #[test]
     fn simultaneous_predicate_refuses_genuinely_overlapping_subrules_via_lowered_span() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerRefuse</Name>
@@ -6628,9 +5910,7 @@ mod tests {
         }
     }
 
-    /// A subrule whose right environment uses a `PatternNode::Anchor` (word-boundary condition) --
-    /// a node kind `crate::lower::lower_span` does not represent -- must still conservatively
-    /// `Refuse`, naming the unhandled kind, rather than silently `Admit` an unproven pair.
+    /// A right environment using an `Anchor` node, which `lower_span` does not represent, must conservatively `Refuse`, naming the unhandled kind.
     #[test]
     fn simultaneous_predicate_refuses_unsupported_pattern_node_conservatively() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerUnsupported</Name>
@@ -6692,21 +5972,10 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // The `owning_table` fix to
-    // `lower_subrule_span` (this step's own doc), and the compile-facing
-    // `simultaneous_rule_admitted_for_compile` consumer `crate::replace::is_fully_supported_shape`
-    // now calls.
-    // ---------------------------------------------------------------------------------------
+    // ---- The `owning_table` fix to `lower_subrule_span`, and its compile-facing consumer chain ----
+    // See docs/research/pg-foma-capability-design-notes.md.
 
-    /// Two `CharacterDefinitionTable`s; the Simultaneous rule is wired into the SECOND stratum
-    /// (`S1`, table `t1`, 5 segments/2 features) via its own `phonologicalRules` list. Table `t0`
-    /// (`S0`) is deliberately tiny (1 segment) and shares NO natural-class/feature apparatus with
-    /// `t1` at all -- if `lower_subrule_span` still defaulted to `g.char_tables.first()` (this
-    /// predicate's own former single-table-assumption gap), it would resolve `t0` instead of
-    /// `t1`, and none of `t1`'s own `CharDefId`s (which this rule's `<SimpleContext>` nodes
-    /// reference) exist in `t0`'s tiny inventory, so the real span lowering could not succeed the
-    /// way it does below.
+    /// Two tables; the Simultaneous rule is wired into the second stratum's table, `t1`. Table `t0` is deliberately tiny and unrelated, so a `g.char_tables.first()` default would fail this rule's span lowering.
     const TWO_TABLE_SIMULTANEOUS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -6764,12 +6033,7 @@ mod tests {
 </HermitCrabInput>
 "#;
 
-    /// Positive witness (task 2, the `owning_table` fix): `lower_subrule_span` (via
-    /// `simultaneous_rule_admitted_for_compile`) must resolve THIS rule's span against table 1
-    /// (its own owning stratum's table, 5 segments), never table 0 (1 segment, unrelated) --
-    /// mirrors `crate::replace`'s own
-    /// `owning_table_resolves_to_the_rules_own_stratum_table_not_table_zero` witness, one level up
-    /// (the predicate/compile-admission consumer, not `owning_table` itself).
+    /// Positive witness: `lower_subrule_span` must resolve this rule's span against its own owning table, never table 0.
     #[test]
     fn lower_subrule_span_uses_the_rules_owning_table_not_table_zero() {
         let g = load(TWO_TABLE_SIMULTANEOUS_XML);
@@ -6803,19 +6067,14 @@ mod tests {
             "owning_table must resolve to table 1 (5 segments) -- NOT table 0's 1-segment table"
         );
 
-        // The real end-to-end proof: `simultaneous_rule_admitted_for_compile` (which calls
-        // `lower_subrule_span` internally) must ADMIT this genuinely non-overlapping rule using
-        // table 1's own Front/Back-distinguishing features -- table 0 has no such apparatus at
-        // all, so this could only succeed if the owning-table threading fix is actually wired in.
+        // The real end-to-end proof: this can only succeed if owning-table threading is actually wired in.
         assert_eq!(
             simultaneous_rule_admitted_for_compile(&g, rule),
             Ok(()),
             "the real per-owning-table lowering must Admit this genuinely non-overlapping rule"
         );
 
-        // Cross-check against the registered predicate's own verdict (the capability GATE's own
-        // consumer, `SimultaneousSubruleOverlapPredicate`) -- both must agree, proving the gate and
-        // the compiler share one proof, never two that could silently diverge.
+        // Cross-check: the gate and the compiler must agree, proving they share one proof, never two.
         let profile = characterize(&g);
         let predicate = SimultaneousSubruleOverlapPredicate;
         assert_eq!(
@@ -6826,12 +6085,7 @@ mod tests {
         );
     }
 
-    /// Negative witness (task 2, `lower_subrule_span`'s own doc): a rule with NO owning stratum at
-    /// all (declared but never wired into any stratum's `phonologicalRules` list) in a grammar with
-    /// MORE THAN ONE table is a genuinely ambiguous case -- `owning_table` returns `None`, and
-    /// `g.char_tables.len() == 2` (not `<= 1`), so `lower_subrule_span` must conservatively return
-    /// `LoweredSpan::Unsupported` rather than guess table 0. This is the residual case the fix's own
-    /// doc names ("zero or 2+ tables declared, but no owning stratum resolved").
+    /// Negative witness: a rule with no owning stratum in a 2+-table grammar is genuinely ambiguous, so `lower_subrule_span` must return `Unsupported` rather than guess table 0.
     #[test]
     fn lower_subrule_span_refuses_conservatively_when_owning_table_is_ambiguous() {
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -6895,12 +6149,9 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Registry coverage
-    // ---------------------------------------------------------------------------------------
+    // ---- Registry coverage ----
 
-    /// Every `ConfigPredicate` characteristic must be
-    /// discharged by >= 1 registered predicate, else the build "breaks" (here: the test fails).
+    /// Every `ConfigPredicate` characteristic must be discharged by at least one registered predicate.
     #[test]
     fn default_registry_discharges_every_config_predicate_kind() {
         let registry = default_registry();
@@ -6911,11 +6162,7 @@ mod tests {
         );
     }
 
-    /// Every `CharacteristicKind` variant has an explicit (non-panicking) default disposition --
-    /// re-derives the exhaustive match's own totality as an executable check, and doubles as a
-    /// canary that `CharacteristicKind::ALL` hasn't drifted out of sync with the enum (a variant
-    /// missing from `ALL` would simply not appear in this loop -- see `ALL`'s own doc for that
-    /// documented gap).
+    /// Every `CharacteristicKind` variant has an explicit default disposition, and doubles as a canary that `ALL` hasn't drifted out of sync with the enum.
     #[test]
     fn all_kinds_have_a_default_disposition() {
         for kind in CharacteristicKind::ALL {
@@ -6929,9 +6176,7 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // compose_envelope: meet lattice unit checks
-    // ---------------------------------------------------------------------------------------
+    // ---- compose_envelope: meet lattice unit checks ----
 
     fn diag(predicate: PredicateId, construct: &str) -> CapabilityDiagnostic {
         CapabilityDiagnostic {
@@ -6941,8 +6186,7 @@ mod tests {
         }
     }
 
-    /// The lattice, spelled out directly on `meet` (not via a whole grammar): `Refuse`
-    /// dominates `ConfirmOnly` dominates `Admit`, in every pairing.
+    /// The lattice spelled out directly on `meet`: `Refuse` dominates `ConfirmOnly` dominates `Admit`.
     #[test]
     fn meet_lattice_lines_up_with_d4() {
         assert_eq!(
@@ -6978,8 +6222,7 @@ mod tests {
         );
     }
 
-    /// Two `Refuse`s meet to carry BOTH diagnostics (union), not just one side's -- the "a caller
-    /// sees every problem" requirement.
+    /// Two `Refuse`s meet to carry both diagnostics, not just one side's.
     #[test]
     fn meet_of_two_refuses_unions_diagnostics() {
         let d1 = diag("p1", "c1");
@@ -6991,8 +6234,7 @@ mod tests {
         assert_eq!(merged, CompileDecision::Refuse(vec![d1, d2]));
     }
 
-    /// Meeting a `Refuse` with an EQUAL diagnostic (the same construct reached via two DAG paths
-    /// to a shared node) does not duplicate it.
+    /// Meeting a `Refuse` with an equal diagnostic, from two DAG paths to a shared node, does not duplicate it.
     #[test]
     fn meet_of_two_refuses_deduplicates_identical_diagnostics() {
         let d1 = diag("p1", "c1");
@@ -7003,13 +6245,9 @@ mod tests {
         assert_eq!(merged, CompileDecision::Refuse(vec![d1]));
     }
 
-    // ---------------------------------------------------------------------------------------
-    // compose_envelope: end-to-end over characterize() + enumerate_default()
-    // ---------------------------------------------------------------------------------------
+    // ---- compose_envelope: end-to-end over characterize() + enumerate_default() ----
 
-    /// An ordinary affix + iterative-rewrite grammar (no Compounding, no Unordered strata, no MPR
-    /// groups, no Simultaneous/RightToLeft/Metathesis rules, no true reduplication/circumfix) must
-    /// compose to `Admit` -- the common well-authored case.
+    /// An ordinary affix + iterative-rewrite grammar must compose to `Admit`.
     #[test]
     fn compose_envelope_admits_ordinary_affix_and_iterative_rewrite_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>Ordinary</Name>
@@ -7068,9 +6306,7 @@ mod tests {
         );
     }
 
-    /// A grammar with a single, non-recursive `Compounding`
-    /// rule must compose to `ConfirmOnly` (not bare `Refuse` — the license-gated propose
-    /// shape supersedes an unconditionally refusing placeholder).
+    /// A grammar with a single, non-recursive `Compounding` rule must compose to `ConfirmOnly`, not `Refuse`.
     #[test]
     fn compose_envelope_confirm_only_for_non_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -7114,12 +6350,7 @@ mod tests {
         );
     }
 
-    /// A
-    /// `Compounding` rule with `multipleApplication > 1` (self-feeding) composes to
-    /// `ConfirmOnly`, exactly like the non-recursive case — `crate::emit`'s "bounded compound loop"
-    /// (`build_compound_chain`) unrolls enough extra non-head root levels to realize this
-    /// rule's own computed `max_depth`, closing the construction gap that would otherwise force
-    /// `CompoundingRecursionSafePredicate` to stay `Refuse`.
+    /// A self-feeding `Compounding` rule composes to `ConfirmOnly`, same as the non-recursive case, since `build_compound_chain` unrolls enough levels to realize its computed `max_depth`.
     #[test]
     fn compose_envelope_confirm_only_for_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -7164,8 +6395,7 @@ mod tests {
         );
     }
 
-    /// A chain-depth-bounded (zero-rule, trivially within-bound)
-    /// `MorphRuleOrder::Unordered` grammar must compose to `ConfirmOnly`, never `Refuse`.
+    /// A chain-depth-bounded, zero-rule `Unordered` grammar must compose to `ConfirmOnly`, never `Refuse`.
     #[test]
     fn compose_envelope_confirm_only_for_unordered_within_bound() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -7189,10 +6419,7 @@ mod tests {
         );
     }
 
-    /// Synthetic, delanguaged fixture generator (mirrors `crate::unordered`'s own test-only
-    /// `stratum_xml` helper, duplicated here rather than shared across the `pub(crate)`/private
-    /// module boundary neither side crosses for a test-only helper): an `Unordered` stratum with
-    /// `rule_count` trivial suffix rules.
+    /// An `Unordered` stratum with `rule_count` trivial suffix rules, mirroring `crate::unordered`'s own test-only helper (duplicated, not shared, across the module boundary).
     fn unordered_stratum_xml(rule_count: u32) -> String {
         let mut rules = String::new();
         let mut segs = String::new();
@@ -7241,9 +6468,7 @@ mod tests {
         )
     }
 
-    /// A grammar whose `Unordered` stratum's own loose-rule count exceeds the calibrated
-    /// `DEFAULT_ORDERING_MULTIPLICITY_BUDGET` must compose to `Refuse`, naming
-    /// `unordered-application.unbounded` -- the refusing half of the split.
+    /// A grammar whose `Unordered` stratum's loose-rule count exceeds the calibrated budget must compose to `Refuse`, naming `unordered-application.unbounded`.
     #[test]
     fn compose_envelope_refuses_unordered_morph_rule_order_grammar() {
         let xml = unordered_stratum_xml(
@@ -7264,9 +6489,7 @@ mod tests {
         }
     }
 
-    /// A grammar with an `MprGroupOutput::Append` group and nothing worse must compose to
-    /// `ConfirmOnly` -- not `Admit` (the group is real, unproven-to-Admit material) and not
-    /// `Refuse` (nothing forces a refusal for this shape).
+    /// A grammar with an `MprGroupOutput::Append` group and nothing worse must compose to `ConfirmOnly`, not `Admit` or `Refuse`.
     #[test]
     fn compose_envelope_confirm_only_for_append_group_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>AppendOnly</Name>
@@ -7304,11 +6527,7 @@ mod tests {
         );
     }
 
-    /// The mirror image of `compose_envelope_confirm_only_for_append_group_alone`: a grammar with
-    /// an `MprGroupOutput::Overwrite` group and nothing else composes to `ConfirmOnly` --
-    /// `MprGroupOverwritePredicate` rests at the same non-narrowing superset baseline `Append`
-    /// does, and never `Admit`s (see that predicate's own doc for why no admission filter is sound
-    /// here).
+    /// The mirror image: an `MprGroupOutput::Overwrite` group alone also composes to `ConfirmOnly`, never `Admit`.
     #[test]
     fn compose_envelope_confirms_overwrite_group_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>OverwriteOnly</Name>
@@ -7347,15 +6566,7 @@ mod tests {
         );
     }
 
-    /// A judgment-call check: a grammar with an `Epenthesis`
-    /// occurrence (an empty-LHS `PhonologicalRule`) and nothing worse must compose to `ConfirmOnly`
-    /// -- not `Admit` (no no-false-negative admission-filter proof exists) and not
-    /// `Refuse` (`epenthesis.structural-composite-route` rests at `ConfirmOnly` whenever observed
-    /// -- `EpenthesisStructuralRoutePredicate`'s own doc). Bare-root phonology (no morphological
-    /// rule needed at all): `characterize`'s own per-`PhonRuleDef` walk observes `Epenthesis` from
-    /// the rule's OWN empty LHS alone, the same granularity
-    /// `compose_envelope_confirm_only_for_append_group_alone` already established for
-    /// `MprGroupAppend`.
+    /// A grammar with an `Epenthesis` occurrence (empty-LHS rule) and nothing worse must compose to `ConfirmOnly`, not `Admit` or `Refuse`.
     #[test]
     fn compose_envelope_confirm_only_for_epenthesis_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>EpenthesisAlone</Name>
@@ -7414,10 +6625,7 @@ mod tests {
         );
     }
 
-    /// `cover-realizational-morphology-constraints`: a grammar with a `RealizationalRule` and
-    /// nothing worse must compose to `ConfirmOnly` — not `Admit` (no compiled admission filter is
-    /// ever attempted for this construct, see `characterize_marks_realizational_rule_confirm_only`'s
-    /// own doc) and not `Refuse` (nothing forces a refusal here).
+    /// A grammar with a `RealizationalRule` and nothing worse must compose to `ConfirmOnly`, not `Admit` or `Refuse`.
     #[test]
     fn compose_envelope_confirm_only_for_realizational_rule_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>
@@ -7458,8 +6666,7 @@ mod tests {
         );
     }
 
-    /// `cover-realizational-morphology-constraints`: a grammar with a `MorphemeCoOccurrenceRule` and
-    /// nothing worse must compose to `ConfirmOnly` for the same reason.
+    /// A grammar with a `MorphemeCoOccurrenceRule` and nothing worse must compose to `ConfirmOnly` for the same reason.
     #[test]
     fn compose_envelope_confirm_only_for_co_occurrence_rule_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>CoOccurAlone</Name>
@@ -7512,8 +6719,7 @@ mod tests {
         );
     }
 
-    /// A grammar with a `Simultaneous` rewrite rule whose subrules are provably mpr-disjoint (and
-    /// not self-opaquing) must compose to `Admit`.
+    /// A `Simultaneous` rule whose subrules are provably mpr-disjoint and not self-opaquing must compose to `Admit`.
     #[test]
     fn compose_envelope_admits_simultaneous_rule_with_mpr_disjoint_subrules() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SimAdmit</Name>
@@ -7572,8 +6778,7 @@ mod tests {
         );
     }
 
-    /// The same shape, but neither subrule declares an MPR gate -- overlap can't be ruled out, so
-    /// this must compose to `Refuse`.
+    /// The same shape, but neither subrule declares an MPR gate, so overlap can't be ruled out and this must compose to `Refuse`.
     #[test]
     fn compose_envelope_refuses_simultaneous_rule_when_overlap_cannot_be_ruled_out() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SimRefuse</Name>
@@ -7634,12 +6839,7 @@ mod tests {
         }
     }
 
-    /// Meet correctness: a grammar containing BOTH a self-feeding, `ConfirmOnly`-disposed
-    /// `Compounding` rule (`multipleApplication="2"`) AND
-    /// an `Overwrite`-output `MprGroup` (the construct
-    /// `MprGroupOverwritePredicate` discharges) must compose to a single, deterministic
-    /// `CompileDecision` via `meet` over both constructs' verdicts, not silently dropping
-    /// either one's contribution because the other is also present.
+    /// Meet correctness: a grammar with both a self-feeding `Compounding` rule and an `Overwrite` `MprGroup` must compose deterministically over both constructs' verdicts, dropping neither.
     #[test]
     fn compose_envelope_meet_correctness_two_confirm_only_constructs() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>OverwritePlusCompound</Name>

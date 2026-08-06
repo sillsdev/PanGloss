@@ -59,3 +59,43 @@ construction were simply clamped to the default. Sizing the construction by
 `max_stem_count` into `crate::emit`, with this test moving in lockstep; see
 `crate::capability::compounding_max_depth`'s own doc for the full write-up. What this test
 guarantees meanwhile is that the conflation is asserted, so it cannot be quietly re-argued away.
+
+## `raised_cap_oracle_finds_the_recursive_analysis_confirm_at_default_would_miss`: making the oracle non-vacuous
+
+At `Morpher`'s default `max_stem_count` (2), `tevimaflisra` confirms zero analyses — but that zero
+is a separate, independent resource ceiling (the default cap itself), not evidence about the FST
+proposer's own capability. A containment check run only at the default cap would therefore be
+vacuously true (propose returns ≥1, confirm returns 0: either direction of containment against an
+empty set is trivially true, proving nothing). This test raises the cap via
+`Morpher::with_max_stem_count(3)` (mirroring C#'s own `CompoundingRuleTests.SimpleRules`
+reconfiguration, `Morpher.cs:72,87,105`) so the oracle genuinely accepts the 3-stem analysis,
+setting up `depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis` to make a real,
+non-vacuous containment claim.
+
+## `depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis`: the load-bearing containment proof
+
+Propose (the real, unmodified, production `FomaProposer`) must contain the oracle's own raised-cap
+analysis (`Morpher::with_max_stem_count(3)`, non-vacuous per the test above) — not merely propose
+something, but the exact morpheme sequence confirm independently accepts. This is the
+proposer-to-confirm containment proof this module's promotion criteria requires, checked against
+the real depth-budgeted compound loop rather than merely argued.
+
+## `depth_bound_is_respected_a_k_plus_one_stem_word_is_never_proposed`: the depth-bound-respected gate
+
+A grammar whose computed `max_depth` bound is exactly k (here k=3: one isolated `CompoundingRule`,
+`multipleApplication="2"`, so `max_depth = 1 + 2 = 3`) must propose a k-stem word (3 roots
+concatenated) but must never propose a k+1-stem word (4 roots concatenated) — over-approximation is
+licensed up to the computed bound, never past it. `build_compound_chain` only ever unrolls
+`max_depth - 1 = 2` extra non-head levels for this grammar, so a 4-root word is structurally
+unreachable through it.
+
+## `compound_chain_depth_budget_trips_before_any_lexc_emitted`: the budget gate
+
+A `CompoundingRuleDef` with a `multipleApplication` value far beyond the DTD's practical ceiling (9)
+computes an enormous `max_depth` bound. `crate::emit`'s own `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`
+(200) must refuse this grammar with a typed `FomaTier::Unsupported` outcome, checked before any
+lexc text is written, rather than unrolling 60,000 chain levels (a hang/OOM risk). No env var
+mutation is needed (unlike `tests/cover_compounding_budget.rs`'s own `HC_COMPOUND_PAIR_BUDGET`
+convention): the default budget itself is what this grammar is deliberately built to exceed, so
+this test needs no process-global state and runs safely alongside every other test in this crate's
+default parallel test execution.

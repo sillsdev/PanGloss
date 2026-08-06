@@ -1,17 +1,5 @@
-//! G5 acceptance gate: `SynthesisAffixProcessRule.Apply`'s gate ORDER
-//! (`SynthesisAffixProcessRule.cs:44-131`) is, in order: `MaxApplicationCount` (not enforced by
-//! this port — see `pg_rules::stratum::guided_synth`'s doc), the final-template prohibition, the
-//! non-final-template requirement, `RequiredStemName`, and — LAST — the required-syntactic-FS
-//! unify. `pg_rules::morph::synth_affix`/`synth_affix_cached` used to check the syn-FS gate
-//! FIRST; this pins the fix (the gate moved to after `RequiredStemName`, matching C#) two ways:
-//!
-//! 1. When BOTH the syn-FS gate and the final-template-prohibition gate would reject the same
-//!    candidate, the FIRST `FailureReason` the trace reports is now
-//!    `NonPartialRuleProhibitedAfterFinalTemplate` (C#'s answer), not
-//!    `RequiredSyntacticFeatureStruct`.
-//! 2. The reorder is trace-only: the SET of words a real multi-candidate synthesis run produces
-//!    is unchanged (every gate still returns empty/no-match on failure; `synth_syn_fs` is a pure
-//!    function of `(g, req, out, word)` with no interaction with the other gates' inputs).
+//! Pins `SynthesisAffixProcessRule.Apply`'s gate order: the syn-FS unify runs last, not first. See
+//! docs/research/pg-rules-synth-gate-order-design-notes.md.
 
 mod common;
 
@@ -88,23 +76,14 @@ fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
     }
 }
 
-/// A one-feature `FeatureStruct`: `FeatId(0) = Symbolic(bits)`. Bypasses the loader's syntactic
-/// feature system entirely — `pg_featstruct::ops::{is_unifiable, unify}` only need structurally
-/// valid `(FeatId, FeatureValue)` pairs, never `g.syn_features` itself (see `synth_syn_fs`'s own
-/// callers: neither reads the feature system for the unify itself, only `add`/`ana_syn_fs` mask
-/// against it on the analysis side). Disjoint `bits` between two calls are guaranteed
-/// non-unifiable (`SymbolBits::overlaps` on disjoint sets is false).
+/// A one-feature `FeatureStruct`: `FeatId(0) = Symbolic(bits)`, bypassing the loader's syntactic feature system entirely since the unify itself never reads `g.syn_features`.
 fn one_feature_fs(bits: u64) -> FeatureStruct {
     let mut b = FeatureStructBuilder::new();
     b.add(FeatId(0), FeatureValue::Symbolic(SymbolBits(bits)));
     b.build()
 }
 
-/// Push a single-allomorph, non-template, non-partial `AffixProcess` suffix rule with a caller-
-/// supplied `required_syn_fs` (`push_suffix_rule`'s sibling in `template_partial_gate.rs` hardcodes
-/// `FsId(0)` / EMPTY; this test needs a real, mismatchable value). Registers the allomorph in
-/// `g.allomorph_owners` the way `pg_grammar::load` would, so the CACHED production path
-/// (`RuleCache`) can resolve it.
+/// Pushes a single-allomorph, non-template, non-partial `AffixProcess` suffix rule with a caller-supplied `required_syn_fs`, registered in `g.allomorph_owners` so `RuleCache` can resolve it.
 fn push_suffix_rule_with_syn_fs(
     g: &mut Grammar,
     morpheme: u32,
@@ -161,16 +140,11 @@ fn push_stratum(g: &mut Grammar, mrules: Vec<MRuleId>) -> StratumId {
     id
 }
 
-/// Build the shared fixture: a rule that is NOT a template rule, NOT partial, requires a
-/// syntactic FS that will NOT unify with the test word's own — and a word that is ALSO, on its
-/// own, disqualified by the final-template-prohibition gate (`is_last_applied_rule_final ==
-/// Some(true)`, not partial, rule not partial/not-template). Both gates reject; the only question
-/// this file's tests answer is which `FailureReason` the trace reports FIRST.
+/// The shared fixture: a candidate both the syn-FS gate and the final-template-prohibition gate
+/// reject; see docs/research/pg-rules-synth-gate-order-design-notes.md.
 fn build_fixture() -> (Grammar, StratumId, MRuleId, Word, RuleCache) {
     let mut g = load_alpha_grammar();
-    // Disjoint single-bit values on the same (fabricated) `FeatId(0)` -- guaranteed non-unifiable
-    // (`SymbolBits::overlaps` is false for disjoint sets), independent of any real POS/head feature
-    // system (this hand-built grammar declares none).
+    // Disjoint single-bit values on the same fabricated `FeatId(0)`: guaranteed non-unifiable.
     let req_fs = g.fs_interner.intern(one_feature_fs(0b01));
     let r = push_suffix_rule_with_syn_fs(&mut g, 200, "p", req_fs);
     let s = push_stratum(&mut g, vec![r]);
@@ -195,11 +169,7 @@ fn both_gates_reject_first_reported_reason_is_the_template_prohibition() {
 
     synthesize_stratum_traced(&g, s, input, 10_000, &cache, &budget, &sink, root);
 
-    // Find every `MorphologicalRuleSynthesis` node sourced from `r`'s rule-level gate
-    // (`subrule_index == Some(-1)`, `SynthesisAffixProcessRule.cs`'s four rule-level gates) --
-    // there must be exactly one (the FIRST gate that actually rejects short-circuits the rest, so
-    // the trace records at most one rule-level `MorphologicalRuleNotApplied` node per call --
-    // asserted below), and its reason must be the template prohibition, not the syn-FS one.
+    // Finds every rule-level gate node (`subrule_index == Some(-1)`); see docs/research/pg-rules-synth-gate-order-design-notes.md.
     let mut rule_level_reasons = Vec::new();
     fn walk(sink: &TreeTraceSink, h: TraceHandle, r: MRuleId, out: &mut Vec<FailureReason>) {
         let n = sink.node(h);
@@ -229,13 +199,7 @@ fn both_gates_reject_first_reported_reason_is_the_template_prohibition() {
 
 #[test]
 fn reorder_does_not_change_the_surviving_word_set() {
-    // Same fixture, but through the UNTRACED entry point real callers use -- confirms the reorder
-    // is trace-only: both gates still reject (empty/None on failure, no side effects consumed
-    // between the old and new position -- see `synth_affix_cached`'s doc), so the surviving-word
-    // set a full stratum synthesis produces is identical to what it was before G5's reorder. This
-    // candidate contributes nothing either way (both gates always failed it, before AND after the
-    // fix); what's being pinned is that moving WHEN the syn-FS gate runs doesn't change WHETHER it
-    // (or anything else) accepts.
+    // Same fixture through the untraced entry point: confirms the reorder is trace-only.
     let (g, s, _r, input, cache) = build_fixture();
     let out = synthesize_stratum(&g, s, input, 10_000, &cache);
     assert!(
@@ -248,13 +212,7 @@ fn reorder_does_not_change_the_surviving_word_set() {
 
 #[test]
 fn syn_fs_gate_still_applies_when_every_gate_actually_passes() {
-    // The positive-path half of the invariance argument: a candidate where the syn-FS gate is now
-    // the LAST check (moved to the end of the function) must still SUCCEED when it actually
-    // unifies and no earlier gate rejects -- proving the reorder didn't silently break the
-    // success path (e.g. by consuming `new_syn` before it's computed, or skipping the allomorph
-    // loop). Same rule/stratum shape as `build_fixture`, but `word.syn_fs` now unifies with
-    // `req_fs` (identical single-bit value, not disjoint) and `is_last_applied_rule_final` is
-    // `None` (no prior template at all -- neither template gate applies).
+    // The positive-path half: the syn-FS gate, now last, must still succeed when it actually unifies.
     let mut g = load_alpha_grammar();
     let req_fs = g.fs_interner.intern(one_feature_fs(0b01));
     let r = push_suffix_rule_with_syn_fs(&mut g, 201, "p", req_fs);

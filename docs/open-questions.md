@@ -148,3 +148,22 @@ attribute lines matching `#[`, but a continuation line does not match, so the wa
 calls the item private. Measured: 5 doc blocks in the tree sit before a multi-line attribute, and
 none currently produces a violation — so this is latent, not active. Fix it when no sweep is running,
 since the sweeps execute that script.
+
+**D4 — a documented refusal path with a test named after it and no coverage of it.**
+`CircumfixStructuralCompositePredicate::evaluate` returns `Refuse` when a
+`CircumfixOutputActionDetail` has `structural_composite_attempted == false`
+(`capability.rs:2320`), and its own doc spells that case out. Nothing tests it. The predicate id
+`circumfix-output-action.faithful-structural-composite` occurs exactly once in the tree — at its
+definition. The two tests that exist both load a fixture and both assert `ConfirmOnly`, including
+`circumfix_output_action_predicate_refuses_non_structural_case`, whose name promises the negative
+witness and whose body asserts the same verdict as the positive one. The pair therefore discriminates
+nothing, and the fixture it uses (`CIRCUMFIX_PROCESS_XML`) evidently now routes through
+`emit::is_structural_rule`, so the assertion appears to have been updated to match observed behaviour
+rather than the fixture fixed to keep reaching the branch.
+
+Two things to decide, and they need a maintainer rather than a sweep. Whether `Role::Process` should
+still reach the non-structural branch at all — if it should, the fixture regressed and the refusal is
+silently unreachable in practice. And regardless of that, the branch needs a fixture that actually
+lands on it, plus a rename: a test called `..._refuses_...` that asserts `ConfirmOnly` is worse than
+no test, because it reads as coverage. Same family as every "green gate that never fails" this repo
+has had to fix.

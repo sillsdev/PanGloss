@@ -38,20 +38,16 @@ use crate::morphology::{InflectionClass, PartOfSpeech};
 use crate::phonology::PhonContext;
 use crate::{Snapshot, Warning};
 
-/// A GUID cross-reference does not resolve to any definition of the expected kind within this
-/// snapshot. Shared by every plain "does this reference resolve" check in this module.
+/// Shared by every plain "does this reference resolve to a definition of the expected kind" check.
 const DANGLING_REFERENCE: &str = "snapshot.dangling-reference";
 /// `check_feature_structure`'s recursive closed/complex feature-or-value resolution.
 const FEATURE_STRUCTURE_UNRESOLVED: &str = "snapshot.feature-structure-unresolved";
-/// `check_rule_feature_ref`'s reference, which may legitimately resolve against either an
-/// inflection class or an exception feature registry (see that function's doc).
+/// `check_rule_feature_ref` legitimately resolves against either registry; see that function's doc.
 const RULE_FEATURE_UNRESOLVED: &str = "snapshot.rule-feature-unresolved";
-/// A reference resolves to a real definition elsewhere in the snapshot, but not within the scope
-/// (e.g. owning entry) it was required to be local to.
+/// Resolves to a real definition elsewhere in the snapshot, but outside the required local scope.
 const REFERENCE_OUT_OF_SCOPE: &str = "snapshot.reference-out-of-scope";
 
-/// Registries of every GUID this snapshot *defines*, used to check that every GUID it
-/// *references* resolves to something real.
+/// Registries of every GUID this snapshot *defines*, checked against every GUID it *references*.
 struct Registries {
     phon_closed: Vec<(Guid, HashSet<Guid>)>,
     phon_complex: HashSet<Guid>,
@@ -217,10 +213,7 @@ fn build_registries(snap: &Snapshot) -> Registries {
     }
 }
 
-/// `guid` is a "rule feature"/"exception feature" reference: it may legitimately be either an
-/// `crate::morphology::InflectionClass` guid or an
-/// `crate::morphology::ExceptionFeature` guid (see `HCLoader.LoadMprFeatures`,
-/// HCLoader.cs:2610-2623, and `Morphology::exception_features`'s doc for why both are valid).
+/// `guid` may legitimately be either an `InflectionClass` or an `ExceptionFeature` guid.
 fn check_rule_feature_ref(
     guid: &Guid,
     reg: &Registries,
@@ -818,10 +811,7 @@ pub fn validate(snap: &Snapshot) -> Vec<Warning> {
                     ));
                 }
             }
-            // `variant_entry_types`/`complex_entry_types` may reference either a
-            // `LexEntryInflType` (checkable against `lex_entry_infl_types`) or a plain
-            // `LexEntryType` possibility list item (not enumerated anywhere in this format), so
-            // an unresolved guid there is not necessarily dangling — intentionally not checked.
+            // May reference an unenumerated possibility list item, so unresolved here isn't dangling.
         }
     }
 

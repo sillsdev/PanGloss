@@ -210,8 +210,7 @@ fn case_value(case: &GoldenCase) -> Value {
         "notEvaluableReason": case.not_evaluable_reason,
         "notAdjudicatedReason": case.not_adjudicated_reason,
         "closedWorld": case.closed_world,
-        // Structured identities, never counts alone: a caller has to be able to see WHICH
-        // required analysis went missing, not merely that one did.
+        // Structured identities, not counts, so a caller can see WHICH analysis is missing.
         "matchingRequired": identities_value(&case.matching_required),
         "missingRequired": identities_value(&case.missing_required),
         "matchingAllowed": identities_value(&case.matching_allowed),
@@ -312,9 +311,7 @@ fn evaluate(
     outcome: &CaseOutcome,
     expectation: Option<&Expectation>,
 ) -> GoldenCase {
-    // Adjudication is checked before completeness on purpose: a case nobody has ruled on is
-    // `not_adjudicated` whether or not it ran, and reporting it as `not_evaluable` would suggest
-    // that finishing the run would have produced a verdict.
+    // Checked before completeness: an un-ruled-on case is `not_adjudicated` regardless of whether it ran.
     let Some(expectation) = expectation else {
         let mut case = blank(case_id, input, Verdict::NotAdjudicated, false);
         case.not_adjudicated_reason = Some(NotAdjudicatedReason::NoExpectation);
@@ -336,8 +333,7 @@ fn evaluate(
     }
 
     let Some(observed) = outcome.analyses() else {
-        // An incomplete case never satisfies an expectation — not even an empty closed-world one,
-        // which is the case most tempting to wave through.
+        // An incomplete case never satisfies an expectation, even an empty closed-world one.
         let mut case = blank(
             case_id,
             input,
@@ -410,8 +406,7 @@ fn judge(
         }
     }
 
-    // Under an open world, an undeclared analysis is recorded and tolerated: the caller said what
-    // they cared about and did not claim the list was exhaustive. Under a closed world they did.
+    // Open world: an undeclared analysis is recorded and tolerated. Closed world: it disagrees.
     let unexpected_disagrees = expectation.closed_world && !case.unexpected.is_empty();
     if !case.missing_required.is_empty()
         || !case.observed_forbidden.is_empty()
@@ -623,8 +618,7 @@ mod tests {
 
     #[test]
     fn an_incomplete_case_never_satisfies_an_empty_closed_world_expectation() {
-        // The gate for this unit, and the FieldWorks conflation stated as a test: a budget trip must
-        // not read as "the grammar analyzes this no way at all".
+        // A budget trip must not read as "the grammar analyzes this no way at all".
         let suite = suite_with(r#"{ "status": "adjudicated", "closedWorld": true }"#);
         let report = report_for(
             &suite,
@@ -693,8 +687,7 @@ mod tests {
 
     #[test]
     fn an_unadjudicated_case_that_did_not_run_reports_adjudication_not_completeness() {
-        // Finishing the run would not have produced a verdict, so saying `not_evaluable` would
-        // point the caller at the wrong problem.
+        // Finishing the run would not have produced a verdict, so `not_evaluable` is the wrong reason.
         let suite = suite_with(r#"{ "status": "unresolved" }"#);
         let report = report_for(
             &suite,

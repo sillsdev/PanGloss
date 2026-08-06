@@ -1,35 +1,5 @@
-//! Discriminating-power proof for `conformance-staging/edge-cases/
-//! segment-natural-class-table-binding`.
-//!
-//! # Why this file exists
-//! That fixture closes a conformance-suite blind spot: every OTHER multi-table fixture
-//! (`two-table-shared-representation-recall`, `multi-table-metathesis-shared-representation`,
-//! `bistratal-overlapping-segment-representation`) builds its rules' natural classes from
-//! `FeatureNaturalClass` only. `pg_rules::bridge::PatternBridge::nat_class_lanes`'s
-//! `NaturalClassKind::Feature` branch never reads `self.table` at all (a `SymbolicFeature`'s bit
-//! assignment is grammar-wide, not per-table) -- so none of those fixtures could ever detect a rule
-//! wrongly resolving its natural classes against the wrong `CharacterDefinitionTable`. Only
-//! `NaturalClassKind::Segments` (`SegmentNaturalClass`) is genuinely table-DEPENDENT: its members
-//! are raw per-table `CharDefId`s with no table of their own, resolved via `self.table.get(cd)`
-//! (see `rust/crates/pg-rules/src/cache.rs`'s `owning_table_tests` module, whose two-table/
-//! two-stratum probe grammar this fixture's own grammar.xml mirrors).
-//!
-//! A fixture that merely PASSES proves nothing about this specific blind spot -- a fixture that
-//! would ALSO pass under a wrong-table resolution is worthless for exactly the failure class this
-//! file exists to catch (the module doc of the task this file was written for: "a fixture that
-//! would pass under a wrong-table resolution is the exact failure the whole suite already had").
-//! This file proves the fixture's own natural classes are genuinely table-dependent, by
-//! constructing the "resolved against the wrong table" comparison DIRECTLY, via
-//! `pg_rules::bridge::PatternBridge`'s own public `with_table`/`compile_pattern` API -- the exact
-//! seam `nat_class_lanes`'s `Segments` branch lives behind -- rather than by editing any crate's
-//! `src/` (this task does not own `pg-rules/src`, and `RuleCache`/`synthesize_with_mpr_cached`, the
-//! real per-word cached call path, are `pub(crate)`-only inside `pg-rules`, unreachable from this
-//! crate's tests without such an edit).
-//!
-//! `PatternBridge::new` itself defaults to `TableId(0)` (see its own doc: "resolving against table
-//! `TableId(0)`") -- literally the antipattern default this whole bug class is about. So
-//! `PatternBridge::new(&g)` (no `.with_table(..)` call) is not a contrived stand-in for the bug; it
-//! IS the bug's own resolution, reused directly as the "wrong" comparison arm.
+//! Discriminating-power proof: this fixture's `SegmentNaturalClass` is genuinely table-dependent, unlike every other multi-table fixture's `FeatureNaturalClass`-only classes.
+//! See docs/research/pg-foma-segment-natural-class-table-binding-design-notes.md.
 
 use std::fs;
 use std::path::Path;
@@ -71,10 +41,8 @@ fn nat_class_id_by_xml_id(g: &Grammar, xml_id: &str) -> pg_grammar::model::NatCl
     pg_grammar::model::NatClassId(idx as u32)
 }
 
-/// Structural sanity: exactly 2 tables, 2 strata, the rule's own stratum (S1, "Outer", index 1,
-/// non-first) owns table 1 -- and `ncK`'s one member is a `SegmentNaturalClass` referencing table
-/// 1's raw index 0 ("k"), the SAME raw index table 0's own sole segment ("z") sits at, but with the
-/// OPPOSITE feature value -- the deliberate misalignment this whole proof depends on.
+/// Structural sanity: `ncK` deliberately reuses table 0's raw index but with an opposite feature value.
+/// See docs/research/pg-foma-segment-natural-class-table-binding-design-notes.md.
 #[test]
 fn fixture_shape_is_the_deliberately_misaligned_two_table_probe_it_claims_to_be() {
     let g = load();
@@ -117,23 +85,15 @@ fn fixture_shape_is_the_deliberately_misaligned_two_table_probe_it_claims_to_be(
     );
 }
 
-/// **The deliverable**: `ncK`'s compiled constraint is genuinely table-dependent, and resolving it
-/// against the wrong table (table 0, `PatternBridge::new`'s own default -- literally the
-/// "implicit table-zero default" antipattern) breaks the exact match the fixture's own ground
-/// truth (`words.yaml`'s `g` -> `"ROOT2|g"`) depends on.
-///
-/// `CompileNode::Constraint`'s own doc: "match = `pg_featstruct::flat_unifiable`" -- this is not a
-/// hand-rolled substitute predicate, it is the literal per-arc match rule every compiled FST this
-/// bridge produces uses (bridge.rs's own module doc, "Node mapping" section).
+/// The deliverable: `ncK`'s compiled constraint is genuinely table-dependent, so resolving against the wrong table breaks the fixture's ground truth match.
+/// See docs/research/pg-foma-segment-natural-class-table-binding-design-notes.md.
 #[test]
 fn nat_class_k_resolved_against_the_wrong_table_stops_matching_a_real_table_1_k_segment() {
     let g = load();
     let rule = devoice_rule(&g);
     let real_k_lanes = g.char_tables[1].get(CharDefId(0)).feature_lanes().to_vec();
 
-    // Correct: resolved against table 1 (S1's own owning table -- what `RuleCache::build`'s
-    // `owning_table_for_prule` resolves this rule to in the real, already-fixed production path,
-    // `pg-rules/src/cache.rs`).
+    // Correct: resolved against table 1, matching `RuleCache::build`'s production resolution.
     let correct = PatternBridge::new(&g)
         .with_table(TableId(1))
         .compile_pattern(&rule.lhs)
@@ -145,8 +105,7 @@ fn nat_class_k_resolved_against_the_wrong_table_stops_matching_a_real_table_1_k_
         );
     };
 
-    // Wrong: resolved against table 0 -- `PatternBridge::new`'s own default, the antipattern this
-    // whole bug class is about. No `.with_table(..)` call: this IS the bug's own resolution.
+    // Wrong: resolved against table 0, `PatternBridge::new`'s own default, the bug's own resolution.
     let wrong = PatternBridge::new(&g).compile_pattern(&rule.lhs).expect(
         "ncK must still compile against table 0 (table 0 has a raw index 0 to resolve to -- \
                  the fixture was deliberately built so the wrong-table lookup doesn't even panic, \
@@ -170,8 +129,7 @@ fn nat_class_k_resolved_against_the_wrong_table_stops_matching_a_real_table_1_k_
         flat_unifiable(&real_k_lanes, wrong_lanes)
     );
 
-    // OUTPUT 1 (the fix / correct resolution): the compiled constraint, resolved against table 1,
-    // is exactly table 1's own "k" -- and it matches a real table-1 "k" segment.
+    // OUTPUT 1 (correct resolution): the constraint equals table 1's own "k" and matches a real one.
     assert_eq!(
         correct_lanes, &real_k_lanes,
         "resolved against its own table (1), ncK's compiled constraint must equal table 1's own \
@@ -184,9 +142,7 @@ fn nat_class_k_resolved_against_the_wrong_table_stops_matching_a_real_table_1_k_
          \"ROOT2|g\" reachable at all"
     );
 
-    // OUTPUT 2 (the bug's observable effect): resolved against table 0 instead, the compiled
-    // constraint becomes table 0's own "z" (raw index 0 there) -- a DIFFERENT, incompatible
-    // feature value -- and a real table-1 "k" segment no longer matches it at all.
+    // OUTPUT 2 (the bug): resolved against table 0, the constraint becomes "z" and no longer matches.
     let t0_z_lanes = g.char_tables[0].get(CharDefId(0)).feature_lanes();
     assert_eq!(
         wrong_lanes, t0_z_lanes,

@@ -73,11 +73,7 @@ fn depth_budgeted_compound_loop_now_proposes_the_bounded_recursive_shape() {
         "the depth-budgeted compound loop (task 4.1 pieces 2/3) must now propose at least one \
          candidate for the genuine 3-stem self-feeding compound tevimaflisra"
     );
-    // Every proposed candidate must be the real 3-root sequence (ROOT1, ROOT2, ROOT3 -- morpheme
-    // ids 0,1,2 in this fixture's own declaration order), never some OTHER, spurious morpheme
-    // sequence the chain's own over-approximation should not be able to reach at all: the compound
-    // loop only ever proposes an ENTRY from this grammar's own root list at each level, so the tag
-    // sequence for a word segmenting into exactly three CVCV roots can only ever be this one triple.
+    // Every candidate must be the real ROOT1+ROOT2+ROOT3 sequence (ids 0,1,2), never a spurious one.
     for c in &candidates {
         let ids: Vec<u32> = c.morphemes.iter().map(|m| m.0).collect();
         assert_eq!(
@@ -88,25 +84,13 @@ fn depth_budgeted_compound_loop_now_proposes_the_bounded_recursive_shape() {
     }
 }
 
-/// **The oracle-side half of the same finding, made non-vacuous per this task's own caveat.** At
-/// `Morpher`'s DEFAULT `max_stem_count` (2, `Morpher::new`'s own ctor default), `tevimaflisra`
-/// confirms ZERO analyses -- but that zero is a SEPARATE, independent resource ceiling (the default
-/// cap itself), not evidence about the FST proposer's own capability. A containment check run only
-/// at the default cap would therefore be VACUOUSLY true (propose returns >=1, confirm returns 0 --
-/// EITHER direction of containment against an empty set is trivially true, proving nothing) and
-/// would not exercise the real recall claim at all. This test raises the cap via
-/// `Morpher::with_max_stem_count(3)` (mirroring C#'s own `CompoundingRuleTests.SimpleRules`
-/// reconfiguration, `Morpher.cs:72`/cs:87,105) so the oracle genuinely accepts the 3-stem analysis --
-/// setting up `depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis` (below) to make
-/// a REAL, non-vacuous containment claim.
+/// Raises the oracle's `max_stem_count` cap so it non-vacuously accepts the 3-stem analysis; see
+/// docs/research/pg-foma-cover-compounding-recursive-depth-bound-design-notes.md.
 #[test]
 fn raised_cap_oracle_finds_the_recursive_analysis_confirm_at_default_would_miss() {
     let g = load();
 
-    // Default max_stem_count (2 -- `Morpher::new`'s own ctor default; the `usize::MAX` argument
-    // here is the UNRELATED step-budget `cap` parameter, left uncapped so it never interferes):
-    // reproduces the STAGING.md-pinned zero, confirming the vacuity concern is real for THIS
-    // fixture, not hypothetical.
+    // `usize::MAX` here is the unrelated step-budget `cap` param, left uncapped so it never interferes.
     let default_morpher = Morpher::new(&g, usize::MAX);
     let default_outcome = default_morpher.parse_word_opts("tevimaflisra", &ParseOptions::default());
     assert_eq!(
@@ -128,12 +112,8 @@ fn raised_cap_oracle_finds_the_recursive_analysis_confirm_at_default_would_miss(
     );
 }
 
-/// **The load-bearing containment proof (pieces 2/3, the gap the module doc's own history
-/// records).** Propose (the real, unmodified, production `FomaProposer`) must CONTAIN the oracle's
-/// own raised-cap analysis (`Morpher::with_max_stem_count(3)`, non-vacuous per the previous test) --
-/// not merely propose SOMETHING, but propose the EXACT morpheme sequence confirm independently
-/// accepts. This is the proposer-to-confirm containment proof this module's own promotion criteria
-/// requires, now checked against the REAL depth-budgeted compound loop rather than merely argued.
+/// The load-bearing proposer-to-confirm containment proof; see
+/// docs/research/pg-foma-cover-compounding-recursive-depth-bound-design-notes.md.
 #[test]
 fn depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis() {
     let g = load();
@@ -169,13 +149,7 @@ fn depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis() {
     );
 }
 
-/// Builds a small, self-contained (not the staged fixture) `CompoundingRule` grammar with an exact,
-/// small, hand-picked depth bound: one isolated rule, `multipleApplication` set to
-/// `extra_levels - 1`... actually stated directly as the max_apps value, since (isolated rule,
-/// `max_depth = 1 + max_apps`) is this module's own established equivalence
-/// (`compounding_max_depth`'s own doc). `root_count` distinct CVCV roots are declared, freely
-/// licensed on both head and non-head sides (no MPR/PoS restriction at all) -- enough to build a
-/// word requiring any number of stems up to `root_count`.
+/// One isolated `CompoundingRule` at `multipleApplication = max_apps`, so `max_depth = 1 + max_apps`; `roots.len()` freely-licensed CVCV roots let a word need up to that many stems.
 fn small_bound_grammar_xml(max_apps: u32, roots: &[&str]) -> String {
     let mut entries = String::new();
     for (i, root) in roots.iter().enumerate() {
@@ -237,11 +211,7 @@ fn small_bound_grammar_xml(max_apps: u32, roots: &[&str]) -> String {
     )
 }
 
-/// `small_bound_grammar_xml`'s sibling for the OTHER way `max_depth` grows: `rule_count` DISTINCT
-/// `CompoundingRule`s in one stratum, every one at the DTD default `multipleApplication="1"`.
-///
-/// This is the real `sena` shape (8 such rules, measured), and the shape that makes
-/// `compounding_max_depth` a rule COUNT rather than a nesting DEPTH: `1 + 1 + (rule_count - 1)`.
+/// `rule_count` distinct `CompoundingRule`s at the default `multipleApplication="1"`, the other way `max_depth` grows: as a rule count, `1 + 1 + (rule_count - 1)`, not a nesting depth.
 fn many_rule_grammar_xml(rule_count: usize, roots: &[&str]) -> String {
     let mut entries = String::new();
     for (i, root) in roots.iter().enumerate() {
@@ -310,41 +280,8 @@ fn many_rule_grammar_xml(rule_count: usize, roots: &[&str]) -> String {
     )
 }
 
-/// **THE RULE-COUNT-VERSUS-DEPTH CONFLATION, proven by collision rather than described.**
-///
-/// `compounding_max_depth` sums `max_apps` across the transitive closure of rules that COULD feed a
-/// rule. That makes it blind to a distinction which decides how big a construction gets:
-///
-/// - **ONE** rule at `multipleApplication="4"` -- a rule that genuinely may re-apply to its own
-///   output four times, so a single derivation really can reach five stems;
-/// - **FOUR** rules at the DTD default `multipleApplication="1"` -- four ALTERNATIVE ways to
-///   compound, none of which may apply twice at all.
-///
-/// Both compute `max_depth == 5`. The formula cannot tell them apart, because the first quantity is
-/// typology and the second is grammar-counting. Eight ways to compound is not nine levels of nesting,
-/// and this test is that sentence as an executable collision -- it needs no FST, no corpus and no
-/// emitter, so nothing else can confound it.
-///
-/// That multiplier is live, not hypothetical: the private `sena` grammar declares **8**
-/// `CompoundingRule`s, none with `multipleApplication`, so it lands on `max_depth = 9` and
-/// `crate::emit::compound_extra_levels_checked` unrolls **8** non-head root levels for it.
-///
-/// The OPERATIVE bound is much smaller and lives elsewhere entirely: C#'s `Morpher.MaxStemCount`
-/// (ctor default **2**), ported as `pg_rules::stratum::AnalyzerConfig::max_stem_count`, gates
-/// `Compounding` rule application as soon as `non_heads.len() + 1 >= max_stem_count`, so a
-/// DEFAULT-configured engine confirms at most two stems.
-/// `raised_cap_oracle_finds_the_recursive_analysis_confirm_at_default_would_miss` in this same
-/// file already pins that half against the staged fixture: at the default cap the 3-stem compound
-/// confirms ZERO analyses, and only `with_max_stem_count(3)` makes it one.
-///
-/// **Deliberately a PIN, not a behavior change.** The over-approximating direction is sound, and the
-/// deeper levels are real recall for a raised-cap caller --
-/// `depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis` (this file) would break if
-/// the construction were simply clamped to the default. Sizing the construction by
-/// `min(ceiling, operative stem bound)` requires the operative bound to travel from whoever sets
-/// `max_stem_count` into `crate::emit`, with that test moving in lockstep; see
-/// `crate::capability::compounding_max_depth`'s own doc for the full write-up. What this guarantees
-/// meanwhile is that the conflation is ASSERTED, so it cannot be quietly re-argued away.
+/// The rule-count-versus-depth conflation, proven by collision rather than described; see
+/// docs/research/pg-foma-cover-compounding-recursive-depth-bound-design-notes.md.
 #[test]
 fn max_depth_cannot_distinguish_four_ways_to_compound_from_four_levels_of_nesting() {
     let roots = ["tevi", "mafl", "isra", "kopu", "nalt"];
@@ -390,14 +327,8 @@ fn max_depth_cannot_distinguish_four_ways_to_compound_from_four_levels_of_nestin
     );
 }
 
-/// **The depth-BOUND-respected gate.** A grammar whose computed `max_depth` bound is exactly `k`
-/// (here `k = 3`: one isolated `CompoundingRule`, `multipleApplication="2"`, so
-/// `max_depth = 1 + 2 = 3` -- this module's own established isolated-rule equivalence) must propose
-/// a `k`-stem word (3 roots concatenated) but must NOT propose a `k+1`-stem word (4 roots
-/// concatenated) -- over-approximation is licensed up to the computed bound, never past it.
-/// `build_compound_chain` only ever unrolls `max_depth - 1 = 2` extra non-head levels for this
-/// grammar, so a 4-root word is structurally unreachable through it, exactly mirroring the
-/// pre-task-4.1 "one extra root" shape's own bound at k=2.
+/// The depth-bound-respected gate: over-approximation is licensed up to the computed bound; see
+/// docs/research/pg-foma-cover-compounding-recursive-depth-bound-design-notes.md.
 #[test]
 fn depth_bound_is_respected_a_k_plus_one_stem_word_is_never_proposed() {
     let roots = ["pafu", "kilo", "setu", "namo"];
@@ -432,15 +363,8 @@ fn depth_bound_is_respected_a_k_plus_one_stem_word_is_never_proposed() {
     );
 }
 
-/// **The budget gate.** A `CompoundingRuleDef` with a `multipleApplication` value far beyond the
-/// DTD's practical ceiling (9) computes an enormous `max_depth` bound -- `crate::emit`'s own
-/// `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` (200) must refuse this grammar with a typed
-/// `FomaTier::Unsupported` outcome, checked BEFORE any lexc text is written, rather than unrolling
-/// 60,000 chain levels (a hang/OOM risk this task's own brief names as the real cost concern). No
-/// env var mutation needed (unlike `tests/cover_compounding_budget.rs`'s own `HC_COMPOUND_PAIR_BUDGET`
-/// convention): the DEFAULT budget itself is what this grammar is deliberately built to exceed, so
-/// this test needs no process-global state and can run safely alongside every other test in this
-/// crate's default parallel test execution.
+/// The budget gate: an oversized `max_depth` must refuse via `FomaTier::Unsupported`, not unroll; see
+/// docs/research/pg-foma-cover-compounding-recursive-depth-bound-design-notes.md.
 #[test]
 fn compound_chain_depth_budget_trips_before_any_lexc_emitted() {
     let roots = ["pafu", "kilo"];

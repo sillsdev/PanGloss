@@ -1,9 +1,4 @@
-//! Streaming `.fwdata` reader: walks the flat sequence of `<rt class="..." guid="..."
-//! [ownerguid="..."]>` records one at a time (`quick_xml`'s pull-based `Reader`, never a DOM of
-//! the whole document — Sena 3 is ~54MB) and builds a `RawGraph` keyed by GUID, containing
-//! only records whose `class` is one this crate's extractor understands. Every other class
-//! (the bulk of a real project — `ChkRef`, `WfiWordform`, `StText`, Scripture data, ...) is
-//! skipped without ever being parsed into a `crate::node::Node`.
+//! Streaming `.fwdata` reader: pulls `<rt class="..." guid="...">` records one at a time (never a DOM of the whole document) into a `RawGraph`, skipping any class this crate's extractor doesn't understand before it is ever parsed into a `Node`.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -16,11 +11,7 @@ use quick_xml::reader::Reader;
 use crate::node::Node;
 use crate::ImportError;
 
-/// One retained `<rt>` record: its LCM class, its own GUID, its owner's GUID (absent for a
-/// handful of singleton objects FieldWorks omits `ownerguid` for, e.g. `LexEntry`), and the
-/// parsed body. `ownerguid` isn't read by the current extractor (every "which collection does
-/// this belong to" question is instead answered by walking the *owner's* named field, which also
-/// gives ordering) but is cheap to carry and useful for future diagnostics/debugging.
+/// One retained `<rt>` record; `ownerguid` is unread by the extractor (ownership comes from walking the owner's named field instead) but cheap to carry for future diagnostics.
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Record {
@@ -30,19 +21,11 @@ pub struct Record {
     pub node: Node,
 }
 
-/// Every retained record, keyed by GUID. Cross-references (`objsur` targets) resolve against
-/// this map regardless of whether the link was owning (`t="o"`) or by-reference (`t="r"`) —
-/// once parsed, both are just a GUID to look up.
+/// Every retained record, keyed by GUID; owning (`t="o"`) and by-reference (`t="r"`) links both resolve here the same way, as a GUID lookup.
 #[derive(Debug, Default)]
 pub struct RawGraph {
     pub records: HashMap<String, Record>,
-    /// `LexEntry` guids in file-encounter order. `LexEntry` is declared `owner="none"` in the LCM
-    /// schema (confirmed empirically too — `<rt class="LexEntry" guid="...">` never carries an
-    /// `ownerguid` attribute) and `LexDb` has no ordered `Entries` sequence field either; the only
-    /// deterministic order available at all is raw document order, so the streaming parser
-    /// records it directly here rather than the extractor discovering entries via
-    /// `RawGraph::by_class` (hashmap iteration order is per-process-random and would break the
-    /// "same file twice → byte-identical JSON" determinism requirement).
+    /// `LexEntry` guids in file-encounter order — the only deterministic order available, since `LexEntry` has no `ownerguid` and `LexDb` has no ordered entries field to fall back on.
     pub lex_entry_order: Vec<String>,
 }
 
@@ -51,24 +34,13 @@ impl RawGraph {
         self.records.get(guid)
     }
 
-    /// All retained records of a given class, in arbitrary (hashmap) order — `HashMap` iteration
-    /// order is randomized per-process (`SipHash` seeding), so anything built from it would
-    /// *not* satisfy "importing the same file twice produces byte-identical JSON" across two
-    /// separate process runs (an intra-process determinism test using the same `HashMap` would
-    /// pass while still hiding this). The **only** current caller is
-    /// `extract::project::find_lang_project`, which is safe precisely because
-    /// `LangProject` is a file singleton — `.next()` over a one-element filtered set can't
-    /// observe ordering. Every other ordered output in this crate comes from a named-field
-    /// `objsur_list` walk, a `CmPossibilityList`/`SubPossibilities` tree walk, or
-    /// `RawGraph::lex_entry_order` — never this method. Keep it that way: a new caller of
-    /// `by_class` feeding `Snapshot` output would silently reintroduce the hazard.
+    /// Arbitrary (per-process-random) hashmap order; safe only for `find_lang_project`'s singleton lookup — a new ordered-output caller would break cross-run JSON determinism.
     pub fn by_class<'a>(&'a self, class: &'a str) -> impl Iterator<Item = &'a Record> + 'a {
         self.records.values().filter(move |r| r.class == class)
     }
 }
 
-/// The LCM classes this crate's extractor reads. Every other `<rt class="...">` in a `.fwdata`
-/// file is skipped (subtree not parsed) as soon as its class attribute is seen.
+/// The LCM classes this crate's extractor reads; every other `<rt class="...">` is skipped unparsed.
 const ALLOWED_CLASSES: &[&str] = &[
     // project / roots
     "LangProject",
@@ -151,10 +123,7 @@ fn get_attr(e: &BytesStart, name: &str) -> Result<Option<String>, ImportError> {
     Ok(None)
 }
 
-/// Parse `path` into a `RawGraph`. Hard errors are reserved for I/O failures and XML that
-/// isn't well-formed at all (or isn't a `.fwdata` document — no `<languageproject>`/`<rt>`
-/// elements found); anything else (dangling references, missing fields, unknown morph types) is
-/// the extractor's job to log as a warning, never this layer's.
+/// Parse `path` into a `RawGraph`; hard errors are reserved for I/O and malformed/non-`.fwdata` XML, everything else is the extractor's job to warn on.
 pub fn parse_fwdata(path: &Path) -> Result<RawGraph, ImportError> {
     let file = File::open(path).map_err(ImportError::Io)?;
     let mut reader = Reader::from_reader(BufReader::new(file));
@@ -197,8 +166,7 @@ pub fn parse_fwdata(path: &Path) -> Result<RawGraph, ImportError> {
                 }
             }
             Event::Empty(e) if e.local_name().as_ref() == b"rt" => {
-                // A record with no body at all (e.g. `<rt class="PhVariable" guid="..."
-                // ownerguid="..." />`) — still a valid, retainable record with an empty node.
+                // A self-closed `<rt .../>` with no body is still a valid record, with an empty node.
                 let class = get_attr(&e, "class")?.unwrap_or_default();
                 let guid = get_attr(&e, "guid")?.unwrap_or_default();
                 let ownerguid = get_attr(&e, "ownerguid")?;
@@ -230,8 +198,7 @@ pub fn parse_fwdata(path: &Path) -> Result<RawGraph, ImportError> {
     Ok(graph)
 }
 
-/// Parse everything up to (and including) the matching `</rt>` into a `Node` representing the
-/// `<rt>` element itself (its `children` are the record's property elements).
+/// Parse up to and including the matching `</rt>` into a `Node`, whose `children` are the record's property elements.
 fn parse_rt_body(reader: &mut Reader<BufReader<File>>) -> Result<Node, ImportError> {
     let mut stack: Vec<Node> = vec![Node::empty()];
     let mut buf = Vec::new();
