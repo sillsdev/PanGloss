@@ -60,7 +60,17 @@ STAGING.md claims this change "has only its evaluator library — no … `panglo
 into a rescoped successor.
 </details>
 
-### A3 — `add-grammar-diagnostics` (8 done / 14 open)
+### A3 — `add-grammar-diagnostics` — RETIRED 2026-08-06 (8/14; the open work was real)
+
+**Resolved, and unlike A1/A2 its notes were accurate** — 5 of 7 checked out. It stalled because it
+carried three signal classes under one name. Split by the compiler mapping: health is static
+(artifact, no word list, optimization-remark class) and owned by `recipe-scoped-fst-health`; diagnosis
+is dynamic (a run over words, test-report class) and moves to `diagnose-grammar-runs` together with
+the field intake harness. Profiling — the third class — dies with C1 rather than being re-homed.
+Dropped as unsatisfiable: "run strict OpenSpec validation", which cannot pass without delta specs.
+
+<details><summary>original grill</summary>
+
 
 *For:* one repeatable diagnostic command, because evidence was scattered across batch runs and
 skills.
@@ -70,8 +80,9 @@ second pipeline, file artifacts, or the PowerShell/CI/skill layer" — so the de
 honest state. It also references three types that do not exist in the tree (`EstablishedByNamedGate`,
 `NotEvaluated`, `ObservedOnly`), the highest missing-identifier rate of any change.
 
-**Choices:** (a) retire — the command exists and the rest was deferred by choice; (b) keep only the
-deferred CI/skill layer as a named gap; (c) keep. **Recommendation: (b).**
+**Choices:** (a) retire; (b) keep the deferred layer; (c) keep. Chose: retire into one successor
+owning run-reporting + intake.
+</details>
 
 ---
 
