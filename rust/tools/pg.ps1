@@ -391,6 +391,36 @@ if ($Mode -eq 'test' -or $Mode -eq 'corpus-test' -or $Mode -eq 'doctor') {
     $conformanceCheck = Initialize-ConformanceSubmodule -RepoRoot $repoRoot
 }
 
+# Reported on EVERY managed build, not only in doctor -- it previously ran in doctor alone, which is
+# the mode nobody runs before an ordinary build, so a comment regression could survive indefinitely.
+#
+# Deliberately NOT folded into the unsafe/exit-code decision. A stale comment cannot make a build
+# wrong, and a documentation finding that blocks every managed build is the exact gate shape this repo
+# has already watched get switched off and then protect nothing. Loud, never fatal.
+#
+# The ratchet fails only on a category GROWING, so a red line means markers were ADDED since the
+# baseline -- not that the standing backlog still exists.
+#
+# Costs ~7s per invocation against ~400 files, which is why it prints its own timing: if that ever
+# becomes the reason someone reaches for bare cargo, the cost has outgrown the benefit and it should
+# move to changed-files-only rather than be quietly dropped.
+function Invoke-CommentHygieneReport {
+    param([Parameter(Mandatory)][string]$ToolRoot)
+    $hygiene = Join-Path $ToolRoot 'comment-hygiene.ps1'
+    if (-not (Test-Path $hygiene)) { return }
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $hygieneOut = & pwsh -NoProfile -File $hygiene 2>&1
+    $sw.Stop()
+    $secs = [math]::Round($sw.Elapsed.TotalSeconds, 1)
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[pg] comment hygiene: no category grew since the baseline (${secs}s)." -ForegroundColor Green
+    } else {
+        Write-Host "[pg] comment hygiene: REGRESSED -- a category grew since the baseline (${secs}s)." -ForegroundColor Red
+        $hygieneOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+        Write-Host '  rules: .claude/skills/code-comments/SKILL.md   offenders: rust\tools\comment-hygiene.ps1 -List' -ForegroundColor Yellow
+    }
+}
+
 $profileLabel = switch ($Mode) {
     'release' { 'release (fat LTO)' }
     'test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
@@ -440,6 +470,10 @@ if (-not $memCheck.Ok) {
     Write-Host "[pg] override for one run with PANGLOSS_MIN_FREE_MEM_GB=<gb> if you know the reading is stale, but understand that this gate exists because the machine was taken to zero memory twice." -ForegroundColor DarkGray
     exit $script:ExitCodeLowMemory
 }
+
+# Not in doctor: doctor reports it in its own findings section further up, and this path runs for every
+# mode, so an unguarded call ran the ~7s scan twice there.
+if ($Mode -ne 'doctor') { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }
 
 if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
     Write-Host '[pg] corpus-test refused BEFORE starting cargo -- required corpus file(s) missing:' -ForegroundColor Red
@@ -496,23 +530,7 @@ if ($Mode -eq 'doctor') {
         Write-Host "  if this keeps happening: wrap the offending binary with 'pg.ps1 -Mode run' instead of invoking it directly -- that puts it under the same kernel-enforced --maxjobmem ceiling a managed build already gets." -ForegroundColor Yellow
     }
 
-    # Deliberately NOT folded into $unsafe: a stale comment cannot make a build wrong, and a
-    # documentation finding that blocks every managed build is the kind of gate that gets switched
-    # off and then protects nothing. Reported loudly, never fatal -- as with the exhaustion history.
-    #
-    # The ratchet fails only on a category GROWING, so a red line means markers were added since the
-    # baseline, not that a backlog still exists.
-    $hygiene = Join-Path $PSScriptRoot 'comment-hygiene.ps1'
-    if (Test-Path $hygiene) {
-        $hygieneOut = & pwsh -NoProfile -File $hygiene 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host '[pg] comment hygiene: no category grew since the baseline.' -ForegroundColor Green
-        } else {
-            Write-Host '[pg] comment hygiene: REGRESSED -- project state is creeping back into comments.' -ForegroundColor Red
-            $hygieneOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
-            Write-Host '  rules: .claude/skills/code-comments/SKILL.md   offenders: rust\tools\comment-hygiene.ps1 -List' -ForegroundColor Yellow
-        }
-    }
+    Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot
 
     if ($unsafe) {
         Write-Host '[pg] doctor: environment is UNSAFE for a managed build (see failures above).' -ForegroundColor Red

@@ -170,8 +170,28 @@ $exceptionTags = @(
     'SAFETY:',     # Rust's own convention for an unsafe block's proof obligation.
     'INVARIANT:',  # A property the code must preserve that is not locally checkable; breaking it is silent.
     'TRAP:',       # A hazard in surrounding behaviour that a plausible edit would trip.
-    'WHY-NOT:'     # A rejected alternative that looks better than it is, with the reason it fails.
+    'WHY-NOT:',    # A rejected alternative that looks better than it is, with the reason it fails.
+    'PORT:'        # A required correspondence with, or deliberate divergence from, the C# oracle.
 )
+
+# PORT: earns its place on the same ground the skill already grants a paper or an upstream issue: the
+# knowledge is DURABLE because its subject is external and frozen. This crate ports FieldWorks'
+# HermitCrab, and the C# does not change under us -- so a comment recording "the CLR does X, we do Y,
+# and here is why they differ" ages far better than one describing our own code, which is the thing
+# that actually moves. One line cannot carry three clauses.
+#
+# It is measured, not assumed: 297 of the over-long private blocks mention the C# oracle in their FIRST
+# line alone, the largest identifiable class by a wide margin, and that is a lower bound.
+#
+# SCOPE IT TIGHTLY WHEN REVIEWING. PORT: licenses a correspondence or a divergence. It does NOT license
+# narrating what the C# does -- that is description, and description is what this whole rule exists to
+# remove. A PORT: block that never says what THIS code does in response is misfiled.
+#
+# `FIXTURE:` was considered for the second-largest class (211 blocks of test-fixture rationale) and
+# REJECTED, on this session's own evidence: a fixture was swapped and five rationale comments went
+# stale describing the wrong grammar. Fixture rationale rots exactly the way this rule exists to
+# prevent, because its subject is our own test data. If such a comment needs length it can cite the
+# test, which the anchor rule already handles.
 
 # Comment lines only. A plan path inside a string literal is usually a real file the code opens.
 #
