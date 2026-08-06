@@ -1,19 +1,4 @@
-//! Throwaway P6/Aweti diagnostic (task brief Q1): is the composed
-//! `lexc(templated) .o. rules .o. boundary_cleanup` network CYCLIC or ACYCLIC?
-//!
-//! Uses the vendored foma-rs's own `foma::topsort::fsm_topsort` (Kahn's-algorithm topological
-//! sort + path counter, `foma-0.4.0/src/topsort.rs`) rather than a hand DFS: it is a plain linear
-//! pass over the state/arc line table (no backtracking search, no `apply_up`), so it is SAFE to run
-//! directly on the full composed network regardless of the `apply_up` hang this whole P6-Aweti
-//! investigation is about. `fsm_topsort` sets `net.is_loop_free`/`net.pathcount` (`PATHCOUNT_CYCLIC`
-//! = -1 iff a cycle -- including a self-loop or a back-edge into an already-topologically-treated
-//! state -- was found during the single linear pass); it does not enumerate paths.
-//!
-//! Mirrors `examples/p6_templated_replace_prototype.rs`'s own compose flow exactly (same emitter, same
-//! rule cascade, same boundary cleanup) so the network under test here is byte-identical to the one
-//! `tests/p6_aweti_gate.rs` exercises.
-//!
-//! Run: `cargo run --release -p pg-foma --example p6_aweti_q1_cycle_check`
+//! Diagnostic: is the composed `lexc(templated) .o. rules .o. boundary_cleanup` network cyclic? Uses `foma::topsort::fsm_topsort`'s linear Kahn's-algorithm pass (no backtracking, no `apply_up`), so it is safe to run even when `apply_up` itself hangs on this network.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;

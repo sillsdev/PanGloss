@@ -1,46 +1,4 @@
-//! **The structural-witness gate** — the last honest prerequisite this crate owns before
-//! `tests/conformance_coverage_gate.rs`'s advisory report can responsibly flip to build-breaking.
-//!
-//! # The gap this file closes
-//! Four `machine/conformance/constructs.txt` row ids are each mapped by TWO different
-//! `pg_foma::capability::CharacteristicKind`s (`pg_foma::conformance_coverage::
-//! construct_ids_for`, see that module's own "structural-witness gate" doc section). Three of
-//! those pairs are genuinely at risk of one kind's `Covered` status silently INHERITING from a
-//! sibling's passing fixture: `pg_foma::conformance_coverage::supported_coverage_report` credits
-//! a row `Covered` the instant ANY passing word/parse anywhere tags the shared id — it cannot tell
-//! "this fixture genuinely exercises the finer construct" from "this fixture exercises the coarser
-//! sibling and happens to share the finer one's row id". A hand audit today confirms all three
-//! finer characteristics have genuine evidence (see this crate's own task doc / commit history for
-//! the citations), but a hand audit is not a gate: if the specific witnessing fixture were later
-//! deleted, or stopped passing, while the coarser sibling kept tagging the shared id, the row would
-//! keep reporting `Covered` forever. That is precisely the overclaim ADR 0001's cross-check exists
-//! to forbid.
-//!
-//! # What this file does about it
-//! For each of `pg_foma::conformance_coverage::registered_structural_witnesses`'s three entries,
-//! this file replays EVERY discovered fixture (`pg_conformance_fixtures::discover` — the one shared
-//! enumeration helper, not a second path walker) against `pg_parse::Morpher` (the same oracle
-//! `tests/conformance_coverage_gate.rs` and `pg-parse`'s own `conformance_fixtures_gate.rs` already
-//! use) and asserts that **some fixture whose loaded GRAMMAR structurally exhibits the finer
-//! construct** (via the witness's own predicate — never a second hand-rolled definition, see each
-//! predicate's own doc in `pg_foma::conformance_coverage` for exactly where it reads its facts
-//! from) has at least one PASSING word/parse tagging the shared id. A failing word's `exercises:`
-//! tags never count, mirroring `passing_covered_constructs`'s own "what 'passing' means here" rule
-//! (`pg_foma::conformance_coverage`'s module doc).
-//!
-//! This cross-checks the grammar SHAPE against the TAG, so the finer characteristic's evidence is
-//! mechanically pinned rather than merely hand-reviewed. It does not (and cannot) prove the tag was
-//! the RIGHT tag in some deeper semantic sense — same disclaimer `tests/exercises_tag_liveness.rs`
-//! already carries for tag-string validity — but it does prove the tag is not resting SOLELY on a
-//! coarser sibling's unrelated evidence.
-//!
-//! # Non-vacuity discipline
-//! Every loop below asserts a non-zero scan count independently: zero fixtures discovered, zero
-//! fixtures structurally matching a given predicate, and zero registered witnesses are all treated
-//! as gate failures in their own right, not silently-passing edge cases — mirroring
-//! `tests/coverage_citation_liveness.rs`/`tests/exercises_tag_liveness.rs`'s own "a silently-vacuous
-//! check is worse than a loud failure" discipline (read those two files first if this reasoning
-//! feels unfamiliar).
+//! Closes a coverage-inheritance trap: several `constructs.txt` row ids are shared by two `CharacteristicKind`s, and `supported_coverage_report` credits a row `Covered` the instant any passing fixture anywhere tags the shared id — it cannot tell a finer construct's own evidence from a coarser sibling's. This file cross-checks the grammar SHAPE against the TAG: for each registered structural witness, at least one fixture whose loaded grammar structurally exhibits the finer construct (via the witness's own predicate) must also have a passing word/parse tagging the shared id, so the finer characteristic's `Covered` status can never rest solely on a sibling's unrelated evidence. Every loop treats a zero scan count as a gate failure in its own right, never a silently-passing edge case.
 
 use std::collections::HashSet;
 
@@ -49,17 +7,7 @@ use pg_foma::conformance_coverage::registered_structural_witnesses;
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 
-/// Every `constructs.txt` id tagged by a PASSING word/parse belonging to a fixture whose loaded
-/// grammar satisfies `predicate`, plus the count of fixtures that structurally matched at all
-/// (independent of whether any of their words happened to pass or tag anything) — so a caller can
-/// distinguish "no structurally-matching fixture exists" from "one exists but tags nothing".
-///
-/// Mirrors `tests/conformance_coverage_gate.rs`'s own `passing_covered_constructs` "what counts as
-/// passing" rule exactly (replay against the SAME oracle, `pg_parse::Morpher`, crediting only a
-/// word/parse whose engine output matches its fixture's declared ground-truth signature) —
-/// re-derived independently here rather than imported, matching that file's own "this file
-/// re-derives its own passing replay independently... rather than depending on that test's
-/// internals" precedent (see its own top-doc).
+/// Every `constructs.txt` id tagged by a passing word/parse in a fixture whose grammar satisfies `predicate`, plus how many fixtures structurally matched at all — so a caller can tell "none exist" from "one exists but tags nothing". Replay rules mirror (independently re-derived, not imported from) `tests/conformance_coverage_gate.rs`'s `passing_covered_constructs`.
 fn passing_ids_from_structurally_matching_fixtures(
     predicate: fn(&Grammar) -> bool,
 ) -> (HashSet<String>, usize) {
@@ -110,10 +58,7 @@ fn passing_ids_from_structurally_matching_fixtures(
     (ids, structurally_matching_fixtures)
 }
 
-/// **The deliverable itself.** For each of today's four registered structural witnesses: at
-/// least one fixture must structurally exhibit the finer construct AND have a passing word/parse
-/// tagging the shared id — proving the finer characteristic's evidence is pinned to a real
-/// grammar shape, not merely inherited from a coarser sibling's unrelated passing fixture.
+/// For each registered structural witness: at least one fixture must structurally exhibit the finer construct AND have a passing word/parse tagging the shared id, proving the evidence is pinned to a real grammar shape, not inherited from a coarser sibling.
 #[test]
 fn every_registered_structural_witness_is_satisfied_by_a_passing_fixture() {
     let witnesses = registered_structural_witnesses();
@@ -162,16 +107,7 @@ fn every_registered_structural_witness_is_satisfied_by_a_passing_fixture() {
     );
 }
 
-/// Belt-and-suspenders on `every_registered_structural_witness_is_satisfied_by_a_passing_fixture`:
-/// names the SPECIFIC fixture this crate's own hand audit identified for each witness (module doc),
-/// so a reviewer can see at a glance which fixture is load-bearing for each id, and so a future
-/// change that deletes/renames one of these three specific fixtures — while some OTHER fixture
-/// happens to still satisfy the general gate above — gets a pointed failure naming exactly which
-/// named fixture stopped being discoverable/structurally-matching/passing, rather than only the
-/// generic "some fixture somewhere" failure above.
-/// One hand-identified witness expectation (a named tuple struct rather than a raw tuple, so the
-/// four-field shape stays self-documenting at each call site and clippy's `type_complexity` lint
-/// has nothing to flag).
+/// Belt-and-suspenders on the general gate above: names the specific load-bearing fixture per witness, so deleting/renaming one gets a pointed failure even if some other fixture still satisfies the general check.
 struct WitnessExpectation {
     fixture_name: &'static str,
     construct_id: &'static str,

@@ -1,18 +1,4 @@
-//! A test that `pg_foma::readiness_verdict`'s `not-supported` tier cites a REAL predicate
-//! refusal, on a grammar known to carry a permanently carved-out construct.
-//!
-//! Per this task's own brief: "all three reference grammars now refuse on exactly
-//! `mpr-group.overwrite-output` -- `samples/data/{indonesian,amharic,sena}-hc.xml` are available
-//! and any of them is a genuine not-supported case" (`docs/benchmark-matrix.md`'s own finding,
-//! reproduced here against the real, current capability gate rather than assumed stale).
-//!
-//! # Gitignored local corpus data (mirrors `tests/f3_parity.rs` exactly)
-//! `samples/data/*` is real-language corpus data, deliberately gitignored (this repo's own
-//! synthetic-conformance-only rule: real-language data is never committed). These tests load a
-//! real grammar from `samples/data/`, so -- exactly like every `samples/data`-dependent test in
-//! `tests/f3_parity.rs` -- they are unconditionally `#[ignore]`d with a self-skip guard, so a
-//! `--include-ignored` run stays green in an environment without the fixture (CI, a fresh clone).
-//! Run locally with `cargo test -p pg-foma --test readiness_certification_gate -- --include-ignored`.
+//! Tests that `pg_foma::readiness_verdict`'s `not-supported` tier cites a real predicate refusal, using all three reference grammars, which currently refuse on exactly `mpr-group.overwrite-output`. Loads real grammars from gitignored `samples/data/`, so unconditionally `#[ignore]`d with a self-skip guard (mirrors `tests/f3_parity.rs`); run locally with `--include-ignored`.
 
 use std::path::{Path, PathBuf};
 
@@ -42,8 +28,7 @@ fn assert_not_supported_names_overwrite_output(xml_name: &str) {
     let g = load_grammar(xml_name);
     let policy = policy_v1();
 
-    // No compiled artifact/measurements at all -- this grammar is refused before anything would
-    // compile, matching `Measurements`'s own documented `None` case.
+    // No compiled artifact/measurements at all — this grammar is refused before anything would compile.
     let report = certify(&g, &TrustStatus::Proven, None, &policy);
 
     assert_eq!(
@@ -72,8 +57,7 @@ fn assert_not_supported_names_overwrite_output(xml_name: &str) {
             .any(|r| r.predicate == "mpr-group.overwrite-output"),
         "{xml_name}: expected mpr-group.overwrite-output among the real refusals, got {refusals:?}"
     );
-    // Every cited refusal must actually name both a predicate and a construct -- an empty
-    // construct string would be a citation in name only.
+    // Every cited refusal must name both a predicate and a construct — an empty string would be a citation in name only.
     for r in refusals {
         assert!(
             !r.predicate.is_empty(),
@@ -85,10 +69,7 @@ fn assert_not_supported_names_overwrite_output(xml_name: &str) {
         );
     }
 
-    // Every check must have been forced to NotAssessed (no compiled artifact exists to measure),
-    // never silently rendered as passed -- a not-supported grammar has no artifact to measure at
-    // all, and the report must say so plainly rather than presenting a stale/guessed threshold
-    // result.
+    // Every check must be forced to NotAssessed, never silently rendered as passed — there is no compiled artifact to measure at all.
     assert!(
         report
             .checks
@@ -102,8 +83,7 @@ fn assert_not_supported_names_overwrite_output(xml_name: &str) {
         "{xml_name}: a not-supported grammar must never certify"
     );
 
-    // The report's own notes must explain the not-supported tier in terms of the real capability
-    // evaluation -- a bare "not passing" is useless.
+    // The report's notes must explain the not-supported tier in terms of the real capability evaluation — a bare "not passing" is useless.
     assert!(
         report.notes.iter().any(|n| n.contains("NOT SUPPORTED")),
         "{xml_name}: report notes must explain the not-supported tier: {:?}",

@@ -1,9 +1,4 @@
-//! Exploratory driver for the POS-gating half (mirrors Amharic `prule1`'s exact shape: LHS = 3
-//! fixed segments, RHS = 1 fixed segment, no environment, `requiredPartsOfSpeech`). Hand-authored
-//! minimal grammar (Amharic's own templated morphotactics is a separate, already-costed gap this
-//! prototype doesn't attempt -- see `pg-foma/src/gate.rs`'s module doc) with two lexical entries
-//! sharing the identical underlying shape, differing ONLY in part of speech, so the gate is the
-//! ONLY thing that can distinguish their surface realization.
+//! Exploratory driver for POS-gating: two lexical entries share an identical underlying shape, differing only in part of speech, so the gate is the only thing that can distinguish their surface realization.
 
 use foma::apply::apply_init;
 use foma::options::FomaOptions;

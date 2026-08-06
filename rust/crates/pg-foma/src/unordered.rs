@@ -159,11 +159,7 @@ pub(crate) fn check_unordered_strata_bound(
 mod tests {
     use super::*;
 
-    /// Synthetic, delanguaged fixture generator (this repo's "synthetic data
-    /// only" hard rule for grammar fixtures): one stratum declaring `order` with `rule_count` trivial suffix rules
-    /// (`ruleN` inserts a distinct literal segment `xN`) -- only `mrule_order`/loose-rule COUNT
-    /// matter to this module's own checks, so every rule is otherwise as bare as `pg_grammar::load`
-    /// accepts (mirrors `crates/pg-foma/src/morphotactics.rs`'s own inline `FIXTURE_SLOTS` style).
+    /// Synthetic fixture generator: one stratum declaring `order` with `rule_count` trivial suffix rules; only order and rule count matter to this module's checks, so every rule is otherwise as bare as the loader accepts.
     fn stratum_xml(order: &str, rule_count: u32) -> String {
         let mut rules = String::new();
         let mut segs = String::new();
@@ -252,13 +248,7 @@ mod tests {
         assert!(check_unordered_strata_bound(&g, &budget).is_ok());
     }
 
-    /// `check_unordered_strata_bound` against an EXPLICIT (test-only) budget cap, independent of
-    /// `UnorderedStratumMetrics::within_bound`'s own crate-wide
-    /// `crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET` -- a 7-rule stratum is well
-    /// within the production default (100, calibrated against this repo's own real reference/
-    /// conformance corpus, `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`'s own doc), but must still trip a
-    /// deliberately small EXPLICIT cap of 6 -- proving the gate genuinely reads the budget it is
-    /// handed, not a hardcoded threshold.
+    /// Proves the gate genuinely reads the budget it is handed, not a hardcoded threshold: a 7-rule stratum is well within the production default but still trips a deliberately small explicit cap of 6.
     #[test]
     fn check_unordered_strata_bound_trips_on_an_explicit_low_cap() {
         let g = load(&stratum_xml("unordered", 7));
@@ -295,9 +285,7 @@ mod tests {
 
     #[test]
     fn production_default_within_bound_matches_the_calibrated_constant() {
-        // `UnorderedStratumMetrics::within_bound` (used by `crate::capability`'s STATIC
-        // characterization) must agree with the calibrated constant exactly at the boundary: the
-        // default itself is within bound, one past it is not.
+        // Must agree with the calibrated constant exactly at the boundary: the default itself is within bound, one past it is not.
         let at_default = load(&stratum_xml(
             "unordered",
             crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32,
@@ -313,10 +301,7 @@ mod tests {
 
     #[test]
     fn production_default_budget_refuses_a_deep_unordered_stratum() {
-        // Exercises the SAME path `crate::analyzer::FomaProposer::new` uses in production
-        // (`ComposeBudget::from_env`, no explicit cap) -- proves the calibrated default this
-        // change ships actually refuses an unbounded configuration, not just an explicit
-        // test-only cap.
+        // Exercises the same path `FomaProposer::new` uses in production (`ComposeBudget::from_env`, no explicit cap) — proves the calibrated default actually refuses an unbounded configuration.
         let g = load(&stratum_xml(
             "unordered",
             crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,

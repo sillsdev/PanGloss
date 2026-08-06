@@ -133,8 +133,7 @@ fn spaced(text: &str) -> String {
         .join(" ")
 }
 
-/// A compact grammar-owned floating-marker heuristic: modifier letters and the degree-style
-/// placeholder are technical realization symbols when they occur as singleton rewrite inputs.
+/// Modifier letters and the degree-style placeholder count as technical realization symbols when they occur as singleton rewrite inputs.
 fn is_floating_marker_representation(representation: &str) -> bool {
     !representation.is_empty()
         && representation

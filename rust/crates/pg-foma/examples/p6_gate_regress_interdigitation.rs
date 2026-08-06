@@ -1,12 +1,4 @@
-//! Regression sanity check (per task instructions: "make sure you haven't regressed... Amharic's
-//! tuple-expansion behavior"): `pg_foma::gate`'s partitioning machinery must (a) find Amharic's
-//! known POS-gated subrules (prule1/prule2/prule3, `requiredPartsOfSpeech`) without crashing, (b)
-//! leave the UNTOUCHED `compile_and_compose_rules`/`compile_rewrite_rule` entry points byte-for-
-//! byte behaviorally identical (they are new sibling functions, not edited — this just re-confirms
-//! Amharic's own tuple-expansion counts from `p6_interdigitation_probe.rs` are unchanged), and (c) do the
-//! same sanity pass over Aweti. Does NOT attempt a full gated compile for either (both need the
-//! templated-morphotactics `uflexc` emitter this prototype never built — a separate, already-costed
-//! gap, not something this MPR/POS step reaches).
+//! Regression sanity check: `pg_foma::gate`'s partitioning machinery must find Amharic's known POS-gated subrules without crashing, while leaving the untouched `compile_and_compose_rules` entry point's tuple-expansion behavior unchanged. Does not attempt a full gated compile — that needs the templated-morphotactics `uflexc` emitter this prototype never built.
 
 use std::path::{Path, PathBuf};
 
@@ -56,10 +48,7 @@ fn check(label: &str, g: &Grammar) {
         println!("  key={:?} entries={}", grp.key, grp.entries.len());
     }
 
-    // Untouched entry point: confirm the ORIGINAL (ungated) cascade compile still runs clean,
-    // exactly reproducing p6_interdigitation_probe.rs / p6_templated_rules_probe.rs's own reported behavior (this is
-    // the same call those probes make; a regression here would mean this PR's edits broke
-    // replace.rs's pre-existing code path, not gate.rs's own new one).
+    // Confirms the original (ungated) cascade compile still runs clean — a regression here would mean replace.rs's pre-existing path broke, not gate.rs's new one.
     let mut skipped: Vec<String> = Vec::new();
     let mut tuple_reports: Vec<(String, Vec<pg_foma::replace::TupleReport>)> = Vec::new();
     let composed = compile_and_compose_rules(
@@ -83,10 +72,7 @@ fn check(label: &str, g: &Grammar) {
 }
 
 fn main() {
-    // Aweti intentionally omitted here (unlike its name suggests) -- its own regression coverage
-    // needs the JSON pg-snapshot loader path (`templated_probe.rs`'s bespoke loader), not worth wiring
-    // up for a sanity check the task doesn't ask for regressing (only Indonesian recall and
-    // Amharic's tuple-expansion numbers are the named regression targets). Amharic alone below.
+    // Aweti intentionally omitted: its regression coverage needs the JSON pg-snapshot loader path, not worth wiring up here. Amharic alone below.
     let handle = std::thread::Builder::new()
         .stack_size(STACK_BYTES)
         .spawn(|| {

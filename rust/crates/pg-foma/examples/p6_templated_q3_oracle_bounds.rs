@@ -1,31 +1,4 @@
-//! Throwaway P6/Aweti diagnostic (task brief Q3): what does the HC engine (`pg-rules`/`pg-parse`
-//! `Morpher`) actually use, over the real ~150-word Aweti corpus, for standalone-rule application
-//! depth and per-rule repetition? Cross-checked against the mechanism that BOUNDS it
-//! (`pg_rules::stratum::StratumAnalyzer::apply_one_mrule`, `stratum.rs:781-790`):
-//!
-//!   if w.unapplied_rule_counts.get(&id).copied().unwrap_or(0) >= u32::from(rule.max_apps()) {
-//!       return Vec::new();  // this specific MRuleId is refused for the rest of this word's trail
-//!   }
-//!
-//! i.e. the ONLY per-word cap the real engine enforces is PER MRuleId (`rule.max_apps()`, read from
-//! the grammar's own `multipleApplication`/`maxApps` attribute -- `pg-grammar/src/model.rs:545-551`;
-//! `Realizational` rules are uncapped, `u16::MAX`). There is no separate "N derivation levels total"
-//! cap, no stratum-order restriction beyond what `StratumAnalyzer`'s own stratum walk already
-//! threads elsewhere, and (per `emit.rs`'s own module doc) no reference/edge-case grammar's rule
-//! declares `max_apps > 1` today, so in practice the engine's bound is "each individual rule fires
-//! AT MOST ONCE per analysis".
-//!
-//! `pg_parse::WordAnalysis` (the public `Morpher` output type) does not expose the per-rule
-//! `mrule_apps` trail directly (that field lives on the internal `pg_rules::word::Word`) -- but
-//! since every lexc tag this emitter writes is keyed by `MorphemeId`, not `MRuleId`
-//! (`tags::root_tag_lexc`/`morph_tag_lexc`, `tags.rs`'s own module doc), the recall-relevant
-//! question is actually "how many times does the SAME `MorphemeId` repeat in one analysis" --
-//! exactly what `WordAnalysis::morpheme_ids` exposes directly, with no internal access needed.
-//!
-//! Safe: only calls the plain `Morpher` (default `ParseOptions`, `Morpher::new(&g, usize::MAX)`,
-//! exactly as the task brief specifies) over the corpus word list -- the HC engine does not hang.
-//!
-//! Run: `cargo run --release -p pg-foma --example p6_aweti_q3_oracle_bounds`
+//! Diagnostic: measures the HC engine's actual standalone-rule application depth and per-rule repetition over the Aweti corpus. The only per-word cap the engine enforces is per-`MRuleId` (`rule.max_apps()`), so the recall-relevant question is how many times the same `MorphemeId` repeats in one analysis — exactly what `WordAnalysis::morpheme_ids` exposes.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -85,14 +58,7 @@ fn main() {
         .collect();
     println!("corpus words: {}", words.len());
 
-    // DEVIATION FROM THE TASK BRIEF, DISCOVERED EMPIRICALLY (documented in the write-up):
-    // `Morpher::new(&g, usize::MAX)` sets `StratumAnalyzer`'s `StepBudget` cap to `usize::MAX`
-    // (`pg-parse/src/morpher.rs:363,615`: `StepBudget::new(self.cap)`), and `ParseOptions::default()`
-    // arms no wall-clock `word_timeout` either -- so `StepBudget::over_budget()` (`stratum.rs:225-237`)
-    // NEVER returns true. This is NOT actually safe/bounded for Aweti: the corpus's 2nd word,
-    // "tomoʼatu", ran for >10 minutes with neither bound ever tripping before this diagnostic killed
-    // it externally (verified: two independent processes calling this exact API, both stuck on the
-    // identical word). Using a large-but-finite cap instead so the corpus sweep completes.
+    // An uncapped `Morpher::new(&g, usize::MAX)` with no wall-clock timeout is not actually bounded for Aweti: word "tomoʼatu" ran unbounded for >10 minutes, so this uses a large-but-finite cap instead.
     let morpher = Morpher::new(&g, 20_000);
     let popts = ParseOptions::default();
 

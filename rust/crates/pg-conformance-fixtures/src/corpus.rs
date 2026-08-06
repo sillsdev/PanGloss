@@ -107,9 +107,7 @@ pub fn record_cases(label: &str, cases: usize) {
     println!("{CASE_COUNT_PREFIX} {label} {cases}");
 }
 
-// ---------------------------------------------------------------------------------------------
-// Manifest
-// ---------------------------------------------------------------------------------------------
+// --- Manifest ------------------------------------------------------------------------------------
 
 /// Word-list hazard metadata for a `role: "corpus"` file, so a reader (or a future automated
 /// slicer) does not have to rediscover hazards already found by hand -- e.g. the amharic-words.txt
@@ -315,8 +313,7 @@ mod tests {
         }
     }
 
-    /// CI proves fail-closed with a synthetic manifest and intentionally missing files, needing no
-    /// private corpus (design doc: "CI does not need or receive private corpus data").
+    /// CI proves fail-closed with a synthetic manifest and intentionally missing files, needing no private corpus.
     #[test]
     fn a_missing_required_file_is_reported_against_a_synthetic_manifest() {
         let dir = std::env::temp_dir().join(format!("pg-corpus-{}", std::process::id()));
@@ -409,8 +406,7 @@ mod tests {
 
     #[test]
     fn required_mode_reads_the_env_var_in_both_directions() {
-        // Serialized within one test rather than split across two: cargo runs tests in one process
-        // with shared env, so two tests toggling the same var would race.
+        // Serialized within one test, not split across two: cargo runs tests in one process with shared env, so two tests toggling the same var would race.
         let restore = std::env::var(REQUIRED_ENV).ok();
         for (value, expected) in [
             ("1", true),

@@ -10,14 +10,11 @@ use crate::enumerate::EmissionStrategy;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LoweringAdapter {
-    /// `crate::build::build_controllable` interprets the candidate's own `Plan`. The ONLY
-    /// adapter that reads a plan at all.
+    /// `crate::build::build_controllable`: the only adapter that reads the candidate's own `Plan` at all.
     ControllablePlanCompose,
-    /// `crate::emit`'s surface probe via `crate::analyzer::FomaProposer::new`. Whole-grammar;
-    /// derives its own topology and ignores the plan.
+    /// `crate::emit`'s surface probe via `FomaProposer::new`: whole-grammar, derives its own topology and ignores the plan.
     TunedSurfaceEmit,
-    /// `crate::emit::emit_underlying_templated` plus a compiled rewrite cascade via
-    /// `crate::templated_compile`. Whole-grammar; likewise ignores the plan.
+    /// `crate::emit::emit_underlying_templated` plus a compiled rewrite cascade: whole-grammar, likewise ignores the plan.
     TemplatedUnderlyingEmit,
 }
 
@@ -61,8 +58,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
-    /// The adapter axis is 1:1 with the strategy axis in BOTH directions -- required for the
-    /// adapter identity to soundly stand in for the enum.
+    /// The adapter axis is 1:1 with the strategy axis in both directions, required for the adapter identity to soundly stand in for the enum.
     #[test]
     fn every_strategy_has_exactly_one_adapter_and_back() {
         for &strategy in crate::strategy_coverage::ALL_STRATEGIES {

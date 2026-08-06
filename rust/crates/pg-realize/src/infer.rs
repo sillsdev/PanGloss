@@ -55,8 +55,7 @@ pub fn infer_english<'a>(glosses: impl Iterator<Item = &'a str>) -> RealizeMap {
     map
 }
 
-/// Normalize one raw gloss string into its token set: lowercase, then split on `.`, `-`, `_`,
-/// `:`, dropping empty pieces (consecutive delimiters, leading/trailing delimiters).
+/// Normalizes one raw gloss string into its token set: lowercase, split on `.`/`-`/`_`/`:`, dropping empty pieces.
 fn normalize_tokens(gloss: &str) -> Vec<String> {
     gloss
         .to_lowercase()
@@ -66,8 +65,7 @@ fn normalize_tokens(gloss: &str) -> Vec<String> {
         .collect()
 }
 
-/// Person+number tokens the Poss branch recognizes, paired with the (gender-defaulted-masculine
-/// for 2sg/3sg, per the module docs' known limitation) `Poss` variant each maps to.
+/// Person+number tokens the Poss branch recognizes, paired with the `Poss` variant each maps to (2sg/3sg default to masculine gender — a known limitation).
 const POSS_PERSON_NUMBER: &[(&str, Poss)] = &[
     ("1sg", Poss::P1Sg),
     ("1pl", Poss::P1Pl),
@@ -77,10 +75,7 @@ const POSS_PERSON_NUMBER: &[(&str, Poss)] = &[
     ("3pl", Poss::P3Pl),
 ];
 
-/// Match one normalized gloss's token set against the alias table, in Num -> Poss -> Case
-/// priority order (the categories are disjoint in every realistic gloss inventory; the order
-/// only matters for a defensive, never-expected overlap). `None` means no alias matched -- the
-/// caller leaves this gloss with no entry at all.
+/// Matches one normalized gloss's tokens against the alias table, in Num -> Poss -> Case priority order; `None` means no alias matched, and the caller leaves this gloss with no entry.
 fn infer_one(gloss: &str) -> Option<FeatureAssignment> {
     let tokens = normalize_tokens(gloss);
     let has_token = |candidates: &[&str]| tokens.iter().any(|t| candidates.contains(&t.as_str()));
@@ -118,8 +113,7 @@ fn infer_one(gloss: &str) -> Option<FeatureAssignment> {
 mod tests {
     use super::*;
 
-    /// Table-driven per the design doc's testing section: one row per gloss -> expected
-    /// assignment (or `None` for "no entry at all").
+    /// Table-driven: one row per gloss -> expected assignment (or `None` for no entry at all).
     #[test]
     fn alias_table_matches_the_design_docs_examples() {
         let cases: &[(&str, Option<FeatureAssignment>)] = &[
@@ -181,10 +175,7 @@ mod tests {
         assert_eq!(base.lookup("pl"), Some(FeatureAssignment::Num(Num::Pl)));
         assert_eq!(base.lookup("appl"), None, "inference never guesses appl");
 
-        // Sidecar: overrides "loc" to a different case, and adds a mapping for "appl" that
-        // inference alone could never produce (design doc: "a wrong phrase is worse than an
-        // honest residue" -- but a grammar author supplying an explicit sidecar mapping is not
-        // guessing, it's curated data, so it's allowed to fill in what inference leaves absent).
+        // Sidecar: overrides "loc" and adds "appl" — a curated mapping, not a guess, so it may fill in what inference alone leaves absent.
         let sidecar =
             RealizeMap::parse("[features]\n\"loc\" = \"Case:Abl\"\n\"appl\" = \"Ignore\"\n")
                 .expect("valid sidecar");

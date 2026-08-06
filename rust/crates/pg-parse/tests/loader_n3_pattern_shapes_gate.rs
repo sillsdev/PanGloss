@@ -1,34 +1,4 @@
-//! Conformance spec for phase-2 audit C finding N3 (root-allomorph `PhoneticShape` pattern-language
-//! fallback). Fixture: `rust/conformance/loader/n3-pattern-shapes/`.
-//!
-//! **Scope note (read before "fixing" this test):** N3's audit/plan scope was explicitly
-//! loader-only ("port `GetShapeNodes`'s `allowPattern=true` branch into a `segment_with_patterns`
-//! used only by the root-allomorph loader") -- and that half is done: `pg_grammar::load` no longer
-//! silently drops a root allomorph whose `<PhoneticShape>` needs the `[NatClass]`/`([NatClass])`/
-//! `[NatClass]*` pattern language (see `pg-grammar/src/segment.rs::segment_with_patterns` and its
-//! unit tests, plus `pg-grammar/src/load.rs`'s
-//! `root_allomorph_shape_falls_back_to_pattern_language_natural_class_reference`, which is the real
-//! red-on-revert regression guard for the loader half).
-//!
-//! What the loader-only scope did **not** cover, discovered while building this fixture: matching
-//! an *actual input word* against such a root allomorph at analysis time. `pg-parse::root_trie`'s
-//! `RootAllomorphTrie::add_path` inserted one edge per `Segment` node keyed by its literal
-//! `char_def`; a pattern-derived node has `char_def == NO_CHAR_DEF`, so its edge could never be
-//! found by any real input text (the old `cd_ok` only treated a **query** segment's `NO_CHAR_DEF` as a
-//! wildcard, never an **edge**'s).
-//!
-//! **FIXED (wave-4, N3 end-to-end):** `TrieEdge` now carries the stored node's `pg_shape::CdSet`
-//! (the class's member set, from `Shape::node_cd_set`), and `edge_matches` accepts a concrete
-//! query `char_def` against a `NO_CHAR_DEF` edge by **set membership** + lane unifiability — the
-//! port's analog of C#'s arc-condition `FeatureStruct` unification against a class-only
-//! (no-`StrRep`) condition (`RootAllomorphTrie.cs:39-40,61-63`, `UseUnification = true`). Edge
-//! grouping for pattern edges keys on `cd_set` + lanes (the `ValueEquals` analog), so distinct
-//! classes never merge. See `root_trie.rs`'s unit tests for the isolated-trie coverage; the test
-//! below (formerly `#[ignore]`d on exactly this gap) is the end-to-end oracle replay.
-//!
-//! `expected.tsv` (oracle-generated, C# `parse-optimization` HEAD `ccf750e6`) shows C# resolving
-//! `bat`/`bet` to signature `|b[ae]t` via this exact mechanism (`bit` is SKIPPED -- "i" is not in
-//! the `Vowel` class).
+//! Conformance spec for the root-allomorph `PhoneticShape` pattern-language fallback (N3): a pattern-derived trie node has `char_def == NO_CHAR_DEF`, so matching an actual input word against it needs `edge_matches` to accept a concrete query `char_def` by `pg_shape::CdSet` membership plus lane unifiability, not literal `char_def` equality. `expected.tsv` shows the oracle resolving `bat`/`bet` via this mechanism (`bit` is skipped, "i" is not in `Vowel`).
 
 use std::path::{Path, PathBuf};
 
@@ -41,9 +11,7 @@ fn fixture_path(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// The loader-only half: the grammar loads and the allomorph is present (mirrors
-/// `pg-grammar`'s own `root_allomorph_shape_falls_back_to_pattern_language_natural_class_reference`
-/// unit test, re-run here against the committed fixture file rather than an inline XML literal).
+/// The loader-only half: the grammar loads and the pattern-shaped allomorph is present, re-run here against the committed fixture file rather than an inline XML literal.
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn n3_pattern_shapes_grammar_loads_with_the_allomorph_present() {
@@ -61,9 +29,7 @@ fn n3_pattern_shapes_grammar_loads_with_the_allomorph_present() {
     );
 }
 
-/// End-to-end replay against the oracle TSV — live since wave-4's `CdSet`-aware edge matching
-/// landed in `root_trie.rs` (see module doc). Red-on-revert: reverting `edge_matches`'s
-/// `NO_CHAR_DEF`-edge membership branch makes `bat`/`bet` return `-` again.
+/// End-to-end replay against the oracle TSV; red-on-revert: reverting `edge_matches`'s `NO_CHAR_DEF`-edge membership branch makes `bat`/`bet` return `-` again.
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn n3_pattern_shapes_matches_oracle_end_to_end() {

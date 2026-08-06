@@ -1,28 +1,4 @@
-//! ## Still gated on a real-language corpus
-//! Renamed off the real language's name (was `indonesian_redup_gate.rs`). Still corpus-blocked:
-//! needs `samples/data/indonesian-hc.xml` (gitignored). A synthetic-reproduction attempt
-//! (`pg_grammar_gen::build::chain`, see `pg-foma/tests/phase_c_chain_scale.rs`) targeted a
-//! different anchor (a deep standalone-affix chain) and never attempted reduplication
-//! parity; `pg_grammar_gen` has no reduplication builder today. Kept `#[ignore]`d unconditionally.
-//!
-//! Tier-2 #8 real-grammar regression guard (plan §13.1.1 / §13.2 step 10): Indonesian's 3 actual
-//! reduplication subrules (`msubrule5`/`mrule7` "-Cont", `msubrule11`/`mrule13` "-Pl",
-//! `msubrule13`/`mrule15` "REDUP-meN") must keep resynthesizing their gold-matching surfaces once
-//! `classify_redup`'s morph-attribution fix lands. `pg-rules/tests/redup_and_free_fluctuation_gate.rs`
-//! is the actual mechanism gate (hand-built, order-sensitive); this file is the "did the real
-//! grammar regress" belt-and-suspenders check, self-skipping like the existing convention
-//! (`batch_determinism.rs`) when the untracked sample corpus isn't present.
-//!
-//! Full-corpus re-measurement (this session) confirms Indonesian stays 121/121 against the
-//! `parse-opt` golden with both Tier-2 #8 and R3 applied — these 3 words in particular are
-//! byte-identical to the pre-fix `3c36cbd3` baseline (see the module docs on
-//! `redup_and_free_fluctuation_gate.rs` for why: the two `Suffix`-hint real subrules are
-//! `order`-invariant under the fix, and the one `Prefix`-hint subrule is never selected by these
-//! words' winning analysis chain).
-//!
-//! Test-timing policy: the default local `cargo test --workspace --release`
-//! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is
-//! unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
+//! Real-grammar regression guard: Indonesian's 3 actual reduplication subrules must keep resynthesizing their gold-matching surfaces under `classify_redup`'s fix; the hand-built mechanism gate lives in `pg-rules/tests/redup_and_free_fluctuation_gate.rs`, this is the belt-and-suspenders "did the real grammar regress" check. Self-skips (like `batch_determinism.rs`) when the untracked corpus is absent, and stays `#[ignore]`d unconditionally.
 
 use std::path::{Path, PathBuf};
 
@@ -46,9 +22,7 @@ fn reduplicated_words_keep_their_gold_signature() {
     let grammar = load(&xml).unwrap_or_else(|e| panic!("failed to load grammar: {e}"));
     let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
 
-    // (word, expected signature) — expected values are the `parse-opt` golden's own rows
-    // (`rust/parity-out/golden/parse-opt/indonesian.tsv`), reconfirmed against a fresh oracle-free
-    // full-corpus run in this session (121/121, byte-identical to the pre-fix baseline for these 3).
+    // (word, expected signature) — expected values are the `parse-opt` golden's own rows.
     let cases = [
         ("memijit-mijit", "++|mem+?ijit+?-mijit"),
         ("menulis-nulis", "++|men+?ulis+?-nulis"),

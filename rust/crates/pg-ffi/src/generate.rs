@@ -81,10 +81,7 @@ mod tests {
     use crate::error::HC_OK;
     use crate::grammar::hc_grammar_free;
 
-    /// A minimal one-stratum grammar with a single "PAST" suffix rule and one root entry "R" —
-    /// enough to exercise `hc_generate_words` end-to-end through the real FFI boundary (load,
-    /// generate, decode, free), independent of `csharp_port_common`'s shared test lexicon (this
-    /// crate has no dependency on `pg-parse`'s dev-only test helpers).
+    /// A minimal one-stratum grammar exercising `hc_generate_words` end-to-end through the real FFI boundary, independent of `csharp_port_common`'s shared test lexicon (this crate has no `pg-parse` dev-dependency).
     const GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -138,9 +135,7 @@ mod tests {
 
     #[test]
     fn generates_root_plus_suffix() {
-        // ordinals: `pg_grammar::load`'s `load_stratum` visits `MorphologicalRuleDefinitions`
-        // BEFORE `LexicalEntries` (document order within one stratum, `pg-grammar/src/load.rs`'s
-        // `load_stratum`), so "PAST" (the rule) is morpheme 0 and "R" (the entry) is morpheme 1.
+        // `load_stratum` visits `MorphologicalRuleDefinitions` before `LexicalEntries`, so "PAST" is morpheme 0 and "R" is morpheme 1.
         unsafe {
             let handle = load();
             let ids: [u32; 2] = [1, 0]; // [root "R", other "PAST"]

@@ -1,22 +1,4 @@
-//! M7 determinism property test (plan §7, §8 layer 3): `hc_parse_batch` must produce
-//! byte-identical per-word signatures regardless of `max_threads`. Per-word computation shares
-//! nothing mutable (`Morpher::parse_word` takes `&self`; its only `RefCell` is a fresh per-call
-//! memo scope — see `pg-parse/src/morpher.rs` module docs), so this is a correctness gate, not
-//! an aspiration: a failure here means something *is* shared across threads that shouldn't be.
-//!
-//! Uses the small Indonesian sample grammar/corpus (`root_trie_gate.rs` pattern: self-skip when
-//! the untracked sample files are absent).
-//!
-//! Deliberately runs with `Morpher::new(&grammar, usize::MAX)` (uncapped): this test's job is to
-//! prove the batch *scheduling* layer adds no nondeterminism, not to re-litigate the pre-existing,
-//! step-cap-truncation-dependent nondeterminism tracked in `rust-parity-facts.md` (reproduces at
-//! `--threads 1` too, on unmodified `pg-rules`/`pg-parse` engine code — unrelated to this module).
-//! If this test is ever pointed at a corpus/step-cap combination where words hit the cap, expect
-//! it to go flaky for reasons that have nothing to do with `hc_parse_batch`.
-//!
-//! Test-timing policy: the default local `cargo test --workspace --release`
-//! run must stay under ~60s and must not depend on these gitignored fixtures at all, so both tests
-//! here are unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
+//! `hc_parse_batch` must produce byte-identical per-word signatures regardless of `max_threads`; runs uncapped (`usize::MAX`) so a step-cap-truncation flake can never be mistaken for scheduling nondeterminism. Self-skips (like `root_trie_gate.rs`) when the untracked Indonesian sample is absent, and stays `#[ignore]`d unconditionally.
 
 use std::path::{Path, PathBuf};
 
@@ -88,8 +70,7 @@ fn indonesian_batch_is_thread_count_invariant() {
     );
 }
 
-/// Output order must be the original word order, independent of the longest-first dispatch
-/// order used internally for scheduling.
+/// Output order must match input order, independent of the longest-first dispatch order used internally for scheduling.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml, indonesian-words.txt); run with --include-ignored"]
 fn indonesian_batch_output_order_matches_input_order() {

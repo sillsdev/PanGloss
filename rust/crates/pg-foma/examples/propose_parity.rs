@@ -1,23 +1,4 @@
-//! Candidate-set parity harness for two verified propose-phase micro-optimizations:
-//!   - Fix 1: `apply_append`'s dead-string-allocation removal (skip building `bstring`/`sep` on
-//!     branches that never read them, and push display strings straight into `h.outstring`
-//!     instead of through an intermediate `String` where possible) — applied to the
-//!     since-retired `rust/vendor/foma/src/apply.rs` and independently present in the official
-//!     `foma` crate as of the 0.4.0 release this repo now depends on directly.
-//!   - Fix 2: `rust/crates/pg-foma/src/tags.rs`'s `decode_path` rewrite from a `Vec<char>` scan to
-//!     direct byte/`&str` slicing.
-//!
-//! Dumps, for EVERY word of all three sample corpora, every `FomaProposer::propose` candidate
-//! (morpheme ids + root_index) IN ORDER, to stdout in a deterministic line format. Run once at
-//! baseline (e.g. `git stash`) and once with the changes applied; the two dumps must be
-//! byte-identical -- that identity is the actual correctness gate for both optimizations (neither
-//! is meant to change propose's observable output, only its allocation pattern).
-//!
-//! Not a `cargo test` -- run manually and diff:
-//!   cargo run -p pg-foma --release --example propose_parity > /tmp/before.txt
-//!   ... apply changes ...
-//!   cargo run -p pg-foma --release --example propose_parity > /tmp/after.txt
-//!   diff /tmp/before.txt /tmp/after.txt
+//! Candidate-set parity harness: dumps every `FomaProposer::propose` candidate for every word of all three sample corpora, in a deterministic line format. Run once at baseline and once with a propose-phase allocation change applied; the two dumps must diff byte-identical, since such a change is meant to touch only allocation pattern, never propose's observable output.
 
 use std::path::{Path, PathBuf};
 
@@ -100,9 +81,7 @@ fn run_grammar(spec: &GrammarSpec) {
     }
 }
 
-/// Amharic's deep composite/rule-chain recursion needs a bigger stack than the default main thread
-/// gets under a release build's larger inlined frames (mirrors `examples/precision_bench.rs`'s same
-/// spawn trick).
+/// Amharic's deep composite/rule-chain recursion needs a bigger stack than a release build's default main thread gets (same spawn trick as `examples/precision_bench.rs`).
 fn main() {
     let handle = std::thread::Builder::new()
         .stack_size(256 * 1024 * 1024)

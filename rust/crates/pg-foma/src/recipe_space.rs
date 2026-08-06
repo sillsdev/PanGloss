@@ -360,9 +360,7 @@ pub fn summarize_pilot(measurements: &[StageMeasurement], seed: u64) -> PilotSum
         p50: percentile(measurements.iter().map(select).collect(), 50),
         p95: percentile(measurements.iter().map(select).collect(), 95),
     };
-    // Stages that run only for a candidate the capability envelope admitted. `filter_map` drops the
-    // rows where the stage did not run rather than reading their absence as a zero cost -- see
-    // `StageMeasurement`'s own doc for what that zero used to do to the search-strategy choice.
+    // `filter_map` drops rows where the stage never ran rather than reading absence as a zero cost.
     let measured = |select: fn(&StageMeasurement) -> Option<u64>| {
         let values: Vec<u64> = measurements.iter().filter_map(select).collect();
         Quantiles {
@@ -488,10 +486,7 @@ mod tests {
         assert_eq!(summary.executed_samples, 3);
     }
 
-    /// No fake zero measurements. A pilot row whose candidate was refused before any network
-    /// existed carries NO build/evaluation reading, and the quantiles must be taken over the rows that
-    /// do. With the old `build: 0` convention the p50 below was 0 -- a build cost reported for a stage
-    /// that never ran, and one that feeds the search-strategy choice.
+    /// No fake zero measurements: a refused candidate carries no build/evaluation reading, and quantiles must be taken only over rows that do.
     #[test]
     fn a_stage_that_never_ran_does_not_contribute_a_zero_to_its_quantiles() {
         let refused = StageMeasurement {

@@ -1,18 +1,4 @@
-//! A lexical-pattern root allomorph (`IsPattern`, e.g. a bare `[Any]*` entry) must be
-//! **excluded** from the root-allomorph trie, exactly as C#'s `Morpher` ctor partitions
-//! `IsPattern` allomorphs into `_lexicalPatterns` and never indexes them
-//! (`Morpher.cs:39-48,74-85`).
-//!
-//! Before this fix, `RootAllomorphTrie::build` indexed every allomorph unconditionally (its own doc
-//! note said so explicitly), and stored `OPTIONAL`/`ITERATIVE` flags are never consulted by the trie
-//! edge condition (`edge_matches`) — so a `[Any]*` entry became a single **mandatory**, unrestricted
-//! (`CdSet` = every table member) edge. That edge then matched *any* one-segment word in ordinary
-//! (guess-off) lexical lookup, a real divergence: C# never surfaces a pattern allomorph outside the
-//! guess subsystem, so the same word must return `-` there.
-//!
-//! Red-on-revert: reverting `root_trie.rs::RootAllomorphTrie::build`'s `if allo.is_pattern {
-//! continue; }` skip (chunk 2) makes `pattern_only_word_does_not_spuriously_match` fail (the
-//! one-segment word "a" gets a bogus match against the `[Any]*` entry instead of `-`).
+//! A lexical-pattern root allomorph (`IsPattern`, e.g. a bare `[Any]*` entry) must be excluded from the root-allomorph trie, exactly as C#'s `Morpher` ctor partitions `IsPattern` allomorphs into `_lexicalPatterns` and never indexes them. Red-on-revert: reverting `root_trie.rs::RootAllomorphTrie::build`'s `is_pattern` skip makes a bogus one-segment match reappear in ordinary (guess-off) lookup.
 
 use pg_grammar::load;
 use pg_parse::Morpher;
@@ -51,10 +37,7 @@ const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-/// The chunk-2 fix itself: a one-segment word can only match the `[Any]*` pattern allomorph if the
-/// trie (wrongly) indexed it. With the fix, ordinary (guess-off) lexical lookup must return `-` for
-/// both "a" and "b" — the pattern allomorph is never in the trie, and there is no other one-segment
-/// entry in this grammar. This is the fixture's red-on-revert case (see module doc).
+/// A one-segment word can only match `[Any]*` if the trie (wrongly) indexed it; ordinary (guess-off) lookup must return `-` for both "a" and "b" since there is no other one-segment entry.
 #[test]
 fn pattern_only_word_does_not_spuriously_match() {
     let g = load(XML).unwrap_or_else(|e| panic!("grammar failed to load: {e}"));
@@ -74,8 +57,7 @@ fn pattern_only_word_does_not_spuriously_match() {
     }
 }
 
-/// Sanity/positive control: the ordinary (non-pattern) root "ab" must still be found via the trie —
-/// confirms the fix excludes only pattern allomorphs, not indexing wholesale.
+/// Positive control: the ordinary (non-pattern) root "ab" must still be found via the trie, confirming the fix excludes only pattern allomorphs, not indexing wholesale.
 #[test]
 fn ordinary_root_still_matches_through_the_trie() {
     let g = load(XML).unwrap_or_else(|e| panic!("grammar failed to load: {e}"));
@@ -84,8 +66,7 @@ fn ordinary_root_still_matches_through_the_trie() {
     assert_ne!(got, "-", "the ordinary root 'ab' must still parse");
 }
 
-/// Structural confirmation of the partition itself: the trie's `allomorph_count` excludes the
-/// pattern allomorph, and `Morpher::lexical_patterns` carries exactly it (P11 §4.3).
+/// Structural confirmation of the partition itself: the trie's `allomorph_count` excludes the pattern allomorph, and `Morpher::lexical_patterns` carries exactly it.
 #[test]
 fn trie_excludes_pattern_allomorph_and_morpher_carries_it_in_lexical_patterns() {
     let g = load(XML).unwrap_or_else(|e| panic!("grammar failed to load: {e}"));

@@ -24,10 +24,7 @@
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
-/// Domain-separation tag mixed into every signed byte sequence (part of the domain-separated
-/// canonical representation). Changing this tag is a wire-breaking change to every existing
-/// signature; it is not itself versioned because `crate::format::CONTAINER_VERSION` is already
-/// part of the signed bytes and any future incompatible signing scheme is a new container version.
+/// Domain-separation tag mixed into every signed byte sequence; changing it is wire-breaking for every existing signature, and is not itself versioned since `crate::format::CONTAINER_VERSION` is already part of the signed bytes.
 const SIGNATURE_DOMAIN_TAG: &[u8] = b"pangloss.pgpack.signature.v1";
 
 /// The only signature algorithm this schema step defines. Kept as an explicit field (rather than
@@ -62,12 +59,9 @@ pub struct SignatureBlock {
 pub enum SignatureState {
     /// No `SignatureBlock` present at all.
     Unsigned,
-    /// A `SignatureBlock` was present and its signature verified against its declared public
-    /// key over the exact domain-separated signed bytes.
+    /// A `SignatureBlock` was present and verified against its declared public key over the domain-separated signed bytes.
     Valid,
-    /// A `SignatureBlock` was present but did not verify (wrong key, tampered content after
-    /// signing, malformed hex, unknown algorithm, or malformed key/signature bytes). Reported, not
-    /// fatal — see this module's doc "Never gates analysis."
+    /// A `SignatureBlock` was present but did not verify (wrong key, tampered content, malformed hex/algorithm/bytes) — reported, never fatal.
     Invalid,
 }
 

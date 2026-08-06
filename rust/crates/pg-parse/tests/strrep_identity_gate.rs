@@ -1,15 +1,4 @@
-//! Conformance replay for P10 (the Sena null-allomorph headline): the `StrRep` identity dimension
-//! on a zero-phonological-feature grammar, `rust/conformance/allomorphy/strrep-identity/`.
-//! `expected.tsv` is C#-oracle-generated (parse-opt @ `ccf750e6`); see the fixture README for the
-//! grammar design and the row-by-row rationale.
-//!
-//! Red-on-revert, three independent ways:
-//! - turn off `PatternBridge::id_lane` in `morph.rs::compile_parts` and `pat`/`mupat` lose their
-//!   null/`mu+` parses while `mwpat` starts parsing (the disjunctive-break arm);
-//! - swap `validity.rs`/`cache.rs` back to plain `compile_env` and `ndpat` goes to `-` (the W3.2
-//!   environment-recheck arm);
-//! - drop the `GetSkippedOptionalNodes` fold from `morph.rs::copy_part` and `ndpat`/`imat` lose
-//!   their medial-zero (`nd+?[(^0)∅]?+?pat`) rows.
+//! Conformance replay for the `StrRep` identity dimension on a zero-phonological-feature grammar; red-on-revert if `PatternBridge::id_lane`, the environment recheck in `validity.rs`/`cache.rs`, or the `GetSkippedOptionalNodes` fold in `morph.rs::copy_part` is disabled.
 
 use std::path::{Path, PathBuf};
 

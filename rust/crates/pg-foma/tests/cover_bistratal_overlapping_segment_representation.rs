@@ -1,22 +1,4 @@
-//! `machine/conformance/edge-cases/bistratal-overlapping-segment-representation`'s own regression
-//! gate (docs/conformance/representative-typology-basis.md S1.2.5): pins the CURRENT, honest
-//! behavior for a two-table grammar whose tables share a literal representation ("s") denoting a
-//! DIFFERENT segment identity in each --
-//!
-//! 1. the capability gate's `ConfirmOnly` verdict (`multi-table.faithful-table-threading`), and
-//! 2. the oracle's (`pg_parse::Morpher`) own correct, unaffected analysis of every reachable word.
-//!
-//! ## Why this pins `ConfirmOnly`, not `Refuse`
-//! A shared representation is a FALSE-NEGATIVE risk (a table-B rule failing to fire on
-//! table-A-originated material spelled the same way), not a false-POSITIVE risk -- and
-//! `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` (render-time cross-table
-//! token aliasing) closes that gap for rewrite rules, so a `Refuse` verdict would be strictly more
-//! conservative than the real risk warrants. This fixture's OWN grammar has no rule threading
-//! material between the two tables at all (each stratum's own lexicon is independent, per
-//! STAGING.md's own "Verification" note) — a plain, uncomplicated shared-representation grammar
-//! with nothing for the aliasing fix to actually exercise — so it stays exactly the right fixture
-//! to pin the predicate's OWN verdict; `tests/two_table_shared_representation_recall.rs` is the
-//! fixture that actually exercises aliasing firing on cross-table material.
+//! Pins the current behavior for a two-table grammar whose tables share a literal representation ("s") denoting a different segment identity in each: the capability gate's `ConfirmOnly` verdict (a shared representation is a false-negative risk, not false-positive, so `Refuse` would be over-conservative), and the oracle's own unaffected analysis of every reachable word. This fixture has no rule threading material between the two tables — `tests/two_table_shared_representation_recall.rs` is the one that exercises cross-table aliasing firing.
 
 use std::fs;
 use std::path::Path;
@@ -38,8 +20,7 @@ fn load() -> Grammar {
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// The capability gate's own verdict: `ConfirmOnly` (never `Refuse`), for the two tables' shared
-/// "s" representation.
+/// The capability gate's own verdict: `ConfirmOnly` (never `Refuse`), for the two tables' shared "s" representation.
 #[test]
 fn capability_gate_confirm_only_for_shared_representation_across_tables() {
     let g = load();
@@ -56,10 +37,7 @@ fn capability_gate_confirm_only_for_shared_representation_across_tables() {
     );
 }
 
-/// The Outer stratum's own roots (table t2, the grammar's LAST/surface table) parse correctly via
-/// the oracle despite the shared "s" spelling -- `pg_parse::Morpher` resolves each table's own
-/// segment identity explicitly, so the shared-representation ambiguity that afflicts the FST's
-/// raw-per-table-index token scheme never reaches this codebase's own oracle.
+/// The Outer stratum's roots (table t2, the surface table) parse correctly via the oracle despite the shared "s" spelling: `Morpher` resolves each table's segment identity explicitly, unlike the FST's per-table-index token scheme.
 #[test]
 fn outer_stratum_roots_parse_correctly_despite_shared_representation() {
     let g = load();
@@ -77,10 +55,7 @@ fn outer_stratum_roots_parse_correctly_despite_shared_representation() {
     assert_eq!(outcome.analyses.len(), 0);
 }
 
-/// The Inner stratum's own roots (table t1, non-final) are SKIPPED (invalid shape) by the oracle --
-/// a separate, honestly-documented architectural fact (this codebase's surface-tokenization
-/// convention uses only the grammar's LAST stratum's table), not itself a MultiTable-specific
-/// finding, but worth pinning explicitly rather than leaving unexercised.
+/// The Inner stratum's roots (table t1, non-final) are skipped (invalid shape) by the oracle: surface tokenization uses only the grammar's last stratum's table, a fact worth pinning explicitly.
 #[test]
 fn inner_stratum_roots_are_unreachable_at_the_surface() {
     let g = load();

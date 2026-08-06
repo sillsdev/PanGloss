@@ -1,38 +1,4 @@
-//! ## Delanguaging Part C note
-//! Renamed off the real language's name (was `sena_free_fluctuation_gate.rs`). Still corpus-
-//! blocked: needs `samples/data/sena-hc.xml` (gitignored). Part C's own synthetic-reproduction
-//! attempt (`pg_grammar_gen::build::chain`, see `pg-foma/tests/phase_c_chain_scale.rs`) targeted a
-//! different historical anchor (a deep standalone-affix chain) and never attempted free-
-//! fluctuating-allomorph parity; no synthetic grammar in this repo exercises `FreeFluctuatesWith`
-//! today. Kept `#[ignore]`d unconditionally.
-//!
-//! R3 real-grammar regression/gain guard (plan §13.1.1 / §13.2 step 10): Sena's word "ana" is the
-//! one non-capped, deterministic word (out of a Sena first-100 corpus run, uncapped here since it
-//! completes in well under a second) whose analysis set actually changes once the disjunctive-
-//! allomorph break is gated on `FreeFluctuatesWith` instead of firing unconditionally
-//! (`SynthesisAffixProcessRule.cs:235-242`).
-//!
-//! Before this fix (`3c36cbd3` baseline, directly re-measured this session): `ana` analyzes to
-//! zero results (`-`). After: 3 of the 4 sub-analyses in the `parse-opt` golden
-//! (`rust/parity-out/golden/parse-opt/sena-fast.tsv`, `ana` row) are recovered, and every one of
-//! them is a literal substring of gold's own answer (no over-generation) — real evidence the
-//! mechanism moves in the correct direction, even though the 4th sub-analysis
-//! (`+++|a+?[(^0)(*0)(&0)∅]?+?[mn]+?a`) needs a different, unrelated gap to complete the match.
-//!
-//! **P10 update:** that "different, unrelated gap" is closed — it was the missing `StrRep`
-//! identity dimension (`PatternBridge::id_lane`'s doc tells the whole story): on Sena's
-//! zero-phonological-feature grammar every `SegmentNaturalClass` and every concrete char-def
-//! constraint in a morphological LHS degenerated to "matches any segment", so during
-//! synthesis-confirm an earlier, spuriously-matching subrule (e.g. `mu-2`'s `mw+`, which requires
-//! a stem-initial `[V-back]`, `msubrule117`) fired and the disjunctive break stopped the walk
-//! before the null (`^0+`) subrule was ever tried. With the id lane, `ana` recovers all **4**
-//! sub-analyses, byte-identical to `golden/master/sena-full.tsv`'s `ana` row.
-//! Self-skips like the existing convention (`batch_determinism.rs`) when the untracked Sena corpus
-//! isn't present on disk.
-//!
-//! Test-timing policy: the default local `cargo test --workspace --release`
-//! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is
-//! unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
+//! Corpus-gated regression: with `samples/data/sena-hc.xml` present, Sena's word "ana" must recover all 4 sub-analyses via `PatternBridge::id_lane`'s `StrRep` identity dimension; self-skips (like `batch_determinism.rs`) when the untracked corpus is absent, and stays `#[ignore]`d unconditionally so the default local run never depends on it.
 
 use std::path::{Path, PathBuf};
 

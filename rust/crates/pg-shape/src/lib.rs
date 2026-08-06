@@ -123,15 +123,10 @@ impl CdBits {
 /// insertion (`InsertSimpleContext`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum CdSet {
-    /// No membership restriction beyond phonological-lane unifiability — matches any table entry
-    /// whose lanes unify. This is the historical (pre-fix) behavior for every `NO_CHAR_DEF` node,
-    /// kept as the safe default for node producers this milestone did not touch (anchors; the
-    /// zero-occurrence epenthesis/reduplication insertion paths) and as the "class truly means any
-    /// segment" fast path (avoids materializing a full-table bitset for that common case).
+    /// No membership restriction beyond phonological-lane unifiability — matches any table entry whose lanes unify; the safe default, and a fast path avoiding a full-table bitset when a class truly means any segment.
     #[default]
     Unrestricted,
-    /// Exactly these char-defs (`NaturalClassKind::Segments`' explicit member list, or a
-    /// `NaturalClassKind::Feature` class's precomputed unifying set when it is a proper subset).
+    /// Exactly these char-defs: a `NaturalClassKind::Segments` explicit member list, or a `NaturalClassKind::Feature` class's precomputed unifying set when it is a proper subset.
     Members(CdBits),
 }
 
@@ -206,10 +201,7 @@ pub struct Shape {
     feat_width: u32,
     /// SoA feature matrix: node `i`'s lanes are `feat_lanes[i*feat_width .. (i+1)*feat_width]`.
     feat_lanes: Box<[u64]>,
-    /// Explicit char-def-set per node (plan §13.1 Tier-1 #3), consulted only when `char_defs[i] ==
-    /// NO_CHAR_DEF` — see `Shape::node_cd_set`. `CdSet::Unrestricted` for every node whose
-    /// producer doesn't set one (the overwhelming majority: concrete nodes ignore this column
-    /// entirely in favor of their own `char_def`).
+    /// Explicit char-def-set per node, consulted only when `char_defs[i] == NO_CHAR_DEF`; `CdSet::Unrestricted` for every node whose producer doesn't set one (concrete nodes ignore this column entirely).
     cd_sets: Box<[CdSet]>,
 }
 
@@ -612,8 +604,7 @@ impl ShapeInterner {
     }
 }
 
-// Hot-struct size discipline (plan §9): ids are copied/compared in the memo and traversal hot
-// paths. `NodeKind`/`NodeFlags` pack to one byte each so the SoA columns stay cache-dense.
+// Ids are copied/compared in the memo and traversal hot paths; `NodeKind`/`NodeFlags` pack to one byte each so the SoA columns stay cache-dense.
 const _: () = assert!(std::mem::size_of::<ShapeId>() == 4);
 const _: () = assert!(std::mem::size_of::<NodeKind>() == 1);
 const _: () = assert!(std::mem::size_of::<NodeFlags>() == 1);

@@ -1,40 +1,4 @@
-//! P7 closure census: the evidence that the remaining
-//! `NaturalClassKind::Segments` union over-approximation (id-lane-OFF matching — the
-//! rewrite/metathesis pipelines on every table, and ALL compile sites on >64-char-def tables,
-//! where P10's `StrRep` identity lane is disabled) is **inert on the reference grammars**.
-//!
-//! What id-lane-off matching loses vs C# is exactly char-def *identity*: a constraint matches any
-//! char-def whose feature lanes unify, not just the authored member(s). That can only diverge
-//! from C# when the feature lanes underdetermine identity, i.e. when either
-//!   (a) a `Segments`-kind class's lane-union admits a non-member ("inexact union"), or
-//!   (b) two distinct char-defs have mutually unifiable lane rows (a literal-constraint
-//!       over-match).
-//! This census checks both properties directly on the real grammars and asserts the state under
-//! which P7 was closed:
-//!   - **every** `Segments`-kind natural class in Indonesian (32-def table as loaded) and Amharic
-//!     (420-def table as loaded) has an **exact** union — zero over-matching non-members —
-//!     including Amharic's 417-member "S" class; so (a) never occurs;
-//!   - the only unifiable distinct char-def pairs are the three boundary defs among themselves
-//!     (`+` / the `^0 *0 &0 ∅` null boundary / `.`; both grammars) plus Amharic's known
-//!     byte-identical-FS authoring artifact ቂː/ሺ (ids 217/221, the pair the P5 census found)
-//!     — and none of these is reachable: no
-//!     Indonesian/Amharic `<PhoneticShape>` contains any boundary character other than `+`
-//!     (asserted here), so a `+`-literal constraint can never sit against a different boundary
-//!     kind, and neither ቂː nor ሺ occurs in any shape.
-//!
-//! (Sena needs no census: it has zero `<PhonologicalRule>`/`<MetathesisRule>` elements — the
-//! id-lane-off pipelines never run — and its ≤64-def morph/allomorph sites carry the P10 lane.
-//! No sample grammar has any `<MetathesisRule>` at all.)
-//!
-//! If this test ever FAILS, it does not mean engine code broke — it means the grammar data on
-//! disk no longer satisfies the conditions under which P7 was closed (e.g. a re-authored
-//! reference grammar with underspecified phonemes), and the P7/P10 residual should be re-scoped
-//! for that grammar. Corroborating end-to-end evidence at closure time: Indonesian 121/121
-//! byte-identical (P10), Amharic 673/673 zero-DIFFERENT (V1b, unchanged by P10 which is inert on
-//! >64-def tables by construction), Sena 7121-word zero-DIFFERENT (V2b).
-//!
-//! The sample grammars are untracked local corpus files (per `rust-conversion.md` §8); the test
-//! self-skips when they are absent (fresh clone / CI).
+//! P7 closure census: asserts the `NaturalClassKind::Segments` union over-approximation (id-lane-off matching, where P10's `StrRep` identity lane is disabled) is inert on the reference grammars — every `Segments`-kind class union is exact, and every unifiable distinct char-def pair is unreachable in any `<PhoneticShape>`. A failure means the grammar data on disk no longer satisfies the conditions P7 closure relied on, not that engine code broke. Self-skips when the untracked sample grammars are absent.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -89,9 +53,7 @@ fn census(g: &Grammar, xml: &str, tag: &str) {
         );
     }
 
-    // (b) Unifiable distinct char-def pairs are confined to boundary×boundary (unreachable: only
-    // `+` occurs in shapes, asserted below) plus segment pairs whose reps occur in no
-    // <PhoneticShape> (Amharic's ቂː/ሺ authoring artifact).
+    // (b) Unifiable distinct char-def pairs are confined to boundary×boundary (unreachable: only `+` occurs in shapes) plus segment pairs whose reps occur in no `<PhoneticShape>`.
     let shapes: Vec<&str> = {
         // Cheap literal scan; the loader has already validated the XML.
         let mut v = Vec::new();
@@ -115,8 +77,7 @@ fn census(g: &Grammar, xml: &str, tag: &str) {
             if da.kind() == CharDefKind::Boundary && db.kind() == CharDefKind::Boundary {
                 continue; // handled by the boundary-reachability assertion below
             }
-            // A unifiable segment pair is tolerable only if neither member's representations
-            // appear in any lexical/insertion shape (then no concrete node can carry either).
+            // Tolerable only if neither member's representations appear in any lexical/insertion shape.
             for cd in [da, db] {
                 for rep in cd.representations() {
                     assert!(
@@ -129,8 +90,7 @@ fn census(g: &Grammar, xml: &str, tag: &str) {
             }
         }
     }
-    // Boundary reachability: `+` must be the only boundary character occurring in any shape,
-    // so no boundary-literal constraint can ever face a *different* boundary kind.
+    // Boundary reachability: `+` must be the only boundary character in any shape, so a boundary-literal constraint can never face a different boundary kind.
     for id in 0..table.len() as u32 {
         let cd = table.get(CharDefId(id));
         if cd.kind() != CharDefKind::Boundary {

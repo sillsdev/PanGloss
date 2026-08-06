@@ -68,20 +68,10 @@ fn every_applicable_distinct_recipe_builds_and_full_hc_matches_each_word() {
         label: "baseline",
         plan: baseline,
         adapter: pg_foma::lowering_adapter::LoweringAdapter::ControllablePlanCompose,
-        // This candidate carries the grammar's own default plan, which is exactly what
-        // `evaluate_plans`'s deleted positional `i == 0` rule used to assert about it from outside.
+        // This candidate carries the grammar's own default plan.
         role: pg_foma::enumerate::CandidateRole::Baseline,
     });
-    // PlanComposed only, and that is this test's ORIGINAL scope rather than a narrowing to make it
-    // pass. Its claim is that every distinct PLAN REWRITE still confirms on this fixture — a
-    // statement about `build_controllable` honouring rewritten assembly trees, which is exactly what
-    // it checked before an emission-strategy axis existed. A whole-grammar strategy is a different
-    // compiler, not a rewrite of this plan; it legitimately may not reproduce full-HC's analysis
-    // multiset (measured: `EmissionStrategy::TemplatedUnderlyingTokens` reports
-    // `multiplicity-mismatch` on every synthetic fixture so far), and folding it in here would turn
-    // an assertion about plan rewrites into an assertion that every compiler this crate owns is
-    // equivalent — which is false, and is the thing the recipe optimizer exists to MEASURE rather
-    // than assume. That strategy's own coverage lives in `recipe_emission_strategy_gate.rs`.
+    // Scoped to `PlanComposed`: this asserts `build_controllable` honours rewritten assembly trees, not that every compiler this crate owns is equivalent (a different, false claim — `EmissionStrategy::TemplatedUnderlyingTokens`'s own coverage lives in `recipe_emission_strategy_gate.rs`).
     let considered = candidates.len();
     plans.extend(
         candidates

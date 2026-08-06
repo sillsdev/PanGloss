@@ -5,11 +5,7 @@ use pg_snapshot::Project;
 use super::Ctx;
 use crate::xml::Record;
 
-/// There is exactly one `LangProject` record per `.fwdata` file. Missing entirely means this
-/// isn't a real FieldWorks project file, but we still don't hard-error here — every downstream
-/// section already treats an absent `lang_project` as "resolve nothing, warn"; a single warning
-/// plus an all-defaults `Snapshot` is more useful to a caller than a crash for what is, in
-/// practice, still a truncated-but-parseable-XML edge case.
+/// A missing `LangProject` record warns rather than hard-errors: every downstream section already treats it as "resolve nothing, warn", so a warning plus an all-defaults `Snapshot` is more useful than a crash on truncated-but-parseable XML.
 pub fn find_lang_project<'a>(ctx: &mut Ctx<'a>) -> Option<&'a Record> {
     let rec = ctx.graph.by_class("LangProject").next();
     if rec.is_none() {
@@ -40,8 +36,7 @@ pub fn extract_project(
     }
 }
 
-/// `CurVernWss`/`CurAnalysisWss` are space-separated writing-system tags, default first
-/// (e.g. `"seh seh-fonipa-x-etic"`).
+/// `CurVernWss`/`CurAnalysisWss` are space-separated writing-system tags, default first.
 fn ws_list(raw: Option<&str>) -> Vec<String> {
     raw.map(|s| s.split_whitespace().map(str::to_string).collect())
         .unwrap_or_default()

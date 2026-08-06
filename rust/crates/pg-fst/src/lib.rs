@@ -69,8 +69,7 @@ pub struct Cmd {
     pub src: i32,
 }
 
-/// C# `TagMapCommand.CompareTo` (TagMapCommand.cs:20-31): current-position sources sort last;
-/// otherwise by `dest`.
+/// Ports C# `TagMapCommand.CompareTo`: current-position sources sort last; otherwise by `dest`.
 impl Ord for Cmd {
     fn cmp(&self, other: &Cmd) -> std::cmp::Ordering {
         use std::cmp::Ordering;

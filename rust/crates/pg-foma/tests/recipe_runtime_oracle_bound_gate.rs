@@ -1,26 +1,4 @@
-//! Pins the fix for the deep-truncation-chain-stress-grammar pilot hang: `recipe_runtime::
-//! evaluate_plans` used to compute its ground-truth oracle with
-//! `pg_parse::Morpher::new(grammar, usize::MAX)` and no
-//! `.with_word_timeout(..)` -- both axes that could stop a pathological word were disabled, so one
-//! bad corpus word hung the whole evaluator call forever, before any FST build/propose/confirm work
-//! ever ran.
-//!
-//! The fix threads a finite default step cap + wall-clock deadline into that `Morpher` and, more
-//! importantly, makes a step-capped oracle result an explicit non-certifying
-//! `Certification::Truncated{stage: "oracle-capped"}` rather than letting a KNOWN
-//! PARTIAL ground truth reach `certify_corpus`. That second half is the actual correctness property
-//! this gate pins: a partial `expected` compared against a real, untruncated FST result can
-//! manufacture a bogus `IdentityMismatch`/`MultiplicityMismatch` (a phantom "grammar/FST bug" that is
-//! really an oracle-truncation artifact), or -- worse -- let a genuinely incomplete candidate look
-//! right against an equally truncated oracle and wrongly certify.
-//!
-//! `oracle_step_cap: Some(0)` is used to force the truncation deterministically, independent of any
-//! particular grammar or word: `pg_rules::stratum::StepBudget::over_budget()` reports `capped` on its
-//! very FIRST check (`0 >= 0`), so this reproduces the hazard without needing a genuinely
-//! pathological (and therefore slow-to-run-in-CI) fixture. It is now also the ONLY route: the
-//! wall clock has been demoted to a liveness net whose trip aborts preparation as a typed
-//! `OraclePreparationFault` and can no longer produce an exclusion at all -- see
-//! `deterministic_eligibility_gate.rs`.
+//! Pins that a step-capped ground-truth oracle reports an explicit non-certifying `Certification::Truncated`, never reaching `certify_corpus` as a known-partial `expected` — otherwise a partial oracle can manufacture a bogus mismatch against a real, untruncated FST result, or wrongly certify an equally-truncated incomplete candidate. `oracle_step_cap: Some(0)` forces the truncation deterministically (`StepBudget::over_budget()` reports `capped` on its first check), reproducing the hazard without a genuinely pathological fixture.
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::enumerate_default;
@@ -71,11 +49,7 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
     let plans = materialize_plans(&grammar);
     assert!(!plans.is_empty(), "must materialize at least one candidate");
 
-    // Sanity check, so a failure of the real assertion below can never be misread as "this fixture
-    // just doesn't confirm anything": with the DEFAULT (generous, finite) oracle bounds, at least one
-    // candidate reaches `FullHcConfirmed` -- same fixture/property
-    // `recipe_runtime_net_is_queryable_gate.rs::the_evaluator_confirms_a_wholly_in_scope_grammar`
-    // already pins.
+    // Sanity check so the real assertion below can't be misread as "this fixture doesn't confirm anything": under default oracle bounds, at least one candidate must reach `FullHcConfirmed`.
     let unbounded_enough = evaluate_plans(&grammar, &plans, &words, RuntimeBudget::default())
         .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
     assert!(
@@ -91,10 +65,7 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
             .collect::<Vec<_>>()
     );
 
-    // THE PIN. `oracle_step_cap: Some(0)` forces every word's ground-truth `Morpher::parse_word` call
-    // to report `capped: true` (see module doc for why this is deterministic). The guard in
-    // `evaluate_plans` must detect that BEFORE `certify_corpus` ever runs and report every
-    // candidate's certification as the same explicit, non-certifying truncation.
+    // The pin: `evaluate_plans` must detect every word's capped oracle before `certify_corpus` runs and report every candidate's certification as the same explicit, non-certifying truncation.
     let capped = evaluate_plans(
         &grammar,
         &plans,

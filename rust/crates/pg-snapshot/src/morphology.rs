@@ -253,8 +253,7 @@ pub struct CompoundOutcome {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum CompoundRule {
-    /// The compound's morphosyntax comes from one of its own constituents (the "head"), with
-    /// `overriding` able to override individual properties of that head. ← `MoEndoCompound`.
+    /// Morphosyntax comes from one constituent (the "head"); `overriding` can override individual properties of it. ← `MoEndoCompound`.
     Endocentric {
         guid: Guid,
         name: String,
@@ -268,8 +267,7 @@ pub enum CompoundRule {
         /// ← `MoEndoCompound.OverridingMsaOA`.
         overriding: CompoundOutcome,
     },
-    /// The compound's morphosyntax is stipulated directly, independent of either constituent.
-    /// ← `MoExoCompound`.
+    /// Morphosyntax is stipulated directly, independent of either constituent. ← `MoExoCompound`.
     Exocentric {
         guid: Guid,
         name: String,
@@ -315,8 +313,7 @@ pub enum Adjacency {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum AdhocProhibition {
-    /// ← `MoAlloAdhocProhib`. `primary` ← `FirstAllomorphRA` (an `MoForm` guid, resolved
-    /// against `lexicon.entries[*].allomorphs`); `others` ← `RestOfAllosRS`, in order.
+    /// ← `MoAlloAdhocProhib`; `primary` ← `FirstAllomorphRA`, `others` ← `RestOfAllosRS`, in order.
     Allomorph {
         guid: Guid,
         disabled: bool,
@@ -324,8 +321,7 @@ pub enum AdhocProhibition {
         others: Vec<Guid>,
         adjacency: Adjacency,
     },
-    /// ← `MoMorphAdhocProhib`. `primary` ← `FirstMorphemeRA` (an `MoMorphSynAnalysis` guid,
-    /// resolved against `lexicon.entries[*].msas`); `others` ← `RestOfMorphsRS`, in order.
+    /// ← `MoMorphAdhocProhib`; `primary` ← `FirstMorphemeRA`, `others` ← `RestOfMorphsRS`, in order.
     Morpheme {
         guid: Guid,
         disabled: bool,
@@ -392,8 +388,7 @@ pub struct ParserParameters {
 }
 
 impl Default for ParserParameters {
-    /// Mirrors `HCLoader`'s constructor defaults when no `<ParserParameters><HC>` block is
-    /// present at all (HCLoader.cs:93-96: `hcElem == null`).
+    /// Mirrors `HCLoader`'s constructor defaults when no `<ParserParameters><HC>` block is present at all.
     fn default() -> Self {
         ParserParameters {
             not_on_clitics: true,

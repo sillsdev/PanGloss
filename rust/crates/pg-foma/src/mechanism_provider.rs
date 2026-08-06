@@ -87,8 +87,7 @@ pub fn derive_mechanism_graph(semantics: &GrammarSemantics<'_>) -> MechanismGrap
     };
     let symbol_space = SymbolSpace::Surface(table.into());
 
-    // Attribute every observed construct to a mechanism. Both halves come from the observation
-    // itself: `kind` decides which mechanism owns it, `location` becomes the typed source.
+    // Attributes every observed construct to a mechanism: `kind` decides the owner, `location` becomes the typed source.
     let mut accumulated: BTreeMap<MechanismKind, Accumulator> = BTreeMap::new();
     for observation in semantics.characteristics().observations() {
         let entry = accumulated
@@ -98,10 +97,7 @@ pub fn derive_mechanism_graph(semantics: &GrammarSemantics<'_>) -> MechanismGrap
         entry.sources.insert(MechanismSource::from(&observation.location));
     }
 
-    // A terminal cleanup exists whenever any other mechanism does: it is what consumes the boundary
-    // symbols those mechanisms needed to see (the cleanup dossier's scope). Its source is the
-    // character table it cleans, which is why `MechanismSourceKind::CharacterTable` exists -- a
-    // cleanup is not derived from an observed construct, and a source-less node is rejected.
+    // A terminal cleanup exists whenever any other mechanism does, consuming the boundary symbols they needed to see; its source is the character table it cleans, since a cleanup isn't derived from an observed construct and a source-less node is rejected.
     if !accumulated.is_empty() {
         accumulated
             .entry(MechanismKind::BoundaryCleanup)
@@ -141,8 +137,7 @@ pub fn derive_mechanism_graph(semantics: &GrammarSemantics<'_>) -> MechanismGrap
     MechanismGraph { nodes, edges }
 }
 
-/// The per-kind body, projected from `semantics`. Every field is a fact the owner already holds;
-/// nothing here inspects a `Grammar`.
+/// The per-kind body, projected from `semantics`: every field is a fact the owner already holds, and nothing here inspects a `Grammar`.
 fn body_for(kind: MechanismKind, semantics: &GrammarSemantics<'_>) -> MechanismBody {
     match kind {
         MechanismKind::StaticPartition => MechanismBody::StaticPartition(
@@ -152,8 +147,7 @@ fn body_for(kind: MechanismKind, semantics: &GrammarSemantics<'_>) -> MechanismB
                 .map(|group| {
                     let mut members: Vec<crate::recipe_mechanism::WireModelId> =
                         group.entries.iter().copied().map(Into::into).collect();
-                    // `SemanticEntryGroup::entries` is a `HashSet`; the groups themselves are
-                    // already sorted by gate key by the owner, but membership order is not.
+                    // `SemanticEntryGroup::entries` is a `HashSet`; the owner sorts groups by gate key, but not membership order.
                     members.sort();
                     PartitionGroupSpec {
                         key: group.key.clone(),
@@ -169,8 +163,7 @@ fn body_for(kind: MechanismKind, semantics: &GrammarSemantics<'_>) -> MechanismB
                 .copied()
                 .map(Into::into)
                 .collect(),
-            // Honestly `None` today: `GrammarCardinality::max_derivation_chain_depth`'s own doc
-            // requires a documented absence over an invented estimate.
+            // Honestly `None` today: a documented absence over an invented estimate.
             max_depth: semantics.characteristics().cardinality.max_derivation_chain_depth,
         }),
         MechanismKind::OrderedPhonology => MechanismBody::OrderedPhonology(OrderedPhonologySpec {

@@ -238,51 +238,14 @@ pub(crate) enum TextMode<'a> {
 /// not 2, is the engine-faithful bound).
 pub const DERIV_DEPTH_MIN: usize = 2;
 
-/// Cap on how many CONSECUTIVE dedicated levels `build_deriv_chain`'s `TextMode::
-/// UnderlyingTokens` strategy gives one rule (`rule.max_apps()` clamped to this). Every Aweti rule
-/// declares `max_apps() == 1`, so this never actually binds there —
-/// it exists purely to keep a hypothetical `max_apps() > 4` rule (or an uncapped `Realizational`
-/// rule, which reports `u16::MAX`, `MorphRuleDef::max_apps`'s own doc) from inflating one chain
-/// instance's depth unboundedly; a grammar that needs more real repetitions of one rule than this
-/// is a documented gap of the dedicated strategy, not silently mis-emitted (the rule still gets
-/// its full `max_apps()` worth of chances under the legacy `SurfaceProbed` strategy, unaffected).
+/// Cap on consecutive dedicated levels one rule gets; keeps an uncapped `Realizational` rule (which reports `max_apps() == u16::MAX`) from inflating a chain's depth unboundedly.
 const MAX_DEDICATED_LEVELS_PER_RULE: usize = 4;
 
 /// Cap on the representation-variant cartesian product per emitted morph surface (module doc,
 /// "Surface spelling"). Overflow is reported as an uncovered item, never silent.
 pub const REP_VARIANT_CAP: usize = 64;
 
-/// Cap on how many extra (non-head) compound-root LEVELS the depth-budgeted "bounded compound loop"
-/// (module doc, "Bounded compound loop") will unroll for one compile. This consumes
-/// `crate::capability::characterize`'s already-computed `CompoundingDetail::max_depth` bound (one
-/// source of truth -- this crate never re-derives it) -- but "always finite" (`compounding_max_depth`'s
-/// own doc) is a different claim from "small": `CompoundingRuleDef::max_apps` is a bare `u16` with
-/// no clamp enforced anywhere in this crate's own loader (`pg_grammar::load.rs`), and multiple
-/// co-feeding rules SUM their `max_apps` into the bound, so an adversarial or merely mistaken
-/// `multipleApplication` value far beyond the DTD's PRACTICAL ceiling (9 -- this crate's own
-/// `recursive-endocentric-compounding` fixture uses that exact ceiling) could otherwise make this
-/// loop unroll arbitrarily many levels. Checked eagerly, BEFORE any of the chain's own lexc text is
-/// written (`emit_with_budget_profiled`'s own compound head x non-head cross-product check, right
-/// above the call site that reads this constant, already establishes that "check the search result
-/// before the expensive part" discipline for this exact construct).
-///
-/// Reuses `crate::compose_budget::ComposeBudget::check_chain_depth`'s existing MECHANISM/SHAPE (a
-/// `ChainDepthExceeded` outcome, "the cap names the last value that still fits") rather than
-/// inventing a second one, per that function's own doc ("do not invent a second budget mechanism").
-/// Deliberately its OWN dimension, not a reuse of `ComposeBudget::chain_depth_cap`'s SHARED field/
-/// `HC_COMPOSE_CHAIN_DEPTH_BUDGET` (`crate::peel::ReduplicationPeeler`'s own per-word APPLY-TIME
-/// recursion-depth dimension, default OFF/uncalibrated by that field's own doc): this loop's depth is
-/// a COMPILE-TIME, one-shot static-unrolling count for the WHOLE grammar, a different quantity in
-/// kind from a per-word runtime recursion counter that merely happens to share a "how many times does
-/// a chain repeat" shape -- reusing the same field/env var for both would let one dimension's
-/// calibration silently move the other's, exactly the trap `DEFAULT_COMPOUND_PAIR_BUDGET`'s own doc
-/// (`crate::compose_budget`) already names for keeping THAT dimension separate from
-/// `DEFAULT_TUPLE_BUDGET`. Unlike `chain_depth_cap` (opt-in, no calibrated default yet), this
-/// dimension defaults ON, mirroring `DEFAULT_COMPOUND_PAIR_BUDGET`'s own always-on convention:
-/// never blowing up on any grammar is a standing requirement, not an
-/// opt-in safety net. Generous headroom above the DTD's practical ceiling (9) while still catching a
-/// pathological grammar before this loop's own (linear-in-depth, see `build_compound_chain`'s own
-/// doc) lexc emission grows unreasonably large. `HC_COMPOUND_CHAIN_DEPTH_BUDGET` overrides it.
+/// Compile-time unroll cap for the bounded compound loop, checked before any lexc text is written; kept as its own budget dimension, separate from `ComposeBudget::chain_depth_cap`'s per-word runtime counter — see `docs/research/pg-foma-emit-design-notes.md`.
 const DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET: usize = 200;
 
 /// `HC_COMPOUND_CHAIN_DEPTH_BUDGET`: see `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`'s own doc.
@@ -355,11 +318,9 @@ pub struct EmitCounts {
 pub enum FomaTier {
     /// Every construct the grammar uses was representable (no `uncovered` entries).
     Full,
-    /// Emitted successfully but with `uncovered` constructs present (still safe to use — those
-    /// constructs simply cannot contribute candidates; nothing was emitted incorrectly).
+    /// Emitted successfully with some `uncovered` constructs — still safe to use, they just cannot contribute candidates.
     Partial { uncovered: usize },
-    /// Could not emit a usable network at all (e.g. zero root allomorphs survived); caller should
-    /// fall back to the full engine for this grammar entirely.
+    /// Could not emit a usable network at all; caller should fall back to the full engine for this grammar.
     Unsupported { reason: String },
 }
 
@@ -413,10 +374,7 @@ pub(crate) enum Role {
     Infix,
     Reduplication,
     CircumfixPrefix,
-    /// Never actually produced by `classify_affix` — kept only for enum-discriminant parity
-    /// with the original it was ported from (`hc-hybrid/src/token.rs`'s `MorphOp`, whose own
-    /// `classify_affix` also only ever returns `CircumfixPrefix` for the leading-AND-trailing
-    /// case).
+    /// Never produced by `classify_affix` — kept only for discriminant parity with the ported `hc-hybrid` `MorphOp` enum.
     #[allow(dead_code)]
     CircumfixSuffix,
     Process,
@@ -451,10 +409,7 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
             }
         })
         .collect();
-    // An RHS that is SIMULTANEOUSLY circumfixing (insert before the first `Copy`, insert after the
-    // last) AND reduplicating (some `PartRef` echoed by >= 2 `Copy` actions) must classify
-    // `CircumfixPrefix`, not `Reduplication` -- see the long comment below the leading/trailing test
-    // for the full argument. `is_reduplicating` is checked AFTER that circumfix test, not before.
+    // A simultaneously circumfixing AND reduplicating RHS must classify `CircumfixPrefix`, not `Reduplication` — see docs/research/pg-foma-emit-design-notes.md.
     let is_reduplicating = copy_parts
         .iter()
         .any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2);
@@ -471,8 +426,7 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
     }
 
     let Some(first_copy) = first_copy else {
-        // `is_reduplicating` requires >= 2 `Copy` occurrences of the SAME part, so it is always
-        // `false` on this branch (no `Copy` at all) -- nothing to reconcile here.
+        // No `Copy` at all on this branch, so `is_reduplicating` (needs >= 2) is trivially false.
         return if rhs.iter().any(|a| matches!(a, OutputAction::Modify(_, _))) {
             Role::Process
         } else {
@@ -480,46 +434,8 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
         };
     };
 
-    // `CircumfixPrefix` wins over both `Infix` and `Reduplication` whenever an RHS is
-    // simultaneously circumfix-shaped (leading AND trailing insert) and infixing/reduplicating: a
-    // morph that genuinely wraps the root on both sides is the wrong taxonomic label as either, and
-    // routes to the wrong downstream mechanism. Both alternatives are DTD-reachable, not vacuous:
-    // `MorphologicalOutput` is declared `(CopyFromInput | InsertSimpleContext | ModifyFromInput |
-    // InsertSegments)*` (`HermitCrabInput.dtd:420`) -- an unconstrained repeated choice group -- and
-    // the loader places no uniqueness constraint on a `CopyFromInput`'s `index` either.
-    //
-    // `build_structural_composites` is the architecturally correct, unconditionally-guaranteed home
-    // for this shape: `struct_extend` calls `pg_rules::morph::synthesize` directly, replaying every
-    // `OutputAction` in RHS document order with no reference to `Role` and no assumption that a
-    // `Copy` run is contiguous or occurs only once per part -- so a rule reaching it with this shape
-    // is resynthesized faithfully, wrapping inserts and reduplicated copies alike.
-    //
-    // `crate::preexpand` is not a safe alternative for the infix case even though it happens to also
-    // resynthesize correctly today: its module doc scopes its whole mechanism to
-    // interdigitation/boundary-fusion, never circumfix, so relying on it for a wrap-both-sides shape
-    // depends on a property that module was never designed around, not a documented guarantee. And
-    // the capability layer (`crate::capability::CircumfixStructuralCompositePredicate`) reads
-    // `is_structural_rule` as its own ground truth for whether such a rule is covered -- a rule
-    // misclassified `Infix` here would make that predicate refuse even on a grammar `preexpand`
-    // already covers.
-    //
-    // `crate::peel::ReduplicationPeeler` is not a safe alternative for the reduplication case: its
-    // four scan kinds (module doc: prefix-copy, suffix-copy, separator+tail-copy, separator+
-    // suffix-peel) are each a ONE-SIDED surface-string match, none of which searches for a repeated
-    // span with independent material on BOTH sides at once -- exactly what a circumfix-plus-
-    // reduplication surface has. Leaving `Reduplication` in control would not merely mis-attribute a
-    // still-correct construction, it would hand the shape to a mechanism structurally unable to
-    // recall it.
-    //
-    // Ownership handoff is clean because both mechanisms key off this same function:
-    // `crate::preexpand::candidate_rules` selects by `rule_role(g, mid)` (which calls
-    // `classify_affix` on the rule's first allomorph) matching `Infix`/`Prefix`/`Suffix`, so once
-    // `classify_affix` returns `CircumfixPrefix` for a simultaneously-shaped allomorph 0,
-    // `preexpand`'s candidate set drops the rule the same moment `is_structural_rule` picks it up --
-    // no rule is ever claimed by both mechanisms or by neither.
-    //
-    // `is_reduplicating` is checked AFTER the leading/trailing circumfix test but BEFORE the
-    // interior-action (Infix) test below -- circumfix beats both, reduplication beats infix.
+    // `CircumfixPrefix` beats both `Infix` and `Reduplication`: neither `crate::preexpand` nor `crate::peel::ReduplicationPeeler` can recall a both-sides-wrapping morph.
+    // See docs/research/pg-foma-emit-design-notes.md for the full argument.
     let leading_insert = first_copy > 0;
     let trailing_insert = last_copy < rhs.len() - 1;
     if leading_insert && trailing_insert {
@@ -547,9 +463,7 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
     }
 }
 
-/// `OutputAction::Modify`/`InsertContext` carry no concrete text (not compilable as
-/// strings). Checked independently of `classify_affix` because a rule's RHS can contain one of
-/// these AND still classify as a plain Prefix/Suffix by copy-position alone.
+/// `OutputAction::Modify`/`InsertContext` carry no concrete text; checked independently of `classify_affix` since an RHS can contain one and still classify as plain Prefix/Suffix.
 fn has_unemittable_action(rhs: &[OutputAction]) -> bool {
     rhs.iter().any(|a| {
         matches!(
@@ -559,41 +473,18 @@ fn has_unemittable_action(rhs: &[OutputAction]) -> bool {
     })
 }
 
-/// Carries EVERY `InsertSegments` action's `text`/`shape` pair in document order, not just the
-/// first — an allomorph's RHS can legitimately contain more than one, and dropping all but the
-/// first silently loses inserted material.
+/// Carries EVERY `InsertSegments` action's `text`/`shape` pair in document order, not just the first — a rule's RHS can legitimately contain more than one, and dropping the rest loses inserted material.
 enum InsertText<'a> {
-    /// No `InsertSegments` action at all — a pure zero/null morph (token only, epsilon text): an
-    /// allomorph whose RHS never inserts ANY concrete text, whether or not it also `Copy`s an input
-    /// part (a genuine `Role::None` zero morph either way — see `classify_affix`).
+    /// A pure zero/null morph: no `InsertSegments` action at all, whether or not the RHS also `Copy`s an input part.
     None,
-    /// `texts[i]`/`shapes[i]` are one `InsertSegments` action's own literal authored surface text
-    /// (SurfaceProbed mode's own input) and that SAME action's already-segmented `Shape`
-    /// (`TextMode::UnderlyingTokens`'s input — mirrors `uflexc::affix_insert_shape`, which exposes
-    /// the identical field for the SAME reason: `SegAlphabet::encode_shape` needs the `Shape`,
-    /// not the raw text, to render char-def-identity tokens), both in RHS document order.
-    ///
-    /// Concatenating every occurrence in order is sound for every role that reaches this variant
-    /// (only `Role::None`/`Role::Prefix`/`Role::Suffix` ever call `insert_action_texts` at all —
-    /// `Role::Infix`/`Role::CircumfixPrefix` are routed to `crate::preexpand`/
-    /// `build_structural_composites` instead, never through `emit_rule_allomorphs`):
-    /// `classify_affix`'s own Infix-detection loop already forces `Role::Infix` the instant a
-    /// non-`Copy` action sits strictly BETWEEN two `Copy` actions, so for every role that reaches
-    /// here every `InsertSegments` occurrence is either entirely before the first `Copy` (several
-    /// leading/prefix inserts), entirely after the last `Copy` (several trailing/suffix inserts),
-    /// or — a `Role::None` allomorph with NO `Copy` at all, the "null-role" case above — anywhere
-    /// in the sequence with nothing else to interleave with. Document order is therefore always
-    /// the correct concatenation order; there is no ambiguous case this variant papers over.
+    /// One `InsertSegments` action's literal text and already-segmented `Shape` per occurrence, in RHS document order — safe to concatenate since only `Role::None`/`Prefix`/`Suffix` ever reach this variant, so no occurrence interleaves with a `Copy`.
     Text {
         texts: Vec<&'a str>,
         shapes: Vec<&'a Shape>,
     },
 }
 
-/// Every `InsertSegments` action's underlying text/shape in `rhs`, in document order — NOT just the
-/// first (see `InsertText::Text`'s own doc for the soundness argument for why concatenating in
-/// document order is always correct here). This emitter re-derives kept surface text itself, see
-/// `kept_surface_text`.
+/// Every `InsertSegments` action's underlying text/shape in `rhs`, in document order — not just the first; see `InsertText::Text` for why concatenation order is always sound here.
 fn insert_action_texts(rhs: &[OutputAction]) -> InsertText<'_> {
     let mut texts = Vec::new();
     let mut shapes = Vec::new();
@@ -631,8 +522,7 @@ pub(crate) fn allomorphs_of(g: &Grammar, mid: MRuleId) -> &[AffixAllomorphDef] {
     }
 }
 
-/// `trie.rs::required_category`: the requirement FS a rule imposes (empty `FsId(0)` where C#
-/// would say null).
+/// `trie.rs::required_category`: the requirement FS a rule imposes (empty `FsId(0)` where C# would say null).
 fn required_category(g: &Grammar, mid: MRuleId) -> FsId {
     match &g.mrules[mid.0 as usize] {
         MorphRuleDef::AffixProcess(def) => def.required_syn_fs,
@@ -720,24 +610,7 @@ pub(crate) fn surface_variants(table: &CharDefTable, text: &str) -> Option<(Vec<
     Some((variants, overflowed))
 }
 
-/// `surface_variants`, extended to MULTIPLE insert-text pieces in document order
-/// (see `insert_action_texts`'s own doc): `surface_variants` each piece SEPARATELY (never
-/// re-segmenting the raw concatenation of two
-/// pieces as one string, which could spuriously merge a segment across an authored `InsertSegments`
-/// boundary the real engine keeps distinct — mirrors how the oracle keeps each action's own `Shape`
-/// nodes separate rather than re-parsing a merged string), then takes the CARTESIAN PRODUCT of the
-/// per-piece variant lists, concatenating each combination in order — same `REP_VARIANT_CAP`
-/// bound and `overflowed` convention as `surface_variants` itself (folded across every piece).
-///
-/// For a single piece this is byte-identical to `surface_variants(table, texts[0])` (the module
-/// doc's "byte-identical to this module's pre-existing behavior" invariant on
-/// `TextMode::SurfaceProbed` holds unchanged): the fold starts from `vec![String::new()]` and one
-/// pass through one piece's own variant list produces exactly that list back, just each member
-/// re-sorted/re-deduped (a no-op on an already-sorted-deduped `Vec`).
-///
-/// `None` (mirroring `surface_variants`'s own convention) the instant ANY piece fails to
-/// re-segment — the caller reports the SAME `"unsegmentable-affix"` `uncovered` item this always
-/// reported for the single-piece case.
+/// `surface_variants`, extended to multiple insert-text pieces: segments each piece separately (never re-segmenting a merged concatenation, which could spuriously merge across an authored `InsertSegments` boundary), then takes the cartesian product of the per-piece variants; `None` if any piece fails to segment.
 fn surface_variants_concat(table: &CharDefTable, texts: &[&str]) -> Option<(Vec<String>, bool)> {
     let mut variants: Vec<String> = vec![String::new()];
     let mut overflowed = false;
@@ -793,25 +666,10 @@ pub(crate) fn stripped_variants(table: &CharDefTable, text: &str) -> Option<(Vec
     None // nothing but boundaries, or empty text: no segment to strip.
 }
 
-/// Bound on extra Kleene-star (`[Class]*`) repeats `pattern_variants` enumerates, beyond the
-/// mandatory zero/one occurrences an `ITERATIVE` node already gets from its own (also-set)
-/// `OPTIONAL` flag (`pg_grammar::segment::segment_with_patterns`'s doc: C# sets BOTH flags for a
-/// Kleene star). A star is truly unbounded; any literal-lexc emission must pick a finite cutoff
-/// (module doc's "upward approximation" convention — bounded is safe, unbounded is impossible for
-/// a concrete lexc string). 2 is generous for every pattern actually used in the reference/edge-case
-/// grammars (module doc's "Not emittable" note: the only pattern-shape fixture in the suite uses
-/// `[Vowel]`/`([Vowel])`, zero Kleene stars) — a grammar that genuinely needs more shows up as a
-/// recall-gate miss, at which point this constant is the fix.
+/// Bound on extra Kleene-star repeats `pattern_variants` enumerates beyond the mandatory zero/one occurrence; a star is truly unbounded, so any literal-lexc emission must pick a finite cutoff. 2 is generous for every pattern in the reference/edge-case grammars — a grammar needing more shows up as a recall-gate miss.
 const PATTERN_ITER_CAP: usize = 2;
 
-/// Every char-def-set member's own representations, for a `Shape` node whose `char_def` is
-/// `pg_shape::NO_CHAR_DEF` (a `[ClassName]` natural-class reference — `pg_grammar::segment::
-/// segment_with_patterns` stores the class's member set via `Shape::node_cd_set`, the SAME
-/// mechanism `pg_parse::root_trie`'s pattern-aware trie edges already consult for matching; this is
-/// that same set's RENDERING side, for emission instead of matching). `EffectiveCdSet::Unrestricted`
-/// (never actually produced by a `[ClassName]` reference — that always carries an explicit
-/// `Members` set, see `pg_grammar::segment::nat_class_cd_set` — kept for defensive completeness)
-/// falls back to every `Segment`-kind char-def in `table`.
+/// Every char-def-set member's representations for a `[ClassName]` natural-class `Shape` node — the emission-side rendering of the same member set `pg_parse::root_trie`'s trie edges consult for matching.
 fn class_node_representations(table: &CharDefTable, cd_set: EffectiveCdSet<'_>) -> Vec<String> {
     let mut out = Vec::new();
     for (id, cd) in table.iter() {
@@ -875,9 +733,7 @@ pub(crate) fn pattern_variants(table: &CharDefTable, shape: &Shape) -> (Vec<Stri
             class_node_representations(table, shape.node_cd_set(i))
         };
         if reps.is_empty() {
-            // Defensive (an empty class member set, or a char-def with no representations at all --
-            // neither occurs in practice): treat as a silent epsilon rather than dropping the whole
-            // allomorph, an explicit harmless upward-safe degenerate case.
+            // Defensive: neither case occurs in practice, but treat as silent epsilon rather than dropping the whole allomorph.
             reps.push(String::new());
         }
         if flags.is_iterative() {
@@ -917,12 +773,7 @@ pub(crate) fn pattern_variants(table: &CharDefTable, shape: &Shape) -> (Vec<Stri
     (variants, overflowed)
 }
 
-/// Escape lexc's special characters in literal (non-tag) text: `%` (lexc's own escape char), `<`/
-/// `:`/`>` (XRE-block/pair-separator/C-foma-NONRESERVED syntax), and `0` (lexc's bare-zero
-/// alignment-epsilon marker — gate F0's finding, `tests/f0_viability.rs`'s module doc: this
-/// applies to ANY text, not just tag numerals). `;`, `!`, and space can't normally survive
-/// `kept_surface_text` (they'd fail char-def lookup first), but escaping them is cheap
-/// insurance.
+/// Escapes lexc's special characters (`% < : > 0 ; !` and space) in literal text — `0` matters for any text, not just tag numerals (gate F0, `tests/f0_viability.rs`).
 fn escape_lexc_text(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -934,54 +785,14 @@ fn escape_lexc_text(s: &str) -> String {
     out
 }
 
-/// Whether `c` is a Unicode combining mark per `foma::utf8::is_combining` (Combining Diacritical
-/// Marks + Extended/Supplement/for-Symbols + Half Marks — the exact ranges vendored `apply.rs`
-/// checks, see that function's doc). Encodes `c` to a scratch UTF-8 buffer since `is_combining`
-/// (a literal port of foma's C `utf8iscombining`) takes a byte slice.
+/// Whether `c` is a Unicode combining mark, per the same ranges vendored `apply.rs::is_combining` (a literal port of foma's C `utf8iscombining`) checks.
 fn char_is_combining(c: char) -> bool {
     let mut buf = [0u8; 4];
     is_combining(c.encode_utf8(&mut buf).as_bytes()) != 0
 }
 
-/// Diacritics fix (real 100%-recall bug, not a reference-grammar gap): every "base char + trailing
-/// combining mark(s)" run occurring inside any char-def's OWN `pg_grammar::chardef::CharDef::representations_nfd`,
-/// collected across the whole surface `CharDefTable` and declared as lexc `Multichar_Symbols` so
-/// BOTH sides of the propose path agree these codepoints are ONE token.
-///
-/// Root cause: `pg_grammar::nfd::nfd` NFD-normalizes every surface string this crate emits AND
-/// the query word `crate::analyzer` feeds to `apply_up` (mirroring C#'s `Normalize(FormD)`), so a
-/// precomposed accented letter like é (U+00E9, one codepoint) becomes TWO codepoints in every lexc
-/// literal this emitter writes: "e" + COMBINING ACUTE ACCENT (U+0301). `vendor/foma`'s own lexc
-/// tokenizer (`lexcread.rs::lexc_string_to_tokens`) has no special handling for this — absent a
-/// declared multichar symbol, it emits one symbol per codepoint, so the compiled network gets TWO
-/// separate arcs ("e", then the combining mark). But `vendor/foma`'s `apply.rs` (`sigmatch_array`
-/// construction) unconditionally merges any base codepoint with its immediately following run of
-/// combining codepoints into ONE query-side token and forces it to `IDENTITY` — which only ever
-/// matches a network's `?` (`UNKNOWN`) wildcard arc, never two ordinary literal arcs. A network
-/// with no declared multichar symbol for the pair therefore has no arc `IDENTITY` can match at that
-/// position at all: total non-match for ANY word containing a base+combining-mark sequence, which
-/// is every word containing a Latin diacritic under NFD — independent of affixation (this hits bare
-/// roots too), and never triggered by Cyrillic/other scripts whose letters don't NFD-decompose into
-/// base+combining pairs.
-///
-/// Fix: declare each such run (e.g. "e\u{301}") as its own `Multichar_Symbols` entry. This makes
-/// `lexcread.rs`'s `first_mc_prefix` match the WHOLE run as one symbol at compile time (one arc,
-/// not two) — and, symmetrically, makes `apply.rs`'s initial sigma-trie walk (which runs BEFORE the
-/// combining-merge check) match that same whole run as one KNOWN symbol via `lastmatch`, so the
-/// merge-check's `is_combining` probe on the un-consumed remainder finds nothing left to merge and
-/// never overwrites `signumber` to `IDENTITY`. Both sides then agree on one token for the pair.
-///
-/// Scope: only catches a combining run that lies entirely inside ONE char-def's own representation
-/// — true for every reference/edge-case grammar's convention of modeling an accented letter as a
-/// single segment (exactly how `g_dia.xml`'s `é`/`î`/`ñ`/`ö` are each one `SegmentDefinition`,
-/// mirroring how the HermitCrab `CharacterDefinitionTable` format expects diacritics to be
-/// authored). A grammar that instead models a combining mark as its OWN standalone char-def (a
-/// base segment immediately followed by an unrelated "tone mark" segment, so the run only exists
-/// after concatenating two DIFFERENT char-defs' representations) needs the cross-boundary
-/// companion scan, `boundary_combining_run_symbols`, below — dormant (no reference/edge-case
-/// grammar does this today) but real: unlike the within-one-char-def case, apply's flat
-/// character-by-character retokenization of the query string never sees a char-def boundary at
-/// all, so the same merge bug reappears there.
+/// Declares every base-char-plus-trailing-combining-mark run in the surface `CharDefTable` as a lexc `Multichar_Symbols` entry, fixing a real 100%-recall bug (not a reference-grammar gap).
+/// Root cause, fix, and scope: docs/research/pg-foma-emit-design-notes.md.
 fn combining_run_symbols(table: &CharDefTable) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for (_, cd) in table.iter() {
@@ -997,10 +808,7 @@ fn combining_run_symbols(table: &CharDefTable) -> BTreeSet<String> {
                     j += 1;
                 }
                 if j - i >= 2 {
-                    // Escape exactly like the surface text this run will actually appear inside
-                    // (`write_tag_entry` always runs `escape_lexc_text` over the FULL surface
-                    // string before writing it) — per-char escaping is context-free, so escaping
-                    // just this slice gives byte-identical output to what will be embedded.
+                    // Escapes just this slice — per-char escaping is context-free, so this matches what `write_tag_entry` produces over the full string.
                     let run: String = chars[i..j].iter().collect();
                     out.insert(escape_lexc_text(&run));
                 }
@@ -1011,10 +819,7 @@ fn combining_run_symbols(table: &CharDefTable) -> BTreeSet<String> {
     out
 }
 
-/// Every Segment char-def representation in `table`, as an NFD char vector (one entry per
-/// `<Representation>`, table order irrelevant — callers only ever need the multiset of strings).
-/// Shared scan helper for `boundary_combining_run_symbols`, which needs the same representation
-/// set twice over (once as candidate "preceding" text, once filtered down to mark-initial ones).
+/// Every Segment char-def representation as an NFD char vector; shared by `boundary_combining_run_symbols`, which needs the set twice (once filtered to mark-initial).
 fn segment_representations(table: &CharDefTable) -> Vec<Vec<char>> {
     let mut out = Vec::new();
     for (_, cd) in table.iter() {
@@ -1028,13 +833,7 @@ fn segment_representations(table: &CharDefTable) -> Vec<Vec<char>> {
     out
 }
 
-/// The maximal trailing "base char + combining marks" run of an NFD representation: scan backward
-/// from the end for the last NON-combining char and return everything from there on; if the whole
-/// slice is combining marks (no base anywhere — a standalone mark-only char-def, or one applied
-/// recursively to a shorter trailing run), return it unchanged. This is exactly the suffix
-/// `vendor/foma`'s apply-time merge (see `combining_run_symbols`'s doc) would keep absorbing
-/// combining characters into, so it needs no separate case for "ends in a combining mark" or "is
-/// entirely combining marks" — both fall out of this same backward scan.
+/// The maximal trailing base-char-plus-combining-marks run — exactly the suffix `vendor/foma`'s apply-time merge would keep absorbing into, so no separate all-marks case is needed.
 fn trailing_combining_run(rep: &[char]) -> &[char] {
     let mut i = rep.len();
     while i > 0 && char_is_combining(rep[i - 1]) {
@@ -1047,39 +846,8 @@ fn trailing_combining_run(rep: &[char]) -> &[char] {
     }
 }
 
-/// Cross-char-def-boundary companion to `combining_run_symbols` (that function only scans
-/// WITHIN one char-def's own representation; this one covers a run that SPANS the boundary
-/// between two adjacent char-defs' representations — module doc "Not emittable"/gap case: a
-/// standalone combining-mark char-def, e.g. an autosegmental tone mark modeled as its own
-/// grapheme, as opposed to `g_dia.xml`'s convention of folding a diacritic into its base letter's
-/// own segment).
-///
-/// `vendor/foma`'s apply-time merge does not know about char-def or lexc-entry boundaries at all —
-/// it walks the emitted SURFACE STRING character by character and, after matching whatever token
-/// is longest at a position, keeps absorbing any IMMEDIATELY FOLLOWING run of combining-mark
-/// characters into that SAME token, regardless of which char-def contributed them. So whenever a
-/// "mark-initial" char-def M (its NFD form starts with a combining mark) is emitted right after
-/// another char-def P — both are Segment char-defs and can sit adjacent within one root/affix's own
-/// re-segmented literal text, e.g. `surface_variants`'s output — apply merges P's own trailing
-/// base+combining run together with M's leading marks into one token; absent a declaration, that
-/// merged run silently forces `IDENTITY`, the same total non-match bug `combining_run_symbols`
-/// fixes within one char-def, reappearing at the boundary between two.
-///
-/// For every Segment char-def representation P and every mark-initial Segment char-def
-/// representation M, declares `trailing_combining_run(P) ++ M`. Also declares the length-2 chain
-/// `trailing_combining_run(P) ++ M1 ++ M2` for every (possibly-repeating) pair of mark-initial M1,
-/// M2 (P·M1·M2, e.g. two stacked tone-mark morphemes) — capped at chain length 2 and not extended
-/// further: a length-N chain needs the cartesian product of N mark-initial reps, and no known
-/// grammar stacks three or more standalone combining-mark morphemes back to back (same convention
-/// as `PATTERN_ITER_CAP`'s doc: a recall-gate miss on a real grammar is what would justify
-/// raising this cap). `P` ranges over EVERY char-def in the grammar, not just ones provably
-/// adjacent to an M in some actual entry — an upward-safe over-declaration (an unused declared
-/// symbol changes nothing about which arcs exist; module doc's "harmless" convention), and far
-/// simpler than re-deriving actual adjacency from every root/affix's authored text.
-///
-/// A table with no mark-initial representation at all (every reference/edge-case grammar today)
-/// makes `mark_initial` empty and this returns an empty set immediately — zero-cost, same
-/// convention as `combining_run_symbols_measured_per_reference_grammar`'s measurement.
+/// Cross-char-def-boundary companion to `combining_run_symbols`: covers a combining run that spans two adjacent char-defs' representations, which apply's flat character-by-character retokenization also merges.
+/// Dormant today (no reference grammar needs it) but real — see docs/research/pg-foma-emit-design-notes.md.
 fn boundary_combining_run_symbols(table: &CharDefTable) -> BTreeSet<String> {
     let all_reps = segment_representations(table);
     let mark_initial: Vec<&[char]> = all_reps
@@ -1121,21 +889,7 @@ pub(crate) fn write_bare(out: &mut String, continuation: &str, counts: &mut Emit
     counts.lexc_lines += 1;
 }
 
-/// One tagged entry: upper = the tag symbol ONLY (module doc's tag-tape convention), lower = the
-/// (already boundary-stripped) surface text, escaped, with the FST precision knob's inline flag
-/// text spliced in (`crate::precision`'s module doc, "Emission mechanism"). Empty surface = lexc's
-/// `0` epsilon (still gets the owner's own `@R@` prefix if applicable — see
-/// `PrecisionEmit::tagged_lower`).
-///
-/// `pk`/`owner`: every entry in the whole emitter funnels through this ONE function, which is what
-/// lets `PrecisionEmit::tagged_lower` gate the ENVIRONMENT family's `AllFlags` preset without
-/// touching every call site's own logic — `owner` identifies the allomorph THIS entry realizes
-/// (`Some(allo.id)` from `emit_rule_allomorphs` and `Some(root.id)` from the root-entry writers;
-/// `None` only for composite entries, which are never an owner-side gate this step), and
-/// `surface` (this entry's own literal spelling, pre-escape) is checked against every covered
-/// constraint's set-side literal match regardless of owner. Under `PrecisionConfig::Strip`,
-/// `PrecisionEmit::tagged_lower` is a byte-identical passthrough to the pre-precision-knob
-/// emitter (`precision_emit_tagged_lower_is_passthrough_under_strip` pins this).
+/// Every emitted entry funnels through this one function, which is what lets `PrecisionEmit::tagged_lower` gate the ENVIRONMENT family without touching each call site's own logic; byte-identical to the pre-precision-knob emitter under `PrecisionConfig::Strip` (pinned by `precision_emit_tagged_lower_is_passthrough_under_strip`).
 #[allow(clippy::too_many_arguments)]
 fn write_tag_entry(
     out: &mut String,
@@ -1176,33 +930,15 @@ fn write_root_entries_with_width(
 // --- Root collection ------------------------------------------------------------------------------
 
 struct RootRec {
-    /// The root allomorph's own registry id — `crate::precision`'s ENVIRONMENT-family owner-side
-    /// gate (`PrecisionEmit::tagged_lower`'s `owner` argument) is keyed on this.
+    /// The root allomorph's own registry id — keyed by `crate::precision`'s ENVIRONMENT-family owner-side gate.
     id: AllomorphId,
     morpheme: MorphemeId,
     category: FsId,
-    /// Every accepted spelling (`surface_variants`), each emitted as its own lexc entry line
-    /// sharing this morpheme's one tag symbol.
+    /// Every accepted spelling (`surface_variants`), each emitted as its own lexc entry line sharing this morpheme's tag symbol.
     variants: Vec<String>,
-    /// Every accepted spelling with this root's own first segment removed (`stripped_variants`),
-    /// used ONLY by a roots lexicon's `Stripped` sibling (module doc, "Junction-aware affix/root
-    /// emission"). Empty when `phon` is `None` (no phonological rules at all — nothing needs it) or
-    /// when the root has no segment to strip.
+    /// Every accepted spelling with the first segment removed (`stripped_variants`); used only by a roots lexicon's `Stripped` sibling, empty when there is no phonology or nothing to strip.
     stripped: Vec<String>,
-    /// Compile-time-provable "never valid bare" fact (`pg_rules::validity::allomorphs_valid_impl`'s
-    /// `def.is_bound && distinct_count == 1` gate, `FailureReason::BoundRoot` — precision.rs's own
-    /// `ConstraintFamily::BoundRoot`, "cannot be the word's only allomorph"): `true` iff this
-    /// allomorph's OWNING ENTRY has exactly one allomorph total AND that allomorph is `is_bound`.
-    /// For a bare-root candidate (this allomorph alone, no other morph — exactly what the
-    /// `"#"`-continuation `Root` lexicon proposes) confirm's `distinct_count` is trivially 1, so
-    /// `is_bound` alone already dooms the word; the entry-has-exactly-one-allomorph restriction is
-    /// deliberate extra caution (never lose recall) — it sidesteps entirely the disjunctive-
-    /// allomorph re-check's cross-allomorph reasoning (`free_fluctuates`/`disjunctive_candidates`), which
-    /// does not apply when there is nothing to disjoin against. When `true`, `collect_roots`'s
-    /// callers must OMIT this `RootRec` from the bare (`"#"`-continuation) `write_root_entries`
-    /// call only — every other continuation (`TLPost`, per-group `Roots`, compound chains) still
-    /// offers this root normally, since a word with ANY other morph attached is unaffected by this
-    /// gate.
+    /// True iff the owning entry has exactly one allomorph and it is `is_bound` — compile-time-provable dead weight for a bare-root candidate. Callers must omit such a `RootRec` from the `"#"`-continuation bare-root write only; every other continuation still offers it.
     never_valid_bare: bool,
 }
 
@@ -1218,25 +954,12 @@ fn collect_roots(
     mode: TextMode<'_>,
 ) -> Vec<RootRec> {
     let mut roots = Vec::new();
-    // Stratum order then entry order, mirroring trie.rs's own roots collection (`run()`,
-    // trie.rs:966-981) — deterministic Vec walks only.
+    // Stratum order then entry order, mirroring trie.rs's own roots collection — deterministic Vec walks only.
     for sd in &g.strata {
-        // A root allomorph's `Shape` char-def ids are indices into ITS OWN stratum's
-        // `CharacterDefinitionTable` (`sd.table`), never necessarily whichever table a caller
-        // supplies for the whole function: a multi-table grammar (`Grammar::char_tables.len() > 1`,
-        // strata pointing at different, differently-sized tables) can have entries whose char-def
-        // ids are only valid in their OWN table, not a grammar-wide constant one. Indexing an
-        // earlier stratum's entry against a later stratum's (possibly shorter) table panics rather
-        // than refusing, since `CharDefTable::get`'s direct `Vec` index has no bounds check of its
-        // own. Resolving the table fresh per stratum, from `sd.table` (the same field
-        // `pg_parse::Morpher` already resolves per-rule via an explicit `TableId`), is the same fix
-        // class `crate::replace::owning_table` applies to rewrite rules.
+        // Resolved fresh per stratum from `sd.table`, never a caller-supplied constant table: a multi-table grammar's earlier-stratum char-def ids can be out of bounds against a later, shorter table, which panics rather than refuses.
         let stratum_table = &g.char_tables[sd.table.0 as usize];
         for &entry_id in &sd.entries {
-            // `allowed_entries` (`emit_underlying_templated`, mirrors `uflexc::
-            // emit_underlying_filtered`'s own convention exactly — same "not a coverage gap, a
-            // DIFFERENT group's lexicon has it" doc): every existing caller passes `None`
-            // (unfiltered), so this is a pure no-op there.
+            // `allowed_entries`: every existing caller passes `None` (unfiltered); a skipped entry belongs to a different group's lexicon, not a coverage gap.
             if let Some(allowed) = allowed_entries {
                 if !allowed.contains(&entry_id) {
                     continue;
@@ -1253,17 +976,7 @@ fn collect_roots(
                     "entry{}(morpheme={morpheme_name})#allo{allo_idx}",
                     entry_id.0
                 );
-                // `TextMode::UnderlyingTokens` (`emit_underlying_templated`): ONE token string
-                // via `SegAlphabet::encode_shape` — char-def identity already collapses the
-                // representation cartesian product `pattern_variants` exists for, so that
-                // machinery (and the bare-root-phonology enrichment below, which needs a real
-                // `Morpher`/surface probe — meaningless in token space) is skipped outright. A
-                // lexical PATTERN allomorph (`allo.is_pattern`, a `[ClassName]` bracket shape) is
-                // NOT representable here: its `Shape` carries `NO_CHAR_DEF`/class-reference interior
-                // nodes `encode_shape` cannot token (module doc, "Not emittable as literal lexc" —
-                // same convention, reported not silently dropped); zero occurrences in Aweti
-                // (verified: `p6_aweti_diagnostics.rs`'s pattern-root-allomorph count is 0), kept
-                // defensive for any future grammar this path is pointed at.
+                // `TextMode::UnderlyingTokens`: one token string via `encode_shape`; a lexical PATTERN allomorph is not representable here and is reported, never silently dropped.
                 if let TextMode::UnderlyingTokens(alphabet) = mode {
                     if allo.is_pattern {
                         uncovered.push(UncoveredItem {
@@ -1289,26 +1002,7 @@ fn collect_roots(
                     counts.allomorphs_emitted += 1;
                     continue;
                 }
-                // `pattern_variants` walks the allomorph's own already-parsed `Shape` (built at
-                // grammar load by `pg_grammar::segment::segment_with_patterns` for EVERY root
-                // allomorph, pattern or not — that module's own doc). For an ordinary literal-text
-                // root (no `[ClassName]` bracket syntax at all — every Sena/Indonesian/Amharic
-                // root) this is identical, node-for-node, to re-segmenting `allo.shape.text` via
-                // `surface_variants` (same greedy match already performed once at load time, same
-                // representation cartesian product, same dropped `Boundary` nodes) — so switching
-                // to it is behavior-preserving for the reference grammars, and additionally
-                // NEVER "fails to re-segment" (the shape is already a valid parse; the old
-                // `unsegmentable-root` uncovered path this replaces was only ever a defensive
-                // fallback per this module's own doc, "Not emittable as literal lexc").
-                //
-                // A MANDATORY (non-optional, non-iterative) `[ClassName]` node does NOT set
-                // `is_pattern` (C#-faithful rule: "a bare mandatory `[Class]` node does NOT
-                // qualify... that's a normal trie-indexed root, e.g. `b[Vowel]t`" —
-                // `pg_grammar::load::load_root_allomorph`), so a literal-text re-segmentation of
-                // `allo.shape.text` fails outright for such a root (the literal string
-                // `"b[Vowel]t"` cannot re-segment) even though `is_pattern` alone would not route it
-                // to `uncovered`. Routing every root uniformly through the Shape-based path above
-                // handles both the pattern and the mandatory-class case with one mechanism.
+                // Routes every root uniformly through the Shape-based `pattern_variants` path rather than re-segmenting literal text: a mandatory (non-optional) `[ClassName]` node doesn't set `is_pattern`, but its literal text (e.g. `"b[Vowel]t"`) still can't re-segment, so text-based re-segmentation alone would miss it.
                 let (variants, overflowed) = pattern_variants(stratum_table, &allo.shape.shape);
                 if overflowed {
                     uncovered.push(UncoveredItem {
@@ -1336,13 +1030,7 @@ fn collect_roots(
                     counts.allomorphs_skipped += 1;
                     continue;
                 }
-                // Stripped spellings (module doc, "Junction-aware affix/root emission"): only ever
-                // consumed when `phon` is `Some` (a `Stripped` roots lexicon only exists then, see
-                // `write_roots_lexicon`); pattern allomorphs don't get one (`stripped_variants`
-                // remains text-based — no reference/edge-case grammar needs a stripped pattern
-                // root, and an empty `stripped` list can only under-supply the already-upward
-                // junction path, never regress it). Overflow on the stripped side is not separately
-                // reported for the same reason the baseline emission path never reported it.
+                // Stripped spellings are only consumed when `phon` is `Some`; pattern allomorphs never get one — no reference grammar needs a stripped pattern root.
                 let stripped = if allo.is_pattern {
                     Vec::new()
                 } else {
@@ -1351,33 +1039,8 @@ fn collect_roots(
                         .unwrap_or_default()
                 };
                 let mut variants = variants;
-                // Bare-root phonology (gate F3 3b, `languages/suffixing-extension-slot-ordering`'s "mba" and
-                // `languages/suffixing-vowel-harmony`'s "duy"/"sueb"): a grammar with real
-                // phonological rules can obligatorily change a root's OWN surface even with no
-                // morphological rule applied at all (post-nasal voicing, vowel coalescence,
-                // gradation/epenthesis at a root-internal consonant cluster) — `surface_variants`
-                // and `pattern_variants` both only ever re-segment the AUTHORED literal text,
-                // never running it through the phonological cascade at all. This unions in the
-                // REAL post-cascade surface as an extra, upward-safe spelling.
-                //
-                // `Morpher::generate_words` is tried FIRST here (not `probe_surface` — the
-                // ordering `struct_extend` uses, where it's the right one): `probe_surface`
-                // ultimately calls `pg_rules::rewrite::probe_apply_rule_cached`, which applies
-                // EVERY phonological rule in the stratum UNCONDITIONALLY (`FeatureStruct::EMPTY` as
-                // the "current word" — that function's own doc: "no 'which stratum owns this word'
-                // entry gate", ported faithfully from C# `SurfacePhonology`, whose whole design
-                // brief is exactly that POS-blindness for probing a bare AFFIX shape in isolation).
-                // For a BARE ROOT specifically, that is actively WRONG whenever the grammar scopes
-                // different phonological rules to different POS in the SAME stratum
-                // (`languages/polysynthetic-stratal-derivation-chain`: `prDelReins` is `requiredPartsOfSpeech="posDelR"`
-                // only, but `probe_surface` applies it to `posMDC`'s "buiibuii" too, since an empty
-                // `FeatureStruct` vacuously satisfies every POS gate — found empirically: it returns
-                // "bubu", the OTHER probe root's answer, instead of "buuubuuu"). `generate_words`
-                // has no such blind spot (it is the real per-word pipeline, gated on the actual
-                // entry's own POS via its real `syn_fs`), so it is the authoritative source whenever
-                // a `Morpher` is available (always true here — `morpher` is built whenever `phon` is
-                // `Some`, the same condition gating this whole block); `probe_surface` remains the
-                // fallback for the defensive case a caller ever runs this with `morpher = None`.
+                // Bare-root phonology: unions in the root's real post-cascade surface, tried via `generate_words` first since `probe_surface` is POS-blind and gets a same-stratum, POS-scoped rule wrong on a bare root.
+                // See docs/research/pg-foma-emit-design-notes.md for the empirical counter-example.
                 if phon.is_some() && !allo.is_pattern {
                     if let Ok(feat_shape) = pg_rules::shape_feat::segment_with_features(
                         g,
@@ -1413,25 +1076,7 @@ fn collect_roots(
     roots
 }
 
-/// The bare-root compile-time discharge: filters `all_roots` down to the subset safe to offer
-/// on the `"#"`-continuation (word = this root alone, nothing else) `Root`/`Root` (underlying-token
-/// mode) `LEXICON`.
-/// `RootRec::never_valid_bare` roots are OMITTED here ONLY — every other call site
-/// (`TLPost`/`TLPostNoCmp`/per-group `Roots`/compound-chain roots) keeps using the full,
-/// unfiltered `all_roots`, since a word with any other morph attached is untouched by the
-/// bound-root gate this predicate targets. Zero new states, zero new flags: this removes lexc
-/// entry lines (arcs into the accept state) rather than adding machinery, matching the module
-/// doc's "deliberate supersets" direction (this is the one place this emitter is allowed to
-/// narrow, because the narrowing is PROVEN, not heuristic).
-///
-/// Defensive floor: if EVERY root would be pruned (a grammar consisting entirely of bound,
-/// single-allomorph root entries — a degenerate case no reference/edge-case fixture exercises,
-/// since such a root can never appear in ANY valid word, bare or otherwise), the filter backs off
-/// and returns `all_roots` unfiltered rather than risk handing the caller an empty list where an
-/// empty `LEXICON Root` block would otherwise have no OTHER continuation to fall back on. This can
-/// only ever make the emitted network larger (a superset), never narrower than what this function
-/// was asked to guarantee is safe to omit — the over-approximation invariant (module doc) never
-/// trades away recall for a states/arcs win.
+/// Filters `all_roots` down to the subset safe to offer on the bare (`"#"`-continuation) `Root` lexicon; every other call site keeps using the full, unfiltered set, since a word with any other morph attached is untouched by the bound-root gate this targets. Defensive floor: if every root would be pruned, backs off to the unfiltered set rather than leave no continuation at all — only ever a superset, never narrower than proven safe.
 fn bare_admissible_roots<'a>(
     all_roots: &[&'a RootRec],
     counts: &mut EmitCounts,
@@ -1547,10 +1192,7 @@ pub(crate) fn compound_license(g: &Grammar) -> Option<CompoundLicense> {
     })
 }
 
-/// Resolves a `RootRec`'s owning `LexEntryId` via `g.allomorph_owners` (the registry
-/// `collect_roots` itself draws every `RootRec::id` from). `None` for a registry id this grammar's
-/// `allomorph_owners` doesn't classify as `AllomorphOwner::Root` (an affix allomorph would never
-/// appear in a root list at all, so this is defensive, not expected to fire in practice).
+/// Resolves a `RootRec`'s owning `LexEntryId` via `g.allomorph_owners`; `None` only if the registry doesn't classify this id as a root — defensive, not expected to fire in practice.
 fn root_lex_entry(g: &Grammar, id: AllomorphId) -> Option<LexEntryId> {
     match g.allomorph_owners.get(id.0 as usize)? {
         AllomorphOwner::Root(le, _) => Some(*le),
@@ -1558,9 +1200,7 @@ fn root_lex_entry(g: &Grammar, id: AllomorphId) -> Option<LexEntryId> {
     }
 }
 
-/// Filters `roots` down to the entries `eligible` licenses (via `root_lex_entry`). Used to narrow
-/// the compound HEAD/NON-HEAD lexc continuation sections from the maximal `all_roots` bag down to
-/// `compound_license`'s two subsets.
+/// Filters `roots` down to the entries `eligible` licenses; narrows the compound head/non-head continuation sections from `all_roots` to `compound_license`'s subsets.
 fn filter_roots_by_license<'a>(
     g: &Grammar,
     roots: &[&'a RootRec],
@@ -1573,8 +1213,7 @@ fn filter_roots_by_license<'a>(
         .collect()
 }
 
-// --- Bounded compound loop (module doc, "Bounded compound loop"): the shared depth-budgeted chain
-// -------------------------------------------------------------------------------------------------
+// --- Bounded compound loop: the shared depth-budgeted chain -------------------------------------
 
 /// The depth-budgeted extension of the "bounded compound loop" (module doc) -- a chain of `levels`
 /// license-gated non-head-root LEVELS under `base` (e.g. `"TLCmp"`/`"G3Cmp"`), each with its own
@@ -1707,28 +1346,7 @@ pub(crate) fn build_compound_chain<R, C>(
     }
 }
 
-/// Consumes `crate::capability::characterize`'s precomputed `CompoundingDetail::max_depth` (one
-/// source of truth -- this crate never re-derives it) into `compound_extra_levels`, the number of
-/// NON-HEAD levels `build_compound_chain` should unroll (`max_depth - 1`, floored at 1 so an
-/// ordinary non-recursive grammar -- `max_depth == 2` -- gets EXACTLY the pre-existing "one extra
-/// root" shape, never fewer) -- and checks that number against `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`
-/// BEFORE any of the chain's own lexc text is written (same "check the search result before the
-/// expensive part" discipline as the compound-pair-budget check every caller runs just before this).
-///
-/// Shared by both emitters so this budget discipline can never drift between them --
-/// mirrors `build_compound_chain`'s own "one construction" rationale.
-///
-/// `Err(EmitResult)` is the caller's own early-return refusal outcome (`FomaTier::Unsupported`, a
-/// typed `EnumBudgetExceeded`, never a partial/unsound network), built from the `uncovered`/`counts`
-/// snapshot passed in -- the caller should `return` it exactly as received.
-///
-/// `result_large_err` is allowed deliberately, not overlooked: the `Err` payload IS the emitter's
-/// full `EmitResult` (192 bytes), because the refusal is a COMPLETE, honest emit outcome carrying its
-/// own `uncovered`/`counts` diagnostics, not an error code the caller enriches later -- the whole
-/// point is that the caller returns it verbatim. Boxing it would add an allocation and a pointer
-/// chase on the refusal path purely to satisfy a size heuristic, and would make the "return it
-/// exactly as received" contract above less obvious at both call sites. This is the same
-/// documented-allow discipline `pg_rules::cache`'s own `large_enum_variant` note uses.
+/// Checks `compound_extra_levels` against `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` before any chain lexc text is written, shared by both emitters so the discipline never drifts; `result_large_err` is deliberate, since the `Err` IS the full `EmitResult` refusal the caller returns verbatim.
 #[allow(clippy::result_large_err)]
 fn compound_chain_depth_and_budget_check(
     g: &Grammar,
@@ -1769,9 +1387,7 @@ fn compound_chain_depth_and_budget_check(
     }
 }
 
-/// The grammar-wide total-stem bound `crate::capability::characterize` already computed for every
-/// `CompoundingRuleDef` (one source of truth -- this crate never re-derives it), defaulting to 2
-/// (head + one non-head) for a grammar whose rules declare nothing deeper.
+/// The grammar-wide total-stem bound `crate::capability::characterize` already computed for every `CompoundingRuleDef`, defaulting to 2 (head + one non-head) for a grammar whose rules declare nothing deeper.
 fn compound_depth_bound(g: &Grammar) -> usize {
     crate::capability::characterize(g)
         .compounding_details()
@@ -1803,24 +1419,7 @@ pub(crate) fn compound_extra_levels_checked(g: &Grammar) -> Result<usize, Compos
 
 // --- Affix entry emission (shared by slot chains and derivation layers) ---------------------------
 
-/// Emit every emittable allomorph of `mid` as one tagged lexc entry with continuation `next`,
-/// requiring each allomorph's role to be `zone_role` (or `None` — a zero morph is legal in either
-/// zone, exactly like `trie.rs::append_slots`'s `aop != op && aop != MorphOp::None` check,
-/// trie.rs:941-946).
-///
-/// `phon` (module doc, "Junction-aware affix/root emission"): when `Some`, every `InsertText::Text`
-/// allomorph ALSO gets `PhonologyProbe::variants`'s spellings unioned into `next` (safe at any
-/// zone/level: these are context-generic, upward-only additions to what the baseline emission path
-/// already emits).
-/// `junction_target`, when `Some`, additionally routes every `PhonologyProbe::deletion_junctions`
-/// hit to THAT lexicon instead of `next` — callers only pass it at a genuinely root-adjacent final
-/// derivation level (see `build_deriv_chain`); everywhere else it's `None` and this behaves exactly
-/// like the baseline emission path.
-///
-/// `pk` (`crate::precision`'s module doc): every entry this function writes for allomorph `allo`
-/// passes `Some(allo.id)` as `write_tag_entry`'s owner — the ENVIRONMENT family's `AllFlags`
-/// preset's owner-side require/disallow gate can then find it regardless of which zone/level/slot
-/// this call is emitting into.
+/// Emits every emittable allomorph of `mid` as one tagged entry into `next`, requiring role `zone_role` (or `None`, a zero morph legal in either zone); when `phon` is `Some`, also unions in `PhonologyProbe::variants`' spellings, and `junction_target` (if given) reroutes deletion-junction hits to a separate lexicon at the root-adjacent final derivation level.
 #[allow(clippy::too_many_arguments)]
 fn emit_rule_allomorphs(
     out: &mut String,
@@ -1868,14 +1467,7 @@ fn emit_rule_allomorphs(
                 write_tag_entry(out, &tag_lexc, "", next, counts, pk, owner);
                 counts.allomorphs_emitted += 1;
             }
-            // `TextMode::UnderlyingTokens`: concatenate EVERY `InsertSegments` action's own
-            // token string via `SegAlphabet::encode_shape`, in document order (`InsertText::Text`'s
-            // own doc: never just the first) — no surface_variants cartesian product, no
-            // `phon`/junction-probe consultation at all (module doc on `TextMode`; each action's
-            // own underlying spelling is exactly what its `Shape` already is, char-def identity
-            // collapsing the representation question the SurfaceProbed arm below exists to solve).
-            // `encode_shape` keeps Boundary nodes (e.g. the affix's own trailing `+`) — the rule
-            // cascade's own environments need them.
+            // `TextMode::UnderlyingTokens`: concatenates every action's token string via `encode_shape`, in document order — no surface-variant product, no phonology consultation; keeps Boundary nodes since the rule cascade's environments need them.
             InsertText::Text { shapes, .. } if matches!(mode, TextMode::UnderlyingTokens(_)) => {
                 let TextMode::UnderlyingTokens(alphabet) = mode else {
                     unreachable!()
@@ -1918,14 +1510,7 @@ fn emit_rule_allomorphs(
                         });
                     }
                 }
-                // Junction-aware enrichment (module doc): union in every probe-derived surface
-                // spelling, and (only where the caller says this level is root-adjacent) route
-                // deletion-junction spellings to the stripped-roots continuation instead. The probe
-                // takes one literal string; every piece is joined in document order first (an
-                // upward-only, harmless-anywhere approximation for the 2+-piece case, same
-                // convention as the rest of this enrichment -- module doc, "Junction-aware
-                // affix/root emission" -- byte-identical to the pre-fix single-piece call when
-                // `texts.len() == 1`).
+                // Unions in every probe-derived surface spelling, and where the caller says this level is root-adjacent, routes deletion-junction spellings to the stripped-roots continuation instead; pieces are joined in document order first since the probe takes one literal string.
                 if let Some(probe) = phon {
                     let joined: String = texts.concat();
                     for surface in probe.variants(&joined) {
@@ -1951,41 +1536,7 @@ fn emit_rule_allomorphs(
 
 // --- Derivation layer chain (trie.rs::build_derivation_layer) -------------------------------------
 
-/// Emit a chain of optional derivation layers named `{prefix}0` .. `{prefix}{depth-1}`, ending at
-/// `exit`. Mirrors `trie.rs::build_derivation_layer` (each level: an epsilon skip to the next
-/// level plus one token+arc path per rule allomorph). Always defines `{prefix}0`, even when
-/// `rules` is empty (a plain passthrough), so callers can reference it unconditionally.
-///
-/// Two distinct level-assignment strategies, gated on `mode`:
-/// - `TextMode::SurfaceProbed` (legacy, unchanged): EVERY level offers EVERY rule in `rules`;
-///   depth = `rules.len()` floored at `DERIV_DEPTH_MIN` (module doc: the engine-faithful bound
-///   for `multipleApplication = 1` — each rule can apply at most once, so no derivation chain is
-///   longer than the rule count).
-/// - `TextMode::UnderlyingTokens` ("dedicated-level-per-rule"): level `i` offers ONLY
-///   `rules_expanded[i]` (a rule with `max_apps() == k > 1` gets `k` CONSECUTIVE dedicated levels,
-///   capped at `MAX_DEDICATED_LEVELS_PER_RULE` — every Aweti rule has `max_apps() == 1`, so this
-///   cap is never exercised there; it exists only to bound a hypothetical uncapped/Realizational
-///   rule, which this codebase's dedicated mode does not attempt to represent faithfully beyond
-///   the cap). This eliminates the "same rule chosen at any of N levels, N times independently"
-///   nondeterminism the legacy strategy has — measured on Aweti: a single epsilon-yielding rule
-///   could have its tag chosen up to 22x (prefix) / 48x (suffix)
-///   along one path under the legacy strategy; dedicated levels bound that to (at most) the
-///   number of independent chain INSTANCES a path crosses (2, for a template-taking word: this
-///   chain instance once, the OTHER same-zone instance — e.g. `OuterPfx` vs `G{gi}PfxD` — once).
-///   COST: this fixes the RELATIVE SURFACE ORDER of any two standalone rules chosen within the
-///   SAME chain instance to `rules`' own document order (previously free at any two of the
-///   `rules.len()` levels) — a real recall risk if some oracle analysis needs two standalone rules
-///   in the OTHER order; the corpus recall gate is the judge (measured on Aweti specifically: no
-///   regression observed).
-///
-/// `phon`/`exit_is_roots` (module doc, "Junction-aware affix/root emission"): `phon` is unioned
-/// into every affix spelling at EVERY level (harmless anywhere). Deletion-junction routing to a
-/// `{exit}Stripped` roots lexicon additionally requires `zone_role == Role::Prefix`,
-/// `exit_is_roots` (the caller vouches that `exit` names an actual roots lexicon — never true for
-/// `OuterPfx`'s `TmplDispatch` exit or a template slot chain's exit, which are never root-adjacent
-/// by construction; passing `true` there would emit a dangling lexc reference), and only fires at
-/// the chain's FINAL level (`next == exit`, i.e. genuinely root-adjacent — an intermediate level's
-/// `next` is another derivation opportunity, not a root).
+/// Emits a chain of optional derivation layers ending at `exit`, always defining `{prefix}0`; `TextMode::UnderlyingTokens` gives each rule application its own dedicated level to kill the cross-level nondeterminism `SurfaceProbed` has, at the cost of fixing two standalone rules' relative order to document order. `phon` unions phonology spellings at every level; junction routing to `{exit}Stripped` fires only at the final, root-adjacent level.
 #[allow(clippy::too_many_arguments)]
 fn build_deriv_chain(
     out: &mut String,
@@ -2015,10 +1566,7 @@ fn build_deriv_chain(
         None
     };
 
-    // `dedicated` is `Some(expanded)` under the dedicated strategy (one rule per level) or `None`
-    // under the legacy strategy (every level's per-rule loop below runs the full `rules` slice
-    // instead) — a single shared level-emission loop follows so the two strategies can never
-    // diverge in how they write lexicon headers/epsilon-skip arcs/junction routing.
+    // `dedicated` is `Some` under the dedicated-level-per-rule strategy, `None` under legacy (full `rules` slice each level) — one shared loop below so the two strategies can never diverge in header/epsilon/junction handling.
     let dedicated: Option<Vec<MRuleId>> = match mode {
         TextMode::UnderlyingTokens(_) => {
             let mut expanded = Vec::with_capacity(rules.len());
@@ -2045,8 +1593,7 @@ fn build_deriv_chain(
         } else {
             format!("{prefix}{}", level + 1)
         };
-        // The whole level is optional (trie: `add_epsilon(current, after)` before the per-rule
-        // arcs, trie.rs:807-808) — kept identically for BOTH strategies.
+        // The whole level is optional (mirrors trie's epsilon skip before the per-rule arcs) — identical for both strategies.
         write_bare(out, &next, counts);
         let junction_here = if is_final {
             junction_target.as_deref()
@@ -2055,9 +1602,7 @@ fn build_deriv_chain(
         };
         match &dedicated {
             Some(expanded) => {
-                // Dedicated-level-per-rule: this level offers AT MOST one rule (a level past the
-                // end of `expanded`, from the `DERIV_DEPTH_MIN` floor on a short `rules`, offers
-                // none — a harmless extra optional hop).
+                // Dedicated-level-per-rule: at most one rule per level; past `expanded`'s end is a harmless extra optional hop.
                 if let Some(&mid) = expanded.get(level) {
                     emit_rule_allomorphs(
                         out,
@@ -2103,8 +1648,7 @@ fn build_deriv_chain(
 
 // --- Slot chains (trie.rs::classify_template + append_slots) --------------------------------------
 
-/// `trie.rs::slot_op` (C# `SlotOp`, `FstTemplateAnalyzer.cs:1238-1254`): a slot's zone is that of
-/// its first Prefix/Suffix-classified rule; a slot with only zero-morph rules counts as Suffix.
+/// `trie.rs::slot_op`: a slot's zone is that of its first Prefix/Suffix-classified rule; a slot with only zero-morph rules counts as Suffix.
 fn slot_role(g: &Grammar, slot: &SlotDef) -> Role {
     let mut has_zero = false;
     for &mid in &slot.rules {
@@ -2123,8 +1667,7 @@ fn slot_role(g: &Grammar, slot: &SlotDef) -> Role {
     }
 }
 
-/// `trie.rs::classify_template`: split a template's slots into prefix (REVERSED to surface order)
-/// and suffix lists, routing any exotic-op slot rule to `uncovered`.
+/// `trie.rs::classify_template`: splits a template's slots into prefix (reversed to surface order) and suffix lists, routing any exotic-op slot rule to `uncovered`.
 fn classify_template<'g>(
     g: &'g Grammar,
     template: &'g pg_grammar::model::AffixTemplateDef,
@@ -2156,15 +1699,7 @@ fn classify_template<'g>(
     (prefix, suffix)
 }
 
-/// `trie.rs::append_slots`: emit one lexicon per slot, in order, each offering every (unifiable,
-/// zone-fitting) rule allomorph once; optional slots add an epsilon skip. Chain is named
-/// `{prefix}0` .. and ends at `exit`; always defines `{prefix}0` (passthrough when `slots` is
-/// empty).
-///
-/// `phon` (module doc, "Junction-aware affix/root emission"): unioned into every slot allomorph's
-/// spelling, same as `build_deriv_chain`. No junction routing here — a template slot chain's
-/// `exit` is never a roots lexicon directly (it always lands on further derivation, `G{gi}PfxD0` or
-/// `OuterSfx0`/`G{gi}Join`), so there is no root-adjacent final level to gate on.
+/// `trie.rs::append_slots`: emits one lexicon per slot in order, each offering every zone-fitting rule allomorph once with an epsilon skip if optional; `phon` unions into every spelling, but there is no junction routing since a slot chain's exit always lands on further derivation, never a roots lexicon directly.
 #[allow(clippy::too_many_arguments)]
 fn build_slot_chain(
     out: &mut String,
