@@ -164,3 +164,58 @@ silently unreachable in practice. And regardless of that, the branch needs a fix
 lands on it, plus a rename: a test called `..._refuses_...` that asserts `ConfirmOnly` is worse than
 no test, because it reads as coverage. Same family as every "green gate that never fails" this repo
 has had to fix.
+
+---
+
+# Engineering gaps lifted out of the archived Stage 2 changes
+
+The eleven per-construct changes were archived once STAGING.md's "ALL 11 CONSTRUCTS LANDED" was
+confirmed against the code — every construct has a live predicate, 2–9 tests, and a golden ledger
+row. Most of their residual tasks were ledger publication (blocked on Q2), `FailClosed` promotions
+that had already happened, or Aweti re-runs blocked on absent corpus.
+
+These are the ones that were real. They are recorded here so archiving the folders does not bury
+them. Each names the change it came from.
+
+**G1 — The shared lowering seam is only half-migrated, and two constructs say so identically.**
+`replace.rs`'s own rewrite compilation is not routed through `lower.rs::lower_span`.
+`compile_metathesis_rule` is a dedicated per-branch cross-product swap function, and `Slot::Repeat`
+compiles via foma's native `^{min,max}`; both reuse `pattern_slots` but bypass the seam. That two
+independent changes recorded the same caveat makes it a structural gap rather than a construct quirk.
+*(compile-fst-metathesis 2.1, compile-bounded-fst-quantifiers 2.1)*
+
+**G2 — Multi-table containment is one-directional.** `two_table_symbol_divergence.rs` proves exact
+`fst_candidate_set == oracle_candidate_set`, but `phase_c_multi_table.rs`'s recipe only checks
+`gate_template::recall_reachable`. One direction is not containment, and the difference is where
+over-proposal hides. Also unexercised: the alpha-variable leg of multi-table × alpha × multi-stratum.
+*(fix-multitable-fst-compilation 2.1, 2.2)*
+
+**G3 — Peeler containment is proven only at depth 1.** Nested depth ≥ 2 containment and multiplicity
+are open, with no in-repo fixture. *(cover-template-truncation-reduplication 2.2, 1.2)*
+
+**G4 — The unordered widening has no proof.** That the widened recursion's proposed language equals
+the union over every admissible ordering under `combination_rec`'s semantics is unproven; the
+morphotactic-legality convention in `morphotactics.rs` is standing in for a proof, which the change's
+own design doc says it must not. *(cover-unordered-morph-rules 2.2)*
+
+**G5 — Two propose-side node shapes were never built.** The compounding
+`Union(Gate(head-trie) × Gate(non_head-trie))` per-subrule shape, and the derivation-state-dependent
+`Gate` position for `mpr-group.append-output`. The second was blocked on `reify-compilation-plans`,
+which has since landed its substrate — so the blocker may be gone. Compounding's 2.3 discipline
+(leave `output_prod_restrictions_mpr`/`out_syn_fs`/`obligatory_features` to confirm) is documented
+but unimplemented, because it depends on these. *(cover-compounding 2.1/2.3, cover-mpr-groups 2.1)*
+
+**G6 — Three witnesses exist only as unit tests, not fixtures.** A compounding head+non-head grammar
+(staged at `conformance-staging/edge-cases/compounding-non-recursive/`, never graduated); a word
+reachable only via a non-document-order application sequence; and the MPR order-(in)dependence
+witness. A unit test proves the engine; a fixture proves the grammar shape is representable.
+*(cover-compounding 4.1, cover-unordered-morph-rules 4.2, cover-mpr-groups 4.2)*
+
+**G7 — No resource thresholds were ever proposed to `calibrate-fst-resource-envelopes`.** Two changes
+carry the same task and neither produced a diff. ADR 0001 wants cost and capability gated by
+different standards — warn on cost, never hard-fail — and nothing warns today.
+*(cover-compounding 5.2, cover-mpr-groups 5.2)*
+
+**G8 — Nested and grouped quantifier rows are uncovered.** `phase_c_quantifier.rs` covers
+optional/bounded/unbounded/environment; no nested or grouped row exists.
+*(compile-bounded-fst-quantifiers 1.1)*
