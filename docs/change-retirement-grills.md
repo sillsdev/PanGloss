@@ -18,7 +18,15 @@ The strongest cases. Each has a **live `pangloss` subcommand**; the task lists w
 maintained. Their numbers understate reality by a wide margin, which is worse than being wrong: a
 "0/11" reads as untouched work and gets re-planned.
 
-### A1 — `visualize-compilation-plan` (0 done / 11 open)
+### A1 — `visualize-compilation-plan` — RETIRED 2026-08-06 (was 0 done / 11 open, actually 11/11)
+
+**Resolved.** The audit mapped every one of the 11 tasks to a named, shipped test — 1.3's test is
+almost verbatim its task text. Pure bookkeeping debt. Archived, and succeeded by
+`visualize-subrecipe-selection`, which records the intent to add the recipe/switch *selection* layer
+once the sub-recipe scheme exists: today's diagram shows the consequence and hides the decision.
+
+<details><summary>original grill</summary>
+
 
 *For:* a grammar author cannot see how their language is handled — which strata become which nodes,
 which rules join a cascade, which route a circumfix takes.
@@ -26,9 +34,8 @@ which rules join a cascade, which route a circumfix takes.
 *Exists now:* `pangloss plan-diagram` is a shipped subcommand, and `pg-foma/src/plan_diagram.rs` is
 **67 KB**. This change reads as unstarted and is substantially built.
 
-**Choices:** (a) retire, recording any genuinely missing output format as a gap; (b) audit the 11
-tasks against the shipped command and close what is done, keeping the remainder; (c) keep as-is.
-**Recommendation: (b) then retire** — one pass to see whether anything real is missing.
+**Choices:** (a) retire; (b) audit then retire; (c) keep. Chose (b); the audit found nothing missing.
+</details>
 
 ### A2 — `add-fst-compilation-health-audit` (1 done / 18 open)
 
