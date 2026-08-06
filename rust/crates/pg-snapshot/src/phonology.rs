@@ -82,14 +82,11 @@ pub enum NaturalClass {
     /// ← `PhNCSegments.SegmentsRC` — the class is exactly these phonemes.
     Segments {
         guid: Guid,
-        /// ← `PhNaturalClass.Abbreviation` (best analysis alternative) — this, not `Name`, is
-        /// what `HCLoader` uses (HCLoader.cs:2825) and what environment strings reference in
-        /// `[Abbr]` bracket notation.
+        /// ← `PhNaturalClass.Abbreviation`, not `Name` -- what environment strings reference in `[Abbr]` bracket notation.
         name: String,
         phonemes: Vec<Guid>,
     },
-    /// ← `PhNCFeatures.FeaturesOA` — the class is every phoneme whose feature structure
-    /// includes these feature values.
+    /// ← `PhNCFeatures.FeaturesOA` — every phoneme whose feature structure includes these values.
     Features {
         guid: Guid,
         name: String,
@@ -102,7 +99,7 @@ pub enum NaturalClass {
 /// tree, and `HCLoader` tokenizes/validates that string at load time
 /// (`TokenizeContext`/`IsValidEnvironment`, HCLoader.cs:2260-2457). This format keeps the raw
 /// string as-is — re-tokenizing (and re-validating natural-class references inside it) is a
-/// compiler (T3) concern, matching `HCLoader`'s own approach of parsing it lazily and tolerantly
+/// compiler concern, matching `HCLoader`'s own approach of parsing it lazily and tolerantly
 /// (a malformed environment is a warning, not a hard failure, HCLoader.cs:1184-1197).
 /// ← `PhEnvironment`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -140,8 +137,7 @@ pub struct FeatureConstraint {
 pub enum PhonContext {
     /// ← `PhSequenceContext.MembersRS`.
     Sequence { members: Vec<PhonContext> },
-    /// ← `PhIterationContext` (`Minimum`/`Maximum`, `MemberRA`). `max: -1` means unbounded
-    /// (mirrors the LCM/HC convention, HCLoader.cs:2343).
+    /// ← `PhIterationContext`. `max: -1` means unbounded (mirrors the LCM/HC convention).
     Iteration {
         min: i32,
         max: i32,
@@ -149,11 +145,7 @@ pub enum PhonContext {
     },
     /// A single phoneme. ← `PhSimpleContextSeg.FeatureStructureRA` (a `PhPhoneme` guid).
     Segment { phoneme: Guid },
-    /// A natural-class match, optionally constrained by alpha-variable agreement/disagreement.
-    /// ← `PhSimpleContextNC.FeatureStructureRA` (the natural class), `.PlusConstrRS` /
-    /// `.MinusConstrRS` (`FeatureConstraint` guids this occurrence must agree/disagree on with
-    /// other occurrences of the same constraint elsewhere in the same rule; HCLoader.cs:2745-
-    /// 2763).
+    /// A natural-class match, optionally constrained by alpha-variable agreement/disagreement with other occurrences of the same constraint elsewhere in the rule.
     NaturalClass {
         natural_class: Guid,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -161,21 +153,11 @@ pub enum PhonContext {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         minus_variables: Vec<Guid>,
     },
-    /// A user-defined boundary marker. ← `PhSimpleContextBdry.FeatureStructureRA`, when it is
-    /// *not* the special word-boundary marker (see `PhonContext::WordBoundary`).
+    /// A user-defined boundary marker, when it is not the special word-boundary marker (see `PhonContext::WordBoundary`).
     Boundary { marker: Guid },
-    /// The special word-initial/word-final anchor (`#` in environment notation).
-    /// ← `PhSimpleContextBdry.FeatureStructureRA.Guid == LangProjectTags.kguidPhRuleWordBdry`
-    /// (HCLoader.cs:2351/2489-2498) — deliberately *not* modeled as a `Boundary` referencing
-    /// that well-known guid, since that guid does not correspond to any real entry in
-    /// `boundary_markers` (`LoadCharacterDefinitionTable` explicitly excludes it,
-    /// HCLoader.cs:2698).
+    /// The special word-initial/word-final anchor (`#`), deliberately not modeled as a `Boundary` since its well-known guid has no real entry in `boundary_markers`.
     WordBoundary,
-    /// "Match anything" — used only inside `MoAffixProcess.InputOS` as a placeholder for a
-    /// stretch of input that is not itself constrained (`IPhVariable`, HCLoader.cs:1340-1346).
-    /// Never appears inside a rewrite-rule/environment pattern tree in FieldWorks data (those
-    /// only ever contain the other five variants); T3 should treat one appearing there as
-    /// malformed input rather than crash.
+    /// "Match anything" -- used only inside `MoAffixProcess.InputOS` for an unconstrained stretch of input; never appears in a rewrite-rule/environment pattern tree.
     Variable,
 }
 
@@ -185,7 +167,7 @@ pub enum PhonContext {
 /// left-to-right for metathesis, HCLoader.cs:2107-2117). `HCLoader` additionally derives an
 /// `ApplicationMode` (`Iterative` vs `Simultaneous`) from a regular rule's direction (0/1 →
 /// iterative, 2 → simultaneous); that is compiler policy, not stored data, so it is not
-/// represented here — T3 re-derives it from `Simultaneous` the same way.
+/// represented here — a compiler re-derives it from `Simultaneous` the same way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RuleDirection {
@@ -247,7 +229,7 @@ pub struct RewriteRhs {
     /// (`IPhPhonRuleFeat.ItemRA`, an `MoInflClass` or `CmPossibility`; HCLoader.cs:2610-2623).
     /// Each guid is the referenced `MoInflClass`/`CmPossibility` itself, *not* expanded to its
     /// subclass closure (`HCLoader.LoadAllInflClasses` does that expansion at compile time,
-    /// HCLoader.cs:2593-2608) — T3 must perform the same expansion using
+    /// HCLoader.cs:2593-2608) — a compiler must perform the same expansion using
     /// `morphology.inflectionClasses`' hierarchy.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub required_rule_features: Vec<Guid>,
@@ -274,6 +256,6 @@ pub struct MetathesisRule {
     /// `HCLoader` additionally computes derived "middle"/"left env"/"right env" part indices
     /// from these two (`GetStrucChangeIndices`, HCLoader.cs:2119-2120) under an assumed
     /// canonical layout; that derivation is compiler policy over already-complete data, not
-    /// separately stored LCM data, so it is not duplicated here — T3 re-derives it the same way.
+    /// separately stored LCM data, so it is not duplicated here — a compiler re-derives it the same way.
     pub right_switch_index: i32,
 }

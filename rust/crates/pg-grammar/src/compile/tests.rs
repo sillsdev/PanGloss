@@ -1,6 +1,4 @@
-//! Unit tests for `pg_grammar::compile`, built entirely from code-constructed `Snapshot` values
-//! (no `.fwdata`/oracle files — those are T4's job). See `pg-snapshot/src/lib.rs`'s own tests for
-//! the construction style this mirrors.
+//! Unit tests for `pg_grammar::compile`, built entirely from code-constructed `Snapshot` values (no `.fwdata`/oracle files).
 
 use pg_snapshot::feature::{
     ClosedFeature, FeatureStructure, FeatureSystem, FeatureValue, FeatureValueKind,
@@ -79,9 +77,7 @@ fn simple_allomorph(guid: &str, morph_type: MorphType, form: &str) -> Allomorph 
     }
 }
 
-/// One POS ("Noun") with one affix slot and one template using it; a stem entry ("kuma", gloss
-/// "dog") and an inflectional suffix entry ("-ta", gloss "PL") filling that slot. Every test below
-/// starts from this and mutates the parts it cares about.
+/// One POS ("Noun") with one affix slot and one template using it, a stem entry, and an inflectional suffix entry filling that slot; every test below starts from this and mutates the parts it cares about.
 struct Fixture {
     noun_pos: String,
     slot: String,
@@ -255,9 +251,7 @@ fn tokenize_rejects_unclosed_paren() {
     assert!(environment::tokenize("(abc").is_err());
 }
 
-/// An allomorph's environment guid pointing at a string that doesn't even start with `/` (an
-/// `IsValidEnvironment`-rejected string, HCLoader.cs:1205-1271) must not fail the whole compile —
-/// it is a warning, and the allomorph still compiles with that one environment simply absent.
+/// An allomorph's environment guid pointing at a string that doesn't even start with `/` must not fail the whole compile -- it is a warning, and the allomorph still compiles with that one environment simply absent.
 #[test]
 fn invalid_environment_string_is_a_warning_not_an_error() {
     let (mut snapshot, _f) = fixture();
@@ -287,8 +281,7 @@ fn invalid_environment_string_is_a_warning_not_an_error() {
     );
 }
 
-/// A well-formed environment (`[NC]` natural-class reference) parses into a real pattern and
-/// gates the allomorph, without any warning.
+/// A well-formed environment (`[NC]` natural-class reference) parses into a real pattern and gates the allomorph, without any warning.
 #[test]
 fn valid_bracket_environment_compiles_without_warnings() {
     let (mut snapshot, f) = fixture();
@@ -486,8 +479,7 @@ fn inflectional_msa_with_no_slots_is_a_partial_rule() {
         affix_rules[0].partial,
         "an MoInflAffMsa with zero slots must be IsPartial"
     );
-    // With no slots referencing it, the template's one slot has no loaded affix and the whole
-    // template must be dropped (HCLoader.cs:297-300).
+    // With no slots referencing it, the template's one slot has no loaded affix and the whole template must be dropped.
     assert!(grammar.templates.is_empty());
 }
 
@@ -599,8 +591,7 @@ fn metathesis_rule_is_unsupported_and_warns_rather_than_erroring() {
     );
 }
 
-/// A circumfix entry is also unimplemented (cross-product allomorphs, HCLoader.cs:1048-1332): it
-/// warns and contributes no rule, rather than crashing the whole compile.
+/// A circumfix entry is also unimplemented: it warns and contributes no rule, rather than crashing the whole compile.
 #[test]
 fn circumfix_entry_is_unsupported_and_warns_rather_than_erroring() {
     let (mut snapshot, f) = fixture();
@@ -693,15 +684,7 @@ fn morphosyntactic_closed_feature_compiles_into_the_syntactic_feature_system() {
 
 // --- cross-reference (dense-id) integrity -------------------------------------------------------
 
-/// Walks every dense-id cross-reference in a compiled `Grammar` and panics on the first
-/// inconsistency. Every test above only asserts *counts and shapes* (`entries.len() == 1`, etc.) —
-/// none of them would catch an off-by-one in `allomorph_owners`, a `MorphemeId` pointing at the
-/// wrong row, or an out-of-range `MRuleId` in a stratum/slot list, since a wrong index is just
-/// another `usize` and every field involved still "has a value". This walks the full fixture grammar
-/// (which — via `absent_compound_rules_synthesize_the_two_defaults_when_not_suppressed` — already
-/// carries 2 synthesized compounding rules ahead of the 1 affix rule in `mrules`, exactly the kind of
-/// index offset that would hide an off-by-one) and checks every link resolves to the record it claims
-/// to.
+/// Walks every dense-id cross-reference in a compiled `Grammar` and panics on the first inconsistency; catches what count/shape assertions alone would miss, such as an off-by-one in `allomorph_owners` or an out-of-range `MRuleId`.
 fn assert_grammar_ids_are_internally_consistent(grammar: &crate::model::Grammar) {
     use crate::model::AllomorphOwner;
 
@@ -806,16 +789,14 @@ fn fixture_grammar_dense_ids_are_internally_consistent() {
     let (snapshot, _f) = fixture();
     let (grammar, warnings) = compile_project(&snapshot).expect("fixture must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
-    // Sanity: the fixture really does carry the 2 default compounding rules ahead of the 1 affix
-    // rule in `mrules`, so this test exercises a non-trivial index offset, not just the identity case.
+    // Sanity: the fixture carries the 2 default compounding rules ahead of the 1 affix rule in `mrules`, so this exercises a non-trivial index offset, not just the identity case.
     assert_eq!(grammar.mrules.len(), 3);
     assert_grammar_ids_are_internally_consistent(&grammar);
 }
 
 #[test]
 fn variant_entry_grammar_dense_ids_are_internally_consistent() {
-    // Reuse the variant-entry scenario (stem + variant + affix + template) to also exercise the
-    // multi-entry, multi-allomorph-owner case through the same consistency walk.
+    // Reuse the variant-entry scenario to also exercise the multi-entry, multi-allomorph-owner case through the same consistency walk.
     let (mut snapshot, f) = fixture();
     let variant_entry = LexEntry {
         guid: "entry-variant".to_string(),
@@ -846,12 +827,7 @@ fn variant_entry_grammar_dense_ids_are_internally_consistent() {
 
 #[test]
 fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {
-    // HCLoader.cs:256-293's form partition: an enclitic `MoStemAllomorph` is BOTH a valid clitic
-    // lex-entry form (`IsValidLexEntryForm` + `IsCliticType`) and a valid rule form
-    // (`IsValidRuleForm`, HCLoader.cs:550-552), so the entry appears on the Clitics stratum twice
-    // over: as a `LexEntry` (stem role) and as a clitic affix-process rule
-    // (`LoadCliticAffixProcessRule`, HCLoader.cs:1030-1046, suffix-shaped per
-    // `LoadFormAffixProcessAllomorph`'s shared enclitic/suffix arm).
+    // An enclitic allomorph is both a valid clitic lex-entry form and a valid rule form, so the entry appears on the Clitics stratum twice: as a stem-role `LexEntry` and as a clitic affix-process rule.
     let (mut snapshot, f) = fixture();
     let clitic_entry = LexEntry {
         guid: "entry-clitic".to_string(),

@@ -1,13 +1,4 @@
-//! Structural gate for the root-allomorph trie (M5a): build the per-stratum tries over the real
-//! Sena (1371 lex entries) and Indonesian (66) grammars, and confirm that searching a real root's
-//! own surface returns that root's allomorph id.
-//!
-//! The sample grammars are untracked local corpus files (per `rust-conversion.md` §8); each test
-//! self-skips when they are absent (fresh clone / CI).
-//!
-//! Test-timing policy: the default local `cargo test --workspace --release`
-//! run must stay under ~60s and must not depend on these gitignored fixtures at all, so all three
-//! tests here are unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
+//! Structural gate for the root-allomorph trie: build the per-stratum tries over the real Sena and Indonesian grammars, and confirm that searching a real root's own surface returns that root's allomorph id.
 
 use std::path::{Path, PathBuf};
 
@@ -86,8 +77,7 @@ fn assert_indexing(g: &Grammar, tag: &str) -> RootAllomorphIndex {
     index
 }
 
-/// For up to `limit` real root allomorphs, search the allomorph's own (already-segmented) shape and
-/// assert its id is in the returned set. Returns how many were checked.
+/// For up to `limit` real root allomorphs, search the allomorph's own shape and assert its id is in the returned set; returns how many were checked.
 fn assert_real_root_lookups(
     g: &Grammar,
     index: &RootAllomorphIndex,
@@ -105,8 +95,7 @@ fn assert_real_root_lookups(
             let Some(allo) = entry.allomorphs.first() else {
                 continue;
             };
-            // The allomorph's own shape has at least one segment? (all-boundary shapes are dropped
-            // at load, but guard anyway.)
+            // All-boundary shapes are dropped at load, but guard anyway.
             let has_seg = (0..allo.shape.shape.len())
                 .any(|i| allo.shape.shape.kind(i) == pg_shape::NodeKind::Segment);
             if !has_seg {
@@ -121,11 +110,7 @@ fn assert_real_root_lookups(
                 allo.shape.text,
                 allo.id,
             );
-            // The decisive char_def check (advisor): every returned allomorph must have the
-            // *identical* segment-char_def sequence as the query. Trivially true here; under a
-            // lane-only trie this is massively violated for Sena (which has zero phonological
-            // features, so lanes cannot discriminate) — same-length, different-segment roots would
-            // all be returned. This is the real-data evidence that char_def keying is necessary.
+            // Every returned allomorph must have the identical segment-char_def sequence as the query; a lane-only trie would fail this on Sena, which has no phonological features to discriminate by.
             for &(a, e) in &got {
                 assert!(
                     (e.0 as usize) < g.entries.len(),
@@ -152,9 +137,7 @@ fn sena_root_trie_indexes_and_looks_up() {
         eprintln!("skipping: sena-hc.xml not present on disk");
         return;
     };
-    // Sanity: Sena is the zero-*authored*-phonological-feature grammar (discrimination is by
-    // char_def). Plan §13.1 Tier-1 #1: `len()` itself is never 0 post-fix (the always-appended
-    // synthetic `Type` feature) — `is_empty()` is the correct "zero authored features" check now.
+    // Sanity: Sena is the zero-authored-phonological-feature grammar (discrimination is by char_def).
     assert!(
         g.phon_features.is_empty(),
         "Sena has zero authored phonological features"
@@ -184,9 +167,7 @@ fn indonesian_root_trie_indexes_and_looks_up() {
     );
 }
 
-/// Proves end-anchoring on real data: take the first real Sena root, search it (must hit), then
-/// search that root's shape with one extra segment appended — a strictly longer input cannot accept
-/// at the shorter root's node, so the original allomorph id must now be *absent*.
+/// Proves end-anchoring on real data: a strictly longer input than a real root's shape must not accept at that root's node.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_negative_lookup_is_end_anchored() {
@@ -217,8 +198,7 @@ fn sena_negative_lookup_is_end_anchored() {
         "positive lookup must hit"
     );
 
-    // Negative: append one segment (duplicate the first segment's char_def) just before the right
-    // anchor. Sena is feat_width 0, so the inserted lane row is empty.
+    // Negative: append one segment just before the right anchor.
     let first_seg_cd = (0..shape.len())
         .find(|&i| shape.kind(i) == NodeKind::Segment)
         .map(|i| shape.char_def(i))

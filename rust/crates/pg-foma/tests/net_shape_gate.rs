@@ -1,35 +1,4 @@
-//! The SHAPE screen's gate: `pg_foma::net_shape` must separate a known-good finished net from a
-//! known-pathological one, on real compiled `foma` networks, without applying a single word.
-//!
-//! # Why this file exists at all, and what it can do that the existing gate cannot
-//! `boundary_marker_epsilon_collapse_gate.rs` records a MEASURED limitation of its own synthetic
-//! fixture, in its module doc: with `build::reroute_null_shaped_affix_chains` bypassed and `pg-foma`
-//! genuinely rebuilt, the fixture "still reports `total_proposals <= 20` and PASSES". A proposal
-//! ceiling on a two-word fixture cannot distinguish the fixed build from the broken one, so the
-//! precision half of that pin had to be exiled to an `#[ignore]`d test on a PRIVATE corpus
-//! (`samples/data/sena-hc.xml`) that no ordinary `-Mode test` run ever executes.
-//!
-//! A STRUCTURAL check has no threshold to slip under. The defect is "some cycle in this net can be
-//! traversed without consuming input", which is either true or false about a compiled automaton
-//! regardless of how few words or how short a fixture is. So the tests below reproduce, on
-//! *synthetic* grammars in the ORDINARY test suite, the discrimination that previously required
-//! private real-language data:
-//!
-//! - `net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot` flags the FIRST
-//!   regression of this class (the top-level `PrefixChain` one, on the very fixture whose proposal
-//!   ceiling is documented as unable to see it).
-//! - `net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one` flags the SECOND (the
-//!   per-compound-level one that `7644b52` fixed), by reconstructing that commit's parent's emission
-//!   from the current emitter's own output and screening both.
-//!
-//! # SCOPE, restated because it is a hard constraint and not a preference
-//! Nothing here — and nothing in `pg_foma::net_shape` — feeds a `Score` field, a ranking key, an
-//! eligibility predicate, or a certification verdict, and no code path exists from the screen to a
-//! decision to stop proposing. A pathological verdict is INFORMATION. Recall is not negotiable.
-//!
-//! Every number printed is a deterministic count. **No wall clock appears anywhere in this file**:
-//! this machine runs several worktrees' builds concurrently, so elapsed time cannot separate a real
-//! effect from a neighbour's load.
+//! The SHAPE screen's gate: `pg_foma::net_shape` must separate a known-good finished net from a known-pathological one, on real compiled `foma` networks, without applying a single word.
 
 use std::collections::HashSet;
 
@@ -44,22 +13,9 @@ use pg_foma::net_shape::{ApplyDirection, NetShape, ShapeVerdict};
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::Grammar;
 
-// -------------------------------------------------------------------------------------------------
-// Fixtures
-// -------------------------------------------------------------------------------------------------
-//
-// Both XML fixtures below are duplicated from `boundary_marker_epsilon_collapse_gate.rs` rather than
-// shared, matching that file's own stated convention for its synthetic fixtures ("duplicated rather
-// than shared across a test-module boundary"). They are pinned copies on purpose: this file's whole
-// claim is about the SHAPE of the network those two exact grammars compile to, so a fixture that
-// drifted underneath it would silently change what is being screened.
-//
-// Delanguaged per this repo's synthetic-conformance rule (`s`/`p`/`t` segments, no real language's
-// morphology): these are constructions pinning an FST-construction defect, not language samples.
+// Both XML fixtures below are pinned copies duplicated from `boundary_marker_epsilon_collapse_gate.rs`, since this file's claim is about the exact network shape those two grammars compile to.
 
-/// One ordinary prefix (inserts `p`), one all-`Boundary` prefix (inserts `^0+`), one bare root, NO
-/// `CompoundingRule`. The FIRST regression's fixture: the pathology lives on the top-level
-/// self-looping `PrefixChain`, which `build::reroute_null_shaped_affix_chains` de-loops.
+/// One ordinary prefix (inserts `p`), one all-`Boundary` prefix (inserts `^0+`), one bare root, no `CompoundingRule`: the first regression's fixture, whose pathology lives on the self-looping top-level `PrefixChain`.
 const PREFIX_CHAIN_FIXTURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -132,9 +88,7 @@ const PREFIX_CHAIN_FIXTURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-/// The same shape plus ONE unrestricted `CompoundingRule`, so `uflexc`'s bounded compound loop is
-/// genuinely emitted and its per-level `UCmp*Pfx0` prefix hops exist. The SECOND regression's
-/// fixture — the one `7644b52` fixed at emission time in `uflexc::prefix_hop`.
+/// The same shape plus one unrestricted `CompoundingRule`, so `uflexc`'s bounded compound loop and its per-level `UCmp*Pfx0` prefix hops are genuinely emitted: the second regression's fixture, fixed at emission time in `uflexc::prefix_hop`.
 const COMPOUND_FIXTURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -229,15 +183,7 @@ const COMPOUND_FIXTURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-// -------------------------------------------------------------------------------------------------
-// Helpers
-// -------------------------------------------------------------------------------------------------
-
-/// A never-tripping budget built through the public constructor. `ComposeBudget::unbounded()` is
-/// `#[cfg(test)]`-only inside the crate, so an integration test spells the equivalent out — the same
-/// shape `grammar_semantics_owner_gate.rs` uses for the same reason. Deliberately never
-/// `from_env()`: a budget read from process-global env state would make this gate's numbers depend on
-/// the shell that launched it.
+/// A never-tripping budget built through the public constructor, since `ComposeBudget::unbounded()` is `#[cfg(test)]`-only inside the crate; never `from_env()`, so this gate's numbers can't depend on the launching shell's environment.
 fn never_trips() -> ComposeBudget {
     ComposeBudget::with_caps(
         usize::MAX,
@@ -253,17 +199,7 @@ fn load(xml: &str) -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}"))
 }
 
-/// The ISOLATED `uflexc` pipeline: one lexc source in, one queryable net out.
-///
-/// Compile the lexc, then run the MANDATORY boundary-token cleanup + re-minimize
-/// (`build::finish_controllable_net`). The cleanup is not an optimization and skipping it would make
-/// this whole file vacuous in the most misleading possible way: the null-morph pathology does not
-/// exist BEFORE cleanup (the arcs still require literal boundary characters, so they consume input
-/// and no cycle is zero-width) and only appears AFTER it, which is exactly why a screen has to run
-/// on the FINISHED net that `apply_up` will actually traverse.
-///
-/// No replace cascade and no gate partition: this deliberately isolates the ONE variable the tests
-/// below vary, which is `uflexc`'s emitted continuation structure.
+/// The isolated `uflexc` pipeline: lexc source in, one queryable net out, through the mandatory boundary-token cleanup + re-minimize (`build::finish_controllable_net`) -- the null-morph pathology only appears after cleanup, so the screen must run on this finished net.
 fn finished_net_from_lexc(grammar: &Grammar, alphabet: &SegAlphabet, lexc_source: &str) -> Fsm {
     let opts = FomaOptions::default();
     let net = fsm_lexc_parse_string(&opts, None, lexc_source)
@@ -278,10 +214,7 @@ fn finished_net_from_lexc(grammar: &Grammar, alphabet: &SegAlphabet, lexc_source
     .expect("the boundary-cleanup finish must not trip an unbounded budget")
 }
 
-/// The PRODUCTION plan-composed pipeline, i.e. exactly the network
-/// `recipe_runtime::realize_plan_composed` measures and hands to a proposer: the default reified
-/// plan, `build::build_controllable` (which applies `reroute_null_shaped_affix_chains` to each
-/// group's raw lexc), then `finish_controllable_net`.
+/// The production plan-composed pipeline `recipe_runtime::realize_plan_composed` hands to a proposer: `build::build_controllable` (applying `reroute_null_shaped_affix_chains`), then `finish_controllable_net`.
 fn finished_production_net(grammar: &Grammar) -> Fsm {
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = prules_in_order(grammar);
@@ -300,9 +233,7 @@ fn finished_production_net(grammar: &Grammar) -> Fsm {
         .expect("the boundary-cleanup finish must not trip an unbounded budget")
 }
 
-/// The `SegAlphabet` token characters standing for this grammar's `Boundary`-kind char-defs.
-/// Recomputed here because `build::boundary_tokens` is `pub(crate)` — the same duplication
-/// `boundary_marker_epsilon_collapse_gate.rs` already does, for the same reason.
+/// The `SegAlphabet` token characters for this grammar's `Boundary`-kind char-defs; recomputed here since `build::boundary_tokens` is `pub(crate)`.
 fn boundary_token_set(grammar: &Grammar, alphabet: &SegAlphabet) -> HashSet<char> {
     grammar.char_tables[0]
         .iter()
@@ -311,8 +242,7 @@ fn boundary_token_set(grammar: &Grammar, alphabet: &SegAlphabet) -> HashSet<char
         .collect()
 }
 
-/// Splits one `uflexc`-shaped entry line at the first `:` not preceded by `%` (the tag's own
-/// embedded colon is always escaped `%:`), returning `(tag, underlying, continuation)`.
+/// Splits one `uflexc`-shaped entry line at the first unescaped `:`, returning `(tag, underlying, continuation)`.
 fn parse_entry_line(line: &str) -> Option<(&str, &str, &str)> {
     let mut sep = None;
     let mut prev = '\0';
@@ -331,23 +261,7 @@ fn parse_entry_line(line: &str) -> Option<(&str, &str, &str)> {
     Some((tag, underlying, continuation))
 }
 
-/// Deletes every null-shaped line from the TOP-LEVEL `PrefixChain`/`SuffixChain` lexicons, returning
-/// the rewritten source and how many lines it removed.
-///
-/// # Why the compound A/B has to do this to BOTH of its inputs
-/// The top-level chains carry the SAME null-shaped allomorph the compound levels do, and their
-/// exposure is closed by a completely different mechanism: `build::reroute_null_shaped_affix_chains`,
-/// a private build-time rewrite of the raw lexc that the isolated pipeline in
-/// `finished_net_from_lexc` does not run. Left in place, both sides of that A/B would carry a
-/// top-level zero-width cycle and the compound-level difference under test would be masked by it.
-///
-/// Applied IDENTICALLY to both sides, so the single remaining variable is the compound prefix hop —
-/// which is the only thing `7644b52` changed. Deleting rather than rerouting is deliberate: a
-/// reroute reimplemented here could diverge from the real one and quietly become the thing under
-/// test, whereas a deletion is trivially the same operation on both inputs. It is not
-/// recall-preserving and is not meant to be; the top-level regression is screened on its own,
-/// against the real production network, in
-/// `net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot`.
+/// Deletes every null-shaped line from the top-level chains (closed by a different mechanism the isolated pipeline doesn't run), applied identically to both A/B sides; pinned by `net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot`.
 fn strip_top_level_null_shaped_affix_lines(
     lexc_source: &str,
     boundary: &HashSet<char>,
@@ -381,32 +295,13 @@ fn strip_top_level_null_shaped_affix_lines(
     (out, removed)
 }
 
-/// RECONSTRUCTS the emission `7644b52`'s PARENT produced, from the current emitter's own output.
-///
-/// That commit changed exactly one thing in `uflexc::prefix_hop`: a null-shaped prefix line inside a
-/// compound level's `UCmp{k}Pfx0` lexicon used to be written with `UCmp{k}Pfx0` itself as its
-/// continuation (closing a self-loop), and now goes to a new `UCmp{k}Pfx0AfterNull` lexicon that
-/// re-offers every ORDINARY prefix but no null-shaped one. So the inverse is exactly two edits:
-///
-/// 1. every null-shaped line in a `UCmp*Pfx0` lexicon gets its continuation put back to its own
-///    lexicon, and
-/// 2. the `UCmp*Pfx0AfterNull` lexicon blocks — which did not exist before that commit — are dropped.
-///
-/// Returns `(pre_fix_lexc, lines_relooped, after_null_lexicons_dropped)`. Both counts are asserted
-/// non-zero by the caller: a reconstruction that silently rewrote nothing would make the A/B below
-/// compare a net against itself and pass for entirely the wrong reason.
-///
-/// This is a reconstruction and is labelled as one. It is preferred over checking out the parent
-/// commit's `uflexc.rs` because that file no longer compiles against the current
-/// `UEmitReport` (the fire-count field landed in the same commit), so the alternative is not "the
-/// real parent" but "the parent plus unrelated edits".
+/// Reconstructs the pre-fix emission by inverting `uflexc::prefix_hop`'s one change, rerouting a null-shaped continuation back to its own lexicon; the caller asserts both returned counts non-zero so this can't silently compare a net against itself.
 fn reconstruct_pre_fix_compound_emission(
     lexc_source: &str,
     boundary: &HashSet<char>,
 ) -> (String, usize, usize) {
     let is_null_shaped = |u: &str| !u.is_empty() && u.chars().all(|c| boundary.contains(&c));
-    // A compound-level prefix hop, as `uflexc::prefix_hop` names them: `UCmpPfx0` for level 1 and
-    // `UCmp{k}Pfx0` after that. `*AfterNull` is the POST-fix sibling, never a hop itself.
+    // A compound-level prefix hop (`UCmpPfx0`, `UCmp{k}Pfx0`...); `*AfterNull` is the post-fix sibling, never a hop itself.
     let is_hop =
         |lex: &str| lex.starts_with("UCmp") && lex.contains("Pfx") && !lex.ends_with("AfterNull");
     let is_after_null =
@@ -454,15 +349,7 @@ fn reconstruct_pre_fix_compound_emission(
     (out, relooped, dropped)
 }
 
-// -------------------------------------------------------------------------------------------------
-// The A/B that answers "does the screen separate 7644b52 from its parent"
-// -------------------------------------------------------------------------------------------------
-
-/// **THE FALSIFICATION TARGET.** One grammar, one emitter, two continuation structures differing by
-/// exactly the line `7644b52` changed. The screen must call one bounded and the other pathological.
-///
-/// If this reported the same verdict for both, the screen would not be measuring the thing that
-/// matters and this file would say so rather than be tuned until it agreed.
+/// One grammar, one emitter, two continuation structures differing by exactly one fixed line: the screen must call one bounded and the other pathological, or it isn't measuring the thing that matters.
 #[test]
 fn net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one() {
     let grammar = load(COMPOUND_FIXTURE_XML);
@@ -475,8 +362,7 @@ fn net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one() {
 
     let report = pg_foma::uflexc::emit_underlying(&grammar, &alphabet)
         .expect("uflexc emission must succeed on this fixture");
-    // Non-vacuity: the compound loop must genuinely be emitted, and the at-most-once discipline must
-    // genuinely have fired, or "post-fix is clean" is a statement about a grammar with no exposure.
+    // Non-vacuity: the compound loop and the at-most-once discipline must have genuinely fired.
     assert!(
         report.lexc_source.contains("LEXICON UCmp"),
         "the bounded compound loop was not emitted, so this fixture has no exposure at all"
@@ -502,9 +388,7 @@ fn net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one() {
         report.lexc_source
     );
 
-    // The SAME operation on both inputs (see `strip_top_level_null_shaped_affix_lines`'s own doc):
-    // removes the top-level chains' exposure, which a different mechanism owns, so the one remaining
-    // difference between these two sources is the compound prefix hop's continuation.
+    // The same operation on both inputs removes the top-level chains' exposure, leaving the compound prefix hop's continuation as the one remaining difference.
     let (post_fix_lexc, post_stripped) =
         strip_top_level_null_shaped_affix_lines(&report.lexc_source, &boundary);
     let (pre_fix_lexc, pre_stripped) =
@@ -530,8 +414,7 @@ fn net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one() {
         ApplyDirection::Up,
     );
 
-    // Printed unconditionally, passing or failing: these are the numbers that discriminate, and a
-    // green run that says nothing cannot be used to obtain the next A/B.
+    // Printed unconditionally, passing or failing: these are the numbers that discriminate.
     eprintln!(
         "net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one: \
          FIRE_COUNT_hops_suppressed={} lines_relooped={relooped} after_null_lexicons_dropped={dropped} \
@@ -558,9 +441,7 @@ fn net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one() {
         "{}",
         pre_fix.evidence_line()
     );
-    // The FULL continuation graph is cyclic in BOTH -- `uflexc`'s affix chains are deliberately
-    // self-looping. Asserted so the discrimination above is provably about ZERO-WIDTH cycles and not
-    // about "one of these has loops and the other does not".
+    // The full continuation graph is cyclic in BOTH, so the discrimination above is provably about zero-width cycles, not ordinary looping.
     assert!(
         post_fix.cycles.any() && pre_fix.cycles.any(),
         "both nets must contain ordinary (input-consuming) cycles, or the zero-width distinction is \
@@ -570,21 +451,7 @@ fn net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one() {
     );
 }
 
-/// The FIRST regression of this class, on the very fixture whose proposal ceiling is DOCUMENTED as
-/// unable to see it.
-///
-/// `boundary_marker_epsilon_collapse_gate.rs`'s module doc records, measured: with
-/// `reroute_null_shaped_affix_chains` bypassed and the crate genuinely rebuilt, its synthetic
-/// fixture "still reports `total_proposals <= 20` and PASSES", which is why the precision half of
-/// that pin lives in an `#[ignore]`d test against a private corpus. The structural screen has no
-/// such blind spot: the raw `uflexc` emission for the SAME grammar carries a zero-width cycle and the
-/// production (rerouted) network does not.
-///
-/// The two nets here come from two different pipelines (raw isolated `uflexc` emission vs. the
-/// production `build_controllable` compose), so this is not a single-variable A/B like the compound
-/// test above — it is "the screen flags the unguarded emission and clears the guarded one". Stated
-/// rather than glossed, because `reroute_null_shaped_affix_chains` is private and there is no public
-/// way to bypass it in place.
+/// The first regression of this class: the raw, un-rerouted `uflexc` emission carries a zero-width cycle a proposal-ceiling test cannot see, while the production (rerouted) network does not.
 #[test]
 fn net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot() {
     let grammar = load(PREFIX_CHAIN_FIXTURE_XML);
@@ -592,8 +459,7 @@ fn net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot() {
 
     let raw = pg_foma::uflexc::emit_underlying(&grammar, &alphabet)
         .expect("uflexc emission must succeed on this fixture");
-    // Non-vacuity: the exposure must exist in the raw text -- a null-shaped line sitting on the
-    // self-looping `PrefixChain`.
+    // Non-vacuity: the exposure must exist in the raw text as a null-shaped line on the self-looping `PrefixChain`.
     let boundary = boundary_token_set(&grammar, &alphabet);
     let mut current: Option<&str> = None;
     let mut null_lines_on_prefix_chain = 0usize;
@@ -646,11 +512,7 @@ fn net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot() {
     );
 }
 
-/// The production plan-composed network for the compound fixture — the one a proposer actually
-/// queries — screened end to end, with the branching distribution reported.
-///
-/// Asserts non-vacuity as hard as it asserts the verdict: a screen reporting zeros for a net it
-/// failed to decode would satisfy `no zero-width cycle` trivially.
+/// The production plan-composed network for the compound fixture, screened end to end with branching reported; asserts non-vacuity as hard as the verdict, since a screen decoding nothing would trivially satisfy "no zero-width cycle".
 #[test]
 fn net_shape_of_the_production_compound_net_is_bounded_and_branching_is_reported() {
     let grammar = load(COMPOUND_FIXTURE_XML);
@@ -700,38 +562,13 @@ fn net_shape_of_the_production_compound_net_is_bounded_and_branching_is_reported
     );
 }
 
-// -------------------------------------------------------------------------------------------------
-// Corpus-wide census: per-fixture structural numbers, computed without applying a word
-// -------------------------------------------------------------------------------------------------
-
-/// The two fixtures that USED to kill the test process, kept as a named pair for
-/// `net_shape_probe_of_the_two_process_aborting_fixtures` — no longer excluded from anything here.
-///
-/// Both fixtures die in TRAVERSAL, not construction: the plan-composed net for this grammar BUILDS
-/// in 0.027s, while `apply_up` enumerates `12^k` paths for a k-`x` word (2,985,984 measured at
-/// k=6). The process-abort message (`0xc0000409`) is the ALLOCATOR's, the same code MSVC's
-/// `abort()` produces — not Rust's stack-overflow handler. So a static screen over a finished net
-/// *would* have something to read, which is what makes this census's coverage of these two
-/// fixtures meaningful rather than vacuous. The traversal magnitude itself is now bounded by a
-/// typed refusal; see `tests/apply_path_refusal_gate.rs`.
+/// The two fixtures that used to kill the test process during traversal, not net construction, so a static screen over the finished net has something to read.
 const ABORTING_FIXTURES: &[&str] = &["deep-optional-affix-nesting", "recipe-template-generic"];
 
-/// Every discoverable conformance fixture whose grammar this crate can emit, screened on the
-/// ISOLATED `uflexc` network. **Report-only on the verdict.**
-///
-/// Deliberately does NOT assert that every checked-in fixture is clean. There is no basis for that
-/// claim yet — this screen is new, nobody has looked before, and a gate asserting a property nobody
-/// has measured would either be tuned until it agreed or would block unrelated work. What IS
-/// asserted is that the screen ran, on a non-trivial number of real nets, and produced non-trivial
-/// structure. Any zero-width cycle found is printed with `FLAGGED` so it is loud and countable,
-/// which is what makes this a tripwire: the number in a future run can be compared against the
-/// number this run prints.
+/// Every discoverable conformance fixture screened on the isolated `uflexc` network, report-only on the verdict: asserts the screen ran and produced structure, never that every fixture is clean.
 #[test]
 fn net_shape_census_over_every_discoverable_conformance_fixture() {
-    // No exclusions. This census reads FINISHED nets and never proposes a word, and the two fixtures
-    // that used to abort the process are now measured to build their net in 0.027s -- see
-    // `ABORTING_FIXTURES`' own doc for why the earlier exclusion was unnecessary here even before the
-    // apply-path envelope landed.
+    // No exclusions: this census reads finished nets and never proposes a word, so `ABORTING_FIXTURES` need no special-casing here.
     let fixtures: Vec<FixtureRef> = discover().into_iter().collect();
     assert!(
         !fixtures.is_empty(),
@@ -743,9 +580,7 @@ fn net_shape_census_over_every_discoverable_conformance_fixture() {
     let mut skipped: Vec<String> = Vec::new();
     let mut any_cyclic = false;
     for fixture in &fixtures {
-        // Named BEFORE any work on it, so a process abort inside an unexpected fixture is
-        // attributable from the last line of captured output rather than anonymous -- the same
-        // lesson `parity_divergence_census.rs` records paying 252s to learn.
+        // Named before any work on it, so a process abort is attributable from the last captured output line rather than anonymous.
         eprintln!("shape census: entering {}", fixture.label());
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let grammar = pg_grammar::load(&fixture.load_grammar_xml())
@@ -794,8 +629,7 @@ fn net_shape_census_over_every_discoverable_conformance_fixture() {
         eprintln!("shape census FLAGGED {f}");
     }
 
-    // Non-vacuity, three ways. Without these a census that inspected nothing, or one whose walk
-    // returned zeros for every net, would read as "everything is fine".
+    // Non-vacuity, three ways: without these a census that inspected nothing would read as "everything is fine".
     assert!(
         inspected >= 10,
         "only {inspected} of {} fixtures produced an inspectable net -- too few for the numbers \
@@ -810,22 +644,7 @@ fn net_shape_census_over_every_discoverable_conformance_fixture() {
     );
 }
 
-/// Narrows the open question `ABORTING_FIXTURES` leaves: for the fixture whose name literally
-/// describes the pathological shape (`deep-optional-affix-nesting` — deep, optional, nested
-/// affixation), does `uflexc` EMISSION and lexc compilation survive, so that a static screen would
-/// have had a finished net to read?
-///
-/// Report-only, and asserts nothing about the shape. Two outcomes are both informative and neither
-/// is a failure:
-/// - emission and compile succeed → the screen WOULD have had something to read before any corpus
-///   word was proposed, and the printed numbers say what it would have said;
-/// - emission or compile fails (a typed `ComposeError`, a budget trip, a caught panic) → the
-///   process death happens at or before net construction, so no screen on a finished net could have
-///   helped, and that limitation is recorded rather than glossed.
-///
-/// It does NOT call `evaluate_plans`, propose any word, or touch the full-HC oracle — the three
-/// things this fixture is known to die inside. If it dies here anyway, `cargo-nextest` runs each
-/// test in its own process, so the loss is this one test rather than the file.
+/// For each of `ABORTING_FIXTURES`: does emission and lexc compilation survive, so a static screen would have had a net to read? Report-only; never proposes a word or touches the full-HC oracle.
 #[test]
 fn net_shape_probe_of_the_two_process_aborting_fixtures() {
     for name in ABORTING_FIXTURES {

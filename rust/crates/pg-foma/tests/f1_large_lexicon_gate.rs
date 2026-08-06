@@ -1,37 +1,4 @@
-//! ## Delanguaging Part C note
-//! Renamed off the real language's name (was `f1_sena_gate.rs`) as part of the delanguaging
-//! effort's last gap. This gate is STILL corpus-blocked: it needs `samples/data/sena-hc.xml` +
-//! `samples/data/sena-words.txt` (both gitignored real-language data, absent in a fresh clone/CI),
-//! and Part C's own synthetic-reproduction attempt (`pg_grammar_gen::build::chain`, a deep
-//! standalone-affix chain — see `tests/phase_c_chain_scale.rs`'s own module doc) did not reproduce
-//! this grammar's own large-lexicon-scale pathology (its recall gate exercises a >1,300-entry, 132-
-//! rule agglutinative lexicon at real corpus scale, which no synthetic recipe in this repo attempts
-//! to match at that entry count yet — `synthetic-stress-grammar-plan.md`'s own scale sweeps are
-//! the follow-on for that). Kept `#[ignore]`d, unconditionally, exactly as before.
-//!
-//! Large-lexicon proposer-recall gate (gate F1, Sena leg): the emitter (`pg_foma::emit`) + tag
-//! codec (`pg_foma::tags`) + thin proposer (`pg_foma::analyzer`) against
-//! the real Sena grammar, with the FULL ENGINE (`pg_parse::Morpher`, a dev-dependency only) as the
-//! recall oracle.
-//!
-//! The property that matters (the iron rule): every true engine analysis must appear among
-//! the proposer's candidates — under-generation is a silently lost analysis. Over-generation is
-//! harmless (confirm prunes it); test (d) only sanity-checks it isn't absurd.
-//!
-//! Run with `cargo test -p pg-foma --release --test f1_large_lexicon_gate -- --include-ignored`.
-//! Measured: release, all four tests ~32s total (recall gate b: ~33s wall, of which ~30s is the
-//! ENGINE oracle, 0.13s the proposer); debug, ~145s total with b alone ~120s.
-//!
-//! ## Test-timing policy
-//! The default local `cargo test --workspace --release` run must stay under ~60s total and must
-//! not depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all — not even
-//! a fast one. Every test in this file loads `samples/data/sena-hc.xml` (directly or via
-//! `load_grammar`), so ALL FOUR are `#[ignore = "..."]`d unconditionally (not the old
-//! `cfg_attr(debug_assertions, ...)` debug-only ignore), each with a self-skip guard so
-//! `--include-ignored` runs stay green in CI where the fixture is absent (gitignored, never
-//! checked out there). Run the full set locally with
-//! `cargo test -p pg-foma --release --test f1_large_lexicon_gate -- --include-ignored`; CI runs this too,
-//! and skips gracefully rather than failing when the corpus files aren't present.
+//! Large-lexicon proposer-recall gate against the real Sena grammar, with the full engine (`pg_parse::Morpher`) as the recall oracle: every true engine analysis must appear among the proposer's candidates, since under-generation is a silently lost analysis while over-generation is harmless (confirm prunes it). Corpus-blocked (needs gitignored `samples/data/sena-*`), so every test here is `#[ignore]`d unconditionally with a self-skip guard; run with `--include-ignored`.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -46,10 +13,7 @@ fn sample_path(name: &str) -> PathBuf {
     manifest_dir.join("../../../samples/data").join(name)
 }
 
-/// Self-skip guard (matches the convention in `pg-grammar/src/lib.rs`'s sample-grammar tests):
-/// the gitignored real-corpus fixtures aren't present in a fresh clone or in CI, so every test
-/// here checks this FIRST and returns early (rather than panicking) when absent -- required so
-/// `--include-ignored` runs stay green without the fixtures (see module doc).
+/// Self-skip guard: returns early rather than panicking when the gitignored corpus fixture is absent, so `--include-ignored` runs stay green without it.
 fn have(name: &str) -> bool {
     sample_path(name).exists()
 }
@@ -71,9 +35,7 @@ fn morpheme_name(g: &Grammar, id: u32) -> String {
     }
 }
 
-// -------------------------------------------------------------------------------------------
 // (a) emit + compile: must succeed, counts plausible, compile wall time < 30s.
-// -------------------------------------------------------------------------------------------
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
@@ -88,9 +50,7 @@ fn a_emits_and_compiles() {
     let emitted = emit::emit(&g);
     let emit_elapsed = t_emit.elapsed();
 
-    // Plausibility: Sena has 1,369 surface-stratum entries (1,371 grammar-wide); at minimum every
-    // entry (and every rule) must be accounted for in the counts, and the lexc source must carry
-    // at least one line per lexical entry.
+    // Plausibility: every entry and rule must be accounted for, and lexc must carry at least one line per lexical entry.
     assert!(
         emitted.report.counts.entries >= 1369,
         "expected >= 1369 entries, got {}",
@@ -135,10 +95,7 @@ fn a_emits_and_compiles() {
     );
 }
 
-// -------------------------------------------------------------------------------------------
-// (b) RECALL GATE: for the first 120 corpus words with engine analyses, every engine
-//     (morpheme_ids, root_morpheme_index) pair must appear among the proposer's candidates.
-// -------------------------------------------------------------------------------------------
+// (b) recall gate: for the first 120 corpus words with engine analyses, every engine (morpheme_ids, root_morpheme_index) pair must appear among the proposer's candidates.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
@@ -186,8 +143,7 @@ fn b_recall_first_120_words() {
         propose_time += dt;
         max_propose = max_propose.max(dt);
 
-        // Distinct engine sequences (the engine returns a multiset; multiplicity recovery is
-        // P2's job — plan D4 — so the recall property here is per DISTINCT sequence).
+        // Distinct engine sequences: the engine returns a multiset, so the recall property here is per distinct sequence, not multiplicity.
         let mut engine_seqs: Vec<(Vec<u32>, i32)> = Vec::new();
         for a in &outcome.structured {
             let key = (a.morpheme_ids.clone(), a.root_morpheme_index);
@@ -242,11 +198,7 @@ fn b_recall_first_120_words() {
     );
 }
 
-// -------------------------------------------------------------------------------------------
-// (c) mbali: the proposer must offer BOTH of the engine's distinct analysis sequences (the
-//     engine's 8-analyses multiset collapses to its distinct sequences here — multiplicity
-//     recovery is P2's job, plan D4).
-// -------------------------------------------------------------------------------------------
+// (c) mbali: the proposer must offer both of the engine's distinct analysis sequences.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
@@ -295,10 +247,7 @@ fn c_mbali_covers_both_engine_sequences() {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// (d) overgeneration sanity: a nonsense word must not panic and must propose nothing (or very
-//     little — its segments simply don't spell any Sena morph).
-// -------------------------------------------------------------------------------------------
+// (d) overgeneration sanity: a nonsense word must not panic and must propose nothing (or very little).
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]

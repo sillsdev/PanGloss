@@ -1,41 +1,14 @@
-//! STEP 0 — pins the PREMISE the whole deterministic-eligibility mechanism rests on.
-//!
-//! Step-cap-only classification is only an improvement over wall-clock classification if the
-//! oracle's step count is a function of `(grammar, word, cap)` and of nothing else — not of machine
-//! load, not of allocator addresses, not of hash iteration order. That had been ASSUMED and never
-//! pinned. If it were false, a step-cap-classified eligible set would be exactly as irreproducible
-//! as the wall-clock-classified one it replaces, and the whole approach would need rethinking.
-//!
-//! So this gate measures it directly, at two levels:
-//!
-//! 1. `pg_parse::Morpher::parse_word`'s own `(capped, steps, analyses)` triple, repeated, under
-//!    deliberate CPU load from every other core.
-//! 2. The thing that actually matters downstream: the run-scoped ELIGIBILITY LEDGER
-//!    (`RunEvaluationCache::corpus_evidence`) — its counts, its per-row reasons, and its SHA-256
-//!    ledger hash — repeated under the same load.
-//!
-//! Honesty note about what this test proves: it is a premise pin, not a regression guard. It does
-//! NOT fail before the classification change, because Morpher determinism was already true; it
-//! fails only if that premise is ever broken (an iteration-order dependence, a parallelized
-//! descent, a clock leaking into the step budget). That is precisely its value — the assumption is
-//! now checked by CI rather than believed.
-//!
-//! The load is deliberate. Determinism bugs of this shape are load-sensitive by nature (that is how
-//! the Amharic U+1264 U+1273 defect presented: PASSED in one run, excluded as `oracle-timeout` in
-//! another, same grammar, same caps, same binary, only a concurrent build differed), so measuring
-//! on an idle machine would be measuring the easy case.
+//! Pins that the oracle's `(capped, steps, analyses)` triple and the eligibility ledger built from it are a pure function of `(grammar, word, cap)`, never of machine load -- measured under deliberate CPU load.
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::recipe_runtime::{RunEvaluationCache, RuntimeBudget};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-/// Repetitions per configuration. Enough that a genuinely load-sensitive classifier would be very
-/// unlikely to agree every time; small enough that the whole gate stays inside a normal test run.
+/// Repetitions per configuration: enough that a load-sensitive classifier would be unlikely to agree every time.
 const REPETITIONS: usize = 12;
 
-/// Spins every spare core until dropped, so each repetition is measured on a contended machine
-/// rather than an idle one.
+/// Spins every spare core until dropped, so each repetition is measured on a contended machine.
 struct ArtificialLoad {
     stop: Arc<AtomicBool>,
     handles: Vec<std::thread::JoinHandle<()>>,
@@ -81,8 +54,7 @@ fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
         .find(|f| f.root == Root::Staging && f.name == "recipe-gated-generic")
         .expect("missing staged fixture recipe-gated-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("staged fixture must load");
-    // "tulik" completes at cap 5; "menulik" exhausts it. A mixed corpus is the interesting case:
-    // it exercises the classifier's boundary rather than a corpus that is uniformly one thing.
+    // "tulik" completes at cap 5; "menulik" exhausts it -- a mixed corpus exercises the classifier's boundary.
     let words = vec!["tulik".to_string(), "menulik".to_string()];
     (grammar, words)
 }
@@ -95,8 +67,7 @@ fn morpher_step_count_and_cap_verdict_are_deterministic_under_load() {
     for cap in [0usize, 5, 20_000] {
         let mut observations: Vec<Vec<(bool, usize, usize)>> = Vec::with_capacity(REPETITIONS);
         for _ in 0..REPETITIONS {
-            // A fresh Morpher per repetition: a per-instance cache that happened to persist would
-            // make later repetitions agree for the wrong reason.
+            // A fresh Morpher per repetition, so a persisting per-instance cache can't make later repetitions agree for the wrong reason.
             let morpher = pg_parse::Morpher::new(&grammar, cap);
             observations.push(
                 words
@@ -150,8 +121,7 @@ fn eligibility_ledger_is_byte_identical_across_repetitions_under_load() {
                  that machine load can change is not a digest."
             );
         }
-        // Non-vacuity: the two extreme caps must actually classify differently, otherwise this
-        // test could pass by measuring nothing (e.g. if the fixture stopped step-capping at all).
+        // Non-vacuity: the two extreme caps must actually classify differently, or this test could pass while measuring nothing.
         assert_eq!(first.requested, 2);
         if cap == 0 {
             assert_eq!(first.excluded, 2, "cap 0 must exclude every occurrence");

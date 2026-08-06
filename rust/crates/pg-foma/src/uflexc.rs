@@ -136,23 +136,14 @@ use crate::emit::{
 use crate::replace::SegAlphabet;
 use crate::tags;
 
-/// One emittable root/affix lexc entry in this module's own token space: the morpheme's tag symbol
-/// and the `SegAlphabet`-encoded underlying spelling of one allomorph. Deliberately NOT
-/// `crate::emit::RootRec` — that type is surface-variant/precision-oriented (it carries a
-/// `Vec<String>` of representation variants, a `Stripped` sibling list, an `AllomorphId` for the
-/// precision knob's owner-side gate, and a `FsId` category), none of which exists on this path;
-/// `build_compound_chain` is generic over the root record type precisely so this module can keep
-/// its own two-field one (see that function's doc).
+/// One emittable root/affix lexc entry in this module's own token space: the morpheme's tag symbol and the `SegAlphabet`-encoded underlying spelling of one allomorph.
 struct TokenEntry {
     tag: String,
     underlying: String,
 }
 
 impl TokenEntry {
-    /// This entry as one lexc line continuing to `continuation`. No `crate::emit::escape_lexc_text`
-    /// call: `underlying` is a `SegAlphabet` PUA-codepoint token string (that module's own
-    /// "Symbol alphabet" doc), which by construction contains none of lexc's metacharacters, and
-    /// `tag` is a `crate::tags` multichar symbol.
+    /// This entry as one lexc line continuing to `continuation`; no escaping needed since `underlying` is a `SegAlphabet` PUA-codepoint token string containing none of lexc's metacharacters.
     fn write(&self, out: &mut String, continuation: &str, counts: &mut EmitCounts) {
         out.push_str(&self.tag);
         out.push(':');
@@ -198,10 +189,7 @@ pub struct UEmitReport {
     pub compound_null_shaped_prefix_hops_suppressed: usize,
 }
 
-/// The leading (before the first `Copy`) or trailing (after the last `Copy`) `InsertSegments`
-/// text of an allomorph's RHS, mirroring the min/max-copy-index scan
-/// `crate::emit::classify_affix` does internally (not exposed there, so re-derived here — ~10
-/// lines, cheap, and avoids widening that function's public surface for one caller).
+/// The leading (before the first `Copy`) or trailing (after the last `Copy`) `InsertSegments` text of an allomorph's RHS, re-deriving the min/max-copy-index scan `crate::emit::classify_affix` does internally rather than widening that function's public surface for one caller.
 fn affix_insert_shape(rhs: &[OutputAction], leading: bool) -> Option<&SegmentedText> {
     let mut first_copy: Option<usize> = None;
     let mut last_copy: usize = 0;
@@ -277,16 +265,10 @@ pub fn emit_underlying_filtered_with_budget(
     let mut skipped = Vec::new();
     let mut multichar: Vec<String> = Vec::new();
     let mut declared_tags: HashSet<String> = HashSet::new();
-    /// The `base` name `build_compound_chain` derives every compound level's lexicon names from
-    /// (`UCmp`, `UCmpPfx0`, `UCmpRoots`, `UCmp2Next`, ...). `crate::emit`'s own two callers use
-    /// `TLCmp`/`G{gi}Cmp`; this module has no template-less/per-group split to name against, so one
-    /// base for the whole emission is enough.
+    /// The `base` name `build_compound_chain` derives every compound level's lexicon names from; one base suffices since this module has no template-less/per-group split to name against.
     const COMPOUND_BASE: &str = "UCmp";
 
-    /// One emitted bare-root lexc line plus whether its owning entry is licensed to HEAD a compound
-    /// (`crate::emit::CompoundLicense::head_eligible`) -- decided per entry while the lines are
-    /// collected, consumed when the continuation is chosen at write time (the compound loop's own
-    /// existence is not known until after the license and the non-head inventory are both computed).
+    /// One emitted bare-root lexc line plus whether its owning entry is licensed to HEAD a compound, decided per entry and consumed when the continuation is chosen at write time.
     type RootLine = (TokenEntry, bool);
 
     let mut root_lines: Vec<RootLine> = Vec::new();
@@ -303,10 +285,7 @@ pub fn emit_underlying_filtered_with_budget(
         Ok(())
     };
 
-    // GRAMMAR-WIDE (module doc, "The non-head root set is GRAMMAR-WIDE"): computed from `g` alone,
-    // never from `allowed_entries`. `None` for the overwhelmingly common grammar that declares no
-    // `CompoundingRuleDef` at all, in which case everything below is a pure no-op and this module's
-    // emitted lexc is byte-identical to the pre-compound-loop version.
+    // Grammar-wide (module doc): computed from `g` alone, never from `allowed_entries`; `None` for the common case of no `CompoundingRuleDef`, in which case everything below is a pure no-op.
     let license = compound_license(g);
 
     for (ei, entry) in g.entries.iter().enumerate() {
@@ -342,12 +321,7 @@ pub fn emit_underlying_filtered_with_budget(
         }
     }
 
-    // The compound levels' own root inventory: every grammar-wide entry `compound_license` admits
-    // as a NON-HEAD stem, regardless of which gate-partition group it belongs to (module doc). A
-    // pattern allomorph is skipped exactly as it is above (`encode_shape` cannot token a
-    // class-reference interior node) but NOT re-reported here -- the group that owns the entry
-    // already reports it, and reporting it once per group would multiply one real gap by the group
-    // count.
+    // The compound levels' own root inventory: every grammar-wide entry `compound_license` admits as a non-head stem, regardless of gate-partition group; a skipped pattern allomorph is not re-reported here since the group that owns the entry already reports it.
     let mut non_head_roots: Vec<TokenEntry> = Vec::new();
     if let Some(license) = &license {
         for (ei, entry) in g.entries.iter().enumerate() {
@@ -374,23 +348,11 @@ pub fn emit_underlying_filtered_with_budget(
         let def = match mrule {
             MorphRuleDef::AffixProcess(def) => def,
             MorphRuleDef::Compounding(_) => {
-                // Handled structurally by the bounded compound loop below (module doc), not as an
-                // affix chain: a `CompoundingRuleDef` has no `MorphemeId` (`model.rs`'s own doc:
-                // "Not a morpheme") and no flat allomorph list (head/non-head
-                // `CompoundingSubruleDef`s instead), so there is nothing for THIS loop to emit. If
-                // the loop below turns out to be unable to offer the rule anything (no licensed
-                // non-head root allomorph survives), that -- and only that -- is reported to
-                // `skipped`, after the license is known.
+                // Handled structurally by the bounded compound loop below, not as an affix chain: a `CompoundingRuleDef` has no `MorphemeId` and no flat allomorph list, so there is nothing for this loop to emit.
                 continue;
             }
             MorphRuleDef::Realizational(def) => {
-                // Same whole-rule granularity as `Compounding` above, but `Realizational` DOES
-                // carry a `MorphemeId` and an `AffixAllomorphDef` list shaped just like
-                // `AffixProcess`'s -- reported by morpheme identity (matching the label built
-                // below for `AffixProcess`) rather than by allomorph, because the reason this
-                // module skips it is not "this one allomorph doesn't classify", it's "this
-                // module never attempts the syntactic feature-realization mechanism
-                // `RealizationalRuleDef` needs at all" (module doc).
+                // Reported by morpheme identity rather than by allomorph: this module never attempts the syntactic feature-realization mechanism `RealizationalRuleDef` needs at all (module doc).
                 let morph_name = g
                     .morphemes
                     .get(def.morpheme.0 as usize)
@@ -401,11 +363,7 @@ pub fn emit_underlying_filtered_with_budget(
             }
         };
         let tag = tags::morph_tag_lexc(def.morpheme, width);
-        // Report by the morpheme's own XML identity (e.g. "mrule14/AV"), not the raw 0-based
-        // index into `g.mrules` (which also counts CompoundingRuleDef entries ahead of it and so
-        // does NOT line up with the grammar's own "mruleN" XML ids — a real footgun for a
-        // diagnostic label, caught only by cross-checking against `MorphemeInfo::xml_key` at
-        // report-writing time).
+        // Report by the morpheme's own XML identity, not the raw 0-based index into `g.mrules`, which also counts `CompoundingRuleDef` entries and so does not line up with the grammar's "mruleN" ids.
         let morph_name = g
             .morphemes
             .get(def.morpheme.0 as usize)
@@ -459,15 +417,7 @@ pub fn emit_underlying_filtered_with_budget(
         }
     }
 
-    // Which prefix lines are NULL-SHAPED (module doc, "Null-shaped affixes are at most once per
-    // juncture"): their whole underlying text is drawn from `Boundary`-kind char-defs, so the
-    // boundary cleanup every downstream caller composes deletes them to nothing, and a self-looping
-    // continuation would then be a free epsilon cycle. Classified once here, consumed by the compound
-    // loop's `prefix_hop` below. `crate::build::boundary_tokens` is the SHARED definition of which
-    // char-defs count (that function's own doc) -- deliberately not re-derived, so this test and the
-    // deletion it anticipates can never disagree about the set. `alphabet.table()` is by construction
-    // the same table `alphabet` encodes against (`SegAlphabet::table`'s own doc), which is exactly
-    // what `crate::build::build_controllable` passes the rewriter for the top-level chains.
+    // Which prefix lines are null-shaped (module doc): their whole underlying text is drawn from `Boundary`-kind char-defs, using the SAME `crate::build::boundary_tokens` set the downstream cleanup deletes, so the two can never disagree.
     let boundary_set: HashSet<char> = crate::build::boundary_tokens(alphabet.table(), alphabet)
         .into_iter()
         .collect();
@@ -479,13 +429,7 @@ pub fn emit_underlying_filtered_with_budget(
         .collect();
     let any_null_shaped_prefix = prefix_line_is_null_shaped.iter().any(|&b| b);
 
-    // --- Bounded compound loop containment, checked BEFORE any of its lexc text is written -------
-    //
-    // `emit_compound` is false whenever the loop would be vacuous: no `CompoundingRuleDef` at all
-    // (the common case, `license == None` -- everything below is then byte-identical to the
-    // pre-compound-loop emission), or a declared rule that licenses no emittable non-head root
-    // allomorph anywhere in the grammar. The second case is a REAL gap, so it is reported rather
-    // than emitted as an empty, dead-end `UCmpRoots` lexicon.
+    // Bounded compound loop containment, checked before any of its lexc text is written: `emit_compound` is false whenever the loop would be vacuous, and a rule that licenses no non-head root anywhere is reported rather than emitted as an empty, dead-end lexicon.
     let emit_compound = license.is_some() && !non_head_roots.is_empty();
     if license.is_some() && non_head_roots.is_empty() {
         for (mid, mrule) in g.mrules.iter().enumerate() {
@@ -499,11 +443,7 @@ pub fn emit_underlying_filtered_with_budget(
     }
     let mut compound_extra_levels = 0usize;
     if emit_compound {
-        // The pessimistic head-side operand is the grammar-wide root-allomorph count, not this
-        // group's own `root_lines.len()`: the per-group networks are unioned, so the cost this
-        // budget bounds is incurred across the whole partition, not within one group (`crate::emit`
-        // uses its own `all_roots.len()` for the same reason -- the head side is never narrowed
-        // below the full root bag there either).
+        // The pessimistic head-side operand is the grammar-wide root-allomorph count, not this group's own `root_lines.len()`, since the per-group networks are unioned and the budget must bound the whole partition.
         let heads = g
             .entries
             .iter()
@@ -539,10 +479,7 @@ pub fn emit_underlying_filtered_with_budget(
         l.write(&mut out, "PrefixOrRoot", &mut counts);
     }
     out.push_str("\nLEXICON RootBare\n");
-    // Head-eligibility split (mirrors `crate::emit`'s own `TLPost`/`TLPostNoCmp` shape): a root
-    // this grammar's compounding rules cannot head continues STRAIGHT to `SuffixOrEnd`, so it is
-    // never offered the compound loop -- precision, not recall. With no compound loop at all every
-    // root takes that same continuation, which is exactly the pre-existing emission, byte for byte.
+    // Head-eligibility split: a root this grammar's compounding rules cannot head continues straight to `SuffixOrEnd`, never offered the compound loop (precision, not recall).
     let mut any_head_line = false;
     for (l, head_eligible) in &root_lines {
         let continuation = if emit_compound && *head_eligible {
@@ -554,10 +491,7 @@ pub fn emit_underlying_filtered_with_budget(
         l.write(&mut out, continuation, &mut counts);
     }
 
-    // FIRE COUNT (`UEmitReport::compound_null_shaped_prefix_hops_suppressed`'s own doc): threaded
-    // through `build_compound_chain`'s own generic emitter-state parameter `C` rather than captured,
-    // so the number is produced by the SAME code path that writes the lines -- a count that could
-    // disagree with the emitted text would be worthless as evidence the mechanism engaged.
+    // Fire count for `UEmitReport::compound_null_shaped_prefix_hops_suppressed`, threaded through `build_compound_chain`'s generic emitter-state parameter so it is produced by the same code path that writes the lines.
     let mut hops_suppressed: usize = 0;
 
     if emit_compound && any_head_line {
@@ -565,27 +499,19 @@ pub fn emit_underlying_filtered_with_budget(
         write_bare(&mut out, "SuffixOrEnd", &mut counts);
         write_bare(&mut out, COMPOUND_BASE, &mut counts);
 
-        // This module's own SELF-LOOPING prefix chain (module doc), one copy per compound level --
-        // NOT `crate::emit::build_deriv_chain`, whose rule-count-bounded dedicated-level machinery
-        // and `emit_rule_allomorphs` leaf emission are exactly what this module exists not to use.
-        // `build_compound_chain` takes this as a callback precisely so the two conventions can
-        // coexist (that function's own doc).
+        // This module's own self-looping prefix chain (module doc), one copy per compound level -- deliberately not `crate::emit::build_deriv_chain`'s rule-count-bounded dedicated-level machinery.
         let mut prefix_hop = |out: &mut String,
                               pfx_base: &str,
                               roots_name: &str,
                               counts: &mut EmitCounts,
                               suppressed: &mut usize| {
             let entry = format!("{pfx_base}0");
-            // The "already used the marker" universe (module doc, "Null-shaped affixes are at most
-            // once per juncture"): emitted only when this grammar actually HAS a null-shaped prefix
-            // allomorph, so an ordinary grammar's compound levels stay byte-identical.
+            // The "already used the marker" universe: emitted only when this grammar actually has a null-shaped prefix allomorph, so an ordinary grammar's compound levels stay byte-identical.
             let after_null = format!("{pfx_base}0AfterNull");
             write_lexicon_header(out, &entry);
             write_bare(out, roots_name, counts);
             for (l, is_null) in prefix_lines.iter().zip(&prefix_line_is_null_shaped) {
-                // A null-shaped line leaves the loop instead of closing it. This is the whole fix:
-                // the epsilon cycle is not removed after the fact by a name-matching rewrite, it is
-                // never written.
+                // A null-shaped line leaves the loop instead of closing it: the epsilon cycle is never written, not removed after the fact.
                 let continuation = if *is_null {
                     *suppressed += 1;
                     &after_null
@@ -598,9 +524,7 @@ pub fn emit_underlying_filtered_with_budget(
                 write_lexicon_header(out, &after_null);
                 write_bare(out, roots_name, counts);
                 for (l, is_null) in prefix_lines.iter().zip(&prefix_line_is_null_shaped) {
-                    // Ordinary affixes are re-offered here, self-looping, so they still stack in any
-                    // order and quantity around the (at most one) marker. Null-shaped lines are
-                    // deliberately NOT duplicated: there is no line for a second marker to take.
+                    // Ordinary affixes are re-offered here, self-looping; null-shaped lines are deliberately not duplicated since there is no line for a second marker to take.
                     if !*is_null {
                         l.write(out, &after_null, counts);
                     }
@@ -616,9 +540,7 @@ pub fn emit_underlying_filtered_with_budget(
                 r.write(out, continuation, counts);
             }
         };
-        // Provably never invoked: `emit_stripped` is `false` (this module never probes junction
-        // phonology, so there is no `Stripped` roots sibling to write) -- same "no real Stripped
-        // sibling here" case `build_compound_chain`'s own doc names for the P6 templated path.
+        // Provably never invoked: `emit_stripped` is always `false` here since this module never probes junction phonology, so there is no `Stripped` roots sibling to write.
         let write_stripped_noop = |_out: &mut String,
                                    _roots: &[&TokenEntry],
                                    _continuation: &str,
@@ -650,11 +572,7 @@ pub fn emit_underlying_filtered_with_budget(
     for l in &suffix_lines {
         l.write(&mut out, "SuffixOrEnd", &mut counts);
     }
-    // The compound levels are the one block this function does not push line-by-line, so its own
-    // incremental `check_line_budget` above cannot see them; `EmitCounts::lexc_lines` is the number
-    // `build_compound_chain` itself increments, checked here against the same cap (V4's own "bail
-    // during emission rather than after building a multi-GB string" intent, at the coarsest
-    // granularity a shared, `EmitResult`-free helper allows).
+    // The compound levels are the one block not pushed line-by-line, so the incremental `check_line_budget` calls above cannot see them; check the cap here against `EmitCounts::lexc_lines`, which `build_compound_chain` itself increments.
     check_line_budget(counts.lexc_lines)?;
 
     Ok(UEmitReport {

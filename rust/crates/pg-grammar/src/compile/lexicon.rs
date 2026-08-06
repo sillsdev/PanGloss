@@ -1,10 +1,4 @@
-//! Stems (`LoadLexEntries`/`LoadLexEntry`, HCLoader.cs:626-731), variants
-//! (`LoadLexEntryOfVariant`, HCLoader.cs:733-807), root allomorphs (HCLoader.cs:809-845), and the
-//! per-entry dispatch into affix rules (`affixes::build_affix_rule`).
-//!
-//! One `LexEntryDef` is built per (LexEntry, `Msa::Stem`) pair — mirroring HCLoader's own
-//! `LexEntry`-per-MSA fan-out (`LoadLexEntry`, HCLoader.cs:691-731): an LCM entry with two stem
-//! MSAs becomes two `Grammar` lexical entries sharing the same root-allomorph list.
+//! Stems, variants, root allomorphs, and the per-entry dispatch into affix rules; mirrors HCLoader's `LexEntry`-per-MSA fan-out, so an LCM entry with two stem MSAs becomes two `Grammar` lexical entries sharing the same root-allomorph list.
 
 use hashbrown::HashMap;
 
@@ -48,12 +42,7 @@ pub(crate) fn build(
         .collect();
 
     for entry in &snapshot.lexicon.entries {
-        // Form partition (HCLoader.cs:256-293): each of an entry's forms lands in the stem or
-        // rule bucket for either the Morphology (m_morphophonemic) or Clitics (m_clitic)
-        // stratum by morph type. `IsCliticType` = Clitic/Enclitic/Proclitic/Particle; of those,
-        // only Enclitic/Proclitic are also rule forms (`IsValidRuleForm`, HCLoader.cs:550-552),
-        // so an enclitic form is deliberately in BOTH clitic buckets — HCLoader loads it both as
-        // a clitic-stratum lex entry and as a clitic-stratum affix-process rule.
+        // Form partition: each of an entry's forms lands in the stem or rule bucket for the Morphology or Clitics stratum by morph type; an enclitic form is deliberately in both clitic buckets since HCLoader loads it as both a lex entry and an affix-process rule.
         let clitic = |a: &Allomorph| {
             matches!(
                 a.morph_type,
@@ -89,19 +78,10 @@ pub(crate) fn build(
             }
         }
 
-        // --- affix rules: one MorphRuleDef per (entry, MSA, non-empty rule bucket) --------------
-        // Every MSA kind participates (`LoadMorphologicalRule`'s switch, HCLoader.cs:877-908):
-        // deriv/infl/unclassified become ordinary affix rules; a *stem* MSA reached through a
-        // rule bucket becomes a clitic affix-process rule (`LoadCliticAffixProcessRule`).
+        // Affix rules: one MorphRuleDef per (entry, MSA, non-empty rule bucket); every MSA kind participates, and a stem MSA reached through a rule bucket becomes a clitic affix-process rule.
         for msa in &entry.msas {
             let gloss = sense_gloss(entry, msa_guid(msa), ctx);
-            // `LoadMorphologicalRule` (HCLoader.cs:887-892): an inflectional MSA with slots
-            // sets `s = null` — the rule is reachable ONLY through its template slot(s),
-            // never from the stratum's own rule list. Adding it to both would let it apply
-            // twice (template + free-floating), and a slot-scoped no-op subrule (e.g. Sena's
-            // unrestricted `^0+` noun-class prefixes) applying freely at the stratum level
-            // makes the analysis search space explode. Every other affix-rule kind (deriv,
-            // unclassified, slotless inflectional = partial, clitic) goes on the stratum list.
+            // An inflectional MSA with slots is reachable only through its template slot(s), never from the stratum's own rule list, since adding it to both would let it apply twice and could make the analysis search space explode.
             let template_only = matches!(msa, Msa::Inflectional { slots, .. } if !slots.is_empty());
             for (bucket, stratum, mrules) in [
                 (&affix_allos, StratumId(0), &mut *morphology_mrules),
@@ -170,14 +150,7 @@ fn sense_gloss<'a>(entry: &'a LexEntry, msa: &str, ctx: &Ctx) -> Option<&'a str>
         .and_then(|s| super::best_ws(&s.gloss, ctx.default_analysis_ws.as_deref()))
 }
 
-/// Whether an allomorph is a valid "lex entry form" for the given stratum bucket —
-/// `IsValidLexEntryForm` (HCLoader.cs:579-589: non-abstract, non-empty, stem-or-clitic-typed)
-/// combined with the caller's clitic-vs-stem bucket split (HCLoader.cs:268-274:
-/// `IsCliticType(form.MorphTypeRA)` routes the form to `cliticStemAllos` → the Clitics stratum;
-/// stem types — `IsStemType`: root/stem/bound-root/bound-stem/phrase — to `stemAllos` → the
-/// Morphology stratum). `Particle` and bare `Clitic` are clitic-typed (HCLoader.cs:609-624), as
-/// are `Enclitic`/`Proclitic` — the latter two are *also* rule forms and additionally become
-/// clitic-stratum affix rules (`build`'s rule buckets).
+/// Whether an allomorph is a valid "lex entry form" for the given stratum bucket: non-abstract, non-empty, and stem-typed or clitic-typed matching the caller's bucket.
 fn is_lex_entry_form(allo: &Allomorph, clitic: bool) -> bool {
     if allo.is_abstract {
         return false;
@@ -237,8 +210,7 @@ fn build_stem_entry(
     };
     let partial = part_of_speech.is_none();
 
-    // `GetInflClass` (HCLoader.cs:2625-2632): explicit inflection class, else the owning POS's
-    // default walked up the ownership chain (`GetDefaultInflClass`).
+    // Explicit inflection class, else the owning POS's default walked up the ownership chain.
     let infl_class_guid = inflection_class.clone().or_else(|| {
         part_of_speech
             .as_deref()
@@ -317,9 +289,7 @@ fn build_stem_entry(
     Some(lex_id)
 }
 
-/// `LoadRootAllomorph` (HCLoader.cs:809-845). Uses the pattern-aware segmenter (finding N3 in
-/// `crate::segment`, mirroring `crate::load::load_root_allomorph`'s own choice) since a root
-/// form may carry a lexical lookup pattern (`[C]`-style underspecified segments).
+/// Uses the pattern-aware segmenter since a root form may carry a lexical lookup pattern (`[C]`-style underspecified segments).
 fn build_root_allomorph(
     allo: &Allomorph,
     ctx: &Ctx,
@@ -378,28 +348,12 @@ fn build_root_allomorph(
     })
 }
 
-/// Natural classes are only needed by `build_root_allomorph`'s pattern-language segmentation;
-/// exposed via a tiny accessor since `Ctx` does not carry the definitions slice directly (only
-/// guid/name lookups) — this crate's `crate::segment::segment_with_patterns` needs the full
-/// `&[NaturalClass]` list, so `mod.rs` stashes it on `Ctx` for this one call site.
+/// Natural classes are only needed by `build_root_allomorph`'s pattern-language segmentation; exposed via a tiny accessor since `Ctx` does not carry the definitions slice directly.
 fn natural_class_defs<'a>(ctx: &Ctx<'a>) -> &'a [crate::model::NaturalClass] {
     ctx.natural_class_defs
 }
 
-/// `LoadLexEntryOfVariant` (HCLoader.cs:733-807): a variant entry (no senses of its own) borrows
-/// its own allomorphs but the *referenced* main entry/sense's stem MSA, gloss (with
-/// prepend/append), and inflection features.
-///
-/// A main-entry MSA that is *not* `Msa::Stem` (derivational/inflectional/unclassified) instead
-/// goes through `build_variant_affix_rule` — `LoadMorphologicalRules`'s senses-empty branch
-/// (HCLoader.cs:852-871) walks *every* `mainEntry.MorphoSyntaxAnalysesOC`, not just stem MSAs, and
-/// `LoadMorphologicalRule`'s dispatch (HCLoader.cs:877-908) builds an ordinary affix-process rule
-/// for each — using the *variant's own* allomorphs as the rule's forms but the main entry's MSA
-/// for every rule-level field. Confirmed against the gate's own diff (not merely inferred): legacy
-/// really does end up with a **second, distinct** `AffixProcessRule` object for the same gloss in
-/// this case (`LoadInflAffixProcessRule` always `new AffixProcessRule{...}`, HCLoader.cs:979-1006;
-/// both rules end up in `m_morphemes[msa]`, and `LoadAffixTemplate`'s `slot.Affixes` walk,
-/// HCLoader.cs:1704, pulls in both) — never a merged allomorph list on the pre-existing rule.
+/// A variant entry (no senses of its own) borrows its own allomorphs but the referenced main entry/sense's stem MSA, gloss, and inflection features; a non-`Stem` main-entry MSA instead goes through `build_variant_affix_rule`, producing a second, distinct `AffixProcessRule` rather than a merged allomorph list on the pre-existing rule.
 #[allow(clippy::too_many_arguments)]
 fn build_variant(
     variant_entry: &LexEntry,
@@ -435,8 +389,7 @@ fn build_variant(
                 Vec::new()
             };
 
-        // Stem MSAs: one variant LexEntryDef per (infl_type, msa) pair -- infl_type-sensitive
-        // gloss prepend/append + inflFeats merge (`build_variant_stem_entry`).
+        // Stem MSAs: one variant LexEntryDef per (infl_type, msa) pair, infl_type-sensitive.
         for &infl_type in &infl_types {
             for &(main_entry, msa) in &main_msas {
                 if !matches!(msa, Msa::Stem { .. }) {
@@ -456,11 +409,7 @@ fn build_variant(
             }
         }
 
-        // Non-stem MSAs: a second affix-process rule using the variant's own forms (see this
-        // fn's doc). Not infl_type-sensitive at all -- `LoadMorphologicalRule`'s senses-empty
-        // branch never touches `variant_entry_types`, confirmed by the gate diff rendering the
-        // plain gloss "3f", not an infl-type-decorated one -- so this runs once per (main_entry,
-        // msa), independent of the infl_type loop above.
+        // Non-stem MSAs: a second affix-process rule using the variant's own forms (see this fn's doc), not infl_type-sensitive, so this runs once per (main_entry, msa), independent of the infl_type loop above.
         for &(main_entry, msa) in &main_msas {
             if matches!(msa, Msa::Stem { .. }) {
                 continue;
@@ -484,15 +433,7 @@ fn build_variant(
     }
 }
 
-/// The non-stem counterpart of `build_variant_stem_entry` (see `build_variant`'s doc for the
-/// full HCLoader rationale): builds a full second `AffixProcessRule` for `msa` using
-/// `variant_entry`'s own rule-form allomorphs, reusing `affixes::build_affix_rule` verbatim so
-/// every mrule-level field (reqfs/outfs/partial/stratum/slot registration) is derived exactly the
-/// way the main entry's own rule for this same MSA was derived. `entry.ShortName`/circumfix
-/// classification in HCLoader always come from the entry passed to `LoadMorphologicalRule` --
-/// which stays the *variant* entry throughout (`LoadMorphologicalRules(stratum, entry, allos)`'s
-/// `entry` parameter is never reassigned to the main entry) -- so `variant_entry`, not
-/// `main_entry`, is passed as `build_affix_rule`'s `entry` argument here.
+/// The non-stem counterpart of `build_variant_stem_entry`: builds a second `AffixProcessRule` for `msa` using `variant_entry`'s own rule-form allomorphs, passing `variant_entry` (not `main_entry`) as `build_affix_rule`'s `entry` argument.
 fn build_variant_affix_rule(
     variant_entry: &LexEntry,
     main_entry: &LexEntry,
@@ -538,10 +479,7 @@ fn get_infl_types<'a>(
     out
 }
 
-/// The variant-entry counterpart of `build_stem_entry`: allomorphs come from `variant_entry`,
-/// everything else (POS, inflection class, base gloss, inflection features) from `main_entry`'s
-/// MSA, plus the `infl_type`'s gloss prepend/append and inflection-feature merge
-/// (HCLoader.cs:748-786).
+/// The variant-entry counterpart of `build_stem_entry`: allomorphs come from `variant_entry`, everything else from `main_entry`'s MSA plus the `infl_type`'s gloss and inflection-feature merge.
 fn build_variant_stem_entry(
     variant_entry: &LexEntry,
     main_entry: &LexEntry,
@@ -567,10 +505,7 @@ fn build_variant_stem_entry(
         .as_deref()
         .and_then(|p| ctx.pos.bits_single(p));
 
-    // Merge MsFeatures with the inflType's own InflFeats (HCLoader.cs:769-782: the inflType's FS
-    // is added to/replaces the head feature's value; both are `{closed feature -> value}` lists
-    // over the same feature system, so a plain value-list concatenation mirrors `FeatureStruct.Add`
-    // closely enough for the non-conflicting case every reference grammar exercises).
+    // Merge MsFeatures with the inflType's own InflFeats: a plain value-list concatenation mirrors `FeatureStruct.Add` closely enough for the non-conflicting case every reference grammar exercises.
     let mut merged_ms_features = features.clone();
     if let Some(it) = infl_type {
         if let Some(inflfs) = &it.inflection_features {
@@ -615,8 +550,7 @@ fn build_variant_stem_entry(
 
     let lex_id = LexEntryId(acc.entries.len() as u32);
     let mut allomorphs = Vec::new();
-    // Variants are built for the Morphology bucket only (clitic-typed variant forms are a known
-    // gap — no reference corpus exercises them; see `build`'s partition doc).
+    // Variants are built for the Morphology bucket only; clitic-typed variant forms are a known gap that no reference corpus exercises.
     for allo in variant_entry
         .allomorphs
         .iter()

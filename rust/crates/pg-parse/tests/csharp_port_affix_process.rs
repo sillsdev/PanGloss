@@ -1,46 +1,4 @@
-//! Ports `AffixProcessRuleTests` (parse-opt: `tests/SIL.Machine.Morphology.HermitCrab.Tests/
-//! MorphologicalRules/AffixProcessRuleTests.cs`) bucket-B/C rows per
-//! `rust/parity-out/audit/phase2/D-test-coverage-map.md` §3.
-//!
-//! `RequiredEnvironments`/`RequiredSyntacticFeatureStruct`/`FreeFluctuation` (already bucket A via
-//! `pg-rules/tests/validity_gate.rs`/`redup_and_free_fluctuation_gate.rs`) are out of scope.
-//!
-//! **Update (W11 batch-4):** `InfixRules`/`CircumfixRules`/`TruncateRules`/`NonContiguousRules` (was
-//! bucket D, "needs the W9.1 probe") are ported below (`infix_rules`, `circumfix_rules`,
-//! `truncate_rules`, `non_contiguous_rules`) -- the probe found the general affix machinery already
-//! matches C# for all four (verbatim ports, zero engine changes), needing only a missing fixture
-//! lexical entry ("49"="ktb") and a handful of natural classes `csharp_port_common` didn't happen to
-//! need yet.
-//!
-//! Deliberate scope reductions from the full C# test bodies (each noted at its test, not silently):
-//! - `MorphosyntacticRules`: ports the 4 non-`LexFamily` reconfigurations only. The 5th reconfiguration
-//!   (`sSuffix` applied to root "si", part of the `SEE` `LexFamily`) needs `LexFamily`/
-//!   `ChooseInflectionalStem`, confirmed absent (D-batch-3), so it is not portable.
-//! - `PercolationRules`: ports the first 2 of 7 reconfigurations (L effort; these two already exercise
-//!   the percolation-with-disjunctive-pers-values mechanism the test is about).
-//! - `SuffixRules`/`PrefixRules`: port the phonologically-conditioned disjunctive-allomorph scenario;
-//!   the alpha-variable-allomorph reconfiguration (needs alpha variables scoped to a *morphological*
-//!   rule, not attempted here) is omitted. **Update (W11 batch-7 remainder):** `SuffixRules`'s 5
-//!   `GenerateWords` round-trip assertions (AffixProcessRuleTests.cs:418-437) are now ported too --
-//!   `Morpher::generate_words`/`WordAnalysis` (D-batch-7/W7) landed since the note above was written,
-//!   via the shared `lex_entry_id`/`mrule_id` lookups in `csharp_port_common` (originally written for
-//!   `csharp_port_generation.rs`). `PrefixRules` has no `GenerateWords` calls in its C# body, so
-//!   nothing further to port there.
-//! - `ReduplicationRules`: ports the first 2 of 6 reconfigurations (M effort; basic CV-reduplication +
-//!   its interaction with an intervening voicing rule, the specific gap the coverage map names).
-//!
-//! Two engine findings surfaced while porting. **FIXED (plan item 1 / wave-3)**:
-//! `simulfix_rules`/`modify_from_input_rules` -- a `ModifyFromInput` output node kept its
-//! pre-modification `char_def`/`cd_set` (both the synthesis side, `pg-rules/src/morph.rs::copy_part`,
-//! and the analysis-unapply side, `::generate_shape`), so a surface-changing modification never
-//! rendered/matched end-to-end. Both now clear to `NO_CHAR_DEF` (synthesis additionally sets an
-//! explicit `cd_set` via `ctx_cd_set`, mirroring `OutputAction::InsertContext`'s existing handling;
-//! analysis leaves `cd_set` at its already-`Unrestricted` default). Both tests now green and
-//! un-ignored. The wave-3 "still open" residual (`subsumed_affix_findings`) is **FIXED (wave-4)**:
-//! both halves were morph-ATTRIBUTION drops in `pg_rules::morph::attribute_morphs` (the C#
-//! `MarkSubsumedMorph`/`MarkMorph(Shape.First/Last)` fallback branches, ported as
-//! `MorphStatus::{Floating, SubsumedChild, SubsumedFirst}`), not an analysis-cascade gap — see that
-//! test's doc; now green and un-ignored.
+//! Ports `AffixProcessRuleTests` (`SIL.Machine.Morphology.HermitCrab.Tests`) bucket-B/C rows not already covered by `pg-rules/tests/validity_gate.rs`/`redup_and_free_fluctuation_gate.rs`; each test below notes its own scope reduction from the full C# body.
 
 mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq, build_grammar, lex_entry_id, mrule_id};
@@ -50,9 +8,7 @@ use pg_parse::{GenMorpheme, Morpher};
 use pg_rules::word::MorphRecord;
 use pg_rules::Word;
 
-/// `{pos: symbol}` for the given POS xml id -- the syntactic FS a bare category symbol produces
-/// (`FeatureStruct.New(syn).Symbol("N").Value` in C#), built the same way `pg_grammar::load`'s
-/// `intern_syn_fs` would.
+/// `{pos: symbol}` for the given POS xml id -- the syntactic FS a bare category symbol produces, built the same way `pg_grammar::load`'s `intern_syn_fs` would.
 fn pos_fs(g: &Grammar, xml_id: &str) -> FeatureStruct {
     let idx = g
         .syn_features
@@ -66,12 +22,7 @@ fn pos_fs(g: &Grammar, xml_id: &str) -> FeatureStruct {
     b.build()
 }
 
-/// Build a bare (feature-less shape, but real `MorphemeId`/`AllomorphId`/`syn_fs`) root `Word` for
-/// the lexical entry whose `<MorphemeId>` text is `gloss`, the same style
-/// `pg-rules/tests/validity_gate.rs` uses to drive `pg_rules::morph::synthesize` directly against a
-/// real loaded grammar without needing the full `Morpher` pipeline -- appropriate here because
-/// `MorphosyntacticRules`/`PercolationRules` are about the RULE's own syntactic-FS gating/percolation
-/// math, not surface-string round-tripping.
+/// Builds a bare root `Word` for the lexical entry whose `<MorphemeId>` text is `gloss`, driving `pg_rules::morph::synthesize` directly without the full `Morpher` pipeline.
 fn root_word(g: &pg_grammar::model::Grammar, gloss: &str) -> Word {
     let (entry_idx, entry) = g
         .entries
@@ -90,10 +41,7 @@ fn root_word(g: &pg_grammar::model::Grammar, gloss: &str) -> Word {
     w
 }
 
-/// Ports `AffixProcessRuleTests.MorphosyntacticRules` (AffixProcessRuleTests.cs:12-98), the 4
-/// non-`LexFamily` reconfigurations of `s_suffix` applied to root "32" ("sag"). Tests
-/// `RequiredSyntacticFeatureStruct`/`OutSyntacticFeatureStruct` toggling directly via
-/// `pg_rules::morph::synthesize`, asserting on the output word's `syn_fs`.
+/// Ports `AffixProcessRuleTests.MorphosyntacticRules` (cs:12-98), the 4 non-`LexFamily` reconfigurations of `s_suffix` applied to root "32" ("sag"), asserting on the output word's `syn_fs`.
 #[test]
 fn morphosyntactic_rules() {
     let mrule_xml = |gloss: &str, required: &str, output: &str| {
@@ -168,11 +116,7 @@ fn morphosyntactic_rules() {
     assert_eq!(out4[0].syn_fs, pos_fs(&g4, "posV"));
 }
 
-/// Ports `AffixProcessRuleTests.PercolationRules` (AffixProcessRuleTests.cs:100-270), the first 2 of 7
-/// reconfigurations. `rule1` (gloss "3SG") requires/outputs `pers=2`, applied to all 5 `Perc*` roots
-/// (which vary `pers`: unspecified/1/3/{2,3}/{1,3}, all `num=pl`). Only roots whose `pers` overlaps the
-/// rule's requirement produce output; the accumulated `syn_fs` percolates `num=pl` from the root and
-/// `pers` from the rule's `OutputHeadFeatures`.
+/// Ports `AffixProcessRuleTests.PercolationRules` (cs:100-270), the first 2 of 7 reconfigurations: `rule1` requires/outputs `pers=2` against 5 `Perc*` roots varying `pers`, and only overlapping roots produce output.
 #[test]
 fn percolation_rules() {
     let mrule_xml = |required_pers: &str| -> String {
@@ -187,8 +131,7 @@ fn percolation_rules() {
         )
     };
 
-    // Reconfiguration 1: required/output pers=2. Only Perc0 (unspecified pers, unifies with anything)
-    // and Perc3 (pers in {2,3}, overlaps 2) can carry the rule.
+    // Reconfiguration 1 (required/output pers=2): only Perc0 (unspecified, unifies with anything) and Perc3 (pers in {2,3}) overlap.
     let g1 = build_grammar("", "", &mrule_xml("symP2"), "mrR", "");
     let mut surviving: Vec<&str> = Vec::new();
     for gloss in ["Perc0", "Perc1", "Perc2", "Perc3", "Perc4"] {
@@ -203,9 +146,7 @@ fn percolation_rules() {
         "reconfig 1 (pers=2): only Perc0/Perc3 survive"
     );
 
-    // Reconfiguration 2: required pers in {2,3} (a disjunctive requirement). Perc0 (unspecified),
-    // Perc2 (pers=3), Perc3 (pers in {2,3}), and Perc4 (pers in {1,3}, overlaps 3) all survive;
-    // Perc1 (pers=1 only) does not.
+    // Reconfiguration 2 (required pers in {2,3}, disjunctive): Perc0/Perc2/Perc3/Perc4 overlap; Perc1 (pers=1 only) does not.
     let g2 = build_grammar("", "", &mrule_xml("symP2 symP3"), "mrR", "");
     let mut surviving2: Vec<&str> = Vec::new();
     for gloss in ["Perc0", "Perc1", "Perc2", "Perc3", "Perc4"] {
@@ -221,12 +162,7 @@ fn percolation_rules() {
     );
 }
 
-/// Ports `AffixProcessRuleTests.SuffixRules` (AffixProcessRuleTests.cs:272-467), the phonologically-
-/// disjunctive allomorph-selection scenario plus its 5 `GenerateWords` round-trip assertions
-/// (alpha-variable sub-case still excluded -- see file doc). `s_suffix` (3SG) picks `ɯz` after a
-/// strident, `s` after a voiceless consonant, else `z`; `ed_suffix` (PAST) picks `+ɯd` after an
-/// alveolar stop, `+t` after a voiceless consonant, else `+d` (voiced-alveolar, via
-/// `InsertSimpleContext`) -- plus a trailing devoicing/deaspiration rule.
+/// Ports `AffixProcessRuleTests.SuffixRules` (cs:272-467): phonologically-disjunctive suffix-allomorph selection for `s_suffix`/`ed_suffix`, plus its 5 `GenerateWords` round-trip assertions.
 #[test]
 fn suffix_rules() {
     let mrules = r#"
@@ -293,9 +229,7 @@ fn suffix_rules() {
     assert_empty(&m.parse_word("satɯs"));
     assert_empty(&m.parse_word("satz"));
 
-    // The 5 `GenerateWords` round-trip assertions (AffixProcessRuleTests.cs:418-437): direct-API
-    // synthesis of root + single rule must reproduce exactly the surface forms the `ParseWord`
-    // assertions above already established are this rule/root combination's analysis.
+    // The 5 `GenerateWords` round-trip assertions (cs:418-437): direct-API synthesis must reproduce the surface forms the `ParseWord` assertions above already established.
     let s_suffix = mrule_id(&g, "3SG");
     let ed_suffix = mrule_id(&g, "PAST");
     assert_eq!(
@@ -340,11 +274,7 @@ fn suffix_rules() {
     );
 }
 
-/// Ports `AffixProcessRuleTests.PrefixRules` (AffixProcessRuleTests.cs:469-692), the phonologically-
-/// disjunctive prefix-allomorph scenario (alpha-variable/poa-variable reconfigurations excluded -- see
-/// file doc). `s_prefix` (3SG) picks `zi` before a strident, `s` before a voiceless consonant, else
-/// `z`; `ed_prefix` (PAST) picks `di+` before an alveolar stop, `t+` before a voiceless consonant,
-/// else `d+`; plus an aspiration-neutralization rule for voiceless stops.
+/// Ports `AffixProcessRuleTests.PrefixRules` (cs:469-692): the phonologically-disjunctive prefix-allomorph scenario for `s_prefix`/`ed_prefix`, plus an aspiration-neutralization rule.
 #[test]
 fn prefix_rules() {
     let mrules = r#"
@@ -407,27 +337,8 @@ fn prefix_rules() {
     assert_empty(&m.parse_word("dtag"));
 }
 
-/// Ports `AffixProcessRuleTests.SimulfixRules` (AffixProcessRuleTests.cs:856-965): `ModifyFromInput`
-/// combined with `Optional`/`Range` quantifiers on the targeted part.
-///
-/// **FIXED (plan item 1 / wave-3)**: every sub-case here needs `ModifyFromInput` to change a segment
-/// to a *different* character (voicing/rounding a specific target so it renders as a different
-/// letter, e.g. "p" -> "b"); before this fix every one produced an EMPTY `Morpher::parse_word`
-/// result instead of the expected morphs, even though the underlying *lane*-level modification was
-/// already correct (`pg-rules/tests/morph_gate.rs::simulfix_synthesis_voices_target_segment`, which
-/// asserts on `node_lanes` directly, never on the rendered surface string). Root cause, traced
-/// directly: a `Modify`-produced `OutNode` (`pg-rules/src/morph.rs::copy_part`, the `char_def: src.
-/// shape.char_def(p)` / `cd_set: cd_set_of(src.shape, p)` lines) kept the SOURCE node's own
-/// `char_def` (e.g. "p") unchanged, and `Shape::node_cd_set` (`pg-shape/src/lib.rs`) treats any node
-/// whose `char_def != NO_CHAR_DEF` as an implicit *singleton* of that original char-def, ignoring the
-/// stored `cd_set` entirely. `pg_parse::surface::matching_str_reps` therefore restricted a modified
-/// segment's renderable representations to its PRE-modification character forever, regardless of how
-/// its lanes changed -- so a modified "p" always printed/matched as "p", never "b", and
-/// `Morpher::parse_word`'s `IsMatch`-equivalent filter rejected every synthesis candidate whose
-/// surface depended on the modification being visible. Fixed exactly as predicted: `Modify`'s
-/// `OutNode` now gets `char_def: NO_CHAR_DEF` + a context-derived `cd_set` (`ctx_cd_set`), mirroring
-/// `OutputAction::InsertContext`'s handling immediately below it in `synth_affix_allomorph`'s match
-/// arm. Un-ignored; green.
+/// Ports `AffixProcessRuleTests.SimulfixRules` (cs:856-965): `ModifyFromInput` combined with `Optional`/`Range` quantifiers on the targeted part.
+/// See `docs/research/csharp-port-affix-process-divergences.md` for the char_def rendering bug this exercised and its fix.
 #[test]
 fn simulfix_rules() {
     // (1) suffix simulfix: copy(any+) + modify(bilabial-nasal-voiceless -> voiced). "pib" -> "41 SIMUL".
@@ -494,12 +405,7 @@ fn simulfix_rules() {
     assert_morphs_eq(&m4.parse_word("sɯɯpu"), &["50 SIMUL"]);
 }
 
-/// `simulfix_rules`' underlying mechanism (voicing a modified segment), asserted at the LANE level
-/// only -- this is the part that already works and is the live, non-ignored half of the port,
-/// matching `morph_gate.rs::simulfix_synthesis_voices_target_segment`'s own assertion style (which
-/// predates this file and never exercised the surface string). Confirms the `ModifyFromInput`
-/// mechanism from `SimulfixRules`' first sub-case is not a total loss even though the full
-/// `Morpher::parse_word` round-trip is currently broken (see `simulfix_rules`'s finding above).
+/// `simulfix_rules`'s underlying voicing mechanism, asserted at the lane level only, matching `morph_gate.rs::simulfix_synthesis_voices_target_segment`'s own assertion style.
 #[test]
 fn simulfix_rules_lane_level_modification_still_works() {
     let mrules1 = r#"
@@ -527,10 +433,7 @@ fn simulfix_rules_lane_level_modification_still_works() {
     );
 }
 
-/// Ports `AffixProcessRuleTests.ReduplicationRules` (AffixProcessRuleTests.cs:967-1156), the first 2
-/// of 6 reconfigurations: basic CV-reduplication ("sasag" -> "RED 32"), then its interaction with an
-/// intervening voicing rule ("sazag" -> "RED 32", the *underlying* "sasag" resurfaces as "sazag" via
-/// intervocalic voicing after reduplication).
+/// Ports `AffixProcessRuleTests.ReduplicationRules` (cs:967-1156), the first 2 of 6 reconfigurations: basic CV-reduplication, then its interaction with an intervening voicing rule.
 #[test]
 fn reduplication_rules() {
     let mrules = r#"
@@ -567,8 +470,7 @@ fn reduplication_rules() {
     assert_morphs_eq(&m2.parse_word("sazag"), &["RED 32"]);
 }
 
-/// Ports `AffixProcessRuleTests.BoundaryRules` (AffixProcessRuleTests.cs:1475-1527): an affix-process
-/// `Lhs` explicitly matching a boundary marker (`+`) followed by a consonant then a vowel.
+/// Ports `AffixProcessRuleTests.BoundaryRules` (cs:1475-1527): an affix-process `Lhs` explicitly matching a boundary marker (`+`) followed by a consonant then a vowel.
 #[test]
 fn boundary_rules() {
     let mrules = r#"
@@ -587,10 +489,7 @@ fn boundary_rules() {
     assert_morphs_eq(&m.parse_word("abbas"), &["39 3SG"]);
 }
 
-/// Ports `AffixProcessRuleTests.WordSynthesisWithBoundaryAtBeginning` (AffixProcessRuleTests.cs:
-/// 1530-1597), bucket C: a `ht_suffix` inserting `+pa` (a boundary at the very start of the inserted
-/// material, then re-copied stem material) followed by `ed_suffix`; asserts the synthesized word's
-/// FIRST shape node is a boundary.
+/// Ports `AffixProcessRuleTests.WordSynthesisWithBoundaryAtBeginning` (cs:1530-1597): a `ht_suffix` inserting a boundary at the very start of the inserted material, asserting the synthesized word's first shape node is a boundary.
 #[test]
 fn word_synthesis_with_boundary_at_beginning() {
     let mrules = r#"
@@ -622,8 +521,7 @@ fn word_synthesis_with_boundary_at_beginning() {
     assert_eq!(out.structured.len(), 1);
 }
 
-/// Ports `AffixProcessRuleTests.PartialRule` (AffixProcessRuleTests.cs:1600-1741): `IsPartial` rules
-/// interacting with two optional-slot templates (verb/noun), gated by Tier-2 #13's 3 gates.
+/// Ports `AffixProcessRuleTests.PartialRule` (cs:1600-1741): `IsPartial` rules interacting with two optional-slot templates (verb/noun).
 #[test]
 fn partial_rule() {
     let mrules = r#"
@@ -696,9 +594,7 @@ fn partial_rule() {
     assert_empty(&m2.parse_word("sagds"));
 }
 
-/// Ports `AffixProcessRuleTests.DisjunctiveAllomorphs` (AffixProcessRuleTests.cs:1744-1811): affix
-/// allomorph selection by phonological context of the STEM (vowel-final vs consonant-final), combined
-/// with a second, environment-gated affix.
+/// Ports `AffixProcessRuleTests.DisjunctiveAllomorphs` (cs:1744-1811): affix allomorph selection by stem phonological context (vowel-final vs consonant-final), combined with a second, environment-gated affix.
 #[test]
 fn disjunctive_allomorphs() {
     let mrules = r#"
@@ -737,9 +633,7 @@ fn disjunctive_allomorphs() {
     assert_empty(&m.parse_word("puɯs"));
 }
 
-/// Ports `AffixProcessRuleTests.SubsumedAffix` (AffixProcessRuleTests.cs:1814-1900): allomorph
-/// pattern subsumption ordering (a more specific "vowel-final" `Lhs` for `s_suffix`/`delete_vowel_
-/// suffix` vs the general "any+" pattern other rules use).
+/// Ports `AffixProcessRuleTests.SubsumedAffix` (cs:1814-1900): allomorph pattern subsumption ordering (a more specific "vowel-final" `Lhs` vs the general "any+" pattern other rules use).
 const SUBSUMED_AFFIX_MRULES: &str = r#"
   <MorphologicalRule id="mrU" requiredPartsOfSpeech="posV"><Name>u_suffix</Name><MorphemeId>3SG</MorphemeId>
     <MorphologicalSubrules><MorphologicalSubrule id="sub1">
@@ -781,25 +675,7 @@ fn subsumed_affix() {
     assert_morphs_eq(&m.parse_word("tagu"), &["47 3SG"]);
 }
 
-/// **FIXED (wave-4).** The wave-3 finding text (kept for history) diagnosed two residuals after
-/// item 1's char_def fix: (a) "tags"/"tagsv"/"tag" recovered only `{"47 PAST"}`-style sets with the
-/// `u_suffix`-chained "3SG" component missing, and (b) "bubib" dropped the pure-deletion rule's own
-/// "PRES" morph. Both turned out to be the SAME root cause family in
-/// `pg_rules::morph::attribute_morphs`, not an analysis-cascade gap at all:
-/// - (b) was W9.1/`dfbb754b` (a pure-truncation rule's own allomorph never recorded) — fixed by the
-///   wave-4 floating-marker port (`MorphStatus::Floating`, fixture
-///   `rust/conformance/affix-shapes/truncate/`).
-/// - (a) was the **input-morph subsumption** half of the same C# branch
-///   (`SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs`, cs:185-205): on the synthesis-confirm of
-///   tag+u+s, `s_suffix` captures the "u" (3SG's entire realization) as part "2" and never copies
-///   it, so the 3SG record contributed zero output positions and was silently dropped — the
-///   analysis chain itself was fine. C# marks such a morph via `MarkSubsumedMorph` (child of the
-///   new "s" morph — rendering "47 3SG PAST" with 3SG *before* its host, postorder) or
-///   `MarkMorph(Shape.First)` for pure truncation ("tag" → "47 3SG PRES"). Ported as
-///   `MorphStatus::SubsumedChild`/`SubsumedFirst` (see `attribute_morphs`' doc).
-///
-/// Red-on-revert: dropping the `Real`-with-no-runs fallback arm in `attribute_morphs` returns
-/// "tags" to `{"47 PAST"}` and "tag" to `{"47 PRES", "47"}`.
+/// Two morph-attribution drops surfaced downstream of `subsumed_affix`'s allomorph selection; see `docs/research/csharp-port-affix-process-divergences.md` for the root cause and fix in `pg_rules::morph::attribute_morphs`.
 #[test]
 fn subsumed_affix_findings() {
     let g = build_grammar("", "", SUBSUMED_AFFIX_MRULES, "mrU mrS mrNom mrDel", "");
@@ -810,11 +686,7 @@ fn subsumed_affix_findings() {
     assert_morphs_eq(&m.parse_word("bubib"), &["42 PRES", "43 PRES"]);
 }
 
-/// Ports `AffixProcessRuleTests.ModifyFromInputRules` (AffixProcessRuleTests.cs:1903-1945):
-/// `ModifyFromInput` combined with `InsertSegments` in the same `Rhs`, after a captured vowel.
-///
-/// FIXED (plan item 1 / wave-3): see `simulfix_rules`'s doc comment for the full root-cause trace and
-/// fix. Un-ignored; green.
+/// Ports `AffixProcessRuleTests.ModifyFromInputRules` (cs:1903-1945): `ModifyFromInput` combined with `InsertSegments` in the same `Rhs`, after a captured vowel; exercises the same char_def fix as `simulfix_rules`.
 #[test]
 fn modify_from_input_rules() {
     let mrules = r#"
@@ -836,17 +708,7 @@ fn modify_from_input_rules() {
     assert_morphs_eq(&m.parse_word("puso"), &["52 PL"]);
 }
 
-/// Ports `AffixProcessRuleTests.InfixRules` (AffixProcessRuleTests.cs:695-853) -- the W9.1 probe
-/// (batch-4) found the general affix machinery already matches C# here (verbatim port, no engine
-/// changes needed), which is why this and the other 3 batch-4 tests below only needed the missing
-/// lexical entry "49" ("ktb", added to `csharp_port_common`) plus already-present natural classes
-/// (`cons`=`ncC`, `voicelessStop`=`ncVlStop`, `unasp`=`ncUnasp`). Four Arabic-templatic-style
-/// `AffixProcessRule`s discontiguously interleave the consonantal root "ktb" with vowels: `perf_act`
-/// (root's 3 consonants each as their own `MorphologicalInput` group, `1a2a3`), `perf_pass`
-/// (`1u2i3`), `imperf_act` (root's first 2 consonants as ONE two-node group, `a12u3` -- exercising a
-/// multi-segment single group, not 3 singletons), `imperf_pass` (`u123a`, 3 singleton groups again).
-/// Plus a trailing aspiration-neutralization `RewriteRule` (voiceless stop -> unaspirated), identical
-/// in shape to `prefix_rules`'s own aspiration rule above.
+/// Ports `AffixProcessRuleTests.InfixRules` (cs:695-853): four Arabic-templatic-style `AffixProcessRule`s discontiguously interleaving the consonantal root "ktb" with vowels, plus a trailing aspiration-neutralization rule.
 #[test]
 fn infix_rules() {
     let mrules = r#"
@@ -940,9 +802,7 @@ fn infix_rules() {
     assert_morphs_eq(&m.parse_word("uktab"), &["IMPF.PSV 49"]);
 }
 
-/// Ports `AffixProcessRuleTests.CircumfixRules` (AffixProcessRuleTests.cs:1446-1472): an unrestricted
-/// `circumfix` rule (`ta+root+od`) composes with an unrestricted `s_suffix` (`+s`) on the same
-/// stratum -- "tasagods" = ta + "sag" (root "32") + od + s.
+/// Ports `AffixProcessRuleTests.CircumfixRules` (cs:1446-1472): an unrestricted `circumfix` rule composes with an unrestricted `s_suffix` on the same stratum.
 #[test]
 fn circumfix_rules() {
     let mrules = r#"
@@ -964,10 +824,7 @@ fn circumfix_rules() {
     assert_morphs_eq(&m.parse_word("tasagods"), &["OBJ 32 3SG"]);
 }
 
-/// Ports `AffixProcessRuleTests.TruncateRules` (AffixProcessRuleTests.cs:1159-1266): 5
-/// reconfigurations of a single `truncate` rule (each `Allomorphs.Clear()`-then-re-add in C#, so a
-/// fresh grammar per sub-case here too), each dropping (or, in the 5th, ambiguously restoring) part
-/// of the matched input rather than copying it -- the defining trait of a truncation rule.
+/// Ports `AffixProcessRuleTests.TruncateRules` (cs:1159-1266): 5 reconfigurations of a single `truncate` rule, each dropping (or, in the 5th, ambiguously restoring) part of the matched input rather than copying it.
 #[test]
 fn truncate_rules() {
     // (1) drop a trailing literal "g": "sa" (root "32"="sag" minus "g") -> "32 3SG".
@@ -1006,8 +863,7 @@ fn truncate_rules() {
     );
     assert_morphs_eq(&Morpher::new(&g2, usize::MAX).parse_word("ag"), &["32 3SG"]);
 
-    // (3) drop a leading FRICATIVE (natural class, not a literal char): same "ag" result, now via
-    // `ncFric` matching "s" (cons+, cont+) rather than the segment-literal `ncSSeg` above.
+    // (3) drop a leading FRICATIVE (natural class): same "ag" result, now via `ncFric` matching "s" rather than the segment-literal `ncSSeg` above.
     let g3 = build_grammar(
         "",
         "",
@@ -1025,8 +881,7 @@ fn truncate_rules() {
     );
     assert_morphs_eq(&Morpher::new(&g3, usize::MAX).parse_word("ag"), &["32 3SG"]);
 
-    // (4) drop a trailing VELAR STOP (natural class): "sa" again, now via `ncVelarC` matching "g"
-    // (cons+, poa=velar) rather than the segment-literal `ncGSeg` in (1).
+    // (4) drop a trailing VELAR STOP (natural class): "sa" again, now via `ncVelarC` matching "g" rather than the segment-literal `ncGSeg` in (1).
     let g4 = build_grammar(
         "",
         "",
@@ -1044,11 +899,7 @@ fn truncate_rules() {
     );
     assert_morphs_eq(&Morpher::new(&g4, usize::MAX).parse_word("sa"), &["32 3SG"]);
 
-    // (5) OPTIONAL leading "s" truncated, "g" always prepended: unapplying "gas" can restore the
-    // truncated "s" (root "33"="sas") or not (in which case "as" alone would need its own root,
-    // which doesn't exist) -- only the "sas" reconstruction survives, giving "3SG 33". Unapplying
-    // "gbubibi" similarly tries restoring a leading "s" (no such root "sbubibi") and not restoring one
-    // (root "42"="bubibi" -- survives), giving "3SG 42". Matches AffixProcessRuleTests.cs:1264-1265.
+    // (5) OPTIONAL leading "s" truncated, "g" always prepended: unapplying "gas"/"gbubibi" tries both restoring and not restoring the "s", and only the reconstruction with a real matching root survives.
     let g5 = build_grammar(
         "",
         "",
@@ -1069,13 +920,7 @@ fn truncate_rules() {
     assert_morphs_eq(&m5.parse_word("gbubibi"), &["3SG 42"]);
 }
 
-/// Ports `AffixProcessRuleTests.NonContiguousRules` (AffixProcessRuleTests.cs:1948-2030): the same
-/// `perf_act` infix shape as `infix_rules` (root "49"="ktb" -> "k"+a+"t"+a+"b"+"ɯd" = "katabɯd"),
-/// but this time followed by an ITERATIVE `RewriteRule` raising a low vowel ("a") to `[i]`
-/// (`ncISeg`) whenever the RIGHT environment is a voiced consonant (`ncVoicedCons`) -- discontiguous
-/// from the affixation rule's own insertion sites, hence the test's name. Applied iteratively across
-/// "katabɯd": the first "a" (before "t", voiceless) is unaffected; the second "a" (before "b",
-/// voiced) raises to "i", giving the expected surface "katibɯd".
+/// Ports `AffixProcessRuleTests.NonContiguousRules` (cs:1948-2030): the same `perf_act` infix shape as `infix_rules`, but followed by an iterative `RewriteRule` raising a low vowel to `[i]` after a voiced consonant, discontiguous from the affixation rule's own insertion sites.
 #[test]
 fn non_contiguous_rules() {
     let mrules = r#"

@@ -1,41 +1,4 @@
-//! Ports `MorpherTests` (parse-opt: `tests/SIL.Machine.Morphology.HermitCrab.Tests/MorpherTests.cs`)
-//! bucket-B/C rows per `rust/parity-out/audit/phase2/D-test-coverage-map.md` §3.
-//!
-//! `AnalyzeWord_SingleThreaded_MatchesParallel` (bucket A, already `batch_determinism.rs`) and the
-//! `WordAnalysis`/`GenerateWords` object-API tests (now ported at `csharp_port_generation.rs`, W7/
-//! W11 batch-7) are out of scope here.
-//!
-//! **Bucket E scope notes (W11 doc task; also recorded in `D-test-coverage-map.md` §3/§6, which
-//! predates this file's tracked existence and is itself gitignored/regenerable) -- never ported,
-//! one line each:**
-//! - `TestMatchNodesWithPattern` -- ported (P11 chunk 4) as `pg-parse/src/guess.rs`'s own unit
-//!   tests, once the guesser API landed (see the next bullet); no longer "no Rust analog needed".
-//! - `EnableLexicalGating_MatchesDisabled_SimpleAffixGrammar` -- FieldWorks-only `EnableLexicalGating`
-//!   heuristic on/off equivalence; no "lexical gate" concept exists in the Rust engine.
-//! - `IsEdgeStripperQualified_ReturnsFalse_ForReduplication` / `..._ForInfixation` -- same
-//!   `GrammarAnalyzer` heuristic (disqualifies an edge-stripper optimization for these two rule
-//!   shapes); no Rust analog.
-//! - `XmlLanguageSerializationTests.RoundTripXml` -- C# `XmlLanguageLoader.Load` ->
-//!   `XmlLanguageWriter.Save` byte-identity; Rust has no XML *writer* (load-only), so there is
-//!   nothing to round-trip against. Not a 1:1 gap by design.
-//! - `AnalyzeWord_CanGuess_ReturnsCorrectAnalysis` -- guessing is covered by
-//!   `pg-cli/tests/guesser_conformance_gate.rs`, not by a 1:1 port of this test. No C# CLI `--guess`
-//!   surface exists to oracle-generate a TSV against.
-//!
-//! **Architecture substitution for the 3 thread/memo tests** (`AnalyzeWord_ConcurrentRepeatedParsing_
-//! IsDeterministic`, `ParseWord_SingleThreaded_MatchesParallel_With{Compounding,AffixTemplate}`): C#
-//! compares `maxDegreeOfParallelism=1` against the default (`Environment.ProcessorCount`) parallel
-//! cascade -- intra-word rule-cascade parallelism that phase 1 of this port explicitly cut (plan
-//! rust-conversion.md §7: "intra-word parallelism: cut in phase 1, stays cut"). `pg_parse::Morpher`
-//! has no parallel-cascade mode to compare against. The closest Rust analog carrying the same
-//! *intent* -- "two different execution strategies over the same rule-cascade machinery must produce
-//! identical results" -- is `Morpher::with_memo(bool)`: memo-on (the production default, replaying
-//! memoized subtrees via `Word::ReplayOnto`) vs memo-off (recomputing every branch from scratch). This
-//! is the exact property `pg-rules/tests/memo_gate.rs` already exercises generically; these 3 tests
-//! port the C# tests' *specific grammars* (compounding-commutes-with-a-prefix; two-prefixes-commute-
-//! with-a-template-slot) into that comparison, which is what each C# test's own doc comment says the
-//! grammar is *for* (forcing a re-arrival at an equal cascade state so the replay path is genuinely
-//! exercised, not vacuously skipped).
+//! Ports selected `MorpherTests` cases from the C# HermitCrab oracle; the 3 thread/memo tests substitute Rust's `Morpher::with_memo(bool)` comparison for C#'s cut intra-word parallelism, since both compare two execution strategies over the same rule-cascade machinery.
 
 mod csharp_port_common;
 use csharp_port_common::{
@@ -44,9 +7,7 @@ use csharp_port_common::{
 use pg_parse::Morpher;
 use std::collections::BTreeSet;
 
-/// Ports `MorpherTests.AnalyzeWord_CannotAnalyze_ReturnsEmptyEnumerable` (MorpherTests.cs:101-125).
-/// Bucket C: the negative "no analyses" path is exercised implicitly all over the suite but never
-/// named to this exact scenario (a well-formed grammar, a word that simply doesn't parse).
+/// Ports `MorpherTests.AnalyzeWord_CannotAnalyze_ReturnsEmptyEnumerable`: a well-formed grammar and a word that simply doesn't parse.
 #[test]
 fn analyze_word_cannot_analyze_returns_empty_enumerable() {
     let mrules = r#"
@@ -65,13 +26,7 @@ fn analyze_word_cannot_analyze_returns_empty_enumerable() {
     assert_empty(&m.parse_word("sagt")); // C#'s actual negative case: "sagt" has no valid analysis
 }
 
-/// Ports `MorpherTests.AnalyzeWord_CanAnalyzeLinear_ReturnsCorrectAnalysis` (MorpherTests.cs:42-99).
-/// `MorphologicalRuleOrder.Linear` (as opposed to every other ported test's `Unordered`) plus an
-/// unconditional t->d phonological neutralization rule so unapplying it from surface "sagd" creates a
-/// dead-end sibling candidate ("sagt", reverting the *d* back to *t* -- this candidate has no boundary
-/// before its final consonant, so neither suffix's `+d`/`+t`-anchored pattern can unapply from it) --
-/// the analysis must still recover the live candidate (root "32" + PAST) despite Linear order and the
-/// irrelevant N-requiring `t_suffix` rule sharing the stratum ("shouldn't block" the V analysis).
+/// Ports `MorpherTests.AnalyzeWord_CanAnalyzeLinear_ReturnsCorrectAnalysis`: `Linear` order plus a t->d neutralization rule creates a dead-end sibling candidate, but the live PAST analysis must still be recovered.
 #[test]
 fn analyze_word_can_analyze_linear_returns_correct_analysis() {
     let mrules = r#"
@@ -105,12 +60,7 @@ fn analyze_word_can_analyze_linear_returns_correct_analysis() {
     assert_morphs_eq(&m.parse_word("sagd"), &["32 PAST"]);
 }
 
-/// Ports `MorpherTests.AnalyzeWord_ConcurrentRepeatedParsing_IsDeterministic` (MorpherTests.cs:496-555)
-/// -- see the module doc for the memo-on/memo-off substitution rationale. Same grammar as the C# test
-/// (one V-requiring `ed_suffix`); same word list; the property under test is "two different execution
-/// strategies over the same rule machinery agree", checked once per word rather than 50x250 times
-/// (Rust's cascade has no thread-interleaving nondeterminism to hunt for -- the memo/no-memo split is
-/// a data-flow difference, not a race, so repetition adds no signal here).
+/// Ports `MorpherTests.AnalyzeWord_ConcurrentRepeatedParsing_IsDeterministic`: memo-on vs memo-off must agree, checked once per word since the split is a data-flow difference, not a race.
 #[test]
 fn analyze_word_concurrent_repeated_parsing_is_deterministic() {
     let mrules = r#"
@@ -143,11 +93,7 @@ fn analyze_word_concurrent_repeated_parsing_is_deterministic() {
     }
 }
 
-/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithCompounding` (MorpherTests.cs:
-/// 557-624) -- see module doc. A compounding rule commutes with a V->V "PAST"-tense prefix, both
-/// ordinary (non-template) rules in the same Unordered cascade, forcing the memoized cascade to
-/// revisit an equal analysis state via different arrival orders (di-then-compound vs
-/// compound-then-di).
+/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithCompounding`: a compounding rule commutes with a PAST-tense prefix, forcing the memoized cascade to revisit an equal state via different arrival orders.
 #[test]
 fn parse_word_single_threaded_matches_parallel_with_compounding() {
     let mrules = r#"
@@ -191,11 +137,7 @@ fn parse_word_single_threaded_matches_parallel_with_compounding() {
     }
 }
 
-/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithAffixTemplate` (MorpherTests.cs:
-/// 626-736) -- see module doc. TWO commuting prefixes (`di-`/`gu-`) plus an optional-slot template
-/// suffix: unapplying di-then-gu vs gu-then-di reaches the same state via different trail orders,
-/// exercising the template-battery memo specifically (one commuting prefix alone is not enough, per
-/// the C# comment -- a single rule can only unapply once, so no re-arrival is possible).
+/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithAffixTemplate`: two commuting prefixes plus an optional-slot template suffix reach the same state via different trail orders, exercising the template-battery memo.
 #[test]
 fn parse_word_single_threaded_matches_parallel_with_affix_template() {
     let mrules = r#"
@@ -247,9 +189,7 @@ fn parse_word_single_threaded_matches_parallel_with_affix_template() {
     }
 }
 
-/// The shared `mrEd` PAST-suffix rule (`+d`) both W6 co-occurrence tests below attach their
-/// `AllomorphCoOccurrenceRule`/`MorphemeCoOccurrenceRule` to -- identical shape to every other
-/// ported test's `mrEd` (see e.g. `analyze_word_cannot_analyze_returns_empty_enumerable` above).
+/// The shared `mrEd` PAST-suffix rule both co-occurrence tests below attach their rules to.
 const ED_SUFFIX_MRULE: &str = r#"
   <MorphologicalRule id="mrEd" requiredPartsOfSpeech="posV"><Name>ed_suffix</Name><MorphemeId>PAST</MorphemeId>
     <MorphologicalSubrules>
@@ -261,12 +201,7 @@ const ED_SUFFIX_MRULE: &str = r#"
   </MorphologicalRule>
 "#;
 
-/// The C# test's extra `AddEntry("dEnclitic", ...)` root (MorpherTests.cs:176-178,232):
-/// FLEx-emitted clitics occur as both a stem and an affix, so LT-22156's fix lets a co-occurrence
-/// rule reference either form without the "other" morph's mere existence (never actually
-/// co-occurring in the tested word) breaking anything -- this entry exists solely to be a legal,
-/// always-absent `otherAllomorphs`/`otherMorphemes` reference, exactly like the `eOther`/`aOther`
-/// decoy entry in `rust/conformance/cooccurrence/and-semantics-pin`.
+/// A decoy root that exists solely to be a legal, always-absent `otherAllomorphs`/`otherMorphemes` reference that never actually co-occurs in the tested word.
 const D_ENCLITIC_ENTRY: &str = r#"
   <LexicalEntry id="eDEnclitic" partOfSpeech="posV">
     <Allomorphs><Allomorph id="aDEnclitic"><PhoneticShape>d</PhoneticShape></Allomorph></Allomorphs>
@@ -274,15 +209,10 @@ const D_ENCLITIC_ENTRY: &str = r#"
   </LexicalEntry>
 "#;
 
-/// Ports `MorpherTests.AnalyzeWord_CannotAnalyzeDueToAllomorphCooccurenceFailure_
-/// ReturnsEmptyEnumerable` (MorpherTests.cs:127-184). An `AllomorphCoOccurrenceRule` on sag's root
-/// allomorph (`a32`) excluding the PAST suffix's allomorph (`subEd`) blocks "sagd" from analyzing
-/// at all -- pins the W6 evaluation gate (`pg-rules/src/validity.rs::allomorph_co_occurrence_ok`)
-/// at the granularity the C# test exercises: one specific allomorph excluding one specific other
-/// allomorph, `adjacency="anywhere"`, `type="exclude"`.
+/// Ports `MorpherTests.AnalyzeWord_CannotAnalyzeDueToAllomorphCooccurenceFailure_ReturnsEmptyEnumerable`: an `AllomorphCoOccurrenceRule` excluding the PAST suffix's allomorph blocks "sagd" from analyzing at all.
 #[test]
 fn analyze_word_cannot_analyze_due_to_allomorph_cooccurence_failure_returns_empty_enumerable() {
-    // The single exclusion rule alone already rejects "sagd" (MorpherTests.cs:128-161).
+    // The single exclusion rule alone already rejects "sagd".
     let coo1 = r#"
       <AllomorphCoOccurrenceRules>
         <AllomorphCoOccurrenceRule type="exclude" primaryAllomorph="a32" otherAllomorphs="subEd" adjacency="anywhere" />
@@ -291,12 +221,7 @@ fn analyze_word_cannot_analyze_due_to_allomorph_cooccurence_failure_returns_empt
     let g1 = build_grammar_cooccurrence(ED_SUFFIX_MRULE, "mrEd", "", coo1);
     assert_empty(&Morpher::new(&g1, usize::MAX).parse_word("sagd"));
 
-    // Adding a SECOND rule that excludes `dEnclitic` -- which never actually co-occurs with sag in
-    // this grammar, so its own `IsWordValid` is trivially satisfied -- must NOT rescue "sagd"
-    // (MorpherTests.cs:163-183, the LT-22156/#311 pin). Pre-90dcee64 C# used
-    // `.Any(IsWordValid)`, under which this second (satisfied) rule alone would have made the
-    // whole check pass; post-fix, every attached rule must pass, so rule1's failure still rejects
-    // the word. Still empty.
+    // A second, trivially-satisfied exclusion rule (never actually co-occurring in this grammar) must not rescue "sagd": every attached rule must pass, not just one.
     let coo2 = r#"
       <AllomorphCoOccurrenceRules>
         <AllomorphCoOccurrenceRule type="exclude" primaryAllomorph="a32" otherAllomorphs="subEd" adjacency="anywhere" />
@@ -307,11 +232,7 @@ fn analyze_word_cannot_analyze_due_to_allomorph_cooccurence_failure_returns_empt
     assert_empty(&Morpher::new(&g2, usize::MAX).parse_word("sagd"));
 }
 
-/// Ports `MorpherTests.AnalyzeWord_CannotAnalyzeDueToMorphemeCooccurenceFailure_
-/// ReturnsEmptyEnumerable` (MorpherTests.cs:186-239). Identical shape to the allomorph-level test
-/// above, but the exclusion is a `MorphemeCoOccurrenceRule` on sag's MORPHEME (`e32`) excluding the
-/// PAST rule's morpheme (`mrEd`'s own xml id, not its subrule) -- pins
-/// `pg-rules/src/validity.rs::morpheme_co_occurrence_ok` at the morpheme granularity.
+/// Ports `MorpherTests.AnalyzeWord_CannotAnalyzeDueToMorphemeCooccurenceFailure_ReturnsEmptyEnumerable`: identical to the allomorph-level test above, but the exclusion is at morpheme granularity.
 #[test]
 fn analyze_word_cannot_analyze_due_to_morpheme_cooccurence_failure_returns_empty_enumerable() {
     let coo1 = r#"
@@ -322,9 +243,7 @@ fn analyze_word_cannot_analyze_due_to_morpheme_cooccurence_failure_returns_empty
     let g1 = build_grammar_cooccurrence(ED_SUFFIX_MRULE, "mrEd", "", coo1);
     assert_empty(&Morpher::new(&g1, usize::MAX).parse_word("sagd"));
 
-    // The same LT-22156/#311 AND-semantics re-check as the allomorph-level test, at morpheme
-    // granularity: a second, trivially-satisfied rule excluding `dEnclitic`'s morpheme must not
-    // rescue "sagd".
+    // Same AND-semantics re-check as the allomorph-level test, at morpheme granularity.
     let coo2 = r#"
       <MorphemeCoOccurrenceRules>
         <MorphemeCoOccurrenceRule type="exclude" primaryMorpheme="e32" otherMorphemes="mrEd" adjacency="anywhere" />

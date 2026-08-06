@@ -58,12 +58,7 @@ fn promoted_recipe_fixtures_replay_and_offer_distinct_plans_or_elimination_evide
                 baseline: &baseline,
             })
             .unwrap_or_else(|e| panic!("{name} recipe materialization failed: {e}"));
-        // Counted over PLAN-composed candidates, because that is what both branches below are about:
-        // the checked-in elimination report reasons about content-address-duplicate PLANS and the
-        // absence of a `Union` node, and the other branch demands a "content-distinct executable"
-        // PLAN. A whole-grammar strategy is a different COMPILER carrying the same plan, so counting
-        // it here would answer a question nobody asked -- and would make the single-candidate branch
-        // fail on a fixture whose plan space genuinely still holds exactly one member.
+        // Counted over plan-composed candidates only: a whole-grammar strategy is a different compiler carrying the same plan, so counting it here would answer a question neither branch below asks.
         let plan_candidates = candidates
             .iter()
             .filter(|(_, c)| c.adapter.interprets_plan())
@@ -81,12 +76,7 @@ fn promoted_recipe_fixtures_replay_and_offer_distinct_plans_or_elimination_evide
                 candidates.len()
             );
         }
-        // Plan-composed candidates only: `build_candidate` composes a plan into the controllable
-        // subtree's network and nothing else, so it now refuses a candidate that names a different
-        // compiler rather than silently building the wrong one. This loop's claim is "every plan this
-        // registry offers is buildable", which is a statement about plans; a whole-grammar strategy's
-        // buildability is its own compiler's business and is covered in
-        // `recipe_emission_strategy_gate.rs`.
+        // Plan-composed candidates only: `build_candidate` errors on a candidate naming a different compiler; a whole-grammar strategy's buildability is covered in `recipe_emission_strategy_gate.rs`.
         for (_, candidate) in candidates
             .into_iter()
             .filter(|(_, c)| c.adapter.interprets_plan())

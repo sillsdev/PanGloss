@@ -153,23 +153,9 @@ fn write_word(buf: &mut Vec<u8>, outcome: &ParseOutcome) {
     buf.push(capped);
     buf.extend_from_slice(&0u16.to_le_bytes()); // reserved padding
 
-    // Canonical order: pair each analysis's display-signature string (the layer-0 sort key)
-    // with its structured record, then sort by (signature, morpheme_ids, root_morpheme_index,
-    // pos_id) — see module docs for why the tiebreaker is load-bearing, not decorative.
-    //
-    // Belt-and-braces overclaim guard: this format (`MAGIC`) has no `guessed` bit
-    // anywhere in its layout, so a guessed analysis reaching this function would be encoded
-    // byte-indistinguishable from a confirmed one — exactly the overclaim `hc_parse_word`/
-    // `hc_parse_batch` must never commit. Today `guess_fallback: false` at every call site into
-    // `pg_lexicon::SuppliedLexiconRuntime::analyze_word_opts` already prevents a guessed analysis
-    // from ever reaching here; this `retain` is the second, independent layer, so a future caller
-    // that flips that switch on for this same code path cannot silently reintroduce the overclaim
-    // — the analysis is dropped, not encoded. A `filter` was chosen over an `assert`/`panic`:
-    // panicking here would crash the embedding host (this is a `catch_unwind`-wrapped `extern "C"`
-    // boundary, but a panic is still an availability incident, not a "recoverable disappointment")
-    // over a condition this function can safely and silently make true on its own — dropping a
-    // guess this format cannot honestly express is exactly the sanctioned behavior, not a bug to
-    // crash over.
+    // Canonical order: pair each analysis's display-signature string with its structured record, then sort by (signature, morpheme_ids, root_morpheme_index, pos_id); see module docs for why the tiebreaker is load-bearing.
+
+    // Overclaim guard: `MAGIC`'s format has no `guessed` bit, so a guessed analysis reaching this function would be byte-indistinguishable from a confirmed one; dropping it here (a filter, not a panic across this `extern "C"` boundary) is a second, independent layer against that.
     let mut rows: Vec<(String, &WordAnalysis)> = outcome
         .analyses
         .iter()
@@ -259,9 +245,25 @@ pub fn decode(bytes: &[u8]) -> Option<Vec<DecodedWord>> {
     Some(words)
 }
 
-/// Encode a single `ParseOutcome` as a `word_count == 1` buffer, for `hc_parse_word_opts`
-/// (HC-rust port gap G3). Same shape as `encode_single`/`write_word` plus two additive
-/// `guessed` bytes -- see module docs' new "Guess-opt-in wire format" section.
+/// Encode a single `ParseOutcome` as a `word_count == 1` buffer, for `hc_parse_word_opts`.
+/// Same shape as `encode_single`/`write_word`, plus two additive `guessed` bytes:
+/// ```text
+/// Per word:
+///   u8  status          0 = ok, 1 = invalid_shape (see MAGIC's own doc)
+///   u8  capped
+///   u8  guessed         ParseOutcome::guessed -- true iff every analysis below came from the
+///                       guess branch (the all-or-nothing guarantee)
+///   u8  _reserved       always 0
+///   u32 analysis_count
+///   Per analysis (same canonical sort as MAGIC's format -- see write_word's own doc):
+///     i32 pos_id
+///     i32 root_morpheme_index
+///     u8  guessed       WordAnalysis::guessed (mirrors the word-level flag today, but carried
+///                       per-analysis so the wire format doesn't bake in that coupling)
+///     u8[3] _reserved   always 0 (pads to 4-byte alignment before morpheme_count)
+///     u32 morpheme_count
+///     u32[morpheme_count] morpheme_ids
+/// ```
 pub fn encode_single_guess(outcome: &ParseOutcome) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.extend_from_slice(&MAGIC_GUESS.to_le_bytes());
@@ -283,24 +285,7 @@ pub fn encode_batch_guess(outcomes: &[BatchWordOutcome]) -> Vec<u8> {
     buf
 }
 
-/// ```text
-/// Per word:
-///   u8  status          0 = ok, 1 = invalid_shape (see MAGIC's own doc)
-///   u8  capped
-///   u8  guessed         ParseOutcome::guessed -- true iff every analysis below came from the
-///                       guess branch (P11's all-or-nothing guarantee)
-///   u8  _reserved       always 0
-///   u32 analysis_count
-///   Per analysis (same canonical sort as MAGIC's format -- see write_word's own doc):
-///     i32 pos_id
-///     i32 root_morpheme_index
-///     u8  guessed       WordAnalysis::guessed (mirrors the word-level flag today, but carried
-///                       per-analysis so the wire format doesn't bake in that coupling -- same
-///                       rationale as `WordAnalysis::guessed`'s own doc comment)
-///     u8[3] _reserved   always 0 (pads to 4-byte alignment before morpheme_count)
-///     u32 morpheme_count
-///     u32[morpheme_count] morpheme_ids
-/// ```
+/// Byte layout documented on `encode_single_guess`.
 fn write_word_guess(buf: &mut Vec<u8>, outcome: &ParseOutcome) {
     let status: u8 = u8::from(outcome.invalid_shape);
     let capped: u8 = u8::from(outcome.capped);
@@ -310,8 +295,7 @@ fn write_word_guess(buf: &mut Vec<u8>, outcome: &ParseOutcome) {
     buf.push(guessed);
     buf.push(0); // reserved padding
 
-    // Same canonical sort as `write_word` (signature, then the id-based tiebreaker) -- see that
-    // function's own doc for why the tiebreaker is load-bearing, not decorative.
+    // Same canonical sort as `write_word` (signature, then the id-based tiebreaker).
     let mut rows: Vec<(String, &WordAnalysis)> = outcome
         .analyses
         .iter()
@@ -534,11 +518,7 @@ mod tests {
         assert!(decode(&[0, 0, 0, 0]).is_none());
     }
 
-    // -- Encoder-level overclaim guard --------------------------------------------------------
-    // These construct a guessed analysis directly (bypassing `pg_lexicon`/`pg-ffi`'s own
-    // `guess_fallback` plumbing entirely) and feed it straight to this module's `MAGIC` encoder.
-    // The test below, plain_format_encoder_refuses_to_emit_a_guessed_analysis_even_when_constructed_directly,
-    // pins the guard itself, not merely that today's call sites happen to avoid the case.
+    // Encoder-level overclaim guard: these construct a guessed analysis directly (bypassing `pg_lexicon`/`pg-ffi`'s own plumbing) and feed it straight to this module's `MAGIC` encoder, so the test below pins the guard itself, not merely that today's call sites happen to avoid the case.
 
     fn guessed_analysis(surface: &str) -> ((String, String), WordAnalysis) {
         (
@@ -574,9 +554,7 @@ mod tests {
         )
     }
 
-    /// Non-vacuous positive control: a plain confirmed analysis, with no guessed analysis anywhere
-    /// in the outcome, survives the encoder untouched — the guard added in `write_word` must not
-    /// be filtering everything, or the tests below would pass for the wrong reason.
+    /// Non-vacuous positive control: a plain confirmed analysis survives the encoder untouched, so the guard added in `write_word` is not filtering everything.
     #[test]
     fn plain_format_encoder_keeps_a_non_guessed_analysis() {
         let (pair, analysis) = confirmed_analysis("kad", 7);
@@ -599,10 +577,7 @@ mod tests {
         assert_eq!(decoded[0].analyses[0].morpheme_ids, vec![7]);
     }
 
-    /// A `ParseOutcome` that is ENTIRELY a guessed analysis (constructed directly, not by way of
-    /// `pg_lexicon`'s retry) must decode to ZERO analyses through the plain `MAGIC` encoder/decoder
-    /// -- this format cannot express `guessed`, so the encoder must refuse to emit the row at all
-    /// rather than encode it looking exactly like a confirmed one.
+    /// A `ParseOutcome` that is entirely a guessed analysis must decode to zero analyses through the plain `MAGIC` encoder/decoder, since this format cannot express `guessed`.
     #[test]
     fn plain_format_encoder_refuses_to_emit_a_guessed_analysis_even_when_constructed_directly() {
         let (pair, analysis) = guessed_analysis("gag");
@@ -625,9 +600,7 @@ mod tests {
         );
     }
 
-    /// Mixed outcome: a guessed row alongside a confirmed row. Proves the guard is a per-analysis
-    /// filter, not an all-or-nothing rejection of the whole word -- only the guessed row is
-    /// dropped, the confirmed row still comes through.
+    /// Mixed outcome: a guessed row alongside a confirmed row proves the guard is a per-analysis filter, not an all-or-nothing rejection of the whole word.
     #[test]
     fn plain_format_encoder_filters_only_the_guessed_row_out_of_a_mixed_outcome() {
         let (guessed_pair, guessed) = guessed_analysis("gag");
@@ -647,8 +620,7 @@ mod tests {
         assert_eq!(decoded[0].analyses[0].morpheme_ids, vec![9]);
     }
 
-    /// `encode_batch` applies the same per-word guard as `encode_single` -- pinned separately since
-    /// `hc_parse_batch` is one of the two entry points this whole guard exists for.
+    /// `encode_batch` applies the same per-word guard as `encode_single`, pinned separately since `hc_parse_batch` is one of the two entry points this guard exists for.
     #[test]
     fn batch_plain_format_encoder_also_refuses_a_guessed_analysis() {
         let (pair, analysis) = guessed_analysis("gag");
@@ -733,9 +705,7 @@ mod tests {
         assert!(!decoded[0].analyses[0].guessed);
     }
 
-    /// The two magics are never cross-decodable -- a plain `encode_single` buffer must not
-    /// silently "just work" through `decode_guess` (or vice versa), even though the two formats
-    /// share a byte-layout prefix shape.
+    /// The two magics are never cross-decodable, even though the two formats share a byte-layout prefix shape.
     #[test]
     fn guess_format_and_plain_format_are_not_cross_decodable() {
         let outcome = ParseOutcome {

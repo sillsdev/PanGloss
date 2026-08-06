@@ -1,5 +1,4 @@
-//! Compile-once FST pattern cache (plan §13.2 step 5; rust-conversion.md §13.1.1's "Disproven"
-//! paragraph, measured-impact item (1)).
+//! Compile-once FST pattern cache.
 //!
 //! Every matcher the phonological/morphological rule engines use is a pure function of
 //! grammar-static data — a rule/subrule/allomorph pattern, a direction, and a char-def table — never
@@ -44,14 +43,7 @@ use crate::metathesis::{self, MetaCache};
 use crate::morph::{self, AnalysisLhs, CompoundCache};
 use crate::rewrite::{self, EnvFst, PruleCache};
 
-// =================================================================================================
-// Owning-table resolution -- this module's fix for the "implicit table-zero default" antipattern
-// class (`pg_foma::replace::owning_table`'s doc names this precedent on the compiled-net side; the
-// functions below are its confirm-side/oracle equivalent -- the oracle never got the
-// table-threading fix the compiled side did). Table zero is never an implicit default: every
-// phonological rule/allomorph resolves its own natural classes and environments against whichever
-// table its OWN stratum actually owns.
-// =================================================================================================
+// Owning-table resolution: table zero is never an implicit default, mirroring `pg_foma::replace::owning_table`'s precedent on the compiled-net side.
 
 /// Resolve the table that owns a grammar-resident phonological rule (`g.prules[pid.0]`), by finding
 /// which stratum's own `prules` cascade contains it -- mirrors `pg_foma::replace::
@@ -125,14 +117,12 @@ pub(crate) fn owning_table_for_allomorph(g: &Grammar, owner: AllomorphOwner) -> 
 /// `owning_table_for_prule`'s sibling over `g.strata[..].mrules` instead of `.prules` --
 /// `owning_table_for_allomorph` cannot resolve a `MorphRuleDef::Compounding` rule at all (it
 /// mints no `AllomorphOwner`, unlike `AffixProcess`/`Realizational`, both of which carry their own
-/// `MorphemeId` and so resolve via `owning_table_for_morpheme` instead of needing this). This is
-/// NOT a fourth independent resolution strategy: it is `owning_table_for_prule`'s own "which
-/// stratum's own cascade contains this id" algorithm, applied to the one `Grammar` list
-/// (`mrules`) that algorithm doesn't already cover -- the minimal completion `morph::
-/// build_compound_cache`'s own table-threading needs, named explicitly per this task's own
-/// "architectural additions must be flagged, not papered over" instruction. `None` under the
-/// identical two conditions `owning_table_for_prule`'s doc names (an orphaned-but-resident rule, or
-/// a non-loader test fixture with no strata wiring at all).
+/// `MorphemeId` and so resolve via `owning_table_for_morpheme` instead of needing this). Not a
+/// fourth independent resolution strategy: it is `owning_table_for_prule`'s own "which stratum's
+/// own cascade contains this id" algorithm, applied to the one `Grammar` list (`mrules`) that
+/// algorithm doesn't already cover. `None` under the identical two conditions
+/// `owning_table_for_prule`'s doc names (an orphaned-but-resident rule, or a non-loader test
+/// fixture with no strata wiring at all).
 pub(crate) fn owning_table_for_mrule(g: &Grammar, mrid: MRuleId) -> Option<TableId> {
     g.strata
         .iter()
@@ -184,24 +174,18 @@ pub(crate) struct AllomorphCache {
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum PruleCacheEntry {
     Rewrite(PruleCache),
-    /// Boxed: `MetaCache` grew past the lint's threshold when the metathesis analysis fix added a
-    /// `Grammar`-dependent `ana_pattern_len` field (the middle-node boundary check needs the grammar
-    /// to classify a node). Boxing keeps every slot of a mostly-`Rewrite` `Vec` from paying the
-    /// metathesis cache's size; metathesis rules are rare, so the one allocation is free in practice.
+    /// Boxed so a mostly-`Rewrite` `Vec` doesn't pay `MetaCache`'s size on every slot; metathesis rules are rare.
     Metathesis(Box<MetaCache>),
 }
 
-/// The whole-grammar compile-once cache (plan §13.2 step 5). Build once, at `Morpher` construction;
+/// The whole-grammar compile-once cache. Build once, at `Morpher` construction;
 /// share read-only across every `pangloss batch --threads=N` worker.
 pub struct RuleCache {
     /// Indexed by `PRuleId.0` (one slot per `g.prules` entry, in order).
     prules: Vec<PruleCacheEntry>,
-    /// Indexed by `AllomorphId.0` (one slot per `g.allomorph_owners` entry, in order — root and
-    /// affix allomorphs share this global id space).
+    /// Indexed by `AllomorphId.0` (root and affix allomorphs share this global id space).
     allomorphs: Vec<AllomorphCache>,
-    /// Indexed by `MRuleId.0` (one slot per `g.mrules` entry, in order); `Some` only where that
-    /// entry is a `MorphRuleDef::Compounding` (an `AffixProcess` entry's matchers live in
-    /// `allomorphs` instead, keyed by each of its allomorphs' own `AllomorphId`).
+    /// Indexed by `MRuleId.0`; `Some` only for a `MorphRuleDef::Compounding` entry (an `AffixProcess` entry's matchers live in `allomorphs` instead).
     compounds: Vec<Option<CompoundCache>>,
 }
 
@@ -216,17 +200,7 @@ impl RuleCache {
             .enumerate()
             .map(|(idx, rule)| {
                 let pid = PRuleId(idx as u32);
-                // `owning_table_for_prule` returning `None` here means "absent from every
-                // stratum's own `prules` cascade" -- either a real orphaned prule in a multi-table
-                // grammar (never reachable from the real per-word pipeline either way, since
-                // `crate::stratum` only ever applies a prule by walking `stratum.prules` itself --
-                // this slot is compiled but provably dead code for that shape) or a rule-level test
-                // fixture with no strata declared at all (`rewrite_gate.rs`'s own
-                // `traced_analysis_cached_matches_uncached`, which pushes straight into `g.prules`
-                // and queries by raw position without any stratum wiring). `TableId(0)` is the
-                // correct, not-a-guess answer for the latter (every such fixture is single-table);
-                // for the former it is compiled against a table that can never actually be
-                // observed, so no observable behavior depends on which table is picked.
+                // `None` means either an orphaned prule (provably dead code, never walked by `crate::stratum`) or a no-strata test fixture, where `TableId(0)` is the correct, not-a-guess answer.
                 let table = owning_table_for_prule(g, pid).unwrap_or(TableId(0));
                 match rule {
                     PhonRuleDef::Rewrite(r) => {
@@ -249,8 +223,7 @@ impl RuleCache {
             .enumerate()
             .map(|(idx, mr)| match mr {
                 MorphRuleDef::Compounding(def) => {
-                    // See `owning_table_for_mrule`'s own doc for why this exists (Compounding mints
-                    // no `AllomorphOwner` for `owning_table_for_allomorph` to resolve through).
+                    // Compounding mints no `AllomorphOwner` for `owning_table_for_allomorph` to resolve through.
                     let table =
                         owning_table_for_mrule(g, MRuleId(idx as u32)).unwrap_or(TableId(0));
                     Some(morph::build_compound_cache(g, table, def))
@@ -295,9 +268,7 @@ impl RuleCache {
 }
 
 fn build_allomorph_cache(g: &Grammar, owner: &AllomorphOwner) -> AllomorphCache {
-    // An allomorph's environments are compiled against ITS OWN owning stratum's table, never an
-    // implicit table-zero default -- see `owning_table_for_allomorph`'s own doc for the `None`
-    // fallback contract (non-loader-built test fixtures only).
+    // An allomorph's environments are compiled against its own owning stratum's table, never an implicit table-zero default.
     let table = owning_table_for_allomorph(g, *owner).unwrap_or(TableId(0));
     match *owner {
         AllomorphOwner::Root(le, idx) => {
@@ -308,9 +279,7 @@ fn build_allomorph_cache(g: &Grammar, owner: &AllomorphOwner) -> AllomorphCache 
                 ana_lhs: None,
             }
         }
-        // `MorphRuleDef::affix_allomorphs` centralizes the AffixProcess/Realizational-both-own-
-        // AffixAllomorphDef fact (see that method's doc) so this site doesn't need its own
-        // three-way match.
+        // `MorphRuleDef::affix_allomorphs` centralizes the AffixProcess/Realizational-both-own-AffixAllomorphDef fact, so this site doesn't need its own three-way match.
         AllomorphOwner::Affix(mr, idx) => {
             let allos = g.mrules[mr.0 as usize]
                 .affix_allomorphs()
@@ -341,12 +310,7 @@ fn build_env_cache(
         .collect()
 }
 
-// =================================================================================================
-// Regression gate: the direct inverse of the "implicit table-zero default" defect. A phonological
-// rule declared on a NON-ZERO-table stratum must resolve its own natural classes against ITS OWN
-// table, never table 0 -- fails (empty synthesis output, not a graceful assertion) if `TABLE`/
-// `TableId(0)` ever comes back as a hardcoded default here.
-// =================================================================================================
+// Regression gate: a phonological rule on a non-zero-table stratum must resolve natural classes against its own table, never table 0.
 
 #[cfg(test)]
 mod owning_table_tests {
@@ -354,18 +318,7 @@ mod owning_table_tests {
     use pg_featstruct::FeatureStruct;
     use pg_grammar::model::MprSet;
 
-    /// Two tables (`t0`: 1 segment "z", feature `f`=`+`; `t1`: 2 segments "q" `f`=`-`, "p" `f`=`+`),
-    /// two strata (`S0`→`t0`, no rules; `S1`→`t1`, owning the one phonological rule below). The
-    /// rule's own `SegmentNaturalClass`-kind LHS/RHS (`ncQ`={q}, `ncP`={p}, both members declared
-    /// ONLY in `t1`) is deliberately the kind of natural class `pg_rules::bridge::PatternBridge::
-    /// nat_class_lanes`'s `NaturalClassKind::Segments` branch resolves via `self.table` (unlike a
-    /// `FeatureNaturalClass`, whose lanes are table-agnostic -- see this module's own doc for why
-    /// that distinction matters for this specific proof). `t0`'s own lone segment "z" is given the
-    /// SAME feature value as "p" (`f`=`+`) and the OPPOSITE of "q" (`f`=`-`) specifically so that a
-    /// wrongly-table-0-resolved `ncQ` constraint (`t0.get(CharDefId(0))` = "z", `f`=`+`) can NEVER
-    /// match a real `t1`-native "q" segment (`f`=`-`) -- the two tables' raw index 0 members are
-    /// deliberately given DIFFERENT feature values, mirroring every staged multi-table fixture's own
-    /// "deliberately misaligned raw indices" convention.
+    /// Two tables/strata with deliberately misaligned raw indices: `t0`'s segment "z" and `t1`'s "q" both sit at index 0 but carry opposite feature values, so a wrongly-table-0-resolved `ncQ` can never match a real `t1` "q".
     const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -454,13 +407,7 @@ mod owning_table_tests {
         );
     }
 
-    /// Direct inverse of the defect: run the rule through the REAL cached production path
-    /// (`RuleCache::build` + `rewrite::synthesize_with_mpr_cached`, exactly what `crate::stratum`
-    /// calls for every real word) on a `t1`-native "q" segment. If `build_prule_cache` ever goes
-    /// back to compiling this rule's natural classes against the hardcoded `TableId(0)`, `ncQ`'s
-    /// compiled constraint becomes `t0`'s "z" (`f`=`+`) instead of `t1`'s real "q" (`f`=`-`) --  a
-    /// real `t1` "q" segment's own lanes (`f`=`-`) then fail to match it, synthesis finds nothing,
-    /// and this test fails (empty output, not a silently-passing wrong answer).
+    /// Runs the rule through the real cached production path on a `t1`-native "q" segment: if `ncQ` is ever wrongly compiled against table 0 again, synthesis finds nothing and this test fails.
     #[test]
     fn cached_synthesis_resolves_natural_classes_against_the_rules_own_table_not_table_zero() {
         let g = load();
@@ -490,9 +437,7 @@ mod owning_table_tests {
              wrongly compiled against table 0 instead"
         );
 
-        // The single interior node's lanes must now match "p"'s own (f=+), not "z"'s (also f=+,
-        // chosen deliberately equal to "p" so this positive assertion and the match-at-all proof
-        // above are independent checks, not the same fact restated).
+        // The interior node's lanes must match "p"'s (f=+), not "z"'s -- an independent check from the match-at-all proof above, since both happen to share f=+.
         let p_lanes = t1
             .get(pg_grammar::chardef::CharDefId(1))
             .feature_lanes()
@@ -508,24 +453,7 @@ mod owning_table_tests {
         );
     }
 
-    /// Follow-up (defect (a), `pg-rules/src/morph.rs`'s own module-level `const TABLE`):
-    /// the SAME regression this module's two tests above pin for a phonological rule, but for an
-    /// **affix allomorph's own LHS/RHS pattern** (`morph::compile_parts`/`morph::build_ana_affix_lhs`,
-    /// threaded via `morph::build_allomorph_lhs_cache`) -- the "environment half" of an allomorph
-    /// (`build_env_cache`, this module) was fixed separately, but its LHS/RHS *pattern*
-    /// stayed hardcoded at `TableId(0)` until fixed here. Two tables/strata, deliberately
-    /// misaligned raw indices, mirroring the phonological-rule probe's own fixture exactly: `t0`
-    /// (stratum `S0`, no rules) has one decoy segment "z" (`f`=`+`, raw index 0); `t1` (stratum
-    /// `S1`, owning the affix rule below) has "q" (`f`=`-`, raw index 0) and "p" (`f`=`+`, raw index
-    /// 1). `mrQtoQP`'s single allomorph's LHS is `ncQ`, a `SegmentNaturalClass` (table-DEPENDENT by
-    /// construction, unlike every pre-existing multi-table fixture's `FeatureNaturalClass` --
-    /// `PatternBridge::nat_class_lanes`'s `Feature` branch never reads `self.table` at all, so this
-    /// crate's whole pre-existing conformance suite could not see this bug class). If `ncQ` is ever wrongly compiled against table 0 again, its
-    /// constraint becomes `t0`'s "z" (`f`=`+`) instead of `t1`'s real "q" (`f`=`-`) -- a real `t1`
-    /// "q" root's own lanes (`f`=`-`) then fail to match the allomorph's LHS FST at all, synthesis
-    /// finds nothing, and this test fails (empty output, not a silently-passing wrong answer). The
-    /// RHS's `InsertSegments` literal "p" additionally exercises `cd_lanes`'s own table resolution
-    /// in the same pass.
+    /// Same regression as the two tests above, but for an affix allomorph's own LHS/RHS pattern rather than a phonological rule's environment.
     #[test]
     fn cached_affix_synthesis_resolves_the_allomorphs_own_lhs_rhs_pattern_against_its_own_table_not_table_zero(
     ) {

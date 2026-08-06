@@ -1,24 +1,15 @@
-//! The in-flight parse state for the morphological-rule engine (plan §5.5, M4a).
+//! The in-flight parse state for the morphological-rule engine.
 //!
 //! This is the `Word` the affix-process and compounding primitives (un)apply rules to. It is
-//! deliberately **owned** (no arena lifetime, no persistent trail, no `rule_counts`): the plan
-//! defers those to M6, and the task brief pins this milestone to the owned form.
+//! deliberately **owned** (no arena lifetime, no persistent trail, no `rule_counts`).
 //!
-//! ## Deviations from the brief's contract sketch (flagged, per "implement exactly, flag if
-//! inadequate")
-//! - **`syn_fs` / `real_fs` are owned `FeatureStruct`s, not `FsId`s.** Rule application *mints new
-//!   feature-structure values* (`unify` then `priority_union` on synthesis; `Add`/`Clear` on
-//!   analysis). Those values cannot be interned into the immutable grammar interner
-//!   (`grammar.fs_interner`, a frozen contract), and standing up a per-parse mutable FS interner is
-//!   exactly the arena-backed M6 machinery the brief says **not** to bring forward. Owning the value
-//!   is the minimal correct choice and is the more faithful reading of "keep it OWNED for now"; M6
-//!   will re-introduce interning (arena-scoped) and this field becomes an `FsId` again. Grammar-tier
-//!   requirement/output FSs stay `FsId` and are resolved through `grammar.fs_interner` at use.
-//! - **`mpr: MprSet` added.** The brief's struct sketch omits it, but the brief's own semantics list
-//!   requires MPR gating (`required_mpr`/`excluded_mpr`) and MPR output accumulation (`out_mpr`),
-//!   which read/write the word's MPR set. Added and flagged.
-//! - **`obligatory: Vec<FeatId>` added.** The brief calls for "`obligatory_features` recorded"; the
-//!   word is where they accumulate. Added and flagged.
+//! `syn_fs`/`real_fs` are owned `FeatureStruct`s, not `FsId`s: rule application mints new
+//! feature-structure values (`unify` then `priority_union` on synthesis; `Add`/`Clear` on
+//! analysis), and those values cannot be interned into the immutable grammar interner
+//! (`grammar.fs_interner`, a frozen contract). Grammar-tier requirement/output FSs stay `FsId` and
+//! are resolved through `grammar.fs_interner` at use. `mpr: MprSet` and `obligatory: Vec<FeatId>`
+//! are also owned here, since MPR gating/accumulation and obligatory-feature accumulation both
+//! read/write the word's own state as rules apply.
 
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -37,7 +28,7 @@ pub struct WordFlags {
     pub is_last_applied_rule_final: Option<bool>,
 }
 
-/// One applied allomorph, recorded in **morph order** (plan §5.5: the batch signature is
+/// One applied allomorph, recorded in **morph order** (the batch signature is
 /// `join("+", morpheme.Id)` over the word's morphs in surface order).
 ///
 /// `order` is the leftmost interior node position (0-based, anchors excluded) of the morph's
@@ -49,7 +40,7 @@ pub struct MorphRecord {
     pub allomorph: AllomorphId,
     pub morpheme: MorphemeId,
     pub order: u32,
-    /// W3.2 (plan #5d, history row `987be2fd`): the same-rule allomorph indices that successfully
+    /// The same-rule allomorph indices that successfully
     /// applied *before* this one within the same `SynthesisAffixProcessRule.Apply` loop — C#'s
     /// per-morphID `Word._disjunctiveAllomorphIndices` entry (`appliedAllomorphIndices`,
     /// `SynthesisAffixProcessRule.cs:138,201-202`), stored on the record itself since this port's
@@ -60,15 +51,14 @@ pub struct MorphRecord {
     /// rule applications by `attribute_morphs`' record inheritance, mirroring how C#'s dictionary
     /// rides along in `Word`'s copy constructor (Word.cs:112-115).
     pub passed_over: Option<Box<[u16]>>,
-    /// Wave-4 (W9.1 `dfbb754b` + the subsumed-affix finding): how this record is anchored — see
-    /// `MorphStatus` and `pg_rules::morph::attribute_morphs`'s doc comment for the C# mechanism
-    /// each variant ports. `Real` for root records and every pre-wave-4 record.
+    /// How this record is anchored — see `MorphStatus` and `pg_rules::morph::attribute_morphs`'s
+    /// doc comment for the C# mechanism each variant ports. `Real` for root records.
     pub status: MorphStatus,
     /// Runtime root payload attached to this morph (never word-wide), for supplied/guessed roots.
     pub runtime_root: Option<Rc<RuntimeRoot>>,
 }
 
-/// How a `MorphRecord` is anchored to the word's shape (wave-4). Only `MorphStatus::Real`
+/// How a `MorphRecord` is anchored to the word's shape. Only `MorphStatus::Real`
 /// records own output nodes (`pg_rules::morph`'s `owning_morph` skips the rest); the other three
 /// variants port the C# annotation-tree states a morph can be in after
 /// `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs`'s fallback branches (cs:162-207):
@@ -76,19 +66,11 @@ pub struct MorphRecord {
 pub enum MorphStatus {
     /// Owns the output nodes starting at `order` (a normal, positioned morph annotation).
     Real,
-    /// A pure-truncation rule's own fallback marker (`outputNewMorph == null` ⇒
-    /// `MarkMorph(Shape.Last)`, cs:168-174), not yet resolved onto real material. `order` is the
-    /// `pg_rules::morph::FLOATING_ORDER` sentinel while in this state.
+    /// A pure-truncation rule's fallback marker, not yet resolved onto real material (`order` is the `FLOATING_ORDER` sentinel while in this state).
     Floating,
-    /// An input morph whose material was entirely dropped by a rule that DID insert new material:
-    /// C# attaches it as a *child* of the new morph's annotation (`MarkSubsumedMorph`, cs:196-203).
-    /// Shares its host's `order` and renders **before** the host (C#'s postorder `Word.Morphs`
-    /// traversal visits children first); follows the host's material on later hops.
+    /// An input morph whose material was entirely dropped by a rule that inserted new material: attached as a child of the new morph's annotation, rendering before the host.
     SubsumedChild,
-    /// An input morph whose material was entirely dropped by a rule with NO new material: C#
-    /// re-marks it on the output's first node (`MarkMorph(Shape.First)`, cs:188-193), a top-level
-    /// sub-range annotation. `order` 0 (or the host's run start after re-anchoring) and renders
-    /// **after** the containing morph (C#'s interval sort puts the longer, containing range first).
+    /// An input morph whose material was entirely dropped by a rule with no new material: re-marked on the output's first node, rendering after the containing morph.
     SubsumedFirst,
 }
 
@@ -111,22 +93,20 @@ impl MorphRecord {
     }
 }
 
-/// P11 §4.4 (the crux of representing a guessed root): the fabricated root's payload. `Grammar`
-/// is immutable and shared across parses/threads, so a guessed allomorph/entry/morpheme — which
-/// C# fabricates as fresh `RootAllomorph`/`LexEntry` objects with no place in any grammar table
-/// (`Morpher.LexicalGuess`, `Morpher.cs:522-590`) — cannot be appended to it. Instead
-/// `Word::root_allomorph` and the root `MorphRecord` carry the sentinels
-/// `AllomorphId::GUESSED` / `MorphemeId::GUESSED`, and this payload is looked up on the word
-/// itself wherever the real content is needed.
+/// The fabricated root's payload. `Grammar` is immutable and shared across parses/threads, so a
+/// guessed allomorph/entry/morpheme — which C# fabricates as fresh `RootAllomorph`/`LexEntry`
+/// objects with no place in any grammar table (`Morpher.LexicalGuess`, `Morpher.cs:522-590`) —
+/// cannot be appended to it. Instead `Word::root_allomorph` and the root `MorphRecord` carry the
+/// sentinels `AllomorphId::GUESSED` / `MorphemeId::GUESSED`, and this payload is looked up on the
+/// word itself wherever the real content is needed.
 ///
 /// Every id-resolution site that reads `allomorph_owners`/`entries`/`morphemes` with a word's
 /// morph ids must special-case the sentinel and delegate to `pattern_allo`/`pattern_entry` here —
 /// which are REAL, ordinary grammar ids (the lexical-pattern allomorph the guess matched, e.g.
 /// `[Any]*`; only the fabricated root ITSELF has no table row, never the pattern it came from).
-/// See `pg-parse/src/guess.rs`'s module doc (P11 chunk 4-5) for how this is fabricated, and
-/// `pg-rules/src/validity.rs::allomorphs_valid_impl`'s sentinel branch (P11 chunk 3) for the
-/// first, and so far only, resolution site this port needs (§4.4-1's audit obligation lists the
-/// sites checked and found unreachable for a guessed root).
+/// See `pg-parse/src/guess.rs`'s module doc for how this is fabricated, and
+/// `pg-rules/src/validity.rs::allomorphs_valid_impl`'s sentinel branch for the first, and so far
+/// only, resolution site this port needs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GuessedRoot {
     /// The lexical-pattern root allomorph the guess matched against (C#'s `patternAllomorph`) —
@@ -185,20 +165,19 @@ pub fn runtime_id(root: Option<&RuntimeRoot>) -> Option<&str> {
     }
 }
 
-/// The in-flight parse state (plan §5.5). See the module docs for the flagged deviations from the
-/// brief's contract sketch.
+/// The in-flight parse state. See the module docs for the owned-vs-interned tradeoffs.
 #[derive(Clone, Debug)]
 pub struct Word {
-    /// The phonetic shape (owned; per-parse interning is deferred to M6).
+    /// The phonetic shape (owned; per-parse interning is not done).
     pub shape: Shape,
     pub stratum: StratumId,
     /// Syntactic feature structure (owned — see module docs).
     pub syn_fs: FeatureStruct,
-    /// Realizational FS: `FeatureStruct::EMPTY` except while a `RealizationalAffixProcessRule`
-    /// (W5) is threading its own realizational value through `ana_realizational`/
-    /// `synth_realizational` (`pg_rules::morph`), or on a generation seed built by
-    /// `pg_parse::morpher`'s `generate_words` with a caller-supplied non-empty value (C#
-    /// `Morpher.GenerateWords`'s `realizationalFS` parameter, Morpher.cs:169-182; W7).
+    /// Realizational FS: `FeatureStruct::EMPTY` except while a `RealizationalAffixProcessRule` is
+    /// threading its own realizational value through `ana_realizational`/`synth_realizational`
+    /// (`pg_rules::morph`), or on a generation seed built by `pg_parse::morpher`'s
+    /// `generate_words` with a caller-supplied non-empty value (C#
+    /// `Morpher.GenerateWords`'s `realizationalFS` parameter, Morpher.cs:169-182).
     pub real_fs: FeatureStruct,
     /// Morphological/phonological rule (MPR) feature set (see module docs).
     pub mpr: MprSet,
@@ -210,7 +189,7 @@ pub struct Word {
     /// C# `Word._nonHeadAppIndex` (init `-1` = none). During analysis this only ever grows
     /// (`NonHeadUnapplied` pushes + increments; nothing pops), so it invariably equals
     /// `non_heads.len() as i32 - 1`. It is a **dedup-key** component (Word.cs:520,540), not a
-    /// cascade driver — the cascades track their own rule position (M4b: `AnalysisStratumRule`).
+    /// cascade driver — the cascades track their own rule position via `AnalysisStratumRule`.
     pub non_head_app_index: i32,
     /// The morphological rules unapplied so far, in unapplication order (C# `Word._mruleApps`;
     /// `MorphologicalRuleUnapplied` appends). Analysis always records the *known* `Some(`[`MRuleId`]`)`
@@ -218,7 +197,7 @@ pub struct Word {
     /// rule" entry (Word.cs:317-327's doc: "used when generating a compound word, because the
     /// compounding rule is usually not known, just the non-head allomorph") — it never arises from
     /// analysis, only from `pg_parse`'s `generate_words` seeding a bare `LexEntry` non-head
-    /// directly into the unapplication trail (W7); the synthesis confirmation gate
+    /// directly into the unapplication trail; the synthesis confirmation gate
     /// (`pg_rules::stratum::guided_synth`) matches a `None` slot against **any** `CompoundingRule`,
     /// exactly as C#'s `IsMorphologicalRuleApplicable`'s `curRule == null && rule is CompoundingRule`
     /// clause (Word.cs:237-244) does. A dedup-key component (Word.cs:523,543): two words with the
@@ -231,8 +210,8 @@ pub struct Word {
     /// so it always equals `mrule_apps.len() as i32 - 1`. A dedup-key component
     /// (Word.cs:524,544), not a cascade driver.
     pub mrule_app_index: i32,
-    /// The matched root allomorph (C# `Word._rootAllomorph`). Set by M5 lexical lookup; stays
-    /// `None` throughout M4b analysis (the surface word starts from `Word(Stratum, Shape)`, which
+    /// The matched root allomorph (C# `Word._rootAllomorph`). Set by lexical lookup; stays
+    /// `None` throughout analysis (the surface word starts from `Word(Stratum, Shape)`, which
     /// leaves it null). A dedup-key component (Word.cs:522,542).
     pub root_allomorph: Option<AllomorphId>,
     /// Stable identity of a runtime-backed head root; payload remains on its MorphRecord.
@@ -242,8 +221,8 @@ pub struct Word {
     pub obligatory: Vec<FeatId>,
     /// Per-rule **unapplication** count multiset (C# `Word._mrulesUnapplied` /
     /// `Word.UnappliedRuleCounts`, Word.cs:376-406) — how many times each morphological rule has been
-    /// unapplied on this word. Incremented alongside every `mrule_apps.push` (the M6 rule-count
-    /// deferred from M4b). Its sole consumer is `pg_memo::AnalysisStateKey`, which needs an
+    /// unapplied on this word. Incremented alongside every `mrule_apps.push`. Its sole consumer is
+    /// `pg_memo::AnalysisStateKey`, which needs an
     /// order-independent view of the trail; it is **not** part of `WordKey` (C# `ValueEquals`
     /// ignores it), so adding it does not perturb dedup. A `BTreeMap` for the same canonical-order
     /// reason the key uses one. Unmodified by `Word::replay_onto` — see that method.
@@ -262,7 +241,7 @@ pub struct Word {
     /// `ValueEquals` never reads `Source`), and cleared-not-copied on the seed/lexical-lookup clones
     /// (see those sites) so it can never inflate the key or the candidate set.
     pub source: Option<Rc<Word>>,
-    /// P11 §4.4: `Some` iff this word's root is a guessed (fabricated) one — equivalently iff
+    /// `Some` iff this word's root is a guessed (fabricated) one — equivalently iff
     /// `root_allomorph == Some(AllomorphId::GUESSED)` — carrying the payload every sentinel-id
     /// resolution site needs (see `GuessedRoot`'s doc). `None` for every ordinary (real-lexicon)
     /// word, the overwhelming majority. `Rc` for the same reason `source` is: words are cloned
@@ -295,7 +274,7 @@ pub struct Word {
 
 /// Canonical dedup key for `Word`, a faithful port of C# `Word.ValueEquals` / `FreezeImpl`
 /// (Word.cs:508-546). The cascades (`pg_rules::cascade`) and the stratum orchestrator dedup on this
-/// key; M6's `AnalysisStateKey` builds on it.
+/// key; `pg_memo::AnalysisStateKey` builds on it.
 ///
 /// The compared components are **exactly** those C# `ValueEquals` walks (Word.cs:537-545):
 /// `shape` (`_shape.ValueEquals`), `real_fs` (`_realizationalFS.ValueEquals`), `non_heads` compared
@@ -441,8 +420,7 @@ impl Word {
         clone
     }
 
-    /// The canonical dedup key (see `WordKey`). Cloned per lookup; per-parse interning that would
-    /// avoid the clone is deferred to M6.
+    /// The canonical dedup key (see `WordKey`). Cloned per lookup; no per-parse interning is done.
     pub fn dedup_key(&self) -> WordKey {
         WordKey {
             shape: self.shape.clone(),
@@ -494,7 +472,7 @@ impl Word {
     /// engine would have — this is what makes the merge a de-duplication rather than a loss.
     ///
     /// Deviations from C#, documented here rather than silently dropped:
-    /// - the realizational-FS diff (Word.cs:515-524, W5) is now ported — see the `real_fs` block
+    /// - the realizational-FS diff (Word.cs:515-524) is ported — see the `real_fs` block
     ///   below — but C#'s `Unify(diff, out newFS)` call **discards its own success flag**, so a
     ///   diff that fails to unify with `alt.real_fs` sets `alternative._realizationalFS` to a C#
     ///   `null` (`FeatureStruct.Unify`'s failure branch, FeatureStruct.cs:1043-1047) with no
@@ -511,8 +489,7 @@ impl Word {
         let mut out: Vec<Word> = Vec::new();
         let originals: Option<Vec<Word>> = self.source.as_ref().map(|s| s.expand_alternatives());
         match &originals {
-            // The general case (cs:504-528): the source fanned out to >= 2 originals, so this word's
-            // delta must be replayed onto each of them.
+            // The general case: the source fanned out to >= 2 originals, so this word's delta must be replayed onto each of them.
             Some(o) if o.len() >= 2 => {
                 let src = self
                     .source
@@ -525,9 +502,7 @@ impl Word {
                     for i in src.mrule_apps.len()..self.mrule_apps.len() {
                         let id = self.mrule_apps[i];
                         alt.mrule_apps.push(id);
-                        // C# `MorphologicalRuleUnapplied`'s `mrule != null` guard (Word.cs:319-320);
-                        // never actually `None` on this path (analysis, not generation — see
-                        // `mrule_apps`'s field doc), kept for type-level faithfulness.
+                        // C#'s `mrule != null` guard; never actually `None` on this path, kept for type-level faithfulness.
                         if let Some(id) = id {
                             *alt.unapplied_rule_counts.entry(id).or_insert(0) += 1;
                         }
@@ -538,8 +513,7 @@ impl Word {
                         alt.non_heads.push(self.non_heads[i].clone());
                     }
                     alt.non_head_app_index = alt.non_heads.len() as i32 - 1;
-                    // Realizational-FS diff (cs:515-524, W5) — see the doc comment for the one
-                    // documented divergence (C#'s discarded-success-flag null path).
+                    // Realizational-FS diff -- see the doc comment for the one documented divergence (C#'s discarded-success-flag null path).
                     if self.real_fs != src.real_fs {
                         let diff = pg_featstruct::subtract(&self.real_fs, &src.real_fs);
                         if let Some(new_fs) = pg_featstruct::unify(&alt.real_fs, &diff) {
@@ -556,10 +530,7 @@ impl Word {
                         alt.flags.is_partial = self.flags.is_partial;
                         alt.root_allomorph = self.root_allomorph;
                         alt.root_runtime_id = self.root_runtime_id.clone();
-                        // P11 §4.4: the guessed-root payload rides along with root_allomorph —
-                        // both change together at the exact same site (guess fabrication /
-                        // lexical lookup), so whenever C#'s `RootAllomorph` setter fires here,
-                        // this must fire with it (never observable in isolation).
+                        // The guessed-root payload rides along with root_allomorph: both change together at the exact same site, never observable in isolation.
                     }
                     out.push(alt);
                 }
@@ -587,8 +558,8 @@ impl Word {
     /// Morpheme ids in morph (surface) order — the sequence the batch signature joins with `+`.
     /// Deduped by allomorph and runtime realization in first-occurrence order. The runtime
     /// identity is load-bearing because supplied roots share a sentinel allomorph while still
-    /// representing distinct morphemes. W3.3 also splits a discontinuous morph into one
-    /// `MorphRecord` per contiguous run, all sharing both identities.
+    /// representing distinct morphemes. A discontinuous morph also splits into one `MorphRecord`
+    /// per contiguous run, all sharing both identities.
     pub fn morpheme_sequence(&self) -> Vec<MorphemeId> {
         let mut ms = self.morphs.clone();
         ms.sort_by_key(|m| m.order);
@@ -622,14 +593,12 @@ mod tests {
 
     #[test]
     fn replay_grafts_mrule_prefix_keeps_suffix() {
-        // Stored subtree result: reached node N after unapplying [r0, r1] (N's prefix, len 2), then
-        // the subtree unapplied [r2]. So stored.mrule_apps = [r0, r1, r2].
+        // Stored subtree result: reached node N after unapplying [r0, r1], then the subtree unapplied [r2].
         let mut stored = w();
         stored.mrule_apps = vec![Some(MRuleId(0)), Some(MRuleId(1)), Some(MRuleId(2))];
         stored.mrule_app_index = 2;
 
-        // Query reached the SAME state N via a different order [r1, r0] (same {r0:1, r1:1} multiset,
-        // same length 2 — the equal-key guarantee).
+        // Query reached the same state N via a different order [r1, r0] (same multiset, same length -- the equal-key guarantee).
         let mut query = w();
         query.mrule_apps = vec![Some(MRuleId(1)), Some(MRuleId(0))];
         query.mrule_app_index = 1;

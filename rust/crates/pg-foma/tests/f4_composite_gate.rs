@@ -1,26 +1,4 @@
-//! Gate F2: the propose→confirm composite (`pg_foma::composite::FomaAnalyzer`) against the real
-//! Sena and Indonesian grammars, with the FULL ENGINE (`pg_parse::Morpher::parse_word_opts`, a
-//! normal, not dev-only, dependency) as the parity oracle -- our own full engine, because confirm
-//! IS our engine.
-//!
-//! (a) over-generation pruned: `mbali` (Sena) has far more proposed candidates than the engine has
-//!     analyses; `analyze_word` must return exactly the engine's analyses, not the candidate count.
-//! (b) MULTIPLICITY (plan D4): `mbali`'s full 8-analysis multiset (with duplicates) must round-trip
-//!     exactly, both as `(morpheme_ids, root_morpheme_index)` tuples and as the display-string pairs.
-//! (c) REDUP (plan D6): the 7 Indonesian corpus reduplication words round-trip against the engine.
-//! (d) no-analysis word returns empty, never panics; consistency with the engine under the SAME
-//!     `ParseOptions::default()` (no guessing) is checked directly against the Sena corpus.
-//! (e) MINI-PARITY smoke: first 40 Sena corpus words + every non-redup Indonesian corpus word,
-//!     100% multiset parity required; per-word timings reported.
-//!
-//! ## Test-timing policy
-//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
-//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. Every test in
-//! this file loads a real Sena and/or Indonesian grammar, so all five are unconditionally
-//! `#[ignore = "..."]`d (replacing the old `cfg_attr(debug_assertions, ...)` debug-only ignore on
-//! (d)/(e)), each with a self-skip guard so `--include-ignored` runs stay green where the fixture
-//! is absent (CI). Run the full set locally with
-//! `cargo test -p pg-foma --release --test f4_composite_gate -- --include-ignored`.
+//! The propose→confirm composite (`pg_foma::composite::FomaAnalyzer`) against the real Sena and Indonesian grammars, with the full engine (`pg_parse::Morpher::parse_word_opts`) as the parity oracle. All tests need the gitignored real-language corpus fixtures, so they are `#[ignore]`d with a self-skip guard; run with `--include-ignored`.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -74,8 +52,7 @@ fn read_words(name: &str) -> Vec<String> {
         .collect()
 }
 
-/// Multiset key for a `WordAnalysis`: `(morpheme_ids, root_morpheme_index)`, sorted — comparing two
-/// sorted `Vec`s IS multiset comparison (duplicates preserved, order-independent).
+/// Multiset key for a `WordAnalysis`: `(morpheme_ids, root_morpheme_index)`, sorted for order-independent multiset comparison.
 fn structured_multiset(v: &[WordAnalysis]) -> Vec<(Vec<u32>, i32)> {
     let mut m: Vec<(Vec<u32>, i32)> = v
         .iter()
@@ -91,10 +68,7 @@ fn analyses_multiset(v: &[(String, String)]) -> Vec<(String, String)> {
     m
 }
 
-// -------------------------------------------------------------------------------------------
-// (a) over-generation pruned: mbali's candidate count vastly exceeds the engine's analysis
-//     count; analyze_word must return exactly the engine's analyses, not the candidate count.
-// -------------------------------------------------------------------------------------------
+// (a) over-generation pruned: analyze_word must return exactly the engine's analyses, not the candidate count.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
@@ -139,10 +113,7 @@ fn a_overgeneration_pruned_mbali() {
     );
 }
 
-// -------------------------------------------------------------------------------------------
-// (b) MULTIPLICITY (plan D4): mbali's full multiset (duplicates included) round-trips exactly,
-//     both as (morpheme_ids, root_index) tuples and as the analyses-string pairs.
-// -------------------------------------------------------------------------------------------
+// (b) multiplicity: mbali's full multiset (duplicates included) must round-trip exactly.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
@@ -181,9 +152,7 @@ fn b_mbali_multiplicity_matches_full_engine() {
     );
 }
 
-// -------------------------------------------------------------------------------------------
-// (c) REDUP (plan D6): the 7 Indonesian corpus reduplication words round-trip against the engine.
-// -------------------------------------------------------------------------------------------
+// (c) reduplication: the 7 Indonesian corpus reduplication words round-trip against the engine.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
@@ -228,15 +197,9 @@ fn c_indonesian_redup_words_round_trip() {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// (d) no-analysis word returns empty, never panics; consistency with the engine under the SAME
-//     ParseOptions::default() (no guessing) — scanned against a bounded prefix of the Sena corpus.
-// -------------------------------------------------------------------------------------------
+// (d) no-analysis word returns empty, never panics; checked against a bounded prefix of the Sena corpus.
 
-/// How many Sena corpus words test (d) scans through the engine oracle. The full corpus is 7,121
-/// words at roughly 0.3 s/word of engine search in release — over half an hour for one gate test —
-/// so, like the f1 gate's bounded recall scan, we take a fixed prefix. 400 words yields a healthy
-/// crop of genuine zero-analysis engine misses to cross-check.
+/// How many Sena corpus words test (d) scans: a fixed prefix, since the full 7,121-word corpus takes over half an hour of engine search in release.
 const D_SCAN_WORDS: usize = 400;
 
 #[test]
@@ -258,10 +221,7 @@ fn d_no_analysis_word_returns_empty_consistent_with_engine() {
     assert_eq!(outcome.confirmed, 0);
     assert_eq!(outcome.candidates_generated, 0);
 
-    // A guess_root-style miss: `ParseOptions::default()` never guesses (guess_root = false), so any
-    // corpus word the engine fails to analyze under these SAME options is exactly that case --
-    // `analyze_word` must be empty for it too, never inventing a guess-only result of its own (it
-    // never opts into guessing anywhere in its own pipeline).
+    // Any corpus word the engine fails to analyze under these same (non-guessing) options must also be empty via analyze_word, never inventing a guess-only result.
     let words = read_words("sena-words.txt");
     let mut n_checked_misses = 0usize;
     for word in words.iter().take(D_SCAN_WORDS) {
@@ -283,10 +243,7 @@ fn d_no_analysis_word_returns_empty_consistent_with_engine() {
     );
 }
 
-// -------------------------------------------------------------------------------------------
-// (e) MINI-PARITY smoke: first 40 Sena corpus words + every non-redup Indonesian corpus word.
-//     100% multiset parity required. Per-word timings reported (mean/max/total).
-// -------------------------------------------------------------------------------------------
+// (e) mini-parity smoke: first 40 Sena corpus words + every non-redup Indonesian corpus word, 100% multiset parity required.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/{sena,indonesian}-hc.xml); run with --include-ignored"]

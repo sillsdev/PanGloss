@@ -1,48 +1,4 @@
-//! Parse real sample-grammar words end-to-end through `Morpher` -> `pg_realize::gloss_bundle` ->
-//! `pg_realize::to_ir`, loading the real sidecar files from `samples/data/*-realize.toml`, and pin
-//! the exact resulting `GlossIr` values.
-//!
-//! Same self-skip discipline as `n0_gloss_gate.rs`: every real-grammar test no-ops when the
-//! grammar XML is absent on disk. The two sidecar TOML files this milestone adds
-//! (`samples/data/amharic-realize.toml`, `samples/data/indonesian-realize.toml`) are gitignored
-//! real-language data, same as every other `samples/data/*` fixture: tracking real-language data
-//! and language-named paths violates this repo's synthetic-only rule, so they stay untracked and
-//! gitignored (see `.gitignore`); a missing sidecar is therefore an ordinary environment
-//! difference like a missing grammar XML, not an authoring bug, and self-skips rather than
-//! panicking.
-//!
-//! Every pinned `GlossIr` below was obtained by first running the parse with `--gloss` (or via
-//! `pg_realize::gloss_bundle`/`leipzig` directly) to see the actual bundle, THEN writing the
-//! expected `GlossIr` -- same discipline `n0_gloss_gate.rs` documents for its Leipzig strings.
-//!
-//! Search note (documented per the milestone's task instructions): the full 673-word
-//! `amharic-words.txt` corpus was scanned (every word parsed with `--gloss`, output grepped for
-//! `poss.`/`pl`/`at`/`from`/`to`/`abl` tokens) for a word combining a case-role gloss with a
-//! `poss.*` and/or `pl` gloss on the same analysis, and no such word exists in this corpus --
-//! `at`/`from`/`to`/`abl` and the plural/possessive affixes never co-occur in the sample data
-//! (the grammar's case-like adpositions mostly attach directly as their own root-like
-//! allomorphs, e.g. `ላንተ` "to-2m", where "to" is parsed as the *root* token rather than an
-//! affix on a noun, so `to_ir`'s root-exclusion rule keeps it out of the Case slot entirely for
-//! that word). The richest bundle that *does occur* in the corpus combining two mapped feature
-//! slots is `ልጆቹ` "child-pl-poss.3m" / "child-pl-def.m" (two genuinely ambiguous analyses,
-//! `outcome.structured[0]` = the poss.3m reading, `[1]` = the def.m reading) -- pinned below by
-//! explicit analysis index, same technique `n0_gloss_gate.rs`'s
-//! `sena_multi_analysis_gloss_lines_match_analyses_count_and_order` uses for Sena's `mbali`.
-//! The sidecar's `Case` mappings themselves are confirmed directly against the loaded
-//! `RealizeMap` (`amharic_sidecar_case_entries_map_as_intended` below), since no real corpus
-//! word exercises Case through `to_ir` end-to-end.
-//!
-//! ## Test-timing policy
-//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
-//! depend on the gitignored real-language corpus fixtures (`samples/data/*-hc.xml`,
-//! `samples/data/*-words.txt`, `samples/data/*-realize.toml`) at all. Every test that loads a
-//! grammar XML, corpus word list, or sidecar TOML is unconditionally `#[ignore = "..."]`d (the
-//! existing self-skip above already keeps `--include-ignored` green when the fixture is absent).
-//! Only `guessed_root_becomes_guessed_concept_and_never_panics` stays in the default run: it uses a
-//! fully synthetic inline grammar and touches no `samples/data/*` fixture.
-//! (`both_real_sidecar_files_parse_without_error` moved into this `#[ignore]`d set once the two
-//! `*-realize.toml` sidecars were untracked and gitignored -- it no longer gets a carve-out, since
-//! both files it reads are now ordinary gitignored real-language data.)
+//! Parses real sample-grammar words end-to-end through `Morpher` -> `pg_realize::gloss_bundle` -> `pg_realize::to_ir` and pins the exact resulting `GlossIr`, self-skipping (never panicking) when the grammar XML or gitignored `*-realize.toml` sidecar is absent on disk. Every test touching a `samples/data/*` fixture is `#[ignore]`d so the default run stays fast; only the fully-synthetic `guessed_root_becomes_guessed_concept_and_never_panics` runs by default.
 
 use std::path::{Path, PathBuf};
 
@@ -63,11 +19,7 @@ fn load_grammar(xml_name: &str) -> Option<Grammar> {
     Some(pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {xml_name}: {e}")))
 }
 
-/// Load a sidecar map. Gitignored real-language data (`samples/data/*-realize.toml` -- see the
-/// module doc); callers that reach this function are expected to have
-/// already self-skipped via `sample_path`/`load_grammar` when the fixture is absent, so a missing
-/// file here still panics (a genuine read/parse error once execution has already committed to the
-/// fixture being present), it just isn't reachable from the always-on default test run any more.
+/// Loads a sidecar map; callers are expected to have already self-skipped via `sample_path`/`load_grammar` when the fixture is absent, so a missing file here still panics.
 fn load_map(toml_name: &str) -> RealizeMap {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let path = manifest_dir.join("../../../samples/data").join(toml_name);
@@ -96,10 +48,7 @@ fn single_analysis_ir(g: &Grammar, map: &RealizeMap, word: &str) -> GlossIr {
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/{amharic,indonesian}-realize.toml); run with --include-ignored"]
 fn both_real_sidecar_files_parse_without_error() {
-    // amharic-realize.toml exercises comments, the [features] header, and quoted keys with dots
-    // ("poss.1s" etc.); indonesian-realize.toml exercises a header-only (no entries) file.
-    // load_map already panics on any parse error, so reaching the asserts below is most of the
-    // test; the lookups confirm the real content, not just that *some* map was produced.
+    // load_map already panics on any parse error, so reaching the asserts below is most of the test; the lookups confirm the real content, not just that some map was produced.
     let Some(_) = sample_path("amharic-realize.toml") else {
         eprintln!("skipping: amharic-realize.toml not present on disk");
         return;
@@ -184,11 +133,7 @@ fn amharic_pluralized_possessed_noun_maps_both_num_and_poss() {
         return;
     };
     let map = load_map("amharic-realize.toml");
-    // "ልጆቹ" is genuinely ambiguous (two analyses: n0_gloss_gate.rs's sibling test documents the
-    // same pattern for Sena's "mbali"): [0] "child-pl-poss.3m" (root "child" + pl + poss.3m),
-    // [1] "child-pl-def.m" (root "child" + pl + a "def.m" definite-marker affix that has no
-    // sidecar entry -> extras). This is the richest bundle in the corpus combining two mapped
-    // feature slots (Num + Poss) on one analysis.
+    // "ልጆቹ" is genuinely ambiguous (two analyses): [0] "child-pl-poss.3m", [1] "child-pl-def.m" (a definite-marker affix with no sidecar entry, so it lands in extras).
     let g_ref = &g;
     let m = Morpher::new(g_ref, usize::MAX);
     let outcome = m.parse_word("ልጆቹ");
@@ -224,9 +169,7 @@ fn amharic_unmapped_verb_agreement_glosses_land_in_extras() {
         return;
     };
     let map = load_map("amharic-realize.toml");
-    // "go--pfv--pfv.3m" (n0_gloss_gate.rs pins the same Leipzig string): root "go" + the two
-    // verb-aspect/agreement affixes, neither of which has a sidecar entry (verb-related glosses
-    // are intentionally unmapped in amharic-realize.toml) -> both land in extras, in order.
+    // "go--pfv--pfv.3m": root "go" plus two verb-aspect/agreement affixes, both intentionally unmapped in amharic-realize.toml, so both land in extras in order.
     let ir = single_analysis_ir(&g, &map, "ሄደ");
     assert_eq!(ir.concept, Concept::Lex("go".to_string()));
     assert_eq!(ir.num, Num::Unspec);
@@ -235,14 +178,7 @@ fn amharic_unmapped_verb_agreement_glosses_land_in_extras() {
     assert_eq!(ir.extras, vec!["-pfv-".to_string(), "pfv.3m".to_string()]);
 }
 
-/// The sidecar's `Case` mappings (`at`->Loc, `from`/`abl`->Abl, `to`->All) themselves, confirmed
-/// end-to-end through the real loaded sidecar file rather than a hand-built one -- the corpus
-/// search documented at module level found no real word co-occurring a case gloss with poss/pl,
-/// but `at`/`from`/`to`/`abl` alone as a word's own root-affix pair do occur (e.g. `ላንተ`
-/// "to-2m" parses with "to" as the *root* token, not an affix, per `pg_realize::to_ir`'s root-
-/// exclusion rule -- so that real word cannot exercise Case mapping either; this test instead
-/// confirms the loaded sidecar produces the intended Case assignments directly via `RealizeMap`,
-/// which is what `to_ir`'s priority-chain step 2 actually consults).
+/// The sidecar's `Case` mappings, confirmed directly via `RealizeMap` rather than through a real corpus word, since no real word in this corpus exercises Case through `to_ir` end-to-end.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_sidecar_case_entries_map_as_intended() {
@@ -295,8 +231,7 @@ fn indonesian_voice_prefix_stays_in_extras_via_minimal_sidecar() {
         return;
     };
     let map = load_map("indonesian-realize.toml");
-    // "AV-read": root "read" + the AV voice prefix, which has no entry in the minimal
-    // indonesian sidecar by design -> extras.
+    // "AV-read": root "read" plus the AV voice prefix, which has no entry in the minimal indonesian sidecar by design, so it lands in extras.
     let ir = single_analysis_ir(&g, &map, "membaca");
     assert_eq!(ir.concept, Concept::Lex("read".to_string()));
     assert_eq!(ir.extras, vec!["AV".to_string()]);
@@ -327,9 +262,7 @@ fn sena_two_morpheme_word_everything_unmapped_goes_to_extras() {
         eprintln!("skipping: sena-hc.xml not present on disk");
         return;
     };
-    // "4-caso": root is "caso" (index 1, per pg_grammar's own root_morpheme_index resolution --
-    // confirmed by inspection, not assumed), non-root "4" (a noun-class digit gloss) has no
-    // mapping anywhere (RealizeMap::empty()) -> extras.
+    // "4-caso": root is "caso"; the non-root "4" (a noun-class digit gloss) has no mapping anywhere, so it lands in extras.
     let ir = single_analysis_ir(&g, &RealizeMap::empty(), "miseru");
     assert_eq!(ir.concept, Concept::Lex("caso".to_string()));
     assert_eq!(ir.num, Num::Unspec);
@@ -338,9 +271,7 @@ fn sena_two_morpheme_word_everything_unmapped_goes_to_extras() {
     assert_eq!(ir.extras, vec!["4".to_string()]);
 }
 
-// --- Guessed root: no real sample grammar can trigger it (n0_gloss_gate.rs's own finding: none
-// of the three sample grammars has an `IsPattern`/`[Any]*` lexical entry), so this reuses the
-// same small synthetic fixture approach n0_gloss_gate.rs and pg-parse/tests/guesser_gate.rs use.
+// Guessed root: no real sample grammar has an `IsPattern`/`[Any]*` lexical entry, so this reuses a small synthetic fixture instead.
 
 const GUESS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -395,19 +326,7 @@ fn guessed_root_becomes_guessed_concept_and_never_panics() {
     assert!(ir.extras.is_empty());
 }
 
-// --- Robustness (bounded smoke check) ---------------------------------------------------------
-//
-// N1's task list calls for the amharic/indonesian/sena cases pinned above, not the exhaustive
-// per-word robustness sweep -- `docs/natural-phrases-plan.md` explicitly scopes "for every word
-// in all three samples/data/*-words.txt ... never panics" as an **N2** gate. A first attempt at
-// an N1-local version of that full sweep (all 673+121+7121 corpus words, uncapped
-// `Morpher::new(g, usize::MAX)`) was cut after it ran for 8+ minutes of CPU time without
-// finishing against the 7121-word Sena corpus -- some Sena word(s) trigger heavy ambiguity/
-// backtracking at that scale, which is exactly the kind of perf question N2's real robustness
-// gate (with a bounded analysis cap, per the plan) needs to characterize properly, not something
-// to paper over here. This smoke test instead takes a small bounded slice of each corpus with a
-// capped `Morpher` (`cap = 20`, `with_word_timeout`) purely to confirm `to_ir` itself never
-// panics on ordinary corpus words -- it is not a substitute for N2's gate.
+// Robustness (bounded smoke check): an uncapped `Morpher::new(g, usize::MAX)` sweep over the full corpora ran 8+ minutes without finishing against the 7121-word Sena corpus, so this instead takes a small bounded slice with a capped `Morpher` (`cap = 20`, `with_word_timeout`) purely to confirm `to_ir` never panics on ordinary corpus words.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/*-hc.xml, *-words.txt); run with --include-ignored"]
@@ -443,8 +362,7 @@ fn to_ir_never_panics_on_a_bounded_corpus_sample() {
                 let bundle = pg_realize::gloss_bundle(&g, wa);
                 let ir_mapped = pg_realize::to_ir(&bundle, &map, word);
                 let ir_empty = pg_realize::to_ir(&bundle, &RealizeMap::empty(), word);
-                // Total function: reaching here at all is the assertion. Also sanity-check the
-                // concept is never a way to smuggle a panic-prone empty string through silently.
+                // Total function: reaching here at all is the assertion; also check the concept string is never silently empty.
                 match &ir_mapped.concept {
                     Concept::Lex(s) | Concept::Guessed(s) => {
                         assert!(!s.is_empty(), "{xml_name} {word:?}: empty concept string")

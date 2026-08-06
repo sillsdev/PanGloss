@@ -1,24 +1,4 @@
-//! GATE: partition-k / MPR-POS subrule gating -- recall-parity + `_overbudget`
-//! (`GroupBudgetExceeded`).
-//!
-//! ## Why `pg_foma::gate::compile_gated_grammar_with_budget`, not a hand-assembled compose
-//! Unlike GATE 1/GATE 2 (which build their own net by hand from `uflexc`/`emit`), this gate calls
-//! the PRODUCTION gating entry point directly: `pg_foma::gate::compile_gated_grammar_with_budget`
-//! already does everything (`find_gated_subrules` -> `partition_entries` -> per-group
-//! lexc+rules compile -> disjoint union) -- exactly the mechanism `pg_grammar_gen::build::gating`
-//! generalizes `pg-foma/src/gate.rs`'s own `sixteen_group_fixture_xml` test to exercise, generated
-//! instead of hand-authored.
-//!
-//! ## Recall technique
-//! Each of the `2^k` generated entries is a BARE root (no morphological rules at all) whose only
-//! grammar content is the `k` gated phonological rules on its own stratum -- so
-//! `pg_grammar_gen::oracle::sweep`'s bare-root generation (`GenMorpheme` list empty) already runs
-//! the REAL per-stratum phonological cascade (`pg_rules::rewrite::subrule_applicable`, the exact
-//! predicate `crate::gate::entry_gate_key` also calls -- `pg-foma/src/gate.rs`'s own module doc),
-//! giving ground truth for which marker positions this specific entry's own gating key flips. The
-//! compose-recall check (`tests/common/gate_template.rs`) then verifies the `compile_gated_grammar`
-//! net relates that SAME surface string to the SAME root tag, in `SegAlphabet` token space
-//! (mirrors `tests/phase_c_multi_table.rs`'s own technique).
+//! Partition-k / MPR-POS subrule gating: recall-parity plus `_overbudget` (`GroupBudgetExceeded`). Calls the production `pg_foma::gate::compile_gated_grammar_with_budget` entry point directly rather than a hand-assembled compose, and checks recall by generating each of the `2^k` bare-root entries, sweeping the real per-stratum phonological cascade for ground truth, then verifying the compiled net relates that same surface string to the same root tag.
 
 mod common;
 
@@ -62,8 +42,7 @@ fn overbudget_recipe() -> Recipe {
     }
 }
 
-/// Same convention as `p6_gate_parity.rs`'s own `rules_in_order`: stratum 0's `phonologicalRules`
-/// id-list, resolved to `&PhonRuleDef`s, document order.
+/// Stratum 0's `phonologicalRules` id-list, resolved to `&PhonRuleDef`s, document order.
 fn rules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
     g.strata[0]
         .prules
@@ -100,9 +79,7 @@ fn partition_k_recall_parity_via_generator_and_oracle() {
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
-    // Never usize::MAX-with-a-purpose here -- this test is about recall, not the budget mechanism
-    // (that's the overbudget test's job); an effectively-unbounded budget just proves the compile
-    // itself doesn't spuriously trip on a grammar this tiny.
+    // This test is about recall, not the budget mechanism, so an effectively-unbounded budget just proves the compile doesn't spuriously trip on a grammar this tiny.
     let budget = ComposeBudget::with_caps(
         usize::MAX,
         usize::MAX,
@@ -118,13 +95,7 @@ fn partition_k_recall_parity_via_generator_and_oracle() {
         result.groups, 4,
         "2 independent gated subrules must realize 2^2 = 4 groups"
     );
-    // NOTE: `result.skipped_rules` is NOT expected to be empty here -- `compile_and_compose_rules_
-    // gated_with_budget`'s own doc records that a gated rule whose ONLY subrule is excluded for a
-    // given group (i.e. simply not applicable to that group, the ordinary/expected case) is
-    // reported via the SAME per-group `None` path a genuinely-unsupported construct would use ("no
-    // NEW branch is introduced at any call site"); `p6_gate_parity.rs`'s own gated-grammar tests
-    // (`indonesian_mpr_exclusion_matches_oracle`) likewise never assert this list is empty. The
-    // real correctness signal is the recall check below, not this diagnostic list.
+    // `result.skipped_rules` is NOT expected to be empty here: a gated rule not applicable to a given group is the ordinary/expected case, reported via the same path a genuinely-unsupported construct would use; the real correctness signal is the recall check below.
     println!(
         "partition-k: skipped_rules across all groups = {:?}",
         result.skipped_rules
@@ -174,10 +145,7 @@ fn partition_k_recall_parity_via_generator_and_oracle() {
     );
 }
 
-/// Honest failure (design doc §4c): 4 independent gated subrules realize `2^4 = 16` distinct
-/// gating groups (mirrors `pg-foma/src/gate.rs`'s own `sixteen_group_fixture_xml` precedent
-/// exactly, generated instead of hand-authored) -- a `group_cap` of 8 must trip
-/// `GroupBudgetExceeded` BEFORE any per-group compile work runs (V6, fail-fast, well under 200ms).
+/// Honest failure: 4 independent gated subrules realize `2^4 = 16` distinct gating groups, and a `group_cap` of 8 must trip `GroupBudgetExceeded` before any per-group compile work runs.
 #[test]
 fn partition_k_overbudget_trips_group_budget_fast() {
     let recipe = overbudget_recipe();

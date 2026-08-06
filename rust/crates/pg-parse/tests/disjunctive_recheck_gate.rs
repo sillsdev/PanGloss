@@ -1,13 +1,4 @@
-//! Conformance replay for W3.2 (plan #5d, history row `987be2fd`): the disjunctive-allomorph /
-//! free-fluctuation final re-check, `rust/conformance/allomorphy/disjunctive-recheck/`.
-//! `expected.tsv` is C#-oracle-generated (parse-opt @ `ccf750e6`); see the fixture README for the
-//! grammar design and the row-by-row rationale.
-//!
-//! Red-on-revert: remove the disjunctive candidate loop from
-//! `pg-rules/src/validity.rs::allomorphs_valid_impl` (or stop populating
-//! `MorphRecord::passed_over` in `morph.rs::synth_affix`) and `wakta` (root arm, `Range(0, Index)`
-//! fallback) and/or `pakda` (affix arm, recorded passed-over indices) start parsing again —
-//! exactly the two rows that diverged at fixture-freeze time.
+//! Conformance replay for the disjunctive-allomorph/free-fluctuation final re-check, `rust/conformance/allomorphy/disjunctive-recheck/`: red-on-revert, since removing the disjunctive candidate loop from `allomorphs_valid_impl` (or `MorphRecord::passed_over` population) makes `wakta`/`pakda` start parsing again.
 
 use std::path::{Path, PathBuf};
 
@@ -19,14 +10,12 @@ fn fixture_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/allomorphy/disjunctive-recheck")
 }
 
-/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
-/// runs (CI's release sweep included) must not panic on the missing directory.
+/// Self-skip guard: `rust/conformance/` isn't a submodule yet, so `--include-ignored` runs must not panic on the missing directory.
 fn have_fixture() -> bool {
     fixture_dir().join("grammar.xml").exists()
 }
 
-/// Collect every `FailureReason` reported anywhere in the tree (P12 chunk 3's own acceptance
-/// criterion: extend this fixture with a same-data assertion on *why*, not just the outcome).
+/// Collect every `FailureReason` reported anywhere in the trace tree, so a same-data assertion can check *why*, not just the outcome.
 fn collect_reasons(sink: &TreeTraceSink, h: TraceHandle, out: &mut Vec<FailureReason>) {
     let n = sink.node(h);
     if let Some(r) = n.failure_reason {
@@ -68,10 +57,7 @@ fn disjunctive_recheck_matches_oracle() {
     assert_eq!(checked, 12, "expected.tsv should pin all 12 fixture words");
 }
 
-/// P12 chunk 3 acceptance: the fixture's own two named red-on-revert words ("wakta"/"pakda" --
-/// module doc) must show `FailureReason::DisjunctiveAllomorph` fired against a REJECTED candidate
-/// somewhere in the trace (the very gate this fixture pins), not just an unexplained-`Failed` or a
-/// merely-correct final signature.
+/// The fixture's two red-on-revert words ("wakta"/"pakda") must show `FailureReason::DisjunctiveAllomorph` fired against a rejected candidate somewhere in the trace, not just a correct final signature.
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn disjunctive_recheck_traces_the_rejection_reason() {

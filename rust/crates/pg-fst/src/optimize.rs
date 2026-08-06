@@ -1,11 +1,4 @@
-//! Subset-construction optimizer: the port of `Fst.Optimize` (Fst.cs:819-901) with both arc
-//! selectors — `DeterministicGetArcs` (`Determinize`) and `EpsilonRemovalGetArcs`
-//! (`EpsilonRemoval`) — plus the epsilon-closure and capture-tag → register machinery.
-//!
-//! Faithful to the acceptor path only (`Outputs ≡ ∅`, `enqueueCount ≡ 0`): the transducer
-//! common-prefix/dequeue logic in `GetAllArcsForInput` and the output/"remaining" arcs in
-//! `CreateOptimizedState` are dead and omitted (plan §5.4). Everything that decides the accepted
-//! language, capture spans, arc priorities, and determinism is ported.
+//! Subset-construction optimizer: the port of `Fst.Optimize` (Fst.cs:819-901), faithful to the acceptor path only -- the transducer-only dequeue/output logic is dead and omitted.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
@@ -16,8 +9,7 @@ use crate::{AcceptInfo, Arc, Cmd, Direction, CURRENT_POSITION};
 
 // --- NFA-state-info and subset state (C# NfaStateInfo / SubsetState) --------------------------
 
-/// C# `NfaStateInfo` on the acceptor path (outputs always empty, Fst.cs:465-556). Equality/hash
-/// are on `(state, tag key-set)` only; `CompareTo` is on `(max_priority, last_priority)`.
+/// C# `NfaStateInfo` on the acceptor path (Fst.cs:465-556): equality/hash on `(state, tag key-set)` only.
 #[derive(Clone, Debug)]
 struct Nsi {
     state: usize,
@@ -55,8 +47,7 @@ fn nsi_cmp(a: &Nsi, b: &Nsi) -> std::cmp::Ordering {
         .then(a.last_priority.cmp(&b.last_priority))
 }
 
-/// C# `SubsetState`: a set of `Nsi`. Set equality / order-independent hash so it keys the
-/// `subsetStates` dedup map. After epsilon-closure each NFA state appears at most once.
+/// C# `SubsetState`: a set of `Nsi`, keyed by set equality / order-independent hash for the dedup map.
 #[derive(Clone, Debug)]
 struct SubsetState {
     states: Vec<Nsi>,
@@ -94,8 +85,7 @@ impl std::hash::Hash for SubsetState {
 
 // --- epsilon closure (Fst.cs:1141-1190) -------------------------------------------------------
 
-/// Deterministically dedup seeds by state, keeping the highest-priority (min `(max,last)`) one.
-/// C# seeds the closure unguarded in `from` order (nondeterministic); we canonicalize.
+/// Deterministically dedup seeds by state, keeping the highest-priority one (C#'s own order is nondeterministic here).
 fn dedup_seeds(mut seeds: Vec<Nsi>) -> HashMap<usize, Nsi> {
     seeds.sort_by(nsi_cmp);
     let mut map: HashMap<usize, Nsi> = HashMap::new();
@@ -105,8 +95,7 @@ fn dedup_seeds(mut seeds: Vec<Nsi>) -> HashMap<usize, Nsi> {
     map
 }
 
-/// C# `EpsilonClosure`: expand epsilon arcs, keeping the highest-priority path to each state and
-/// recording tag writes at `index`.
+/// C# `EpsilonClosure`: expand epsilon arcs, keeping the highest-priority path to each state and recording tag writes at `index`.
 fn epsilon_closure(nfa: &Nfa, seeds: Vec<Nsi>, index: i32) -> Vec<Nsi> {
     let mut closure = dedup_seeds(seeds);
     let mut stack: Vec<usize> = closure.keys().copied().collect();
@@ -176,8 +165,7 @@ fn get_register_index(
     r
 }
 
-/// A partial determinization condition: `(positive | None-for-unconstrained, negated set,
-/// included NFA states)` — one row of `DeterministicGetArcs`'s `preprocessedConditions`.
+/// A partial determinization condition: one row of `DeterministicGetArcs`'s `preprocessedConditions`.
 type PreCond = (Option<Vec<u64>>, Vec<Vec<u64>>, Vec<Nsi>);
 
 // --- mutable build target ---------------------------------------------------------------------
@@ -318,8 +306,7 @@ impl<'n> Builder<'n> {
         });
     }
 
-    /// C# `ReorderTagIndices` (Fst.cs:1084-1139): reconcile tag-index assignments when merging a
-    /// freshly-computed subset (`from`) into the already-stored equal subset (`to`).
+    /// C# `ReorderTagIndices` (Fst.cs:1084-1139): reconcile tag-index assignments when merging `from` into the already-stored equal subset `to`.
     fn reorder_tag_indices(&mut self, from: &SubsetState, to: &SubsetState, cmds: &mut Vec<Cmd>) {
         let mut new_cmds: Vec<Cmd> = Vec::new();
         let mut reordered_indices: HashMap<(i32, i32), i32> = HashMap::new();
@@ -384,9 +371,7 @@ impl<'n> Builder<'n> {
 
 // --- arc selectors ----------------------------------------------------------------------------
 
-/// C# `DeterministicGetArcs` (Fst.cs:590-688), acceptor path. Partitions the subset's arc
-/// conditions into positive (unified) and negated combinations, epsilon-closing each combination's
-/// target states. Returns `(target subset, input, priority=0)`.
+/// C# `DeterministicGetArcs` (Fst.cs:590-688): partitions the subset's arc conditions into positive/negated combinations, epsilon-closing each combination's target states.
 fn deterministic_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, MatchInput, i32)> {
     // Group arcs by input FS (stable, state-index then arc order).
     let mut cond_keys: Vec<Vec<u64>> = Vec::new();
@@ -461,8 +446,7 @@ fn deterministic_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, Ma
     out
 }
 
-/// C# `EpsilonRemovalGetArcs` (Fst.cs:775-799): each non-epsilon arc becomes one arc to the
-/// epsilon-closure of its target; priority = min `max_priority` over the target subset.
+/// C# `EpsilonRemovalGetArcs` (Fst.cs:775-799): each non-epsilon arc becomes one arc to the epsilon-closure of its target.
 fn epsilon_removal_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, MatchInput, i32)> {
     let mut out = Vec::new();
     let mut states_sorted: Vec<&Nsi> = from.states.iter().collect();
@@ -546,8 +530,7 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
         }
     }
 
-    // RenumberCommands (Fst.cs:889-919): compact register numbers into 0..register_count and
-    // sort each command list.
+    // RenumberCommands (Fst.cs:889-919): compact register numbers into 0..register_count and sort each command list.
     let mut reg_nums: HashMap<i32, i32> = HashMap::new();
     for i in 0..b.next_tag {
         reg_nums.insert(i, i);
@@ -577,8 +560,7 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
             renumber(&mut arc.commands, &mut reg_nums, &mut register_count);
         }
     }
-    // Keep initializer register references inside the compacted range too (C# leaves these in the
-    // 0.._nextTag band; identity-mapped tags are unchanged, extras get compacted consistently).
+    // Keep initializer register references inside the compacted range too, matching C#'s 0.._nextTag band.
     renumber(&mut initializers, &mut reg_nums, &mut register_count);
 
     // Freeze to CSR.
@@ -624,14 +606,8 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
         });
     }
 
-    // Min-hops-to-accept lower bound (consumed by the nondeterministic traversal's pruning, see
-    // `Fst::min_hops_to_accept` / `traverse.rs`): multi-source BFS on the REVERSED arc graph from
-    // every accepting state, ignoring arc constraints entirely. Ignoring constraints only ADDS
-    // edges relative to what any real input could traverse, so the resulting distance never
-    // over-estimates the number of arcs a real thread still needs — an admissible bound
-    // (`u32::MAX` = no accepting state is reachable, i.e. a dead state). All arcs are unit-cost because the
-    // frozen automaton is epsilon-free, making plain BFS exact. O(states + arcs), once per
-    // compile.
+    // Min-hops-to-accept lower bound, consumed by the nondeterministic traversal's pruning. Why ignoring
+    // arc constraints still gives an admissible bound: `docs/research/pg-fst-optimize-design-notes.md`, "`min_hops_to_accept`".
     let min_hops_to_accept = {
         let mut preds: Vec<Vec<u32>> = vec![Vec::new(); states.len()];
         for (s, st) in states.iter().enumerate() {
@@ -676,8 +652,7 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
 }
 
 impl crate::compile::CompileInput {
-    /// Compile this pattern all the way to a frozen CSR `Fst`: NFA → `Determinize()` (if
-    /// `deterministic`) or `EpsilonRemoval()`.
+    /// Compile this pattern all the way to a frozen CSR `Fst`: NFA → `Determinize()` or `EpsilonRemoval()`.
     pub fn compile(&self) -> Fst {
         let nfa = self.build_nfa();
         optimize(&nfa, self.deterministic, Direction::LeftToRight)
@@ -694,10 +669,7 @@ impl crate::compile::CompileInput {
 mod tests {
     use crate::compile::{CompileInput, CompileNode};
 
-    /// White-box check of the freeze-time `min_hops_to_accept` BFS: on a plain 3-symbol chain
-    /// `a b c`, every accepting state is 0 hops from accept, the start state is exactly 3, and
-    /// walking any path shortens the bound by exactly 1 per arc (unit-cost BFS on an epsilon-free
-    /// automaton). Checked on both the determinized and epsilon-removed compilations.
+    /// White-box check of the freeze-time `min_hops_to_accept` BFS on a plain 3-symbol chain, checked on both the determinized and epsilon-removed compilations.
     #[test]
     fn min_hops_to_accept_chain_pattern() {
         let nodes = vec![
@@ -720,8 +692,7 @@ mod tests {
                 if meta.accepting {
                     assert_eq!(hops[s], 0, "accepting state {s} (det={det})");
                 } else {
-                    // every non-dead, non-accepting state's bound is 1 + min over its arcs'
-                    // targets (BFS relaxation fixpoint); this chain has no dead states.
+                    // Every non-dead, non-accepting state's bound is 1 + min over its arcs' targets (BFS relaxation fixpoint).
                     let best = fst.arcs()[meta.arc_lo as usize..meta.arc_hi as usize]
                         .iter()
                         .map(|a| hops[a.target as usize])

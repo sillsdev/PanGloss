@@ -1,12 +1,4 @@
-//! M6 acceptance gate — the #451 order-invariant analysis-cascade memoization.
-//!
-//! Two properties, on a hand-built tiny grammar where the whole candidate set is reasoned by hand:
-//! - **memo-on == memo-off**: the memo must not change the result set (the core correctness
-//!   invariant — replay reconstructs exactly what the plain combination walk produces).
-//! - **the memo actually fires**: after a run, both the mrule memo and the template memo hold entries
-//!   (positive-replay and nogood), proving the paths were exercised rather than silently skipped.
-//!
-//! The order-invariant-key and replay-graft unit tests live in `pg-memo` / `pg-rules::word`.
+//! Order-invariant analysis-cascade memoization gate, on a hand-built tiny grammar where the whole candidate set is reasoned by hand: memo-on must equal memo-off (replay reconstructs exactly what the plain walk produces), and the memo must actually fire (both mrule and template memos hold entries).
 
 mod common;
 
@@ -163,10 +155,7 @@ fn candidate_shapes(words: &[Word]) -> Vec<Vec<u32>> {
     v
 }
 
-// =================================================================================================
 // memo-on == memo-off on the non-commuting Unordered stratum (the k!-walk case).
-// =================================================================================================
-
 fn build_unordered() -> (Grammar, StratumId) {
     let mut g = load_alpha_grammar();
     let (ra, rb) = (suffix_rule(&g, 200, "p"), suffix_rule(&g, 300, "k"));
@@ -207,8 +196,7 @@ fn memo_on_equals_memo_off_unordered() {
     // The full set is still { akp (seed), ak, a } — memo did not drop the deep root.
     assert!(candidate_shapes(&on.words).contains(&vec![common::char_def(&g, "char_a").0]));
 
-    // The memo actually fired: at least one mrule-memo entry was stored during expansion, and it
-    // includes a nogood (a state from which no rule unapplies — e.g. the bare root "a").
+    // The memo actually fired: at least one entry was stored, including a nogood (a state from which no rule unapplies).
     let sc = scope.borrow();
     assert!(!sc.memo.is_empty(), "mrule memo must hold entries");
     assert!(
@@ -221,15 +209,11 @@ fn memo_on_equals_memo_off_unordered() {
     );
 }
 
-// =================================================================================================
 // memo-on == memo-off with an affix template in the mix (exercises the TemplateMemo table).
-// =================================================================================================
-
 #[test]
 fn memo_on_equals_memo_off_with_template() {
     let mut g = load_alpha_grammar();
-    // One optional-slot template over a strip-"p" rule, plus an unordered strip-"k" mrule, so both
-    // the mrule memo and the template memo get exercised on the same parse.
+    // One optional-slot template plus an unordered mrule, so both memos get exercised on the same parse.
     let tp = suffix_rule(&g, 200, "p");
     let tp_id = push_mrule(&mut g, tp);
     let slot = SlotDef {

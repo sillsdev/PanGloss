@@ -1,35 +1,4 @@
-//! ## Delanguaging note
-//! Still corpus-blocked: needs `samples/data/indonesian-hc.xml` +
-//! `samples/data/indonesian-words.txt` (gitignored). This grammar's own pathology is
-//! junction-aware nasal-place assimilation at a prefix/root boundary plus reduplication — a
-//! synthetic-reproduction attempt targeted the OTHER historical anchor (a deep standalone-affix
-//! chain, `pg_grammar_gen::build::chain`; see `tests/phase_c_chain_scale.rs`'s own module doc) and
-//! never attempted junction/reduplication parity, so no synthetic replacement exists for this gate
-//! yet. Kept `#[ignore]`d unconditionally.
-//!
-//! The junction-aware emitter (`pg_foma::emit` + `pg_foma::junctions::PhonologyProbe`) against the
-//! real Indonesian grammar (66 entries, 5 phonological rules: nasal-place assimilation of the
-//! `meN-` prefix's placeholder nasal, plus voiceless-obstruent deletion at the resulting
-//! prefix/root junction — `meN+tulis -> menulis`), with the FULL ENGINE (`pg_parse::Morpher`, a
-//! dev-dependency only) as the recall oracle, exactly like `tests/f1_large_lexicon_gate.rs`'s Sena
-//! leg.
-//!
-//! Reduplication (7 corpus words: `membagi-bagi`, `memijit-mijit`, `meminta-minta`,
-//! `mengamat-amati`, `mengayuh-ngayuh`, `menulis-nulis`, `menyewa-nyewa`) is explicitly OUT OF
-//! SCOPE here -- the peel that covers it is a separate mechanism's job; every rule that produces a
-//! reduplicated form (`-Cont`, `-Pl`, `REDUP-meN`) already gets routed to `emit`'s `uncovered` list
-//! by the same zone-mismatch logic used for every other exotic role, so these words simply have no
-//! foma-proposed analysis at all. Test (b) excludes them from the recall denominator explicitly,
-//! printing each with its reason -- not because the engine has no analysis for them (it does), but
-//! because this gate doesn't attempt to cover it.
-//!
-//! ## Test-timing policy
-//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
-//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. Every test in
-//! this file loads `samples/data/indonesian-hc.xml`, so all four are unconditionally
-//! `#[ignore = "..."]`d, each with a self-skip guard so `--include-ignored` runs stay green where
-//! the fixture is absent (CI). Run the full set locally with
-//! `cargo test -p pg-foma --release --test f2_junction_gate -- --include-ignored`.
+//! Recall gate for the junction-aware emitter (`pg_foma::emit` + `pg_foma::junctions::PhonologyProbe`) against the real Indonesian grammar's nasal-place assimilation, with `pg_parse::Morpher` as the recall oracle; corpus-blocked, `#[ignore]`d unconditionally. Reduplication is explicitly out of scope -- those words are excluded from the recall denominator, not covered by this gate.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -39,8 +8,7 @@ use pg_foma::emit;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
-/// The 7 real reduplication corpus words (module doc) — excluded from the recall gate's
-/// denominator, each with why.
+/// The 7 real reduplication corpus words, excluded from the recall gate's denominator, each with why.
 const REDUP_EXCLUDED: &[(&str, &str)] = &[
     ("membagi-bagi", "reduplication — P2 peel"),
     ("memijit-mijit", "reduplication — P2 peel"),
@@ -97,9 +65,7 @@ fn candidates_cover(candidates: &[pg_foma::tags::Candidate], seq: &[u32], root_i
     })
 }
 
-// -------------------------------------------------------------------------------------------
 // (a) emit + compile: must succeed, counts plausible, compile wall time < 30s.
-// -------------------------------------------------------------------------------------------
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
@@ -157,11 +123,7 @@ fn a_emits_and_compiles() {
     );
 }
 
-// -------------------------------------------------------------------------------------------
-// (b) RECALL GATE: for every word in the Indonesian corpus (minus the 7 reduplication words,
-//     explicitly excluded and printed), every engine (morpheme_ids, root_morpheme_index) pair must
-//     appear among the proposer's candidates. 100% required on the non-redup denominator.
-// -------------------------------------------------------------------------------------------
+// (b) recall gate: every engine (morpheme_ids, root_morpheme_index) pair must appear among the proposer's candidates, 100% required on the non-redup denominator.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
@@ -263,10 +225,7 @@ fn b_recall_full_corpus_minus_redup() {
     );
 }
 
-// -------------------------------------------------------------------------------------------
-// (c) junction spot-checks: N-assimilation without deletion, assimilation WITH root-initial
-//     deletion, a suffixed form, and a plain unprefixed root.
-// -------------------------------------------------------------------------------------------
+// (c) junction spot-checks: N-assimilation with and without root-initial deletion, a suffixed form, and a plain unprefixed root.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
@@ -329,10 +288,7 @@ fn c_junction_spot_checks() {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// (d) overgeneration sanity: a nonsense word must not panic and must propose nothing (or very
-//     little).
-// -------------------------------------------------------------------------------------------
+// (d) overgeneration sanity: a nonsense word must not panic and must propose nothing (or very little).
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]

@@ -1,81 +1,4 @@
-//! ## Delanguaging Part C note
-//! Renamed off the real language's name (was `f3_amharic_gate.rs`). Still corpus-blocked: needs
-//! `samples/data/amharic-hc.xml` + `samples/data/amharic-words.txt` (gitignored). This grammar's
-//! own pathology is interdigitation (infixing) + boundary-fusion coalescence — Part C's synthetic-
-//! reproduction attempt targeted the deep-standalone-affix-chain anchor instead (`pg_grammar_gen::
-//! build::chain`; see `tests/phase_c_chain_scale.rs`'s own module doc), and `pg_grammar_gen` has no
-//! infix/interdigitation builder today (`synthetic-stress-grammar-plan.md` §2 lists `Role::Infix`
-//! coverage as PROVEN only against this real grammar, no synthetic recipe yet), so no synthetic
-//! replacement exists for this gate. Kept `#[ignore]`d unconditionally.
-//!
-//! P1d gate ("Amharic capability stage — required, no fallback tier"): the emitter +
-//! `crate::preexpand` (rule-application pre-expansion and
-//! boundary-fusion composite probing) against the real Amharic grammar (76 lexical entries, 87
-//! `MorphologicalRule` + 1 `CompoundingRule`, 15 templates, 7 phonological rules over a
-//! 417-Segment char-def table), with the FULL ENGINE (`pg_parse::Morpher`) as the recall oracle —
-//! same denominator rules as `tests/f1_large_lexicon_gate.rs`/`tests/f2_junction_gate.rs`.
-//!
-//! ## History: why this gate's verdict changed (P1c -> P1d)
-//!
-//! The P1c stage of this gate measured 4/36 (~11%) recall and recorded a fallback verdict. That
-//! verdict is SUPERSEDED by this repo's settled architecture: "We will never do a full HC backup,
-//! we will always use FST to propose and HC to prune." There is no
-//! fallback tier; a grammar below 100% proposer recall is a compiler capability gap to close.
-//! P1c's investigation classified all 32 misses into exactly two classes (no third):
-//!
-//! - **Interdigitation (24/32):** `Role::Infix` stem-formation rules (`-pfv-`/`-conv-`/`-ipfv-`)
-//!   interleave `InsertSegments` around a `Copy` of the root (root "ህይድ" + `-ää-` -> "ህäይäድ" ->
-//!   phonology -> "ሄድ") — no literal two-entry lexc split exists.
-//! - **Ge'ez boundary fusion (8/32):** root-final + suffix-initial glyphs fuse into a DIFFERENT
-//!   glyph ("ልጅ" + "+ዮች" -> "ልጆች") — outside the deletion-only junction model
-//!   (`PhonologyProbe::variants`/`deletion_junctions` both measurably return nothing useful here).
-//!
-//! **P1d closes both** with one generic mechanism (`pg-foma/src/preexpand.rs`, module doc there):
-//! seed a real `pg_rules::word::Word` from each root allomorph (feature-bearing re-segmentation,
-//! exactly like the engine's own lexical lookup), apply each candidate rule via the engine's own
-//! `pg_rules::morph::synthesize`, render through the real phonological cascade
-//! (`pg_rules::surface_probe::probe_synthesize`), and emit any result the ordinary two-entry lexc
-//! path cannot reach as ONE composite entry carrying the whole chain's tags in the ENGINE'S OWN
-//! morph order (computed by replaying `allomorphs_in_morph_order` over the synthesized word's morph
-//! records — never assumed from the rule's role; plan §2's positional match trap). Chains recurse
-//! to depth 3 THROUGH clean steps ("ሌባዎቹ" = root + def.m (clean) + pl (fuses with def.m's ው) +
-//! poss.3m (fuses again) — found by this gate itself at 31/32). Nothing is Amharic-specific:
-//! Sena (no phon rules, no infix rules) short-circuits to zero composites byte-for-byte, and
-//! Indonesian emits zero composites because its junctions are all reachable through the existing
-//! deletion-junction model (both re-asserted by their own gates, run as part of this suite).
-//!
-//! ## Engine morph-order findings (measured, the design's ground truth)
-//!
-//! `pg_parse::Morpher` (uncapped, `ParseOptions::default()`) on interdigitation corpus words:
-//! - "ሄደ":  root_index=0, morphemes=[107(entry43/go), 11(mrule13/-pfv-), 16(mrule18/pfv.3m)]
-//! - "ሄደች": root_index=0, morphemes=[107(entry43/go), 11(mrule13/-pfv-), 17(mrule19/pfv.3f)]
-//! - "ሄዳችሁ": root_index=0, morphemes=[107(go), 4(mrule6/-conv-), 35(mrule37/conv.2p)] (and a
-//!   second analysis via -pfv- + pfv.2p)
-//! - "ሰብረህ": root_index=0, morphemes=[117(entry53/break), 4(-conv-), 30(mrule32/conv.2m)]
-//!
-//! The root morpheme is FIRST in every interdigitated analysis (the infix rule's tag follows the
-//! root's), because the engine seeds the root's `MorphRecord` at order 0 and the rule's inserted
-//! material lands at interior order 1+ (`pg-parse/src/morpher.rs:564`; `Word::morphs` sorted by
-//! `order`). `preexpand::morph_order_tags` reproduces exactly this by construction, and a
-//! prefix-rule composite ("ላንተ": [1(mrule3/to), 92(entry28/2m)], root_index=1) comes out
-//! rule-first for the same reason — no per-role special-casing anywhere.
-//!
-//! ## Remaining uncovered constructs (honest, non-blocking)
-//!
-//! One item: `mrule30#allo0`, a `Modify` (process morph) action — plan §2's "not compilable as
-//! strings", P6 (replace-rule compilation) material. No engine analysis in this corpus sample uses
-//! it (recall is 100% with it uncovered); the infix items are GONE from `uncovered` (asserted in
-//! test (a)). Tier stays `Partial { uncovered: 1 }` — honest, and no longer a routing decision
-//! (there is no fallback tier to route to).
-//!
-//! ## Test-timing policy
-//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
-//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. Every test in
-//! this file loads `samples/data/amharic-hc.xml`, so all four are unconditionally
-//! `#[ignore = "..."]`d (replacing the old `cfg_attr(debug_assertions, ...)` debug-only ignore),
-//! each with a self-skip guard so `--include-ignored` runs stay green where the fixture is absent
-//! (CI). Run the full set locally with
-//! `cargo test -p pg-foma --release --test f3_interdigitation_gate -- --include-ignored`.
+//! Recall gate for interdigitation (infix) and Ge'ez boundary-fusion composites (`crate::preexpand`) against the real Amharic grammar, with `pg_parse::Morpher` as the recall oracle; corpus-blocked, `#[ignore]`d unconditionally, and no synthetic replacement exists for this grammar's pathology.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -87,19 +10,13 @@ use pg_foma::peel::ReduplicationPeeler;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
-/// Same large-stack convention as the P6 compile gates: vendored foma's recursive lexc parser
-/// overflows libtest's default Windows thread stack on this gate's 80k-line real grammar.
+/// Vendored foma's recursive lexc parser overflows libtest's default Windows thread stack on this gate's large real grammar.
 const FOMA_LEXC_STACK_BYTES: usize = 512 * 1024 * 1024;
 
-/// Same word cap as the P1c stage (first 100 corpus words; `amharic-words.txt` has 673 lines).
+/// First 100 corpus words (`amharic-words.txt` has 673 lines).
 const WORD_CAP: usize = 100;
 
-/// Per-word engine-oracle timeout. Words that time out with ZERO analyses are skipped (can't tell
-/// what the engine would eventually find) and reported; words that time out with PARTIAL analyses
-/// count for recall (a partial engine result is still real — it can only shrink the denominator's
-/// completeness, never make it wrong) but are EXCLUDED from the end-to-end multiset parity test
-/// (the foma path's confirm is uncapped, so it can legitimately find analyses the timed-out
-/// full-search pass didn't get to — set inequality there is a timeout artifact, not a parity bug).
+/// Per-word engine-oracle timeout: zero-analysis timeouts are skipped from recall, partial-analysis timeouts count for recall but are excluded from the end-to-end multiset parity test.
 const ENGINE_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn sample_path(name: &str) -> PathBuf {
@@ -193,14 +110,7 @@ fn candidates_cover(candidates: &[pg_foma::tags::Candidate], seq: &[u32], root_i
     })
 }
 
-// -------------------------------------------------------------------------------------------
 // (a) emit + compile: counts, uncovered (the infix items must be GONE), tier, wall time.
-//     Soft time expectation < 60s for emit+compile (plan P1d gate item a) — measured and printed;
-//     only an outright compile error fails the test on time-unrelated grounds. Measured on this
-//     machine (release): emit ~30s (dominated by `preexpand`'s ~305k (stem × rule) synthesize
-//     probes — the documented O(roots × rules × depth) scale bridge, P6 successor named in
-//     preexpand's module doc), emit+compile ~35-40s.
-// -------------------------------------------------------------------------------------------
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
@@ -236,8 +146,7 @@ fn a_emits_and_compiles_impl() {
         emitted.report.tier
     );
 
-    // P1d headline assertions: both composite mechanisms fired, and the Role::Infix rules are
-    // GONE from `uncovered` (they are representable now, via rule-application pre-expansion).
+    // Both composite mechanisms fired, and the Role::Infix rules are gone from `uncovered`.
     assert!(
         emitted.report.counts.composite_interdigitation_entries > 0,
         "expected interdigitation composites (Amharic has 3 Role::Infix rules matching 36 roots)"
@@ -298,14 +207,7 @@ fn a_emits_and_compiles_impl() {
     proposer.unwrap_or_else(|e| panic!("Amharic lexc failed to foma-compile: {e}"));
 }
 
-// -------------------------------------------------------------------------------------------
-// (b) RECALL — asserted 100% (plan §0: no fallback tier exists; a miss is a compiler bug).
-//     Denominator: first WORD_CAP corpus words, engine-analyzed only, ENGINE_TIMEOUT per word
-//     (zero-analysis timeouts skipped and reported). No reduplication exclusion: Amharic has no
-//     reduplication rule (asserted below — its five redupMorphType-tagged subrules each reference
-//     their Input part once, so nothing classifies Role::Reduplication; same census as
-//     pg-rules/src/morph.rs's module doc).
-// -------------------------------------------------------------------------------------------
+// (b) recall — asserted 100%: a miss is a compiler bug, not a fallback-tier trigger.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
@@ -413,12 +315,7 @@ fn b_recall_first_100_words_is_100_percent_impl() {
     );
 }
 
-// -------------------------------------------------------------------------------------------
-// (c) END-TO-END: FomaAnalyzer::analyze_word (propose UNION peel -> batched confirm) multiset ==
-//     engine parse_word_opts multiset on the same denominator words — stronger than proposer
-//     recall (exercises confirm's positional matching + D4 multiplicity recovery through the
-//     composite entries). Timed-out words excluded (see ENGINE_TIMEOUT's doc).
-// -------------------------------------------------------------------------------------------
+// (c) end-to-end: FomaAnalyzer::analyze_word multiset == engine parse_word_opts multiset, stronger than proposer recall since it exercises confirm's positional matching and multiplicity recovery.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
@@ -504,10 +401,7 @@ fn c_end_to_end_multiset_parity_impl() {
     );
 }
 
-// -------------------------------------------------------------------------------------------
-// (d) overgeneration sanity + no panic on nonsense words (valid Ge'ez segments and unsegmentable
-//     Latin), through both the raw proposer and the full analyzer.
-// -------------------------------------------------------------------------------------------
+// (d) overgeneration sanity + no panic on nonsense words, through both the raw proposer and the full analyzer.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]

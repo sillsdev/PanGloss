@@ -1,17 +1,4 @@
-//! M4b (part 2/2) acceptance gate — per-stratum analysis orchestration + affix-template battery.
-//!
-//! Part 1: hand-built tiny strata over the alpha grammar, with candidate sets reasoned by hand from
-//! HermitCrab's `AnalysisStratumRule` / `Analysis*AffixTemplateRule` semantics and cross-checked
-//! against the C# cascade behavior:
-//! - (a) a LINEAR stratum, two ordered suffix rules;
-//! - (b) an UNORDERED stratum, two order-dependent suffix rules — the `CombinationRuleCascade`
-//!   reaches a root the `PermutationRuleCascade` (over the reversed list) cannot;
-//! - (c) an affix template with an optional slot — both the slot-filled and slot-skipped analyses
-//!   appear, contrasted against the same template with the slot made mandatory.
-//!
-//! Part 2: structural coverage over the real Sena grammar (0 prules / 140 mrules / 24 templates,
-//! Unordered) — run the analysis stratum on several short words under the step cap; assert
-//! termination + a non-empty candidate set, no panic; report counts + whether the cap fired.
+//! Per-stratum analysis orchestration and affix-template battery, plus structural coverage over the real Sena grammar.
 
 mod common;
 
@@ -128,15 +115,7 @@ fn suffix_rule(g: &Grammar, morpheme: u32, seg: &str) -> MorphRuleDef {
     })
 }
 
-/// A single-allomorph suffix rule that ALSO registers its allomorph in `g.allomorph_owners`, the
-/// way `pg_grammar::load` would (`AllomorphOwner::Affix(mrule_id, 0)` at the next sequential
-/// `AllomorphId`) -- required for `RuleCache::build`/`synthesize_stratum_traced`'s cached
-/// production path (`guided_synth` -> `synthesize_cached_traced` -> `synth_affix_cached`), which
-/// indexes allomorphs through that registry. Plain `suffix_rule`/`push_mrule` above (used by every
-/// other test in this file) mint an `AllomorphId` out of thin air (the `morpheme` number) and are
-/// only ever exercised through the UNCACHED `analyze_stratum`/`synthesize_template` entry points,
-/// which never consult `g.allomorph_owners` at all -- see `pg-rules/tests/template_partial_gate.rs`'s
-/// `push_suffix_rule`, whose doc comment spells out this exact distinction; this is that same helper.
+/// A suffix rule that also registers its allomorph in `g.allomorph_owners`, required for the cached `synthesize_stratum_traced` path (unlike `suffix_rule`, used only by the uncached entry points).
 fn push_cache_suffix_rule(g: &mut Grammar, morpheme: u32, seg: &str) -> MRuleId {
     let mrule_id = MRuleId(g.mrules.len() as u32);
     let allo_id = AllomorphId(g.allomorph_owners.len() as u32);
@@ -212,19 +191,11 @@ fn word(g: &Grammar, text: &str, stratum: StratumId) -> Word {
     Word::new(shape_with_lanes(g, text), stratum)
 }
 
-// =================================================================================================
 // (a) LINEAR stratum, two ordered suffix rules.
-// =================================================================================================
 
 #[test]
 fn linear_stratum_unapplies_suffixes_in_reversed_order() {
-    // Root "a" + suffix A "p" + suffix B "k"  →  surface "apk"  ("p" and "k" are mutually exclusive
-    // by place of articulation, so each suffix rule strips only its own segment).
-    // Stratum mrules = [A, B]; AnalysisStratumRule reverses them → the PermutationRuleCascade walks
-    // [B, A]. From "apk": unapply B (drop "k") → "ap"; then A (drop "p") → "a". B cannot unapply
-    // from "apk" any other way, and A cannot unapply from "apk" directly (it ends in "k", not "p").
-    // The cascade seeds the (post-prule) input word.
-    //   Expected candidate SHAPES = { apk (seed), ap, a }.
+    // AnalysisStratumRule reverses [A,B] to [B,A]: unapply B ("k") then A ("p") to reach the root "a".
     let mut g = load_alpha_grammar();
     let (ra, rb) = (suffix_rule(&g, 200, "p"), suffix_rule(&g, 300, "k"));
     let a = push_mrule(&mut g, ra);
@@ -254,22 +225,11 @@ fn linear_stratum_unapplies_suffixes_in_reversed_order() {
     assert_eq!(got, want, "linear candidate shapes = {{apk, ap, a}}");
 }
 
-// =================================================================================================
 // (b) UNORDERED stratum: combination reaches a root permutation-over-reversed cannot.
-// =================================================================================================
 
 #[test]
 fn unordered_combination_reaches_root_linear_permutation_misses() {
-    // Root "a" + suffix A "p" (inner) + suffix B "k" (outer)  →  surface "akp"  — the non-commuting
-    // case. Because the *inner* suffix "p" ended up at the surface end, to strip back to "a" you
-    // must unapply A (drop trailing "p") FIRST, exposing "k", then unapply B (drop trailing "k").
-    //
-    // Stratum mrules = [A(strip-p), B(strip-k)]; AnalysisStratumRule reverses → [B(idx0), A(idx1)].
-    //  • PermutationRuleCascade (LINEAR) walks index-ordered subsets of [B, A]: it can do B-then-A
-    //    but NOT A-then-B. B (strip-k) does not apply to "akp" (ends in "p"), so it only reaches
-    //    "ak" (via A alone). It never reaches "a".
-    //  • CombinationRuleCascade (UNORDERED, multi-app) recurses from index 0 at every level → it
-    //    tries A(→"ak")-then-B(→"a"). It reaches "a".
+    // Non-commuting case: surface "akp" requires unapplying A ("p") before B ("k"); CombinationRuleCascade (UNORDERED) can reorder to reach root "a", PermutationRuleCascade (LINEAR, over reversed [B,A]) cannot.
     let build = |order: MorphRuleOrder| -> (Grammar, StratumId) {
         let mut g = load_alpha_grammar();
         let (ra, rb) = (suffix_rule(&g, 200, "p"), suffix_rule(&g, 300, "k"));
@@ -332,13 +292,9 @@ fn unordered_combination_reaches_root_linear_permutation_misses() {
     });
 }
 
-// =================================================================================================
 // (c) Affix template with an optional slot → both slot-filled and slot-skipped analyses.
-// =================================================================================================
 
-/// Build a stratum with one two-slot template over the alpha grammar. Slot 0 = suffix "p" (its
-/// optionality is the parameter); slot 1 = mandatory suffix "k". Surface "apk" = root "a" +
-/// slot0"p" + slot1"k".
+/// A stratum with one two-slot template: slot 0 = suffix "p" (optionality is the parameter), slot 1 = mandatory suffix "k".
 fn template_stratum(slot0_optional: bool) -> (Grammar, StratumId) {
     let mut g = load_alpha_grammar();
     let (ra, rb) = (suffix_rule(&g, 200, "p"), suffix_rule(&g, 300, "k"));
@@ -368,12 +324,7 @@ fn template_stratum(slot0_optional: bool) -> (Grammar, StratumId) {
 
 #[test]
 fn optional_template_slot_yields_both_filled_and_skipped() {
-    // AnalysisAffixTemplateRule.ApplySlots descends from the last slot. On "apk":
-    //   slot 1 (mandatory, suffix "k"): drop "k" → "ap", recurse into slot 0.
-    //     slot 0 (OPTIONAL, suffix "p"): drop "p" → "a"  (slot 0 FILLED), then — because slot 0 is
-    //       optional — fall through and add "ap"          (slot 0 SKIPPED).
-    //   slot 1 is mandatory, so "apk" itself is NOT added (its material had to be consumed).
-    // Template outputs = { a, ap }; with the seed the analysis set = { apk, ap, a }.
+    // ApplySlots descends from the last slot: mandatory slot 1 drops "k", then optional slot 0 both drops "p" (filled) and falls through unchanged (skipped).
     let (g, s) = template_stratum(true);
     let out = analyze_stratum(
         &g,
@@ -407,9 +358,7 @@ fn optional_template_slot_yields_both_filled_and_skipped() {
 
 #[test]
 fn mandatory_slot_suppresses_the_skipped_analysis() {
-    // Same template, slot 0 made MANDATORY. Now the "skip slot 0" fall-through returns without
-    // adding "ap", so only the fully-unapplied "a" survives from the template.
-    //   Analysis set = { apk (seed), a }  — the "ap" candidate is gone.
+    // Same template with slot 0 made mandatory: the skip-fall-through is gone, so only the fully-unapplied "a" survives.
     let (g, s) = template_stratum(false);
     let out = analyze_stratum(
         &g,
@@ -430,17 +379,11 @@ fn mandatory_slot_suppresses_the_skipped_analysis() {
     );
 }
 
-// =================================================================================================
 // Synthesis template battery (forward direction) — SynthesisAffixTemplateRule.ApplySlots.
-// =================================================================================================
 
 #[test]
 fn synthesis_template_optional_slot_yields_filled_and_skipped() {
-    // Same two-slot template (slot 0 OPTIONAL "p", slot 1 mandatory "k"), applied forward to root
-    // "a". SynthesisAffixTemplateRule.ApplySlots ascends from slot 0:
-    //   • fill slot 0 ("a"→"ap") then slot 1 ("ap"→"apk")  → "apk";
-    //   • skip slot 0 (optional), fill slot 1 ("a"→"ak")    → "ak".
-    // Expected synthesized shapes = { apk, ak }.
+    // Forward synthesis ascends from slot 0: filling both slots gives "apk", skipping optional slot 0 gives "ak".
     let mut g = load_alpha_grammar();
     let (ra, rb) = (suffix_rule(&g, 200, "p"), suffix_rule(&g, 300, "k"));
     let a = push_mrule(&mut g, ra);
@@ -484,9 +427,7 @@ fn synthesis_template_optional_slot_yields_filled_and_skipped() {
     );
 }
 
-// =================================================================================================
 // Part 2 — Sena structural coverage.
-// =================================================================================================
 
 fn sena_path() -> String {
     format!(
@@ -520,8 +461,7 @@ fn sena_analysis_stratum_terminates_on_short_words() {
         sd.templates.len()
     );
 
-    // Short words only (the heavy-13 blow up unmemoized). The cap is the safety valve; unmemoized
-    // even short words can exhaust it, in which case the candidate set is partial (reported).
+    // Short words only: unmemoized analysis can exhaust the step cap even on these, in which case the candidate set is partial.
     let cfg = AnalyzerConfig {
         merge_equivalent: true,
         max_unapplications: 0,
@@ -551,28 +491,11 @@ fn sena_analysis_stratum_terminates_on_short_words() {
     }
 }
 
-// =================================================================================================
-// Tier-2 #14 — `MergeEquivalentAnalyses` + `Alternatives` + `expand_alternatives` across a stratum
-// boundary (`AnalysisStratumRule.cs:150-177`, `Word.cs:491-533`, `Morpher.cs:478`).
-// =================================================================================================
+// MergeEquivalentAnalyses + Alternatives + expand_alternatives across a stratum boundary.
 
 #[test]
 fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both() {
-    // Two DIFFERENT morphological rules (idA, idB) whose suffixes are phonologically identical
-    // ("n") — a homophonous-suffix pair (distinct morphology, identical phonology), the textbook
-    // case `MergeEquivalentAnalyses` exists for. Stratum 0 (surface) unapplies either one from
-    // "agn", landing on the SAME shape "ag" via two different mrule histories —
-    // `AnalysisStratumRule`'s shape-keyed merge folds the second into the first's `Alternatives`
-    // (cs:166-172) rather than emitting two top-level candidates. Stratum 1 (deeper) then unapplies
-    // a further suffix "g" ("ag" -> "a") on whichever single canonical word descended — exactly what
-    // the merge is *for*: only one word flows into the deeper (potentially expensive) stratum
-    // instead of two.
-    //
-    // The correctness question `expand_alternatives` must answer: after both strata, does the fully
-    // expanded candidate set still contain BOTH the idA and idB histories (now each also carrying
-    // the deeper idZ unapplication) — i.e. is the merge lossless once expanded, matching
-    // `Word.ExpandAlternatives` (Word.cs:491-533) / `Morpher.cs:478`'s contract that synthesis sees
-    // exactly the candidate set a non-merging engine would have produced?
+    // Two different rules (idA, idB) with a phonologically identical suffix "n" unapply to the same shape "ag"; MergeEquivalentAnalyses folds the second into the first's Alternatives instead of emitting a sibling candidate.
     let mut g = load_alpha_grammar();
     let rule_a = suffix_rule(&g, 200, "n"); // morpheme 200
     let rule_b = suffix_rule(&g, 201, "n"); // morpheme 201, phonologically identical suffix
@@ -589,8 +512,7 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
         max_stem_count: 2,
     };
 
-    // Stratum 0: "agn" -> merge collapses the idA/idB candidates sharing shape "ag" into one
-    // canonical + one alternative.
+    // Stratum 0: merge collapses the idA/idB candidates sharing shape "ag" into one canonical + one alternative.
     let input0 = word(&g, "agn", s0);
     let out0 = analyze_stratum(&g, s0, input0, &cfg, &StepBudget::new(10_000));
     assert!(!out0.capped);
@@ -621,9 +543,7 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
         "canonical + alternative together cover both idA and idB"
     );
 
-    // Stratum 1: feed the single canonical word in — the alternative rides along inside it, never
-    // itself descending as a separate candidate (the perf win: one word, not two, enters the deeper
-    // stratum's analysis).
+    // Stratum 1: feed the single canonical word in; the alternative rides along without descending as its own candidate.
     let out1 = analyze_stratum(&g, s1, canonical, &cfg, &StepBudget::new(10_000));
     assert!(!out1.capped);
     let a_shape = vec![cd(&g, "char_a")];
@@ -634,8 +554,7 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
         .expect("stratum 1 reaches shape [a]")
         .clone();
 
-    // The payoff: expand_alternatives reconstructs BOTH histories, each now also carrying idZ — the
-    // candidate set an unmerged (keep-every-candidate) engine would have produced.
+    // expand_alternatives must reconstruct both histories (each now also carrying idZ), matching what an unmerged engine would have produced.
     let expanded = final_word.expand_alternatives();
     let mut got: Vec<Vec<Option<MRuleId>>> =
         expanded.iter().map(|w| w.mrule_apps.clone()).collect();
@@ -656,75 +575,24 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
     }
 }
 
-// =================================================================================================
-// Fix 2 regression gate — `--word-timeout-ms` must be enforced during SYNTHESIS, not just analysis.
-// =================================================================================================
-//
-// WHY THIS IS DETERMINISTIC (and why a wall-clock-race version was tried and rejected): an earlier
-// version of this regression guard (`pg-parse/tests/word_timeout_synthesis_gate.rs`, since deleted)
-// tried to prove the bug via a real corpus word, racing a wall-clock `--word-timeout-ms` deadline
-// against the boundary between a word's analysis phase and its synthesis phase — banking on analysis
-// alone finishing (or step-capping) well inside the deadline, so the deadline was still "live" once
-// synthesis began. That boundary's timing is machine-dependent: on the test machine analysis alone
-// took LONGER than the configured deadline, so the deadline fired DURING analysis, the test's
-// `capped` assertion failed, and even when it didn't fail, a deadline caught during analysis proves
-// nothing about synthesis at all. There is no wall-clock deadline that can be placed reliably inside
-// a `[analysis_time, analysis_time + synthesis_time]` window whose two ends both vary by machine.
-//
-// `synthesize_stratum_traced` (`pg_rules::stratum`) is pure synthesis — no analysis, no corpus, no
-// I/O — and takes a `&StepBudget` directly. Instead of racing the clock, drive it with a budget whose
-// deadline has ALREADY elapsed at construction (`with_timeout(Some(Duration::ZERO))`: the deadline
-// instant equals the constructing `Instant::now()`, so by the time any code runs,
-// `Instant::now() >= deadline` is unconditionally true). Every synthesis entry point this fix touches
-// (`synth_apply_mrules`/`synth_apply_templates`/`guided_template_apply`/`synth_slots_generic`, plus
-// `synthesize_stratum_traced`'s own trailing prule fold) calls `budget.deadline_expired()` before
-// doing any work, so a pre-expired budget makes the very first check bail out AND latch
-// `timed_out() == true` — deterministically, on every machine, with no timing window at all. Pre-fix,
-// `synthesize_stratum_traced` had no `&StepBudget` parameter whatsoever, so this exact test could not
-// even compile against the old signature: it is inherently a post-fix-only proof, unlike the deleted
-// wall-clock version, which could "pass" (via `timed_out` set during analysis) without ever having
-// exercised the synthesis code path the fix actually changed.
-//
-// Do NOT restore the wall-clock-race version if this one is ever found "less realistic" — the whole
-// point is that this one cannot flake by construction, while that one already flaked once.
+// `--word-timeout-ms` must be enforced during synthesis, not just analysis: a budget with an already-expired deadline (not a wall-clock race) proves it, since analysis/synthesis timing both vary by machine.
 #[test]
 fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short() {
-    // `synthesize_stratum_traced` is GUIDED synthesis: `guided_synth` (this crate's `stratum.rs`)
-    // only reapplies a rule that the word's OWN `mrule_apps`/`mrule_app_index` trail says is next --
-    // a hand-built `Word` with no trail (`mrule_app_index == -1`, `Word::new`'s default) synthesizes
-    // zero candidates unconditionally, deadline or not, which would prove nothing. So this fixture
-    // hand-sets a two-step confirmed unapplication trail -- root "a" + suffix A "p" + suffix B "k"
-    // -> surface "apk", applied in DECLARATION order (`SynthesisStratumRule.cs:27-40`: synthesis
-    // does NOT reverse mrule order the way analysis does) -- exactly the same "confirmed trail"
-    // shape `template_partial_gate.rs`'s gate 3/4 tests use to drive the real cached production
-    // path (`synth_apply_mrules` -> `guided_synth` -> `synthesize_cached_traced` ->
-    // `synth_affix_cached`) without needing a prior analysis call.
-    //
-    // `RuleCache::build`/`synth_affix_cached` resolve allomorphs through `g.allomorph_owners`, so
-    // this uses `push_cache_suffix_rule` (registers there), NOT this file's plain `suffix_rule`/
-    // `push_mrule` (used by every other test above, all of which stay on the UNCACHED
-    // `analyze_stratum`/`synthesize_template` entry points and never touch `allomorph_owners`).
+    // Guided synthesis only reapplies what the word's own mrule_apps trail says is next, so this hand-sets a two-step trail and uses push_cache_suffix_rule (registers in g.allomorph_owners, required by the cached synth_affix_cached path).
     let mut g = load_alpha_grammar();
     let a = push_cache_suffix_rule(&mut g, 200, "p");
     let b = push_cache_suffix_rule(&mut g, 300, "k");
     let s = push_stratum(&mut g, MorphRuleOrder::Linear, vec![a, b], vec![]);
 
     let mut root = word(&g, "a", s);
-    // The trail a real analysis of "apk" would have produced: outer suffix "k" (rule B) unapplied
-    // first (pushed at index 0), then inner suffix "p" (rule A) unapplied second (pushed at index
-    // 1, hence `mrule_app_index == 1` -- `Word::morphological_rule_unapplied`'s "index = len - 1"
-    // invariant). Guided synthesis walks the trail back off the end: rule A (index 1) first,
-    // decrementing to index 0, then rule B.
+    // The trail a real analysis of "apk" would produce: B unapplied first (index 0), then A (index 1); guided synthesis walks it back off the end, A then B.
     root.mrule_apps = vec![Some(b), Some(a)];
     root.mrule_app_index = 1;
 
     let cache = RuleCache::build(&g);
     const CAP: usize = 10_000;
 
-    // STEP A -- baseline: no deadline armed at all (`StepBudget::new(usize::MAX)`, matching every
-    // other step-cap-only call site in this file). Establishes empirically that this trail
-    // genuinely drives synthesis back toward the original surface, and records the uninterrupted
-    // output count N.
+    // Baseline: no deadline armed; establishes that this trail genuinely drives synthesis and records the uninterrupted output count N.
     let full_budget = StepBudget::new(usize::MAX);
     let full = synthesize_stratum_traced(
         &g,
@@ -756,9 +624,7 @@ fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short()
         candidate_shapes(&full)
     );
 
-    // STEP B -- the guard: an otherwise-identical call, but with a budget whose deadline already
-    // elapsed at construction. The load-bearing assertion is `timed_out() == true` coming out of a
-    // pure-synthesis call -- proof synthesis itself now consults the wall-clock deadline.
+    // Guard: an otherwise-identical call with an already-elapsed deadline; timed_out() == true proves synthesis itself consults the deadline.
     let expired_budget = StepBudget::new(usize::MAX).with_timeout(Some(Duration::ZERO));
     let capped = synthesize_stratum_traced(
         &g,

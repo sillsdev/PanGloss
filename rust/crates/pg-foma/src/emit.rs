@@ -1735,8 +1735,7 @@ fn build_slot_chain(
             write_bare(out, &next, counts);
         }
         for &mid in &slot.rules {
-            // trie.rs::append_slots's rule-level category gate (trie.rs:933-939): skip a slot
-            // rule whose own requirement can't unify with the template's category.
+            // Mirrors trie.rs's append_slots category gate: skip a slot rule whose requirement can't unify with the template's category.
             let req = required_category(g, mid);
             let req_fs = g.fs_interner.get(req);
             if !req_fs.is_empty() {
@@ -1754,80 +1753,12 @@ fn build_slot_chain(
     entry_name
 }
 
-// --- Structural composites: rules `crate::preexpand` cannot represent at all ---------------------
-//
-// The conformance suite's `edge-cases/
-// truncate-morphotactic` and `languages/suffixing-vowel-harmony` fixtures exercise two related gaps
-// `crate::preexpand`'s rule-application composite mechanism does not close:
-//
-// 1. **Truncation/subtraction rules.** `classify_affix` only inspects RHS `Copy`/`Insert`
-//    POSITIONS, blind to whether the rule's LHS pattern has more than one top-level part and, if
-//    so, whether every part survives into the RHS as a `Copy`. A rule whose entire RHS is a single
-//    `Copy` of one LHS part while the LHS has more than one part classifies `Role::None`
-//    (`classify_affix` sees exactly one `Copy` action and no leading/trailing insert) — and
-//    `build_deriv_chain`'s "Role::None is legal in either zone" convention then treats it as a pure
-//    ZERO MORPH, silently reproducing the UNTRUNCATED root text. That is not merely
-//    unrepresentable (module doc "Not emittable as literal lexc" undersold this); the EXISTING
-//    handling actively emits the wrong surface whenever the rule genuinely deletes a segment
-//    (`edge-cases/truncate-morphotactic`'s `mruleTruncTrail`/`mruleTruncLead`: "sag"->"sa"/"ag"). A
-//    `Role::Prefix`/`Suffix` rule can have the same problem when part of its LHS is an OPTIONAL
-//    segment that is sometimes consumed (not copied) — `mruleTruncOptIns`: an optional leading "s"
-//    that vanishes from the output exactly when present ("sas"->"gas", not the naive "g"+"sas" =
-//    "gsas"). `is_structural_rule` identifies exactly this LHS shape.
-// 2. **A grammar whose own phonological cascade defeats `crate::preexpand`'s probe.**
-//    `pg_rules::surface_probe::probe_synthesize` — the build-time probe `crate::preexpand` drives
-//    to get a rule-application's real, phonology-resolved surface — unconditionally REFUSES
-//    (`pg_rules::rewrite::probe_synthesize_stratum`'s `Kind::Epenthesis`/`PhonRuleDef::Metathesis`
-//    arms) the moment its cascade reaches an epenthesis-kind rewrite subrule (empty
-//    `<PhoneticInput>`) or ANY `<MetathesisRule>` — REGARDLESS of whether that specific rule
-//    actually fires for the shape being probed. Verified empirically against `languages/
-//    suffixing-vowel-harmony` (has a real `prEpenthesis`): `crate::preexpand` probes 16 candidate
-//    (root, rule) pairs and emits ZERO fusion/interdigitation composites — every one of the
-//    grammar's ordinary suffix rules (`mrPast`/`mrPres`/`mrPlural`/`mrAlphaSuf`) and its infix rule
-//    (`ruleInfixDemo`) needs the harmony/gradation/epenthesis cascade to reach its real surface
-//    ("kutak"+"de" -> "kutagida"), and every probe for this stratum refuses outright. See
-//    `probe_would_refuse` for the static (per-grammar, not per-word) detection this implies.
-//
-// Both are closed the SAME way `crate::preexpand` closes interdigitation/fusion: drive the REAL
-// synthesis machinery (`pg_rules::morph::synthesize`, not a re-implementation) against each root
-// allomorph and recursively against the result (bounded, `STRUCT_MAX_EXTRA_RULES` — needed for
-// `truncate-morphotactic`'s "gas", whose second analysis chains `mruleTruncLead` into
-// `mruleTruncOptIns`), for `structural_candidate_rules`'s rule set. For the SURFACE: try
-// `probe_surface` first (cheap, exact for this specific shape); when it's refused, fall back to
-// `Morpher::generate_words` — the engine's OWN real per-word generation pipeline (used elsewhere
-// in this crate by nothing else; a fresh, independent path from the probe, with no refusal case at
-// all) — for the WHOLE chain applied so far. Composite entries are reused directly
-// (`crate::preexpand::CompositeRec`) and merged into the SAME shared `Composites`/`CompositeExit`
-// wiring `emit`'s "LEXICON Root" comment documents, so a structural composite stem is reachable
-// exactly where an ordinary root or a preexpand composite is — no further chaining through
-// non-structural rules is needed here (ordinary continuing morphology after a structural stem is
-// already reachable through that shared wiring).
-//
-// Zero-cost, zero-entry for a grammar with no structural rule and no probe-refusing construct
-// (Sena, Indonesian, Amharic: verified — zero `<MetathesisRule>`/empty-`<PhoneticInput>` elements
-// in any of the three reference grammars' XML) — `structural_candidate_rules` returns empty and
-// `build_structural_composites` returns immediately, preserving every existing gate byte-for-byte
-// in the sense that matters (`crate::preexpand`'s own composites, and everything else this emitter
-// already produced, are completely unchanged; this section only ever ADDS entries).
-//
-// Morphotactic pruning (`crate::morphotactics`) -- the Aweti scale fix: `struct_extend`'s flat
-// depth-3 recursion below is pruned by the SAME
-// automaton `crate::preexpand::extend` consults (`crate::morphotactics::MorphotacticIndex::
-// next_state`), built once by `emit_with_precision` and shared across both builders — see
-// `crate::preexpand`'s own module-doc addendum for the full design.
+// Structural composites replay `pg_rules::morph::synthesize` for rules `crate::preexpand` cannot represent (truncation, and probe-refused rules), reusing its `Composites`/`CompositeExit` wiring.
 
-/// Bound on a structural composite chain's length beyond the root — same rationale as
-/// `crate::preexpand::MAX_EXTRA_RULES` (module doc there): `edge-cases/truncate-morphotactic`'s
-/// "gas" needs depth 2 (`mruleTruncLead` then `mruleTruncOptIns`); 3 leaves headroom the same way
-/// preexpand's own constant does, with the same recall-gate backstop if a grammar ever needs more.
+/// Bound on a structural composite chain's length beyond the root, same rationale as `crate::preexpand::MAX_EXTRA_RULES`.
 const STRUCT_MAX_EXTRA_RULES: usize = 3;
 
-/// Does `allo`'s RHS drop at least one of its own LHS's top-level `<PhoneticSequence>` parts —
-/// i.e. does some `PartRef::Input(i)` in `0..allo.lhs.len()` never appear as an `OutputAction::Copy`
-/// anywhere in `allo.rhs`? A multi-part LHS where every part IS copied (in any order, interleaved
-/// with inserts or not) drops nothing — that's ordinary interdigitation (`Role::Infix`,
-/// `crate::preexpand`'s own job) or a ordinary affix whose LHS just happens to be split into
-/// several trivial parts; only an UNCOPIED part is real subtracted material (module doc, item 1).
+/// True if some LHS part of `a` is never copied into the RHS, i.e. the rule drops root material.
 fn rhs_drops_lhs_material(a: &AffixAllomorphDef) -> bool {
     if a.lhs.len() <= 1 {
         return false;
@@ -1843,44 +1774,20 @@ fn rhs_drops_lhs_material(a: &AffixAllomorphDef) -> bool {
     (0..a.lhs.len() as u16).any(|i| !copied.contains(&i))
 }
 
-/// A rule's LHS drops (or, via an optional part, sometimes drops) real root material into the
-/// surface, something no OTHER site in this emitter accounts for (module doc, item 1) —
-/// `rhs_drops_lhs_material` on at least one allomorph. Scoped to the three roles
-/// `build_deriv_chain`/`emit_rule_allomorphs` already accept in a `Prefix`/`Suffix` zone
-/// (`Role::None`/`Role::Prefix`/`Role::Suffix`) — `Role::Infix` is `crate::preexpand`'s own job
-/// (module doc, item 2, covers the case where it ALSO needs this mechanism); `CircumfixPrefix`/
-/// `Reduplication`/`Process` remain `uncovered`'s job, unchanged.
-///
-/// `pub(crate)` (widened from private, no body change): `crate::capability::
-/// CircumfixStructuralCompositePredicate` calls this directly to decide whether a given
-/// `CircumfixOutputAction` observation's owning rule actually reaches the faithful, oracle-backed
-/// `build_structural_composites` construction — the same "predicate reads the identical
-/// structural fact the real compile path branches on, not a re-derivation of it" precedent
-/// `probe_would_refuse`/`structural_candidate_rules` already set.
-/// Whether ANY allomorph of `mid` classifies `Role::CircumfixPrefix` — unlike `rule_role`,
-/// which inspects allomorph 0 only. `is_structural_rule`'s own question is "would ANY allomorph of
-/// this rule need `build_structural_composites`", so it must not miss a circumfix-shaped allomorph
-/// declared at index ≥ 1 merely because allomorph 0 happens to classify as something else (this gap
-/// is order-of-declaration-dependent — it appears and disappears purely as a grammar author
-/// reorders a rule's allomorphs, which is what makes it worth fixing here rather than documenting
-/// as a boundary).
-///
-/// Deliberately NOT a change to `rule_role`'s own contract: `rule_role`'s other call sites
-/// (`slot_role`/`classify_template` — deciding a template slot's prefix/suffix zone — and the
-/// standalone-derivation-rule classification duplicated in `emit_with_budget_profiled`, both
-/// faithful ports of `trie.rs`'s own "a rule's primary role, from its FIRST allomorph" convention,
-/// `rule_role`'s own doc comment) answer a DIFFERENT question — which concatenative zone a rule's
-/// literal-lexc tag belongs in — where "primary allomorph decides" is the intended, HC-faithful
-/// semantics, not an oversight. `crate::peel::is_reduplication_rule` does not call `rule_role` at
-/// all; it already calls `classify_affix` directly with its own `.any()` scan for the same reason
-/// this helper exists (that function's own doc contrasts the two aggregations explicitly). Adding a
-/// second, narrowly-scoped helper here keeps every one of those other sites byte-for-byte unchanged.
+/// True if any allomorph of `mid` classifies `Role::CircumfixPrefix`, unlike `rule_role` (allomorph 0 only).
 fn any_allomorph_is_circumfix_prefix(g: &Grammar, mid: MRuleId) -> bool {
     allomorphs_of(g, mid)
         .iter()
         .any(|a| classify_affix(&a.rhs) == Role::CircumfixPrefix)
 }
 
+/// True for a rule `crate::preexpand`'s ordinary composite mechanism cannot represent: a
+/// `None`/`Prefix`/`Suffix` allomorph that drops real LHS material (`rhs_drops_lhs_material`), any
+/// `CircumfixPrefix` allomorph, or any `Process` allomorph. `Infix` and `Reduplication` are not
+/// structural — they stay `crate::preexpand`'s and `uncovered`'s job respectively.
+///
+/// `pub(crate)`: `crate::capability`'s `CircumfixStructuralCompositePredicate` calls this directly
+/// so its check reads the same fact the compile path branches on, rather than re-deriving it.
 pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
     if let MorphRuleDef::AffixProcess(def) = &g.mrules[mid.0 as usize] {
         if !g.fs_interner.get(def.out_syn_fs).is_empty()
@@ -1891,10 +1798,7 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
             return true;
         }
     }
-    // Check EVERY allomorph for `CircumfixPrefix`, not just the one `rule_role` reports from
-    // allomorph 0. Safe to check unconditionally before the `match` below — if allomorph 0 itself
-    // is `CircumfixPrefix`, `rule_role` already agrees and the `match` arm just below would return
-    // `true` anyway; this only ADDS the case a first-allomorph-only check would miss.
+    // Checked unconditionally, ahead of the match below, since it only adds cases rule_role's allomorph-0-only view would miss.
     if any_allomorph_is_circumfix_prefix(g, mid)
         || allomorphs_of(g, mid)
             .iter()
@@ -1906,19 +1810,9 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
         Role::None | Role::Prefix | Role::Suffix => {
             allomorphs_of(g, mid).iter().any(rhs_drops_lhs_material)
         }
-        // A circumfix (`Insert`-before + `Copy` + `Insert`-after, ONE discontinuous morpheme
-        // wrapping the root on BOTH sides) is unconditionally unrepresentable by this emitter's
-        // ordinary concatenative model (separate, independently-combinable prefix/suffix
-        // derivation layers — module doc "Not emittable as literal lexc" lists it explicitly) --
-        // `metathesis-phase-isolation`'s "keadilan" (ke-adil-an) and `fusional-realizational-morphology`'s "gelobt"/"gelobth"
-        // (ge-lob-t[-h]) need it, and neither grammar has a probe-refusing construct, so this is
-        // ALWAYS-on, not gated by `probe_would_refuse` the way ordinary Prefix/Suffix/Infix is.
-        // (Reached only when allomorph 0 itself is `CircumfixPrefix` — the check above already
-        // returned `true` for any OTHER allomorph being `CircumfixPrefix`.)
+        // A discontinuous circumfix is unrepresentable by this emitter's concatenative model, so it is always-on rather than gated by probe_would_refuse the way Prefix/Suffix/Infix is.
         Role::CircumfixPrefix => true,
-        // Process allomorphs cannot be emitted literally, but the structural-composite builder
-        // replays `pg_rules::morph::synthesize` and therefore handles Modify/InsertContext without
-        // approximating their segment effects. Keep the complete analyzer as confirmation.
+        // Process allomorphs replay pg_rules::morph::synthesize, which handles Modify/InsertContext exactly rather than approximating them.
         Role::Process => true,
         _ => false,
     }
@@ -1950,11 +1844,10 @@ pub(crate) fn probe_would_refuse(g: &Grammar) -> bool {
 /// remaining path to a phonology-resolved surface. Excludes `CompoundingRule` (never a candidate
 /// anywhere in this emitter's rule-application mechanisms).
 ///
-/// `pub(crate)` (widened from private, no body change): see `probe_would_refuse`'s doc for why --
-/// this is the other half of that same seam (`crate::enumerate::enumerate_default` calls this
-/// directly to decide the structural-composite route's presence). `plan_topology_decisions`
-/// (below) is what makes `emit_with_budget_profiled`'s own gate match this seam BY CONSTRUCTION
-/// rather than by two independently-written call sites happening to agree.
+/// `pub(crate)`: `crate::enumerate::enumerate_default` calls this directly to decide the
+/// structural-composite route's presence, the other half of the seam `probe_would_refuse`
+/// documents; `plan_topology_decisions` then makes `emit_with_budget_profiled`'s own gate match it
+/// by construction rather than by two independently-written call sites happening to agree.
 pub(crate) fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
     let broad = probe_would_refuse(g);
     (0..g.mrules.len() as u32)
@@ -1969,11 +1862,7 @@ pub(crate) fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
         .collect()
 }
 
-/// `true` iff `plan` contains a `PlanNodeKind::Leaf` whose `FragmentSpec` equals `fragment` --
-/// the structural primitive `plan_topology_decisions` uses to read a topology decision back OFF
-/// an already-built `Plan` instead of recomputing it. Both marker fragments this crate uses today
-/// (`FragmentSpec::CompositeEmissionMarker`/`FragmentSpec::StructuralCompositeMarker`) are unit
-/// variants, so equality here is a plain content comparison, not a partial/fuzzy match.
+/// True if `plan` contains a `PlanNodeKind::Leaf` whose `FragmentSpec` equals `fragment`.
 fn plan_has_leaf(plan: &Plan, fragment: &FragmentSpec) -> bool {
     plan.iter()
         .any(|(_, kind)| matches!(kind, PlanNodeKind::Leaf { fragment: f, .. } if f == fragment))
@@ -1983,9 +1872,7 @@ fn plan_has_leaf(plan: &Plan, fragment: &FragmentSpec) -> bool {
 /// `emit_with_budget_profiled`'s two topology decisions **derived from it** --
 /// `(plan wants the composite-emission subtree, plan wants the structural-composite subtree)` --
 /// rather than that function calling `crate::preexpand::should_run`/
-/// `structural_candidate_rules(...).is_empty()` a second, independently-derived time. This is the
-/// production flip: the pre-refactor behavior is preserved as a specific enumerable
-/// plan --
+/// `structural_candidate_rules(...).is_empty()` a second, independently-derived time.
 /// `crate::enumerate::enumerate_default` is the ONE place these two seams are
 /// consulted to decide topology; this function only ever READS the plan it built. (The third seam,
 /// `gate::partition_entries`, belongs to `gate.rs`'s separate compile entry point, which this
@@ -2029,33 +1916,14 @@ pub(crate) fn plan_topology_decisions(g: &Grammar, phon: Option<&PhonologyProbe>
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) const PROBE_STACK_BYTES: usize = 64 * 1024 * 1024;
 
-/// The real, phonology-resolved surface of `shape` via the cheap build-time probe —
-/// `pg_rules::surface_probe::probe_synthesize` + `pg_rules::surface_probe::render_nodes` — when
-/// it doesn't refuse; `None` when it does (`probe_would_refuse`'s per-shape counterpart), or when
-/// the rendered surface is empty (nothing useful to add). The caller falls back to
-/// `Morpher::generate_words` in that case.
-///
-/// Runs on a dedicated scoped thread with a large, explicit stack (`PROBE_STACK_BYTES`) rather
-/// than directly on the caller's own stack: `pg_rules`'s rewrite-rule recursion depth scales with
-/// the grammar's own char-def table / phonological rule set, not with anything this emitter
-/// controls, and this crate cannot edit `pg_rules` to bound it there — a stack overflow aborts the
-/// whole process (not catchable), so borrowing a known-generous stack for this one call is the only
-/// contained fix available at this crate's own layer. `std::thread::scope` (not a detached
-/// `thread::spawn`) lets the closure borrow `g`/`table`/`shape`/`cache` directly, no cloning needed;
-/// the spawn/join overhead (microseconds) is negligible next to the probe's own cascade cost.
+/// `shape`'s real surface via the build-time probe, run on a large stack since a stack overflow in the uncontrolled pg_rules recursion would abort the process; None when the probe declines or renders empty.
 fn probe_surface(
     g: &Grammar,
     table: &CharDefTable,
     shape: &Shape,
     cache: &RuleCache,
 ) -> Option<String> {
-    // wasm32-unknown-unknown has no thread support — `std::thread::Builder::spawn_scoped` panics
-    // there ("operation not supported on this platform"), which would crash `PanGlossGrammar::new`
-    // (pg-wasm) at construction, exactly like the vendored foma `apply_init` wasm fix. Run the
-    // probe inline on wasm instead: the large-stack rationale below cannot apply (no thread to give
-    // a stack to), and the wasm linear-memory stack is sized at link time — the reference grammars'
-    // probe depth fits the default, and a genuinely deeper grammar would need a link-time
-    // `-C link-arg=-zstack-size=…` bump, not a thread this target can't spawn.
+    // wasm32 has no thread support, so run inline instead of on the dedicated stack below.
     #[cfg(target_arch = "wasm32")]
     {
         let segs = pg_rules::surface_probe::probe_synthesize(g, shape, cache)?;
@@ -2075,9 +1943,7 @@ fn probe_surface(
     })
 }
 
-/// Every `BoundaryDefinition` representation (NFD) in `table` — e.g. `metathesis-phase-isolation`'s "+".
-/// Empty for a grammar with no boundary definitions (the common case), where boundary-insertion
-/// (`with_boundary_insertions`) is a pure no-op.
+/// Every `BoundaryDefinition` representation (NFD) in `table`; empty when the grammar defines none.
 fn boundary_reps(table: &CharDefTable) -> Vec<String> {
     let mut out = Vec::new();
     for (_, cd) in table.iter() {
@@ -2092,20 +1958,7 @@ fn boundary_reps(table: &CharDefTable) -> Vec<String> {
     out
 }
 
-/// `surface` plus every SINGLE-boundary-insertion variant (each rep in `bnd_reps` at each interior
-/// character gap; `metathesis-phase-isolation`'s "mu+i"): a `MetathesisRule` can leave a
-/// boundary character INSIDE the surface word (`mi` + suffix `+u` --metathesis--> `mu+i`), but
-/// `Morpher::generate_words` strips every boundary (`include_boundaries = false`) before
-/// rendering, so its output "mui" can never match the boundary-bearing query "mu+i". The shape
-/// (which WOULD carry the boundary at its true position) is not exposed by `generate_words`'
-/// string-only API, and `probe_surface` (above) returns `None` in exactly the same cases its own
-/// `pg_rules::surface_probe::probe_synthesize` call does (via `?`; module doc, item 2 —
-/// metathesis is one of that cascade's refusal triggers), so the exact position is unrecoverable
-/// at this layer — enumerate
-/// every interior insertion instead: bounded (one boundary, `bnd_reps.len() * (n-1)` extra strings
-/// for an n-char surface), upward-only (`crate::confirm` prunes; a spurious "m+ui" is simply never
-/// the query and matches nothing). A no-op when `bnd_reps` is empty (every grammar with no boundary
-/// definitions).
+/// `surface` plus every single-boundary-insertion variant at each interior gap: `generate_words` always strips boundaries, so a metathesis-introduced boundary's true position is unrecoverable, and enumerating lets `crate::confirm` prune the spurious ones. A no-op when `bnd_reps` is empty.
 fn with_boundary_insertions(surface: &str, bnd_reps: &[String]) -> Vec<String> {
     let mut out = vec![surface.to_string()];
     if bnd_reps.is_empty() {
@@ -2122,14 +1975,7 @@ fn with_boundary_insertions(surface: &str, bnd_reps: &[String]) -> Vec<String> {
     out
 }
 
-/// `pg_rules::morph::synthesize`'s `Word` carries `morphs` (each applied allomorph, with an
-/// `order` field reflecting ascending SURFACE position — module doc's "Tag tape convention"; this
-/// is what makes the resulting `tag_lexc` line up with `pg_parse::Morpher`'s own
-/// `allomorphs_in_morph_order`, which `crate::confirm`'s positional `analyses_match` compares
-/// against). Re-derived here from `crate::preexpand::morph_order_tags` (private to that file, which
-/// this emitter's owning scope may not edit): sort by `order`, keep the first occurrence of each
-/// distinct allomorph, join each survivor's pre-computed tag string from `known` (the root at index
-/// 0, each applied rule appended in application order).
+/// Joins `known`'s tag strings in ascending surface `order`, deduped by allomorph — re-derived from `crate::preexpand::morph_order_tags`, which is private to that file.
 fn struct_morph_order_tags(w: &Word, known: &[(MorphemeId, String)]) -> Option<String> {
     let mut ms = w.morphs.clone();
     ms.sort_by_key(|m| m.order);
@@ -2152,9 +1998,7 @@ fn struct_morph_order_tags(w: &Word, known: &[(MorphemeId, String)]) -> Option<S
     }
 }
 
-/// One in-progress structural-composite chain's shared, read-only context, threaded through
-/// `struct_extend`'s recursion (mirrors `crate::preexpand::ExtendCtx`, re-derived here for the
-/// same "can't edit preexpand.rs" reason `struct_morph_order_tags` is).
+/// `struct_extend`'s shared, read-only recursion context — mirrors `crate::preexpand::ExtendCtx`, re-derived here because that struct is private to its own file.
 struct StructCtx<'a> {
     g: &'a Grammar,
     root_table: &'a CharDefTable,
@@ -2162,43 +2006,25 @@ struct StructCtx<'a> {
     rules: &'a [MRuleId],
     cache: &'a RuleCache,
     morpher: &'a Morpher<'a>,
-    /// Boundary representations for `with_boundary_insertions` (gate F3 3b, "mu+i") — applied only
-    /// to `generate_words`-fallback surfaces, where a metathesis may have moved a boundary into the
-    /// surface word. Empty for a grammar with no boundary definitions.
+    /// For `with_boundary_insertions` on `generate_words`-fallback surfaces; empty if the grammar defines no boundaries.
     boundary_reps: &'a [String],
-    /// Morphotactic pruning (`crate::morphotactics`, mirrors `crate::preexpand::ExtendCtx`'s own
-    /// fields for the same "can't edit preexpand.rs" reason): the automaton `struct_extend`
-    /// consults before recursing, its flat/pruned escape hatch, and the shared
-    /// `HC_PREEXPAND_PROBE_CAP` safety valve.
+    /// The morphotactic-pruning automaton `struct_extend` consults, its flat/pruned escape hatch, and the shared probe-cap budget.
     mt: &'a MorphotacticIndex,
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'a>>,
-    /// Default-ON fail-fast enumeration budget (mirrors `crate::preexpand::ExtendCtx`'s own field,
-    /// same "can't edit preexpand.rs" reason `struct_morph_order_tags` is re-derived here rather
-    /// than shared) -- `crate::morphotactics::EnumerationBudget`'s own doc, Fix 1.
+    /// Default-on fail-fast enumeration budget, re-derived rather than shared for the same reason `struct_morph_order_tags` is.
     enum_budget: &'a EnumerationBudget,
 }
 
-/// `struct_extend`'s output accumulator: the composite records plus a `(tag_lexc, spelling)`
-/// dedup set (mirrors `crate::preexpand::Acc`).
+/// `struct_extend`'s output accumulator: composite records plus a `(tag_lexc, spelling)` dedup set — mirrors `crate::preexpand::Acc`.
 struct StructAcc {
     recs: Vec<crate::preexpand::CompositeRec>,
     seen: rustc_hash::FxHashSet<(String, String)>,
-    /// `g.mrules` indices that produced at least one composite entry here — mirrors
-    /// `crate::preexpand::CompositeReport::covered_infix_rules`'s "IS representable now, drop its
-    /// uncovered items" convention, generalized to every role this mechanism can cover (not just
-    /// Infix): `Role::CircumfixPrefix` (module doc) is the one that actually needs it (`Role::None`/
-    /// `Prefix`/`Suffix` are never pushed to `uncovered` in the first place — `build_deriv_chain`
-    /// already accepts them in some zone).
+    /// `g.mrules` indices with at least one composite entry here, so `emit` can drop their now-stale `uncovered` items.
     covered_rules: BTreeSet<u32>,
 }
 
-/// Try extending `base_word` (already carrying `chain`'s tags) with every remaining candidate rule;
-/// recurse up to `STRUCT_MAX_EXTRA_RULES`. Mirrors `crate::preexpand::extend`'s shape (module doc)
-/// but always emits (no `reachable_via_ordinary_emission` redundancy check — that optimization
-/// exists to keep composite COUNTS down on a grammar `crate::preexpand` otherwise emits correctly
-/// for; here, by construction, every candidate rule is one the ordinary two-entry path CANNOT
-/// represent correctly at all, so there is no "already reachable" baseline to compare against).
+/// Extends `base_word` with every remaining candidate rule, recursing up to `STRUCT_MAX_EXTRA_RULES`; mirrors `crate::preexpand::extend` but always emits, since every candidate here is one the ordinary path cannot represent at all.
 #[allow(clippy::too_many_arguments)]
 fn struct_extend(
     ctx: &StructCtx,
@@ -2213,8 +2039,7 @@ fn struct_extend(
     if depth >= STRUCT_MAX_EXTRA_RULES {
         return;
     }
-    // Fail-fast enumeration budget (Fix 1): same "check once at the top, bail early" shape as
-    // `crate::preexpand::extend`'s own guard -- see `crate::morphotactics::EnumerationBudget`'s doc.
+    // Same check-once-at-the-top budget guard as `crate::preexpand::extend`'s own.
     if ctx.enum_budget.is_tripped() {
         return;
     }
@@ -2226,15 +2051,11 @@ fn struct_extend(
             MorphRuleDef::Realizational(def) => (def.required_syn_fs, def.morpheme),
             MorphRuleDef::Compounding(_) => continue,
         };
-        // A rule already in this chain cannot apply again in the SAME composite (every reference/
-        // edge-case grammar's rules default `multipleApplication = 1` — same guard preexpand.rs's
-        // own `extend` uses).
+        // A rule already in this chain cannot apply again in the same composite (multipleApplication = 1).
         if chain.iter().any(|(m, _)| *m == rule_morpheme) {
             continue;
         }
-        // Morphotactic pruning (`crate::morphotactics`, mirrors `crate::preexpand::extend`'s own
-        // insertion point exactly -- module doc there): sits BEFORE the FS pre-filter below, a pure
-        // subset restriction over the same automaton `crate::preexpand::extend` consults.
+        // Morphotactic pruning before the FS pre-filter below, mirroring `crate::preexpand::extend`'s insertion point.
         let Some(next_state) = (match ctx.mode {
             ExploreMode::Flat => Some(state.clone()),
             ExploreMode::Pruned => ctx.mt.next_state(state, mid, &base_fs, &ctx.g.fs_interner),
@@ -2274,15 +2095,7 @@ fn struct_extend(
                 match probe_surface(ctx.g, ctx.root_table, &w.shape, ctx.cache) {
                     Some(s) => vec![s],
                     None => {
-                        // Probe refused (module doc, item 2) -- fall back to the real generation
-                        // pipeline for the WHOLE chain applied so far. `generate_words` may return more
-                        // than one surface when the chain's own LHS matching is genuinely ambiguous
-                        // (`mruleTruncOptIns` on a root beginning with its own optional segment: "sas"
-                        // admits BOTH "gas" and "gsas" as legitimate parses) -- every one is upward-safe
-                        // to pair with THIS `w`'s own tag order (cross-product, upward-only).
-                        // Boundary-insertion (module doc, `with_boundary_insertions`): a metathesis in
-                        // this chain may have left a boundary char inside the surface (mu+i) that
-                        // `generate_words` stripped — a no-op when the grammar has no boundary defs.
+                        // Probe refused: fall back to real generation for the whole chain so far, which can return more than one surface when the LHS match is genuinely ambiguous.
                         let others: Vec<GenMorpheme> = next_rule_chain
                             .iter()
                             .map(|&m| GenMorpheme::Rule(m))
@@ -2311,9 +2124,7 @@ fn struct_extend(
                         tag_lexc: tag_lexc.clone(),
                         variants: vec![s.clone()],
                     });
-                    // Fail-fast enumeration budget: one structural composite entry recorded
-                    // (`crate::morphotactics::EnumerationBudget`'s doc -- same measure
-                    // `crate::preexpand::extend`'s fusion/interdigitation entries feed).
+                    // Same enumeration-budget measure `crate::preexpand::extend`'s entries feed.
                     ctx.enum_budget.add_entries(1);
                 }
             }
@@ -2332,17 +2143,7 @@ fn struct_extend(
     }
 }
 
-/// Build every structural composite (module doc) for `g`. `width` mirrors
-/// `crate::preexpand::build_composites`'s own parameter; `rules`/`cache`/`morpher` are built ONCE by
-/// the caller (`emit`) and threaded through so this and the bare-root phonology enrichment in
-/// `collect_roots` never construct a second, redundant `RuleCache`/`Morpher` for the same
-/// grammar. Returns immediately (no-op) when `rules` is empty. The second return value is every
-/// rule id (`StructAcc::covered_rules`) that produced at least one composite entry — `emit` uses
-/// it to drop that rule's now-stale `uncovered` items (mirrors `crate::preexpand`'s own
-/// `covered_infix_rules` convention). `mt`/`mode`/`probe_budget` are the SAME morphotactic-pruning
-/// automaton, escape hatch, and probe-cap budget `crate::preexpand::build_composites_with_mode`
-/// uses — `crate::emit::emit_with_precision` builds `mt`/`probe_budget` once and shares them across
-/// both composite builders (module doc addendum on `crate::preexpand`).
+/// Builds every structural composite for `g`; a no-op when `rules` is empty. Also returns every rule id that produced an entry, so `emit` can drop its now-stale `uncovered` items.
 #[allow(clippy::too_many_arguments)]
 fn build_structural_composites(
     g: &Grammar,
@@ -2363,8 +2164,7 @@ fn build_structural_composites(
         seen: rustc_hash::FxHashSet::default(),
         covered_rules: BTreeSet::new(),
     };
-    // Boundary reps for the metathesis/boundary-in-surface case (gate F3 3b, "mu+i"); computed from
-    // the surface stratum's table once (every stratum shares one table in the reference grammars).
+    // Every stratum shares one surface table in the reference grammars, so computing this once is safe.
     let bnd_reps = boundary_reps(surface_table(g));
 
     for sd in &g.strata {
@@ -2404,9 +2204,7 @@ fn build_structural_composites(
                     probe_budget,
                     enum_budget,
                 };
-                // Morphotactic pruning (module doc addendum): seed the same way
-                // `crate::preexpand::process_root_work` does (root's own stratum, disabled template
-                // entry iff `entry.partial` — engine fact 5).
+                // Seeded the same way `crate::preexpand::process_root_work` seeds pruning.
                 let seed_state = ChainState::seed(g, root_stratum.0, entry.partial);
                 struct_extend(&ctx, &word, &chain0, &[], 0, width, &seed_state, &mut acc);
             }
@@ -2525,10 +2323,7 @@ pub(crate) fn emit_with_budget(
     emit_with_budget_profiled(g, precision, enum_budget, None)
 }
 
-/// The two deliberate seams in the tuned surface emitter.  The default remains the historical
-/// behavior: derive topology from the reified plan and admit every collected root.  Keeping these
-/// choices together makes a later, separately-measured experiment explicit without changing this
-/// refactor's behavior or widening the plan language.
+/// The two deliberate seams in the tuned surface emitter: derive topology from the reified plan, and admit every collected root.
 #[derive(Clone, Copy, Debug)]
 struct SurfaceEmitStrategy {
     derivation: SurfaceDerivationPolicy,
@@ -2583,10 +2378,7 @@ pub(crate) fn emit_with_budget_profiled(
     )
 }
 
-/// `emit_with_budget_profiled` with an explicit surface strategy.  The compatibility wrapper
-/// above supplies `SurfaceEmitStrategy::default`, so the existing compile-stage boundaries and
-/// emitted artifact stay exactly unchanged unless a future, separately-measured caller opts into
-/// another policy.
+/// `emit_with_budget_profiled` with an explicit surface strategy; the wrapper above supplies the default.
 fn emit_with_budget_profiled_with_strategy(
     g: &Grammar,
     precision: PrecisionConfig,
@@ -2605,43 +2397,20 @@ fn emit_with_budget_profiled_with_strategy(
         ..Default::default()
     };
 
-    // FST precision knob (`crate::precision`): the catalog walk is cheap (a handful of
-    // `Vec` scans over what `collect_roots`/the rule loop below already traverse) and safe to run
-    // unconditionally — `PrecisionEmit::build` only populates any lookup table when `precision ==
-    // AllFlags`, so under `Strip` every `pk.tagged_lower(..)` call below is a pure passthrough (see
-    // that module's doc).
+    // Safe to run unconditionally: under Strip every pk.tagged_lower(..) call below is a pure passthrough.
     let catalog = ConstraintCatalog::build(g);
     let mut pk = PrecisionEmit::build(&catalog, precision);
 
-    // (module doc, "Junction-aware affix/root emission"): `None` for a grammar with no
-    // phonological rules at all (Sena) -- every call site below that takes `phon.as_ref()` then
-    // sees `None` and behaves EXACTLY as the baseline emission path did, byte-for-byte (the Sena regression gate,
-    // `tests/f1_sena_gate.rs`, depends on this).
+    // None for a grammar with no phonological rules at all, so every phon.as_ref() call site below behaves exactly as the baseline emission path did.
     let phon = PhonologyProbe::new(g);
 
-    // Build the reified Plan ONCE here and derive
-    // this function's two topology decisions from IT — see `plan_topology_decisions`'s own doc.
-    // Single source of truth: from this point on, `plan_wants_composite_emission`/
-    // `plan_wants_structural_composite` (NOT a second, independent call to
-    // `crate::preexpand::should_run`/`structural_candidate_rules(...).is_empty()`) are what decide
-    // whether the composite-emission/structural-composite machinery below runs.
+    // Single source of truth: everything below branches on these two decisions, never on a second, independent call to should_run/structural_candidate_rules.
     let (plan_wants_composite_emission, plan_wants_structural_composite) = match strategy.derivation
     {
         SurfaceDerivationPolicy::ReifiedPlan => plan_topology_decisions(g, phon.as_ref()),
     };
 
-    // ("Structural composites" section above): `struct_rules` is the actual candidate
-    // rule LIST `build_structural_composites` needs — a `Plan` leaf is an opaque marker
-    // (`crate::plan::FragmentSpec::StructuralCompositeMarker`'s own doc), so it does not carry
-    // rule content and this is still computed directly. It's a cheap, purely-static computation
-    // over `g.mrules`/`g.prules`, so it's safe to compute unconditionally; `plan_wants_structural_
-    // composite` (not `!struct_rules.is_empty()`) is what decides whether the (heavier) `Morpher`/
-    // `RuleCache` machinery is needed at all — zero-cost for Sena (`phon.is_none()`, plan says no)
-    // and Indonesian (plan says no; `phon.is_some()` but `RuleCache::build` alone is cheap — the
-    // same cost `crate::preexpand::build_composites` already pays for this grammar). The two are
-    // equal by construction (both trace back to the identical `structural_candidate_rules(g)` call
-    // — see `plan_topology_decisions`'s doc), which `tests::plan_topology_decisions_matches_real_
-    // seams_across_synthetic_grammars` below pins as an anti-drift guard.
+    // A Plan leaf is an opaque marker with no rule content, so the candidate rule list is still computed directly; plan_wants_structural_composite, not !struct_rules.is_empty(), is what gates the heavier Morpher/RuleCache machinery below.
     let struct_rules = structural_candidate_rules(g);
     let rule_cache = RuleCache::build(g);
     let morpher = if phon.is_some() || plan_wants_structural_composite {
@@ -2672,14 +2441,7 @@ fn emit_with_budget_profiled_with_strategy(
     }
     stage_start = Instant::now();
 
-    // Morphotactic pruning (`crate::morphotactics`) -- the Aweti scale fix: built ONCE here and
-    // shared by BOTH composite builders below, so
-    // `crate::preexpand::build_composites_with_mode` and `build_structural_composites` prune against
-    // the identical automaton/instrumentation rather than each building (and each independently
-    // reading env vars for) their own. `HC_PREEXPAND_FLAT`/`HC_PREEXPAND_PROBE_CAP` are read exactly
-    // ONCE here, in the production path -- tests construct `ExploreMode`/`ProbeBudget` directly and
-    // never touch these env vars, so parallel test processes never race process-global env state
-    // (`crate::morphotactics::explore_mode_from_env`'s own doc).
+    // Built once and shared by both composite builders below, so they prune against the identical automaton instead of each reading the env vars for their own.
     let morphotactic_index = crate::morphotactics::MorphotacticIndex::build(g);
     let explore_mode = crate::morphotactics::explore_mode_from_env();
     let probe_cap = crate::morphotactics::probe_cap_from_env();
@@ -2688,20 +2450,9 @@ fn emit_with_budget_profiled_with_strategy(
         cap,
         counter: &probe_counter,
     });
-    // The default-on, non-panicking enumeration budget (`crate::morphotactics::
-    // EnumerationBudget`'s own doc): threaded in by the caller (`emit_with_precision`'s env-driven
-    // wrapper in production, an explicit small budget in tests), shared by BOTH composite builders
-    // below so a grammar shaped like Aweti trips a single shared cross-thread total rather than each
-    // builder tracking (and independently overrunning) its own.
+    // Shared by both composite builders below, so a grammar shaped like Aweti trips one cross-thread total rather than each builder overrunning its own.
 
-    // `crate::preexpand`: rule-application pre-expansion (interdigitation) + boundary-fusion
-    // composite probing. `plan_wants_composite_emission` (derived from the Plan built above) is
-    // what decides whether this mechanism runs at all — a grammar with no phonological rules AND
-    // no `Role::Infix` rule at all (Sena) has the composite-emission subtree ABSENT from the plan,
-    // so this call is skipped entirely rather than made and internally short-circuited by
-    // `crate::preexpand::should_run` a second time; either way the result is the identical zero
-    // pairs/zero composites (`build_composites_with_mode`'s own `should_run` check has no side
-    // effects when it trips), so this keeps Sena's emitted lexc byte-for-byte, exactly as before.
+    // plan_wants_composite_emission decides whether this rule-application pre-expansion + boundary-fusion probing runs at all; skipping it entirely (rather than calling in and relying on should_run) still yields the identical zero pairs/zero composites.
     let (mut composites, composite_report) = if plan_wants_composite_emission {
         crate::preexpand::build_composites_with_mode(
             g,
@@ -2723,12 +2474,7 @@ fn emit_with_budget_profiled_with_strategy(
     }
     stage_start = Instant::now();
 
-    // Rules `crate::preexpand`'s own mechanism cannot represent at all ("Structural
-    // composites" section above) — `plan_wants_structural_composite` (the SAME plan-derived
-    // decision that gated the `Morpher` build above) short-circuits this to zero cost/zero entries
-    // for every one of the three reference grammars
-    // (verified: none has a `Role::None`/multi-part-LHS rule, a `Role::CircumfixPrefix` rule, or a
-    // probe-refusing construct) — equal to the old `!struct_rules.is_empty()` gate by construction.
+    // plan_wants_structural_composite is the same plan-derived decision that gated the Morpher build above, so this stays zero-cost for a grammar with no structural rule.
     let mut struct_covered_rules: BTreeSet<u32> = BTreeSet::new();
     if plan_wants_structural_composite {
         let m = morpher
@@ -2749,22 +2495,13 @@ fn emit_with_budget_profiled_with_strategy(
         composites.extend(struct_composites);
         struct_covered_rules = covered;
     }
-    // `crate::profile`'s own "zero-cost when the construct is absent" convention (module doc,
-    // `CompileStage::StructuralComposites`): pushed unconditionally, but its own elapsed time is
-    // genuinely near-zero whenever `struct_rules.is_empty()` skipped the block above entirely.
+    // Pushed unconditionally; the elapsed time itself is near-zero when the block above was skipped.
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::StructuralComposites, stage_start.elapsed());
     }
     stage_start = Instant::now();
 
-    // Fail-fast enumeration budget: both composite builders above check `enum_budget`
-    // cooperatively DURING their own recursion (module doc), but the grammar-level verdict is
-    // decided HERE, once, before any of the expensive derivation-layer/lexc-string-writing work
-    // below runs. A trip means the grammar exceeds the foma-engine's eager-enumeration compiler —
-    // never a partial/best-effort lexc source (that could silently under-cover a grammar that
-    // otherwise emits fine), always an honest `Unsupported` verdict with the specific measure,
-    // value, and limit that tripped, mirroring the `roots.is_empty()` early-return just below in
-    // shape (same `EmitResult { lexc_source: String::new(), report: .. }` early exit).
+    // Both builders above check enum_budget cooperatively during their own recursion, but the grammar-level verdict is decided once, here, before any expensive derivation work runs.
     if let Some((measure, value, limit)) = enum_budget.trip_reason() {
         let reason = format!(
             "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} (limit {limit}). \
@@ -2796,10 +2533,7 @@ fn emit_with_budget_profiled_with_strategy(
         };
     }
 
-    // Standalone (stratum-attached) derivation rules, classified by primary role — mirrors
-    // trie.rs run()'s "Standalone derivational affix rules" loop (`trie.rs:993-1008`), except
-    // Role::None rules are INCLUDED in both zones rather than skipped (module doc, upward
-    // deviation; trie's `MorphOp::None => {}` silently drops them).
+    // Mirrors trie.rs's standalone-derivational-affix-rule loop, except Role::None rules are included in both zones instead of silently dropped.
     let mut deriv_prefix: Vec<MRuleId> = Vec::new();
     let mut deriv_suffix: Vec<MRuleId> = Vec::new();
     let mut has_compounding_rules = false;
@@ -2851,8 +2585,7 @@ fn emit_with_budget_profiled_with_strategy(
     }
     counts.groups = group_keys.len();
 
-    // Permissive groups: fail-open stand-in for trie's derivable_to_category BFS (module doc
-    // superset item 2).
+    // Fail-open stand-in for trie's derivable_to_category BFS.
     let permissive: Vec<bool> = group_keys
         .iter()
         .map(|&key| {
@@ -2884,8 +2617,7 @@ fn emit_with_budget_profiled_with_strategy(
 
     let mut out = String::new();
 
-    // Multichar_Symbols: every root morpheme + every rule morpheme reachable from any emission
-    // site (deriv layers + template slots). Declaring a symbol that ends up unused is harmless.
+    // Every root/rule morpheme reachable from any emission site; declaring an unused symbol is harmless.
     let mut symbols: BTreeSet<(bool, u32)> = BTreeSet::new();
     for r in &roots {
         symbols.insert((true, r.morpheme.0));
@@ -2902,8 +2634,7 @@ fn emit_with_budget_profiled_with_strategy(
             }
         }
     }
-    // Composite entries' tag chains can reference a rule morpheme NO other site declares (an
-    // Infix rule is in no deriv layer and no slot). Roots re-inserting here is a harmless no-op.
+    // A composite's tag chain can reference a rule morpheme no other site declares, e.g. an Infix rule (in no deriv layer, no slot).
     for c in &composites {
         for &(is_root, m) in &c.chain_morphemes {
             symbols.insert((is_root, m.0));
@@ -2919,39 +2650,23 @@ fn emit_with_budget_profiled_with_strategy(
         out.push_str(&lexc);
         out.push('\n');
     }
-    // FST precision knob (`crate::precision`): every flag symbol the `AllFlags` preset's covered
-    // ENVIRONMENT instances can emit -- lexc requires any multi-character token used in an entry
-    // to be pre-declared here, same as the tag symbols just above. Empty under `Strip`.
+    // lexc requires any multi-character token to be pre-declared here, same as the tag symbols above; empty under Strip.
     for sym in &pk.flag_symbols {
         out.push_str(sym);
         out.push('\n');
     }
-    // Diacritics fix (see `combining_run_symbols`' doc): declare every base+combining-mark run
-    // found in the surface table's own char-def representations as ONE lexc multichar symbol, so
-    // an NFD-decomposed accented letter (e.g. é -> "e" + COMBINING ACUTE ACCENT) compiles into a
-    // single arc AND matches as a single KNOWN symbol at `apply_up` time — instead of the lexc
-    // compiler's default one-symbol-per-codepoint tokenization racing against `vendor/foma`'s own
-    // apply-time combining-mark merge (which forces an undeclared pair to `IDENTITY`, matching only
-    // a `?` wildcard arc that a literal-only network never has).
+    // Declares each base+combining-mark run as one lexc multichar symbol, so an NFD-decomposed letter compiles to a single known arc instead of racing foma's own apply-time combining-mark merge.
     for sym in combining_run_symbols(table) {
         out.push_str(&sym);
         out.push('\n');
     }
-    // Boundary companion (see `boundary_combining_run_symbols`' doc): the same fix for a combining
-    // run that spans the boundary between two DIFFERENT char-defs (a standalone mark-initial
-    // char-def concatenated after another) rather than sitting entirely inside one. Empty, same as
-    // above, for every grammar with no mark-initial char-def (every reference/edge-case grammar
-    // today).
+    // Same fix, for a combining run spanning the boundary between two different char-defs rather than sitting inside one.
     for sym in boundary_combining_run_symbols(table) {
         out.push_str(&sym);
         out.push('\n');
     }
 
-    // One lexc entry line per accepted spelling of one root (module doc, "Surface spelling").
-    // `pk`: `Some(r.id)` lets `crate::precision`'s ENVIRONMENT-family owner-side gate reroute a
-    // root allomorph's OWN entries too (Sena's dominant coverable shape turned out to be root-side
-    // `/ma_`/`/na_`, not the one rule-side `/mb_` hit — see `precision.rs`'s own test); every entry
-    // ALSO participates in the set side uniformly, regardless of owner, inside `write_tag_entry`.
+    // One lexc entry line per accepted spelling of one root; pk lets precision's owner-side gate reroute a root allomorph's own entries too, not just rule-side ones.
     let write_root_entries = |out: &mut String,
                               roots: &[&RootRec],
                               continuation: &str,
@@ -2959,11 +2674,7 @@ fn emit_with_budget_profiled_with_strategy(
                               pk: &mut PrecisionEmit| {
         write_root_entries_with_width(out, roots, continuation, counts, pk, width);
     };
-    // The `{name}Stripped` sibling of a roots lexicon (module doc, "Junction-aware affix/root
-    // emission"): one entry per root's OWN `stripped_variants`, same tag, same continuation as
-    // the intact lexicon. Falls back to a bare passthrough if not a single root offered a stripped
-    // spelling (keeps the lexicon non-empty -- mirrors the `eligible_roots.is_empty()` fallback
-    // below). Only ever called when `phon.is_some()`.
+    // The `{name}Stripped` sibling of a roots lexicon; falls back to a bare passthrough if no root offered a stripped spelling, to keep the lexicon non-empty. Only called when phon.is_some().
     let write_stripped_root_entries =
         |out: &mut String,
          roots: &[&RootRec],
@@ -2984,28 +2695,17 @@ fn emit_with_budget_profiled_with_strategy(
         };
     let all_roots: Vec<&RootRec> = roots.iter().collect();
 
-    // Overwritten below (inside the `has_compounding_rules` gate) with the real computed bound;
-    // stays `1` (the pre-existing "exactly one extra root" shape) for every no-compounding grammar,
-    // where `build_compound_chain` is never even called.
+    // Overwritten below when has_compounding_rules; stays 1 for every no-compounding grammar.
     let mut compound_extra_levels: usize = 1;
 
-    // The license-gated head/non-head subsets + the compound-pair budget check, computed once,
-    // right after `all_roots` and before any lexc text is written (fail fast, mirroring the
-    // enum-budget check above). `None` for the overwhelmingly common no-compounding-rule grammar --
-    // a pure no-op there.
+    // Computed once, before any lexc text is written, to fail fast; None (a pure no-op) for the common no-compounding-rule case.
     let compound_license = if has_compounding_rules {
         compound_license(g)
     } else {
         None
     };
     if let Some(license) = &compound_license {
-        // Conservative exposure estimate: the HEAD side stays unfiltered in the per-template-group
-        // sections below (module doc judgment call -- the shared `G{gi}Roots` root section also
-        // serves ordinary non-compound word formation, so narrowing it there risks regressing plain
-        // recall; over-proposing on the head side remains sound, since the invariant only forbids
-        // narrowing, never requires it), so this uses `all_roots.len()` (not the smaller, template-less-section-
-        // only `head_eligible` count) as the pessimistic head-side operand -- never UNDER-counts the
-        // real cost this emit call is about to incur.
+        // Uses all_roots.len(), not the smaller head_eligible count, so this never under-counts the real cost: over-proposing on the head side is sound, narrowing it risks regressing plain recall.
         let non_head_count =
             filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
         let cross = all_roots.len().saturating_mul(non_head_count);
@@ -3035,8 +2735,7 @@ fn emit_with_budget_profiled_with_strategy(
             };
         }
 
-        // Shared with `emit_underlying_templated` via
-        // `compound_chain_depth_and_budget_check` -- see that function's own doc.
+        // Shared with emit_underlying_templated via compound_chain_depth_and_budget_check.
         compound_extra_levels = match compound_chain_depth_and_budget_check(g, &uncovered, &counts)
         {
             Ok(levels) => levels,
@@ -3045,23 +2744,10 @@ fn emit_with_budget_profiled_with_strategy(
     }
 
     let has_templates = !g.templates.is_empty();
-    // `crate::preexpand` composites are emitted ONCE, in a single shared `Composites`
-    // lexicon (each entry's upper tape = the ALREADY-CONCATENATED multi-tag chain,
-    // `preexpand::CompositeRec::tag_lexc`; `write_tag_entry` accepts any tag string), whose
-    // continuation `CompositeExit` is a bare-redirect UNION of every post-root continuation in the
-    // grammar (`#`, `TLPost`, every `G{gi}Post`). Every roots lexicon (`Root`, `TLRoots`,
-    // `G{gi}Roots`) gets one bare redirect INTO `Composites`, so a composite stem is reachable
-    // exactly where an ordinary root is — after any prefix chain — and can continue into any suffix
-    // chain (root-section replacement, not bare-only). Sharing one
-    // lexicon instead of copying all entries per site is a pure fan-out refactor plus an UPWARD
-    // approximation (a composite can now pair group A's prefixes with group B's suffix continuation
-    // — the same superset direction the emitter's group sharing already takes, module doc item 1;
-    // confirm prunes). Measured on Amharic: ~54k composite entries × ~6 sites ≈ 300k lexc lines
-    // collapsed to ~54k.
+    // Composites are emitted once into a single shared Composites lexicon, with every roots lexicon bare-redirecting into it, so a composite stem is reachable everywhere an ordinary root is; the upward approximation this allows is confirm's job to prune.
     let has_composites = !composites.is_empty();
 
-    // ---- LEXICON Root: bare roots, the template-less section, the outer-prefix hop into the
-    // per-template dispatch ----
+    // LEXICON Root: bare roots, the template-less section, then the outer-prefix hop into per-template dispatch.
     write_lexicon_header(&mut out, "Root");
     let bare_roots = bare_admissible_roots(&all_roots, &mut counts);
     write_root_entries(&mut out, &bare_roots, "#", &mut counts, &mut pk);
@@ -3072,8 +2758,7 @@ fn emit_with_budget_profiled_with_strategy(
         write_bare(&mut out, "TLPfx0", &mut counts);
     }
     if has_templates {
-        // Template paths go through the OUTER prefix derivation layer first (module doc,
-        // "Outer (post-template) derivation layers") and then the per-template dispatch.
+        // Template paths go through the outer prefix derivation layer first, then per-template dispatch.
         write_bare(&mut out, "OuterPfx0", &mut counts);
     }
 
@@ -3094,10 +2779,7 @@ fn emit_with_budget_profiled_with_strategy(
             &mut pk,
             TextMode::SurfaceProbed,
         );
-        // One line per template's prefix-chain entry, deduped (templates with no prefix slots
-        // all point straight at their group's prefix-derivation entry). `classify_template` here
-        // is only probing prefix-emptiness; its uncovered routing happens once, on the real
-        // emission pass below (a throwaway Vec avoids double-reporting).
+        // Deduped: templates with no prefix slots all point straight at their group's prefix-derivation entry. classify_template here only probes prefix-emptiness; its uncovered routing happens on the real pass below.
         write_lexicon_header(&mut out, "TmplDispatch");
         let mut dispatch_lines: BTreeSet<String> = BTreeSet::new();
         for (gi, tis) in group_templates.iter().enumerate() {
@@ -3113,8 +2795,7 @@ fn emit_with_budget_profiled_with_strategy(
         for line in &dispatch_lines {
             write_bare(&mut out, line, &mut counts);
         }
-        // The OUTER suffix derivation layer every template's suffix side exits through (engine:
-        // later-stratum rules apply outside a completed template — see module doc).
+        // The outer suffix derivation layer every template's suffix side exits through: later-stratum rules apply outside a completed template.
         build_deriv_chain(
             &mut out,
             g,
@@ -3152,16 +2833,7 @@ fn emit_with_budget_profiled_with_strategy(
             TextMode::SurfaceProbed,
         );
         write_lexicon_header(&mut out, "TLRoots");
-        // Splits `all_roots` into
-        // head-eligible (continues to `TLPost`, which offers both `TLSfx0` and `TLCmp`) and
-        // head-ineligible (continues to `TLPostNoCmp`, `TLSfx0` only) -- a root can still form any
-        // ordinary non-compound word either way (both continuations reach `TLSfx0`), so this never
-        // regresses plain-word recall; it only removes the `TLCmp` option from a root NO
-        // `CompoundingRuleDef` in the grammar licenses as a head. When there is no compound license
-        // (no compounding rules at all) every root is `tl_head_ok` and `tl_head_no` stays empty --
-        // byte-identical to the pre-gating behavior. The `Stripped` sibling below is deliberately
-        // NOT split the same way (see its own comment) -- an accepted, safe (over-proposing, never
-        // under-proposing) simplification.
+        // Splits into head-eligible (TLPost: both TLSfx0 and TLCmp) vs. head-ineligible (TLPostNoCmp: TLSfx0 only); both reach TLSfx0, so plain-word recall never regresses, only the TLCmp option is withheld from an unlicensed head.
         let (tl_head_ok, tl_head_no): (Vec<&RootRec>, Vec<&RootRec>) = match &compound_license {
             Some(license) => all_roots.iter().copied().partition(|r| {
                 root_lex_entry(g, r.id).is_some_and(|le| license.head_eligible.contains(&le))
@@ -3176,15 +2848,7 @@ fn emit_with_budget_profiled_with_strategy(
             write_bare(&mut out, "Composites", &mut counts);
         }
         if phon.is_some() {
-            // `TLRoots`' `Stripped` sibling (module doc, "Junction-aware affix/root emission"):
-            // `TLPfx`'s final level routes every deletion-junction hit here instead of `TLRoots`.
-            // Deliberately NOT split by head-eligibility like the intact section above -- every
-            // stripped/junction-form root continues to `TLPost` (both `TLSfx0` and `TLCmp` remain
-            // reachable) regardless of head license. This is a strict superset of the intact path's
-            // narrower routing -- safe (over-propose, never under-propose), and avoids doubling this
-            // already-conditional (`phon.is_some()`) section into a further Stripped/NoCmp cross
-            // product for a low-value edge case (a head-ineligible root's OWN junction-deletion
-            // spelling variant).
+            // Deliberately not split by head-eligibility like the intact section above: every stripped/junction-form root continues to TLPost regardless of head license, a safe superset of the intact path's narrower routing.
             write_lexicon_header(&mut out, "TLRootsStripped");
             write_stripped_root_entries(&mut out, &all_roots, "TLPost", &mut counts, &mut pk);
         }
@@ -3192,30 +2856,12 @@ fn emit_with_budget_profiled_with_strategy(
         write_bare(&mut out, "TLSfx0", &mut counts);
         if has_compounding_rules {
             write_bare(&mut out, "TLCmp", &mut counts);
-            // The compound EXTRA root(s) may themselves carry prefix-derivation
-            // morphology — a prefix on the compound's head span (`fusional-realizational-morphology`'s
-            // "lexbedom" = lex + be- + dom, `LEX+BEPFX2+DOMV`; `polysynthetic-stratal-derivation-chain`'s
-            // "silamanuk" = sila + ma- + nuk, `SILA+MAPFX2+NUKV`). The engine's compound splitter
-            // unapplies a prefix cleanly from the head span, so a bare extra-root slot under-generates
-            // every prefixed-head compound. `build_compound_chain` (above) wires a
-            // prefix-derivation chain before EVERY extra root, up to `compound_extra_levels` of them —
-            // `compound_extra_levels == 1` (the ordinary non-recursive case) reproduces this exact
-            // one-extra-root/`TLCmp`/`TLCmpPfx`/`TLCmpRoots` shape byte-for-byte (that closure's own doc).
-            //
-            // The compound EXTRA
-            // ("non-head") root position, narrowed from `all_roots` to the licensed non-head subset --
-            // every `{base}NRoots` level in the chain serves ONLY this compound continuation (nothing
-            // else reaches it), so narrowing here never touches ordinary non-compound word formation.
-            // `None` (no compound license computed) falls back to `all_roots`, matching the
-            // pre-gating behavior exactly.
+            // build_compound_chain wires a prefix-derivation chain before every extra root, since a bare slot would under-generate a prefixed compound head; narrowed to the licensed non-head subset, or all_roots when no license was computed.
             let tl_non_head_roots: Vec<&RootRec> = match &compound_license {
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
             };
-            // `build_compound_chain`'s per-level prefix hop is a
-            // caller-supplied closure (that function's own doc) rather than a hardcoded
-            // `build_deriv_chain` call -- byte-identical output here, since this closure IS that
-            // call with the same arguments a hardcoded version would use.
+            // A caller-supplied closure rather than a hardcoded build_deriv_chain call, but calls it with the same arguments.
             let mut tl_prefix_hop = |out: &mut String,
                                      pfx_base: &str,
                                      roots_name: &str,
@@ -3254,9 +2900,7 @@ fn emit_with_budget_profiled_with_strategy(
             );
         }
         if !tl_head_no.is_empty() {
-            // The head-ineligible twin of `TLPost`: only `TLSfx0` (no `TLCmp`) -- written AFTER the
-            // whole `TLCmp`/`TLCmpPfx`/`TLCmpRoots` block above so its own header/entries never
-            // interleave into `TLPost`'s (see `tl_head_ok`'s own comment for why this split exists).
+            // TLPost's head-ineligible twin (TLSfx0 only), written after the TLCmp block so their entries never interleave.
             write_lexicon_header(&mut out, "TLPostNoCmp");
             write_bare(&mut out, "TLSfx0", &mut counts);
         }
@@ -3280,14 +2924,8 @@ fn emit_with_budget_profiled_with_strategy(
 
     // ---- Per-group root sections + per-template slot chains ----
     for (gi, &key) in group_keys.iter().enumerate() {
-        // `crate::profile` (task A.1, "per-template/continuation lexc lines"): this emitter's own
-        // architecture attaches line counts to the GROUP a set of templates was collapsed into, not
-        // to any one template individually (`crate::profile`'s own module doc explains why) — a
-        // plain before/after snapshot of the already-incremented `counts.lexc_lines`, never a
-        // separate counter.
+        // Line counts attach to the GROUP a set of templates was collapsed into, not to any one template individually; a before/after snapshot, not a separate counter.
         let group_lines_before = counts.lexc_lines;
-        // Per-template suffix chains, then the group's suffix join, suffix derivation layers,
-        // compound hop, roots, prefix derivation layers, and each template's prefix chain.
         let mut join_lines: BTreeSet<String> = BTreeSet::new();
         for &ti in &group_templates[gi] {
             let template = &g.templates[ti];
@@ -3343,15 +2981,7 @@ fn emit_with_budget_profiled_with_strategy(
         if has_compounding_rules {
             let cmp_name = format!("G{gi}Cmp");
             write_bare(&mut out, &cmp_name, &mut counts);
-            // The compound extra root(s) may carry prefix-derivation morphology (a
-            // prefix on the compound's head span) — see the template-less `TLCmp` comment above for
-            // the full rationale (`lexbedom`/`silamanuk`). Same fix per group, via the SAME
-            // `build_compound_chain` depth-budgeted chain (above) — the HEAD side
-            // of this per-group section is deliberately left ungated (matches `eligible_roots`' own
-            // pre-existing full-broadening-when-compounding comment just below) -- template+
-            // compounding interaction is an unproven composition node, so this change
-            // does not add new precision there, only preserves the existing safe-over-approximation
-            // shape.
+            // Same prefix-derivation fix per group as the template-less TLCmp section above; the head side here is deliberately left ungated, since template+compounding interaction is an unproven composition node.
             let group_non_head_roots: Vec<&RootRec> = match &compound_license {
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
@@ -3401,25 +3031,7 @@ fn emit_with_budget_profiled_with_strategy(
         let eligible_roots: Vec<&RootRec> = roots
             .iter()
             .filter(|r| {
-                // Sena `musandilesera`: a grammar with compounding rules can
-                // re-categorize a root via its compound HEAD — the compound `é + tentar` is headed
-                // by `tentar` (category `FsId(6)`), so the whole stem is licensed by `tentar`'s
-                // group (the one whose template carries the inflectional `HAB`/`IND` slots), even
-                // though `é`'s OWN category (`FsId(2)`) only unifies with group G1's key. The
-                // emitter routes a compound by its MAIN (first-surface) root's group, so `é`-as-main
-                // was confined to G1, whose template lacks those slots — under-generating every
-                // `é`-headed-elsewhere inflected compound (8 of the engine's 10 `musandilesera`
-                // analyses). Admitting EVERY root to EVERY group when the grammar has compounding
-                // rules is the upward-safe fix (confirm prunes the spurious simple-path entries this
-                // adds): it does NOT change the asymptotic emit size, since a compound grammar's
-                // `G{gi}Cmp`/`CmpRoots` sections ALREADY carry `all_roots` per group (already
-                // O(roots × groups) for a compound grammar). A grammar with NO compounding rule keeps
-                // the exact category/`permissive` filter — no root can be re-categorized there, so
-                // the approximation stays tight and small. (Every reference grammar has at least one
-                // compounding rule, so all three are broadened; measured cost is negligible — Sena's
-                // 1369 roots × 9 groups still emit + foma-compile in ~3s, Amharic/Indonesian have
-                // <80 roots each; and confirm keeps multiset parity intact since it only ever adds
-                // candidates the full engine then rejects.)
+                // A compound can re-categorize a root via its head, so admitting every root to every group when the grammar has compounding rules is upward-safe (confirm prunes) and adds no asymptotic cost, since compound sections already carry all_roots per group.
                 has_compounding_rules
                     || permissive[gi]
                     || key_fs.is_empty()
@@ -3427,22 +3039,17 @@ fn emit_with_budget_profiled_with_strategy(
             })
             .collect();
         if eligible_roots.is_empty() {
-            // Keep the lexicon non-empty (defensive — a group whose category no root can ever
-            // satisfy; the passthrough admits a root-less path, harmless overgeneration).
+            // Defensive: keeps the lexicon non-empty for a group whose category no root can satisfy.
             write_bare(&mut out, &post_name, &mut counts);
         } else {
             write_root_entries(&mut out, &eligible_roots, &post_name, &mut counts, &mut pk);
         }
-        // `crate::preexpand`: the group's root section also admits every composite stem, via
-        // the shared `Composites` lexicon (see LEXICON Root's comment — no per-group category
-        // filtering; upward-only, confirm prunes).
+        // The group's root section also admits every composite stem, via the shared Composites lexicon, with no per-group category filtering.
         if has_composites {
             write_bare(&mut out, "Composites", &mut counts);
         }
         if phon.is_some() {
-            // `G{gi}Roots`' `Stripped` sibling (module doc, "Junction-aware affix/root emission"):
-            // `G{gi}PfxD`'s final level routes deletion-junction hits here instead of `roots_name`.
-            // Uses the SAME `eligible_roots`/passthrough choice as the intact lexicon just above.
+            // G{gi}PfxD's final level routes deletion-junction hits here, using the same eligible_roots/passthrough choice as the intact lexicon above.
             write_lexicon_header(&mut out, &format!("{roots_name}Stripped"));
             if eligible_roots.is_empty() {
                 write_bare(&mut out, &post_name, &mut counts);
@@ -3519,8 +3126,7 @@ fn emit_with_budget_profiled_with_strategy(
                 );
             }
         }
-        // The union of every post-root continuation in this grammar — a composite stem can go
-        // wherever an ordinary root can after its roots lexicon (upward superset across groups).
+        // The union of every post-root continuation, so a composite stem can go wherever an ordinary root can.
         write_lexicon_header(&mut out, "CompositeExit");
         write_bare(&mut out, "#", &mut counts);
         if has_template_less_section {
@@ -3531,16 +3137,7 @@ fn emit_with_budget_profiled_with_strategy(
         }
     }
 
-    // An `Infix` rule that `crate::preexpand` rendered into at least one composite entry IS
-    // representable now (rule-application pre-expansion) — drop its "infix" uncovered items, from
-    // EVERY push site uniformly (standalone-rule classification, template-slot classification,
-    // allomorph-level zone mismatches — all use the `mrule{N}`/`mrule{N}#allo{K}` id convention).
-    // An infix rule that matched zero roots keeps its uncovered items, honestly.
-    //
-    // Same drop for a `circumfix-prefix` rule `build_structural_composites` covered
-    // (`StructAcc::covered_rules`) — `metathesis-phase-isolation`'s "keadilan"/`fusional-realizational-morphology`'s
-    // "gelobt"/"gelobth" need this so their now-representable circumfix rule stops being reported
-    // uncovered.
+    // Drops "infix"/"circumfix-prefix" uncovered items for a rule that composites now cover; a rule that matched zero roots keeps its uncovered items, honestly.
     uncovered.retain(|u| {
         let rule_idx = || {
             u.id.strip_prefix("mrule")
@@ -3553,8 +3150,7 @@ fn emit_with_budget_profiled_with_strategy(
                 && rule_idx().is_some_and(|idx| struct_covered_rules.contains(&idx))))
     });
 
-    // Dedup uncovered reports (the same rule/allomorph can be visited from multiple slots/
-    // groups/levels).
+    // Dedup: the same rule/allomorph can be visited from multiple slots/groups/levels.
     let mut seen_uncovered: BTreeSet<(String, String, String)> = BTreeSet::new();
     uncovered.retain(|u| seen_uncovered.insert((u.kind.clone(), u.id.clone(), u.reason.clone())));
 
@@ -3566,8 +3162,7 @@ fn emit_with_budget_profiled_with_strategy(
         }
     };
 
-    // Last use of `profile` in this function -- a plain move (no further reborrow needed
-    // afterward), unlike every earlier stage push above.
+    // Last use of profile in this function: a plain move, unlike every earlier stage push above.
     if let Some(p) = profile {
         p.set_total_lexc_lines(counts.lexc_lines);
         p.push_stage(CompileStage::LexcConstruction, stage_start.elapsed());
@@ -3584,9 +3179,7 @@ fn emit_with_budget_profiled_with_strategy(
     }
 }
 
-/// Breach constructor for `emit_underlying_templated`: builds the same `EmitResult` shape every
-/// other breach in this module uses (`lexc_source` empty, `tier: FomaTier::Unsupported`), never
-/// `Result`-ifying that function's own signature.
+/// Breach constructor for `emit_underlying_templated`, builds the same empty-lexc `Unsupported` `EmitResult` shape every other breach in this module uses.
 fn emit_line_budget_breach(
     uncovered: Vec<UncoveredItem>,
     counts: EmitCounts,
@@ -3611,81 +3204,8 @@ fn emit_line_budget_breach(
     }
 }
 
-/// Post-emission reachability verification: catches a tag that was correctly classified, declared
-/// in `Multichar_Symbols`, and had its lexicon entries written at every derivation-chain call site,
-/// but is absent from the compiled net's own `sigma`.
-///
-/// ## The known false-positive class this narrows: `foma`'s `0`-digit multichar-symbol bug
-///
-/// The real cause lives in `foma::lexcread::lexc_string_to_tokens` (the tokenizer used for
-/// lexicon-entry text). Any multichar symbol whose NAME contains a literal `0` digit (which lexc
-/// source must spell as `%0`, since a bare `0` means the alignment epsilon) fails to be recognized
-/// as ITS OWN atomic token wherever it is referenced in a lexicon entry: `lexc_add_mc` (used for the
-/// `Multichar_Symbols` DECLARATION) calls `normalize_mc_symbol`, which fully resolves the shared
-/// `nfst-lexc` lexer's `@ZERO@` marker (its representation of an escaped literal zero) back to the
-/// literal character `"0"` before registering the symbol. But `lexc_string_to_tokens` (used for
-/// ENTRY text) checks for a literal `"@ZERO@"` SUBSTRING first, converting it to a lone `"0"` symbol
-/// one character at a time, and only THEN tries the multichar-prefix match against the REMAINING
-/// text — which, at that point, no longer matches the fully-normalized registered symbol text. The
-/// declared symbol is consequently never recognized as one token in entry text and gets silently
-/// decomposed into its constituent single-character symbols instead (each of which usually already
-/// exists in `sigma` as an ordinary 1-character entry) — hence the exact atomic tag text is absent
-/// from `sigma`, `sigma.contains(tag_text)` reports a false gap, and the affected-tag pattern is
-/// exactly (and only) the set of tags whose zero-padded numeral text contains a literal `0` digit
-/// (`tags::tag_width` only zero-pads once `morpheme_count > 10`, so this affects essentially every
-/// real, non-tiny grammar). Filed upstream as `divvun/foma-rs`; the original C foma reader does not
-/// have this defect, since it de-escapes `%0` to a literal byte in a single unambiguous pass before
-/// any multichar matching happens.
-///
-/// **The compiled network's LANGUAGE is unaffected.** A fresh `foma::apply::apply_down` query for
-/// an affected tag's exact text (paired with a root tag where the grammar's own structure requires
-/// one) returns `Some(_)` — the arc sequence is there, just spelled via several single-character
-/// symbols in a row instead of one atomic multichar symbol, which still concatenates to the correct
-/// string. But any construction that expects a tag to be one indivisible alphabet symbol — e.g.
-/// `foma::constructions::fsm_intersect`, which the corpus recall gate's own
-/// compose-restrict-project-intersect technique uses — silently miscounts: a real, silent
-/// recall-COUNTING bug, not a language bug. `pg_foma::tags` (module doc, point 3) fixes this at the
-/// SOURCE — no tag numeral this crate emits ever contains a literal `0` byte, so the
-/// `lexc_string_to_tokens`/`@ZERO@`-normalization mismatch can never trigger in the first place —
-/// rather than continuing to special-case its symptom here. This function's own detection logic is
-/// kept as a defensive safety net (a future code path could still declare a zero-containing
-/// multichar symbol some other way), but it should not normally fire again.
-///
-/// ## What this function actually checks, given that finding
-///
-/// `sigma` membership is still checked first (still a valid, useful signal for a genuine
-/// disconnected fragment). But a tag absent from `sigma` is no longer treated as gospel: if the
-/// tag's text contains a literal `0` digit (the exact, only known trigger for the decomposition
-/// above) AND every one of its individual Unicode-scalar characters IS present in `sigma`, this is
-/// recognized as the known decomposition artifact rather than a new gap — `lexc_string_to_tokens`
-/// is a pure function of its input text, so every occurrence of the SAME declared tag text
-/// decomposes into the exact same character sequence, and if every one of those characters made it
-/// into `sigma`, the arcs spelling this specific tag were written by this emitter and survived the
-/// compile. A tag that is missing from `sigma` for any OTHER reason (no `0` in its text, or some of
-/// its individual characters also missing) is still reported exactly as before — this narrows the
-/// false-positive class this investigation found without discarding the detector's value as a
-/// safety net for a genuinely different future defect.
-///
-/// This deliberately crosses `crate::profile`'s documented "`emit.rs` never calls
-/// `fsm_lexc_parse_string`" boundary: that boundary describes the
-/// PROFILING path's own no-extra-compile discipline, not a hard rule for every function in this
-/// module, and here an extra compile is the only way to see what this class of bug does. The cost
-/// (one additional lexc compile) is accepted as the price of turning a silent, unbounded-severity
-/// recall gap into a loud, itemized one -- a loud gap is vastly better than a silent one.
-///
-/// Every declared tag (root and affix; `symbols`, this function's caller) that is NOT found in the
-/// freshly-compiled net's own sigma (by the rule above) gets one `UncoveredItem` (kind
-/// `"unreachable-after-lexc-compile"`), naming the owning rule/root and why -- UNLESS that same
-/// rule/root already has some OTHER `uncovered` entry (e.g. a `"circumfix-prefix"`/`"infix"`/
-/// `"process-morph"` allomorph that was routed away and never got a lexc entry written for it AT
-/// ALL): that case is already loud, under its own, more specific reason, and adding a second,
-/// generic "not in sigma" entry for the exact same rule would be true but redundant noise, not a
-/// new finding. This keeps the new detection's own signal focused on what is actually novel: a tag
-/// that looks completely fine everywhere else (classified, declared, entries written) and is
-/// STILL silently dropped by the compiler. If `lexc_source` itself fails to compile, this function
-/// does nothing (a compile failure is the caller's own concern to surface -- e.g. every existing
-/// gate test already calls `fsm_lexc_parse_string` and panics on `None` -- not a NEW finding this
-/// pass should duplicate).
+/// Post-emission check for a tag that was classified, declared, and had entries written, yet is absent from the compiled net's own sigma, narrowed against a known foma-rs tokenizer false positive.
+/// See docs/research/foma-rs-zero-digit-multichar-symbol-bug.md.
 fn verify_tags_reachable(
     lexc_source: &str,
     symbols: &BTreeSet<(bool, u32)>,
@@ -3699,15 +3219,7 @@ fn verify_tags_reachable(
     };
     let sigma: HashSet<&str> = net.sigma.iter().map(|s| s.symbol.as_str()).collect();
 
-    // Known upstream artifact (divvun/foma-rs — see this function's own doc):
-    // a multichar symbol whose name contains a literal `0` digit is silently decomposed into its
-    // constituent single-character symbols by `foma::lexcread::lexc_string_to_tokens` instead of
-    // being recognized atomically, so its exact text never lands in `sigma` even though the
-    // decomposed arc sequence (and hence the network's language) is intact. Since
-    // `lexc_string_to_tokens` is a pure function of the input text, every entry occurrence of the
-    // SAME tag text decomposes identically -- so "every one of this tag's characters is present in
-    // `sigma`" is sufficient to know the decomposed arcs exist, without needing to name which
-    // specific entry/path they came from.
+    // See this function's own doc for the upstream artifact this checks for.
     let is_known_zero_escape_artifact = |tag_text: &str| -> bool {
         tag_text.contains('0')
             && tag_text
@@ -3805,17 +3317,7 @@ pub fn emit_underlying_templated(
     allowed_entries: Option<&HashSet<LexEntryId>>,
 ) -> EmitResult {
     let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
-    // The templated emitter's own line-count guard. Reuses
-    // `EmitCounts::lexc_lines` (already incremented by `write_tag_entry`/`write_bare`, the number
-    // that most directly predicts foma compile cost, module doc on `EmitCounts`) rather than adding
-    // a second counter. Checked at a handful of natural checkpoints between this function's own
-    // major emission blocks (Root section, outer-template dispatch, template-less section, and
-    // once per group in the main per-group loop) -- not literally after every single line (that
-    // would require threading a fallible check through `build_deriv_chain`/`build_slot_chain`,
-    // which are SHARED with `emit_with_budget`'s `TextMode::SurfaceProbed` path and must stay
-    // byte-identical/unchanged for it, task brief's own leaf-site rule) -- but still incremental
-    // enough that a pathological templated grammar bails during its own emission rather than after
-    // building a possibly-multi-GB `lexc_source` string in full.
+    // Reuses EmitCounts::lexc_lines rather than a second counter, checked at a handful of checkpoints between major emission blocks rather than after every line, since build_deriv_chain/build_slot_chain are shared with the SurfaceProbed path and must stay byte-identical for it.
     let compose_budget = ComposeBudget::from_env();
     let line_cap = compose_budget.line_cap();
     let width = tags::tag_width(g.morphemes.len());
@@ -3828,13 +3330,11 @@ pub fn emit_underlying_templated(
         ..Default::default()
     };
 
-    // No FST precision knob (module doc): built once, always `Strip` -- pure passthrough, see
-    // `crate::precision`'s own doc.
+    // No FST precision knob under this mode: built once, always Strip, a pure passthrough.
     let catalog = ConstraintCatalog::build(g);
     let mut pk = PrecisionEmit::build(&catalog, PrecisionConfig::Strip);
 
-    // No junction probing / bare-root phonology enrichment under this mode (module doc): `phon`
-    // stays `None` at every downstream call site below.
+    // No junction probing or bare-root phonology enrichment under this mode: phon stays None at every downstream call site below.
     let phon: Option<&PhonologyProbe> = None;
     let rule_cache = RuleCache::build(g);
     let morpher: Option<&Morpher> = None;
@@ -3851,10 +3351,7 @@ pub fn emit_underlying_templated(
         mode,
     );
 
-    // Fix 1 (fail-fast enumeration budget): checked here for parity with `emit_with_budget`'s own
-    // shape (module doc) -- see that function's own comment for the full rationale; nothing in
-    // THIS function's call graph increments it today (no composite builder ever runs here), so
-    // this is defensive, not load-bearing, for the grammars this function is pointed at so far.
+    // Checked here for parity with emit_with_budget's own shape; defensive, not load-bearing, since nothing in this function's call graph increments it today.
     if let Some((measure, value, limit)) = enum_budget.trip_reason() {
         let reason = format!(
             "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} (limit {limit}).",
@@ -3892,9 +3389,7 @@ pub fn emit_underlying_templated(
         };
     }
 
-    // Standalone (stratum-attached) derivation rules, classified by primary role — identical
-    // classification logic to `emit_with_budget`'s own loop (module doc, "Deliberate supersets"
-    // item 3: `Role::None` included in BOTH zones rather than skipped).
+    // Identical classification logic to emit_with_budget's own loop, including Role::None in both zones.
     let mut deriv_prefix: Vec<MRuleId> = Vec::new();
     let mut deriv_suffix: Vec<MRuleId> = Vec::new();
     let mut has_compounding_rules = false;
@@ -3931,8 +3426,7 @@ pub fn emit_underlying_templated(
         }
     }
 
-    // Template groups: one per distinct `required_syn_fs`, first-seen template document order —
-    // identical to `emit_with_budget`'s own grouping (purely structural, no leaf text involved).
+    // Identical grouping to emit_with_budget's own: one per distinct required_syn_fs, first-seen order.
     let mut group_keys: Vec<FsId> = Vec::new();
     let mut group_templates: Vec<Vec<usize>> = Vec::new();
     for (ti, t) in g.templates.iter().enumerate() {
@@ -3963,15 +3457,9 @@ pub fn emit_underlying_templated(
 
     let mut out = String::new();
 
-    // Multichar_Symbols: every root morpheme + every rule morpheme reachable from any emission
-    // site — identical set-construction logic to `emit_with_budget`'s own (no composites/flag/
-    // combining-mark symbols here: no composite pipeline, no FST precision knob, and token space
-    // is PUA codepoints, never Unicode combining marks).
+    // No composite/flag/combining-mark symbols here: no composite pipeline, no precision knob, and the token space is PUA codepoints, never Unicode combining marks.
     let mut symbols: BTreeSet<(bool, u32)> = BTreeSet::new();
-    // `verify_tags_reachable`'s own labeling (post-emission reachability check, below): which
-    // `MRuleId` owns each non-root morpheme, for a readable `UncoveredItem::id` ("mrule105" rather
-    // than a bare morpheme index) -- first-seen wins, harmless when several rules alias one
-    // morpheme (never happens today; defensive).
+    // Which MRuleId owns each non-root morpheme, for a readable UncoveredItem::id ("mrule105" rather than a bare morpheme index); first-seen wins.
     let mut affix_owner_mrule: HashMap<u32, MRuleId> = HashMap::new();
     for r in &roots {
         symbols.insert((true, r.morpheme.0));
@@ -4003,9 +3491,7 @@ pub fn emit_underlying_templated(
         out.push('\n');
     }
 
-    // Root-entry writer: mirrors `emit_with_budget`'s own `write_root_entries` closure exactly (no
-    // `write_stripped_root_entries` equivalent here — `phon` is always `None`, so no
-    // `{name}Stripped` lexicon is ever referenced, module doc).
+    // Mirrors emit_with_budget's own write_root_entries closure; no write_stripped_root_entries equivalent, since phon is always None here.
     let write_root_entries = |out: &mut String,
                               roots: &[&RootRec],
                               continuation: &str,
@@ -4015,10 +3501,7 @@ pub fn emit_underlying_templated(
     };
     let all_roots: Vec<&RootRec> = roots.iter().collect();
 
-    // The same license-gated head/
-    // non-head subsets + compound-pair budget check `emit_with_budget` computes, mirrored here
-    // (this function's own doc: no composite pipeline, but the SAME "bounded compound loop"
-    // template-less/per-group structure). `None` for the common no-compounding-rule grammar.
+    // The same license-gated head/non-head subsets + compound-pair budget check emit_with_budget computes; None for the common no-compounding-rule grammar.
     let compound_license = if has_compounding_rules {
         compound_license(g)
     } else {
@@ -4053,26 +3536,17 @@ pub fn emit_underlying_templated(
         }
     }
 
-    // Overwritten below (inside the `has_compounding_rules` gate) with the real computed bound;
-    // stays `1` (the pre-existing "exactly one extra root" shape) for every no-compounding grammar,
-    // mirroring `emit_with_budget_profiled`'s own identical default.
+    // Overwritten below when has_compounding_rules; stays 1 for every no-compounding grammar, mirroring emit_with_budget_profiled's default.
     let mut compound_extra_levels: usize = 1;
     if compound_license.is_some() {
-        // Consumes the SAME precomputed depth bound + budget check
-        // `emit_with_budget_profiled` does, via the function both emitters share, so this path
-        // proposes a genuinely self-feeding compound as many non-head levels as its
-        // `compounding_max_depth` bound licenses rather than exactly one.
+        // Shares compound_chain_depth_and_budget_check with emit_with_budget_profiled.
         compound_extra_levels = match compound_chain_depth_and_budget_check(g, &uncovered, &counts)
         {
             Ok(levels) => levels,
             Err(early_return) => return early_return,
         };
     }
-    // `build_compound_chain`'s `write_stripped_root_entries` parameter: `phon` is always `None` on
-    // this templated path (module doc, "No junction probing / bare-root phonology enrichment under
-    // this mode"), so the closure below is provably never invoked (`build_compound_chain` only calls
-    // it when `phon.is_some()`) -- it exists only to satisfy that shared function's signature, the
-    // same "no real Stripped sibling here" case that function's own doc names.
+    // Exists only to satisfy build_compound_chain's shared signature; phon is always None on this templated path, so build_compound_chain never actually invokes it.
     let write_stripped_root_entries_noop =
         |_out: &mut String,
          _roots: &[&RootRec],
@@ -4085,8 +3559,7 @@ pub fn emit_underlying_templated(
         )
         };
 
-    // ---- LEXICON Root: bare roots, the template-less section, the outer-prefix hop into the
-    // per-template dispatch (no `Composites` bare-redirect: no composite pipeline here) ----
+    // LEXICON Root: bare roots, the template-less section, then the outer-prefix hop; no Composites bare-redirect, since this path has no composite pipeline.
     write_lexicon_header(&mut out, "Root");
     let bare_roots = bare_admissible_roots(&all_roots, &mut counts);
     write_root_entries(&mut out, &bare_roots, "#", &mut counts, &mut pk);
@@ -4182,10 +3655,7 @@ pub fn emit_underlying_templated(
             mode,
         );
         write_lexicon_header(&mut out, "TLRoots");
-        // Same head-eligible/
-        // head-ineligible split as `emit_with_budget`'s own `TLRoots`/`TLPost`/`TLPostNoCmp` -- see
-        // that function's own comment for the full rationale. `None` (no compound license) leaves
-        // `tl_head_no` empty, byte-identical to the pre-gating behavior.
+        // Same head-eligible/head-ineligible split as emit_with_budget's own TLRoots/TLPost/TLPostNoCmp.
         let (tl_head_ok, tl_head_no): (Vec<&RootRec>, Vec<&RootRec>) = match &compound_license {
             Some(license) => all_roots.iter().copied().partition(|r| {
                 root_lex_entry(g, r.id).is_some_and(|le| license.head_eligible.contains(&le))
@@ -4200,15 +3670,7 @@ pub fn emit_underlying_templated(
         write_bare(&mut out, "TLSfx0", &mut counts);
         if has_compounding_rules {
             write_bare(&mut out, "TLCmp", &mut counts);
-            // The depth-budgeted chain (`build_compound_chain`, shared with
-            // `emit_with_budget_profiled` -- see that function's own doc) gives a genuinely
-            // self-feeding `CompoundingRuleDef` as many chained non-head levels as its computed
-            // `max_depth` bound licenses, exactly like the SurfaceProbed path. Byte-identical
-            // output for `compound_extra_levels == 1` (`build_compound_chain`'s own doc).
-            //
-            // Narrow to the
-            // licensed non-head subset -- every `TLCmp*Roots` level in the chain serves ONLY this
-            // compound continuation.
+            // Same depth-budgeted build_compound_chain as the SurfaceProbed path, narrowed to the licensed non-head subset.
             let tl_non_head_roots: Vec<&RootRec> = match &compound_license {
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
@@ -4251,8 +3713,7 @@ pub fn emit_underlying_templated(
             );
         }
         if !tl_head_no.is_empty() {
-            // The head-ineligible twin of `TLPost`, written after the whole `TLCmp` block so its
-            // header/entries never interleave into `TLPost`'s own.
+            // TLPost's head-ineligible twin, written after the whole TLCmp block so entries never interleave.
             write_lexicon_header(&mut out, "TLPostNoCmp");
             write_bare(&mut out, "TLSfx0", &mut counts);
         }
@@ -4339,11 +3800,7 @@ pub fn emit_underlying_templated(
         if has_compounding_rules {
             let cmp_name = format!("G{gi}Cmp");
             write_bare(&mut out, &cmp_name, &mut counts);
-            // Same depth-budgeted chain as the template-less `TLCmp` section above (see
-            // that block's own comment). The HEAD side of this per-group section
-            // stays ungated (unproven template+compounding interaction; see
-            // `emit_with_budget_profiled`'s own comment on `eligible_roots` for the pre-existing
-            // broadening this preserves) -- only the NON-HEAD side below is narrowed.
+            // Same depth-budgeted chain as the template-less TLCmp section above; the head side stays ungated (unproven template+compounding interaction), only the non-head side below is narrowed.
             let group_non_head_roots: Vec<&RootRec> = match &compound_license {
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
@@ -4446,9 +3903,7 @@ pub fn emit_underlying_templated(
             );
         }
 
-        // Checked at the END of each group's own emission -- a
-        // pathological templated grammar (many groups/slots) bails during the group whose own
-        // writes crossed the cap, not several groups later.
+        // Checked at the end of each group's own emission, so a pathological grammar bails during the group that crossed the cap, not several groups later.
         if counts.lexc_lines > line_cap {
             return emit_line_budget_breach(
                 uncovered.clone(),
@@ -4459,13 +3914,10 @@ pub fn emit_underlying_templated(
         }
     }
 
-    // Post-emission reachability check (`verify_tags_reachable`'s own doc): the ONLY reliable way
-    // to catch a declared-but-compiler-dropped tag, so run it before the final dedup/tier
-    // computation below folds any new findings in exactly like every other `uncovered` source.
+    // Run before the final dedup/tier computation, so any new findings fold in like every other uncovered source.
     verify_tags_reachable(&out, &symbols, &affix_owner_mrule, width, &mut uncovered);
 
-    // Dedup uncovered reports (the same rule/allomorph can be visited from multiple slots/groups/
-    // levels) — same convention as `emit_with_budget`.
+    // Same dedup convention as emit_with_budget.
     let mut seen_uncovered: BTreeSet<(String, String, String)> = BTreeSet::new();
     uncovered.retain(|u| seen_uncovered.insert((u.kind.clone(), u.id.clone(), u.reason.clone())));
 
@@ -4501,8 +3953,7 @@ mod structural_and_pattern_tests {
         pg_grammar::load(&xml).unwrap()
     }
 
-    /// Load a `samples/data/*.xml` reference grammar; `None` (test skips) if not present on disk —
-    /// mirrors the existing `confirm`/`peel` test convention (those grammars aren't in every CI env).
+    /// Loads a samples/data/*.xml reference grammar; None (test skips) if not present on disk.
     fn load_sample(name: &str) -> Option<Grammar> {
         let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../samples/data")
@@ -4520,9 +3971,7 @@ mod structural_and_pattern_tests {
         )
     }
 
-    /// Regression: `edge-cases/loader-pattern-shapes`'s mandatory `[Vowel]` class
-    /// reference (`b[Vowel]t`, NOT `is_pattern` — the C#-faithful "bare mandatory class node" carve-out)
-    /// must enumerate every class member as its own spelling.
+    /// A mandatory (non-pattern) class reference like `b[Vowel]t` must enumerate every class member as its own spelling.
     #[test]
     fn pattern_variants_enumerates_mandatory_class_members() {
         let g = load("edge-cases/loader-pattern-shapes/grammar.xml");
@@ -4535,8 +3984,7 @@ mod structural_and_pattern_tests {
         assert_eq!(sorted, vec!["bat".to_string(), "bet".to_string()]);
     }
 
-    /// Regression: `b([Vowel])t`'s optional class node must ALSO admit the vowel-absent
-    /// branch ("bt"), on top of "bat"/"bet".
+    /// An optional class node like `b([Vowel])t` must also admit the vowel-absent branch ("bt"), on top of "bat"/"bet".
     #[test]
     fn pattern_variants_optional_class_admits_the_absent_branch() {
         let g = load("edge-cases/loader-pattern-shapes/grammar.xml");
@@ -4552,12 +4000,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Regression: `edge-cases/truncate-morphotactic`'s subtractive rules
-    /// (`mruleTruncTrail`/`mruleTruncLead`, `Role::None` with a dropped LHS part) and the
-    /// optional-truncation-plus-insert rule (`mruleTruncOptIns`, `Role::Prefix` with a dropped
-    /// optional LHS part) must all classify as `is_structural_rule` — this is what routes them
-    /// into `build_structural_composites` instead of `build_deriv_chain`'s silent (and, for these
-    /// three, WRONG) zero-morph treatment.
+    /// A subtractive rule with a dropped LHS part must classify as is_structural_rule, or build_deriv_chain treats it as a silently wrong zero-morph.
     #[test]
     fn truncation_rules_classify_as_structural() {
         let g = load("edge-cases/truncate-morphotactic/grammar.xml");
@@ -4572,9 +4015,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Regression: the emitter must actually PROPOSE every one of the fixture's rule
-    /// analyses via `crate::analyzer::FomaProposer` — end-to-end coverage, not just the
-    /// classification unit tests above.
+    /// End-to-end: FomaProposer must actually propose every one of the fixture's analyses, not just classify correctly.
     #[test]
     fn truncation_composites_are_proposable() {
         let g = load("edge-cases/truncate-morphotactic/grammar.xml");
@@ -4589,28 +4030,21 @@ mod structural_and_pattern_tests {
         }
     }
 
-    /// `probe_would_refuse` must detect an empty-`<PhoneticInput>` (epenthesis-kind) rewrite
-    /// subrule — the exact construct that makes `pg_rules::surface_probe::probe_synthesize`
-    /// unconditionally refuse for `languages/suffixing-vowel-harmony` (its `prEpenthesis`).
+    /// probe_would_refuse must detect an empty-PhoneticInput (epenthesis-kind) rewrite subrule.
     #[test]
     fn probe_would_refuse_detects_epenthesis() {
         let g = load("languages/suffixing-vowel-harmony/grammar.xml");
         assert!(probe_would_refuse(&g));
     }
 
-    /// `probe_would_refuse` is `false` for a grammar with real phonology but no epenthesis/
-    /// metathesis construct (`languages/suffixing-extension-slot-ordering`'s post-nasal-voicing rule has a real LHS
-    /// segment) — the reference/edge-case grammars this gate must NOT perturb.
+    /// probe_would_refuse is false for a grammar with real phonology but no epenthesis/metathesis construct.
     #[test]
     fn probe_would_refuse_is_false_for_ordinary_rewrite_rules() {
         let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
         assert!(!probe_would_refuse(&g));
     }
 
-    /// Regression: `languages/suffixing-extension-slot-ordering`'s "mba" — a BARE root ("mpa") whose surface
-    /// only exists via an obligatory post-nasal-voicing phonological rule, no morphological rule
-    /// involved at all — must become proposable via the bare-root phonology enrichment in
-    /// `collect_roots`.
+    /// A bare root whose surface exists only via an obligatory phonological rule, no morphological rule involved, must become proposable via collect_roots' bare-root phonology enrichment.
     #[test]
     fn bare_root_phonology_makes_post_nasal_voicing_proposable() {
         let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
@@ -4621,14 +4055,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Regression: `probe_surface` is POS-BLIND
-    /// (`pg_rules::rewrite::probe_apply_rule_cached` applies every phonological subrule in the
-    /// stratum unconditionally, `FeatureStruct::EMPTY` vacuously satisfying every
-    /// `requiredPartsOfSpeech` gate) — wrong for a bare root in a grammar that scopes DIFFERENT
-    /// phonological rules to different POS in the SAME stratum. `languages/polysynthetic-stratal-derivation-chain`'s
-    /// "buiibuii" (posMDC) must raise to "buuubuuu" via its own `prMDC1`, NOT get caught by
-    /// `prDelReins` (posDelR-only) the way a POS-blind probe would. `Morpher::generate_words` is
-    /// the fix (real per-word pipeline, genuinely POS-gated) — this pins the fix, not just the bug.
+    /// probe_surface is POS-blind, so a bare root in a grammar that scopes different phonological rules to different POS in the same stratum needs generate_words' genuinely POS-gated pipeline instead.
     #[test]
     fn bare_root_phonology_prefers_the_pos_correct_generate_words_surface() {
         let g = load("languages/polysynthetic-stratal-derivation-chain/grammar.xml");
@@ -4638,9 +4065,7 @@ mod structural_and_pattern_tests {
         let feat_shape =
             pg_rules::shape_feat::segment_with_features(&g, table, &entry.allomorphs[0].shape.text)
                 .unwrap();
-        // The raw probe is POS-blind and gets this WRONG (documented above) -- pinned here so a
-        // future `pg_rules` fix that makes it POS-aware doesn't silently invalidate the
-        // `generate_words`-first ordering's rationale without this test flagging the change.
+        // Pinned so a future pg_rules fix making the probe POS-aware doesn't silently invalidate the generate_words-first ordering without this test flagging the change.
         assert_eq!(
             probe_surface(&g, table, &feat_shape, &cache),
             Some("bubu".to_string())
@@ -4653,10 +4078,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Regression: `languages/suffixing-vowel-harmony`'s full construct mix — ordinary
-    /// suffix rules needing the harmony/gradation/epenthesis cascade
-    /// (`generate_words`-fallback composites), an infix rule in the SAME probe-refusing stratum,
-    /// and bare-root vowel coalescence — must all be proposable together.
+    /// Ordinary suffix rules needing the harmony/gradation/epenthesis cascade, an infix rule in the same probe-refusing stratum, and bare-root vowel coalescence must all be proposable together.
     #[test]
     fn suffixing_vowel_harmony_full_cascade_words_are_proposable() {
         let g = load("languages/suffixing-vowel-harmony/grammar.xml");
@@ -4680,8 +4102,7 @@ mod structural_and_pattern_tests {
         }
     }
 
-    /// Every proposed candidate must survive confirm end-to-end (propose -> peel -> confirm) — the
-    /// real conformance path, `crate::composite::FomaAnalyzer::analyze_word`.
+    /// Every proposed candidate must survive confirm end-to-end via the real conformance path.
     fn assert_confirms(fixture: &str, words: &[&str]) {
         let g = load(&format!("{fixture}/grammar.xml"));
         let mut analyzer = crate::composite::FomaAnalyzer::new(&g)
@@ -4696,10 +4117,7 @@ mod structural_and_pattern_tests {
         }
     }
 
-    /// Regression: a prefix on the compound HEAD span — the compound extra-root slot
-    /// wired through a prefix-derivation chain (`fusional-realizational-morphology`'s "lexbedom" = `LEX+BEPFX2+DOMV`;
-    /// `polysynthetic-stratal-derivation-chain`'s "silamanuk" = `SILA+MAPFX2+NUKV`). The v1 bare extra-root slot could
-    /// not place a prefix between the two roots, so both under-generated (foma returned zero).
+    /// A prefix on the compound head span needs the extra-root slot wired through a prefix-derivation chain; a bare extra-root slot cannot place a prefix between the two roots.
     #[test]
     fn compound_head_prefix_confirms() {
         assert_confirms("languages/fusional-realizational-morphology", &["lexbedom"]);
@@ -4709,10 +4127,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Regression: `redupMorphType="prefix"` reduplication — the peel must PREPEND the
-    /// redup morpheme (`[RED, root]`, root_index shifted) so `crate::confirm`'s positional match
-    /// succeeds (`metathesis-phase-isolation`'s "tutula" = `RDP+TULA`, "tulatula" = `RDPL+TULA`). The v1
-    /// append-only peel produced `[root, RED]` which confirm rejected.
+    /// redupMorphType="prefix" reduplication needs the peel to prepend the redup morpheme, not append it, or confirm's positional match fails.
     #[test]
     fn prefix_reduplication_confirms() {
         assert_confirms(
@@ -4721,17 +4136,13 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Regression: metathesis that leaves a BoundaryDefinition char inside the surface
-    /// word (`metathesis-phase-isolation`'s "mu+i" = `mi` + suffix `+u` --metathesis--> `mu+i`,
-    /// `MI+3SGU`). `generate_words` strips the boundary ("mui"); `with_boundary_insertions`
-    /// re-introduces it at every interior gap so the boundary-bearing query is reachable.
+    /// Metathesis that leaves a boundary char inside the surface: generate_words strips it, with_boundary_insertions must re-introduce it so the boundary-bearing query is reachable.
     #[test]
     fn metathesis_boundary_in_surface_confirms() {
         assert_confirms("languages/metathesis-phase-isolation", &["mu+i"]);
     }
 
-    /// `with_boundary_insertions` is a no-op without boundary reps and enumerates every interior
-    /// gap with them.
+    /// A no-op without boundary reps; enumerates every interior gap with them.
     #[test]
     fn boundary_insertion_enumerates_interior_gaps() {
         assert_eq!(
@@ -4746,10 +4157,7 @@ mod structural_and_pattern_tests {
         assert_eq!(got.len(), 3, "original + 2 interior gaps");
     }
 
-    /// Regression (Sena `musandilesera`, foma proposed 2 vs the engine's 10 before this fix): the
-    /// `eligible_roots` broadening for compound grammars must make every
-    /// compound-HEAD-re-categorized `é`-first analysis proposable-and-confirmable. Full parity (10)
-    /// end-to-end via `FomaAnalyzer`. Skips if `samples/data/sena-hc.xml` is absent.
+    /// The eligible_roots broadening for compound grammars must make every compound-head-re-categorized analysis proposable and confirmable, full parity end-to-end.
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn sena_musandilesera_full_parity() {
@@ -4767,13 +4175,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    // --- Diacritics gate (unit-level, white-box on `combining_run_symbols`/`char_is_combining`) --
-    //
-    // Full end-to-end coverage (propose + confirm via `FomaAnalyzer`, against the real engine as
-    // recall oracle) lives in `tests/f5_diacritics_gate.rs`; these are the narrower white-box pins
-    // on the actual mechanism this bug's fix added, using the same `tests/fixtures/dia-hc.xml`
-    // fixture (loaded relative to THIS crate's own manifest dir, unlike `load`/`load_sample` above
-    // which reach into the sibling `machine`/`samples` checkouts).
+    // Diacritics gate: narrower white-box pins on the fix's mechanism; end-to-end coverage lives in tests/f5_diacritics_gate.rs.
 
     fn load_dia_fixture() -> Grammar {
         let full =
@@ -4783,10 +4185,7 @@ mod structural_and_pattern_tests {
         pg_grammar::load(&xml).unwrap()
     }
 
-    /// A precomposed Latin letter is NOT itself a combining mark; NFD's COMBINING ACUTE ACCENT
-    /// (U+0301, the decomposition of é) is. Also checks a plain ASCII letter and a non-Latin
-    /// (Cyrillic) letter are never treated as combining — Cyrillic never NFD-decomposes into a
-    /// base+combining pair, which is why this bug never affected Cyrillic grammars.
+    /// A precomposed Latin letter is not itself a combining mark; NFD's combining marks are. Cyrillic never NFD-decomposes into a base+combining pair.
     #[test]
     fn char_is_combining_matches_nfd_combining_marks_only() {
         assert!(!char_is_combining('e'));
@@ -4797,11 +4196,7 @@ mod structural_and_pattern_tests {
         assert!(!char_is_combining('а')); // Cyrillic а (U+0430) -- an ordinary base letter.
     }
 
-    /// The actual bug: `dia-hc.xml`'s `é`/`î`/`ñ`/`ö` char-defs each have a single, precomposed
-    /// (NFC) `<Representation>`; `pg_grammar::chardef::CharDef::representations_nfd` NFD-normalizes it to a 2-codepoint
-    /// base+combining-mark run. `combining_run_symbols` must recover exactly these four runs (and
-    /// nothing else — no plain-ASCII char-def contributes a run) so the emitter can declare them as
-    /// lexc `Multichar_Symbols`.
+    /// combining_run_symbols must recover exactly the four base+combining-mark runs the NFD-normalized precomposed char-defs decompose into, nothing else.
     #[test]
     fn combining_run_symbols_finds_every_decomposed_diacritic() {
         let g = load_dia_fixture();
@@ -4818,10 +4213,7 @@ mod structural_and_pattern_tests {
         assert_eq!(got, want);
     }
 
-    /// The emitted lexc source must actually declare these runs in `Multichar_Symbols` (not just
-    /// compute them and drop them) — this is what makes `lexcread.rs`'s `first_mc_prefix` match the
-    /// whole run as one symbol at compile time instead of falling through to lexc's default
-    /// one-codepoint-per-symbol tokenization.
+    /// The emitted lexc source must actually declare these runs in Multichar_Symbols, not just compute and drop them.
     #[test]
     fn emitted_lexc_declares_the_combining_runs() {
         let g = load_dia_fixture();
@@ -4839,22 +4231,7 @@ mod structural_and_pattern_tests {
         }
     }
 
-    /// Regression-scope check for the diacritics fix, measured (not assumed) against the three
-    /// real reference grammars: Sena and Indonesian's char-def tables contain no base+combining-
-    /// mark run at all, so `combining_run_symbols` is EMPTY for both and the emitted lexc is
-    /// BYTE-IDENTICAL to before this fix for those two (the new `for sym in
-    /// combining_run_symbols(table)` loop body in `emit_with_precision` never executes) — the
-    /// mechanical reason `f1_sena_gate`/`f2_indonesian_gate`/`f3_parity`'s Sena+Indonesian legs/
-    /// `f4_composite_gate`/`pk1`/`pk2`/`sena_musandilesera_full_parity` above all keep passing
-    /// unperturbed. Amharic is NOT a no-op: its char-def table has exactly one such run, "a\u{308}"
-    /// (a base "a" + COMBINING DIAERESIS — a romanized-transliteration segment, not a native Ge'ez
-    /// glyph; Ge'ez's own syllabic characters are precomposed and don't NFD-decompose), so this fix
-    /// adds exactly one new `Multichar_Symbols` declaration to Amharic's emitted lexc. That this is
-    /// harmless (not just "unused symbols are harmless" per this file's own doc, but actually
-    /// exercised and correct) is what `f3_amharic_gate`'s `c_amharic_end_to_end_multiset_parity`
-    /// (100-word full multiset parity, passing with this exact code) demonstrates — see this
-    /// crate's own gate suite, not re-asserted here. Skips (rather than fails) a grammar not
-    /// present on disk, same convention as `load_sample`'s other callers.
+    /// Measured, not assumed, against the three real reference grammars: Sena/Indonesian have no such run (byte-identical emitted lexc); Amharic has exactly one, exercised by f3_amharic_gate's own parity check.
     #[test]
     fn combining_run_symbols_measured_per_reference_grammar() {
         let cases: &[(&str, &[&str])] = &[
@@ -4876,15 +4253,7 @@ mod structural_and_pattern_tests {
         }
     }
 
-    // --- Boundary diacritics gate (unit-level, white-box on `boundary_combining_run_symbols`) ----
-    //
-    // `boundary-mark-hc.xml` (loaded relative to THIS crate's manifest dir, same convention as
-    // `load_dia_fixture`) has exactly 3 Segment char-defs: "b" (a normal base), "é" (NFD: "e" +
-    // COMBINING ACUTE ACCENT -- a base+diacritic char-def, `combining_run_symbols`'s own case), and
-    // a standalone mark-initial char-def whose sole representation IS COMBINING ACUTE ACCENT alone
-    // (U+0301 -- an autosegmental tone mark modeled as its own grapheme, this function's new case).
-    // End-to-end coverage (propose+peel+confirm via `FomaAnalyzer`) lives in
-    // `tests/f5_diacritics_gate.rs`.
+    // Boundary diacritics gate: white-box on boundary_combining_run_symbols; end-to-end coverage lives in tests/f5_diacritics_gate.rs.
 
     fn load_boundary_fixture() -> Grammar {
         let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -4894,13 +4263,7 @@ mod structural_and_pattern_tests {
         pg_grammar::load(&xml).unwrap()
     }
 
-    /// The actual boundary bug: with P ranging over {"b", "e\u{301}", "\u{301}"} (the table's 3
-    /// trailing-run candidates -- "e\u{301}" is already one `combining_run_symbols` run in its own
-    /// right; "\u{301}" is the mark-initial char-def's own degenerate all-marks trailing run) and
-    /// the lone mark-initial M = "\u{301}", `boundary_combining_run_symbols` must declare all 3
-    /// length-1 boundary runs (`P ++ M`) AND all 3 length-2 chain runs (`P ++ M ++ M`, since the
-    /// fixture has only one mark-initial char-def, so the chain-of-2 cartesian product collapses
-    /// to repeating it) -- nothing more, nothing less.
+    /// boundary_combining_run_symbols must declare every length-1 (P ++ M) and length-2 (P ++ M ++ M) boundary run across the fixture's char-defs, nothing more.
     #[test]
     fn boundary_combining_run_symbols_finds_cross_char_def_runs() {
         let g = load_boundary_fixture();
@@ -4919,8 +4282,7 @@ mod structural_and_pattern_tests {
         assert_eq!(got, want);
     }
 
-    /// The emitted lexc source must actually declare these boundary runs in `Multichar_Symbols`,
-    /// same convention as `emitted_lexc_declares_the_combining_runs`.
+    /// Same convention as emitted_lexc_declares_the_combining_runs, for boundary runs.
     #[test]
     fn emitted_lexc_declares_the_boundary_runs() {
         let g = load_boundary_fixture();
@@ -4938,10 +4300,7 @@ mod structural_and_pattern_tests {
         }
     }
 
-    /// No spurious declarations for a grammar with no mark-initial char-def at all: `dia-hc.xml`'s
-    /// 4 diacritic char-defs (é/î/ñ/ö) each decompose to base+trailing-mark, never mark-INITIAL, so
-    /// `mark_initial` is empty and the function must short-circuit to an empty set -- same
-    /// zero-cost convention as `combining_run_symbols_measured_per_reference_grammar`.
+    /// A grammar with no mark-initial char-def at all must short-circuit to an empty set, no spurious declarations.
     #[test]
     fn boundary_combining_run_symbols_empty_with_no_mark_initial_char_def() {
         let g = load_dia_fixture();
@@ -4952,14 +4311,9 @@ mod structural_and_pattern_tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Compile-profile instrumentation on the
-    // production `emit_with_budget_profiled` path.
-    // ---------------------------------------------------------------------------------------
+    // Compile-profile instrumentation on the production emit_with_budget_profiled path.
 
-    /// The explicit default surface-emission strategy is an API seam only: it must retain the
-    /// existing profiled wrapper's emitted artifact exactly.  Later experiments may supply a
-    /// different strategy, but this refactor itself introduces no new searched behavior.
+    /// The explicit default surface-emission strategy is an API seam only: it must retain the existing profiled wrapper's emitted artifact exactly.
     #[test]
     fn explicit_default_surface_strategy_matches_profiled_wrapper() {
         let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
@@ -5031,9 +4385,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// The profile must collect real per-stage data (not all-zero placeholders) and the total
-    /// emitted-line count, on a synthetic grammar with real phonology (exercises `PreexpandComposites`
-    /// as well as the always-run stages).
+    /// The profile must collect real per-stage data, not all-zero placeholders, including a stage only a real-phonology grammar exercises.
     #[test]
     fn fst_profile_collects_per_stage_data_on_a_synthetic_grammar() {
         let g = load("languages/suffixing-vowel-harmony/grammar.xml");
@@ -5066,9 +4418,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// `crate::profile`'s own doc: profiling must never change the emitted artifact. Proves
-    /// byte-identical `lexc_source` (and identical `EmitCounts`) with profiling on vs. off, on the
-    /// same synthetic grammar used above.
+    /// Profiling must never change the emitted artifact: byte-identical lexc_source and EmitCounts with profiling on vs. off.
     #[test]
     fn fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off() {
         let g = load("languages/suffixing-vowel-harmony/grammar.xml");
@@ -5153,15 +4503,12 @@ mod structural_and_pattern_tests {
             "profiling must preserve enumeration budget detail"
         );
 
-        // Also exercise `emit_with_budget`'s own thin wrapper (profile: None internally) for
-        // exact parity with the production, non-profiled entry point every existing caller uses.
+        // Also exercise emit_with_budget's thin wrapper, for parity with the non-profiled entry point every existing caller uses.
         let via_wrapper = emit_with_budget(&g, PrecisionConfig::Strip, &enum_budget);
         assert_eq!(via_wrapper.lexc_source, without_profile.lexc_source);
     }
 
-    /// Per-group line counts (module doc "Per-template/continuation lexc line counts"): every group
-    /// this grammar has must report a nonzero line count, and the per-group counts must sum to no
-    /// more than the total (the per-group loop is one of several sections that write lexc lines).
+    /// Every group must report a nonzero line count, and the per-group counts must sum to no more than the total.
     #[test]
     fn fst_profile_group_line_counts_are_real_and_bounded_by_the_total() {
         let g = load("languages/suffixing-vowel-harmony/grammar.xml");
@@ -5186,20 +4533,9 @@ mod structural_and_pattern_tests {
         assert!(group_total <= profile.total_lexc_lines.unwrap());
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Anti-drift guard for `plan_topology_
-    // decisions`. Loads only inline, synthetic (delanguaged) fixtures -- no reference-grammar
-    // corpus dependency -- so this pins the INVARIANT itself (plan-derived decision == real seam
-    // result), not any one grammar's particular verdict.
-    // ---------------------------------------------------------------------------------------------
+    // Anti-drift guard for plan_topology_decisions, using only inline synthetic fixtures, pinning the invariant itself rather than any one grammar's verdict.
 
-    /// Asserts `plan_topology_decisions`'s two booleans equal the REAL, directly-called seam
-    /// functions' results for `g` -- the exact property this guards: if
-    /// `crate::enumerate::enumerate_default` (the plan enumerator) and this module's own topology
-    /// gates (`build_composites_with_mode`'s call, the `Morpher`/`build_structural_composites`
-    /// gate) ever disagree, this fails, not silently diverges. `expected` additionally pins the
-    /// literal verdict for each fixture, so a regression in EITHER side (not just a mismatch
-    /// between them) is caught.
+    /// Asserts plan_topology_decisions's two booleans equal the real, directly-called seam functions' results; expected also pins the literal verdict, so a regression on either side is caught.
     fn assert_plan_topology_matches_real_seams(g: &Grammar, expected: (bool, bool)) {
         let phon = PhonologyProbe::new(g);
         let real_composite_emission = crate::preexpand::should_run(g, phon.as_ref());
@@ -5226,9 +4562,7 @@ mod structural_and_pattern_tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
     }
 
-    /// No `PhonologicalRuleDefinitions` at all (`phon` is `None`) and no rule of any kind (so no
-    /// `Role::Infix` rule either) -- both `should_run` and `structural_candidate_rules` must be
-    /// empty/false. The (composite-emission, structural-composite) baseline: neither subtree.
+    /// No phonological rules and no rule of any kind: both should_run and structural_candidate_rules must be empty/false, the baseline case.
     #[test]
     fn plan_topology_decisions_matches_real_seams_bare_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyBare</Name>
@@ -5252,10 +4586,7 @@ mod structural_and_pattern_tests {
         assert_plan_topology_matches_real_seams(&load_xml(XML), (false, false));
     }
 
-    /// A real (non-epenthesis, non-metathesis) phonological rewrite rule with no
-    /// morphological/structural construct at all: `phon.is_some()` alone makes `should_run` true;
-    /// `probe_would_refuse` is false and no rule classifies structural, so the structural route
-    /// stays absent. (composite-emission, structural-composite) = (true, false).
+    /// An ordinary phonological rewrite rule with no morphological/structural construct: phon alone makes should_run true, but the structural route stays absent.
     #[test]
     fn plan_topology_decisions_matches_real_seams_ordinary_phonology_only() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyOrdinaryPhon</Name>
@@ -5294,12 +4625,7 @@ mod structural_and_pattern_tests {
         assert_plan_topology_matches_real_seams(&load_xml(XML), (true, false));
     }
 
-    /// An epenthesis-kind rewrite subrule (empty `<PhoneticInput>`, `probe_would_refuse` -> true)
-    /// PLUS an ordinary suffix morphological rule: `broad` widens `structural_candidate_rules` to
-    /// include that suffix rule (see `structural_candidate_rules`'s own doc: "ADDITIONALLY every
-    /// ordinary Prefix/Suffix/Infix rule when probe_would_refuse holds"), and `phon.is_some()` alone
-    /// already makes `should_run` true.
-    /// (composite-emission, structural-composite) = (true, true) -- both subtrees present at once.
+    /// An epenthesis-kind rewrite subrule plus an ordinary suffix rule widens structural_candidate_rules to include the suffix rule, so both subtrees are present at once.
     #[test]
     fn plan_topology_decisions_matches_real_seams_epenthesis_plus_suffix() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyEpenthesisPlusSuffix</Name>
@@ -5362,13 +4688,7 @@ mod structural_and_pattern_tests {
         assert_plan_topology_matches_real_seams(&load_xml(XML), (true, true));
     }
 
-    /// A lone circumfix rule (`Insert`, `Copy`, `Insert` -- both a leading AND a trailing insert
-    /// around one copied part), no `PhonologicalRuleDefinitions` at all and no infix rule: `phon` is
-    /// `None` and `any_infix_rule` is false, so `should_run` is false -- but `is_structural_rule`
-    /// admits `Role::CircumfixPrefix` UNCONDITIONALLY (not gated by `probe_would_refuse` at all), so
-    /// the structural route is present anyway. (composite-emission, structural-composite) =
-    /// (false, true) -- the complementary combination `ordinary_phonology_only` above doesn't cover,
-    /// completing the 2x2 over both booleans this task's two seams can independently produce.
+    /// A lone circumfix rule with no phonological rules and no infix rule: should_run is false, but is_structural_rule admits CircumfixPrefix unconditionally, so the structural route is present anyway.
     #[test]
     fn plan_topology_decisions_matches_real_seams_circumfix_only() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyCircumfixOnly</Name>

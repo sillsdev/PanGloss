@@ -1,10 +1,4 @@
-//! Feasibility prototype driver: builds the composed
-//! network `underlying-lexc .o. rule1 .o. rule2 .o. ... .o. rule5 .o. boundary-cleanup` for
-//! Indonesian, runs the 4-word smoke test, then the full corpus parity gate against
-//! `pg_parse::Morpher` (the SAME oracle/predicate `tests/f2_indonesian_gate.rs` uses), and prints
-//! every number the prototype report cites.
-//!
-//! Run: `cargo run --release -p pg-foma --example p6_replace_prototype`
+//! Feasibility prototype driver: builds the composed `underlying-lexc .o. rules .o. boundary-cleanup` network for Indonesian, runs a smoke test, then a full corpus parity gate against `pg_parse::Morpher`.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -65,11 +59,7 @@ fn candidates_cover(candidates: &[tags::Candidate], seq: &[u32], root_idx: i32) 
     })
 }
 
-/// Same 64MB dedicated-stack convention `emit.rs`'s `PROBE_STACK_BYTES` uses for the engine's own
-/// deep recursion (`probe_synthesize`) — the vendored foma-rs's own `fsm_union`/`fsm_compose`
-/// constructions recurse deeply enough (13-way alpha-tuple union for prule4) to overflow the
-/// default ~1-8MB thread stack; this is an empirical prototype finding (see the report), not a
-/// pre-existing convention this driver merely reuses out of caution.
+/// The vendored foma-rs's `fsm_union`/`fsm_compose` recurse deeply enough to overflow the default thread stack, so this runs on a dedicated large-stack thread.
 const STACK_BYTES: usize = 256 * 1024 * 1024;
 
 fn main() {
@@ -88,9 +78,7 @@ fn run() {
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
 
-    // ---------------------------------------------------------------------------------------
-    // 1. Compile + compose the phonological rule cascade, in stratum/document order.
-    // ---------------------------------------------------------------------------------------
+    // Compile + compose the phonological rule cascade, in stratum/document order.
     let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
     for st in &g.strata {
         for &prid in &st.prules {
@@ -139,9 +127,7 @@ fn run() {
         }
     }
     let rule_net = rule_net.expect("Indonesian's 5 rules must compile (see skipped_rules if not)");
-    // ---- diagnostic: run the rule cascade ALONE (no lexc, no cleanup) forward (apply_down) on a
-    // manually-built underlying string "me<PLACEHOLDER>+<root>" to isolate whether the CASCADE
-    // itself is correct, independent of the lexc/compose/cleanup pipeline.
+    // Diagnostic: run the rule cascade alone (no lexc, no cleanup) to isolate whether the cascade itself is correct.
     {
         let m = table.lookup_nfd("m").expect("m in table");
         let e = table.lookup_nfd("e").expect("e in table");
@@ -170,9 +156,7 @@ fn run() {
         rule_net.statecount, rule_net.arccount
     );
 
-    // ---------------------------------------------------------------------------------------
-    // 2. Boundary cleanup: every Boundary-kind char-def's token -> 0 (deleted), applied LAST.
-    // ---------------------------------------------------------------------------------------
+    // Boundary cleanup: every Boundary-kind char-def's token -> 0 (deleted), applied last.
     let boundary_tokens: Vec<char> = table
         .iter()
         .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
@@ -187,9 +171,7 @@ fn run() {
     let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None)
         .unwrap_or_else(|| panic!("boundary cleanup regex failed to compile: {cleanup_regex:?}"));
 
-    // ---------------------------------------------------------------------------------------
-    // 3. Underlying-form lexc emitter + compile.
-    // ---------------------------------------------------------------------------------------
+    // Underlying-form lexc emitter + compile.
     let t_emit = Instant::now();
     let ureport = emit_underlying(&g, &alphabet).expect("compose budget ok");
     let emit_elapsed = t_emit.elapsed();
@@ -211,9 +193,7 @@ fn run() {
         lexc_net.statecount, lexc_net.arccount
     );
 
-    // ---------------------------------------------------------------------------------------
-    // 4. Compose: lexc .o. rules .o. cleanup, then minimize.
-    // ---------------------------------------------------------------------------------------
+    // Compose: lexc .o. rules .o. cleanup, then minimize.
     let t_compose = Instant::now();
     let composed = fsm_compose(&opts, lexc_net, rule_net);
     let composed = fsm_compose(&opts, composed, cleanup_net);
@@ -226,9 +206,7 @@ fn run() {
 
     let mut handle = apply_init(&composed);
 
-    // ---------------------------------------------------------------------------------------
-    // 5. Smoke test: 4 words before the full gate (advisor's guidance).
-    // ---------------------------------------------------------------------------------------
+    // Smoke test: a few words before the full gate.
     println!("\n--- smoke test ---");
     for word in ["menulis", "membaca", "mengambil", "tulis"] {
         let Some(query) = alphabet.encode_query(word) else {
@@ -268,9 +246,7 @@ fn run() {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 6. Full corpus parity gate.
-    // ---------------------------------------------------------------------------------------
+    // Full corpus parity gate.
     println!("\n--- full corpus parity gate ---");
     let morpher = Morpher::new(&g, usize::MAX);
     let popts = ParseOptions::default();

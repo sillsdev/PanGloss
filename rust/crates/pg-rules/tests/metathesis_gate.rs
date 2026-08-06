@@ -1,12 +1,4 @@
-//! Regression gate for the two `pg_rules::metathesis` analysis-side bugs discovered while building
-//! an FST containment suite (`pg_foma::tests::phase_c_metathesis` — see that file's top doc for
-//! the full empirical reproductions this gate pins as **fixed**, and `pg_rules::metathesis::
-//! build_analysis_pattern`'s own doc for the C# citations + rationale). Both tests round-trip a
-//! hand-built rule through `synthesize` then `analyze` and assert the un-applied shape recovers
-//! (is unifiable with) the pre-synthesis original — modeled on `rewrite_gate.rs`'s own
-//! `feature_change_round_trip_recovers_superset` test, at the rule level (no full `Morpher`/lexicon
-//! needed to pin `pg_rules::metathesis` itself). Synthetic, delanguaged fixtures (single-letter
-//! stand-in segments, no natural-language material).
+//! Regression gate for two `pg_rules::metathesis` analysis-side bugs: round-trips a hand-built rule through `synthesize` then `analyze` and asserts the un-applied shape recovers the pre-synthesis original.
 
 mod common;
 
@@ -18,8 +10,7 @@ fn seg(g: &pg_grammar::model::Grammar, word: &str) -> Shape {
     pg_rules::shape_feat::segment_with_features(g, table(g), word).unwrap()
 }
 
-/// The interior of a shape as `(NodeKind, char_def, lanes, optional)` — `rewrite_gate.rs`'s own
-/// helper, reused verbatim.
+/// The interior of a shape as `(NodeKind, char_def, lanes, optional)`.
 fn interior(s: &Shape) -> Vec<(NodeKind, u32, Vec<u64>, bool)> {
     (0..s.len())
         .filter(|&i| !matches!(s.kind(i), NodeKind::LeftAnchor | NodeKind::RightAnchor))
@@ -38,19 +29,12 @@ fn lanes_of(s: &Shape) -> Vec<Vec<u64>> {
     interior(s).into_iter().map(|x| x.2).collect()
 }
 
-// Lane constants for the probe grammar ([cons, voi, Type]; `rewrite_gate.rs`'s own constants,
-// reused verbatim -- see `common/mod.rs`'s module doc for the segment inventory).
+// Lane constants for the probe grammar ([cons, voi, Type]; see `common/mod.rs` for the segment inventory).
 const A: [u64; 3] = [0b10, 0b01, 0b01]; // vowel, voiced
 const T: [u64; 3] = [0b01, 0b10, 0b01]; // consonant, voiceless
 const D: [u64; 3] = [0b01, 0b01, 0b01]; // consonant, voiced
 
-// =================================================================================================
-// Bug 1: reversed switch-tag order (`left_switch` tagging the node PHYSICALLY FIRST, the opposite
-// of the well-formed convention every real HermitCrab fixture uses). Before the fix,
-// `build_analysis_pattern` rebuilt a tag-name-driven (`left_switch`-always-first) search pattern
-// that, for this tag order, searched for the surface's ORIGINAL un-swapped arrangement -- a vacuous
-// no-op disagreeing with what `synthesize` actually produces.
-// =================================================================================================
+// Bug 1: a reversed switch-tag order (`left_switch` tagging the physically-first node) must not make analysis rebuild a tag-name-driven pattern that searches for the un-swapped arrangement.
 
 fn reversed_tag_rule(g: &pg_grammar::model::Grammar) -> MetathesisRuleDef {
     MetathesisRuleDef {
@@ -95,10 +79,7 @@ fn metathesis_reversed_switch_tag_order_round_trips() {
     );
     let ana_lanes = lanes_of(&ana[0]);
     let orig_lanes = lanes_of(&input);
-    // `ana_union` widens BOTH matched positions to `t_lanes | a_lanes` (a "could be either switch
-    // member" underspecification -- C#'s `FeatureStruct.Union`, see `ana_union`'s own doc), so the
-    // widened value must remain unifiable (superset-compatible) with whatever was ORIGINALLY at
-    // each surface position pre-synthesis.
+    // `ana_union` widens both matched positions to `t_lanes | a_lanes`, so the widened value must remain unifiable with whatever was originally at each surface position pre-synthesis.
     for (widened, orig) in ana_lanes.iter().zip(&orig_lanes) {
         assert!(
             pg_featstruct::flat_unifiable(widened, orig),
@@ -107,14 +88,7 @@ fn metathesis_reversed_switch_tag_order_round_trips() {
     }
 }
 
-// =================================================================================================
-// Bug 2: a middle context node strictly between the two switches (mirrors
-// `machine/conformance/languages/metathesis-phase-isolation`'s own `mrComplexMeta` shape, but with
-// a real SEGMENT in the middle rather than a `<BoundaryMarker>` -- see `build_analysis_pattern`'s
-// own doc for why a boundary there was never actually a problem for either engine). Before the fix,
-// `build_analysis_pattern` dropped the middle node from its rebuilt pattern entirely, requiring the
-// two switches strictly ADJACENT -- a real surface with the middle segment intact could never match.
-// =================================================================================================
+// Bug 2: a middle context node strictly between the two switches must not be dropped from the rebuilt analysis pattern, which would wrongly require the switches strictly adjacent.
 
 fn middle_context_rule(g: &pg_grammar::model::Grammar) -> MetathesisRuleDef {
     MetathesisRuleDef {

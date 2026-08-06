@@ -1,17 +1,4 @@
-//! P12 chunks 4/5 acceptance test (design doc §6's bar: "the trace needs to show a rule sequence a
-//! human could actually follow", not just a bare Successful/Failed leaf under the root).
-//!
-//! `pg_rules::stratum::guided_synth` (the synthesis-confirmation gate) now fires
-//! `MorphologicalRuleApplied` on every successful rule confirmation and reassigns each output word's
-//! trace cursor (`Word::trace`), so a real multi-rule derivation renders as a chain of nested
-//! `MorphologicalRuleSynthesis` nodes, each one the parent of the next -- exactly the "rule sequence"
-//! a person (or a future Rust/C# divergence hunt) needs to follow. This is real-corpus, not a hand-
-//! built fixture: self-skips if the untracked sample corpus isn't present (matching
-//! `reduplication_gate.rs`'s existing convention).
-//!
-//! Test-timing policy: the default local `cargo test --workspace --release`
-//! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is
-//! unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
+//! Real-corpus acceptance test that a multi-rule derivation renders as a chain of nested `MorphologicalRuleSynthesis` trace nodes, each the parent of the next -- a rule sequence a human can actually follow, not a bare leaf under the root.
 
 use std::path::{Path, PathBuf};
 
@@ -25,9 +12,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// Every chain of `MorphologicalRuleSynthesis` nodes that ends in a `Successful` leaf, found
-/// anywhere in the tree -- the "rule sequence" a human would read off a successful derivation.
-/// Collects all of them (a word can have several winning derivations); the caller picks the longest.
+/// Every chain of `MorphologicalRuleSynthesis` nodes that ends in a `Successful` leaf, found anywhere in the tree; the caller picks the longest.
 fn successful_rule_chains(
     sink: &TreeTraceSink,
     h: TraceHandle,
@@ -61,8 +46,7 @@ fn real_indonesian_word_renders_a_followable_multi_rule_sequence() {
     let grammar = load(&xml).unwrap_or_else(|e| panic!("failed to load grammar: {e}"));
     let morpher = Morpher::new(&grammar, usize::MAX);
 
-    // "menziarahi": men- (nasal prefix) + ziarah (root) + -i (suffix) -- a genuine 2-rule synthesis
-    // derivation (confirmed via this same tracing machinery during this chunk's development).
+    // "menziarahi": men- (nasal prefix) + ziarah (root) + -i (suffix) -- a genuine 2-rule synthesis derivation.
     let word = "menziarahi";
     let sink = TreeTraceSink::new();
     let outcome = morpher.parse_word_traced(word, &ParseOptions::default(), &sink);
@@ -88,17 +72,7 @@ fn real_indonesian_word_renders_a_followable_multi_rule_sequence() {
         found.len()
     );
 
-    // Each node in the chain must be a DESCENDANT of the previous one (a real nested sequence, not
-    // siblings coincidentally collected) -- re-walk from root confirming ancestry.
-    //
-    // "Direct child" would be too strict here: the analysis (unapply) cascade is wired into the
-    // same trace tree, so a real multi-rule word's successful synthesis chain is typically nested
-    // a few levels under the analysis-side `MorphologicalRuleAnalysis`/`PhonologicalRuleAnalysis`
-    // nodes that produced its input (correct and intended: the tree shows the WHOLE derivation,
-    // analysis included, not just the synthesis half). `successful_rule_chains`'s own DFS already
-    // guarantees `found` is a single root-to-leaf path in visitation order (it only ever grows one
-    // `Vec` along the current recursion stack), so this loop's job is just to confirm each step is
-    // reachable strictly below the previous one, not a sibling.
+    // Each node must be a descendant of the previous one, not a sibling ("direct child" is too strict since the chain nests under analysis-side trace nodes too).
     fn is_descendant(sink: &TreeTraceSink, ancestor: TraceHandle, target: TraceHandle) -> bool {
         let mut stack = sink.node(ancestor).children;
         while let Some(h) = stack.pop() {

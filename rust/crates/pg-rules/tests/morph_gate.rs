@@ -1,16 +1,4 @@
-//! M4a acceptance gate — Part 3 (morphological rules).
-//!
-//! Part 1: hand-built affix-process rules (suffix, prefix, feature-modifying simulfix) and a
-//! compounding rule, exercised on hand-authored `Word`s with expected shapes + morph records
-//! reasoned from HermitCrab semantics and cross-referenced to the C# unit tests
-//! (`tests/SIL.Machine.Morphology.HermitCrab.Tests/MorphologicalRules/*Tests.cs`). Includes a
-//! synthesize→analyze round trip (shape recovery — the load-bearing invariant, since C#
-//! `AnalysisAffixProcessAllomorphRuleSpec.ApplyRhs` regenerates the shape and morphs re-attach at
-//! synthesis-confirm; morph *ordering* is asserted on the synthesis side).
-//!
-//! Part 2: structural coverage over the real **Sena** grammar (132 affix-process + 8 compounding
-//! rules, zero phonological rules): every affix rule's allomorph LHS parts compile via the bridge,
-//! and `analyze`/`synthesize` run on a probe word without panic.
+//! Morphological-rule tests: hand-built affix-process/compounding rules against expected shapes and morph records, cross-referenced to C#'s HermitCrab unit tests, plus structural coverage over the real Sena grammar.
 
 mod common;
 
@@ -27,8 +15,7 @@ use pg_shape::{NodeKind, Shape, ShapeBuilder};
 
 // ---- shape / word builders -----------------------------------------------------------------
 
-/// Build a feature-bearing shape from `text` (segments against table 0, fills per-node lanes from
-/// the char table so feature matching is real — unlike the loader's `feat_width == 0` `Segments`).
+/// Build a feature-bearing shape from `text`, filling per-node lanes so feature matching is real.
 fn shape_with_lanes(g: &Grammar, text: &str) -> Shape {
     let t = &g.char_tables[0];
     let seg = pg_grammar::segment::segment(t, text).expect("segments");
@@ -136,11 +123,7 @@ fn affix_rule(morpheme: u32, allomorphs: Vec<AffixAllomorphDef>) -> MorphRuleDef
     })
 }
 
-// =================================================================================================
-// Suffix: CopyFromInput("1") + InsertSegments — C# AffixProcessRuleTests.MorphosyntacticRules
-// (AffixProcessRuleTests.cs:28, `Rhs = { new CopyFromInput("1"), new InsertSegments(Table3,"s") }`,
-// "sag" → "sags", morphs "32 NMLZ"). Here root "apa" (morpheme 100) + suffix "n" (morpheme 200).
-// =================================================================================================
+// Suffix: CopyFromInput + InsertSegments, mirroring C#'s `AffixProcessRuleTests.MorphosyntacticRules`. Root "apa" (100) + suffix "n" (200).
 
 #[test]
 fn suffix_synthesis_appends_and_orders_root_then_affix() {
@@ -206,11 +189,7 @@ fn suffix_round_trip_recovers_stem_shape() {
     );
 }
 
-// =================================================================================================
-// Prefix: InsertSegments + CopyFromInput("1") — C# AffixProcessRuleTests.PrefixRules
-// (AffixProcessRuleTests.cs:540, `Rhs = { new InsertSegments(Table3,"zi"), new CopyFromInput("1") }`,
-// prefix then stem, morphs "3SG 32"). Here prefix "n" (200) + root "apa" (100) → "napa".
-// =================================================================================================
+// Prefix: InsertSegments + CopyFromInput, mirroring C#'s `AffixProcessRuleTests.PrefixRules`. Prefix "n" (200) + root "apa" (100) → "napa".
 
 #[test]
 fn prefix_synthesis_prepends_and_orders_affix_then_root() {
@@ -246,13 +225,7 @@ fn prefix_synthesis_prepends_and_orders_affix_then_root() {
     );
 }
 
-// =================================================================================================
-// Feature-modifying simulfix: CopyFromInput("1") + ModifyFromInput("2", [+voice]) — C#
-// AffixProcessRuleTests.SimulfixRules (AffixProcessRuleTests.cs:908,
-// `Rhs = { new CopyFromInput("1"), new ModifyFromInput("2", voiced) }`, "pib" → morphs "41 SIMUL").
-// Here root part "1" = any+, target part "2" = one consonant; modify it to [+voice].
-// stem "ap" → synthesis voices the final "p" (voi lane → {+}); analysis underspecifies it back.
-// =================================================================================================
+// Feature-modifying simulfix: CopyFromInput + ModifyFromInput, mirroring C#'s `AffixProcessRuleTests.SimulfixRules`. Stem "ap" synthesizes to a voiced final "p"; analysis underspecifies it back.
 
 #[test]
 fn simulfix_synthesis_voices_target_segment() {
@@ -279,13 +252,7 @@ fn simulfix_synthesis_voices_target_segment() {
 
     let out = synthesize(&g, &stem, &rule);
     assert_eq!(out.len(), 1);
-    // Two segments: "a" (unchanged) and the modified "p" (voi lane now {+}). Plan item 1 / wave-3
-    // fix: a `ModifyFromInput` output node's `char_def` is now cleared to `NO_CHAR_DEF` (was
-    // incorrectly asserted here as staying literally "p" -- that was exactly the bug
-    // `csharp_port_affix_process.rs::simulfix_rules` found end-to-end: a modified segment kept
-    // rendering/matching as its PRE-modification character forever). `pg_shape::Shape::node_cd_set`
-    // now correctly falls back to lane-only unification for this node, matching C#'s own
-    // always-lane-based `CharacterDefinitionTable.GetMatchingStrReps`.
+    // A `ModifyFromInput` output node's `char_def` clears to `NO_CHAR_DEF`, matching C#'s always-lane-based `CharacterDefinitionTable.GetMatchingStrReps` rather than keeping the pre-modification character.
     let s = &out[0].shape;
     assert_eq!(char_defs(s), vec![cd(&g, "char_a"), pg_shape::NO_CHAR_DEF]);
     assert_eq!(
@@ -323,8 +290,7 @@ fn simulfix_analysis_underspecifies_modified_feature() {
 
     let synth = synthesize(&g, &stem, &rule);
     let recovered = analyze(&g, &synth[0], &rule);
-    // The C# inversion is AntiFeatureStruct+Union = S ∪ ¬S = full mask: the target's voi lane is
-    // underspecified on unapply. Assert some analysis has 2 segments with voi fully underspecified.
+    // C#'s inversion (AntiFeatureStruct+Union = S ∪ ¬S) is the full mask, so the target's voi lane is fully underspecified on unapply.
     assert!(
         recovered.iter().any(|w| {
             let s = &w.shape;
@@ -334,12 +300,7 @@ fn simulfix_analysis_underspecifies_modified_feature() {
     );
 }
 
-// =================================================================================================
-// Compounding: CopyFromInput(head) + CopyFromInput(nonHead) — C# CompoundingRuleTests.SimpleRules
-// (CompoundingRuleTests.cs:20, `Rhs = { CopyFromInput("head"), InsertSegments("+"), CopyFromInput
-// ("nonHead") }`, morphs "5 8"/"5 9"). The alpha grammar has no boundary char, so no "+" linker;
-// head "apa" (100) + non-head "ka" (300) → "apaka", morphs [100, 300].
-// =================================================================================================
+// Compounding: CopyFromInput(head)+CopyFromInput(nonHead), mirroring C#'s `CompoundingRuleTests.SimpleRules`. Head "apa" (100) + non-head "ka" (300) → "apaka".
 
 fn compound_rule() -> MorphRuleDef {
     MorphRuleDef::Compounding(CompoundingRuleDef {
@@ -382,9 +343,7 @@ fn compound_rule_with(g: &Grammar) -> MorphRuleDef {
 fn compound_synthesis_joins_head_and_non_head() {
     let g = load_alpha_grammar();
     let mut head = root_word(&g, "apa", 100);
-    // `non_head_unapplied` (not a raw `.push`): pushes AND advances `non_head_app_index` in
-    // lock-step, matching C#'s `Word.NonHeadUnapplied` (Word.cs:477-482) -- required because
-    // `Word::current_non_head()` reads by that index rather than `.last()`.
+    // `non_head_unapplied` pushes AND advances `non_head_app_index` in lock-step, matching C#'s `Word.NonHeadUnapplied` -- required since `Word::current_non_head()` reads by that index, not `.last()`.
     head.non_head_unapplied(root_word(&g, "ka", 300));
     let rule = compound_rule_with(&g);
 
@@ -405,14 +364,7 @@ fn compound_synthesis_joins_head_and_non_head() {
         out[0].morpheme_sequence(),
         vec![MorphemeId(100), MorphemeId(300)]
     );
-    // The current non-head's material was consumed into the compound's `shape`/`morphs`, but
-    // `non_heads` itself is NOT cleared: C#'s `SynthesisCompoundingRule` never
-    // removes an entry from `_nonHeadApps` (only `_nonHeadAppIndex` moves, via the confirmation
-    // step in `stratum.rs`'s `guided_synth`, not exercised by this raw `morph::synthesize` call) --
-    // the non-head stays as permanent history, which is exactly what lets `Word::dedup_key()`
-    // distinguish two compounds built from surface-homophone but lexically distinct non-heads
-    // (see `pg-parse/tests/csharp_port_compounding.rs`'s
-    // `simple_rules_1_homophone_disjunction_finding`).
+    // `non_heads` is never cleared, matching C#'s `SynthesisCompoundingRule` (only the app index moves): the non-head stays as permanent history, which lets `Word::dedup_key()` distinguish surface-homophone compounds with distinct non-heads.
     assert_eq!(out[0].non_heads.len(), 1);
     assert_eq!(
         char_defs(&out[0].non_heads[0].shape),
@@ -445,23 +397,13 @@ fn compound_analysis_splits_into_head_and_non_head() {
     );
 }
 
-// =================================================================================================
-// Tier-2 #10 dedup scope: per-allomorph / per-subrule, NOT shared across the whole rule
-// (HermitCrabExtensions.cs:180-207 `Duplicates`/`RemoveDuplicates`; AnalysisAffixProcessRule.cs:58
-// `_rules[i].Apply(input).RemoveDuplicates()`; AnalysisCompoundingRule.cs:56-58 `srOutput`, both
-// reset fresh for each `i`).
-// =================================================================================================
+// Dedup scope is per-allomorph / per-subrule, never shared across the whole rule, mirroring C#'s `RemoveDuplicates()` reset fresh for each rule index.
 
 #[test]
 fn ana_affix_dedup_is_scoped_per_allomorph_not_shared_across_the_rule() {
     let g = load_alpha_grammar();
     let stem = root_word(&g, "apa", 100);
-    // Two allomorphs with the identical "copy everything" pattern: each, run independently
-    // against the same word, produces exactly one (identical-shaped) analysis candidate. Before
-    // the Tier-2 #10 fix, `ana_affix` shared a single dedup set across every allomorph of the
-    // rule, so allomorph 201's candidate would spuriously be suppressed as a "duplicate" of
-    // allomorph 200's — even though C# resets the dedup set per-allomorph
-    // (`_rules[i].Apply(input).RemoveDuplicates()`, a fresh `RemoveDuplicates()` call each `i`).
+    // Two allomorphs with the identical "copy everything" pattern must each independently produce their own analysis candidate, not have one suppressed as a spurious duplicate of the other's.
     let rule = affix_rule(
         200,
         vec![
@@ -487,17 +429,9 @@ fn ana_affix_dedup_is_scoped_per_allomorph_not_shared_across_the_rule() {
 
 #[test]
 fn ana_affix_dedup_distinguishes_segment_identity_on_zero_feature_grammars() {
-    // The Sena shape: zero phonological features, so EVERY segment has identical lanes (just the
-    // always-appended Type lane) and identity lives only in the char-def/StrRep dimension — which
-    // C#'s `Duplicates` DOES compare (`NodeComparer` projects the node's whole
-    // `Annotation.FeatureStruct`, and on a zero-feature grammar that FS is Type + StrRep,
-    // CharacterDefinitionTable.cs:68-76 / XmlLanguageLoader.cs:670-673). A lanes-only comparator
-    // (the original Tier-2 #10 comparator, corrected by this test's commit) treated ANY two
-    // same-length candidates as duplicates and longer-wins-collapsed genuinely distinct analyses.
+    // The Sena shape has zero phonological features, so every segment has identical lanes and identity lives only in the char-def/StrRep dimension, which C#'s `Duplicates` does compare; a lanes-only dedup comparator would wrongly collapse distinct analyses here.
     let g = common::load_zero_feat_grammar();
-    // Infixing rule: LHS [all+, all+], RHS [Copy(0), InsertSegments("x"), Copy(1)]. Un-applying
-    // it to "axbxc" un-inserts either "x", yielding two SAME-LENGTH, DIFFERENT-CONTENT candidates
-    // from the SAME allomorph: "abxc" (first x consumed) and "axbc" (second x consumed).
+    // Infixing rule un-applied to "axbxc" un-inserts either "x", yielding two same-length, different-content candidates from the same allomorph: "abxc" and "axbc".
     let stem = root_word(&g, "axbxc", 100);
     let rule = affix_rule(
         200,
@@ -557,11 +491,7 @@ fn compound_subrule_any_plus_any(g: &Grammar) -> CompoundingSubruleDef {
 fn ana_compound_dedup_is_scoped_per_subrule_not_shared_across_the_rule() {
     let g = load_alpha_grammar();
     let input = root_word(&g, "apaka", 100);
-    // Two subrules with the identical head+/non-head+ pattern, so each independently re-derives
-    // the same set of head|non-head splits (including "apa"|"ka"). Before the Tier-2 #10 fix,
-    // `ana_compound` shared a single dedup set across every subrule of the rule, so subrule 1's
-    // "apa"|"ka" split would spuriously be suppressed as a duplicate of subrule 0's — even though
-    // C# resets `srOutput` fresh for each subrule index `i` (AnalysisCompoundingRule.cs:56-58).
+    // Two subrules with the identical head+/non-head+ pattern must each independently re-derive the "apa"|"ka" split, not have one suppressed as a spurious duplicate of the other's.
     let mut rule = compound_rule();
     if let MorphRuleDef::Compounding(def) = &mut rule {
         def.subrules = vec![
@@ -585,9 +515,7 @@ fn ana_compound_dedup_is_scoped_per_subrule_not_shared_across_the_rule() {
     );
 }
 
-// =================================================================================================
-// Part 2 — Sena structural coverage.
-// =================================================================================================
+// Sena structural coverage.
 
 fn sena_path() -> String {
     format!(
@@ -653,15 +581,13 @@ fn sena_affix_and_compounding_rules_compile_and_run_without_panic() {
                         parts_compiled += 1;
                     }
                 }
-                // Synthesis needs a non-head; analysis does not. `non_head_unapplied` (not a raw
-                // `.push`) keeps `non_head_app_index` in lock-step -- see the sibling fix above.
+                // Synthesis needs a non-head; analysis does not. `non_head_unapplied` keeps `non_head_app_index` in lock-step.
                 let mut with_nh = probe.clone();
                 with_nh.non_head_unapplied(probe.clone());
                 let _ = synthesize(&g, &with_nh, rule);
                 let _ = analyze(&g, &probe, rule);
             }
-            // Sena has zero RealizationalRule occurrences (W5's realizational cluster is exercised
-            // by rust/conformance/realizational/* instead); nothing to census here.
+            // Sena has zero RealizationalRule occurrences; nothing to census here.
             MorphRuleDef::Realizational(_) => {}
         }
     }

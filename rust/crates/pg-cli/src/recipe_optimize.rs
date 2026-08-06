@@ -33,18 +33,11 @@ pub struct RecipeOptimizeArgs {
     pub out_dir: String,
     pub seed: u64,
     pub budget: Budget,
-    /// `--oracle-step-cap`: overrides `RuntimeBudget::oracle_step_cap`. `None` (the flag omitted)
-    /// leaves `recipe_runtime`'s own default (`DEFAULT_ORACLE_STEP_CAP`) in force — NOT unbounded;
-    /// see that constant's doc for why an unbounded oracle call is the defect this whole mechanism
-    /// exists to prevent.
+    /// `--oracle-step-cap`; `None` leaves `recipe_runtime`'s own default in force, never unbounded.
     pub oracle_step_cap: Option<usize>,
-    /// `--oracle-liveness-net-ms` (legacy alias `--oracle-word-timeout-ms`): overrides
-    /// `RuntimeBudget::oracle_liveness_net`. Same "`None` = use the default, not unbounded"
-    /// convention as `oracle_step_cap` above. This is a LIVENESS NET, not a classifier: tripping it
-    /// aborts the run rather than excluding the word it tripped on.
+    /// `--oracle-liveness-net-ms` (legacy alias `--oracle-word-timeout-ms`); tripping it aborts the run rather than excluding the word.
     pub oracle_liveness_net: Option<Duration>,
-    /// `--oracle-memory-ceiling-bytes`: overrides `RuntimeBudget::oracle_memory_ceiling`. Same
-    /// `None` convention. Also never a classifier -- exceeding it aborts the run.
+    /// `--oracle-memory-ceiling-bytes`; exceeding it aborts the run, never classifies a word.
     pub oracle_memory_ceiling: Option<u64>,
     pub search_all_families: bool,
 }
@@ -132,10 +125,7 @@ pub enum RecipeOptimizeError {
     Io(String),
     Runtime(String),
     Timeout(String),
-    /// The oracle's liveness net or declared memory ceiling tripped, so the requested corpus's
-    /// ELIGIBILITY could not be determined. Deliberately its own variant and not `Runtime`: the
-    /// distinction a reader needs is between "a candidate failed" and "we never established which
-    /// words were in scope", and only the second one invalidates the whole run's evidence.
+    /// The oracle's liveness net or memory ceiling tripped before corpus eligibility could be determined; distinct from `Runtime` since only this invalidates the whole run's evidence.
     OraclePreparation(String),
 }
 impl std::fmt::Display for RecipeOptimizeError {
@@ -190,19 +180,12 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
             "elapsed-ns" => r.budget.elapsed = n,
             "build-ns" => r.budget.build = n,
             "memory-bytes" => r.budget.memory = n,
-            // No `--confirmation-ns` alias: `Budget::confirmation` is a count of full-HC confirmation
-            // calls, not nanoseconds, and every other `*-ns` flag on this command is a real time
-            // budget. An `-ns` spelling would invite callers to pass a nanosecond figure and silently
-            // get an astronomically large call allowance.
+            // No `--confirmation-ns` alias: `Budget::confirmation` counts full-HC confirmation calls, not nanoseconds, unlike every other `*-ns` flag here.
             "confirmation-work" => r.budget.confirmation = n,
             "reserve-ns" => r.budget.reserve = n,
-            // `RuntimeBudget`'s own doc explains why `None` here means "use the default", not
-            // "unbounded" -- these two flags are the only way to override that default from the
-            // CLI, mirroring `pangloss batch --step-cap`/`--word-timeout-ms`.
+            // `None` here means "use `RuntimeBudget`'s default", never "unbounded".
             "oracle-step-cap" => r.oracle_step_cap = Some(n as usize),
-            // Both spellings accepted: the flag was named for a per-word TIMEOUT back when a
-            // timeout could exclude a word. It cannot any more, so the new name says what it is,
-            // and the old one keeps existing scripts working rather than failing them obscurely.
+            // Legacy alias: this flag no longer excludes a word on timeout, only aborts the run.
             "oracle-liveness-net-ms" | "oracle-word-timeout-ms" => {
                 r.oracle_liveness_net = Some(Duration::from_millis(n))
             }
@@ -228,13 +211,7 @@ struct Evaluator<'a> {
     grammar: &'a pg_grammar::model::Grammar,
     words: &'a [String],
     plans: BTreeMap<String, LoweredCandidate>,
-    /// What actually compiled each candidate, keyed by candidate id, recorded as it is evaluated.
-    ///
-    /// Necessary because a candidate's DECLARED strategy is not always what ran: a marker-carrying
-    /// baseline is evaluated evidence-first and falls back to the tuned emitter only if composing its
-    /// plan fails, so it can be measured on a network its declaration does not name. Reporting the
-    /// declaration would make `winner_strategy` wrong in precisely the case that field exists to
-    /// clarify.
+    /// What actually compiled each candidate, keyed by id: a marker-carrying baseline can fall back to the tuned emitter, so the declared strategy is not always what ran.
     realized: BTreeMap<String, &'static str>,
     capability: pg_foma::capability::PredicateRegistry,
     oracle_step_cap: Option<usize>,
@@ -293,11 +270,7 @@ impl CandidateEvaluator for Evaluator<'_> {
                 usage: BudgetUsage::default(),
             };
         }
-        // No baseline argument. This evaluator is called once per candidate with a
-        // single-element slice, so a POSITIONAL test would answer `true` for every candidate, and a
-        // `&[c.baseline]` slice would be a second copy of a fact the candidate already
-        // owns -- correct only for as long as a call site keeps passing the matching element. The
-        // role travels on the `LoweredCandidate` in `self.plans` instead, set once at materialization.
+        // No baseline argument: the role travels on the `LoweredCandidate` in `self.plans`, set once at materialization, rather than a caller-maintained parallel slice.
         let e = evaluate_plans_with_cache(
             self.grammar,
             std::slice::from_ref(plan),
@@ -338,9 +311,7 @@ fn hash_inputs(grammar: &str, words: &str) -> Result<String, RecipeOptimizeError
     Ok(format!("{:x}", h.finalize()))
 }
 
-/// `BranchAndBound` has no production incumbent today: each `CandidateState` is constructed with
-/// `exact_objective: None`, so no candidate can meet the only condition that increments `pruned`.
-/// Keep the inert field honest at the report boundary until a real admissible bound is wired.
+/// `BranchAndBound` has no production incumbent today: every `CandidateState` sets `exact_objective: None`, so `pruned` can never increment; keeps the inert field honest at the report boundary.
 fn assert_pruned_is_structurally_zero(pruned: u64) {
     assert_eq!(
         pruned, 0,
@@ -386,16 +357,9 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         },
     )
     .map_err(|fault| RecipeOptimizeError::OraclePreparation(fault.to_string()))?;
-    // Derived here, immediately after preparation and BEFORE any candidate exists, from the raw
-    // `words` slice. Both properties are load-bearing: it is in band (nothing outside this process
-    // chose which occurrences count) and it is candidate-independent by construction (no candidate
-    // has been materialized, let alone evaluated, at this point in the run).
+    // Derived immediately after preparation, before any candidate exists, so it is in-band and candidate-independent by construction.
     let corpus_evidence = run_cache.corpus_evidence(&words);
-    // ONE derivation for this whole run.
-    // It feeds the baseline enumeration, `recipe_space::characterize`, both instance-selection
-    // calls, and -- the one that actually matters for cost -- the per-instance applicability
-    // re-check inside the materialization loop below, avoiding a re-walk of the grammar once per
-    // candidate instance.
+    // One derivation for this whole run, reused by every enumeration/materialization call below to avoid re-walking the grammar per candidate.
     let semantics = GrammarSemantics::derive(&grammar);
     let alphabet = pg_foma::replace::SegAlphabet::new(&grammar.char_tables[0]);
     let prules = semantics.prules_in_order();
@@ -417,12 +381,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     )
     .map_err(|e| RecipeOptimizeError::Runtime(e.to_string()))?;
     let policy = AdaptivePolicy::default();
-    // Both denominators, because the pruning waterfall's first bucket is "the registry offered this
-    // instance and the grammar rejected it". `PruningWaterfall`'s own doc calls every field "a
-    // disjoint bucket of `generated`", so `generated` has to count what the registry OFFERED, not
-    // just what survived applicability -- otherwise `PruningWaterfall::inapplicable` would stay a
-    // permanent, unfalsifiable `0` (the same false-zero that doc criticises for `N_syntactic`, and
-    // `reconciles()` cannot catch it because both sides drop the same term).
+    // Both denominators: `generated` must count what the registry OFFERED, not just what survived applicability, or `PruningWaterfall::inapplicable` stays a permanent, unfalsifiable zero.
     let facts = &characterization.facts;
     let compositional = facts.ordering_dependencies == 0
         && facts.gated_subrules == 0
@@ -455,10 +414,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let mut capability_rejected = 0u64;
     let mut materialization_rejects = 0u64;
     let mut duplicates = 0u64;
-    // Keyed on (plan root, strategy label), not the root alone: a whole-grammar strategy carries the
-    // BASELINE plan because its compiler derives its own topology, so a root-only key would call it a
-    // duplicate of the baseline and drop the one candidate whose network can differ for a reason
-    // minimization cannot erase. Mirrors `Registry::materialize_distinct`'s own key.
+    // Keyed on (plan root, strategy label), not the root alone: a whole-grammar strategy carries the baseline plan, so a root-only key would wrongly call it a duplicate.
     let mut roots = std::collections::BTreeSet::<(pg_foma::plan::NodeId, &'static str)>::new();
     let baseline_root = baseline.root().ok_or_else(|| {
         RecipeOptimizeError::Runtime("enumerate_default produced a rootless Plan".into())
@@ -474,10 +430,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         family: FAMILY_ORDERED_MORPHOPHONOLOGY.into(),
         signature: format!("{FAMILY_ORDERED_MORPHOPHONOLOGY}|topology=baseline"),
         lower_bound: baseline.len() as u64,
-        // Always `None`: no cheap/pilot evaluation runs before search here, so this candidate
-        // (like every other one built below) can never populate `BranchAndBound`'s incumbent.
-        // This is why `SearchAccounting.pruned` is structurally zero in production -- see that
-        // field's doc in `pg_foma::recipe_report`.
+        // Always `None`: no pilot evaluation runs before search, so this can never populate `BranchAndBound`'s incumbent.
         exact_objective: None,
         baseline: true,
     });
@@ -487,9 +440,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             label: "baseline",
             plan: baseline.clone(),
             adapter: pg_foma::lowering_adapter::LoweringAdapter::ControllablePlanCompose,
-            // The one candidate in this run that IS the grammar's default compilation. Stated on the
-            // candidate itself so the evaluator can never infer it from position or from a
-            // caller-maintained parallel slice.
+            // The one candidate that IS the grammar's default compilation, stated here so the evaluator never infers it from position.
             role: CandidateRole::Baseline,
         },
     );
@@ -518,9 +469,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         let root = plan.plan.root().ok_or_else(|| {
             RecipeOptimizeError::Runtime("materialized recipe has no root".into())
         })?;
-        // A plan-composed candidate keeps the bare root as its id (existing reports and gates pin
-        // that). A whole-grammar strategy must NOT: it reuses the baseline plan, so a bare-root id
-        // would collide with the baseline's own entry in `plans`/`states` and overwrite it.
+        // A plan-composed candidate keeps the bare root as its id; a whole-grammar strategy must not, since it reuses the baseline plan and a bare-root id would collide with it.
         let id = if !plan.adapter.interprets_plan() {
             format!("{root}@{}", plan.strategy().label())
         } else {
@@ -544,8 +493,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             family: instance.family_id,
             signature: recipe_id,
             lower_bound: lower,
-            // Same structural note as the baseline candidate above: this call site never
-            // populates `exact_objective` either, so `SearchAccounting.pruned` stays zero.
+            // Same structural note as the baseline candidate: never populated, so `pruned` stays zero.
             exact_objective: None,
             baseline: false,
         });
@@ -571,13 +519,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         let decision = compose_envelope(&grammar, &plan.plan, &capability);
         let capability_ns = elapsed_ns(cap_started).max(1);
         if matches!(decision, CompileDecision::Refuse(_)) {
-            // Neither stage RAN -- the capability envelope refused the candidate before any network
-            // was built -- so `build`/`evaluation` must stay `None` rather than a literal `0`: a
-            // literal zero would fold into `summarize_pilot`'s build/evaluation percentiles and pull
-            // a pilot sample with refusals toward a build cost for a stage that never executed.
-            // Those percentiles feed `PilotCosts` and therefore the choice of SEARCH STRATEGY, so a
-            // fake zero would not be merely cosmetic. `None` says "not measured", which is what
-            // happened.
+            // Neither stage ran, so `build`/`evaluation` must stay `None`, not a literal `0`: a fake zero would pull `summarize_pilot`'s percentiles (and so `PilotCosts`'s search-strategy choice) toward a cost for a stage that never executed.
             measurements.push(StageMeasurement {
                 materialize: materialization_times[&state.id],
                 capability: capability_ns,
@@ -818,12 +760,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         strategy: outcome.search.strategy,
         quality: outcome.search.quality,
         counts,
-        // IN-BAND DERIVATION. This ledger is derived by the run itself, from `words` -- the RAW
-        // lines of the caller's corpus file, before any eligibility reasoning -- against the SAME
-        // prepared oracle results that decided which occurrences were comparable. The optimizer
-        // never accepts a pre-filtered eligible list and never reports "zero exclusions" without
-        // naming the requested corpus it derived that zero from; `RecipeOptimizationReport::
-        // validate` refuses a certifying report that omits this.
+        // In-band: derived by the run itself from the raw corpus lines, never a pre-filtered eligible list.
         corpus: Some(corpus_evidence),
         pilot,
         pruning: PruningWaterfall {
@@ -855,11 +792,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         },
         termination: outcome.search.termination,
         baseline: baseline_id,
-        // Resolved from the winning candidate's own plan entry, not re-derived from its id: the id's
-        // `@strategy` suffix is a display convenience and must not become the source of truth for
-        // what compiled the winner.
-        // The REALIZED strategy, recorded during evaluation -- not the candidate's declaration. See
-        // `Evaluator::realized` for why those differ and why the declaration would be wrong here.
+        // The realized strategy recorded during evaluation, not the id's `@strategy` display suffix or the candidate's declaration; see `Evaluator::realized`.
         winner_strategy: winner
             .as_ref()
             .and_then(|id| evaluator.realized.get(id))
@@ -867,11 +800,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         winner,
         frontier: outcome.frontier,
         candidates: evaluated,
-        // `report.json` names these paths rather than inlining the FULL text of
-        // `baseline.plan.json`, `baseline.plan.mmd`, `winner.plan.json` and `winner.plan.mmd`,
-        // which this function has already written to `out` above. Two copies of one artifact in
-        // one run directory can disagree, and nothing could say which was authoritative; the files
-        // are.
+        // `report.json` names these paths rather than inlining the plan files' full text, so two copies of one artifact can never disagree about which is authoritative.
         baseline_plan_json_path: Some("baseline.plan.json".into()),
         baseline_plan_mermaid_path: Some("baseline.plan.mmd".into()),
         winner_plan_json_path: winner_json_path,

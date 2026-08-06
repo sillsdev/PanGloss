@@ -253,10 +253,7 @@ impl RecipeOptimizationReport {
         {
             return Err("selectable candidate is missing a score");
         }
-        // In-band derivation. A confirmed candidate is a claim about a specific requested corpus
-        // under specific oracle bounds; without the ledger the artifact cannot say which corpus it
-        // saw, cannot be checked against the raw input, and cannot be compared with a run at a
-        // different cap.
+        // A confirmed candidate is a claim about a specific requested corpus under specific oracle bounds; without the ledger the artifact cannot say which corpus it saw or be compared against a run at a different cap.
         let certifies = self
             .candidates
             .iter()
@@ -624,8 +621,7 @@ mod tests {
         assert_eq!(report.validate(), Err("frontier ids are not unique"));
     }
 
-    /// A complete, reconciling, zero-exclusion ledger over a one-word corpus. Every sample report
-    /// carries one, because a certifying report without one is now invalid by construction.
+    /// A complete, reconciling, zero-exclusion ledger over a one-word corpus; every sample report carries one, since a certifying report without one is invalid by construction.
     fn ledger() -> CorpusCompletenessEvidence {
         CorpusCompletenessEvidence::from_selection(
             &["w".to_string()],
@@ -639,10 +635,7 @@ mod tests {
         )
     }
 
-    /// REQUIREMENT (d), at the artifact boundary: a report that names a confirmed candidate but
-    /// cannot say which requested corpus that confirmation covers is refused. Before this rule a
-    /// hand-filtered word list fed in from outside produced an artifact indistinguishable from an
-    /// honest full-corpus run.
+    /// A report that names a confirmed candidate but cannot say which requested corpus that confirmation covers is refused, at the artifact boundary.
     #[test]
     fn a_certifying_report_must_carry_its_corpus_eligibility_ledger() {
         let mut report = sample();
@@ -661,8 +654,7 @@ mod tests {
         );
     }
 
-    /// A ledger that does not account for every requested occurrence is an internally inconsistent
-    /// artifact, not a record of exclusions, and is refused whether or not anything certified.
+    /// A ledger that does not account for every requested occurrence is an internally inconsistent artifact, not a record of exclusions, and is refused regardless of certification.
     #[test]
     fn a_ledger_that_does_not_reconcile_is_refused() {
         let mut report = sample();

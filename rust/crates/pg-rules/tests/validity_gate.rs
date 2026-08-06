@@ -1,19 +1,4 @@
-//! Regression gate for plan §13.1 Tier-1 #5 (`Allomorph.IsWordValid`'s previously-unenforced
-//! sub-gates): environments, bound roots, and per-allomorph required syntactic FS.
-//!
-//! Two layers, mirroring this project's established style (`type_lane_gate.rs` drives the raw
-//! `PatternBridge`→`pg_fst` primitive; `cd_set_gate.rs`/`morph_gate.rs` drive real loaded grammars
-//! end-to-end):
-//! - `environments_ok` tests drive `pg_rules::validity::environments_ok` directly against a
-//!   hand-built `Shape`/`EnvironmentDef` (the probe grammar, phonology only) — the anchored
-//!   left/right matching primitive this fix reuses verbatim from `rewrite.rs`.
-//! - The XML-loaded tests build tiny real grammars (`pg_grammar::load`) with a lexicon and a
-//!   morphological rule, so `Grammar::allomorph_owners`/`entries`/`mrules` are populated the same
-//!   way a real grammar's are, then hand-build `Word`s (real `AllomorphId`/`MorphemeId` values
-//!   looked up from the loaded grammar, not arbitrary literals — the load-bearing correction over
-//!   `morph_gate.rs`'s style, which never registers its hand-built rules into a `Grammar`) and call
-//!   `pg_rules::validity::allomorphs_valid` directly, the same function `pg-parse::Morpher::
-//!   is_word_valid` calls in production.
+//! Regression gate for `Allomorph.IsWordValid`'s sub-gates: environments, bound roots, and per-allomorph required syntactic FS.
 
 use pg_grammar::model::{AllomorphId, EnvironmentDef, Grammar, MorphRuleDef, Pattern, PatternNode};
 use pg_rules::validity::{allomorphs_valid, environments_ok};
@@ -24,9 +9,7 @@ use pg_shape::{NodeKind, Shape, ShapeBuilder};
 mod common;
 use common::{ctx, load_probe_grammar, nat_class};
 
-// =================================================================================================
 // Part 1 -- `environments_ok`: the anchored left/right matching primitive, hand-built inputs.
-// =================================================================================================
 
 fn probe_shape(g: &Grammar, text: &str) -> Shape {
     let t = &g.char_tables[0];
@@ -66,12 +49,7 @@ fn env(require: bool, left: Option<Pattern>, right: Option<Pattern>) -> Environm
     }
 }
 
-/// A required environment with both sides declared must anchor each side to the *correct* edge of
-/// the morph span -- the advisor-flagged risk of a left/right mix-up. Probe word "dat" (d-a-t):
-/// morph = the middle "a" (interior index 1); env = "preceded by d (nc_d)" + "followed by t (nc_t)".
-/// Only the true `d _ t` orientation satisfies both; every other permutation fails at least one
-/// side, and a left/right swap in the caller would make even the true-positive case fail (nc_d and
-/// nc_t are disjoint singleton classes, not symmetric).
+/// A required environment with both sides declared must anchor each side to the correct edge of the morph span; every permutation but the true `d _ t` orientation on "dat" fails at least one side.
 #[test]
 fn environments_ok_anchors_left_and_right_to_the_correct_sides() {
     let g = load_probe_grammar();
@@ -107,9 +85,7 @@ fn environments_ok_anchors_left_and_right_to_the_correct_sides() {
     );
 }
 
-/// A left-only environment anchored at the word start: on "at" the target morph (index 0, the "a")
-/// has no left context at all, so a real (non-anchor) left pattern must fail to match -- there is
-/// nothing to satisfy it. On "dat" targeting index 1, the left context ("d") does satisfy it.
+/// A left-only environment anchored at the word start: on "at" the target morph has no left context at all, so a real left pattern must fail; on "dat" the left context ("d") satisfies it.
 #[test]
 fn environments_ok_left_only_requires_real_preceding_context() {
     let g = load_probe_grammar();
@@ -125,9 +101,7 @@ fn environments_ok_left_only_requires_real_preceding_context() {
     assert!(environments_ok(&g, &envs, &dat, 1, 1), "preceded by d");
 }
 
-/// `ConstraintType.Exclude` (`EnvironmentDef.require == false`) inverts the match: the environment
-/// is satisfied when the pattern does *not* hold, matching `AllomorphEnvironment.IsWordValid`
-/// (`_type == Exclude ? !IsMatch : IsMatch`, Allomorph.cs:83-86 / AllomorphEnvironment.cs).
+/// `EnvironmentDef.require == false` inverts the match: the environment is satisfied when the pattern does *not* hold.
 #[test]
 fn environments_ok_exclude_type_inverts_the_match() {
     let g = load_probe_grammar();
@@ -155,15 +129,7 @@ fn environments_ok_vacuously_true_when_no_environments_declared() {
     assert!(environments_ok(&g, &[], &dat, 1, 1));
 }
 
-/// W3.4 / history row `2469021f` ("Add unit test for multiple environments"): a morph carrying
-/// TWO environment entries validates when **at least one** is satisfied — the commit flipped C#'s
-/// `Allomorph.IsWordValid` environment clause from conjunctive (`Where(!valid).Any()` ⇒ all must
-/// hold) to disjunctive (`!Environments.Any(valid)` ⇒ one suffices). Rust's `environments_ok` was
-/// written on the post-fix OR side from day one, but until this test every `environments_ok_*`
-/// case used a single-entry list (the left+right sides *within* one entry — a different, AND-ed
-/// axis — are covered by `environments_ok_anchors_left_and_right_to_the_correct_sides`), so the
-/// OR-across-entries semantics was genuinely unpinned: a regression to AND would have passed the
-/// whole pre-existing suite.
+/// A morph carrying two environment entries validates when at least one is satisfied (OR across entries, not AND).
 #[test]
 fn environments_ok_two_entries_use_or_semantics() {
     let g = load_probe_grammar();
@@ -173,24 +139,21 @@ fn environments_ok_two_entries_use_or_semantics() {
         env(true, Some(single(&g, "nc_t")), None),
     ];
 
-    // "dat", morph = the middle "a": preceded by d — entry 1 holds, entry 2 fails. Exactly one
-    // satisfied ⇒ must PASS (an AND regression fails here).
+    // "dat": entry 1 holds, entry 2 fails; exactly one satisfied must still pass (an AND regression fails here).
     let dat = probe_shape(&g, "dat");
     assert!(
         environments_ok(&g, &envs, &dat, 1, 1),
         "one of two environments holds -> valid"
     );
 
-    // "tad": preceded by t — exactly the OTHER entry holds ⇒ must also pass (pins that the OR is
-    // over the whole list, not a lucky first-entry short-circuit).
+    // "tad": exactly the other entry holds, pinning that the OR is over the whole list, not a first-entry short-circuit.
     let tad = probe_shape(&g, "tad");
     assert!(
         environments_ok(&g, &envs, &tad, 1, 1),
         "the other of two environments holds -> valid"
     );
 
-    // "aat": preceded by a (cons−, featurally disjoint from both d and t — n would NOT do here,
-    // it is featurally identical to d in the probe grammar) — neither entry holds ⇒ must FAIL.
+    // "aat": featurally disjoint from both d and t, so neither entry holds.
     let aat = probe_shape(&g, "aat");
     assert!(
         !environments_ok(&g, &envs, &aat, 1, 1),
@@ -198,15 +161,9 @@ fn environments_ok_two_entries_use_or_semantics() {
     );
 }
 
-// =================================================================================================
 // Part 2 -- `allomorphs_valid`: bound roots + required syntactic FS, over a real loaded grammar.
-// =================================================================================================
 
-/// A grammar with three lexical entries -- a plain `sg` root ("cat"), a plain `pl` root ("dog"), and
-/// a **bound** `pl` root ("bat", `isBound="true"`) -- and one suffix rule (`-x`) whose allomorph
-/// declares `RequiredHeadFeatures` `num=pl`. The `num` mismatch (cat=sg) and the bound-root
-/// constraint are independent, orthogonal knobs: giving "bat" `num=pl` too isolates the bound-root
-/// check from the required-FS check in the tests that follow.
+/// Three lexical entries -- plain `sg` root "cat", plain `pl` root "dog", bound `pl` root "bat" -- and a suffix rule requiring `num=pl`, isolating the bound-root check from the required-FS check.
 const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -320,8 +277,7 @@ fn suffix_allomorph(g: &Grammar) -> (AllomorphId, pg_grammar::model::MorphemeId)
     (def.allomorphs[0].id, def.morpheme)
 }
 
-/// Bare bound root ("bat" alone, no affix): `distinct_count == 1` and `is_bound` -- must be
-/// rejected (`RootAllomorph.CheckAllomorphConstraints`, RootAllomorph.cs:56-63).
+/// Bare bound root ("bat" alone, no affix): must be rejected.
 #[test]
 fn bound_root_alone_is_rejected() {
     let g = load_gate_grammar();
@@ -342,8 +298,7 @@ fn bound_root_alone_is_rejected() {
     );
 }
 
-/// The same bound root combined with the suffix (`distinct_count == 2`) is no longer rejected by
-/// the bound-root gate (the suffix also requires `num=pl`, which "bat"/eBat satisfies).
+/// The same bound root combined with the suffix is no longer rejected by the bound-root gate.
 #[test]
 fn bound_root_with_an_affix_is_not_rejected_by_the_bound_gate() {
     let g = load_gate_grammar();
@@ -364,9 +319,7 @@ fn bound_root_with_an_affix_is_not_rejected_by_the_bound_gate() {
     );
 }
 
-/// `AffixProcessAllomorph.RequiredSyntacticFeatureStruct` is re-checked at final-validity time
-/// against the word's *accumulated* syntactic FS (AffixProcessAllomorph.cs:87-105): the "-x" suffix
-/// requires `num=pl`. "cat" (sg) + "-x" must be rejected; "dog" (pl) + "-x" must pass.
+/// The required syntactic FS is re-checked against the word's accumulated syn FS: "cat" (sg) + "-x" must be rejected, "dog" (pl) + "-x" must pass.
 #[test]
 fn required_syntactic_fs_gates_on_the_words_accumulated_syn_fs() {
     let g = load_gate_grammar();

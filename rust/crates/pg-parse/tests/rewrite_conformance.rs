@@ -1,10 +1,4 @@
-//! Conformance replay for the oracle-verified rewrite-rule fixtures under
-//! `rust/conformance/rewrite/` that have an in-tree replay (same convention as
-//! `metathesis_conformance.rs`): load each fixture's `grammar.xml` exactly as authored (no
-//! `csharp_port_common` scaffolding), parse every word in `words.txt`, and check
-//! `Morpher::parse_word(...).signature()` against the literal signature transcribed from that
-//! fixture's oracle-generated `expected.tsv`. Each fixture's README documents the
-//! oracle-generating command and the derivation of every expected value.
+//! Conformance replay for the oracle-verified rewrite-rule fixtures under `rust/conformance/rewrite/`: load each fixture's `grammar.xml` as authored, parse every word, and check `Morpher::parse_word(...).signature()` against that fixture's oracle-generated `expected.tsv`.
 
 use std::path::{Path, PathBuf};
 
@@ -23,15 +17,12 @@ fn load_fixture(name: &str) -> pg_grammar::model::Grammar {
     load(&xml).unwrap_or_else(|e| panic!("{name}: grammar failed to load: {e}"))
 }
 
-/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
-/// runs (CI's release sweep included) must not panic on the missing directory.
+/// Self-skip guard: `rust/conformance/` isn't a submodule yet, so `--include-ignored` runs must not panic on the missing directory.
 fn have_fixture(name: &str) -> bool {
     fixture_path(name, "grammar.xml").exists()
 }
 
-/// `rust/conformance/rewrite/word-initial-epenthesis/expected.tsv` — the P1 fixture (bare-root
-/// word-initial epenthesis: `syn_epenthesis`'s site-0 gap + `compile_lane_fst`'s multi-node
-/// RtL analysis-target ordering; see the fixture README for the full dual-bug derivation).
+/// `rust/conformance/rewrite/word-initial-epenthesis/expected.tsv`: bare-root word-initial epenthesis, pinning `syn_epenthesis`'s site-0 gap plus `compile_lane_fst`'s multi-node RtL analysis-target ordering.
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn word_initial_epenthesis_matches_oracle() {
@@ -56,13 +47,7 @@ fn word_initial_epenthesis_matches_oracle() {
     }
 }
 
-/// `rust/conformance/rewrite/deletion-reinsertion/expected.tsv` — the P2 fixture (multi-site
-/// deletion unapplication: ONE analysis pass inserts the deleted segment at ALL matching sites as
-/// OPTIONAL nodes, and root lookup's consume-or-skip branching over those optional nodes reaches
-/// every per-subset lexical entry; `Morpher.DeletionReapplications` defaults to 0, so the
-/// insert-after-an-insert entry `buiibuii` can never be produced from `bubu`). See the fixture
-/// README for the full derivation and `csharp_port_rewrite.rs`'s
-/// `deletion_rules_multi_position_reinsertion` for the C# source anatomy.
+/// `rust/conformance/rewrite/deletion-reinsertion/expected.tsv`: multi-site deletion unapplication, where one analysis pass inserts the deleted segment at every matching site as optional nodes, so root lookup's consume-or-skip branching reaches every per-subset lexical entry.
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn deletion_reinsertion_matches_oracle() {
@@ -88,15 +73,7 @@ fn deletion_reinsertion_matches_oracle() {
     }
 }
 
-/// `rust/conformance/rewrite/multiplesegment-deletion-composition/expected.tsv` — the P6 fixture
-/// (a 2-segment feature-change target composed, in the SAME stratum, with a later-listed
-/// pure-deletion rule that never fires on any word here: C#'s reverse-listed-order analysis
-/// convention still unapplies the deletion rule FIRST, and its legitimate multi-site OPTIONAL
-/// reinsertion interposes an Optional segment between the two real segments of the 2-segment
-/// rule's own target pairs). See the fixture README for the full root-cause derivation
-/// (`pg_rules::rewrite::ana_feature`'s group-capture fix, `compile_lane_fst_grouped`) and
-/// `csharp_port_rewrite.rs`'s `multiple_segment_rules_deletion_composition_finding` for the C#
-/// source anatomy.
+/// `rust/conformance/rewrite/multiplesegment-deletion-composition/expected.tsv`: a 2-segment feature-change target composed in the same stratum with a later-listed pure-deletion rule that never fires, since C#'s reverse-listed-order analysis convention unapplies the deletion rule first regardless.
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn multiplesegment_deletion_composition_matches_oracle() {
@@ -122,16 +99,7 @@ fn multiplesegment_deletion_composition_matches_oracle() {
     }
 }
 
-/// `rust/conformance/rewrite/merge/expected.tsv` — history-matrix row 1 (`812aa48e`/#403/
-/// LT-22480, the C# merge-rule stale-index deletion bug). At fixture-freeze time this fixture's
-/// README recorded a DIVERGENCE ("Rust fails to find the valid parse" for `butbut`). Rust now
-/// MATCHES the oracle on all 3 words, including `butbut`.
-/// The grammar has exactly one lexical entry and zero morphological rules (pure phonology), so a
-/// surface accept has no alternate root/analysis it could be spuriously matching — this is a real
-/// positive demonstration that Rust's analysis-side now reverses the 2-segment-to-1 merge rule
-/// correctly. Root cause of the flip not chased to a single commit, but the
-/// `GetSkippedOptionalNodes` fold (`63b0a89f`) is circumstantially the same family of segment-count
-/// bookkeeping fix and is the leading candidate. See the fixture README for the full history.
+/// `rust/conformance/rewrite/merge/expected.tsv`: Rust now matches the oracle on all 3 words, including a 2-segment-to-1 merge rule reversal on analysis (`butbut`) that once diverged from it.
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn merge_matches_oracle() {
@@ -155,10 +123,7 @@ fn merge_matches_oracle() {
     }
 }
 
-/// `rust/conformance/rewrite/multiplemerge/expected.tsv` — same history-matrix row 1 family
-/// (3-segment-to-2 merge). Now MATCHES the oracle on all 3 words (previously diverged on
-/// `bttbtt` at freeze time). See that test's doc comment and the fixture README for the full
-/// history.
+/// `rust/conformance/rewrite/multiplemerge/expected.tsv`: same merge-rule family (3-segment-to-2), now matching the oracle on all 3 words including the once-divergent `bttbtt`.
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn multiplemerge_matches_oracle() {

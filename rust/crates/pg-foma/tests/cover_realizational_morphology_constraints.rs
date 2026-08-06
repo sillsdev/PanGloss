@@ -1,69 +1,4 @@
-//! Proposer-to-confirm containment for `MorphRuleDef::Realizational` (real_fs head-wrapped
-//! presence-blocking) plus three constraint families that stay confirm-only-by-default:
-//! `<StemName>` region gating, `<Family>`/`Word::CheckBlocking`, and `MorphemeCoOccurrenceRule`
-//! adjacency exclusion.
-//!
-//! ## Why these four, in one grammar
-//! `pg_grammar::model`'s own doc calls `StemName`/`Family`/`RealizationalRule` "the realizational
-//! cluster" — all three are ported together in `pg_rules::validity`/`pg_rules::morph`, and
-//! `MorphemeCoOccurrenceRule` sits in the same `allomorphs_valid_impl` gate `StemName` does.
-//! Exercising all four in one synthetic, delanguaged grammar (invented CVC roots, no
-//! natural-language lexemes, named by construct not language) is cheaper than four separate
-//! fixtures and is exactly the "one grammar, several rows" shape `machine/conformance/languages/
-//! fusional-realizational-morphology` already established for the real conformance suite; this
-//! file's grammar is smaller and single-owner (`pg-foma`'s own test tree, not the
-//! `machine/conformance` submodule), built to isolate JUST these four constructs from that
-//! fixture's `Compounding`/`MorphRuleOrder::Unordered` material (both still
-//! `Disposition::ConfigPredicate` per `capability.rs`, so a containment test that also depended on
-//! THEM would conflate two different constructs' proofs). `morphologicalRuleOrder="linear"`
-//! throughout, deliberately, for the same reason: `Disposition::Proven` today
-//! (`CharacteristicKind::OrderedMorphRuleApplication`), never `Unordered`'s `ConfigPredicate`.
-//!
-//! ## The proposer-overapproximates / confirm-prunes property this file proves
-//! Every construct below is `Disposition::ConfirmOnly` (`capability.rs`'s `RealizationalMorphology`/
-//! `CoOccurrenceConstraint` — stem name and family/blocking have no `CharacteristicKind` of their
-//! own; see this file's own "capability.rs disposition" note below for why). None of the four is a
-//! *local* (single-morph-boundary) constraint the FST could safely admission-filter on without
-//! risking a false negative: `RealizationalRule.IsBlocked` and `StemName`'s required/excluded-match
-//! both depend on the word's ACCUMULATED feature structure built by every rule applied so far;
-//! `Family`/`CheckBlocking` depends on a lexicon-wide search plus a forward resynthesis self-check;
-//! `MorphemeCoOccurrenceRule`'s `adjacency="anywhere"` depends on which OTHER morphemes end up in
-//! the SAME final derivation, an unbounded-window fact no per-transition FST filter can see. Per
-//! ADR 0001 ("Confirm-only by default... the unsafe direction... is closed by default") the
-//! faithful behavior is: the FST proposer emits the plain affix/realizational-rule candidate
-//! regardless of these constraints (over-proposing), and `pg_foma::confirm`/`pg_rules::validity`
-//! prune exactly the ones a real HermitCrab run would reject. Each `*_over_propose_confirm_prune`
-//! test below proves BOTH halves for its construct: `candidates_generated > 0` (the FST really did
-//! propose the shape) and `confirmed == 0` (confirm really did prune it) for the negative row, with
-//! the positive row alongside it proving the SAME rule/allomorph machinery still recalls normally
-//! when the constraint does not fire — using `pg_foma::composite::FomaAnalyzer` (propose UNION peel
-//! → confirm, the real production pipeline) checked against `pg_parse::Morpher` (this codebase's
-//! own full-HC oracle) for EXACT structured-set equality, never mere non-emptiness.
-//!
-//! ## `capability.rs` disposition note
-//! `CharacteristicKind::RealizationalMorphology` and `::CoOccurrenceConstraint` are characterized
-//! unconditionally (`ObservationDetail::None`, no per-configuration split) at `Disposition::
-//! ConfirmOnly` — unlike `Reduplication`/`RightToLeftRewrite`/`Metathesis`/`MultiTable`/
-//! `QuantifierPattern`, which are `Disposition::ConfigPredicate` because a REAL compiled/faithful
-//! FST construction exists for SOME of their shapes (so a predicate is needed to discriminate
-//! Admit-eligible from genuinely-`Refuse`-worthy configurations). No such compiled construction
-//! exists, or is even conceivable, for realizational-feature/stem-name/family/co-occurrence
-//! semantics (this file's own module doc above: all four need history/lexicon-wide state no
-//! per-transition FST filter can see) — there is no shape of ANY of these four constructs for which
-//! a proposer-side admission filter could ever be proven no-false-negative, so there is no
-//! Admit-vs-Refuse split for a `CapabilityPredicate` to discriminate; every observed shape is
-//! `ConfirmOnly`, unconditionally, by construction, not merely by omission. `default_disposition`
-//! already reflects this (`Disposition::ConfirmOnly` needs no registered `CapabilityPredicate` —
-//! only `ConfigPredicate` kinds do, `capability.rs`'s own `undischarged_kinds` doc) —
-//! so what this file adds is not a new predicate but oracle-backed positive AND negative witnesses
-//! proving the `ConfirmOnly` claim is actually true (over-propose, never under-propose) rather than
-//! an unproven assertion, for all four constructs at once. `StemName`/`Family`/`Blocking` have no
-//! `CharacteristicKind` of their own because they are not `model.rs` ENUM variants: `StemName`/
-//! `FamilyDef` are plain structs, and `blockable`/`required_stem_name` are boolean/`Option` fields
-//! on the SAME `MorphRuleDef` rule shapes `Affixation`/`RealizationalMorphology` already
-//! characterize; folding them into a separate `CharacteristicKind` would double-count the same
-//! `ModelLocation::MorphRule` occurrence. This file's tests are the proof that these fields'
-//! `ConfirmOnly` handling is faithful wherever they DO occur.
+//! Proposer-to-confirm containment for `MorphRuleDef::Realizational` (real_fs presence-blocking) plus three confirm-only-by-default constraint families: `<StemName>` region gating, `<Family>`/`Word::CheckBlocking`, and `MorphemeCoOccurrenceRule` adjacency exclusion -- none is a local constraint an FST admission filter could safely apply without risking a false negative, so each test proves the FST over-proposes and confirm prunes to the exact oracle set.
 
 use std::collections::HashSet;
 
@@ -71,32 +6,7 @@ use pg_foma::composite::FomaAnalyzer;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions, WordAnalysis};
 
-/// The synthetic, delanguaged fixture (invented CVC roots: `kib`, `zod`, `vem`, `fom`, `tay`/`toy`
-/// — no natural-language lexemes, named by construct throughout). One `posV` part of speech, one
-/// `linear`-order stratum, no `AffixTemplate` (none of these four constructs needs one — matching
-/// `fusional-realizational-morphology`'s own "RealizationalRule: no AffixTemplate/Slot wrapper
-/// needed at all" precedent), no `PhonologicalFeatureSystem`/`PhonologicalRuleDefinitions` (pure
-/// affixation + one `RealizationalRule`, no phonological rewrite anywhere, so none is needed).
-///
-/// Rule/root pairing per construct (each isolated onto its OWN lexical entry so the four proofs
-/// below never interact):
-///  - **RealizationalRule presence-blocking** (`kib`): `mrTense` (ordinary, "+es", sets tense=pres)
-///    then `rrPast` (`RealizationalRule`, "+id", `RealizationalFeatures` tense=past) — `rrPast`
-///    alone succeeds (`kibid`); applied AFTER `mrTense` it is blocked (`kibesid`, tense already
-///    present) — the exact `ferid`/`feresid` shape `fusional-realizational-morphology`'s own
-///    words.yaml documents, reproduced here as an isolated, single-owner witness.
-///  - **Family/blocking** (`zod`+`vem`, family `famZ`): `zod` is the regular member, `vem` is the
-///    suppletive member with `AssignedHeadFeatures` tense=past fixed. `zod` alone and `zod`+`mrPl`
-///    (num only, never touches tense) are unblocked; `zod`+`mrPast2` (tense=past) collides with
-///    `vem`'s own fixed FS and is blocked (the `ducit`/`tul` shape).
-///  - **StemName region gating** (`tay`/`toy`, one entry, two allomorphs): the default allomorph
-///    `tay` carries no `stemName`; `toy` is restricted to `snPast` (region: tense=past). Bare `tay`
-///    is valid (no region to satisfy OR fail); `tay`+`mrPast2` lands in `snPast`'s exclusive region
-///    and is rejected (`ExcludedStemName`); `toy`+`mrPast2` matches `snPast` and succeeds; bare
-///    `toy` fails (`RequiredStemName`, no tense assigned at all) — the `mun`/`man`/`min` shape.
-///  - **MorphemeCoOccurrenceRule** (`fom`): `mrPl` and `mrPast2` alone are both fine; declaring
-///    `mrPl` EXCLUDES `mrPast2` `adjacency="anywhere"` means using BOTH together (`fomuton`, `linear`
-///    order forces `mrPast2` before `mrPl`) is rejected regardless of adjacency/order.
+/// The synthetic, delanguaged fixture: one lexical entry per construct (`kib` realizational presence-blocking, `zod`+`vem` family blocking, `tay`/`toy` StemName gating, `fom` co-occurrence exclusion) so the four proofs below never interact.
 fn fixture_xml() -> &'static str {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -233,20 +143,14 @@ fn load() -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// `(morpheme_ids, root_morpheme_index)` multiset key — `tests/f4_composite_gate.rs`'s own
-/// `structured_multiset` shape, but as a `HashSet` (this file never needs multiplicity, only set
-/// equality) so a diff prints legibly on failure.
+/// `(morpheme_ids, root_morpheme_index)` set key, as a `HashSet` since this file never needs multiplicity, only set equality.
 fn analysis_set(v: &[WordAnalysis]) -> HashSet<(Vec<u32>, i32)> {
     v.iter()
         .map(|a| (a.morpheme_ids.clone(), a.root_morpheme_index))
         .collect()
 }
 
-/// Runs `word` through both the real propose→confirm composite and the full-HC oracle, and asserts
-/// EXACT structured-set equality between them (never mere containment) — the "propose broadly,
-/// confirm prunes to the exact HermitCrab set" invariant ADR 0001 states for every `ConfirmOnly`
-/// construct, checked positively (both non-empty, same set) or negatively (both empty) depending on
-/// `expect_nonempty`.
+/// Runs `word` through both the real propose-confirm composite and the full-HC oracle, and asserts exact structured-set equality between them, never mere containment.
 fn assert_confirm_matches_oracle(
     analyzer: &mut FomaAnalyzer,
     morpher: &Morpher,
@@ -275,10 +179,6 @@ fn assert_confirm_matches_oracle(
     outcome
 }
 
-// =================================================================================================
-// RealizationalRule presence-blocking (`kib`).
-// =================================================================================================
-
 #[test]
 fn realizational_rule_presence_blocking_over_propose_confirm_prune() {
     let g = load();
@@ -288,19 +188,14 @@ fn realizational_rule_presence_blocking_over_propose_confirm_prune() {
     );
     let morpher = Morpher::new(&g, usize::MAX);
 
-    // Positive: rrPast alone, no prior tense value -> IsBlocked's presence check finds nothing to
-    // collide with.
+    // Positive: rrPast alone, no prior tense value, so IsBlocked's presence check has nothing to collide with.
     let positive = assert_confirm_matches_oracle(&mut analyzer, &morpher, "kibid", true);
     assert!(
         positive.confirmed > 0,
         "precondition: kibid must actually confirm at least one analysis"
     );
 
-    // Negative: mrTense (tense=pres) applied FIRST, then rrPast attempted -- tense is already
-    // present (presence-based, not value-equality), so RealizationalRuleDef::real_fs's IsBlocked
-    // check fires and the rule never applies. The FST proposer does NOT know about real_fs/word
-    // history, so it still proposes this morpheme sequence (over-proposal) -- confirm is the one
-    // that must prune it to zero.
+    // Negative: mrTense applied first makes tense already present, so IsBlocked fires; the FST still over-proposes this sequence, and confirm must prune it to zero.
     let negative = assert_confirm_matches_oracle(&mut analyzer, &morpher, "kibesid", false);
     assert_eq!(
         negative.confirmed, 0,
@@ -314,10 +209,6 @@ fn realizational_rule_presence_blocking_over_propose_confirm_prune() {
     );
 }
 
-// =================================================================================================
-// Family / Word::CheckBlocking (`zod` + `vem`, family `famZ`).
-// =================================================================================================
-
 #[test]
 fn family_blocking_over_propose_confirm_prune() {
     let g = load();
@@ -330,11 +221,7 @@ fn family_blocking_over_propose_confirm_prune() {
     // Positive: zod+PL (num only) never collides with vem's tense-only fixed FS.
     assert_confirm_matches_oracle(&mut analyzer, &morpher, "zodon", true);
 
-    // Negative: zod+PAST2 (tense=past) synthesizes a candidate whose accumulated FS collides with
-    // vem's own lexically-fixed tense=past -- Word::CheckBlocking substitutes vem's own shape in,
-    // which does not match the surface "zodut", so the candidate is discarded. The FST proposer
-    // has no notion of Family/CheckBlocking, so it still proposes zod+PAST2 (over-propose);
-    // confirm's validity/self-check pass is what prunes it.
+    // Negative: zod+PAST2 collides with vem's fixed tense=past via Word::CheckBlocking; the FST still over-proposes it, and confirm's validity/self-check pass prunes it.
     let negative = assert_confirm_matches_oracle(&mut analyzer, &morpher, "zodut", false);
     assert_eq!(
         negative.confirmed, 0,
@@ -347,27 +234,18 @@ fn family_blocking_over_propose_confirm_prune() {
     );
 }
 
-// =================================================================================================
-// StemName region gating (`tay` default / `toy` restricted to `snPast`).
-// =================================================================================================
-
 #[test]
 fn stem_name_gating_over_propose_confirm_prune() {
     let g = load();
     let mut analyzer = FomaAnalyzer::new(&g).expect("fixture must compile");
     let morpher = Morpher::new(&g, usize::MAX);
 
-    // Positive: bare "tay" (default, unrestricted allomorph) -- no tense assigned, so snPast's
-    // region has nothing to exclude it over.
+    // Positive: bare "tay" has no tense assigned, so snPast's region has nothing to exclude it over.
     assert_confirm_matches_oracle(&mut analyzer, &morpher, "tay", true);
-    // Positive: "toy"+PAST2 -- toy is restricted to snPast (tense=past), and PAST2 assigns exactly
-    // that, so the required-match holds.
+    // Positive: "toy"+PAST2 -- toy is restricted to snPast (tense=past), which PAST2 assigns, so the required-match holds.
     assert_confirm_matches_oracle(&mut analyzer, &morpher, "toyut", true);
 
-    // Negative: bare "toy" -- stemName=snPast requires tense=past to already be assigned, but a
-    // bare root has no rule-assigned features at all. RequiredStemName fails. The FST proposer
-    // does not know about StemName gating at all, so it still proposes the bare "toy" root as a
-    // candidate; confirm's stem_name_gates_ok check is what prunes it.
+    // Negative: bare "toy" needs tense=past already assigned (RequiredStemName), which a bare root never has; the FST still over-proposes it, and confirm's stem_name_gates_ok check prunes it.
     let negative_bare = assert_confirm_matches_oracle(&mut analyzer, &morpher, "toy", false);
     assert_eq!(
         negative_bare.confirmed, 0,
@@ -379,10 +257,7 @@ fn stem_name_gating_over_propose_confirm_prune() {
          to have anything to prune"
     );
 
-    // Negative: "tay"(default)+PAST2 -- the default allomorph is EXCLUDED once the word's fs lands
-    // inside snPast's own region (a stemName-restricted sibling allomorph of the SAME entry exists
-    // for that exact region), so this is rejected (ExcludedStemName) even though "tay" alone (no
-    // tense) was fine.
+    // Negative: "tay"(default)+PAST2 lands inside snPast's own region, excluding the default allomorph (ExcludedStemName) even though bare "tay" was fine.
     let negative_excluded = assert_confirm_matches_oracle(&mut analyzer, &morpher, "tayut", false);
     assert_eq!(
         negative_excluded.confirmed, 0,
@@ -395,26 +270,17 @@ fn stem_name_gating_over_propose_confirm_prune() {
     );
 }
 
-// =================================================================================================
-// MorphemeCoOccurrenceRule adjacency exclusion (`fom`).
-// =================================================================================================
-
 #[test]
 fn morpheme_co_occurrence_exclude_anywhere_over_propose_confirm_prune() {
     let g = load();
     let mut analyzer = FomaAnalyzer::new(&g).expect("fixture must compile");
     let morpher = Morpher::new(&g, usize::MAX);
 
-    // Positive: mrPast2 alone, and mrPl alone -- the exclude rule only fires when BOTH co-occur.
+    // Positive: mrPast2 alone, and mrPl alone -- the exclude rule only fires when both co-occur.
     assert_confirm_matches_oracle(&mut analyzer, &morpher, "fomut", true);
     assert_confirm_matches_oracle(&mut analyzer, &morpher, "fomon", true);
 
-    // Negative: mrPast2 then mrPl together (linear order forces this relative order: mrPast2 is
-    // listed before mrPl in the stratum's morphologicalRules) -- MorphemeCoOccurrenceRule excludes
-    // mrPl co-occurring ANYWHERE with mrPast2 in the same derivation, regardless of the two rules'
-    // relative application order or surface adjacency. The FST proposer has no notion of
-    // cross-morpheme co-occurrence constraints, so it still proposes fom+PAST2+PL (over-propose);
-    // confirm's `pg_rules::validity` co-occurrence check is what prunes it.
+    // Negative: mrPast2+mrPl co-occur anywhere in the derivation, so MorphemeCoOccurrenceRule excludes it regardless of order/adjacency; the FST still over-proposes it, and confirm's co-occurrence check prunes it.
     let negative = assert_confirm_matches_oracle(&mut analyzer, &morpher, "fomuton", false);
     assert_eq!(
         negative.confirmed, 0,

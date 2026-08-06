@@ -1,12 +1,4 @@
-//! Affix rules: concatenative (`MoAffixAllomorph`/plain-form) allomorphs
-//! (`LoadFormAffixProcessAllomorph`, HCLoader.cs:1441-1613, non-bracket branch only — bracket/
-//! reduplication forms are not implemented) and `MoAffixProcess`-style allomorphs
-//! (`LoadAffixProcessAllomorph`, HCLoader.cs:1334-1439), assembled into one `AffixProcessRuleDef`
-//! per (entry, MSA) pair (`LoadDerivAffixProcessRule`/`LoadInflAffixProcessRule`/
-//! `LoadUnclassifiedAffixProcessRule`, HCLoader.cs:926-1028).
-//!
-//! Circumfix cross-products (HCLoader.cs:1048-1332) are not implemented: an entry classified as a
-//! circumfix produces a warning and no rule.
+//! Builds one `AffixProcessRuleDef` per (entry, MSA) pair from concatenative and `MoAffixProcess`-style allomorphs; circumfix cross-products are not implemented (warned, no rule).
 
 use pg_snapshot::lexicon::{Allomorph, LexEntry, Msa, RuleMapping};
 use pg_snapshot::morphology::MorphType;
@@ -21,9 +13,7 @@ use crate::model::{
 use super::environment;
 use super::{Acc, Ctx};
 
-/// Which concatenative shape an affix morph type implies. `None` for morph types this compiler
-/// does not build a concatenative rule for (circumfix, bare clitic/particle, phrase-shaped) —
-/// callers treat that as unimplemented and warn.
+/// Which concatenative shape an affix morph type implies; `None` for a type this compiler does not build a rule for (circumfix, bare clitic/particle, phrase-shaped).
 #[derive(Copy, Clone)]
 enum Shape {
     Prefix,
@@ -33,11 +23,7 @@ enum Shape {
 
 fn shape_of(mt: MorphType) -> Option<Shape> {
     match mt {
-        // Proclitic patterns exactly like a prefix and enclitic exactly like a suffix in
-        // `LoadFormAffixProcessAllomorph`'s morph-type switch (HCLoader.cs:1552-1605: the
-        // kMorphEnclitic case shares the suffix arm, kMorphProclitic the prefix arm) — the
-        // clitic-ness lives in *stratum placement* (the caller routes clitic-bucket rules onto
-        // the Clitics stratum, `lexicon::build`), not in the allomorph pattern shape.
+        // Proclitic patterns like a prefix, enclitic like a suffix; clitic-ness lives in stratum placement (`lexicon::build`), not in the allomorph pattern shape.
         MorphType::Prefix | MorphType::PrefixingInterfix | MorphType::Proclitic => {
             Some(Shape::Prefix)
         }
@@ -45,28 +31,12 @@ fn shape_of(mt: MorphType) -> Option<Shape> {
             Some(Shape::Suffix)
         }
         MorphType::Infix | MorphType::InfixingInterfix => Some(Shape::Infix),
-        // Bare Clitic/Particle/Phrase: never rule forms (`IsValidRuleForm`, HCLoader.cs:536-569
-        // has no case for them) — they are *stem* forms (clitic-stratum lex entries).
+        // Bare Clitic/Particle/Phrase are never rule forms; they are stem forms (clitic-stratum lex entries).
         _ => None,
     }
 }
 
-/// Build the `MorphRuleDef::AffixProcess` for one (entry, MSA) pair, mirroring
-/// `LoadMorphologicalRule`'s dispatch (HCLoader.cs:877-908). Returns `None` if the rule ends up
-/// with zero loadable allomorphs (`AddMorphologicalRule`'s guard, HCLoader.cs:916-924) — never an
-/// error; every dropped allomorph is a pushed warning instead.
-///
-/// `gloss` is the sense gloss for this MSA (`GetGloss`, HCLoader.cs:910-914) and `stratum` the
-/// owning stratum id this morpheme is recorded under (`MorphemeInfo::stratum`) — the *rule*
-/// itself is placed into a stratum's `mrules` list by the caller (HCLoader's own `s` variable,
-/// possibly `null`/none for a partial inflectional rule outside any template,
-/// HCLoader.cs:887-890).
-///
-/// `allos` is the caller's pre-partitioned allomorph bucket for this stratum (HCLoader.cs:256-293
-/// splits each entry's forms into affix vs clitic-affix buckets and calls
-/// `LoadMorphologicalRules` once per non-empty bucket — an entry with both a suffix-typed and an
-/// enclitic-typed form yields *two* rules per MSA, one per stratum, each seeing only its own
-/// bucket's forms).
+/// Builds the `MorphRuleDef::AffixProcess` for one (entry, MSA) pair; returns `None` if it ends up with zero loadable allomorphs (never an error — every dropped allomorph is a pushed warning instead). `allos` is the caller's pre-partitioned allomorph bucket for this stratum.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_affix_rule(
     entry: &LexEntry,
@@ -172,11 +142,7 @@ pub(crate) fn build_affix_rule(
             from_parts_of_speech,
             ..
         } => {
-            // `LoadCliticAffixProcessRule` (HCLoader.cs:1030-1046): a stem MSA reached through
-            // the *rule* path (an entry with proclitic/enclitic — or mixed suffix/prefix — rule
-            // forms). Required FS = the attachment POS list (`FromPartsOfSpeechRC`, with
-            // descendants via `LoadAllPartsOfSpeech`); nothing else — no head features, no MPRs,
-            // no out FS, not partial.
+            // A stem MSA reached through the rule path (clitic/mixed affix forms): required FS is just the attachment POS list, nothing else.
             let req_pos = if from_parts_of_speech.is_empty() {
                 None
             } else {
@@ -197,8 +163,7 @@ pub(crate) fn build_affix_rule(
         }
     };
 
-    // required MPR features: `FromProdRestrictRC`/exception features, for every affix-rule kind
-    // (`LoadDerivAffixProcessRule`/`LoadInflAffixProcessRule`/`LoadUnclassifiedAffixProcessRule`).
+    // Required MPR features: exception features, for every affix-rule kind.
     let required_mpr = match msa {
         Msa::Derivational {
             from_exception_features,
@@ -327,8 +292,7 @@ pub(crate) fn build_affix_rule(
             is_template_rule: false,
         }));
 
-    // Slot -> rule registry (HCLoader.cs:1704's reverse `slot.Affixes` walk, done forward here):
-    // only `Msa::Inflectional` MSAs declare template slots.
+    // Slot -> rule registry: only `Msa::Inflectional` MSAs declare template slots.
     if let Msa::Inflectional { slots, .. } = msa {
         for slot in slots {
             acc.slot_rules
@@ -341,9 +305,7 @@ pub(crate) fn build_affix_rule(
     Some(mrule_id)
 }
 
-/// `IsValidRuleForm` (HCLoader.cs:536-569), simplified: bracket-pattern (reduplication) forms are
-/// not implemented (warned, dropped) rather than gated on environment validity; the everyday
-/// no-brackets/no-process-arity-check case matches C# exactly (unconditionally valid).
+/// Simplified `IsValidRuleForm`: bracket-pattern (reduplication) forms are not implemented (warned, dropped) rather than gated on environment validity.
 fn is_valid_rule_form(allo: &Allomorph, warnings: &mut Vec<String>) -> bool {
     if let Some(process) = &allo.process {
         return process.input.len() > 1 || process.output.len() > 1;
@@ -353,11 +315,7 @@ fn is_valid_rule_form(allo: &Allomorph, warnings: &mut Vec<String>) -> bool {
     }
     match allo.morph_type {
         MorphType::Infix | MorphType::InfixingInterfix => !allo.positions.is_empty(),
-        // Proclitic/Enclitic count as rule forms unconditionally in `IsValidRuleForm`
-        // (HCLoader.cs:550-552) — same non-empty/non-abstract gate as prefix/suffix, and the
-        // same unimplemented bracket-form (reduplication) skip since HCLoader routes a bracketed
-        // enclitic/proclitic form through the same reduplication branch (HCLoader.cs:1485-1519)
-        // this compiler doesn't implement yet.
+        // Proclitic/Enclitic count as rule forms unconditionally, under the same non-empty/non-abstract gate as prefix/suffix.
         MorphType::Prefix
         | MorphType::PrefixingInterfix
         | MorphType::Suffix
@@ -375,19 +333,12 @@ fn is_valid_rule_form(allo: &Allomorph, warnings: &mut Vec<String>) -> bool {
             }
             !form.trim().is_empty()
         }
-        // Bare Clitic/Particle: stem forms (clitic-stratum lex entries), never rule forms —
-        // `IsValidRuleForm` has no case for them (HCLoader.cs:536-569). Not a warning: they are
-        // handled, just on the stem path (`lexicon::build`'s clitic-stem bucket).
+        // Bare Clitic/Particle are stem forms (clitic-stratum lex entries), never rule forms; not a warning since they're handled on the stem path.
         _ => false,
     }
 }
 
-/// Build every `AffixAllomorphDef` a single LCM allomorph expands to: one per valid environment
-/// (or a single environment-less pass, `GetValidEnvironments`/`GetAffixAllomorphEnvironments`,
-/// HCLoader.cs:1167-1197) for a concatenative form, or exactly one for an `MoAffixProcess`.
-/// `allo_id`/co-occurrence/properties are filled in by the caller (which needs `AllomorphId`s
-/// assigned in the same loop that pushes onto `acc.allomorph_owners`), so this returns a
-/// placeholder `AffixAllomorphDef` (`id` overwritten immediately).
+/// Builds every `AffixAllomorphDef` a single LCM allomorph expands to: one per valid environment (or a single environment-less pass) for a concatenative form, or exactly one for an `MoAffixProcess`. Returns a placeholder with `id` overwritten immediately by the caller.
 fn build_affix_allomorphs_for(
     allo: &Allomorph,
     msa: &Msa,
@@ -484,7 +435,6 @@ fn build_affix_allomorphs_for(
     out
 }
 
-/// `LoadFormAffixProcessAllomorph`'s non-bracket branches (HCLoader.cs:1523-1606).
 /// LHS/RHS/environment triple a concatenative shape builds.
 type ConcatBuild = (Vec<Pattern>, Vec<OutputAction>, Vec<EnvironmentDef>);
 
@@ -598,9 +548,7 @@ fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
     })
 }
 
-/// `GetValidEnvironments` (HCLoader.cs:1177-1197): resolve each environment guid to its split
-/// `(left, right)` context strings, yielding one `None` pass whenever the guid list was empty OR
-/// at least one entry failed to resolve/parse.
+/// Resolves each environment guid to its split `(left, right)` context strings, yielding one `None` pass whenever the guid list was empty or an entry failed to resolve/parse.
 fn resolve_environments(
     guids: &[&str],
     ctx: &Ctx,
@@ -616,11 +564,7 @@ fn resolve_environments(
             has_blank = true;
             continue;
         };
-        // `IsValidEnvironment`'s upfront whole-string validity check (HCLoader.cs:1205-1271; see
-        // `environment::validate_environment`'s doc): a failing environment is invalid *as a
-        // whole* and lands in the same "treated as absent" blank-fallback bucket as a malformed
-        // split, rather than being discovered later (deep inside one side's pattern-node
-        // construction) and silently dropping this disjunct with no blank fallback.
+        // A failing environment is invalid as a whole and lands in the same blank-fallback bucket as a malformed split, rather than being discovered later.
         if let Err(e) = environment::validate_environment(&env.representation, ctx) {
             warnings.push(format!(
                 "invalid environment {:?} ({}): {e}; treated as absent",
@@ -646,9 +590,7 @@ fn resolve_environments(
     out
 }
 
-/// `LoadAffixProcessAllomorph` (HCLoader.cs:1334-1439): a direct transcription of the snapshot's
-/// `AffixProcess.input`/`.output` — no environment cross-product (a process allomorph carries no
-/// `PhoneEnvRC`/`PositionRS` in LCM).
+/// A direct transcription of the snapshot's `AffixProcess.input`/`.output`; no environment cross-product (a process allomorph carries no phone-environment/position data in LCM).
 fn build_process_allomorph(
     allo: &Allomorph,
     process: &pg_snapshot::lexicon::AffixProcess,
@@ -732,8 +674,7 @@ fn build_process_allomorph(
     })
 }
 
-/// `LoadPatternNode`'s recursive dispatch (HCLoader.cs:2313-2389), for the phonological-context
-/// tree shape shared by rewrite rules and `MoAffixProcess` input parts.
+/// Recursive dispatch over the phonological-context tree shape shared by rewrite rules and `MoAffixProcess` input parts.
 pub(crate) fn phon_context_nodes(
     pc: &PhonContext,
     ctx: &Ctx,

@@ -115,10 +115,7 @@ use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
 
-// =================================================================================================
-// Protocol version + versioned limits (mirrors `pg_pack::format`'s `VersionLimits`/
-// `limits_for_version` shape byte-for-byte, applied to this module's own wire format).
-// =================================================================================================
+// Protocol version and versioned wire limits, mirroring `pg_pack::format`'s `VersionLimits` shape.
 
 /// This worker protocol's own version, carried inside every `CompileWorkerRequest`/
 /// `CompileWorkerResult` (the platform-parity contract's "ONE versioned request/result
@@ -173,10 +170,7 @@ pub const fn limits_for_version(version: u32) -> Option<WorkerLimits> {
     }
 }
 
-// =================================================================================================
-// Length-prefixed framing (validate-before-allocate; mirrors `pg_pack::format::read_pack`'s own
-// documented discipline).
-// =================================================================================================
+// Length-prefixed framing: validate-before-allocate, mirroring `pg_pack::format::read_pack`.
 
 /// Every way reading one length-prefixed frame can fail. Never a panic -- a malformed/oversized
 /// peer always reaches one of these variants (this module's own version of
@@ -184,8 +178,7 @@ pub const fn limits_for_version(version: u32) -> Option<WorkerLimits> {
 #[derive(Debug)]
 pub enum FrameError {
     Io(io::Error),
-    /// The declared frame length exceeds this protocol version's limit -- returned BEFORE any
-    /// buffer of that size is allocated (see `read_frame`'s own doc).
+    /// The declared frame length exceeds this protocol version's limit, returned before any buffer of that size is allocated.
     LengthExceedsLimit {
         declared: u64,
         limit: u64,
@@ -217,12 +210,7 @@ fn write_frame<W: Write>(w: &mut W, bytes: &[u8]) -> io::Result<()> {
     w.flush()
 }
 
-/// Reads one `[u64 little-endian length][bytes]` frame from `r`, rejecting a declared length above
-/// `max_len` **before allocating a buffer of that size** -- the exact discipline
-/// `pg_pack::format::read_pack`'s own module doc names ("EVERY length validated against versioned
-/// limits BEFORE allocation"), applied to this module's simpler single-section framing. A
-/// hostile/malformed peer that declares e.g. `u64::MAX` is rejected in constant time and constant
-/// memory, never attempting the allocation at all.
+/// Reads one length-prefixed frame from `r`, rejecting a declared length above `max_len` before allocating a buffer of that size.
 fn read_frame<R: Read>(r: &mut R, max_len: u64) -> Result<Vec<u8>, FrameError> {
     let mut len_buf = [0u8; 8];
     r.read_exact(&mut len_buf).map_err(FrameError::Io)?;
@@ -239,17 +227,12 @@ fn read_frame<R: Read>(r: &mut R, max_len: u64) -> Result<Vec<u8>, FrameError> {
     Ok(buf)
 }
 
-/// Parses a length-prefixed frame's bytes (already read via `read_frame`, or accumulated by the
-/// supervisor's capped reader thread) as one `T`. Split out from `read_frame` so the supervisor
-/// can apply the SAME declared-length check to a buffer it accumulated incrementally (see
-/// `parse_result_frame`) without re-reading from a live stream.
+/// Parses an already-read frame body as one `T`; shared by `read_frame` and `parse_result_frame`'s incrementally accumulated buffers.
 fn decode_frame_body<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, FrameError> {
     serde_json::from_slice(body).map_err(|e| FrameError::Json(e.to_string()))
 }
 
-// =================================================================================================
 // Request
-// =================================================================================================
 
 /// Which of `pg-cli`'s three supported grammar-path shapes `CompileWorkerRequest::grammar_path`
 /// names (mirrors `pg-cli/src/main.rs::load_grammar`'s own extension dispatch; see this module's
@@ -338,9 +321,7 @@ impl CompileWorkerRequest {
     }
 }
 
-// =================================================================================================
-// Result / typed outcomes the CHILD reports
-// =================================================================================================
+// Result / typed outcomes the CHILD reports.
 
 /// One versioned compile-worker result (the child's one write, per the platform-parity contract /
 /// `run_worker_child`'s doc).
@@ -354,51 +335,30 @@ pub struct CompileWorkerResult {
 /// outcomes only the PARENT can observe -- a kill, a crash, a flooded pipe).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompileWorkerOutcome {
-    /// The compile completed under budget. Carries the compiled network's own final state/arc
-    /// counts (from `crate::profile::CompileProfile` -- the same counts
-    /// `crate::health_evaluator::profile_findings` already reports against) and the real
-    /// `HealthReport` `crate::health_evaluator::evaluate_health` produced from this compile's
-    /// own measurements.
+    /// The compile completed under budget, carrying the final state/arc counts and the real `HealthReport` from `crate::health_evaluator::evaluate_health`.
     Success {
         final_state_count: Option<i64>,
         final_arc_count: Option<i64>,
         uncovered_count: usize,
         health: HealthReport,
     },
-    /// A deterministic logical `ComposeBudget`/enumeration budget tripped before or during
-    /// compilation (the fast-failure-primacy contract's "primary fast-failure mechanism"). `detail`
-    /// is the originating typed
-    /// error's own `Display` text (never a re-derived message); `health` is real whenever the
-    /// tripped dimension carries a `ComposeError` (today: the ordering-multiplicity dimension,
-    /// `crate::analyzer::FomaError::UnorderedOrderingMultiplicityExceeded`, the one production
-    /// call site that can return a `ComposeError`-backed failure before handing lexc to the foma
-    /// compiler) -- see `compile_grammar_from_request`'s own doc for the one documented exception
-    /// (`crate::analyzer::FomaError::EnumerationBudgetExceeded` does not expose its originating
-    /// `EmitReport` through this crate's public API, so that variant's `health` is empty; `detail`
-    /// still carries the complete typed information).
+    /// A deterministic `ComposeBudget`/enumeration budget tripped before or during compilation; `detail` is the originating error's `Display` text, and `health` is empty for `FomaError::EnumerationBudgetExceeded` since that variant does not expose its `EmitReport`.
     BudgetTripped {
         detail: String,
         health: HealthReport,
     },
-    /// The emitted lexc source itself failed to compile
-    /// (`crate::analyzer::FomaError::LexcCompileFailed`) -- a grammar-content/emitter gap, not a
-    /// resource budget.
+    /// The emitted lexc source itself failed to compile (`crate::analyzer::FomaError::LexcCompileFailed`) -- a grammar-content/emitter gap, not a resource budget.
     CompileFailed {
         detail: String,
         health: HealthReport,
     },
-    /// The named grammar file could not be read, parsed, or compiled into a [`pg_grammar::model::
-    /// Grammar`] at all (mirrors `pg-cli::load_grammar`'s own error shape).
+    /// The named grammar file could not be read, parsed, or compiled into a `pg_grammar::model::Grammar` at all.
     GrammarLoadFailed { detail: String },
-    /// The request frame itself was malformed (wrong `protocol_version`, or valid JSON of the wrong
-    /// shape) -- a protocol problem, distinct from a grammar-content problem.
+    /// The request frame itself was malformed (wrong `protocol_version`, or valid JSON of the wrong shape) -- distinct from a grammar-content problem.
     ProtocolViolation { detail: String },
 }
 
-/// Loads and compiles `grammar_path` (mirrors `pg-cli::load_grammar`'s three-way extension dispatch
-/// -- see this module's top doc "Documented gap") into a `pg_grammar::model::Grammar`, returning
-/// a plain `String` on any failure (this module's own error shape stays a message, matching
-/// `pg-cli::load_grammar`'s own `Result<_, String>` convention one crate over).
+/// Loads and compiles `grammar_path` into a `pg_grammar::model::Grammar`, mirroring `pg-cli::load_grammar`'s extension dispatch and `Result<_, String>` error shape.
 fn load_grammar_for_worker(
     path: &str,
     format: GrammarFormat,
@@ -426,18 +386,7 @@ fn load_grammar_for_worker(
     }
 }
 
-/// The child's actual compile step: load `request`'s named grammar, then run
-/// `crate::analyzer::FomaProposer::new_with_budget_and_profile` under `request`'s own
-/// `ComposeBudget` -- the SAME production constructor `FomaProposer::new_with_profile` calls,
-/// just with the budget threaded explicitly instead of read from env (that constructor's own doc:
-/// "what tests call directly... to exercise `FomaError::.. ` deterministically"), so a request that
-/// sets a small `ordering_multiplicity_cap` can trip a REAL
-/// `ComposeError::OrderingMultiplicityExceeded` through this crate's real production wiring, not
-/// a synthetic stand-in.
-///
-/// Wraps the compile call in `catch_unwind` -- best-effort panic containment only; see this
-/// module's top doc for why stack-overflow/allocator-OOM still abort the whole process regardless
-/// (the supervisor's job, not this function's).
+/// Loads `request`'s grammar and runs it through `FomaProposer::new_with_budget_and_profile` under `request`'s own `ComposeBudget` -- the same production path, wrapped in `catch_unwind` as best-effort panic containment only (does not protect against stack overflow or allocator OOM).
 fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorkerOutcome {
     let grammar = match load_grammar_for_worker(&request.grammar_path, request.grammar_format) {
         Ok(g) => g,
@@ -504,11 +453,7 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
             }
         }
         Err(err @ FomaError::EnumerationBudgetExceeded { .. }) => {
-            // Documented exception (this type's own doc): `FomaError::EnumerationBudgetExceeded`
-            // does not expose the originating `EmitReport` through this crate's public API, so no
-            // real `HealthReport` can be built here without recomputing the compile (forbidden --
-            // `crate::health_evaluator`'s own "consume, never remeasure" scope). `detail` still
-            // carries the complete typed message.
+            // `FomaError::EnumerationBudgetExceeded` does not expose its `EmitReport`, so no real `HealthReport` can be built here without recomputing the compile; `detail` still carries the full message.
             CompileWorkerOutcome::BudgetTripped {
                 detail: err.to_string(),
                 health: HealthReport::new(Vec::new()),
@@ -607,9 +552,7 @@ fn write_result<W: Write>(output: &mut W, result: &CompileWorkerResult) -> io::R
     write_frame(output, &json)
 }
 
-// =================================================================================================
-// Supervisor (parent side)
-// =================================================================================================
+// Supervisor (parent side).
 
 /// The parent-requested wall-time/RSS envelope, clamped to `WorkerLimits`' absolute ceilings --
 /// contractually clamps excessive values and provides no unlimited setting, applied here to the
@@ -669,40 +612,25 @@ pub enum OutputStream {
 pub enum WorkerOutcome {
     /// The child ran to completion and reported its own typed outcome.
     Completed(CompileWorkerOutcome),
-    /// The child was killed after `elapsed` exceeded `limit` (the fast-failure-primacy contract's
-    /// "the parent wall-time limit remains an outer host-safety watchdog... rather than the normal
-    /// compiler-health cutoff"). Never a normal/expected outcome for a well-behaved grammar under its calibrated
-    /// `ComposeBudget` -- reaching this means either a genuinely uninstrumented stall or an
-    /// envelope set too small for legitimate work.
+    /// The child was killed after `elapsed` exceeded `limit` -- an outer host-safety watchdog, not the normal compiler-health cutoff; reaching this means an uninstrumented stall or too small an envelope.
     WallTimeoutKilled { elapsed: Duration, limit: Duration },
-    /// A sampled RSS reading exceeded `limit_mb`; the child was killed. `sampled_mb` is the
-    /// triggering sample, `peak_mb` the highest sample observed across the whole run (may equal
-    /// `sampled_mb`). **Not a hard ceiling** -- see this module's top doc "Sampled RSS is not a
-    /// hard ceiling": allocation between samples means the child's real peak RSS could have been
-    /// higher than any individual sample recorded.
+    /// A sampled RSS reading exceeded `limit_mb` and the child was killed; `sampled_mb` is the triggering sample and `peak_mb` the run's highest, but sampling is periodic, not a hard ceiling.
     RssLimitExceeded {
         sampled_mb: u64,
         limit_mb: u64,
         interval: Duration,
         peak_mb: u64,
     },
-    /// Captured stdout or stderr reached its byte cap; the child was killed (the platform-parity
-    /// contract: worker request bytes, result bytes, stdout, and stderr all have versioned limits
-    /// enforced by the parent).
+    /// Captured stdout or stderr reached its byte cap and the child was killed; all four wire streams have versioned limits enforced by the parent.
     OutputLimitExceeded {
         stream: OutputStream,
         limit_bytes: u64,
     },
-    /// The child process exited (crashed, was signaled, or otherwise terminated abnormally --
-    /// panic-as-abort, stack overflow, allocator OOM abort, being killed by something other than
-    /// this supervisor) without ever producing one valid result frame. `detail` names the observed
-    /// `ExitStatus` and why no result frame could be parsed.
+    /// The child exited abnormally (panic-as-abort, stack overflow, allocator OOM, or an external kill) without producing a valid result frame; `detail` names the observed `ExitStatus` and why parsing failed.
     ChildCrashed { detail: String },
-    /// `std::process::Command::spawn` itself failed (e.g. the child executable does not exist) --
-    /// distinct from every outcome above, none of which requires a live child process to observe.
+    /// `std::process::Command::spawn` itself failed (e.g. the child executable does not exist), distinct from every outcome above, which all require a live child process.
     SpawnFailed { detail: String },
-    /// The request could not even be serialized/sized within `WorkerLimits::max_request_bytes`,
-    /// so no child was spawned at all.
+    /// The request could not even be serialized/sized within `WorkerLimits::max_request_bytes`, so no child was spawned at all.
     ProtocolViolation { detail: String },
 }
 
@@ -833,11 +761,7 @@ impl WorkerOutcome {
     }
 }
 
-/// Reads `reader` to EOF on a dedicated thread, accumulating bytes into `buf` up to `cap`; sets
-/// `overflow` (never unset) the instant `cap` would be exceeded and keeps draining/discarding
-/// afterward so a flooding child cannot deadlock on a full OS pipe buffer once this supervisor
-/// stops retaining what it reads (the supervisor's poll loop observes `overflow` and kills the
-/// child promptly once it does).
+/// Reads `reader` to EOF on a dedicated thread, accumulating into `buf` up to `cap` and setting `overflow` (never unset) once exceeded, then keeps draining so a flooding child cannot deadlock on a full pipe.
 fn spawn_capped_reader<R: Read + Send + 'static>(
     mut reader: R,
     cap: u64,
@@ -854,9 +778,7 @@ fn spawn_capped_reader<R: Read + Send + 'static>(
                     if (guard.len() as u64) + (n as u64) > cap {
                         overflow.store(true, Ordering::SeqCst);
                         drop(guard);
-                        // Keep draining (discarding) so the child never blocks on a full pipe once
-                        // we stop retaining bytes -- the poll loop kills it shortly after observing
-                        // `overflow`.
+                        // Keep draining (discarding) so the child never blocks on a full pipe; the poll loop kills it shortly after observing `overflow`.
                         loop {
                             match reader.read(&mut chunk) {
                                 Ok(0) | Err(_) => break,
@@ -873,9 +795,7 @@ fn spawn_capped_reader<R: Read + Send + 'static>(
     })
 }
 
-/// Parses an accumulated stdout buffer as one length-prefixed `CompileWorkerResult` frame,
-/// applying `WorkerLimits::max_result_bytes` the same way `read_frame` does for a live stream --
-/// this is the "already accumulated by a reader thread" sibling of that function.
+/// Parses an accumulated stdout buffer as one length-prefixed `CompileWorkerResult` frame, applying the same `max_result_bytes` check `read_frame` does for a live stream.
 fn parse_result_frame(buf: &[u8]) -> Result<CompileWorkerResult, String> {
     if buf.len() < 8 {
         return Err(format!(
@@ -904,11 +824,7 @@ fn parse_result_frame(buf: &[u8]) -> Result<CompileWorkerResult, String> {
     decode_frame_body(&buf[8..]).map_err(|e| e.to_string())
 }
 
-/// Samples one process's resident set size, in mebibytes, via `sysinfo` -- refreshing only that
-/// PID, never a
-/// system-wide scan. Returns `None` if the process has already exited or `sysinfo` cannot find it
-/// (a benign race with the child exiting between the last `try_wait` and this sample, not an
-/// error).
+/// Samples one process's RSS in mebibytes via `sysinfo`, refreshing only that PID; returns `None` if the process has already exited (a benign race, not an error).
 fn sample_rss_mb(sys: &mut sysinfo::System, pid: sysinfo::Pid) -> Option<u64> {
     sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
     sys.process(pid).map(|p| p.memory() / (1024 * 1024))
@@ -1001,8 +917,7 @@ pub fn run_compile_worker(
 
     let mut stdin = child.stdin.take().expect("piped stdin");
     let stdin_handle = std::thread::spawn(move || {
-        // Best-effort: a hung child that never reads stdin blocks only this thread, never the
-        // supervisor's own poll loop below, which still enforces the wall deadline independently.
+        // Best-effort: a hung child that never reads stdin blocks only this thread, not the supervisor's poll loop, which still enforces the wall deadline.
         let _ = write_frame(&mut stdin, &request_json);
     });
 
@@ -1101,9 +1016,7 @@ pub fn run_compile_worker(
 mod tests {
     use super::*;
 
-    // ---------------------------------------------------------------------------------------
-    // Framing: bounded, validate-before-allocate (mirrors `pg_pack::format`'s own test shapes).
-    // ---------------------------------------------------------------------------------------
+    // Framing: bounded, validate-before-allocate, mirroring `pg_pack::format`'s own test shapes.
 
     #[test]
     fn frame_round_trips_small_payload() {
@@ -1116,10 +1029,7 @@ mod tests {
 
     #[test]
     fn read_frame_rejects_declared_length_over_limit_before_allocating() {
-        // A frame declaring a length far beyond any reasonable limit, with NO payload bytes
-        // following at all -- if this function allocated based on the declared length before
-        // validating it, this would attempt a many-exabyte allocation instead of returning
-        // promptly with a clean typed error.
+        // Declares a length far beyond any reasonable limit with no payload bytes following, so an allocate-before-validate bug would attempt a many-exabyte allocation instead of a clean error.
         let mut buf = Vec::new();
         buf.extend_from_slice(&u64::MAX.to_le_bytes());
         let mut cursor = std::io::Cursor::new(buf);
@@ -1138,8 +1048,7 @@ mod tests {
         let mut buf = Vec::new();
         let huge = V1_WORKER_LIMITS.max_request_bytes + 1;
         buf.extend_from_slice(&huge.to_le_bytes());
-        // No body bytes -- proves the rejection happens strictly from the header, before any
-        // attempt to `read_exact` a body of that size.
+        // No body bytes -- proves rejection happens strictly from the header, before any attempt to `read_exact` a body.
         let mut cursor = std::io::Cursor::new(buf);
         let err = read_frame(&mut cursor, V1_WORKER_LIMITS.max_request_bytes)
             .expect_err("must reject oversized declared length");
@@ -1168,10 +1077,7 @@ mod tests {
         assert!(err.contains("too short"));
     }
 
-    // ---------------------------------------------------------------------------------------
-    // `run_worker_child` in-process (no subprocess): protocol handling + the two grammar-content
-    // outcomes reachable without a real adversarial grammar.
-    // ---------------------------------------------------------------------------------------
+    // `run_worker_child` in-process: protocol handling plus the grammar-content outcomes reachable without a real adversarial grammar.
 
     fn call_child(request_bytes: &[u8]) -> CompileWorkerResult {
         let mut input = std::io::Cursor::new(request_bytes.to_vec());
@@ -1242,12 +1148,7 @@ mod tests {
         ));
     }
 
-    /// A synthetic (delanguaged) grammar with an `Unordered` stratum whose loose-rule count exceeds
-    /// a small `ordering_multiplicity_cap` -- the one production call site
-    /// (`crate::analyzer::FomaProposer::new_with_budget_and_profile`) that can return a REAL
-    /// `ComposeError`-backed failure before ever handing lexc to the foma compiler. Proves
-    /// `run_worker_child` maps a genuine budget trip to `CompileWorkerOutcome::BudgetTripped` with a
-    /// real, non-empty `HealthReport`, not a synthetic stand-in.
+    /// A synthetic grammar with an `Unordered` stratum whose loose-rule count exceeds a small `ordering_multiplicity_cap`, tripping a real `ComposeError` before lexc compilation.
     const UNORDERED_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>WorkerBudgetTripFixture</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -1365,9 +1266,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    // ---------------------------------------------------------------------------------------
     // Envelope clamping.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn watchdog_envelope_clamps_wall_timeout_to_absolute_ceiling() {
@@ -1401,15 +1300,7 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
-    // RSS sampling mechanism (this process's own PID) -- proves the `sysinfo` integration itself
-    // works; a full breach-and-kill integration test needs a real spawned adversarial process and
-    // lives in `tests/worker_supervisor.rs` instead (documented gap: none of this crate's synthetic
-    // fixtures reliably allocate enough, fast enough, to trip a small RSS guardrail without a
-    // flaky/slow test, so only the sampling mechanism itself -- not a live breach -- is unit-tested
-    // here; the wall-timeout kill path IS exercised end-to-end in that same integration test file,
-    // sharing the identical kill/report code path this RSS branch also uses).
-    // ---------------------------------------------------------------------------------------
+    // RSS sampling only; a live breach-and-kill needs a real adversarial process, exercised end-to-end in `tests/worker_supervisor.rs`.
 
     #[test]
     fn sample_rss_mb_reports_a_nonzero_value_for_this_process() {
@@ -1430,9 +1321,7 @@ mod tests {
         assert_eq!(sample_rss_mb(&mut sys, pid), None);
     }
 
-    // ---------------------------------------------------------------------------------------
     // WorkerOutcome -> HealthReport mapping.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn worker_outcome_wall_timeout_maps_to_critical_resource_budget_reached() {

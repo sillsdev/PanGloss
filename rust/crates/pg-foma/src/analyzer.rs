@@ -1,12 +1,11 @@
-//! `FomaProposer`: the thin `emit + foma-compile + apply-up` wrapper (plan §1's "propose" half of
-//! propose→confirm; confirm itself is P2's job, not built here).
+//! `FomaProposer`: the thin `emit + foma-compile + apply-up` wrapper for the propose half of
+//! propose→confirm; confirm itself lives elsewhere.
 //!
-//! Compiles `crate::emit::emit`'s lexc source with the pure-Rust `foma` crate (gate F0) and
-//! exposes `FomaProposer::propose`: normalize the query word the SAME way `crate::emit`
-//! normalized surface text (NFD — see that module's doc), `apply_up` it, decode every resulting
-//! tag path, and split each into `tags::Candidate`s, deduped by `(morphemes, root_index)`
-//! preserving first-seen order (matching the propose→verify contract, plan §2: "Allomorph IDs are
-//! NOT part of candidate identity").
+//! Compiles `crate::emit::emit`'s lexc source with the pure-Rust `foma` crate and exposes
+//! `FomaProposer::propose`: normalize the query word the same way `crate::emit` normalized
+//! surface text (NFD — see that module's doc), `apply_up` it, decode every resulting tag path,
+//! and split each into `tags::Candidate`s, deduped by `(morphemes, root_index)` preserving
+//! first-seen order. Allomorph IDs are not part of candidate identity.
 
 use std::collections::HashSet;
 use std::fmt;
@@ -31,36 +30,18 @@ use crate::tags::{self, Candidate};
 /// engine (plan §1's per-grammar tiering), which only needs to know THAT it failed.
 #[derive(Debug)]
 pub enum FomaError {
-    /// `fsm_lexc_parse_string` returned `None` — the emitted lexc source failed to compile. Carries
-    /// the emitter's own report (uncovered constructs, counts) since that is the first place to
-    /// look when this happens.
+    /// `fsm_lexc_parse_string` returned `None`; carries the emitter's own report for diagnosis.
     LexcCompileFailed(EmitReport),
-    /// Fix 1 (fail-fast enumeration budget, `crate::morphotactics::EnumerationBudget`'s own doc):
-    /// `emit::emit`'s default-on budget tripped before a usable lexc source could even be built —
-    /// this grammar's morphotactic composite enumeration would have produced far more lexc material
-    /// than the eager Rust-side enumerator can safely expand (the Aweti grammar -- 855 roots, 123
-    /// rules, 3 strata -- is the motivating case: 2,833,559 fusion entries, a 691MB/9.7M-line lexc,
-    /// and an ~8.8GB `apply_up` allocation that killed the process outright). An HONEST,
-    /// compiler-gap error, returned immediately -- never a panic, never a silent OOM, never lost
-    /// recall for a grammar that would actually have fit.
+    /// `emit::emit`'s enumeration budget tripped before a usable lexc source could be built: an honest, compiler-gap error, never a panic or a silent OOM.
     EnumerationBudgetExceeded {
-        /// Which measure tripped (`crate::morphotactics::EnumMeasure::label`'s text, e.g.
-        /// "composite lexc entries (fusion + interdigitation + structural)").
+        /// Which measure tripped (`crate::morphotactics::EnumMeasure::label`'s text).
         measure: &'static str,
         /// The measured value at the moment the budget tripped.
         value: usize,
-        /// The threshold that was exceeded (the default, or an `HC_ENUM_ENTRY_BUDGET`/
-        /// `HC_ENUM_PROBE_BUDGET` override).
+        /// The threshold that was exceeded (the default, or an env-var override).
         limit: usize,
     },
-    /// `crate::unordered::check_unordered_strata_bound`
-    /// found an `Unordered` stratum's own loose-rule count exceeding
-    /// `crate::compose_budget::ComposeBudget::ordering_multiplicity_cap` -- checked FIRST, before
-    /// `emit::emit_with_budget` is ever called, so `unordered-application.unbounded` never pays the
-    /// cost of building a (potentially large) `build_deriv_chain` network only to refuse it. Carries
-    /// the SAME `crate::compose_budget::ComposeError` this crate's other typed budget errors
-    /// carry, unwrapped to this variant's own fields for a caller that never needs to depend on
-    /// `crate::compose_budget` directly.
+    /// `check_unordered_strata_bound` found an `Unordered` stratum's loose-rule count exceeding the ordering-multiplicity budget, checked before `emit::emit_with_budget` builds anything.
     UnorderedOrderingMultiplicityExceeded { rule_count: usize, limit: usize },
 }
 
@@ -132,18 +113,8 @@ pub struct ProposalCounts {
     pub unique_candidates: usize,
 }
 
-/// Minimum arc count before `FomaProposer::new` pays `fsm_sort_arcs`'s one-time cost to switch
-/// `apply_up`'s per-word traversal from foma's linear arc-scan branch to its binary-search branch
-/// (gated on `net.arcs_sorted_out`, apply.rs's `apply_up`/`apply_follow_next_arc`).
-///
-/// Measured (prototype tracer, `examples/sort_probe.rs`): sorting is a clear win on real grammars
-/// — sena (85,763 arcs) 1.49x propose speedup, amharic (177,177 arcs) 2.05x — with traversal-
-/// identical results (states-entered and candidate sets identical, sorted vs. unsorted). But on a
-/// tiny network (indonesian, 3,263 arcs, ~337 arcs examined/word) the binary-search bookkeeping
-/// OUTWEIGHS the win: propose throughput regressed ~30%. This constant gates the sort so small
-/// grammars stay on the (cheaper, for them) linear scan while large ones get the binary-search
-/// speedup. 10,000 sits comfortably between indonesian's 3,263 (stays unsorted) and sena's 85,763
-/// (gets sorted).
+/// Minimum arc count before `FomaProposer::new` pays `fsm_sort_arcs`'s cost to switch `apply_up` to its binary-search branch.
+/// Why 10,000: `docs/research/pg-foma-analyzer-design-notes.md`, "`ARC_SORT_MIN_ARCS`".
 const ARC_SORT_MIN_ARCS: i32 = 10_000;
 
 /// Prepare a compiled network for repeated `apply_up` calls when its size clears the measured
@@ -159,21 +130,13 @@ pub(crate) fn prepare_network_for_apply(net: &mut Fsm) {
 /// emitter's own report (uncovered constructs, counts, tier — plan P1 gate F1's "counts are
 /// plausible" assertions read this).
 pub struct FomaProposer {
-    // Built ONCE in `new` via `apply_init` and reused across every `propose` call (see that
-    // method's doc for why this is sound). `ApplyHandle` owns a full clone of the compiled `Fsm`
-    // (`foma::apply::apply_init`'s doc: "DEVIATION from C (owns a clone; the handle never mutates
-    // it, so observably equivalent for application)") plus its own grammar-static index tables
-    // (`apply_create_statemap`/`apply_create_sigarray`, built once inside `apply_init` itself) —
-    // it is fully owned/`'static`, not a borrow of any `Fsm` this struct would also need to store,
-    // so there is no self-referential-struct trap here: the `Fsm` `fsm_lexc_parse_string` returns
-    // is consumed by `apply_init` and can be (is) dropped once the handle exists.
+    // Fully owned/`'static` (a clone of the compiled `Fsm`), not a borrow this struct would also need to store.
     handle: Box<ApplyHandle>,
     pub report: EmitReport,
     query_encoder: Option<SegmentQueryEncoder>,
 }
 
-/// Owned form of `crate::replace::SegAlphabet::encode_query`. P6's compiled network is in
-/// char-def-token space, but a proposer must outlive the borrowed `SegAlphabet` used to build it.
+/// Owned form of `crate::replace::SegAlphabet::encode_query`: a proposer must outlive the borrowed `SegAlphabet` used to build it.
 struct SegmentQueryEncoder {
     /// NFD representations, longest first, paired with their PUA token.
     representations: Vec<(Vec<char>, char)>,
@@ -301,11 +264,7 @@ impl FomaProposer {
     ) -> (Result<Self>, CompileProfile) {
         let mut profile = CompileProfileBuilder::production();
 
-        // Checked FIRST, before `emit::
-        // emit_with_budget_profiled` is ever called -- `unordered-application.unbounded` never pays
-        // the cost of building a (potentially large) `build_deriv_chain` network only to refuse it
-        // (mirrors the fail-fast enumeration budget's own "checked before the expensive
-        // derivation-layer/lexc-string-writing work" placement, just below).
+        // Checked before `emit::emit_with_budget_profiled` runs, so an unbounded ordering multiplicity never pays for building a large `build_deriv_chain` network only to refuse it.
         if let Err(err) = crate::unordered::check_unordered_strata_bound(g, compose_budget) {
             let err = match err {
                 crate::compose_budget::ComposeError::OrderingMultiplicityExceeded {
@@ -325,13 +284,7 @@ impl FomaProposer {
             enum_budget,
             Some(&mut profile),
         );
-        // Fix 1 (fail-fast enumeration budget): checked FIRST, before ever handing `result.lexc_source`
-        // to `fsm_lexc_parse_string` -- when this is `Some`, `emit::emit_with_budget_profiled` already
-        // bailed out early (its own doc: the budget check sits before the expensive derivation-layer/
-        // lexc-string-writing work), so `lexc_source` here is deliberately empty and must never be
-        // compiled. This is the ONE typed, honest error this whole mechanism exists to produce: no
-        // panic, no silent OOM, and it surfaces to `FomaAnalyzer::new`'s own caller (`composite.rs`)
-        // exactly the same way `LexcCompileFailed` already does.
+        // Checked before ever handing `result.lexc_source` to `fsm_lexc_parse_string`: when this is `Some`, `emit_with_budget_profiled` already bailed out early, so `lexc_source` is deliberately empty and must never be compiled.
         if let Some(exceeded) = result.report.enum_budget_exceeded {
             let err = FomaError::EnumerationBudgetExceeded {
                 measure: exceeded.measure,
@@ -343,16 +296,12 @@ impl FomaProposer {
         let opts = FomaOptions::default();
         let lexc_parse_start = Instant::now();
         let parsed = fsm_lexc_parse_string(&opts, None, &result.lexc_source);
-        // A plain `Instant` delta around a call this function
-        // already makes unconditionally -- never a second parse, never an extra clone
-        // (`crate::profile`'s own doc).
+        // A plain `Instant` delta around a call this function already makes unconditionally -- never a second parse, never an extra clone.
         profile.push_stage(CompileStage::LexcParse, lexc_parse_start.elapsed());
         match parsed {
             Some(mut net) => {
                 prepare_network_for_apply(&mut net);
-                // `foma::types::Fsm::statecount`/`arccount` are free public-field reads
-                // (`crate::compose_budget`'s own doc) -- `fsm_sort_arcs` reorders arcs, it never adds
-                // or removes a state/arc, so reading these after it is the SAME count either way.
+                // `fsm_sort_arcs` reorders arcs but never adds or removes a state/arc, so these counts are the same either way.
                 let final_state_count = net.statecount;
                 let final_arc_count = net.arccount;
                 let proposer = FomaProposer {
@@ -624,8 +573,7 @@ impl FomaProposer {
         self.handle.up(word).collect()
     }
 
-    /// This proposer's own compiled network, as built by `apply_init` — see
-    /// `Self::foma_binary_payload`'s doc for why `last_net` is always `Some` here.
+    /// This proposer's own compiled network, as built by `apply_init` (`Self::foma_binary_payload`'s doc explains why `last_net` is always `Some` here).
     fn network(&self) -> &foma::types::Fsm {
         self.handle.last_net.as_ref().expect(
             "FomaProposer::handle is always built by apply_init, which unconditionally sets \
@@ -660,39 +608,16 @@ pub fn apply_up_against(net: &foma::types::Fsm, word: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod budget_tests {
-    //! Fail-fast enumeration budget regression tests: the default-on `crate::morphotactics::EnumerationBudget` must
-    //! abort `FomaProposer::new`'s build with the typed `FomaError::EnumerationBudgetExceeded` --
-    //! never a panic, never an unbounded run toward the Aweti-scale blow-up (551s emit, 691MB lexc,
-    //! ~8.8GB `apply_up` allocation, process death on the very first word) -- and it must do so FAST.
-    //!
-    //! These tests inject an explicit, tiny `crate::morphotactics::EnumerationBudget` via
-    //! `FomaProposer::new_with_budget` rather than setting `HC_ENUM_ENTRY_BUDGET`/
-    //! `HC_ENUM_PROBE_BUDGET`, mirroring this crate's existing convention for `HC_PREEXPAND_FLAT`/
-    //! `HC_PREEXPAND_PROBE_CAP` (`crate::morphotactics::ExploreMode`'s own doc: "tests must construct
-    //! ... directly, never call [the env-reading fn], so parallel test threads/processes never race
-    //! process-global env state"). This also decouples the test from the exact DEFAULT threshold
-    //! numbers (documented and justified separately in `EnumerationBudget`'s own doc) -- it proves
-    //! the MECHANISM trips and propagates correctly, fast, regardless of where the default is set.
+    //! Fail-fast enumeration budget regression tests: `FomaProposer::new` must abort fast with the typed `FomaError::EnumerationBudgetExceeded`, never a panic and never an unbounded run.
 
-    /// How far past its cap an incremental budget check may report before we call it late.
-    ///
-    /// The failure being caught is a check that stops running per-item and fires once at the end, in
-    /// which case the reported value is the grammar's ENTIRE enumeration, not a few items past the
-    /// cap. Aweti's uncapped composite enumeration is the reason this whole budget exists (691MB of
-    /// lexc, ~8.8GB `apply_up` allocation), so it is orders of magnitude above any small multiple of
-    /// these caps of 10 and 5 -- which is what makes a modest factor here sufficient to separate
-    /// "noticed promptly" from "noticed at the end", while leaving room for the check to be batched
-    /// rather than strictly per-item.
+    /// How far past its cap an incremental check may report before we call it late.
+    /// Why 50 distinguishes "noticed promptly" from "fires once at the end": `docs/research/pg-foma-analyzer-design-notes.md`, "The Aweti enumeration-budget motivation".
     const OVERSHOOT_FACTOR: usize = 50;
 
     use super::*;
     use crate::morphotactics::EnumerationBudget;
 
-    /// Loads the real Aweti grammar (the motivating case for this budget: 855 roots, 123 rules, 3
-    /// strata, 14 templates) if
-    /// present on disk. `samples/data/aweti.json`/`aweti-words.txt` are gitignored (same convention
-    /// as every other real-corpus fixture this crate's gates use, e.g. `preexpand.rs`'s own
-    /// `sample_path` helper) -- copy them from the main checkout's `samples/data/` if missing.
+    /// Loads the real Aweti grammar if present on disk; gitignored, so copy it from the main checkout's `samples/data/` if missing.
     fn load_aweti() -> Option<Grammar> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../samples/data/aweti.json");
@@ -708,21 +633,14 @@ mod budget_tests {
         Some(g)
     }
 
-    /// The core regression: a tiny composite-entry cap must trip on Aweti fast (nowhere near the
-    /// full 551s/2.8M-entry enumeration) and surface as a typed error, not a panic and not a hang.
+    /// The core regression: a tiny composite-entry cap must trip on Aweti fast and surface as a typed error, not a panic and not a hang.
     #[test]
     fn aweti_trips_enumeration_budget_fast_with_typed_error() {
         let Some(g) = load_aweti() else {
             eprintln!("skipping: samples/data/aweti.json not present on disk");
             return;
         };
-        // Entry cap of 10 composite entries -- far below Amharic's real 22,775 (so a grammar that
-        // actually fits stays completely unaffected by the PRODUCTION default; this cap is only
-        // ever used here, injected directly) but small enough that Aweti's dense composite tree
-        // crosses it almost immediately. Probe cap left effectively unbounded so this test isolates
-        // the ENTRY measure specifically (`crate::morphotactics::EnumMeasure::CompositeEntries`) --
-        // the one the module doc identifies as the one that actually predicts Aweti's blow-up (a
-        // pairs-probed cap alone would not catch it before the artifact-size disaster).
+        // Entry cap of 10, far below any real grammar's default, injected directly here; probe cap left unbounded so this test isolates the entry measure specifically.
         let budget = EnumerationBudget::with_caps(10, usize::MAX);
 
         let t0 = std::time::Instant::now();
@@ -746,21 +664,7 @@ mod budget_tests {
                     measure, "composite lexc entries (fusion + interdigitation + structural)",
                     "a tiny entry cap (probe cap unbounded) must trip on the ENTRY measure"
                 );
-                // FAIL-FAST, asserted as OVERSHOOT rather than as wall-clock.
-                //
-                // The regression this guards against is a budget check that stops running
-                // incrementally and only fires once, at the very end -- in which case `value` would
-                // report Aweti's ENTIRE composite enumeration rather than the handful of entries it
-                // took to cross a cap of 10. So the property is "the check noticed promptly", and
-                // overshoot measures that directly.
-                //
-                // This used to assert `elapsed.as_secs() < 120`, which tested the same property
-                // through a proxy the machine controls rather than the code: measured, it took 191s
-                // and failed while six `cargo` and seven `rustc` processes from a concurrent build
-                // held the CPU at 100% -- with the fail-fast logic working perfectly. Builds here run
-                // `BelowNormal` so interactive daemons stay responsive, which makes any wall-clock
-                // assertion in this suite hostage to whoever else is compiling. Overshoot is
-                // deterministic, machine-independent, and a sharper test of the same thing.
+                // Asserted as overshoot rather than wall-clock: a check that stops running incrementally would report Aweti's entire enumeration, not a handful of entries past the cap, and overshoot is deterministic where wall-clock is hostage to whoever else is compiling.
                 assert!(
                     value <= limit.saturating_mul(OVERSHOOT_FACTOR),
                     "fail-fast budget must notice promptly: tripped at {value} against cap {limit},                      more than {OVERSHOOT_FACTOR}x over -- the signature of a check that stopped                      running incrementally"
@@ -776,9 +680,7 @@ mod budget_tests {
         }
     }
 
-    /// The probe-count measure, isolated: an effectively-unlimited entry cap paired with a tiny
-    /// probe cap must still trip -- and report the OTHER measure (`PairsProbed`), proving the two
-    /// measures are independently wired, not just the entry one (module doc: "budgets on BOTH").
+    /// The probe-count measure, isolated: an unlimited entry cap paired with a tiny probe cap must still trip, and report the other measure -- proving the two measures are wired independently.
     #[test]
     fn aweti_trips_on_probe_measure_when_entry_cap_is_unbounded() {
         let Some(g) = load_aweti() else {
@@ -815,11 +717,7 @@ mod budget_tests {
         }
     }
 
-    /// Sanity check the OTHER direction on a tiny, hand-built grammar with no real composite
-    /// mechanism at all (no phonological rules, no `Infix` rules -- `should_run` is false): an
-    /// unbounded budget must never trip, and `FomaProposer::new_with_budget` must succeed exactly
-    /// like plain `FomaProposer::new` would. Guards against an over-eager budget wiring that
-    /// spuriously trips on every grammar regardless of scale.
+    /// Sanity check the other direction: on a tiny grammar with no composite mechanism at all, an unbounded budget must never trip.
     #[test]
     fn tiny_grammar_never_trips_unbounded_budget() {
         const FIXTURE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -865,20 +763,12 @@ mod budget_tests {
 
 #[cfg(test)]
 mod apply_budget_tests {
-    //! Apply-path magnitude-only containment (`crate::compose_budget`'s own "Apply-path
-    //! dimension" section doc): `FomaProposer::propose_budgeted` must (1) behave byte-for-byte
-    //! identically to plain `FomaProposer::propose` when given `ApplyBudget::unbounded`, and
-    //! (2) trip each dimension deterministically and cheaply, in-process, with no watchdog/worker
-    //! process involved anywhere in this call.
+    //! `FomaProposer::propose_budgeted` must behave byte-for-byte identically to `propose` when unbounded, and trip each dimension deterministically and cheaply, in-process.
 
     use super::*;
     use crate::compose_budget::ApplyBudget;
 
-    /// A single-root, no-affix, no-rule fixture (same shape as `budget_tests::
-    /// tiny_grammar_never_trips_unbounded_budget`'s own `MtBudgetSmoke`, repeated locally per this
-    /// file's existing per-test-fixture convention): `propose("ka")` finds exactly the bare root
-    /// candidate, so a cap of 0 on either dimension trips on the very FIRST decoded path/candidate,
-    /// which is exactly the deterministic, cheap trip this containment is supposed to guarantee.
+    /// A single-root, no-affix, no-rule fixture: `propose("ka")` finds exactly the bare root candidate, so a cap of 0 on either dimension trips on the very first decoded path/candidate.
     const FIXTURE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
 <HermitCrabInput>
@@ -1085,11 +975,7 @@ mod apply_budget_tests {
 
 #[cfg(test)]
 mod profile_tests {
-    //! `FomaProposer::new_with_profile`/
-    //! `FomaProposer::new_with_budget_and_profile` must (1) populate a real `CompileProfile`
-    //! (`LexcParse` stage timing, final state/arc counts) on a successful build, (2) leave the
-    //! network/`Result` byte-for-byte identical to the non-profiled entry points, and (3) still
-    //! produce a `CompileProfile` (with `None` network counts) on a typed build failure.
+    //! Profiled construction must populate a real `CompileProfile` on success, match the non-profiled entry points byte-for-byte, and still produce a profile on a typed build failure.
 
     use super::*;
     use crate::morphotactics::EnumerationBudget;
@@ -1158,8 +1044,7 @@ mod profile_tests {
         assert!(profile.total_lexc_lines.is_some_and(|v| v > 0));
     }
 
-    /// The profiled path must build the SAME network as the
-    /// non-profiled path (`crate::profile`'s own doc) -- proven here via identical `propose` results, not just "both `Ok`".
+    /// The profiled path must build the same network as the non-profiled path -- proven via identical `propose` results, not just "both `Ok`".
     #[test]
     fn new_with_budget_and_profile_matches_new_with_budget_byte_for_byte() {
         let g = load_fixture();
@@ -1176,20 +1061,11 @@ mod profile_tests {
         assert_eq!(without_profile.propose("ka"), with_profile.propose("ka"));
     }
 
-    /// A typed build failure (the enumeration budget trips) must still return a `CompileProfile`
-    /// (network counts `None`, never fabricated) rather than panicking or losing the profile.
+    /// A typed build failure must still return a `CompileProfile` (network counts `None`, never fabricated) rather than panicking or losing the profile.
     #[test]
     fn new_with_budget_and_profile_returns_a_profile_on_typed_build_failure() {
         let g = load_fixture();
-        // A zero-entry cap trips immediately on this fixture's own single composite-free root --
-        // `EnumerationBudget`'s own doc: checked cooperatively during composite-builder recursion,
-        // but even a should_run=false grammar (this fixture: no phonological rules, no Infix rules)
-        // reads the shared counter, so an explicit zero cap plus a value of at least zero already at
-        // start reliably trips via `trip_reason`'s own `>=` check once any composite work is
-        // attempted -- if this fixture's own should_run gate ever short-circuits enumeration
-        // entirely, this test's `Err` branch simply never triggers and the assertion below on `Ok`'s
-        // profile still exercises the "successful build" profile shape identically to the test
-        // above, so this test is never spuriously broken by that possibility.
+        // A zero-entry cap should trip immediately here; if this fixture's should_run gate ever short-circuits enumeration entirely instead, the Ok branch below still exercises a valid profile shape, so this test is never spuriously broken by that possibility.
         let enum_budget = EnumerationBudget::with_caps(0, 0);
         let compose_budget = ComposeBudget::unbounded();
 
@@ -1203,8 +1079,7 @@ mod profile_tests {
                 assert_eq!(profile.final_arc_count, None);
             }
             Ok(_) => {
-                // should_run was false for this fixture; the zero cap never got exercised. Still a
-                // valid, real profile either way.
+                // should_run was false for this fixture; the zero cap never got exercised, but the profile is still valid.
                 assert!(profile.final_state_count.is_some());
             }
         }

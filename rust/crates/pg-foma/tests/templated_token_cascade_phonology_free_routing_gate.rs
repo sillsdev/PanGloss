@@ -1,23 +1,5 @@
-//! Closes a routing gap: a template-bearing grammar with NO phonological rules (the
-//! measured Sena shape) must still be offered `EmissionStrategy::TemplatedUnderlyingTokens`, the
-//! only candidate whose lexicon carries template-aware morphotactic structure (slot ordering and
-//! bounded slot occupancy) rather than the plan-composed baseline's deliberately-minimal
-//! self-looping `uflexc` emitter (`uflexc`'s own module doc: it does not generalize to templated
-//! grammars).
-//!
-//! Before this change, `token-cascade-morphology` (the family that requests this strategy,
-//! `recipe_registry::SEEDS`) was gated on `Applicability::HasPhonology`
-//! (`!grammar.prules.is_empty()`), a structural fact this fixture does not have: it declares
-//! `<AffixTemplate>` slots but zero `<PhonologicalRule>`/`<MetathesisRule>` elements anywhere
-//! (`words.yaml`'s own header comment). So the only underlying model ever offered for a grammar
-//! shaped this way was `uflexc`, and the template-aware candidate was never even materialized to
-//! compare against it -- the exact defect this test pins shut.
-//!
-//! `Applicability::HasPhonologyOrTemplates` widens the gate to `HasPhonology OR HasTemplates`,
-//! evaluated structurally over the same two `Grammar` fields those two narrower variants already
-//! read. This file is deliberately separate from `recipe_emission_strategy_gate.rs` (which pins the
-//! phonology-bearing case, `recipe-gated-generic`) rather than folded into it, so the phonology-free
-//! routing gap has its own named, independently-failing pin.
+//! Closes a routing gap: a template-bearing grammar with no phonological rules must still be offered `EmissionStrategy::TemplatedUnderlyingTokens` via the widened `Applicability::HasPhonologyOrTemplates` gate, not only the plan-composed baseline's `uflexc` emitter.
+//! See `docs/research/pg-foma-templated-phonology-free-routing-notes.md` for why the old `HasPhonology`-only gate masked this and how the fix is verified beyond mere reachability.
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::{enumerate_default, EmissionStrategy};
@@ -69,8 +51,7 @@ fn token_cascade_candidate(
         .1
 }
 
-/// Scenario 1 from the spec: the templated, phonology-free fixture gets the token-cascade
-/// candidate in addition to the plan-composed baseline.
+/// The templated, phonology-free fixture gets the token-cascade candidate in addition to the plan-composed baseline.
 #[test]
 fn templated_phonology_free_fixture_offers_the_token_cascade_candidate() {
     let grammar = load("recipe-template-generic");
@@ -99,9 +80,7 @@ fn templated_phonology_free_fixture_offers_the_token_cascade_candidate() {
         "{FAMILY} must request the token-cascade compiler"
     );
 
-    // The requirement's second half: the candidate set must not be uflexc-only. At least one
-    // materialized candidate carries template-aware structure (a whole-grammar strategy), not just
-    // permutations/refinements of the plan-composed baseline.
+    // The candidate set must not be uflexc-only: at least one materialized candidate carries template-aware whole-grammar structure, not just refinements of the plan-composed baseline.
     assert!(
         candidates
             .iter()
@@ -114,10 +93,7 @@ fn templated_phonology_free_fixture_offers_the_token_cascade_candidate() {
     );
 }
 
-/// Scenario 2 from the spec: a phonology-bearing grammar's offering is unchanged by the widened
-/// predicate. `recipe-gated-generic` has non-empty `prules`, so `HasPhonology` was already true and
-/// `HasPhonologyOrTemplates` must stay true for the same reason -- this is a regression pin, not new
-/// behavior.
+/// A phonology-bearing grammar's offering is unchanged by the widened predicate: `HasPhonology` was already true, so `HasPhonologyOrTemplates` stays true for the same reason -- a regression pin, not new behavior.
 #[test]
 fn phonology_bearing_fixture_offering_is_unchanged() {
     let grammar = load("recipe-gated-generic");
@@ -141,15 +117,7 @@ fn phonology_bearing_fixture_offering_is_unchanged() {
     );
 }
 
-/// Correctness, not just reachability: the widened routing is only useful if the compiler it points
-/// at actually builds for a phonology-free grammar. Before this change,
-/// `compile_templated_morphotactics` unconditionally turned "zero declared phonological rules" into
-/// `TemplatedCompileError::NoCompiledRules` (an empty `prules_in_order` composes to `Ok(None)`,
-/// which was then `.ok_or(NoCompiledRules)`-ed into an error) -- a guaranteed build failure that the
-/// old `HasPhonology` gate happened to mask by never offering the family in the first place. Now
-/// that the family IS offered here, this asserts the candidate reaches a real, non-`BuildFailed`
-/// verdict with non-zero proposals: an honest confirm/mismatch is a real result, but a build failure
-/// would mean the routing fix handed the optimizer a candidate that can never do anything.
+/// Correctness, not just reachability: asserts the candidate reaches a real, non-`BuildFailed` verdict with non-zero proposals on a phonology-free grammar (see `docs/research/pg-foma-templated-phonology-free-routing-notes.md`).
 #[test]
 fn templated_candidate_builds_and_proposes_on_the_phonology_free_fixture() {
     let fixtures = discover();
@@ -159,9 +127,7 @@ fn templated_candidate_builds_and_proposes_on_the_phonology_free_fixture() {
         .expect("missing staged fixture recipe-template-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
 
-    // Only the cheapest word (the C(12,0)=1 boundary case, `words.yaml`'s first entry): this test
-    // is about the compiler reaching a real verdict, not about replaying the fixture's full
-    // 2^12-analysis pathology (that budget-gated replay belongs to the promoted-fixture/CLI gates).
+    // Only the cheapest word (the boundary case, `words.yaml`'s first entry): this test is about the compiler reaching a real verdict, not replaying the fixture's full analysis pathology.
     let words: Vec<String> = fixture
         .load_words_yaml()
         .words
@@ -196,9 +162,7 @@ fn templated_candidate_builds_and_proposes_on_the_phonology_free_fixture() {
         "a non-build-failed verdict with zero proposals is a vacuous pass: {:?}",
         evaluation.score
     );
-    // The single-word boundary case (no optional slot fires) has exactly one valid analysis and
-    // nothing else in the fixture's grammar to trip on, so this compiler should reach real
-    // confirmation on it, not merely "did not crash".
+    // The single-word boundary case has exactly one valid analysis, so this compiler should reach real confirmation on it, not merely "did not crash".
     assert!(
         evaluation.certification.selectable(),
         "expected FullHcConfirmed on the trivial zero-slot word, got {:?}",

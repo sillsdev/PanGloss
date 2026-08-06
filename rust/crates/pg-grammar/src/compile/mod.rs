@@ -134,12 +134,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         slot_rules: HashMap::new(),
     };
 
-    // --- strata: Morphology (unordered), Clitics (unordered), Surface (linear) -----------------
-    // HCLoader.cs:227-233. Custom `<Strata>` reorganization is not implemented;
-    // a snapshot that declares one gets a warning and the default 3-stratum layout regardless.
-    // A present-but-EMPTY `<Strata />` element (Amharic authors one) parses to zero stratum rule
-    // lists in HCLoader too (`m_strata.Count > 0` gates `CreateStrata`, HCLoader.cs:353-356) —
-    // that is the default layout, not a custom reorganization, so no warning for it.
+    // Strata: Morphology (unordered), Clitics (unordered), Surface (linear). Custom `<Strata>` reorganization is not implemented; a snapshot that declares one gets a warning and the default 3-stratum layout regardless.
     if snapshot
         .morphology
         .parser_parameters
@@ -188,11 +183,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
     // --- phonological rules ----------------------------------------------------------------------
     let (prules, morphology_prules, clitic_prules) = rules::build(snapshot, &ctx, &mut warnings)?;
 
-    // --- ad-hoc co-occurrence rules ---------------------------------------------------------------
-    // Post-hoc, mirroring HCLoader's own placement (after every entry/rule is loaded, so the
-    // guid -> registry maps `acc.allomorph_guid_index`/`acc.msa_guid_index` are fully populated).
-    // `xml_key` doubles as the MSA/entry guid this morpheme was built from (see lexicon.rs /
-    // affixes.rs, which set it to exactly that guid).
+    // Ad-hoc co-occurrence rules: post-hoc, run after every entry/rule is loaded so the guid -> registry maps are fully populated; `xml_key` doubles as the MSA/entry guid this morpheme was built from.
     for (i, m) in acc.morphemes.iter().enumerate() {
         acc.msa_guid_index
             .insert(m.xml_key.clone(), MorphemeId(i as u32));
@@ -266,31 +257,17 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         strata,
     };
 
-    // Mrule + morpheme-co-occurrence reachability compaction (`reachability::compact_mrules`'s
-    // doc has the full rationale): a rule whose only slot lives in a disabled template — or a
-    // morpheme co-occurrence rule targeting such a rule's MSA family — is built unconditionally
-    // upstream but never lands in a stratum's own list or an (already enabled-only) template's
-    // slot content, exactly mirroring how HCLoader's own exporter would never visit it. Runs
-    // before the natural-class compaction below so a class referenced *only* from a soon-to-be-
-    // dropped orphan rule is correctly treated as unreferenced too, not spuriously kept.
+    // Mrule + morpheme-co-occurrence reachability compaction (see `reachability::compact_mrules`'s own doc); runs before the natural-class compaction below so an orphan rule's class is correctly treated as unreferenced too.
     reachability::compact_mrules(&mut grammar, &mut warnings);
     reachability::trim_unreachable_morpheme_coocurrence(&mut grammar);
 
-    // `pg-fwdata` extracts every declared natural class unconditionally, but HCLoader's own
-    // `m_language.NaturalClasses` only ever contains ones actually referenced somewhere in the
-    // grammar (lazy, on-demand construction — see `natclass::compact_to_referenced`'s doc for the
-    // full rationale and a confirmed live-data example). Compact now that every other compile step
-    // has had its chance to resolve a reference.
+    // `pg-fwdata` extracts every declared natural class unconditionally, so compact to only those actually referenced now that every other compile step has had its chance to resolve one (see `natclass::compact_to_referenced`'s own doc).
     natclass::compact_to_referenced(&mut grammar, any_nc, natclass_last_unnamed);
 
     Ok((grammar, warnings))
 }
 
-/// Ad-hoc co-occurrence rules resolved against the now-complete `acc.allomorph_guid_index` /
-/// `acc.msa_guid_index` registries — mirrors `crate::load::load`'s post-strata pass, but simpler:
-/// the snapshot references allomorphs/MSAs by GUID directly (no XML-id indirection to resolve
-/// first). See `docs/fwdata-import-plan.md` §1: a dangling reference here is exactly the "stale
-/// `MoMorphAdhocProhib`" tolerance case — a warning, never a hard failure.
+/// Ad-hoc co-occurrence rules resolved against the now-complete `acc.allomorph_guid_index`/`acc.msa_guid_index` registries; a dangling reference is a warning, never a hard failure.
 fn strata_assign_co_occurrence(snapshot: &Snapshot, acc: &mut Acc, warnings: &mut Vec<String>) {
     use pg_snapshot::morphology::AdhocProhibition;
     use pg_snapshot::morphology::Adjacency as SnapAdjacency;
@@ -409,9 +386,7 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, acc: &mut Acc, warnings: &mu
     }
 }
 
-// =================================================================================================
 // Shared read-only context + mutable accumulator (mirrors `crate::load`'s `Ro`/`Acc` split).
-// =================================================================================================
 
 /// Read-only tables built once, up front, and shared by every later compilation phase.
 pub(crate) struct Ctx<'a> {
@@ -430,8 +405,7 @@ pub(crate) struct Ctx<'a> {
     pub pos: &'a features::PosTable,
     pub stem_name_by_guid: &'a HashMap<String, StemNameId>,
     pub mpr: &'a mpr::MprTables,
-    /// Every declared environment, by guid — resolved lazily wherever an allomorph/MSA
-    /// references one (`docs/fwdata-import-plan.md`'s environment-string tokenization).
+    /// Every declared environment, by guid — resolved lazily wherever an allomorph/MSA references one.
     pub env_by_guid: &'a HashMap<&'a str, &'a pg_snapshot::phonology::Environment>,
     pub default_vernacular_ws: Option<String>,
     pub default_analysis_ws: Option<String>,

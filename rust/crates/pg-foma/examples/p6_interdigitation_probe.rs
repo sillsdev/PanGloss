@@ -1,14 +1,4 @@
-//! Interdigitation feasibility probe: does Amharic's 7 phonological rules — including
-//! prule6/prule7, the 20-alpha-variable CV-merger that is the load-bearing test of the
-//! tuple-indexed cost model — compile and compose via `pg_foma::replace`? Scope: COMPILE +
-//! tuple-expansion counts + composition sizes only. NO recall gate (the underlying-form lexc
-//! emitter in `pg_foma::uflexc`
-//! is Indonesian-scoped, template-less-morphotactics only; Amharic uses `<AffixTemplate>` slots
-//! this prototype's emitter never attempts) and NO `pg_foma::emit::emit()` call (that is the
-//! Aweti-scale OOM this whole effort routes around, and Amharic's emitter path shares the same
-//! junction/composite probing machinery).
-//!
-//! Run: `cargo run --release -p pg-foma --example p6_amharic_probe`
+//! Interdigitation feasibility probe: do Amharic's phonological rules, including a 20-alpha-variable CV-merger, compile and compose via `pg_foma::replace`? Scope is compile + tuple-expansion + composition sizes only -- no recall gate and no `pg_foma::emit::emit()` call, since the underlying-form emitter doesn't yet support Amharic's `<AffixTemplate>` slots.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -62,8 +52,7 @@ fn run() {
         rules_in_order.len()
     );
 
-    // Per-rule compile attempt (isolated — a rule that fails to compile alone should not block
-    // measuring the others), with timing and tuple reports.
+    // Per-rule compile attempt, isolated so one failure doesn't block measuring the others.
     for pr in &rules_in_order {
         let PhonRuleDef::Rewrite(r) = pr else {
             println!("{:?}: metathesis, not attempted", pr);

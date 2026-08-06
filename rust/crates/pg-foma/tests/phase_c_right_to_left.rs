@@ -1,39 +1,4 @@
-//! `Dir::RightToLeft` REAL directional semantics, via
-//! `pg_foma::replace::compile_rtl_branch_net`'s reversal-plus-safety-net-union construction
-//! (that function's own doc: reverse the mirror rule, `fsm_union` with the plain
-//! `LeftToRight`-style compile — a documented, conservative response to a real, empirically-
-//! verified gap in this repo's own oracle, see the "Known, out-of-scope oracle gap" section
-//! below).
-//!
-//! Synthetic, delanguaged fixtures ("synthetic data only"), named by construct: `rtl-plain`,
-//! `rtl-feature-environment`, `rtl-deletion`, `rtl-epenthesis`, `rtl-distinct-leftmost-rightmost`.
-//! Each (except the last) is a
-//! proposer-to-confirm CONTAINMENT check against `pg_parse::Morpher` (this codebase's own full-HC
-//! oracle), following `tests/two_table_symbol_divergence.rs`'s established methodology exactly
-//! (`fst_candidate_set`/`oracle_candidate_set`, decode via `pg_foma::tags`).
-//!
-//! ## Formerly out-of-scope oracle gap — FIXED (pg-rules DIRECTION-BLIND pick-order fix)
-//! `pg_rules::rewrite`'s own `Iterative` synthesis/analysis loops (`syn_feature`/`syn_narrow`/
-//! `probe_narrow`/`ana_feature`) used to pick which of several candidate spans to act on first via
-//! an ASCENDING sort with NO dependence on `rule.dir`. Verified directly at the time (a throwaway
-//! probe, not checked in): a hand-built `aa -> b` rule applied via `pg_rules::rewrite::synthesize`
-//! to `"aaa"` returned `"ba"` whether the rule was declared `LeftToRight` or
-//! `rightToLeftIterative` — IDENTICAL output; this repo's own full-HC oracle was, at the time,
-//! direction-BLIND for "which overlapping match wins". That gap has since been fixed in
-//! `pg_rules::rewrite` (see `rewrite.rs`'s `ordered_spans` — candidates are now tried in
-//! `target.direction()`'s own scan order, leftmost-first for `LeftToRight`, rightmost-first for
-//! `RightToLeft`, mirroring C# `IterativePhonologicalPatternRule.Apply`). This file's own
-//! `rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_the_current_oracle`
-//! test (below) originally pinned the gap as data (oracle recalls "aaa" only as "ba", never "ab",
-//! for a `RightToLeft`-declared rule) and now pins its correction (oracle recalls "aaa" only as
-//! "ab", never "ba", for the same rule) — the flip the test's own pre-fix comment anticipated as
-//! "the expected, welcome signal to revisit this test". `replace.rs`'s plain∪reversed union
-//! (`compile_rtl_branch_net`'s safety net, kept UNCHANGED by the pg-rules fix — this file's crate is
-//! not touched by that change) still recall-safely PROPOSES both "ba" and "ab" for this query, so
-//! the containment check below is now a strict superset (not equality) on the "ba" side: the union
-//! could in principle be tightened to drop the plain/`LeftToRight`-style branch now that the oracle
-//! no longer needs it for a genuinely `RightToLeft`-declared rule, but recall safety never demanded
-//! that tightening (a superset is always safe) and this file does not attempt it.
+//! `Dir::RightToLeft` containment tests against `pg_parse::Morpher`, via `compile_rtl_branch_net`'s reversal-plus-safety-net-union construction.
 
 mod common;
 
@@ -71,8 +36,7 @@ fn entry_id_of(g: &Grammar, xml_id: &str) -> LexEntryId {
     )
 }
 
-/// Every DECODED `apply_up` candidate for `query` against `net` -- the FST-proposer half of the
-/// containment check (`tests/two_table_symbol_divergence.rs`'s own helper, reused verbatim).
+/// Every decoded `apply_up` candidate for `query` against `net` -- the FST-proposer half of the containment check.
 fn fst_candidate_set(net: &foma::types::Fsm, query: &str) -> HashSet<(i32, Vec<u32>)> {
     let mut out = HashSet::new();
     let mut handle = apply_init(net);
@@ -87,8 +51,7 @@ fn fst_candidate_set(net: &foma::types::Fsm, query: &str) -> HashSet<(i32, Vec<u
     out
 }
 
-/// The full-HC oracle's own candidate set for `surface`, restricted to `allowed_morphemes`
-/// (`tests/two_table_symbol_divergence.rs`'s own helper, reused verbatim).
+/// The full-HC oracle's candidate set for `surface`, restricted to `allowed_morphemes`.
 fn oracle_candidate_set(
     morpher: &Morpher,
     surface: &str,
@@ -103,8 +66,7 @@ fn oracle_candidate_set(
         .collect()
 }
 
-/// Compiles `rule` (stratum 0's own table) via `compile_and_compose_rules_with_budget`, composes
-/// it after `lexc_source`, and minimizes -- the shared plumbing every witness below uses.
+/// Compiles `rule` against `lexc_source` and minimizes -- the shared plumbing every witness below uses.
 fn compile_net(
     g: &Grammar,
     alphabet: &SegAlphabet,
@@ -139,12 +101,7 @@ fn compile_net(
     fsm_minimize(&opts, fsm_compose(&opts, lexc_net, rule_net))
 }
 
-// =================================================================================================
-// rtl-plain: reuses `pg_grammar_gen`'s existing `rtl_rule_count` recipe (single fixed-segment LHS,
-// no environment -- direction cannot matter here, since a single segment's own occurrences never
-// overlap with each other). Proves basic compile success + containment now that the honest-skip
-// gate this file used to pin is gone.
-// =================================================================================================
+// rtl-plain: single fixed-segment LHS, no environment -- direction cannot matter since occurrences never overlap.
 
 fn plain_recipe() -> Recipe {
     Recipe {
@@ -228,8 +185,7 @@ fn rtl_plain_rule_now_compiles_and_matches_oracle() {
         "CONTAINMENT: FST propose+decode must EQUAL the oracle for surface {out_text:?}"
     );
 
-    // The root's own RAW (un-rewritten) spelling must never itself be a valid surface (obligatory
-    // rule; no ambiguity possible with a single-segment LHS and no environment).
+    // The raw, un-rewritten spelling must never be a valid surface (obligatory rule, no ambiguity possible here).
     let oracle_raw = oracle_candidate_set(&morpher, &in_text, &allowed);
     assert!(
         oracle_raw.is_empty(),
@@ -237,14 +193,7 @@ fn rtl_plain_rule_now_compiles_and_matches_oracle() {
     );
 }
 
-// =================================================================================================
-// rtl-feature-environment: a feature-changing (LHS/RHS both width 1) rule gated by a real, ASYMMETRIC
-// two-sided environment -- proves `left_env`/`right_env` genuinely swap-and-reverse under the
-// mirror construction (a wrong swap would silently gate on the WRONG side and this containment
-// check would fail), with only one valid match per word (no leftmost/rightmost ambiguity) so LTR-
-// style and reversed constructions necessarily agree in OUTCOME here -- this is the "ordinary case
-// stays correct" witness, not the discriminating one.
-// =================================================================================================
+// rtl-feature-environment: an asymmetric two-sided environment proves left_env/right_env swap-and-reverse correctly under the mirror construction.
 
 const RTL_FEATURE_ENV_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -366,31 +315,16 @@ fn rtl_feature_environment_swap_matches_oracle() {
         "CONTAINMENT for 'xby' (right-context-gated devoice)"
     );
 
-    // "xay": the raw, un-rewritten spelling must never surface (rule is obligatory whenever both
-    // sides of the environment hold).
+    // "xay": the raw, un-rewritten spelling must never surface (rule is obligatory whenever both sides of the environment hold).
     let oracle_raw = oracle_candidate_set(&morpher, "xay", &allowed);
     assert!(
         oracle_raw.is_empty(),
         "'xay' (obligatorily rewritten) must have no oracle analysis"
     );
 
-    // "xa": entryNoRightContext's own (unchanged) spelling -- right context 'y' is ABSENT, so the
-    // devoice rule must NOT fire. If left_env/right_env were swapped-but-not-also-reversed (or not
-    // swapped at all) this environment check would silently gate on the wrong side and the FST
-    // would either wrongly devoice this too (making `fst_unchanged` empty/coincide with `fst_out`)
-    // or reject it outright (empty) -- either failure mode is caught below.
-    //
-    // FST-ONLY (no oracle comparison here): `pg_parse::Morpher` has an independent, PRE-EXISTING,
-    // out-of-scope limitation for this specific shape -- discovered while writing this test,
-    // unrelated to RTL direction (reproduces identically for `LeftToRight`). pg_rules::rewrite's
-    // analysis side (its private ana_feature) rejects ANY surface containing an occurrence of the
-    // rule's OWN LHS class (here, ncVoiced/'a') outright, REGARDLESS of whether the environment
-    // actually holds there -- i.e. it does not correctly recognize "the class is present but the
-    // rule's own environment doesn't license it, so leave it be" as a valid non-application. This
-    // is a characteristic of `pg_rules::rewrite`'s environment-gated-obligatory-rule analysis,
-    // entirely outside `replace.rs`'s single-owner boundary this change holds to -- flagged for a
-    // future investigation, not silently avoided (see this file's own top doc for the OTHER,
-    // direction-specific oracle gap this change already documents).
+    // "xa": entryNoRightContext's own unchanged spelling -- right context 'y' absent, devoice must not fire (caught below if the swap gates the wrong side).
+
+    // FST-only (no oracle check): `pg_rules::rewrite`'s `ana_feature` treats any surface containing the rule's own LHS class as non-matching outright, regardless of whether the environment holds -- a pre-existing limitation, independent of direction.
     let query_unchanged = alphabet.encode_query("xa").expect("'xa' must segment");
     let fst_unchanged = fst_candidate_set(&net, &query_unchanged);
     assert!(
@@ -404,10 +338,7 @@ fn rtl_feature_environment_swap_matches_oracle() {
     );
 }
 
-// =================================================================================================
-// rtl-deletion: RHS empty ("0"), gated by an environment -- proves the `"0"` deletion literal and
-// the environment swap both survive the reversal construction together.
-// =================================================================================================
+// rtl-deletion: empty RHS ("0"), gated by an environment -- proves the deletion literal and the environment swap both survive the reversal construction.
 
 const RTL_DELETION_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -529,8 +460,7 @@ fn rtl_deletion_matches_oracle() {
         "'xdy' (obligatorily deleted) must have no oracle analysis"
     );
 
-    // "xd": entryNoRightContext's own (unchanged) spelling -- right context 'y' absent, deletion
-    // must not fire.
+    // "xd": entryNoRightContext's own unchanged spelling -- right context 'y' absent, deletion must not fire.
     let query_unchanged = alphabet.encode_query("xd").expect("'xd' must segment");
     let fst_unchanged = fst_candidate_set(&net, &query_unchanged);
     let oracle_unchanged = oracle_candidate_set(&morpher, "xd", &allowed);
@@ -545,11 +475,7 @@ fn rtl_deletion_matches_oracle() {
     );
 }
 
-// =================================================================================================
-// rtl-epenthesis: empty LHS (insertion), gated by an environment -- proves the `"[..]"` epenthesis
-// literal survives the reversal construction (the mirror rule's own LHS/RHS are both still empty/
-// single-segment; only the environment swap is exercised structurally here, same as deletion).
-// =================================================================================================
+// rtl-epenthesis: empty LHS (insertion), gated by an environment -- proves the epenthesis literal survives the reversal construction.
 
 const RTL_EPENTHESIS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -610,21 +536,7 @@ const RTL_EPENTHESIS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-/// **FST-only** (not a `pg_parse::Morpher` containment check -- see below): `Kind::Epenthesis`
-/// (`rewrite.rs`'s own `classify`, `rule.lhs.nodes.is_empty()`) has, per `pg_rules::rewrite`'s own
-/// doc (`ana_epenthesis_target_lanes`'s neighboring comment), **zero occurrences in any reference
-/// grammar** -- its analysis-side unapplication (`ana_epenthesis`) is, discovered while writing
-/// this test, effectively unexercised: `pg_parse::Morpher` finds NO analysis at all for this
-/// fixture's surface forms, INCLUDING the trivial "xOnly" root's own unaffected spelling `"x"` --
-/// and, verified directly, this reproduces byte-identically with the SAME fixture's rule declared
-/// plain `LeftToRight` (no `multipleApplicationOrder` attribute at all). This is therefore a
-/// separate, pre-existing, direction-INDEPENDENT gap in `pg_rules::rewrite`'s epenthesis analysis
-/// path, entirely outside `replace.rs`'s single-owner boundary -- flagged for a future
-/// investigation, not silently avoided (distinct from the "Known, out-of-scope oracle gap" this
-/// file's top doc documents for the DIRECTION-specific pick-order dimension). This test therefore
-/// verifies the reversal construction's OWN correctness directly against the compiled `Fsm`
-/// (`apply_up`/`apply_down`, no oracle needed), the same oracle-independent style
-/// `rtl_distinct_leftmost_rightmost_...`'s first half already uses.
+/// FST-only (not an oracle check): `pg_parse::Morpher` finds no analysis at all for this fixture's surfaces -- a pre-existing, direction-independent gap in `pg_rules::rewrite`'s epenthesis analysis -- so this checks the reversal construction directly against the compiled `Fsm`.
 #[test]
 fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
     let g = load(RTL_EPENTHESIS_XML);
@@ -658,9 +570,7 @@ fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
 
     let net = compile_net(&g, &alphabet, &g.prules[0], &uemit.lexc_source);
 
-    // "xey": entryXY's own surface after obligatory insertion of 'e' between 'x' and 'y'. The FST
-    // must PROPOSE it (decode to a non-empty candidate set) -- this is the recall half of the
-    // propose/confirm contract, verified independent of the broken oracle above.
+    // "xey": entryXY's surface after obligatory insertion of 'e' -- the FST must propose it (recall half of propose/confirm).
     let query_xey = alphabet.encode_query("xey").expect("'xey' must segment");
     let fst_xey = fst_candidate_set(&net, &query_xey);
     assert!(
@@ -676,8 +586,7 @@ fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
         "FST must not propose anything for 'xy' (obligatorily inserted-into)"
     );
 
-    // "x": entryXOnly's own (unchanged) spelling -- right context 'y' absent, insertion must not
-    // fire. Must still be proposed, and must decode to a DIFFERENT candidate than 'xey'.
+    // "x": entryXOnly's own unchanged spelling -- right context 'y' absent, insertion must not fire; must still be proposed and decode differently than 'xey'.
     let query_x = alphabet.encode_query("x").expect("'x' must segment");
     let fst_x = fst_candidate_set(&net, &query_x);
     assert!(
@@ -690,23 +599,14 @@ fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
     );
 }
 
-// =================================================================================================
-// rtl-distinct-leftmost-rightmost: the spec's own discriminating scenario ("Direction changes the
-// result"). See this file's own top doc, "Formerly out-of-scope oracle gap — FIXED", for why this
-// witness now proves genuine FST-level directional divergence AND genuine oracle-level directional
-// correctness (the oracle's own pick-order gap is fixed), plus safe superset-containment against
-// the (still union-based, unchanged) FST relation.
-// =================================================================================================
+// rtl-distinct-leftmost-rightmost: the discriminating scenario where direction changes the result, at both the FST level and the (direction-aware) oracle level.
 
 #[test]
 fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_the_current_oracle()
 {
     let opts = FomaOptions::default();
 
-    // The bare automaton-level proof, independent of any grammar/oracle: "aa -> b" applied to
-    // "aaa" prefers the LEFTMOST match under plain foma `->` ("ba"), and the RIGHTMOST match under
-    // the reversal construction alone ("ab") -- see `compile_rtl_branch_net`'s own worked-example
-    // doc, which this pins byte-for-byte.
+    // Bare automaton-level proof, independent of any grammar/oracle: "aa -> b" on "aaa" prefers the leftmost match plain ("ba"), rightmost match reversed ("ab").
     let plain = fsm_parse_regex(&opts, "a a -> b", None, None).expect("plain compiles");
     let mut h = apply_init(&plain);
     assert_eq!(
@@ -726,8 +626,7 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
          of any oracle"
     );
 
-    // Now the full grammar-level containment check, using `compile_rewrite_rule_subset`'s real
-    // `Dir::RightToLeft` path (plain-union-reversed, module doc's safety-net rationale).
+    // Full grammar-level containment check, using the real `Dir::RightToLeft` path (plain-union-reversed).
     const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -814,29 +713,20 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
     let oracle_ba = oracle_candidate_set(&morpher, "ba", &allowed);
     let oracle_ab = oracle_candidate_set(&morpher, "ab", &allowed);
 
-    // FIXED (this file's top doc, "Formerly out-of-scope oracle gap"): `pg_rules::rewrite`'s
-    // Iterative pick-order now respects `rule.dir`, so for THIS rule (declared
-    // `rightToLeftIterative`) the oracle's own resynthesis of "aaa" is now "ab" (rightmost-
-    // preferring) -- it no longer recalls "ba" at all. Before the fix these two assertions were
-    // inverted (oracle recalled "ba", never "ab") -- exactly the flip the pre-fix comment here
-    // anticipated as "the expected, welcome signal to revisit this test".
-    assert!(oracle_ba.is_empty(), "FIXED: a RightToLeft-declared rule's oracle resynthesis of 'aaa' must no longer be 'ba': {oracle_ba:?}");
-    assert_eq!(oracle_ab.len(), 1, "FIXED: the oracle now recalls 'aaa' for 'ab' (rightmost-preferring, matching rule.dir=RightToLeft): {oracle_ab:?}");
+    // `pg_rules::rewrite`'s Iterative pick-order respects `rule.dir`: for this `rightToLeftIterative` rule, oracle resynthesis of "aaa" is "ab" (rightmost-preferring), never "ba".
+    assert!(
+        oracle_ba.is_empty(),
+        "a RightToLeft-declared rule's oracle resynthesis of 'aaa' must not be 'ba': {oracle_ba:?}"
+    );
+    assert_eq!(oracle_ab.len(), 1, "the oracle must recall 'aaa' for 'ab' (rightmost-preferring, matching rule.dir=RightToLeft): {oracle_ab:?}");
 
-    // RECALL SAFETY (never under-propose relative to the real oracle): the FST's compiled relation
-    // must still recall "aaa" for "ab" -- now the genuinely-correct direction, not just the
-    // reversed branch's own candidate.
+    // Recall safety: the FST's compiled relation must still recall "aaa" for "ab", the now-correct direction.
     assert_eq!(
         fst_ab, oracle_ab,
         "CONTAINMENT for 'ab': FST must recall exactly what the oracle confirms"
     );
 
-    // The 'ba' side is now a STRICT superset, not equality: `replace.rs`'s plain∪reversed union
-    // (`compile_rtl_branch_net`, unchanged by the pg-rules fix -- this crate is not touched by that
-    // change) still proposes 'ba' from its plain/LeftToRight-style safety-net branch, even though
-    // the now-correct oracle no longer confirms it for this genuinely-RightToLeft rule. Still
-    // recall-safe (a superset is always safe), just no longer tight -- see this file's top doc for
-    // why this over-proposal is a real, but not urgent, tightening opportunity left for later.
+    // 'ba' is now a strict superset, not equality: the union's plain-branch safety net still proposes it though the oracle no longer confirms it for this rule -- safe over-proposal, not a regression.
     assert!(!fst_ba.is_empty(), "the union's plain-branch safety net still proposes 'ba' (over-proposing, not a regression)");
     assert!(
         oracle_ba.is_subset(&fst_ba),
@@ -844,43 +734,15 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
     );
 }
 
-// =================================================================================================
-// `PatternNode::Anchor`/`PatternNode::Segments` are no longer disqualifying for a
-// `Dir::RightToLeft` rewrite rule (a same-table `Segments`, any `Anchor` --
-// `crate::lower::PatternLowerScope::RewriteRuleCompile`'s own doc).
-// =================================================================================================
+// `PatternNode::Anchor`/`PatternNode::Segments` are no longer disqualifying for a `Dir::RightToLeft` rule (a same-table `Segments`, any `Anchor`).
 
-/// **Particular care**: an anchor is a claim about a WORD EDGE, and
-/// reversal SWAPS which edge is which. This is the bare-automaton-level proof (independent of any
-/// grammar/oracle, mirroring `rtl_distinct_leftmost_rightmost...`'s own first half) that
-/// `compile_rtl_branch_net`'s mirror-and-reverse construction swaps an `Anchor(Right)` to the
-/// CORRECT opposite edge, not the wrong one.
-///
-/// # Why this is the right shape of "differs from LeftToRight" proof for `Anchor` specifically
-/// Unlike the leftmost/rightmost-ambiguity trick (`rtl_distinct_leftmost_rightmost...`), an
-/// anchor-bearing environment, when it is the sole deciding factor, structurally FORCES a UNIQUE
-/// match position (that is the entire point of an anchor -- pin absolutely to one edge) --
-/// regardless of whether the owning rule is declared `LeftToRight` or `RightToLeft`, a CORRECT
-/// compile of either direction recognizes the identical final language for this shape (both
-/// correctly identify the one true word-final occurrence). A full grammar-level "compile as RTL vs.
-/// compile as LTR, compare the accepted languages" black-box test would therefore see NO difference
-/// even for a perfectly correct implementation, and — worse — would ALSO see no difference for a
-/// broken one that silently no-ops the reversed branch, making that style of test unable to catch
-/// the exact mistake this task's own instructions warn about ("getting this backwards would
-/// silently mis-anchor every RTL rule with a boundary"). The right proof is instead this WHITE-BOX
-/// one: compile the reversed branch ALONE (mirror + `fsm_reverse`, no union) and confirm it
-/// independently computes the SAME correct, word-final answer the plain branch does -- exercising
-/// genuinely direction-relevant machinery (the swap-then-reverse), not a no-op, and DEMONSTRABLY
-/// capable of catching a backwards swap (the final negative-control assertion below shows the
-/// naive, unreversed hypothesis really does give a DIFFERENT, wrong answer).
+/// Proves `compile_rtl_branch_net` swaps `Anchor(Right)` to the correct opposite edge on reversal.
+/// Why this must be a white-box proof: `docs/research/pg-foma-replace-design-notes.md`, "`rtl_anchor_reversal_swaps_the_correct_edge`".
 #[test]
 fn rtl_anchor_reversal_swaps_the_correct_edge() {
     let opts = FomaOptions::default();
 
-    // Plain (un-reversed) compile: "a -> b || _ .#." means "rewrite 'a' to 'b' only when
-    // immediately followed by the end of the word" -- unambiguous regardless of any leftmost/
-    // rightmost preference (a width-1 LHS never overlaps itself). Applied to "aaa" (three 'a's),
-    // only the LAST one is genuinely word-final.
+    // Plain (un-reversed) compile: "a -> b || _ .#." rewrites 'a' only immediately before the word end; on "aaa" only the last 'a' is word-final.
     let plain = fsm_parse_regex(&opts, "a -> b || _ .#.", None, None).expect("plain compiles");
     let mut h = apply_init(&plain);
     assert_eq!(
@@ -889,13 +751,7 @@ fn rtl_anchor_reversal_swaps_the_correct_edge() {
         "the ORIGINAL rule's own plain compile must rewrite only the word-FINAL 'a'"
     );
 
-    // `compile_rtl_branch_net`'s own mirror construction, reproduced by hand (module doc's worked
-    // recipe, `Slot::Anchor`'s own doc): reverse LHS/RHS (both palindromic single characters here,
-    // unchanged), and SWAP the environment while reversing it -- `mirror_left = reverse(right_env)`.
-    // `right_env` here is JUST an `Anchor(Right)` node (a one-element slot list), so its own
-    // reversal is itself, and it becomes the MIRROR rule's own LEFT environment: rendered as `.#. _`
-    // (an anchor at the very front of the LEFT side), meaning "must be at the START of the
-    // mirror/reversed representation" in the intermediate (still-forward) mirror compile.
+    // `compile_rtl_branch_net`'s mirror construction, reproduced by hand: swap-and-reverse the environment (`mirror_left = reverse(right_env)`); `Anchor(Right)` reverses to itself, becoming the mirror's own left environment, rendered `.#. _`.
     let mirror = fsm_parse_regex(&opts, "a -> b || .#. _", None, None).expect("mirror compiles");
     let reversed = fsm_reverse(mirror);
     let mut h = apply_init(&reversed);
@@ -907,10 +763,7 @@ fn rtl_anchor_reversal_swaps_the_correct_edge() {
          giving \"baa\""
     );
 
-    // Load-bearing NEGATIVE control: the WRONG hypothesis (anchor treated as "word-initial" instead
-    // of "word-final", exactly what SKIPPING the reverse step -- or getting the swap backwards --
-    // would produce) really does give a DIFFERENT, wrong answer, confirming `fsm_reverse` is
-    // load-bearing here, not incidentally a no-op that happened to still look right above.
+    // Negative control: the wrong hypothesis (skipping the reverse step) really does give a different, wrong answer, confirming `fsm_reverse` is load-bearing here, not an incidental no-op.
     let mut h = apply_init(&mirror_unreversed_hypothesis(&opts));
     assert_eq!(
         apply_down(&mut h, Some("aaa")),
@@ -949,12 +802,7 @@ fn load_fixture(path: std::path::PathBuf) -> Grammar {
     load(&xml)
 }
 
-/// **Containment test** for the `Anchor` shape (`conformance-staging/edge-cases/
-/// right-to-left-anchor-environment`): the REAL compiled path
-/// (`compile_and_compose_rules_with_budget`, via `compile_rewrite_rule_subset` ->
-/// `compile_rtl_branch_net`) must propose EXACTLY what `pg_parse::Morpher` confirms, for the
-/// correctly-rewritten surface AND for the raw, un-rewritten one (which the oracle must reject
-/// outright, the obligatory-rule witness).
+/// Containment test for the `Anchor` shape: the real compiled path must propose exactly what `pg_parse::Morpher` confirms, for the rewritten surface and (empty) for the raw one.
 #[test]
 fn rtl_anchor_fixture_matches_oracle() {
     let g = load_fixture(anchor_fixture_path());
@@ -1010,8 +858,7 @@ fn rtl_anchor_fixture_matches_oracle() {
         let _ = expected_root_entry; // named for readability only
     }
 
-    // "aaa"/"aa": the roots' own RAW, un-rewritten underlying shapes -- obligatory rule, never a
-    // valid surface for either root.
+    // "aaa"/"aa": the roots' own raw, un-rewritten shapes -- obligatory rule, never a valid surface for either root.
     for word in ["aaa", "aa"] {
         let oracle_raw = oracle_candidate_set(&morpher, word, &allowed);
         assert!(
@@ -1021,10 +868,7 @@ fn rtl_anchor_fixture_matches_oracle() {
     }
 }
 
-/// **Containment test** for the `Segments` shape (`conformance-staging/edge-cases/
-/// right-to-left-segments-environment`): the REAL compiled path must propose exactly what
-/// `pg_parse::Morpher` confirms, for a `Segments`-authored right environment (same table as the
-/// rule's own stratum).
+/// Containment test for the `Segments` shape: the real compiled path must propose exactly what `pg_parse::Morpher` confirms, for a `Segments`-authored right environment (same table).
 #[test]
 fn rtl_segments_environment_fixture_matches_oracle() {
     let g = load_fixture(segments_environment_fixture_path());
@@ -1095,8 +939,7 @@ fn rtl_segments_environment_fixture_matches_oracle() {
         "'ay' (obligatorily rewritten) must have no oracle analysis"
     );
 
-    // "a": ROOT2's own (unchanged) spelling -- no "y" follows, so the Segments-authored right
-    // environment correctly fails to match.
+    // "a": ROOT2's own unchanged spelling -- no "y" follows, so the Segments-authored right environment correctly fails to match.
     let query_a = alphabet.encode_query("a").expect("'a' must segment");
     let fst_a = fst_candidate_set(&net, &query_a);
     let oracle_a = oracle_candidate_set(&morpher, "a", &allowed);
@@ -1111,8 +954,7 @@ fn rtl_segments_environment_fixture_matches_oracle() {
     );
 }
 
-/// Cross-table `Segments` containment: the node is segmented against table 0 while the RTL rule
-/// belongs to table 1, with the shared `y` deliberately stored at different raw indices.
+/// Cross-table `Segments` containment: the node segments against table 0 while the RTL rule belongs to table 1, with the shared `y` at different raw indices in each.
 #[test]
 fn rtl_cross_table_segments_environment_matches_oracle() {
     let g = load_fixture(cross_table_segments_environment_fixture_path());
@@ -1168,36 +1010,8 @@ fn rtl_cross_table_segments_environment_matches_oracle() {
         assert_eq!(fst, oracle, "cross-table RTL containment for {word:?}");
     }
 }
-/// **Genuinely-differs-from-LeftToRight test** for the `Segments` shape (no oracle dependency --
-/// `pg_rules::rewrite`'s own pre-existing `width_matches` limitation for a `Segments`-shaped LHS,
-/// documented in `conformance-staging/edge-cases/right-to-left-segments-environment/STAGING.md`'s
-/// "A design note", makes an oracle-containment check unusable for THIS specific shape).
-///
-/// # Two things this test establishes, and why the SECOND is the "differs from LTR" proof
-/// 1. **End-to-end acceptance is real, both directions.** A real grammar whose LHS is authored as
-///    ONE inline `Segments` literal (`<Segments><PhoneticShape>aa</PhoneticShape></Segments>`)
-///    instead of two `<SimpleContext>` nodes now reports `is_fully_supported_shape() == true` and
-///    actually compiles (`compile_net` does not panic) — the emitter's pattern_slots step no
-///    longer refuses any Segments occurrence unconditionally. Both the LeftToRight- and
-///    RightToLeft-declared versions of this exact rule now compile instead of being silently
-///    skipped (`Ok(None)`).
-/// 2. **The reversal construction itself is genuinely direction-relevant, not a no-op, for THIS
-///    shape.** A candid finding from building this test: comparing the FULL compiled nets'
-///    `fst_candidate_set`s for `Dir::LeftToRight` vs. `Dir::RightToLeft` does NOT distinguish them
-///    here — a plain, unqualified `"a a -> b"` replace rule is a genuinely NONDETERMINISTIC
-///    transducer whose own admitted RELATION already contains both "aaa:ba" and "aaa:ab" pairs
-///    (verified directly: even the `Dir::LeftToRight` compile's `fst_candidate_set` proposes both),
-///    so the `Dir::RightToLeft` union adds nothing NEW at that level of observation for an
-///    unconstrained (no-environment) rule — a real, useful negative finding, not a bug to chase.
-///    The genuine divergence lives at `apply_down`'s single-PREFERRED-realization level (exactly
-///    what `rtl_distinct_leftmost_rightmost_...`'s own bare-automaton half already established for
-///    ordinary `<SimpleContext>`-authored "aa"): since `crate::lower::render_slots`'s
-///    `Slot::Fixed` arm renders identically regardless of whether the `CharDefId` came from a
-///    `PatternNode::CharDef`/`Context` or a `PatternNode::Segments` node (`Slot::Fixed` carries only
-///    the `CharDefId`, never its provenance), the Segments-authored LHS compiles to the EXACT SAME
-///    xre text ("a a -> b") that test already pins as direction-discriminating at the `apply_down`
-///    level — so that existing, already-verified proof transfers here VERBATIM, not by assumption:
-///    reproduced below (not merely cited) so this test stands on its own.
+/// No oracle dependency here (`width_matches` limits containment for a `Segments`-shaped LHS).
+/// Why full-net comparison misses direction while `apply_down` catches it: `docs/research/pg-foma-replace-design-notes.md`, "`rtl_segments_lhs_differs_from_left_to_right_at_the_fst_level`".
 #[test]
 fn rtl_segments_lhs_differs_from_left_to_right_at_the_fst_level() {
     fn xml(dir_attr: &str) -> String {
@@ -1293,9 +1107,7 @@ fn rtl_segments_lhs_differs_from_left_to_right_at_the_fst_level() {
         let _net = compile_net(&g, &alphabet, &g.prules[0], &uemit.lexc_source);
     }
 
-    // 2. The reversal construction is genuinely direction-relevant for this shape -- reproduced
-    // (not merely cited) from `rtl_distinct_leftmost_rightmost_...`'s own bare-automaton half,
-    // because a Segments-authored LHS provably renders to this EXACT text (module doc above).
+    // 2. The reversal construction is genuinely direction-relevant here too, since a Segments-authored LHS renders to the same xre text as the ordinary-authored case above.
     let opts = FomaOptions::default();
     let plain = fsm_parse_regex(&opts, "a a -> b", None, None).expect("plain compiles");
     let mut h = apply_init(&plain);

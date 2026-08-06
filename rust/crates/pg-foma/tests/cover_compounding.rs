@@ -1,60 +1,5 @@
-//! Proposer-to-confirm containment for `MorphRuleDef::Compounding`'s non-recursive case — the
-//! license-gated head/non-head cross product `crate::emit::compound_license` proposes (a
-//! `Gate`/`Compose`/`Union` shape authored directly against this crate's lexc "bounded compound
-//! loop" ahead of the emitters being wired to a real `Plan`), checked against `pg_parse::
-//! Morpher` (this codebase's own full-HC oracle) via `pg_foma::composite::FomaAnalyzer` (propose
-//! UNION peel → confirm, the real production pipeline) — following `tests/
-//! cover_realizational_morphology_constraints.rs`'s established methodology exactly.
-//!
-//! Synthetic, delanguaged fixture ("synthetic data only" — invented CVCV/CVC roots, no
-//! natural-language lexemes, named by construct). One
-//! `CompoundingRuleDef` ("cr1"), one subrule, `morphologicalRuleOrder="linear"`,
-//! `multipleApplication` at its DTD default (1), and no other `Compounding` rule anywhere in the
-//! grammar — the exact shape `compounding_recursive` (`crate::capability`) characterizes
-//! non-recursive, so this fixture's own `compose_envelope`/`evaluate_capability` verdict is
-//! `ConfirmOnly`, never `Refuse` (proven directly below, `fixture_is_non_recursive_and_confirm_only`).
-//!
-//! ## The (un)group-awareness contract this fixture pins
-//! `cr1.headProdRestrictionsMprFeatures="mpr1 mpr2"` (RULE-level, tested with `MprSet::compound_match`
-//! — group-UNAWARE) and `mpr1`/`mpr2` belong to an `all`-type `MprGroup`. `headA`'s own
-//! `ruleFeatures="mpr1 mpr3 mpr4"` carries ONLY `mpr1` from that group — `compound_match` admits it
-//! (flat overlap), but a group-aware `mpr_required_ok` reading of the SAME field would demand BOTH
-//! `mpr1` AND `mpr2` present (the `all`-type semantics) and WOULD wrongly exclude it — the exact
-//! "silently refusing stems `compound_match` would admit" bug this fixture pins.
-//! `headA_word_over_propose_confirm_prune` below is the load-bearing witness: headA must still be
-//! PROPOSED (`candidates_generated > 0`) and CONFIRMED (`confirmed == oracle exact`), proving
-//! `crate::emit::compound_license` uses `compound_match`, not the group-aware helper, for this
-//! field.
-//!
-//! The SUBRULE's own `requiredMPRFeatures="mpr3 mpr4"` (tested with the group-AWARE
-//! `Grammar::mpr_group_ok`, per the SAME contract, the opposite direction) belongs to a SECOND
-//! `all`-type `MprGroup`. `headB` carries `mpr3` but NOT `mpr4` — `mpr_group_ok` correctly excludes
-//! it (the `all`-type group demands both), matching confirm's own `synth_compound`/
-//! `synth_compound_subrule` gate exactly (`subrule_group_gate_excludes_partial_match_like_confirm`,
-//! below) — a complementary precision check (not itself the witness above, which is the
-//! RULE-level `headA` case above) proving the subrule field is NOT loosened to the flat
-//! `compound_match` test.
-//!
-//! ## Left to confirm, deliberately
-//! `cr1.nonHeadPartsOfSpeech="posHead"` (a syntactic-FS gate) is never checked by `crate::emit::
-//! compound_license` at all — `headA_plus_bad_pos_non_head_over_propose_confirm_prune` proves a
-//! non-head candidate the coarse MPR gate licenses (`non_head_prod_restrictions_mpr` is empty/
-//! vacuous) but whose OWN part of speech disagrees is still PROPOSED (over-approximation) and
-//! PRUNED entirely by confirm's `is_unifiable` check — never silently dropped by propose, never
-//! silently kept past confirm.
-//!
-//! ## A pre-existing (not this-change-introduced) compound-loop surface-order finding
-//! `crate::emit`'s "bounded compound loop" (module doc, "Bounded compound loop" — predates this
-//! change entirely) concatenates HEAD-root-text THEN non-head-root-text unconditionally (its own
-//! physical lexc continuation order, `TLPost -> TLCmp -> TLCmpRoots`), regardless of a
-//! `CompoundingSubruleDef`'s own `MorphologicalOutput` action order. This fixture's
-//! `<MorphologicalOutput>` therefore copies `h0` THEN `n0` (head-first, matching `pg_grammar_gen::
-//! build::compounding`'s own established convention) — an earlier draft used the non-head-first
-//! order (`<CopyFromInput index="n0"/><CopyFromInput index="h0"/>`) and found the FST proposer
-//! never proposes the corresponding "non-head+head"
-//! spelling at all when the two differ (a genuine, pre-existing scope limitation of the compound
-//! loop's over-approximation, newly SURFACED by this file's real oracle-containment run rather than
-//! introduced by it — recorded here, not silently routed around).
+//! Proposer-to-confirm containment for `MorphRuleDef::Compounding`'s non-recursive case: the license-gated head/non-head cross product `crate::emit::compound_license` proposes, checked against `pg_parse::Morpher` (the full-HC oracle) via `pg_foma::composite::FomaAnalyzer`. Synthetic, delanguaged fixture (invented CVCV/CVC roots).
+//! See `docs/research/pg-foma-cover-compounding-fixture-notes.md` for the group-(un)awareness contract, the left-to-confirm syntactic-FS gate, and a pre-existing compound-loop surface-order finding this fixture pins.
 
 mod common;
 
@@ -68,10 +13,7 @@ use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions, WordAnalysis};
 
-/// The synthetic fixture (module doc). `headA`/`headB`/`headC` isolate the three head-side MPR
-/// scenarios; `nonHeadOk`/`nonHeadBadPos` isolate the syntactic-FS-left-to-confirm scenario. No
-/// phonological rules, no templates (compounding needs neither — matches every other compounding
-/// fixture in this crate, e.g. `tests/phase_c_compounding.rs`'s own generator-built grammar).
+/// The synthetic fixture (module doc): `headA`/`headB`/`headC` isolate the three head-side MPR scenarios; `nonHeadOk`/`nonHeadBadPos` isolate the syntactic-FS-left-to-confirm scenario.
 fn fixture_xml() -> &'static str {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -185,9 +127,7 @@ fn analysis_set(v: &[WordAnalysis]) -> HashSet<(Vec<u32>, i32)> {
         .collect()
 }
 
-/// Runs `word` through both the real propose→confirm composite and the full-HC oracle, and asserts
-/// EXACT structured-set equality between them (never mere containment) — same helper shape as
-/// `cover_realizational_morphology_constraints.rs::assert_confirm_matches_oracle`.
+/// Runs `word` through both the real propose->confirm composite and the full-HC oracle, and asserts exact structured-set equality between them (never mere containment).
 fn assert_confirm_matches_oracle(
     analyzer: &mut FomaAnalyzer,
     morpher: &Morpher,
@@ -216,10 +156,7 @@ fn assert_confirm_matches_oracle(
     outcome
 }
 
-/// Deliverable 3 / capability.rs judgment call check: this fixture's OWN `CompoundingRuleDef` must
-/// characterize `compounding.non-recursive` and compose to `ConfirmOnly` — proving the containment
-/// tests below exercise this construct's own resting disposition, not an accident of some other
-/// predicate meeting it down.
+/// This fixture's own `CompoundingRuleDef` must characterize `compounding.non-recursive` and compose to `ConfirmOnly`, proving the containment tests below exercise this construct's own resting disposition.
 #[test]
 fn fixture_is_non_recursive_and_confirm_only() {
     let g = load();
@@ -241,12 +178,7 @@ fn fixture_is_non_recursive_and_confirm_only() {
     );
 }
 
-/// **The load-bearing group-(un)awareness trap witness.** `headA`
-/// carries only ONE of the two `{mpr1,mpr2}` `all`-group members `cr1.headProdRestrictionsMprFeatures`
-/// names — admitted by the group-UNAWARE `compound_match` (correct), but would be WRONGLY EXCLUDED
-/// by a group-aware `mpr_required_ok` reading of the same field (the exact recall-loss bug this
-/// fixture pins). Both halves of over-propose/confirm-prune are proven here too: the non-head-side
-/// syntactic-FS gate (`nonHeadPartsOfSpeech`) is left entirely to confirm.
+/// The load-bearing group-(un)awareness trap witness (see `docs/research/pg-foma-cover-compounding-fixture-notes.md`): headA is admitted by the group-unaware `compound_match` but would be wrongly excluded by a group-aware reading of the same field.
 #[test]
 fn head_a_word_over_propose_confirm_prune() {
     let g = load();
@@ -268,12 +200,7 @@ fn head_a_word_over_propose_confirm_prune() {
     );
 }
 
-/// Negative witness ("left to confirm, deliberately" above): `zon` (posOther) is
-/// MPR-licensed as a non-head (`non_head_prod_restrictions_mpr` is empty/vacuous — `crate::emit::
-/// compound_license` never checks syntactic FS at all) but disagrees with `cr1`'s own
-/// `nonHeadPartsOfSpeech="posHead"` — confirm's `is_unifiable` check prunes it to zero, proving the
-/// FST proposer over-generates past what a syntactic-FS gate would allow and confirm is what
-/// narrows back to the oracle-exact (empty) set.
+/// Negative witness (left to confirm, deliberately): `zon` (posOther) is MPR-licensed as a non-head but disagrees with `cr1`'s `nonHeadPartsOfSpeech="posHead"`, so confirm's `is_unifiable` check prunes it to zero.
 #[test]
 fn head_a_plus_bad_pos_non_head_over_propose_confirm_prune() {
     let g = load();
@@ -292,14 +219,7 @@ fn head_a_plus_bad_pos_non_head_over_propose_confirm_prune() {
     );
 }
 
-/// Complementary precision check (NOT the witness above — see
-/// `head_a_word_over_propose_confirm_prune` for that): `headB` carries only ONE of the two
-/// `{mpr3,mpr4}` all-group members the SUBRULE's own
-/// `requiredMPRFeatures` names. The group-AWARE `Grammar::mpr_group_ok` (correctly used for subrule
-/// fields) excludes it — matching confirm's own `synth_compound`/
-/// `synth_compound_subrule` gate exactly, so BOTH propose and confirm agree on zero for this word;
-/// proves the subrule field is not loosened to the flat `compound_match` test (which WOULD have
-/// admitted `headB`, since `{mpr3,mpr4}` overlaps `headB`'s own `{mpr1,mpr3}` on `mpr3`).
+/// Complementary precision check: `headB` carries only one of the two subrule-level `{mpr3,mpr4}` group members, and the group-aware `Grammar::mpr_group_ok` excludes it, matching confirm exactly (see `docs/research/pg-foma-cover-compounding-fixture-notes.md`).
 #[test]
 fn subrule_group_gate_excludes_partial_match_like_confirm() {
     let g = load();
@@ -313,10 +233,7 @@ fn subrule_group_gate_excludes_partial_match_like_confirm() {
     );
 }
 
-/// Sanity negative control: `headC` carries no MPR features at all, so `cr1`'s own
-/// `headProdRestrictionsMprFeatures="mpr1 mpr2"` (non-empty) fails `compound_match` outright
-/// (`self.overlaps(EMPTY) == false`) — proving the rule-level gate genuinely restricts something,
-/// not a vacuous always-admit.
+/// Sanity negative control: `headC` carries no MPR features at all, so `cr1`'s non-empty `headProdRestrictionsMprFeatures` fails `compound_match` outright, proving the rule-level gate genuinely restricts something.
 #[test]
 fn head_c_excluded_by_rule_level_gate_like_confirm() {
     let g = load();

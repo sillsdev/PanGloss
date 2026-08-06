@@ -1,7 +1,4 @@
-//! Discriminating probe (per the advisor's early-check guidance): confirm that a compiled LHS
-//! pattern, transduced over a feature-bearing shape, reports the physical match span I expect —
-//! and that this holds under **both** LtoR and RtoL (`compile_with_direction`), because the RtoL
-//! `get_offsets` un-swap is the single place the analysis path can silently go wrong.
+//! Confirms a compiled LHS pattern reports the physical match span under both LtoR and RtoL, since the RtoL `get_offsets` un-swap is the single place the analysis path can silently go wrong.
 
 mod common;
 
@@ -9,8 +6,7 @@ use pg_fst::{Direction, Segment, Transduce, ENTIRE_MATCH};
 use pg_grammar::model::{Pattern, PatternNode};
 use pg_rules::bridge::PatternBridge;
 
-/// Build the FST segment list (segments only) from a shape's interior, with the mapping back to
-/// shape node indices.
+/// Build the FST segment list (segments only) from a shape's interior, with the mapping back to shape node indices.
 fn segs_of(shape: &pg_shape::Shape) -> (Vec<Segment>, Vec<usize>) {
     let mut segs = Vec::new();
     let mut nodes = Vec::new();
@@ -77,18 +73,12 @@ fn match_span_is_physical_in_both_directions() {
 
 #[test]
 fn flat_unifiable_is_not_usedefaults() {
-    // Advisor's UseDefaults check: flat_unifiable treats an absent/short lane as all-ones
-    // (unconstrained), NOT as a feature's default value. A constraint lane of all-ones matches
-    // anything; there is no defaulting of underspecified input lanes. Document the behavior so the
-    // analysis-path limitation is explicit and tested.
-    // `a` = [0b10, 0b01]; constraint "voi+" = [UNC, 0b01]; matches.
+    // flat_unifiable treats an absent/short lane as all-ones (unconstrained), never a feature's default value: `a` = [0b10, 0b01] unifies with constraint "voi+" = [UNC, 0b01].
     assert!(pg_featstruct::flat_unifiable(
         &[0b10, 0b01],
         &[u64::MAX, 0b01]
     ));
-    // An underspecified input lane 0 (all-ones) unifies with any constraint on lane 0 — this is
-    // over-permissive relative to C# UseDefaults (which would resolve to the feature's default),
-    // confirming the gap flagged in the report.
+    // An underspecified input lane 0 (all-ones) unifies with any constraint on lane 0 -- over-permissive relative to C#'s UseDefaults, which would resolve to the feature's default instead.
     assert!(pg_featstruct::flat_unifiable(
         &[u64::MAX, 0b01],
         &[0b01, 0b01]

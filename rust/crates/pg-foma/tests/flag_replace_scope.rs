@@ -1,5 +1,4 @@
-//! A minimal exact-shaped projection of the Divvun `lang-sme` derivation-order filter, with
-//! direction-specific apply-time checks.
+//! A minimal exact-shaped projection of the Divvun `lang-sme` derivation-order filter, with direction-specific apply-time checks.
 
 use std::collections::BTreeSet;
 
@@ -39,13 +38,7 @@ fn minimal_exact_shaped_projection_is_downward_only() {
     )
     .expect("the exact context-free Divvun-style filter must compile");
 
-    // For `A <- B`, parsing keeps A on the upper tape and B on the lower tape;
-    // apply_down consumes A and emits B. The visible input here resembles B only
-    // because A's flag symbols are zero-width. The original relation's apply_up
-    // therefore consumes the visible B projection and emits A, but its upper-only
-    // flags fail open rather than causally rejecting the descending projection.
-    // The proven apply_up construction below uses fsm_invert, which produces the
-    // inverse relation.
+    // For `A <- B`, apply_down consumes A (upper tape) and emits B (lower tape); apply_up on the original relation fails open on its upper-only flags, so the proven construction below inverts the relation instead (`fsm_invert`).
     assert_eq!(
         apply_down_all(&net, "+Der1+Der2"),
         exact_output("+Der1+Der2"),

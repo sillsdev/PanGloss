@@ -74,17 +74,10 @@ pub fn provided_runtime_features() -> ProvidedRuntimeFeatures {
     }
 }
 
-/// This build's own foma-feature level. A plain constant (not derived from any external registry)
-/// because this dimension is this Runtime's own compile-time capability declaration
-/// — bump it only when this build gains a new foma-level capability a pack's
-/// `required_runtime_features.foma_feature_level` could legitimately require.
+/// This build's own foma-feature level; bump only when this build gains a new foma-level capability a pack's manifest could legitimately require.
 const FOMA_FEATURE_LEVEL: u32 = 1;
 
-/// This crate's own `Cargo.toml` semantic version, read from the compile-time `CARGO_PKG_VERSION_*`
-/// environment variables `cargo` always sets — used as the Rust-HermitCrab port version this
-/// Runtime build declares it provides (the `hc_port_semver` dimension). Every workspace
-/// crate shares one `version.workspace = true` value, so this is the same number `pg-parse`/
-/// `pg-foma` themselves ship at.
+/// This crate's own `Cargo.toml` semantic version, read from the compile-time `CARGO_PKG_VERSION_*` vars, used as the declared `hc_port_semver`.
 fn this_crate_semver() -> (u32, u32, u32) {
     const MAJOR: &str = env!("CARGO_PKG_VERSION_MAJOR");
     const MINOR: &str = env!("CARGO_PKG_VERSION_MINOR");
@@ -107,18 +100,10 @@ fn this_crate_semver() -> (u32, u32, u32) {
 /// a silently-accepted incompatible pack.
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum PackLoadError {
-    /// The container itself failed to parse/validate (bad magic, unsupported version, oversize or
-    /// truncated section, digest or fingerprint mismatch, ...) — see `pg_pack::PgPackError`.
-    /// Independent of runtime-feature compatibility: a structurally invalid package never reaches
-    /// the containment check at all.
+    /// The container itself failed to parse or validate; see pg_pack::PgPackError. A structurally invalid package is reported here, before any runtime-feature compatibility check.
     #[error("pack container invalid: {0}")]
     Container(#[from] PgPackError),
-    /// The allowed, typed incompatibility: the pack's `required_runtime_features` is not a
-    /// subset of this Runtime's `provided` set. Carries both sides so a caller can report exactly
-    /// what is missing (e.g. "upgrade PanGloss to run this grammar") rather than a bare boolean.
-    /// Boxed (clippy `result_large_err`): both feature-set structs carry several `Vec<String>`
-    /// fields, which would otherwise make every `PackLoadError` as large as this, the biggest,
-    /// variant -- even the common `Container` case.
+    /// The pack's required_runtime_features is not a subset of this Runtime's provided set; carries both sides so a caller can report exactly what is missing. Boxed to keep the common Container variant small.
     #[error(
         "pack requires a runtime-feature set this Runtime build does not fully provide: \
          required={required:?} provided={provided:?}"
@@ -255,10 +240,6 @@ mod tests {
     const RUNTIME_PAYLOAD: &[u8] = b"synthetic-rust-hermitcrab-runtime-payload-bytes";
     const FOMA_PAYLOAD: &[u8] = b"synthetic-opaque-foma-binary-memory-payload-bytes";
 
-    // ---------------------------------------------------------------------------------------
-    // Deliverable test 1: required ⊆ provided loads.
-    // ---------------------------------------------------------------------------------------
-
     #[test]
     fn pack_whose_required_features_are_a_subset_of_provided_loads() {
         let manifest = synthetic_manifest(
@@ -284,8 +265,7 @@ mod tests {
 
     #[test]
     fn old_pack_with_no_extra_requirements_keeps_loading_append_only() {
-        // Old packs run unchanged forever -- a pack requiring nothing beyond this
-        // build's baseline must load exactly like a fully-populated one.
+        // Old packs run unchanged forever: nothing beyond baseline must load like a fully-populated pack.
         let manifest = synthetic_manifest(
             synthetic_required(Vec::new()),
             CapabilityTrust::Proven,
@@ -295,11 +275,6 @@ mod tests {
         let bytes = pg_pack::write_pack(&manifest, RUNTIME_PAYLOAD, FOMA_PAYLOAD).unwrap();
         assert!(load_pack(&bytes).is_ok());
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Deliverable test 2: a pack requiring an unprovided feature is rejected with a typed
-    // diagnostic, not a crash and not a bare equality mismatch.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn pack_requiring_an_unprovided_runtime_operation_is_rejected_with_typed_diagnostic() {
@@ -356,10 +331,6 @@ mod tests {
         ));
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Deliverable test 3: an unproven/overridden pack loads WITH the degraded-trust signal.
-    // ---------------------------------------------------------------------------------------
-
     #[test]
     fn unproven_overridden_pack_loads_with_degraded_trust_signal() {
         let override_record = CapabilityOverrideRecord {
@@ -407,11 +378,7 @@ mod tests {
         assert_eq!(loaded.override_record(), None);
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Signature state is reported, never gates -- even paired with an incompatible feature set,
-    // signing/signature validity plays no role in the containment decision.
-    // ---------------------------------------------------------------------------------------
-
+    // Signature state is reported, never gates: it plays no role in the containment decision.
     #[test]
     fn signature_state_is_independent_of_runtime_feature_compatibility() {
         let manifest = synthetic_manifest(
@@ -422,8 +389,7 @@ mod tests {
         );
         let manifest_no_sig_json = manifest.to_canonical_json();
         let message = pg_pack::sign(&[3u8; 32], &manifest_no_sig_json.into_bytes(), None);
-        // Deliberately signed over the WRONG bytes (not the real domain-separated message) so
-        // this reports `Invalid` -- proving an invalid signature still loads successfully.
+        // Deliberately signed over the wrong bytes, so this reports `Invalid` and still loads.
         let mut manifest = manifest;
         manifest.signature = Some(message);
         let bytes = pg_pack::write_pack(&manifest, RUNTIME_PAYLOAD, FOMA_PAYLOAD).unwrap();
@@ -431,10 +397,6 @@ mod tests {
         let loaded = load_pack(&bytes).expect("an invalid signature must not block loading");
         assert_eq!(loaded.signature_state, SignatureState::Invalid);
     }
-
-    // ---------------------------------------------------------------------------------------
-    // This Runtime's own provided-set shape, sanity-checked.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn provided_runtime_features_declares_this_containers_own_version() {

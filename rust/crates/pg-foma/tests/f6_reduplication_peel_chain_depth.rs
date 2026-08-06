@@ -1,32 +1,4 @@
-//! The in-scope reduplication-peel witness plus the deep/nested-chain budget-refusal witness, at
-//! the peeler-to-confirm boundary ("Test reduplication at the peeler-to-confirm boundary").
-//! Companion to `crate::peel`'s own module doc ("Chain depth and nested reduplication") and its
-//! `#[cfg(test)]` unit tests, which exercise the SAME mechanism from inside the crate (this file
-//! proves the public API + the real `machine/conformance` fixture from outside it, the way every
-//! other `f*_gate.rs` file in this crate already does).
-//!
-//! ## In-scope: single-layer full-stem reduplication (must compile/propose, oracle containment)
-//! `machine/conformance/languages/suffixing-extension-slot-ordering`'s `mrRedup` (full-stem SUFFIX
-//! reduplication, `redupMorphType="suffix"`) is an existing, oracle-verified, in-repo conformance
-//! fixture whose own `words.yaml` comment documents "ReduplicationHint, zero coverage today" for
-//! the FST proposer -- `kimbiakimbia`, `KIMB+RED`. `kimbiakimbia_reduplication_is_recovered_with_oracle_containment`
-//! proves `pg_foma::composite::FomaAnalyzer` (propose UNION peel, confirmed against
-//! `pg_parse::Morpher`) now recovers it, CONTAINMENT-checked against the very oracle that fixture's
-//! own ground truth was hand-derived from (never merely "non-empty" -- every FST-confirmed analysis
-//! must be one the oracle itself accepts for this word); empirically, for this specific
-//! construct/word the result is stronger than mere containment -- EXACT set equality AND matching
-//! multiplicity (both sides: exactly 1 analysis, identical signature).
-//!
-//! ## Out-of-scope / deep-chain: budget-refused deterministically, never a silent recall claim
-//! A hand-built synthetic grammar (reduplication-shaped RHS only -- no lexicon/phonology needed;
-//! `crate::peel::ReduplicationPeeler`'s own scan/recursion is independent of both, exactly like
-//! `crate::peel`'s own unit tests) exercises a genuinely self-similar word deep enough to need more
-//! nested reduplication layers than a small configured `ComposeBudget::chain_depth_cap` admits --
-//! `deep_self_similar_chain_is_refused_deterministically` proves the refusal is a typed,
-//! deterministic `ComposeError::ChainDepthExceeded`, never a hang, a panic, or a silently-truncated
-//! candidate set. Synthetic/delanguaged ("Hard rule: synthetic data only") -- this fixture is
-//! authored purely in this file, named by the construct it stresses (self-similar chain depth),
-//! not by any language.
+//! Reduplication at the peeler-to-confirm boundary: in-scope single-layer oracle-containment recovery, plus a deep/nested-chain deterministic budget refusal (synthetic fixture, named by construct).
 
 use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::composite::FomaAnalyzer;
@@ -47,14 +19,9 @@ fn load(path: &str) -> Grammar {
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {path}: {e}"))
 }
 
-// =================================================================================================
 // In-scope: single-layer reduplication, oracle containment.
-// =================================================================================================
 
-/// See module doc's "In-scope" section. Containment (never mere non-emptiness): every FST-side
-/// confirmed analysis for "kimbiakimbia" must be one `pg_parse::Morpher` itself accepts for the
-/// same word -- the propose-and-confirm invariant (ADR 0001) checked at the exact boundary
-/// this construct requires.
+/// Containment, never mere non-emptiness: every FST-side confirmed analysis for "kimbiakimbia" must be one `pg_parse::Morpher` itself accepts for the same word.
 #[test]
 fn kimbiakimbia_reduplication_is_recovered_with_oracle_containment() {
     let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
@@ -106,10 +73,7 @@ fn kimbiakimbia_reduplication_is_recovered_with_oracle_containment() {
          over-claim); FST-only extra analyses: {:?}",
         fst_sigs.difference(&oracle_sigs).collect::<Vec<_>>()
     );
-    // Empirically, for THIS construct/word the containment is actually EXACT (set equality, same
-    // multiplicity) -- a strictly stronger property than the subset check above, checked
-    // separately so a future divergence (e.g. the oracle someday finding a second analysis this
-    // peel doesn't) fails this specific assertion, not the general containment one.
+    // For kimbiakimbia specifically, containment is exact (set equality, same multiplicity), checked separately from the general subset check above.
     assert_eq!(
         fst_sigs, oracle_sigs,
         "for kimbiakimbia specifically, the FST-confirmed set is not just contained in but \
@@ -122,17 +86,9 @@ fn kimbiakimbia_reduplication_is_recovered_with_oracle_containment() {
     );
 }
 
-// =================================================================================================
 // Out-of-scope / deep-chain: deterministic budget refusal.
-// =================================================================================================
 
-/// A minimal, hand-built grammar carrying nothing but one `AffixProcessRule` whose RHS classifies
-/// `Role::Reduplication` (`OutputAction::Copy(PartRef::Input(0))` twice, `crate::emit::
-/// classify_affix`'s own trigger) -- everything `ReduplicationPeeler::new` reads. Mirrors `crate::
-/// peel`'s own `#[cfg(test)] mod tests::minimal_redup_grammar` (duplicated rather than shared: an
-/// integration test file is a separate compiled crate from `pg-foma`'s own `src`, so a
-/// `#[cfg(test)]`-only helper there is not visible here -- the same reason `redup_and_free_
-/// fluctuation_gate.rs`'s own doc gives for its small inlined builders).
+/// A minimal, hand-built grammar carrying nothing but one `AffixProcessRule` whose RHS classifies `Role::Reduplication` -- everything `ReduplicationPeeler::new` reads.
 fn minimal_redup_grammar() -> Grammar {
     const MINIMAL_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -190,10 +146,7 @@ fn minimal_redup_grammar() -> Grammar {
     g
 }
 
-/// See module doc's "Out-of-scope / deep-chain" section: a genuinely self-similar (every character
-/// identical) word matches this module's scans at many positions simultaneously, and nested
-/// recursion (`crate::peel`'s own module doc) is exercised layer after layer. Under a small cap,
-/// this MUST refuse deterministically rather than hang or silently truncate.
+/// A genuinely self-similar word matches this module's scans at many positions simultaneously, exercising nested recursion layer after layer; under a small cap it must refuse deterministically.
 #[test]
 fn deep_self_similar_chain_is_refused_deterministically() {
     let g = minimal_redup_grammar();
@@ -223,8 +176,7 @@ fn deep_self_similar_chain_is_refused_deterministically() {
     );
 }
 
-/// The same construct, with a cap generous enough to admit it, must NOT refuse -- proving the
-/// budget only trips on a genuinely deep chain, never on the construct's mere existence.
+/// The same construct, with a generous cap, must not refuse -- the budget trips on chain depth, never on the construct's mere existence.
 #[test]
 fn deep_self_similar_chain_succeeds_under_a_generous_cap() {
     let g = minimal_redup_grammar();
