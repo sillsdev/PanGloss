@@ -89,14 +89,7 @@ pub const COVERAGE_UNVERIFIED_STATEMENT: &str = "Held-out status is an ATTESTATI
     measurement: nothing in the artifact records what its author read while authoring, and \
     PanGloss does not train. This property is UNVERIFIED beyond the named attestor's own claim.";
 
-// =================================================================================================
-// Trust status: a local mirror, not a dependency on pg-pack (which itself depends on
-// pg-foma for HealthReport; depending back would be circular). Field-for-field shape matches
-// pg_pack::trust::CapabilityTrust/CapabilityOverrideRecord/OverriddenConfig — the small shape is
-// deliberately duplicated at each layer rather than shared, so each layer's copy stays exactly
-// what it is, with distinct fields per axis (see `crate::health::OverrideRecord`'s own doc for the
-// same precedent).
-// =================================================================================================
+// Trust status: a local mirror, not a dependency on pg-pack (which itself depends on pg-foma for HealthReport, so depending back would be circular); field-for-field matches pg_pack::trust's shapes.
 
 /// One fail-closed configuration a capability override force-compiled through — mirrors
 /// `pg_pack::trust::OverriddenConfig`'s shape (predicate/construct/witness), the same vocabulary
@@ -125,12 +118,9 @@ pub struct OverrideRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum TrustStatus {
-    /// The characteristics-check gate admitted (or ConfirmOnly-admitted) this artifact cleanly;
-    /// no override was exercised.
+    /// The characteristics-check gate admitted this artifact cleanly; no override was exercised.
     Proven,
-    /// This artifact was force-compiled past a refusal (capability `Refuse`, or an overridden
-    /// FST-health Error/Critical band — the same capability override covers both). Permanently
-    /// disqualifies certification (rule 1) regardless of every other input.
+    /// This artifact was force-compiled past a refusal or an overridden FST-health band, permanently disqualifying certification regardless of every other input.
     Overridden(OverrideRecord),
 }
 
@@ -140,29 +130,23 @@ impl TrustStatus {
     }
 }
 
-// =================================================================================================
-// Coverage: an attestation, never a measurement (rule 2) -- worded as a rate, never accuracy (rule 3)
-// =================================================================================================
+// Coverage: an attestation, never a measurement, worded as a rate, never accuracy.
 
-/// Held-out coverage status for one language (rule 2/rule 3, above).
+/// Held-out coverage status for one language.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum CoverageAssessment {
-    /// A held-out corpus was supplied, with an attestation of who attested it held-out and when.
-    /// `analysis_rate` is the token-level analysis rate (rule 3), `0.0..=1.0`.
+    /// A held-out corpus was supplied, with an attestation of who attested it and when; `analysis_rate` is the token-level analysis rate, `0.0..=1.0`.
     Attested {
         attestor: String,
         attested_on: String,
         analysis_rate: f64,
     },
-    /// No held-out corpus is available for this language. Reports as `CheckOutcome::NotAssessed`
-    /// -- never silently passing (rule 4).
+    /// No held-out corpus is available for this language; reports as `NotAssessed`, never silently passing.
     NotAssessed,
 }
 
-// =================================================================================================
-// Latency: never rendered as a literal zero (mirrors section 1's rule at this module's own layer)
-// =================================================================================================
+// Latency: never rendered as a literal zero.
 
 /// One latency percentile measurement, in milliseconds, with the same below-floor discipline
 /// `tests/typology_speedup.rs` established for section 1 (see this module's top doc).
@@ -171,15 +155,11 @@ pub enum CoverageAssessment {
 pub enum LatencyMeasurement {
     /// A resolvable measurement, in milliseconds.
     Millis(f64),
-    /// The true value is below this measurement path's resolution floor (also in milliseconds) --
-    /// never reported as a literal `0`.
+    /// The true value is below this measurement path's resolution floor, never reported as a literal `0`.
     BelowFloor { floor_ms: f64 },
 }
 
-// =================================================================================================
-// Measured facts a caller supplies (this module does not itself measure anything -- that is
-// `pangloss make-report`'s job, section 4, out of this module's scope)
-// =================================================================================================
+// Measured facts a caller supplies; this module does not itself measure anything.
 
 /// The measured facts `certify` checks against a `ThresholdPolicy`. `None` for the whole
 /// struct (via `certify`'s `Option` parameter) means no compiled artifact exists to measure at
@@ -196,11 +176,7 @@ pub struct Measurements {
     pub latency_p99: LatencyMeasurement,
 }
 
-// =================================================================================================
-// Checks: one per threshold dimension, always reported -- every failed check is reported with its
-// measured value and threshold, and this module reports EVERY check, passed or not, so a reader
-// sees the whole picture, not just the failures.
-// =================================================================================================
+// Checks: one per threshold dimension; this module reports every check, passed or not, so a reader sees the whole picture, not just the failures.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -241,14 +217,11 @@ pub enum CheckOutcome {
     Fail {
         measured: CheckValue,
     },
-    /// No measurement exists to compare (no corpus, no artifact, or the below-floor measurement
-    /// is too coarse relative to the threshold to resolve a call). Never rendered as a pass.
+    /// No measurement exists to compare, or a below-floor measurement is too coarse to resolve a call; never rendered as a pass.
     NotAssessed {
         reason: String,
     },
-    /// This artifact's trust status is `TrustStatus::Overridden` -- rule 1 forces every check to
-    /// this outcome, never `Pass`, regardless of the underlying measured value (still recorded,
-    /// for transparency, but never presented as passing).
+    /// This artifact's trust status is `Overridden`, forcing every check to this outcome regardless of the underlying measured value, which is still recorded but never presented as passing.
     Blocked {
         reason: String,
         measured: Option<CheckValue>,
@@ -275,9 +248,7 @@ pub struct CheckResult {
     pub statements: Vec<String>,
 }
 
-// =================================================================================================
-// Capability: always the REAL evaluation, never a caller-supplied guess
-// =================================================================================================
+// Capability: always the real evaluation, never a caller-supplied guess.
 
 /// One capability refusal citation, owned (not borrowed) so it outlives the `Grammar` this
 /// report was computed from -- mirrors `CapabilityDiagnostic`'s own predicate/construct/witness
@@ -321,9 +292,7 @@ impl CapabilitySummary {
     }
 }
 
-// =================================================================================================
 // Tier + report
-// =================================================================================================
 
 /// The tiered verdict. See this module's top doc for the full contract each variant carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -331,12 +300,9 @@ impl CapabilitySummary {
 pub enum Tier {
     /// Every check passed, capability is `Admit`/`ConfirmOnly`, and trust is `Proven`.
     Certified,
-    /// Compiles and runs, but at least one threshold was missed or a check could not be assessed.
-    /// Actionable by the language team.
+    /// Compiles and runs, but at least one threshold was missed or a check could not be assessed; actionable by the language team.
     NotYet,
-    /// Either the capability gate refuses this grammar outright, or the artifact carries a
-    /// capability override. Actionable only by compiler work (or, for an override, a clean
-    /// recompile without it).
+    /// Either the capability gate blocks this grammar outright, or the artifact carries a capability override; actionable only by compiler work or a clean recompile.
     NotSupported,
 }
 
@@ -376,9 +342,7 @@ impl ReadinessReport {
     }
 }
 
-// =================================================================================================
 // Per-check comparison helpers
-// =================================================================================================
 
 fn check_pack_size(measured: u64, threshold: &ThresholdU64) -> CheckOutcome {
     let value = CheckValue::Bytes(measured);
@@ -414,12 +378,7 @@ fn check_coverage(assessment: &CoverageAssessment, threshold: &ThresholdF64) -> 
     }
 }
 
-/// Compares one latency measurement against its maximum-ms threshold, honoring the below-floor
-/// discipline (this module's top doc, "Latency's own below-floor discipline"): a below-floor
-/// measurement is a conservative safe upper bound on the true value, so it can prove a `Pass` (true
-/// value < floor <= threshold) but can never itself prove a `Fail`; if the floor exceeds the
-/// threshold, the measurement is too coarse to resolve a call and reports `NotAssessed` rather than
-/// guessing.
+/// Compares one latency measurement against its maximum-ms threshold: a below-floor measurement is a safe upper bound, so it can prove a `Pass` but never a `Fail`, and reports `NotAssessed` rather than guessing when the floor exceeds the threshold.
 fn check_latency(measured: LatencyMeasurement, threshold: &ThresholdF64) -> CheckOutcome {
     match measured {
         LatencyMeasurement::Millis(ms) => {
@@ -447,13 +406,11 @@ fn check_latency(measured: LatencyMeasurement, threshold: &ThresholdF64) -> Chec
     }
 }
 
-// Local generic-free aliases so the helpers above don't need to name
-// `crate::readiness_policy::Threshold<u64>` in full at every call site.
+// Local generic-free aliases so the helpers above don't need to name Threshold<u64>/<f64> in full at every call site.
 type ThresholdU64 = crate::readiness_policy::Threshold<u64>;
 type ThresholdF64 = crate::readiness_policy::Threshold<f64>;
 
-/// Applies `blocked_reason` (rule 1) or `measurements` (normal path) to produce every check's
-/// `CheckOutcome`, in a fixed declaration order matching `CheckKind`'s own order.
+/// Applies `blocked_reason` or `measurements` to produce every check's `CheckOutcome`, in a fixed declaration order matching `CheckKind`'s own order.
 fn compute_checks(
     policy: &ThresholdPolicy,
     measurements: Option<&Measurements>,
@@ -586,9 +543,7 @@ fn compute_checks(
         .collect()
 }
 
-/// `Tier::Certified` iff every check passed and neither the override nor the refusal gate fired.
-/// Rule 1/rule 4 both live here: any `CheckOutcome::Blocked` or `CheckOutcome::NotAssessed`
-/// anywhere denies `Certified`, same as an outright `Fail`.
+/// `Certified` iff every check passed and neither the override nor the refusal gate fired; any `Blocked` or `NotAssessed` outcome denies `Certified`, same as an outright `Fail`.
 fn compute_tier(
     trust: &TrustStatus,
     capability: &CapabilitySummary,
@@ -712,9 +667,7 @@ mod tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
     }
 
-    /// A tiny, ordinary synthetic affix grammar -- no MPR groups, no Compounding, no Unordered
-    /// strata, no true reduplication/circumfix/metathesis -- so `evaluate_capability` reaches
-    /// `Admit`. Delanguaged single-letter segments only, per this repo's synthetic-data rule.
+    /// A tiny, ordinary synthetic affix grammar with none of the constructs that would keep `evaluate_capability` from reaching `Admit`.
     const ADMIT_XML: &str = r#"<HermitCrabInput><Language><Name>Synthetic</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>
@@ -751,10 +704,7 @@ mod tests {
       </Strata>
     </Language></HermitCrabInput>"#;
 
-    /// A single, non-recursive `Compounding` fixture (also used verbatim by `capability_entry`'s
-    /// own test module): evaluates to `ConfirmOnly`, not `Admit` or `Refuse` -- gives this
-    /// module's tests a second, distinct capability decision to exercise without inventing a
-    /// third fixture shape.
+    /// A single, non-recursive `Compounding` fixture that evaluates to `ConfirmOnly`, giving this module's tests a second, distinct capability decision to exercise.
     const CONFIRM_ONLY_XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -815,9 +765,7 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
     // Basic tiering
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn admit_grammar_with_passing_measurements_and_proven_trust_certifies() {
@@ -856,8 +804,7 @@ mod tests {
 
     #[test]
     fn confirm_only_grammar_can_still_certify_when_thresholds_pass() {
-        // ConfirmOnly is first-class, not a failure -- ConfirmOnly + Proven + all thresholds
-        // passing must reach Certified, exactly like Admit.
+        // ConfirmOnly is first-class, not a failure: ConfirmOnly + Proven + all thresholds passing must reach Certified, exactly like Admit.
         let g = load(CONFIRM_ONLY_XML);
         let policy = policy_v1();
         let measurements = passing_measurements(&policy);
@@ -867,25 +814,16 @@ mod tests {
         assert_eq!(report.tier, Tier::Certified);
     }
 
-    // ---------------------------------------------------------------------------------------
     // An override-trusted artifact never certifies, proven non-vacuous by sabotage.
-    // ---------------------------------------------------------------------------------------
 
-    /// Sabotage proof: build a report that would clearly certify cleanly under
-    /// `TrustStatus::Proven` (asserted first, so the "would have passed" premise is not assumed),
-    /// then flip ONLY the trust field to `Overridden` with every other input held byte-identical,
-    /// and show the verdict flips to `NotSupported` with every check `Blocked` -- never `Pass`.
-    /// This is the gate that proves rule 1 is not vacuously satisfied by some other reason the
-    /// grammar would have failed to certify anyway.
+    /// Sabotage proof: asserts the report certifies cleanly under `Proven` first, then flips only the trust field to `Overridden` with every other input held identical, showing the verdict flips to `NotSupported` with every check `Blocked`.
     #[test]
     fn override_forces_not_supported_and_blocks_every_check_even_when_everything_else_would_pass() {
         let g = load(ADMIT_XML);
         let policy = policy_v1();
         let measurements = passing_measurements(&policy);
 
-        // Premise: with Proven trust, this exact grammar/measurements/policy combination
-        // certifies cleanly. If this assertion ever fails, the sabotage below would be vacuous
-        // (blocking something that was never going to pass anyway), so it must hold first.
+        // Premise: with Proven trust this combination certifies cleanly, or the sabotage below would be vacuous.
         let proven_report = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
         assert_eq!(
             proven_report.tier,
@@ -935,8 +873,7 @@ mod tests {
 
     #[test]
     fn override_blocks_even_a_capability_admit_grammar_under_any_configuration() {
-        // "Under any configuration" -- exercise it against BOTH capability decisions this test
-        // module has fixtures for, not just one.
+        // "Under any configuration": exercise both capability decisions this module has fixtures for, not just one.
         for xml in [ADMIT_XML, CONFIRM_ONLY_XML] {
             let g = load(xml);
             let policy = policy_v1();
@@ -951,9 +888,7 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
     // Not-assessed coverage never renders as passed.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn not_assessed_coverage_blocks_certified_even_when_every_other_check_passes() {
@@ -1023,9 +958,7 @@ mod tests {
             .any(|s| s == COVERAGE_UNVERIFIED_STATEMENT));
     }
 
-    // ---------------------------------------------------------------------------------------
     // Below-floor latency never renders as a bare zero or a guessed call.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn below_floor_latency_within_threshold_passes_conservatively() {
@@ -1065,9 +998,7 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
     // Report always records the policy version + device class.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn report_records_policy_id_and_device_class() {
@@ -1078,9 +1009,7 @@ mod tests {
         assert_eq!(report.device_class, policy.device_class);
     }
 
-    // ---------------------------------------------------------------------------------------
     // Canonical JSON round trip.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn report_round_trips_through_canonical_json() {
@@ -1093,15 +1022,9 @@ mod tests {
         assert_eq!(parsed, report);
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Golden certificate for one small synthetic fixture, regenerated from the generator's own
-    // output -- never hand-edited. Mirrors `crate::coverage_ledger`'s own
-    // `regenerate_coverage_ledger_golden_json` precedent exactly.
-    // ---------------------------------------------------------------------------------------
+    // Golden certificate for one small synthetic fixture, regenerated from the generator's own output, never hand-edited.
 
-    /// A deterministic report over the `ADMIT_XML` fixture with fixed, hand-picked (not
-    /// hand-edited-into-the-golden) measurements -- independent of any live grammar/pack state
-    /// elsewhere in the repo, so this golden stays stable regardless of unrelated churn.
+    /// A deterministic report over the `ADMIT_XML` fixture with fixed, hand-picked measurements, independent of any live grammar/pack state elsewhere in the repo.
     fn golden_report() -> ReadinessReport {
         let g = load(ADMIT_XML);
         let policy = policy_v1();
@@ -1189,8 +1112,7 @@ mod tests {
 
     #[test]
     fn golden_report_is_certified() {
-        // Documents what the golden fixture's tier is, independent of the byte-for-byte JSON
-        // comparison above, so a reader of this test file doesn't have to decode JSON to know.
+        // Documents the golden fixture's tier directly, so a reader doesn't have to decode JSON to know it.
         assert_eq!(golden_report().tier, Tier::Certified);
     }
 

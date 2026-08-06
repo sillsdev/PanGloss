@@ -256,12 +256,7 @@ struct AnalysisItem {
     supplied_root: Option<pg_parse::SuppliedRoot>,
 }
 grammar_api!(hc_analyze_word_json, WordRequest, |h, r| {
-    // `guess_fallback: true` -- unlike `hc_parse_word`/`hc_parse_batch`'s binary wire format, this
-    // JSON envelope already carries `guessed` honestly at both the word level (`AnalysisJson`) and
-    // per analysis (`AnalysisItem`), so it explicitly opts back into the retry that
-    // `pg_lexicon::SuppliedLexiconRuntime::analyze_word` now defaults off, preserving this
-    // endpoint's pre-existing observable behavior rather than silently losing the capability as a
-    // side effect of that default flip (see `pg-lexicon`'s `analysis` module doc).
+    // guess_fallback: true, since this JSON envelope already carries `guessed` honestly at both the word and per-analysis level, so it explicitly opts back into the retry that analyze_word now defaults off.
     let a = h.analyze_word(&r.word, true);
     let structured = a
         .structured

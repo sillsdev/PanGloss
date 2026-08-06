@@ -1,11 +1,4 @@
-//! Conformance replay for the phase-2 W4 metathesis fixtures
-//! (`rust/conformance/metathesis/{simple_rule,complex_rule,not_unapplied}/`): load each fixture's
-//! `grammar.xml` exactly as authored (no `csharp_port_common` scaffolding — these are standalone,
-//! oracle-verified fixtures), parse every word in `words.txt`, and check the resulting
-//! `Morpher::parse_word(...).signature()` against the literal signature transcribed from that
-//! fixture's oracle-generated `expected.tsv` (same convention as
-//! `crates/pg-parse/tests/loader_n2_default_symbol_gate.rs`). Each fixture's README documents the
-//! oracle-generating command and the derivation of every expected value.
+//! Loads each metathesis fixture's `grammar.xml` exactly as authored, parses every word in `words.txt`, and checks the resulting signature against the literal value transcribed from that fixture's oracle-generated `expected.tsv`.
 
 use std::path::{Path, PathBuf};
 
@@ -24,8 +17,7 @@ fn load_fixture(name: &str) -> pg_grammar::model::Grammar {
     load(&xml).unwrap_or_else(|e| panic!("{name}: grammar failed to load: {e}"))
 }
 
-/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
-/// runs (CI's release sweep included) must not panic on the missing directory.
+/// Self-skip guard, so `--include-ignored` runs must not panic when the fixture directory is missing.
 fn have_fixture(name: &str) -> bool {
     fixture_path(name, "grammar.xml").exists()
 }

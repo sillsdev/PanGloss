@@ -71,10 +71,7 @@ pub fn build(
          </CompoundingSubrule>\n            </CompoundingSubrules>\n          </CompoundingRule>",
         nc_any = crate::build::tables::nc_any_xml_id(),
     );
-    // boundary_xml_id is validated at load time via the literal "+" representation match, not
-    // referenced by xml id anywhere in this rule's own text -- accepted as a parameter purely so a
-    // caller is forced to have built one (module doc: a plain segment silently fails to parse any
-    // compound word), and so this builder's own doc/signature makes that dependency visible.
+    // boundary_xml_id is never referenced by id in this rule's text; accepted as a parameter purely so a caller is forced to have built one and the dependency stays visible in the signature.
     let _ = boundary_xml_id;
 
     let head_entry_xml_id = ids.next("entryHead");

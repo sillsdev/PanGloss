@@ -105,8 +105,7 @@ mod tests {
 
     #[test]
     fn identical_rendered_signatures_are_kept_not_deduped() {
-        // See result_signature's doc comment: duplicates here can be genuinely distinct
-        // analyses (free fluctuation) that happen to render identically — not noise.
+        // Duplicates here can be genuinely distinct analyses that happen to render identically, not noise.
         let got = result_signature(&[
             ("a+c".into(), "surf".into()),
             ("b+c".into(), "surf".into()),

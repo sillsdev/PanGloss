@@ -1,8 +1,4 @@
-//! Mechanical contract for the six maintained executable-subrecipe dossiers.
-//!
-//! This test checks the parts of the dossier contract that are easy to lose during later
-//! implementation work. It deliberately does not try to prove the linguistic claims; those remain
-//! source-and-review obligations.
+//! Mechanical contract for the six maintained executable-subrecipe dossiers, checking only the parts easy to lose during later implementation work; linguistic claims remain source-and-review obligations.
 
 use std::path::{Path, PathBuf};
 

@@ -90,9 +90,7 @@ fn canonical_source(kind: SourceKind, source: &str) -> Result<String, JcsError> 
         SourceKind::Snapshot => match serde_json::from_str::<Value>(source) {
             // A snapshot is JSON, so JCS absorbs key order and every kind of whitespace.
             Ok(value) => crate::jcs::canonicalize(&value),
-            // Unparsable input is not this function's problem to diagnose — compilation will
-            // report it properly. Fall back to line-ending normalization so a fingerprint still
-            // exists for the failure artifact.
+            // Unparsable input is not this function's problem to diagnose; fall back to line-ending normalization so a fingerprint still exists for the failure artifact.
             Err(_) => Ok(normalize_line_endings(source)),
         },
         SourceKind::HcXml => Ok(normalize_line_endings(source)),
@@ -141,9 +139,7 @@ mod tests {
 
     #[test]
     fn a_compiler_change_moves_the_fingerprint() {
-        // Two compilers may turn identical source into different models, so the fingerprint has to
-        // name the compiler. This is also why `outcomeDigest` excludes the fingerprint: an upgrade
-        // that changes no analysis must not read as a behavior change.
+        // Two compilers may turn identical source into different models, so the fingerprint has to name the compiler.
         assert_ne!(
             model_fingerprint(SourceKind::HcXml, XML, "compiler-1").unwrap(),
             model_fingerprint(SourceKind::HcXml, XML, "compiler-2").unwrap()
@@ -191,9 +187,7 @@ mod tests {
 
     #[test]
     fn xml_attribute_order_moves_the_fingerprint_a_known_conservative_limit() {
-        // Documented in the module doc: without real XML canonicalization this reports a
-        // difference that is only formatting. Conservative, not silent — pinned so the limit is
-        // visible rather than discovered.
+        // Without real XML canonicalization this reports a difference that is only formatting; conservative, not silent, so the limit is visible rather than discovered.
         let a = r#"<E a="1" b="2"/>"#;
         let b = r#"<E b="2" a="1"/>"#;
         assert_ne!(

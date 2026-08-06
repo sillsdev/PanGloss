@@ -1,14 +1,4 @@
-//! Proves the `conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/` fixture
-//! grammar genuinely lands on the `Refuse` side of `simultaneous.subrule-overlap`'s
-//! (`SimultaneousSubruleOverlapPredicate`, D3) pairwise-non-overlap line -- the fixture's own load-
-//! bearing claim (its `grammar.xml` top comment) that its two `Simultaneous` subrules' right
-//! environments (`ncBackOrMid = {u, e}`, `ncMidOrFront = {e, i}`) genuinely intersect (shared member
-//! `e`) is checked here directly against the real lowered-span intersection
-//! (`crate::lower::spans_overlap`, via `crate::replace::is_fully_supported_shape`), not merely
-//! asserted in prose. Companion to `SimultaneousRewrite`'s own **NEEDS-ORACLE** verdict -- this
-//! test is the "provably overlap" half of establishing it; the oracle-comparison half lives in the
-//! fixture's own `STAGING.md` (hc.dll ground truth vs. `pg_parse::Morpher`, run by hand, not by
-//! this test -- this crate does not depend on `pg-parse`).
+//! Checks a fixture grammar's claim that its two `Simultaneous` subrules' right environments genuinely intersect against the real lowered-span intersection (`crate::lower::spans_overlap`), not merely asserted in prose.
 
 use pg_foma::replace::is_fully_supported_shape;
 use pg_grammar::model::PhonRuleDef;

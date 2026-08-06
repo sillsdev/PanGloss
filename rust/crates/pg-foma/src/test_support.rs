@@ -457,13 +457,7 @@ mod tests {
     }
 }
 
-/// A minimal HC grammar whose only purpose is to give the identity projection real morpheme rows
-/// and a real part-of-speech symbol table to resolve against.
-///
-/// Three entries, deliberately unrelated to any real language: the parity relation is a property of
-/// the comparison, not of any grammar, and these tests must not become sensitive to a fixture's
-/// morphology. Two parts of speech so a `pos_id` has something to resolve to and something to be
-/// wrong about.
+/// A minimal HC grammar whose only purpose is to give the identity projection real morpheme rows and a real part-of-speech symbol table to resolve against; three entries, deliberately unrelated to any real language, since the parity relation is a property of the comparison, not of any grammar.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) const PARITY_FIXTURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -516,8 +510,7 @@ pub(crate) fn parity_fixture_grammar() -> pg_grammar::model::Grammar {
     g
 }
 
-/// One analysis of a single morpheme, with every identity-invisible field left at its neutral
-/// value. Helpers below vary exactly one field at a time from this.
+/// One analysis of a single morpheme, with every identity-invisible field left at its neutral value; helpers below vary exactly one field at a time from this.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn parity_analysis(morpheme_ordinal: u32) -> pg_parse::WordAnalysis {
     pg_parse::WordAnalysis {

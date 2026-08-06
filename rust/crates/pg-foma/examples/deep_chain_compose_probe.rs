@@ -1,16 +1,4 @@
-//! Follow-up to `deep_chain_scale_probe.rs`: that probe found the bare deep standalone-affix-chain
-//! lexc net (no phonological-rule composition) stays fast at every `N` tried, up to N=24 — NOT
-//! reproducing the historical Aweti `apply_up` cliff. But the real Aweti gate's own cliff was
-//! measured on the COMPOSED network (`lexc .o. 18-rule cascade .o. boundary-cleanup`,
-//! `pg-foma/tests/p6_aweti_gate.rs`'s own `run_full_corpus_recall`), never on bare lexc alone.
-//! This probe isolates that ONE missing variable: compose the SAME N=24 deep-chain lexc net
-//! against a trivial (semantically inert) identity rule net via `fsm_compose` + `fsm_minimize` —
-//! the same two operations known as the actual blowup vectors ("composition intermediate blowup"
-//! / "determinize/minimize exponential worst case") — and re-measures the SAME apply-time probe
-//! word against the COMPOSED net, to see whether composition itself (not rule content) is the
-//! missing ingredient.
-//!
-//! Run with `cargo run -p pg-foma --release --example deep_chain_compose_probe`.
+//! Composes a deep-chain lexc net against a trivial identity rule net via `fsm_compose` + `fsm_minimize`, to isolate whether composition/minimization mechanics themselves (not rule content) drive an apply-time blowup.
 
 use std::sync::mpsc;
 use std::thread;
@@ -56,11 +44,7 @@ fn main() {
         lexc_net.statecount, lexc_net.arccount
     );
 
-    // A trivial, semantically-inert IDENTITY transducer over the whole alphabet (`?*` — foma's
-    // "any symbol, either tape, closure" universal identity language): composing against it must
-    // not change the recognized relation at all, so any slowdown/blowup this introduces is
-    // attributable PURELY to the mechanics of composition/minimization against a deep-chain net,
-    // never to any actual rule content (module doc: isolating composition itself as the variable).
+    // A trivial, semantically-inert identity transducer over the whole alphabet: composing against it must not change the recognized relation, so any slowdown/blowup is attributable purely to composition/minimization mechanics, never to rule content.
     let identity_net =
         fsm_parse_regex(&opts, "?*", None, None).expect("identity regex must compile");
 
@@ -73,8 +57,7 @@ fn main() {
         composed.statecount, composed.arccount
     );
 
-    // Same maximally-ambiguous probe word as deep_chain_scale_probe.rs: root + every other rule's
-    // suffix char, in order (k = N/2 of N, maximizing C(N, k)).
+    // Maximally-ambiguous probe word: root + every other rule's suffix char, in order (k = N/2 of N, maximizing C(N, k)).
     let k = N / 2;
     let table = &g.char_tables[0];
     let root_ch = chain.root_shape.chars().next().unwrap();

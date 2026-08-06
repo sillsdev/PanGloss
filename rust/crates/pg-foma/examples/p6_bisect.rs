@@ -75,8 +75,7 @@ fn main() {
         "14 pua env-comma with union",
         &format!("{c} -> {d} || [{a}|{b}] _ {e}{f}, [{a}|{b}] _ {e}{g}"),
     );
-    // Hypothesis: comma separates "RHS || env" clauses sharing ONE lhs, each clause with its OWN
-    // rhs (no repeated "lhs ->").
+    // Hypothesis: comma separates "RHS || env" clauses sharing one lhs, each with its own rhs.
     try_it(
         &opts,
         "15 shared-lhs diff-rhs-per-env",
@@ -87,11 +86,7 @@ fn main() {
         "16 pua shared-lhs diff-rhs-per-env",
         &format!("{c} -> {d} || {a} _ {e}{f}, {g} || {a} _ {e}{b}"),
     );
-    // Hypothesis: parallel rule SET syntax uses a different separator for concurrently-applied
-    // distinct-context rules, e.g. sequential composition via .o. instead of comma; verify union
-    // of two SEPARATE FULL replace-rule nets at the FSM level round-trips correctly for a case
-    // with disjoint contexts (this is the actual mechanism the real driver uses; bisect confirms
-    // whether the "spurious identity leak" is inherent to fsm_union of complete transducers).
+    // Hypothesis: parallel rule SET syntax uses .o. sequential composition rather than comma; bisects whether the "spurious identity leak" is inherent to fsm_union of complete transducers.
 
     // ---- isolate prule5 alone (voiceless obstruent deletion) ----
     let xml = std::fs::read_to_string(sample_path("indonesian-hc.xml")).unwrap();
@@ -233,9 +228,7 @@ fn main() {
         println!("    [{}]", hex.join(" "));
     }
 
-    // ---- hypothesis: fsm_compose (Rust-level, separately-parsed nets) mishandles internal `.#.`
-    // bookkeeping across context-restricted replace rules; a SINGLE regex string using foma's
-    // OWN `.o.` infix operator (one fsm_parse_regex call) should behave differently if so.
+    // Hypothesis: fsm_compose (Rust-level, separately-parsed nets) mishandles internal .#. bookkeeping across context-restricted replace rules; a single regex string using foma's own .o. operator should behave differently if so.
     let placeholder2 = table.lookup_nfd("\u{207f}").unwrap();
     let t_id = table.lookup_nfd("t").unwrap();
     let e_id = e; // char1

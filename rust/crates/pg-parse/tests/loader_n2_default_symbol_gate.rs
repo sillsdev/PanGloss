@@ -1,27 +1,4 @@
-//! Conformance replay for phase-2 audit C finding N2 (phonological `SymbolicFeature@defaultSymbol`
-//! / `UseDefaults`). Fixture: `rust/conformance/loader/n2-default-symbol/`.
-//!
-//! The grammar's `nas` feature declares `defaultSymbol="symNasPlus"`; segment "a" carries no
-//! explicit `nas` value; phonological rule `pr1` rewrites `ncOral` (nas=-) targets to `ncLong`.
-//! C#'s rewrite matchers run with `MatcherSettings.UseDefaults = true`
-//! (`SynthesisRewriteRule.cs:29` / `AnalysisRewriteRule.cs:37`), which flows into
-//! `FeatureStruct.IsUnifiable(..., useDefaults: true, ...)` (`FeatureStruct.cs:994-1017`): for a
-//! pattern-pinned feature the data node leaves unset, the feature's `DefaultValue`
-//! (`Feature.DefaultValue`, set from `defaultSymbol` at `XmlLanguageLoader.cs:644-646` via
-//! `SymbolicFeature.DefaultSymbolID`, `SymbolicFeature.cs:57-60`) is substituted and checked
-//! instead of treating "unset" as vacuously compatible.
-//!
-//! Expected behavior (oracle-verified, `expected.tsv`):
-//! - `bat` -> `|bat`: "a"'s effective `nas` is the default `+`, which fails `ncOral`'s `nas=-`
-//!   pin, so `pr1` must NOT fire during the confirming synthesis; the surface stays "bat".
-//! - `bdt` -> `-` (no parse, both engines): "d" is explicitly `nas=-`, so `pr1` legitimately
-//!   fires and the resynthesized surface no longer matches "bdt" — the control proving defaults
-//!   handling doesn't over-suppress a rule whose pin is satisfied by an explicit value.
-//!
-//! Red-on-revert (confirmed empirically): disabling `pattern_defaults_ok`'s call in
-//! `pg-rules/src/rewrite.rs::syn_feature` makes the defaults-unaware matcher fire `pr1` on the
-//! unspecified "a" (an unconstrained lane overlaps any pin), mutating the shape so the surface
-//! renders "baat" != "bat" — `bat` flips from `|bat` to `-` and this test fails.
+//! When a feature declares `defaultSymbol` and a segment leaves that feature unset, C#'s rewrite matchers substitute and check the feature's default value instead of treating "unset" as vacuously compatible; `pattern_defaults_ok` in `pg-rules/src/rewrite.rs::syn_feature` replays that, and disabling it makes an unconstrained lane wrongly overlap a pin it shouldn't.
 
 use std::path::{Path, PathBuf};
 

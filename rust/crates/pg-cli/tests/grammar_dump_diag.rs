@@ -1,10 +1,4 @@
-//! Diagnostic dump for the T4 conformance work: prints both pipelines' grammar structure
-//! (stratum rule lists, template slot rules, gloss-labeled) so a human can diff where the new
-//! (.fwdata) grammar diverges from the legacy (HC-XML oracle) grammar. `#[ignore]`d — run
-//! explicitly with:
-//! `cargo test -p pg-cli --release --test grammar_dump_diag -- --ignored --nocapture`
-//! Self-skips (prints a reason) when the FieldWorks checkout / oracle files are absent, like
-//! `fwdata_conformance_gate.rs`.
+//! Diagnostic dump printing both pipelines' grammar structure so a human can diff where the new (.fwdata) grammar diverges from the legacy (HC-XML oracle) grammar; `#[ignore]`d, self-skipping when the FieldWorks checkout/oracle files are absent.
 
 use std::path::PathBuf;
 

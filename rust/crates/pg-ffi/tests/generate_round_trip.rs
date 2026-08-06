@@ -1,17 +1,4 @@
-//! `hc_generate_words` round-trip gate (W7): for a real grammar, feeding a just-parsed word's own
-//! `structured` analysis (root + other-morpheme ordinals, exactly what `hc_parse_word`/
-//! `hc_parse_batch` already emit — see `buffer` module docs) back into `hc_generate_words` must
-//! reproduce that same surface word among the generated set. This is the FieldWorks-shaped use
-//! case the ABI is for: regenerate from a previously-obtained analysis without ever touching a raw
-//! `FeatureStruct`.
-//!
-//! Self-skips if the untracked Indonesian corpus isn't present on disk, matching every other
-//! corpus-backed test in this crate (plan §8: "corpora stay untracked local files with self-
-//! skipping tests").
-//!
-//! Test-timing policy: the default local `cargo test --workspace --release`
-//! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is
-//! unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
+//! Feeding a just-parsed word's own `structured` analysis back into `hc_generate_words` must reproduce that same surface word — the FieldWorks-shaped use case of regenerating from a previously-obtained analysis without touching a raw `FeatureStruct`. Self-skips if the untracked corpus isn't present, and is unconditionally `#[ignore]`d so the default test run stays fast.
 
 mod support;
 
@@ -76,9 +63,7 @@ fn regenerating_a_parsed_words_own_analysis_reproduces_it() {
 
     let handle = load_handle(&xml);
 
-    // Only round-trip words with EXACTLY one surviving analysis -- an ambiguous word has no single
-    // "own analysis" to feed back, and this test is about the round trip, not enumerating every
-    // ambiguity (that's `ffi_transport_parity.rs`'s job).
+    // Only round-trip words with exactly one surviving analysis, since an ambiguous word has no single "own analysis" to feed back.
     let mut checked = 0usize;
     let mut mismatches = Vec::new();
     for word in words.iter().take(60) {

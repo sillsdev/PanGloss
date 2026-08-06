@@ -1,11 +1,4 @@
-//! Part-1 checkpoint gate (plan §5.4/§5.5): compile **every** phonological-rule pattern from the
-//! real Indonesian (5 rules) and Amharic (7 rules) grammars — LHS, each subrule's RHS, and each
-//! subrule's left/right environment — through the `pg_rules::bridge` into a frozen `pg_fst::Fst`,
-//! without error. This is a structural gate (like the M1 loader gate): it proves the bridge handles
-//! the real authored constructs, not a hand-built subset.
-//!
-//! The sample grammars are untracked local corpus files (per `rust-conversion.md` §8); the test
-//! self-skips when they are absent (fresh clone / CI).
+//! Compiles every phonological-rule pattern from two real sample grammars — LHS, each subrule's RHS, and each subrule's environment — through `pg_rules::bridge` into a frozen `pg_fst::Fst` without error, proving the bridge handles real authored constructs, not a hand-built subset. Self-skips when the untracked sample grammars are absent.
 
 use std::path::{Path, PathBuf};
 
@@ -19,8 +12,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// Compile one pattern both deterministically and nondeterministically (analysis uses the latter),
-/// asserting a non-degenerate FST is produced in each case.
+/// Compiles one pattern both deterministically and nondeterministically, asserting a non-degenerate FST in each case.
 fn compile_ok(grammar: &Grammar, pattern: &Pattern, what: &str) -> usize {
     for det in [true, false] {
         let bridge = PatternBridge::new(grammar).deterministic(det);
@@ -44,12 +36,7 @@ fn compile_all_prule_patterns(grammar: &Grammar, tag: &str) -> (usize, usize) {
     for (ri, prule) in grammar.prules.iter().enumerate() {
         let prule = match prule {
             PhonRuleDef::Rewrite(r) => r,
-            // No reference grammar (Indonesian/Amharic/Sena) uses `<MetathesisRule>` (still zero
-            // occurrences post-W4); its pattern has its own dedicated compile path
-            // (`pg_rules::metathesis::compile_switch_pattern`, which additionally wraps the two
-            // switch positions in named capture groups) exercised by
-            // `crates/pg-parse/tests/csharp_port_metathesis.rs` instead of this LHS/RHS/environment
-            // structural census, which is specific to `RewriteRuleDef`'s shape.
+            // No reference grammar uses <MetathesisRule>; its pattern has its own dedicated compile path, exercised by a separate test, instead of this census, which is specific to RewriteRuleDef's shape.
             PhonRuleDef::Metathesis(m) => {
                 pattern_count += compile_ok(
                     grammar,

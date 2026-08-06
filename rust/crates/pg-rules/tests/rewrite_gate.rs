@@ -1,10 +1,4 @@
-//! Part-2 acceptance gate: rewrite apply/unapply on **hand-built** rules + input shapes with
-//! hand-reasoned expected output shapes, at the rule level (the full Morpher is a later milestone).
-//! Modeled on `tests/SIL.Machine.Morphology.HermitCrab.Tests/PhonologicalRules/RewriteRuleTests.cs`
-//! (SimpleRules / AnchorRules / MultipleDeletionRules), reduced to single rules.
-//!
-//! Each test cites the C# spec method it exercises and states the expected shape derived by hand
-//! from HermitCrab semantics.
+//! Rewrite apply/unapply on hand-built rules against hand-reasoned expected shapes, cross-checked against the C# `RewriteRuleTests.cs` method each test cites.
 
 mod common;
 
@@ -45,9 +39,7 @@ fn rule(lhs: Pattern, sr: RewriteSubruleDef) -> RewriteRuleDef {
     }
 }
 
-/// `rule`'s direction-parameterized sibling — needed only by the direction (LtR vs RtL) pick-order
-/// gate tests below, which are the only tests in this file that build a `Dir::RightToLeft` rule
-/// (`rule`'s every other caller wants the default `Dir::LeftToRight`, so that helper is left as-is).
+/// `rule`'s direction-parameterized sibling, used only by the LtR/RtL pick-order tests below.
 fn rule_dir(lhs: Pattern, sr: RewriteSubruleDef, dir: Dir) -> RewriteRuleDef {
     RewriteRuleDef {
         xml_id: "test-dir".into(),
@@ -60,9 +52,7 @@ fn rule_dir(lhs: Pattern, sr: RewriteSubruleDef, dir: Dir) -> RewriteRuleDef {
     }
 }
 
-/// `rule`'s multi-subrule, mode-parameterized sibling — needed only by the P13 multi-subrule
-/// Simultaneous-disjunction gate test below (§4.1's warning / §7 open question 1), which is the
-/// only test in this file with more than one subrule on a single rule.
+/// `rule`'s multi-subrule, mode-parameterized sibling, used only by the Simultaneous multi-subrule disjunction test below.
 fn rule_multi(lhs: Pattern, subrules: Vec<RewriteSubruleDef>, mode: RewriteMode) -> RewriteRuleDef {
     RewriteRuleDef {
         xml_id: "test-multi".into(),
@@ -105,17 +95,12 @@ fn seg(g: &pg_grammar::model::Grammar, word: &str) -> Shape {
     pg_rules::shape_feat::segment_with_features(g, table(g), word).unwrap()
 }
 
-// Lane constants for the probe grammar ([cons, voi, Type]; masks 0b11 each on cons/voi, 0b01/0b10
-// on the always-appended synthetic Type feature — plan §13.1 Tier-1 #1). Every concrete segment
-// node here carries Type=Segment (0b01); nothing in this file exercises a boundary node's lanes.
+// Lane constants for the probe grammar ([cons, voi, Type]); every concrete segment here carries Type=Segment (0b01), never a boundary node's lanes.
 const A: [u64; 3] = [0b10, 0b01, 0b01]; // vowel, voiced
 const T: [u64; 3] = [0b01, 0b10, 0b01]; // consonant, voiceless
 const D: [u64; 3] = [0b01, 0b01, 0b01]; // consonant, voiced
 
-// =================================================================================================
-// Feature-change: t -> [+voice] / V _ V   (C# FeatureSynthesisRewriteSubruleSpec.ApplyRhs /
-// FeatureAnalysisRewriteRuleSpec.Unapply)
-// =================================================================================================
+// Feature-change: t -> [+voice] / V _ V (C# FeatureSynthesisRewriteSubruleSpec.ApplyRhs / FeatureAnalysisRewriteRuleSpec.Unapply)
 
 fn voicing_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
     rule(
@@ -132,16 +117,7 @@ fn voicing_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
 fn feature_change_synthesis_voices_t_between_vowels() {
     let g = load_probe_grammar();
     let r = voicing_rule(&g);
-    // "ata": the medial t is voiced to d's feature bundle. `char_def` is reset to `NO_CHAR_DEF`
-    // (not left stale at char_t): once a feature-change rule rewrites a node's lanes, its original
-    // literal identity is no longer authoritative for rendering/lexical-matching purposes — C#'s
-    // `CharacterDefinitionTable.GetMatchingStrReps` has no notion of a node's "original identity" at
-    // all, it always re-derives matching representations from the node's *current* FeatureStruct
-    // against the whole table. Confirmed via the Indonesian `meN-` prefix: `pg_shape::Shape::
-    // node_cd_set`'s "concrete char_def == singleton identity" shortcut, if left stale after a
-    // rewrite, made a real assimilated nasal (rewritten from the archiphoneme's own char_def) match
-    // only the archiphoneme's own (now feature-incompatible) representation set, silently rendering
-    // as nothing instead of "m" and breaking that whole word family's synthesis round-trip.
+    // "ata": the medial t is voiced to d's lanes; char_def resets to NO_CHAR_DEF since a feature-changed node's literal identity is no longer authoritative, matching C#'s GetMatchingStrReps re-deriving from FeatureStruct rather than trusting a stale identity.
     let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "ata"));
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
@@ -183,9 +159,7 @@ fn feature_change_synthesis_needs_both_environments() {
 fn feature_change_analysis_underspecifies_voice() {
     let g = load_probe_grammar();
     let r = voicing_rule(&g);
-    // Analyze "ada": the medial d matches the analysis target (lhs t priority-union rhs [+voi] =
-    // [cons+,voi+] = d), and Unapply makes the *changed* feature (voice) underspecified -> voi lane
-    // becomes the full mask 0b11 (so lexical lookup can match either t or d).
+    // Analyze "ada": Unapply underspecifies the changed voice feature to the full mask (0b11) so lexical lookup can match either t or d.
     let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "ada"));
     assert_eq!(out.len(), 1, "unapplied");
     let got = interior(&out[0]);
@@ -212,15 +186,7 @@ fn feature_change_round_trip_recovers_superset() {
     );
 }
 
-// =================================================================================================
-// Tier-2 #11 (plan §6 item 4 / W1.2): analysis feature-reversal must use C#'s `AntiFeatureStruct`
-// negation (`L ∪ R`, via the `mask & !bits` idiom `bind_or_check` already uses elsewhere in this
-// file for alpha-variable disagreement), not a blanket full-unconstrain. Needs a >=3-symbol feature
-// to distinguish the two — a 2-symbol feature's negation always degenerates to `full_mask`, which
-// is why none of the 3 reference grammars (nor this file's own 2-symbol `voicing_rule` test above)
-// can tell the two formulas apart. C# analog: `RewriteRuleTests.CommonFeatureRules`, adapted to a
-// 3-way place-of-articulation-style feature.
-// =================================================================================================
+// Analysis feature-reversal uses C#'s AntiFeatureStruct negation (L ∪ R via mask & !bits), not a blanket full-unconstrain; needs a >=3-symbol feature since a 2-symbol feature's negation always degenerates to full_mask. C# analog: RewriteRuleTests.CommonFeatureRules.
 
 fn place_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
     // p -> [vel] (place feature), no environment (fires unconditionally).
@@ -234,11 +200,7 @@ fn place_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
 fn feature_change_analysis_reversal_excludes_the_third_symbol() {
     let g = common::load_anti_fs_grammar();
     let r = place_rule(&g);
-    // Analyze "k" (place=vel): the analysis target is LHS⊕RHS = place=vel exactly, so "k" matches.
-    // Reversal must set place to {lab, vel} (L ∪ R, LHS's "p"=lab unioned with the matched "k"=vel)
-    // -- NOT full-unconstrained {lab, cor, vel}: "cor" was never a possible value on either side of
-    // this rule and must stay excluded. Before the Tier-2 #11 fix this asserted false (the old code
-    // set the lane to `full_mask`, including "cor").
+    // Analyze "k": reversal sets place to {lab, vel} (L ∪ R), never the full-unconstrained {lab, cor, vel} — "cor" was never a possible value on either side and must stay excluded.
     let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "k"));
     assert_eq!(out.len(), 1, "unapplied");
     let place = feat(&g, "feat_place").0 as usize;
@@ -258,10 +220,7 @@ fn feature_change_analysis_reversal_excludes_the_third_symbol() {
     );
 }
 
-// =================================================================================================
-// Deletion: t -> 0 / a _ a   (C# NarrowSynthesisRewriteSubruleSpec.ApplyRhs /
-// NarrowAnalysisRewriteRuleSpec.Unapply, reapply=Deletion)
-// =================================================================================================
+// Deletion: t -> 0 / a _ a (C# NarrowSynthesisRewriteSubruleSpec.ApplyRhs / NarrowAnalysisRewriteRuleSpec.Unapply, reapply=Deletion)
 
 fn deletion_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
     rule(
@@ -292,8 +251,7 @@ fn deletion_synthesis_removes_t_between_vowels() {
 fn deletion_analysis_reinserts_optional_t() {
     let g = load_probe_grammar();
     let r = deletion_rule(&g);
-    // Analyze "aa": NarrowAnalysis re-inserts the deleted LHS segment (t) as OPTIONAL at the site
-    // between the two vowels, so lexical lookup can recover both "aa" and "ata".
+    // Analyze "aa": NarrowAnalysis re-inserts the deleted t as OPTIONAL, so lexical lookup can recover both "aa" and "ata".
     let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "aa"));
     let got = interior(&out[0]);
     assert_eq!(got.len(), 3, "optional t re-inserted");
@@ -317,10 +275,7 @@ fn deletion_round_trip_recovers_original() {
     assert!(got[1].3, "optional");
 }
 
-// =================================================================================================
-// Word-initial deletion: t -> 0 / # _ a   (Tier-1 R2: the word-initial gap, before the very first
-// segment, must be a matchable analysis-unapply site, not just "after each segment")
-// =================================================================================================
+// Word-initial deletion: t -> 0 / # _ a — the word-initial gap must be a matchable analysis-unapply site, not just "after each segment".
 
 fn word_initial_deletion_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
     rule(
@@ -351,11 +306,7 @@ fn word_initial_deletion_synthesis_removes_leading_t() {
 fn word_initial_deletion_analysis_reinserts_optional_t_at_word_start() {
     let g = load_probe_grammar();
     let r = word_initial_deletion_rule(&g);
-    // Analyze "a": before the R2 fix, `ana_narrow` only enumerated "gap after segment i" sites
-    // (never "before the very first segment"), so a word-initial deletion could never be
-    // un-applied at all — C#'s `RewriteRuleSpec.MatchSubrule` `_isTargetEmpty` branch matches the
-    // shape's own left-anchor node as a legitimate site (`RewriteRuleSpec.cs:55-77`,
-    // `NarrowAnalysisRewriteRuleSpec.cs:24-31`).
+    // Analyze "a": ana_narrow treats the shape's own left-anchor node as a legitimate deletion-unapply site, matching C#'s RewriteRuleSpec.MatchSubrule _isTargetEmpty branch.
     let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "a"));
     assert_eq!(out.len(), 1, "unapplied");
     let got = interior(&out[0]);
@@ -380,12 +331,7 @@ fn word_initial_deletion_round_trip_recovers_original() {
     assert!(got[0].3, "optional");
 }
 
-// =================================================================================================
-// Narrowing (RHS non-empty, LHS/RHS node counts differ): tt -> n / a _ a   (C#
-// `NarrowSynthesisRewriteSubruleSpec.ApplyRhs` with a real replacement segment, not a pure
-// deletion — Tier-1 R1: the inserted RHS must be non-optional, only `dirty`, so it can never be
-// treated as skippable downstream)
-// =================================================================================================
+// Narrowing (RHS non-empty, LHS/RHS node counts differ): tt -> n / a _ a (C# NarrowSynthesisRewriteSubruleSpec.ApplyRhs); the inserted RHS must be non-optional, only dirty, so it can never be treated as skippable downstream.
 
 fn narrowing_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
     rule(
@@ -407,15 +353,7 @@ fn narrowing_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
 fn narrow_synthesis_replacement_segment_is_not_optional() {
     let g = load_probe_grammar();
     let r = narrowing_rule(&g);
-    // "atta" -> "ana": the doubled t coalesces to a single n between vowels via a genuine
-    // narrowing (LHS has 2 nodes, RHS has 1 — not a pure deletion, so this exercises
-    // `syn_narrow`'s RHS-insert path, not `ana_narrow`'s deletion-only re-insert path).
-    // Before the R1 fix, `syn_narrow` inserted the RHS node via `new_seg_node(..., true)`,
-    // abusing the `optional` parameter to also get `dirty=true` as a side effect
-    // (`optional` and `dirty` were coupled in `new_seg_node`) — making the coalesced "n"
-    // spuriously OPTIONAL, so downstream matching could accept a surface missing it entirely.
-    // C# `NarrowSynthesisRewriteSubruleSpec.ApplyRhs` (cs:31-45) calls `Shape.AddAfter` (which
-    // never sets `Optional`) and only conditionally calls the separate `SetDirty(true)`.
+    // "atta" -> "ana": genuine narrowing (2 LHS nodes to 1 RHS node) via syn_narrow's RHS-insert path; the coalesced "n" must not be OPTIONAL, matching C#'s AddAfter/SetDirty split which never conflates the two flags.
     let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "atta"));
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
@@ -430,17 +368,11 @@ fn narrow_synthesis_replacement_segment_is_not_optional() {
     );
 }
 
-// =================================================================================================
-// Narrowing RHS alpha-variable resolution (plan §6 item 3 / W1.3): `syn_narrow`'s RHS build had no
-// `rhs_vars` step at all (unlike `syn_feature`) — a narrowing RHS natural class carrying an alpha
-// variable bound from a merged LHS segment was left fully unconstrained instead of resolved to the
-// captured value. C# analog: `RewriteRuleTests.AlphaVariableRules` x `MergeRules`.
-// =================================================================================================
+// Narrowing RHS alpha-variable resolution: syn_narrow's RHS build resolves an alpha variable bound from a merged LHS segment instead of leaving it fully unconstrained. C# analog: RewriteRuleTests.AlphaVariableRules x MergeRules.
 
 fn merge_with_alpha_voice_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
     let voi = feat(g, "feat_voi");
-    // [C, var1=voice] [C] -> [C, var1=voice] : two consonants merge to one whose voice comes from
-    // the FIRST LHS node's own (captured) voice value, via alpha var 1 (agree).
+    // [C, var1=voice] [C] -> [C, var1=voice]: two consonants merge to one whose voice comes from the first LHS node's captured value via alpha var 1.
     rule(
         Pattern {
             nodes: vec![
@@ -467,10 +399,7 @@ fn merge_with_alpha_voice_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef
 fn narrow_synthesis_resolves_rhs_alpha_variable_from_lhs() {
     let g = load_probe_grammar();
     let r = merge_with_alpha_voice_rule(&g);
-    // "td" -> coalesce to one consonant whose voice must come from the captured FIRST LHS node
-    // ('t', voiceless) via alpha var 1, NOT stay unconstrained. Before this fix `syn_narrow` never
-    // computed bindings at all, so the RHS's voice lane stayed at its unresolved full-mask default
-    // (nc_cons itself only pins `cons+`, leaving `voi` unconstrained absent the var resolution).
+    // "td" -> coalesces to one consonant whose voice comes from the captured first LHS node via alpha var 1, not the unresolved full-mask default nc_cons alone would leave it at.
     let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "td"));
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
@@ -482,10 +411,7 @@ fn narrow_synthesis_resolves_rhs_alpha_variable_from_lhs() {
     );
 }
 
-// =================================================================================================
-// Epenthesis: 0 -> t / a _ a   (C# EpenthesisSynthesisRewriteSubruleSpec.ApplyRhs /
-// EpenthesisAnalysisRewriteRuleSpec.Unapply)
-// =================================================================================================
+// Epenthesis: 0 -> t / a _ a (C# EpenthesisSynthesisRewriteSubruleSpec.ApplyRhs / EpenthesisAnalysisRewriteRuleSpec.Unapply)
 
 fn epenthesis_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
     rule(
@@ -516,10 +442,7 @@ fn epenthesis_synthesis_inserts_t_between_vowels() {
 #[test]
 fn epenthesis_synthesis_word_initial_site() {
     let g = load_probe_grammar();
-    // 0 -> t / # _ a : the P1 fix — C# `SynthesisRewriteRuleSpec`'s empty-LHS pattern matches the
-    // left-anchor annotation itself (`Segment|Anchor` constraint), so the word-initial gap is an
-    // ordinary application site (`RewriteRuleSpec.MatchSubrule`'s `_isTargetEmpty` branch inserts
-    // `AddAfter(rangeStart)` = right after the anchor).
+    // 0 -> t / # _ a: the word-initial gap is an ordinary application site, since an empty-LHS pattern matches the shape's own left-anchor annotation, matching C#'s RewriteRuleSpec.MatchSubrule _isTargetEmpty branch.
     let r = rule(
         Pattern::default(),
         subrule(
@@ -530,8 +453,7 @@ fn epenthesis_synthesis_word_initial_site() {
             Some(pat_ctx(nat_class(&g, "nc_vowel"))),
         ),
     );
-    // "aa" -> "taa": fires ONLY at the word-initial gap (after seg 0 the anchor-only left env
-    // fails; after seg 1 the vowel right env has nothing to match) — no medial double-firing.
+    // "aa" -> "taa": fires only at the word-initial gap; elsewhere the left/right environments can't both hold, so there's no medial double-firing.
     let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "aa"));
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
@@ -546,8 +468,7 @@ fn epenthesis_synthesis_word_initial_site() {
 fn epenthesis_analysis_marks_epenthetic_segment_optional() {
     let g = load_probe_grammar();
     let r = epenthesis_rule(&g);
-    // Analyze "ata": the medial t (matching the epenthesis RHS, between two vowels) is marked
-    // OPTIONAL (EpenthesisAnalysis.Unapply) rather than deleted.
+    // Analyze "ata": the medial t is marked OPTIONAL (EpenthesisAnalysis.Unapply) rather than deleted.
     let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "ata"));
     let got = interior(&out[0]);
     assert_eq!(got.len(), 3);
@@ -558,12 +479,7 @@ fn epenthesis_analysis_marks_epenthetic_segment_optional() {
 #[test]
 fn epenthesis_analysis_multi_node_target_matches_document_order() {
     let g = load_probe_grammar();
-    // 0 -> t d (2-node RHS, no envs). The analysis matcher runs in the REVERSED direction (C#
-    // `AnalysisRewriteRule`'s `MatcherSettings.Direction`), but C#'s `PatternNode.GenerateNfa`
-    // enumerates pattern children in `fsa.Direction` order (PatternNode.cs:55), so an RtL matcher
-    // still matches the pattern's DOCUMENT-order physical substring ("td"), not its reversal.
-    // `compile_lane_fst` performs that document->traversal reorder; before the P1 fix a 2-node
-    // analysis target silently matched the physically-reversed sequence instead.
+    // 0 -> t d: the analysis matcher runs reversed, but compile_lane_fst reorders so an RtL matcher still matches the pattern's document-order substring ("td"), not its reversal.
     let r = rule(
         Pattern::default(),
         subrule(
@@ -607,22 +523,9 @@ fn epenthesis_round_trip_recovers_superset() {
     assert!(got[1].3, "optional t: skipping it recovers the original aa");
 }
 
-// =================================================================================================
-// Width-mismatch guard (plan §6 item 1 / W1.1): a multi-node LHS abutting a `BoundaryMarker`, so a
-// nondeterministic FST match can transparently skip the boundary (an Optional segment in
-// `MutShape::segs`) and report an `ENTIRE_MATCH` span *wider* than the compiled 2-node pattern. No
-// existing C# test exercises this combination (`RewriteRuleTests.BoundaryRules` and
-// `MultipleSegmentRules` each test one half). Before the fix: `syn_feature` panicked indexing
-// `rhs_pins[k]` out of bounds; `syn_narrow` silently deleted the boundary node too (one node more
-// than the LHS pattern matched).
-// =================================================================================================
+// Width-mismatch guard: a multi-node LHS abutting a BoundaryMarker can let a nondeterministic FST match transparently skip an Optional segment and report an ENTIRE_MATCH span wider than the compiled pattern; no existing C# test exercises this combination.
 
-/// Re-flag the interior node at `interior_idx` (0-based, post-left-anchor) as `OPTIONAL`, mirroring
-/// `MutShape::to_shape`'s own delete+reinsert technique for materializing an Optional flag onto a
-/// frozen `Shape`. Used to build the "an Optional real segment, not just a boundary, can widen an
-/// `ENTIRE_MATCH` span" fixture (see this module's `MutNode::segs` gap doc): a plain word-medial
-/// segment marked Optional this way is exactly what `ana_narrow`'s deletion-unapply produces, which
-/// can then feed a *later* synthesis pass in a real pipeline.
+/// Re-flags the interior node at interior_idx as OPTIONAL (delete+reinsert, mirroring MutShape::to_shape) — builds the fixture where an Optional real segment, not just a boundary, can widen an ENTIRE_MATCH span.
 fn mark_optional(shape: &Shape, interior_idx: usize) -> Shape {
     let idx = interior_idx + 1; // +1 for the left anchor
     let char_def = shape.char_def(idx);
@@ -640,8 +543,7 @@ fn mark_optional(shape: &Shape, interior_idx: usize) -> Shape {
 }
 
 fn double_t_feature_change_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
-    // tt -> [+voice][+voice] (both LHS nodes voiced) — a 2-node LHS/RHS feature-change rule, no
-    // environment (the boundary sits *inside* the matched span, not in an environment).
+    // tt -> [+voice][+voice]: a 2-node LHS/RHS feature-change rule with no environment.
     rule(
         Pattern {
             nodes: vec![
@@ -666,26 +568,11 @@ fn double_t_feature_change_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDe
 fn feature_change_synthesis_rejects_an_over_wide_optional_skip_span() {
     let g = load_probe_grammar();
     let r = double_t_feature_change_rule(&g);
-    // "tat" with the medial 'a' re-flagged OPTIONAL (exactly what `ana_narrow`'s deletion-unapply
-    // produces, which can then feed a later synthesis pass in a real pipeline). `pg_fst`'s
-    // Optional-skip mechanism (`Transduce::advance`, which lets a pattern transparently pass over
-    // any Optional segment — boundary or not, per this module's own doc) fires here exactly as it
-    // would for a literal `BoundaryMarker`, but the medial 'a' does NOT itself match the LHS's
-    // second `t` node, so no width-correct "tt" span exists at all — `all_spans` reports only the
-    // single over-wide `[0,3)` skip-through span (empirically confirmed while developing this fix:
-    // raw FST results were exactly `[(0,3)]`, none width-correct). Because 'a' is `Segment`-kind
-    // (not `Boundary`), it also passes the pre-existing `kind != NodeKind::Segment` filter that
-    // incidentally protects a literal boundary from ever reaching the panicking line below — this
-    // is the genuine, previously-unguarded crash site. Before the width guard: `syn_feature`
-    // walked this 3-node span against a 2-element `rhs_pins`, indexing `rhs_pins[2]` and panicking
-    // with "index out of bounds: the len is 2 but the index is 2" (confirmed via direct repro
-    // during this fix's development, at the exact line the guard now short-circuits).
+    // "tat" with the medial 'a' re-flagged OPTIONAL: pg_fst's Optional-skip mechanism (Transduce::advance) can skip a real Segment-kind Optional node exactly as it would a boundary, so the only span all_spans reports is the over-wide [0,3), with no width-correct "tt" span at all.
     let base = seg(&g, "tat");
     let input = mark_optional(&base, 1);
     let out = pg_rules::rewrite::synthesize(&g, &r, &input);
-    // No width-correct "tt" span exists once 'a' is excluded from consideration, so the guard
-    // correctly rejects the only (over-wide) candidate: the rule must not apply. The load-bearing
-    // regression check is simply that this call returns instead of panicking.
+    // No width-correct "tt" span exists once 'a' is excluded, so the guard rejects the only (over-wide) candidate; the regression check is that this returns instead of panicking.
     assert!(
         out.is_empty(),
         "no width-correct match exists; the over-wide span must be rejected, not applied"
@@ -709,12 +596,7 @@ fn double_t_narrow_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
 fn narrow_synthesis_rejects_an_over_wide_optional_skip_span() {
     let g = load_probe_grammar();
     let r = double_t_narrow_rule(&g);
-    // Same fixture as the `syn_feature` sibling above ("tat", medial 'a' marked Optional). Before
-    // the width guard, `syn_narrow` doesn't index a per-node array positionally (no panic risk
-    // there), but it deletes every node in `target_nodes` and splices the RHS in after the last
-    // one — so the over-wide `[0,3)` span would delete THREE nodes (t, a, t) and insert "n" after
-    // them, silently swallowing 'a' along with the two real targets: one physical node more than
-    // the 2-node LHS pattern actually specifies.
+    // Same fixture as the syn_feature sibling above; without the width guard, syn_narrow's delete-and-splice would swallow the over-wide [0,3) span's extra node ('a') along with the two real targets.
     let base = seg(&g, "tat");
     let input = mark_optional(&base, 1);
     let out = pg_rules::rewrite::synthesize(&g, &r, &input);
@@ -724,21 +606,7 @@ fn narrow_synthesis_rejects_an_over_wide_optional_skip_span() {
     );
 }
 
-// =================================================================================================
-// Direction-aware Iterative pick order (DIRECTION-BLIND bug fix): C#
-// `IterativePhonologicalPatternRule.Apply` (`PhonologicalRules/IterativePhonologicalPatternRule.cs:
-// 17-48`) finds the next match by scanning in `Matcher.Direction` (`Matcher.Match(input)`, no
-// explicit start ⇒ from the shape's `Direction`-side anchor) and, after applying or skipping it,
-// resumes scanning FURTHER in that SAME direction (`targetMatch.Range.GetEnd(Direction).GetNext(
-// Direction)` / `GetStart(Direction).GetNext(Direction)`, cs:29,33) — so a `LeftToRight` rule always
-// finds its LEFTMOST remaining candidate first and a `RightToLeft` rule always finds its RIGHTMOST
-// remaining candidate first. Before this fix, `pg_rules::rewrite`'s Iterative pick-one-then-rescan
-// loops (`syn_feature`/`syn_narrow`/`probe_narrow`/`ana_feature`) always picked the leftmost accepted
-// candidate, with ZERO dependence on `rule.dir` — a `RightToLeft`-declared rule behaved exactly like
-// `LeftToRight`. `double_t_narrow_rule`/`double_t_feature_change_rule` above are reused directly
-// (only `dir` differs) since they are already exactly the "two overlapping same-shape matches"
-// fixtures this bug needs — `rule`'s hardcoded `Dir::LeftToRight` is why `rule_dir` exists.
-// =================================================================================================
+// Direction-aware Iterative pick order: matching C#'s IterativePhonologicalPatternRule.Apply, a LeftToRight rule must find its leftmost remaining candidate first and a RightToLeft rule its rightmost, never both directions picking the same leftmost match.
 
 fn double_t_narrow_rule_dir(g: &pg_grammar::model::Grammar, dir: Dir) -> RewriteRuleDef {
     rule_dir(
@@ -755,11 +623,7 @@ fn double_t_narrow_rule_dir(g: &pg_grammar::model::Grammar, dir: Dir) -> Rewrite
 
 #[test]
 fn narrow_synthesis_pick_order_witness_leftmost_then_rightmost() {
-    // The bug's own concrete witness (generalized from `aa -> b` on "aaa" to this file's `char_t`/
-    // `char_n` alphabet: `tt -> n` on "ttt"). The raw FST reports two OVERLAPPING "tt" candidates
-    // sharing the middle node — (t0,t1) and (t1,t2) — so which one an Iterative loop merges FIRST
-    // determines which single `t` survives unmerged; before this fix BOTH directions merged
-    // (t0,t1), leaving "n"+"t" regardless of `rule.dir`.
+    // tt -> n on "ttt": the raw FST reports two overlapping candidates sharing the middle node, (t0,t1) and (t1,t2), so which one an Iterative loop merges first determines which single t survives unmerged.
     let g = load_probe_grammar();
 
     let ltr = pg_rules::rewrite::synthesize(
@@ -794,12 +658,7 @@ fn narrow_synthesis_pick_order_witness_leftmost_then_rightmost() {
 
 #[test]
 fn narrow_synthesis_pick_order_with_environment_changes_final_result() {
-    // `t t -> n / _ t` (a genuine, non-trivial right environment: "the pair must be immediately
-    // followed by a literal t"), applied to "tttt". The raw FST reports three candidate windows —
-    // (t0,t1), (t1,t2), (t2,t3) — but the environment independently eliminates the LAST one in
-    // EITHER direction (nothing follows t2,t3), leaving two overlapping, BOTH env-satisfying
-    // candidates for direction to arbitrate between: (t0,t1) [followed by t2] and (t1,t2) [followed
-    // by t3].
+    // t t -> n / _ t on "tttt": the environment eliminates the (t2,t3) window in either direction, leaving two overlapping env-satisfying candidates, (t0,t1) and (t1,t2), for direction to arbitrate.
     let g = load_probe_grammar();
     let env_rule = |dir: Dir| {
         rule_dir(
@@ -869,22 +728,7 @@ fn double_t_feature_change_rule_dir(g: &pg_grammar::model::Grammar, dir: Dir) ->
 
 #[test]
 fn feature_change_analysis_pick_order_depends_on_direction() {
-    // The un-application counterpart, exercising `ana_feature` specifically (the only ANALYSIS-side
-    // site this fix touches — `ana_narrow_deletion`/`ana_narrow_general`/`ana_epenthesis` are all
-    // Simultaneous/collect-every-match in C# too, `PhonologicalRules/AnalysisRewriteRule.cs:72-90`,
-    // so they have no "which one wins" question). `double_t_feature_change_rule`'s un-apply target
-    // is `LHS ⊕ RHS` = [cons+, voi+] at BOTH of its two positions — exactly "d"'s (or "n"'s) own
-    // lanes — so "ddd" (three d's) offers the SAME kind of overlapping-pair ambiguity as the
-    // synthesis witness above: candidate windows (d0,d1) and (d1,d2) share the middle node, and
-    // `ana_feature`'s own `dirty` gate (set on every node the FIRST accepted window touches) then
-    // blocks the other, overlapping window on rescan — so exactly one window ever unapplies, and
-    // direction decides which.
-    //
-    // Critically, `AnalysisRewriteRule`'s own `Matcher.Direction` is the OPPOSITE of `rule.Direction`
-    // (`AnalysisRewriteRule.cs:33`: `rule.Direction == LeftToRight ? RightToLeft : LeftToRight`) —
-    // un-application is the MIRROR IMAGE of application, not a copy of it — so a `LeftToRight`-
-    // declared rule's analysis scans RIGHT-TO-LEFT (rightmost pair first) and a `RightToLeft`-
-    // declared rule's analysis scans LEFT-TO-RIGHT (leftmost pair first).
+    // The analysis counterpart (ana_feature): AnalysisRewriteRule's own matcher direction is the OPPOSITE of rule.dir, so un-application is the mirror image of application, not a copy of it — a LeftToRight-declared rule's analysis scans right-to-left and vice versa.
     let g = load_probe_grammar();
     let unconstrained_voi = vec![0b01u64, 0b11, 0b01]; // cons+ (from d), voi now full-mask (t|d)
 
@@ -933,9 +777,7 @@ fn feature_change_analysis_pick_order_depends_on_direction() {
     );
 }
 
-// =================================================================================================
-// Anchor environment: t -> [+voice] / a _ #   (C# AnchorRules — a word-boundary right environment)
-// =================================================================================================
+// Anchor environment: t -> [+voice] / a _ # (C# AnchorRules — a word-boundary right environment)
 
 #[test]
 fn feature_change_word_final_anchor_environment() {
@@ -964,27 +806,9 @@ fn feature_change_word_final_anchor_environment() {
     );
 }
 
-// =================================================================================================
-// Multi-subrule Simultaneous disjunction. `sim_feature`/`sim_narrow` are dispatched per subrule
-// (Rust's existing per-subrule-outer-loop architecture, `synthesize_with_mpr`'s `for sr in
-// &rule.subrules` sharing one `MutShape` across subrules) rather than as one collect-then-apply
-// pass across the WHOLE rule with per-position first-applicable-subrule dispatch (C#'s actual
-// `RewriteRuleSpec.MatchSubrule` mechanism). This is an UNEXERCISED risk, not a known bug: a rule
-// with two Simultaneous subrules whose environments can BOTH hold at the SAME target position might
-// (a) apply only the first (correct, matching C#), (b) apply both (wrong), or (c) apply the second
-// because the first's own snapshot-based pass hadn't marked anything dirty before the second's
-// snapshot was taken (wrong). This test constructs exactly that overlapping-position case and
-// records which of (a)/(b)/(c) Rust's actual per-subrule-sequential design produces.
-// =================================================================================================
+// Multi-subrule Simultaneous disjunction: Rust dispatches sim_feature/sim_narrow per-subrule rather than C#'s one collect-then-apply pass with per-position first-applicable dispatch, so this test pins which subrule wins when two Simultaneous subrules' environments both hold at the same position.
 
-/// Two Simultaneous subrules over `nc_cons` (matches t/d/n): subrule 1 voices a consonant that is
-/// followed by ANOTHER consonant (`RightEnvironment = nc_cons`); subrule 2 is an unconditional
-/// catch-all (no environment at all) that devoices to `t`'s exact lanes. On word "td" (t=cons+,
-/// voi-; d=cons+,voi+), LHS `nc_cons` matches BOTH positions (single-node target). At position 0
-/// ("t"), subrule 1's environment holds (followed by "d", a consonant) AND subrule 2's environment
-/// holds too (vacuously, everywhere) — a genuine overlap at the SAME position, the exact shape §4.1
-/// warns about. At position 1 ("d", word-final), subrule 1's environment fails (nothing follows);
-/// only subrule 2's catch-all can apply there.
+/// Two Simultaneous subrules over nc_cons: subrule 1 voices before another consonant, subrule 2 is an unconditional catch-all — on "td", both environments hold at position 0, a genuine same-position overlap; only subrule 2 can apply at position 1.
 fn disjunctive_simultaneous_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
     rule_multi(
         pat_ctx(nat_class(g, "nc_cons")),
@@ -1004,16 +828,7 @@ fn disjunctive_simultaneous_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleD
 fn simultaneous_multi_subrule_disjunction_first_subrule_wins_at_overlapping_position() {
     let g = load_probe_grammar();
     let r = disjunctive_simultaneous_rule(&g);
-    // "td": position 0 ("t") satisfies BOTH subrules' environments simultaneously (subrule 1's
-    // RightEnvironment=Cons holds because "d" follows; subrule 2's catch-all always holds) --
-    // Rust's per-subrule-sequential architecture applies subrule 1 first (voicing "t" to
-    // cons+,voi+ = D's lanes) and marks that node dirty BEFORE subrule 2's own `sim_feature` call
-    // takes its snapshot, so subrule 2 correctly skips the already-touched position 0 — matching
-    // C#'s first-applicable-subrule-wins semantics (RewriteRuleSpec.MatchSubrule's inner loop),
-    // even though this is "one collect-then-apply pass per subrule", not "one pass across the
-    // whole rule with per-position dispatch" (§4.1's distinction). Position 1 ("d", word-final) is
-    // untouched by subrule 1 (no following consonant) and is caught by subrule 2's catch-all,
-    // forcing it to T's exact (voiceless) lanes.
+    // "td": both subrules' environments hold at position 0, but subrule 1 runs first and marks the node dirty before subrule 2's snapshot, so subrule 2 correctly skips it — matching C#'s first-applicable-subrule-wins semantics.
     let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "td"));
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
@@ -1039,20 +854,10 @@ fn simultaneous_multi_subrule_disjunction_first_subrule_wins_at_overlapping_posi
     );
 }
 
-// =================================================================================================
-// P13: `sim_narrow` coverage. `sim_feature` is exercised by the disjunction test above (and, at the
-// full-pipeline level, by `pg-parse/tests/simultaneous_conformance.rs`'s oracle fixtures); Epenthesis
-// under Simultaneous mode reuses `syn_epenthesis` (already covered by the oracle fixtures too). But
-// `sim_narrow` — genuinely new code (the design doc's §4.1 splice-then-delete-descending transform
-// of `syn_narrow`) — had no dedicated test anywhere: no oracle fixture exercises a Simultaneous
-// Narrow/Expansion synthesis rule (§6.4 deliberately built none, reasoning that the ANALYSIS side
-// needs no new code — true, but orthogonal to `sim_narrow`, which is synthesis-only and genuinely
-// new). This closes that gap directly.
-// =================================================================================================
+// sim_narrow coverage: its splice-then-delete-descending transform is genuinely new code with no oracle fixture exercising a Simultaneous Narrow/Expansion synthesis rule, unlike sim_feature and Simultaneous Epenthesis (both covered elsewhere).
 
 fn simultaneous_narrowing_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
-    // tt -> n / V _ V, tagged Simultaneous (the Iterative form of this same rule is
-    // `narrowing_rule`, tested elsewhere in this file via "atta" -> "ana", a single site).
+    // tt -> n / V _ V, tagged Simultaneous — the Iterative form of this same rule is narrowing_rule, tested elsewhere via a single site.
     rule_multi(
         Pattern {
             nodes: vec![
@@ -1073,11 +878,7 @@ fn simultaneous_narrowing_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef
 fn simultaneous_narrow_synthesis_merges_two_non_overlapping_sites_in_one_pass() {
     let g = load_probe_grammar();
     let r = simultaneous_narrowing_rule(&g);
-    // "attatta" (a,t,t,a,t,t,a): TWO separate "tt" sites, both flanked by vowels, at node indices
-    // (1,2) and (4,5) (1-indexed after the left anchor). `sim_narrow` must collect BOTH accepted
-    // spans against one pristine snapshot and apply them (descending, so the first splice/delete
-    // doesn't shift the second site's own captured indices — see `sim_narrow`'s doc), giving
-    // "anana": both merges present in a single `synthesize` call, not just one.
+    // "attatta": two separate "tt" sites; sim_narrow must collect both against one pristine snapshot and apply them descending so the first splice/delete doesn't shift the second site's captured indices.
     let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "attatta"));
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
@@ -1106,12 +907,7 @@ fn simultaneous_narrow_synthesis_merges_two_non_overlapping_sites_in_one_pass() 
     }
 }
 
-// =================================================================================================
-// P12 chunk 6: phonological rule tracing. `synthesize_with_mpr_traced`/`analyze_traced`'s subrule
-// outcome side channel (C#'s `Word.CurrentRuleResults`), the `Pattern` fallback, the three gate
-// reasons (`RequiredSyntacticFeatureStruct`/`RequiredMprFeatures`/`ExcludedMprFeatures`), and the
-// multi-subrule readout order/early-stop C#'s `SynthesisRewriteRule.Apply` (cs:65-85) uses.
-// =================================================================================================
+// Phonological rule tracing: synthesize_with_mpr_traced/analyze_traced's subrule outcome side channel, Pattern fallback, the three gate reasons, and the multi-subrule readout order/early-stop, matching C#'s SynthesisRewriteRule.Apply.
 
 fn children_of(
     sink: &TreeTraceSink,
@@ -1126,8 +922,7 @@ fn traced_synthesis_pattern_fallback_when_nothing_matches() {
     let r = voicing_rule(&g);
     let sink = TreeTraceSink::new();
     let root = sink.generate_words();
-    // "aaa": no "t" anywhere, so subrule 0's LHS never matches at all -- the generic `Pattern`
-    // fallback (no gate to have failed; this rule declares no MPR/POS restriction).
+    // "aaa": no "t" anywhere, so subrule 0's LHS never matches — the generic Pattern fallback, since this rule declares no MPR/POS restriction.
     let out = pg_rules::rewrite::synthesize_with_mpr_traced(
         &g,
         PRuleId(0),
@@ -1185,10 +980,7 @@ fn traced_synthesis_applied_carries_no_reason_and_the_rewritten_output() {
     );
 }
 
-/// `SynthesisRewriteSubruleSpec.IsApplicable`'s first gate (`RequiredMprFeatures`, C#
-/// `SynthesisRewriteSubruleSpec.cs:46-59`): reported even though the LHS pattern (medial "t" in
-/// "ata") WOULD otherwise match -- confirming the gate is checked, and its specific reason reported,
-/// BEFORE the pattern is ever tried, matching C#'s `IsApplicable`-before-`MatchSubrule` order.
+/// The RequiredMprFeatures gate is checked, and its reason reported, before the pattern is ever tried — matching C#'s IsApplicable-before-MatchSubrule order.
 #[test]
 fn traced_synthesis_required_mpr_gate_reports_reason_before_the_pattern_is_tried() {
     let g = load_probe_grammar();
@@ -1253,20 +1045,14 @@ fn traced_synthesis_excluded_mpr_gate_reports_reason() {
     assert_eq!(ev.failure_reason, Some(FailureReason::ExcludedMprFeatures));
 }
 
-/// Two subrules sharing one LHS but different environments: subrule 0's environment never holds in
-/// "ata" (Pattern fallback), subrule 1's does (Applied). Confirms C#'s exact readout discipline
-/// (`SynthesisRewriteRule.cs:65-83`): BOTH events fire, in subrule-index order, and the readout
-/// stops at the FIRST `Applied` -- there is no third subrule here to prove the `break` against, but
-/// the two-event shape (not one, not zero) already confirms the loop doesn't stop at the first
-/// failure either.
+/// Two subrules sharing one LHS with different environments: both trace events fire, in subrule-index order, and the readout stops at the first Applied — matching C#'s SynthesisRewriteRule readout discipline.
 #[test]
 fn traced_synthesis_multi_subrule_readout_reports_failure_then_applied_in_order() {
     let g = load_probe_grammar();
     let r = rule_multi(
         pat_char(char_def(&g, "char_t")),
         vec![
-            // subrule 0: requires a preceding consonant -- never holds in "ata" (t is preceded by a
-            // vowel) -- Pattern fallback.
+            // subrule 0: requires a preceding consonant, never true in "ata" — Pattern fallback.
             subrule(
                 pat_ctx(nat_class(&g, "nc_voi")),
                 Some(pat_ctx(nat_class(&g, "nc_cons"))),
@@ -1311,15 +1097,13 @@ fn traced_synthesis_multi_subrule_readout_reports_failure_then_applied_in_order(
     );
 }
 
-/// Analysis side (`analyze_traced`): no gate, no `FailureReason` at all either way -- just
-/// `Unapplied`/`NotUnapplied` fired inline per subrule (`AnalysisRewriteRule.cs:178-187`).
+/// Analysis side (analyze_traced): no gate and no FailureReason either way, just Unapplied/NotUnapplied fired inline per subrule.
 #[test]
 fn traced_analysis_reports_unapplied_and_not_unapplied() {
     let g = load_probe_grammar();
     let r = deletion_rule(&g);
 
-    // "aa": the deleted "t" between the two vowels round-trips (analysis re-inserts it optionally)
-    // -- Unapplied.
+    // "aa": the deleted t round-trips (analysis re-inserts it optionally) — Unapplied.
     let sink = TreeTraceSink::new();
     let root = sink.generate_words();
     let out = pg_rules::rewrite::analyze_traced(&g, PRuleId(4), &r, &seg(&g, "aa"), &sink, root);
@@ -1345,15 +1129,11 @@ fn traced_analysis_reports_unapplied_and_not_unapplied() {
     assert_eq!(ev2.failure_reason, None);
 }
 
-/// `analyze_cached_traced`'s only exercise (see its doc: not yet called from live code) -- confirms
-/// the `RuleCache`-backed dispatch path fires the identical events the uncached sibling does.
+/// analyze_cached_traced's only exercise: confirms the RuleCache-backed dispatch path fires identical events to its uncached sibling.
 #[test]
 fn traced_analysis_cached_matches_uncached() {
     let mut g = load_probe_grammar();
-    // `deletion_rule` builds a fresh, independent `RewriteRuleDef` each call (no `Clone` on that
-    // type) -- one copy registered into `g.prules` for `RuleCache::build`, a second held by this
-    // test to pass alongside the cache (matching every real `_cached`/`_cached_traced` call site's
-    // own `(pid, rule)` contract: `rule` must describe the same rule `pid` indexes).
+    // deletion_rule builds a fresh RewriteRuleDef each call; one copy is registered for RuleCache::build and a second is held here, matching the real (pid, rule) contract that rule must describe what pid indexes.
     let for_cache = deletion_rule(&g);
     g.prules
         .push(pg_grammar::model::PhonRuleDef::Rewrite(for_cache));
@@ -1378,24 +1158,12 @@ fn traced_analysis_cached_matches_uncached() {
     assert_eq!(ev.failure_reason, None);
 }
 
-// =================================================================================================
-// Confirm-engine gap 1: a bounded `Quantifier` occupying the WHOLE LHS/RHS (`width_matches`'s own
-// doc, "INVESTIGATED, LEFT AS-IS: a bounded Quantifier occupying the WHOLE LHS/RHS"). C# has no
-// defined behavior for this shape at all (`SynthesisRewriteRuleSpec.cs:33` etc. crash with
-// `InvalidCastException` the instant a top-level LHS/RHS child isn't a plain `Constraint`), so this
-// is not "fixed" -- this pins the current, safe (non-crashing, non-mis-grouping) behavior instead:
-// the quantifier's own multiplicity is invisible to this machinery, because every INDIVIDUAL
-// occurrence of its child pattern independently satisfies `min=1` and is matched/applied as its own
-// ordinary width-1 site before the wider span is ever reachable.
-// =================================================================================================
+// A bounded Quantifier occupying the whole LHS/RHS has no defined C# behavior (it crashes there); this pins the current safe behavior instead — the quantifier's own multiplicity is invisible, since every individual occurrence of its child pattern independently satisfies min=1 as its own width-1 site.
 
 #[test]
 fn quantifier_as_whole_lhs_ignores_its_own_multiplicity_but_never_crashes_or_misgroups() {
     let g = load_probe_grammar();
-    // LHS = (a){1,2} as the ENTIRE LHS pattern (one top-level `Quantifier` node); RHS = a single
-    // fixed segment `t` (also one top-level node, so `classify` sees `t == r == 1` => `Kind::Feature`
-    // -- same dispatch a plain `a -> t` rule would get; the quantifier envelope changes nothing
-    // about which spec function runs, only what its own compiled target FST structurally matches).
+    // LHS = (a){1,2} as the entire LHS pattern, RHS a single fixed segment: classify sees l == r == 1 => Kind::Feature, same dispatch a plain a -> t rule gets — the quantifier envelope changes only what the FST structurally matches, not which spec function runs.
     let lhs = Pattern {
         nodes: vec![PatternNode::Quantifier {
             min: 1,
@@ -1405,8 +1173,7 @@ fn quantifier_as_whole_lhs_ignores_its_own_multiplicity_but_never_crashes_or_mis
     };
     let r = rule(lhs, subrule(pat_char(char_def(&g, "char_t")), None, None));
 
-    // One, two, and three `a`s: every single `a` is independently rewritten to `t` (the quantifier's
-    // 1..2 bound is never actually enforced as a GROUP), and nothing panics or drops nodes.
+    // One, two, and three a's: every single a is independently rewritten to t — the quantifier's 1..2 bound is never enforced as a group.
     for (word, want_len) in [("a", 1), ("aa", 2), ("aaa", 3)] {
         let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, word));
         assert_eq!(
@@ -1430,15 +1197,7 @@ fn quantifier_as_whole_lhs_ignores_its_own_multiplicity_but_never_crashes_or_mis
     }
 }
 
-// =================================================================================================
-// Confirm-engine gap 2 (investigated, does not reproduce): `ana_epenthesis`'s own doc records that
-// `tests/phase_c_right_to_left.rs`'s reported "Morpher finds no analysis for ANY word" finding could
-// not be reproduced here. This pins the ACTUAL current (correct) behavior for that exact shape --
-// `PatternNode::Context` (natural-class) RHS epenthesis with an explicit two-sided environment,
-// round-tripping in both directions -- as a standing regression guard, distinct from the
-// pre-existing `epenthesis_*` gates above (which all use a concrete `PatternNode::CharDef` RHS, not
-// a natural-class `Context` RHS).
-// =================================================================================================
+// Pins natural-class (PatternNode::Context) RHS epenthesis with a two-sided environment round-tripping in both directions, distinct from the epenthesis_* gates above, which all use a concrete CharDef RHS.
 
 fn ctx_epenthesis_rule(g: &pg_grammar::model::Grammar, dir: Dir) -> RewriteRuleDef {
     rule_dir(
@@ -1465,12 +1224,7 @@ fn epenthesis_natural_class_rhs_round_trips_with_environment() {
         assert_eq!(got.len(), 3, "{dir:?}: one segment epenthesized");
         assert_eq!(got[0].2, A.to_vec(), "{dir:?}: left a unchanged");
         assert_eq!(got[2].2, T.to_vec(), "{dir:?}: right t unchanged");
-        // The inserted segment's lanes match nc_n's own natural-class constraint (voi+/cons+, the
-        // same feature bundle as `d` -- `n` exists precisely to give epenthesis a distinct
-        // char-def; see `common/mod.rs`'s doc). `char_def` is `NO_CHAR_DEF`: a `Context` RHS has no
-        // single concrete identity (the file's own `new_seg_node` doc's "KNOWN RESIDUAL"), which is
-        // exactly the shape this test targets, distinct from the pre-existing concrete-`CharDef`
-        // epenthesis gates.
+        // The inserted segment carries nc_n's own lanes (same bundle as d) but char_def is NO_CHAR_DEF, since a Context RHS has no single concrete identity — the shape this test targets, distinct from the concrete-CharDef epenthesis gates above.
         assert_eq!(
             got[1].2,
             D.to_vec(),
@@ -1486,10 +1240,7 @@ fn epenthesis_natural_class_rhs_round_trips_with_environment() {
             "{dir:?}: synthesized epenthetic segment is not optional"
         );
 
-        // Analysis must recover the pre-insertion form: the medial inserted segment is marked
-        // OPTIONAL (never deleted), and the flanking a/t are untouched -- this is the exact
-        // reported-gap scenario (an environment-gated, natural-class-RHS epenthesis rule) and it
-        // round-trips correctly in BOTH directions.
+        // Analysis must recover the pre-insertion form: the medial inserted segment is marked OPTIONAL (never deleted), flanking a/t untouched, round-tripping correctly in both directions.
         let ana = pg_rules::rewrite::analyze(&g, &r, &synth[0]);
         assert_eq!(
             ana.len(),

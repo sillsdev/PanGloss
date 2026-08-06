@@ -1,16 +1,4 @@
-//! Property test: for the Amharic table, `CharDefTable::unifiable_cds` (Design A, the build-time
-//! closure memo) must agree EXACTLY with a gate-free lane scan (Design C: `flat_unifiable` computed
-//! fresh, no precomputed closure consulted) on random `(edge cd, query cd)` pairs. A is C plus an
-//! O(1) memo of that scan; there is no correctness reason to prefer C, so C survives only as the
-//! property-test oracle for A (assert A ≡ C on random inputs).
-//!
-//! Self-skips when the untracked sample grammar is absent (fresh clone / CI), matching this
-//! project's other bounded-corpus tests (`rust-conversion.md` §8, e.g. `pg-rules/tests/
-//! p7_segments_union_census.rs`).
-//!
-//! Test-timing policy: the default local `cargo test --workspace --release`
-//! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is
-//! unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
+//! Property test: `CharDefTable::unifiable_cds`'s build-time closure memo must agree exactly with a gate-free lane scan (`flat_unifiable`, computed fresh) on random `(edge cd, query cd)` pairs. Self-skips when the untracked sample grammar is absent, and is unconditionally `#[ignore]`d so the default test run stays fast.
 
 use std::path::{Path, PathBuf};
 
@@ -24,8 +12,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// Tiny deterministic xorshift64 PRNG — no external `rand` dependency, fixed seed so a failure is
-/// always reproducible.
+/// Tiny deterministic xorshift64 PRNG, no external `rand` dependency, fixed seed so a failure is always reproducible.
 fn xorshift(state: &mut u64) -> u64 {
     let mut x = *state;
     x ^= x << 13;
@@ -61,9 +48,7 @@ fn amharic_closure_matches_gate_free_lane_scan() {
         let j = (xorshift(&mut state) % n as u64) as u32;
         let cd_i = CharDefId(i);
         let cd_j = CharDefId(j);
-        // The closure (and `unifiable_cds`) only covers Segment×Segment pairs (§6.1) — boundary
-        // rows are deliberately out of scope (boundaries stay `StrRep`-identity-gated in every
-        // grammar), so restrict the property to segment pairs, matching the closure's own domain.
+        // The closure only covers Segment×Segment pairs; boundary rows are deliberately out of scope, so restrict the property to segment pairs.
         if table.get(cd_i).kind() != CharDefKind::Segment
             || table.get(cd_j).kind() != CharDefKind::Segment
         {

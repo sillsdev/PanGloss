@@ -331,10 +331,7 @@ fn pilot_beam_reserve_and_selector_defaults_have_checked_in_calibration() {
         choose_strategy_with_policy(80, PilotCosts { p50: 2, p95: 2 }, budget, weak, policy),
         Strategy::DiverseBeam
     );
-    // Reserve calibration is measured by running the production search loop, not by re-deriving the
-    // allocation with local arithmetic: 13 candidates that each cost 10 elapsed units give 130 units
-    // of search demand against a 160-unit deadline, and `search_coverage` below is the elapsed the
-    // real `optimize_with_evaluator` actually spent.
+    // Reserve calibration is measured by running the production search loop, not by re-deriving the allocation with local arithmetic.
     let total = 160u64;
     let confirmation_demand = 40u64;
     let sweep: Vec<CandidateState> = (0..13)
@@ -373,8 +370,7 @@ fn pilot_beam_reserve_and_selector_defaults_have_checked_in_calibration() {
         if confirmed && smallest_successful.is_none() {
             smallest_successful = Some((numerator, denominator));
         }
-        // A reserve that genuinely stops the sweep early must say so: the run is budget-limited and
-        // approximate, never a clean `Complete`/`Exact`.
+        // A reserve that genuinely stops the sweep early must say so: budget-limited and approximate, never a clean Exact.
         if search_used < search_demand {
             assert_eq!(outcome.search.quality, SearchQuality::Approximate);
             assert_eq!(outcome.search.termination, Termination::BudgetExhausted);

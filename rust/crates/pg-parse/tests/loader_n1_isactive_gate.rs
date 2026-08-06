@@ -1,27 +1,4 @@
-//! Conformance replay for phase-2 audit C finding N1 (`PhonologicalFeatureSystem@isActive`).
-//!
-//! Fixture: `rust/conformance/loader/n1-isactive/{grammar.xml,words.txt,expected.tsv}`. The
-//! grammar declares two `<PhonologicalFeatureSystem>` blocks: the first (default `isActive`,
-//! DTD default "yes") declares feature `voi`, which `<NaturalClasses><FeatureNaturalClass
-//! id="voiced">` resolves; the second is `isActive="no"` and declares an unrelated `junk`
-//! feature only. C# `XmlLanguageLoader.LoadLanguage` selects
-//! `Elements("PhonologicalFeatureSystem").SingleOrDefault(IsActive)` (`XmlLanguageLoader.cs:239`)
-//! — i.e. the first (only active) block — so `voi` resolves and the grammar loads fine.
-//!
-//! Pre-fix, `pg-grammar`'s `load_char_def_table_from_xml` had no `isActive` check at all and let
-//! the *last* `<PhonologicalFeatureSystem>` block in the file win regardless of its `isActive`
-//! value; with this fixture's block order (active first, inactive-and-different second) that bug
-//! selects the "junk"-only block, so `voiced`'s `<FeatureValue feature="voi" .../>` fails to
-//! resolve at load time (`GrammarError::Semantic("unknown phonological feature 'voi'")`) and the
-//! *whole grammar* fails to load — this is the red-on-revert signal for this fixture: comment out
-//! the `is_active`/`phon_feat_sys_selected` gate in `lib.rs::load_char_def_table_from_xml` and
-//! this test starts panicking on `pg_grammar::load` itself, before ever reaching the signature
-//! assertions below.
-//!
-//! `expected.tsv` was oracle-generated:
-//! `DOTNET_gcServer=0 hc.exe -i grammar.xml -s script.txt` against
-//! `.worktrees/parse-opt/src/.../hc.dll` (`parse-optimization` HEAD `ccf750e6`), which loads this
-//! grammar successfully (proving C# picks the active block) and produces the two signatures below.
+//! With two `<PhonologicalFeatureSystem>` blocks where only the first is `isActive`, the loader must select the active block for feature resolution, matching C#'s `SingleOrDefault(IsActive)`; disabling that gate makes the inactive block's unrelated feature set win and the whole grammar fail to load, which is this fixture's red-on-revert signal.
 
 use std::path::{Path, PathBuf};
 
@@ -51,8 +28,7 @@ fn n1_isactive_grammar_loads_and_matches_oracle_signatures() {
     });
     let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
 
-    // (word, expected BatchCommand-protocol signature) — from the oracle-generated
-    // `expected.tsv` (rows 2 and 4, column 5).
+    // (word, expected signature), from the oracle-generated expected.tsv.
     let cases = [("kat", "|kat"), ("sod", "|sod")];
     for (word, expected) in cases {
         let got = morpher.parse_word(word).signature();

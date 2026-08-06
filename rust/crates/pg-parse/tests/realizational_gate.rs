@@ -1,16 +1,4 @@
-//! Conformance replay for W5 (the "realizational cluster": `StemName`, `LexFamily` blocking,
-//! `RealizationalAffixProcessRule`): the three `rust/conformance/realizational/*` fixtures. Each
-//! `expected.tsv` is C#-oracle-generated (parse-opt, frozen); see each fixture's README for the
-//! grammar design and row-by-row rationale.
-//!
-//! Red-on-revert: reverting `pg-rules/src/validity.rs`'s `stem_name_gates_ok` call (the two W5
-//! call sites in `allomorphs_valid_impl`'s `AllomorphOwner::Root` arm) makes every excluded row in
-//! `stem-name` wrongly parse (e.g. `saned`/`sant`/`sans`/`sads`/`sapt` all start parsing).
-//! Reverting the `apply_blocking` wiring in `pg-rules/src/morph.rs`'s `synthesize`/
-//! `synthesize_cached` makes `family-blocking`'s `katid` wrongly parse (as `KAT+PAST|katid`).
-//! Reverting `MorphRuleDef::Realizational`'s dispatch arms (or the loader's `try_load_
-//! realizational_rule`) makes `realizational-rule` fail to load at all with
-//! `Unsupported("RealizationalRule")`.
+//! Conformance replay for the realizational cluster (`StemName`, `LexFamily` blocking, `RealizationalAffixProcessRule`): three fixtures, each `expected.tsv` C#-oracle-generated; reverting `stem_name_gates_ok`, the `apply_blocking` wiring, or `Realizational`'s dispatch arms each makes a specific fixture wrongly parse or fail to load.
 
 use std::path::{Path, PathBuf};
 
@@ -23,10 +11,7 @@ fn fixture_dir(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// Replay one fixture: load its grammar, parse every word in `expected.tsv`, and assert the
-/// signature matches the oracle-recorded one exactly. Returns the number of words checked so
-/// callers can assert against the fixture's known row count (catching a truncated/mis-copied
-/// `expected.tsv`).
+/// Replays one fixture: loads its grammar, parses every word in `expected.tsv`, asserts the signature matches, and returns the count checked, so callers can catch a truncated/mis-copied `expected.tsv`.
 fn replay(name: &str) -> usize {
     let dir = fixture_dir(name);
     let xml = std::fs::read_to_string(dir.join("grammar.xml"))
@@ -53,8 +38,7 @@ fn replay(name: &str) -> usize {
     checked
 }
 
-/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
-/// runs (CI's release sweep included) must not panic on the missing directory.
+/// Self-skip guard, so `--include-ignored` runs must not panic when the fixture directory is missing.
 fn have_fixture(name: &str) -> bool {
     fixture_dir(name).join("grammar.xml").exists()
 }

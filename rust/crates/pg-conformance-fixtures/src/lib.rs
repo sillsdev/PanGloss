@@ -156,11 +156,7 @@ pub fn graduation_guard_violations(fixtures: &[FixtureRef]) -> Vec<(String, Stri
     violations
 }
 
-// -------------------------------------------------------------------------------------------
-// words.yaml schema (`machine/conformance/PROTOCOL.md` + `conformance/README.md`'s "Shape"
-// section). Only the fields this repo's tests consume are modeled; no `deny_unknown_fields`, so
-// this tolerates upstream schema additions without breaking.
-// -------------------------------------------------------------------------------------------
+// words.yaml schema: only the fields this repo's tests consume are modeled; no deny_unknown_fields, so this tolerates upstream schema additions without breaking.
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct WordsYaml {
@@ -259,11 +255,7 @@ pub struct ParseEntry {
     pub guess: bool,
 }
 
-// -------------------------------------------------------------------------------------------
-// Oracle replay: drives `pg_parse::Morpher` (this repo's own full engine) as the adapter, per
-// `docs/conformance-staging-plan.md`'s oracle-discipline note (pangloss IS the oracle for anything
-// authored/verified against it rather than the C# founding oracle — callers/STAGING.md say which).
-// -------------------------------------------------------------------------------------------
+// Oracle replay: drives pg_parse::Morpher (this repo's own full engine) as the adapter — pangloss IS the oracle for anything authored/verified against it, rather than the C# founding oracle.
 
 /// Replay every adapter-visible word in `words_yaml` against `morpher`, asserting the
 /// `PROTOCOL.md` status+signature match (`expect_skip` -> `invalid_shape`, else the sorted-joined
@@ -313,8 +305,7 @@ mod tests {
 
     #[test]
     fn discover_tolerates_absent_roots() {
-        // Must not panic even if neither root exists on disk in some hypothetical checkout —
-        // exercised for real by pointing scan_one_root at a nonexistent directory.
+        // Must not panic even if neither root exists on disk, exercised here with a nonexistent directory.
         let mut out = Vec::new();
         scan_one_root(
             Path::new("/definitely/does/not/exist"),

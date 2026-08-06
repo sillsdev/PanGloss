@@ -20,28 +20,12 @@ use pg_parse::WordAnalysis;
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 
-/// What the ground-truth oracle concluded about ONE corpus occurrence.
-///
-/// # The absent variant is the point
-/// There is deliberately no `TimedOut` and no `MemoryCapped` here. Wall-clock and memory outcomes
-/// are **unrepresentable as eligibility outcomes**: they can only be
-/// `OraclePreparationFault`s, which abort the whole preparation run. That is a type-level
-/// property, not a convention someone must remember — as long as a clock could produce an
-/// eligibility outcome, raising the clock's value only moves the race, never removes it.
-///
-/// A wall-clock-based outcome is not reproducible: the same grammar, same caps, and same binary
-/// can pass or exclude the SAME word between runs purely because machine load differed, and a
-/// digest over a set that machine load can change is not a digest. A step cap has no such hazard —
-/// it is deterministic per (grammar, word, cap). The two bound types can also mask each other: a
-/// too-tight wall-clock bound can misrecord a real step-cap exhaustion as a timeout instead,
-/// making words look intractable that a looser clock would have correctly classified as
-/// step-capped.
+/// What the ground-truth oracle concluded about ONE corpus occurrence: deliberately no `TimedOut`/`MemoryCapped` variant, since a wall-clock outcome is unreproducible under load and can mask a real step-cap exhaustion, so both become whole-run `OraclePreparationFault`s instead of per-word exclusions.
 #[derive(Debug, Clone)]
 enum OracleOutcome {
     /// The oracle finished this occurrence within its step cap. The analyses are the ground truth.
     Complete(Vec<WordAnalysis>),
-    /// The oracle exhausted its step cap on this occurrence. THE eligibility classifier, and the
-    /// only one: deterministic per (grammar, word, cap), so the eligible set is reproducible.
+    /// The oracle exhausted its step cap on this occurrence — the only eligibility classifier, deterministic per (grammar, word, cap).
     StepCapped,
 }
 
@@ -58,25 +42,20 @@ struct PreparedWord {
 /// `OracleOutcome` for why that is a type-level guarantee rather than a rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OraclePreparationFault {
-    /// The wall-clock liveness net tripped. The net exists only so a pathological word cannot hang
-    /// the run forever; a trip means the step cap never got the chance to classify this word, so
-    /// the honest report is "could not determine", never "excluded".
+    /// The wall-clock liveness net tripped before the step cap could classify this word, so the honest report is "could not determine", never "excluded".
     LivenessNetTripped {
         word: String,
         requested_ordinal: u64,
         net: Duration,
     },
-    /// The declared resident-memory ceiling was exceeded during preparation. Previously this was
-    /// a job-object kill with no row emitted at all — "I could not look" reading as an outcome.
+    /// The declared resident-memory ceiling was exceeded during preparation — reported explicitly rather than left as a silent kill with no row emitted.
     MemoryCeilingExceeded {
         word: String,
         requested_ordinal: u64,
         ceiling_bytes: u64,
         observed_bytes: u64,
     },
-    /// A memory ceiling was declared but this build cannot read the process's resident set (no
-    /// sampler on this target). Refusing is deliberate: a declared-but-unenforced ceiling would
-    /// put a bound in the evidence that nothing ever checked.
+    /// A memory ceiling was declared but this build cannot read the process's resident set; refusing rather than silently ignoring the ceiling.
     MemoryCeilingUnobservable { ceiling_bytes: u64 },
 }
 
@@ -114,13 +93,7 @@ impl std::fmt::Display for OraclePreparationFault {
 
 impl std::error::Error for OraclePreparationFault {}
 
-/// Samples THIS process's resident set size in bytes.
-///
-/// `RssSampler::sample` returning `None` means "could not look", never "fine":
-/// `PreparedCorpus::prepare` turns it into
-/// `OraclePreparationFault::MemoryCeilingUnobservable` whenever a ceiling is actually declared.
-/// Two cfg'd shapes with one signature, so the preparation loop has no `cfg` in it — `wasm32` has
-/// no process table to read, and `sysinfo` is not even in that target's dependency graph.
+/// Samples this process's RSS; `None` means "could not look", never "fine" — two cfg'd shapes share one signature so the preparation loop has no cfg in it.
 #[cfg(not(target_arch = "wasm32"))]
 struct RssSampler(sysinfo::System);
 
@@ -130,8 +103,7 @@ impl RssSampler {
         Self(sysinfo::System::new())
     }
 
-    /// Refreshes ONLY this pid, never a system-wide scan — the same discipline `worker.rs` applies
-    /// to the compile child's RSS guardrail.
+    /// Refreshes only this pid, never a system-wide scan, matching worker.rs's compile-child guardrail.
     fn sample(&mut self) -> Option<u64> {
         let pid = sysinfo::get_current_pid().ok()?;
         self.0
@@ -183,10 +155,7 @@ impl PreparedCorpus {
         let mut records = Vec::with_capacity(words.len());
         for (requested_ordinal, word) in words.iter().enumerate() {
             let outcome = morpher.parse_word(word);
-            // Checked FIRST and unconditionally: a timed-out word has no eligibility answer at all,
-            // so it must not fall through to the step-cap classification below even when the step
-            // cap also latched. (`capped` can be true alongside `timed_out`; treating that as an
-            // exclusion is precisely the masking defect this ordering removes.)
+            // Checked first and unconditionally: `capped` can be true alongside `timed_out`, and treating that as an exclusion would mask a genuine timeout as a step-cap exclusion.
             if outcome.timed_out {
                 return Err(OraclePreparationFault::LivenessNetTripped {
                     word: word.clone(),
@@ -263,8 +232,6 @@ impl PreparedCorpus {
                     exclusions.push(CorpusExclusion {
                         requested_ordinal: requested_ordinal as u64,
                         word: word.clone(),
-                        // Historical spelling, retained: with the wall clock demoted this reason is
-                        // now unambiguous -- "capped" can only mean the step cap.
                         reason: "oracle-capped".into(),
                     });
                 }
@@ -322,9 +289,7 @@ pub struct RunEvaluationCache {
     emission_report: Option<crate::emit::EmitReport>,
     emission_report_calls: usize,
     divergence: IdentityDivergence,
-    /// Measurements indexed by `net_reuse_key`. `None` means net-level dedup is DISABLED for this
-    /// cache — see `Self::without_net_dedup`, which exists so every dedup gate can be written as a
-    /// negative control rather than a same-path-twice comparison.
+    /// Measurements indexed by net_reuse_key; `None` disables net-level dedup for this cache (see `Self::without_net_dedup`), enabling a negative-control gate.
     net_measurements: Option<std::collections::HashMap<String, EvaluatedPlan>>,
     savings: NetDedupSavings,
 }
@@ -385,21 +350,12 @@ impl RunEvaluationCache {
         self.savings.confirmation_steps_avoided
     }
 
-    /// A previously measured candidate whose finished network, grammar, corpus and evidence mode are
-    /// all identical to `key`'s.
+    /// A previously measured candidate whose network, grammar, corpus, and evidence mode are all identical to `key`'s.
     fn net_measurement(&self, key: &str) -> Option<&EvaluatedPlan> {
         self.net_measurements.as_ref()?.get(key)
     }
 
-    /// Record `measured` as the reusable measurement for `key`, and count it as a distinct network.
-    ///
-    /// Deliberately refuses to record a candidate whose certification is a
-    /// `Certification::ResourceBreach`. A breach SHORT-CIRCUITS certification, so such a
-    /// measurement never learned what the corpus comparison would have said — and a breach on the
-    /// `build` dimension is a function of the candidate's own wall clock, which the next candidate
-    /// with the same network need not share. Serving it on would be the one way this mechanism could
-    /// make a verdict depend on evaluation order. A breached candidate simply costs a full corpus pass
-    /// for the next identical net; correctness first.
+    /// Records `measured` as the reusable measurement for `key`, and counts it as a distinct network — skipping a `Certification::ResourceBreach`, since its build-time breach is a function of the candidate's own wall clock, not the network, and caching it would make a verdict depend on evaluation order.
     fn record_net_measurement(&mut self, key: String, measured: &EvaluatedPlan) {
         let Some(measurements) = self.net_measurements.as_mut() else {
             return;
@@ -527,9 +483,7 @@ fn corpus_hash(words: &[String]) -> String {
     format!("{:x}", hash.finalize())
 }
 
-// -------------------------------------------------------------------------------------------------
 // Identity digests: grammar, finished network, and the composite reuse key
-// -------------------------------------------------------------------------------------------------
 
 /// "These bytes are the whole state of one FINISHED proposer network."
 ///
@@ -544,19 +498,13 @@ pub const GRAMMAR_IDENTITY_PROJECTION: &str = "pangloss.foma.grammar-identity/v1
 /// "Another candidate's measurement over this corpus is reusable verbatim for this one."
 pub const NET_REUSE_KEY_PROJECTION: &str = "pangloss.foma.net-reuse-key/v1";
 
-/// Feeds `part` into `hash` LENGTH-PREFIXED, so no two different tuples of parts can share a
-/// preimage. Without it `("ab", "c")` and `("a", "bc")` hash alike, and a projection name is exactly
-/// the kind of string that gets extended.
+/// Feeds `part` into `hash` length-prefixed, so no two different tuples of parts can share a preimage — unprefixed, `("ab", "c")` and `("a", "bc")` would hash alike.
 fn framed(hash: &mut Sha256, part: &[u8]) {
     hash.update((part.len() as u64).to_le_bytes());
     hash.update(part);
 }
 
-/// A `std::fmt::Write` sink that hashes instead of allocating.
-///
-/// Load-bearing for `grammar_identity`: `format!("{grammar:?}")` on a 50k-entry grammar would
-/// materialize a multi-hundred-megabyte `String` just to hash it and drop it. Streaming the same
-/// bytes through `write!` keeps the whole projection at one SHA-256 block of live memory.
+/// A `std::fmt::Write` sink that hashes instead of allocating, so `grammar_identity` never materializes a multi-hundred-megabyte `Debug` string just to hash and drop it.
 struct DigestWriter(Sha256);
 
 impl std::fmt::Write for DigestWriter {
@@ -595,29 +543,8 @@ pub fn grammar_identity(grammar: &Grammar) -> String {
     format!("{:x}", writer.0.finalize())
 }
 
-/// The identity of a finished proposer network: domain-framed SHA-256 over everything `apply_up` can
-/// observe about it.
-///
-/// # What is in the preimage, and why that is sufficient
-/// Two nets with the same digest have, byte for byte, the same `arity`, the same size/property
-/// counters, the same tri-state flags, the same `sigma` (number → symbol, in order), the same
-/// minimum-edit-distance table, and the same compressed line table — every state block and every arc
-/// label/target, IN ORDER. That is the entire automaton plus the entire symbol table, so `apply_up`
-/// over any query must return the same raw paths in the same order, and therefore the same
-/// proposals, the same confirmation calls, and the same `confirmation_steps`/`raw_paths`. Arc ORDER
-/// is included deliberately and not normalized: it is observable (it fixes the order raw paths come
-/// back in) and normalizing it would make the digest claim an equivalence the measurement does not
-/// have.
-///
-/// # The two exclusions
-/// - `name` is a cosmetic label. `apply` never reads it, and including it would let a per-candidate
-///   naming convention defeat every dedup opportunity while claiming to protect something.
-/// - Nothing else. `medlookup` is only read by minimum-edit-distance lookup, which this pipeline
-///   never calls, but it is a handful of `i32`s and is hashed anyway rather than argued about.
-///
-/// # Why a cryptographic hash
-/// A collision here would hand one candidate another's score. SHA-256 makes that negligible where a
-/// 64-bit structural hash would not.
+/// The identity of a finished proposer network: domain-framed SHA-256 over everything `apply_up` can observe about it, so any two nets sharing a digest must return identical raw paths for any query.
+/// See `docs/research/pg-foma-recipe-runtime-design-notes.md` for the preimage completeness argument and the two deliberate exclusions.
 fn finished_net_digest(net: &foma::types::Fsm) -> String {
     let mut hash = Sha256::new();
     framed(&mut hash, FINISHED_NET_PROJECTION.as_bytes());
@@ -653,8 +580,7 @@ fn finished_net_digest(net: &foma::types::Fsm) -> String {
             }
         }
     }
-    // Native CSR traversal: `LineTable::rows()` would materialize the whole flat row sequence into a
-    // fresh `Vec<FsmState>` first, which is the one allocation this walk exists to avoid.
+    // Native CSR traversal, not `LineTable::rows()`: avoids materializing the whole flat row sequence into a fresh `Vec<FsmState>`.
     hash.update((net.states.blocks().len() as u64).to_le_bytes());
     for (block, arcs) in net.states.iter_blocks() {
         hash.update(block.state_no.to_le_bytes());
@@ -791,18 +717,12 @@ pub struct RuntimeEvaluationObservation {
     pub words: Option<Vec<WordEvidence>>,
 }
 
-/// `Clone` so `RunEvaluationCache` can serve one candidate's whole measurement to the next
-/// candidate that compiles to the identical network. The clone is deep but bounded by the DISTINCT-net
-/// count, not the plan count, and in the ordinary (unobserved) mode `words` is `None`, so it is a
-/// certification, a `Score` and a divergence.
+/// `Clone` so `RunEvaluationCache` can serve one candidate's whole measurement to the next candidate compiling to the identical network; the clone is bounded by the distinct-net count, not the plan count.
 #[derive(Debug, Clone)]
 struct EvaluatedPlan {
     evaluation: RuntimeEvaluation,
     words: Option<Vec<WordEvidence>>,
-    /// Counted parity-set divergence for THIS candidate's corpus pass. Folded into the run cache by
-    /// `evaluate_plans_with_cache_mode` so a caller can read one run-scoped number rather
-    /// than reconstructing it from per-candidate verdicts (which, being first-failure-only, do not
-    /// carry it).
+    /// Counted parity-set divergence for this candidate's corpus pass, folded into the run cache so a caller reads one run-scoped number instead of reconstructing it from first-failure-only verdicts.
     divergence: IdentityDivergence,
 }
 
@@ -844,12 +764,7 @@ pub fn check_proposal_ratio(
     }
 }
 
-/// How many identities a mismatch detail names before it stops listing them.
-///
-/// The detail string goes into a report and a pathological word can disagree about thousands of
-/// analyses; an unbounded list would make the report unreadable and the log enormous without
-/// telling a reader anything the first few do not. The counts, which are what a reader actually
-/// acts on, are always exact.
+/// How many identities a mismatch detail names before it stops listing them — a pathological word can disagree about thousands, and the exact counts (not the list) are what a reader acts on.
 const MISMATCH_DETAIL_SAMPLE: usize = 4;
 
 /// Compare one word occurrence's analyses as **deduplicated
@@ -1032,14 +947,7 @@ pub fn certify_corpus_measured(
     if let Some(failure) = failures.into_iter().next() {
         return (failure, divergence);
     }
-    // Agreeing about nothing is not agreement. If the HC oracle produced no analysis for ANY word in
-    // this corpus, every per-word comparison above was empty-set against empty-set, which
-    // `certify_word` quite correctly calls equal -- and the corpus would then "confirm" any candidate
-    // whatsoever, including one whose network is empty.
-    //
-    // Observed: a 3-word Amharic corpus where HC analyses none of the words certified all three
-    // candidates with `proposals: 0`, `confirmation: 0`. That is the same vacuous-pass shape as a
-    // corpus-gated test that silently skips -- a pass that was never earned.
+    // Agreeing about nothing is not agreement: if the HC oracle produced no analysis for any word, every per-word comparison is empty-set against empty-set, which certify_word calls equal, so an all-empty corpus would "confirm" any candidate, including one whose network is empty.
     let analyses: usize = expected.iter().map(|(_, a)| a.len()).sum();
     if analyses == 0 {
         return (
@@ -1196,34 +1104,7 @@ pub struct RuntimeEvaluation {
     pub realized_strategy: EmissionStrategy,
 }
 
-/// Evaluates the BASELINE of a grammar whose plan needs composite/structural marker subtrees, using
-/// the tuned `crate::analyzer::FomaProposer::new` path (`emit` → lexc → foma compile) instead of
-/// `build_controllable`.
-///
-/// Why a whole separate path rather than a flag: the two builders produce different artifact types in
-/// different symbol spaces. `uflexc`'s lexc is in char-def-token space (hence the
-/// `with_segment_query_encoder` the controllable path attaches), while `emit`'s is plain surface
-/// space and its proposer queries with plain NFD. Composing or unioning across that boundary without
-/// reconciling the spaces is how you get a network that looks fine and silently matches nothing --
-/// checked the hard way: applying the token encoder to an `emit`-built net manufactures false
-/// zero-candidate results.
-///
-/// Deliberately ignores the candidate's plan: the tuned path derives topology from a plan it builds
-/// itself (`crate::emit`'s `plan_topology_decisions` reads two booleans off it), so it can express
-/// the DEFAULT compilation of this grammar and nothing else. That is exactly why only the baseline is
-/// routed here; see the caller.
-/// Runs `words` through `analyzer`, scores, budget-checks, and certifies against `expected`.
-///
-/// Shared by EVERY evaluation strategy on purpose. The only thing that differs between the three
-/// (`EmissionStrategy`) is how the network — and therefore the analyzer — was obtained; everything
-/// from "apply the corpus" onward must be identical, or a cross-strategy comparison would be
-/// comparing measurement procedures rather than compilations. This function existing is what makes
-/// adding a strategy cost nothing: the previous two strategies each carried their own copy of this
-/// block, which is exactly how they would have drifted.
-/// The ordinary (unobserved) measurement. Returns the full `EvaluatedPlan` — whose `words` is
-/// always `None` in this mode — rather than only its `evaluation`, so the counted
-/// `IdentityDivergence` reaches the run cache from every strategy's call site instead of only
-/// from the observed one.
+/// Runs `words` through `analyzer`, scores, budget-checks, and certifies against `expected` — shared by every evaluation strategy so only the network-acquisition step can differ between them. The ordinary (unobserved) measurement; `words` is always `None` in `EvaluatedPlan`.
 #[allow(clippy::too_many_arguments)]
 fn measure_and_certify(
     realized_strategy: EmissionStrategy,
@@ -1274,14 +1155,7 @@ fn measure_and_certify_observed(
     )
 }
 
-/// The FIRST declared resource limit `score` exceeds, in the fixed dimension order below, or `None`.
-///
-/// # Why this is a function and not an inline array
-/// A net-level dedup hit reuses another candidate's deterministic measurement but must re-decide the
-/// breach on ITS OWN `build` time (see `evaluate_plans_with_cache_mode`). Two copies of this
-/// ladder would drift in the one way that matters most — the ORDER, which decides not just whether a
-/// breach is reported but which `dimension` it names — and the whole soundness claim for dedup is that
-/// a deduped candidate reports exactly what it would have reported unduplicated.
+/// The first declared resource limit `score` exceeds, in the fixed dimension order below, or `None` — kept as one function rather than two inline copies, since a net-level dedup hit re-decides this on its own `build` time, and two copies would risk drifting in the ORDER, which decides which dimension a breach names.
 fn budget_breach(score: &Score, budget: RuntimeBudget) -> Option<(&'static str, u64, u64)> {
     [
         ("states", score.states, budget.states),
@@ -1319,17 +1193,11 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
     let mut confirmation: u64 = 0;
     let mut confirmation_steps: u64 = 0;
     let mut raw_paths: u64 = 0;
-    // The per-word apply-path envelope. Declared, never unbounded by default -- an unbounded propose
-    // is what killed the test process on `deep-optional-affix-nesting`
-    // (`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`'s own measurement table).
+    // The per-word apply-path envelope, declared and never unbounded by default — see DEFAULT_EVALUATION_APPLY_PATH_BUDGET for the measurement behind the default.
     let apply_budget = budget.resolved_apply_budget();
     for w in words {
         let t = Instant::now();
-        // ONE call for both evidence modes -- the candidate-retaining entry point is a superset and
-        // the non-observed arm simply drops the vector. That is what makes "the refusal cannot
-        // depend on the evidence mode" true by construction rather than by two matching edits (the
-        // `net_reuse_key` doc's own reason for keying on `OBSERVE` at all: serving an ordinary result
-        // to an observed caller silently drops evidence).
+        // One call for both evidence modes: the non-observed arm just drops the candidate vector, so a refusal can't depend on which mode is active by construction, not by keeping two call sites in sync.
         let budgeted =
             analyzer.analyze_word_with_diagnostics_budgeted_with_candidates(w, &apply_budget);
         let (outcome, diagnostics, proposals_for_word) = match budgeted {
@@ -1338,12 +1206,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
                 profiled.diagnostics,
                 OBSERVE.then_some(profiled.candidates),
             ),
-            // A REFUSAL, not a truncation. The word proposed more than the declared envelope, so
-            // nothing was confirmed for it and no partial proposal set is ever compared against the
-            // oracle -- which is precisely why this cannot manufacture a recall failure. The whole
-            // candidate is certified as a resource breach naming the dimension, the value and the
-            // limit, exactly as `budget_breach`'s own ladder does for the score dimensions, and the
-            // divergence is "nothing compared" rather than a clean zero.
+            // A refusal, not a truncation: the word proposed more than the declared envelope, so no partial proposal set is ever compared against the oracle, and the divergence is "nothing compared" rather than a clean zero.
             ProfiledFomaApplyOutcomeWithCandidates::Incomplete {
                 dimension,
                 value,
@@ -1401,8 +1264,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
     };
     let breach = budget_breach(&score, budget);
     let (certification, divergence) = match breach {
-        // A breach short-circuits BEFORE any comparison happens, so the honest divergence is
-        // "nothing compared", never a clean zero.
+        // A breach short-circuits before any comparison happens, so the honest divergence is "nothing compared", never a clean zero.
         Some((dimension, value, limit)) => (
             Certification::ResourceBreach {
                 dimension: dimension.into(),
@@ -1431,12 +1293,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
             .zip(actual.into_iter())
             .zip(proposals)
             .map(|(((word, expected), (_, actual)), proposals)| {
-                // Projected again here rather than threaded out of `certify_corpus`: this is the
-                // opt-in observed path only, the projection is a handful of string clones per
-                // analysis, and keeping the certification path free of an evidence out-parameter is
-                // worth more than the saving. `.ok()` is correct rather than lossy -- a projection
-                // that fails here failed there too, and the certification already carries the typed
-                // fault.
+                // Re-projected here (opt-in observed path only) rather than threaded out of certify_corpus, keeping the certification path free of an evidence out-parameter; `.ok()` is correct since a projection failing here failed there too, and the certification already carries the typed fault.
                 let expected_identities = OccurrenceIdentities::project(expected, grammar).ok();
                 let actual_identities = OccurrenceIdentities::project(&actual, grammar).ok();
                 WordEvidence {
@@ -1461,14 +1318,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
     }
 }
 
-/// Shared constructor for every evaluation outcome whose `Score` is zeroed except `build` --
-/// nothing past the build step ran, so `apply`/`proposals`/`confirmation`/`confirmation_steps`/
-/// `states`/`arcs` are honestly `0`, not "not yet measured" masquerading as a real reading.
-/// Every zeroed-`Score` failure path in this module routes through
-/// here (rather than re-inlining the same `Score { .. }` literal at each call site) so a future
-/// `Score` field addition has exactly one place to account for it -- forgetting it here fails to
-/// compile everywhere it matters, forgetting it at an inline literal fails silently at whichever
-/// call sites nobody remembered to update.
+/// Shared constructor for every evaluation outcome whose `Score` is zeroed except `build`, so every future `Score` field addition has exactly one place to account for it instead of drifting across re-inlined literals.
 fn failed_evaluation(
     realized_strategy: EmissionStrategy,
     certification: Certification,
@@ -1490,9 +1340,7 @@ fn failed_evaluation(
     }
 }
 
-/// A failure that happened BEFORE any occurrence could be compared. `occurrences` is how many the
-/// caller was going to compare, recorded as `IdentityDivergence::not_compared` so that a run
-/// which never reached the comparison cannot report the clean zero of a run that did.
+/// A failure that happened before any occurrence could be compared, recorded as `not_compared` so this run cannot report the clean zero of one that actually compared.
 fn failed_evaluated_over(
     realized_strategy: EmissionStrategy,
     certification: Certification,
@@ -1520,8 +1368,7 @@ fn build_failed_evaluated(
     )
 }
 
-/// `EmissionStrategy::TunedSurfaceProbed`: the DEFAULT compilation of this grammar, through
-/// `FomaProposer::new` (`emit` -> lexc -> foma compile) rather than `build_controllable`.
+/// `EmissionStrategy::TunedSurfaceProbed`: the default compilation of this grammar, through `FomaProposer::new` (emit -> lexc -> foma compile) rather than `build_controllable`.
 fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     grammar: &Grammar,
     words: &[String],
@@ -1542,8 +1389,7 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     };
     let build = elapsed_ns(t).max(1);
     let (states, arcs) = proposer.network_counts();
-    // No `with_segment_query_encoder` here, unlike the controllable path: this net is in plain
-    // surface space and the production proposer queries it with plain NFD.
+    // No with_segment_query_encoder here, unlike the controllable path: this net is in plain surface space, queried with plain NFD.
     let mut analyzer = FomaAnalyzer::from_precompiled_proposer(grammar, proposer);
     if OBSERVE {
         measure_and_certify_observed(
@@ -1572,22 +1418,7 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     }
 }
 
-/// `EmissionStrategy::TemplatedUnderlyingTokens`: compile the whole grammar through
-/// `emit_underlying_templated` + a real compiled rewrite cascade, rather than through the
-/// surface-probed lexc plus synthesized composite entries.
-///
-/// This is the first candidate in this crate that is neither the controllable-only composed network
-/// nor the default surface-probed compilation — i.e. the first one whose network can differ from the
-/// baseline's for a reason minimization cannot erase. Like the tuned path it ignores `plan` (this
-/// compiler derives its own topology), so it must only ever be offered as its own candidate, never
-/// as the realization of some other candidate's plan.
-///
-/// Uses the proposer `compile_templated_morphotactics` returns, and attaches nothing to it. That is
-/// load-bearing rather than incidental: this strategy's lexc is in char-def TOKEN space (it emits
-/// underlying tokens over a `SegAlphabet`), so it does need a segment query encoder — and that
-/// compiler already attaches one itself. Adding a second here, or omitting it because the tuned
-/// surface-probed path omits one, is the space-mismatch this module's own doc records as
-/// manufacturing false zero-candidate results.
+/// `EmissionStrategy::TemplatedUnderlyingTokens`: compiles the whole grammar through `emit_underlying_templated` plus a real compiled rewrite cascade, deriving its own topology like the tuned path, so it must only ever be offered as its own candidate, never as the realization of another candidate's plan; its char-def TOKEN-space lexc must keep the segment query encoder `compile_templated_morphotactics` already attaches, since adding or omitting a second one is the space-mismatch that manufactures false zero-candidate results.
 fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
     grammar: &Grammar,
     words: &[String],
@@ -1697,16 +1528,14 @@ pub fn evaluate_plans_observed_with_cache(
         .collect()
 }
 
-/// One `LoweringAdapter::ControllablePlanCompose` candidate, realized into an owned, apply-ready
-/// proposer.
+/// One `LoweringAdapter::ControllablePlanCompose` candidate, realized into an owned, apply-ready proposer.
 enum RealizedPlanComposed {
     Ready {
         proposer: FomaProposer,
         states: u64,
         arcs: u64,
         build: u64,
-        /// `finished_net_digest` of the net this proposer was built from, taken at the last moment
-        /// the net still exists as an `Fsm`.
+        /// `finished_net_digest` of the net this proposer was built from, taken while the net still exists as an `Fsm`.
         net_digest: String,
     },
     Failed {
@@ -1715,22 +1544,7 @@ enum RealizedPlanComposed {
     },
 }
 
-/// Build ONE plan-composed candidate's network and turn it into a proposer.
-///
-/// # Why this is a function and not inline in the evaluator
-/// The confirmation-free accuracy path (`assess_accuracy_with_cache`) has to propose from the SAME
-/// network the certification path measures, or the two answer questions about different
-/// compilations while carrying the same candidate's name. A second copy of this sequence would
-/// drift, and this module's own history says so out loud: before `measure_and_certify` existed, each
-/// strategy carried its own copy of the measurement block, "which is exactly how they would have
-/// drifted".
-///
-/// # Why it can return an OWNED proposer
-/// `FomaProposer::from_precompiled_network` calls `apply_init`, which deep-clones the compiled `Fsm`
-/// into the handle. The net is therefore dead the moment the proposer exists — precisely what
-/// `FomaProposer::new` already relies on (see `FomaProposer`'s own doc: the `Fsm` "is consumed by
-/// `apply_init` and can be (is) dropped once the handle exists"). So dropping `net` at the end of
-/// this function is not a liberty taken here; it is the documented lifetime of that type.
+/// Builds one plan-composed candidate's network and turns it into a proposer, kept as its own function so the confirmation-free accuracy path and the certification path always propose from the SAME compiled network; returns an owned proposer because `from_precompiled_network`'s `apply_init` deep-clones the `Fsm`, matching `FomaProposer::new`'s own documented drop-after-`apply_init` lifetime.
 fn realize_plan_composed(
     candidate: &LoweredCandidate,
     grammar: &Grammar,
@@ -1760,10 +1574,7 @@ fn realize_plan_composed(
             build,
         };
     };
-    // Mandatory finish step, not an optimization: without the boundary-token cleanup compose
-    // and re-minimize, the net still carries the inter-morph boundary tokens `uflexc` emits,
-    // which a surface query never contains -- every `apply_up` returns nothing and recall
-    // reads as zero. See `crate::build::finish_controllable_net`.
+    // Mandatory finish step, not an optimization: without it the net still carries the inter-morph boundary tokens uflexc emits, which a surface query never contains, so apply_up returns nothing and recall reads as zero.
     let mut net = match crate::build::finish_controllable_net(
         opts,
         net,
@@ -1781,32 +1592,11 @@ fn realize_plan_composed(
             };
         }
     };
-    // Closes an asymmetry, not a measured hot spot. `FomaProposer::new` (the hand-spun path)
-    // calls `prepare_network_for_apply` at `crate::analyzer`; `from_precompiled_network` --
-    // the constructor EVERY plan-composed candidate goes through -- deliberately prepares
-    // nothing, so above `ARC_SORT_MIN_ARCS` the hand-spun baseline got foma's binary-search
-    // arc traversal and the plan-composed candidate it is compared against did not.
-    //
-    // MEASURED, and the measurement is a null result on everything checked in: of the 45
-    // discoverable conformance fixtures that build a plan-composed net, ZERO cross
-    // `ARC_SORT_MIN_ARCS` (10,000) -- the largest is 479 arcs
-    // (`polysynthetic-stratal-derivation-chain` / `recipe-strata-generic`). Verified by
-    // reading `net.arcs_sorted_out` directly: on those nets it is `false` as built, still
-    // `false` after this call, and only `true` under a forced `fsm_sort_arcs`. So on our
-    // fixtures this line is provably inert, and the 1.49x-2.05x figure in
-    // `ARC_SORT_MIN_ARCS`'s own doc says nothing about them. It engages only on a
-    // large real grammar -- the plan-composed net for the private `sena` corpus is 21,114
-    // arcs -- which is why this is worth having despite buying nothing in CI.
-    //
-    // Placed BEFORE the counts are read for the same reason `FomaProposer::new` reads its counts
-    // after sorting: `fsm_sort_arcs` reorders arcs and never adds or removes a state or arc, so
-    // `statecount`/`arccount` are identical either side of it and the score cannot move.
+    // Closes an asymmetry: `FomaProposer::new` calls `prepare_network_for_apply`, but `from_precompiled_network` (every plan-composed candidate's constructor) deliberately did not, so above ARC_SORT_MIN_ARCS the hand-spun baseline got foma's binary-search arc traversal and its plan-composed comparison point did not.
+    // See `docs/research/pg-foma-recipe-runtime-design-notes.md` for why this is worth keeping despite measuring inert on every current fixture.
     crate::analyzer::prepare_network_for_apply(&mut net);
     let (states, arcs) = (net.statecount as u64, net.arccount as u64);
-    // Digested HERE, after every mutation the net will ever receive (including the arc sort
-    // immediately above, which reorders arcs and so does move this digest) and before
-    // `from_precompiled_network` deep-clones it into an apply handle. Digesting earlier would key on
-    // a net that is not the one queried; digesting later is impossible, because the `Fsm` is gone.
+    // Digested here, after every mutation the net will ever receive (including the arc sort above) and before from_precompiled_network deep-clones it away; digesting earlier would key on a net that isn't the one queried.
     let net_digest = finished_net_digest(&net);
     RealizedPlanComposed::Ready {
         proposer: FomaProposer::from_precompiled_network(&net, report)
@@ -1894,22 +1684,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
     let corpus_evidence =
         corpus_completeness_evidence(words, &comparable, &exclusions, cache.corpus.oracle);
     let words = &comparable[..];
-    // CRITICAL: a step-capped oracle result must NEVER reach `certify_corpus`. The FST side may
-    // legitimately produce analyses the truncated oracle never found — that would surface as a
-    // bogus `IdentityMismatch`/`MultiplicityMismatch` (a phantom "grammar bug" that is actually an
-    // oracle bug), or, worse, a genuinely incomplete candidate could look right against an equally
-    // truncated ground truth and wrongly certify. So this returns before `build_candidate` is even
-    // called for any plan in this batch — evidence about a network built against an `expected` that
-    // is known-partial is not evidence at all.
-    //
-    // There is no longer a `timed-out` branch here, and that absence is the fix: the wall clock is a
-    // liveness net that aborts preparation (`OraclePreparationFault`), so by the time control
-    // reaches this point no occurrence can have been classified by a clock.
-    //
-    // Certification is all-or-nothing over the requested corpus. Even when other words have
-    // complete expectations, dropping one excluded word would silently certify a subset under the
-    // requested corpus's name and hash only that subset. Refuse the whole batch instead, retaining
-    // the requested/included/excluded evidence for the report.
+    // A step-capped oracle result must never reach certify_corpus: a genuinely incomplete candidate could look right against an equally truncated ground truth and wrongly certify, so this returns before build_candidate runs for any plan in the batch. Certification is all-or-nothing over the requested corpus — refusing the whole batch rather than silently certifying a subset under the full corpus's name and hash.
     if !exclusions.is_empty() {
         let stage = if oracle_capped {
             "oracle-capped"
@@ -1919,8 +1694,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
         let refused = plans
             .iter()
             .map(|plan| {
-                // Nothing compiled -- the corpus itself was refused -- so the honest answer is the
-                // strategy that was requested.
+                // Nothing compiled since the corpus itself was refused, so the honest answer is the strategy that was requested.
                 failed_evaluated_over(
                     plan.strategy(),
                     Certification::Truncated {
@@ -1937,33 +1711,18 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
         }
         return refused;
     }
-    // The confirm side's grammar-static pieces, built at most ONCE for the whole run and handed
-    // back after each candidate. Every one of the three is a pure function of `grammar` and is
-    // immutable in use, so all candidates in a run would otherwise rebuild identical objects; the
-    // `Morpher` is the expensive one, because `Morpher::new` runs `RuleCache::build`, which compiles
-    // every matcher FST in the grammar (see `FomaAnalyzer::from_cached_with_morpher`'s doc). Lazy
-    // rather than eager on purpose: a run whose candidates are all whole-grammar strategies
-    // (`TunedSurfaceProbed`/`TemplatedUnderlyingTokens`, returned below before this is touched)
-    // must not start paying for a confirm-side morpher it never uses.
+    // The confirm side's grammar-static pieces, built at most once for the whole run and handed back after each candidate — each is a pure function of `grammar`, and lazy rather than eager so an all-whole-grammar-strategy run never pays for the expensive `Morpher::new` it doesn't use.
     let mut confirm_pieces: Option<(
         crate::peel::ReduplicationPeeler,
         Vec<Option<crate::confirm::MorphemeOwner>>,
         pg_parse::Morpher<'_>,
     )> = None;
-    // The two run-invariant halves of every net reuse key, derived ONCE for this call and lazily, so a
-    // batch of whole-grammar candidates (which return before ever reaching the composed path) pays
-    // nothing for a dedup it cannot use. `grammar_identity` is O(grammar) and is only ever reached on
-    // a path that is about to compile the same grammar into an FST, which is strictly more expensive.
+    // The two run-invariant halves of every net reuse key, derived once and lazily, so a batch of whole-grammar candidates (which return before reaching the composed path) pays nothing for a dedup it cannot use.
     let mut reuse_prefix: Option<(String, String)> = None;
     let evaluated: Vec<EvaluatedPlan> = plans
         .iter()
         .map(|candidate| {
-            // ADAPTER dispatch comes FIRST, and it is EXACT: the two whole-grammar adapters are
-            // realized by their own compilers and never touch `build_controllable`, so routing them
-            // through the composed path below would build the controllable subtree and then
-            // attribute that network to a candidate that asked for a different compilation
-            // entirely. Keyed on the candidate's own `LoweringAdapter` instead of a second enum
-            // that would have to be kept in correspondence with it by hand.
+            // Adapter dispatch comes first: the two whole-grammar adapters never touch build_controllable, so routing them through the composed path below would attribute the wrong compiler's network to the candidate.
             match candidate.adapter {
                 LoweringAdapter::ControllablePlanCompose => {}
                 LoweringAdapter::TunedSurfaceEmit => {
@@ -1981,8 +1740,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                     }
                 }
             }
-            // Only the plan-composed strategy consumes this report, so whole-grammar candidates
-            // do not pay an unconditional duplicate emission.
+            // Only the plan-composed strategy consumes this report, so whole-grammar candidates don't pay for a duplicate emission.
             let report = cache.emission_report(grammar);
             let (proposer, score0, build, net_digest) = match realize_plan_composed(
                 candidate,
@@ -2012,58 +1770,8 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                     )
                 }
             };
-            // NET-LEVEL DEDUP. Plan-shape recipes are erased by minimization -- measured spread 0
-            // across 8 fixtures, and all five Indonesian plan-composed permutations landed on
-            // identical states/arcs with identical proposals -- so by this point several candidates in
-            // one run routinely hold networks that are identical arc for arc. Everything downstream
-            // (propose, confirm, the whole corpus traversal, the certification) is a pure function of
-            // (network, grammar, corpus), so an earlier candidate's measurement IS this candidate's
-            // measurement.
-            //
-            // Score attribution is trivially sound, and that is why this shape was chosen over
-            // memoizing confirmation by proposal set: identical networks legitimately have identical
-            // deterministic scores, so nothing becomes a function of evaluation order. A
-            // set-difference confirmation scheme would be sound as a RESULT and unsound as a
-            // MEASUREMENT, which is precisely what `Score::key`'s "why work and not time" section
-            // exists to prevent.
-            //
-            // Two things are NOT inherited, and both would otherwise smuggle a clock into a verdict:
-            //   - `build` is this candidate's own measured compile time. We built its network -- we had
-            //     to, to know the digest -- so that number is real and is not the donor's.
-            //   - the breach ladder is RE-RUN over the reconstructed score. The production optimizer
-            //     passes `build: Some(remaining.build)`, a wall-clock allowance that DECLINES as the
-            //     run proceeds, so serving the donor's certification verbatim would let a late
-            //     candidate inherit an early candidate's larger allowance. Re-running
-            //     `budget_breach` reproduces exactly what the unduplicated path would have concluded
-            //     from this candidate's own numbers, naming the same dimension in the same order.
-            //
-            // `apply` is reported as 0, and NOT as the donor's reading. Three reasons, in the order
-            // they matter:
-            //   1. It is literally true. No corpus traversal happened. `failed_evaluation` in this
-            //      module already establishes that convention -- a zeroed `apply` there is documented
-            //      as "honestly 0, not 'not yet measured' masquerading as a real reading" -- and
-            //      copying the donor's number would be publishing a measurement that was never taken
-            //      for this candidate.
-            //   2. `pg_cli`'s evaluator charges `BudgetUsage::elapsed = build + apply` against the
-            //      optimizer's wall-clock allowance. Charging a deduped candidate the donor's apply
-            //      time would bill the run for work it did not do and cut exploration short --
-            //      throwing away most of what this optimization is FOR.
-            //   3. It cannot mislead a ranking, because `Score::key` excludes `apply` by design.
-            // The cost is that `apply` is no longer a usable per-candidate traversal-cost diagnostic
-            // for a deduped candidate; `net_dedup_savings` is where that cost now lives, in
-            // deterministic units.
-            //
-            // Consequently a hit is REFUSED outright when `budget.apply` is declared: an `apply` limit
-            // could only be breached by a reading a hit does not have, so serving one would let a
-            // deduped candidate pass a budget an unduplicated one would have failed. Nothing in
-            // production sets it (`pg_cli` passes `build` and `confirmation` only), so this costs
-            // nothing today and cannot rot into a wrong answer later.
-            //
-            // Scoped to THIS NET'S measurement, deliberately not to the candidate's final result. The
-            // routing below (`selectable`, then `unbuildable_markers`, then the candidate's declared
-            // `role`) reads the PLAN and that role, neither of which the network determines -- two
-            // candidates with identical nets can legitimately route differently. So dedup replaces the
-            // corpus pass and nothing else; every candidate still runs its own routing over it.
+            // Net-level dedup: an earlier candidate's measurement is served verbatim except `build` (this candidate's own) and `apply` (reported as 0, never the donor's), with the breach ladder re-run over the reconstructed score rather than copied.
+            // See `docs/research/pg-foma-recipe-runtime-design-notes.md` for why each of those three exclusions is load-bearing rather than incidental.
             let reuse_key = (cache.net_dedup_enabled() && budget.apply.is_none()).then(|| {
                 let (identity, corpus) = reuse_prefix
                     .get_or_insert_with(|| (grammar_identity(grammar), corpus_hash(words)));
@@ -2125,12 +1833,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                             build,
                         )
                     };
-                    // Hand the grammar-static confirm pieces back for the next candidate. Nothing
-                    // above mutates any of them -- confirm reads `&self.morpher`/`&self.owners`, and
-                    // the peeler's own entry point is `peel_candidates(&self, ..)` -- so the next
-                    // candidate gets objects indistinguishable from the ones `from_cached` would have
-                    // rebuilt for it. (Only the proposer is per-candidate mutable state, and it is
-                    // dropped here with its network.)
+                    // Hand the grammar-static confirm pieces back for the next candidate: confirm never mutates them, so the next candidate gets objects indistinguishable from a fresh rebuild.
                     let (_spent_proposer, peeler, owners, morpher) =
                         analyzer.into_parts_with_morpher();
                     confirm_pieces = Some((peeler, owners, morpher));
@@ -2141,16 +1844,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                 }
             };
             let certification = measured.evaluation.certification.clone();
-            // Evidence first, fallback second -- and ONLY on a real failure.
-            //
-            // Marker presence does not mean the controllable path is inadequate, it means it MIGHT be.
-            // Checked: `mpr-gated-exception`'s plan carries a marker and all three of its candidates
-            // confirm on the controllable net with real proposals. An earlier version of this routed on
-            // marker presence alone and dropped that grammar from 3 confirmations to 1, refusing
-            // permutations the controllable builder handles perfectly well. So a candidate that
-            // CONFIRMED here is done: its verdict came from a network that honours its own plan, which
-            // is strictly better evidence than the tuned path can give (that path cannot express a
-            // permutation at all).
+            // Evidence first, fallback second, and only on a real failure: marker presence means the controllable path MIGHT be inadequate, not that it is, so a candidate that confirmed here is done — its verdict came from a network honouring its own plan, strictly better evidence than the tuned fallback (which cannot express a permutation at all) can give.
             if certification.selectable() {
                 return measured;
             }
@@ -2159,23 +1853,16 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                 // Failed on a network that fully represents its own plan: a real result, reported as is.
                 return measured;
             }
-            // Failed AND the plan needed subtrees `build_controllable` cannot build. On a templated
-            // grammar those subtrees hold nearly all of the productive morphology -- measured, same
-            // grammar: 133 states / 3307 arcs controllable-only against 6376 / 68693 from the tuned
-            // `crate::emit` path, which proposed correctly where the controllable net proposed nothing
-            // for 19 of 20 words. So the failure is probably the builder's, not the grammar's.
+            // Failed and the plan needed subtrees build_controllable cannot build: on a templated grammar those subtrees hold nearly all of the productive morphology, so the failure is probably the builder's, not the grammar's.
             if candidate.is_baseline() {
-                // The tuned path CAN build them, and for the baseline its network is the right answer:
-                // the default compilation of this grammar.
+                // The tuned path can build them, and for the baseline its network is the default compilation, the right answer.
                 return if OBSERVE {
                     evaluate_via_tuned_emit_mode::<true>(grammar, words, &expected, budget)
                 } else {
                     evaluate_via_tuned_emit_mode::<false>(grammar, words, &expected, budget)
                 };
             }
-            // A permutation, though, cannot be rescued: the tuned path derives topology from a plan it
-            // builds itself, so putting a permutation through it would measure the BASELINE network and
-            // report it as this permutation -- a fabricated comparison. Refuse, naming why.
+            // A permutation cannot be rescued: the tuned path derives topology from its own plan, so putting a permutation through it would measure the baseline network and report it as this permutation. Refuse, naming why.
             let EvaluatedPlan {
                 evaluation,
                 words,
@@ -2205,9 +1892,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
             }
         })
         .collect();
-    // Fold each candidate's counted parity divergence into the RUN. Done here, after the closure's
-    // mutable borrow of `cache` has ended, rather than inside it: the exclusion branch above has its
-    // own fold for the same reason, so every path out of this function contributes exactly once.
+    // Folded here, after the closure's mutable borrow of `cache` ends, so every path out of this function contributes its divergence exactly once.
     for candidate in &evaluated {
         cache.absorb_divergence(candidate.divergence);
     }
@@ -2290,10 +1975,7 @@ pub fn assess_accuracy_with_cache(
             })
             .collect();
     }
-    // Grammar-static and reusable across every candidate in the run: the peeler is a pure function
-    // of the grammar and its entry point takes `&self`, exactly as the certification path's own
-    // hand-back of `confirm_pieces` relies on. Note what is NOT built beside it -- no morpher, no
-    // morpheme-owner map, because nothing here confirms.
+    // Grammar-static and reusable across every candidate: the peeler is a pure function of the grammar taking &self. Note what is NOT built beside it — no morpher, no morpheme-owner map, since nothing here confirms.
     let peeler = crate::peel::ReduplicationPeeler::new(grammar);
     let peel_budget = ComposeBudget::from_env();
     let apply_budget = budget.resolved_apply_budget();
@@ -2330,26 +2012,12 @@ pub fn assess_accuracy_with_cache(
                 &apply_budget,
                 &selection,
             );
-            // EVIDENCE FIRST, FALLBACK SECOND -- and only on a real failure. This mirrors
-            // `evaluate_plans_with_cache_mode`'s own fallback structure step for step, and the
-            // ordering is the load-bearing part, not the destination.
-            //
-            // An earlier version of this function checked `unbuildable_markers` BEFORE proposing, on
-            // the reasoning that the markers are already known and re-proposing costs work. That was
-            // wrong twice over. Marker presence does not mean the controllable path is inadequate, it
-            // means it MIGHT be -- `mpr-gated-exception` carries a marker and confirms on the
-            // controllable net perfectly well -- so an early check routes a candidate that would have
-            // succeeded to a DIFFERENT compiler, and the two paths then report different
-            // `realized_strategy` for the same candidate, which is precisely the mis-attribution
-            // `RuntimeEvaluation::realized_strategy`'s own doc exists to prevent. It is also slower,
-            // not faster, in exactly the case that matters: it built the composed net, threw it away,
-            // and compiled a second one, on the path whose entire purpose is speed.
+            // Evidence first, fallback second, and only on a real failure — mirroring evaluate_plans_with_cache_mode's fallback structure step for step: checking unbuildable_markers before proposing would route a candidate that would have succeeded to a different compiler, since marker presence means the controllable path MIGHT be inadequate, not that it is.
             if assessed.verdict.is_no_loss() {
                 return assessed;
             }
             if realized_strategy != EmissionStrategy::PlanComposed {
-                // A whole-grammar compiler's result is its own answer; there is nothing to fall back
-                // to and nothing that could rescue it.
+                // A whole-grammar compiler's result is its own answer; there is nothing to fall back to.
                 return assessed;
             }
             let markers = crate::build::unbuildable_markers(&candidate.plan);
@@ -2357,14 +2025,9 @@ pub fn assess_accuracy_with_cache(
                 // Assessed on a network that fully represents its own plan: a real result, as is.
                 return assessed;
             }
-            // Assessed as lossy AND the plan needed subtrees `build_controllable` cannot build. On a
-            // templated grammar those subtrees hold nearly all of the productive morphology, so the
-            // loss is probably the builder's, not the grammar's.
+            // Assessed as lossy and the plan needed subtrees build_controllable cannot build: on a templated grammar those subtrees hold nearly all of the productive morphology, so the loss is probably the builder's, not the grammar's.
             if !candidate.is_baseline() {
-                // A permutation cannot be rescued: the tuned path derives topology from a plan it
-                // builds itself, so assessing a permutation there would measure the BASELINE network
-                // and report it as this permutation. Refuse, naming why -- and keep the counters,
-                // because the check DID run; only its attribution is unavailable.
+                // A permutation cannot be rescued: assessing it via the tuned path would measure the baseline network and report it as this permutation. Refuse, naming why, and keep the counters since the check did run.
                 return CandidateAccuracy {
                     requested_strategy: candidate.strategy(),
                     realized_strategy: EmissionStrategy::PlanComposed,
@@ -2387,8 +2050,7 @@ pub fn assess_accuracy_with_cache(
                     counters: assessed.counters,
                 };
             }
-            // The tuned path CAN build them, and for the baseline its network is the right answer:
-            // the default compilation of this grammar.
+            // The tuned path can build them, and for the baseline its network is the default compilation, the right answer.
             match FomaProposer::new(grammar) {
                 Ok(tuned) => assess_one(
                     candidate.strategy(),
@@ -2421,8 +2083,7 @@ pub fn assess_accuracy_with_cache(
         .collect()
 }
 
-/// Realize one candidate into the proposer the accuracy check will propose from — the same network
-/// the certification path measures, by construction (see `realize_plan_composed`).
+/// Realizes one candidate into the proposer the accuracy check will propose from — the same network the certification path measures, by construction.
 #[allow(clippy::type_complexity)]
 fn realize_accuracy_proposer(
     candidate: &LoweredCandidate,
@@ -2468,8 +2129,7 @@ fn realize_accuracy_proposer(
     }
 }
 
-/// Propose over the eligible corpus and check containment. No confirmation engine is reachable from
-/// here — that is the point.
+/// Proposes over the eligible corpus and checks containment; no confirmation engine is reachable from here, deliberately.
 fn assess_one(
     requested_strategy: EmissionStrategy,
     realized_strategy: EmissionStrategy,
@@ -2483,15 +2143,7 @@ fn assess_one(
     let mut counters = AccuracyCounters::default();
     let mut misses = Vec::new();
     for (occurrence_ordinal, (word, oracle)) in selection.expected.iter().enumerate() {
-        // BOUNDED, and the bound is a REFUSAL. This loop used to pass
-        // `ApplyBudget::unbounded()` on the reasoning that "a bounded proposal set that trips reads as
-        // undergeneration" -- correct about a SILENT bound, which is why the fix is
-        // `AccuracyCounters::apply_refusals` (a trip forces `NotDetermined`, never `Undergenerated`)
-        // rather than dropping the bound. Unbounded here is not free: 12^12 raw `apply_up` paths for
-        // one 13-character word killed the process outright on
-        // `machine:edge-cases/deep-optional-affix-nesting` (measurement table on
-        // `crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`), and a dead process reports
-        // no verdict at all -- strictly worse than an honest `NotDetermined`.
+        // Bounded, and the bound is a refusal (apply_refusals forces NotDetermined, never Undergenerated), not unbounded: an unbounded apply_up path count can grow large enough to kill the process outright on a pathological word, and a dead process reports no verdict at all — strictly worse than an honest NotDetermined.
         let proposed = crate::composite::propose_union_peel_with_diagnostics(
             grammar,
             &mut proposer,
@@ -2504,10 +2156,7 @@ fn assess_one(
             match proposed {
                 Ok(complete) => complete,
                 Err((dimension, value, limit, diagnostics, proposal_calls)) => {
-                    // This occurrence is COUNTED as checked and REFUSED -- never silently skipped.
-                    // `occurrences_checked` still advances so the refusal share in
-                    // `verdict_from`'s message is over the real denominator, and no membership test is
-                    // recorded, because none was performed.
+                    // This occurrence is counted as checked and refused, never silently skipped, so the refusal share in verdict_from's message is over the real denominator.
                     eprintln!(
                         "accuracy: proposal REFUSED for {word:?} -- per-word apply {} reached \
                          {value} against a limit of {limit}",
@@ -2532,9 +2181,7 @@ fn assess_one(
         );
         occurrence.raw_paths = diagnostics.raw_paths as u64;
         occurrence.proposal_calls = proposal_calls as u64;
-        // A refused peel means this occurrence's proposal set is INCOMPLETE. Recorded rather than
-        // ignored; `verdict_from` turns any non-zero total into `NotDetermined`, because a
-        // containment verdict over a truncated proposal set is not a verdict.
+        // A refused peel means this occurrence's proposal set is incomplete; verdict_from turns any non-zero total into NotDetermined, since a containment verdict over a truncated set is not a verdict.
         occurrence.peel_refusals = u64::from(peel_chain_depth_error.is_some());
         counters.absorb(occurrence);
     }
@@ -2563,8 +2210,7 @@ mod tests {
         parity_analysis(n)
     }
 
-    /// Same identity as `wa(n)`, differing only in `mpr` -- a field `AnalysisIdentity` does not
-    /// capture and `WordAnalysis::Eq` does.
+    /// Same identity as `wa(n)`, differing only in `mpr` — a field `AnalysisIdentity` does not capture and `WordAnalysis::Eq` does.
     fn wa_other_mpr(n: u32) -> WordAnalysis {
         WordAnalysis {
             mpr: pg_grammar::model::MprSet(1),
@@ -2584,11 +2230,7 @@ mod tests {
 
     #[test]
     fn analyses_differing_only_outside_identity_are_the_same_analysis() {
-        // THE behavior change. `wa(0)` and `wa_other_mpr(0)` are unequal as `WordAnalysis` values
-        // (different `mpr`), so the old full-structural comparison called this an
-        // `IdentityMismatch`. `AnalysisIdentity` captures ordered stable morpheme keys, root
-        // position, and category -- `mpr` is engine-internal payload, not identity -- so the two
-        // engines agree here and must certify.
+        // wa(0) and wa_other_mpr(0) are unequal as WordAnalysis values but must certify: AnalysisIdentity captures only stable morpheme keys, root position, and category — mpr is engine-internal payload, not identity.
         let g = fixture();
         assert_ne!(wa(0), wa_other_mpr(0), "the fixture must actually differ");
         let verdict = certify_word(&g, "w", &[wa(0)], &[wa_other_mpr(0)]);
@@ -2600,8 +2242,7 @@ mod tests {
 
     #[test]
     fn genuinely_different_identities_still_disagree() {
-        // The other side of the change: widening the equivalence must not make everything equal.
-        // Different morphemes are different identities.
+        // Widening the equivalence must not make everything equal: different morphemes are different identities.
         let g = fixture();
         assert!(matches!(
             certify_word(&g, "w", &[wa(0)], &[wa(1)]),
@@ -2626,12 +2267,7 @@ mod tests {
 
     #[test]
     fn duplicate_paths_collapse_without_changing_the_verdict() {
-        // Replaces `multiplicity_mismatch`, which asserted that expected=[x, x] against actual=[x]
-        // is a `MultiplicityMismatch`. That guarantee is no longer wanted: the project's parity
-        // relation is deduplicated identity SET equality, so an oracle that reached one analysis by
-        // two derivational paths and a candidate that reached it by one have found the same set and
-        // agree. Multiplicity was never evidence of a grammar difference; it is evidence about
-        // redundant proposal work, which the next test keeps.
+        // The parity relation is deduplicated identity SET equality: an oracle reaching one analysis by two derivational paths and a candidate reaching it by one have found the same set and agree — multiplicity is evidence about redundant proposal work, never a grammar difference.
         let g = fixture();
         assert!(certify_word(&g, "w", &[wa(0), wa(0)], &[wa(0)]).selectable());
         assert!(certify_word(&g, "w", &[wa(0)], &[wa(0), wa(0), wa(0)]).selectable());
@@ -2639,8 +2275,7 @@ mod tests {
 
     #[test]
     fn collapsed_duplicate_paths_survive_as_evidence() {
-        // The verdict ignores duplicate paths; the evidence must not lose them, or "these agree"
-        // would be indistinguishable from "these agree and one side did three times the work".
+        // The verdict ignores duplicate paths, but the evidence must not lose them, or "these agree" would be indistinguishable from "these agree and one side did three times the work".
         let g = fixture();
         let projected =
             crate::parity::OccurrenceIdentities::project(&[wa(0), wa(0), wa(0)], &g).unwrap();
@@ -2651,9 +2286,7 @@ mod tests {
 
     #[test]
     fn repeated_corpus_rows_stay_separate_observations() {
-        // Deduplication is WITHIN an occurrence. Two rows for the same word are two observations,
-        // and a candidate that disagrees on the second row fails even though the union of both
-        // rows' identities would match.
+        // Deduplication is within an occurrence: two rows for the same word are two observations, and a candidate disagreeing on the second row fails even though the union of both rows' identities would match.
         let g = fixture();
         let expected = vec![("w".into(), vec![wa(0)]), ("w".into(), vec![wa(1)])];
         assert!(certify_corpus(&g, &expected, &expected).selectable());
@@ -2662,8 +2295,7 @@ mod tests {
             certify_corpus(&g, &expected, &changed),
             Certification::IdentityMismatch { .. }
         ));
-        // Collapsing the two rows into one would also change the ROW COUNT, which is refused
-        // outright rather than certified against a shorter corpus.
+        // Collapsing the two rows into one would also change the row count, which is refused outright rather than certified against a shorter corpus.
         let collapsed = vec![("w".to_string(), vec![wa(0), wa(1)])];
         assert!(matches!(
             certify_corpus(&g, &expected, &collapsed),
@@ -2673,10 +2305,7 @@ mod tests {
 
     #[test]
     fn a_projection_failure_is_a_typed_fault_never_a_mismatch_and_never_a_pass() {
-        // An analysis referencing a morpheme its own model lacks is an internal inconsistency. Both
-        // wrong answers are excluded here: reporting it as a mismatch would blame the grammar for an
-        // engine bug, and -- the more dangerous one -- the two sides here are IDENTICAL, so any
-        // comparison that projects lazily or not at all calls this a full confirmation.
+        // An analysis referencing a morpheme its own model lacks is an internal inconsistency: reporting it as a mismatch would blame the grammar for an engine bug, and — more dangerous — the two sides here are identical, so a lazy or missing projection would call this a full confirmation.
         let g = fixture();
         let unresolvable = wa(9_999);
         let verdict = certify_word(
@@ -2759,16 +2388,7 @@ mod tests {
 
     #[test]
     fn a_total_lexical_miss_reaches_the_oracle_as_a_miss_not_a_guess() {
-        // `PreparedCorpus::prepare` builds its oracle with `Morpher::new` (no `SuppliedRootOverlay`)
-        // and reads it through `parse_word` (`ParseOptions::default()`, `guess_root: false`), so a
-        // word the lexicon cannot reach comes back with zero analyses rather than a fabricated root.
-        //
-        // NOTE ON WHAT THIS DOES AND DOES NOT PROVE: this is a preservation guard, not the v1 scope
-        // gate. It passes both before and after this change, and on a fixture carrying no lexical
-        // patterns it could not distinguish `guess_root: true` from `false` anyway. The scope is
-        // ENFORCED by the two refusal tests above, which fail before this change; this one exists so
-        // that a future edit swapping `parse_word` for `parse_word_opts(.., guess_root)` or
-        // attaching an overlay is caught at the oracle rather than only at the refusal.
+        // PreparedCorpus::prepare reads its oracle with guess_root: false and no SuppliedRootOverlay, so a word the lexicon cannot reach comes back with zero analyses rather than a fabricated root; this is a preservation guard, not the v1 scope gate, which the refusal tests above enforce.
         let g = fixture();
         let miss = vec!["cb".to_string()];
         let prepared = PreparedCorpus::prepare(&g, &miss, RuntimeBudget::default())
@@ -2790,8 +2410,7 @@ mod tests {
 
     #[test]
     fn a_corpus_of_only_unanalyzable_words_is_still_refused() {
-        // The vacuous-pass guard: agreeing about nothing is not agreement. Unchanged by the move to
-        // set equality -- an empty set equals an empty set, which is exactly why this guard exists.
+        // The vacuous-pass guard: an empty set equals an empty set under set equality too, which is exactly why this guard exists.
         let g = fixture();
         assert!(matches!(
             certify_corpus(&g, &[("w".into(), vec![])], &[("w".into(), vec![])]),

@@ -1,16 +1,4 @@
-//! TEMPORARY INVESTIGATION INSTRUMENTATION (see reports/03-parse-latency-profile.md). Not a
-//! correctness gate. Tests hypothesis (a) directly: is there any lazy/deferred per-parse
-//! compilation cost, by calling `Morpher::parse_word` on the SAME real pathological Sena word
-//! several times in a row within one process (same `Morpher`, i.e. `RuleCache` built once at
-//! `Morpher::new` per `pg-parse/src/morpher.rs`) and comparing call 1 (cold) vs calls 2-5 (warm).
-//! Also compares `--memo=on` vs `--memo=off` on the same words to size the M6 memo's own effect.
-//!
-//! CI note: `morpher_memo_on` below is built with NO wall-clock or step cap
-//! (`Morpher::new(&g, usize::MAX)`), unlike `morpher_memo_off`'s deliberate 20s watchdog — on these
-//! genuinely pathological words this leg has been observed to run past 5 minutes on this
-//! development machine without completing. `.github/workflows/rust-ci.yml`'s
-//! `--include-ignored` step therefore `--skip`s this test by name; it is diagnostic
-//! instrumentation, not a correctness gate, so CI does not need to run it at all.
+//! Diagnostic instrumentation, not a correctness gate: calls `Morpher::parse_word` on the same pathological word several times in one process to test for lazy/deferred per-parse compilation cost (cold vs warm), and compares `--memo=on` vs `--memo=off` to size the memo's own effect.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -39,8 +27,7 @@ fn sena_cold_vs_warm_and_memo_effect() {
         load_start.elapsed().as_secs_f64() * 1000.0
     );
 
-    // Real pathological words pulled live from this investigation's plain-engine batch run
-    // (top of the observed-so-far distribution on a partial Sena run), not synthetic.
+    // Real pathological words, not synthetic, pulled from a plain-engine batch run's observed latency distribution.
     let words = [
         "kakukhondani",
         "pisabulukira",
@@ -50,9 +37,7 @@ fn sena_cold_vs_warm_and_memo_effect() {
     ];
 
     let morpher_memo_on = Morpher::new(&g, usize::MAX);
-    // memo=off is the fair unmemoized baseline (M6 ablation) -- on a word where the memo is doing
-    // real work, this can be MUCH slower (the whole reason the memo exists), so it is guarded with
-    // a generous but finite wall-clock deadline rather than risking a many-minutes hang here.
+    // memo=off is the fair unmemoized baseline; on a word where the memo is doing real work this can be much slower, so it is guarded with a generous but finite wall-clock deadline.
     let morpher_memo_off = Morpher::new(&g, usize::MAX)
         .with_memo(false)
         .with_word_timeout(Some(std::time::Duration::from_secs(20)));

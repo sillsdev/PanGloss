@@ -1,20 +1,4 @@
-//! Diagnostic census tool for the templated-morphotactics recall investigation: scans the whole
-//! corpus for every word whose ONLY oracle analysis is a bare root (exactly one morpheme,
-//! `root_index == 0`, i.e. zero affixes), and reports, for each, whether the composition-based
-//! recall check (byte-for-byte the same technique `tests/p6_templated_morphotactics_gate.rs`'s
-//! `b_full_corpus_recall_via_compose` uses) recalls it, plus its morpheme id and raw codepoints.
-//!
-//! ## Conclusion this tool's own output led to
-//! Before the `pg_foma::tags` fix (module doc point 3 there), EVERY bare-root miss in this census
-//! had a morpheme id whose zero-padded numeral contains a literal `0` digit (`"mã"`=400, `"ma"`=69,
-//! `"nã"`=106, ... — 10/10 sampled), while every RECALLED bare root had an id with no `0` digit at
-//! all (`"ta"`=894, `"me"`/`"ne"`=897, `"kitã"`=395 — including combining-mark-bearing roots,
-//! ruling out a combining-mark cause). This pointed straight at the upstream `divvun/foma-rs`
-//! `Multichar_Symbols` decomposition defect, not a language-membership gap — see
-//! `tests/p6_templated_morphotactics_gate.rs`'s `d_bare_root_tag_atomicity_boundary` for the
-//! concrete boundary assertion, and `pg_foma::tags`'s module doc (point 3) for the fix.
-//!
-//! Run: `cargo run --release -p pg-foma --example p6_templated_bare_root_scan`
+//! Diagnostic census tool: scans the corpus for every word whose only oracle analysis is a bare root, and reports whether the composition-based recall check recalls it, plus its morpheme id and raw codepoints.
 
 use std::path::{Path, PathBuf};
 
@@ -162,8 +146,7 @@ fn run() {
         if outcome.structured.is_empty() {
             continue;
         }
-        // Restrict to words whose EVERY oracle analysis is a single-morpheme bare root -- avoids
-        // ambiguity with a word that also has a longer derived analysis.
+        // Restrict to words whose every oracle analysis is a single-morpheme bare root, avoiding ambiguity with a word that also has a longer derived analysis.
         let all_bare = outcome
             .structured
             .iter()
