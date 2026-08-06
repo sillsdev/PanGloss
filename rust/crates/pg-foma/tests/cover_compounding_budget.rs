@@ -1,19 +1,4 @@
-//! The compound HEAD x NON-HEAD root-pair budget (`HC_COMPOUND_PAIR_BUDGET`,
-//! `crate::compose_budget::compound_pair_budget_from_env`) must trip BEFORE any lexc text is
-//! emitted for a grammar whose license-gated cross product is too large — "never explode," an
-//! honest refusal instead of a multi-gigabyte network. Kept in its OWN test file/process (not
-//! alongside `tests/cover_compounding.rs`'s containment tests) because it mutates the
-//! process-global `HC_COMPOUND_PAIR_BUDGET` env var, and `cargo test` runs every OTHER file as a
-//! separate process (`crate::emit::emit_with_precision`'s own doc: "parallel test processes never
-//! race process-global env state") but multiple `#[test]` functions within ONE file/process run
-//! concurrently by default — this file has exactly one test, so there is nothing else in-process
-//! to race.
-//!
-//! Reuses `pg_grammar_gen`'s own compounding generator (`tests/phase_c_compounding.rs`'s own
-//! `overbudget_recipe`, `compounding_rule_count: 3` -> 6 root entries, no MPR restrictions at all)
-//! rather than hand-authoring a new fixture: with no MPR restriction, `crate::emit::compound_license`
-//! admits every entry on both sides, so the cross product is the full `6 x 6 = 36` — comfortably
-//! over a deliberately tiny test budget.
+//! The compound HEAD x NON-HEAD root-pair budget must trip before any lexc text is emitted for an oversized cross product; kept in its own test file/process since it mutates the process-global `HC_COMPOUND_PAIR_BUDGET` env var and `cargo test` files run as separate processes.
 
 use pg_foma::emit;
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
@@ -31,13 +16,10 @@ fn overbudget_recipe() -> Recipe {
     }
 }
 
-/// `HC_COMPOUND_PAIR_BUDGET=20` against a 6-root (36-pair) grammar must trip
-/// `EnumBudgetExceeded { measure: "compound head x non-head root pairs", .. }`, reported as
-/// `FomaTier::Unsupported`, with an empty `lexc_source` (never a partial/unsound network).
+/// `HC_COMPOUND_PAIR_BUDGET=20` against a 6-root (36-pair) grammar must trip `EnumBudgetExceeded`, reported `Unsupported`, with an empty `lexc_source` (never a partial/unsound network).
 #[test]
 fn compound_pair_budget_trips_before_any_lexc_emitted() {
-    // SAFETY (of the test, not the language item): this is the ONLY test in this file/process, so
-    // no other test can observe this env var mutation racily (module doc).
+    // This is the only test in this file/process, so no other test can observe this env var mutation racily.
     std::env::set_var("HC_COMPOUND_PAIR_BUDGET", "20");
 
     let recipe = overbudget_recipe();

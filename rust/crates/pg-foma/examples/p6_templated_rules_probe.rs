@@ -1,12 +1,4 @@
-//! P6 prototype stretch goal: do Aweti's 18 phonological rules compile via `pg_foma::replace`?
-//! Scope (per the prototype brief): rule COMPILE only. Does
-//! NOT call `pg_foma::emit::emit()` (that is the exact OOM this whole P6 effort routes around —
-//! `examples/templated_probe.rs`'s own module doc: 4.9GB RSS, unfinished, in `preexpand::
-//! build_composites`) and does NOT attempt underlying-form lexc emission or root-scale
-//! composition (`pg_foma::uflexc` is Indonesian-scoped, template-less-morphotactics only; a
-//! templated 855-root grammar is out of this prototype's emitter scope entirely, mainline work).
-//!
-//! Run: `cargo run --release -p pg-foma --example p6_aweti_probe`
+//! Probes whether Aweti's 18 phonological rules compile via `pg_foma::replace`; compile only, never calling `emit()` or attempting lexc emission, since `pg_foma::uflexc` is Indonesian-scoped and template-less-morphotactics only.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;

@@ -39,9 +39,7 @@ pub struct ScaleKnobs {
 }
 
 impl Default for ScaleKnobs {
-    /// Default: 2 roots/stratum, 2 segments/table -- just enough for the multi-table gate's
-    /// voice+/voice- pair. Recipes needing more (e.g. circumfix affix material) override
-    /// `segment_inventory`/`entries_per_stratum` explicitly.
+    /// Default: 2 roots/stratum, 2 segments/table, just enough for the multi-table gate's voice+/voice- pair; recipes needing more override the fields explicitly.
     fn default() -> Self {
         ScaleKnobs {
             entries_per_stratum: 2,
@@ -73,8 +71,8 @@ pub struct ConstructKnobs {
     /// two words per root) or mandatory (`false`: only the circumfixed form is ever well-formed).
     pub template_slot_optional: bool,
 
-    // --- Present so a recipe literal can name every construct knob up front even before its own
-    // builder exists; each field's own doc names the module that owns it. ---
+    // Present so a recipe literal can name every construct knob up front even before its own builder exists.
+
     /// Partition-k scale, `crate::build::gating`.
     pub gated_subrule_count: usize,
     /// Alpha-scale, `crate::build::alpha`.

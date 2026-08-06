@@ -51,20 +51,12 @@ use crate::gloss_bundle;
 use pg_grammar::model::{Grammar, MorphemeId};
 use pg_parse::WordAnalysis;
 
-/// RFC 8785 canonical JSON string encoding of one value (see this module's top doc for why
-/// `serde_json::to_string` on a `&str` already satisfies RFC 8785 for a bare string: mandatory-only
-/// escapes, no non-ASCII escaping, no normalization). Infallible for any `&str` — `serde_json`
-/// only fails serializing `&str` on I/O errors, which a `String` sink never produces.
+/// RFC 8785 canonical JSON string encoding: `serde_json::to_string` on a `&str` already satisfies it (mandatory-only escapes, no non-ASCII escaping, no normalization), and is infallible since a `String` sink never produces I/O errors.
 fn canonical_json_string(s: &str) -> String {
     serde_json::to_string(s).expect("&str -> JSON string serialization is infallible")
 }
 
-/// The `<MorphemeId>` text owning a grammar-tier morpheme ordinal, empty when the grammar
-/// declares none — same fallback `pg_parse::morpher::Analysis::morpheme_join` uses for the plain
-/// signature. The `u32::MAX` guessed-root sentinel (`MorphemeId::GUESSED`) has no
-/// `Grammar::morphemes` row at all (no `batch`/`gloss-batch` contract can produce a guessed
-/// analysis in the first place, PROTOCOL.md §3), so it resolves the same defensive empty string an
-/// out-of-range ordinal would, rather than panicking.
+/// The `<MorphemeId>` text owning a grammar-tier morpheme ordinal, empty when absent; the guessed-root sentinel has no `Grammar::morphemes` row at all, so it resolves the same defensive empty string an out-of-range ordinal would, never panicking.
 fn owning_morpheme_id(grammar: &Grammar, morpheme_ordinal: u32) -> String {
     if morpheme_ordinal == MorphemeId::GUESSED.0 {
         return String::new();
@@ -135,12 +127,7 @@ pub fn word_gloss_signature(grammar: &Grammar, analyses: &[(WordAnalysis, String
 mod tests {
     use super::*;
 
-    /// Synthetic (delanguaged) fixture: three lexical entries — `eRoot` (a literal gloss, no
-    /// `<MorphemeId>`), `eBare` (no gloss, no `<MorphemeId>`), and `eAff` (no gloss, `<MorphemeId>`
-    /// `M7`) — plus `eWeird`, a literal gloss containing every signature separator (`+`, `|`,
-    /// `;`), a double quote, and a backslash, to pin the JSON-quoting disambiguation. Invented
-    /// spellings only, no natural-language content (repo-wide synthetic-fixture convention, e.g.
-    /// this crate's own `MINI_GRAMMAR_XML` above).
+    /// Synthetic fixture: `eRoot` (literal gloss), `eBare` (no gloss, no `<MorphemeId>`), `eAff` (no gloss, `<MorphemeId>` `M7`), and `eWeird` (a literal gloss containing every signature separator plus a quote and backslash, to pin JSON-quoting disambiguation).
     const FIXTURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -202,8 +189,7 @@ mod tests {
             .unwrap_or_else(|| panic!("no morpheme with xml_key {xml_id}")) as u32
     }
 
-    /// Synthetic `WordAnalysis`es don't need a real parse, same rationale as
-    /// `crate::tests`'s own helper: `gloss_bundle` only reads `Grammar::morphemes` by ordinal.
+    /// Synthetic `WordAnalysis`es don't need a real parse, since `gloss_bundle` only reads `Grammar::morphemes` by ordinal.
     fn wa(morpheme_ids: Vec<u32>, root_morpheme_index: i32) -> WordAnalysis {
         let morpheme_count = morpheme_ids.len();
         WordAnalysis {
@@ -245,8 +231,7 @@ mod tests {
 
     #[test]
     fn surface_shape_renders_s_tag_and_keeps_boundary_markers_verbatim() {
-        // The shape half is passed through byte-for-byte (boundary markers included) -- this
-        // module never re-renders shape, only encodes whatever the caller already computed.
+        // The shape half is passed through byte-for-byte; this module never re-renders shape, only encodes what the caller already computed.
         let g = grammar();
         let root = morpheme_ordinal(&g, "eRoot");
         let entry = gloss_signature_entry(&g, &wa(vec![root], 0), "kal+pim");
@@ -273,11 +258,7 @@ mod tests {
 
     #[test]
     fn sort_order_is_ordinal_byte_order_not_case_insensitive_or_length_based() {
-        // Deliberately scrambled insertion order. Byte/ordinal order places all-uppercase-first
-        // ASCII ('A' 0x41, 'B' 0x42) before lowercase ('b' 0x62) -- a case-insensitive or
-        // locale-aware comparer would typically interleave them instead. The 2-component entry
-        // (`"A"+"A"`, longer string) sorting before the 1-component `"B"` entry also pins that
-        // this is a byte comparison, not a length- or component-count-based one.
+        // Deliberately scrambled insertion order: byte/ordinal order places uppercase ASCII before lowercase, unlike a case-insensitive or locale-aware comparer, and the longer 2-component entry sorting before the shorter one pins that this is a byte comparison, not length-based.
         let entries = vec![
             r#"g:"b"|s:"x""#.to_string(),
             r#"g:"B"|s:"x""#.to_string(),
@@ -289,12 +270,7 @@ mod tests {
 
     #[test]
     fn literal_gloss_containing_every_separator_stays_disambiguated_by_json_quoting() {
-        // `a+b|c;d"e\f` contains all three signature separators plus a quote and a backslash.
-        // Canonical JSON escapes only the quote and the backslash (`"` -> `\"`, `\` -> `\\`);
-        // `+`, `|`, `;` pass through literally *inside* the quotes, which is exactly why they
-        // can't be mistaken for a separator here -- separators are only recognized outside a
-        // JSON string, and this entry's only `+`/`|` outside quotes are the real component/shape
-        // separators this function itself inserts.
+        // `a+b|c;d"e\f` contains all three signature separators plus a quote and a backslash; canonical JSON escapes only the quote and backslash, so the separators pass through literally inside the quotes and can't be mistaken for real ones.
         let g = grammar();
         let weird = morpheme_ordinal(&g, "eWeird");
         let entry = gloss_signature_entry(&g, &wa(vec![weird], 0), "tuk");
@@ -308,10 +284,7 @@ mod tests {
 
     #[test]
     fn skipped_rows_reuse_the_same_dash_literal_as_zero_analyses() {
-        // SKIPPED rows never call into this module at all -- callers hardcode the literal `-`
-        // directly (the same convention `pg_parse::result_signature`'s own callers already use,
-        // e.g. `pg-cli/src/main.rs`'s `("SKIPPED", "-".to_string())` sites). This pins that the
-        // empty-set literal this module produces is byte-identical to that hardcoded convention.
+        // SKIPPED rows never call into this module; callers hardcode the literal `-` directly, so this pins that this module's empty-set literal is byte-identical to that hardcoded convention.
         let skipped_signature = "-".to_string();
         assert_eq!(gloss_analysis_set_signature(&[]), skipped_signature);
     }

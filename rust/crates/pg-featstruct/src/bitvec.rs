@@ -32,8 +32,7 @@ pub const fn full_mask(count: u32) -> u64 {
     }
 }
 
-/// A bit-packed set of allowed symbols for one symbolic feature (port of the `_flags` field of
-/// C# `UlongSymbolicFeatureValueFlags`). Bit `i` corresponds to the `FeatureSymbol` with `Index i`.
+/// A bit-packed set of allowed symbols for one symbolic feature; bit `i` corresponds to the `FeatureSymbol` with `Index i`.
 #[derive(
     Copy,
     Clone,
@@ -107,9 +106,7 @@ impl SymbolBits {
         self.0 |= 1u64 << index;
     }
 
-    // --- The four not/notOther-parameterized set predicates and mutators, ported verbatim from
-    //     UlongSymbolicFeatureValueFlags. `not` negates `self`, `not_other` negates `other`;
-    //     negation is within the feature's `mask`. See that file for the branch derivation.
+    // The four not/notOther-parameterized set predicates and mutators; `not` negates `self`, `not_other` negates `other`, both within the feature's `mask`.
 
     /// C# `IsSupersetOf(not, other, notOther)`. (Used by subsumption on the symbolic path.)
     #[inline]
@@ -280,8 +277,7 @@ mod tests {
         assert_eq!(SymbolBits(0b010).not(mask).not(mask), SymbolBits(0b010));
     }
 
-    /// Exhaustively verify the four not/notOther branches of every op against a brute-force
-    /// reference over a small symbol universe — this is the parity anchor for the C# formulas.
+    /// Exhaustively verifies the four not/notOther branches of every op against a brute-force reference over a small symbol universe.
     #[test]
     fn not_matrix_matches_reference() {
         let count = 5u32;
@@ -318,8 +314,7 @@ mod tests {
 
     #[test]
     fn flat_unify_absent_lane_is_unconstrained() {
-        // A shorter slice = trailing features unconstrained (all-ones), so length mismatch alone
-        // never blocks unification — matches EnsureFlat's ulong.MaxValue seeding.
+        // A shorter slice means trailing features are unconstrained (all-ones), so length mismatch alone never blocks unification.
         let seg = [0b0011u64, 0b0101u64];
         let constraint = [0b0001u64]; // only constrains lane 0; lane 1 absent = unconstrained
         assert!(flat_unifiable(&seg, &constraint));

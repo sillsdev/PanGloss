@@ -1,47 +1,4 @@
-//! `pangloss fst-health <grammar> [<words.txt>] [<out.json>]` — runs every health producer this
-//! crate has and emits one canonical `pg_foma::health::HealthReport` JSON, mirroring
-//! `diagnose`/`pack`'s own argument-parsing and report-writing style (`diagnostics.rs`/`pack.rs`).
-//!
-//! # What this command composes (never recomputes a shared measurement twice)
-//! 1. **Preflight** (`pg_foma::preflight::preflight_findings`): the cheap, pre-compile pass over
-//!    `grammar` alone — semantic/cost uncertainty and bounded-product findings. Always runs.
-//! 2. **Compile-time observed health** (`pg_foma::health_evaluator::evaluate_health`, unchanged,
-//!    never re-derived here): fed from a standalone profiled compile
-//!    (`FomaProposer::new_with_profile`) — the SAME "a second compiled network is an acceptable
-//!    one-time cost for an offline diagnostic tool" judgment call `diagnostics.rs::assess_words`/
-//!    `pack.rs::run_pack` already make, for the identical reason (`FomaAnalyzer` does not expose
-//!    its own internal proposer/profile for external reuse, and `composite.rs` is a named
-//!    single-owner merge hotspot this module does not touch). Always runs.
-//! 3. **Apply-side measurement** (`measure_apply_side`): proposal/confirmation counts, rejection
-//!    share, and pre-dedup duplicate-analysis evidence for a caller-supplied word set. Builds its
-//!    OWN `FomaAnalyzer` (same judgment call as step 2, and as `diagnostics.rs::assess_words`)
-//!    rather than editing `composite.rs`. **Only runs when a `<words.txt>` argument is given** —
-//!    this command is honest about what it did not measure: no words means no apply-side findings
-//!    at all, never a fabricated zero-evidence finding.
-//!
-//! All three sets of findings are concatenated into ONE `pg_foma::health::HealthReport` (never
-//! three separate reports) via `pg_foma::health::HealthReport::new` — this module invents no
-//! parallel report shape.
-//!
-//! # Pre-dedup duplicate-analysis identity
-//! `duplicate_analysis_findings` deduplicates `pg_foma::composite::FomaOutcome::structured`
-//! (populated but never deduplicated by `FomaAnalyzer::analyze_word` itself — see that struct's own
-//! doc) by `pg_parse::WordAnalysis`'s own derived `PartialEq`/`Eq` — the exact structured-analysis
-//! identity `pg_parse::result_signature` is rendered FROM (`analyses`/`structured` are parallel by
-//! index) and the same type `diagnostics.rs::assess_words` already reuses for its gloss-signature
-//! pairs. This is deliberately NOT `result_signature`'s own rendered-string equality
-//! (`result_signature`'s own doc: "Deliberately not deduped ... the duplicate count is real signal,
-//! not byte-parity noise" for genuinely distinct analyses that happen to render identically) — this
-//! module needs the STRUCTURED identity, not the rendered one, so two analyses that render
-//! identically but differ in `syn_fs`/`mpr`/`provenance` are correctly NOT counted as duplicates
-//! here. No second identity notion is invented.
-//!
-//! # Rejection share (`Metric::RejectionShare`)
-//! Computed as `(candidates_proposed - analyses_confirmed) / candidates_proposed` — the intuitive
-//! "share of proposed candidates that did not survive HermitCrab confirmation" reading of this
-//! metric's name. `saturating_sub` keeps this in `[0.0, 1.0]` even in the rare case a candidate
-//! yields more than one confirmed analysis (multiplicity recovery) and `confirmed >
-//! candidates_generated` for a word.
+//! `pangloss fst-health <grammar> [<words.txt>] [<out.json>]` composes three sets of findings (preflight, a standalone profiled compile, and — only when `<words.txt>` is given — apply-side measurement) into one `HealthReport`, deduplicating `FomaOutcome::structured` by `WordAnalysis`'s structured identity rather than `result_signature`'s rendered-string equality, and computing rejection share as `(proposed - confirmed) / proposed` via `saturating_sub` to stay in `[0.0, 1.0]`.
 
 use std::fs;
 
@@ -55,12 +12,7 @@ use pg_foma::preflight::preflight_findings;
 use pg_grammar::model::Grammar;
 use pg_parse::WordAnalysis;
 
-/// Every word's `FomaOutcome::structured` deduplicated by `WordAnalysis`'s own derived equality
-/// feeds `FindingCode::DuplicateAnalysisOverlap`, plus the batch-level
-/// `FindingCode::ProposalVolume`/`FindingCode::ConfirmationWork` findings — always emitted once
-/// at least one word was measured: candidate/path volume, confirmation count and work, and
-/// rejection share remain first-class health metrics even when final results are completely
-/// correct (never gated behind "only report if something looks wrong").
+/// Every word's `FomaOutcome::structured`, deduplicated by `WordAnalysis`'s derived equality, feeds `DuplicateAnalysisOverlap` plus the batch-level `ProposalVolume`/`ConfirmationWork` findings, always emitted once at least one word was measured — never gated behind "only report if something looks wrong".
 fn measure_apply_side(grammar: &Grammar, words: &[String]) -> Result<Vec<HealthFinding>, String> {
     let mut analyzer =
         FomaAnalyzer::new(grammar).map_err(|e| format!("foma analyzer build failed: {e}"))?;
@@ -87,11 +39,7 @@ fn measure_apply_side(grammar: &Grammar, words: &[String]) -> Result<Vec<HealthF
     Ok(findings)
 }
 
-/// One word's pre-dedup duplicate-analysis evidence — 24 copies still mean one semantic answer but
-/// expose an FST design problem, so this emits a `DuplicateAnalysisCount` finding and a
-/// `DuplicateAnalysisRatio` finding, both `Severity::Info` (correctness is unaffected; this is
-/// diagnostic evidence about the FST's own design), both empty when `structured` has no duplicate
-/// at all.
+/// One word's pre-dedup duplicate-analysis evidence: many copies still mean one semantic answer but expose an FST design problem, so this emits `Severity::Info` count/ratio findings, both empty when `structured` has no duplicate at all.
 fn duplicate_analysis_findings(word: &str, structured: &[WordAnalysis]) -> Vec<HealthFinding> {
     let total = structured.len();
     if total == 0 {
@@ -146,10 +94,7 @@ fn duplicate_analysis_findings(word: &str, structured: &[WordAnalysis]) -> Vec<H
     ]
 }
 
-/// Total distinct FST-propose candidates across every word measured
-/// (`FomaOutcome::candidates_generated`, summed). `Severity::Info` — evidence, not itself a
-/// problem: proposal volume is first-class evidence even when final results are completely
-/// correct.
+/// Total distinct FST-propose candidates across every word measured; `Severity::Info` since proposal volume is evidence, not itself a problem.
 fn proposal_volume_finding(total_candidates: u64) -> HealthFinding {
     HealthFinding {
         code: FindingCode::ProposalVolume,
@@ -170,9 +115,7 @@ fn proposal_volume_finding(total_candidates: u64) -> HealthFinding {
     }
 }
 
-/// Total confirmed analyses (`FomaOutcome::confirmed`, summed) plus the rejection share (see this
-/// module's own doc for the exact formula) — `None` for the rejection share when
-/// `total_candidates` is zero (nothing to divide by, never a fabricated `0.0`).
+/// Total confirmed analyses plus the rejection share; the rejection finding is omitted entirely when `total_candidates` is zero, never a fabricated `0.0`.
 fn confirmation_work_findings(total_candidates: u64, total_confirmed: u64) -> Vec<HealthFinding> {
     let mut findings = vec![HealthFinding {
         code: FindingCode::ConfirmationWork,
@@ -218,10 +161,7 @@ fn confirmation_work_findings(total_candidates: u64, total_confirmed: u64) -> Ve
     findings
 }
 
-/// Compile-time observed health via a standalone profiled compile — identical judgment call and
-/// code shape to `pack.rs::run_pack`'s own `fst_health` section (non-`--watchdog` path), duplicated
-/// rather than shared since `pack.rs` composes it directly into a `.pgpack` manifest and this
-/// command composes it into a preflight+apply-side report instead.
+/// Compile-time observed health via a standalone profiled compile; duplicated rather than shared with `pack.rs::run_pack`'s own equivalent section since each composes it into a different report shape.
 fn compile_time_findings(grammar: &Grammar) -> Vec<HealthFinding> {
     let (proposer_result, compile_profile) = FomaProposer::new_with_profile(grammar);
     let report = match &proposer_result {
@@ -240,11 +180,7 @@ fn compile_time_findings(grammar: &Grammar) -> Vec<HealthFinding> {
     report.findings
 }
 
-/// Composes preflight + compile-time findings, plus apply-side findings when `words` is `Some`
-/// (never when `None`: a no-words invocation must not fabricate an apply-side finding of any
-/// kind). Pure aside from the one standalone profiled compile (`compile_time_findings`); factored
-/// out from `run_fst_health` so the honest no-words contract is directly unit-testable without
-/// going through file I/O.
+/// Composes preflight + compile-time findings, plus apply-side findings only when `words` is `Some`; factored out from `run_fst_health` so the honest no-words contract is directly unit-testable without file I/O.
 fn build_health_report(
     grammar: &Grammar,
     words: Option<&[String]>,
@@ -257,10 +193,7 @@ fn build_health_report(
     Ok(HealthReport::new(findings))
 }
 
-/// `pangloss fst-health <grammar> [<words.txt>] [<out.json>]` — see this module's top doc for the
-/// full contract. `<out.json>` omitted writes the canonical JSON to stdout instead of a file
-/// (mirroring the rest of this crate's stdout/stderr split: parity-sensitive output on stdout,
-/// diagnostics on stderr).
+/// `pangloss fst-health <grammar> [<words.txt>] [<out.json>]`; `<out.json>` omitted writes the canonical JSON to stdout instead of a file, matching this crate's stdout/stderr split.
 pub fn run_fst_health(args: &[String]) -> Result<(), String> {
     let (grammar_path, words_path, out_path): (&str, Option<&str>, Option<&str>) = match args {
         [g] => (g.as_str(), None, None),
@@ -390,10 +323,7 @@ mod tests {
             "no-words invocation must succeed: {result:?}"
         );
 
-        // Precise honesty check: `words: None` must produce a report with NO Phase::Apply
-        // finding of any apply-side kind -- exercised directly against `build_health_report`
-        // (the exact function `run_fst_health` calls) rather than by scraping stdout, so this
-        // assertion is exact regardless of the CLI's own I/O plumbing.
+        // Precise honesty check: `words: None` must produce no apply-side finding at all, exercised directly against `build_health_report` rather than by scraping stdout.
         let g = grammar(CLEAN_GRAMMAR_XML);
         let report = build_health_report(&g, None).expect("build_health_report must succeed");
         assert!(
@@ -466,10 +396,7 @@ mod tests {
         );
     }
 
-    /// Direct unit coverage of the dedup logic itself: three identical `WordAnalysis` values
-    /// (constructed directly, not through a compiled grammar — the cheapest way to pin the exact
-    /// dedup arithmetic) must yield ONE `DuplicateAnalysisOverlap`/`DuplicateAnalysisRatio`
-    /// finding with ratio `2/3`.
+    /// Direct unit coverage of the dedup logic: three identical `WordAnalysis` values, constructed directly rather than through a compiled grammar, must yield one finding with ratio `2/3`.
     #[test]
     fn duplicate_analysis_findings_reports_real_ratio_for_repeated_structured_analyses() {
         let wa = WordAnalysis {

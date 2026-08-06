@@ -92,10 +92,7 @@ mod tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
     }
 
-    /// An ordinary affix + iterative-rewrite grammar (no Compounding, no Unordered strata, no MPR
-    /// groups, no Simultaneous/RightToLeft/Metathesis rules, no true reduplication/circumfix) must
-    /// evaluate to `Admit` through this entry point too, not just through `compose_envelope` called
-    /// directly.
+    /// An ordinary affix + iterative-rewrite grammar must evaluate to `Admit` through this entry point too, not just through `compose_envelope` called directly.
     #[test]
     fn evaluate_capability_admits_ordinary_affix_and_iterative_rewrite_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>Ordinary</Name>
@@ -149,11 +146,7 @@ mod tests {
         assert_eq!(evaluate_capability(&g), CompileDecision::Admit);
     }
 
-    /// A grammar with a single, non-recursive `Compounding`
-    /// rule must evaluate to `ConfirmOnly` through this entry point too (not bare `Refuse`) —
-    /// the same fixture/assertion shape
-    /// `capability::tests::compose_envelope_confirm_only_for_non_recursive_compounding_grammar`
-    /// already proves against `compose_envelope` called directly.
+    /// A grammar with a single, non-recursive `Compounding` rule must evaluate to `ConfirmOnly` through this entry point too, not bare `Refuse`.
     #[test]
     fn evaluate_capability_confirm_only_for_non_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -191,11 +184,7 @@ mod tests {
         assert_eq!(evaluate_capability(&g), CompileDecision::ConfirmOnly);
     }
 
-    /// A self-feeding (`multipleApplication="2"`) `Compounding` rule evaluates to `ConfirmOnly`
-    /// through this entry point too, not just through `compose_envelope` called directly (mirrors
-    /// `evaluate_capability_admits_ordinary_affix_and_iterative_rewrite_grammar`'s own "same verdict
-    /// through the convenience wrapper" job) -- the same verdict `crate::capability::
-    /// compose_envelope_confirm_only_for_recursive_compounding_grammar` also documents.
+    /// A self-feeding (`multipleApplication="2"`) `Compounding` rule evaluates to `ConfirmOnly` through this entry point too, not just through `compose_envelope` called directly.
     #[test]
     fn evaluate_capability_confirm_only_for_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>

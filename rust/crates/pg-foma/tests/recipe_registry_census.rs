@@ -1,15 +1,4 @@
-//! Census: for every staged conformance fixture, how many DISTINCT plans does the seeded recipe
-//! registry actually reach, and which families own them?
-//!
-//! This exists because "seven declared families" says nothing about the size of the reachable plan
-//! space. Applicability predicates cut the seven down per grammar, and `materialize_distinct` then
-//! content-address-dedups whatever survives — two families holding the same transform, or two
-//! refinement granularities that coincide on a particular partition shape (a 2-entry group bisects
-//! into the same [1,1] that fanning out produces), collapse to one candidate. The only way to know
-//! which fixtures can tell the transforms apart is to run the registry against all of them.
-//!
-//! The printed table is the diagnostic; the assertion is the gate. See
-//! `recipe_partition_refinement_gate.rs` for the equivalence half of the story.
+//! Census of how many DISTINCT plans the seeded recipe registry actually reaches per staged conformance fixture: applicability predicates and content-address dedup can collapse the declared families onto far fewer transforms than claimed, and only running the registry against every fixture reveals which ones can tell them apart.
 
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
@@ -22,20 +11,9 @@ fn some_staged_fixture_separates_more_than_three_registry_transforms() {
     assert!(!fixtures.is_empty(), "no staged fixtures discovered");
 
     let mut best = (0usize, String::new());
-    // Tracked separately: a marker-carrying grammar's declared-`PlanComposed` candidate is
-    // evaluated evidence-first against the composed plan, falling back to the tuned `emit` path
-    // only if that composition fails
-    // (`crate::recipe_runtime::RuntimeEvaluation::realized_strategy`'s own doc). So a marker-free
-    // row is the only case where the network being measured is guaranteed to be the one the
-    // candidate names, without also consulting `realized_strategy`.
+    // Tracked separately: a marker-carrying grammar's `PlanComposed` candidate can fall back to the tuned `emit` path, so only a marker-free row guarantees the network measured is the one the candidate names.
     let mut best_marker_free = (0usize, String::new());
-    // `markers` matters as much as `distinct` when choosing a fixture. On a plan carrying either
-    // marker leaf, `build_controllable` compiles the controllable subtree ONLY, so every candidate
-    // net -- and every comparison drawn between them -- excludes what those subtrees contribute. A
-    // fixture with markers can still prove plan-level facts; demonstrating a whole-grammar
-    // comparison there additionally requires checking `realized_strategy`. Counting
-    // `<AffixTemplate>` declarations does NOT answer this:
-    // markers also come from composite entries and circumfix/dropped-material rules.
+    // `markers` matters as much as `distinct`: on a marker-carrying plan, `build_controllable` compiles only the controllable subtree, so every candidate net excludes what those subtrees contribute, and a whole-grammar comparison there needs `realized_strategy` too.
     eprintln!(
         "{:<58} {:>7} {:>8} {:>7}  families owning a distinct plan",
         "fixture", "entries", "distinct", "markers"
@@ -84,10 +62,7 @@ fn some_staged_fixture_separates_more_than_three_registry_transforms() {
         }
     }
 
-    // The registry declares five distinct transforms. If NO staged fixture can separate more than
-    // three of them, the plan space the optimizer searches is effectively {baseline, one
-    // permutation, one refinement} no matter what the seed table claims, and the four-grammar
-    // evidence run has nothing to compare. That is the defect this census exists to catch.
+    // If no staged fixture separates more than three of the registry's five declared transforms, the searched plan space is effectively {baseline, one permutation, one refinement} regardless of what the seed table claims.
     assert!(
         best.0 > 3,
         "no staged fixture reaches more than 3 distinct plans (best: {} at {}); the registry's \

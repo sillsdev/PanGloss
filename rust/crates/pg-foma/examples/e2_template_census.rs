@@ -1,7 +1,4 @@
-//! E2 scoping census #2 (standalone diagnostic, not mainline): Amharic's template/group structure,
-//! so the infix-splice feasibility probe knows how much morphotactic generality it actually needs
-//! to reach 100% recall on the real corpus (vs. emit.rs's full superset machinery, which may be
-//! more general than this one grammar's own corpus exercises).
+//! Diagnostic census of Amharic's template/group structure, to size how much morphotactic generality an infix-splice probe actually needs for 100% recall on the real corpus.
 
 use std::path::{Path, PathBuf};
 
@@ -179,8 +176,7 @@ fn main() {
     }
     println!("standalone rules: prefix={deriv_prefix} suffix={deriv_suffix} infix={deriv_infix} none={deriv_none}");
 
-    // Which morphemes/rules does the corpus actually use? Load engine, parse first 300 words,
-    // collect distinct morpheme ids used across all analyses.
+    // Which morphemes/rules does the corpus actually use, over the first 300 words' analyses.
     let words_text = std::fs::read_to_string(sample_path("amharic-words.txt")).expect("read words");
     let words: Vec<&str> = words_text
         .lines()

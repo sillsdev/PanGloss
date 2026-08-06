@@ -25,9 +25,7 @@ pub fn segment_with_features(
     table: &CharDefTable,
     word: &str,
 ) -> Result<Shape, InvalidShape> {
-    // Reuse the vetted greedy longest-match segmentation to get the node/char-def sequence, then
-    // re-emit it with feature lanes. (Segmenting twice is fine for correctness; the M1 segmenter is
-    // the single source of truth for *which* char-defs a word decomposes into.)
+    // Reuses the vetted greedy longest-match segmentation for the node/char-def sequence, then re-emits it with feature lanes; segmenting twice is fine since that segmenter is the single source of truth for which char-defs a word decomposes into.
     let bare = pg_grammar::segment::segment(table, word)?;
     let w = grammar.phon_features.len() as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, bare.len());
@@ -46,12 +44,7 @@ pub fn segment_with_features(
     Ok(b.finish())
 }
 
-/// A char-def's feature lanes, padded/truncated to exactly `w`. Every char def — segment or
-/// boundary — now carries a real, `feat_sys.len()`-wide lane row including its own `Type` pin
-/// (`pg-grammar/src/chardef.rs`), so the `raw.len() == w` fast path is the common case for both
-/// node kinds; the pad-with-full-mask fallback exists only for the historical/defensive case of a
-/// caller passing a `w` that doesn't match the table's own grammar (never true in production, kept
-/// for robustness — mirrors `pg-rules/src/morph.rs`'s `fit`).
+/// A char-def's feature lanes, padded/truncated to exactly `w`; the pad-with-full-mask fallback exists only in case `w` doesn't match the table's own grammar (never true in production, kept for robustness — mirrors `morph.rs`'s `fit`).
 fn lanes_for(table: &CharDefTable, cd: CharDefId, w: usize) -> Vec<u64> {
     let raw = table.get(cd).feature_lanes();
     if raw.len() == w {

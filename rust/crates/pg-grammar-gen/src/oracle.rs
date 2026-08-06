@@ -68,12 +68,7 @@ pub struct OracleWord {
     pub surface: String,
 }
 
-/// Every `AffixProcess`-kind rule in the grammar, in document order, capped at
-/// `opts.max_rules_per_root` (module doc bound 3a). `Realizational`/`Compounding` rules are
-/// skipped -- `Morpher::generate_words`'s own `others: &[GenMorpheme]` contract (that function's
-/// doc) only ever takes `GenMorpheme::Rule` for an ordinary affix-process rule or
-/// `GenMorpheme::NonHead` for a compounding non-head root, and the circumfix recipe has no
-/// compounding/realizational material to exercise anyway.
+/// Every `AffixProcess`-kind rule, in document order, capped at `opts.max_rules_per_root`; `Realizational`/`Compounding` rules are skipped since `Morpher::generate_words` only takes a `GenMorpheme::Rule` or `GenMorpheme::NonHead`.
 fn candidate_rules(g: &Grammar, opts: &OracleOpts) -> Vec<MRuleId> {
     g.mrules
         .iter()

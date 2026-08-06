@@ -163,18 +163,14 @@ pub struct GatedSubrule {
     pub sub_idx: usize,
 }
 
-/// `true` iff `sr` declares a restriction this module partitions on. `required_mpr`/`excluded_mpr`
-/// bits belonging to an `Any`-type `pg_grammar::model::MprGroup` are excluded from the check
-/// (module doc caveat) by masking them out before testing emptiness.
+/// `true` iff `sr` declares a restriction this module partitions on; `Any`-type MPR group bits are masked out before testing emptiness.
 fn is_gated(g: &Grammar, sr: &RewriteSubruleDef) -> bool {
     sr.required_pos.is_some()
         || !ungrouped_or_all(g, sr.required_mpr).is_empty()
         || !ungrouped_or_all(g, sr.excluded_mpr).is_empty()
 }
 
-/// `mpr` with every bit belonging to an `Any`-type group cleared (module doc caveat: `Any`-type
-/// restrictions are not partitioned on in this prototype). Ungrouped bits and `All`-type-group bits
-/// pass through unchanged.
+/// `mpr` with every bit belonging to an `Any`-type group cleared, since `Any`-type restrictions are not partitioned on here; ungrouped and `All`-type-group bits pass through unchanged.
 fn ungrouped_or_all(g: &Grammar, mpr: pg_grammar::model::MprSet) -> pg_grammar::model::MprSet {
     let mut keep = mpr;
     for group in &g.mpr_groups {
@@ -316,10 +312,7 @@ pub fn compile_gated_grammar_with_budget(
     let gated = find_gated_subrules(g, prules_in_order);
     let groups = partition_entries(g, &gated, prules_in_order);
 
-    // V6 (design doc §4): checked BEFORE any per-group compile work runs. No graceful fallback by
-    // design (module doc "why the union is safe here" / `ComposeError::GroupBudgetExceeded`'s own
-    // doc): merging/dropping groups would be unsound, so a breach here always means "use another
-    // engine for this grammar", never a partial group set.
+    // Checked before any per-group compile work runs, with no graceful fallback: merging/dropping groups would be unsound, so a breach here always means "use another engine", never a partial group set.
     if groups.len() > budget.group_cap() {
         return Err(ComposeError::GroupBudgetExceeded {
             groups: groups.len(),
@@ -352,9 +345,7 @@ pub fn compile_gated_grammar_with_budget(
         ));
 
         if root_entries == 0 {
-            // An empty group (can happen if a gating key combination matches zero entries, e.g. a
-            // grammar declares a POS no entry actually uses) contributes nothing -- skip rather
-            // than compile-and-union an empty lexicon.
+            // An empty group contributes nothing (e.g. a grammar declares a POS no entry uses); skip rather than compile-and-union an empty lexicon.
             continue;
         }
 
@@ -373,11 +364,7 @@ pub fn compile_gated_grammar_with_budget(
                         unreachable!("GatedSubrule always indexes a Rewrite rule")
                     };
                     let sr = &rule.subrules[gs.sub_idx];
-                    // A morphological rule may change POS after the lexical-entry partition was
-                    // computed. In that case the root-static key is not a sound admission filter:
-                    // include the subrule as a proposal superset and let confirmation evaluate the
-                    // derived word's exact POS. Grammars without morphology retain exact static
-                    // partitioning.
+                    // A morphological rule may change POS after partitioning, so the root-static key isn't a sound filter then: include the subrule as a proposal superset and let confirmation evaluate the derived POS.
                     group.key[gate_index] || (sr.required_pos.is_some() && !g.mrules.is_empty())
                 }
             }
@@ -393,8 +380,7 @@ pub fn compile_gated_grammar_with_budget(
             &mut tuple_reports,
             budget,
         )?;
-        // Only report a rule as skipped once (every group would otherwise re-report the same
-        // unsupported-construct rule) -- dedupe against what's already recorded.
+        // Only report a rule as skipped once, deduped, since every group would otherwise re-report the same unsupported construct.
         for s in group_skipped_rules {
             if !skipped_rules.contains(&s) {
                 skipped_rules.push(s);
@@ -424,8 +410,7 @@ pub fn compile_gated_grammar_with_budget(
         });
     }
 
-    // V2 (design doc §4): this function's own final minimize, taking ownership of the invariant
-    // instead of leaving it to every caller (see this function's own doc above).
+    // This function's own final minimize, taking ownership of the invariant instead of leaving it to every caller.
     let final_net = match final_net {
         Some(net) => Some(minimize_checked(
             opts,
@@ -551,11 +536,7 @@ mod group_budget_tests {
             .unwrap_or_else(|e| panic!("failed to load 16-group fixture: {e}\n{xml}"))
     }
 
-    /// V6 (design doc §4): 16 realized groups against `group_cap=8` must trip
-    /// `GroupBudgetExceeded` BEFORE any per-group lexc/rules compile work runs -- asserted both by
-    /// the typed error AND by elapsed wall time staying well under 200ms (proving fail-fast: if
-    /// this test regressed to checking the cap only AFTER compiling every group, 16 real
-    /// lexc+rules compiles would take far longer).
+    /// 16 realized groups against `group_cap=8` must trip `GroupBudgetExceeded` before any per-group compile work runs, asserted both by the typed error and by elapsed wall time staying well under 200ms.
     #[test]
     fn group_budget_trips_before_any_group_work_runs() {
         let g = sixteen_group_fixture();
@@ -606,18 +587,14 @@ mod group_budget_tests {
         );
     }
 
-    /// A grammar with zero gated subrules collapses to exactly ONE group (`partition_entries`'s
-    /// own doc) -- even a maximally strict `group_cap=1` must still pass (1 is not `> 1`), proving
-    /// the ungated/no-op case never falsely trips.
+    /// A grammar with zero gated subrules collapses to exactly one group, so even a maximally strict `group_cap=1` must still pass.
     #[test]
     fn zero_gated_subrules_collapses_to_one_group_still_passes_strict_cap() {
         let g = sixteen_group_fixture();
         let table = &g.char_tables[0];
         let alphabet = SegAlphabet::new(table);
         let opts = FomaOptions::default();
-        // Empty rule slice: identical to "this grammar declares no phonological rules at all" from
-        // `find_gated_subrules`'s own point of view -- `gated` is empty, so `partition_entries`
-        // collapses every entry into one group (module doc).
+        // Empty rule slice, so `gated` is empty and `partition_entries` collapses every entry into one group.
         let ro: Vec<&PhonRuleDef> = Vec::new();
 
         let gated = find_gated_subrules(&g, &ro);

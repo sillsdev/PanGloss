@@ -1,28 +1,10 @@
-//! Parse the `<ParserParameters><HC>...</HC></ParserParameters>` XML blob FieldWorks stores as a
-//! *string* on `MorphologicalDataOA.ParserParameters` (`MoMorphData.ParserParameters`, a `Uni`
-//! field) into a `ParserParameters` value.
-//!
-//! ← `HCLoader`'s constructor, HCLoader.cs:92-112. That C# reads:
-//! - `hcElem = root.Element("HC")` (may be entirely absent — e.g. a project still configured
-//!   for the XAmple parser, like Sena 3, has `<ParserParameters><XAmple>...</XAmple></ParserParameters>`
-//!   with no `<HC>` sibling at all).
-//! - `notOnClitics = hcElem == null || (bool?)hcElem.Element("NotOnClitics") ?? true` — note the
-//!   default-true polarity, and that it's *also* true when `<HC>` itself is absent.
-//! - `noDefaultCompounding` / `acceptUnspecifiedGraphemes` default `false`, and only ever `true`
-//!   when `<HC>` is present *and* the sub-element says so.
-//! - `<Strata>` is read only from inside `<HC>`.
-//! - `<CompoundRules>` (per-rule `maxApps`) is a *sibling* of `<HC>` directly under the root
-//!   `<ParserParameters>` element, not nested inside it.
+//! Parses the `<ParserParameters><HC>...</HC></ParserParameters>` XML blob FieldWorks stores as a string into a `ParserParameters` value, matching `HCLoader`'s constructor: `<HC>` may be entirely absent (e.g. an XAmple-configured project), `notOnClitics` then defaults true, and `<CompoundRules>` is a sibling of `<HC>`, not nested inside it.
 
 use pg_snapshot::{CompoundRuleMaxApplications, ParserParameters};
 
 use crate::node::parse_full_document;
 
-/// `raw` is the already-XML-unescaped text of the `<Uni>` element (i.e. `Node::uni_text`'s
-/// result) — a complete `<ParserParameters>...</ParserParameters>` document in its own right.
-/// Returns `ParserParameters::default()` (matching `HCLoader`'s `hcElem == null` defaults) if
-/// `raw` is absent, empty, or fails to parse as XML — this is diagnostic input a user hand-edited
-/// via FieldWorks' UI, not something worth a hard error over.
+/// `raw` is `Node::uni_text`'s already-unescaped `<Uni>` text; returns `ParserParameters::default()` if absent, empty, or unparsable XML, since this is user-hand-edited input, not worth a hard error over.
 pub fn parse(raw: Option<&str>) -> ParserParameters {
     let Some(raw) = raw else {
         return ParserParameters::default();

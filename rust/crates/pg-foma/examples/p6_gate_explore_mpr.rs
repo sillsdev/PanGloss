@@ -1,10 +1,4 @@
-//! Exploratory driver (not the final deliverable test): augments Indonesian's real grammar with 2
-//! synthetic lexical entries to exercise `prule5`'s `excludedMPRFeatures="mpr1"` exclusion at the
-//! exact structural juncture the real corpus never hits (see `pg-foma/src/gate.rs`'s module doc),
-//! then prints what the REAL oracle (`pg_parse::Morpher`) says for 4 query words -- gathered
-//! empirically, not predicted, per the investigation's own methodology. Also explores the
-//! synthetic POS-gating fixture. Once verified, the derived expected values get hard-coded into
-//! `tests/p6_gate_parity.rs`.
+//! Exploratory driver: augments Indonesian's real grammar with synthetic lexical entries to exercise `prule5`'s MPR exclusion at a structural juncture the real corpus never hits, printing the real oracle's empirical answers rather than predicting them.
 
 use std::path::{Path, PathBuf};
 
@@ -95,9 +89,7 @@ fn main() {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
     // Now build the GATED P6 network and check it reproduces the oracle above.
-    // ---------------------------------------------------------------------------------------
     println!("\n=== gated P6 compile ===");
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
@@ -178,10 +170,7 @@ fn main() {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Regression check: full corpus parity (same predicate p6_replace_prototype.rs uses) must
-    // stay 97/97 through the AUGMENTED grammar + GATED compile path.
-    // ---------------------------------------------------------------------------------------
+    // Regression check: full corpus parity must stay 97/97 through the augmented grammar + gated compile path.
     println!("\n=== full corpus parity (regression check) ===");
     const REDUP_EXCLUDED: &[&str] = &[
         "membagi-bagi",

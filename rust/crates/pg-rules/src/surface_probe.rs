@@ -83,15 +83,7 @@ pub fn render_nodes(table: &CharDefTable, segs: &[ProbeSeg]) -> Option<String> {
     Some(out)
 }
 
-/// Every char-def whose representation this SEGMENT node currently matches, first-match order --
-/// PARITY: a duplicate, not a reuse, of `pg_parse::surface::matching_reps_for_node`'s Segment
-/// branch (`pg-parse/src/surface.rs`); pg-parse depends on pg-rules, so the reverse dependency this
-/// module would need is unavailable, and this crate's own probing nodes never carry the abstract
-/// `CdSet::Members` case that function's general signature also handles (`segment_with_features`
-/// always segments to concrete char-defs; only a feature-change rule's rewrite can later clear a
-/// node's `char_def` to `NO_CHAR_DEF` -- `crate::rewrite::syn_feature`'s doc -- which is exactly
-/// the identity-vs-unrestricted split below). Table document order, matching every other rendering
-/// site in this port.
+/// Every char-def whose representation this SEGMENT node currently matches, first-match, table document order; a deliberate duplicate of `pg_parse::surface::matching_reps_for_node`'s Segment branch, since pg-parse depends on pg-rules and the reverse dependency is unavailable.
 fn matching_reps(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<String> {
     let mut out = Vec::new();
     for (id, cd) in table.iter() {

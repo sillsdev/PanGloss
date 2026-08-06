@@ -1,24 +1,8 @@
-//! The well-known `MoMorphType` GUID → `MorphType` mapping table.
-//!
-//! `docs/snapshot-format.md` §5 ("MorphType") explains why this table lives here rather than in
-//! `pg-snapshot`: the actual `MoMorphTypeTags.kguidMorph*` constants are compiled into the
-//! `SIL.LCModel` NuGet package, not available as source anywhere in the FieldWorks checkout used
-//! to write this crate. The GUIDs below were instead confirmed empirically: every `MoMorphType`
-//! `<rt>` record in both `Sena 3.fwdata` and `Amharic.fwdata` carries an identical GUID for a
-//! given English name (`<Name><AUni ws="en">...</AUni></Name>`) — expected, since FieldWorks
-//! seeds this list from a fixed installer XML file at project-creation time, so these GUIDs are
-//! constant across every FieldWorks project, not user data.
-//!
-//! **Model gap**: FieldWorks' well-known list has *nineteen* entries; `pg_snapshot::MorphType`
-//! is a closed 17-variant enum that has no `Simulfix`/`Suprafix` variant (ablaut/suprasegmental
-//! morph types, unused by both fixture projects). An allomorph/entry whose morph type resolves
-//! to one of those two GUIDs is reported as an import warning and skipped, exactly like an
-//! unrecognized GUID — see `lookup`.
+//! The well-known `MoMorphType` GUID -> `MorphType` mapping table, confirmed empirically since the real constants are compiled into a NuGet package unavailable as source; `pg_snapshot::MorphType` has no `Simulfix`/`Suprafix` variant, so those two GUIDs are reported as an import warning and skipped, like an unrecognized GUID.
 
 use pg_snapshot::MorphType;
 
-/// `(well-known MoMorphType GUID, English name as seeded, mapped variant)`. The English name is
-/// carried only for warning messages; matching is by GUID.
+/// `(well-known MoMorphType GUID, English name as seeded, mapped variant)`; the name is carried only for warning messages, matching is by GUID.
 const WELL_KNOWN: &[(&str, &str, MorphType)] = &[
     (
         "d7f713e8-e8cf-11d3-9764-00c04f186933",
@@ -116,8 +100,7 @@ const UNSUPPORTED: &[(&str, &str)] = &[
 /// Outcome of resolving an `MoForm.MorphTypeRA`/`MoMorphType` GUID.
 pub enum MorphTypeLookup {
     Known(MorphType),
-    /// A well-known FieldWorks morph type this format's `MorphType` enum has no variant for
-    /// (see module docs) — callers should warn and skip whatever referenced it.
+    /// A well-known FieldWorks morph type with no `MorphType` variant; callers should warn and skip whatever referenced it.
     UnsupportedWellKnown(&'static str),
     /// Not one of the well-known GUIDs at all.
     Unknown,

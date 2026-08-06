@@ -63,11 +63,9 @@ pub struct CapabilityOverrideRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum CapabilityTrust {
-    /// The characteristics-check gate admitted (or ConfirmOnly-admitted) this grammar cleanly; no
-    /// override was exercised.
+    /// The characteristics-check gate admitted this grammar cleanly; no override was exercised.
     Proven,
-    /// This pack was force-compiled past a `Refuse` verdict via the capability override;
-    /// the record below is permanent and indelible.
+    /// This pack was force-compiled past a `Refuse` verdict via the capability override; permanent and indelible.
     Overridden(CapabilityOverrideRecord),
 }
 

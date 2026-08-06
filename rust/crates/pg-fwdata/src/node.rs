@@ -1,19 +1,10 @@
-//! A tiny read-only DOM for a single `.fwdata` `<rt>` record, plus accessor helpers that mirror
-//! the handful of shapes FieldWorks uses for scalar/multi-lingual/reference-link fields.
-//!
-//! We never DOM the whole 54MB `.fwdata` document (see `crate::xml`); a `Node` tree is built
-//! for one `<rt>...</rt>` element at a time and dropped once its class has been extracted, or
-//! (for classes outside our allowlist) never built at all — the reader skips straight past the
-//! closing tag.
+//! A tiny read-only DOM for a single `.fwdata` `<rt>` record; we never DOM the whole 54MB document (see `crate::xml`), building a `Node` tree for one `<rt>` element at a time and dropping it once extracted.
 
 use pg_snapshot::WsForm;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
-/// A generic element node: tag name, attributes, direct text, and child elements — enough to
-/// represent the handful of `.fwdata` field shapes we care about (`AUni`/`AStr` multi-lingual
-/// strings, `Uni` plain strings, `Str`/`Run` rich strings, `objsur` reference/ownership links,
-/// and `val="..."` scalar attributes).
+/// A generic element node: tag name, attributes, direct text, and child elements, enough to represent the handful of `.fwdata` field shapes this crate cares about.
 #[derive(Debug, Clone, Default)]
 pub struct Node {
     pub tag: String,
@@ -42,10 +33,7 @@ impl Node {
         self.children.iter().filter(move |c| c.tag == tag)
     }
 
-    /// Tolerant boolean parse of a `val="..."` attribute: FieldWorks data in the wild has been
-    /// observed to use both `"True"`/`"False"` (typical .NET `ToString()`) and lowercase
-    /// `"true"` (e.g. `MoInflAffixTemplate.Final` in Sena 3), so we accept both cases plus
-    /// `"1"`/`"0"`.
+    /// Tolerant boolean parse of a `val="..."` attribute: FieldWorks data mixes `"True"`/`"False"` and lowercase `"true"`, so both cases plus `"1"`/`"0"` are accepted.
     pub fn val_bool(&self, tag: &str) -> Option<bool> {
         let raw = self.child(tag)?.attr("val")?;
         match raw {
@@ -70,9 +58,7 @@ impl Node {
             .map(str::to_string)
     }
 
-    /// `<Tag><objsur guid="..."/> <objsur guid="..."/> ...</Tag>` — the ordered-list shape
-    /// (used for both `seq` and `col` LCM cardinalities; see the crate-level docs for why
-    /// preserving encounter order is sufficient for either).
+    /// `<Tag><objsur guid="..."/> <objsur guid="..."/> ...</Tag>` — the ordered-list shape, used for both `seq` and `col` LCM cardinalities.
     pub fn objsur_list(&self, tag: &str) -> Vec<String> {
         match self.child(tag) {
             Some(c) => c
@@ -84,9 +70,7 @@ impl Node {
         }
     }
 
-    /// `<Tag><AUni ws="en">text</AUni><AStr ws="pt"><Run ws="pt">text</Run></AStr>...</Tag>` —
-    /// a `MultiUnicode`/`MultiString` field, one `WsForm` per writing system, in document
-    /// order.
+    /// `<Tag><AUni ws="en">text</AUni><AStr ws="pt"><Run ws="pt">text</Run></AStr>...</Tag>` — a `MultiUnicode`/`MultiString` field, one `WsForm` per writing system, in document order.
     pub fn ws_forms(&self, tag: &str) -> Vec<WsForm> {
         let Some(c) = self.child(tag) else {
             return Vec::new();
@@ -107,24 +91,17 @@ impl Node {
             .collect()
     }
 
-    /// `<Tag><Uni>plain text</Uni></Tag>` — a single plain-text field with no writing-system
-    /// tagging (e.g. `CurVernWss`, the raw `ParserParameters` XML blob).
+    /// `<Tag><Uni>plain text</Uni></Tag>` — a single plain-text field with no writing-system tagging.
     pub fn uni_text(&self, tag: &str) -> Option<String> {
         Some(self.child(tag)?.child("Uni")?.text.clone())
     }
 
-    /// `<Tag><Str><Run ws="en">text</Run>...</Str></Tag>` — a single rich-text field collapsed
-    /// to plain text (used where the format only wants one string regardless of writing system,
-    /// e.g. `PhEnvironment.StringRepresentation`).
+    /// `<Tag><Str><Run ws="en">text</Run>...</Str></Tag>` — a single rich-text field collapsed to plain text.
     pub fn str_text(&self, tag: &str) -> Option<String> {
         Some(concat_runs(self.child(tag)?.child("Str")?))
     }
 
-    /// Tolerant boolean parse of a child element's own *text content* (as opposed to `val_bool`
-    /// which reads a `val="..."` attribute) — the shape used by the nested `<ParserParameters>`
-    /// XML blob (e.g. `<NotOnClitics>false</NotOnClitics>`).
-    ///
-    /// `val_bool`: Node::val_bool
+    /// Tolerant boolean parse of a child element's own text content, as opposed to `val_bool`'s `val="..."` attribute.
     pub fn child_bool_text(&self, tag: &str) -> Option<bool> {
         let raw = self.child(tag)?.text.trim();
         match raw {
@@ -146,10 +123,7 @@ fn concat_runs(rich_text_elem: &Node) -> String {
     s
 }
 
-/// Parse a small, complete XML document (e.g. the decoded `<ParserParameters>` blob, a few
-/// hundred bytes) into a synthetic root `Node` whose children are the document's top-level
-/// elements. Unlike `crate::xml::parse_fwdata` this *does* build a full DOM — safe here because
-/// the input is always small (never the 54MB `.fwdata` file itself).
+/// Parses a small, complete XML document into a synthetic root `Node`; unlike `crate::xml::parse_fwdata` this builds a full DOM, safe since the input is always small.
 pub fn parse_full_document(xml: &str) -> Option<Node> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
@@ -210,9 +184,7 @@ pub fn parse_full_document(xml: &str) -> Option<Node> {
     stack.pop()
 }
 
-/// Strip the FieldWorks placeholder dotted-circle (U+25CC), used to mark a diacritic-only
-/// grapheme's "base" position, from a phoneme/boundary-marker representation.
-/// ← `HCLoader.RemoveDottedCircles`, HCLoader.cs:2678-2680.
+/// Strips the FieldWorks placeholder dotted-circle (U+25CC), used to mark a diacritic-only grapheme's "base" position.
 pub fn strip_dotted_circles(s: &str) -> String {
     s.chars().filter(|&c| c != '\u{25CC}').collect()
 }

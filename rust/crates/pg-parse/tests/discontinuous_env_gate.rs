@@ -1,11 +1,4 @@
-//! Conformance replay for W3.3 (environment spans on discontinuous morphs, history row
-//! `97fa7721`): `rust/conformance/allomorphy/discontinuous-env/`. `expected.tsv` is
-//! C#-oracle-generated (parse-opt @ `ccf750e6`); see the fixture README for the two discontinuity
-//! flavors (circumfix-with-env, env-bearing root split by an infix).
-//!
-//! Red-on-revert: collapse `attribute_morphs` (`pg-rules/src/morph.rs`) back to one record per
-//! morph (drop the contiguous-run split) and `xpitz` + `muat` start parsing again — the
-//! environment is then only anchored at the morph's FIRST piece instead of every piece.
+//! Conformance replay for environment spans on discontinuous morphs against `rust/conformance/allomorphy/discontinuous-env/`; collapsing `attribute_morphs`'s contiguous-run split back to one record per morph makes `xpitz`/`muat` wrongly parse again.
 
 use std::path::{Path, PathBuf};
 
@@ -17,14 +10,12 @@ fn fixture_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/allomorphy/discontinuous-env")
 }
 
-/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
-/// runs (CI's release sweep included) must not panic on the missing directory.
+/// Self-skip guard, so an `--include-ignored` run does not panic when the fixture directory is absent.
 fn have_fixture() -> bool {
     fixture_dir().join("grammar.xml").exists()
 }
 
-/// Collect every `FailureReason` reported anywhere in the tree (P12 chunk 3's own acceptance
-/// criterion: extend this fixture with a same-data assertion on *why*, not just the outcome).
+/// Collects every `FailureReason` reported anywhere in the trace tree, so this fixture can assert on *why*, not just the outcome.
 fn collect_reasons(sink: &TreeTraceSink, h: TraceHandle, out: &mut Vec<FailureReason>) {
     let n = sink.node(h);
     if let Some(r) = n.failure_reason {
@@ -66,10 +57,7 @@ fn discontinuous_env_matches_oracle() {
     assert_eq!(checked, 7, "expected.tsv should pin all 7 fixture words");
 }
 
-/// P12 chunk 3 acceptance: the fixture's own two named red-on-revert words ("xpitz"/"muat" -- module
-/// doc) must show `FailureReason::Environments` fired against a rejected candidate somewhere in the
-/// trace -- the per-piece environment anchoring this fixture pins, not just a correct final
-/// signature with no explanation.
+/// The fixture's two red-on-revert words ("xpitz"/"muat") must show `FailureReason::Environments` fired against a rejected candidate somewhere in the trace, not just a correct final signature with no explanation.
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn discontinuous_env_traces_the_rejection_reason() {

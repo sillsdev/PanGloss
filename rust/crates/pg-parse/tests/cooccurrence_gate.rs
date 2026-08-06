@@ -1,15 +1,4 @@
-//! Conformance replay for W6 (co-occurrence rules): the three
-//! `rust/conformance/cooccurrence/*` fixtures. Each `expected.tsv` is C#-oracle-generated
-//! (parse-opt @ `ccf750e6`); see each fixture's README for the grammar design and row-by-row
-//! rationale.
-//!
-//! Red-on-revert: reverting the co-occurrence evaluation in `pg-rules/src/validity.rs` (the
-//! `allomorph_co_occurrence_ok`/`morpheme_co_occurrence_ok` calls in `allomorphs_valid_impl`) makes
-//! every excluded/required row wrongly parse (or fail to parse) again -- e.g. `and-semantics-pin`'s
-//! `sagka` starts parsing (the exact `90dcee64` regression shape), and `allomorph-basic`'s
-//! `koyzka` starts parsing despite its excluded suffix. Reverting the loader change (restoring the
-//! two `Unsupported` lints at `pg-grammar/src/load.rs`) makes all three fixtures fail to load at
-//! all.
+//! Conformance replay for co-occurrence rules against C#-oracle-generated `rust/conformance/cooccurrence/*` fixtures; reverting the co-occurrence evaluation in `pg-rules/src/validity.rs` makes excluded/required rows wrongly parse (or fail to parse) again.
 
 use std::path::{Path, PathBuf};
 
@@ -22,10 +11,7 @@ fn fixture_dir(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// Replay one fixture: load its grammar, parse every word in `expected.tsv`, and assert the
-/// signature matches the oracle-recorded one exactly. Returns the number of words checked so
-/// callers can assert against the fixture's known row count (catching a truncated/mis-copied
-/// `expected.tsv`).
+/// Replays one fixture, asserting each word's signature matches the oracle-recorded one; returns the count checked so callers can assert against the fixture's known row count.
 fn replay(name: &str) -> usize {
     let dir = fixture_dir(name);
     let xml = std::fs::read_to_string(dir.join("grammar.xml"))
@@ -52,8 +38,7 @@ fn replay(name: &str) -> usize {
     checked
 }
 
-/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
-/// runs (CI's release sweep included) must not panic on the missing directory.
+/// Self-skip guard, so an `--include-ignored` run does not panic when the fixture directory is absent.
 fn have_fixture(name: &str) -> bool {
     fixture_dir(name).join("grammar.xml").exists()
 }

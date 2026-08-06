@@ -41,18 +41,9 @@ use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-// Table zero is never an implicit default. Every function here that resolves a char-def or
-// natural-class identity takes an explicit `table: TableId`, resolved ONCE per rule application at
-// the entry point and threaded down — never re-derived by a low-level helper.
-//
-// One table per application is complete, not an approximation, even though a word's shape can carry
-// material from an earlier different-table stratum: that material is already frozen into concrete
-// char-def/lane values, and every helper below resolves table-relative identities only for material
-// THIS rule's own declaration introduces fresh.
+// Table is resolved once per rule application and threaded down explicitly; a word's shape may carry frozen material from an earlier different-table stratum, but nothing here re-derives an identity for it.
 
-// =================================================================================================
-// Public API (the surface M4b/M5 compose over).
-// =================================================================================================
+// Public API.
 
 /// Apply `rule` forward to `word` (synthesis). Empty if the rule does not apply — gating failed, or
 /// no allomorph matched.
@@ -116,8 +107,7 @@ pub fn synthesize_cached(
     )
 }
 
-/// `g.mpr_group_ok` folds C#'s required and excluded MPR gates into one bool; this reports which of
-/// the two actually failed, in C#'s own required-then-excluded order.
+/// Reports which of `g.mpr_group_ok`'s required/excluded MPR gates actually failed, checked required-then-excluded.
 fn mpr_gate_reason(
     g: &Grammar,
     required: pg_grammar::model::MprSet,
@@ -195,26 +185,9 @@ pub fn analyze_with_root_filter(
     }
 }
 
-// =================================================================================================
-// Traced analysis — the analysis-side mirror of `synthesize_cached_traced`.
-//
-// Each function below is a thin trace-emitting shell around the existing per-allomorph/subrule
-// matcher; none reimplements any matching logic, so the returned words are exactly what the
-// untraced sibling returns. Only trace events and each output's `.trace` cursor are added, and an
-// untracing sink short-circuits straight back to that sibling.
-//
-// Reason-mapping, stated once rather than per call site. A rule-level `ana_syn_fs` failure is
-// reported with the SAME variant the synthesis-side twin gate uses, even though `ana_syn_fs`
-// literally checks its `out` parameter rather than `req`: both are feature-structure unify failures
-// of the same kind, which is what the consuming census bucket measures. A per-allomorph FST match
-// producing nothing is reported as `Pattern`. For `Compounding`, `Pattern` ALSO absorbs "the FST
-// matched but `resolve_non_head_roots` found no lexicon entry" — an approximation, flagged here
-// rather than smoothed over, on the grounds that a non-head lexical miss is closer to a shape
-// mismatch than to any of the other buckets.
-// =================================================================================================
+// Traced analysis: thin event-emitting shells around the untraced matchers, reimplementing no logic; for `Compounding`, the `Pattern` reason also covers "matched but `resolve_non_head_roots` found no lexicon entry", the closest existing bucket.
 
-/// `analyze_cached`'s traced sibling. See this section's header for the fast-path and reason-mapping
-/// contract every function below shares.
+/// `analyze_cached`'s traced sibling, sharing this section's fast-path and reason-mapping contract.
 pub(crate) fn analyze_cached_traced(
     g: &Grammar,
     mrid: MRuleId,
@@ -420,9 +393,7 @@ fn ana_compound_cached_traced(
     output
 }
 
-// =================================================================================================
-// Lexical-family blocking (W5) — `Word.CheckBlocking` / the `ChooseInflectionalStem` seed helper.
-// =================================================================================================
+// Lexical-family blocking — `Word.CheckBlocking` / the `ChooseInflectionalStem` seed helper.
 
 /// `Word.CheckBlocking`: if the word's root morpheme belongs to a family, search the family's other
 /// entries in document order for one in the SAME stratum whose lexical syntactic FS is subsumed by
@@ -458,10 +429,7 @@ pub(crate) fn check_blocking(g: &Grammar, w: &Word) -> Option<Word> {
     None
 }
 
-/// Runs `check_blocking` once over a whole rule application's output, where C# does it inline in
-/// each of its three per-allomorph loops. Observably equivalent: blocking only substitutes one
-/// already-produced word for another, and the loop-continuation condition it would have to
-/// influence is allomorph-static, never a function of the word `check_blocking` just replaced.
+/// Runs `check_blocking` once over the whole output rather than inline per C#'s three loops — observably equivalent, since blocking only substitutes one already-produced word and never affects loop continuation.
 fn apply_blocking(g: &Grammar, words: Vec<Word>, blockable: bool) -> Vec<Word> {
     if !blockable {
         return words;
@@ -472,10 +440,7 @@ fn apply_blocking(g: &Grammar, words: Vec<Word>, blockable: bool) -> Vec<Word> {
         .collect()
 }
 
-/// `apply_blocking`'s traced sibling. C# fires `Blocked` BEFORE the rule's own `Applied` event, but
-/// this port's blocking runs as a post-pass, so `Applied` was already minted from the PRE-block
-/// word. Flagged as an accepted approximation of C#'s interleaving: node counts and reasons match,
-/// emission order does not, and the replacement inherits the pre-block word's cursor either way.
+/// `apply_blocking`'s traced sibling: blocking runs as a post-pass, so `Applied` is emitted for the pre-block word — an accepted approximation of C#'s event ordering (counts and reasons still match).
 fn apply_blocking_traced(
     g: &Grammar,
     words: Vec<Word>,
@@ -523,9 +488,7 @@ pub(crate) fn seed_from_entry(g: &Grammar, le: LexEntryId, real_fs: FeatureStruc
     w
 }
 
-// =================================================================================================
 // Feature / lane helpers.
-// =================================================================================================
 
 fn feat_width(g: &Grammar) -> usize {
     g.phon_features.len()
@@ -552,9 +515,7 @@ fn fit(g: &Grammar, lanes: &[u64]) -> Vec<u64> {
     out
 }
 
-/// Driver lanes for a char-def (width `W`, `full_mask` for unmentioned/boundary lanes). `table` is
-/// the rule/allomorph's own owning table (see this module's top-of-file note), never an implicit
-/// default.
+/// Driver lanes for a char-def, `full_mask` for unmentioned/boundary lanes; `table` is the rule's own owning table, never an implicit default.
 fn cd_lanes(g: &Grammar, table: TableId, cd_raw: u32) -> Vec<u64> {
     if cd_raw == NO_CHAR_DEF {
         return full_lanes(g);
@@ -563,8 +524,7 @@ fn cd_lanes(g: &Grammar, table: TableId, cd_raw: u32) -> Vec<u64> {
     fit(g, t.get(CharDefId(cd_raw)).feature_lanes())
 }
 
-/// The `(feature, symbol-bits)` a `SimpleContext` pins (alpha-variable features left unconstrained).
-/// `table` is the rule/allomorph's own owning table -- see this module's top-of-file note.
+/// The `(feature, symbol-bits)` a `SimpleContext` pins; alpha-variable features are left unconstrained.
 fn ctx_pins(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<(usize, u64)> {
     let w = feat_width(g);
     let t = &g.char_tables[table.0 as usize];
@@ -596,10 +556,7 @@ fn ctx_lanes(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<u64> {
     lanes
 }
 
-/// The char-def-set a `SimpleContext`'s natural class carries — this port's `StrRep` analog. A
-/// `Segments`-kind class is exactly its member list; a `Feature`-kind class is every char-def whose
-/// lanes unify with `ctx_pins`. `Unrestricted` when that set is the whole table, so a class meaning
-/// "any segment" never materializes a full-table bitset.
+/// The char-def-set a `SimpleContext`'s natural class carries; `Unrestricted` rather than a full-table bitset when the class means "any segment".
 fn ctx_cd_set(g: &Grammar, table: TableId, ctx: &SimpleContext) -> CdSet {
     let nc = &g.natural_classes[ctx.nat_class.0 as usize];
     match &nc.kind {
@@ -609,8 +566,7 @@ fn ctx_cd_set(g: &Grammar, table: TableId, ctx: &SimpleContext) -> CdSet {
         NaturalClassKind::Feature(_) => {
             let pins = ctx_pins(g, table, ctx);
             if pins.is_empty() {
-                // Nothing pinned (e.g. every feature is alpha-variable-governed): the class matches
-                // every segment, same as an all-unconstrained lane row.
+                // Nothing pinned means every feature is alpha-variable-governed, so the class matches every segment.
                 return CdSet::Unrestricted;
             }
             let t = &g.char_tables[table.0 as usize];
@@ -636,10 +592,7 @@ fn ctx_cd_set(g: &Grammar, table: TableId, ctx: &SimpleContext) -> CdSet {
     }
 }
 
-/// The owned `CdSet` to carry onto a new `OutNode` copying an existing shape node `p`. A concrete
-/// source yields `Unrestricted`, harmlessly: the copy keeps the same real `char_def` and
-/// `Shape::node_cd_set` derives the singleton from that, never reading this field. Only a source
-/// that was itself `NO_CHAR_DEF` needs its real membership set propagated.
+/// The owned `CdSet` for a copied `OutNode`: harmlessly `Unrestricted` for a concrete source (its `char_def` already carries identity), real propagation only when the source was itself `NO_CHAR_DEF`.
 fn cd_set_of(shape: &Shape, p: usize) -> CdSet {
     match shape.node_cd_set(p) {
         EffectiveCdSet::Singleton(_) | EffectiveCdSet::Unrestricted => CdSet::Unrestricted,
@@ -647,8 +600,7 @@ fn cd_set_of(shape: &Shape, p: usize) -> CdSet {
     }
 }
 
-/// Convert driver full-mask lanes to FST-facing lanes (`full_mask` → `u64::MAX`), so the compiled
-/// constraint canonicalizes identically to `bridge`/`rewrite`.
+/// Converts driver full-mask lanes to FST-facing lanes (`full_mask` -> `u64::MAX`) so constraints canonicalize identically to `bridge`/`rewrite`.
 fn to_fst(g: &Grammar, lanes: &[u64]) -> Vec<u64> {
     lanes
         .iter()
@@ -657,9 +609,7 @@ fn to_fst(g: &Grammar, lanes: &[u64]) -> Vec<u64> {
         .collect()
 }
 
-// =================================================================================================
 // Segment sequences + shape freezing.
-// =================================================================================================
 
 /// Build the FST segment sequence for a shape under the matcher filter, plus a `seg-pos → shape
 /// node index` map. Synthesis includes boundaries as optional segments; analysis is `Segment`-only.
@@ -675,10 +625,7 @@ pub(crate) fn segs_of(
     shape: &Shape,
     include_boundaries: bool,
 ) -> (Vec<Segment>, Vec<usize>) {
-    // The `StrRep` identity lane (see `PatternBridge::id_lane`): every input node carries its
-    // char-def identity as a membership bitset. `Unrestricted` nodes, and tables too wide for the
-    // lane, omit it entirely — absent means all-ones, so an underspecified node matches any
-    // identity, exactly as a C# node with no `StrRep` value does.
+    // The `StrRep` identity lane: an `Unrestricted` node or a too-wide table omits it, and absent means all-ones (matches any identity), matching a C# node with no `StrRep`.
     let id_width = crate::bridge::id_lane_width(g, table);
     let id_bits = |i: usize| -> Option<u64> {
         match shape.node_cd_set(i) {
@@ -719,8 +666,7 @@ pub(crate) fn segs_of(
     (segs, node_of)
 }
 
-/// Provenance of an output node, used both for morph attribution and (for existing morphs) span
-/// remapping.
+/// Provenance of an output node, used for morph attribution and span remapping.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum Origin {
     /// Copied from the head/input word's interior node `idx` (0-based interior index).
@@ -740,22 +686,18 @@ struct OutNode {
     lanes: Vec<u64>,
     optional: bool,
     origin: Origin,
-    /// Char-def-set identity, consulted only when `char_def == NO_CHAR_DEF`. A producer keeping a
-    /// real `char_def` leaves this `Unrestricted` and it is never read; only
-    /// `InsertSimpleContext`-originated nodes set a real `CdSet`.
+    /// Char-def-set identity, consulted only when `char_def == NO_CHAR_DEF`; a real `char_def` leaves this `Unrestricted` and unread.
     cd_set: CdSet,
 }
 
-/// Freeze interior `OutNode`s into a bracketed `Shape`. Optional segments use the
-/// delete-then-reinsert workaround (as `rewrite.rs`), since `ShapeBuilder` has no set-flags-in-place.
+/// Freezes interior `OutNode`s into a bracketed `Shape`; optional segments use a delete-then-reinsert workaround since `ShapeBuilder` has no set-flags-in-place.
 fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
     let w = feat_width(g) as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, nodes.len());
     for n in nodes {
         let lanes = fit(g, &n.lanes);
         match n.kind {
-            // Class insertions carry their real cd_set; a concrete segment's own char_def already
-            // is the identity, so `n.cd_set` is never consulted for one.
+            // Class insertions carry their real cd_set; a concrete segment's own char_def is already the identity, so `n.cd_set` goes unread there.
             NodeKind::Segment if n.char_def == NO_CHAR_DEF => {
                 b.push_segment_with_lanes_and_set(&lanes, n.cd_set.clone())
             }
@@ -799,9 +741,7 @@ fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
     shape
 }
 
-// =================================================================================================
 // Part-group matching (synthesis + compounding head/non-head).
-// =================================================================================================
 
 /// Compile a list of LHS `parts` into one FST whose parts are wrapped in named capture groups
 /// (`{prefix}{i}`), returning the FST and the group names in order. `pub(crate)` so
@@ -813,8 +753,7 @@ pub(crate) fn compile_parts(
     prefix: &str,
     deterministic: bool,
 ) -> Result<(Fst, Vec<String>), BridgeError> {
-    // Morphological-LHS FSTs carry the `StrRep` identity lane; their inputs all come from
-    // `segs_of`, which emits the same lane.
+    // Morphological-LHS FSTs carry the `StrRep` identity lane, matching what `segs_of` emits.
     let bridge = PatternBridge::new(g)
         .with_table(table)
         .deterministic(deterministic)
@@ -836,8 +775,7 @@ pub(crate) fn compile_parts(
     Ok((fst, names))
 }
 
-/// Per-part captured `(start, end)` seg-position ranges of a match result (`None` = part not
-/// captured / matched zero segments).
+/// Per-part captured `(start, end)` seg-position ranges (`None` = not captured / zero segments).
 fn part_ranges(fst: &Fst, names: &[String], result: &FstResult) -> Vec<Option<(usize, usize)>> {
     names
         .iter()
@@ -848,14 +786,9 @@ fn part_ranges(fst: &Fst, names: &[String], result: &FstResult) -> Vec<Option<(u
         .collect()
 }
 
-// =================================================================================================
 // Morph attribution.
-// =================================================================================================
 
-/// Which input morph owns a source interior node `idx` — a contiguous partition of `word.morphs`
-/// by ascending `order`. Only `Real` records own nodes; the other statuses are markers riding at a
-/// position. `Real` orders never tie, each owning a distinct leftmost node, so `max_by_key` is
-/// unambiguous.
+/// Which input morph owns source node `idx`: only `Real` records own nodes (others are non-owning markers), and `Real` orders never tie, so `max_by_key` is unambiguous.
 fn owning_morph(word: &Word, idx: usize) -> Option<usize> {
     word.morphs
         .iter()
@@ -872,14 +805,7 @@ enum MorphKey {
     Affix,
 }
 
-/// Build the output word's `MorphRecord`s from the constructed output nodes: existing morphs are
-/// remapped to where their copied material landed, keeping their `passed_over` sets; new affix
-/// material becomes records carrying `affix`'s own passed-over set.
-///
-/// One record per **contiguous run** of a morph's output positions, mirroring C# `MarkMorphs`'
-/// split — a circumfix's two pieces, or a root split by an infix, are separate records sharing
-/// allomorph, morpheme, and passed-over set. That is what keeps `crate::validity`'s span
-/// derivation exact for discontinuous morphs: each run is checked at its own span.
+/// Builds the output word's `MorphRecord`s, one per **contiguous run** of a morph's output positions (mirrors C# `MarkMorphs`), so a discontinuous morph's two pieces get separate records checked at their own spans.
 fn attribute_morphs(
     out: &[OutNode],
     head: &Word,
@@ -945,30 +871,7 @@ fn attribute_morphs(
     // The affix's "primary" annotation — the attachment point for subsumption.
     let affix_host_order: Option<u32> = longest_run_order(&MorphKey::Affix);
 
-    // Pass 2: build the output records, walking the input words' record vecs IN ORDER. The fallback
-    // model for a record that owns no output positions this hop:
-    //
-    // * A `Real` record with runs is a normal positioned morph.
-    // * A `Real` record with none (a later rule deleted all its material) subsumes: onto the
-    //   affix's longest run as a `SubsumedChild` when the rule inserted new material, else onto
-    //   order 0 as a `SubsumedFirst`. The two differ in placement because C#'s postorder traversal
-    //   renders a subsumed child before its host, while its interval sort renders the containing
-    //   annotation first.
-    // * A `SubsumedChild`/`SubsumedFirst` never owns nodes; each hop it re-anchors to its host, the
-    //   unique `Real` record sharing its order. If the host also dropped, both ride the host's own
-    //   fallback — except that C#'s pure-truncation branch does NOT recurse into children, so a
-    //   `SubsumedChild` is dropped there (bug-compatible) while a `SubsumedFirst` re-anchors at 0.
-    // * A `Floating` record rides at `FLOATING_ORDER` until a hop with new material resolves it.
-    // * A no-run record whose allomorph was already recorded this hop is skipped; first wins.
-    //
-    // Flagged approximation: C#'s fallback annotations own the actual first/last NODE, stolen from
-    // the morph that had it, so a later hop can split ownership inside one run. This flat
-    // order-partition model cannot, so markers here own no nodes and re-anchor by host-following.
-    // Diverging would need a grammar that further affixes onto the stolen position AND renders
-    // per-node attribution; no conformance surface does.
-    //
-    // Compounding (`affix: None`) has no fallbacks at all: an input morph with no copied material
-    // is simply dropped, as in C#.
+    // Pass 2: walks each input word's morphs in order; an unpositioned record subsumes onto the affix's new material or order 0, a dropped marker re-anchors to its host, and pure truncation drops a `SubsumedChild` but not a `SubsumedFirst` (bug-compatible with C#'s non-recursing truncation branch); compounding has no fallbacks at all.
     let mut records: Vec<MorphRecord> = Vec::new();
     let mut marked: Vec<pg_grammar::model::AllomorphId> = Vec::new();
 
@@ -1032,9 +935,7 @@ fn attribute_morphs(
                     (Some(o), _) => Some((o, m.status)),
                     // Host dropped too, rule has new material: both subsume onto the new morph.
                     (None, Some(o)) => Some((o, MorphStatus::SubsumedChild)),
-                    // Host dropped, pure truncation: C#'s Shape.First branch does not recurse into
-                    // children (SubsumedChild is lost, bug-compatible); a top-level SubsumedFirst
-                    // re-anchors at the new first node.
+                    // Host dropped, pure truncation: C#'s Shape.First branch doesn't recurse into children (SubsumedChild lost, bug-compatible); SubsumedFirst re-anchors at the new first node.
                     (None, None) => match m.status {
                         MorphStatus::SubsumedFirst if !out.is_empty() => {
                             Some((0, MorphStatus::SubsumedFirst))
@@ -1062,9 +963,7 @@ fn attribute_morphs(
         }
     }
 
-    // Floating markers: ride, resolve onto this hop's new material, and/or mint this rule's own.
-    // Pushed after the subsumed-input records and before the affix runs, approximating C#'s
-    // input-morph-order attachment.
+    // Floating markers ride, resolve onto this hop's new material, or mint a new one; pushed after subsumed-input records and before affix runs, approximating C#'s input-morph-order attachment.
     if let Some((a, mo, p)) = affix {
         let floaters = head
             .morphs
@@ -1080,8 +979,7 @@ fn attribute_morphs(
             }
         } else {
             records.extend(floaters.cloned());
-            // Pure truncation: mint this rule's own floating marker. An entirely empty `out` has no
-            // last node for C# either, so it is guarded rather than assumed away.
+            // Pure truncation mints this rule's own floating marker, guarded since an entirely empty `out` has no last node for C# either.
             if !out.is_empty() {
                 records.push(MorphRecord {
                     allomorph: a,
@@ -1093,8 +991,7 @@ fn attribute_morphs(
                 });
             }
         }
-        // The affix's own runs, last — so every same-order subsumed/resolved record above renders
-        // before its host (stable sort keeps insertion order at ties).
+        // The affix's own runs go last, so same-order subsumed/resolved records above render before their host (stable sort at ties).
         if key_runs.contains_key(&MorphKey::Affix) {
             for &(order, _) in &key_runs[&MorphKey::Affix] {
                 records.push(MorphRecord {
@@ -1113,14 +1010,10 @@ fn attribute_morphs(
     records
 }
 
-/// Sentinel `order` for a still-unresolved floating marker (see `attribute_morphs`): larger than
-/// any real `out` position could ever be, so `owning_morph`'s `order <= idx` filter never selects
-/// it, and it always sorts after every genuinely-positioned record in the word's own signature.
+/// Sentinel `order` for an unresolved floating marker: larger than any real position, so it never matches `owning_morph`'s filter and always sorts last.
 const FLOATING_ORDER: u32 = u32::MAX;
 
-// =================================================================================================
 // RHS execution (synthesis) — shared by affix and compounding.
-// =================================================================================================
 
 /// Resolve a `PartRef` to the matched source (segments + node map + captured range + origin tag).
 struct PartSource<'a> {
@@ -1130,11 +1023,7 @@ struct PartSource<'a> {
     head: bool, // true = Origin::Head, false = Origin::NonHead
 }
 
-/// Copy the captured nodes of `src` into `out`, tagging their origin. `force_origin` overrides the
-/// default Copy/Modify-based choice: `Some(true)` pins the origin to the existing input morph even
-/// for a modify, `Some(false)` pins it to `Origin::Affix` even for a plain copy. That is how
-/// `classify_redup`'s output is threaded in — a repeated copy of one LHS part is not uniformly
-/// "existing" the way a single occurrence is.
+/// Copies `src`'s captured nodes into `out`, tagging origin; `force_origin` overrides the default Copy/Modify-based choice, which is how `classify_redup` marks a repeated copy as new rather than existing.
 fn copy_part(
     g: &Grammar,
     table: TableId,
@@ -1145,11 +1034,7 @@ fn copy_part(
 ) {
     let Some((s, e)) = src.range else { return };
     let pins = modify.map(|c| ctx_pins(g, table, c)).unwrap_or_default();
-    // C# `GetSkippedOptionalNodes`: a run of Optional nodes immediately LEFT of the captured range
-    // that reaches all the way back to the left anchor is folded into the copy, in surface order,
-    // through the same body as the captured nodes. Boundaries are always Optional; Optional
-    // segments additionally arise from the epenthesis/narrow analysis markers, hence the
-    // two-pronged predicate.
+    // C# `GetSkippedOptionalNodes`: a run of Optional nodes immediately left of the capture, reaching back to the left anchor, folds into the copy — hence the two-pronged boundary-or-optional predicate.
     let mut positions: Vec<usize> = Vec::new();
     if s < e {
         let first_node = src.node_of[s];
@@ -1159,8 +1044,7 @@ fn copy_part(
         while i > 0 && skippable(i - 1) {
             i -= 1;
         }
-        // The walk must have stopped AT the left anchor for the fold to apply; stopping at any
-        // non-optional interior node folds nothing at all.
+        // The walk must stop AT the left anchor for the fold to apply; stopping at any non-optional interior node folds nothing.
         if i == 1 {
             positions.extend(1..first_node);
         }
@@ -1176,12 +1060,7 @@ fn copy_part(
                 lanes[f] = bits; // priority-union: the ctx value wins
             }
             if let Some(ctx) = modify {
-                // A modified node must NOT keep the source node's literal identity: C# has no such
-                // concept here at all — it re-derives candidate string representations from the
-                // CURRENT feature structure — so retaining `char_def` would make a modified "p"
-                // still render and match only as "p". Clearing to `NO_CHAR_DEF` plus the ctx's own
-                // set cannot under-restrict, since a char-def unifying with the full pinned lanes
-                // is always inside `ctx_cd_set`'s pins-only membership.
+                // A modified node must not keep the source's literal char_def, or a modified "p" would still render/match only as "p"; clearing to `NO_CHAR_DEF` plus `ctx_cd_set` cannot under-restrict.
                 char_def = NO_CHAR_DEF;
                 cd_set = ctx_cd_set(g, table, ctx);
             }
@@ -1196,9 +1075,7 @@ fn copy_part(
             Some(true) => existing_origin,
             Some(false) => Origin::Affix,
             None if modify.is_some() => {
-                // ModifyFromInput material is "new" (affix) for an affix rule; for compounding it
-                // stays with its source morph. Callers building compounding pass modify=None on
-                // head/non-head copies, so this Affix tag only fires on affix rules.
+                // ModifyFromInput material is "new" (affix) for an affix rule but stays with its source morph for compounding, since compounding callers always pass modify=None.
                 Origin::Affix
             }
             None => existing_origin,
@@ -1214,8 +1091,7 @@ fn copy_part(
     }
 }
 
-/// Append an `InsertSegments` shape's interior nodes to `out`. These always reference a concrete
-/// literal `char_def`, never `NO_CHAR_DEF`, so `cd_set` stays `Unrestricted` and is never read.
+/// Appends an `InsertSegments` shape's interior nodes to `out`; these always carry a concrete `char_def`, so `cd_set` stays `Unrestricted` and unread.
 fn insert_segments(
     g: &Grammar,
     table: TableId,
@@ -1236,12 +1112,9 @@ fn insert_segments(
     }
 }
 
-// =================================================================================================
 // Syntactic-FS gating.
-// =================================================================================================
 
-/// C# synthesis: `required.Unify(word.syn, useDefaults=true)`; on success priority-union `out`.
-/// Returns the post-application syn FS, or `None` if the required FS does not unify.
+/// C# synthesis gate: unify `required` with the word's syn FS, then priority-union `out`; `None` if the unify fails.
 fn synth_syn_fs(
     g: &Grammar,
     req: pg_featstruct::FsId,
@@ -1256,10 +1129,7 @@ fn synth_syn_fs(
     Some(priority_union(&unified, g.fs_interner.get(out)))
 }
 
-/// The C# analysis guard and adjust. Note the guard is `out.IsUnifiable(word.syn)` — the rule's
-/// OUTPUT FS against the input word, not `req`. On unapply every output's syntactic FS starts equal
-/// to the input's, which is why it can be hoisted here, and then `req` (if non-empty) is `Add`ed —
-/// a **widening union**, never a narrowing unify. An empty `out` with empty `req` clears it.
+/// C# analysis guard: gates on `out.IsUnifiable(word.syn)` (the rule's OUTPUT against the input, not `req`), then widens with `Add`, never a narrowing unify.
 fn ana_syn_fs(
     g: &Grammar,
     req: pg_featstruct::FsId,
@@ -1280,11 +1150,7 @@ fn ana_syn_fs(
     }
 }
 
-// MPR-group-aware required/excluded gating lives on `Grammar`, the only owner of `mpr_groups`. Do
-// not reintroduce a flat overlap check here: it is correct only for singleton groups, and for
-// `required` with 2+ ungrouped members it inverts C#'s semantics (which ANDs, not ORs). The
-// compounding prod-restriction gates are the deliberate exception — C# checks those through the
-// always-group-unaware `CompoundMprFeaturesMatch`, i.e. `MprSet::compound_match`.
+// MPR-group-aware gating lives on `Grammar` only: a flat overlap check here would invert C#'s AND semantics for 2+ ungrouped `required` members. The compounding prod-restriction gates are the deliberate exception, via `MprSet::compound_match`.
 
 /// C# `HashSet<AllomorphEnvironment>.SetEquals` — environment lists compared as sets (shared by
 /// `constraints_equal` and `crate::validity`'s root-allomorph `ConstraintsEqual` port).
@@ -1319,23 +1185,14 @@ pub(crate) fn constraints_equal(g: &Grammar, a: &AffixAllomorphDef, b: &AffixAll
         && g.fs_interner.get(a.required_syn_fs) == g.fs_interner.get(b.required_syn_fs)
 }
 
-/// `Allomorph.FreeFluctuatesWith`. Every call site passes *adjacent* allomorphs of one rule, so
-/// C#'s index-range walk over intervening allomorphs collapses to a single `constraints_equal`
-/// check, and its same-object/same-morpheme guards are vacuous here.
+/// `Allomorph.FreeFluctuatesWith`: callers always pass adjacent allomorphs, so C#'s index-range walk collapses to one `constraints_equal` check.
 fn free_fluctuates_with(g: &Grammar, cur: &AffixAllomorphDef, next: &AffixAllomorphDef) -> bool {
     constraints_equal(g, cur, next)
 }
 
-// =================================================================================================
 // Affix process — synthesis.
-// =================================================================================================
 
-/// Resolve `word`'s root allomorph to its own stem name. `None` when the word has no root allomorph
-/// (defensive — a standalone fixture may lack one) or the allomorph carries no stem name.
-///
-/// A guessed root has no `allomorph_owners` row, so it is guarded like `check_blocking`. `None` is
-/// conservative rather than exact: delegating to the guess's pattern, as the final validity check
-/// does, is deliberately not attempted at this synthesis-time gate.
+/// Resolves `word`'s root allomorph to its stem name; `None` for a missing root, no stem name, or a guessed root (conservative — this synthesis-time gate does not consult the guess's pattern).
 fn root_stem_name(g: &Grammar, word: &Word) -> Option<pg_grammar::model::StemNameId> {
     let root_id = word.root_allomorph?;
     if root_id == AllomorphId::GUESSED {
@@ -1348,14 +1205,9 @@ fn root_stem_name(g: &Grammar, word: &Word) -> Option<pg_grammar::model::StemNam
 }
 
 fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word> {
-    // Gate order matches C#: the two template prohibitions, then `RequiredStemName`, and the
-    // required-syntactic-FS unify LAST. Every gate is independent, so the order decides only which
-    // `FailureReason` the traced sibling reports first, never which words are produced.
-    //
-    // Both template checks are guarded on `!is_template_rule`: a rule that is itself a template
-    // slot member is never subject to either, whatever the word's final-rule state. They exist to
-    // gate an ordinary rule applied AFTER a template finished, not the template's own slot rules.
-    // (a) After a *final* template, prohibit a non-partial rule.
+    // Gate order matches C#: template prohibitions, then `RequiredStemName`, then the syn-FS unify; independent gates, so order only picks which `FailureReason` is reported first. Both template checks are guarded on `!is_template_rule`, since a template's own slot rules are never subject to them.
+
+    // After a *final* template, prohibit a non-partial rule.
     if !rule.is_template_rule
         && matches!(word.flags.is_last_applied_rule_final, Some(true))
         && !word.flags.is_partial
@@ -1372,8 +1224,7 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
         return Vec::new();
     }
 
-    // `requiredStemName` is a reference-equality gate on the WORD's root allomorph's stem name, not
-    // on this rule's allomorphs'. `None` on both sides passes, as does an exact match.
+    // `requiredStemName` is a reference-equality gate on the WORD's root stem name, not the rule's allomorphs'; `None` on both sides passes.
     if rule.required_stem_name.is_some() && rule.required_stem_name != root_stem_name(g, word) {
         return Vec::new();
     }
@@ -1382,13 +1233,11 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
         return Vec::new();
     };
 
-    // Resolved once per call against the rule's OWN owning stratum, never an implicit `TableId(0)`.
-    // The fallback only fires for a non-grammar-resident fixture, this uncached path's audience.
+    // Resolved once per call against the rule's own owning stratum; the `TableId(0)` fallback fires only for a non-grammar-resident fixture.
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, true);
     let mut output = Vec::new();
-    // Indices that already applied in THIS loop, recorded on each output morph before the
-    // producing index itself is added.
+    // Indices already applied in this loop, recorded on each output morph before the producing index is added.
     let mut applied: Vec<u16> = Vec::new();
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         if !g.mpr_group_ok(allo.required_mpr, allo.excluded_mpr, word.mpr) {
@@ -1416,9 +1265,7 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
         ) {
             output.push(w);
             applied.push(i as u16);
-            // Disjunctive-allomorph break: stop after the first match unless this allomorph is
-            // environment- or syn-constrained, or free-fluctuates with the next one — in which case
-            // C# keeps going so the next allomorph's word is produced too.
+            // Disjunctive-allomorph break: stop after the first match unless this allomorph is environment/syn-constrained or free-fluctuates with the next one.
             let next_free_fluctuates = rule
                 .allomorphs
                 .get(i + 1)
@@ -1434,10 +1281,7 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
     output
 }
 
-/// `crate::cache::RuleCache`-aware sibling of `synth_affix`, used by the real per-word pipeline.
-/// Every early return reports its own `FailureReason` with subrule index `-1`, as C# does at the
-/// same rule-level gates; a successful allomorph reports its real index and reassigns the output
-/// word's trace cursor.
+/// `RuleCache`-aware sibling of `synth_affix`: every early return reports its own `FailureReason` at index `-1`, matching C#'s rule-level gates.
 #[allow(clippy::too_many_arguments)]
 fn synth_affix_cached(
     g: &Grammar,
@@ -1456,9 +1300,9 @@ fn synth_affix_cached(
             return Vec::new();
         }};
     }
-    // Gate order and the `!is_template_rule` guards mirror `synth_affix` exactly; see its doc.
-    // Order matters here only because the FIRST failing gate is the reason reported.
-    // (a) Final-template prohibition.
+    // Gate order and `!is_template_rule` guards mirror `synth_affix`; order matters only because the first failing gate is the reported reason.
+
+    // Final-template prohibition.
     if !rule.is_template_rule
         && matches!(word.flags.is_last_applied_rule_final, Some(true))
         && !word.flags.is_partial
@@ -1547,14 +1391,9 @@ fn synth_affix_cached(
     output
 }
 
-// =================================================================================================
-// Realizational affix process (W5) — synthesis.
-// =================================================================================================
+// Realizational affix process — synthesis.
 
-/// C# `SynthesisRealizationalAffixProcessRule.IsBlocked`: every feature key `real_fs` declares must
-/// also be a key `syn_fs` declares, recursing into nested complex values. A symbolic leaf need only
-/// be *present*, never value-compared. All present ⇒ blocked. No cycle guard is needed: this
-/// syntactic-FS model is a tree, never a DAG, so C#'s `visited` set can never revisit a pair.
+/// C# `IsBlocked`: blocked iff every feature key `real_fs` declares is also present in `syn_fs` (recursing into complex values); no cycle guard needed since this FS model is a tree, never a DAG.
 fn realizational_is_blocked(real_fs: &FeatureStruct, syn_fs: &FeatureStruct) -> bool {
     for (feat, rval) in real_fs.entries() {
         let Some(sval) = syn_fs.get(*feat) else {
@@ -1573,14 +1412,7 @@ fn realizational_is_blocked(real_fs: &FeatureStruct, syn_fs: &FeatureStruct) -> 
     true
 }
 
-/// C# `SynthesisRealizationalAffixProcessRule.Apply`. Three rule-level gates precede the loop, in
-/// C#'s order: `real_fs` subsumption against the word's *current* `real_fs`; `IsBlocked`, only when
-/// the rule's `real_fs` is non-empty and checked against the syn FS *before* the unify below; then
-/// the required-syn-FS unify, which is `synth_syn_fs`'s shape with `real_fs` standing in for
-/// `out_syn_fs` and so reuses it verbatim.
-///
-/// This class has NO partial/final/obligatory/max-application gates at all. The per-allomorph loop
-/// is otherwise identical to `synth_affix`'s, via the shared `synth_process_allomorph`.
+/// C# `Apply`: gates in order are `real_fs` subsumption, `IsBlocked` (when `real_fs` non-empty), then the required-syn-FS unify via `synth_syn_fs`; unlike `synth_affix` this class has no partial/final/obligatory/max-application gates.
 fn synth_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) -> Vec<Word> {
     let real_fs = g.fs_interner.get(rule.real_fs);
     if !pg_featstruct::subsumes(real_fs, &word.real_fs) {
@@ -1638,9 +1470,7 @@ fn synth_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) ->
     output
 }
 
-/// `crate::cache::RuleCache`-aware sibling of `synth_realizational`. The first two gates stay
-/// UNTRACED on purpose: C# fires no trace call at either site, so tracing them would fabricate
-/// events C# never produces. Only the required-syn-FS unify and the allomorph loop are traced.
+/// `RuleCache`-aware sibling of `synth_realizational`: the first two gates stay untraced, since C# fires no trace event at either site.
 #[allow(clippy::too_many_arguments)]
 fn synth_realizational_cached(
     g: &Grammar,
@@ -1734,9 +1564,7 @@ fn synth_realizational_cached(
     output
 }
 
-/// The `PartRef::Input` index an RHS action references — only copy and modify carry one; the two
-/// insert kinds reference no part. A `PartRef::Input(i)` corresponds to C#'s `lhs[i].Name`, so
-/// grouping by this index is equivalent to C#'s grouping by part name.
+/// The `PartRef::Input` index an RHS action references (copy/modify only); equivalent to C#'s grouping by part name since `Input(i)` corresponds to `lhs[i].Name`.
 fn redup_part_ref(action: &OutputAction) -> Option<u16> {
     match action {
         OutputAction::Copy(PartRef::Input(i)) | OutputAction::Modify(PartRef::Input(i), _) => {
@@ -1746,11 +1574,7 @@ fn redup_part_ref(action: &OutputAction) -> Option<u16> {
     }
 }
 
-/// Reduplication morph attribution — C#'s `_nonAllomorphActions`, ported with part names replaced
-/// by `PartRef::Input` indices. For every RHS index inside a "true" reduplication group (an `Input`
-/// part referenced twice or more), reports whether that occurrence is the *existing* echo of the
-/// input morph or genuinely new affix material. Indices outside any repeated group are absent, so
-/// callers keep their default attribution: a lone copy is existing, a lone modify is new.
+/// For every RHS index inside a reduplication group (an `Input` part referenced 2+ times), reports whether that occurrence is the existing echo or new affix material; indices outside any group are absent, keeping default attribution.
 fn classify_redup(
     lhs_len: u16,
     rhs: &[OutputAction],
@@ -1767,14 +1591,10 @@ fn classify_redup(
     if redup_parts.is_empty() {
         return HashMap::default();
     }
-    // Deterministic order for the loop below (matters only for tie-free readability; each group is
-    // classified independently so iteration order cannot change the result).
+    // Deterministic order below only for readability; each group is classified independently, so order cannot change the result.
     redup_parts.sort_by_key(|v| v[0]);
 
-    // `start`: the RHS index at which a `lhs_len`-long run echoes every LHS part exactly once, in
-    // original order — the plain, non-reduplicating repetition of the whole allomorph input.
-    // `None` when no such contiguous run exists. Signed throughout, as in C#, and widened to `i64`
-    // so a literal translation of its subtractions cannot underflow.
+    // `start`: the RHS index where a `lhs_len`-long run echoes every LHS part once in order (the non-reduplicating whole-input repeat); widened to `i64` so C#'s subtractions cannot underflow.
     let mut start: Option<i64> = None;
     match hint {
         ReduplicationHint::Prefix => {
@@ -1839,13 +1659,7 @@ fn classify_redup(
     existing
 }
 
-/// One allomorph's synthesis: LHS match plus RHS build, shared by the regular affix-process and
-/// realizational paths. C# builds both from the same per-allomorph rule spec, so the
-/// match-then-emit mechanics are identical; only the rule-level bookkeeping differs, which is why
-/// those fields arrive individually rather than as a `&AffixProcessRuleDef`. The realizational
-/// caller passes `obligatory: &[]`, `partial: None`, and `apply_out_mpr: false`, because that C#
-/// class touches none of the three. `partial: None` means "leave `word.flags` exactly as cloned",
-/// NOT "treat as non-partial".
+/// One allomorph's synthesis (LHS match + RHS build), shared by affix-process and realizational paths; the realizational caller passes `obligatory: &[]`, `partial: None` (leave flags as cloned, not "non-partial"), `apply_out_mpr: false`.
 #[allow(clippy::too_many_arguments)]
 fn synth_process_allomorph(
     g: &Grammar,
@@ -1868,8 +1682,7 @@ fn synth_process_allomorph(
         .first_match()?;
     let ranges = part_ranges(fst, names, &result);
 
-    // Empty unless this allomorph's RHS actually repeats an `Input` part, so a non-reduplicating
-    // allomorph pays only for building an empty map.
+    // Empty unless the RHS actually repeats an `Input` part, so a non-reduplicating allomorph pays only for an empty map.
     let redup = classify_redup(allo.lhs.len() as u16, &allo.rhs, allo.redup_hint);
 
     let mut out: Vec<OutNode> = Vec::new();
@@ -1937,9 +1750,7 @@ fn synth_process_allomorph(
     Some(w)
 }
 
-// =================================================================================================
 // Affix process — analysis.
-// =================================================================================================
 
 /// The analysis LHS built from RHS actions, plus capture bookkeeping. `pub(crate)` so
 /// `crate::cache::RuleCache` can store the compiled `(Fst, AnalysisLhs)` pair per allomorph/subrule.
@@ -1947,13 +1758,11 @@ pub(crate) struct AnalysisLhs {
     nodes: Vec<CompileNode>,
     /// part name → number of capture groups generated for it.
     captured: HashMap<String, usize>,
-    /// part name → (capture-group index, ctx) for a `ModifyFromInput` (its material is
-    /// underspecified on `GenerateShape`).
+    /// part name -> (capture-group index, ctx) for a `ModifyFromInput`, underspecified on `GenerateShape`.
     modify: HashMap<String, (usize, SimpleContext)>,
 }
 
-/// Strip boundary constraints from a pattern (C# `DeepCloneExceptBoundaries`): boundary char-defs
-/// are dropped, and a quantifier whose children all vanish is dropped too.
+/// Strips boundary char-defs from a pattern (C# `DeepCloneExceptBoundaries`); a quantifier whose children all vanish is dropped too.
 fn strip_boundaries(g: &Grammar, table: TableId, part: &Pattern) -> Pattern {
     fn is_boundary(g: &Grammar, table: TableId, cd: CharDefId) -> bool {
         let t = &g.char_tables[table.0 as usize];
@@ -1984,8 +1793,7 @@ fn strip_boundaries(g: &Grammar, table: TableId, part: &Pattern) -> Pattern {
     }
 }
 
-/// Apply ctx pins to every `Constraint` node (recursively) of a compiled part — the analysis form
-/// of `ModifyFromInput` matches the *modified* surface (`PriorityUnion` onto the pattern).
+/// Applies ctx pins recursively to every `Constraint` node, so the analysis-side `ModifyFromInput` matches the modified surface.
 fn apply_ctx_to_nodes(nodes: &mut [CompileNode], pins: &[(usize, u64)]) {
     for n in nodes {
         match n {
@@ -2059,8 +1867,7 @@ fn build_analysis_lhs(
                 for (_, kind, char_def, _) in shape.shape.interior() {
                     if kind == NodeKind::Segment {
                         let mut lanes = to_fst(g, &cd_lanes(g, table, char_def));
-                        // The analysis-side consumer must find and consume *this* inserted segment,
-                        // as C# does by matching the full char-def FS, not any unifiable one.
+                        // The analysis-side consumer must find and consume this exact inserted segment, matching the full char-def FS rather than any unifiable one, as C# does.
                         if let (Some(w), true) = (id_width, char_def != NO_CHAR_DEF) {
                             crate::bridge::push_id_lane(&mut lanes, w, 1u64 << char_def);
                         }
@@ -2069,11 +1876,7 @@ fn build_analysis_lhs(
                 }
             }
             OutputAction::InsertContext(ctx) => {
-                // Known residual: this is an FST *match* constraint, not an output node, so there
-                // is no shape to hang a `cd_set` on and `pg_fst::Segment` carries lanes only. The
-                // id lane below closes it for `Segments`-kind classes on tables narrow enough to
-                // have one; wider tables still over-match, accepting any segment unifiable with the
-                // member lane-union rather than only real members.
+                // Known residual: this is an FST match constraint, not an output node, so there is no shape for a `cd_set`; the id lane below closes it for narrow tables, but wider tables still over-match on lane-union alone.
                 let mut lanes = to_fst(g, &ctx_lanes(g, table, ctx));
                 if let Some(w) = id_width {
                     if let NaturalClassKind::Segments(segs) =
@@ -2110,8 +1913,7 @@ fn group_name(part: &str, idx: usize) -> String {
     format!("{part}_{idx}")
 }
 
-/// `GenerateShape`: re-emit the captured original LHS parts into output nodes (dropping the inserted
-/// material). Modify parts get their changed features underspecified.
+/// `GenerateShape`: re-emits captured original LHS parts as output nodes, dropping inserted material; modify parts get their changed features underspecified.
 #[allow(clippy::too_many_arguments)]
 fn generate_shape(
     g: &Grammar,
@@ -2126,8 +1928,7 @@ fn generate_shape(
     let mut out = Vec::new();
     for (name, part) in lhs_parts {
         let Some(&count) = lhs.captured.get(name) else {
-            // Not captured: untruncate the part, materializing its segment constraints as
-            // optional beyond a quantifier's min.
+            // Not captured: untruncate the part, materializing its segment constraints as optional beyond a quantifier's min.
             untruncate(g, table, &mut out, part);
             continue;
         };
@@ -2149,11 +1950,7 @@ fn generate_shape(
                             for &f in feats {
                                 lanes[f] = full_mask(g, f); // underspecify (undo the change)
                             }
-                            // The analysis-side counterpart of `copy_part`'s modify handling: a
-                            // lexical root storing the PRE-modification segment can never be found
-                            // by a char-def-equality lookup while this node still claims to BE the
-                            // post-modification one. Clearing it makes lookup fall back to lane
-                            // unification against the lanes just widened above.
+                            // The analysis-side counterpart of `copy_part`'s modify handling: clearing char_def makes lookup fall back to lane unification, since a pre-modification lexical root can't be found while this node still claims to be the post-modification one.
                             char_def = NO_CHAR_DEF;
                         }
                     }
@@ -2177,14 +1974,7 @@ fn generate_shape(
     out
 }
 
-/// Materialize a part's segment and context constraints as (optional) output nodes — C#
-/// `AnalysisMorphologicalTransform.Untruncate`. Boundaries are skipped.
-///
-/// Quantifier semantics are C#'s exactly, and the unbounded case is the trap: an **unbounded**
-/// quantifier emits NOTHING, because C#'s loop runs to `MaxOccur` and infinity is encoded as -1. A
-/// bounded one emits `max` copies, optional beyond `min`. Emitting `max(min, 1)` instead fabricates
-/// a phantom optional wildcard for every uncaptured `[Seg]*` part, and on narrowing-flooded
-/// analysis shapes unrelated affix rules then "unapply" straight through those phantoms.
+/// Materializes a part's constraints as output nodes (C# `Untruncate`); an **unbounded** quantifier emits NOTHING (infinity is encoded as -1), never a fabricated `max(min, 1)` phantom wildcard.
 fn untruncate(g: &Grammar, table: TableId, out: &mut Vec<OutNode>, part: &Pattern) {
     fn emit(
         g: &Grammar,
@@ -2298,11 +2088,7 @@ fn ana_affix_cached(
     output
 }
 
-/// One allomorph's analysis-side match, `GenerateShape`, and dedup. `carry` writes whichever
-/// feature structure the rule kind propagates onto each surviving candidate.
-///
-/// The dedup scope is freshly reset per allomorph, never shared across the whole rule — a candidate
-/// from one allomorph must not suppress an identical-looking one from another.
+/// One allomorph's analysis-side match, `GenerateShape`, and dedup; `carry` writes whichever feature structure the rule kind propagates, and the dedup scope resets per allomorph, never shared across the rule.
 #[allow(clippy::too_many_arguments)]
 fn ana_allomorph_matches(
     g: &Grammar,
@@ -2352,13 +2138,9 @@ fn ana_affix_allomorph(
     })
 }
 
-// =================================================================================================
-// Realizational affix process (W5) — analysis.
-// =================================================================================================
+// Realizational affix process — analysis.
 
-/// C# `AnalysisRealizationalAffixProcessRule.Apply`: one rule-level gate, the realizational-FS
-/// unify, after which every allomorph's matches all carry the SAME unified value. No
-/// max-application or syntactic-FS gate exists on this class, unlike `ana_affix`.
+/// C# `Apply`: one rule-level gate (the realizational-FS unify), after which every allomorph's matches carry that same unified value; unlike `ana_affix`, no max-application or syn-FS gate exists here.
 fn ana_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) -> Vec<Word> {
     let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
         return Vec::new();
@@ -2402,8 +2184,7 @@ fn ana_realizational_cached(
     output
 }
 
-/// Unlike `ana_affix_allomorph`, the syntactic FS is left completely untouched: C#'s realizational
-/// analysis never assigns it, only the realizational FS, so the clone's own value passes through.
+/// Unlike `ana_affix_allomorph`, the syntactic FS is left untouched: C#'s realizational analysis never assigns it, only the realizational FS.
 #[allow(clippy::too_many_arguments)]
 fn ana_realizational_allomorph(
     g: &Grammar,
@@ -2421,28 +2202,16 @@ fn ana_realizational_allomorph(
     })
 }
 
-/// C# `HermitCrabExtensions.RemoveDuplicates`: insert `w`, unless `out` already holds a candidate
-/// whose **non-Optional** nodes form the identical sequence. Optional nodes are deliberately
-/// ignored — they are exactly the reconstructed material narrowing and deletion analysis mark. A
-/// duplicate keeps whichever shape is **longer**, preferring the candidate carrying more
-/// reconstructed material; a strict tie keeps the earlier one.
-///
-/// This is not cosmetic. Once a phonological analysis rule has scattered Optional segments through
-/// a shape, an affix rule's all-submatches matching yields many distinct *exact* shapes differing
-/// only in which of those segments fell inside the matched parts. Nothing downstream ever unifies
-/// them again, since `WordKey` compares the full shape, so keeping them all is a combinatorial
-/// blow-up whose survivor, once the step budget trims it, is arbitrary rather than the longest.
+/// C# `RemoveDuplicates`: inserts `w` unless `out` holds a candidate with an identical **non-Optional** sequence, keeping the longer shape — not cosmetic, since Optional-segment proliferation is otherwise a combinatorial blow-up nothing downstream ever unifies away.
 fn push_remove_duplicates(out: &mut Vec<Word>, w: Word) {
-    // `web_time::Instant`: this timestamp is unconditional even though the profiling read is gated,
-    // and std's panics on wasm32-unknown-unknown, which this crate is built for.
+    // `web_time::Instant`, since std's `Instant` panics on wasm32-unknown-unknown, which this crate is built for.
     let start = web_time::Instant::now();
     let out_len = out.len();
     push_keep_longer(out, w, |a, b| shape_duplicates(&a.shape, &b.shape));
     dedup_profile::record(start.elapsed().as_nanos(), out_len);
 }
 
-/// The shared body of the three dedup passes: replace the first `dup`-matching candidate when `w`'s
-/// shape is strictly longer, else keep what is there; append when nothing matches.
+/// The shared body of the three dedup passes: replace the first `dup`-matching candidate only when `w`'s shape is strictly longer, else append.
 fn push_keep_longer(out: &mut Vec<Word>, w: Word, dup: impl Fn(&Word, &Word) -> bool) {
     if let Some(existing) = out.iter_mut().find(|o| dup(&w, o)) {
         if w.shape.len() > existing.shape.len() {
@@ -2453,9 +2222,7 @@ fn push_keep_longer(out: &mut Vec<Word>, w: Word, dup: impl Fn(&Word, &Word) -> 
     out.push(w);
 }
 
-// Measures `push_remove_duplicates`'s own cost separately from pg-fst's `Transduce` dedup: both are
-// linear scans over candidate lists that can explode on Optional-flooded shapes, and only a split
-// measurement says which dominates. A permanent diagnostic — near-zero cost when unread.
+// Measures `push_remove_duplicates`'s own cost separately from pg-fst's `Transduce` dedup, since both are linear scans that can explode on Optional-flooded shapes and only a split measurement says which dominates.
 pub mod dedup_profile {
     use std::cell::Cell;
 
@@ -2484,22 +2251,7 @@ pub mod dedup_profile {
     }
 }
 
-/// C# `HermitCrabExtensions.Duplicates`: two shapes duplicate each other iff their **non-Optional**
-/// nodes, in order, carry an identical feature structure. That structure has two dimensions this
-/// port stores separately — the phonological features and type, which are the node's lanes, and
-/// `StrRep`, which is the node's effective char-def-set.
-///
-/// `StrRep` is load-bearing, not belt-and-braces. On a zero-phonological-feature grammar, and on
-/// every boundary of every grammar, it is the node's ONLY identity: comparing lanes alone treats
-/// any two same-length candidate sequences as duplicates and longer-wins-collapses genuinely
-/// distinct analyses. It compares as a value SET, and a natural-class-inserted node carries the
-/// member union, which is why `Singleton(x)` must equal `Members({x})`.
-///
-/// **Deliberate residual, finer than C# in one direction only.** On feature-bearing grammars C#'s
-/// segment FS carries no `StrRep` at all, so two same-lane nodes with different char-defs compare
-/// EQUAL there and unequal here. Being finer only keeps extra candidates C# would prune, and C#
-/// itself documents this dedup as a search-space optimization rather than a correctness step.
-/// Being coarser would delete real analyses, so err in this direction if you touch it.
+/// C# `Duplicates`: two shapes duplicate each other iff their **non-Optional** nodes carry an identical feature structure (lanes AND `StrRep`, load-bearing since it is a boundary's only identity); this port is deliberately finer than C# here, so err toward finer, never coarser, if you touch it.
 fn shape_duplicates(a: &Shape, b: &Shape) -> bool {
     let idx = |s: &Shape| -> Vec<usize> {
         (0..s.len())
@@ -2515,9 +2267,7 @@ fn shape_duplicates(a: &Shape, b: &Shape) -> bool {
         })
 }
 
-/// Set-equality over `EffectiveCdSet` — `shape_duplicates`'s `StrRep` dimension. `Unrestricted`
-/// equals only `Unrestricted`: a node whose FS carries `StrRep` and one whose FS does not are
-/// different feature structures.
+/// Set-equality over `EffectiveCdSet` — `shape_duplicates`'s `StrRep` dimension; `Unrestricted` equals only `Unrestricted`, since a node with `StrRep` and one without are different feature structures.
 fn effective_cd_sets_eq(a: EffectiveCdSet, b: EffectiveCdSet) -> bool {
     match (a, b) {
         (EffectiveCdSet::Singleton(x), EffectiveCdSet::Singleton(y)) => x == y,
@@ -2531,9 +2281,7 @@ fn effective_cd_sets_eq(a: EffectiveCdSet, b: EffectiveCdSet) -> bool {
     }
 }
 
-// =================================================================================================
 // Compounding — synthesis.
-// =================================================================================================
 
 fn synth_compound(g: &Grammar, word: &Word, rule: &CompoundingRuleDef) -> Vec<Word> {
     let Some(nh) = word.current_non_head().cloned() else {
@@ -2553,8 +2301,7 @@ fn synth_compound(g: &Grammar, word: &Word, rule: &CompoundingRuleDef) -> Vec<Wo
         return Vec::new();
     }
 
-    // A compounding rule has no `MorphemeId` to resolve through, and this uncached entry point has
-    // no `MRuleId` in scope either, so the table is resolved by the rule's own xml id.
+    // A compounding rule has no `MorphemeId` and this uncached entry point has no `MRuleId` in scope, so the table is resolved by the rule's own xml id.
     let table = crate::cache::owning_table_for_compounding_rule(g, rule).unwrap_or(TableId(0));
     let (head_segs, head_node_of) = segs_of(g, table, &word.shape, true);
     let (nh_segs, nh_node_of) = segs_of(g, table, &nh.shape, true);
@@ -2594,13 +2341,7 @@ fn synth_compound(g: &Grammar, word: &Word, rule: &CompoundingRuleDef) -> Vec<Wo
     output
 }
 
-/// `crate::cache::RuleCache`-aware sibling of `synth_compound`. Gate ORDER differs from C#'s — the
-/// two syntactic-FS gates run before the partial-template one — which is harmless because every
-/// gate is independent and boolean: only the reported reason changes when two would fail at once.
-///
-/// `HeadProdRestrictMprFeatures` alone routes through `compounding_rule_not_applied`; every other
-/// gate here, including the loop's, uses the generic event. That is C#'s own split — it uses the
-/// compounding-specific event at exactly one site.
+/// `RuleCache`-aware sibling of `synth_compound`: gate order differs harmlessly from C#'s (independent boolean gates), and only `HeadProdRestrictMprFeatures` routes through `compounding_rule_not_applied`, matching C#'s own one-site split.
 #[allow(clippy::too_many_arguments)]
 fn synth_compound_cached(
     g: &Grammar,
@@ -2714,8 +2455,7 @@ fn synth_compound_cached(
     output
 }
 
-/// Returns which side's pattern failed rather than a bare `None`. The head is tried first, so the
-/// non-head is only attempted — and `NonHeadPattern` only reported — once the head has matched.
+/// Returns which side's pattern failed rather than a bare `None`; the head is tried first, so `NonHeadPattern` is only reported once the head has matched.
 #[allow(clippy::too_many_arguments)]
 fn synth_compound_subrule(
     g: &Grammar,
@@ -2792,25 +2532,14 @@ fn synth_compound_subrule(
     );
     w.morphs = morphs;
     w.obligatory.extend_from_slice(&rule.obligatory_features);
-    // The consumed non-head is deliberately NOT popped off `w.non_heads`, matching C#: only
-    // confirmation moves the index backward, leaving the entry behind as history. `WordKey`'s
-    // recursion needs that history — two compounds built from surface-homophone but distinct
-    // non-head entries are otherwise indistinguishable once the shared shape is synthesized.
-    //
-    // Safe for any number of accumulated non-heads because `Word::current_non_head` is
-    // index-based, not `last()`, so a stale consumed entry never shadows the one the index points
-    // at. Do not "simplify" it back to `last()`: generation seeds can push several non-heads,
-    // bypassing analysis and its `max_stem_count` gate entirely.
+    // The consumed non-head stays in `w.non_heads` as history (matching C#) since `WordKey` needs it to distinguish surface-homophone compounds; `current_non_head` is index-based, not `last()` — do not "simplify" it back, since generation seeds can push several non-heads at once.
     w.flags.is_last_applied_rule_final = None;
     Ok(w)
 }
 
-// =================================================================================================
 // Compounding — analysis.
-// =================================================================================================
 
-/// The combined head+non-head part list an `ana_compound` subrule matches against (head parts
-/// named `h{i}`, non-head parts named `n{i}`, concatenated — the analysis LHS spans both).
+/// The combined head+non-head part list an `ana_compound` subrule matches against (`h{i}`/`n{i}` names, concatenated).
 fn ana_compound_parts(sr: &CompoundingSubruleDef) -> Vec<(String, &Pattern)> {
     let mut parts: Vec<(String, &Pattern)> = Vec::new();
     for (i, p) in sr.head_lhs.iter().enumerate() {
@@ -2822,8 +2551,7 @@ fn ana_compound_parts(sr: &CompoundingSubruleDef) -> Vec<(String, &Pattern)> {
     parts
 }
 
-/// Build the analysis LHS and its compiled FST for one compounding subrule — `build_ana_affix_lhs`'s
-/// counterpart, and cached once per (rule, subrule) pair for the same reason.
+/// Build the analysis LHS and its compiled FST for one compounding subrule — `build_ana_affix_lhs`'s counterpart, cached per (rule, subrule) pair for the same reason.
 fn build_ana_compound_lhs(
     g: &Grammar,
     table: TableId,
@@ -2843,8 +2571,7 @@ fn ana_compound(
     rule: &CompoundingRuleDef,
     root_filter: Option<NonHeadRootFilter>,
 ) -> Vec<Word> {
-    // Same guard and adjust as `ana_affix`; the head-required/out pair plays the affix rule's
-    // required/out role exactly. See `ana_syn_fs`.
+    // Same guard and adjust as `ana_affix`; the head-required/out pair plays the affix rule's required/out role exactly.
     let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
         return Vec::new();
     };
@@ -2909,15 +2636,7 @@ fn ana_compound_cached(
     output
 }
 
-/// One subrule's analysis-side match, head and non-head `GenerateShape`, dedup, and non-head
-/// root-allomorph resolution — all in one per-subrule scope, as C# does. The dedup scope resets per
-/// subrule: a candidate from one subrule must never suppress an identical-looking one from another.
-///
-/// With `root_filter` `None` each match yields one raw, unresolved split. With `Some`, each split
-/// multiplies into **one candidate per surviving root allomorph**, the non-head's shape, syntactic
-/// FS, MPR, root allomorph and morph record all replaced by the matched entry's canonical values. A
-/// split whose non-head matches no root, or whose matches all fail the rule's non-head gates, is
-/// discarded entirely — C# assumes it is not a valid analysis.
+/// One subrule's analysis-side match, `GenerateShape`, and dedup (scope resets per subrule); with `root_filter` `Some`, each raw split multiplies into one candidate per surviving root allomorph, and a split matching no root is discarded entirely.
 #[allow(clippy::too_many_arguments)]
 fn ana_compound_subrule(
     g: &Grammar,
@@ -2976,9 +2695,7 @@ fn ana_compound_subrule(
                 let mut w = word.clone();
                 w.shape = head_shape;
                 w.syn_fs = new_syn.clone();
-                // Must push the split-off non-head AND advance the index in lock-step:
-                // `current_non_head()` is index-based, so a raw `non_heads.push` leaving the index
-                // stale makes the just-split non-head invisible to `synth_compound`'s own gate.
+                // Must push the split-off non-head AND advance the index in lock-step, or `current_non_head()`'s index-based lookup leaves the just-split non-head invisible to `synth_compound`'s gate.
                 w.non_head_unapplied(Word::new(nh_shape, word.stratum));
                 push_remove_duplicates_compound(&mut sr_out, w);
             }
@@ -2997,15 +2714,7 @@ fn ana_compound_subrule(
     sr_out
 }
 
-/// C#'s root-allomorph search, gates, and pin: look up root allomorphs matching the just-split-off
-/// non-head's raw shape, keep those whose entry unifies with the rule's non-head required syntactic
-/// FS and satisfies its non-head prod restrictions, and build a resolved non-head `Word` per
-/// survivor — shape re-segmented from the allomorph's own stored text, syntactic FS, MPR, partial
-/// flag and stratum from the entry, root allomorph pinned, one order-0 morph record.
-///
-/// That resolution is what lets `attribute_morphs`'s non-head branch and `synth_compound`'s
-/// non-head gate see real data rather than an empty FS and empty morph list. An empty result is
-/// meaningful: it discards the whole split.
+/// C#'s root-allomorph search, gates, and pin: builds a resolved non-head `Word` per surviving root allomorph so `attribute_morphs` and `synth_compound`'s non-head gate see real data; an empty result meaningfully discards the whole split.
 fn resolve_non_head_roots(
     g: &Grammar,
     rule: &CompoundingRuleDef,
@@ -3071,8 +2780,7 @@ fn resolve_non_head_roots(
     out
 }
 
-/// `push_remove_duplicates` extended to the (head, non-head) shape pair, for the lexicon-free path.
-/// "Longer" is judged on the head shape alone, mirroring C#'s use of the head word's own count.
+/// `push_remove_duplicates` extended to the (head, non-head) shape pair, for the lexicon-free path; "longer" is judged on the head shape alone, mirroring C#.
 fn push_remove_duplicates_compound(out: &mut Vec<Word>, w: Word) {
     push_keep_longer(out, w, |a, b| {
         shape_duplicates(&a.shape, &b.shape)
@@ -3083,9 +2791,7 @@ fn push_remove_duplicates_compound(out: &mut Vec<Word>, w: Word) {
     });
 }
 
-/// The root-allomorph-pinned sibling, used once the non-head is resolved. C#'s duplicate key is the
-/// HEAD shape plus the *same pinned allomorph id*, not the non-head shape — two candidates pinned to
-/// one allomorph already share a non-head shape by construction. "Longer" is again the head shape.
+/// The root-allomorph-pinned sibling, used once the non-head is resolved: C#'s duplicate key is the head shape plus the same pinned allomorph id, not the non-head shape (which is already shared by construction).
 fn push_remove_duplicates_compound_pinned(out: &mut Vec<Word>, w: Word) {
     let allo = w.current_non_head().and_then(|nh| nh.root_allomorph);
     push_keep_longer(out, w, |a, b| {
@@ -3094,9 +2800,7 @@ fn push_remove_duplicates_compound_pinned(out: &mut Vec<Word>, w: Word) {
     });
 }
 
-// =================================================================================================
-// Compile-once cache (plan §13.2 step 5; `crate::cache::RuleCache`'s allomorph/compounding slices).
-// =================================================================================================
+// Compile-once cache — `crate::cache::RuleCache`'s allomorph/compounding slices.
 
 /// One compounding subrule's precompiled matchers. A field is `None` iff its pattern failed to
 /// compile; the runtime functions already treat a compile failure as "this subrule cannot apply",

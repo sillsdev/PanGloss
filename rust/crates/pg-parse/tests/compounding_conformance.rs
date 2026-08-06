@@ -1,22 +1,4 @@
-//! Conformance replay for the P3 compounding fixtures
-//! (`rust/conformance/compounding/{prefix-commute,nonhead-not-root}/`): load each fixture's
-//! `grammar.xml` exactly as authored (standalone, oracle-verified — no `csharp_port_common`
-//! scaffolding), parse every word in `words.txt`, and check
-//! `Morpher::parse_word(...).signature()` against the literal signature transcribed from that
-//! fixture's oracle-generated `expected.tsv` (same convention as
-//! `crates/pg-parse/tests/metathesis_conformance.rs`). Each fixture's README documents the
-//! oracle-generating command and what the fixture pins:
-//!
-//! - `prefix-commute`: `CompoundingRuleTests.SimpleRules` reconfiguration 3's REAL grammar
-//!   (nonHead+head output order carried over from reconfiguration 2) — a "di+" prefix commutes
-//!   with compounding because the affixed span is the HEAD, which stays in the stratum cascade.
-//! - `nonhead-not-root`: the same grammar with head+nonHead output order — the affixed span
-//!   becomes the NON-HEAD, which `AnalysisCompoundingRule` requires to be a bare root, so BOTH
-//!   engines return no analyses (parity pin for the shared "non-head must already be a root"
-//!   design limit; this is a grammar shape that was once mistaken for an engine gap). Its
-//!   "pʰutdat" row additionally pins the homophone-disjunction fix: the dat-homophone pair
-//!   (entries 8/9) resolves via the NON-HEAD under this grammar's word order, which is exactly the
-//!   path `simple_rules_1_homophone_disjunction_finding` documents.
+//! Conformance replay for the compounding fixtures (`rust/conformance/compounding/{prefix-commute,nonhead-not-root}/`): parses every word in `words.txt` and checks its signature against the fixture's oracle-generated `expected.tsv`; each fixture's README documents the oracle-generating command and what it pins.
 
 use std::path::{Path, PathBuf};
 
@@ -35,8 +17,7 @@ fn load_fixture(name: &str) -> pg_grammar::model::Grammar {
     load(&xml).unwrap_or_else(|e| panic!("{name}: grammar failed to load: {e}"))
 }
 
-/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
-/// runs (CI's release sweep included) must not panic on the missing directory.
+/// Self-skip guard, so an `--include-ignored` run does not panic when the fixture directory is absent.
 fn have_fixture(name: &str) -> bool {
     fixture_path(name, "grammar.xml").exists()
 }
@@ -75,11 +56,7 @@ fn nonhead_not_root_matches_oracle() {
     }
     let g = load_fixture("nonhead-not-root");
     let m = Morpher::new(&g, usize::MAX);
-    // "pʰutdat": with head+nonHead order the dat-homophone pair (entries 8/9)
-    // resolves via the NON-HEAD; the live oracle keeps both ("5+8|...;5+9|..."). Previously omitted
-    // from this fixture because Rust's engine collapsed them to "5+8" only -- see
-    // `csharp_port_compounding.rs::simple_rules_1_homophone_disjunction_finding` for the root cause
-    // (fixed) and `nonhead-not-root/README.md` for the re-generation record.
+    // "pʰutdat": with head+nonHead order the dat-homophone pair (entries 8/9) resolves via the non-head, and the live oracle keeps both readings.
     let cases = [
         ("pʰutdidat", "-"),
         ("pʰutdat", "5+8|(pʰ)ut+?dat;5+9|(pʰ)ut+?dat"),

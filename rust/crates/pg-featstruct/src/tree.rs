@@ -22,8 +22,7 @@
 
 use crate::bitvec::SymbolBits;
 
-/// Index of a feature within one feature *system* (the syntactic system here; the
-/// phonological system uses `FlatIndex` lanes instead). Assigned densely at grammar load.
+/// Index of a feature within one feature *system* (syntactic here; phonological uses `FlatIndex` lanes), assigned densely at grammar load.
 #[derive(
     Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]

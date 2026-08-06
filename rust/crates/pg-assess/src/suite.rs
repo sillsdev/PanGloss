@@ -165,16 +165,14 @@ pub enum SuiteError {
     DuplicateCaseId {
         case_id: String,
     },
-    /// `required`, `forbidden`, and `allowed` must be pairwise disjoint: an identity that is both
-    /// demanded and banned has no satisfiable reading.
+    /// `required`, `forbidden`, and `allowed` must be pairwise disjoint; an identity that is both demanded and banned has no satisfiable reading.
     OverlappingExpectation {
         case_id: String,
         first: &'static str,
         second: &'static str,
         identity_digest: String,
     },
-    /// A declared identity profile this build cannot evaluate. Not silently reinterpreted — an
-    /// expectation written under another profile's encoding means something else.
+    /// A declared identity profile this build cannot evaluate; not silently reinterpreted, since an expectation written under another profile's encoding means something else.
     UnsupportedIdentityProfile {
         found: String,
         supported: String,
@@ -243,8 +241,7 @@ pub fn parse_suite(document: &str) -> Result<ValidatedSuite, SuiteError> {
     let raw: Value =
         serde_json::from_str(document).map_err(|e| SuiteError::Malformed(e.to_string()))?;
 
-    // Check schema and version before typed deserialization, so a future-versioned document
-    // reports the version rather than an incidental field mismatch.
+    // Check schema and version before typed deserialization, so a future-versioned document reports the version rather than an incidental field mismatch.
     match raw.get("schema").and_then(Value::as_str) {
         Some(SUITE_SCHEMA) => {}
         Some(found) => {
@@ -551,8 +548,7 @@ mod tests {
         }])))
         .unwrap();
         assert_eq!(s.cases()[0].supersedes, ["old"]);
-        // A superseded ID need not exist in this suite: the case it replaces lived in an earlier
-        // revision, which PanGloss does not have and does not require.
+        // A superseded ID need not exist in this suite, since the case it replaces lived in an earlier revision this build does not have.
     }
 
     #[test]

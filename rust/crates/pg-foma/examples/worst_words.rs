@@ -1,20 +1,4 @@
-//! Pinned-worst-word generator for the dead-end census workflow (skill:
-//! `.claude/skills/dead-end-census`). Identifies the per-word confirm-cost outliers per
-//! grammar so they can be pinned into `samples/data/<name>-worst-words.txt` (gitignored) and
-//! union'd into every census/benchmark slice — the census's `take(cap)` would otherwise miss
-//! them entirely (Amharic's default cap is 40; its worst word is nowhere near the front).
-//!
-//! Runs the FULL corpus through `analyze_words` THREE times, takes each word's MEDIAN per-word
-//! (propose+confirm) time across the three runs (median to suppress the contention noise that
-//! made single-run maxima swing 1.8s->11.8s on Sena), sorts, and prints the top 20 words per
-//! grammar with median/min/max ms and candidate count.
-//!
-//! Output is UTF-8; each word is printed both as its literal string and as a hex byte dump so a
-//! pathological word can be pinned unambiguously regardless of terminal rendering of the script.
-//! Capture the top band (through the last clear noise-band member, not a hard rank cut — see the
-//! skill) into the gitignored fixture by hand; this generator prints, it does not write the file.
-//!
-//!   cargo run -p pg-foma --release --example worst_words
+//! Pinned-worst-word generator: runs the full corpus through `analyze_words` three times, takes each word's median per-word time to suppress contention noise, and prints the top 20 outliers per grammar (median/min/max ms, candidate count, hex byte dump) for manual pinning into a gitignored fixture.
 
 use std::path::{Path, PathBuf};
 

@@ -107,14 +107,7 @@ const NC_ANY_XML_ID: &str = "ncAny";
 const FEAT_VOICE_XML_ID: &str = "featVoice";
 const SYM_VOICE_PLUS_XML_ID: &str = "symVoicePlus";
 const SYM_VOICE_MINUS_XML_ID: &str = "symVoiceMinus";
-// Every segment ALSO gets a globally-unique value on this second feature (module doc addendum
-// below `build`'s own doc: found empirically, not anticipated in the original design pass). Only
-// `featVoice` is meaningful to any natural class this module declares (`ncVoicedAny`/
-// `ncVoicelessAny` only ever pin `featVoice`) -- `featId` exists purely so no two segments in the
-// WHOLE grammar ever share an identical feature VECTOR, mirroring `machine/conformance/languages/
-// fusional-realizational-morphology/grammar.xml`'s own `featId` ("id") feature and its own comment explaining exactly
-// this need (that file's header: a fully-specified feature system, one unique value per segment,
-// is required wherever a segment's identity must be recoverable from its feature struct alone).
+// Every segment also gets a globally-unique value on this second feature, so no two segments in the whole grammar ever share an identical feature vector — needed wherever a segment's identity must be recoverable from its feature struct alone.
 const FEAT_ID_XML_ID: &str = "featId";
 
 /// Build `table_count` tables (minimum 1), `segment_inventory` segments each (minimum 2, so every
@@ -151,9 +144,7 @@ pub fn build(
          segments requested) -- stage-1 recipes should stay well under this"
     );
 
-    // `featId`'s symbols (module doc addendum): one per segment this call will ever mint, named
-    // purely from a running global counter -- assigned to segments below in the same order, so
-    // segment `k` (across every table) always gets `symId{k}`.
+    // `featId`'s symbols: one per segment, named from a running global counter, so segment `k` (across every table) always gets `symId{k}`.
     let total_segments = table_count * segment_inventory;
     let mut feat_id_symbols_xml = String::new();
     for k in 0..total_segments {
@@ -167,8 +158,7 @@ pub fn build(
     let mut boundary_xml_id: Option<String> = None;
     for t in 0..table_count {
         let table_xml_id = ids.next("tbl");
-        // Table 0 always starts index 0 at voice+; later tables start at voice- when misaligned
-        // (module doc), or also at voice+ (same phase, coincidentally-correct mix-up) otherwise.
+        // Table 0 always starts index 0 at voice+; later tables start at voice- when misaligned, or also at voice+ otherwise.
         let start_plus = !(misaligned && t > 0);
 
         let mut segments = Vec::with_capacity(segment_inventory);

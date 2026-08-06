@@ -55,8 +55,7 @@ impl BudgetDimension {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum IncompleteReason {
-    /// A deterministic magnitude budget tripped. Same model, same word, same caps gives the same
-    /// outcome on every machine and every run.
+    /// A deterministic magnitude budget tripped; same model, same word, same caps gives the same outcome on every machine and every run.
     #[serde(rename_all = "camelCase")]
     LogicalBudget {
         dimension: BudgetDimension,
@@ -79,8 +78,7 @@ impl IncompleteReason {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum NotAttemptedReason {
-    /// A cumulative batch budget was exhausted by earlier cases. Those earlier cases stay complete
-    /// and valid; only this one never ran.
+    /// A cumulative batch budget was exhausted by earlier cases; those stay complete and valid, only this one never ran.
     BatchBudgetExhausted,
     /// Import, compile, or setup failed, so no case could run.
     AssessmentSetupFailed,
@@ -93,8 +91,7 @@ pub enum NotAttemptedReason {
 pub enum CaseOutcome {
     /// The entire confirmed analysis set. May be empty, which is a positive claim.
     Complete(AnalysisSet),
-    /// Analysis began and a limit stopped it. Any partial candidates are diagnostic evidence held
-    /// elsewhere and never presented as the authoritative set.
+    /// Analysis began and a limit stopped it; any partial candidates are diagnostic evidence held elsewhere, never presented as the authoritative set.
     Incomplete(IncompleteReason),
     /// The case never began.
     NotAttempted(NotAttemptedReason),
@@ -137,8 +134,7 @@ impl CaseOutcome {
 pub enum AssessmentStatus {
     /// Every runnable case completed. Cases skipped by policy do not make a run partial.
     Complete,
-    /// At least one case completed and another runnable case did not, because execution or batch
-    /// limits intervened.
+    /// At least one case completed and another runnable case did not, because execution or batch limits intervened.
     Partial,
     /// Import, compile, or setup prevented all runnable cases from completing.
     Failed,

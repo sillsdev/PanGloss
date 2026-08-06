@@ -77,9 +77,7 @@ pub unsafe extern "C" fn hc_parse_word(
             unsafe { std::slice::from_raw_parts(word_utf8, len) }
         };
         let word = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
-        // `guess_fallback: false` -- this entry point's wire format (`crate::buffer::MAGIC`) has
-        // no `guessed` bit, so a guess must never come back from this call at all (see this
-        // module's own doc, and `pg_lexicon::analysis`'s `analyze_word`/`analyze_word_opts` docs).
+        // `guess_fallback: false`, since this entry point's wire format has no `guessed` bit.
         let outcome = unified_to_parse(gh.analyze_word(word, false));
         Ok(crate::buffer::encode_single(&outcome))
     });
@@ -146,8 +144,7 @@ pub unsafe extern "C" fn hc_parse_batch(
             let s = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
             rust_words.push(s.to_string());
         }
-        // `guess_fallback: false` -- same reasoning as `hc_parse_word`'s own call, immediately
-        // above in this file.
+        // `guess_fallback: false`, same reasoning as `hc_parse_word`'s own call above.
         let outcomes: Vec<_> = gh
             .analyze_words(&rust_words, max_threads as usize, false)
             .map_err(|_| HC_ERR_INVALID_ARG)?
@@ -256,15 +253,7 @@ pub unsafe extern "C" fn hc_parse_batch_opts(
     finish(result, out)
 }
 
-/// `--guess`'s own parallel batch dispatch (mirrors `pg-cli`'s identically-named/-shaped private
-/// helper in `main.rs`): `pg_parse::hc_parse_batch` has no `ParseOptions` parameter, so it cannot
-/// express "guess on" — this additive sibling does, over the exact same `Morpher` engine.
-/// Deliberately simpler than `hc_parse_batch`'s own longest-surface-first dispatch scheduling (a
-/// throughput optimization, not a correctness requirement) — order-preserving via rayon's indexed
-/// `par_iter().map().collect()`, sufficient for this opt-in entry point. Also honors the
-/// `test-panic-hook` sentinel (`pg_parse::batch::test_panic_if_requested`) for parity with
-/// `hc_parse_batch`'s own abort-safety coverage, though no test currently drives a panic through
-/// this specific path.
+/// `--guess`'s own parallel batch dispatch, since `hc_parse_batch` has no `ParseOptions` to express "guess on"; deliberately simpler than that function's dispatch scheduling, order-preserving via rayon's indexed `par_iter().map().collect()`.
 fn parse_batch_with_opts(
     morpher: &pg_parse::Morpher,
     words: &[String],

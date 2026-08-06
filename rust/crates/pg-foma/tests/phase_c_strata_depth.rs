@@ -1,20 +1,4 @@
-//! GATE: stratum-depth scale -- recall-parity only (no `_overbudget` variant for this construct).
-//!
-//! `pg_grammar_gen::build::strata`'s own module doc explains why every extra stratum REUSES table
-//! 0 rather than minting a new table per stratum: GATE 1 already covers multi-TABLE correctness
-//! (a prior fix closed `pg_foma::replace`'s former `table_of`/`resolve_alpha_tuples` hardcoded
-//! `char_tables[0]` default -- GATE 1's own `tests/phase_c_multi_table.rs` is now inverted to
-//! assert the correct compile instead of detecting the wrongness); this gate is about
-//! multi-STRATUM CASCADING specifically, and stays a deliberately single-table recipe
-//! (`table_count: 1`) so it stays a clean, orthogonal probe of
-//! stratum depth alone, not a second multi-table exercise.
-//!
-//! Uses the PRODUCTION `pg_foma::emit::emit` path (same as GATE 2/circumfix): each extra stratum's
-//! own obligatory `<MorphologicalRule>` is STRATUM-ATTACHED (wired via `<Stratum morphologicalRules
-//! ="...">`, mirroring `pg-foma/src/morphotactics.rs`'s own `FIXTURE_STRATA` precedent), which
-//! `emit.rs`'s own classification loop handles as a "standalone (stratum-attached) derivation rule"
-//! (`deriv_prefix`/`deriv_suffix`) -- a different, simpler code path than GATE 2's own
-//! `AffixTemplate`-wrapped circumfix rule, but still fully covered by the production emitter.
+//! GATE: stratum-depth scale, recall-parity only; a deliberately single-table recipe so it probes multi-stratum cascading alone (extra strata reuse table 0, per `pg_grammar_gen::build::strata`), through the production `pg_foma::emit::emit` path over stratum-attached obligatory rules.
 
 mod common;
 
@@ -68,9 +52,7 @@ fn strata_depth_recall_parity_via_generator_and_oracle() {
         "recipe must produce exactly 2 roots on the base stratum"
     );
 
-    // --- Oracle (design doc §3): bounded Morpher-as-generator sweep. Bare-root generation already
-    // runs the FULL multi-stratum cascade (every extra stratum's own obligatory rule), so this is
-    // ground truth for the fully-derived surface form each root must produce. ---
+    // Oracle: bounded Morpher-as-generator sweep; bare-root generation runs the full multi-stratum cascade, so this is ground truth for each root's fully-derived surface form.
     let oracle_opts = OracleOpts {
         step_cap: 20_000,
         word_timeout: Some(Duration::from_millis(500)),
@@ -103,9 +85,7 @@ fn strata_depth_recall_parity_via_generator_and_oracle() {
     // --- Resource envelope (design doc §4b): a 2-root, 3-extra-stratum grammar must stay tiny. ---
     assert_net_size_within(&net, 2_000, 20_000);
 
-    // --- Recall (design doc §4a): re-parse each oracle word via an independent Morpher to recover
-    // its own tag sequence (mirrors GATE 2's own technique), then check that sequence is reachable
-    // in `net`. 100% required (no known compiler gap for this construct, design doc §5). ---
+    // Recall: re-parse each oracle word via an independent Morpher to recover its tag sequence, then check that sequence is reachable in `net`; 100% required, no known compiler gap for this construct.
     let morpher =
         Morpher::new(&g, oracle_opts.step_cap).with_word_timeout(oracle_opts.word_timeout);
     let popts = ParseOptions::default();

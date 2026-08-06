@@ -1,19 +1,11 @@
-//! Throwaway diagnostic: localize the 8.86GB allocation-failure crash observed
-//! running `pangloss batch aweti.json aweti-words.txt out.tsv --engine=foma` after the
-//! morphotactic-pruning fix landed. Zero-word batches complete cleanly in ~13-15min (compile-side
-//! is fine); at least one word crashes identically. Builds `FomaAnalyzer` ONCE, then calls
-//! `analyze_word` on every corpus word in sequence, printing+flushing before each call so the
-//! last printed word is the culprit if the process aborts (Rust's alloc-error handler is not
-//! catchable -- this is the only way to localize it without a rebuild per word).
+//! Diagnostic: builds `FomaAnalyzer` once, then calls `analyze_word` on every corpus word in sequence, printing+flushing before each call so the last printed word is the culprit if the process aborts — Rust's alloc-error handler is not catchable, so this is the only way to localize a crash without a rebuild per word.
 use std::io::Write;
 use std::path::PathBuf;
 
 use pg_foma::composite::FomaAnalyzer;
 
 fn main() {
-    // Matches `pg-cli`'s own `main()` (1 GiB dedicated stack) -- the default thread stack
-    // overflowed during the compile step alone (recursion in build_composites/emit), so this
-    // must run on the same big-stack worker `pg-cli` and `pg_parse::batch::hc_parse_batch` use.
+    // Matches `pg-cli`'s 1 GiB dedicated stack: the default stack overflows during compile alone (recursion in build_composites/emit).
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(run)

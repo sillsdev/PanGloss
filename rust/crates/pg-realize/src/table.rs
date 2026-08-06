@@ -53,12 +53,7 @@ impl TableRealizer {
         })
     }
 
-    /// Resolve `citation`'s plural form: the exceptions table first, then the regular mechanical
-    /// rules (`regular_plural`) for any plain ASCII-alphabetic word. `None` when neither source
-    /// can handle it cleanly (a non-alphabetic token — digits, punctuation, empty) — the caller
-    /// falls back to the unchanged citation form and marks the realization incomplete, per the
-    /// milestone task's "else use the citation form unchanged and mark the realization
-    /// incomplete" rule.
+    /// Resolves `citation`'s plural form: the exceptions table first, then `regular_plural` for a plain ASCII-alphabetic word; `None` for anything else, so the caller falls back to the unchanged citation form and marks the realization incomplete.
     fn plural_form(&self, word: &str) -> Option<String> {
         if let Some(p) = self.plural_exceptions.get(word) {
             return Some(p.clone());
@@ -70,10 +65,7 @@ impl TableRealizer {
         }
     }
 
-    /// Pluralize a citation form already split into whitespace-separated words (dots already
-    /// turned to spaces by the caller): only the final word is inflected, matching the milestone
-    /// task's "pluralize ONLY the final token" rule for multi-word/dotted glosses. Returns the
-    /// joined phrase and whether the inflection was cleanly derivable.
+    /// Pluralizes a citation form already split into words: only the final word is inflected, for multi-word/dotted glosses. Returns the joined phrase and whether the inflection was cleanly derivable.
     fn pluralize_phrase(&self, words: &[&str]) -> (String, bool) {
         match words.split_last() {
             Some((last, prefix)) => match self.plural_form(last) {
@@ -93,18 +85,7 @@ impl TableRealizer {
 }
 
 impl Realizer for TableRealizer {
-    /// Look up the `(case, poss, num)` cell and fill its noun-form slot. Total: every branch
-    /// produces a non-empty `text` (barring a genuinely empty `GlossIr`), never panics.
-    ///
-    /// - `Concept::Guessed(surface)`: always renders `*{surface}*` uninflected in the slot (never
-    ///   pluralized — a guessed root has no known plural form) and is always `complete: false`,
-    ///   even when the cell itself matched and residue is empty, per the milestone task's
-    ///   explicit guessed-concept rule.
-    /// - `Concept::Lex(citation)`: dots become spaces; only the final word is pluralized when the
-    ///   matched cell's slot is `{n:pl}`. `complete` requires an empty `residue`, a matched cell,
-    ///   and (when the cell needed a plural) a cleanly derivable one.
-    /// - Missing cell (defensive only — impossible while `TableRealizer::new`'s coverage check
-    ///   holds): falls back to the bare citation form, `complete: false`.
+    /// Looks up the `(case, poss, num)` cell and fills its noun-form slot; a guessed root always renders `*{surface}*` uninflected and `complete: false`, a lexical citation pluralizes only the final word when needed, and a missing cell (impossible while `new`'s coverage check holds) falls back to the bare citation form.
     fn realize(&self, ir: &GlossIr) -> Realization {
         let residue = ir.extras.clone();
 
@@ -151,10 +132,7 @@ impl Realizer for TableRealizer {
     }
 }
 
-/// Fill a template's single `{n:sg}`/`{n:pl}` slot with `form`, leaving the rest of the template
-/// unchanged. `templates.toml`'s own load-time validation guarantees exactly one of the two
-/// placeholders is present, so checking for `{n:sg}` and falling back to `{n:pl}` unconditionally
-/// is exhaustive, not a guess.
+/// Fills a template's single `{n:sg}`/`{n:pl}` slot with `form`; load-time validation guarantees exactly one placeholder is present, so falling back to `{n:pl}` unconditionally is exhaustive, not a guess.
 fn fill_template(template: &str, form: &str) -> String {
     if template.contains("{n:sg}") {
         template.replace("{n:sg}", form)
@@ -163,16 +141,12 @@ fn fill_template(template: &str, form: &str) -> String {
     }
 }
 
-/// A plain (non-empty, all-ASCII-alphabetic) word — the class `regular_plural`'s mechanical
-/// suffix rules are meaningful over. Anything else (digits, punctuation, empty) is left alone by
-/// `TableRealizer::plural_form` and marks the realization incomplete instead.
+/// A plain (non-empty, all-ASCII-alphabetic) word, the class `regular_plural`'s suffix rules are meaningful over; anything else is left alone and marks the realization incomplete.
 fn is_plain_ascii_word(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_ascii_alphabetic())
 }
 
-/// Regular English pluralization (`docs/natural-phrases-plan.md` N2): default `-s`; `-es` after a
-/// word ending in s/x/z/ch/sh; a final consonant + `y` becomes `-ies`. Only ever called on an
-/// `is_plain_ascii_word` input.
+/// Regular English pluralization: default `-s`; `-es` after a word ending in s/x/z/ch/sh; a final consonant + `y` becomes `-ies`. Only ever called on an `is_plain_ascii_word` input.
 fn regular_plural(word: &str) -> String {
     if word.ends_with('s')
         || word.ends_with('x')
@@ -199,10 +173,7 @@ fn is_vowel(c: char) -> bool {
     matches!(c.to_ascii_lowercase(), 'a' | 'e' | 'i' | 'o' | 'u')
 }
 
-/// Parse `templates.toml`'s `[cells]` section into the `(CaseRole, Poss, Num) -> template`
-/// table. Each key must be exactly three dot-separated components, each parsing via the
-/// corresponding enum's `parse`; each value must contain exactly one of `{n:sg}`/`{n:pl}` (not
-/// both, not neither) — both are load-time errors carrying the entry's source line number.
+/// Parses `templates.toml`'s `[cells]` section into the `(CaseRole, Poss, Num) -> template` table; each value must contain exactly one of `{n:sg}`/`{n:pl}`, a load-time error carrying the source line number if not.
 fn load_cells(text: &str) -> Result<HashMap<(CaseRole, Poss, Num), String>, MapError> {
     let mut cells = HashMap::new();
     for (line_no, key, value) in parse_section(text, "cells")? {
@@ -244,9 +215,7 @@ fn load_cells(text: &str) -> Result<HashMap<(CaseRole, Poss, Num), String>, MapE
     Ok(cells)
 }
 
-/// Parse `lexicon.toml`'s `[plural_exceptions]` section into the singular -> irregular-plural
-/// table (last entry for a duplicate key wins, same authoring-config posture as
-/// `RealizeMap::parse`).
+/// Parses `lexicon.toml`'s `[plural_exceptions]` section into the singular -> irregular-plural table; last entry for a duplicate key wins.
 fn load_lexicon(text: &str) -> Result<HashMap<String, String>, MapError> {
     let mut lexicon = HashMap::new();
     for (_line_no, key, value) in parse_section(text, "plural_exceptions")? {
@@ -255,9 +224,7 @@ fn load_lexicon(text: &str) -> Result<HashMap<String, String>, MapError> {
     Ok(lexicon)
 }
 
-/// Confirm `cells` has an entry for every one of the 4 × 9 × 3 = 108 `(CaseRole, Poss, Num)`
-/// combinations. Line `0` (no single source line owns a whole-file coverage gap) since this
-/// checks the assembled map, not one entry.
+/// Confirms `cells` has an entry for every one of the 4 x 9 x 3 = 108 `(CaseRole, Poss, Num)` combinations; line `0` since this checks the assembled map, not one entry.
 fn validate_coverage(cells: &HashMap<(CaseRole, Poss, Num), String>) -> Result<(), MapError> {
     for &case in &CaseRole::ALL {
         for &poss in &Poss::ALL {
