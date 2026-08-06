@@ -98,8 +98,11 @@ exercises it. Do not leave a "proven" label resting on nothing.
 
 ## Q7 — One measurement is reported three different ways
 
-Recall for the grammar that drove the enumeration-blow-up work appears in the documents as 65/101,
-68/104 and 100/106, unresolved. That grammar's numbers motivated a significant piece of design.
+Recall for the grammar that drove the enumeration-blow-up work appears in the documents as **five**
+different figures, not three (counted across `docs/` and `openspec/` on 2026-08-06): 100/106 (21
+occurrences), 68/104 (16), 65/101 (8), 32/104 (6), and 68/106 (1). That last one is diagnostic — it
+pairs one measurement's numerator with another's denominator, which is what happens when figures are
+copied between documents rather than re-measured. That grammar's numbers motivated a significant piece of design.
 
 **Now carries the retired matrix's hygiene rules.** `run-synthetic-conformance-matrix` was archived
 2026-08-06; its runs duplicated tasks 3.1/3.3/5.3 already inside `cleanup-and-recipe-parity`, but its
@@ -261,3 +264,18 @@ honest statement is "we did not".
 This one is worth noting as method, not just as fact: the note was repeated as evidence during a
 sweep whose whole purpose is distrusting notes. A checkout-local claim ("absent from this checkout")
 is exactly the kind that silently stops being true when the checkout changes.
+
+**G9 — A bare root can fail to parse at its own boundary.** Words consisting of a root with no affix
+are, in some cases, not analysed when they should be. Lifted from
+`reconcile-deep-truncation-baseline` (archived 2026-08-06), which scoped it as: diagnose the bare-root
+boundary, add a minimal oracle-backed regression, then implement **only** the demonstrated fix while
+preserving every analysis and multiplicity that already worked. That last clause is the discipline
+worth keeping — a recall fix that quietly drops an existing analysis is a regression wearing a
+success's clothes.
+
+**G10 — The conformance gate and the diagnostics tool each build their own copy of the same compiled
+network.** Nothing proves the two are identical, so the gate can pass on an artifact the report never
+examined. Same change's tasks 2.1/2.2: extract one constructor used by both callers, then assert
+matching fingerprint, states, arcs and rule dispositions across them. This is the "two consumers
+re-deriving one fact" hazard that this sweep has now hit four times — in the plan diagram, in health
+versus selection, in the comment checker versus its verifier, and here.

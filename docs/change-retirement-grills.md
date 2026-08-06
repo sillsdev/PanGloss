@@ -183,7 +183,15 @@ arrives.
 **Choices:** (a) retire; (b) keep blocked; (c) keep. Chose (a), no successor.
 </details>
 
-### C2 — `reconcile-deep-truncation-baseline` (0 done / 12 open)
+### C2 — `reconcile-deep-truncation-baseline` — RETIRED 2026-08-06
+
+**Resolved, and my "Q7 wearing a different hat" framing was too glib.** It bundled three unrelated
+jobs: the recall reconciliation (to Q7, now corrected to FIVE published figures, not three), a
+shared-network-constructor refactor (lifted as G10), and a genuine bare-root parsing defect (lifted as
+G9). Retiring it wholesale would have dropped a real bug and a real refactor.
+
+<details><summary>original grill</summary>
+
 
 *For:* the deep-truncation plan assumed 68/104 recall; the honest baseline was 32/104 after
 unsupported constructs were refused.
@@ -191,8 +199,8 @@ unsupported constructs were refused.
 *Now:* this is **Q7 wearing a different hat** — the same measurement reported three ways (65/101,
 68/104, 100/106). Two places tracking one reconciliation is how three numbers became four.
 
-**Choices:** (a) retire, folding it into Q7 as the authoritative home; (b) keep it as the home and
-delete Q7; (c) keep both. **Recommendation: (a) — one home for one number.**
+**Choices:** (a) retire into Q7; (b) keep as the home; (c) keep both. Chose (a), with G9/G10 lifted.
+</details>
 
 ---
 
