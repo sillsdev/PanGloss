@@ -1,4 +1,4 @@
-schema: spec-driven
+schema: code-defined
 
 context: |
   PanGloss is a Rust port and foma-backed propose→confirm implementation of the

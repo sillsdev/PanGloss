@@ -1,0 +1,147 @@
+name: code-defined
+version: 1
+description: proposal → design → tasks. The code, tests and docs define behaviour; there are no specs.
+artifacts:
+  - id: proposal
+    generates: proposal.md
+    description: Initial proposal document outlining the change
+    template: proposal.md
+    instruction: >
+      Create the proposal document that establishes WHY this change is needed.
+
+
+      Sections:
+
+      - **Why**: 1-2 sentences on the problem or opportunity. What problem does
+      this solve? Why now?
+
+      - **What Changes**: Bullet list of changes. Be specific about new
+      capabilities, modifications, or removals. Mark breaking changes with
+      **BREAKING**.
+
+      - **Impact**: Affected code, APIs, dependencies, or systems. Name the
+      modules and the tests that will demonstrate the change.
+
+
+      THIS PROJECT HAS NO SPECS, deliberately. Do not create a `specs/` directory,
+      do not write requirement/scenario documents, and do not promote anything to
+      an `openspec/specs/` tree. Behaviour is defined by the code, its tests, the
+      README, CONTEXT.md, CLAUDE.md and `docs/` — all of which are checked or read
+      routinely. A spec is none of those: it is a fourth description of the same
+      behaviour that nothing verifies and everyone forgets to update.
+
+
+      So state the contract where it can be enforced. If a requirement matters,
+      name the test that will pin it. If it is durable external knowledge, put it
+      in `docs/research/`.
+
+
+      Keep it concise (1-2 pages). Focus on the "why" not the "how" —
+      implementation details belong in design.md.
+    requires: []
+  - id: design
+    generates: design.md
+    description: Technical design document with implementation details
+    template: design.md
+    instruction: >
+      Create the design document that explains HOW to implement the change.
+
+
+      When to include design.md (create only if any apply):
+
+      - Cross-cutting change (multiple services/modules) or new architectural
+      pattern
+
+      - New external dependency or significant data model changes
+
+      - Security, performance, or migration complexity
+
+      - Ambiguity that benefits from technical decisions before coding
+
+
+      Sections:
+
+      - **Context**: Background, current state, constraints, stakeholders
+
+      - **Goals / Non-Goals**: What this design achieves and explicitly excludes
+
+      - **Decisions**: Key technical choices with rationale (why X over Y?).
+      Include alternatives considered for each decision.
+
+      - **Risks / Trade-offs**: Known limitations, things that could go wrong.
+      Format: [Risk] → Mitigation
+
+      - **Migration Plan**: Steps to deploy, rollback strategy (if applicable)
+
+      - **Open Questions**: Outstanding decisions or unknowns to resolve
+
+
+      Focus on architecture and approach, not line-by-line implementation.
+      Reference the proposal for motivation, and name the tests that will
+      demonstrate each decision holds.
+
+
+      Good design docs explain the "why" behind technical decisions.
+    requires:
+      - proposal
+  - id: tasks
+    generates: tasks.md
+    description: Implementation checklist with trackable tasks
+    template: tasks.md
+    instruction: >
+      Create the task list that breaks down the implementation work.
+
+
+      **IMPORTANT: Follow the template below exactly.** The apply phase parses
+
+      checkbox format to track progress. Tasks not using `- [ ]` won't be
+      tracked.
+
+
+      Guidelines:
+
+      - Group related tasks under ## numbered headings
+
+      - Each task MUST be a checkbox: `- [ ] X.Y Task description`
+
+      - Tasks should be small enough to complete in one session
+
+      - Order tasks by dependency (what must be done first?)
+
+      - Every task that claims behaviour must name how it will be verified. A
+      task whose completion cannot be observed is a task nobody can close.
+
+
+      Example:
+
+      ```
+
+      ## 1. Setup
+
+
+      - [ ] 1.1 Create new module structure
+
+      - [ ] 1.2 Add dependencies to Cargo.toml
+
+
+      ## 2. Core Implementation
+
+
+      - [ ] 2.1 Implement data export function
+
+      - [ ] 2.2 Add CSV formatting utilities
+
+      ```
+
+
+      Reference the design for how to build it. Each task should be verifiable —
+      you know when it is done, and so does a test.
+    requires:
+      - design
+apply:
+  requires:
+    - tasks
+  tracks: tasks.md
+  instruction: |
+    Read context files, work through pending tasks, mark complete as you go.
+    Pause if you hit blockers or need clarification.
