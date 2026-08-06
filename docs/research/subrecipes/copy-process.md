@@ -1,8 +1,51 @@
 # CopyProcess subrecipe dossier
 
-> Successor: `docs/research/subrecipes/copy-process.md` — the same dossier plus an "As shipped" section
-> stating what the mainline compiler does instead, with citations. This copy is retained because
-> `rust/crates/pg-foma/tests/subrecipe_dossier_contract.rs:47` reads this path.
+> Migrated from `docs/fst-plan/subrecipes/`. Everything below the divider is the dossier as written.
+> The section immediately following is new: the dossier proposes an architecture for subject matter
+> the shipped compiler already implements, under a different name, and does not say so.
+
+## As shipped — what the mainline actually does
+
+**Copying never enters the FST at all, and that is a design result rather than an omission.** Unbounded
+copy is not a regular relation, so the mainline handles reduplication as a query-time peel and unions
+the result into the candidate stream:
+
+- `rust/crates/pg-foma/src/peel.rs:159` (`ReduplicationPeeler`) — four `O(word length)` string scans:
+  prefix-copy, suffix-copy, separator-plus-tail-copy, separator-plus-suffix-peel.
+- Routing is a static per-rule label, `is_reduplication_rule` (`peel.rs:129`), assigned by
+  `classify_affix` (`emit.rs:401`).
+- The peeler recurses residuals into whatever proposer it is given, so it is proposer-agnostic by
+  construction.
+
+**Two shipped details the dossier does not carry.**
+
+1. **The precedence hazard.** `classify_affix` tests circumfix shape *before* reduplication shape
+   (`emit.rs:441`). An allomorph that is both circumfixing and reduplicating is therefore routed away
+   from the peel — deliberately, because each of the peeler's four scans is one-sided and none can
+   recall a wrap-both-sides shape — and into the expensive enumeration path instead. That precedence
+   was wrong once and cost real recall; the fixture `circumfix-reduplication-precedence` pins it.
+2. **A dead affordance.** `peel::has_redup_rules` (`peel.rs:209`) exists so that `composite.rs` can skip
+   building a propose closure for a grammar with no reduplication. `composite.rs` never calls it; the
+   only non-test caller anywhere is manifest declaration.
+
+**How that differs from the dossier.**
+
+| Dossier | Shipped |
+|---|---|
+| Split by span provability: a proven-maximum-span copy compiles to a finite `ExactFst`; only unbounded copy stays peeled | Everything is peeled. There is no bounded-span FST construction |
+| Explicit depth/input/branch budgets on the peel recursion | A chain-depth counter exists (`compose_budget.rs:231`) but is opt-in and off by default |
+| `max_span = None` means unbounded-and-peeled, never silently truncated | Agrees, by having no other option |
+
+**Verdict.** The peeled half of this dossier describes the shipped mechanism accurately, and the
+dossier says so — it is the only one of the six that identifies its own mainline for its main claim.
+The `ExactFst` bounded-span half is genuinely unbuilt, and it is the part with a plausible payoff: a
+provably bounded copy compiled into the network would remove a per-word runtime cost that currently
+scales with the number of proposals the peel recurses on.
+
+**Read alongside.** `../mainline-selection-audit.md` §B3 and §A6; `../technique-index.md` §2.18, §2.19;
+`../pg-foma-emit-design-notes.md` §2 for why the precedence is ordered as it is.
+
+---
 
 ## Scope
 

@@ -1,8 +1,63 @@
 # OrderedPhonology subrecipe dossier
 
-> Successor: `docs/research/subrecipes/ordered-phonology.md` — the same dossier plus an "As shipped" section
-> stating what the mainline compiler does instead, with citations. This copy is retained because
-> `rust/crates/pg-foma/tests/subrecipe_dossier_contract.rs:47` reads this path.
+> Migrated from `docs/fst-plan/subrecipes/`. Everything below the divider is the dossier as written.
+> The section immediately following is new: the dossier proposes an architecture for subject matter
+> the shipped compiler already implements, under a different name — and here the shipped construction
+> has the better measured record.
+
+## As shipped — what the mainline actually does
+
+**There is no ordered rewrite cascade on the shipped path.** The mainline reaches a similar relation
+by a completely different construction, and the cascade the dossier proposes exists in the tree but
+loses recall where it has been measured head to head.
+
+**What ships.** A bounded, build-time surface probe that bakes the cascade's *results* into literal
+lexc strings:
+
+- `PhonologyProbe` (`rust/crates/pg-foma/src/junctions.rs:45`) is constructed once per grammar, and is
+  `None` for a grammar with no phonological rules — a true no-op, byte-for-byte.
+- It drives the **real synthesis engine** (`pg_rules::surface_probe::probe_synthesize`, the same
+  machinery confirm uses) over a bounded local window: an affix's insert text alone, or with exactly
+  one alphabet-representative neighbour on either side. Every discovered surface spelling becomes a
+  literal lexc alternative.
+- Deletion junctions get their own encoding: per-prefix-variant `{name}Stripped` root lexicons
+  (`junctions.rs:275`), deliberately ungated by onset class, because the extra candidate is harmless
+  and confirm prunes it.
+
+**What the cascade is.** `replace.rs`'s Kaplan-Kay compiler is real
+(`rust/crates/pg-foma/src/replace.rs:1311`), and it is genuinely the better *artifact* where it works —
+a whole rule cascade composing in seconds where enumeration OOMs. It is reachable only from
+`recipe-optimize`, tests and examples.
+
+**The measured comparison, and it is the reason this section exists.** Run against the fixture that
+exercises templatic process morphs, the cascade path **loses 6 of 25 words (24%) of recall outright** —
+words both the oracle and the shipped emitter confirm, and the cascade confirms none. Two
+source-verified causes: two phonological rules are silently skipped by the rule compiler with no
+fallback (the mainline has `junctions.rs` for exactly this), and `InsertSimpleContext`/`ModifyFromInput`
+morphs are marked skipped with no resynthesis mechanism at all on that path
+(`../../fst-plan/cascade-vs-enumeration-experiment.md`).
+
+**How that differs from the dossier.**
+
+| Dossier | Shipped |
+|---|---|
+| One ordered `OrderedPhonologySpec` per stratum, compiled as an ordered composition with stage counters | A ±1-neighbour probe that runs the real engine at build time and writes literal strings; no composition at all |
+| Metathesis as a dedicated finite switch relation for admitted patterns | No metathesis construction. Metathesis instead trips `probe_would_refuse` (`emit.rs:1939`), which widens *every ordinary affix rule* onto the real-synthesis composite route — a different mechanism keyed on the same grammar property |
+| Refuses unsupported anchors, quantifiers and unbounded contexts | Over-generates and lets confirm prune; refusal happens at the capability layer, not in the construction |
+
+**The one split the dossier does name correctly.** It records the snapshot compiler skipping metathesis
+(`rust/crates/pg-grammar/src/compile/rules.rs`) while a `pg-foma` path has a real swap relation. That
+split is real and still live.
+
+**Verdict.** The mainline's construction is narrower in principle — it is provably blind to a
+phenomenon needing to see material from more than one morpheme's own text at once — and better on
+every recall measurement taken so far. Do not treat this dossier as a description of a gap to be
+filled; treat it as a proposal that has to beat a measured incumbent.
+
+**Read alongside.** `../mainline-selection-audit.md` §B3; `../technique-index.md` §2.10, §2.11, §2.24,
+§2.27; `../../fst-plan/p6-prototype-report.md` for the cascade's positive results.
+
+---
 
 ## Scope
 
@@ -32,7 +87,7 @@ primary scans are linked in the harvest ledger but were not independently downlo
 
 ## Primary sources
 
-- [Linguistic construct harvest](../linguistic-recipe-harvest.md) for Indonesian, Awngi, Selaru,
+- [Linguistic construct harvest](../../fst-plan/linguistic-recipe-harvest.md) for Indonesian, Awngi, Selaru,
   and the citation ledger.
 - [Kaplan and Kay, Regular Models of Phonological Rule Systems](https://aclanthology.org/anthology-files/anthology-files/pdf/J/J94/J94-3001.pdf)
   for regular rewrite cascades and composition growth.
@@ -173,7 +228,7 @@ transposition or nonlocal context.
 
 | Date | Evidence and direct link | Consequence |
 |---|---|---|
-| 2026-08-01 | [Kaplan–Kay](https://aclanthology.org/anthology-files/anthology-files/pdf/J/J94/J94-3001.pdf) and [harvest](../linguistic-recipe-harvest.md) | Ordered regular relations fit; composition growth must be budgeted. |
+| 2026-08-01 | [Kaplan–Kay](https://aclanthology.org/anthology-files/anthology-files/pdf/J/J94/J94-3001.pdf) and [harvest](../../fst-plan/linguistic-recipe-harvest.md) | Ordered regular relations fit; composition growth must be budgeted. |
 | 2026-08-01 | [model.rs](../../../rust/crates/pg-grammar/src/model.rs) and [Phase C gate](../../../rust/crates/pg-foma/tests/phase_c_metathesis.rs) | Rewrite and metathesis are ordered model members; finite swaps have an exact repository witness. |
 
 ## Evidence decisions

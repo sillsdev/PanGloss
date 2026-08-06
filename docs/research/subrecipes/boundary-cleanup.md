@@ -1,8 +1,67 @@
 # BoundaryCleanup subrecipe dossier
 
-> Successor: `docs/research/subrecipes/boundary-cleanup.md` — the same dossier plus an "As shipped" section
-> stating what the mainline compiler does instead, with citations. This copy is retained because
-> `rust/crates/pg-foma/tests/subrecipe_dossier_contract.rs:47` reads this path.
+> Migrated from `docs/fst-plan/subrecipes/`. Everything below the divider is the dossier as written.
+> The section immediately following is new: the dossier proposes an architecture for subject matter
+> the shipped compiler already implements, under a different name — and here the shipped construction
+> has the better measured record.
+
+## As shipped — what the mainline actually does
+
+**The mainline never puts boundary tokens on the queryable tape, so there is nothing to clean up.**
+That is the whole construction, and it is the reason the mainline never suffered the failure the
+dossier's architecture produced:
+
+- `surface_variants` (`rust/crates/pg-foma/src/emit.rs:563`) re-segments authored text against the
+  surface char-def table and **drops `Boundary`-kind matches at emit time**.
+- `with_boundary_insertions` (`emit.rs:2109`) is a no-op for a grammar that declares no boundary
+  definitions.
+- Multi-spelling segments are enumerated at emit time as a cartesian product of representations
+  (capped at `emit.rs:246`), rather than being represented on the tape and resolved later.
+
+**The compose-time deletion this dossier describes is the prototype's design, and it is the one that
+blew up.** A different build path (`build::finish_controllable_net`,
+`rust/crates/pg-foma/src/build.rs:454`) composed a single context-free "delete every `Boundary`-kind
+char-def" relation onto the whole network after emission. One reference grammar's char table declares
+three semantically different `Boundary` kinds — an ordinary morph separator, a genuine null-morph
+marker family, and another separator — and deleting all three erased the adjacency information that
+made most continuation combinations unreachable. Direct A/B on five words: 127 proposals through the
+mainline emitter, **53,992** through the compose-and-clean path — a **425×** blow-up, with one word at
+516×.
+
+**The precise root cause was narrower than "boundary deletion is unsafe".** The prototype's continuation
+lexicons are deliberately self-looping so affixes can stack. That is harmless for an affix that consumes
+at least one real character. It is not harmless for an allomorph whose *entire* underlying shape is
+boundary characters: once cleanup deletes them, its lexc line becomes a zero-width, epsilon-tagged entry
+sitting on the self-loop — a freely repeatable tag insertion. The shipped fix,
+`reroute_null_shaped_affix_chains` (`build.rs:288`), detects a line whose lower-tape text is entirely
+boundary characters and reroutes it onto a one-shot, non-reentrant successor, while duplicating every
+ordinary line into a parallel continuation so real affixes still stack on both sides. Post-fix: 575
+proposals on the same five words.
+
+**And the fix has a named, still-open scope gap.** Its `match` recognises only the two lexicon names
+that existed when it was written; later-added per-level compound lexicons recreate the identical hazard
+and are invisible to a name-based guard. That defence moved to emission-time discipline elsewhere;
+`reroute_null_shaped_affix_chains` is now belt-and-braces for those levels rather than their only
+defence.
+
+**How that differs from the dossier.**
+
+| Dossier | Shipped |
+|---|---|
+| One blanket unconditional boundary→epsilon relation, placed strictly last | No boundary tokens on the queryable tape at all; nothing to delete |
+| Null-shaped affix chains rerouted *before* compilation as a separate resource-safety step | Matches the shipped fix — this part the dossier gets right |
+| Terminal placement is the invariant | Terminal placement was satisfied and the blow-up happened anyway; ordering was never the problem |
+
+**Verdict.** The mainline's "enumerate variants at emit time" strategy is the reference-correct design
+here, and the diagnosis document that found the blow-up says so explicitly. A future boundary-cleanup
+construction has to either restrict the deletion to be context-sensitive per occurrence, or not put the
+tokens on the tape in the first place — which is what the mainline already does.
+
+**Read alongside.** `../mainline-selection-audit.md` §B3; `../technique-index.md` §2.8, §2.11, §2.20;
+`../../fst-plan/large-lexicon-proposal-explosion.md` (**superseded** — its proposal counts are stale;
+`../../fst-plan/recipe-parity-plan-2026-07-30.md` carries the current ones).
+
+---
 
 ## Scope
 
@@ -35,7 +94,7 @@ grammar examples remain a source uncertainty.
 
 - [Foma morphology tutorial](https://fomafst.github.io/morphtut.html) for intermediate boundary
   symbols followed by terminal cleanup.
-- [Linguistic construct harvest](../linguistic-recipe-harvest.md) for Sena and Caquinte and the
+- [Linguistic construct harvest](../../fst-plan/linguistic-recipe-harvest.md) for Sena and Caquinte and the
   citation ledger.
 - [Boundary marker/epsilon gate](../../../rust/crates/pg-foma/tests/boundary_marker_epsilon_collapse_gate.rs)
   for the checked-in synthetic evidence: deleting any boundary family would lose recall, while

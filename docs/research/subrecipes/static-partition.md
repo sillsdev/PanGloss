@@ -1,8 +1,54 @@
 # StaticPartition subrecipe dossier
 
-> Successor: `docs/research/subrecipes/static-partition.md` — the same dossier plus an "As shipped" section
-> stating what the mainline compiler does instead, with citations. This copy is retained because
-> `rust/crates/pg-foma/tests/subrecipe_dossier_contract.rs:47` reads this path.
+> Migrated from `docs/fst-plan/subrecipes/`. Everything below the divider is the dossier as written.
+> The section immediately following is new: the dossier proposes an architecture for subject matter
+> the shipped compiler already implements, under a different name, and does not say so.
+
+## As shipped — what the mainline actually does
+
+**The shipped answer here is mostly "nothing", and that is the finding.**
+
+**`gate.rs` is computed and thrown away.** The mainline builds a baseline plan on every compile
+(`rust/crates/pg-foma/src/enumerate.rs:145`, called from `emit.rs:2014`), and that plan is assembled
+from three grammar seams — including `gate::find_gated_subrules`
+(`rust/crates/pg-foma/src/gate.rs:186`) and `gate::partition_entries` (`gate.rs:237`), at
+`enumerate.rs:170-171`. The emitter reads back only the first two seams (`emit.rs:2015-2016`); the
+gate partition is discarded, because the mainline never calls `gate.rs`'s compile path
+(`emit.rs:1991-1992`). Consequence: **the shipped engine performs zero propose-side MPR/POS gating.**
+MPR correctness on real `--engine=foma` traffic rests entirely on the confirm pass — measured on a
+gated fixture as 9 candidates proposed, 8 confirmed, the excluded one rejected by confirm alone.
+
+The trigger the dossier is built around is therefore already detected on the shipped path. Only the
+mechanism is missing.
+
+**What *does* ship as a static partition.** `compound_license`
+(`rust/crates/pg-foma/src/emit.rs:1158`): head and non-head lexicon eligibility computed by MPR-bitset
+overlap against every compounding rule's gates, and materialized as separate lexc sections
+(`emit.rs:3165-3170`). That is a real lexical partition by MPR features, on the production path — but
+it is scoped to compounding, not to phonological subrules.
+
+**How that differs from the dossier.**
+
+| Dossier | Shipped |
+|---|---|
+| `Gate(signature, relation)` wrapping *complete morphotactic relations*, with ordered phonology shared after the gate | A lexicon-section split inside one lexc emission, applying only to compound head/non-head eligibility |
+| A lifetime-stable canonical group signature with typed per-group predicates | A boolean key vector of "which gated subrules apply" — the dossier already records this narrowing against `gate::partition_entries` |
+| Refuses full `2^p` Boolean-product materialization | Not reached: the partition is never compiled on the mainline at all |
+
+**Note the dossier's own honesty here.** It is the one of the six that already names a shipped
+mechanism (`gate::partition_entries`) as "the real partition mechanism" and records its own richer
+predicate model being cut back against it. `PartitionPredicate` and `DynamicState` are recorded in the
+dossier as deleted.
+
+**Verdict.** Both halves of the dossier's subject matter are real, and neither is finished: gating is
+detected and unwired; the only shipped partition is the compounding one. If propose-side gating is
+ever built, the trigger computation already exists and is already correct.
+
+**Read alongside.** `../mainline-selection-audit.md` §A6 defect 1 and §B3; `../technique-index.md`
+§2.16, §2.21; `../README.md` contradiction 15 (why the capability ledger's `Proven` disposition for
+subrule gating does not mean the mainline filters on it).
+
+---
 
 ## Scope
 
@@ -34,7 +80,7 @@ That archive-versus-grammar distinction is the main source uncertainty for this 
 
 - [Yalálag archive record](https://mexico.sil.org/resources/archives/35309) for the primary
   conjugation-pattern source location.
-- [Linguistic construct harvest](../linguistic-recipe-harvest.md), including the Yalálag and
+- [Linguistic construct harvest](../../fst-plan/linguistic-recipe-harvest.md), including the Yalálag and
   Indonesian rows and its citation ledger.
 - [Indonesian phonology source](https://people.ucsc.edu/~ddbrodki/PDFs/Brodkin_Indonesian.pdf)
   for the interaction between lexical exceptions and the ordered cascade.
@@ -182,7 +228,7 @@ depends on unbounded later morphology or requires a separate stateful runtime me
 
 | Date | Evidence and direct link | Consequence |
 |---|---|---|
-| 2026-08-01 | [Yalálag SIL archive](https://mexico.sil.org/resources/archives/35309) and [harvest](../linguistic-recipe-harvest.md) | Class-conditioned conjugation is evidence for a stable lexical partition, but archive access is not a full verification. |
+| 2026-08-01 | [Yalálag SIL archive](https://mexico.sil.org/resources/archives/35309) and [harvest](../../fst-plan/linguistic-recipe-harvest.md) | Class-conditioned conjugation is evidence for a stable lexical partition, but archive access is not a full verification. |
 | 2026-08-01 | [typed partition model](../../../rust/crates/pg-foma/src/recipe_mechanism.rs) | Predicate/member identity and dynamic-state fields must remain explicit at graph edges. |
 
 ## Evidence decisions

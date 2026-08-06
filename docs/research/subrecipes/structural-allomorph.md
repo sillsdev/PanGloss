@@ -1,8 +1,54 @@
 # StructuralAllomorph subrecipe dossier
 
-> Successor: `docs/research/subrecipes/structural-allomorph.md` — the same dossier plus an "As shipped" section
-> stating what the mainline compiler does instead, with citations. This copy is retained because
-> `rust/crates/pg-foma/tests/subrecipe_dossier_contract.rs:47` reads this path.
+> Migrated from `docs/fst-plan/subrecipes/`. Everything below the divider is the dossier as written.
+> The section immediately following is new: the dossier proposes an architecture for subject matter
+> the shipped compiler already implements, under a different name, and does not say so.
+
+## As shipped — what the mainline actually does
+
+**Structural allomorphy ships as enumeration, not as a typed action graph.** For a rule whose surface
+effect cannot be expressed as a two-entry lexc encoding — interior insertion interleaved with copied
+root material, or an adjacency that coalesces into a differently-spelled glyph — the mainline seeds a
+real word from the root allomorph's own feature-bearing shape, applies the **real rule** via
+`pg_rules::morph::synthesize`, runs the **real phonological cascade**, and emits one lexc entry
+carrying both tags in the engine's own computed morph order:
+
+- `rust/crates/pg-foma/src/preexpand.rs:199` (`should_run` — the cheap static gate), `:541`
+  (`extend` — the recursion), `:956` (`build_composites_with_mode`).
+- `rust/crates/pg-foma/src/emit.rs:2203` (`struct_extend`), `:2347` (`build_structural_composites`) for
+  truncation, circumfix and probe-refusal composites.
+- Bounded by the `MorphotacticIndex` pruning automaton (`morphotactics.rs:443`) and, hard, by
+  `EnumerationBudget` (`morphotactics.rs:224`, entry budget `:182`, probe budget `:183`).
+
+**The typed form the dossier describes does exist — on the other pipeline.**
+`rust/crates/pg-foma/src/structural_allomorph.rs` is reached only from the `UnderlyingTokens` text mode
+(`emit.rs:1480`), i.e. never from a production `--engine=foma` run.
+
+**How that differs from the dossier.**
+
+| Dossier | Shipped |
+|---|---|
+| Bounded action graph over captured `PartRef` spans, with ordered `Copy`/`InsertSegments`/`Modify`/`InsertContext` | Replay the real engine per (root, rule-chain) to depth 3 and record whatever surface comes back |
+| `Refused` for unsupported shapes, never a literal fallback | Over-generate; refuse only when a *budget* trips, which is a resource decision wearing a capability costume |
+| Preserves capture positions, action order, table identity and boundaries by construction | Preserves them because the real engine produced the string; nothing in the emitter reasons about them |
+| No measured stage counters | Measured, and the numbers are the reason budgets exist: one reference grammar yields 2,930 interdigitation plus 51,023 fusion entries in tens of seconds; another reaches 2,833,559 fusion entries, a 691MB lexc file, and unbounded RSS growth on the first query |
+
+**The cost of the shipped choice, stated plainly.** Enumeration is exactly the construction that made
+one reference grammar unusable. Pruning made its search bounded but not its output —
+"necessary but not sufficient", in that work's own words — and the actual rescue was substituting a
+different whole-grammar compiler. So this dossier's subject matter is the one place where the mainline
+construction is known to have a hard scale ceiling, and where a typed, bounded alternative has the
+strongest case of the six.
+
+**The dossier's own recorded gap is also real.** It names the shipped bridge as recognising only a
+narrow `Copy(Input(0)) + InsertSegments` affine suffix shape, with a literal fallback called out as a
+correctness gap rather than coverage.
+
+**Read alongside.** `../mainline-selection-audit.md` §B3; `../technique-index.md` §2.12-2.15, §2.19;
+`../../fst-plan/morphotactic-composite-pruning.md`;
+`../../conformance/circumfix-structural-composite-census.md` for which circumfix shapes miss this route.
+
+---
 
 ## Scope
 
