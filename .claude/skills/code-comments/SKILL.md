@@ -343,11 +343,36 @@ Prefer the mechanism whose validation someone else maintains:
 | Want | Use | Status here |
 |---|---|---|
 | A comment that cannot silently go stale | a **doctest** — `cargo test` executes it | available, underused |
-| Validate an entity reference resolves | `#![deny(rustdoc::broken_intra_doc_links)]` | **not enabled** — the tier-2 anchor is unchecked until it is |
+| Validate an entity reference resolves | `#![deny(rustdoc::broken_intra_doc_links)]` | enabled; only `pg.ps1 -Mode doc` actually runs rustdoc, so that is what checks it |
 | Long prose in markdown, still rendered as docs | `#[doc = include_str!("…")]` (note: error locations report against the `.rs` file) | unused |
 | Validate external URLs | [lychee](https://lychee.cli.rs/) | unused |
 | Validate `docs/…md` paths in comments | `comment-hygiene.ps1`'s `docs-link-broken` | built |
 | Cap comment block length | `comment-hygiene.ps1`'s `comment-block-too-long` | built |
+| Prove a comment sweep touched no code | `verify-comment-only.ps1` | built — see below |
+
+## Verify that a comment-only edit was comment-only
+
+**Run `rust\tools\verify-comment-only.ps1` after every file you edit, and honour the exit code.**
+It diffs against HEAD and requires every line the change adds *and every line it removes* to be a
+comment or blank.
+
+The symmetry is the whole point. On 2026-08-06 one Edit removed 204 lines from
+`orthogonal_basis_group_a.rs` and added 2: the first ~102 removed lines were the module doc it meant
+to shorten, and the rest were the `use` block, two type definitions and four `const` items. The file
+stopped parsing and took the entire pg-foma integration suite with it. The ad-hoc check in use asked
+only "is everything you *wrote* a comment?" — which a pure deletion answers trivially and correctly.
+Deleting code is invisible to that question.
+
+The cause was an `old_string` whose end was anchored past the end of the comment block, so the Edit
+matched further than intended. **Anchor the end of `old_string` on the last comment line, never on
+the code that follows it** — and if a file does trip the verifier, `git checkout -- <file>` and redo
+it in smaller pieces rather than patching the wreckage.
+
+Two things it cannot do, so do not read a green result as more than it is. It is a diff-shape check,
+not a semantic one: it cannot tell a good comment from a bad one (that is `comment-hygiene.ps1`), and
+it cannot tell that a deleted comment *should* have been kept. What it does tell you, with no
+compiler and in under a second, is that the code is untouched — which is the property a sweep is
+actually claiming.
 
 No mainstream linter caps comment *block* length — ESLint's `max-len` and `eslint-plugin-comment-length`
 cap line **width**, and [the block-length request](https://github.com/eslint/eslint/issues/4665) has

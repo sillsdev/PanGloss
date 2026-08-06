@@ -215,17 +215,8 @@ $exceptionTags = @(
 # test, which the anchor rule already handles.
 
 # Comment lines only. A plan path inside a string literal is usually a real file the code opens.
-#
-# Per-language, not one union pattern: a shared `#` alternative matches every Rust ATTRIBUTE
-# (`#[derive(Debug)]`), which cost 238 phantom long blocks -- runs of attributes scored as comment
-# prose, and attributes adjacent to a doc block silently extended it. A block rule is only as good as
-# its notion of where a block ends. The `\*` form requires a following space or `/` so a Rust
-# dereference statement (`*x = 5;`) is not read as a block-comment continuation either.
-$commentLineByExt = @{
-    '.rs'   = '^\s*(///|//!|//|/\*|\*(\s|/|$))'
-    '.ps1'  = '^\s*(#|<#)'
-    '.py'   = '^\s*#'
-}
+# Defines $commentLineByExt; shared with verify-comment-only.ps1 so the two cannot disagree.
+. (Join-Path $PSScriptRoot '_comment-lines.ps1')
 
 # Tooling is included, not just crates. The first version scanned only `rust/crates` and so missed
 # every violation in the scripts that enforce the rule -- a checker exempt from its own check.
