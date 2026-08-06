@@ -1,64 +1,16 @@
-//! Systemic gate: every fixture `exercises:` tag must be a literal `machine/conformance/
-//! constructs.txt` row id.
-//!
-//! # Why this gate exists
-//! `conformance_coverage::construct_ids_for` maps each `pg_foma::capability::CharacteristicKind`
-//! to `constructs.txt` row-id strings, and `passing_covered_constructs`
-//! (`tests/conformance_coverage_gate.rs`) credits a construct toward coverage by collecting every
-//! `words.yaml` `exercises:` string from a currently-passing word/parse and set-matching it
-//! against those ids, **byte-for-byte**. Before this gate existed, three staged fixtures wrote the
-//! *characteristic name* instead of the *row id* --
-//! `machine/conformance/edge-cases/subrule-morphosyntactic-gating` tagged `"SubruleGating"`
-//! (the id is `"RewriteSubruleDef gating: required/excluded POS or MPR at the subrule level"`,
-//! `constructs.txt` row 31), `right-to-left-bounded-quantifier-rewrite` tagged
-//! `"RightToLeftRewrite"` (the id is `"RewriteRule direction (Dir): right-to-left"`, row 30), and
-//! `bistratal-overlapping-segment-representation` tagged `"MultiTable"` (the id is
-//! `"CharacterDefinitionTable: more than one table, one per stratum"`, row 36). Because none of
-//! those strings matched any row id, **those tags contributed exactly zero coverage** -- silently.
-//! The fixtures looked correct (right grammar, right signature, a plausible-looking `exercises:`
-//! entry); nothing failed; the corresponding `constructs.txt` rows simply sat `Uncovered` in the
-//! cross-check forever. That is a strictly worse failure mode than a loud error: a typo/rename
-//! that used to be a soft, easy-to-miss warning (per `constructs.txt`'s own header: "The harness
-//! treats an `exercises:` value that ISN'T in this file as a soft warning... never a hard error")
-//! is exactly how all three rows -- plus a fourth, `LeftToRightRewrite`, which had no tag at all --
-//! sat unnoticed. See each corrected fixture's own `STAGING.md` "Coverage-tag correction" section
-//! for the concrete history this gate exists to stop recurring. This file's reasoning mirrors
-//! `tests/coverage_citation_liveness.rs` (read first if this doc feels familiar): a string that
-//! silently resolves to nothing is worse than a failing assertion, because nothing ever calls
-//! attention to it.
-//!
-//! # What it checks
-//! Every `exercises:` entry -- both per-word (`WordEntry::exercises`) and per-parse
-//! (`ParseEntry::exercises`) -- across every fixture returned by
-//! `pg_conformance_fixtures::discover` (the ONE shared enumeration helper this repo's fixture
-//! tests use for both `machine/conformance/**` and `conformance-staging/**`; this file does not
-//! walk either root a second time) names a literal, verbatim line of `machine/conformance/
-//! constructs.txt` (blank lines and `#`-led comment lines excluded, per that file's own header).
-//!
-//! # What it deliberately does NOT check
-//! Whether a fixture's `exercises:` tag is the RIGHT tag for what that word/parse actually does --
-//! i.e. that the fixture doesn't *overclaim* a construct it doesn't genuinely exercise. That is a
-//! human-authoring discipline (the `conformance-grammars` skill's own "never tag a construct a
-//! fixture does not exercise" rule), not something a string-membership check can discharge. This
-//! gate closes the purely mechanical half: the tag string cannot be a dangling reference to a row
-//! that does not exist.
+//! Every fixture `exercises:` tag must exactly match a literal `machine/conformance/constructs.txt` row id; an unmatched tag would otherwise silently contribute zero coverage instead of failing loudly.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use pg_conformance_fixtures::discover;
 
-/// Repo root, from this crate's own `CARGO_MANIFEST_DIR` (`rust/crates/pg-foma`) -- never a path
-/// relative to the process CWD, which differs between `cargo test` and a bare test-binary
-/// invocation.
+/// Anchored at `CARGO_MANIFEST_DIR`, never the process CWD, which differs between `cargo test` and a bare test-binary invocation.
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
-/// Parse `machine/conformance/constructs.txt` into its set of row ids. Format per the file's own
-/// header comment: "one construct per line. Blank lines and lines starting with `#` are ignored."
-/// This is a single-file line parser, not a second fixture-discovery/path-walking implementation
-/// (that concern stays entirely inside `pg_conformance_fixtures::discover`).
+/// Parses `constructs.txt`'s row ids (one per line, `#`-comments and blank lines ignored); a line parser only, not a second fixture-discovery implementation.
 fn known_construct_ids() -> BTreeSet<String> {
     let path = repo_root().join("machine/conformance/constructs.txt");
     let text =
@@ -70,8 +22,7 @@ fn known_construct_ids() -> BTreeSet<String> {
         .collect()
 }
 
-/// The gate itself: every `exercises:` tag, on every word and every parse, across every fixture
-/// under both discovery roots, must be a known `constructs.txt` row id.
+/// Every `exercises:` tag, on every word and parse, across both discovery roots, must be a known `constructs.txt` row id.
 #[test]
 fn every_exercises_tag_is_a_known_construct_id() {
     let known = known_construct_ids();

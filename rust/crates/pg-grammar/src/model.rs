@@ -117,8 +117,7 @@ pub struct MprFeatureDef {
     pub name: String,
 }
 
-/// A set of morphological/phonological rule (MPR) features as a bitset. C# models this as
-/// `HashSet<MprFeature>` with UnionWith/Overlaps; sets here are tiny (≤6 members).
+/// A set of morphological/phonological rule (MPR) features as a bitset (C# `HashSet<MprFeature>`); sets here are tiny (≤6 members).
 #[derive(
     Copy, Clone, PartialEq, Eq, Hash, Debug, Default, serde::Serialize, serde::Deserialize,
 )]
@@ -203,8 +202,7 @@ pub struct SynFeature {
 
 #[derive(Debug)]
 pub enum SynFeatureKind {
-    /// Symbols as `(xml_id, name)` in declaration order; `default_symbol` = index of the
-    /// `defaultSymbol` attribute's symbol if declared.
+    /// Symbols as `(xml_id, name)` in declaration order; `default_symbol` is the index of the `defaultSymbol` attribute's symbol, if declared.
     Symbolic {
         symbols: Vec<(String, String)>,
         default_symbol: Option<u32>,
@@ -292,24 +290,20 @@ pub struct SimpleContext {
 pub enum PatternNode {
     /// `<SimpleContext>` → constraint on a shape node's phonological features.
     Context(SimpleContext),
-    /// `<Segment segment="..">` / `<BoundaryMarker boundary="..">` → constraint carrying that
-    /// char def's feature struct (match = feature unifiability, *not* char-def identity).
+    /// `<Segment>`/`<BoundaryMarker>` → constraint carrying that char def's feature struct (match = feature unifiability, not char-def identity).
     CharDef(CharDefId),
-    /// `<OptionalSegmentSequence min max>` → `Quantifier(min, max, Group(children))`.
-    /// `max == None` ⇔ unbounded (C# −1).
+    /// `<OptionalSegmentSequence min max>`; `max == None` means unbounded (C# −1).
     Quantifier {
         min: u32,
         max: Option<u32>,
         children: Vec<PatternNode>,
     },
-    /// `<Segments><PhoneticShape>..</..></Segments>` → a group of per-node constraints from
-    /// segmenting the shape string against `table` (includes boundary nodes).
+    /// `<Segments><PhoneticShape>` → a group of per-node constraints from segmenting the shape string against `table`, boundary nodes included.
     Segments {
         table: TableId,
         shape: SegmentedText,
     },
-    /// `initialBoundaryCondition="true"` / `finalBoundaryCondition="true"` on a
-    /// `<PhoneticTemplate>` → left/right side anchor constraint.
+    /// `initialBoundaryCondition`/`finalBoundaryCondition` on a `<PhoneticTemplate>` → a left/right side anchor constraint.
     Anchor(AnchorSide),
 }
 
@@ -359,8 +353,7 @@ pub struct NaturalClass {
 
 #[derive(Debug)]
 pub enum NaturalClassKind {
-    /// `<FeatureNaturalClass>`: a phonological feature struct as sparse `(lane, symbols)`
-    /// constraints (sorted by lane).
+    /// `<FeatureNaturalClass>`: a phonological feature struct as sparse `(lane, symbols)` constraints, sorted by lane.
     Feature(Vec<(FlatIndex, SymbolBits)>),
     /// `<SegmentNaturalClass>`: an explicit segment list.
     Segments(Vec<CharDefId>),
@@ -852,22 +845,8 @@ pub struct MprGroup {
     pub members: MprSet,
 }
 
-/// MPR-group-aware consumption (plan §W3.1): C# `MprFeatureSet.IsMatchRequired`/`IsMatchExcluded`/
-/// `AddOutput` (`MprFeatureSet.cs:29-101`). These are the only three places `Grammar::mpr_groups`
-/// is read at runtime; everywhere else (compound productivity restrictions —
-/// `MprSet::compound_match`, C# `MprFeatureSet.CompoundMprFeaturesMatch`) is deliberately
-/// group-**unaware** in C# itself (a flat `Intersect(..).Any()`), so `compound_match` is untouched.
-///
-/// Free functions over `&[MprGroup]` (not `Grammar` methods) so they're unit-testable without
-/// standing up a full loaded `Grammar`; `Grammar`'s methods below are thin `&self.mpr_groups`
-/// wrappers, the actual call sites in `pg-rules`.
-/// Partition `test`'s bits into "buckets" the way C#'s `this.GroupBy(mf => mf.Group)` does: every
-/// bit belongs to at most one `MprGroup` (a well-formed grammar never puts one MPR feature in two
-/// groups; if it did, C#'s last-write-wins `MprFeature.Group` backpointer would decide, but no
-/// FLEx-emittable grammar does this, so this port simplifies to **first** declared group claims the
-/// bit — flagged, not silently assumed). Returns `(ungrouped_bits, [(match_type, bucket_bits),
-/// ..])`; `ungrouped_bits` is exactly C#'s `Group == null` bucket, which always uses "All" semantics
-/// (see the two callers below) alongside true `All`-type groups.
+/// Partitions `test`'s bits into per-`MprGroup` buckets plus an ungrouped remainder.
+/// See `docs/research/mpr-group-bucket-partition.md` for why this mirrors C#'s `GroupBy` and the deliberate first-group-wins simplification.
 fn mpr_group_buckets(
     groups: &[MprGroup],
     test: MprSet,
@@ -1012,9 +991,7 @@ mod mpr_group_tests {
 
     #[test]
     fn ungrouped_required_features_use_all_semantics() {
-        // Two required features, neither in any group: C# `IsMatchRequired`'s `Group == null`
-        // bucket also uses All semantics -- both must be present, not just one (the pre-fix Rust
-        // bug: a flat `have.overlaps(required)` would incorrectly pass with only bit 0 present).
+        // Ungrouped required features use All semantics: both must be present, not just one.
         let groups: [MprGroup; 0] = [];
         assert!(!mpr_required_ok(&groups, set(&[0, 1]), set(&[0])));
         assert!(mpr_required_ok(&groups, set(&[0, 1]), set(&[0, 1])));
@@ -1027,8 +1004,7 @@ mod mpr_group_tests {
             MprGroupOutput::Append,
             &[0, 1],
         )];
-        // Only one of the two excluded features present -> still passes (Any-excluded fails only
-        // when ALL members are present).
+        // Only one of the two excluded features present -> still passes (Any-excluded fails only when ALL members are present).
         assert!(mpr_excluded_ok(&groups, set(&[0, 1]), set(&[0])));
         assert!(!mpr_excluded_ok(&groups, set(&[0, 1]), set(&[0, 1])));
     }
@@ -1044,8 +1020,7 @@ mod mpr_group_tests {
         // Output sets bit 1 (same overwrite group) and bit 3 (same append group).
         let output = set(&[1, 3]);
         let result = mpr_add_output(&groups, current, output);
-        // Overwrite group: bit 0 (not in output) is dropped, bit 1 (the output) is added.
-        // Append group: bit 2 is kept, bit 3 is added.
+        // Overwrite group drops bit 0 (not in output) and adds bit 1; append group keeps bit 2 and adds bit 3.
         assert_eq!(result, set(&[1, 2, 3]));
     }
 

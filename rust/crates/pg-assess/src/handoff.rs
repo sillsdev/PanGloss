@@ -47,8 +47,7 @@ pub const HANDOFF_SCHEMA_VERSION: u32 = 1;
 pub enum SourceIdKind {
     /// A GUID or `id` attribute retained through import. A caller can look this up in FieldWorks.
     SourceId,
-    /// A compiler-assigned dense ordinal. Stable only within this compiled model, and it shifts
-    /// when authored content is added or reordered — never a source identity.
+    /// A compiler-assigned dense ordinal, stable only within this compiled model — never a source identity.
     CompilerAssigned,
 }
 
@@ -93,11 +92,9 @@ impl ConstructRef {
 pub enum EvidenceAvailability {
     /// Captured during the original assessment and stored.
     Retained,
-    /// Produced by re-running the case now. Reports do not retain full traces — too large — so this
-    /// is the common case, and it is never presented as originally captured.
+    /// Produced by re-running the case now, since reports do not retain full traces; never presented as originally captured.
     Regenerated,
-    /// Not obtainable. Stated, rather than omitted, so a reader can tell "no evidence" from "we did
-    /// not look".
+    /// Not obtainable — stated explicitly so a reader can tell "no evidence" from "we did not look".
     Unavailable,
 }
 
@@ -122,12 +119,9 @@ pub struct Evidence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MissingAnalysisCause {
-    /// HermitCrab considered the candidate and rejected it. A real grammar fact; the narrative
-    /// explains the grammar.
+    /// HermitCrab considered the candidate and rejected it — a real grammar fact, not a PanGloss bug.
     HermitcrabRejected,
-    /// HermitCrab alone produces the analysis but the FST proposer never offered it. A PanGloss
-    /// recall gap, not a grammar defect — exactly what the propose-and-confirm invariant exists to
-    /// prevent, so it is a bug report about us.
+    /// HermitCrab alone produces the analysis but the FST proposer never offered it — a PanGloss recall gap, not a grammar defect.
     ProposerRecallGap,
     /// Neither pipeline produces it. The grammar does not license it under either engine.
     NeitherPipelineProduces,
@@ -204,8 +198,7 @@ pub struct MissingAnalysis {
 pub enum HandoffError {
     /// The named case is not in the report.
     UnknownCase(String),
-    /// The model available now is not the one the report was produced against, so any regenerated
-    /// evidence would describe a different grammar.
+    /// The model available now differs from the one the report was produced against, so regenerated evidence would describe a different grammar.
     ModelFingerprintMismatch { report: String, current: String },
     /// The caller asked for a pipeline the report was not produced with.
     PipelineMismatch { report: String, requested: String },
@@ -309,8 +302,7 @@ pub fn investigate(
         })
         .collect();
 
-    // No evidence supplied means no evidence, said plainly. Defaulting to something optimistic here
-    // would be the artifact overstating what PanGloss knows.
+    // No evidence supplied means no evidence: defaulting to something optimistic would overstate what PanGloss knows.
     let evidence = request.evidence.clone().unwrap_or(Evidence {
         availability: EvidenceAvailability::Unavailable,
         engine: recorded_pipeline.clone(),
@@ -523,8 +515,7 @@ mod tests {
 
     #[test]
     fn a_rule_reference_is_marked_compiler_assigned_not_dressed_as_a_source_id() {
-        // ADR 0001's honest capability boundary. Presenting a dense ordinal as a FieldWorks
-        // identity would send an investigator looking for something that is not there.
+        // Presenting a dense ordinal as a FieldWorks identity would send an investigator looking for something that is not there.
         let report = report(&[id("a")]);
         let mut req = request("c1");
         req.constructs = vec![
@@ -538,8 +529,7 @@ mod tests {
 
     #[test]
     fn the_narrative_carries_typed_failure_reasons_verbatim() {
-        // Named exactly as `pg_rules::trace::FailureReason`, so a Rust narrative and a C# trace name
-        // the same thing and a human can diff them.
+        // Named exactly as `pg_rules::trace::FailureReason`, so a Rust narrative and a C# trace name the same thing.
         let report = report(&[id("a")]);
         let mut req = request("c1");
         req.narrative = vec![NarrativeStep {
@@ -567,8 +557,7 @@ mod tests {
 
     #[test]
     fn no_artifact_field_prescribes_a_grammar_edit() {
-        // PanGloss supplies material, never a diagnosis. Guarded structurally rather than
-        // trusted, because prescriptive wording is exactly what creeps in over time.
+        // PanGloss supplies material, never a diagnosis — guarded structurally rather than trusted.
         let report = report(&[id("a")]);
         let mut req = request("c1");
         req.asked_about = vec![id("b")];

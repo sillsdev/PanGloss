@@ -1,16 +1,5 @@
-//! `machine/conformance/edge-cases/subrule-morphosyntactic-gating`'s own regression gate
-//! (docs/conformance/representative-typology-basis.md S1.2.7): pins the CURRENT, honest behavior
-//! for a `PhonologicalSubrule` gated by `requiredPartsOfSpeech` on a POS a `MorphologicalRule` sets
-//! within the same derivation --
-//!
-//! 1. the capability gate's own `Admit` verdict (`SubruleGating` is `Disposition::Proven`, no
-//!    compiler gap -- `gate.rs`'s existing partition mechanism already handles this faithfully), and
-//! 2. the oracle's (`pg_parse::Morpher`) own correct disambiguation of the identical phonological
-//!    environment ("p" before "a") reached via two different morphosyntactic derivation states.
-//!
-//! Unlike the other three fixtures this task adds, `SubruleGating` is not a refused construct --
-//! this test's value is pure conformance-coverage (pinning that the ALREADY-correct behavior stays
-//! correct), not a refusal pin.
+//! Pins the correct behavior for a `PhonologicalSubrule` gated by `requiredPartsOfSpeech` on a POS a `MorphologicalRule` sets within the same derivation: the capability gate's `Admit` verdict, and the oracle's correct disambiguation of the same phonological environment reached via two different derivation states.
+//! See `docs/conformance/representative-typology-basis.md` S1.2.7.
 
 use std::fs;
 use std::path::Path;
@@ -43,9 +32,7 @@ fn capability_gate_admits_subrule_gated_grammar() {
     );
 }
 
-/// The oracle correctly disambiguates the SAME phonological environment ("p" before "a") reached
-/// via two different morphosyntactic derivation states: `pat` (no derivation, gate blocked) vs.
-/// `bat` (derived via `mrDerive`, gate licensed).
+/// The oracle disambiguates the same phonological environment reached via two different derivation states: `pat` (no derivation, gate blocked) vs. `bat` (derived via `mrDerive`, gate licensed).
 #[test]
 fn oracle_correctly_gates_the_alternation_by_derivation_state() {
     let g = load();

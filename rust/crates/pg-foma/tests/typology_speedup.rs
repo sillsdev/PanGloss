@@ -1,71 +1,5 @@
-//! Per-word timing over the synthetic-language conformance suite, in both engine modes, grouped
-//! so speedup is attributable
-//! **per construct/typology** rather than as a single aggregate. Replaces the hand-run recipe in
-//! `docs/benchmark-matrix.md` (see that doc's own "Reproducing" section for the manual `pangloss
-//! batch` + `awk` pipeline this supersedes) with a runnable harness: `rust/tools/typology-speedup.sh`
-//! drives the `#[ignore]`d `full_corpus_report` test below, which discovers every fixture via
-//! `pg_conformance_fixtures::discover` (both roots: `machine/conformance/**` and
-//! `conformance-staging/**`), times every word in both engines, and writes a CSV (the canonical data)
-//! plus a rendered Markdown table (a view of it) — same "canonical data, rendering is a view"
-//! convention `pg_foma::health`/`pg_foma::coverage_ledger` already follow.
-//!
-//! # Why this lives in `pg-foma/tests/`, not `pg-parse/tests/`
-//! The harness needs BOTH engines: `pg_parse::Morpher` (the complete engine) and
-//! `pg_foma::composite::FomaAnalyzer` plus `pg_foma::capability_entry::evaluate_capability` (the
-//! compiled path + its capability gate). `pg-foma` already depends on `pg-parse` as a normal
-//! (non-dev) dependency (P2, `composite.rs`'s own module doc) and already has
-//! `pg-conformance-fixtures` as a dev-dependency (`tests/conformance_coverage_gate.rs`). Putting this
-//! harness in `pg-parse/tests/` would require adding `pg-foma` as a NEW dev-dependency of `pg-parse`
-//! — a reversed layering edge (`pg-foma` is the crate downstream of `pg-parse`, not the other way
-//! around) for a harness that is fundamentally about comparing the two, and naturally sits alongside
-//! `tests/f3_parity.rs` (the existing corpus-parity harness this file's timing companion mirrors).
-//!
-//! # Driving both engines in-process (not via the CLI)
-//! Per the change brief's design guidance: this harness calls `pg_parse::Morpher::parse_word` and
-//! `pg_foma::composite::FomaAnalyzer::analyze_word` directly, never shells out to `pangloss batch`.
-//! Two reasons, both load-bearing: (1) `pangloss batch`'s `elapsed_ms` column is integer
-//! milliseconds (`pg-cli/src/main.rs`'s `start.elapsed().as_millis()`) — exactly the floor
-//! `docs/benchmark-matrix.md` had to work around by reporting `<1`; driving `Instant`/`Duration`
-//! ourselves at the measurement site gets nanosecond resolution for free, with no CLI floor to work
-//! around at all. (2) a concurrent agent is actively changing `pg-cli/**` for this same change's
-//! `pangloss make-report` subcommand — shelling out would create a build dependency on code that is
-//! moving under us for no benefit, since nothing here needs a CLI at all.
-//!
-//! # The measurement floor (constraint 1: never emit `0` for a fast word)
-//! Primary fix: nanosecond `Instant`/`Duration` timing at the measurement site (this file), not
-//! `pangloss batch`'s integer-ms TSV column. Belt-and-suspenders: `measure_timer_floor_ns`
-//! calibrates THIS process's actual `Instant` tick granularity once (spinning until consecutive
-//! reads differ, several times, keeping the minimum observed delta) rather than assuming a constant
-//! — some platforms/virtualized CI runners have coarser clocks than a bare-metal Windows workstation.
-//! Any measured value at or below that calibrated floor is reported as **below-floor**, never as a
-//! literal `0`: `Row::timed` stores `None` (not `Some(0)`) for a field once its value is below the
-//! floor, and `format_ns_cell` renders that `None` as `<{floor}ns`, both in the CSV and the
-//! Markdown table — see `below_floor_never_renders_as_zero_in_csv_or_markdown` for the direct proof.
-//!
-//! # Refusal as its own outcome (constraint 2: the common case on the compiled path, not an edge case)
-//! Before ever calling `FomaAnalyzer::new` (which would force-compile), each fixture's grammar is
-//! evaluated once via `pg_foma::capability_entry::evaluate_capability` — the SAME production
-//! entry point `pg-cli`'s capability gate calls (`capability_gate` in `pg-cli/src/main.rs`). A
-//! `Refuse` verdict is recorded as its own fixture-level outcome row per diagnostic — naming the
-//! refusing predicate, the construct, and the witness straight from `CapabilityDiagnostic` — never a
-//! zero time and never a dropped row. This harness never force-compiles a refused grammar (no
-//! `--allow-unproven` equivalent here): `docs/benchmark-matrix.md` already established that
-//! publishing a force-compiled number for a permanently-carved-out construct invites exactly the
-//! over-reading the whole change exists to prevent, and section 1 has no need for that number — the
-//! refusal itself IS the interesting result for those fixtures.
-//!
-//! # Grouping (constraint 3) and noise
-//! The CSV is per-word (one row per `(fixture, word, engine)`, plus one row per refusal/compile-error
-//! diagnostic). The Markdown table aggregates per FIXTURE — which is also per construct/typology,
-//! since `conformance-staging`/`machine/conformance` fixtures are literally named by construct
-//! (`edge-cases/*`) or typology (`languages/*`), one grammar per fixture. Aggregation uses the
-//! MEDIAN of each word's own median (of `repeats` timed samples, after one discarded warmup call)
-//! — median-of-medians, not a mean, so one slow/fast outlier word cannot swing a whole fixture's
-//! reported speed. `fixture_is_noisy` flags a fixture's speedup as unreliable rather than silently
-//! reporting a precise-looking ratio computed from noise: see that function's doc for the exact,
-//! deliberately-simple, explicitly-a-judgment-call thresholds. These fixtures are small (single
-//! digits to ~55 words, tiny synthetic grammars) — many results ARE too noisy to claim a precise
-//! speedup at this scale, and saying so is the honest result the change brief asks for.
+//! Per-word timing over the synthetic-language conformance suite, grouped per construct/typology;
+//! see `docs/research/pg-foma-typology-speedup.md` for the design rationale.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -79,14 +13,7 @@ use pg_foma::composite::FomaAnalyzer;
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 
-// =================================================================================================
-// Timing primitives
-// =================================================================================================
-
-/// Timed samples per word per engine, after one discarded warmup call (env override
-/// `PG_TYPOLOGY_REPEATS`, minimum 1). Default 7: enough for a median to mean something at
-/// microsecond scale without making the full-corpus run slow. Noise treatment is NOT "run once and
-/// trust it" — see the module doc's "Grouping and noise" section and `fixture_is_noisy`.
+/// Timed samples per word per engine, after one discarded warmup call (env override `PG_TYPOLOGY_REPEATS`, minimum 1, default 7).
 fn repeats() -> u32 {
     std::env::var("PG_TYPOLOGY_REPEATS")
         .ok()
@@ -95,11 +22,7 @@ fn repeats() -> u32 {
         .unwrap_or(7)
 }
 
-/// Calibrates this process's real `Instant` tick granularity: spins until two consecutive reads
-/// differ, several times over, keeping the MINIMUM observed delta (the finest granularity actually
-/// observed beats any single sample, which could land right before a tick boundary). Never assumes
-/// a platform constant — this is the honest way to state "the floor exists" per-run rather than
-/// hardcoding a number that might be wrong on a different machine/CI runner. Always returns >= 1.
+/// Calibrates this process's real tick granularity: spins until two consecutive reads differ, several times, keeping the minimum observed delta. Never assumes a platform constant; the result is at least 1.
 fn measure_timer_floor_ns() -> u64 {
     let mut floor = u64::MAX;
     let mut prev = Instant::now();
@@ -125,10 +48,7 @@ struct Timing {
     samples: u32,
 }
 
-/// Runs `f` once (discarded warmup, lets caches/branch predictors settle), then `n` timed times,
-/// returning the median/min/max in nanoseconds. `f` is a plain closure over `&mut` state the caller
-/// owns (a `Morpher`/`FomaAnalyzer` call) — never the thing being measured itself, so allocation
-/// inside `f` on every call is real, intended cost, not harness overhead.
+/// Runs `f` once (discarded warmup), then `n` timed times, returning the median/min/max in nanoseconds.
 fn time_repeated<F: FnMut()>(mut f: F, n: u32) -> Timing {
     f();
     let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
@@ -147,14 +67,7 @@ fn time_repeated<F: FnMut()>(mut f: F, n: u32) -> Timing {
     }
 }
 
-// =================================================================================================
-// Rows: the CSV's canonical schema
-// =================================================================================================
-
-/// One CSV row. Two shapes share this struct: a per-word TIMED row (`word` non-empty, `median_ns`
-/// etc. populated per the floor rule below), and a fixture-level REFUSED/COMPILE_ERROR row (`word`
-/// empty — refusal/compile-failure is a property of the whole grammar, not of one word; the spec
-/// scenario itself says "that fixture records a refusal outcome," singular, not one per word).
+/// One CSV row: a per-word timed row (`word` non-empty), or a fixture-level refused/compile-error row (`word` empty, since that outcome belongs to the whole grammar).
 #[derive(Debug, Clone)]
 struct Row {
     root: &'static str,
@@ -163,8 +76,7 @@ struct Row {
     word: String,
     engine: &'static str,
     outcome: &'static str,
-    /// `None` whenever the raw value is below the calibrated floor — never `Some(0)`. See the
-    /// module doc's floor section.
+    /// `None` whenever the raw value is below the calibrated floor -- never `Some(0)`.
     median_ns: Option<u64>,
     min_ns: Option<u64>,
     max_ns: Option<u64>,
@@ -277,11 +189,7 @@ impl Row {
         }
     }
 
-    /// A genuine Rust panic inside one engine's construction/timing for this fixture (distinct
-    /// from `compile_error`'s clean `Result::Err` and from `refused`'s capability-gate verdict) —
-    /// see `panic_message`'s own doc and `process_fixture`'s `catch_unwind` wrapping. `engine`
-    /// names WHICH engine crashed (`"complete"` or `"compiled"`); the other engine's rows for the
-    /// same fixture are unaffected, since each is caught independently.
+    /// A genuine Rust panic inside one engine's construction/timing for this fixture, distinct from `compile_error`'s clean `Result::Err` and from `refused`'s capability-gate verdict.
     fn engine_panic(
         root: &'static str,
         category: &str,
@@ -312,10 +220,7 @@ impl Row {
     }
 }
 
-/// Render a caught `catch_unwind` payload as a display string — same convention `pg-ffi/src/
-/// error.rs::panic_message` uses at its own panic boundary (`Box<dyn Any + Send>` only ever holds
-/// a `&'static str` or `String` for panics raised via `panic!`/`.expect`/`.unwrap`, which is
-/// everything this codebase raises; anything else prints a fixed fallback rather than failing).
+/// Renders a caught `catch_unwind` payload as a display string; a payload other than `&'static str`/`String` prints a fixed fallback rather than failing.
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(s) = payload.downcast_ref::<&str>() {
         (*s).to_string()
@@ -328,12 +233,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 
 const CSV_HEADER: &str = "root,category,fixture,word,engine,outcome,median_ns,min_ns,max_ns,samples,below_floor,floor_ns,nonempty,predicate,construct,witness,note";
 
-/// Minimal RFC4180-shaped escaping: quote a field iff it contains a comma, quote, or newline,
-/// doubling embedded quotes. Every field this harness ever writes is either a plain identifier
-/// (fixture/root/category/engine/outcome names — never a comma) or program-controlled text
-/// (predicate ids, construct names, witness/note strings pulled from `CapabilityDiagnostic`/
-/// `FomaError::to_string`) that could in principle contain a comma, so this is applied uniformly
-/// rather than assumed away.
+/// Minimal RFC4180-shaped escaping: quote a field iff it contains a comma, quote, or newline, doubling embedded quotes.
 fn csv_field(s: &str) -> String {
     if s.contains(',') || s.contains('"') || s.contains('\n') {
         format!("\"{}\"", s.replace('"', "\"\""))
@@ -358,9 +258,7 @@ fn opt_str(v: &Option<String>) -> String {
     v.as_deref().map(csv_field).unwrap_or_default()
 }
 
-/// Renders `rows` as CSV text (header + one line per row) — the canonical source artifact. The
-/// Markdown table (`render_markdown`) is a rendering of exactly this data, never a second
-/// measurement pass.
+/// Renders `rows` as CSV text (header + one line per row), the canonical source artifact.
 fn render_csv(rows: &[Row]) -> String {
     let mut out = String::new();
     writeln!(out, "{CSV_HEADER}").unwrap();
@@ -391,14 +289,7 @@ fn render_csv(rows: &[Row]) -> String {
     out
 }
 
-// =================================================================================================
-// Driving both engines over one fixture
-// =================================================================================================
-
-/// Times every word in `words` against `morpher` (the complete engine — never capability-gated;
-/// `pg_parse::Morpher` is always faithful, per `pg-cli`'s own `resolve_capability_enforcement` doc:
-/// "the HC-oracle path always builds the exact HermitCrab-faithful analyzer and never relies on the
-/// FST proposer, so it is never gated").
+/// Times every word in `words` against `morpher`, the complete engine -- never capability-gated, since `pg_parse::Morpher` never relies on the FST proposer.
 fn time_complete_engine(
     morpher: &Morpher,
     words: &[String],
@@ -426,12 +317,7 @@ fn time_complete_engine(
         .collect()
 }
 
-/// Constraint 2: evaluates the SAME `evaluate_capability` entry point `pg-cli`'s capability gate
-/// uses, BEFORE ever attempting `FomaAnalyzer::new`. `Refuse` -> one row per diagnostic, naming the
-/// refusing predicate/construct/witness (never force-compiled — see the module doc). `Admit`/
-/// `ConfirmOnly` -> build the analyzer; a build failure (an emitter-side compile error, distinct
-/// from a capability refusal) is its own `compile_error` row; success times every word exactly like
-/// the complete engine above.
+/// Evaluates `evaluate_capability` before ever attempting `FomaAnalyzer::new`; `Refuse` becomes one row per diagnostic, naming the refusing predicate/construct/witness, never force-compiled.
 fn refusal_rows(
     diags: &[CapabilityDiagnostic],
     root: &'static str,
@@ -493,26 +379,8 @@ fn time_compiled_engine(
     }
 }
 
-/// One fixture, both engines. `floor_ns`/`n` are threaded through so the whole corpus run
-/// calibrates the timer exactly once (not per fixture — `Instant`'s granularity is a process-wide
-/// property, not a per-grammar one).
-///
-/// # A real bug this harness found (kept as the documented reason for the `catch_unwind` below)
-/// While first running this harness over the full corpus, `staging:edge-cases/
-/// bistratal-overlapping-segment-representation` — a multi-`CharacterDefinitionTable` fixture —
-/// crashed `FomaAnalyzer::new` with an out-of-bounds index inside `pg_grammar::chardef::
-/// CharDefTable::get`, reached via `pg_foma::emit::pattern_variants`/`collect_roots`. That is a
-/// real, pre-existing bug in the compiled path's multi-table handling (outside this change's scope
-/// — section 1 owns measurement, not `pg-foma/src/emit.rs`), and it is exactly the kind of thing
-/// `certify-language-readiness` exists to surface rather than hide. A measurement harness over
-/// dozens of independently-authored synthetic pathology fixtures cannot assume every engine call
-/// succeeds or even returns cleanly (`Result::Err` is not the only failure shape) — so each engine
-/// stage is independently panic-guarded: a bug triggered by ONE engine on ONE fixture must not
-/// discard the OTHER engine's already-valid rows for the same fixture, and must never abort the
-/// whole corpus run (mirrors the `catch_unwind`-at-the-boundary convention `pg-ffi` uses throughout
-/// its own crate, and `pg-foma/src/worker.rs`'s compile-worker guard, for the same reason: an
-/// engine crash on pathological input is reported, never allowed to lose everything else already
-/// measured).
+/// One fixture, both engines, each independently panic-guarded; see
+/// `docs/research/pg-foma-typology-speedup.md` for the real bug that guard caught.
 fn process_fixture(f: &FixtureRef, floor_ns: u64, n: u32) -> Vec<Row> {
     let words_yaml = f.load_words_yaml();
     let xml = f.load_grammar_xml();
@@ -557,10 +425,6 @@ fn process_fixture(f: &FixtureRef, floor_ns: u64, n: u32) -> Vec<Row> {
     rows
 }
 
-// =================================================================================================
-// Markdown rendering: aggregation per fixture (= per construct/typology), a VIEW over the CSV rows
-// =================================================================================================
-
 struct FixtureSummary {
     root: &'static str,
     category: String,
@@ -572,10 +436,7 @@ struct FixtureSummary {
     noisy: Option<&'static str>,
 }
 
-/// One engine's outcome for one fixture — shared by BOTH `complete` and `compiled` (the complete
-/// engine is never capability-gated so it never produces `Refused`, but it CAN produce
-/// `EnginePanic`, so the two sides share this type rather than duplicating four near-identical
-/// variants twice).
+/// One engine's outcome for one fixture, shared by both `complete` and `compiled` since either can panic even though only `compiled` can be refused.
 enum EngineSummary {
     Timed {
         agg_ns: Option<u64>,
@@ -584,22 +445,11 @@ enum EngineSummary {
     Refused(Vec<String>),
     CompileError(String),
     EnginePanic(String),
-    /// No rows at all for this engine on this fixture (should not happen in practice — every
-    /// fixture/engine combination gets exactly one of the outcomes above — but kept explicit
-    /// rather than panicking, so a future gap in row production degrades to "not assessed" instead
-    /// of a crash.
+    /// No rows at all for this engine on this fixture; should not happen, but degrades to "not assessed" rather than panicking.
     Unassessed,
 }
 
-/// Deliberately simple, named-as-a-judgment-call thresholds (matching this codebase's own
-/// "judgment calls flagged for review" convention, e.g. `coverage_ledger.rs`'s top doc): a fixture's
-/// speedup is flagged noisy if EITHER (a) the aggregated value on either engine sits within 20x of
-/// the calibrated timer floor — too close to the clock's own resolution limit for a ratio of two
-/// such numbers to mean anything — or (b) any word's own repeat spread (max/min across the
-/// `repeats()` timed samples) exceeds 3x, meaning the repeats themselves did not agree closely
-/// enough to trust their median. These fixtures are tiny synthetic grammars (single digits to ~55
-/// words); both conditions are expected to fire often, which is the honest result at this scale, not
-/// a harness bug.
+/// Deliberately simple, judgment-call thresholds: flags a fixture noisy if either engine's aggregate sits within 20x of the timer floor, or any word's repeat spread exceeds 3x.
 fn fixture_is_noisy(rows: &[Row], floor_ns: u64, agg_ns: &[Option<u64>]) -> Option<&'static str> {
     const NOISE_FLOOR_MULTIPLE: u64 = 20;
     const REPEAT_SPREAD_RATIO: u64 = 3;
@@ -627,9 +477,7 @@ fn median_of(mut values: Vec<u64>) -> Option<u64> {
     Some(values[values.len() / 2])
 }
 
-/// Summarizes one engine's rows for one fixture into an `EngineSummary` — shared logic for both
-/// `complete` and `compiled` (the only engine-specific input is which rows already got filtered to
-/// `engine_rows`).
+/// Summarizes one engine's rows for one fixture into an `EngineSummary`, shared logic for both `complete` and `compiled`.
 fn summarize_engine(engine_rows: &[&Row]) -> EngineSummary {
     let refused: Vec<&&Row> = engine_rows
         .iter()
@@ -683,9 +531,7 @@ fn summarize_fixture(
         .filter(|r| r.root == root && r.category == category && r.fixture == fixture)
         .collect();
 
-    // Word count is the number of distinct non-empty `word` values seen for this fixture,
-    // regardless of engine/outcome -- meaningful even when one engine panicked/refused and so
-    // contributed zero per-word timed rows of its own.
+    // Word count is distinct non-empty `word` values seen for this fixture, meaningful even when one engine panicked/refused and contributed zero per-word rows.
     let mut words: Vec<&str> = mine
         .iter()
         .map(|r| r.word.as_str())
@@ -731,8 +577,7 @@ fn summarize_fixture(
     }
 }
 
-/// One `(root, category, fixture)` key per group, first-seen order — the natural fixture
-/// enumeration order `discover()` already returns (sorted per root/category).
+/// One `(root, category, fixture)` key per group, first-seen order.
 fn fixture_keys(rows: &[Row]) -> Vec<(&'static str, String, String)> {
     let mut keys = Vec::new();
     for r in rows {
@@ -752,8 +597,7 @@ fn format_ns_cell(agg_ns: Option<u64>, below_floor: bool, floor_ns: u64) -> Stri
     }
 }
 
-/// Renders one `EngineSummary` as its table cell text (never a bare `0`/`0ms` — see
-/// `format_ns_cell`).
+/// Renders one `EngineSummary` as its table cell text, never a bare `0`/`0ms` (see `format_ns_cell`).
 fn render_engine_cell(e: &EngineSummary, floor_ns: u64) -> String {
     match e {
         EngineSummary::Refused(preds) => format!("REFUSED: {}", preds.join("; ")),
@@ -806,9 +650,7 @@ fn render_fixture_table_row(s: &FixtureSummary) -> String {
     )
 }
 
-/// Renders the per-fixture (= per construct/typology) Markdown table — a VIEW over `rows`, computing
-/// nothing `render_csv` didn't already write. `floor_ns` is repeated in the below-floor cells so the
-/// table is self-describing without cross-referencing the CSV.
+/// Renders the per-fixture Markdown table, a view over `rows` computing nothing `render_csv` didn't already write.
 fn render_markdown(rows: &[Row], floor_ns: u64, repeats: u32) -> String {
     let mut out = String::new();
     writeln!(
@@ -841,12 +683,7 @@ fn render_markdown(rows: &[Row], floor_ns: u64, repeats: u32) -> String {
         }
         writeln!(out, "## {label}").unwrap();
         writeln!(out).unwrap();
-        // Six columns, matching `render_fixture_table_row`'s own six cells exactly. The leading
-        // `root:category` cell was previously emitted by the row renderer but NOT declared here,
-        // so every rendered table was misaligned by one column -- markdown silently tolerates a
-        // row with more cells than the header, which is why it produced plausible-looking output
-        // instead of failing. Any change to the row renderer's cell count must change this header
-        // and separator too; `markdown_header_matches_row_cell_count` pins that.
+        // Six columns matching `render_fixture_table_row`'s cells exactly; `markdown_header_matches_row_cell_count` pins that a mismatch here silently misaligns the table (see docs/research/pg-foma-typology-speedup.md).
         writeln!(
             out,
             "| source | fixture | words | complete engine | compiled (foma) | speedup |"
@@ -862,10 +699,6 @@ fn render_markdown(rows: &[Row], floor_ns: u64, repeats: u32) -> String {
 
     out
 }
-
-// =================================================================================================
-// Output location
-// =================================================================================================
 
 fn out_dir() -> PathBuf {
     std::env::var("PG_TYPOLOGY_OUT_DIR")
@@ -885,10 +718,6 @@ fn write_artifacts(rows: &[Row], floor_ns: u64, n: u32, dir: &Path) -> (PathBuf,
         .unwrap_or_else(|e| panic!("write {}: {e}", md_path.display()));
     (csv_path, md_path)
 }
-
-// =================================================================================================
-// Tests
-// =================================================================================================
 
 #[cfg(test)]
 mod tests {
@@ -919,10 +748,7 @@ mod tests {
         assert_eq!(calls, 6);
     }
 
-    /// Gate: below-floor is never rendered as a literal `0`, in EITHER artifact. Constructs a
-    /// synthetic below-floor row directly (rather than hoping a real word measures as exactly zero,
-    /// which is an environment-dependent accident) so this is a deterministic proof of the
-    /// rendering rule itself.
+    /// Gate: below-floor is never rendered as a literal `0`, in either artifact. Constructs a synthetic below-floor row directly, a deterministic proof rather than hoping a real word measures as exactly zero.
     #[test]
     fn below_floor_never_renders_as_zero_in_csv_or_markdown() {
         let floor_ns = 1_000; // pretend the calibrated floor is 1us for this test.
@@ -979,20 +805,10 @@ mod tests {
     }
 
     /// Gate: every rendered Markdown table's header declares exactly as many columns as its rows
-    /// emit cells.
-    ///
-    /// This existed as a real defect: `render_fixture_table_row` emitted a leading `root:category`
-    /// cell that the header did not declare, so every table was misaligned by one column. Markdown
-    /// **silently tolerates** a row with more cells than its header -- it renders, it just renders
-    /// wrong -- which is exactly why the bug produced plausible-looking output instead of failing,
-    /// and why this has to be a mechanical check rather than something caught by reading the file.
-    /// Counts pipe-delimited cells on the header, the separator, and every data row of every table
-    /// in the real rendered document, rather than asserting a hardcoded 6 -- so the check keeps
-    /// working when a column is deliberately added.
+    /// emit; a real defect this caught is in `docs/research/pg-foma-typology-speedup.md`.
     #[test]
     fn markdown_header_matches_row_cell_count() {
-        // Two fixtures in different roots/categories, so both rendered tables are exercised, plus
-        // both engines per fixture so a speedup cell is actually computed.
+        // Two fixtures in different roots/categories exercise both rendered tables; both engines per fixture so a speedup cell is actually computed.
         let t = |ns: u64| Timing {
             median_ns: ns,
             min_ns: ns,
@@ -1081,9 +897,7 @@ mod tests {
         );
     }
 
-    /// Gate: typed refusal diagnostics produce distinct, named rows -- never a zero time and never
-    /// an omitted row. No currently discovered conformance grammar is capability-refused, so this
-    /// tests the pure conversion used by the production `CompileDecision::Refuse` arm directly.
+    /// Gate: typed refusal diagnostics produce distinct, named rows, never a zero time or an omitted row; tests the conversion directly since no discovered fixture is currently refused.
     #[test]
     fn refusal_diagnostics_produce_named_rows_not_zero_not_omitted() {
         let diags = vec![CapabilityDiagnostic {
@@ -1127,19 +941,7 @@ mod tests {
             "Markdown must name the refusing predicate: {md}"
         );
     }
-    /// Non-vacuity + end-to-end gate: runs the full harness over every discovered fixture (both
-    /// `machine/conformance/**` and `conformance-staging/**`), asserts a non-zero number of fixtures
-    /// AND words were actually measured (so a discovery regression fails loudly instead of producing
-    /// a cheerful empty table -- mirrors `pg-parse/tests/conformance_fixtures_gate.rs`'s own
-    /// `all_discovered_fixtures_match_oracle` non-vacuity check), and writes both artifacts.
-    ///
-    /// `#[ignore]`d: this compiles a foma network for every non-refused fixture (~20-30 grammars)
-    /// and times every word `repeats()` times in both engines -- categorically more work than a unit
-    /// test, matching this crate's own `tests/f3_parity.rs`/`tests/p6_gate_parity.rs` precedent of
-    /// gating real-corpus/full-suite runs behind `#[ignore]` so the default `cargo test --workspace`
-    /// stays fast. Run it via `rust/tools/typology-speedup.sh`, or directly:
-    /// `cargo test --release -p pg-foma --test typology_speedup -- --ignored --nocapture
-    /// full_corpus_report`.
+    /// Non-vacuity + end-to-end gate: runs the full harness over every discovered fixture, asserts fixtures/words were measured, and writes both artifacts; `#[ignore]`d since it is categorically slower than a unit test.
     #[test]
     #[ignore = "runs the full conformance corpus through both engines -- see this test's own doc \
                 for how to invoke it; use rust/tools/typology-speedup.sh"]

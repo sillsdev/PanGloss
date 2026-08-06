@@ -1,24 +1,5 @@
-//! N2 integration gate (`docs/natural-phrases-plan.md` N2): the end-to-end demo — real
-//! sample-grammar words parsed through `Morpher` -> `pg_realize::gloss_bundle` ->
-//! `pg_realize::to_ir` -> `pg_realize::TableRealizer::realize` -- plus an all-corpora robustness
-//! sweep that N1's own `to_ir_never_panics_on_a_bounded_corpus_sample` explicitly deferred to this
-//! milestone (see that test's doc comment).
-//!
-//! Same self-skip discipline as `n0_gloss_gate.rs`/`n1_ir_gate.rs`: every real-grammar test
-//! no-ops when the grammar XML is absent on disk.
-//!
-//! Every pinned `eng:` string below was obtained by first running
-//! `cargo run -p pg-cli -- parse <grammar> <word> --gloss --natural-gloss=eng` to see the actual
-//! output, THEN writing the expected assertion — same "run first, pin second" discipline
-//! `n0_gloss_gate.rs`/`n1_ir_gate.rs` document for their own pinned strings.
-//!
-//! ## Test-timing policy
-//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
-//! depend on the gitignored real-language corpus fixtures (`samples/data/*-hc.xml`,
-//! `samples/data/*-words.txt`) at all. Every test in this file loads a real grammar (and the
-//! robustness sweep also loads corpus word lists), so all are unconditionally
-//! `#[ignore = "..."]`d — the existing self-skip above already keeps `--include-ignored` green
-//! when the fixture is absent.
+//! The end-to-end demo: real sample-grammar words parsed through `Morpher` -> `pg_realize::gloss_bundle` -> `pg_realize::to_ir` -> `pg_realize::TableRealizer::realize`, plus an all-corpora robustness sweep.
+//! See `docs/research/n2-realize-gate-conventions.md` for the self-skip/pinning conventions this shares with the other gate tiers and why the corpus sweep is subsampled.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -40,11 +21,7 @@ fn load_grammar(xml_name: &str) -> Option<Grammar> {
     Some(pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {xml_name}: {e}")))
 }
 
-/// Gitignored real-language data (`samples/data/*-realize.toml` -- see
-/// `n1_ir_gate.rs`'s module doc). Every test in this file is unconditionally `#[ignore]`d and
-/// self-skips via `load_grammar` before reaching this call, so a missing file here still panics
-/// (a genuine error once execution has already committed to the fixture being present) — same
-/// posture as `n1_ir_gate.rs::load_map`.
+/// Gitignored real-language data; every test self-skips via `load_grammar` before reaching this call, so a missing file here is a genuine error once execution has already committed to the fixture being present.
 fn load_map(toml_name: &str) -> RealizeMap {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let path = manifest_dir.join("../../../samples/data").join(toml_name);
@@ -57,9 +34,7 @@ fn realizer() -> TableRealizer {
     TableRealizer::new().unwrap_or_else(|e| panic!("embedded eng assets failed to load: {e}"))
 }
 
-/// Parse `word` with an uncapped `Morpher` (these specific demo words are known-fast — the
-/// robustness gate below is where the step cap / timeout bounding matters) and realize every
-/// surviving analysis, in `outcome.structured` order.
+/// Parse `word` with an uncapped `Morpher` (these demo words are known-fast) and realize every surviving analysis, in `outcome.structured` order.
 fn realize_all(g: &Grammar, map: &RealizeMap, r: &TableRealizer, word: &str) -> Vec<Realization> {
     let m = Morpher::new(g, usize::MAX);
     let outcome = m.parse_word(word);
@@ -74,14 +49,7 @@ fn realize_all(g: &Grammar, map: &RealizeMap, r: &TableRealizer, word: &str) -> 
         .collect()
 }
 
-// --- (a) End-to-end amharic demo -------------------------------------------------------------
-//
-// These are the milestone's headline assertions: a possessed and/or pluralized amharic noun
-// renders as a natural English phrase. Per N1's own documented corpus search
-// (`n1_ir_gate.rs`'s module doc), no word in `amharic-words.txt` combines a Case gloss with
-// poss/pl on one analysis, so the demo target is a possessed-and/or-pluralized noun, not a
-// case-marked one -- the Case slot (and the flagship "in my houses" combination) is covered by
-// `pg-realize/src/table.rs`'s own unit tests on hand-built `GlossIr`s instead.
+// --- (a) End-to-end amharic demo: possessed/pluralized nouns, not case-marked, since no corpus word combines a Case gloss with poss/pl on one analysis ---
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
@@ -109,9 +77,7 @@ fn amharic_plural_only_noun_renders_children() {
     };
     let map = load_map("amharic-realize.toml");
     let r = realizer();
-    // "ልጆች" = "child-pl" (n1_ir_gate.rs's amharic_plural_only_noun_maps_num), an irregular
-    // plural via lexicon.toml's exceptions table -> "children" (no article: bare Num::Pl,
-    // Poss::None).
+    // "ልጆች" = "child-pl", an irregular plural via lexicon.toml's exceptions table -> "children" (no article: bare Num::Pl, Poss::None).
     let results = realize_all(&g, &map, &r, "ልጆች");
     assert_eq!(results.len(), 1, "{results:?}");
     assert_eq!(results[0].text, "children");
@@ -127,11 +93,7 @@ fn amharic_ambiguous_pluralized_possessed_noun_one_complete_one_partial() {
     };
     let map = load_map("amharic-realize.toml");
     let r = realizer();
-    // "ልጆቹ" is the documented 2-way ambiguity (n1_ir_gate.rs's
-    // amharic_pluralized_possessed_noun_maps_both_num_and_poss): [0] "child-pl-poss.3m" (root
-    // "child" + pl + poss.3m, no extras) -> a complete "his children"; [1] "child-pl-def.m" (root
-    // "child" + pl + an unmapped "def.m" definite-marker affix -> extras) -> the same irregular
-    // plural "children" but flagged partial via nonempty residue.
+    // "ልጆቹ" is a documented 2-way ambiguity: [0] "child-pl-poss.3m" -> complete "his children"; [1] "child-pl-def.m" -> the same "children" but partial via nonempty residue (def.m unmapped).
     let results = realize_all(&g, &map, &r, "ልጆቹ");
     assert_eq!(results.len(), 2, "{results:?}");
 
@@ -156,9 +118,7 @@ fn amharic_unpossessed_bare_root_renders_with_indefinite_article() {
     };
     let map = load_map("amharic-realize.toml");
     let r = realizer();
-    // "ሆድ" = "stomach", root-only, no Num/Poss/Case morpheme at all -> Num::Unspec -> bare
-    // citation form, no article (n1_ir_gate.rs's amharic_bare_root_has_no_features_and_no_extras
-    // pins the same word's GlossIr).
+    // "ሆድ" = "stomach", root-only, no Num/Poss/Case morpheme at all -> Num::Unspec -> bare citation form, no article.
     let results = realize_all(&g, &map, &r, "ሆድ");
     assert_eq!(results.len(), 1, "{results:?}");
     assert_eq!(results[0].text, "stomach");
@@ -174,10 +134,7 @@ fn amharic_unmapped_verb_word_falls_back_to_partial_citation_form() {
     };
     let map = load_map("amharic-realize.toml");
     let r = realizer();
-    // "ሄደ" = "go--pfv--pfv.3m" (n1_ir_gate.rs's amharic_unmapped_verb_agreement_glosses_land_in_extras):
-    // N2 realizes nominal IRs only, so this word's two unmapped verb-aspect affixes land in
-    // extras -> the None.None.Unspec cell still fills ("go"), but nonempty residue forces
-    // `complete: false` -- exactly the "verb/POS guard ... straight fallback" the plan describes.
+    // "ሄደ" = "go--pfv--pfv.3m": nominal-only realization sends its two unmapped verb-aspect affixes to extras, so the None.None.Unspec cell still fills ("go") but nonempty residue forces `complete: false`.
     let results = realize_all(&g, &map, &r, "ሄደ");
     assert_eq!(results.len(), 1, "{results:?}");
     assert_eq!(results[0].text, "go");
@@ -188,31 +145,8 @@ fn amharic_unmapped_verb_word_falls_back_to_partial_citation_form() {
     );
 }
 
-// --- (b) All-corpora robustness gate -----------------------------------------------------------
-//
-// For every word in all three `samples/data/*-words.txt` (subsampled -- see below), parse with a
-// BOUNDED Morpher (`docs/natural-phrases-plan.md` N2's own stated requirement: `Morpher::new(&g,
-// 100_000)`, the second arg being the step cap -- an uncapped Morpher against the 7121-word Sena
-// corpus is "pathologically slow in debug builds", per the milestone task brief and
-// `n1_ir_gate.rs`'s own module doc, which measured 8+ minutes of CPU time and gave up), realize
-// every surviving analysis through both the real sidecar (or `RealizeMap::empty()` when none
-// exists) and `RealizeMap::empty()` directly, and assert: no panic, `!text.is_empty()`, and the
-// parity signature computed right after parsing equals one computed again after every
-// gloss_bundle/to_ir/realize call for that word (belt-and-braces: this crate's functions only
-// ever read `&ParseOutcome`/`&Grammar`/`&RealizeMap`, never mutate, so this must hold -- same
-// property `n0_gloss_gate.rs::gloss_path_never_perturbs_parity_signature` pins for the `--gloss`
-// path).
-//
-// Subsampling: even with the 100_000-step cap AND a 50ms `--word-timeout-ms`-equivalent wall-clock
-// deadline (`Morpher::with_word_timeout`), empirically timing the full 7121-word Sena corpus and
-// the full 673-word Amharic corpus at this milestone (via `pangloss batch --step-cap 100000
-// --word-timeout-ms 50`, debug build) showed most individual words in both corpora time out at
-// that deadline in an unoptimized build -- full Sena alone was measured north of several minutes.
-// To stay inside a "few minutes in debug" budget (the task brief's explicit time-box, "subsample
-// deterministically ... and say so in the test doc comment"), this test samples every 3rd Amharic
-// word and every 10th Sena word (Indonesian's 121-word corpus runs in full -- it was fast in the
-// same timing pass). Measured with this exact subsampling + timeout at authoring time: comfortably
-// under a minute total across all three corpora.
+// --- (b) All-corpora robustness gate ---
+// See `docs/research/n2-realize-gate-conventions.md` for why the sweep is step-capped, wall-clock-bounded, and subsampled per corpus.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/*-hc.xml, *-words.txt); run with --include-ignored"]
 fn realize_never_panics_on_a_subsampled_full_corpus_sweep() {

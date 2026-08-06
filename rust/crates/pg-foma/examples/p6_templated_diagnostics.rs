@@ -1,17 +1,4 @@
-//! P6 static diagnostic pass on the compiled Aweti grammar (throwaway, not committed): answers a
-//! handful of yes/no + count questions that scope the upcoming P6 emitter work, WITHOUT calling
-//! `pg_foma::emit::emit()` (that's the known OOM this whole P6 effort routes around). Loads the
-//! grammar exactly like `examples/p6_templated_rules_probe.rs` (`pg_snapshot::Snapshot::from_json` +
-//! `pg_grammar::compile_project`).
-//!
-//! Several of `emit.rs`'s helpers this diagnostic needs (`classify_template`, `rule_role`,
-//! `allomorphs_of`, `Role`, `is_structural_rule`, `structural_candidate_rules`,
-//! `probe_would_refuse`) are private or `pub(crate)` to that module, not reachable from an example
-//! crate. Per the task brief, their logic is replicated inline here (byte-for-byte where
-//! practical) rather than widening any library visibility. `gate::find_gated_subrules` IS `pub`
-//! (`pg_foma::gate` is a `pub mod`), so that one is called directly.
-//!
-//! Run: `cargo run --release -p pg-foma --example p6_aweti_diagnostics`
+//! Static diagnostic pass over a compiled grammar: avoids `emit::emit()` (OOMs on large grammars) by replicating its private helper functions inline instead of widening their visibility.
 
 use std::path::{Path, PathBuf};
 
@@ -204,10 +191,7 @@ fn probe_would_refuse(g: &Grammar) -> bool {
     })
 }
 
-/// Verbatim port of `emit.rs::structural_candidate_rules`, but returning `(MRuleId, bool)` where
-/// the bool is "reached via `is_structural_rule` (true) vs. only via the `probe_would_refuse`-broad
-/// clause (false)" -- the original just returns `Vec<MRuleId>`; this diagnostic wants the reason
-/// too.
+/// Like `emit.rs::structural_candidate_rules`, but also reports whether each hit came from `is_structural_rule` or only the broader `probe_would_refuse` clause.
 fn structural_candidate_rules(g: &Grammar) -> Vec<(MRuleId, bool)> {
     let broad = probe_would_refuse(g);
     (0..g.mrules.len() as u32)
@@ -318,9 +302,7 @@ fn main() {
         };
         println!("  {} role={role:?} reason={reason}", rule_label(&g, *mid));
     }
-    // Direct answer to "does Aweti have any circumfix or null-morph affix rules?" -- scan every
-    // mrule's role (from its first allomorph, same as rule_role/classify_affix everywhere else in
-    // this emitter), independent of the structural-candidate filter above.
+    // Classifies every mrule by role directly, independent of the structural-candidate filter above, to count circumfix and null-morph affixes.
     let mut circumfix_count = 0usize;
     let mut zero_morph_count = 0usize; // Role::None, no LHS-material drop (pure epsilon affix)
     let mut truncating_none_count = 0usize; // Role::None but DOES drop LHS material (truncation)
@@ -462,12 +444,7 @@ fn main() {
     );
     println!();
 
-    // --- 8. Pattern root allomorphs (bracket-class shapes) -- scopes the P6 templated underlying
-    // emitter: does any root allomorph carry a NO_CHAR_DEF (class-reference) or iterative/
-    // optional-non-boundary interior node? `SegAlphabet::encode_shape` cannot represent such a node
-    // (it blindly tokens every interior char_def id, and NO_CHAR_DEF is a sentinel, not a real
-    // CharDefId) -- if Aweti has any, the underlying emitter's `collect_roots` under
-    // `UnderlyingTokens` mode must special-case it (route to uncovered), not call encode_shape.
+    // --- 8. Pattern root allomorphs: checks for nodes `SegAlphabet::encode_shape` cannot represent (class-reference or iterative/optional interior nodes), since it blindly tokens every interior char_def id.
     println!("--- 8. Pattern root allomorphs ---");
     let mut pattern_count = 0usize;
     let mut total_allos = 0usize;

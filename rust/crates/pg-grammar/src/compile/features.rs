@@ -1,6 +1,4 @@
-//! Syntactic (POS + head) and phonological feature systems, plus the part-of-speech tree
-//! (`HCLoader.LoadLanguage` HCLoader.cs:168-198, `LoadFeatureSystem` HCLoader.cs:2650-2667,
-//! `GetInflClass`/`GetDefaultInflClass` HCLoader.cs:2625-2648, stem names HCLoader.cs:206-225).
+//! Syntactic (POS + head) and phonological feature systems, plus the part-of-speech tree, ported from `HCLoader`'s `LoadLanguage`/`LoadFeatureSystem`/`GetInflClass`.
 
 use hashbrown::HashMap;
 
@@ -18,11 +16,7 @@ use crate::featsys::{PhonFeatureSystem, RawFeature};
 use crate::model::{StemNameDef, StemNameId, SynFeature, SynFeatureKind, SynFeatureSystem};
 use crate::GrammarError;
 
-/// The part-of-speech tree, flattened for the three ways HCLoader consults it: a dense POS
-/// symbol bit (declaration order, matching `foreach (IPartOfSpeech pos in AllPartsOfSpeech)`),
-/// descendant closure (`LoadAllPartsOfSpeech`, HCLoader.cs:2578-2591 — recursive, used by every
-/// *required*-side POS reference), and ownership-chain walk for inflection-class defaulting
-/// (`GetDefaultInflClass`, HCLoader.cs:2634-2648).
+/// The part-of-speech tree, flattened three ways: a dense POS symbol bit, the descendant closure used by every required-side POS reference, and an ownership-chain walk for inflection-class defaulting.
 pub(crate) struct PosTable {
     bit_of: HashMap<String, u32>,
     children_of: HashMap<String, Vec<String>>,
@@ -31,9 +25,7 @@ pub(crate) struct PosTable {
 }
 
 impl PosTable {
-    /// A single POS's own bit — the "output"/"assigned" convention (`m_posFeature.PossibleSymbols
-    /// ["pos" + pos.Hvo]`, e.g. stem/lex-entry POS, derivational `ToPartOfSpeechRA`, compound
-    /// outcome POS): no descendant expansion.
+    /// A single POS's own bit — the output/assigned convention (stem/lex-entry POS, derivational or compound outcome POS): no descendant expansion.
     pub fn bits_single(&self, guid: &str) -> Option<SymbolBits> {
         self.bit_of.get(guid).map(|&b| {
             let mut s = SymbolBits::EMPTY;
@@ -42,8 +34,7 @@ impl PosTable {
         })
     }
 
-    /// A POS plus every descendant — the "required" convention (`LoadAllPartsOfSpeech`) used by
-    /// every affix-rule/compound-side/rewrite-subrule POS *requirement*.
+    /// A POS plus every descendant — the required convention used by every affix-rule/compound-side/rewrite-subrule POS requirement.
     pub fn bits_with_descendants<'a>(
         &self,
         guids: impl IntoIterator<Item = &'a str>,
@@ -66,9 +57,7 @@ impl PosTable {
         }
     }
 
-    /// `GetInflClass`/`GetDefaultInflClass` (HCLoader.cs:2625-2648): walk up the POS *ownership*
-    /// chain (not the inflection-class subclass chain) from `guid`, returning the first ancestor
-    /// (inclusive) that declares its own `default_inflection_class`.
+    /// Walks up the POS ownership chain (not the inflection-class subclass chain) from `guid`, returning the first ancestor that declares its own `default_inflection_class`.
     pub fn default_inflection_class(&self, guid: &str) -> Option<String> {
         let mut cur = guid.to_string();
         loop {
@@ -140,13 +129,7 @@ fn build_pos_table(items: &[PartOfSpeech]) -> Result<PosTable, GrammarError> {
     })
 }
 
-/// Feature 0 (POS symbols, flattened POS tree, document order) + feature 1 (the head complex
-/// feature, always present — `AddHeadFeature()` is unconditional in HCLoader, unlike the XML
-/// loader's `<HeadFeatures>`-presence gate) + one flat feature per morphosyntactic closed/complex
-/// feature (`LoadFeatureSystem`, HCLoader.cs:2650-2667 — added directly to the same flat feature
-/// system, not literally nested "inside" head; `build_syn_fs` wraps a nested `FeatureStruct`
-/// referencing them as the *value of* the head feature wherever an MSA's `MsFeaturesOA` is used).
-/// No foot feature: LCM has no foot-feature concept.
+/// Feature 0 is POS symbols; feature 1 is the head complex feature, always present here (unlike the XML loader's presence gate); LCM has no foot-feature concept, so none is built.
 pub(crate) fn build_syn_features(
     snapshot: &Snapshot,
 ) -> Result<(SynFeatureSystem, PosTable), GrammarError> {
@@ -235,13 +218,7 @@ fn push_complex(cf: &ComplexFeature, features: &mut Vec<SynFeature>) {
     });
 }
 
-/// `LoadFeatureSystem(m_cache.LanguageProject.PhFeatureSystemOA, ...)` (HCLoader.cs:198): only
-/// closed (symbolic) phonological features are representable — the Rust engine's
-/// `PhonFeatureSystem` has no complex-feature notion at all (see that module's doc), matching
-/// legacy HC-XML (`PhonologicalFeatureSystem` never carries a `ComplexFeature` either). A
-/// snapshot with authored phonological complex features gets a warning; those features are
-/// simply dropped (nothing downstream can reference them, since no phoneme/natural-class
-/// constraint in this pipeline can express a complex-feature value).
+/// Only closed (symbolic) phonological features are representable, matching legacy HC-XML; a snapshot with authored complex features gets a warning and they are dropped.
 pub(crate) fn build_phon_features(
     snapshot: &Snapshot,
     warnings: &mut Vec<String>,
@@ -278,8 +255,7 @@ pub(crate) fn build_phon_features(
     PhonFeatureSystem::from_raw(raw)
 }
 
-/// Build a `{POS, head}` feature struct for the syntactic domain from a resolved POS symbol set
-/// and an optional (already-resolved) morphosyntactic `FeatureStructure`.
+/// Builds a `{POS, head}` feature struct for the syntactic domain from a resolved POS symbol set and an optional, already-resolved morphosyntactic `FeatureStructure`.
 pub(crate) fn build_syn_fs(
     syn: &SynFeatureSystem,
     pos_bits: Option<SymbolBits>,
@@ -328,9 +304,7 @@ pub(crate) fn load_syn_feature_structure(
     Ok(b.build())
 }
 
-/// `<StemName>` (HCLoader.cs:206-225): each non-empty region becomes a `{POS (self + descendants),
-/// head}` feature struct. A `StemName` with zero non-empty regions is dropped entirely (matches
-/// HCLoader never adding it to `m_stemNames`/`m_language.StemNames`).
+/// Each non-empty `<StemName>` region becomes a `{POS (self + descendants), head}` feature struct; a `StemName` with zero non-empty regions is dropped entirely.
 pub(crate) fn build_stem_names(
     snapshot: &Snapshot,
     syn: &SynFeatureSystem,

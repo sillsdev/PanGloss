@@ -1,17 +1,4 @@
-//! Ad hoc measurement harness for the `finish_controllable_net` boundary-cleanup precision fix.
-//! NOT a test -- a throwaway-style probe that stays checked in while the fix is being
-//! re-measured across sessions/agents, unlike a one-off investigation script that gets deleted
-//! after use.
-//!
-//! Drives ONLY public API (`pg_foma::recipe_runtime::evaluate_plans`, `pg_foma::enumerate::
-//! enumerate_default`, `pg_foma::recipe_registry::Registry`) -- never touches `recipe_runtime.rs`/
-//! `recipe_optimize.rs` internals, so it is safe to run against a checkout where those files are
-//! mid-edit by someone else. Reports ONE word at a time (unlike the `recipe-optimize` CLI, whose
-//! aggregate search/pilot/oracle machinery adds cost unrelated to the specific pathology this
-//! measures), so a per-word proposal count is directly comparable across runs.
-//!
-//! Run: `cargo run --release -p pg-foma --example boundary_marker_precision_measure -- \
-//!   <grammar.xml> <words.txt>`
+//! Measures `finish_controllable_net`'s boundary-cleanup precision, one word at a time, via public API only.
 
 use std::env;
 use std::fs;
@@ -39,10 +26,7 @@ fn main() {
     let grammar: Grammar =
         pg_grammar::load(&xml).unwrap_or_else(|e| panic!("grammar load failed: {e}"));
 
-    // Same word-list hygiene the diagnosis doc's own measurement used: strip `\r` (CRLF source
-    // files), drop blank lines. No gloss-header stripping here -- the caller is responsible for
-    // pointing this at a file that is already just words (verified by hand for `sena-words.txt`:
-    // no leading gloss lines, unlike its Amharic sibling).
+    // Strips CRLF `\r` and blank lines; caller must pre-strip any gloss-header lines from the word list.
     let words: Vec<String> = fs::read_to_string(&words_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", words_path.display()))
         .lines()
@@ -65,10 +49,7 @@ fn main() {
             baseline: &baseline,
         })
         .expect("materialization must succeed");
-    // Baseline only (element zero, module doc's own convention in
-    // `recipe_runtime_net_is_queryable_gate.rs`'s `materialize_and_evaluate`): this measures
-    // `build_controllable` + `finish_controllable_net`'s own precision, not the recipe optimizer's
-    // candidate-plan search space.
+    // Baseline candidate only (index 0): measures boundary-cleanup precision, not plan search space.
     let plans: Vec<_> = candidates.into_iter().map(|(_, p)| p).collect();
     assert!(!plans.is_empty(), "must materialize at least one candidate");
     let baseline_plan = std::slice::from_ref(&plans[0]);

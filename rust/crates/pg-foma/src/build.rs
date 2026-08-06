@@ -151,24 +151,7 @@ pub(crate) fn boundary_tokens(
         .collect()
 }
 
-/// The boundary-token cleanup net that every caller further composing a `build_controllable` /
-/// `crate::gate::compile_gated_grammar_with_budget` result must apply. `None` when `table` declares
-/// no `Boundary` char-def at all (the common case for a grammar that authors no morph-juncture
-/// markers).
-///
-/// # Why this deletes EVERY `Boundary` char-def, unconditionally, with no exceptions
-/// `uflexc`'s emitted lexc leaves these tokens as required literal characters on the tape (the
-/// commit message for `76cf841` confirms the pre-cleanup net was "unqueryable" -- a bare surface
-/// query, which never contains a literal boundary character, matched nothing). Excluding ANY
-/// `Boundary` char-def from this deletion (an earlier version of this function tried excluding
-/// multi-representation ones, keyed off `CharDef::representations().len()`) makes every entry that
-/// contains that char-def permanently unreachable by a real surface query -- not a narrow gap, a
-/// straight recall regression (`recipe_runtime_net_is_queryable_gate.rs`'s own
-/// `null_morph_prefix_does_not_collapse_to_a_free_epsilon_loop`-shaped test caught this immediately:
-/// `MultiplicityMismatch { word: "s", expected: 2, actual: 1 }` -- the null-affixed analysis simply
-/// vanished). So this function stays exactly what it always was: blanket, unconditional deletion of
-/// every `Boundary` char-def. See `reroute_null_shaped_affix_chains` for where the actual fix for
-/// the precision regression this used to cause now lives.
+/// Deletes every `Boundary` char-def unconditionally -- excluding any subset would leave entries containing it impossible for any surface query to match. `None` when `table` declares none.
 fn boundary_cleanup_net(
     opts: &FomaOptions,
     table: &pg_grammar::chardef::CharDefTable,
@@ -186,105 +169,8 @@ fn boundary_cleanup_net(
     foma::regex::fsm_parse_regex(opts, &cleanup_regex, None, None)
 }
 
-/// A fix for a large-lexicon proposal-explosion precision regression,
-/// applied to a group's raw `uflexc` lexc source BEFORE it is compiled to an `Fsm` (i.e. before
-/// `boundary_cleanup_net` ever runs) -- this is the "stop putting boundary tokens on the queryable
-/// tape at all" mechanism, mirrored from
-/// `crate::emit`'s working approach (its own module doc: "boundary characters dropped,
-/// representation variants enumerated" -- never emitted onto the tape, then blanket-deleted after
-/// the fact), adapted to `uflexc`'s much simpler self-looping-lexicon model instead of `emit.rs`'s
-/// junction-probing one.
-///
-/// # The exact failure mode this closes
-/// `uflexc::emit_underlying_filtered_with_budget`'s prefix/suffix continuation lexicons
-/// (`PrefixChain`'s lines all point back to the self-referencing `PrefixOrRoot`/`PrefixChain` pair;
-/// `SuffixChain`'s all point back to the self-referencing `SuffixOrEnd`/`SuffixChain` pair) are
-/// DELIBERATELY self-looping (`uflexc`'s own module doc: "self-looping prefix/suffix chains"), an
-/// upward approximation that lets real (non-empty) affixes stack arbitrarily. That is harmless for
-/// an ordinary affix because taking the loop always consumes at least one real surface character, so
-/// recursion depth is bounded by the query's own length. It is NOT harmless for an affix allomorph
-/// whose entire underlying shape is composed only of `Boundary`-kind characters (Sena's compounding
-/// allomorph `"^0+"`, 7 occurrences, all identical): once `boundary_cleanup_net` deletes every
-/// character of THAT allomorph's spelling, its lexc line degenerates to a zero-width, epsilon-tagged
-/// entry sitting ON the self-loop -- a free, unboundedly-repeatable insertion of that morpheme's tag
-/// symbol, taken any number of times without consuming any surface text. `apply_up` enumerates
-/// distinct accepting upper-tape strings (each repeat count produces a genuinely different tag
-/// sequence), so it multiplies out every repeat count up to its own internal search bound: measured
-/// 127 -> 53992 proposals (425x) on the same Sena 5-word slice, 99.5% on one word (`mbali`).
-///
-/// # Why deleting the boundary characters isn't the problem -- the CYCLE is
-/// The pre-cleanup network already requires these literal boundary characters to be present in the
-/// input to take the loop at all, so pre-cleanup it is already correctly rejected by every real
-/// (boundary-free) surface query -- this is exactly the OLD "unqueryable net" bug for entries that
-/// need those characters gone. Deletion has to happen for recall. What must not happen is deletion
-/// landing a zero-width transition on a state that can be revisited: this function reroutes exactly
-/// those lines, and only those, off the self-looping continuation and onto a one-shot successor that
-/// cannot be re-entered -- so the null/zero-morph marker keeps behaving like an ordinary optional
-/// morph that occurs AT MOST ONCE per prefix/suffix juncture (its actual grammatical meaning), never
-/// like a free repeatable insertion. This preserves recall (the marker-only entry is still reachable,
-/// exactly once, so a word genuinely analyzed with it still proposes and confirms) while eliminating
-/// the epsilon cycle that caused the explosion (nothing left to repeat unboundedly).
-///
-/// # Preserving full stacking around the (at most once) marker, not just "reachable at all"
-/// A first version of this function routed a null-shaped line straight to `RootBare`/`#` (no further
-/// prefixes/suffixes allowed afterward at all). That is TOO narrow: `uflexc`'s self-looping chain is
-/// there so ordinary affixes can combine in any order, and the ground truth (`pg_parse::Morpher`,
-/// which this net is only ever an approximation OF) genuinely admits every order of a real affix
-/// relative to a null one -- caught directly by this fix's own gate,
-/// `null_morph_prefix_does_not_collapse_to_a_free_epsilon_loop`, which failed
-/// `MultiplicityMismatch { word: "ps", expected: 3, actual: 2 }` under that narrower version: real
-/// prefix's underlying "p" plus the null prefix legitimately combine in EITHER order (both surface as
-/// "ps"), and routing straight to `RootBare` silently dropped whichever order took the null prefix
-/// FIRST. So the successor state after a null/marker line must still admit every ORDINARY (non-null-
-/// shaped) affix, in any quantity -- just never a SECOND null-shaped line (which is what would reopen
-/// the epsilon cycle). Hence the duplicated `*NoNull` chain below: ordinary affixes get a second,
-/// otherwise-identical lexc line whose continuation stays inside the "already used the marker"
-/// universe, so they can freely combine before AND after the (at most one) marker occurrence, while
-/// the marker lines themselves are never duplicated into that universe -- there is no line left for a
-/// second marker occurrence to take, so the cycle stays broken.
-///
-/// # Mechanics
-/// Scans `lexc_source`'s `PrefixChain`/`SuffixChain` lexicon bodies (the exact, fixed shape
-/// `emit_underlying_filtered_with_budget` itself always produces -- this is not a general lexc
-/// parser). A line whose underlying (lower-tape) text is non-empty and consists ENTIRELY of
-/// characters in `boundary_tokens(table, alphabet)` (i.e. will be deleted to nothing by
-/// `boundary_cleanup_net`) is "null-shaped"; every other non-blank entry line in those two bodies is
-/// "ordinary". For the prefix side:
-/// - Each null-shaped `PrefixChain` line has its continuation swapped in place: `PrefixOrRoot` ->
-///   `PrefixOrRootAfterNull`.
-/// - Each ordinary `PrefixChain` line gets a SECOND copy (identical tag/underlying, continuation
-///   `PrefixOrRootAfterNull` instead of `PrefixOrRoot`) collected into a new `PrefixChainNoNull`
-///   lexicon body.
-/// - Two lexicons are appended (only if any null-shaped prefix line existed): `PrefixOrRootAfterNull`
-///   offers `PrefixChainNoNull ;` (any ordinary prefix, any number of times, any order) and
-///   `RootBare ;` (stop prefixing) -- but never `PrefixChain` itself, so no second null-shaped prefix
-///   is reachable from here.
-///   The suffix side mirrors this exactly: `SuffixOrEnd` -> `SuffixEndOnly`, `SuffixChain` ->
-///   `SuffixChainNoNull`, `# ;` in place of `RootBare ;`.
-///
-/// Every OTHER line (root lines, lexicon headers, blank lines) passes through byte-for-byte. A
-/// grammar with no `Boundary` char-def at all is a pure no-op (`boundary_tokens` is empty, so nothing
-/// can ever match), keeping every existing boundary-free fixture's net byte-identical to before this
-/// function existed.
-///
-/// # This function is NAME-SCOPED, and that scope is not the whole hazard -- read before adding a lexicon
-/// The `match` below recognizes the two literal lexicon names `emit_underlying_filtered_with_budget`
-/// happened to emit when this function was written: `PrefixChain` and `SuffixChain`. That is a
-/// structural weakness, and it has already cost once. The bounded compound loop (`crate::uflexc`'s own
-/// "Bounded compound loop" section) later added its own per-level self-looping prefix lexicons
-/// (`UCmpPfx0`, `UCmp2Pfx0`, ...), re-emitting EVERY line in `prefix_lines` -- null-shaped ones
-/// included -- with the level's own lexicon as the continuation. Those lexicons are exactly the free
-/// epsilon loop this function exists to prevent, and this `match` cannot see them: **a name-based guard
-/// cannot defend a lexicon that did not exist when the guard was written.**
-///
-/// The fix for that was NOT to widen this `match` (which would only postpone the same regression to the
-/// next lexicon someone adds) but to give `crate::uflexc`'s compound prefix hop the at-most-once
-/// discipline directly at emission time -- see that module's "Null-shaped affixes are at most once per
-/// juncture" section. So this function is now belt-and-braces for the compound levels rather than their
-/// only defence, and `null_shaped_guard_scope_tests::reroute_is_a_no_op_on_the_compound_loop_lexicons` pins that it has
-/// nothing left to do there. It remains the ONLY mechanism for the top-level `PrefixChain`/`SuffixChain`
-/// pair (deliberately: moving those to emission time as well would change an already-calibrated net
-/// shape, and is a follow-up, not this change).
+/// Reroutes null-shaped (fully-boundary) `uflexc` affix lines off the self-looping prefix/suffix chain, closing an epsilon-cycle proposal explosion; name-scoped to `PrefixChain`/`SuffixChain` only.
+/// Exact failure mode, rejected alternatives, and mechanics: docs/research/pg-foma-build-design-notes.md.
 fn reroute_null_shaped_affix_chains(
     lexc_source: &str,
     table: &pg_grammar::chardef::CharDefTable,
@@ -321,17 +207,13 @@ fn reroute_null_shaped_affix_chains(
                 to_continuation,
             ) {
                 Some(rerouted) => {
-                    // Null-shaped: replace IN PLACE (module doc) -- this line never gets a
-                    // `*NoNull` duplicate, which is exactly what keeps a second marker occurrence
-                    // unreachable.
+                    // Null-shaped: replaced in place, never duplicated, so a second marker occurrence stays unreachable.
                     out.push_str(&rerouted);
                     out.push('\n');
                     continue;
                 }
                 None => {
-                    // Ordinary: passes through unchanged here, AND gets a second copy queued for
-                    // the `*NoNull` lexicon (continuation swapped), so it can still combine with a
-                    // marker that occurred earlier in the chain.
+                    // Ordinary: also gets a second, continuation-swapped copy so it can combine with an earlier marker.
                     if let Some(dup) = duplicate_ordinary_line_with_continuation(
                         line,
                         from_continuation,
@@ -369,10 +251,7 @@ fn reroute_null_shaped_affix_chains(
     out
 }
 
-/// If `line` is an ORDINARY (non-null-shaped) `uflexc` continuation-chain entry whose continuation is
-/// exactly `from_continuation`, returns a duplicate with the continuation swapped to `to_continuation`
-/// -- the `*NoNull` copy `reroute_null_shaped_affix_chains`'s own doc describes. `None` for a blank
-/// line or any line whose continuation doesn't match (nothing to duplicate).
+/// Duplicates an ordinary continuation-chain line with its continuation swapped to `to_continuation`; `None` if the line's continuation isn't `from_continuation`.
 fn duplicate_ordinary_line_with_continuation(
     line: &str,
     from_continuation: &str,
@@ -399,23 +278,14 @@ fn duplicate_ordinary_line_with_continuation(
     Some(format!("{tag}:{underlying} {to_continuation} ;"))
 }
 
-/// If `line` is a `uflexc`-shaped continuation-chain entry (`TAG:UNDERLYING FROM_CONTINUATION ;`)
-/// whose `UNDERLYING` text is composed ENTIRELY of characters in `boundary_tokens` (so
-/// `boundary_cleanup_net`'s later blanket deletion will reduce it to the empty string), returns
-/// the same line with its continuation swapped to `to_continuation` -- moving it off the
-/// self-looping chain (see `reroute_null_shaped_affix_chains`'s own doc). `None` for every other
-/// line (ordinary non-empty-underlying entries, or any line whose continuation isn't
-/// `from_continuation` to begin with) -- left completely untouched by the caller.
+/// Reroutes a continuation-chain line off `from_continuation` onto `to_continuation` if its underlying text is entirely `boundary_tokens` (so cleanup would delete it to nothing); `None` otherwise.
 fn reroute_line_if_null_shaped(
     line: &str,
     boundary_tokens: &HashSet<char>,
     from_continuation: &str,
     to_continuation: &str,
 ) -> Option<String> {
-    // `tags::lexc_tag`'s own escaping convention: the tag's own embedded colon is always spelled
-    // `%:` (escaped), so the first ':' NOT immediately preceded by '%' is the real upper/lower
-    // separator that `emit_underlying_filtered_with_budget`'s own `format!("{tag}:{underlying} ...")`
-    // writes -- never a colon inside the tag text itself.
+    // A tag's own embedded colon is always escaped as `%:`, so the first unescaped ':' is the real separator.
     let mut sep_byte = None;
     let mut prev = '\0';
     for (i, c) in line.char_indices() {
@@ -518,8 +388,6 @@ pub fn build_controllable(
         children.len(),
         "Gate node invariant (see Plan::add_node's own debug_assert): one child per partition group"
     );
-    // Read once, reused per group below (`reroute_null_shaped_affix_chains` call site) -- the SAME
-    // table `alphabet` was itself constructed from, per `SegAlphabet::table`'s own doc.
     let table_for_group = alphabet.table();
 
     let mut final_net: Option<Fsm> = None;
@@ -535,10 +403,7 @@ pub fn build_controllable(
         let entries = lexicon_fragment_entries(plan, lexicon_id);
         let entries_set: HashSet<LexEntryId> = entries.iter().copied().collect();
 
-        // Walks THIS group's OWN Replace node's data (cascade + rule-leaf children) and
-        // cross-checks it against `prules_in_order` -- see this function's own doc, module doc's
-        // "soundness obstacle" note. Returns the cascade itself so this group's `subrule_ok` can be
-        // derived straight from it below, rather than from the Gate node's partition.
+        // Cascade is read from this group's own Replace node, not re-derived from the Gate node's partition.
         let cascade = validate_replace_cascade(plan, replace_id, g, prules_in_order);
         assert_eq!(
             &cascade.group_key, group_key,
@@ -556,18 +421,7 @@ pub fn build_controllable(
             suffix_entries,
             ..
         } = emit_underlying_filtered_with_budget(g, alphabet, Some(&entries_set), budget)?;
-        // `uskipped` can now carry whole-rule `kind=compounding-rule`/`kind=realizational-rule`
-        // entries (`uflexc::emit_underlying_filtered_with_budget`'s own doc), not only per-
-        // allomorph classification misses -- a non-empty one of those means this GROUP's emitted
-        // network structurally cannot represent that construct (uflexc's module doc: single-root
-        // continuation graph, no compound loop), not merely that this group's gate happened to
-        // exclude it. Pooled into `skipped_allomorphs` with no new channel, same as every other
-        // caller of this function and the same convention `replace::
-        // compile_and_compose_rules_gated_with_budget` already uses for an unsupported rewrite
-        // shape or an unhandled metathesis rule (both pooled into that function's own plain
-        // `skipped: &mut Vec<String>`, no separate "unsupported construct" field there either) --
-        // `GatedCompileResult::skipped_allomorphs`'s own doc ("so a caller can report exactly what
-        // this prototype covers") already gives this the right meaning without further plumbing.
+        // `uskipped` also carries whole-rule entries the network structurally cannot represent, not only per-allomorph misses; pooled here with no separate channel.
         skipped_allomorphs.extend(uskipped);
         group_reports.push((
             group_key.clone(),
@@ -577,22 +431,16 @@ pub fn build_controllable(
         ));
 
         if root_entries == 0 {
-            // Mirrors `compile_gated_grammar_with_budget`'s own doc: an empty group (a gating key
-            // combination realized by zero entries) contributes nothing.
+            // An empty group (zero entries) contributes nothing.
             continue;
         }
 
-        // Precision fix (`reroute_null_shaped_affix_chains`'s own doc): must run BEFORE compiling,
-        // on the raw lexc source, so the marker-only allomorph lines never reach the compiled `Fsm`
-        // sitting on `uflexc`'s self-looping continuation in the first place.
+        // Must run on the raw lexc source before compiling, so marker-only lines never reach the compiled `Fsm`.
         let lexc_source = reroute_null_shaped_affix_chains(&lexc_source, table_for_group, alphabet);
         let lexc_net = foma::lexcread::fsm_lexc_parse_string(opts, None, &lexc_source)
             .unwrap_or_else(|| panic!("gated group lexc failed to compile:\n{lexc_source}"));
 
-        // Module doc's "soundness obstacle" section: this group's own gating key, read from its OWN Replace node's
-        // cascade (never re-derived from the Gate node's partition), threaded into a per-group
-        // subrule_ok closure. This is now a pure read of that Replace NodeId's own content -- no
-        // cross-group state, no cache to get wrong.
+        // subrule_ok is a pure read of this group's own Replace NodeId content -- no cross-group state to get wrong.
         let subrule_ok = subrule_ok_for_group(&cascade.gated_subrules, &cascade.group_key);
 
         let mut group_skipped_rules = Vec::new();
@@ -624,9 +472,7 @@ pub fn build_controllable(
         };
         final_net = Some(match final_net {
             None => group_net,
-            // Safe union: groups are lexically disjoint -- same argument as `crate::gate`'s own
-            // module doc ("why the union is safe here"), unchanged by walking a plan instead of
-            // recomputing the partition directly.
+            // Safe: groups are lexically disjoint.
             Some(prev) => union_checked(
                 opts,
                 prev,
@@ -657,13 +503,7 @@ pub fn build_controllable(
     })
 }
 
-/// Locates the single `Gate` node this function will interpret: `plan`'s root itself if it IS a
-/// `Gate`, or -- when `enumerate_default` wrapped the root in a `Union` alongside composite/
-/// structural marker leaves -- the one `Gate` child of that `Union`. Every OTHER
-/// `Union` child is checked by kind: a `FragmentSpec::CompositeEmissionMarker`/
-/// `FragmentSpec::StructuralCompositeMarker` leaf is the documented out-of-scope case (module
-/// doc) and is silently skipped (never built); anything else is a plan shape this module does not
-/// recognize and panics loudly rather than guessing.
+/// Locates the single `Gate` node to interpret: the plan root itself, or its one `Gate` child if the root is a `Union`. Panics on any other plan shape rather than guessing.
 fn find_gate_node(plan: &Plan) -> NodeId {
     let root = plan
         .root()
@@ -684,11 +524,7 @@ fn find_gate_node(plan: &Plan) -> NodeId {
                     PlanNodeKind::Leaf { fragment, .. } => match fragment {
                         FragmentSpec::CompositeEmissionMarker
                         | FragmentSpec::StructuralCompositeMarker => {
-                            // Out of scope for build_controllable v1 (module doc): these two
-                            // markers resolve via a completely separate code path
-                            // (`emit::emit_with_budget`) into a lexc `String`, not an `Fsm` this
-                            // interpreter builds. Checked-for by kind and skipped, never silently
-                            // misinterpreted as something buildable.
+                            // Resolves via a separate path into a lexc `String`, not an `Fsm` this interpreter builds.
                         }
                         other => panic!(
                             "unexpected Union-root Leaf fragment for build_controllable: {other:?} \
@@ -725,12 +561,7 @@ fn find_gate_node(plan: &Plan) -> NodeId {
     }
 }
 
-/// One gate group's `Compose` node, resolved to its two children `(lexicon_leaf, replace_node)` --
-/// `enumerate_default`'s own shape (module doc: "each group's Compose = Compose[ group's
-/// LexiconFragment Leaf ..., the shared Replace node ]"). Panics on any other child-count shape
-/// (module doc's "node kinds handled" list). No strategy guard: `crate::plan::ComposeStrategy`
-/// has only `Static`, so every `Compose` node is `Static` by construction and there is nothing
-/// left to reject here.
+/// One gate group's `Compose` node, resolved to its two children `(lexicon_leaf, replace_node)`. Panics on any other child count.
 fn gate_group_children(plan: &Plan, compose_id: NodeId) -> (NodeId, NodeId) {
     let PlanNodeKind::Compose { children, .. } = plan
         .get(compose_id)
@@ -748,10 +579,7 @@ fn gate_group_children(plan: &Plan, compose_id: NodeId) -> (NodeId, NodeId) {
     (children[0], children[1])
 }
 
-/// A gate group's `LexiconFragment` leaf, resolved to its `entries` list. Panics if the leaf isn't a
-/// `LexiconFragment` or if `entries` is `None` -- `enumerate_default`'s own invariant is that a
-/// gate-group lexicon leaf is ALWAYS `Some(sorted group entries)`, never `None` (that module's own
-/// doc, "Per-group `LexiconFragment.entries` is always `Some(...)`").
+/// A gate group's `LexiconFragment` leaf, resolved to its `entries` list. Panics if the leaf isn't a `LexiconFragment` or `entries` is `None`.
 fn lexicon_fragment_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> {
     let PlanNodeKind::Leaf { fragment, .. } = plan
         .get(lexicon_id)
@@ -773,20 +601,7 @@ fn lexicon_fragment_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> 
     })
 }
 
-/// Reads a gate group's OWN `Replace` node's `cascade`/rule-leaf children and cross-validates them
-/// against `prules_in_order` -- the caller-supplied slice `build_controllable` actually compiles
-/// with. This is not redundant bookkeeping: it is the one place this function proves the
-/// `prules_in_order` slice the CALLER passed to `build_controllable` is the SAME slice (same
-/// `PRuleId`s, same order) `enumerate_default` used to build `plan` in the first place -- a mismatch
-/// here means the caller handed `build_controllable` a plan and a rule slice that don't agree, which
-/// would otherwise silently miscompile every group's rewrite cascade (the `subrule_ok` closure's
-/// `rule_pos` indices are positions into `prules_in_order`, so a reordered/different slice changes
-/// which subrules a group's key gates without any other signal). Panics loudly on any mismatch,
-/// mirroring `crate::enumerate::rule_id_of`'s own panic for the identical caller-contract shape.
-///
-/// Returns the validated `&ReplaceCascadeSpec` itself (this group's `subrule_ok` is now
-/// read straight off THIS return value's `gated_subrules`/`group_key` -- see
-/// `subrule_ok_for_group` -- rather than re-derived from the `Gate` node's partition).
+/// Cross-validates a gate group's own `Replace` node against `prules_in_order`, proving the caller's slice is the same one `enumerate_default` built `plan` from -- a mismatch would otherwise silently miscompile the group's rewrite cascade with no other signal. Panics on mismatch.
 fn validate_replace_cascade<'a>(
     plan: &'a Plan,
     replace_id: NodeId,
@@ -841,14 +656,7 @@ fn validate_replace_cascade<'a>(
     cascade
 }
 
-/// Builds one group's `subrule_ok(rule_pos, sub_idx)` predicate from a `Replace` node's OWN
-/// `cascade.gated_subrules` + `cascade.group_key` -- IDENTICAL shape to `crate::gate::
-/// compile_gated_grammar_with_budget`'s own inline closure (that function's body, the `subrule_ok`
-/// local), just reading its inputs back out of `plan` data instead of `crate::gate::EntryGroup`/
-/// `crate::gate::GatedSubrule`. This used to be re-derived from the GATE node's
-/// partition instead (see the module doc's "soundness obstacle" note for why that was the unsound
-/// arrangement) -- now it is a pure read of the Replace node's own content, matching whichever
-/// `Replace` `NodeId` was resolved for this group.
+/// Builds one group's `subrule_ok(rule_pos, sub_idx)` predicate, a pure read of the Replace node's own `gated_subrules`/`group_key` content.
 fn subrule_ok_for_group<'a>(
     gated_subrules: &'a [GatedSubruleRef],
     group_key: &'a [bool],
@@ -883,12 +691,7 @@ mod null_shaped_guard_scope_tests {
     use crate::replace::SegAlphabet;
     use crate::uflexc::emit_underlying;
 
-    /// Same shape as `tests/boundary_marker_epsilon_collapse_gate.rs`'s own `COMPOUND_FIXTURE_XML`
-    /// (duplicated rather than shared across the crate/integration-test boundary, matching this
-    /// crate's own convention for synthetic in-module fixtures -- `equivalence_tests` below does the
-    /// same with `enumerate.rs`'s `gated_two_group_fixture`): one unrestricted `CompoundingRule` (so
-    /// `crate::emit::compound_license` admits every entry on both sides and the compound levels are
-    /// really emitted), one ordinary prefix, one all-`Boundary` (`^0+`) prefix.
+    /// One unrestricted `CompoundingRule` (so the compound levels are really emitted), one ordinary prefix, one all-`Boundary` (`^0+`) prefix.
     const COMPOUND_NULL_PREFIX_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -1048,8 +851,7 @@ mod null_shaped_guard_scope_tests {
             );
         }
 
-        // Half 2: the rewriter is nonetheless doing its job where it IS in scope, so half 1 is a
-        // statement about scope rather than about the fixture failing to reach this code at all.
+        // Proves the fixture reaches this rewriter at all, rather than the check above passing vacuously.
         let prefix_chain_before = before_bodies
             .iter()
             .find(|(n, _)| n == "PrefixChain")
@@ -1112,16 +914,7 @@ mod equivalence_tests {
             .collect()
     }
 
-    /// One MPR-gated subrule (`requiredMPRFeatures="mpr1"`, `c1 -> c2`, no environment) and two
-    /// entries realizing both truth values of that gate key -- the SAME shape as `enumerate.rs`'s
-    /// own `gated_two_group_fixture` (private to that module's own `#[cfg(test)]` block, so
-    /// duplicated here rather than exposed across a test-module boundary; both are synthetic,
-    /// self-contained, and delanguaged per this repo's own conformance-grammar convention). `e0`
-    /// (no `ruleFeatures`) realizes gate key `[false]` (the subrule does not apply, its underlying
-    /// "p" stays "p" on the surface); `e1` (`ruleFeatures="mpr1"`) realizes `[true]` (the subrule
-    /// fires, "p" surfaces as "q") -- so "p" and "q" are the two words that can only ever be
-    /// analyzed by exactly one of the two gate groups, the property this test's apply comparison
-    /// needs.
+    /// One MPR-gated subrule and two entries realizing both gate-key values: `e0` keeps "p" as "p" (gate false), `e1` surfaces it as "q" (gate true) -- so "p"/"q" each analyze under exactly one group.
     fn gated_two_group_fixture_xml() -> &'static str {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1171,10 +964,7 @@ mod equivalence_tests {
 "#
     }
 
-    /// Every raw string `apply_up` yields for `word` against `net` (encoded via
-    /// `alphabet.encode_query`, module doc's token-space convention) -- the full literal upper-tape
-    /// output set, not a decoded/collapsed projection of it, so this comparison is at least as
-    /// strict as the decoded-candidate comparisons `tests/p6_gate_parity.rs` itself uses.
+    /// Every raw string `apply_up` yields for `word` against `net` -- the full literal upper-tape output set, not a decoded/collapsed projection.
     fn apply_up_results(net: &Fsm, alphabet: &SegAlphabet, word: &str) -> HashSet<String> {
         let mut out = HashSet::new();
         let Some(query) = alphabet.encode_query(word) else {
@@ -1197,8 +987,7 @@ mod equivalence_tests {
         let phon = PhonologyProbe::new(&g);
         let budget = ComposeBudget::unbounded();
 
-        // (a) today's direct-compile path -- unmodified, exactly what `crate::gate`'s own tests
-        // call.
+        // (a) today's direct-compile path, unmodified.
         let direct = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
             .expect("direct compile must succeed");
         let direct_net = direct
@@ -1224,9 +1013,7 @@ mod equivalence_tests {
             "fixture sanity: exactly 2 gating groups expected"
         );
 
-        // Structural sanity (module doc: meaningful here, never a substitute for the apply
-        // comparison below) -- both paths run the SAME final `minimize_checked` on networks built
-        // from the same primitives, so a divergence here would itself be a real finding.
+        // Structural sanity, not a substitute for the apply comparison below: both paths run the same final minimize.
         assert_eq!(
             direct_net.statecount, built_net.statecount,
             "minimized state counts must match between direct compile and plan-walk build"
@@ -1236,8 +1023,7 @@ mod equivalence_tests {
             "minimized arc counts must match between direct compile and plan-walk build"
         );
 
-        // The correctness argument itself: apply_up on every distinguishing query word must be
-        // IDENTICAL between the two nets.
+        // apply_up on every distinguishing query word must be identical between the two nets.
         for word in ["p", "q"] {
             let want = apply_up_results(&direct_net, &alphabet, word);
             let got = apply_up_results(&built_net, &alphabet, word);
@@ -1252,9 +1038,7 @@ mod equivalence_tests {
             );
         }
 
-        // A stronger sanity check than "both nonempty": "p" and "q" must resolve to DIFFERENT
-        // results on each net (proving the gate actually distinguishes the two groups on THIS
-        // fixture, not that both words happen to hit the same over-permissive branch).
+        // "p" and "q" must resolve to different results, proving the gate actually distinguishes the two groups.
         assert_ne!(
             apply_up_results(&direct_net, &alphabet, "p"),
             apply_up_results(&direct_net, &alphabet, "q"),
@@ -1263,15 +1047,7 @@ mod equivalence_tests {
         );
     }
 
-    /// The node-purity claim, proven end-to-end on this module's own gated fixture: (a) the
-    /// two gate groups' OWN `Replace` `NodeId`s must now be DISTINCT (the fix's whole point -- a
-    /// single shared `Replace` node across differently-gated groups was the unsound arrangement
-    /// the module doc's "soundness obstacle" section named), and (b) that distinctness changes
-    /// nothing about the compiled RELATION: `build_controllable`'s plan-walk must still be
-    /// apply-equivalent to the direct-compile path, exactly the load-bearing correctness argument
-    /// `plan_walk_matches_direct_compile_by_apply_on_gated_two_group_fixture` already makes (this
-    /// test does not replace or weaken that one -- it adds the NodeId-purity claim on top of it,
-    /// reusing the same fixture and the same apply-comparison methodology).
+    /// Two differently-gated groups must get distinct Replace `NodeId`s, and that distinctness must not change the compiled relation (still apply-equivalent to direct compile).
     #[test]
     fn purity_differently_gated_groups_have_distinct_replace_node_ids_and_build_stays_apply_equivalent(
     ) {
@@ -1301,8 +1077,7 @@ mod equivalence_tests {
              groups needing different subrule_ok may share one Replace node"
         );
 
-        // (b) that distinctness does not change the compiled relation: the plan-walk build must
-        // still be apply-equivalent to the direct-compile path.
+        // (b) that distinctness must not change the compiled relation.
         let direct = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
             .expect("direct compile must succeed");
         let direct_net = direct

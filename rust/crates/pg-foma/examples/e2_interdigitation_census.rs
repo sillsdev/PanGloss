@@ -1,10 +1,4 @@
-//! E2 scoping census (not mainline, standalone diagnostic): quantify how much of Amharic's corpus
-//! recall depends on constructs the P6 replace-rule + concatenative-lexc architecture cannot
-//! represent (Role::Infix interdigitation, Role::CircumfixPrefix, process morphs), so the E2 build
-//! decision ("implement interdigitation" vs "accept Partial and decline / scope to non-infix
-//! subset") is made with real numbers instead of a guess.
-//!
-//! Run: `cargo run --release -p pg-foma --example e2_amharic_census`
+//! Census: quantifies how much of a corpus's recall depends on constructs a replace-rule + concatenative-lexc architecture cannot represent (infixes, circumfixes, process morphs).
 
 use std::path::{Path, PathBuf};
 
@@ -111,8 +105,7 @@ fn main() {
     println!("templates: {}", g.templates.len());
     println!("prules: {}", g.prules.len());
 
-    // 1. Classify every mrule's role, per allomorph (not just first — matches emit.rs's own
-    // per-allomorph granularity in emit_rule_allomorphs).
+    // Classifies every mrule's role per allomorph, not just the first, matching emit.rs's own granularity.
     let mut role_counts: std::collections::BTreeMap<&'static str, usize> = Default::default();
     let mut infix_morphemes: std::collections::HashSet<u32> = Default::default();
     let mut circumfix_morphemes: std::collections::HashSet<u32> = Default::default();
@@ -191,9 +184,7 @@ fn main() {
     }
     println!("\ntemplate slot allomorphs classifying Infix: {template_infix_slots}");
 
-    // 3. Real engine recall dependency: parse the corpus with the FULL engine oracle, and for each
-    // distinct analysis, check whether ANY of its morpheme ids is an infix/circumfix/process
-    // morpheme. This is the number that actually matters for the go/no-go call.
+    // Parses the corpus with the full-engine oracle and checks whether any distinct analysis uses an infix/circumfix/process morpheme.
     let words_text = std::fs::read_to_string(sample_path("amharic-words.txt")).expect("read words");
     let words: Vec<&str> = words_text
         .lines()

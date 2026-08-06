@@ -1,13 +1,4 @@
-//! End-to-end gate for the grammar-assessment evidence layer (`add-grammar-assessment` unit 7).
-//!
-//! Drives the real `pangloss` binary over a real conformance grammar and asserts the properties the
-//! artifact contract rests on — the ones a unit test on a hand-built fixture cannot reach, because
-//! they involve an actual compiled model, an actual foma network, and an actual process exit code.
-//!
-//! Synthetic data only: the grammar is `machine/conformance/edge-cases/deep-optional-affix-nesting`,
-//! whose all-optional 12-slot prefix chain yields exactly `C(12,k)` analyses for a word with `k`
-//! leading `x`s. That known-by-construction count is the arithmetic this file checks against, so a
-//! projection bug cannot hide behind "whatever the parser said".
+//! End-to-end gate for the grammar-assessment evidence layer: drives the real `pangloss` binary over a real compiled model and foma network, asserting properties a hand-built-fixture unit test cannot reach.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -151,8 +142,7 @@ fn an_assessment_is_reproducible_and_only_its_report_id_moves() {
     );
     assert_eq!(a["outcomeDigest"], b["outcomeDigest"]);
 
-    // The grammar's own combinatorics: k leading `x`s yield exactly C(12,k) distinct analyses. A
-    // projection that collapsed distinct morpheme chains would show fewer.
+    // The grammar's own combinatorics: k leading "x"s yield exactly C(12,k) distinct analyses; a projection that collapsed distinct morpheme chains would show fewer.
     assert_eq!(analyses(&a, "w0:k"), 1);
     assert_eq!(analyses(&a, "w1:xk"), 12);
     assert_eq!(analyses(&a, "w2:xxk"), 66);
@@ -190,8 +180,7 @@ fn both_pipelines_agree_on_complete_cases() {
 
     assert_eq!(foma["execution"]["pipeline"], "foma-confirm", "the default");
     assert_eq!(hc["execution"]["pipeline"], "hermitcrab");
-    // The propose-and-confirm invariant, observed at the artifact level: the two pipelines must
-    // produce equal analysis sets on complete cases, so their outcome digests must match.
+    // The propose-and-confirm invariant, observed at the artifact level: equal analysis sets on complete cases give equal outcome digests.
     assert_eq!(
         foma["outcomeDigest"], hc["outcomeDigest"],
         "the pipelines disagree about what the grammar does"
@@ -240,8 +229,7 @@ fn compare_reports_a_dropped_case_as_one_sided_rather_than_changed() {
     assert_eq!(delta["summary"]["totalCases"], 3);
     assert_eq!(delta["summary"]["byCategory"]["unchanged"], 2);
     assert_eq!(delta["summary"]["byCategory"]["baseline_only"], 1);
-    // A case the candidate suite simply does not contain is inventory movement, not a grammar
-    // change — forcing investigation on it would generate noise on every suite edit.
+    // A case the candidate suite simply does not contain is inventory movement, not a grammar change.
     assert_eq!(delta["summary"]["changedCases"], 0);
 }
 
@@ -263,8 +251,7 @@ fn golden_diff_evaluates_only_adjudicated_complete_cases() {
         ws.path("probe.json").to_str().unwrap(),
     ]);
 
-    // Build a suite from identities the grammar actually produced, expanding the report's own
-    // interned key table — the same thing any downstream consumer has to do.
+    // Builds a suite from identities the grammar actually produced, expanding the report's interned key table, the same thing any downstream consumer has to do.
     let probe = ws.read_json("probe.json");
     let keys: Vec<String> = probe["keyTable"]
         .as_array()
@@ -386,8 +373,7 @@ fn setup_failure_produces_a_failed_artifact_rather_than_an_error_exit() {
     let broken = ws.write("broken.xml", "<Not-A-Grammar/>");
     let words = ws.write("words.txt", "k\nxk\n");
 
-    // A caller that asked for evidence gets evidence: exiting non-zero with nothing to
-    // read would tell CI only that something went wrong, and `compare` could not join the run.
+    // A caller that asked for evidence gets evidence, rather than a bare non-zero exit CI cannot join `compare` against.
     run_ok(&[
         "assess",
         broken.to_str().unwrap(),
@@ -421,10 +407,7 @@ fn a_report_is_published_atomically_and_leaves_no_debris() {
     let words = ws.write("words.txt", "k\nxk\n");
     let report = ws.path("report.json");
 
-    // Pre-existing content that must be replaced wholesale, never partially overwritten. It is
-    // much longer than the real artifact, so a writer that truncated in place and re-streamed could
-    // leave a tail of it behind. The sentinel is a string the artifact cannot contain, so this
-    // cannot pass or fail by accident on the fixture's own vocabulary.
+    // Deliberately much longer than the real artifact, so a writer that truncated in place and re-streamed could leave a tail of it behind.
     const SENTINEL: &str = "PREVIOUS-REPORT-CONTENT-THAT-MUST-NOT-SURVIVE";
     std::fs::write(&report, SENTINEL.repeat(5_000)).unwrap();
 
@@ -445,8 +428,7 @@ fn a_report_is_published_atomically_and_leaves_no_debris() {
         "the previous file's content survived, so the write was not a replacement"
     );
 
-    // The temp sibling is an implementation detail that must not outlive the run: a leftover
-    // `.report.json.<pid>.tmp` would accumulate in the caller's directory on every invocation.
+    // The temp sibling must not outlive the run, or it accumulates in the caller's directory on every invocation.
     let debris: Vec<_> = std::fs::read_dir(&ws.dir)
         .unwrap()
         .filter_map(Result::ok)
@@ -498,8 +480,7 @@ fn exit_codes_are_typed() {
     let junk = ws.write("junk.json", "not json at all");
     assert_eq!(run(&["compare", junk.to_str().unwrap(), report]), 2);
 
-    // A report from another identity profile is well formed; this build just cannot read its
-    // encoding, so it is an unsupported capability rather than invalid input.
+    // A report from another identity profile is well formed; an unsupported capability, not invalid input.
     let mut foreign = ws.read_json("report.json");
     foreign["suite"]["analysisIdentityProfile"] =
         Value::String("pangloss.machine-word-analysis/v2".into());

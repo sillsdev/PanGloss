@@ -1,18 +1,4 @@
-//! GATE: compounding-rule scale -- recall-parity + `_overbudget` (`EmitLineBudgetExceeded`, the
-//! first EMIT-scale exerciser in this suite -- every earlier stage-2 gate exercised a COMPOSE-path
-//! budget: V6 group cap for partition-k, V3 tuple cap for alpha-scale).
-//!
-//! See `pg_grammar_gen::build::compounding`'s own module doc for why recall-parity and the
-//! overbudget variant deliberately use TWO DIFFERENT emitters: `pg_foma::emit::emit` (production
-//! path, GATE 2's own precedent) for recall; `pg_foma::uflexc::
-//! emit_underlying_filtered_with_budget` (which DOES incrementally count every root-entry line it
-//! writes) for the overbudget check -- an honest, deliberate choice: the vector that actually trips
-//! first here is plain root-entry COUNT (V4, synthetic-stress-grammar-plan.md §3), and compounding
-//! is simply the construct that motivated giving this vector its first gate.
-//!
-//! `uflexc` DOES now represent compounding (its own "Bounded compound loop" section); it did not
-//! when this gate was written, and the overbudget check is unaffected either way because the
-//! root-entry lines it counts are all written BEFORE the compound section is reached.
+//! Uses two different emitters deliberately: `emit::emit` for recall-parity (production path), and `uflexc::emit_underlying_filtered_with_budget` for the overbudget check, since only the latter counts root-entry lines incrementally.
 
 mod common;
 
@@ -46,10 +32,7 @@ fn recipe() -> Recipe {
     }
 }
 
-/// A grammar with several INDEPENDENT compounding rules (module doc): `uflexc` never sees
-/// compounding content, so this is really just several MORE root entries -- large enough (6, module
-/// doc's mirrored precedent: `uflexc.rs`'s own `line_budget_trips_incrementally` trips a `line_cap`
-/// of 5 on 20 entries after 6 lines) for a tiny test `line_cap` to trip almost immediately.
+/// Several independent compounding rules, which `uflexc` sees only as extra root entries (it doesn't represent compounding content), sized so a tiny `line_cap` trips almost immediately.
 fn overbudget_recipe() -> Recipe {
     Recipe {
         name: "phase-c-compounding-overbudget",
@@ -87,10 +70,7 @@ fn compounding_recall_parity_via_generator_and_oracle() {
         .count();
     assert_eq!(compounding_rules, 1);
 
-    // --- Oracle (design doc §3): `Morpher::generate_words` with a `GenMorpheme::NonHead` morpheme
-    // -- `pg_grammar_gen::oracle`'s own module doc names this as the mechanism for a compounding
-    // non-head root (its `sweep` helper doesn't cover it -- `candidate_rules` explicitly excludes
-    // `Compounding`-kind rules, since they own no `MRuleId` a `GenMorpheme::Rule` could name). ---
+    // Oracle uses `GenMorpheme::NonHead`, since `sweep`'s `candidate_rules` excludes `Compounding` rules (they own no `MRuleId` a `GenMorpheme::Rule` could name).
     let head_id = entry_id_of(&g, &compounding.head_entry_xml_ids[0]);
     let nonhead_id = entry_id_of(&g, &compounding.nonhead_entry_xml_ids[0]);
     let morpher = Morpher::new(&g, 20_000).with_word_timeout(Some(Duration::from_millis(500)));
@@ -118,9 +98,7 @@ fn compounding_recall_parity_via_generator_and_oracle() {
     // --- Resource envelope (design doc §4b): a 2-root, 1-compounding-rule grammar must stay tiny. ---
     assert_net_size_within(&net, 2_000, 20_000);
 
-    // --- Recall (design doc §4a): re-parse each oracle word via an independent Morpher to recover
-    // its own tag sequence (GATE 2's own technique), then check that sequence is reachable in
-    // `net`. 100% required (compounding has no known compiler gap on the enumeration path). ---
+    // Re-parses each oracle word via an independent Morpher to recover its tag sequence, then checks reachability in `net`; 100% recall required.
     let popts = ParseOptions::default();
     let width = tags::tag_width(g.morphemes.len());
     let tag_sequences_for = |surface: &str| -> Vec<Vec<String>> {
@@ -133,15 +111,7 @@ fn compounding_recall_parity_via_generator_and_oracle() {
                     .iter()
                     .map(|&m| {
                         let mid = MorphemeId(m);
-                        // A compound word has TWO root morphemes, but `WordAnalysis::
-                        // root_morpheme_index` only ever names ONE of them (the "designated"
-                        // root position `pg-parse` picks) -- found empirically while building this
-                        // gate: `emit.rs`'s own compiled lexc tags EVERY root entry (head AND
-                        // non-head) with the SAME `root_tag_lexc` convention (`<R:N>`), never
-                        // `<M:N>`, regardless of which one `root_morpheme_index` designates. Check
-                        // ROOT-ness directly (is `mid` some entry's own morpheme?) rather than
-                        // trusting `root_morpheme_index` alone, so this gate's own tag derivation
-                        // matches what the compiled net ACTUALLY emits for every root position.
+                        // A compound has two root morphemes but `root_morpheme_index` names only one; the compiled lexc tags every root entry (head and non-head) identically, so check root-ness directly instead of trusting `root_morpheme_index`.
                         if g.entries.iter().any(|e| e.morpheme == mid) {
                             tags::root_tag_text(mid, width)
                         } else {
@@ -182,11 +152,7 @@ fn compounding_recall_parity_via_generator_and_oracle() {
     );
 }
 
-/// Honest failure (design doc §4c): the FIRST emit-scale (not compose-scale) budget exercised in
-/// this suite. `uflexc::emit_underlying_filtered_with_budget` never sees compounding content
-/// (module doc), so this is really a plain root-entry line-count check -- a `line_cap` of 3 must
-/// trip `EmitLineBudgetExceeded` on this 6-root-entry grammar, mirroring `uflexc.rs`'s own
-/// `line_budget_trips_incrementally` precedent exactly (generated instead of hand-authored).
+/// A plain root-entry line-count check: `uflexc::emit_underlying_filtered_with_budget` never sees compounding content, so a `line_cap` of 3 must trip `EmitLineBudgetExceeded` on this 6-entry grammar.
 #[test]
 fn compounding_overbudget_trips_emit_line_budget() {
     let recipe = overbudget_recipe();

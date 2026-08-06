@@ -231,9 +231,7 @@ fn candidate_rules(g: &Grammar) -> Vec<(MRuleId, Role)> {
     out
 }
 
-/// `(required_syn_fs, out_syn_fs, owning morpheme)` for the two rule kinds that carry allomorphs.
-/// `candidate_rules` (above) filters `Compounding` out before this is reached; the `unreachable!`
-/// below enforces that at this call site too.
+/// `(required_syn_fs, out_syn_fs, owning morpheme)` for the two rule kinds that carry allomorphs; `candidate_rules` filters `Compounding` out before this is ever reached.
 fn rule_fs_and_morpheme(rule: &MorphRuleDef) -> (FsId, MorphemeId) {
     match rule {
         MorphRuleDef::AffixProcess(def) => (def.required_syn_fs, def.morpheme),
@@ -242,14 +240,7 @@ fn rule_fs_and_morpheme(rule: &MorphRuleDef) -> (FsId, MorphemeId) {
     }
 }
 
-/// Replays `pg_parse::Morpher::allomorphs_in_morph_order`'s own algorithm (sort `Word::morphs` by
-/// `order`, keep the FIRST occurrence of each distinct `AllomorphId`) over a freshly-synthesized
-/// composite `Word`, then maps each surviving record to its pre-rendered tag string via `known` --
-/// so composite tag order is COMPUTED from the exact same bookkeeping the real engine uses, never
-/// assumed from any rule's role. Generic over chain length (`known` may name the root plus ANY
-/// number of applied rules -- see the module doc's "Chaining" section). Returns `None` if a
-/// surviving record's morpheme isn't in `known` (defensive; should never happen for a word seeded
-/// with exactly one root record and only rules from this same chain applied to it).
+/// Replays `Morpher::allomorphs_in_morph_order`'s own algorithm over a freshly-synthesized composite `Word`, so tag order is computed from the same bookkeeping the real engine uses, never assumed from a rule's role.
 fn morph_order_tags(w: &Word, known: &[(MorphemeId, String)]) -> Option<String> {
     let mut ms = w.morphs.clone();
     ms.sort_by_key(|m| m.order);
@@ -272,25 +263,15 @@ fn morph_order_tags(w: &Word, known: &[(MorphemeId, String)]) -> Option<String> 
     }
 }
 
-/// One rule-allomorph's precomputed ordinary-surface strings (module doc's "Avoiding redundant
-/// entries") -- see `build_allomorph_variants`'s doc for why this is hoisted out of
-/// `reachable_via_ordinary_emission`'s hot path.
+/// One rule-allomorph's precomputed ordinary-surface strings, hoisted out of `reachable_via_ordinary_emission`'s hot path; see `build_allomorph_variants`.
 struct AllomorphVariants {
     /// `surface_variants(text) ∪ phon.variants(text)` for one allomorph's `InsertSegments` text.
     ordinary: Vec<String>,
-    /// `phon.deletion_junctions(text)` for the same text (empty when `phon` is `None`; only ever
-    /// consulted on the prefix side, mirroring `emit.rs`'s own `{roots}Stripped` convention).
+    /// `phon.deletion_junctions(text)`, prefix-side only, mirroring `emit.rs`'s `{roots}Stripped` convention.
     deletion: Vec<String>,
 }
 
-/// Precomputes `reachable_via_ordinary_emission`'s per-allomorph input ONCE per candidate rule,
-/// rather than recomputing `surface_variants`/`PhonologyProbe::variants`/`deletion_junctions` for
-/// the SAME allomorph text on every one of the ~305k (root, rule, depth) probes `extend` tries on
-/// Amharic: `(table, phon, rule)` are all grammar-static for the lifetime of one `build_composites`
-/// call, so each allomorph's ordinary/deletion surface sets never change across roots or depths --
-/// only `root_variants`/`root_stripped`/`fused` (genuinely per-probe) still need to be supplied at
-/// call time. Skips (empty entry) any allomorph with no `InsertSegments` text and returns an empty
-/// `Vec` for a `Compounding` rule (mirrors the old inline function's `continue`/early-`return false`).
+/// Precomputes `reachable_via_ordinary_emission`'s per-allomorph input once per candidate rule rather than per probe; why this precompute matters at Amharic's probe volume: docs/research/pg-foma-preexpand-design-notes.md.
 fn build_allomorph_variants(
     table: &CharDefTable,
     phon: Option<&PhonologyProbe>,
@@ -320,15 +301,7 @@ fn build_allomorph_variants(
         .collect()
 }
 
-/// Module doc's "Avoiding redundant entries": does the ORDINARY two-entry emission (literal root
-/// spelling(s), literal affix spelling(s), optionally enriched by `PhonologyProbe`) already reach
-/// `fused` through some combination? Mirrors `emit.rs`'s own two routing rules exactly:
-/// `PhonologyProbe::variants` spellings concatenate with a FULL root spelling; `deletion_junctions`
-/// spellings concatenate with a root spelling that has had its OWN leading segment stripped
-/// (`stripped_variants`) -- the `{roots}Stripped` mechanism `emit.rs`'s `build_deriv_chain` wires,
-/// PREFIX-only (there is no suffix-side equivalent in `emit.rs` today, so a `Suffix` rule only ever
-/// checks the plain `variants` × full-root combination). `allo_variants` is this rule's
-/// `build_allomorph_variants` output, precomputed once outside the root/depth probe loop.
+/// Whether the ordinary two-entry emission already reaches `fused` through some combination, avoiding a redundant composite entry; the routing rules mirrored from `emit.rs`: docs/research/pg-foma-preexpand-design-notes.md.
 fn reachable_via_ordinary_emission(
     root_variants: &[String],
     root_stripped: &[String],
@@ -362,43 +335,10 @@ fn reachable_via_ordinary_emission(
     false
 }
 
-/// Cap on `render_all_variants`'s Cartesian product. Kept SMALL (not a large defensive-only
-/// bound): measured on Amharic, `matching_reps_local`'s fallback branch (needed for genuine
-/// correctness — see that function's doc) fires on ~30% of all probed segments, because vowel
-/// quality changes on a Ge'ez consonant-vowel glyph are the ORDINARY case for this templatic
-/// language family, not a rare exception — so an unbounded (or generously bounded) product
-/// multiplies across every ambiguous position in a word and blows up total emitted lexc size
-/// catastrophically (measured: cap 64 grew Amharic's lexc source from 4.59 MB/71,142 lines to
-/// 21.65 MB/288,650 lines, which overflows the foma lexc compiler's own parse stack — a hard
-/// crash, not just a slowdown). The Amharic "ገለፀ" recall miss this module fixes needs exactly 2
-/// variants for its own composite record (`"ገለጸ"`/`"ገለፀ"` — verified directly); 4 leaves headroom
-/// for a second independently-ambiguous position in the same word without reopening the blow-up
-/// (measured: cap 4 keeps the same Amharic build well under the original baseline's order of
-/// magnitude). A grammar that genuinely needs more than 4 co-occurring alternatives on one
-/// composite would show up as its own recall-gate miss, at which point this constant (or the P6
-/// replace-rule successor, module doc) is the fix, not silently raising it speculatively.
+/// Cap on `render_all_variants`'s Cartesian product; kept deliberately small since the fallback branch it bounds fires on ~30% of probed segments on Amharic and a generous cap blows up emitted lexc size: docs/research/pg-foma-preexpand-design-notes.md.
 const MAX_RENDER_VARIANTS: usize = 4;
 
-/// Every literal spelling a probed SEGMENT node can honestly mean, for `render_all_variants`.
-///
-/// **Fast, common path — concrete, unmutated identity** (`char_def != NO_CHAR_DEF` and its own
-/// feature lanes still unify with the node's current `lanes`): return ONLY that char-def's OWN
-/// representations, mirroring `crate::emit::surface_variants`'s already-established pattern for
-/// the identical shape of ambiguity (Sena `char4` = {"m","n"}: multiple spellings of the SAME
-/// character, never a search across OTHER characters). This is both correct (this IS the
-/// character the root was authored with) and cheap (no cross-table search).
-///
-/// **Fallback — abstract or mutated identity**: when `char_def == NO_CHAR_DEF` (a post-rewrite
-/// node whose identity was cleared by a feature-changing rule) or the node's OWN char-def no
-/// longer unifies with its current lanes (a rewrite changed features — e.g. a vowel-quality change
-/// on a Ge'ez consonant-vowel glyph — without reassigning identity), there IS no preferred
-/// spelling — fall through to the full `pg-rules`-equivalent search across every lane-unifiable
-/// segment char-def (same result its own private `matching_reps`, `pg-rules/src/
-/// surface_probe.rs:95-117`, computes — duplicated here for the same cross-crate reason that
-/// module's own doc already accepts: `pg-rules` cannot expose a private helper for this one
-/// caller). This is the branch `MAX_RENDER_VARIANTS`'s doc measures as ~30% of all probed
-/// segments on Amharic — NOT rare, because vowel-quality changes are the ordinary case for this
-/// templatic language family, which is exactly why the cap above must stay small.
+/// Every literal spelling a probed segment node can honestly mean; fast path returns just the node's own concrete representations, falling back to a full lane-unifiable table search when identity was cleared or invalidated: docs/research/pg-foma-preexpand-design-notes.md.
 fn matching_reps_local(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<String> {
     if char_def != NO_CHAR_DEF {
         let cd = table.get(CharDefId(char_def));
@@ -429,28 +369,7 @@ fn matching_reps_local(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Ve
     out
 }
 
-/// Every distinct literal surface rendering of `segs` — the recall fix for a real miss class
-/// `pg_rules::surface_probe::render_nodes` cannot see past: that function collapses each surviving
-/// segment node to its FIRST matching character-definition representation in table order,
-/// discarding every OTHER representation that also unifies with the node's own feature lanes (its
-/// own private `matching_reps` already computes the full set; `render_nodes` just takes
-/// `.next()`). For an alphabet with a historical letter-series merger — Ge'ez ጸ/ፀ are separate
-/// `CharDefId`s but mutually unifiable (the same modern phoneme spelled two ways) — the specific
-/// member a root's OWN allomorph was authored with is not necessarily table-order-first, so
-/// `render_nodes` can silently render the WRONG literal spelling for a composite whose final
-/// segment lands in such a class. Measured root cause of the Amharic "ገለፀ" recall miss (entry30
-/// "explain" + mrule13 "-pfv-" infix + mrule18 "pfv.3m" suffix): `render_nodes` produced "ገለጸ"
-/// (wrong series on the final consonant), which never matches the true surface, so `propose`
-/// found zero candidates for a word the full engine confirms in exactly one analysis.
-///
-/// Fixed the only sound way per plan §0 (propose may only OVER-generate, never under-generate):
-/// render every combination of each node's own matching representations (Cartesian product across
-/// positions, `MAX_RENDER_VARIANTS`-capped — see that constant's doc for why the cap must stay
-/// small on this grammar family) instead of guessing one. `extend`'s caller then tries each
-/// resulting string exactly the way it tried the old single `post` — confirm prunes whichever
-/// variants don't actually re-derive. Empty iff any surviving node has no matching representation
-/// at all (an under-specified node — `render_nodes`'s own `None` case, ported as an empty `Vec`
-/// here since this function's return type has no `Option`).
+/// Every distinct literal surface rendering of `segs`: a recall fix for a real miss class `render_nodes` cannot see past, since it collapses each node to only its first matching representation; root cause and the Amharic case that motivated it: docs/research/pg-foma-preexpand-design-notes.md.
 fn render_all_variants(table: &CharDefTable, segs: &[ProbeSeg]) -> Vec<String> {
     let mut variants: Vec<String> = vec![String::new()];
     for seg in segs {
@@ -473,14 +392,7 @@ fn render_all_variants(table: &CharDefTable, segs: &[ProbeSeg]) -> Vec<String> {
     variants
 }
 
-/// Bound on total composite chain length beyond the root (module doc, "Chaining"): a root plus at
-/// most this many applied rules in one composite entry. `3` is the longest chain the recall gate
-/// actually demanded (Amharic "ሌባዎቹ": root + def.m (CLEAN concatenation) + pl (fuses with def.m's
-/// own ው) + poss.3m (fuses again) — the clean first step is why `extend` recurses through
-/// non-dirty steps too, not just dirty ones); a grammar that genuinely needs a fourth stacked
-/// fusion would show up as a recall-gate miss with an otherwise-empty class, at which point this
-/// constant (or the P6 replace-rule successor, module doc) is the fix, not silently raising it
-/// speculatively.
+/// Bound on total composite chain length beyond the root; why 3, and the Amharic case that set it: docs/research/pg-foma-preexpand-design-notes.md.
 const MAX_EXTRA_RULES: usize = 3;
 
 /// One in-progress composite chain step's context, threaded through `extend`'s recursion.
@@ -488,55 +400,26 @@ struct ExtendCtx<'a> {
     g: &'a Grammar,
     root_table: &'a CharDefTable,
     rules: &'a [(MRuleId, Role)],
-    /// `build_allomorph_variants` output for each of `rules`, same order/indexing -- precomputed
-    /// once per grammar (see that function's doc for why this must not be recomputed per probe).
-    /// This is the only place `phon` still matters to `extend`'s own recursion (folded into each
-    /// allomorph's `ordinary`/`deletion` sets at precompute time) -- no separate `phon` field is
-    /// needed here anymore.
+    /// `build_allomorph_variants` output for each of `rules`, precomputed once per grammar; the only place `phon` still matters to `extend`'s recursion, folded in at precompute time.
     rule_variants: &'a [Vec<AllomorphVariants>],
     cache: &'a RuleCache,
-    /// Morphotactic pruning (module doc addendum): the automaton `extend` consults immediately
-    /// before recursing on a candidate rule, and the flat/pruned escape hatch that lets it be
-    /// bypassed for A/B measurement (`crate::morphotactics::ExploreMode`'s own doc).
+    /// The morphotactic automaton `extend` consults before recursing on a candidate rule, plus the flat/pruned escape hatch for A/B measurement.
     mt: &'a MorphotacticIndex,
     mode: ExploreMode,
-    /// `HC_PREEXPAND_PROBE_CAP` measurement-only safety valve (`crate::morphotactics::ProbeBudget`'s
-    /// own doc) -- `None` in production (the env var unset), so every `ctx.probe_budget` read below
-    /// is a single branch on a `None` with zero further cost.
+    /// Measurement-only safety valve; `None` in production, so every read below is a single branch with zero further cost.
     probe_budget: Option<ProbeBudget<'a>>,
-    /// Default-ON fail-fast enumeration budget (`crate::morphotactics::EnumerationBudget`'s own
-    /// doc, Fix 1 for the Aweti-scale blow-up) -- unlike `probe_budget` above, this is ALWAYS live
-    /// and never panics; `extend` checks it before every recursive step and ticks it alongside the
-    /// existing counters.
+    /// Default-on fail-fast enumeration budget, always live and never panics; `extend` checks it before every recursive step.
     enum_budget: &'a EnumerationBudget,
 }
 
-/// `extend`'s output accumulator: the composite records, a `(tag_lexc, spelling)` dedup set
-/// (multiple root allomorphs, rule orders, or disjunctive rule allomorphs can converge on a
-/// byte-identical entry — a hash set, not an `O(n²)` scan, since chains at `MAX_EXTRA_RULES = 3`
-/// visit thousands of candidates), and the counts report.
+/// `extend`'s output accumulator: composite records, a `(tag_lexc, spelling)` dedup set (a hash set rather than an `O(n^2)` scan, since chains visit thousands of candidates), and the counts report.
 struct Acc {
     recs: Vec<CompositeRec>,
     seen: rustc_hash::FxHashSet<(String, String)>,
     report: CompositeReport,
 }
 
-/// Try extending `base_word` (already carrying `chain`'s tags, `chain.last()` being the most
-/// recently applied step) with every remaining candidate rule; recurse up to
-/// `MAX_EXTRA_RULES`. `redundancy_variants`/`redundancy_stripped` are the "one side" strings the
-/// ORDINARY (non-composite) lexc path would concatenate the OTHER side's literal spelling against
-/// at THIS level: at depth 0 that is the root's own `surface_variants`/`stripped_variants`; at
-/// depth ≥ 1 it is the rendered surface(s) of the composite chain built so far (the previous
-/// level's own lexc entry is a fixed, already-decided set of strings by the time a further rule's
-/// ordinary entry would concatenate against it) — `build_composites`/this function's own
-/// recursive call construct the right one for each depth, so `reachable_via_ordinary_emission`
-/// is checked UNIFORMLY at every depth, never skipped by a `pre == post` shortcut (module doc's
-/// investigation: a shortcut there is unsound whenever a rule's OWN LHS pattern silently drops
-/// part of what it matched — e.g. Amharic's "ላ" ("to") rule's LHS consumes-but-does-not-copy the
-/// pronoun root's leading glottal segment, so `pre` (the rule's own output) and `post` (after
-/// phonology) already agree with EACH OTHER while both still differ from what `emit.rs`'s literal,
-/// whole-root-text concatenation would produce — exactly the gap this composite mechanism exists
-/// to close).
+/// Tries extending `base_word` with every remaining candidate rule, recursing up to `MAX_EXTRA_RULES`; why `reachable_via_ordinary_emission` is checked uniformly at every depth rather than skipped by a `pre == post` shortcut: docs/research/pg-foma-preexpand-design-notes.md.
 #[allow(clippy::too_many_arguments)]
 fn extend(
     ctx: &ExtendCtx,
@@ -552,11 +435,7 @@ fn extend(
     if depth >= MAX_EXTRA_RULES {
         return;
     }
-    // Fail-fast enumeration budget (Fix 1, `crate::morphotactics::EnumerationBudget`'s own doc):
-    // checked once at the top of every call, same shape as the `depth >= MAX_EXTRA_RULES` guard
-    // just above -- once ANY parallel root worker trips either measure, every other in-flight or
-    // subsequent call (this grammar's remaining roots, and this call's own remaining recursion)
-    // bails out here almost immediately instead of continuing to burn CPU toward the blow-up.
+    // Checked once at the top of every call, same shape as the depth guard above: docs/research/pg-foma-preexpand-design-notes.md.
     if ctx.enum_budget.is_tripped() {
         return;
     }
@@ -564,20 +443,11 @@ fn extend(
     for (ridx, &(mid, role)) in ctx.rules.iter().enumerate() {
         let rule = &ctx.g.mrules[mid.0 as usize];
         let (req, rule_morpheme) = rule_fs_and_morpheme(rule);
-        // A rule already in this chain cannot apply again in the SAME composite (every reference
-        // grammar's rules default `multipleApplication = 1`; a cheap guard against re-exploring the
-        // same step, not a correctness requirement `synthesize` itself would enforce here).
+        // A rule already in this chain does not apply again in the same composite; a cheap guard against re-exploring the same step, not a correctness requirement `synthesize` enforces on its own.
         if chain.iter().any(|(m, _)| *m == rule_morpheme) {
             continue;
         }
-        // Morphotactic pruning (module doc addendum, `crate::morphotactics`): restricts the
-        // recursion to a rule adjacency the engine's own stratum/template machinery can actually
-        // produce. `ExploreMode::Flat` is the pre-fix escape hatch (`Some(state.clone())`
-        // unconditionally) kept for A/B measurement; production always runs `Pruned`. This sits
-        // BEFORE the FS pre-filter below (plan doc "Wiring") -- a pure subset restriction, so
-        // dirty/clean logic, redundancy baselines, dedup, rendering, and emitted order below are
-        // completely unaffected; pruning can only skip a candidate the flat version would also have
-        // tried.
+        // Restricts recursion to a rule adjacency the stratum/template machinery can actually produce; `Flat` is an A/B-measurement escape hatch, production always runs `Pruned`. A pure subset restriction: it can only skip a candidate the flat version would also have tried.
         let Some(next_state) = (match ctx.mode {
             ExploreMode::Flat => Some(state.clone()),
             ExploreMode::Pruned => ctx.mt.next_state(state, mid, &base_fs, &ctx.g.fs_interner),
@@ -585,8 +455,7 @@ fn extend(
             continue;
         };
         let req_fs = ctx.g.fs_interner.get(req);
-        // Cheap pre-filter (module doc): the SAME unifiability check `pg_rules::morph::synth_syn_fs`
-        // makes internally -- skip building/compiling for a pair that provably cannot match.
+        // The same unifiability check `synth_syn_fs` makes internally, so a provably non-matching pair is skipped before building/compiling.
         if !req_fs.is_empty() && !is_unifiable(req_fs, &base_fs) {
             continue;
         }
@@ -605,14 +474,7 @@ fn extend(
             let Some(segs) = surface_probe::probe_synthesize(ctx.g, &w.shape, ctx.cache) else {
                 continue;
             };
-            // Recall fix (module doc addendum, `render_all_variants`): a character-definition
-            // table can have merged letter-series ambiguity (Ge'ez ጸ/ፀ), where `pg_rules::
-            // surface_probe::render_nodes` collapses to a single, sometimes-WRONG rendering.
-            // `render_all_variants` yields every literal spelling the probed shape can honestly
-            // mean, computed ONCE per synthesized `w` here (NOT once per recursive call — see
-            // below) so this stays the same O(pairs_probed) shape as the original single-`post`
-            // code, never O(pairs_probed × variants^depth): only the SET OF STRINGS a single
-            // step considers grows; the recursion tree itself does not branch on it.
+            // Computed once per synthesized `w`, not once per recursive call, so this stays O(pairs_probed) rather than O(pairs_probed x variants^depth): only the set of strings a step considers grows, the recursion tree does not branch on it.
             let posts: Vec<String> = render_all_variants(ctx.root_table, &segs)
                 .into_iter()
                 .filter(|p| !p.is_empty())
@@ -621,11 +483,7 @@ fn extend(
                 continue;
             }
             let is_infix = role == Role::Infix;
-            // A variant is "dirty" iff it isn't already reachable via the ordinary two-entry
-            // path; only DIRTY variants need their own composite entry (a clean one is already
-            // realized correctly without this mechanism). Checking every variant here is cheap
-            // (a handful of short-string comparisons) — the expensive part avoided is recursing
-            // once per variant, not computing this per-variant flag.
+            // A variant is "dirty" iff not already reachable via the ordinary two-entry path; only dirty variants need their own composite entry.
             let dirty_posts: Vec<&String> = posts
                 .iter()
                 .filter(|post| {
@@ -643,10 +501,7 @@ fn extend(
             let mut next_chain = chain.to_vec();
             next_chain.push((rule_morpheme, tags::morph_tag_lexc(rule_morpheme, width)));
 
-            // Dirty variants are emitted as ONE composite record carrying every dirty spelling
-            // (module doc, "Chaining": a dirty step is emitted; a clean step is NOT emitted — the
-            // ordinary lexc entries already realize it correctly — but is still recursed through
-            // below, see the recursion comment further down).
+            // Dirty variants are emitted as one composite record; a clean step is not emitted (ordinary lexc entries already realize it) but is still recursed through below.
             if let Some(tag_lexc) = (!dirty_posts.is_empty())
                 .then(|| morph_order_tags(&w, &next_chain))
                 .flatten()
@@ -673,9 +528,7 @@ fn extend(
                     } else {
                         acc.report.fusion_entries += 1;
                     }
-                    // Fail-fast enumeration budget: one composite lexc entry was just recorded
-                    // (module doc's "composite entries" measure, the one that actually predicts the
-                    // Aweti-scale blow-up -- see `crate::morphotactics::EnumerationBudget`'s doc).
+                    // The "composite entries" measure: the one that actually predicts an Aweti-scale blow-up.
                     ctx.enum_budget.add_entries(1);
                 }
                 if is_infix {
@@ -683,20 +536,7 @@ fn extend(
                 }
             }
 
-            // Recurse (module doc, "Chaining") — ONCE per synthesized `w`, dirty or clean, never
-            // once per variant (see the comment above `posts`). The ordinary-emission redundancy
-            // baseline one level deeper is EVERY variant THIS level rendered (already a `Vec`, so
-            // passing all of them costs nothing extra) — and, ONLY when EVERY variant at this
-            // level was clean (no dirty variant at all: a mixed clean/dirty step still means a
-            // composite got recorded above, so the stem is not purely ordinary), also each clean
-            // variant's stripped (first-segment-removed) form: a clean stem is realized by
-            // ordinary entries whose root half DOES have a `{roots}Stripped` sibling, so a
-            // deletion-junction prefix one level up (Indonesian `meN` over a suffixed stem:
-            // `tuliskan -> menuliskan`) is ordinary-reachable and must not read as dirty (measured:
-            // without this, Indonesian grew 42 spurious fusion composites; with it, zero). After a
-            // DIRTY step the stem exists ONLY as a composite entry, which has no Stripped sibling —
-            // offering a stripped baseline there could mark a genuinely-needed deeper composite
-            // clean, a downward (recall-losing) error, the plan's one forbidden direction.
+            // Recurses once per synthesized `w`, never once per variant; why the redundancy baseline includes clean variants' stripped forms only when every variant at this level was clean: docs/research/pg-foma-preexpand-design-notes.md.
             let all_clean = dirty_posts.is_empty();
             let deeper_stripped = if all_clean {
                 let mut v = Vec::new();
@@ -726,36 +566,7 @@ fn extend(
     }
 }
 
-/// Precomputes `build_allomorph_variants` for EVERY candidate rule against EVERY distinct root
-/// table this grammar's entries actually use, up front, before `build_composites`'s per-root loop
-/// starts (perf: parallelization plan part 2). This used to be a lazily-triggered
-/// `HashMap::or_insert_with` inside the root loop -- correct, but paid its ~3.4s (Amharic,
-/// profiled) first-touch cost serially, on whichever root happened to reach a given table first,
-/// and would have needed its own locking to stay sound once the root loop itself went parallel
-/// (below). Precomputing here instead means: (1) the cost becomes a one-time pass instead of a
-/// serial tax paid inside the hot loop, and (2) every `PhonologyProbe` cache entry
-/// `build_allomorph_variants` can populate (`variants`/`deletion_junctions`, both `Mutex`-backed
-/// -- see that struct's doc) is already warm by the time `build_composites`'s parallel root
-/// workers start calling into it, so those workers only ever hit a cache HIT (a cheap lock+clone),
-/// never a concurrent first-touch compute race.
-///
-/// **Deliberately SEQUENTIAL over `rules`/`table_ids`, not `par_iter()`**: each cache-missing rule's
-/// `PhonologyProbe::variants`/`deletion_junctions` call already fans out internally across
-/// `PhonologyProbe`'s own dedicated pool (`junctions.rs`'s `pool` field, built once, sized for
-/// `probe_synthesize`'s deep recursion). Driving THIS outer loop in parallel too -- whether on
-/// rayon's global pool (the original nested-pools shape) or, tried next, funneled into that same
-/// dedicated pool via an `install` indirection -- both measured SLOWER than plain sequential on
-/// Amharic: the first oversubscribes (global-pool threads blocked-and-waiting on top of the
-/// dedicated pool's own worker threads, both live at once); the second starves each individual
-/// rule's expensive C1×C2 probe of workers by letting up to ~87 outer tasks compete for the SAME
-/// pool's threads at once, so a single rule's fan-out -- the actually-expensive unit of work here
-/// -- finds few or no idle workers left to steal onto. A plain sequential loop instead gives EVERY
-/// cache-missing rule's probe call the ENTIRE dedicated pool to itself, one rule at a time --
-/// slower-looking by rule-count but faster in wall time because the pool's parallelism lands where
-/// the actual cost is (the alphabet-sized C1/C1×C2 fan-out inside one probe call), not spread thin
-/// across many simultaneously-cheap-until-they-aren't outer tasks. Table-level nesting is kept
-/// (`one_table` is still a closure over `rules`) purely for structure -- `table_ids` has length 1 on
-/// every reference grammar, so this loop's own iteration count is never the bottleneck either way.
+/// Precomputes `build_allomorph_variants` for every candidate rule against every distinct root table up front, warming `PhonologyProbe`'s caches before `build_composites`'s parallel root workers start; deliberately sequential, not `par_iter()` — why: docs/research/pg-foma-preexpand-design-notes.md.
 fn build_rule_variants_all_tables(
     g: &Grammar,
     phon: Option<&PhonologyProbe>,
@@ -777,27 +588,12 @@ fn build_rule_variants_all_tables(
     per_table.into_iter().collect()
 }
 
-/// One `build_composites` top-level work item: a single lexical entry, together with the
-/// grammar-static handles its (sequential, within-item) allomorph loop needs. Parallelized at THIS
-/// granularity, not per-allomorph, because `Acc::seen`'s cross-allomorph dedup (module doc's
-/// `Acc` field comment: "multiple root allomorphs ... can converge on a byte-identical entry") is
-/// only ever exercised WITHIN one entry's own allomorphs -- every chain's `tag_lexc` begins with
-/// `tags::root_tag_lexc` of THIS entry's own `morpheme`, a value unique to that `MorphemeId`
-/// (`pg_foma::tags`'s fixed-width, prefix-disambiguated encoding: `<R:nnnn>` vs `<M:nnnn>` tokens of
-/// equal length per numeral width, so two distinct token sequences can never collide as strings) --
-/// so no two DIFFERENT entries can ever produce the same `(tag_lexc, spelling)` key. Keeping each
-/// entry's own allomorphs on one worker with a fresh, entry-local `seen` set therefore reproduces
-/// the old shared-`Acc`-with-one-global-`seen` sequential result byte-for-byte, while still letting
-/// different entries run on different threads.
+/// One `build_composites` top-level work item: a single lexical entry; why this is the parallelization granularity, not per-allomorph or grammar-wide: docs/research/pg-foma-preexpand-design-notes.md.
 struct RootWork {
     entry_id: LexEntryId,
 }
 
-/// Process one `RootWork` item (all of one entry's own, non-pattern allomorphs) with a fresh,
-/// entry-local `Acc` -- the parallel unit `build_composites` maps over. Mirrors the body of the
-/// old sequential `for entry_id in &sd.entries { for allo in &entry.allomorphs { .. } }` loop
-/// exactly, just scoped to one entry and returning its own accumulator instead of writing into a
-/// grammar-wide shared one.
+/// Processes one `RootWork` item (all of one entry's non-pattern allomorphs) with a fresh, entry-local `Acc`, the parallel unit `build_composites` maps over.
 #[allow(clippy::too_many_arguments)]
 fn process_root_work(
     g: &Grammar,
@@ -817,9 +613,7 @@ fn process_root_work(
         report: CompositeReport::default(),
     };
 
-    // Fail-fast enumeration budget: skip this root entirely once tripped -- cheaper than even
-    // entering the allomorph loop below (each `extend` call would bail near-instantly anyway, but
-    // this avoids the per-allomorph setup work too).
+    // Skips this root entirely once tripped, cheaper than entering the allomorph loop below even though each `extend` call would bail near-instantly anyway.
     if enum_budget.is_tripped() {
         return (acc.recs, acc.report);
     }
@@ -855,10 +649,7 @@ fn process_root_work(
 
         let root_tag = tags::root_tag_lexc(entry.morpheme, width);
         let chain0 = vec![(entry.morpheme, root_tag)];
-        // A fresh `ExtendCtx` per root: `root_table` is the OWNING stratum's table, which can in
-        // principle differ per root in a multi-table grammar (module doc's
-        // `f3_amharic_gate.rs`-documented hazard 2 — a non-issue for Amharic BY CONTENT, since all
-        // 3 strata share one table, but not assumed here).
+        // A fresh `ExtendCtx` per root: `root_table` is the owning stratum's table, which can in principle differ per root in a multi-table grammar, so it is never assumed shared.
         let root_ctx = ExtendCtx {
             g,
             root_table,
@@ -870,9 +661,7 @@ fn process_root_work(
             probe_budget,
             enum_budget,
         };
-        // Morphotactic pruning (module doc addendum): seed the chain's automaton state at the
-        // root's own stratum, disabling template entry forever if the root is partial (engine fact
-        // 5, `crate::morphotactics::ChainState::seed`'s own doc).
+        // Seeds the chain's automaton state at the root's own stratum, disabling template entry forever if the root is partial.
         let seed_state = ChainState::seed(g, root_stratum.0, entry.partial);
         extend(
             &root_ctx,
@@ -915,9 +704,7 @@ pub(crate) fn build_composites(
         cap,
         counter: &counter,
     });
-    // Fix 1's default-on budget, env-driven like everything else in this thin wrapper (production
-    // callers never hit this path -- `crate::emit::emit_with_precision` builds its own
-    // `EnumerationBudget` once and calls `build_composites_with_mode` directly, module doc above).
+    // Default-on budget, env-driven like everything else in this thin wrapper; production callers build their own and call `build_composites_with_mode` directly.
     let enum_budget = EnumerationBudget::from_env();
     build_composites_with_mode(g, width, phon, &mt, mode, probe_budget, &enum_budget)
 }
@@ -969,10 +756,7 @@ pub(crate) fn build_composites_with_mode(
     let rules = candidate_rules(g);
     let cache = RuleCache::build(g);
 
-    // Flatten the `(stratum, entry)` work list in ORIGINAL order -- this order (plus each entry's
-    // own internal allomorph/rule ordering, unaffected by any of this) is exactly what determines
-    // the emitted composite lexc line order, so the merge below must reassemble per-entry results in
-    // this same sequence.
+    // Flattened in original order: this is exactly what determines emitted composite lexc line order, so the merge below must reassemble per-entry results in the same sequence.
     let mut work: Vec<RootWork> = Vec::new();
     let mut table_ids: Vec<u16> = Vec::new();
     for sd in &g.strata {
@@ -987,8 +771,7 @@ pub(crate) fn build_composites_with_mode(
         }
     }
 
-    // Part 2 of the perf fix: warm every `PhonologyProbe` cache entry `build_allomorph_variants`
-    // needs, for every table, before any root worker below can race a first-touch compute into it.
+    // Warms every `PhonologyProbe` cache entry `build_allomorph_variants` needs, for every table, before any root worker below can race a first-touch compute into it.
     let rule_variants_by_table = build_rule_variants_all_tables(g, phon, &rules, &table_ids);
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1061,12 +844,7 @@ mod pruning_tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}"))
     }
 
-    /// One stratum, one template `[slot0: mrA (mandatory); slot1: mrB (mandatory)]`, plus a trivial
-    /// phonological rule so `should_run` is true (module doc's morphotactic-pruning addendum
-    /// requires exercising the REAL `should_run`-gated pipeline, not a synthetic bypass). `vacuous`
-    /// selects slot0's rule shape: `false` -> `mrA`'s rhs is `[InsertSegments("a"), Copy(0)]` (real
-    /// surface material, NOT skippable); `true` -> rhs is a bare `CopyFromInput` (module doc's
-    /// vacuous-slot recall trap -- skippable).
+    /// One stratum, one template `[slot0: mrA; slot1: mrB]`, plus a trivial phonological rule so `should_run` is true; `vacuous` selects slot0's rule shape, real surface material vs. a bare `CopyFromInput`.
     fn slot_gate_fixture(vacuous: bool) -> String {
         let slot0_output = if vacuous {
             r#"<CopyFromInput index="stemA" />"#.to_string()
@@ -1149,11 +927,7 @@ mod pruning_tests {
         )
     }
 
-    /// New tests item 2 (plan doc): a slot-only rule not first-reachable must not be probed at
-    /// depth 0 under `Pruned` -- but IS probed at depth 0 under `Flat` (the pre-fix behavior, kept
-    /// only as the A/B baseline) -- proving the wiring in `extend` actually consults
-    /// `crate::morphotactics::MorphotacticIndex::next_state`, not just that the automaton itself
-    /// (covered by `crate::morphotactics`'s own unit tests) computes the right answer in isolation.
+    /// A slot-only rule not first-reachable is not probed at depth 0 under `Pruned`, but is under `Flat` (kept as the A/B baseline) -- proving `extend` actually consults the automaton, not just that it computes the right answer in isolation.
     #[test]
     fn mandatory_non_vacuous_slot0_blocks_slot1_probe_at_depth0() {
         let g = load(&slot_gate_fixture(false));
@@ -1184,9 +958,7 @@ mod pruning_tests {
             &EnumerationBudget::unbounded(),
         );
 
-        // Depth 0: mrA (slot 0, first-reachable) plus mrB under FLAT (which ignores morphotactics
-        // entirely) -- 2 candidates probed. Under PRUNED, mrB (slot 1, blocked by the mandatory
-        // non-vacuous slot 0) must NOT be probed at depth 0.
+        // Flat (ignores morphotactics) probes both mrA and mrB at depth 0; pruned must skip mrB, blocked by the mandatory non-vacuous slot 0.
         assert_eq!(
             flat.pairs_probed_by_depth[0], 2,
             "flat mode probes both candidates at depth 0"
@@ -1197,16 +969,7 @@ mod pruning_tests {
         );
     }
 
-    /// New tests item 2's variant: when slot0's rule is instead VACUOUS (module doc's recall trap:
-    /// its rhs is a bare `CopyFromInput`, no `InsertSegments` at all), it necessarily classifies
-    /// `Role::None` (`crate::emit::classify_affix` -- no leading/trailing insert) and so is NEVER
-    /// itself a `crate::preexpand` candidate rule, in EITHER mode (this is expected and correct:
-    /// `classify_affix`/`candidate_rules` are unaffected by morphotactic pruning). What pruning must
-    /// get right is slot 1's rule (`mrB`, a real `Role::Suffix` candidate): it must still be probed
-    /// at depth 0 under `Pruned` (skippable slot 0 makes slot 1 first-reachable) -- the automaton
-    /// must not lose recall by treating a surface-vacuous mandatory slot as a hard barrier. Contrast
-    /// with `mandatory_non_vacuous_slot0_blocks_slot1_probe_at_depth0`, where the SAME slot 1 rule is
-    /// correctly blocked when slot 0 is NOT vacuous.
+    /// The variant where slot0's rule is instead vacuous (bare `CopyFromInput`, no surface material): it classifies `Role::None` and is never a candidate rule itself, but slot 1's rule must still be probed at depth 0 under `Pruned` -- a skippable mandatory slot must never become a hard barrier.
     #[test]
     fn vacuous_slot0_lets_slot1_be_probed_at_depth0_under_pruning() {
         let g = load(&slot_gate_fixture(true));
@@ -1237,9 +1000,7 @@ mod pruning_tests {
             &EnumerationBudget::unbounded(),
         );
 
-        // mrA (vacuous) is `Role::None` -- never a candidate rule at all, in either mode -- so only
-        // mrB is ever attempted at depth 0. The point of this test is that pruning does NOT lose
-        // that attempt (unlike the non-vacuous fixture, where it correctly does).
+        // mrA (vacuous) is `Role::None`, so only mrB is ever attempted at depth 0; the point here is that pruning does not lose that attempt.
         assert_eq!(
             flat.pairs_probed_by_depth[0], 1,
             "only mrB is a candidate rule in this fixture"
@@ -1250,10 +1011,7 @@ mod pruning_tests {
         );
     }
 
-    /// `build_composites` (the thin, env-driven wrapper -- module doc addendum) must still behave
-    /// like `build_composites_with_mode` under the default (unset `HC_PREEXPAND_FLAT`) production
-    /// path: `Pruned` mode, so the same depth-0 gating as
-    /// `mandatory_non_vacuous_slot0_blocks_slot1_probe_at_depth0` applies.
+    /// `build_composites`'s default (unset `HC_PREEXPAND_FLAT`) path behaves like `build_composites_with_mode` under `Pruned` mode: the same depth-0 gating applies.
     #[test]
     fn build_composites_thin_wrapper_defaults_to_pruned() {
         assert!(
@@ -1286,9 +1044,7 @@ mod pruning_tests {
         )
     }
 
-    /// New tests item 2 (plan doc): the Amharic A/B subset gate -- pruned exploration must be a
-    /// STRICT SUBSET of flat exploration (recall-preserving by construction: pruning only removes
-    /// rule adjacencies the engine's own morphotactics could never produce, module doc).
+    /// The Amharic A/B subset gate: pruned exploration is a strict subset of flat exploration, recall-preserving by construction since pruning only removes adjacencies the morphotactics could never produce.
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with \
                 --include-ignored"]

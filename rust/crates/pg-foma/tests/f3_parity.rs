@@ -1,37 +1,5 @@
-//! Corpus parity harness comparing the foma path
-//! (`pg_foma::composite::FomaAnalyzer::analyze_word`) against the full engine
-//! (`pg_parse::Morpher::parse_word_opts`, `ParseOptions::default()`) as MULTISETS keyed by
-//! `(morpheme_ids sequence, root_morpheme_index)`: the parity oracle is our own full engine, and
-//! the property being tested is exactly "the foma path loses nothing vs full search".
-//!
-//! Denominators:
-//! - Indonesian: all 121 corpus words — required 100%.
-//! - Sena: sample-300 corpus (first 300 lines of `sena-words.txt`) — required 100%.
-//! - Amharic: corpus words file (`amharic-words.txt`, all 673 lines) — required 100%, following
-//!   `tests/f3_interdigitation_gate.rs`'s precedent for engine-timeout exclusions (a word where the FULL
-//!   ENGINE itself times out with a PARTIAL result cannot be a parity baseline — the foma path's
-//!   confirm is uncapped and can legitimately find analyses the timed-out full-search pass never
-//!   reached; a word timing out with ZERO analyses is excluded outright, same as f3's own rule).
-//!
-//! No reduplication exclusion for Indonesian here (unlike the P1-stage `f2_junction_gate.rs`
-//! recall-only gate): P2's `FomaAnalyzer` composite (propose UNION peel -> confirm) is exactly the
-//! mechanism that closes the redup gap end-to-end (`tests/f4_composite_gate.rs` test (c) already
-//! demonstrates all 7 redup words round-trip byte-for-byte) — this file's Indonesian test covers
-//! the full, unfiltered 121-word corpus in one place as the P3 gate record.
-//!
-//! ## Test-timing policy
-//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
-//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. All three
-//! tests here load a real grammar from `samples/data/`, so all three are unconditionally
-//! `#[ignore = "..."]`d (replacing the old `cfg_attr(debug_assertions, ...)` debug-only ignore),
-//! each with a self-skip guard so `--include-ignored` runs stay green where the fixture is absent
-//! (CI). Run the full set locally with
-//! `cargo test -p pg-foma --release --test f3_parity -- --include-ignored`.
-//!
-//! The Amharic leg has a KNOWN pre-existing issue (separately owned, not fixed here): it has been
-//! observed to run past 60s and to crash abnormally on `main`. That behavior is unrelated to this
-//! timing-policy change — it is exactly why the test is data-gated: CI (no fixtures) never
-//! exercises it, and a local `--include-ignored` run is where the pre-existing crash would surface.
+//! Corpus multiset-parity harness comparing the foma path against the full engine; see
+//! `docs/research/pg-foma-f3-parity.md` for the denominators, ledger discipline, and timing policy.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -88,8 +56,7 @@ fn seq_names(g: &Grammar, seq: &[u32]) -> String {
         .join(", ")
 }
 
-/// The full multiset (duplicates preserved, sorted) — plan §2's parity unit: "(morpheme_ids
-/// sequence, root_morpheme_index)".
+/// The full multiset (duplicates preserved, sorted), keyed by `(morpheme_ids sequence, root_morpheme_index)`.
 fn multiset(structured: &[WordAnalysis]) -> Vec<(Vec<u32>, i32)> {
     let mut m: Vec<(Vec<u32>, i32)> = structured
         .iter()
@@ -99,11 +66,7 @@ fn multiset(structured: &[WordAnalysis]) -> Vec<(Vec<u32>, i32)> {
     m
 }
 
-/// One word where the foma path's multiset differed from the full engine's. Keyed by word +
-/// both cardinalities so the KNOWN-FAILURES LEDGER below (`assert_against_ledger`) can pin the
-/// exact shape of each open gap: a *new* mismatch, a mismatch whose counts *changed*, or a ledger
-/// entry that *stopped* mismatching (i.e. got fixed) all fail the gate — the ledger tracks reality
-/// exactly, it does not merely cap the failure count.
+/// One word where the foma path's multiset differed from the full engine's; keyed by word + both cardinalities so the ledger tracks reality exactly, not merely a failure count.
 struct Mismatch {
     word: String,
     engine_len: usize,
@@ -156,15 +119,7 @@ impl ParityStats {
     }
 }
 
-/// Assert `stats`'s mismatch set is EXACTLY `ledger`. `ledger` is the KNOWN-FAILURES record for a
-/// grammar's open gate-F3 recall gaps: each `(word, engine_len, foma_len)` entry is a documented
-/// bug (see the entry's own comment). Three ways to fail, all fatal:
-///   * a mismatch NOT in the ledger — a NEW or REGRESSED parity gap;
-///   * a ledger entry whose live cardinalities changed — the gap moved, re-triage it;
-///   * a ledger entry that no longer mismatches — the bug is FIXED, so delete the entry (a fix
-///     MUST shrink the ledger; that is how the ledger stays honest instead of drifting).
-///     The plan doc keeps gate F3 recorded as NOT MET while this ledger is non-empty — the ledger is a
-///     green-CI record of *known* gaps under active fix, never an acceptance of them.
+/// Asserts `stats`'s mismatch set is exactly `ledger`: a new/regressed mismatch, a changed cardinality, or a no-longer-mismatching (fixed) entry are all fatal, so the ledger tracks reality exactly.
 fn assert_against_ledger(stats: &ParityStats, ledger: &[(&str, usize, usize)], label: &str) {
     let actual: BTreeSet<(String, usize, usize)> = stats
         .mismatches
@@ -194,17 +149,13 @@ fn assert_against_ledger(stats: &ParityStats, ledger: &[(&str, usize, usize)], l
     );
 }
 
-/// Whether a word contributed a comparison, was excluded (engine timeout), or compared as a
-/// legitimate zero-analysis non-parse (both sides empty) -- the Amharic test's diagnostic wants
-/// this last case broken out without a second engine call.
+/// Whether a word contributed a comparison, was excluded (engine timeout), or was a legitimate zero-analysis non-parse.
 enum CompareResult {
     Compared { zero_analyses: bool },
     ExcludedTimeout,
 }
 
-/// Compare one word's foma-path multiset against the full engine's. `morpher` may carry a
-/// `--word-timeout-ms`-style deadline (Amharic); Indonesian/Sena pass an uncapped `Morpher` that
-/// never times out in practice.
+/// Compares one word's foma-path multiset against the full engine's; `morpher` may carry a per-word timeout (Amharic) or be uncapped (Indonesian/Sena).
 fn compare_word(
     g: &Grammar,
     analyzer: &mut FomaAnalyzer,
@@ -218,9 +169,7 @@ fn compare_word(
     let dt_engine = t_engine.elapsed();
 
     if engine_outcome.timed_out {
-        // A partial full-search result cannot be a parity baseline: foma's confirm is uncapped,
-        // so it can legitimately find MORE than a timed-out full search did. Exclude rather than
-        // false-fail.
+        // A partial full-search result cannot be a parity baseline: foma's confirm is uncapped and can legitimately find more than a timed-out full search did.
         stats.n_excluded += 1;
         return CompareResult::ExcludedTimeout;
     }
@@ -262,9 +211,7 @@ fn compare_word(
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// Indonesian: all 121 corpus words, no exclusions. 100% multiset parity required.
-// -------------------------------------------------------------------------------------------
+// Indonesian: all 121 corpus words, no exclusions, 100% multiset parity required.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
@@ -303,9 +250,7 @@ fn indonesian_121_corpus_words_multiset_parity() {
     assert_against_ledger(&stats, &[], "indonesian (121/121)");
 }
 
-// -------------------------------------------------------------------------------------------
-// Sena: sample-300 (first 300 corpus words). 100% multiset parity required.
-// -------------------------------------------------------------------------------------------
+// Sena: sample-300 (first 300 corpus words), 100% multiset parity required.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
@@ -340,49 +285,16 @@ fn sena_sample_300_multiset_parity() {
         stats.n_compared, 300,
         "every one of the 300 sample words must be compared"
     );
-    // KNOWN-FAILURES LEDGER (gate F3): empty — the former `musandilesera` recall miss (engine 10,
-    //   foma 2) is FIXED. Root cause was NOT confirm/positional (that was ruled out): the 8 missing
-    //   analyses all had the root `é` (morpheme 542) as the FIRST root of an `é + tentar` compound,
-    //   inflected by prefix/suffix slots (`HAB`/`IND`) carried only by another group's template.
-    //   `é`'s own category (`FsId(2)`) unified only with group G1's key, so the emitter — which
-    //   routes a compound by its MAIN root's group — confined `é`-as-main to G1, whose template
-    //   lacks those slots; the engine reaches them via compound-HEAD re-categorization (`tentar`,
-    //   `FsId(6)`). Fixed in `emit.rs`'s `eligible_roots` (admit every root to every group when the
-    //   grammar has compounding rules — upward-safe, confirm prunes). Sena is now at full multiset
-    //   parity — any mismatch is a hard fail.
+    // KNOWN-FAILURES LEDGER (gate F3): empty (see docs/research/pg-foma-f3-parity.md); any mismatch is a hard fail.
     assert_against_ledger(&stats, &[], "sena (sample-300)");
 }
 
-// -------------------------------------------------------------------------------------------
-// Amharic: the full corpus words file (673 words). 100% multiset parity required on every word
-// the full engine actually reaches a (possibly partial-free) result for, following
-// `tests/f3_interdigitation_gate.rs`'s precedent for engine-timeout exclusions.
-// -------------------------------------------------------------------------------------------
+// Amharic: full 673-word corpus, 100% multiset parity required on every word the engine reaches a result for.
 
-/// Per-word engine-oracle timeout, matching `tests/f3_interdigitation_gate.rs::ENGINE_TIMEOUT`.
+/// Per-word engine-oracle timeout.
 const AMHARIC_ENGINE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// HARDENING, not a verified crash fix (see the commit message this landed in for the full
-/// investigation): this test (unlike `tests/f3_interdigitation_gate.rs`'s end-to-end test, which only
-/// compares the first `WORD_CAP = 100` corpus words) runs the FULL 673-word corpus through
-/// `FomaAnalyzer::analyze_word` -> `crate::confirm::confirm_batch` ->
-/// `pg_parse::Morpher::parse_word_selected` directly on the `cargo test` harness's own per-test
-/// thread, which has neither of the two stack-size guards this exact recursion class already gets
-/// elsewhere: `pg-cli`'s `main()` (a dedicated 1 GiB main-thread stack, see that file's doc) and
-/// `pg_parse::batch::hc_parse_batch`'s rayon pool workers (`WORKER_STACK_SIZE`, same 1 GiB). This
-/// test had been reported to abort abnormally (no panic text) on a long run elsewhere; a controlled,
-/// otherwise-idle rerun of the SAME unmodified test on unmodified `main` here completed cleanly
-/// (`cargo test -p pg-foma --release --test f3_parity amharic`, 673-word corpus, 986s, `ok`) with 11
-/// concurrent `rustc`/`cargo` processes observed system-wide at the time of the original report --
-/// i.e. this could not be reproduced as a deterministic in-process bug, and is more consistent with
-/// external termination under memory/scheduling contention from concurrently-running builds than
-/// with a genuine stack overflow. Giving this test the SAME stack-size guard its sibling call sites
-/// already carry is free (Windows reserves, doesn't commit, this address space) and closes the gap
-/// on the chance it ever is stack depth -- it does not depend on which explanation is right. Spawning
-/// the whole test body onto that thread is a runtime detail only; it does not change what is
-/// compared or asserted. (A spawned thread's stdout/panics bypass libtest's per-test capture, so
-/// this test's `println!` output -- and any assertion-failure text -- is no longer gated by
-/// `--nocapture`; acceptable for a diagnostic-heavy, always-slow gate like this one.)
+/// Runs the full 673-word corpus on the test harness's own thread; see `docs/research/pg-foma-f3-parity.md` for the stack-size hardening rationale.
 fn amharic_corpus_words_multiset_parity_impl() {
     let g = load_grammar("amharic-hc.xml");
     let mut analyzer = FomaAnalyzer::new(&g).expect("amharic compiles");
@@ -417,12 +329,7 @@ fn amharic_corpus_words_multiset_parity_impl() {
         stats.n_compared > 0,
         "parity gate must compare at least one word"
     );
-    // KNOWN-FAILURES LEDGER (gate F3): empty — the former `ገለፀ` interdigitation recall miss is
-    //   FIXED (`preexpand.rs`'s `render_all_variants`: the composite emitter now renders every
-    //   letter-series-merged spelling a probed Ge'ez glyph can honestly carry, not just the
-    //   table-order-first one `pg_rules::surface_probe::render_nodes` returned, which had silently
-    //   picked the wrong ጸ/ፀ series for root entry30 + -pfv- + pfv.3m). Amharic is now at full
-    //   multiset parity — any mismatch is a hard fail.
+    // KNOWN-FAILURES LEDGER (gate F3): empty (see docs/research/pg-foma-f3-parity.md); any mismatch is a hard fail.
     assert_against_ledger(&stats, &[], "amharic (full corpus)");
     if stats.n_excluded > 0 {
         println!(
@@ -435,11 +342,7 @@ fn amharic_corpus_words_multiset_parity_impl() {
     }
 }
 
-/// Stack size matching `pg-cli`'s own main-thread worker (`pg-cli/src/main.rs`) and
-/// `pg_parse::batch::hc_parse_batch`'s rayon pool workers (`WORKER_STACK_SIZE`) — the same
-/// recursion class (`Morpher::parse_word_selected`'s analysis cascade), so the same proven-sufficient
-/// size, not one of `pg-foma`'s own smaller `PROBE_STACK_BYTES` (64 MiB, sized for a different,
-/// shallower foma-side probe recursion).
+/// Stack size matching `pg-cli`'s main-thread worker and `hc_parse_batch`'s rayon workers (same `Morpher::parse_word_selected` recursion class), not `pg-foma`'s own smaller `PROBE_STACK_BYTES` (sized for a shallower foma-side probe).
 const AMHARIC_PARITY_STACK_BYTES: usize = 1 << 30; // 1 GiB
 
 #[test]

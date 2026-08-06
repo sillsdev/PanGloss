@@ -1,15 +1,10 @@
-//! Self-skipping conformance tests against real FieldWorks sample projects (Sena 3, Amharic).
-//! These are untracked corpus files present on this development machine but not guaranteed
-//! present elsewhere (CI, a fresh clone) — the same self-skip process rule `pg-grammar`'s
-//! `sample_path()` tests follow. Located via `PANGLOSS_FW_PROJECTS_DIR`, falling back to the
-//! known sibling checkout path.
+//! Self-skipping conformance tests against real FieldWorks sample projects (Sena 3, Amharic), located via `PANGLOSS_FW_PROJECTS_DIR` or a sibling checkout, since the corpus is not guaranteed present in CI or a fresh clone.
 
 use std::path::PathBuf;
 
 use pg_snapshot::PartOfSpeech;
 
-/// Locates a FieldWorks project's `.fwdata` file, or `None` if the FieldWorks checkout isn't
-/// present on this machine (so tests can self-skip rather than fail).
+/// Locates a FieldWorks project's `.fwdata` file, or `None` if the checkout isn't present (so tests can self-skip rather than fail).
 fn project_fwdata(project_dir_name: &str) -> Option<PathBuf> {
     let base = std::env::var("PANGLOSS_FW_PROJECTS_DIR")
         .map(PathBuf::from)
@@ -40,10 +35,7 @@ fn sena3_imports_with_expected_counts() {
     };
     let (snap, report) = pg_fwdata::import_file(&path).expect("Sena 3 must import");
 
-    // Exact counts independently confirmed via `grep -c '<rt class="X"' "Sena 3.fwdata"` (note:
-    // anchored to `<rt class=`, not just `class="X"` — Sena 3's `<AdditionalFields>` block also
-    // contains two `<CustomField class="LexEntry" .../>` elements that a naive `class="X"` count
-    // would double-count as if they were `<rt>` records).
+    // Counts anchored to `<rt class=`, not bare `class="X"`, since `<AdditionalFields>` also holds `<CustomField class="LexEntry">` elements that would otherwise double-count.
     assert_eq!(snap.lexicon.entries.len(), 1462, "LexEntry count");
     assert_eq!(snap.phonology.phonemes.len(), 44, "PhPhoneme count");
     assert_eq!(
@@ -83,9 +75,7 @@ fn sena3_imports_with_expected_counts() {
         report.warnings
     );
 
-    // A genuine stale reference in Sena 3 itself: one LexSense's MorphoSyntaxAnalysis points at
-    // an MSA that isn't one of its own entry's — `Snapshot::validate()`'s job to catch, not
-    // pg-fwdata's to resolve/repair.
+    // A genuine stale reference in Sena 3 itself: `Snapshot::validate()`'s job to catch, not pg-fwdata's to resolve or repair.
     let validate_warnings = snap.validate();
     eprintln!("Sena 3 validate() warnings ({}):", validate_warnings.len());
     for w in &validate_warnings {
@@ -143,9 +133,7 @@ fn amharic_imports_with_expected_counts_and_adhoc_warning() {
         "LexEntryInflType count"
     );
 
-    // §1's motivating example: a stale MoMorphAdhocProhib crashes FieldWorks' own C# exporter.
-    // pg-fwdata must import successfully (already asserted above via `expect`) *and* surface a
-    // warning about it.
+    // A stale MoMorphAdhocProhib crashes FieldWorks' own C# exporter; pg-fwdata must import successfully and still surface a warning about it.
     assert!(
         report
             .warnings
@@ -166,10 +154,7 @@ fn amharic_imports_with_expected_counts_and_adhoc_warning() {
         report.warnings
     );
 
-    // Unlike Sena 3's dangling sense/MSA reference, the stale ad-hoc rule here is *structural*
-    // (its MSA's slot belongs to a disabled affix template — the FieldWorks-exporter-crashing
-    // condition from §1) rather than a dangling guid, so `validate()` (which only checks raw
-    // reference resolution) has nothing to add.
+    // Unlike Sena 3's dangling reference, this stale ad-hoc rule is structural (a disabled affix template's slot), not a dangling guid, so `validate()` has nothing to add.
     let validate_warnings = snap.validate();
     eprintln!("Amharic validate() warnings ({}):", validate_warnings.len());
     for w in &validate_warnings {

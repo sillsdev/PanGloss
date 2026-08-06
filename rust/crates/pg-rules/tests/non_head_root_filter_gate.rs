@@ -1,16 +1,4 @@
-//! Acceptance gate for the compounding-analysis **non-head root filter** —
-//! `AnalysisCompoundingRule.Apply`'s root-allomorph-search gate (AnalysisCompoundingRule.cs:61-125):
-//! "for computational complexity reasons, we ensure that the non-head is a root, otherwise we assume
-//! it is not a valid analysis and throw it away."
-//!
-//! `pg-rules` cannot depend on `pg-parse` (`pg-parse` depends on `pg-rules`, not the
-//! reverse), so `pg_rules::stratum::NonHeadRootFilter` is injected. These
-//! tests stand in for `pg-parse`'s `RootAllomorphIndex::search` with a hand-written closure over a
-//! tiny hand-built lexicon (`Grammar::entries`), exercising `analyze_stratum_scoped_filtered`
-//! directly — no need for a real trie.
-//!
-//! Reuses the compound-rule grammar shape from `morph_gate.rs`'s Part 1 (alpha grammar,
-//! head="apa"(1+) / non-head="ka"(1+) split of "apaka").
+//! Acceptance gate for the compounding-analysis non-head root filter (C# `AnalysisCompoundingRule.Apply`): a candidate split whose non-head is not a lexicon root is dropped, never a valid analysis.
 
 mod common;
 
@@ -93,9 +81,7 @@ fn push_stratum(g: &mut Grammar, mrules: Vec<MRuleId>) -> StratumId {
     id
 }
 
-/// The `head="apa"(1+) + non-head="ka"(1+)` compounding rule (morph_gate.rs's `compound_rule`/
-/// `compound_rule_with`), with the non-head syntactic-FS requirement and MPR restriction left
-/// open so each test can vary the gate independently.
+/// The `head="apa"(1+) + non-head="ka"(1+)` compounding rule, with the non-head syntactic-FS requirement and MPR restriction left open so each test can vary the gate independently.
 fn compound_rule_with(
     g: &Grammar,
     non_head_required_syn_fs: FsId,
@@ -128,12 +114,7 @@ fn compound_rule_with(
     })
 }
 
-/// Push a lexicon entry and return its id. Registers a real `MorphemeInfo` too (at
-/// `StratumId(0)` — every test in this file calls `push_stratum` exactly once, immediately after,
-/// so its stratum is always id 0): plan Tier-2 #7's non-head resolution reads `entry.morpheme`
-/// back through `g.morphemes[..].stratum` (mirroring `pg-parse::Morpher::set_root_allomorph`), so
-/// a `LexEntryDef` pointing at an unregistered `MorphemeId` would panic on the index, unlike the
-/// pre-#7 code path this test suite originally exercised.
+/// Pushes a lexicon entry, also registering a real `MorphemeInfo` at `StratumId(0)`: non-head resolution reads `entry.morpheme` back through `g.morphemes[..].stratum`, so an unregistered id would panic.
 fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
     let morpheme = MorphemeId(g.morphemes.len() as u32);
     g.morphemes.push(MorphemeInfo {
@@ -157,10 +138,7 @@ fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
     id
 }
 
-/// Attach a single root allomorph (surface `text`, id `AllomorphId(300)` — the sentinel every
-/// filter closure in this file returns) to the most recently `push_entry`'d entry, so plan
-/// Tier-2 #7's resolution (`pg-rules::morph::resolve_non_head_roots`) has a real `RootAllomorphDef`
-/// to find and re-segment.
+/// Attaches a single root allomorph (id `AllomorphId(300)`, the sentinel every filter closure here returns) to the most recently pushed entry, giving `resolve_non_head_roots` a real def to find.
 fn push_allomorph(g: &mut Grammar, entry: LexEntryId, text: &str) {
     let shape = shape_with_lanes(g, text);
     g.entries[entry.0 as usize]
@@ -190,17 +168,14 @@ fn has_apa_ka_split(g: &Grammar, out: &[Word]) -> bool {
     })
 }
 
-/// A disjoint pair of single-feature syntactic FS values (FeatId(0), disjoint symbol bits) — enough
-/// to drive a real `is_unifiable` failure without needing a full syntactic feature system.
+/// A disjoint pair of single-feature syntactic FS values, enough to drive a real `is_unifiable` failure without needing a full feature system.
 fn syn_fs(bit: u32) -> pg_featstruct::FeatureStruct {
     let mut b = FeatureStructBuilder::new();
     b.add(FeatId(0), FeatureValue::Symbolic(SymbolBits::single(bit)));
     b.build()
 }
 
-// =================================================================================================
-// (a) A candidate split whose non-head IS a lexicon root survives.
-// =================================================================================================
+// A candidate split whose non-head is a lexicon root survives.
 
 #[test]
 fn split_survives_when_non_head_is_a_lexicon_root() {
@@ -236,9 +211,7 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
     );
 }
 
-// =================================================================================================
-// (b) A candidate split whose non-head is NOT a root (empty lexicon search) is dropped.
-// =================================================================================================
+// A candidate split whose non-head is not a root (empty lexicon search) is dropped.
 
 #[test]
 fn split_dropped_when_non_head_is_not_a_root() {
@@ -271,9 +244,7 @@ fn split_dropped_when_non_head_is_not_a_root() {
     );
 }
 
-// =================================================================================================
-// (b') A root is found, but its MPR features fail `NonHeadProdRestrictionsMprFeatures` — dropped.
-// =================================================================================================
+// A root is found, but its MPR features fail `NonHeadProdRestrictionsMprFeatures`: dropped.
 
 #[test]
 fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
@@ -311,10 +282,7 @@ fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
     );
 }
 
-// =================================================================================================
-// (b'') A root is found, but its syntactic FS does not unify with
-// `NonHeadRequiredSyntacticFeatureStruct` — dropped.
-// =================================================================================================
+// A root is found, but its syntactic FS does not unify with `NonHeadRequiredSyntacticFeatureStruct`: dropped.
 
 #[test]
 fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
@@ -351,16 +319,12 @@ fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
     );
 }
 
-// =================================================================================================
-// (c) With no filter configured, the split survives regardless of the rule's restrictions —
-// backward compatibility with every pre-existing (lexicon-free) pg-rules test.
-// =================================================================================================
+// With no filter configured, the split survives regardless of the rule's restrictions: backward compatibility with every pre-existing lexicon-free test.
 
 #[test]
 fn unfiltered_backward_compat_ignores_the_gate_entirely() {
     let mut g = load_alpha_grammar();
-    // The same "impossible to satisfy" restriction as the MPR-mismatch test above — but with no
-    // filter wired in, `apply_one_mrule` never calls `non_head_root_matches` at all.
+    // Same restriction as the MPR-mismatch test above, but with no filter wired in this time.
     let mut restriction = MprSet::EMPTY;
     restriction.insert(MprId(0));
     let rule = compound_rule_with(&g, FsId(0), restriction);

@@ -77,11 +77,7 @@
 
 use foma::types::Fsm;
 
-/// `foma`'s epsilon symbol number, in the `i16` width the line table stores labels at.
-///
-/// Narrowed from `foma::types::EPSILON` (an `i32`) rather than re-spelled as a literal `0`, so the
-/// two can never drift: if foma ever renumbered epsilon, this would follow it and a hardcoded `0`
-/// would silently start screening the wrong symbol.
+/// `foma`'s epsilon symbol number, narrowed from `foma::types::EPSILON` rather than re-spelled as a literal `0` so the two can never drift.
 const EPSILON_LABEL: i16 = foma::types::EPSILON as i16;
 
 /// Which tape an `apply` traversal CONSUMES. Determines which label counts as "consumes nothing".
@@ -91,8 +87,7 @@ const EPSILON_LABEL: i16 = foma::types::EPSILON as i16;
 /// it silently reports a clean net.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ApplyDirection {
-    /// `apply_up`: consumes the lower tape (surface), emits the upper tape (analysis tags). This is
-    /// the direction every proposer in this crate queries.
+    /// `apply_up`: consumes the lower tape (surface), emits the upper tape (analysis tags) -- the direction every proposer in this crate queries.
     Up,
     /// `apply_down`: consumes the upper tape, emits the lower tape.
     Down,
@@ -209,14 +204,9 @@ pub struct NetShape {
 /// The screen's verdict. One structural property, deliberately not a score.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShapeVerdict {
-    /// No cycle in the net can be traversed without consuming input. The traversal's lap count at
-    /// any input position is bounded by the input's own length.
+    /// No cycle in the net can be traversed without consuming input; lap count is bounded by input length.
     ZeroWidthBounded,
-    /// At least one cycle consumes nothing in the screened direction. `apply` can revisit a state
-    /// at a fixed input position, so the enumeration is bounded only by the traversal's own
-    /// internal search limit, not by the grammar.
-    ///
-    /// This names a defect in the NET. It is not a ranking term and never suppresses a proposal.
+    /// At least one cycle consumes nothing in the screened direction, so `apply` can revisit a state at a fixed input position; not a ranking term and never suppresses a proposal.
     ZeroWidthCycle {
         cycles: u64,
         states: u64,
@@ -270,8 +260,7 @@ impl NetShape {
                 distinct.push(0);
                 continue;
             }
-            // Group by consumed label. Sorting a per-state scratch vector keeps this O(d log d) with
-            // one reused allocation rather than a HashMap per state.
+            // Sorting a reused per-state scratch vector keeps this O(d log d) without a HashMap per state.
             labels.clear();
             labels.extend(arcs.iter().map(|a| direction.consumed(a)));
             labels.sort_unstable();
@@ -363,8 +352,7 @@ impl NetShape {
 }
 
 impl DegreeDistribution {
-    /// Sorts `samples` in place and reduces it. Takes `&mut` rather than cloning because the caller
-    /// owns a throwaway vector either way and a per-net clone of every state's degree buys nothing.
+    /// Sorts `samples` in place; takes `&mut` since the caller owns a throwaway vector either way.
     fn from_samples(samples: &mut [u64]) -> DegreeDistribution {
         if samples.is_empty() {
             return DegreeDistribution::default();
@@ -388,10 +376,7 @@ impl DegreeDistribution {
     }
 }
 
-/// Flattened adjacency over a net's line table.
-///
-/// Built once and shared by both cycle walks, so a net is decoded from its CSR blocks exactly once
-/// no matter how many subgraphs are censused.
+/// Flattened adjacency over a net's line table, built once and shared by both cycle walks so a net is decoded from its CSR blocks exactly once.
 struct Adjacency {
     /// `arc_offsets[s]..arc_offsets[s + 1]` indexes `Self::arcs` for state `s`.
     arc_offsets: Vec<u32>,
@@ -400,10 +385,7 @@ struct Adjacency {
 
 impl Adjacency {
     fn from_net(net: &Fsm) -> Adjacency {
-        // A block whose `arc_len` is 0 is foma's arc-less marker row, and the terminator row is not
-        // a block at all, so neither contributes an arc. `state_no` is used as the index rather than
-        // block position: nothing in the line-table contract promises blocks arrive in state order,
-        // and an out-of-order table would silently mis-attribute every arc.
+        // `state_no` is used as the index rather than block position: the line-table contract does not promise blocks arrive in state order.
         let mut max_state = net.statecount.max(0) as usize;
         for (block, _) in net.states.iter_blocks() {
             if block.state_no >= 0 {
@@ -418,9 +400,7 @@ impl Adjacency {
             let s = block.state_no as usize;
             for arc in arcs {
                 if arc.target < 0 || arc.target as usize >= max_state {
-                    // A negative target is foma's arc-less marker encoding; an out-of-range one
-                    // would be a corrupt table. Neither is an edge, and neither is worth panicking
-                    // over inside a read-only screen.
+                    // A negative target is foma's arc-less marker; neither case is worth panicking over in a read-only screen.
                     continue;
                 }
                 per_state[s].push(Arc {
@@ -461,11 +441,7 @@ impl Adjacency {
     }
 }
 
-/// Strongly-connected components of the subgraph `adjacency` restricted to arcs satisfying `keep`,
-/// reduced to a `CycleCensus`.
-///
-/// **Iterative Tarjan, not recursive.** See `NetShape::inspect`'s own doc: the nets this screen
-/// most needs to survive are exactly the ones already overflowing a stack elsewhere.
+/// Strongly-connected components of the subgraph `adjacency` restricted to arcs satisfying `keep`, reduced to a `CycleCensus`. Iterative Tarjan, not recursive, so it survives the nets most likely to overflow a stack elsewhere.
 fn census(n: usize, adjacency: &Adjacency, keep: impl Fn(&Arc) -> bool) -> CycleCensus {
     const UNVISITED: u32 = u32::MAX;
 
@@ -524,7 +500,9 @@ fn census(n: usize, adjacency: &Adjacency, keep: impl Fn(&Arc) -> bool) -> Cycle
                 let component = component_sizes.len() as u32;
                 let mut size = 0u64;
                 loop {
-                    let w = tarjan_stack.pop().expect("a root always has itself on the stack");
+                    let w = tarjan_stack
+                        .pop()
+                        .expect("a root always has itself on the stack");
                     on_stack[w as usize] = false;
                     component_of[w as usize] = component;
                     size += 1;
@@ -549,9 +527,7 @@ fn census(n: usize, adjacency: &Adjacency, keep: impl Fn(&Arc) -> bool) -> Cycle
         }
         if has {
             self_loop_states += 1;
-            // Every state in `0..n` is visited by the root loop above, so this is always assigned;
-            // the bound check is defensive rather than expected, because a read-only screen must
-            // never be the thing that panics on a malformed table.
+            // Bound check is defensive, not expected: a read-only screen must never panic on a malformed table.
             let c = component_of[s] as usize;
             if c < component_sizes.len() && component_sizes[c] == 1 {
                 singleton_with_self_loop[c] = true;
@@ -595,9 +571,7 @@ mod shape_unit_tests {
             .unwrap_or_else(|| panic!("regex failed to compile: {regex}"))
     }
 
-    /// A plain Kleene star over a real character is a self-loop, and it is NOT a defect: every lap
-    /// consumes a surface character, so the lap count is bounded by the query's own length. If this
-    /// reported a zero-width cycle, the screen would flag every well-formed net in the crate.
+    /// A plain Kleene star over a real character is a self-loop but NOT a defect: every lap consumes a character, so lap count is bounded by query length.
     #[test]
     fn a_real_character_loop_is_a_cycle_but_not_a_zero_width_one() {
         let shape = NetShape::inspect(&net("[a]*"), ApplyDirection::Up);
@@ -613,7 +587,8 @@ mod shape_unit_tests {
             shape.evidence_line()
         );
         assert_eq!(
-            shape.zero_width_cycles, CycleCensus::default(),
+            shape.zero_width_cycles,
+            CycleCensus::default(),
             "a loop consuming a real character is not zero-width: {}",
             shape.evidence_line()
         );
@@ -621,11 +596,7 @@ mod shape_unit_tests {
         assert_eq!(shape.verdict(), ShapeVerdict::ZeroWidthBounded);
     }
 
-    /// THE PATHOLOGY, minimal: `a:0` pairs an upper `a` with a LOWER epsilon, so starred it is a
-    /// self-loop that emits a different analysis on every lap while consuming nothing. This is the
-    /// null-morph shape (`crate::build::reroute_null_shaped_affix_chains`: an all-`Boundary` affix
-    /// whose spelling the cleanup deletes to nothing, sitting on a self-looping continuation),
-    /// stripped of everything else.
+    /// `a:0` pairs an upper `a` with a lower epsilon, so starred it self-loops while consuming nothing -- the null-morph pathology, stripped to its minimal shape.
     #[test]
     fn an_epsilon_consuming_loop_is_flagged_zero_width() {
         let shape = NetShape::inspect(&net("[a:0]*"), ApplyDirection::Up);
@@ -643,9 +614,7 @@ mod shape_unit_tests {
         );
     }
 
-    /// The direction asymmetry, pinned. `a:0` is unbounded going up and perfectly bounded going
-    /// down, on ONE net — so a screen that read the wrong tape would report this net clean, and this
-    /// test is what makes that impossible to do silently.
+    /// `a:0` is unbounded going up and bounded going down on the SAME net, so reading the wrong tape would silently report it clean.
     #[test]
     fn direction_decides_whether_a_zero_width_cycle_exists() {
         let n = net("[a:0]*");
@@ -670,9 +639,7 @@ mod shape_unit_tests {
         );
     }
 
-    /// A zero-width cycle need not be a self-loop, and a screen that only looked for self-loops
-    /// would miss the multi-state case entirely. `[[a:0] [b:0]]*` is a two-state zero-width cycle
-    /// with NO self-loop on either state.
+    /// A zero-width cycle need not be a self-loop: `[[a:0] [b:0]]*` is a two-state zero-width cycle with no self-loop on either state.
     #[test]
     fn a_multi_state_zero_width_cycle_is_found_without_any_self_loop() {
         let shape = NetShape::inspect(&net("[[a:0] [b:0]]*"), ApplyDirection::Up);
@@ -690,8 +657,7 @@ mod shape_unit_tests {
         );
     }
 
-    /// An epsilon arc that is not on a cycle is not a defect. `[a] [b:0] [c]` has a zero-width arc
-    /// and no zero-width cycle, so `zero_width_arcs > 0` alone must never drive the verdict.
+    /// `[a] [b:0] [c]` has a zero-width arc but no zero-width cycle, so `zero_width_arcs > 0` alone must never drive the verdict.
     #[test]
     fn an_acyclic_epsilon_arc_is_not_a_defect() {
         let shape = NetShape::inspect(&net("[a] [b:0] [c]"), ApplyDirection::Up);
@@ -709,13 +675,17 @@ mod shape_unit_tests {
         assert_eq!(shape.verdict(), ShapeVerdict::ZeroWidthBounded);
     }
 
-    /// A net with no cycle at all reports zeros for every cycle counter -- the negative control that
-    /// makes a non-zero count elsewhere mean something.
+    /// A net with no cycle reports zeros for every counter -- the negative control that makes a non-zero count elsewhere mean something.
     #[test]
     fn a_finite_net_has_no_cycles_at_all() {
         let shape = NetShape::inspect(&net("[a] [b] [c]"), ApplyDirection::Up);
         eprintln!("finite_net: {}", shape.evidence_line());
-        assert_eq!(shape.cycles, CycleCensus::default(), "{}", shape.evidence_line());
+        assert_eq!(
+            shape.cycles,
+            CycleCensus::default(),
+            "{}",
+            shape.evidence_line()
+        );
         assert_eq!(
             shape.zero_width_cycles,
             CycleCensus::default(),
@@ -726,8 +696,7 @@ mod shape_unit_tests {
         assert!(shape.sink_states > 0, "`abc` ends somewhere");
     }
 
-    /// Branching is measured, not assumed: a three-way union out of the start state must report
-    /// `branch_max >= 3`, and a deterministic net must report `apply_ambiguity_max == 1`.
+    /// A three-way union must report `branch_max >= 3`, and a deterministic net must report `apply_ambiguity_max == 1`.
     #[test]
     fn branching_and_ambiguity_are_actually_measured() {
         let wide = NetShape::inspect(&net("[a|b|c]"), ApplyDirection::Up);
@@ -743,11 +712,7 @@ mod shape_unit_tests {
              {}",
             wide.evidence_line()
         );
-        assert_eq!(
-            wide.apply_ambiguity_total, 0,
-            "{}",
-            wide.evidence_line()
-        );
+        assert_eq!(wide.apply_ambiguity_total, 0, "{}", wide.evidence_line());
 
         // Genuinely ambiguous UP: one lower symbol, two different upper symbols.
         let ambiguous = NetShape::inspect(&net("[a:x]|[a:y]"), ApplyDirection::Down);
@@ -764,19 +729,10 @@ mod shape_unit_tests {
         );
     }
 
-    /// CROSS-CHECK against a prefab, not a second hand-rolled walk (this repo's own "prefer prefab
-    /// over hand-rolled" rule). `foma::topsort::fsm_topsort` is a well-tested linear Kahn's-algorithm
-    /// pass that already decides whether a net is loop-free; this module's full-graph SCC census must
-    /// agree with it on every net, in both directions of the biconditional. A disagreement means the
-    /// walk below is wrong, not that foma is.
-    ///
-    /// Only the COARSE question is cross-checkable — `fsm_topsort` has no notion of a zero-width
-    /// cycle (module doc), which is precisely why this module exists.
+    /// This module's full-graph SCC census must agree with `foma::topsort::fsm_topsort` on every net; a disagreement means the walk below is wrong, not foma. Only the coarse question is cross-checkable -- `fsm_topsort` has no notion of a zero-width cycle.
     #[test]
     fn full_graph_cycle_detection_agrees_with_fomas_own_topsort() {
-        // Chosen to cover both answers and both mechanisms: acyclic straight-line, acyclic with an
-        // epsilon jump, self-loop, multi-state loop, epsilon-consuming self-loop, epsilon-consuming
-        // multi-state loop.
+        // Covers both answers and both mechanisms: straight-line, epsilon jump, self-loop, multi-state loop, and the epsilon-consuming variant of each loop.
         let cases = [
             ("[a] [b] [c]", false),
             ("[a] [b:0] [c]", false),
@@ -787,8 +743,7 @@ mod shape_unit_tests {
         ];
         for (regex, expect_cyclic) in cases {
             let shape = NetShape::inspect(&net(regex), ApplyDirection::Up);
-            // `fsm_topsort` consumes the net and returns it with `is_loop_free` set, so it gets its
-            // own freshly compiled copy rather than mutating the one just inspected.
+            // fsm_topsort consumes its net, so it gets its own freshly compiled copy.
             let sorted = foma::topsort::fsm_topsort(net(regex));
             let foma_says_cyclic = match sorted.is_loop_free {
                 foma::types::Tern::Yes => false,
@@ -818,9 +773,7 @@ mod shape_unit_tests {
         }
     }
 
-    /// The quantile reduction is ordered and non-interpolating, so an evidence line can be compared
-    /// across runs. Pinned on a synthetic sample rather than a net, because the property belongs to
-    /// the reduction and not to any automaton.
+    /// Pinned on a synthetic sample, not a net, because the ordered/non-interpolating property belongs to the reduction, not to any automaton.
     #[test]
     fn degree_quantiles_are_ordered_and_nearest_rank() {
         let mut samples = vec![0u64, 1, 1, 2, 3, 5, 8, 13, 21, 34];

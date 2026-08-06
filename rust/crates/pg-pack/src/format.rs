@@ -84,9 +84,7 @@ pub const V1_LIMITS: VersionLimits = VersionLimits {
     max_manifest_bytes: 16 * 1024 * 1024, // 16 MiB
     max_runtime_payload_bytes: 2_000_000_000,
     max_foma_payload_bytes: 2_000_000_000,
-    // Deliberately less than `max_runtime_payload_bytes + max_foma_payload_bytes`: a package can
-    // legally max out one section, but not both at once -- the total ceiling is its own
-    // independent check, not merely the sum of per-section ceilings (see the total-limit test).
+    // Deliberately less than `max_runtime_payload_bytes + max_foma_payload_bytes`: a package can legally max out one section, but not both at once.
     max_total_bytes: 3_000_000_000,
 };
 
@@ -327,9 +325,7 @@ pub fn read_pack(bytes: &[u8]) -> Result<ReadPack, PgPackError> {
         });
     }
 
-    // `needed == available == bytes.len()`, and `needed` already proved `<= max_total_bytes`
-    // (well under `usize::MAX` on every target this workspace builds for), so every offset below
-    // is safe to convert to `usize` and slice with.
+    // `needed == available == bytes.len()` and already proved `<= max_total_bytes`, so every offset below is safe to convert to `usize` and slice with.
     let manifest_len = manifest_len as usize;
     let runtime_len = runtime_len as usize;
     let foma_len = foma_len as usize;
@@ -423,9 +419,7 @@ mod tests {
     const SYNTHETIC_RUNTIME_PAYLOAD: &[u8] = b"synthetic-rust-hermitcrab-runtime-payload-bytes";
     const SYNTHETIC_FOMA_PAYLOAD: &[u8] = b"synthetic-opaque-foma-binary-memory-payload-bytes";
 
-    // ---------------------------------------------------------------------------------------
-    // Round trip.
-    // ---------------------------------------------------------------------------------------
+    // --- Round trip ---
 
     #[test]
     fn round_trip_write_then_read_is_identical() {
@@ -439,14 +433,9 @@ mod tests {
         assert_eq!(read.signature_state, SignatureState::Unsigned);
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Real foma binary-memory bytes (not just the plain-ASCII synthetic fixtures above).
-    // ---------------------------------------------------------------------------------------
+    // --- Real foma binary-memory bytes (not just the plain-ASCII synthetic fixtures above) ---
 
-    /// A tiny, deterministic, real compiled foma network (`LEXICON Root\ncat # ;\ndog # ;\n` --
-    /// the same minimal syntax `foma`'s own `lexcread.rs` test suite uses), built independently of
-    /// the whole HermitCrab grammar/emit pipeline via `foma::lexcread::fsm_lexc_parse_string` --
-    /// the exact same compiler entry point `pg_foma::analyzer::FomaProposer` calls in production.
+    /// A tiny, deterministic, real compiled foma network, built via the same compiler entry point `pg_foma::analyzer::FomaProposer` calls in production.
     const REAL_LEXC_SOURCE: &str = "LEXICON Root\ncat # ;\ndog # ;\n";
 
     fn compile_real_network() -> foma::types::Fsm {
@@ -455,12 +444,7 @@ mod tests {
             .expect("minimal lexc source must compile")
     }
 
-    /// A REAL, gzip-compressed foma binary-memory payload -- `foma::io::fsm_write_binary`, the
-    /// SAME function `crate::compat`'s production caller (`pg_foma::analyzer::FomaProposer::
-    /// foma_binary_payload`) uses -- as opposed to the plain-ASCII `SYNTHETIC_FOMA_PAYLOAD` string
-    /// literal every other test in this module uses. This crate's container format must handle
-    /// genuine binary content (gzip magic bytes at the front, non-UTF8 bytes throughout, embedded
-    /// NUL bytes) exactly as well as it handles a human-readable ASCII fixture.
+    /// A real, gzip-compressed foma binary-memory payload, unlike the plain-ASCII `SYNTHETIC_FOMA_PAYLOAD` every other test uses — this format must handle genuine binary content just as well.
     fn real_foma_payload_bytes() -> Vec<u8> {
         let net = compile_real_network();
         let mut bytes = Vec::new();
@@ -471,9 +455,7 @@ mod tests {
     #[test]
     fn round_trip_with_real_foma_binary_payload_not_just_synthetic_ascii() {
         let real_foma = real_foma_payload_bytes();
-        // Sanity: this really is gzip-compressed binary content (magic bytes 0x1f 0x8b), not a
-        // disguised ASCII string -- proves this test exercises materially different bytes than
-        // `SYNTHETIC_FOMA_PAYLOAD` above.
+        // Sanity: gzip magic bytes prove this exercises materially different bytes than `SYNTHETIC_FOMA_PAYLOAD` above.
         assert!(
             real_foma.len() >= 2 && real_foma[0] == 0x1f && real_foma[1] == 0x8b,
             "expected gzip magic bytes at the front of a real foma binary payload, got {:02x?}",
@@ -488,10 +470,7 @@ mod tests {
         assert_eq!(read.foma_payload, real_foma);
         assert_eq!(read.signature_state, SignatureState::Unsigned);
 
-        // Reconstruct the network from the PACKED bytes (never re-deriving it from `REAL_LEXC_SOURCE`
-        // directly) and confirm it is a genuinely equivalent, applyable network: same state/arc
-        // counts as an independent fresh compile, and `apply_up` agreement on every word in the
-        // tiny lexicon above.
+        // Reconstruct from the PACKED bytes (never re-deriving from `REAL_LEXC_SOURCE`) and confirm state/arc counts and `apply_up` agree with an independent fresh compile.
         let reconstructed = foma::io::fsm_read_binary_mem(&read.foma_payload).expect(
             "a real foma payload read back out of this container must still be readable \
                      by fsm_read_binary_mem",
@@ -565,9 +544,7 @@ mod tests {
         assert_eq!(read.manifest, manifest);
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Bad magic / bad version.
-    // ---------------------------------------------------------------------------------------
+    // --- Bad magic / bad version ---
 
     #[test]
     fn rejects_bad_magic() {
@@ -593,19 +570,14 @@ mod tests {
         ));
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Length exceeding the versioned limit, checked BEFORE allocation.
-    // ---------------------------------------------------------------------------------------
+    // --- Length exceeding the versioned limit, checked BEFORE allocation ---
 
     #[test]
     fn rejects_manifest_length_exceeding_versioned_limit_before_allocating() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
         let mut bytes =
             write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
-        // Overwrite the declared manifest length with something far beyond V1_LIMITS while
-        // leaving the actual buffer short -- if this function allocated based on the declared
-        // length before validating it, this would attempt a huge allocation/panic on the
-        // out-of-bounds slice instead of returning a clean typed error.
+        // Overwrite the declared length far beyond V1_LIMITS while leaving the buffer short, so an allocate-before-validate bug would panic instead of returning a clean typed error.
         let huge = V1_LIMITS.max_manifest_bytes + 1;
         bytes[MAGIC_LEN + VERSION_LEN..MAGIC_LEN + VERSION_LEN + LEN_FIELD_SIZE]
             .copy_from_slice(&huge.to_le_bytes());
@@ -644,8 +616,7 @@ mod tests {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
         let mut bytes =
             write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
-        // Each individual declared length stays within its own per-section limit, but their sum
-        // exceeds the total-package limit.
+        // Each individual declared length stays within its own per-section limit, but their sum exceeds the total-package limit.
         let big_runtime = V1_LIMITS.max_runtime_payload_bytes;
         let big_foma = V1_LIMITS.max_foma_payload_bytes;
         assert!(big_runtime + big_foma > V1_LIMITS.max_total_bytes);
@@ -658,9 +629,7 @@ mod tests {
         assert!(matches!(err, PgPackError::TotalLengthExceedsLimit { .. }));
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Truncated payload.
-    // ---------------------------------------------------------------------------------------
+    // --- Truncated payload ---
 
     #[test]
     fn rejects_truncated_payload() {
@@ -688,9 +657,7 @@ mod tests {
         assert!(matches!(err, PgPackError::TrailingBytes { extra: 1 }));
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Tamper: SHA-256 digest mismatch.
-    // ---------------------------------------------------------------------------------------
+    // --- Tamper: SHA-256 digest mismatch ---
 
     #[test]
     fn rejects_tampered_content_via_digest_mismatch() {
@@ -704,17 +671,12 @@ mod tests {
         assert_eq!(err, PgPackError::DigestMismatch);
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Fingerprint mismatch: payloads swapped across "grammars" while the manifest is untouched.
-    // ---------------------------------------------------------------------------------------
+    // --- Fingerprint mismatch: payloads swapped across "grammars" while the manifest is untouched ---
 
     #[test]
     fn rejects_mismatched_fingerprint_when_payloads_are_swapped() {
         let manifest_a = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        // Build a container whose manifest fingerprint matches payload A, but physically carries
-        // payload B's foma bytes instead -- simulating payloads mixed across grammars. Constructed
-        // directly (bypassing `write_pack`'s own fingerprint check) to prove `read_pack` itself
-        // catches this independent of the writer.
+        // Constructed directly, bypassing `write_pack`'s own fingerprint check, to prove `read_pack` itself catches payloads mixed across grammars.
         let other_foma_payload: &[u8] = b"synthetic-different-grammar-foma-payload";
         let manifest_json = manifest_a.to_canonical_json();
         let mut out = Vec::new();
@@ -729,8 +691,7 @@ mod tests {
         let digest = Sha256::digest(&out);
         out.extend_from_slice(&digest);
 
-        // The whole-file digest is internally consistent (freshly recomputed over the swapped
-        // content), so only the fingerprint check catches the mismatch.
+        // The whole-file digest is freshly recomputed over the swapped content, so only the fingerprint check catches the mismatch.
         let err = read_pack(&out).unwrap_err();
         assert_eq!(err, PgPackError::FingerprintMismatch);
     }
@@ -745,9 +706,7 @@ mod tests {
         assert_eq!(err, PgPackError::FingerprintMismatch);
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Signature state: unsigned / valid / invalid, and invalid never blocks the read.
-    // ---------------------------------------------------------------------------------------
+    // --- Signature state: unsigned / valid / invalid, and invalid never blocks the read ---
 
     #[test]
     fn unsigned_pack_reports_unsigned_and_reads_successfully() {

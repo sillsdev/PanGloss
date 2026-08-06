@@ -1,24 +1,5 @@
-//! Regression gate for plan §13.1 Tier-1 #1 (the `Type` / boundary-lane fix): a literal
-//! `<BoundaryMarker>` pattern node must match only boundary shape nodes, and a literal `<Segment>`
-//! / natural-class pattern node must match only segment shape nodes — never the reverse.
-//!
-//! Before this fix, `PatternBridge::char_def_lanes` (`pg-rules/src/bridge.rs`) returned a boundary
-//! char-def's `feature_lanes()` as-is, which was an **empty** `Vec` (`pg-grammar/src/chardef.rs`
-//! never attached a `Type` lane, or any lane at all, to boundaries). `pg_fst`'s `flat_unifiable`
-//! treats an absent lane as unconstrained, so a length-0 constraint vector canonicalizes to
-//! "matches any segment" — the confirmed root cause of the `meN-`/`peN-`-prefix boundary-environment
-//! bug (`rust-conversion.md` §13.1 Tier-1 #1). These tests drive the real `PatternBridge` →
-//! `pg_fst::Transduce` path end-to-end (not just inspecting stored lane bits), because the bug's
-//! symptom lives in how those bits get consumed, not just how they are stored — a test that only
-//! checked `feature_lanes()[type_idx]` would pass even if some consumer still special-cased
-//! boundaries as unconstrained.
-//!
-//! Two grammars are exercised, spanning the two width regimes this fix changes:
-//! - `zero_feat_grammar` mirrors Sena exactly (no `<PhonologicalFeatureSystem>` at all — the
-//!   `phon_features.len()` 0→1 case).
-//! - `feature_grammar` mirrors Indonesian/Amharic (one real symbolic feature — the `len()` N→N+1
-//!   case), and additionally pins that a `FeatureNaturalClass` keyed on a real feature still
-//!   matches exactly the right segments post-fix (no regression on real phonological matching).
+//! Regression gate for the `Type`/boundary-lane fix: a literal boundary pattern node must match only boundary shape nodes, and a literal segment/natural-class node only segment nodes.
+//! Root cause (empty boundary lanes canonicalizing to "matches any segment") and the two width regimes exercised: docs/research/pg-rules-type-lane-regression.md.
 
 use pg_fst::{Segment, Transduce};
 use pg_grammar::chardef::CharDefId;
@@ -42,10 +23,7 @@ fn nat_class(g: &Grammar, xml_id: &str) -> NatClassId {
     NatClassId(i as u32)
 }
 
-/// The real, concrete lane row a shape node backed by `cd` would carry (mirrors
-/// `pg_rules::shape_feat::lanes_for` / `ShapeBuilder::push_segment_with_lanes`): exactly the
-/// char-def's own `feature_lanes()` — no padding needed post-fix, since every char def (segment
-/// or boundary) is already `phon_features.len()`-wide.
+/// The real, concrete lane row a shape node backed by `cd` would carry: exactly the char-def's own `feature_lanes()`, no padding needed since every char def is already `phon_features.len()`-wide.
 fn concrete_lanes(g: &Grammar, cd: CharDefId) -> Vec<u64> {
     g.char_tables[0].get(cd).feature_lanes().to_vec()
 }
@@ -60,9 +38,7 @@ fn matches_single(pattern: &Pattern, g: &Grammar, lanes: Vec<u64>) -> bool {
         .accepts()
 }
 
-// =================================================================================================
-// (a)/(d) Zero-phonological-feature grammar (mirrors Sena: no <PhonologicalFeatureSystem>).
-// =================================================================================================
+// Zero-phonological-feature grammar (mirrors Sena: no <PhonologicalFeatureSystem>).
 
 const ZERO_FEAT_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -90,10 +66,7 @@ fn zero_feat_grammar() -> Grammar {
 
 #[test]
 fn zero_feat_grammar_phon_features_len_is_one_not_zero() {
-    // The headline width-0-to-1 assertion (plan §13.1 Tier-1 #1 blast-radius note): a grammar with
-    // zero authored phonological features (Sena's real situation) now reports `len() == 1` (the
-    // synthetic `Type` feature), not 0 — `is_empty()` is the new spelling of the old "no features"
-    // check.
+    // A grammar with zero authored phonological features now reports `len() == 1` (the synthetic `Type` feature), not 0; `is_empty()` is the new spelling of the old "no features" check.
     let g = zero_feat_grammar();
     assert!(
         g.phon_features.is_empty(),
@@ -147,10 +120,7 @@ fn zero_feat_segment_literal_pattern_does_not_match_a_boundary() {
 
 #[test]
 fn zero_feat_feature_natural_class_matches_segment_not_boundary() {
-    // `nc_any` is a `FeatureNaturalClass` with zero authored `<FeatureValue>`s -- before this fix it
-    // matched literally everything (lane-unconstrained on every real feature, and no Type dimension
-    // at all). Post-fix it must still match the segment (Type=Segment is injected automatically,
-    // per architecture point 3) but reject the boundary.
+    // `nc_any` has zero authored `<FeatureValue>`s; it matches the segment (Type=Segment is injected automatically) but must reject the boundary.
     let g = zero_feat_grammar();
     let pattern = Pattern {
         nodes: vec![PatternNode::Context(SimpleContext {
@@ -171,11 +141,7 @@ fn zero_feat_feature_natural_class_matches_segment_not_boundary() {
     );
 }
 
-// =================================================================================================
-// (b)/(c) Feature-bearing grammar (mirrors Indonesian/Amharic): one real symbolic feature, so the
-// `Type` lane sits at FlatIndex(1), not FlatIndex(0), and real phonological feature matching must
-// be unaffected by the fix.
-// =================================================================================================
+// Feature-bearing grammar (mirrors Indonesian/Amharic): one real symbolic feature, so the `Type` lane sits at FlatIndex(1), not FlatIndex(0).
 
 const FEATURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -255,9 +221,7 @@ fn feature_grammar_boundary_marker_pattern_does_not_match_a_segment() {
 
 #[test]
 fn feature_grammar_voiced_class_matches_only_voiced_segment_never_boundary() {
-    // (c) No regression on real phonological feature matching: `nc_voiced` (feat_voi=+) must still
-    // match the voiced segment `b`, must still reject the voiceless segment `p`, and — the new
-    // assertion this fix adds — must reject the boundary too.
+    // `nc_voiced` (feat_voi=+) matches voiced "b", excludes voiceless "p", and, the new assertion this fix adds, excludes the boundary too.
     let g = feature_grammar();
     let pattern = Pattern {
         nodes: vec![PatternNode::Context(SimpleContext {

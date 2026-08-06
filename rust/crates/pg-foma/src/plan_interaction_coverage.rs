@@ -165,9 +165,7 @@ use crate::oracle::{differential_oracle, permute_gate_groups, OracleResult};
 use crate::plan::{ComposeStrategy, FragmentSpec, NodeId, Plan, PlanNodeKind};
 use crate::replace::SegAlphabet;
 
-// =================================================================================================
 // The tuple model
-// =================================================================================================
 
 /// One composition-node-kind adjacency: `(parent kind_name, child kind_name)`, refined with the
 /// child's own Leaf-fragment detail and either endpoint's `ComposeStrategy` when meaningful — see
@@ -287,14 +285,9 @@ pub fn observed_adjacency_tuples(plan: &Plan) -> HashSet<AdjacencyTuple> {
     out
 }
 
-// =================================================================================================
 // Tagging: which CharacteristicKinds does a node "own"?
-// =================================================================================================
 
-/// `location`'s owning `PRuleId`, if it is keyed by a phonological rule/subrule at all — the
-/// mapping `enumerate_default`'s own `Leaf { fragment: FragmentSpec::RewriteRule { rule }, .. }`
-/// leaves are addressable by (mirrors `crate::capability::compose_envelope`'s own documented
-/// `SimultaneousRewrite` -> `PRuleId`-keyed-leaf mapping).
+/// `location`'s owning `PRuleId`, if it is keyed by a phonological rule/subrule at all.
 fn rule_keyed_location(location: &ModelLocation) -> Option<PRuleId> {
     match location {
         ModelLocation::PhonRule(r) => Some(*r),
@@ -303,12 +296,7 @@ fn rule_keyed_location(location: &ModelLocation) -> Option<PRuleId> {
     }
 }
 
-/// Every non-`Disposition::Proven` characteristic with NO `PRuleId`-keyed location — the same "no
-/// distinct `PlanNodeKind`" set `crate::capability::compose_envelope`'s own doc names
-/// (`Compounding`, `UnorderedMorphRuleApplication`, `MprGroupAppend`, `MprGroupOverwrite`,
-/// `CircumfixOutputAction`, `Reduplication`), plus any other grammar-wide, non-rule-keyed
-/// characteristic (`CoOccurrenceConstraint`, `MultiTable`, etc.) — folded onto the [`PlanNodeKind::
-/// Gate`] node as a REPRESENTATIVE tag (this module's own top-doc judgment call).
+/// Every non-`Disposition::Proven` characteristic with no `PRuleId`-keyed location, folded onto the `PlanNodeKind::Gate` node as a representative tag (this module's own top-doc judgment call).
 fn representative_kinds(profile: &CharacteristicsProfile) -> HashSet<CharacteristicKind> {
     profile
         .observations()
@@ -320,9 +308,7 @@ fn representative_kinds(profile: &CharacteristicsProfile) -> HashSet<Characteris
         .collect()
 }
 
-/// Every non-`Disposition::Proven` characteristic observed at `rule`'s own [`ModelLocation::
-/// PhonRule`]/`ModelLocation::RewriteSubrule` — what a `Leaf { fragment: FragmentSpec::RewriteRule
-/// { rule }, .. }` node's own tag is built from.
+/// Every non-`Disposition::Proven` characteristic observed at `rule`'s own `PhonRule`/`RewriteSubrule` location.
 fn kinds_for_rule(profile: &CharacteristicsProfile, rule: PRuleId) -> HashSet<CharacteristicKind> {
     profile
         .observations()
@@ -360,9 +346,7 @@ pub(crate) fn node_own_characteristics(
     out
 }
 
-// =================================================================================================
 // Orthogonality pruning — the retired list
-// =================================================================================================
 
 /// One proven-orthogonal interaction, retired from the required/fuzzed set — see this module's own
 /// top-doc for the full citation of each entry. Never invented: every entry here names a proof that
@@ -409,9 +393,7 @@ pub fn retired_interactions() -> Vec<RetiredInteraction> {
     ]
 }
 
-// =================================================================================================
-// The coverage report (deliverables 3-4)
-// =================================================================================================
+// The coverage report
 
 /// One `AdjacencyTuple`'s cross-check outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -459,15 +441,10 @@ impl InteractionCoverageReport {
     }
 }
 
-/// Deliverables 3-4, THE CROSS-CHECK: computes `InteractionCoverageReport` over a caller-supplied
-/// corpus of `(fixture label, plan, characteristics profile)` triples — a pure function, same
-/// "pure core, wired-up glue lives at the edge" split [`crate::conformance_coverage::
-/// supported_coverage_report`] itself uses (this module's own top-doc).
-/// One `AdjacencyTuple`'s accumulated corpus evidence: every tag ever observed on it and its
-/// covering fixture labels — named (clippy `type_complexity`) rather than left as an inline nested
-/// tuple type.
+/// One `AdjacencyTuple`'s accumulated corpus evidence: every tag observed on it plus its covering fixture labels.
 type TupleEvidence = (HashSet<CharacteristicKind>, Vec<String>);
 
+/// Computes `InteractionCoverageReport` over a caller-supplied corpus of `(fixture label, plan, characteristics profile)` triples -- a pure function.
 pub fn compute_interaction_coverage(
     fixtures: &[(&str, &Plan, &CharacteristicsProfile)],
 ) -> InteractionCoverageReport {
@@ -480,9 +457,7 @@ pub fn compute_interaction_coverage(
     for &(label, plan, profile) in fixtures {
         let own = node_own_characteristics(plan, profile);
 
-        // This FIXTURE's own tuple -> tags map first: a fixture can realize the same tuple SHAPE
-        // more than once (e.g. one Replace -> Leaf/RewriteRule edge per rule), and it must be
-        // credited once per (tuple, fixture), not once per edge.
+        // Credited once per (tuple, fixture), not once per edge, since a fixture can realize the same tuple shape more than once.
         let mut fixture_tags: HashMap<AdjacencyTuple, HashSet<CharacteristicKind>> = HashMap::new();
         for (parent_id, parent_kind) in plan.iter() {
             for &child_id in parent_kind.children() {
@@ -541,9 +516,7 @@ pub fn compute_interaction_coverage(
     }
 }
 
-// =================================================================================================
 // Assembly glue: building a Plan + CharacteristicsProfile the way a real caller would
-// =================================================================================================
 
 /// Assembles `g`'s reified `Plan` (`enumerate_default`) and `CharacteristicsProfile` the way a
 /// real caller would — mirrors `crate::capability_entry::evaluate_capability`'s own setup exactly
@@ -580,9 +553,7 @@ pub fn plan_for_semantics(semantics: &GrammarSemantics<'_>) -> Plan {
     enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref())
 }
 
-// =================================================================================================
 // Fuzz slice
-// =================================================================================================
 
 /// `plan`'s own `PlanNodeKind::Gate` node's partition-group count, if it has one (`0` for a plan
 /// with no `Gate` node at all — not a shape `enumerate_default` ever produces, but this function
@@ -618,9 +589,7 @@ pub fn fuzz_gate_group_reordering_for_grammar(
     let permuted = permute_gate_groups(&plan);
 
     let opts = FomaOptions::default();
-    // `ComposeBudget::unbounded()` is `#[cfg(test)]`-only (compose_budget.rs's own doc), so this
-    // non-test, production-shaped entry point builds the equivalent "never trips" budget directly
-    // via the public `with_caps` constructor instead (same all-`usize::MAX`/no-deadline shape).
+    // ComposeBudget::unbounded() is #[cfg(test)]-only, so this production entry point builds the equivalent "never trips" budget via with_caps directly.
     let budget = ComposeBudget::with_caps(
         usize::MAX,
         usize::MAX,
@@ -656,11 +625,7 @@ mod tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
     }
 
-    /// An MPR-gated 2-group grammar with a real (non-refusing) phonological rule -- `should_run` is
-    /// `true` (a composite-emission marker is present) and the gate partitions into 2 groups, so the
-    /// plan's root is `Union[Gate, Leaf/CompositeEmissionMarker]` -- exercising 6 of the 7 legal
-    /// tuples in one fixture (only `Union -> Leaf/StructuralCompositeMarker` is absent: no
-    /// circumfix/dropped-material construct is declared).
+    /// An MPR-gated 2-group grammar with a real phonological rule, so the plan root is `Union[Gate, Leaf/CompositeEmissionMarker]`, exercising 6 of the 7 legal tuples.
     fn gated_two_group_with_rule_fixture_xml() -> &'static str {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -710,11 +675,7 @@ mod tests {
 "#
     }
 
-    /// A minimal `MprGroupOutput::Overwrite` grammar (no consuming rule needed --
-    /// `characterize`'s own per-group walk observes `MprGroupOverwrite` from the group's OWN
-    /// declaration alone, the same granularity `tests/cover_mpr_groups.rs`'s own
-    /// `overwrite_group_fixture_xml` establishes). Ungated (no MPR-restricted subrule, no phon
-    /// rules at all), so its plan root collapses directly to a single-group `Gate` node.
+    /// A minimal `MprGroupOutput::Overwrite` grammar, ungated (no phon rules at all), so its plan root collapses directly to a single-group `Gate` node.
     fn overwrite_group_fixture_xml() -> &'static str {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -746,9 +707,7 @@ mod tests {
 </HermitCrabInput>"#
     }
 
-    // ---------------------------------------------------------------------------------------
     // legal_adjacency_tuples
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn legal_adjacency_tuples_has_exactly_seven_documented_shapes() {
@@ -768,9 +727,7 @@ mod tests {
         }));
     }
 
-    // ---------------------------------------------------------------------------------------
     // observed_adjacency_tuples
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn observed_adjacency_tuples_on_gated_two_group_fixture_matches_six_of_seven_legal_shapes() {
@@ -816,9 +773,7 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
     // compute_interaction_coverage: required/covered/uncovered
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn compute_interaction_coverage_reports_seven_required_tuples_and_no_unexpected_ones() {
@@ -904,8 +859,7 @@ mod tests {
             .any(|r| r.tuple == gate_compose_row.tuple));
     }
 
-    /// Every fixture exhibiting a tuple is credited, including one whose Gate node carries an
-    /// `Overwrite` tag: `covering_fixtures` names both, in supplied order.
+    /// Every fixture exhibiting a tuple is credited: `covering_fixtures` names both, in supplied order.
     #[test]
     fn compute_interaction_coverage_credits_every_fixture_exhibiting_a_tuple() {
         let ordinary_g = load(gated_two_group_with_rule_fixture_xml());
@@ -947,9 +901,7 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
     // retired_interactions
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn retired_interactions_names_the_two_cited_proofs() {
@@ -966,9 +918,7 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
     // gate_group_count + fuzz_gate_group_reordering_for_grammar
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn gate_group_count_matches_the_fixtures_own_two_groups() {

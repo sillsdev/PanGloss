@@ -1,15 +1,4 @@
-//! Viability spike for the pure-Rust `foma` crate (crates.io v0.1.1, github.com/divvun/foma-rs).
-//!
-//! Proves it supports everything the emitter design needs: lexc compilation with multichar tag
-//! symbols and all-paths `apply_up` enumeration, regex-compiled replace rules composed with a
-//! lexicon and applied up through the composition, flag diacritics gating paths under `apply_up`,
-//! and non-ASCII round-tripping (folded into the lexc section). A separate module proves binary
-//! save/load round-trips both via file and via the from-memory loader (`fsm_read_binary_mem`),
-//! which browser-loading and on-disk caching will depend on later.
-//!
-//! Every network in this file is compiled in **synthesis direction**: upper tape carries the
-//! analysis (tags + underlying segments), lower tape carries the surface form. We always apply
-//! **up** (surface -> analysis), matching the runtime direction.
+//! Viability spike for the pure-Rust `foma` crate: lexc compilation, all-paths `apply_up`, composed replace rules, flag diacritics, and Unicode/binary round-tripping.
 
 use foma::apply::apply_init;
 use foma::constructions::fsm_compose;
@@ -26,22 +15,13 @@ fn opts() -> FomaOptions {
     FomaOptions::default()
 }
 
-/// Collect the *full* set of `apply_up` results for `word` — exhausts the resume protocol via
-/// the iterator sugar, matching how the eventual `pg-foma` decoder must enumerate every path
-/// (D2: "multiple `<R:...>` in one path... split into one candidate per root" requires seeing
-/// every path, not just the first).
+/// Collects the full set of `apply_up` results for `word` by exhausting the resume protocol via the iterator sugar.
 fn up_all(net: &Fsm, word: &str) -> BTreeSet<String> {
     let mut h = apply_init(net);
     h.up(word).collect()
 }
 
-// ---------------------------------------------------------------------------------------------
-// Tag escaping helpers -- a genuine gate finding, not incidental plumbing. The logic (and its
-// full rationale: `%<`/`%:`/`%>` escaping for the lexc dialects, `%0` for every zero digit
-// because a bare `0` is lexc's alignment-epsilon and silently collapses tag symbols) now lives
-// in `pg_foma::tags` -- these are 4-digit-width wrappers so the test bodies below stay
-// byte-identical to what the gate originally verified, while exercising the REAL production
-// codec rather than a private copy that could drift.
+// Thin 4-digit-width wrappers over `pg_foma::tags`'s lexc-escaping (a bare `0` is lexc's alignment-epsilon and silently collapses tag symbols), so tests exercise the real production codec.
 fn lexc_tag(prefix: &str, n: u32) -> String {
     pg_foma::tags::lexc_tag(prefix, n, 4)
 }
@@ -50,11 +30,7 @@ fn tag_text(prefix: &str, n: u32) -> String {
     pg_foma::tags::tag_text(prefix, n, 4)
 }
 
-// ---------------------------------------------------------------------------------------------
-// F0.1 — LEXC: Multichar_Symbols tags, two continuation classes, all-paths enumeration,
-// including a word with two valid analyses (ambiguous root sharing one surface spelling), and
-// a non-ASCII entry (F0.4, folded in here since it is a one-line lexc addition).
-// ---------------------------------------------------------------------------------------------
+// LEXC: Multichar_Symbols tags, two continuation classes, all-paths enumeration, an ambiguous word, and a non-ASCII entry.
 
 fn toy_lexc() -> String {
     format!(
@@ -90,9 +66,7 @@ fn compile_toy_lexc() -> Fsm {
 fn lexc_all_paths_ambiguous_word() {
     let net = compile_toy_lexc();
 
-    // "kats" is surface-ambiguous: two Root entries (<R:0001>, <R:0002>) share the spelling
-    // "kat", so apply_up must return BOTH analyses — proving all-paths enumeration, not just
-    // first-match.
+    // "kats" is surface-ambiguous (two Root entries share the spelling "kat"), so apply_up must return both analyses.
     let got = up_all(&net, "kats");
     let expected: BTreeSet<String> = [
         format!("kat{}s{}", tag_text("R", 1), tag_text("M", 10)),
@@ -139,9 +113,7 @@ fn lexc_no_spurious_analyses() {
 
 #[test]
 fn lexc_tags_do_not_collide_on_leading_zeros() {
-    // Regression guard for the exact footgun documented above: an <R:0001> vs <R:0010>-shaped
-    // pair must stay distinct once correctly escaped (they collapse to the same symbol if the
-    // '0' escaping is dropped -- this test would fail loudly if that regressed).
+    // Regression guard: `<R:0001>` vs `<R:0010>` must stay distinct once escaped -- they collapse to the same symbol if the leading-zero escaping is dropped.
     let src = format!(
         r#"
 Multichar_Symbols {r1} {r10}
@@ -165,10 +137,7 @@ b{r10}:b # ;
     );
 }
 
-// ---------------------------------------------------------------------------------------------
-// F0.4 — UNICODE: a lexc entry with non-ASCII segments (ŋ, ə) round-trips through apply_up.
-// Uses the same toy lexicon (<R:0004> root "kəŋ").
-// ---------------------------------------------------------------------------------------------
+// UNICODE: a lexc entry with non-ASCII segments round-trips through apply_up.
 
 #[test]
 fn lexc_unicode_entry_round_trips() {
@@ -188,15 +157,7 @@ fn lexc_unicode_entry_round_trips() {
     assert_eq!(got_plural, expected_plural);
 }
 
-// ---------------------------------------------------------------------------------------------
-// F0.2 — REGEX + COMPOSE: a lexicon compiled in synthesis direction (upper = tags + underlying
-// segments, lower = underlying surface with an archiphonemic nasal `N`), composed with a regex
-// replace rule `N -> m || _ [p|b]` (nasal place assimilation before a labial stop). The rule's
-// upper side is the pre-rule (lexicon-lower) form and its lower side is the true surface, so
-// `lexicon .o. rule` yields a net whose lower tape is the fully-assimilated surface and whose
-// upper tape is still the untouched analysis tags. Applying up the assimilated surface must
-// recover the analysis — proving composition direction and apply-up both work together.
-// ---------------------------------------------------------------------------------------------
+// REGEX + COMPOSE: `lexicon .o. rule` composes a synthesis-direction lexicon (upper=tags+underlying, lower=underlying with archiphonemic `N`) with a surface-assimilation replace rule, so the result's lower tape is the true surface and upper tape is still the untouched analysis tags.
 
 fn rule_lexc() -> String {
     format!(
@@ -228,9 +189,7 @@ fn compile_rule_composition() -> Fsm {
 fn regex_compose_recovers_underlying_form() {
     let net = compile_rule_composition();
 
-    // The underlying concatenation "kaN" + "pa" = "kaNpa"; the rule assimilates N to m before
-    // p, so the true surface is "kampa". Applying up the assimilated surface must recover the
-    // tags (and, incidentally, the un-assimilated underlying "kaN" spelling on the upper tape).
+    // "kaN"+"pa"="kaNpa" underlying; the rule assimilates N to m before p, giving surface "kampa", whose apply_up must recover the tags.
     let got = up_all(&net, "kampa");
     let expected: BTreeSet<String> = [format!(
         "kaN{}pa{}",
@@ -244,29 +203,19 @@ fn regex_compose_recovers_underlying_form() {
         "composition must recover the underlying analysis"
     );
 
-    // The un-assimilated surface must NOT be accepted post-composition -- proves the rule was
-    // actually applied (composition changed the surface-side requirement), not a no-op.
+    // The un-assimilated surface must not be accepted post-composition, proving the rule was actually applied.
     assert!(
         up_all(&net, "kaNpa").is_empty(),
         "pre-assimilation surface should be rejected once the rule is composed in"
     );
 }
 
-// ---------------------------------------------------------------------------------------------
-// F0.3 — FLAG DIACRITICS: a `@U.F.x@` / `@R.F.x@` unify/require pair gates one path and lets
-// the other through under apply_up; flag symbols are absent from output by default
-// (`show_flags` off), and are visible when explicitly enabled -- both directions of behaviour
-// spot-checked, mirroring the port's own `flag_diacritics_end_to_end` test (crates/foma/src/
-// apply.rs) but driven through `apply_up` (our runtime direction) instead of `apply_down`.
-// ---------------------------------------------------------------------------------------------
+// FLAG DIACRITICS: a `@U.F.x@`/`@R.F.x@` unify/require pair gates paths under `apply_up`, mirroring the `foma` crate's own flag-diacritics test via `apply_up` instead of `apply_down`.
 
 #[test]
 fn flags_gate_paths_under_apply_up() {
     let o = opts();
-    // a-branch sets F to 1 or 2 (@U.F.n@ = unify: set-if-unset, else unify); c/d-branch requires
-    // F to equal 1 or 2 respectively (@R.F.n@ = require exact value). "ac" is a consistent path
-    // (F=1 both times); "ad" is inconsistent (F set to 1, then required to be 2) and must be
-    // pruned under the default obey_flags=true.
+    // `@U.F.n@` unifies (set-if-unset else unify) F; `@R.F.n@` requires F equal n. "ac"/"bd" are consistent (pass); "ad"/"bc" are inconsistent (pruned) under the default `obey_flags=true`.
     let net = fsm_parse_regex(
         &o,
         r#"[a "@U.F.1@" | b "@U.F.2@"] [c "@R.F.1@" | d "@R.F.2@"]"#,
@@ -332,11 +281,7 @@ fn flags_obey_off_lets_inconsistent_path_through() {
     assert_eq!(h.up("ad").collect::<Vec<_>>(), vec!["ad".to_string()]);
 }
 
-// ---------------------------------------------------------------------------------------------
-// Binary save/load round-trip: both the file-based loader and the from-memory loader
-// (`fsm_read_binary_mem`) must reproduce identical apply_up results, since an optional on-disk
-// cache and the browser-loading path both depend on this.
-// ---------------------------------------------------------------------------------------------
+// Binary round-trip: both the file and from-memory loaders must reproduce identical apply_up results.
 
 #[test]
 fn binary_round_trip_via_file() {
@@ -382,21 +327,8 @@ fn binary_round_trip_via_memory() {
     assert_eq!(after, expected);
 }
 
-// ---------------------------------------------------------------------------------------------
-// C-foma fidelity oracle: these two `#[ignore]`d tests dump the *exact* lexc
-// source strings this file compiles internally (byte-for-byte, via the same `toy_lexc()` /
-// `rule_lexc()` builders the real tests use) so they can be fed to the official C foma v0.10.0
-// Windows CLI (github.com/mhulden/foma releases) for a side-by-side comparison against
-// foma-rs's `apply_up` output. Not part of the normal `cargo test -p pg-foma` run (no network
-// dependency, no binary checked into the repo, per the plan's constraints) -- run manually with
-// `cargo test -p pg-foma --test f0_viability -- --ignored --nocapture <name>` and redirect the
-// dumped source into a `.lexc` file next to the C foma binaries. Results of doing this are
-// recorded in the scratchpad `foma-oracle/README.md` and the P0 report: C foma's flookup
-// (default direction = surface->analysis, matching our apply_up) reproduced the exact same
-// analysis sets as foma-rs for every word in `toy_lexc()`, and the composed rule network
-// (`rule_lexc() .o. "N -> m || _ [p|b]"`) reproduced the same result once the CLI's `compose
-// net` stack-operand order was accounted for (a CLI stack-ordering detail, not a semantic
-// divergence between the two implementations -- see the report).
+// C-foma fidelity oracle (manual, `--ignored`): dumps lexc source for comparison against the
+// official C foma CLI; see `docs/research/pg-foma-f0-viability-oracle.md`.
 #[test]
 #[ignore]
 fn print_toy_lexc_for_oracle() {

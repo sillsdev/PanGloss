@@ -1,22 +1,4 @@
-//! `pangloss assess | compare | golden-diff | investigate` — the grammar-assessment evidence layer.
-//!
-//! The four operations are one caller-facing contract
-//! with one owner of the wire format: split them across commands that each own a piece of the
-//! schema and no single one can honour the PanGloss/caller boundary.
-//!
-//! ## The caller owns storage
-//!
-//! Artifacts go to stdout by default; `--report <path>` writes to a file and overwrites freely.
-//! There is no no-overwrite rule, no retry flag, and no content-addressed sink. The caller picks
-//! the path and owns retention — realistically it invokes `assess`, reads the artifact, ingests it
-//! into its own store, and the file is scratch.
-//!
-//! ## Exit codes are typed
-//!
-//! `0` an artifact was produced (including one whose every case is `not_comparable` — a refusal is
-//! still evidence), `2` invalid input or schema, `3` an unsupported capability or an incompatible
-//! identity profile, `4` containment prevented the artifact, `70` internal fault. A caller
-//! branching on "did it work" needs more than zero-or-one.
+//! `pangloss assess | compare | golden-diff | investigate`: the grammar-assessment evidence layer, writing caller-owned artifacts under typed exit codes rather than a bare zero-or-one.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -47,12 +29,7 @@ pub const EXIT_UNSUPPORTED: u8 = 3;
 pub const EXIT_CONTAINED: u8 = 4;
 pub const EXIT_INTERNAL: u8 = 70;
 
-/// Which analysis pipeline runs.
-///
-/// Replaces `--engine default|foma` and inverts its default: `foma-confirm` is what production
-/// runs, so it is what evidence should describe. An unavailable pipeline is an
-/// `unsupported_capability` refusal — never a silent fallback to the other one, which would produce
-/// an artifact whose `pipeline` field is a lie.
+/// Which analysis pipeline runs; an unavailable one is an `unsupported_capability` refusal, never a silent fallback to the other pipeline.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pipeline {
     FomaConfirm,
@@ -167,8 +144,7 @@ impl Args {
     }
 }
 
-/// Write to `--report <path>` if given, otherwise stdout. Overwrites freely: the caller owns
-/// storage, including not clobbering its own baseline.
+/// Writes to `--report <path>` if given, else stdout; overwrites freely since the caller owns storage.
 fn emit(args: &Args, value: &serde_json::Value) -> Result<(), CliError> {
     let json = pg_assess::canonicalize(value)
         .map_err(|e| CliError::internal(format!("canonicalize artifact: {e}")))?;
@@ -181,19 +157,7 @@ fn emit(args: &Args, value: &serde_json::Value) -> Result<(), CliError> {
     }
 }
 
-/// Write bytes so a crash leaves either no destination or one complete artifact — never a truncated
-/// one (§17.7).
-///
-/// A plain `fs::write` truncates the destination first and then streams into it, so a crash or a
-/// full disk mid-write leaves a file that parses as neither valid JSON nor an absent report. For an
-/// artifact whose whole purpose is to be trustworthy evidence, a half-written file is the worst
-/// outcome available: a consumer cannot distinguish it from a real report that says something
-/// different.
-///
-/// The temp file is a *sibling* of the destination rather than in a temp directory, because a
-/// rename is only atomic within one filesystem. `fs::rename` replaces an existing destination on
-/// both Unix and Windows, so this keeps D8's "overwrites freely" — atomicity is about crash
-/// behaviour, not about refusing to overwrite.
+/// Writes via a same-directory temp file plus rename, so a crash leaves either no destination or one complete artifact, never a truncated one; the temp file must be a sibling because rename is atomic only within one filesystem.
 fn write_atomically(destination: &Path, bytes: &[u8]) -> Result<(), CliError> {
     let directory = match destination.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
@@ -202,9 +166,7 @@ fn write_atomically(destination: &Path, bytes: &[u8]) -> Result<(), CliError> {
     let file_name = destination.file_name().ok_or_else(|| {
         CliError::invalid(format!("--report {} names no file", destination.display()))
     })?;
-    // The pid keeps two concurrent runs writing the same destination from sharing a temp file. They
-    // still race on the rename, but each rename publishes one complete artifact, so a reader can
-    // never observe a mixture of the two.
+    // The pid keeps two concurrent runs from sharing a temp file; each still-atomic rename publishes one complete artifact.
     let temporary = directory.join(format!(
         ".{}.{}.tmp",
         file_name.to_string_lossy(),
@@ -214,8 +176,7 @@ fn write_atomically(destination: &Path, bytes: &[u8]) -> Result<(), CliError> {
     let write = || -> std::io::Result<()> {
         let mut file = fs::File::create(&temporary)?;
         file.write_all(bytes)?;
-        // Flush to disk before the rename, so a crash after the rename cannot leave the directory
-        // entry pointing at content that never landed.
+        // Flushed before the rename so a crash right after cannot leave the destination pointing at unsynced content.
         file.sync_all()
     };
     if let Err(e) = write() {
@@ -236,16 +197,7 @@ fn read(path: &str) -> Result<String, CliError> {
     std::fs::read_to_string(path).map_err(|e| CliError::invalid(format!("read {path}: {e}")))
 }
 
-/// The single engine-to-artifact translation for budget dimensions.
-///
-/// Exhaustive by construction: adding a variant to `pg_foma::ApplyDimension` fails to compile here
-/// until it is given an artifact name, rather than silently reaching a report as an unrecognised
-/// string that no consumer can branch on.
-/// Which loader a grammar path dispatches to, by extension — the same rule `load_grammar` uses.
-///
-/// Shared with `diagnose` rather than duplicated: both build the same artifact, and two copies of
-/// this dispatch could disagree about a `.json` grammar's `sourceKind`, which feeds
-/// `modelFingerprint` and would silently split one grammar into two model identities.
+/// Which loader a grammar path dispatches to, by extension; shared with `diagnose` so a `.json` grammar's `sourceKind` never disagrees between the two call sites.
 pub(crate) fn source_kind_of(path: &str) -> SourceKind {
     if path.ends_with(".json") {
         SourceKind::Snapshot
@@ -254,11 +206,7 @@ pub(crate) fn source_kind_of(path: &str) -> SourceKind {
     }
 }
 
-/// The effective logical budgets, as the report records them.
-///
-/// Read off the `ApplyBudget` actually in force rather than off the flags that produced it, so an
-/// envelope arriving from the environment (`ApplyBudget::from_env`, which `diagnose` uses) is
-/// recorded as faithfully as one passed on the command line. An empty map means unbounded.
+/// The effective logical budgets as the report records them, read off the enforced `ApplyBudget` rather than the flags that produced it, so an env-derived envelope is recorded as faithfully as a CLI one; an empty map means unbounded.
 pub(crate) fn recorded_budgets(budget: &ApplyBudget) -> BTreeMap<String, u64> {
     let mut budgets = BTreeMap::new();
     if let Some(cap) = budget.path_cap() {
@@ -273,16 +221,13 @@ pub(crate) fn recorded_budgets(budget: &ApplyBudget) -> BTreeMap<String, u64> {
     budgets
 }
 
+/// Exhaustive translation from `pg_foma::ApplyDimension` to the artifact's `BudgetDimension`: a new variant fails to compile here rather than reaching a report unrecognized.
 pub(crate) fn budget_dimension(dimension: ApplyDimension) -> BudgetDimension {
     match dimension {
         ApplyDimension::DecodedPaths => BudgetDimension::DecodedPaths,
         ApplyDimension::Candidates => BudgetDimension::Candidates,
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// assess
-// ---------------------------------------------------------------------------------------------
 
 pub fn run_assess(args: &[String]) -> Result<(), CliError> {
     let args = parse_args(args)?;
@@ -293,9 +238,7 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
         Some(value) => Pipeline::parse(value)?,
     };
 
-    // Logical budgets stay unbounded unless a resource envelope is named. No default is
-    // invented: any number here would be guesswork that silently truncates analyses on real
-    // grammars.
+    // Budgets stay unbounded unless named; inventing a default would silently truncate analyses on real grammars.
     let budget = ApplyBudget::with_caps(
         args.number("budget-paths")?,
         args.number("budget-candidates")?,
@@ -316,11 +259,7 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
         compiler_version: compiler_version.to_string(),
     };
 
-    // Import or compile failing after suite validation passed is not an error exit. A
-    // caller that asked for evidence gets evidence: a `failed` artifact whose every case is
-    // `not_attempted/assessment_setup_failed`, with the compiler's own message retained as a
-    // diagnostic. Exiting non-zero with nothing to read would tell a CI consumer only that
-    // something went wrong, and `compare` could not join the run against its baseline at all.
+    // A compile/import failure after suite validation is not an error exit: it becomes a `failed` artifact (every case `not_attempted/assessment_setup_failed`) so a CI consumer and `compare` still have something to read.
     let (grammar, warnings) = match crate::load_grammar_coded(grammar_path) {
         Ok(loaded) => loaded,
         Err(message) => {
@@ -329,9 +268,7 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
             return emit(&args, &report.to_value());
         }
     };
-    // Each warning keeps the stable code its emission site assigned, because `compare`
-    // diffs diagnostics by code and count. Collapsing them into one bucket here would leave a
-    // caller unable to tell "the importer skipped different data" from "a message was reworded".
+    // Warnings keep the stable code their emission site assigned: `compare` diffs diagnostics by code and count, so collapsing codes would hide a real change behind reworded prose.
     let diagnostics = warnings
         .iter()
         .map(|warning| Diagnostic {
@@ -373,10 +310,7 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
     emit(&args, &report.to_value())
 }
 
-/// The artifact a run produces when setup failed safely.
-///
-/// Every case is `not_attempted/assessment_setup_failed`, so `pg_assess::derive_status` reports
-/// `failed` and no case can be mistaken for a grammar that analyzes nothing.
+/// The artifact for a safely-failed setup: every case is `not_attempted/assessment_setup_failed`, so `derive_status` reports `failed` rather than reading as a grammar that analyzes nothing.
 fn setup_failed_report(
     suite: SuiteRef,
     pipeline: Pipeline,
@@ -399,9 +333,7 @@ fn setup_failed_report(
             severity: Severity::Error,
             message: message.to_string(),
         }],
-        // The typed top-level reason. A consumer reading this artifact may have no
-        // access to our exit code, so `status: failed` alone would leave it inferring the cause
-        // from prose.
+        // A typed top-level reason: a consumer without our exit code would otherwise infer the cause from prose.
         failure: Some(AssessmentFailure {
             kind: FailureKind::AssessmentSetupFailed,
             message: message.to_string(),
@@ -429,12 +361,7 @@ struct PendingCase {
     supersedes: Vec<String>,
 }
 
-/// A suite, or a bare word list with synthesized case IDs.
-///
-/// The word-list path exists so a caller need not author a suite for a quick run — it keeps
-/// `diagnose`'s ergonomics now that one assessment artifact exists in the repo. Its case IDs
-/// are deterministic but positional, so they are stable across reruns of the same list and not
-/// across edits to it; authoring a suite is what buys identity that survives reordering.
+/// A suite, or a bare word list with synthesized case IDs that are positional: stable across reruns, not across edits; authoring a suite buys identity that survives reordering.
 fn load_cases(args: &Args) -> Result<(SuiteRef, Vec<PendingCase>), CliError> {
     match (args.flag("suite"), args.flag("words")) {
         (Some(_), Some(_)) => Err(CliError::invalid(
@@ -531,14 +458,7 @@ fn run_cases(
         }
         Pipeline::FomaConfirm => {
             let mut analyzer = FomaAnalyzer::new(grammar).map_err(|e| {
-                // Never a silent fallback to the other pipeline: an artifact whose `pipeline` field
-                // said `hermitcrab` after the caller asked for `foma-confirm` would be a lie about
-                // what produced the evidence.
-                //
-                // The two refusals are different facts and get different exit codes. A budget that
-                // tripped is containment — this grammar is larger than the configured envelope, and
-                // raising the envelope may well run it. A compile failure is a capability gap in the
-                // emitter, and no amount of budget changes it.
+                // Two different exit codes, not one: a tripped budget is containment (a larger envelope may run it), a compile failure is an emitter capability gap that no budget changes.
                 let message = format!("the foma-confirm pipeline cannot run this grammar: {e}");
                 match e {
                     pg_foma::analyzer::FomaError::EnumerationBudgetExceeded { .. }
@@ -583,9 +503,7 @@ fn project_all(
     let mut annotated = Vec::with_capacity(analyses.len());
     for analysis in analyses {
         let identity = AnalysisIdentity::project(analysis, grammar).map_err(|e| {
-            // An analysis referencing a morpheme the model does not have is an internal fault, not
-            // the ordinary "this grammar deleted something" case — which is invisible here, because
-            // identities are values.
+            // A morpheme the model does not have is an internal fault here, not the ordinary "grammar deleted something" case.
             CliError::internal(format!("project analysis identity: {e}"))
         })?;
         annotated.push((identity, analysis.guessed));
@@ -599,8 +517,7 @@ pub(crate) fn now_rfc3339() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    // A dependency-free rendering: the exact civil time matters to a human reader, not to any
-    // digest, so an epoch-second stamp in RFC 3339's shape is honest and sufficient.
+    // Dependency-free: the civil time matters to a human reader, not to any digest.
     let days = secs / 86_400;
     let time = secs % 86_400;
     let (mut y, mut remaining) = (1970u64, days);
@@ -643,26 +560,20 @@ pub(crate) fn now_rfc3339() -> String {
     )
 }
 
-// ---------------------------------------------------------------------------------------------
-// compare
-// ---------------------------------------------------------------------------------------------
-
 pub fn run_compare(args: &[String]) -> Result<(), CliError> {
     let args = parse_args(args)?;
     let baseline = load_report(args.required_positional(0, "baseline.json")?)?;
     let candidate = load_report(args.required_positional(1, "candidate.json")?)?;
     let delta =
         compare(&baseline, &candidate).map_err(|e| CliError::internal(format!("compare: {e}")))?;
-    // Exit 0 even when every case is `not_comparable`: the artifact is valid and a typed refusal is
-    // evidence a consumer can act on.
+    // Exit 0 even when every case is `not_comparable`: a typed refusal is still evidence.
     emit(&args, &delta.to_value())
 }
 
 fn load_report(path: &str) -> Result<AssessmentReport, CliError> {
     let document = read(path)?;
     parse_report(&document).map_err(|e| {
-        // A report from another identity profile is an unsupported capability, not malformed input:
-        // the file is well formed, this build just cannot read its encoding.
+        // A report from another identity profile is an unsupported capability, not malformed input.
         let profile_mismatch = matches!(e, pg_assess::ReportError::ForeignIdentityProfile(_));
         let message = format!("report {path}: {e}");
         if profile_mismatch {
@@ -672,10 +583,6 @@ fn load_report(path: &str) -> Result<AssessmentReport, CliError> {
         }
     })
 }
-
-// ---------------------------------------------------------------------------------------------
-// golden-diff
-// ---------------------------------------------------------------------------------------------
 
 pub fn run_golden_diff(args: &[String]) -> Result<(), CliError> {
     let args = parse_args(args)?;
@@ -690,10 +597,6 @@ pub fn run_golden_diff(args: &[String]) -> Result<(), CliError> {
     emit(&args, &diff.to_value())
 }
 
-// ---------------------------------------------------------------------------------------------
-// investigate
-// ---------------------------------------------------------------------------------------------
-
 pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
     let args = parse_args(args)?;
     let report = load_report(args.required_positional(0, "report.json")?)?;
@@ -701,8 +604,7 @@ pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
         .flag("case")
         .ok_or_else(|| CliError::invalid("missing --case <caseId>"))?;
 
-    // Without a grammar there is nothing to re-run, so the handoff carries the binding and the
-    // report's own facts, and says so rather than implying evidence it does not have.
+    // Without a grammar there is nothing to re-run; the handoff says so rather than implying evidence it lacks.
     let mut request = HandoffRequest {
         case_id: case_id.to_string(),
         ..HandoffRequest::default()
@@ -723,32 +625,20 @@ pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
             ),
         });
 
-        // Attribute a missing analysis to HermitCrab rejection vs. a proposer recall gap by
-        // running the case on both pipelines. A model-fingerprint mismatch against the report is
-        // refused before anything gathered here reaches a caller — pinned by
-        // `a_different_model_is_refused_rather_than_traced`. Best-effort otherwise: if the case,
-        // grammar, or HermitCrab run is unavailable, every asked-about identity stays
-        // `Undetermined` rather than a fabricated attribution.
+        // Attributes a missing analysis to HermitCrab rejection vs. a proposer recall gap by running the case on both pipelines, best-effort, never a fabricated attribution when either is unavailable.
+        // A model-fingerprint mismatch against the report is refused first — pinned by `a_different_model_is_refused_rather_than_traced`.
         if let Some(case) = report.cases().iter().find(|c| c.case_id == case_id) {
             if let Ok((grammar, _warnings)) = load_grammar(grammar_path) {
                 if let Ok((hc_identities, hc_failures)) =
                     run_hermitcrab_pipeline(&grammar, &case.input)
                 {
-                    // 6.5: the pruned narrative is exactly the HermitCrab failure evidence,
-                    // independent of whether foma-confirm is even available below.
+                    // The pruned narrative is exactly the HermitCrab failure evidence, independent of foma-confirm's availability below.
                     request.narrative = hc_failures.iter().map(|f| f.step.clone()).collect();
 
-                    // `None` here means foma-confirm could not produce a trustworthy result right
-                    // now (compile failure or a budget trip) — attribution below stays
-                    // `Undetermined` for every identity rather than guessed from a partial run.
+                    // `None` means foma-confirm could not produce a trustworthy result right now, so attribution below stays `Undetermined` rather than guessed from a partial run.
                     let foma_identities = run_foma_pipeline(&grammar, &case.input);
 
-                    // The identities to attribute a cause for: whatever HermitCrab produces now
-                    // that the report's own recorded outcome for this case does not contain —
-                    // exactly the "missing analysis" class `investigate` exists to explain. A
-                    // fuller workflow would seed this from `compare`'s `removed` set for the
-                    // case; re-running both pipelines here needs no
-                    // extra input from the caller.
+                    // Attributes a cause for whatever HermitCrab produces now that the report's recorded outcome does not contain — the "missing analysis" class `investigate` exists to explain.
                     let report_observed: Vec<AnalysisIdentity> = case
                         .outcome
                         .analyses()
@@ -778,22 +668,14 @@ pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
     emit(&args, &handoff.to_value())
 }
 
-/// One HermitCrab trace node that carried a `pg_rules::trace::FailureReason` — the pruning unit
-/// for both the failure narrative (6.5) and the "did HermitCrab reject a candidate matching this
-/// identity" evidence (6.4). A word's full trace can run to thousands of nodes; only the nodes
-/// that actually record a rejection carry information either consumer needs, so this is the
-/// entire prune: walk the tree, keep the nodes with `Some(failure_reason)`, discard the rest.
+/// One HermitCrab trace node that carried a `FailureReason`: the pruning unit for both the failure narrative and the "did HermitCrab reject a matching candidate" evidence below.
 struct HermitcrabFailure {
     step: NarrativeStep,
-    /// The rejected candidate's ordered stable morpheme keys, `None` per slot exactly where an
-    /// `AnalysisIdentity` would record `None` (a fabricated/guessed root has no
-    /// `Grammar::morphemes` row). Used only to match a failure against an asked-about identity —
-    /// never surfaced in the artifact itself.
+    /// The rejected candidate's ordered stable morpheme keys, `None` per slot exactly where `AnalysisIdentity` would (a guessed root has no `Grammar::morphemes` row); used only to match against an asked-about identity.
     candidate_morphemes: Vec<Option<String>>,
 }
 
-/// Run the HermitCrab pipeline on one case's input with a real trace sink, returning every
-/// analysis it produces plus the pruned failure evidence backing 6.4/6.5.
+/// Runs the HermitCrab pipeline on one case's input with a real trace sink, returning every analysis plus the pruned failure evidence.
 fn run_hermitcrab_pipeline(
     grammar: &Grammar,
     input: &str,
@@ -809,9 +691,7 @@ fn run_hermitcrab_pipeline(
     Ok((identities, failures))
 }
 
-/// Run the foma-confirm pipeline on the same input. `None` means the pipeline could not produce a
-/// trustworthy result for this word right now — a compile failure or a budget trip — rather than
-/// "zero analyses", which is a positive claim this function must not fabricate.
+/// Runs foma-confirm on the same input; `None` means no trustworthy result right now (compile failure or budget trip), never a fabricated "zero analyses".
 fn run_foma_pipeline(grammar: &Grammar, input: &str) -> Option<Vec<AnalysisIdentity>> {
     let mut analyzer = FomaAnalyzer::new(grammar).ok()?;
     let budget = ApplyBudget::with_caps(None, None);
@@ -836,10 +716,7 @@ fn project_identities(
         .collect()
 }
 
-/// 6.4: classify each asked-about identity from both pipelines' outputs plus the HermitCrab
-/// trace's own failure evidence. Never guesses: an identity this function cannot place
-/// confidently stays `NeitherPipelineProduces` rather than an asserted `HermitcrabRejected`, and
-/// the whole set stays `Undetermined` when foma-confirm's result cannot be trusted.
+/// Classifies each asked-about identity from both pipelines plus the HermitCrab trace's failure evidence; an identity it cannot place with confidence stays `NeitherPipelineProduces` rather than an asserted rejection, and the whole set stays `Undetermined` when foma-confirm cannot be trusted.
 fn attribute_causes(
     asked_about: &[AnalysisIdentity],
     hc_identities: &[AnalysisIdentity],
@@ -856,13 +733,9 @@ fn attribute_causes(
                 Some(foma) => {
                     let produced_by_foma = foma.contains(identity);
                     match (produced_by_hc, produced_by_foma) {
-                        // HermitCrab alone produces it: exactly the PanGloss recall gap the
-                        // propose-and-confirm invariant exists to prevent.
+                        // HermitCrab alone produces it: the recall gap the propose-and-confirm invariant exists to prevent.
                         (true, false) => MissingAnalysisCause::ProposerRecallGap,
-                        // Neither pipeline produces it right now. That is a real grammar fact
-                        // UNLESS the HermitCrab trace shows it explicitly considering and
-                        // rejecting this exact candidate, in which case the rejection itself is
-                        // the more specific, more useful fact to report.
+                        // A real grammar fact, unless the HermitCrab trace shows it explicitly rejecting this exact candidate — the more specific fact to report if so.
                         (false, false) => {
                             let rejected = hc_failures
                                 .iter()
@@ -873,10 +746,7 @@ fn attribute_causes(
                                 MissingAnalysisCause::NeitherPipelineProduces
                             }
                         }
-                        // foma-confirm produces it right now regardless of HermitCrab: this
-                        // identity is not the recall/rejection question this function answers
-                        // (it may still be "missing" only relative to a stale report) — said
-                        // honestly rather than guessed.
+                        // foma-confirm produces it regardless of HermitCrab: not the recall/rejection question this function answers, so said honestly rather than guessed.
                         (_, true) => MissingAnalysisCause::Undetermined,
                     }
                 }
@@ -886,8 +756,7 @@ fn attribute_causes(
         .collect()
 }
 
-/// Walk from `root`, keeping only the nodes that carried a `FailureReason` — the entire pruning
-/// step behind 6.5's narrative and 6.4's rejection evidence.
+/// Walks from `root`, keeping only the nodes that carried a `FailureReason` — the entire prune behind the failure narrative and rejection evidence above.
 fn collect_hermitcrab_failures(
     grammar: &Grammar,
     sink: &TreeTraceSink,
@@ -934,9 +803,7 @@ fn collect_hermitcrab_failures_node(
     }
 }
 
-/// The rejected candidate's ordered stable morpheme keys, in the same shape
-/// `AnalysisIdentity::morphemes` uses, so a failure can be matched against an asked-about
-/// identity by simple equality.
+/// The rejected candidate's morpheme keys in `AnalysisIdentity::morphemes`'s own shape, so a failure can be matched against an asked-about identity by simple equality.
 fn word_morpheme_keys(word: &Word, grammar: &Grammar) -> Vec<Option<String>> {
     word.morpheme_sequence()
         .into_iter()
@@ -953,8 +820,7 @@ fn word_morpheme_keys(word: &Word, grammar: &Grammar) -> Vec<Option<String>> {
         .collect()
 }
 
-/// A human-readable morpheme join for the narrative's `candidate` field (e.g. `"walk + ed"`) —
-/// display only, never used for identity matching (see `word_morpheme_keys` for that).
+/// A human-readable morpheme join for the narrative's `candidate` field (e.g. `"walk + ed"`); display only, not for identity matching.
 fn display_candidate(grammar: &Grammar, word: &Word) -> String {
     let ids = word.morpheme_sequence();
     if ids.is_empty() {
@@ -980,11 +846,7 @@ fn display_candidate(grammar: &Grammar, word: &Word) -> String {
         .join(" + ")
 }
 
-/// Where a HermitCrab trace node's failure lives, as a `ConstructRef`. Rule/stratum/template
-/// sources are always `compilerAssigned` (ADR 0001 — dense ordinals, not source IDs). Leaf-level
-/// nodes (`Failed`/`Blocked`) carry no rule source at all; when the candidate's root allomorph
-/// resolves to a real lexical entry, that IS a stable FieldWorks identity and the more useful
-/// reference, so it is used instead — marked `sourceId`, honestly, since it really is one.
+/// Where a trace node's failure lives, as a `ConstructRef`: rule/stratum/template sources are always `compilerAssigned` dense ordinals, but a leaf node whose root allomorph resolves to a real lexical entry gets `sourceId` instead, since that stable FieldWorks identity is the more useful reference.
 fn narrative_construct_ref(
     grammar: &Grammar,
     source: TraceSource,
@@ -1088,8 +950,7 @@ mod tests {
 
     #[test]
     fn the_default_pipeline_is_foma_confirm() {
-        // Inverts `--engine`'s own default: production runs propose-and-confirm, so that is
-        // what an assessment should describe.
+        // Inverts `--engine`'s own default: production runs propose-and-confirm, so that is what an assessment should describe.
         let args = parse_args(&["g.xml".to_string()]).unwrap();
         assert!(args.flag("pipeline").is_none());
         assert_eq!(Pipeline::FomaConfirm.as_str(), "foma-confirm");
@@ -1184,10 +1045,7 @@ mod tests {
         assert_eq!(&stamp[10..11], "T");
     }
 
-    // ----------------------------------------------------------------------------------------
-    // 6.4: dual-pipeline cause attribution
-    // ----------------------------------------------------------------------------------------
-
+    // dual-pipeline cause attribution
     fn id(morpheme: &str) -> AnalysisIdentity {
         AnalysisIdentity {
             morphemes: vec![Some(morpheme.to_string())],
@@ -1236,8 +1094,7 @@ mod tests {
 
     #[test]
     fn attribute_causes_prefers_neither_pipeline_produces_without_trace_evidence() {
-        // 6.4's explicit instruction: when the evidence cannot distinguish a genuine rejection from
-        // no attempt at all, prefer the weaker claim rather than asserting a rejection unobserved.
+        // When evidence cannot distinguish a genuine rejection from no attempt, prefer the weaker claim.
         let asked_about = vec![id("absent")];
         let causes = attribute_causes(&asked_about, &[], &[], Some(&[]));
         assert_eq!(
@@ -1248,34 +1105,13 @@ mod tests {
 
     #[test]
     fn attribute_causes_stays_undetermined_when_foma_is_unavailable() {
-        // No grammar / an unavailable pipeline must never be guessed into a cause (6.4's third
-        // bullet) -- even though HermitCrab alone produced this identity.
+        // No grammar / an unavailable pipeline must never be guessed into a cause, even when HermitCrab alone produced this identity.
         let asked_about = vec![id("x")];
         let causes = attribute_causes(&asked_about, &[id("x")], &[], None);
         assert_eq!(causes, vec![(id("x"), MissingAnalysisCause::Undetermined)]);
     }
 
-    /// The 6.4 gate: a synthetic proposer recall gap is attributed to the proposer, not the
-    /// grammar.
-    ///
-    /// GENUINE, not simulated: both pipelines below are the real, unstubbed engines running against
-    /// a real compiled grammar -- nothing here is mocked or hand-fed a fabricated result. The
-    /// fixture reuses `pg-parse/tests/guesser_gate.rs`'s exact grammar (itself a port of C#'s
-    /// `MorpherTests.AnalyzeWord_CanGuess_ReturnsCorrectAnalysis`): its only lexical entry is a
-    /// guess PATTERN (`[Any]*`, `RootAllomorphDef::is_pattern = true`), which P11 chunk 1/2
-    /// excludes from both the real-lexicon trie AND (by the same is-pattern exclusion, since the
-    /// lexc/FST emitter walks the same real, non-pattern lexical entries) the compiled foma
-    /// network. So for the surface word "gag": HermitCrab's guess branch (`ParseOptions::
-    /// with_guess_root(true)`, exercised only when the normal lexical search returns nothing)
-    /// fabricates a root and returns exactly one analysis; `FomaAnalyzer` — built from the very
-    /// same grammar, with no guess capability of any kind — has structurally nothing to propose.
-    /// This is precisely the shape 6.4's own scenario names: "HermitCrab alone produces an
-    /// analysis that foma-confirm did not."
-    ///
-    /// (A hand-built two-rule chained-reduplication grammar was tried first, on the theory that
-    /// `pg-foma`'s `peel` module doc calls depth>=2 nested reduplication "genuinely unproven"
-    /// against the FST proposer. Empirically it was NOT a gap: `FomaAnalyzer` recovered the exact
-    /// same doubly-reduplicated analysis HermitCrab did. That construct is not used here.)
+    /// Why this fixture makes both pipelines genuinely (not mocked) disagree, and a rejected fixture that turned out not to: docs/research/pg-cli-assess-proposer-recall-gap-fixture.md.
     #[test]
     fn a_synthetic_proposer_recall_gap_is_attributed_to_the_proposer_not_the_grammar() {
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -1336,8 +1172,7 @@ mod tests {
             "precondition: the only lexical entry is a guess pattern, not a real root"
         );
 
-        // HermitCrab, guess ON: fabricates a root for "gag" because the normal (real-lexicon)
-        // search returns nothing.
+        // Guess mode ON: HermitCrab fabricates a root for "gag" since the real-lexicon search returns nothing.
         let morpher = Morpher::new(&g, usize::MAX);
         let hc_outcome =
             morpher.parse_word_opts("gag", &ParseOptions::default().with_guess_root(true));
@@ -1353,8 +1188,7 @@ mod tests {
             "exactly one guessed analysis for \"gag\""
         );
 
-        // foma-confirm, the real (unstubbed) FST proposer: nothing to propose for a word only the
-        // guesser matches.
+        // foma-confirm, the real FST proposer, has nothing to propose for a word only the guesser matches.
         let mut analyzer = FomaAnalyzer::new(&g).expect("this trivial grammar must compile");
         let budget = ApplyBudget::with_caps(None, None);
         let foma_identities = match analyzer.analyze_word_budgeted("gag", &budget) {
@@ -1375,8 +1209,7 @@ mod tests {
             ),
         };
 
-        // The gate: HermitCrab produced this identity, foma-confirm did not -- attribute it to the
-        // proposer, never to the grammar.
+        // HermitCrab produced this identity, foma-confirm did not: attribute it to the proposer, never the grammar.
         let causes = attribute_causes(&hc_identities, &hc_identities, &[], Some(&foma_identities));
         assert_eq!(causes.len(), 1);
         assert_eq!(
@@ -1386,14 +1219,9 @@ mod tests {
         );
     }
 
-    // ----------------------------------------------------------------------------------------
-    // 6.5: the pruned failure narrative, for one real word
-    // ----------------------------------------------------------------------------------------
+    // the pruned failure narrative, for one real word
 
-    /// Same grammar as `pg-cli/src/trace_render.rs`'s own golden-trace test (one `posV` root
-    /// "sag", one suffix rule appending "+d"), reproduced here rather than shared (that helper is
-    /// private to that module) — see this crate's `trace_render::tests::golden_grammar` for the
-    /// twin copy and the full, checked-in trace tree this test's expectations are read off of.
+    /// Same grammar as `trace_render::tests::golden_grammar` (one `posV` root "sag", one suffix appending "+d"), duplicated here since that helper is private to its module.
     fn narrative_golden_grammar() -> Grammar {
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1447,21 +1275,14 @@ mod tests {
             .unwrap_or_else(|e| panic!("narrative golden grammar failed to load: {e}"))
     }
 
-    /// A concrete example of what the pruned narrative looks like for one real word: "sagd" against
-    /// `narrative_golden_grammar()` genuinely has a would-be duplicate synthesis candidate that
-    /// gets rejected twice on its way to the one surviving analysis (see `trace_render::tests::
-    /// text_render_matches_golden_string`'s full checked-in trace, whose tail is exactly these two
-    /// nodes) -- this test pins that `collect_hermitcrab_failures` prunes the tree down to exactly
-    /// those two failing nodes, in order, with the right `ConstructRef` for each.
+    /// Pins that `collect_hermitcrab_failures` prunes "sagd" against `narrative_golden_grammar` to exactly the two failing nodes also visible in `trace_render::tests::text_render_matches_golden_string`'s checked-in trace, in order, each with the right `ConstructRef`.
     #[test]
     fn the_pruned_narrative_for_a_real_word_shows_where_and_why_a_candidate_died() {
         let g = narrative_golden_grammar();
         let morpher = Morpher::new(&g, usize::MAX);
         let (_identities, failures) =
             run_hermitcrab_pipeline(&g, "sagd").expect("\"sagd\" must parse");
-        // Sanity: the grammar still confirms "sagd" via the one surviving analysis, exactly as
-        // `trace_render`'s own golden test asserts -- this test is about the REJECTED candidates
-        // alongside it, not about it losing that analysis.
+        // Sanity: the grammar still confirms "sagd" via its one surviving analysis; this test is about the rejected candidates alongside it.
         let outcome = morpher.parse_word("sagd");
         assert!(!outcome.structured.is_empty());
 
@@ -1472,9 +1293,7 @@ mod tests {
             "the tree has exactly two FailureReason-carrying nodes for this word: {narrative:?}"
         );
 
-        // Step 1: the duplicate synthesis attempt rejected for reapplying `ed_suffix` after the
-        // stratum's own (template-less) final template -- `at` is the rule itself, compiler-
-        // assigned, never dressed as a source id.
+        // The duplicate synthesis attempt, rejected for reapplying `ed_suffix` after the final template: `at` is the rule itself, compiler-assigned, never dressed as a source id.
         assert_eq!(
             narrative[0].failure_reason,
             "NonPartialRuleProhibitedAfterFinalTemplate"
@@ -1486,17 +1305,13 @@ mod tests {
         );
         assert_eq!(narrative[0].at.label.as_deref(), Some("ed_suffix"));
 
-        // Step 2: the residual root candidate itself failing the stratum's obligatory-rule check.
-        // `at` here has no rule source at all (a leaf `Failed` node) -- the candidate's root
-        // resolves to a REAL lexical entry, so `at` names it directly as a source id (ADR 0001),
-        // not a compiler-assigned stratum fallback.
+        // The residual root candidate failing the stratum's obligatory-rule check: a leaf `Failed` node whose root resolves to a real lexical entry, so `at` names it as a source id, not a compiler-assigned stratum fallback.
         assert_eq!(narrative[1].failure_reason, "PartialParse");
         assert_eq!(narrative[1].at.kind, "lexicalEntry");
         assert_eq!(narrative[1].at.id, "e32");
         assert_eq!(narrative[1].at.id_kind, pg_assess::SourceIdKind::SourceId);
 
-        // Neither step's candidate/detail text prescribes anything -- it states what HermitCrab
-        // did, not what a linguist should change.
+        // Neither failure's detail text prescribes anything; it states what HermitCrab did, not what a linguist should change.
         for step in &narrative {
             assert!(!step.detail.to_lowercase().contains("should"));
             assert!(!step.detail.to_lowercase().contains("fix"));

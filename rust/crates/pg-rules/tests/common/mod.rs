@@ -1,26 +1,4 @@
-//! Shared test support: a tiny hand-authored HermitCrab grammar (loaded through the real
-//! `pg_grammar::load`, since `PhonFeatureSystem`/`CharDefTable` constructors are `pub(crate)`).
-//!
-//! Feature system (declaration order fixes `FlatIndex`):
-//! - `FlatIndex(0)` = **cons** (consonantal): `sym_cp` (+, bit 0), `sym_cm` (−, bit 1)
-//! - `FlatIndex(1)` = **voi** (voice): `sym_vp` (+, bit 0), `sym_vm` (−, bit 1)
-//!
-//! Segments (lanes are `[cons, voi]`):
-//! - `a` = `[0b10, 0b01]`  (cons−, voi+ : a voiced vowel)
-//! - `t` = `[0b01, 0b10]`  (cons+, voi− : a voiceless stop)
-//! - `d` = `[0b01, 0b01]`  (cons+, voi+ : a voiced stop)
-//! - `n` = `[0b01, 0b01]`  (cons+, voi+ : shares lanes with d; distinct char-def id) — for
-//!   epenthesis targets we want a segment to insert.
-//!
-//! One boundary `+`.
-//!
-//! Natural classes:
-//! - `nc_vowel` (Feature): cons− → matches `a`
-//! - `nc_cons`  (Feature): cons+ → matches `t`, `d`, `n`
-//! - `nc_voi`   (Feature): voi+  → the feature-change RHS "[+voice]"
-//! - `nc_t`     (Segment): {t}
-//! - `nc_d`     (Segment): {d}
-//! - `nc_n`     (Segment): {n}
+//! Shared test support: a tiny hand-authored HermitCrab grammar, loaded through the real `pg_grammar::load` since `PhonFeatureSystem`/`CharDefTable` constructors are `pub(crate)`; segment/feature layout is in `GRAMMAR_XML` below.
 
 #![allow(dead_code)]
 
@@ -149,8 +127,7 @@ pub fn feat(g: &Grammar, xml_id: &str) -> pg_grammar::featsys::FlatIndex {
         .unwrap_or_else(|| panic!("no feature {xml_id}"))
 }
 
-/// A `SimpleContext` over `nat_class` carrying one alpha variable `VarId(var)` governing feature
-/// `feature` with the given polarity (`plus` = agree).
+/// A `SimpleContext` over `nat_class` carrying one alpha variable governing `feature` with the given polarity (`plus` = agree).
 pub fn ctx_var(
     nat_class: pg_grammar::model::NatClassId,
     feature: pg_grammar::featsys::FlatIndex,
@@ -167,15 +144,7 @@ pub fn ctx_var(
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// A second grammar for alpha-variable tests, adding a `poa` (place) feature. Kept separate so the
-// primary probe grammar (and its 16 tests) stay byte-for-byte unchanged.
-//
-// Features (declaration order): FlatIndex(0)=cons, (1)=voi, (2)=poa (lab bit0 / vel bit1).
-// Segments (lanes [cons, voi, poa]):
-//   a=[0b10,0b01,0b11] (vowel), p=[0b01,0b10,0b01] (voiceless labial), b=[0b01,0b01,0b01] (voiced
-//   labial), k=[0b01,0b10,0b10] (voiceless velar), g=[0b01,0b01,0b10] (voiced velar),
-//   n=[0b01,0b01,0b11] (voiced, placeless nasal — poa unmentioned => full mask, so it assimilates).
+// A second grammar for alpha-variable tests, adding a `poa` (place) feature; kept separate so the primary probe grammar's tests stay byte-for-byte unchanged. Layout is in `ALPHA_XML` below.
 
 pub const ALPHA_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -243,13 +212,7 @@ pub fn load_alpha_grammar() -> Grammar {
     pg_grammar::load(ALPHA_XML).expect("alpha grammar loads")
 }
 
-// -------------------------------------------------------------------------------------------------
-// A third grammar with ZERO phonological features (the Sena shape): every segment's lanes are
-// identical (just the always-appended Type lane), so segment identity lives entirely in the
-// char-def/`StrRep` dimension — C#'s `CharacterDefinitionTable.Add` `fs == null` branch
-// (CharacterDefinitionTable.cs:68-76) gives each char-def a `StrRep`-only FeatureStruct on such
-// grammars (XmlLanguageLoader.cs:670-673). Used to pin comparisons that MUST distinguish segments
-// by that dimension when the lanes cannot.
+// A third grammar with zero phonological features (the Sena shape): every segment's lanes are identical, so segment identity lives entirely in the char-def/`StrRep` dimension, mirroring C#'s `fs == null` branch.
 
 pub const ZERO_FEAT_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -277,12 +240,7 @@ pub fn load_zero_feat_grammar() -> Grammar {
     pg_grammar::load(ZERO_FEAT_XML).expect("zero-feature grammar loads")
 }
 
-// -------------------------------------------------------------------------------------------------
-// A fourth grammar with a single **3-symbol** feature (`place`: lab/cor/vel). Every feature in the
-// probe/alpha grammars above is 2-valued, which is exactly why Tier-2 #11's `ana_feature`
-// anti-FeatureStruct-negation bug (full-unconstrain vs. `L ∪ R`) was undetectable there: on a
-// 2-symbol feature the two formulas coincide. `place` gives the analysis-reversal fixture a 3rd
-// symbol ("cor") that neither an LHS nor an RHS pin ever mentions, so it can distinguish them.
+// A fourth grammar with a single 3-symbol feature (`place`): every feature above is 2-valued, on which full-unconstrain and `L ∪ R` coincide, so this fixture's 3rd symbol is what can tell those two formulas apart.
 
 pub const ANTI_FS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>

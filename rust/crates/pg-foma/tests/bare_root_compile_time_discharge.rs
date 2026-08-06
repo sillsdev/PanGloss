@@ -1,46 +1,12 @@
-//! Regression test for the `BoundRoot` bare-root compile-time discharge: omitting the bare-root
-//! (`"#"`-continuation) lexc arc for a root lexical entry that has EXACTLY ONE allomorph and that
-//! allomorph is `isBound="true"`.
-//!
-//! # Why this is provably safe (not a heuristic)
-//! This crate's root validity check treats a word as invalid whenever a bound root allomorph is
-//! the word's only allomorph (`FailureReason::BoundRoot` — C#
-//! `RootAllomorph.CheckAllomorphConstraints`: "cannot be the word's only allomorph"; pinned by
-//! `pg_rules`'s own `bound_root_alone_is_rejected`). A bare-root
-//! candidate (the `"#"`-continuation `Root`/P6 `LEXICON` this test inspects) is BY CONSTRUCTION a
-//! word consisting of exactly that one root morph and nothing else, so `distinct_count` is
-//! trivially `1` for every such candidate. The gate therefore reduces, on this arc only, to
-//! `def.is_bound` alone — a fact readable straight off `RootAllomorphDef::is_bound`
-//! (`pg_grammar::model`, no live `Morpher` needed) whenever the owning entry has exactly one
-//! allomorph (so there is no cross-allomorph free-fluctuation/disjunctive-candidate reasoning to
-//! get wrong — see `RootRec::never_valid_bare`'s own doc in `pg_foma::emit`).
-//!
-//! # What this file proves
-//! 1. The bound root's OWN bare (`"#"`) lexc line is ABSENT from the emitted `Root` lexicon.
-//! 2. A FREE root's bare line is still PRESENT (the omission is per-entry, not a blanket bug).
-//! 3. Recall is unchanged: the bound root's suffixed word (`bndes`) still confirms exactly like
-//!    the oracle; the bare bound word (`bnd`) confirms ZERO analyses under BOTH the oracle and the
-//!    FST propose-confirm pipeline, before and after this change is possible (the arc removed was
-//!    always dead weight, never a live analysis) — the free root's bare word (`fre`) still
-//!    confirms exactly one analysis, proving ordinary bare-root recall is untouched.
-//!
-//! Assertion 1 is the one that fails with the fix reverted (the old code emits `bnd`'s bare line
-//! unconditionally) and passes with it applied — a regression test that actually fails without
-//! the fix, not just one that happens to pass with it.
+//! Pins the `BoundRoot` bare-root compile-time discharge and why omitting the arc is provably
+//! safe: see `docs/research/pg-foma-bare-root-compile-time-discharge.md`.
 
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::emit;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
-/// Synthetic, delanguaged fixture (invented CVC roots `bnd`/`fre`, no natural-language lexemes):
-/// one `posV` part of speech, one `linear` stratum, one ordinary suffix rule (`mrSuf`, "+es",
-/// no `AffixTemplate` needed — same "no template wrapper" shape
-/// `cover_realizational_morphology_constraints.rs` already established), two single-allomorph
-/// root entries differing ONLY in `isBound`:
-///  - `eBnd` / allomorph `bnd`, `isBound="true"` — the provably-dead bare-root case.
-///  - `eFre` / allomorph `fre`, ordinary (unbound) — the contrast case: bare-root admission must
-///    still work normally for a free root.
+/// Synthetic fixture, invented CVC roots: `eBnd`/`bnd` is bound (the provably-dead bare-root case), `eFre`/`fre` is an ordinary free root (the contrast case).
 fn fixture_xml() -> &'static str {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -100,12 +66,7 @@ fn load() -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// The `LEXICON Root` block's own text (up to the next `LEXICON` header) — the section
-/// `emit::emit`'s bare-root path (module doc, "Bare-root paths") writes every root's
-/// `"#"`-continuation entry into. Slicing to just this block (rather than grepping the whole
-/// `lexc_source`) avoids a false negative/positive from `bnd`/`fre`'s OTHER, non-bare occurrences
-/// (e.g. the template-less section's `TLRoots` entries, continuation `TLPost`, which this change
-/// deliberately leaves untouched — see `bare_admissible_roots`'s own doc).
+/// The `LEXICON Root` block's own text, up to the next `LEXICON` header: slicing to just this block avoids a false match from `bnd`/`fre`'s other, non-bare occurrences elsewhere in the emitted lexc.
 fn root_lexicon_block(lexc_source: &str) -> &str {
     let start = lexc_source
         .find("\nLEXICON Root\n")
@@ -116,9 +77,7 @@ fn root_lexicon_block(lexc_source: &str) -> &str {
     &rest[..end]
 }
 
-/// A line inside `block` that mentions `surface` and ends its lexc entry on the bare accept state
-/// (`# ;`) -- the exact shape `emit::emit`'s bare-root `write_root_entries(.., "#", ..)` call
-/// writes (module doc's tag-tape convention: upper = tag symbol, lower = literal surface text).
+/// A line inside `block` that mentions `surface` and ends its lexc entry on the bare accept state (`# ;`).
 fn has_bare_accept_line_for(block: &str, surface: &str) -> bool {
     block
         .lines()
@@ -136,11 +95,7 @@ fn bound_single_allomorph_root_has_no_bare_accept_arc() {
     );
     let root_block = root_lexicon_block(&result.lexc_source);
 
-    // The provably-dead case: `bnd` is bound AND its entry has exactly one allomorph, so
-    // `RootRec::never_valid_bare` is true for it -- its bare `"#"` line must be ABSENT. This is
-    // the assertion that FAILS if the bare-root discharge (`bare_admissible_roots` filtering the
-    // `write_root_entries(.., "#", ..)` call) is reverted -- the old code emits this line
-    // unconditionally for every root allomorph regardless of `is_bound`.
+    // The provably-dead case: `bnd`'s bare `"#"` line must be absent; fails if the discharge is reverted.
     assert!(
         !has_bare_accept_line_for(root_block, "bnd"),
         "bound single-allomorph root 'bnd' must NOT get a bare (\"#\"-continuation) accept arc -- \
@@ -148,9 +103,7 @@ fn bound_single_allomorph_root_has_no_bare_accept_arc() {
          word this arc could ever propose, unconditionally; found in Root lexicon:\n{root_block}"
     );
 
-    // Contrast: an ordinary (unbound) root's bare arc must still be present -- proves the omission
-    // is specific to `bnd`'s own `is_bound` allomorph, not a blanket regression that silently
-    // dropped every root's bare path.
+    // Contrast: an ordinary (unbound) root's bare arc must still be present, proving the omission is specific to `bnd`, not a blanket regression.
     assert!(
         has_bare_accept_line_for(root_block, "fre"),
         "free root 'fre' must still get its ordinary bare accept arc; found in Root lexicon:\n{root_block}"
@@ -165,9 +118,7 @@ fn bound_root_recall_is_unaffected_by_omitting_its_dead_bare_arc() {
     );
     let morpher = Morpher::new(&g, usize::MAX);
 
-    // Positive control: the bound root WITH its suffix must still parse and confirm identically
-    // to the oracle -- the fix only ever removes the BARE arc, never the root's OTHER
-    // continuations (TLPfx/TLRoots/TLPost/TLSfx0), so ordinary derived-word recall is untouched.
+    // Positive control: the bound root with its suffix must still confirm identically to the oracle -- the fix removes only the bare arc, never the root's other continuations.
     let bndes_oracle = morpher.parse_word_opts("bndes", &ParseOptions::default());
     let bndes_outcome = analyzer.analyze_word("bndes");
     assert!(
@@ -181,9 +132,7 @@ fn bound_root_recall_is_unaffected_by_omitting_its_dead_bare_arc() {
          recall for a bound root must be unaffected by omitting its dead bare arc"
     );
 
-    // The dead case itself: bare 'bnd' must confirm ZERO analyses under the oracle (ground truth:
-    // a bound root can never stand alone) -- proving the arc this change removes was NEVER a live
-    // analysis to begin with, so removing it costs nothing.
+    // The dead case itself: bare 'bnd' must confirm zero analyses under the oracle, proving the removed arc was never a live analysis.
     let bnd_oracle = morpher.parse_word_opts("bnd", &ParseOptions::default());
     assert!(
         bnd_oracle.structured.is_empty(),
@@ -196,8 +145,7 @@ fn bound_root_recall_is_unaffected_by_omitting_its_dead_bare_arc() {
          matching the oracle exactly"
     );
 
-    // Contrast: bare 'fre' (the free, unbound root) must still confirm exactly one analysis under
-    // both the oracle and the FST pipeline -- ordinary bare-root recall is untouched.
+    // Contrast: bare 'fre' must still confirm exactly one analysis under both paths -- ordinary bare-root recall is untouched.
     let fre_oracle = morpher.parse_word_opts("fre", &ParseOptions::default());
     assert_eq!(
         fre_oracle.structured.len(),

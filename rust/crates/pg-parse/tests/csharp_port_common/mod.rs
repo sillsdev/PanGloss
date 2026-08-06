@@ -1,36 +1,5 @@
-//! Shared fixture for the C#-suite port.
-//!
-//! Ports `.worktrees/parse-opt/tests/SIL.Machine.Morphology.HermitCrab.Tests/HermitCrabTestBase.cs`'s
-//! phonological/syntactic feature systems and lexicon into ONE merged XML grammar fragment, reused by
-//! every `csharp_port_*.rs` file in this crate. Two intentional simplifications versus the C# base
-//! class, both because they have no effect on any assertion any ported test makes (verified per-test
-//! while reading the C# source, not assumed):
-//!
-//! 1. **One character-definition table, not three.** C# spreads segments across `Table1` (has `asp`,
-//!    no `ATR`) and `Table3` (has `ATR`, no `asp`) and stratifies `Allophonic`(Table1)/
-//!    `Morphophonemic`(Table3)/`Surface`(Table1) accordingly. HermitCrab's rule-application layer
-//!    operates on `FeatureStruct`s, not table identity; `CharacterDefinitionTable` only matters at the
-//!    text<->shape boundary. This fixture's one table is the union (every segment gets both an `asp`
-//!    value and an `ATR` value), so every pattern from either C# table still matches the same segments.
-//!    **Exception:** `cA` ("a") deliberately
-//!    does NOT get an `ATR` value pinned — every ported test segments surface words the way C#
-//!    segments against **Table1**, whose "a" carries no ATR feature at all; only `cAUnderdot` ("a̘",
-//!    Table3's ATR- "a") is ATR-pinned. This is what makes the `anchor_rules` root-"10" cross-
-//!    char-def case (ATR-unspecified "a" vs. ATR- "a̘") expressible; C#'s Table3-"a" (ATR+) is the one
-//!    thing this merged-table approximation cannot represent simultaneously, which is fine as long as
-//!    no ported test conditions a rule on ATR.
-//! 2. **One stratum, not three.** C# rules that live on `Allophonic`/`Surface` here just live on the
-//!    same stratum as the `Morphophonemic` ones. Cross-stratum recoding is never observably exercised
-//!    by any test ported here (each test's rules are added to one or two of the three strata, but
-//!    never in a way that depends on a stratum boundary's own semantics beyond "these rules run before
-//!    those rules", which a single Unordered stratum preserves).
-//!
-//! `<MorphemeId>` is set to each rule/entry's C# `Gloss`/id (e.g. `"32"`, `"PAST"`) so
-//! `pg_parse::Morpher`'s morpheme-join signature reproduces `AssertMorphsEqual`'s gloss strings
-//! directly (join on `"+"` here vs C#'s `" "` -- callers translate via `morphs_set`).
-//!
-//! Every lexical entry transcribed below cites the C# `AddEntry` call it ports
-//! (`HermitCrabTestBase.cs`), so a reader can cross-check spelling/POS/features against the source.
+//! Shared fixture for the C#-suite port: `HermitCrabTestBase.cs`'s feature systems and lexicon merged into one XML grammar fragment, reused by every `csharp_port_*.rs` file in this crate.
+//! See `docs/research/csharp-port-shared-fixture.md` for the two intentional simplifications versus the C# base class and why they affect no ported assertion.
 
 #![allow(dead_code)]
 
@@ -47,9 +16,7 @@ const POS_XML: &str = r#"
 </PartsOfSpeech>
 "#;
 
-/// Head features used across the ported tests: `num` (sg/pl), `pers` (1/2/3/4), `tense` (past/pres),
-/// `evidential` (witnessed — declared inline by `AffixTemplateTests.RealizationalRule`'s
-/// `AddEvidentialFeature`-equivalent fixture code in C#; harmless surplus for every other test).
+/// Head features used across the ported tests: `num` (sg/pl), `pers` (1/2/3/4), `tense` (past/pres), `evidential` (witnessed; harmless surplus for every test besides `RealizationalRule`).
 const HEAD_FEATURES_XML: &str = r#"
 <HeadFeatures>
   <SymbolicFeature id="featNum"><Name>num</Name>
@@ -78,8 +45,7 @@ const HEAD_FEATURES_XML: &str = r#"
 </HeadFeatures>
 "#;
 
-/// `Latinate`/`Germanic` MPR features (`HermitCrabTestBase.cs:514-515`), used by
-/// `RewriteRuleTests.BoundaryRules`' `pos1`/`pos2` entries.
+/// `Latinate`/`Germanic` MPR features, used by `RewriteRuleTests.BoundaryRules`' `pos1`/`pos2` entries.
 const MPR_XML: &str = r#"
 <MorphologicalPhonologicalRuleFeatures>
   <MorphologicalPhonologicalRuleFeature id="mprLatinate">latinate</MorphologicalPhonologicalRuleFeature>
@@ -112,10 +78,7 @@ const PHON_FEATURES_XML: &str = r#"
 </PhonologicalFeatureSystem>
 "#;
 
-/// The merged character-definition table: every segment `HermitCrabTestBase.cs` declares on either
-/// Table1 or Table3 (union), each given both an `asp` value (Table1-style) and an `ATR` value
-/// (Table3-style, vowels only) so patterns from either C# table match identically. Plus boundary `+`
-/// (the only boundary character any ported test needs).
+/// The merged character-definition table: every segment from either C# Table1 or Table3 (union), each given both an `asp` and an `ATR` value so patterns from either table match identically.
 const CHAR_TABLE_XML: &str = r#"
 <CharacterDefinitionTable id="t1">
   <Name>Main</Name>
@@ -311,11 +274,7 @@ const CHAR_TABLE_XML: &str = r#"
 </CharacterDefinitionTable>
 "#;
 
-/// Natural classes: one per distinct `FeatureStruct` pattern any in-scope test annotates a
-/// `Pattern<Word,int>` node with. Consolidated where two C# spellings denote the same segment set in
-/// this table (e.g. `Symbol("voc+")` alone and `Symbol("cons-").Symbol("voc+")` both mean "vowel"
-/// here, since every segment pairs cons/voc consistently) -- see per-use-site comments in each port
-/// file for which C# `FeatureStruct` a given `nc_*` id stands in for.
+/// Natural classes: one per distinct `FeatureStruct` pattern any ported test annotates a pattern node with, consolidated where two C# spellings denote the same segment set in this table.
 const NATURAL_CLASSES_XML: &str = r#"
 <NaturalClasses>
   <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
@@ -756,19 +715,7 @@ const LEXICON_XML: &str = r#"
 </LexicalEntries>
 "#;
 
-/// Assemble a full `<HermitCrabInput>` document: the shared feature system/table/lexicon above, plus
-/// one stratum whose `phonologicalRules`/`MorphologicalRuleDefinitions`/`AffixTemplates` come from the
-/// caller.
-///
-/// `prule_ids` / `mrule_ids` are the space-separated `id`s to list on the `<Stratum>`'s
-/// `phonologicalRules`/`morphologicalRules` attributes -- **required** for a rule to run as an
-/// ordinary (non-template) cascade member (`pg-grammar/src/load.rs`'s `load_stratum` builds
-/// `stratum.mrules`/`stratum.prules` *only* from these attributes, not from mere presence under
-/// `MorphologicalRuleDefinitions`/`PhonologicalRuleDefinitions`). A rule referenced *only* from an
-/// `<AffixTemplate><Slot morphologicalRules="...">` should be **omitted** from `mrule_ids` (it is
-/// still resolvable for the slot lookup, which reads the definitions block directly) -- mirroring C#'s
-/// distinction between `Stratum.MorphologicalRules` (the ordinary cascade) and a rule that is only
-/// ever reached through an `AffixTemplateSlot`.
+/// Assembles a full `<HermitCrabInput>` document from the shared feature system/table/lexicon plus one stratum built from the caller's rules and templates; `prule_ids`/`mrule_ids` list the ids that run as an ordinary cascade member, omitting any rule reached only through an `<AffixTemplate>` slot.
 pub fn build_grammar(
     prule_defs_xml: &str,
     prule_ids: &str,
@@ -804,20 +751,12 @@ pub fn build_grammar(
         .unwrap_or_else(|e| panic!("csharp_port_common grammar failed to load: {e}\n---\n{xml}"))
 }
 
-/// A grammar with no phonological rules and no affix templates, every declared morphological rule
-/// running as an ordinary cascade member (`mrule_ids` = every rule's id, space-separated) -- the
-/// common case for AffixProcess/Compounding ports (none of which use affix templates).
+/// A grammar with no phonological rules or affix templates, every rule running as an ordinary cascade member — the common case for AffixProcess/Compounding ports.
 pub fn build_morph_grammar(mrule_defs_xml: &str, mrule_ids: &str) -> Grammar {
     build_grammar("", "", mrule_defs_xml, mrule_ids, "")
 }
 
-/// Like `build_grammar` (no phonological rules, no templates), but for the two W6 co-occurrence
-/// `MorpherTests` only: `extra_lexicon_xml` is a second `<LexicalEntries>` block (Rust's loader
-/// merges every `<LexicalEntries>` under one `<Stratum>` via `elems2`, unlike a DTD-validating
-/// reader, so this doesn't need to be spliced into the shared `LEXICON_XML` constant) holding the
-/// C# test's extra `AddEntry("dEnclitic", ...)` root; `cooccurrence_xml` is the
-/// `<MorphemeCoOccurrenceRules>`/`<AllomorphCoOccurrenceRules>` block, placed after `</Strata>`
-/// (DTD order: `Strata, MorphemeCoOccurrenceRules?, AllomorphCoOccurrenceRules?`).
+/// Like `build_grammar` but for co-occurrence `MorpherTests`: `extra_lexicon_xml` is a second `<LexicalEntries>` block for the test's extra root, and `cooccurrence_xml` is the co-occurrence rules block placed after `</Strata>`.
 pub fn build_grammar_cooccurrence(
     mrule_defs_xml: &str,
     mrule_ids: &str,
@@ -853,13 +792,7 @@ pub fn build_grammar_cooccurrence(
     })
 }
 
-/// `build_grammar`'s W5 sibling for the realizational-cluster ports (`LexEntryTests.StemNames`,
-/// `AffixTemplateTests.RealizationalRule`): adds the two language-level blocks W5 unlinted --
-/// `stem_names_xml` (a `<StemNames>` block, DTD position after
-/// `MorphologicalPhonologicalRuleFeatures`) and `families_xml` (a `<Families>` block, DTD position
-/// after `NaturalClasses`) -- plus `extra_lexicon_xml`, a second `<LexicalEntries>` block for the
-/// test-specific roots (`stemname`, the `SEE` family's `bl1`/`bl2`/`bl3`) that the shared
-/// `LEXICON_XML` deliberately omits (they'd be inert-but-noisy surplus for every other port).
+/// `build_grammar`'s sibling for the realizational-cluster ports: adds `stem_names_xml` and `families_xml` language-level blocks, plus `extra_lexicon_xml` for roots the shared lexicon deliberately omits as noisy surplus elsewhere.
 pub fn build_grammar_w5(
     stem_names_xml: &str,
     families_xml: &str,
@@ -898,12 +831,7 @@ pub fn build_grammar_w5(
         .unwrap_or_else(|e| panic!("csharp_port_common W5 grammar failed to load: {e}\n---\n{xml}"))
 }
 
-/// `build_morph_grammar` with the shared `LEXICON_XML` REPLACED by the caller's own block --
-/// for `CompoundingRuleTests.ProdRestrictRule`, whose per-configuration steps mutate specific
-/// entries' `MprFeatures` in C# (`head.MprFeatures.Add(excFeat)` etc.); the Rust port re-declares
-/// the three entries the test touches (`5`/`8`/`9`) with per-configuration `ruleFeatures`
-/// attributes instead, which requires owning the whole lexicon (a second `<LexicalEntries>` block
-/// can only add entries, not modify the shared ones).
+/// `build_morph_grammar` with the shared lexicon replaced by the caller's own block, needed whenever a test must modify specific entries rather than only add new ones.
 pub fn build_grammar_custom_lexicon(
     mrule_defs_xml: &str,
     mrule_ids: &str,
@@ -936,10 +864,7 @@ pub fn build_grammar_custom_lexicon(
     })
 }
 
-/// Identical to `build_grammar`, but `morphologicalRuleOrder="linear"` (C#
-/// `MorphologicalRuleOrder.Linear`, used by exactly one ported test --
-/// `MorpherTests.AnalyzeWord_CanAnalyzeLinear_ReturnsCorrectAnalysis`; every other ported test uses
-/// C#'s `Unordered`, `build_grammar`'s default).
+/// Identical to `build_grammar`, but `morphologicalRuleOrder="linear"` rather than the `Unordered` every other ported test uses.
 pub fn build_grammar_linear(
     prule_defs_xml: &str,
     prule_ids: &str,
@@ -974,10 +899,7 @@ pub fn build_grammar_linear(
     })
 }
 
-/// The set of morpheme-join strings (C# `AssertMorphsEqual`'s gloss-joined-by-space form) among a
-/// `ParseOutcome`'s surviving analyses. `pg_parse::Morpher` joins morphemes with `"+"`;
-/// `AssertMorphsEqual` joins with `" "` -- translated here so expected literals can be transcribed
-/// character-for-character from the C# source (`"32 PAST"`, not `"32+PAST"`).
+/// The set of morpheme-join strings among a `ParseOutcome`'s surviving analyses, translated from `pg_parse::Morpher`'s `"+"` join to C#'s `" "` join so expected literals transcribe directly from the C# source.
 pub fn morphs_set(outcome: &ParseOutcome) -> BTreeSet<String> {
     outcome
         .analyses
@@ -986,8 +908,7 @@ pub fn morphs_set(outcome: &ParseOutcome) -> BTreeSet<String> {
         .collect()
 }
 
-/// Assert that `outcome`'s surviving analyses' morpheme-gloss strings are exactly `expected` (order-
-/// and-duplicate-insensitive, matching NUnit's `Is.EquivalentTo` over C#'s `HashSet<string>`).
+/// Asserts that `outcome`'s surviving analyses' morpheme-gloss strings are exactly `expected`, order- and duplicate-insensitive.
 #[track_caller]
 pub fn assert_morphs_eq(outcome: &ParseOutcome, expected: &[&str]) {
     let got = morphs_set(outcome);
@@ -1007,10 +928,7 @@ pub fn assert_empty(outcome: &ParseOutcome) {
     );
 }
 
-/// The grammar-tier ordinal of the morpheme whose `<MorphemeId>` text is `gloss` -- what
-/// `pg_parse::WordAnalysis::morpheme_ids` carries (see that struct's doc: "dense index into
-/// `Grammar::morphemes`, NOT the XML `<MorphemeId>` string"). Resolves either a `LexicalEntry` or a
-/// rule.
+/// The grammar-tier ordinal of the morpheme whose `<MorphemeId>` text is `gloss` — what `pg_parse::WordAnalysis::morpheme_ids` carries; resolves either a `LexicalEntry` or a rule.
 pub fn morpheme_ordinal(g: &Grammar, gloss: &str) -> u32 {
     g.morphemes
         .iter()
@@ -1018,9 +936,7 @@ pub fn morpheme_ordinal(g: &Grammar, gloss: &str) -> u32 {
         .unwrap_or_else(|| panic!("no morpheme with <MorphemeId>{gloss}</MorphemeId>")) as u32
 }
 
-/// The `LexEntryId` of the `LexicalEntry` whose `<MorphemeId>` text is `gloss` -- the direct-API
-/// (`Morpher::generate_words`) equivalent of C#'s `Entries["<gloss>"]` indexer
-/// (`HermitCrabTestBase.cs`'s `Entries` dictionary, keyed by id/gloss).
+/// The `LexEntryId` of the `LexicalEntry` whose `<MorphemeId>` text is `gloss` — the direct-API equivalent of C#'s `Entries["<gloss>"]` indexer.
 pub fn lex_entry_id(g: &Grammar, gloss: &str) -> LexEntryId {
     let idx = g
         .entries
@@ -1030,9 +946,7 @@ pub fn lex_entry_id(g: &Grammar, gloss: &str) -> LexEntryId {
     LexEntryId(idx as u32)
 }
 
-/// The `MRuleId` of the `AffixProcessRule`/`RealizationalRule` whose `<MorphemeId>` text is
-/// `gloss` (a `CompoundingRule` never has one -- C#'s own `Morpher._morphemes` collection excludes
-/// it too, Morpher.cs:50-52 -- so this never resolves one).
+/// The `MRuleId` of the `AffixProcessRule`/`RealizationalRule` whose `<MorphemeId>` text is `gloss`; a `CompoundingRule` never has one, so this never resolves one.
 pub fn mrule_id(g: &Grammar, gloss: &str) -> MRuleId {
     let idx = g
         .mrules

@@ -75,9 +75,7 @@ use pg_grammar::model::MorphemeId;
 /// `R`/`M` prefix letters (lowercase, so it can never collide with those uppercase prefixes either).
 pub const ZERO_GLYPH: char = 'z';
 
-/// Render `n` as `width`-digit zero-padded decimal, then substitute every `'0'` character with
-/// `ZERO_GLYPH` (module doc point 3) — the one place both `lexc_tag` and `tag_text` get their
-/// numeral text from, so the two representations can never drift on how zero is spelled.
+/// Renders `n` as `width`-digit zero-padded decimal with every `'0'` substituted by `ZERO_GLYPH` -- the one source both `lexc_tag` and `tag_text` draw from, so the two can never drift.
 fn digits_no_zero(n: u32, width: usize) -> String {
     format!("{n:0width$}")
         .chars()
@@ -149,13 +147,7 @@ pub type RawPath = Vec<(bool, MorphemeId)>;
 /// should never happen against this crate's own emitted networks; a defensive `None` rather than a
 /// panic in case a caller ever feeds `decode_path` a hand-written or foreign string.
 pub fn decode_path(s: &str) -> Option<RawPath> {
-    // PERF: no `Vec<char>` collection and no per-tag `String` collection. `<`, `R`, `M`, `:`, `>`,
-    // and the digits are all single-byte ASCII, so once we've located a tag-opening `<` (itself
-    // ASCII, so `str::find` is UTF-8-safe regardless of what multi-byte characters appear in the
-    // surrounding non-tag text) every subsequent byte we inspect up through the tag's closing `>`
-    // is verified ASCII before we treat its byte offset as a char boundary. `i` is always left
-    // sitting on a valid char boundary between iterations: it starts at 0, and every advance lands
-    // either on `s.len()` or one byte past a `>` we just verified is a single ASCII byte.
+    // All tag delimiters/digits are single-byte ASCII, so every byte offset used as a char boundary is verified ASCII first -- safe even with multi-byte text surrounding a tag.
     let bytes = s.as_bytes();
     let mut out = Vec::new();
     let mut i = 0usize;
@@ -175,28 +167,21 @@ pub fn decode_path(s: &str) -> Option<RawPath> {
         }
         let start = i + 3;
         let mut j = start;
-        // Digit run: ordinary ASCII digits AND `ZERO_GLYPH` (module doc point 3 — this module
-        // never emits a literal `0` byte in a tag numeral at all, `ZERO_GLYPH` stands in for it),
-        // so a well-formed tag's numeral body is scanned in one pass same as before.
+        // A well-formed tag's numeral body is ordinary ASCII digits or ZERO_GLYPH (never a literal `0`).
         while j < bytes.len() && (bytes[j].is_ascii_digit() || bytes[j] == ZERO_GLYPH as u8) {
             j += 1;
         }
         if j == start || bytes.get(j) != Some(&b'>') {
             return None;
         }
-        // `s[start..j]` is a run of ASCII digits/`ZERO_GLYPH` (verified above), so it's a valid
-        // `&str` slice with no intermediate `Vec<char>` collection; restore `ZERO_GLYPH` back to
-        // `'0'` before parsing (a single-byte-for-single-byte substitution, so this stays a plain
-        // byte-level `String`, no UTF-8 re-validation needed).
+        // Restores ZERO_GLYPH back to '0' as a single-byte substitution -- no UTF-8 re-validation needed.
         let mut digits: Vec<u8> = s.as_bytes()[start..j].to_vec();
         for b in &mut digits {
             if *b == ZERO_GLYPH as u8 {
                 *b = b'0';
             }
         }
-        // SAFETY/correctness: `digits` is ASCII-only by construction (every byte was either an
-        // ASCII digit or `ZERO_GLYPH`, itself ASCII, and the substitution only ever writes `b'0'`),
-        // so this is always valid UTF-8.
+        // digits is ASCII-only by construction (verified digit run, substitution only writes b'0'), so this is always valid UTF-8.
         let digits_str = String::from_utf8(digits).expect("ASCII-only digit run");
         let n: u32 = digits_str.parse().ok()?;
         out.push((is_root, MorphemeId(n)));
@@ -205,22 +190,15 @@ pub fn decode_path(s: &str) -> Option<RawPath> {
     Some(out)
 }
 
-/// One candidate analysis (plan D2/§1's propose→confirm contract): morphemes in ascending surface
-/// order, plus which position is the head root (`-1` if none). Deliberately NOT the `hc-hybrid`
-/// type of the same shape (`hc-hybrid/src/walk.rs:218-222`) — that crate is being sunset (plan D8);
-/// this is a fresh definition so `pg-foma` never depends on it.
+/// One candidate analysis: morphemes in ascending surface order, plus which position is the head root (`-1` if none).
+/// Deliberately not the `hc-hybrid` type of the same shape, so `pg-foma` never depends on it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Candidate {
     pub morphemes: Vec<MorphemeId>,
     pub root_index: i32,
 }
 
-/// Split one decoded path into one `Candidate` per `<R:...>` occurrence (D2: "compounds ...
-/// split into one candidate per root"), mirroring `hc-hybrid/src/walk.rs:230-255`'s
-/// `to_word_analyses` exactly: 0 or 1 roots yields exactly one candidate (`root_index = -1` if
-/// none); 2+ roots (a compound) yields one candidate per root position, ascending, each sharing
-/// the SAME full morpheme sequence (the trie doesn't statically know which root a compounding rule
-/// treats as head — confirm, a later milestone, is what actually resolves headedness).
+/// Splits one decoded path into one `Candidate` per `<R:...>` occurrence: 0 or 1 roots yields exactly one candidate; 2+ roots (a compound) yields one candidate per root position, ascending, each sharing the same full morpheme sequence -- headedness is left for confirm to resolve.
 pub fn to_candidates(path: &RawPath) -> Vec<Candidate> {
     let morphemes: Vec<MorphemeId> = path.iter().map(|&(_, m)| m).collect();
     let root_indices: Vec<usize> = path
@@ -260,10 +238,7 @@ mod tests {
 
     #[test]
     fn lexc_tag_distinguishes_leading_zeros_via_zero_glyph() {
-        // Regression guard mirroring f0_viability.rs's `lexc_tags_do_not_collide_on_leading_zeros`.
-        // Per the module doc's point 3: no more `%0` escaping -- every would-be `0`
-        // digit is spelled with `ZERO_GLYPH` instead, so the two numerals stay distinguishable
-        // without ever emitting a literal `0` byte at all.
+        // Every would-be '0' digit is spelled with ZERO_GLYPH, so the two numerals stay distinguishable.
         let a = lexc_tag("R", 1, 4);
         let b = lexc_tag("R", 10, 4);
         assert_ne!(a, b);
@@ -271,13 +246,7 @@ mod tests {
         assert_eq!(b, "%<R%:zz1z%>");
     }
 
-    /// Module doc point 3's whole point, checked directly: neither representation of ANY tag this
-    /// module can produce ever contains the literal ASCII byte `'0'` -- the exact upstream
-    /// `divvun/foma-rs` trigger condition (a `Multichar_Symbols` name containing a literal `0`
-    /// digit gets silently decomposed into single-character arcs instead of staying one atomic
-    /// symbol). Swept over a range of ids/widths wide enough to hit every digit position,
-    /// including ids that are ALL zero digits once padded (e.g. `n=0`) and ids with an embedded
-    /// zero in the middle (`400`) or a trailing one (`10`, `100`).
+    /// Neither representation of any tag this module can produce ever contains the literal ASCII byte `'0'`, swept over a range wide enough to hit every digit position.
     #[test]
     fn no_tag_text_ever_contains_a_literal_zero_byte() {
         for width in [1usize, 2, 3, 4, 5] {
@@ -298,10 +267,7 @@ mod tests {
         }
     }
 
-    /// Round trip through `decode_path` for every id in the same sweep as the test above,
-    /// including ids whose padded numeral is nothing but `ZERO_GLYPH` substitutions (e.g. `n=0`
-    /// at `width=4` renders as four zero-glyphs) -- `decode_path` must recover the exact original
-    /// `MorphemeId`, not the glyph-substituted digit string.
+    /// `decode_path` must recover the exact original `MorphemeId`, even when the padded numeral is nothing but `ZERO_GLYPH` substitutions.
     #[test]
     fn zero_glyph_tags_round_trip_through_decode_path() {
         for width in [1usize, 2, 3, 4, 5] {

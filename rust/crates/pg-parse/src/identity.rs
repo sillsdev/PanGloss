@@ -57,10 +57,7 @@ pub struct AnalysisIdentity {
 /// Why an analysis could not be projected to stable keys.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IdentityError {
-    /// A morpheme ordinal has no row in `Grammar::morphemes`. This is an internal fault — a
-    /// well-formed analysis references only morphemes of the model that produced it — and is
-    /// never the ordinary "this grammar deleted a morpheme" case, which is invisible here because
-    /// identities are values.
+    /// A morpheme ordinal has no row in `Grammar::morphemes` — an internal fault, never the ordinary "this grammar deleted a morpheme" case, which identities-as-values makes invisible here.
     UnresolvedMorpheme { ordinal: u32 },
     /// A part-of-speech ordinal has no symbol in the model's POS table.
     UnresolvedCategory { ordinal: u32 },
@@ -90,8 +87,7 @@ impl AnalysisIdentity {
         let mut morphemes = Vec::with_capacity(analysis.morpheme_ids.len());
         for &ordinal in &analysis.morpheme_ids {
             if ordinal == MorphemeId::GUESSED.0 {
-                // The fabricated root of a guessed parse. Never index `Grammar::morphemes` with
-                // this sentinel; it has no row.
+                // The fabricated root of a guessed parse; never index `Grammar::morphemes` with this sentinel.
                 morphemes.push(None);
                 continue;
             }
@@ -126,11 +122,7 @@ impl AnalysisIdentity {
     }
 }
 
-/// Resolve a dense part-of-speech ordinal to its stable symbol id.
-///
-/// The POS symbol table is built in document order (`<PartsOfSpeech>` for HC XML,
-/// `snapshot.morphology.parts_of_speech` for LibLCM), so adding a part of speech in FieldWorks
-/// shifts every later ordinal. Only the symbol's own id is stable.
+/// Resolves a dense part-of-speech ordinal to its stable symbol id — the ordinal shifts whenever a part of speech is added upstream, but the symbol id does not.
 fn category_key(grammar: &Grammar, ordinal: u32) -> Option<String> {
     let feature = grammar
         .syn_features
@@ -163,8 +155,7 @@ mod tests {
 
     #[test]
     fn identity_ordering_is_total_and_stable() {
-        // Analysis sets are sorted before digesting, so `Ord` must be a total order over every
-        // field an identity carries, including the guessed-slot `None`.
+        // Analysis sets are sorted before digesting, so `Ord` must be a total order over every field, including the guessed-slot `None`.
         let mut ids = [
             identity(vec![Some("b".into())], 0, None),
             identity(vec![Some("a".into())], 1, Some("noun")),
@@ -180,8 +171,7 @@ mod tests {
 
     #[test]
     fn guessed_slot_and_absent_category_are_distinguishable() {
-        // `None` in `morphemes` means "fabricated root"; `None` in `category` means "no POS".
-        // They must not collapse into one another in the canonical form.
+        // `None` in `morphemes` means "fabricated root"; `None` in `category` means "no POS" — they must not collapse into one another.
         let guessed = identity(vec![None], 0, Some("noun"));
         let uncategorized = identity(vec![Some("m".into())], 0, None);
         assert_ne!(
@@ -202,8 +192,7 @@ mod tests {
 
     #[test]
     fn category_absent_serializes_as_null_not_missing() {
-        // A missing key and an explicit null canonicalize differently, so the projection must be
-        // consistent about which it emits or digests drift between code paths.
+        // A missing key and an explicit null canonicalize differently, so the projection must be consistent about which it emits.
         let v = identity(vec![Some("m".into())], 0, None).to_canonical_value();
         assert_eq!(v.get("category"), Some(&Value::Null));
     }

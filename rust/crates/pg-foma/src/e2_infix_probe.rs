@@ -12,24 +12,21 @@
 //! rules sit in ZERO template slots (pure standalone rules — `emit.rs`'s own `build_deriv_chain`
 //! cannot place them in a Prefix or Suffix zone either) and, on a 300-word corpus sample, 43/79
 //! (54%) of engine-analyzed words have an analysis that NEEDS one, with NO non-infix escape route
-//! for any of those 43. Losing them is not an acceptable "Partial tier" outcome (plan's recall gate
-//! is 100%, zero losses) — so this module exists to test, empirically, whether a bounded,
-//! non-recursive splice mechanism can close that gap without reintroducing the O(roots ×
-//! rules^depth) enumeration `crate::preexpand`'s own module doc names as the exact problem this
-//! whole effort (P6/E2) exists to retire.
+//! for any of those 43. Losing them is not an acceptable outcome (zero losses required) — so this
+//! module exists to test, empirically, whether a bounded, non-recursive splice mechanism can close
+//! that gap without reintroducing the O(roots x rules^depth) enumeration `crate::preexpand`'s own
+//! module doc names as the exact problem this effort exists to retire.
 //!
 //! ## Design
 //! Mirrors `emit.rs`'s structural topology (root/template-group/slot-chain/deriv-chain wiring,
 //! Composites/CompositeExit sharing) but LEAN and UNDERLYING-mode-only: junction/composite-fusion/
-//! precision machinery is unconditionally absent (real phonology is the downstream replace-rule
-//! cascade's job here, not this emitter's — advisor guidance recorded in the E2 build session:
-//! "turned OFF in underlying mode, not refit"). Leaf text is
+//! precision machinery is unconditionally absent -- real phonology is the downstream replace-rule
+//! cascade's job here, not this emitter's; turned off in underlying mode, not refit. Leaf text is
 //! `crate::replace::SegAlphabet::encode_shape` (one PUA token per char-def; no
 //! representation-variant cartesian product needed at all — token space already collapses that
 //! dimension, `crate::replace`'s own module doc). This is a fresh, self-contained implementation
 //! (not a refactor of `emit.rs`) precisely because it must stay decoupled from `emit.rs`'s mainline
-//! behavior while the GO/NO-GO call is still open — see the E2 task's own log for why touching
-//! `emit.rs` itself was deferred to the (not-yet-authorized) mainline build step.
+//! behavior.
 //!
 //! ## The Infix splice mechanism (`build_splice_composites`)
 //! For each (root allomorph × Infix rule) pair: seed a `pg_rules::word::Word` EXACTLY the way
@@ -92,9 +89,7 @@ fn write_bare(out: &mut String, continuation: &str, lines: &mut usize) {
     *lines += 1;
 }
 
-/// One tagged entry: upper = tag symbol only, lower = underlying token text (already PUA
-/// codepoints — never collide with lexc's ASCII-only special chars, so no escaping is needed here,
-/// unlike `emit.rs::escape_lexc_text`'s literal-surface-text case).
+/// One tagged entry: upper = tag symbol only, lower = underlying token text (already PUA codepoints, so no escaping is needed unlike `emit.rs::escape_lexc_text`'s literal-surface-text case).
 fn write_tag_entry(
     out: &mut String,
     tag_lexc: &str,
@@ -148,11 +143,7 @@ fn collect_roots_u(
     roots
 }
 
-// Internal emitter helper: `out`/`uncovered`/`lines` are accumulators threaded through this
-// probe's whole emission pass (the same grouping every sibling emit fn in this file uses), and
-// `g`/`alphabet`/`mid`/`zone_role`/`width`/`next` are the per-call context needed to emit one
-// rule's allomorphs. Splitting these into a struct would touch both call sites for no behavior
-// change, so the lint is silenced here rather than "fixed".
+// Splitting these into a struct would touch both call sites for no behavior change, so the lint is silenced here rather than "fixed".
 #[allow(clippy::too_many_arguments)]
 fn emit_rule_allomorphs_u(
     out: &mut String,
@@ -335,9 +326,7 @@ fn build_slot_chain_u(
     entry_name
 }
 
-/// Replays `pg_parse::Morpher::allomorphs_in_morph_order`'s own algorithm — same as
-/// `crate::preexpand`'s private `morph_order_tags` (re-derived here for the same "can't import a
-/// private fn from another module" reason; kept intentionally byte-for-byte identical in shape).
+/// Replays `pg_parse::Morpher::allomorphs_in_morph_order`'s own algorithm; re-derived rather than imported since `crate::preexpand`'s copy is private.
 fn morph_order_tags_u(w: &Word, known: &[(MorphemeId, String)]) -> Option<String> {
     let mut ms = w.morphs.clone();
     ms.sort_by_key(|m| m.order);
@@ -360,13 +349,7 @@ fn morph_order_tags_u(w: &Word, known: &[(MorphemeId, String)]) -> Option<String
     }
 }
 
-/// Mirrors `crate::emit::rhs_drops_lhs_material` exactly (that fn is private to `emit.rs`, not even
-/// `pub(crate)` — re-derived here rather than widening its visibility, same "probe stays decoupled
-/// from mainline" reasoning as the rest of this module): does `allo`'s RHS drop at least one of its
-/// own LHS's top-level parts — i.e. some `PartRef::Input(i)` in `0..allo.lhs.len()` never appears as
-/// an `OutputAction::Copy` anywhere in `allo.rhs`? Amharic's mrule3/"to" is exactly this shape: LHS
-/// has 2 parts (a fixed onset segment, then "the rest"), RHS copies only the second part — the
-/// onset is consumed by the match but never copied into the output, replaced by the inserted "ላ".
+/// Mirrors `crate::emit::rhs_drops_lhs_material` exactly (private to `emit.rs`, re-derived rather than widening its visibility): does `allo`'s RHS drop at least one of its own LHS's top-level parts?
 fn rhs_drops_lhs_material_u(a: &AffixAllomorphDef) -> bool {
     if a.lhs.len() <= 1 {
         return false;
@@ -382,11 +365,7 @@ fn rhs_drops_lhs_material_u(a: &AffixAllomorphDef) -> bool {
     (0..a.lhs.len() as u16).any(|i| !copied.contains(&i))
 }
 
-/// Mirrors `crate::emit::is_structural_rule` (same visibility reasoning as
-/// `rhs_drops_lhs_material_u`). Scoped to `Role::None`/`Prefix`/`Suffix` (an `Infix` rule is
-/// always in `special_rules_u`'s set on its own account; `Role::CircumfixPrefix` is
-/// unconditionally structural per emit.rs's doc, but Amharic has zero of those, verified by the E2
-/// census — kept for parity, costs nothing to check).
+/// Mirrors `crate::emit::is_structural_rule` (same visibility reasoning as `rhs_drops_lhs_material_u`).
 fn is_structural_rule_u(g: &Grammar, mid: MRuleId) -> bool {
     match rule_role(g, mid) {
         Role::None | Role::Prefix | Role::Suffix => {
@@ -397,17 +376,8 @@ fn is_structural_rule_u(g: &Grammar, mid: MRuleId) -> bool {
     }
 }
 
-/// Mirrors `crate::emit`'s `has_unemittable_action` (same visibility reasoning): an allomorph whose
-/// RHS carries a `Modify`/`InsertContext` action has NO literal text at all — `plan §2`'s "not
-/// compilable as strings". Dispositive finding (E2 build session, `e2_mainline_check` probe):
-/// mainline's ACTUAL production path (`crate::preexpand`, preexpand ON) covers Amharic's mrule31
-/// ("conv.1.sg", a `Modify`/ablaut rule) via exactly this route — `synthesize` correctly EXECUTES a
-/// `Modify` action (it changes the real `Shape`/feature identity, it doesn't need a literal string
-/// at all), the limitation is only in `crate::emit`'s STATIC leaf (`emit_rule_allomorphs`'s
-/// insert-text-only leaf), not in the underlying mechanism. So this rule is NOT a pre-existing,
-/// architecture-independent gap the way the E2 build session first assumed from a doc comment alone
-/// — it is squarely in scope for the SAME splice mechanism as Infix/structural rules, and dropping
-/// it would be a real recall regression relative to mainline, not a deferrable gap.
+/// Mirrors `crate::emit`'s `has_unemittable_action`: an allomorph whose RHS carries a `Modify`/`InsertContext` action has no literal text at all.
+/// Why this is in scope for the splice mechanism rather than a deferrable gap: docs/research/pg-foma-e2-infix-probe-design-notes.md.
 fn has_unemittable_action_u(a: &AffixAllomorphDef) -> bool {
     a.rhs.iter().any(|act| {
         matches!(
@@ -417,29 +387,11 @@ fn has_unemittable_action_u(a: &AffixAllomorphDef) -> bool {
     })
 }
 
-/// Bound on a splice chain's length beyond the root — same rationale/value as
-/// `crate::preexpand::MAX_EXTRA_RULES` (module doc there): Amharic's "ሰብሬ" needs depth 2 (Infix
-/// mrule6 "-conv-", then the Modify-bearing mrule31 "conv.1.sg" — itself gated on mrule6's own
-/// `out_syn_fs`, i.e. it can ONLY ever attach to an already-formed conv-stem, never to a bare root
-/// directly); 3 leaves the same headroom `preexpand.rs`'s own constant does.
+/// Bound on a splice chain's length beyond the root -- same rationale/value as `crate::preexpand::MAX_EXTRA_RULES`.
 const SPLICE_MAX_EXTRA_RULES: usize = 3;
 
-/// Every mrule that needs the splice mechanism at all — Infix (root-and-pattern, module doc),
-/// structural/truncating (`is_structural_rule_u`), or process-morph (`has_unemittable_action_u`,
-/// the "ሰብሬ" finding above). **Deliberately NOT `crate::preexpand::candidate_rules`'s full
-/// Prefix/Suffix/Infix set** — that set is EVERY affix rule in the grammar (~85 of Amharic's 88
-/// mrules), and recursively chaining depth 3 over a set that large is exactly the O(roots ×
-/// rules^depth) enumeration this whole effort exists to retire (`preexpand.rs`'s own module doc
-/// names it explicitly). The insight this module's own recall-gate investigation surfaced: an
-/// ORDINARY Prefix/Suffix rule (the vast majority) is already correctly representable by the plain
-/// concatenative deriv-chain/slot-chain leaf (`emit_rule_allomorphs_u`) and REACHES this splice
-/// mechanism's own composite output for free via the shared `Composites`/`CompositeExit`
-/// continuation (exactly how "ሰብሬ"'s final ordinary suffix, poss.1s/mrule75, attaches after the
-/// depth-2 special-rule composite) — so chaining only needs to range over the SMALL, per-grammar
-/// set of genuinely non-concatenative rules, never the full rule inventory. This keeps the
-/// recursion's own branching factor bounded by a near-constant (a handful of rules) rather than
-/// growing with the grammar's overall rule count, which is the actual scaling property that
-/// matters for "build for full-scale grammars".
+/// Every mrule that needs the splice mechanism at all -- Infix, structural/truncating, or process-morph. Deliberately NOT `crate::preexpand::candidate_rules`'s full Prefix/Suffix/Infix set.
+/// Why the smaller set still gets full coverage without the O(roots x rules^depth) blowup: docs/research/pg-foma-e2-infix-probe-design-notes.md.
 fn special_rules_u(g: &Grammar) -> Vec<MRuleId> {
     (0..g.mrules.len() as u32)
         .map(MRuleId)
@@ -462,29 +414,11 @@ fn special_rules_u(g: &Grammar) -> Vec<MRuleId> {
         .collect()
 }
 
-/// Bound on `encode_shape_variants`'s cartesian product — mirrors
-/// `crate::preexpand::MAX_RENDER_VARIANTS` (same value, same rationale: that module's own doc
-/// measured Ge'ez vowel-quality ambiguity at ~30% of all probed segments on Amharic, "the ORDINARY
-/// case for this templatic language family, not a rare exception", so the cap must stay SMALL, not
-/// generous).
+/// Bound on `encode_shape_variants`'s cartesian product -- mirrors `crate::preexpand::MAX_RENDER_VARIANTS` (same value and rationale).
 const SPLICE_MAX_RENDER_VARIANTS: usize = 4;
 
-/// Every token-space rendering of a synthesized `Shape` — handles the common case (every node still
-/// concretely identified: one token each, the fast path) AND the fallback case a `Modify`/ablaut
-/// action can produce: `crate::preexpand`'s own module doc, "a post-rewrite node whose identity was
-/// cleared by a feature-changing rule" (`char_def == pg_shape::NO_CHAR_DEF`), or a node whose OWN
-/// char-def no longer unifies with its current (rewritten) lanes. In that case there is no single
-/// preferred token — fall through to every table `Segment` char-def whose feature lanes unify with
-/// the node's CURRENT lanes (mirrors `crate::preexpand::matching_reps_local` exactly, but in TOKEN
-/// space rather than literal-representation space), cartesian-producting across every such
-/// ambiguous position, capped at `SPLICE_MAX_RENDER_VARIANTS`.
-///
-/// **How this was found**: mrule31's `ModifyFromInput` (a `Suffix`-classified rule that changes the
-/// stem's own final-consonant identity — gemination/ablaut) produces exactly this shape once
-/// spliced via `pg_rules::morph::synthesize`. The ORIGINAL, ungated `SegAlphabet::encode_shape`
-/// PANICS on it (`replace.rs`'s own overflow guard firing on `NO_CHAR_DEF`'s `u32::MAX` sentinel,
-/// "char table too large for the PUA token scheme") rather than silently mis-rendering — which is
-/// how this gap surfaced loudly instead of passing quietly into a wrong lexc entry.
+/// Every token-space rendering of a synthesized `Shape`: the fast path (every node still concretely identified) plus a fallback for a post-rewrite node whose identity was cleared or no longer unifies.
+/// Why the fallback exists and how it was found (an overflow-guard panic, not a silent mis-render): docs/research/pg-foma-e2-infix-probe-design-notes.md.
 fn encode_shape_variants(alphabet: &SegAlphabet<'_>, shape: &pg_shape::Shape) -> Vec<String> {
     let table = alphabet.table();
     let mut variants: Vec<String> = vec![String::new()];
@@ -516,8 +450,7 @@ fn encode_shape_variants(alphabet: &SegAlphabet<'_>, shape: &pg_shape::Shape) ->
             }
         };
         if toks.is_empty() {
-            // No matching char-def at all (defensive; shouldn't happen for a real `synthesize`
-            // result) -- drop this variant set entirely rather than emitting truncated/wrong text.
+            // Defensive: drop this variant set entirely rather than emit truncated/wrong text.
             return Vec::new();
         }
         let mut next = Vec::with_capacity(variants.len() * toks.len());
@@ -536,16 +469,7 @@ fn encode_shape_variants(alphabet: &SegAlphabet<'_>, shape: &pg_shape::Shape) ->
     variants
 }
 
-/// Recursive splice chaining (mirrors `crate::preexpand::extend`'s shape, minus the phonological
-/// probe/redundancy-check machinery — module doc: underlying-token mode has no surface to resolve,
-/// so there is nothing for a probe to do, and no "already reachable via the ordinary path" check to
-/// make since every composite this emits is a pure ADDITION, never a replacement, of what the
-/// ordinary emission already writes — upward-safe per the plan's iron rule regardless of whether it
-/// duplicates an ordinary-path candidate). Emits a composite at EVERY successful step (not just
-/// "dirty" steps the way `preexpand.rs` optimizes for entry-count — this probe doesn't need that
-/// optimization, and always-emit is simpler and still upward-safe), then recurses through `rules`
-/// again (skipping any rule already in `chain`, same `multipleApplication = 1` default guard
-/// `preexpand.rs` uses) up to `SPLICE_MAX_EXTRA_RULES`.
+/// Recursive splice chaining (mirrors `crate::preexpand::extend`'s shape, minus the phonological probe: underlying-token mode has no surface to resolve). Emits a composite at every successful step, never just "dirty" ones, since every composite is a pure addition and duplication is harmless.
 #[allow(clippy::too_many_arguments)]
 fn splice_extend_u(
     g: &Grammar,
@@ -609,10 +533,7 @@ fn splice_extend_u(
     }
 }
 
-/// The splice mechanism's outer loop: seed a real-`syn_fs` `Word` per root allomorph (same
-/// convention `crate::preexpand::process_root_work` uses), then recurse via `splice_extend_u`
-/// over `special_rules_u`'s small candidate set. Returns `(composites, pairs_probed,
-/// ambiguous_pairs)`.
+/// Seeds a real-`syn_fs` `Word` per root allomorph, then recurses via `splice_extend_u` over `special_rules_u`'s small candidate set.
 fn build_splice_composites(
     g: &Grammar,
     alphabet: &SegAlphabet<'_>,
@@ -688,18 +609,14 @@ pub fn emit_underlying_amharic_probe(g: &Grammar, alphabet: &SegAlphabet<'_>) ->
                 continue;
             }
             match rule_role(g, mid) {
-                // Ordinary literal-text zones (module doc: superset — a structural/process-morph
-                // rule ALSO routed here gets a (harmless, never-matching) wrong entry in addition
-                // to its correct `special_rules_u`-driven composite; mirrors `crate::emit`'s own
-                // "deliberate supersets" convention exactly).
+                // Deliberate superset: a structural/process-morph rule routed here also gets a harmless, never-matching entry.
                 Role::Prefix => deriv_prefix.push(mid),
                 Role::Suffix => deriv_suffix.push(mid),
                 Role::None => {
                     deriv_prefix.push(mid);
                     deriv_suffix.push(mid);
                 }
-                // Infix has no ordinary zone at all -- handled entirely by `special_rules_u` +
-                // `build_splice_composites` below, never "uncovered" (it IS representable now).
+                // Infix has no ordinary zone; handled entirely by special_rules_u + build_splice_composites below.
                 Role::Infix => {}
                 other => uncovered.push(format!(
                     "mrule{} standalone role={other:?} not representable by this probe",
@@ -724,11 +641,7 @@ pub fn emit_underlying_amharic_probe(g: &Grammar, alphabet: &SegAlphabet<'_>) ->
     let has_template_less_section = !deriv_prefix.is_empty() || !deriv_suffix.is_empty();
     let has_templates = !g.templates.is_empty();
 
-    // The splice mechanism's own candidate set (module doc on `special_rules_u`): Infix +
-    // structural/truncating + process-morph rules ONLY — a small, near-constant-size subset of
-    // the grammar's total rule count, never the full Prefix/Suffix/Infix inventory
-    // `crate::preexpand::candidate_rules` uses (that set recursively chained to depth 3 would
-    // reintroduce the O(roots × rules^depth) enumeration this whole effort exists to retire).
+    // A small, near-constant-size subset of the grammar's rule count -- see special_rules_u's own doc.
     let special_rules = special_rules_u(g);
     let (composites, splice_pairs_probed, splice_ambiguous_pairs) =
         build_splice_composites(g, alphabet, &special_rules, width);

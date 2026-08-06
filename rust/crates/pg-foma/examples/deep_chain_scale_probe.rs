@@ -1,38 +1,5 @@
-//! Part C (delanguaging) measurement tool: does a SYNTHETIC deep standalone-affix chain
-//! (`pg_grammar_gen::build::chain`) reproduce the real-language OOM/`apply_up`-explosion this
-//! shape is known to trigger, without needing the gitignored Aweti corpus at all?
-//!
-//! ## What this probes and why
-//! The report root-caused Aweti's pre-fix `apply_up` non-termination (and the historical
-//! `EnumerationBudgetExceeded`-guarded 8.8GB allocation, `pg_foma::analyzer::FomaError`'s own
-//! module doc) to `pg_foma::emit::build_deriv_chain`'s legacy `TextMode::SurfaceProbed` strategy:
-//! "EVERY level offers EVERY rule; depth = rules.len()" for a grammar's STANDALONE
-//! (stratum-attached, non-template) prefix/suffix rules. That strategy is what MAINLINE `emit()`
-//! (used by every reference grammar via `FomaProposer::new`) still uses UNCONDITIONALLY today --
-//! the shipped chain-restriction fix (dedicated-level-per-rule) applies ONLY under
-//! `TextMode::UnderlyingTokens` (the P6/Aweti-templated path), never to this one. A grammar with
-//! `N` independent standalone suffix rules therefore builds an `N`-level chain where each of the
-//! `N` levels independently offers all `N` rules -- the SAME rule can be "chosen" at any of `N`
-//! levels, so a single target surface string using `k` of the `N` rules (in order) is reachable
-//! via `C(N, k)` distinct raw `apply_up` paths, all decoding to the identical candidate. This is
-//! `pg_grammar_gen::build::chain`'s own reproduction of exactly that shape, sized only by `N`
-//! (capped at 25 by `build::tables`' 26-ASCII-letter ceiling for a single table) -- no gitignored
-//! corpus needed.
-//!
-//! Two questions, measured separately (never assumed):
-//! 1. **Compile-time resource envelope** (states/arcs/lexc-lines/compile-wall-time) via
-//!    `FomaProposer::new_with_profile` -- the mainline production path.
-//! 2. **Apply-time behavior** on a deliberately-maximally-ambiguous query word (`root_shape` +
-//!    every other rule's own suffix character, in order -- `k = N/2` rules used out of `N`,
-//!    maximizing `C(N, k)`): (a) the UNBOUNDED `FomaProposer::propose` call, wall-clock timed on a
-//!    background thread with a hard cutoff (this is deliberately allowed to time out -- that IS
-//!    the measurement); (b) the SAME word through `FomaProposer::propose_budgeted` with a small
-//!    `ApplyBudget` (ADR 0003's already-shipped apply-path containment), to check whether the
-//!    existing honest-failure guard actually catches this specific vector fast.
-//!
-//! Run with `cargo run -p pg-foma --release --example deep_chain_scale_probe`. Prints one line per
-//! `N` tried; if a later `N` would time out on the unbounded call, later `N`s are skipped rather
-//! than blocking for a long time (see `UNBOUNDED_TIMEOUT`/`MAX_N_AFTER_TIMEOUT`).
+//! Demonstrates that a synthetic deep standalone-affix chain reproduces the real `apply_up`
+//! explosion this shape triggers; see `docs/research/pg-foma-deep-chain-scale-probe.md`.
 
 use std::sync::mpsc;
 use std::thread;
@@ -42,13 +9,10 @@ use pg_foma::analyzer::FomaProposer;
 use pg_foma::compose_budget::{ApplyBudget, ApplyOutcome};
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
 
-/// Hard wall-clock cutoff for the UNBOUNDED `propose()` call -- this is the "did it explode"
-/// signal itself, not a correctness bound. Chosen generously (well above the sub-10ms/word
-/// production target) so a clean pass is unambiguous and a timeout is unambiguous too.
+/// Hard wall-clock cutoff for the unbounded `propose()` call -- the "did it explode" signal itself, not a correctness bound.
 const UNBOUNDED_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// A small, deliberately tight apply-path cap for the honest-failure half of the probe -- mirrors
-/// the other scale gates' "explicit caps, never env vars" convention.
+/// A small, deliberately tight apply-path cap for the honest-failure half of the probe.
 const TIGHT_PATH_CAP: usize = 2_000;
 
 fn recipe(n: usize) -> Recipe {
@@ -67,8 +31,7 @@ fn recipe(n: usize) -> Recipe {
     }
 }
 
-/// `C(n, k)`, saturating at `u128::MAX` rather than overflowing -- purely for the printed
-/// "expected raw-path order of magnitude" context line, never used to gate behavior.
+/// `C(n, k)`, saturating at `u128::MAX` rather than overflowing -- for the printed context line only, never used to gate behavior.
 fn choose(n: u128, k: u128) -> u128 {
     if k > n {
         return 0;
@@ -126,16 +89,10 @@ fn main() {
             profile.final_arc_count,
         );
 
-        // --- (2) apply-time probe: a maximally raw-path-ambiguous query word. ---
-        // Use every OTHER rule (k = n/2, in increasing index/document order) -- module doc's
-        // C(n, k) reasoning; using every rule (k = n) collapses to exactly one placement (no
-        // freedom left), so a deliberately partial subset is what maximizes ambiguity.
+        // Apply-time probe: uses every other rule (k = n/2) rather than all n, since using all n collapses to exactly one placement with no freedom left to maximize ambiguity.
         let k = n / 2;
         let mut word = chain.root_shape.clone();
-        // `build::chain`'s own suffix characters are table.segments[1..], one per rule, in the
-        // SAME order `rule_xml_ids` lists them -- reconstruct the word from the loaded grammar's
-        // own char table (not by re-deriving the builder's internal indexing) so this probe stays
-        // correct even if `build::chain`'s internal segment layout ever changes.
+        // Reconstructs the suffix chars from the loaded grammar's own char table, not by re-deriving the builder's internal indexing, so this probe stays correct if `build::chain`'s segment layout changes.
         let table = &g.char_tables[0];
         let mut suffix_chars: Vec<char> = Vec::new();
         for (_, cd) in table.iter() {
@@ -159,11 +116,7 @@ fn main() {
              own ambiguity mechanism is real"
         );
 
-        // (2a) UNBOUNDED propose(), wall-clock timed on a background thread with a hard cutoff.
-        // `FomaProposer` is not `Send` in a way that lets us share `proposer` across the join
-        // safely if it times out (the handle stays borrowed by the stuck thread) -- accepted here:
-        // this is a diagnostic probe, not production code, and the process exits at the end
-        // regardless.
+        // `FomaProposer` isn't `Send` in a way that lets the join share `proposer` if it times out; accepted since this is a diagnostic probe, not production code.
         let (tx, rx) = mpsc::channel();
         let word_for_thread = word.clone();
         let handle = thread::Builder::new()
@@ -184,8 +137,7 @@ fn main() {
                 );
                 let _ = handle.join();
 
-                // (2b) honest-failure half: the SAME word through the already-shipped ADR-0003
-                // apply-path budget, with a tight cap.
+                // Honest-failure half: the same word through the already-shipped apply-path budget, with a tight cap.
                 let budget = ApplyBudget::with_caps(Some(TIGHT_PATH_CAP), None);
                 let t0 = Instant::now();
                 let outcome = proposer_back.propose_budgeted(&word, &budget);
@@ -218,9 +170,7 @@ fn main() {
                      REPRODUCED at N={n} (the historical apply_up non-termination anchor)"
                 );
                 any_timeout = true;
-                // Deliberately leak/detach: the thread is still running against the moved
-                // `proposer`+`tx`; there is no safe cancellation, matching this crate's own
-                // documented stance elsewhere that a native thread cannot be hard-killed.
+                // Deliberately leak/detach: the thread still holds the moved `proposer`+`tx`, and a native thread cannot be hard-killed.
                 drop(handle);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {

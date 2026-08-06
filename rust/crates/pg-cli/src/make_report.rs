@@ -1,93 +1,5 @@
-//! `pangloss make-report <grammar> <out.md> [options]` — a per-language report that composes the
-//! evidence and states what was not tested: ONE command producing ONE markdown file containing
-//! build time, artifact size, latency
-//! percentiles, the compilation-plan mermaid diagram, and the conformance verdict — composing
-//! sections 1-3 (`pg_foma::readiness_policy`/`readiness_verdict`/`plan_diagram`), never
-//! reimplementing any of them.
-//!
-//! # What this module measures itself, and what it only composes
-//! Sections 1-3 define the SHAPE of a certification (the threshold policy, the tiered verdict, the
-//! plan diagram) but nothing yet populates a real `pg_foma::readiness_verdict::Measurements` from
-//! a live grammar/pack — that is this module's own job:
-//! - **Pack size + trust status**: a REAL `.pgpack`, never a caller-supplied trust parameter (see
-//!   "Trust comes from a real artifact" below).
-//! - **Lexicon scale**: `grammar.entries.len()` — a plain, direct count, not derived from the pack
-//!   (the pack's runtime payload is still an honest placeholder, `pg-pack`'s own top doc; the
-//!   in-memory `Grammar` is the real source of this count).
-//! - **Latency percentiles**: measured IN-PROCESS via nanosecond `Instant`/`Duration` timing over a
-//!   real, freshly-built `pg_foma::composite::FomaAnalyzer` — mirroring `rust/crates/pg-foma/
-//!   tests/typology_speedup.rs`'s own methodology (median-of-repeats per word, discard one warmup
-//!   call, a per-run-calibrated timer floor, below-floor reported honestly, never `pangloss batch`'s
-//!   integer-millisecond TSV column). See "Latency methodology" below for the exact percentile
-//!   computation.
-//! - **Coverage**: an attestation (never a measurement — `pg_foma::readiness_verdict`'s own rule 2)
-//!   when `--corpus`/`--attestor`/`--attested-on` are all given; honestly not-assessed otherwise.
-//! - **Build time**: the wall-clock cost of building the compiled proposer+confirm analyzer this
-//!   report's latency numbers are about (`FomaAnalyzer::new`) — informational only (no threshold in
-//!   `ThresholdPolicy` gates it), rendered with the same below-floor discipline as latency.
-//! - **The compilation-plan diagram + the conformance verdict**: pure composition —
-//!   `pg_foma::plan_diagram::{build_plan_document, render_mermaid}` and `pg_foma::
-//!   readiness_verdict::certify` respectively, exactly as `plan-diagram`/the section-3 tests already
-//!   exercise them. This module adds no new plan-diagram or capability-verdict logic of its own.
-//!
-//! # Trust comes from a real artifact, never a caller-settable parameter
-//! `certify`'s `trust: &TrustStatus` parameter is never populated from a bare CLI flag here. Either
-//! `--pack=<path>` names an existing `.pgpack` — read via `pg_pack::read_pack`, its
-//! `manifest.capability_trust` is the trust this report certifies against — or, with no `--pack`
-//! given, this module builds one itself via `crate::pack::build_pack` (the exact same real
-//! capability-trust-stamping logic `pangloss pack` uses, factored out of that module for this
-//! reuse) and reads the trust back off the manifest that call produces. Either way, the trust this
-//! report certifies against is the real stamp on a real artifact, not a value a caller typed in.
-//! `map_trust` is a **plain, non-lossy field-for-field projection** of `pg_pack::CapabilityTrust`
-//! into `pg_foma::readiness_verdict::TrustStatus` — the latter is documented as a local mirror of
-//! the former precisely because `pg-pack` already depends on `pg-foma` (for `HealthReport`), so
-//! `pg-foma` cannot depend back on `pg-pack` without a cycle; the two shapes are kept in exact
-//! field-for-field correspondence by convention, not by a shared type, and this function is where
-//! that correspondence is actually exercised end-to-end.
-//!
-//! # Capability enforcement mirrors the rest of this CLI — never a quieter path
-//! Exactly like `run_batch`/`run_parse`/`pangloss pack`: a capability `Refuse` verdict with no
-//! `--allow-unproven` means **no compiled artifact is built or measured at all** — `pack_size`/
-//! `lexicon_scale`/`latency`/`coverage` all report [`pg_foma::readiness_verdict::CheckOutcome::
-//! NotAssessed`] (via `certify`'s own documented `measurements: None` contract), and the tier is
-//! `NotSupported`, citing the real refusal. This is the expected, headline case for all three
-//! reference grammars today (`docs/benchmark-matrix.md`: all three refuse on `mpr-group.
-//! overwrite-output`, a permanent carve-out) — see this module's own tests and this crate's gate
-//! run for the pasted proof. `--allow-unproven` here requires the SAME flag be passed to
-//! `make-report` itself as to `pangloss pack` — a caller cannot point `--pack` at a pre-built
-//! overridden artifact and have this command quietly measure against it without also acknowledging
-//! the override at the report layer; this is deliberate, not an oversight (ADR 0005's own
-//! never-becomes-convenient philosophy).
-//!
-//! # Latency methodology (never `pangloss batch`'s integer-millisecond floor)
-//! For each word in the word list (`--words=<path>`, one word per line; falling back to this
-//! grammar's own lexical root surface forms when omitted — see `default_word_list`), this module
-//! times `pg_foma::composite::FomaAnalyzer::analyze_word` `--repeats` times (default 7) after one
-//! discarded warmup call, keeps that word's MEDIAN nanosecond duration, then computes p50/p90/p99
-//! (nearest-rank method) over the sorted per-word medians — the same "median-of-repeats per word,
-//! percentile across words" shape `typology_speedup.rs` uses, just driven over one caller-chosen
-//! grammar/word-list instead of the whole conformance corpus. `measure_timer_floor_ns` calibrates
-//! this process's real `Instant` granularity once per run (never a hardcoded platform constant);
-//! any percentile at or below that floor renders as [`pg_foma::readiness_verdict::
-//! LatencyMeasurement::BelowFloor`], never a literal `0` (this module's own
-//! `below_floor_latency_never_reports_as_a_bare_millis_zero` test pins that).
-//!
-//! # Coverage's token definition
-//! A corpus's tokens are its whitespace-separated words (`str::split_whitespace`). A token flagged
-//! unsegmentable by `crate::foma_invalid_shape` (the same check `run_batch`/`run_parse` use to keep
-//! the `SKIPPED` vs. `ok` status column identical between engines) counts as a miss here, not an
-//! exclusion — the analysis-rate denominator is every token in the
-//! corpus, never a pre-filtered subset (`pg_foma::readiness_verdict::COVERAGE_RATE_STATEMENT`: "the
-//! fraction of tokens receiving at least one analysis").
-//!
-//! # What is always stated as NOT tested
-//! Per spec ("A per-language report ... SHALL state which checks it did not perform"): correctness
-//! is never certified by this report (coverage is an analysis rate, not accuracy — the conformance
-//! suite is the correctness authority); a fallback word list is named as such when `--words` is
-//! omitted; coverage is named not-assessed when no corpus attestation is supplied; and — the
-//! Refuse-without-override case — build time/artifact size/lexicon scale/latency/coverage are ALL
-//! named not-measured/not-assessed together, since no compiled artifact exists at all to measure any
-//! of them.
+//! `pangloss make-report <grammar> <out.md> [options]`: one markdown report composing build time, artifact size, latency percentiles, the plan diagram, and the conformance verdict.
+//! What this module measures itself vs. only composes, trust provenance, capability enforcement, latency methodology, and the coverage token definition: docs/research/pg-cli-make-report-design-notes.md.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -114,9 +26,7 @@ const USAGE: &str = "usage: make-report <grammar> <out.md> [--pack=<path>] [--wo
 [--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>] [--allow-unproven] \
 [--authorized-by=<name>] [--reason=<text>] [--repeats=N]";
 
-// =================================================================================================
-// Small, self-contained helpers (hashing, git introspection, trust projection, timing)
-// =================================================================================================
+// Small, self-contained helpers: hashing, git introspection, trust projection, timing.
 
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
@@ -128,9 +38,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// Runs `git <args>` from the current working directory, returning trimmed stdout on success and
-/// `None` on any failure (git not installed, not a git checkout, no such ref) — never a panic, since
-/// "pinned revisions" is a best-effort re-derivation aid, not a hard requirement of the report.
+/// Runs `git <args>`, returning trimmed stdout or `None` on any failure; never a panic, since "pinned revisions" is a best-effort aid, not a hard requirement of the report.
 fn git_output(args: &[&str]) -> Option<String> {
     let out = std::process::Command::new("git").args(args).output().ok()?;
     if !out.status.success() {
@@ -149,14 +57,7 @@ fn repo_head_revision() -> String {
         .unwrap_or_else(|| "unknown (not a git checkout, or git unavailable)".to_string())
 }
 
-/// `git submodule status <path>` reports the pinned gitlink commit whether or not the submodule is
-/// actually checked out locally (a leading `-` means uninitialized, `+` means the working tree
-/// disagrees with the pinned commit) — exactly the "pinned revision" this report needs, without
-/// requiring the submodule to be present. `rel_path` must be resolved relative to the repo
-/// TOPLEVEL, never the process's own current directory: `cargo test` (and this binary, run from
-/// anywhere) sets its cwd to wherever it happens to be invoked from, and `git submodule status`
-/// resolves its path argument as a pathspec against THAT directory -- resolving `--show-toplevel`
-/// first makes this correct regardless of where `pangloss` is actually run from.
+/// `git submodule status <path>` reports the pinned gitlink commit without requiring the submodule checked out locally; `rel_path` is resolved against the repo toplevel, not the process cwd, since `git submodule status` reads it as a pathspec against the invocation directory otherwise.
 fn submodule_revision(rel_path: &str) -> String {
     let Some(top) = git_output(&["rev-parse", "--show-toplevel"]) else {
         return format!("unknown ({rel_path}: not a git checkout, or git unavailable)");
@@ -178,10 +79,7 @@ fn submodule_revision(rel_path: &str) -> String {
     }
 }
 
-/// Projects `pg_pack::CapabilityTrust` into `pg_foma::readiness_verdict::TrustStatus` — a plain,
-/// non-lossy field-for-field copy. See this module's own top doc, "Trust comes from a real
-/// artifact," for why this projection exists instead of a shared type (`pg-pack` depends on
-/// `pg-foma`; the reverse would cycle).
+/// A plain, non-lossy field-for-field projection of `pg_pack::CapabilityTrust` into `TrustStatus`; a shared type would cycle, since `pg-pack` already depends on `pg-foma`.
 fn map_trust(t: &pg_pack::CapabilityTrust) -> TrustStatus {
     match t {
         pg_pack::CapabilityTrust::Proven => TrustStatus::Proven,
@@ -202,9 +100,7 @@ fn map_trust(t: &pg_pack::CapabilityTrust) -> TrustStatus {
     }
 }
 
-/// Calibrates this process's real `Instant` tick granularity — mirrors `tests/typology_speedup.rs`'s
-/// `measure_timer_floor_ns` exactly (that harness's own types are test-only, not importable as a
-/// library, so this is a deliberate, small, literal restatement rather than a shared dependency).
+/// Calibrates this process's real `Instant` tick granularity; mirrors `typology_speedup.rs`'s own helper by restatement, since that harness's types are test-only and not importable.
 fn measure_timer_floor_ns() -> u64 {
     let mut floor = u64::MAX;
     let mut prev = Instant::now();
@@ -221,8 +117,7 @@ fn measure_timer_floor_ns() -> u64 {
     floor.max(1)
 }
 
-/// A single nanosecond duration, honoring the below-floor discipline: never `Millis(0.0)`, always
-/// `LatencyMeasurement::BelowFloor` once the raw value sits at or under the calibrated floor.
+/// Never `Millis(0.0)`: renders as `BelowFloor` once the raw value sits at or under the calibrated floor.
 fn latency_measurement(value_ns: u64, floor_ns: u64) -> LatencyMeasurement {
     if value_ns < floor_ns {
         LatencyMeasurement::BelowFloor {
@@ -242,9 +137,7 @@ fn render_latency_measurement(m: &LatencyMeasurement) -> String {
     }
 }
 
-/// Nearest-rank percentile over an ALREADY-SORTED ascending slice — `p` in `0.0..=100.0`. Empty
-/// input returns 0 (callers must never call this on an empty word list; see `run_make_report`'s own
-/// hard error when no words at all are available).
+/// Nearest-rank percentile over an already-sorted ascending slice, `p` in `0.0..=100.0`; empty input returns 0, since `run_make_report` hard-errors before an empty word list reaches here.
 fn percentile_ns(sorted_asc: &[u64], p: f64) -> u64 {
     if sorted_asc.is_empty() {
         return 0;
@@ -255,11 +148,7 @@ fn percentile_ns(sorted_asc: &[u64], p: f64) -> u64 {
     sorted_asc[idx - 1]
 }
 
-/// Every distinct, non-empty root-allomorph surface form in `g`'s lexicon — the fallback word list
-/// used to measure latency when the caller supplies no `--words` file (this module's own top doc,
-/// "Latency methodology"). Real words drawn from the grammar actually being certified (never
-/// authored/fabricated here), just disclosed in the report as a fallback rather than a
-/// representative corpus sample.
+/// Every distinct, non-empty root-allomorph surface form in `g`'s lexicon: the fallback word list used when the caller supplies no `--words` file, disclosed in the report as a fallback rather than a representative sample.
 fn default_word_list(g: &Grammar) -> Vec<String> {
     let mut words: Vec<String> = Vec::new();
     for entry in &g.entries {
@@ -273,11 +162,7 @@ fn default_word_list(g: &Grammar) -> Vec<String> {
     words
 }
 
-/// Times every word in `words` against `analyzer`: one discarded warmup call, then `repeats` timed
-/// samples, keeping that word's median nanosecond duration. Returns the raw (p50, p90, p99)
-/// nanosecond values over the sorted per-word medians (nearest-rank method) — below-floor rendering
-/// happens at the caller via `latency_measurement`, not here, so this function stays a pure
-/// timing primitive.
+/// Times every word: one discarded warmup, then `repeats` samples, keeping the median; returns raw (p50, p90, p99) nanoseconds over the sorted medians — below-floor rendering happens at the caller, not here.
 fn measure_latency_percentiles_ns(
     analyzer: &mut FomaAnalyzer,
     words: &[String],
@@ -303,11 +188,7 @@ fn measure_latency_percentiles_ns(
     )
 }
 
-/// Token-level analysis rate over `corpus_text` (this module's own top doc, "Coverage's token
-/// definition"): whitespace-separated tokens, every one counted in the denominator (see the
-/// `continue` below for how a segmentation-rejected token is counted). `Err` only when the corpus
-/// contains no tokens at all (an empty/whitespace-only file) — a rate cannot be honestly computed
-/// over zero tokens, so this is a hard error rather than a fabricated `0.0`.
+/// Token-level analysis rate over `corpus_text`: every whitespace-separated token counts in the denominator, even a segmentation-rejected one; `Err` only on zero tokens, rather than a fabricated `0.0`.
 fn measure_coverage_rate(
     analyzer: &mut FomaAnalyzer,
     g: &Grammar,
@@ -333,9 +214,7 @@ fn measure_coverage_rate(
     Ok(hit as f64 / tokens.len() as f64)
 }
 
-// =================================================================================================
-// Markdown rendering
-// =================================================================================================
+// Markdown rendering.
 
 fn fmt_check_value(v: &CheckValue) -> String {
     match v {
@@ -375,10 +254,7 @@ fn check_kind_label(k: CheckKind) -> &'static str {
     }
 }
 
-/// Whether the policy value backing `kind` is [`pg_foma::readiness_policy::Calibration::
-/// Placeholder`] (un-calibrated) or `Measured` — surfaced next to every threshold so a reader never
-/// mistakes a placeholder number for a calibrated one (`readiness_policy`'s own top doc: "never
-/// silently launder a placeholder into a value that merely looks measured").
+/// Whether the policy value backing `kind` is `Placeholder` or `Measured`, surfaced next to every threshold so a reader never mistakes a placeholder number for a calibrated one.
 fn calibration_label(kind: CheckKind, policy: &ThresholdPolicy) -> &'static str {
     let is_placeholder = match kind {
         CheckKind::PackSize => policy.pack_size_max_bytes.calibration.is_placeholder(),
@@ -446,9 +322,7 @@ fn render_capability(capability: &CapabilitySummary) -> String {
     }
 }
 
-/// The one-line summary printed above the embedded mermaid diagram -- factored out so the golden
-/// test below computes it via the EXACT same code the live command uses, never a hand-copied
-/// restatement that could silently drift.
+/// The one-line summary above the embedded mermaid diagram, factored out so the golden test computes it via the same code the live command uses, never a hand-copied restatement.
 fn render_mermaid_summary_line(render: &MermaidRender) -> String {
     format!(
         "{} node(s) emitted of {} total{}, overall capability verdict from the SAME real \
@@ -610,9 +484,7 @@ fn render_markdown(
     out
 }
 
-// =================================================================================================
-// The command
-// =================================================================================================
+// The command.
 
 pub fn run_make_report(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
@@ -724,10 +596,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         None => None,
     };
 
-    // ONE derivation, shared by all three
-    // places this command needs the capability verdict -- here, `pack::build_pack`'s trust stamp,
-    // and `readiness_verdict::certify` -- rather than three independent
-    // `pg_foma::capability::characterize` walks over the same grammar.
+    // One derivation, shared by every place this command needs the capability verdict, rather than three independent characterize walks over the same grammar.
     let semantics = GrammarSemantics::derive(&grammar);
     let decision = evaluate_capability_with_semantics(&semantics);
     let attempt_compile = matches!(
@@ -749,12 +618,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         String,
     );
     let latency_methodology_line: String;
-    // Separate from `verdict.checks` on purpose: `CheckResult` only carries the numeric
-    // Pass/Fail/NotAssessed outcome for coverage (a rate vs. a threshold), never the attestor/date
-    // an attestation itself carries (`pg_foma::readiness_verdict::CoverageAssessment::Attested`'s
-    // own fields) -- the certificate's attestor/date fields are
-    // rendered from HERE, the actual `CoverageAssessment` this command built, not reconstructed
-    // from the tiered verdict after the fact.
+    // Separate from `verdict.checks` on purpose: that only carries the Pass/Fail/NotAssessed outcome, never the attestor/date fields, which render from the `CoverageAssessment` this command built, not reconstructed from the tiered verdict after the fact.
     let coverage_attestation_line: String;
 
     if !attempt_compile {
@@ -830,10 +694,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         trust = map_trust(&trust_src);
         pack_pin = pack_pin_line;
 
-        // ---- the compiled proposer+confirm analyzer this report's build-time/latency numbers are
-        // about -- a separate compile from whatever produced the pack above (same "a second
-        // compiled network is an acceptable one-time cost for an offline tool" judgment call
-        // pack.rs/diagnostics.rs already make) ----
+        // The compiled propose+confirm analyzer these build-time/latency numbers are about: a separate compile from whatever produced the pack above.
         let t_build = Instant::now();
         let mut analyzer = FomaAnalyzer::new(&grammar)
             .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?;
@@ -986,9 +847,7 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    // The `&Grammar` front ends, used only by the golden-render test below: the live command drives
-    // the `_with_semantics` forms off its one shared owner, so these two are not
-    // referenced outside `cfg(test)`.
+    // The `&Grammar` front ends, used only by the golden-render test below; the live command drives the `_with_semantics` forms off its one shared owner.
     use pg_foma::plan_diagram::build_plan_document;
     use pg_foma::readiness_verdict::certify;
 
@@ -1032,9 +891,7 @@ mod tests {
 </HermitCrabInput>
 "#;
 
-    /// Genuinely-overlapping simultaneous subrules, refused by `simultaneous.subrule-overlap` (the
-    /// same fixture `pack.rs`'s own tests and `main.rs`'s `capability_gate_tests` use for their
-    /// known-Refuse grammar).
+    /// Genuinely-overlapping simultaneous subrules, refused by `simultaneous.subrule-overlap`; the same fixture `pack.rs` and `capability_gate_tests` use for their known-Refuse grammar.
     const REFUSE_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
 
     fn run_make_report_raw(
@@ -1056,9 +913,7 @@ mod tests {
         (run_make_report(&args), out_path)
     }
 
-    /// The headline case: a permanently-refused grammar (no `--allow-unproven`)
-    /// produces a report that plainly says NOT SUPPORTED, names the refusing predicate/construct,
-    /// and marks build time/latency/coverage as not measured/not assessed -- NEVER a passing check.
+    /// A permanently-refused grammar names the refusing predicate/construct and marks every check not measured/not assessed, never passing.
     #[test]
     fn refused_grammar_report_names_not_supported_and_every_unmeasured_check() {
         let (result, out_path) = run_make_report_raw("refuse", REFUSE_GRAMMAR_XML, &[]);
@@ -1090,9 +945,7 @@ mod tests {
         assert!(text.contains("sha256="), "{text}");
     }
 
-    /// A clean `Admit` grammar with no corpus/no words: certifies (if it passes every threshold) or
-    /// at least reaches NotYet with named failures -- either way, every individual check must be
-    /// individually named with its measured value and threshold, never only a bare summary line.
+    /// A clean `Admit` grammar with no corpus/no words: every individual check is named with its measured value and threshold, never only a bare summary line.
     #[test]
     fn admit_grammar_report_names_every_check_individually() {
         let (result, out_path) = run_make_report_raw("admit", ADMIT_GRAMMAR_XML, &["--repeats=1"]);
@@ -1132,9 +985,7 @@ mod tests {
         assert!(text.contains("## Build time"), "{text}");
     }
 
-    /// Render-layer proof: not-assessed coverage must never appear as `PASS` in the
-    /// rendered checks table, on a grammar that WOULD otherwise certify cleanly (every other
-    /// threshold passing) -- proves the render layer, not just `certify` itself, respects the rule.
+    /// Render-layer proof: not-assessed coverage never appears as `PASS`, even on a grammar that would otherwise certify cleanly.
     #[test]
     fn not_assessed_coverage_never_renders_as_pass_in_the_table() {
         let (result, out_path) =
@@ -1156,8 +1007,7 @@ mod tests {
         );
     }
 
-    /// `--corpus` without `--attestor`/`--attested-on` (a partial attestation) is a hard, explicit
-    /// error -- never silently degrading to not-assessed or silently ignoring the corpus.
+    /// `--corpus` without `--attestor`/`--attested-on` is a hard, explicit error, never a silent downgrade to not-assessed.
     #[test]
     fn partial_coverage_attestation_is_a_hard_error() {
         let dir = scratch_dir("partial-attestation");
@@ -1172,9 +1022,7 @@ mod tests {
         assert!(err.contains("must all be given together"), "{err}");
     }
 
-    /// A full coverage attestation (`--corpus`/`--attestor`/`--attested-on` all given) is carried
-    /// through to the report, with both fixed honesty disclaimers (rate-not-accuracy,
-    /// attestation-not-measurement) present.
+    /// A full coverage attestation carries through to the report with both fixed honesty disclaimers: rate-not-accuracy, attestation-not-measurement.
     #[test]
     fn full_coverage_attestation_is_carried_through_with_both_disclaimers() {
         let dir = scratch_dir("full-attestation");
@@ -1199,9 +1047,7 @@ mod tests {
         assert!(text.contains("corpus.txt"), "{text}");
     }
 
-    /// `--allow-unproven` on the refused grammar: the report must show `NotSupported` (never
-    /// certifying), every check `BLOCKED` (never `PASS`), and must name the override as the reason
-    /// -- the render-layer proof of `readiness_verdict`'s own sabotage-tested rule 1.
+    /// `--allow-unproven` on the refused grammar: the report shows `NotSupported`, every check `BLOCKED` never `PASS`, and names the override as the reason.
     #[test]
     fn allow_unproven_override_report_blocks_every_check_and_never_certifies() {
         let (result, out_path) = run_make_report_raw(
@@ -1226,10 +1072,7 @@ mod tests {
         );
     }
 
-    /// A caller-supplied `--pack` file's REAL trust stamp is what this report certifies against --
-    /// never a value this command invents. Builds a real overridden `.pgpack` via `pangloss pack`
-    /// itself first, then feeds it to `make-report --pack=...` and confirms the report's trust
-    /// section reflects that pack's actual stamp.
+    /// A caller-supplied `--pack` file's real trust stamp is what this report certifies against, never a value this command invents.
     #[test]
     fn supplied_pack_trust_stamp_is_read_from_the_real_artifact() {
         let dir = scratch_dir("supplied-pack");
@@ -1263,27 +1106,7 @@ mod tests {
         );
     }
 
-    /// ONE `make-report` invocation must resolve the ADR 0001 capability
-    /// verdict from ONE `pg_foma::capability::characterize` walk, not one per consumer: the
-    /// preamble, `readiness_verdict::certify`, and every call inside `plan_diagram::build_plan_document`
-    /// (`plan_and_profile`, the second `plan_and_profile` inside `build_plan_document_for_plan`, and
-    /// `compose_envelope`) must all resolve from the same `GrammarSemantics` owner rather than each
-    /// rebuilding the whole profile, real `Simultaneous`-mode `foma::types::Fsm` construction
-    /// included.
-    ///
-    /// The fixture is the REFUSED grammar with no `--allow-unproven`, deliberately: that takes the
-    /// `!attempt_compile` branch, so no pack is built and no foma compile runs. The count this
-    /// measures is therefore exactly the capability derivations the shared owner is responsible
-    /// for. `pack::build_pack`'s trust stamp is reachable only on the compile path and is fixed by
-    /// the same shared owner, but is deliberately excluded from this count: including it would drag
-    /// in `emit.rs`'s own separate `compound_chain_depth_and_budget_check` characterize call, which
-    /// is not one of the duplicated verdict derivations, and this assertion could not then
-    /// attribute the total.
-    ///
-    /// The counter is thread-local (see `pg_foma::capability::characterize_call_count`), so the
-    /// reading is this test's own thread and cannot be polluted by tests running in parallel. The
-    /// non-zero assertion is not redundant: a thread-local count could otherwise "pass" by measuring
-    /// nothing at all if the work moved off-thread.
+    /// Why the count was 5 before this test's fix, and why `pack::build_pack`'s own characterize call is deliberately excluded from it: docs/research/pg-cli-make-report-characterize-once-regression.md.
     #[test]
     fn one_make_report_invocation_characterizes_the_grammar_exactly_once() {
         pg_foma::capability::reset_characterize_call_count();
@@ -1304,8 +1127,7 @@ mod tests {
         );
     }
 
-    /// Below-floor latency must never render as a literal `0` anywhere in the rendered report --
-    /// direct proof over the rendering helper itself, independent of any real timing noise.
+    /// Below-floor latency never renders as a literal `0`; direct proof over the rendering helper, independent of real timing noise.
     #[test]
     fn below_floor_latency_never_reports_as_a_bare_millis_zero() {
         let m = LatencyMeasurement::BelowFloor {
@@ -1342,22 +1164,7 @@ mod tests {
         assert!(err.contains("--repeats"), "{err}");
     }
 
-    // -----------------------------------------------------------------------------------------
-    // A golden report for one small synthetic fixture, regenerated from the
-    // generator's own output -- never hand-edited (mirrors `pg_foma::readiness_verdict`'s own
-    // `regenerate_readiness_verdict_golden_json` precedent exactly).
-    //
-    // A live end-to-end `run_make_report` run embeds REAL wall-clock timing (build time, latency
-    // percentiles) that varies run to run by construction -- a byte-for-byte golden of THAT output
-    // would be inherently flaky, not a real regression gate. So this golden pins the RENDERING
-    // layer instead: `render_markdown` fed fixed, hand-picked (not hand-edited-into-the-golden)
-    // inputs -- a fixed synthetic grammar, a fixed `Measurements` (same discipline
-    // `readiness_verdict`'s own golden fixture uses), and the REAL, deterministic
-    // `pg_foma::plan_diagram::build_plan_document`/`render_mermaid` output over that same fixed grammar (plan-diagram
-    // output is itself content-addressed and deterministic, per that module's own doc) --
-    // everything here is either a fixed literal or the real generator's own deterministic
-    // computation, never a live timer.
-    // -----------------------------------------------------------------------------------------
+    // A golden report over fixed, hand-picked inputs (never a live timer), since a live end-to-end run's real wall-clock timing would make a byte-for-byte golden inherently flaky.
 
     fn golden_report_markdown() -> String {
         let g = pg_grammar::load(ADMIT_GRAMMAR_XML).expect("golden fixture must load");
@@ -1376,8 +1183,7 @@ mod tests {
         };
         let verdict = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
 
-        // Real, deterministic composition (never a live timer) -- same functions the live command
-        // calls, over the same fixed fixture.
+        // Real, deterministic composition, never a live timer: the same functions the live command calls, over the same fixed fixture.
         let plan_doc = build_plan_document(&g);
         let render = render_mermaid(&plan_doc, RenderMode::default());
         let mermaid_summary_line = render_mermaid_summary_line(&render);
@@ -1464,19 +1270,8 @@ mod tests {
 
     const GOLDEN_MD: &str = include_str!("make_report_golden.md");
 
-    // -----------------------------------------------------------------------------------------
-    // Reference-grammar gate: `samples/data/{indonesian,amharic,sena}-hc.xml` are
-    // real-language corpus data, deliberately gitignored (this repo's own synthetic-conformance-
-    // only rule -- never committed). Gated exactly like `tests/f3_parity.rs`/`tests/
-    // readiness_certification_gate.rs`: unconditionally `#[ignore]`d, each with its own self-skip
-    // guard, so a fresh clone/CI run (no `samples/data/*`) stays green under `--include-ignored`.
-    // Run locally with `cargo test -p pg-cli --bin pangloss -- --include-ignored make_report::tests::reference`.
-    //
-    // Expected result, per `docs/benchmark-matrix.md`: NONE of the three certifies today -- all
-    // three are refused on exactly `mpr-group.overwrite-output`, a permanent carve-out. If any of
-    // these tests ever sees a passing check for one of these grammars, that is this report
-    // generator claiming something false, not a fixture becoming outdated.
-    // -----------------------------------------------------------------------------------------
+    // Reference-grammar gate: `samples/data/*-hc.xml` is real-language data, deliberately gitignored, so each test below self-skips when absent rather than depending on `--include-ignored` alone.
+    // Per docs/benchmark-matrix.md none of the three certifies today; a passing check here would mean this generator claims something false, not that the fixture went stale.
 
     fn sample_path(name: &str) -> std::path::PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -1,4 +1,4 @@
-//! Shared compiler for the exact P6 templated-morphotactics prototype pipeline.
+//! Shared compiler for the templated-morphotactics pipeline.
 
 use std::fmt;
 use std::time::{Duration, Instant};
@@ -16,7 +16,7 @@ use crate::analyzer::{prepare_network_for_apply, FomaProposer};
 use crate::emit::emit_underlying_templated;
 use crate::replace::{compile_and_compose_rules_recall_safe, SegAlphabet, TupleReport};
 
-/// Timings and sizes from each exact stage of the P6 pipeline.
+/// Timings and sizes from each exact stage of the pipeline.
 pub struct TemplatedCompileProfile {
     pub templated_emit_elapsed: Duration,
     pub lexc_compile_elapsed: Duration,
@@ -65,8 +65,7 @@ impl fmt::Display for TemplatedCompileError {
 
 impl std::error::Error for TemplatedCompileError {}
 
-/// Compile `g` through the exact manual pipeline formerly repeated by the P6 gate:
-/// templated underlying lexc, stratum-ordered rules, boundary cleanup, compose, minimize.
+/// Compiles `g` through the manual pipeline: templated underlying lexc, stratum-ordered rules, boundary cleanup, compose, minimize.
 pub fn compile_templated_morphotactics(
     g: &Grammar,
 ) -> Result<TemplatedCompileOutput, TemplatedCompileError> {
@@ -101,17 +100,7 @@ pub fn compile_templated_morphotactics(
     let mut skipped_rules = Vec::new();
     let mut tuple_reports = Vec::new();
     let started = Instant::now();
-    // A grammar with NO declared phonological rules has nothing for this stage to compose, and that
-    // is a legitimate shape now that `Applicability::HasPhonologyOrTemplates` can route a
-    // phonology-free, template-bearing grammar (the measured Sena shape) to this compiler on its
-    // templates alone. Before this, `rules_in_order` being empty still called
-    // `compile_and_compose_rules_recall_safe`, which returns `Ok(None)` when nothing composed, and
-    // that `None` was unconditionally turned into `NoCompiledRules` -- a guaranteed build failure for
-    // every phonology-free grammar, whether or not `HasPhonologyOrTemplates` ever offered this
-    // family. Checking `rules_in_order.is_empty()` up front keeps that failure for the case it is
-    // actually meant to catch (rules were declared but every one was skipped or failed to compile,
-    // still a real problem) while treating "no rules declared" as the identity: composing nothing
-    // into the lexc net below, mirroring how `cleanup_net` already treats an empty boundary set.
+    // A grammar declaring no phonological rules composes nothing here (the identity), keeping NoCompiledRules for its real failure mode: rules declared but every one skipped or failed to compile.
     let rule_net = if rules_in_order.is_empty() {
         None
     } else {
@@ -141,12 +130,7 @@ pub fn compile_templated_morphotactics(
         .collect::<Vec<_>>()
         .join(", ");
     let started = Instant::now();
-    // A grammar with NO boundary char-defs has nothing to delete, and `cleanup_regex` is then the
-    // empty string, which `foma::regex::fsm_parse_regex` does not accept as a regex -- skip the
-    // pass rather than attempting to compile it. Skipping is the correct semantics, not a
-    // workaround: deleting nothing from a tape with no boundary tokens on it is the identity, and
-    // it matches how the two optional layers above are already handled (`Some` compose / `None`
-    // leave alone).
+    // An empty `cleanup_regex` is not accepted by `fsm_parse_regex`, so skip the pass: deleting nothing from a tape with no boundary tokens is the identity anyway.
     let cleanup_net = if boundary_tokens.is_empty() {
         None
     } else {
@@ -182,8 +166,7 @@ pub fn compile_templated_morphotactics(
     prepare_network_for_apply(&mut network);
     let apply_prepare_elapsed = started.elapsed();
 
-    // apply_init clones `network`; the returned proposer is wholly owned before this function
-    // returns and carries the token encoder needed for raw orthographic queries.
+    // apply_init clones `network`, so the returned proposer is wholly owned here.
     let proposer = FomaProposer::from_precompiled_network(&network, emitted.report)
         .with_segment_query_encoder(table);
 
@@ -225,19 +208,7 @@ mod tests {
         Some(grammar)
     }
 
-    /// Correctness pin for the `HasPhonologyOrTemplates` routing widening
-    /// (`recipe_registry::Applicability`): this compiler must actually build for a template-bearing
-    /// grammar that declares NO phonological rules, not just for the phonology-bearing shape its
-    /// existing callers exercised.
-    ///
-    /// Before this fix, an empty `rules_in_order` still ran
-    /// `compile_and_compose_rules_recall_safe`, which returns `Ok(None)` when nothing composed, and
-    /// that `None` was unconditionally turned into `Err(NoCompiledRules)` via `.ok_or(..)` --
-    /// exactly the failure `Applicability::HasPhonology`'s own doc comment predicted. It was never
-    /// reproduced in practice only because the old gate never routed a phonology-free grammar to
-    /// this compiler at all. Checking `rules_in_order.is_empty()` up front (mirroring how
-    /// `cleanup_net` already treats an empty boundary set as the identity) fixes it while leaving the
-    /// "rules were declared but none survived compilation" failure mode untouched.
+    /// This compiler must actually build for a template-bearing grammar that declares no phonological rules, not just for the phonology-bearing shape its existing callers exercised.
     #[test]
     fn phonology_free_templated_grammar_compiles_through_this_path() {
         let fixtures = pg_conformance_fixtures::discover();
@@ -272,8 +243,7 @@ mod tests {
              states / {arcs} arcs"
         );
 
-        // The zero-slot boundary word (`words.yaml`'s first entry, C(12,0) = 1 analysis): a plain
-        // propose against the compiled network must find at least one candidate.
+        // The zero-slot boundary word: a plain propose against the compiled network must find at least one candidate.
         let mut proposer = compiled.proposer;
         let candidates = proposer.propose("k");
         assert!(

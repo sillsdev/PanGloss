@@ -1,21 +1,4 @@
-//! Throwaway diagnostic: a full `pg_foma::emit::emit(&grammar)` run on Aweti (1022 lex entries, 18
-//! phon rules) blew past 4.9GB RSS without finishing inside `crate::preexpand::build_composites`
-//! (that module's own doc: "O(roots × rules^depth) ... decidedly NOT at FLEx scale"). This probe
-//! stops BEFORE that expensive recursive step and prints `composite_scale_hint`'s cheap pre-flight
-//! numbers (candidate rule count, root count), PLUS a structural (template-slot-aware) count of
-//! how many rule-application chains the real morphotactics actually permits, to size the payoff of
-//! template-slot pruning WITHOUT ever calling `build_composites`/`build_structural_composites`/
-//! `emit()` on a grammar this large. Not part of any suite; delete once Aweti's scaling story is
-//! understood.
-//!
-//! DO NOT call `pg_foma::emit::emit()` or `crate::preexpand::build_composites` on aweti.json here —
-//! that is exactly the OOM this probe exists to avoid re-triggering.
-//!
-//! Usage: cargo run -p pg-foma --release --example aweti_probe -- [grammar-path]
-//!   grammar-path: a `.json` pg-snapshot (loaded via `pg_snapshot` + `pg_grammar::compile_project`,
-//!   same path `pg-cli`'s snapshot loader uses) or a legacy `*-hc.xml` grammar (loaded via
-//!   `pg_grammar::load`, mirroring `examples/deadend_census.rs::load_grammar`). Defaults to
-//!   `../../../samples/data/aweti.json` (relative to `CARGO_MANIFEST_DIR`) when omitted.
+//! Diagnostic that must never call `pg_foma::emit::emit()` or `preexpand::build_composites` directly (both OOM on large grammars); prints `composite_scale_hint`'s cheap pre-flight numbers plus a structural rule-chain count instead, to size template-slot pruning's payoff without paying that cost.
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -36,9 +19,7 @@ fn default_aweti_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/data/aweti.json")
 }
 
-/// `.json` -> pg-snapshot + `pg_grammar::compile_project` (same path `aweti_probe` always used).
-/// `*.xml` -> `pg_grammar::load`, mirroring `examples/deadend_census.rs::load_grammar` exactly (the
-/// legacy HC XML loader pg-cli and every other example use for Sena/Indonesian/Amharic).
+/// Dispatches on file extension: `.json` loads via `pg_grammar::compile_project`; `.xml` uses the legacy `pg_grammar::load` path.
 fn load_grammar(path: &Path) -> Grammar {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     if ext.eq_ignore_ascii_case("xml") {
@@ -61,11 +42,7 @@ fn load_grammar(path: &Path) -> Grammar {
 
 // --- Rule-vacuity / slot-skippability (mirrors preexpand.rs's own semantics, read-only) -----------
 
-/// Does this rule have at least one allomorph whose RHS inserts NO non-empty surface text — i.e. it
-/// can attach without adding any surface material at all ("silently skippable" for the PRUNED
-/// automaton's slot-skippability test)? A `Compounding` rule is never a candidate but MAY appear in
-/// a slot's `rules` list purely for skippability purposes — per spec, treated as NON-vacuous there
-/// (compounding always consumes a real extra root, never a silent skip).
+/// True if some allomorph inserts no surface text (silently skippable); `Compounding` rules are always treated as non-vacuous since they consume a real root.
 fn rule_may_be_vacuous(g: &Grammar, mid: MRuleId) -> bool {
     let allomorphs: &[AffixAllomorphDef] = match &g.mrules[mid.0 as usize] {
         MorphRuleDef::AffixProcess(def) => &def.allomorphs,
@@ -94,11 +71,7 @@ fn rule_req_fs(g: &Grammar, mid: u32) -> FsId {
 
 // --- Template-slot-position reachability (walk of a skippable-run) --------------------------------
 
-/// Every slot index reachable starting at `start` (a slot index, or `slots.len()` if nothing is
-/// reachable) such that every slot strictly between the (implicit) origin and the reached index is
-/// skippable — i.e. walk forward from `start`, always including the first stop, continuing only
-/// while the just-included slot is itself skippable. Used for both `first_reachable(t)` (`start =
-/// 0`) and "reachable from position k" (`start = k+1`).
+/// Walks forward from `start`, including each visited slot, stopping after the first non-skippable one.
 fn reachable_targets(start: usize, skippable: &[bool]) -> Vec<usize> {
     let mut out = Vec::new();
     let mut p = start;
@@ -202,13 +175,7 @@ fn build_morphotactics(
 type MidSet = Vec<(usize, usize)>;
 type State = (Option<usize>, MidSet);
 
-/// Every legal move from `(free, mid)`: grouped by rule id (per spec, "same rule reached via
-/// multiple contributions = ONE move with merged state" — genuine NFA subset-construction: firing
-/// rule `r` only carries forward configurations `r` itself advances; anything `r` doesn't touch is
-/// dropped, matching "next.mid = union of contributed positions" read literally).
-/// `root_fs`: `Some` for the PRUNED+FS hybrid (task 3e) — an ADDITIONAL static filter requiring the
-/// rule's own `req_fs` be empty or unifiable with this fixed anchor FS (the DP itself never updates
-/// it — a crude approximation, per spec).
+/// Subset-construction step: moves are grouped by rule id, merging states reached via multiple contributions; `root_fs`, if given, statically filters candidates by unifiability without ever updating the FS.
 fn legal_moves(
     g: &Grammar,
     mt: &Morphotactics,
@@ -349,8 +316,7 @@ fn main() {
             sd.templates.iter().map(|t| t.0).collect::<Vec<_>>()
         ));
     }
-    // Membership classification: which mrules are loose (in some stratum's mrules list) vs.
-    // slot-only (reachable only inside a template application) vs. both vs. neither.
+    // Classifies each mrule as loose, slot-only, both, or neither.
     let mut loose = vec![false; grammar.mrules.len()];
     let mut slotted = vec![false; grammar.mrules.len()];
     for sd in &grammar.strata {
@@ -578,10 +544,7 @@ fn main() {
         "structural (build_structural_composites) probe_would_refuse={} candidate_rules={}",
         diag.structural_probe_would_refuse, diag.structural_candidate_count
     ));
-    // struct_extend (crates/pg-foma/src/emit.rs's second flat-pool builder) has NO template
-    // pruning at all -- it is flat depth-3 over `structural_candidate_rules(g)` unconditionally,
-    // so its own cost floor is worth printing regardless of whether `probe_would_refuse` widened
-    // that candidate set (the widening just makes an already-nonzero floor much bigger).
+    // `struct_extend` has no template pruning: it is flat depth-3 unconditionally, so its cost floor exists even without `probe_would_refuse` widening.
     let sc = diag.structural_candidate_count as u64;
     let struct_flat_per_root = sc + sc * sc + sc * sc * sc;
     let struct_flat_total = struct_flat_per_root * total_roots;

@@ -1,22 +1,10 @@
-//! Ports `LexEntryTests` (parse-opt: `tests/SIL.Machine.Morphology.HermitCrab.Tests/LexEntryTests.cs`)
-//! bucket-B rows per `rust/parity-out/audit/phase2/D-test-coverage-map.md` §3. Grammar/lexicon shared
-//! via `csharp_port_common` (entries `disj`/`free`/`54` transcribed verbatim from
-//! `HermitCrabTestBase.cs`); every test drives `pg_parse::Morpher::parse_word`, matching each C#
-//! test's own `morpher.ParseWord(...)` calls. Expected values are transcribed from the C# source's
-//! `AssertMorphsEqual`/`Is.Empty` literals.
-//!
-//! `StemNames` (D-batch-3) is now ported here — the W5 realizational-cluster port unlinted
-//! `StemName` (see `stem_names`). `BoundRootAllomorph`/`AllomorphEnvironments` (already bucket A
-//! via `pg-rules/tests/validity_gate.rs`) remain out of this file's scope.
+//! Ports `LexEntryTests` (`SIL.Machine.Morphology.HermitCrab.Tests`). Grammar/lexicon shared via `csharp_port_common` (entries `disj`/`free`/`54` transcribed verbatim from `HermitCrabTestBase.cs`); every test drives `pg_parse::Morpher::parse_word`, matching each C# test's own `ParseWord` calls, with expected values transcribed from `AssertMorphsEqual`/`Is.Empty` literals.
 
 mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq, build_grammar};
 use pg_parse::Morpher;
 
-/// Ports `LexEntryTests.DisjunctiveAllomorphs` (LexEntryTests.cs:13-39), positive/live half. The
-/// "disj" root's 4 allomorphs are environment-disjunctive; the un-suffixed and "baz"-suffixed forms
-/// (which don't turn on the boundary-transparency question raised in
-/// `disjunctive_allomorphs_environment_across_boundary_diverges`) round-trip correctly.
+/// Ports `LexEntryTests.DisjunctiveAllomorphs`'s positive half: the "disj" root's 4 environment-disjunctive allomorphs round-trip correctly for the un-suffixed and "baz"-suffixed forms.
 #[test]
 fn disjunctive_allomorphs() {
     let g = build_grammar("", "", ED_UD_SUFFIX_MRULE, "mrEd", "");
@@ -36,20 +24,7 @@ const ED_UD_SUFFIX_MRULE: &str = r#"
   </MorphologicalRule>
 "#;
 
-/// Ports `LexEntryTests.DisjunctiveAllomorphs`'s negative half (`LexEntryTests.cs:35-37`):
-/// `batɯd`/`badɯd`/`basɯd` all fail; only `bazɯd` succeeds. Un-ignored by W3.2 (plan #5d,
-/// history row `987be2fd`): the W11 port initially flagged this as a mystery ("a stricter
-/// environment succeeding while a looser one fails is impossible if both are checked the same
-/// way"), but the mechanism is not environment matching at all — it is the disjunctive-allomorph
-/// final re-check (`Allomorph.IsWordValid`'s second loop, Allomorph.cs:127-152): the "disj"
-/// root's allomorphs are ordered `baz`(0, unrounded-V env) / `bat`(1, V env) / `bad`(2, V env) /
-/// `bas`(3, elsewhere), and a word using a later-indexed allomorph is REJECTED whenever an
-/// earlier-indexed, non-free-fluctuating alternative's environment is also satisfied at the same
-/// morph position — before `ɯd`, allomorph 0's "followed by an unrounded vowel" is satisfied, so
-/// every later allomorph loses to it (first-listed-wins disjunctivity), while `bazɯd` itself has
-/// no earlier rival. Now implemented in `pg-rules/src/validity.rs` (the `passed_over`/
-/// `Range(0, Index)` candidate loop); the freestanding oracle fixture is
-/// `rust/conformance/allomorphy/disjunctive-recheck/`.
+/// Ports `LexEntryTests.DisjunctiveAllomorphs`'s negative half: a later-indexed disjunctive allomorph is rejected whenever an earlier-indexed alternative's environment is also satisfied at the same position (first-listed-wins), so only `bazɯd` succeeds among `batɯd`/`badɯd`/`basɯd`/`bazɯd`.
 #[test]
 fn disjunctive_allomorphs_environment_across_boundary_diverges() {
     let g = build_grammar("", "", ED_UD_SUFFIX_MRULE, "mrEd", "");
@@ -59,10 +34,7 @@ fn disjunctive_allomorphs_environment_across_boundary_diverges() {
     assert_empty(&m.parse_word("basɯd"));
 }
 
-/// Ports `LexEntryTests.FreeFluctuation` (LexEntryTests.cs:41-83). The "free" root's `taz`/`tas`
-/// allomorphs are both unconstrained (free fluctuation, no distinguishing environment), and
-/// `ed_suffix` ALSO has two unconstrained allomorphs (`+t` / `+`+voiced-alveolar-stop) -- every
-/// combination of root-allomorph x affix-allomorph surfaces, all glossed "free PAST".
+/// Ports `LexEntryTests.FreeFluctuation`: the "free" root's two unconstrained allomorphs and `ed_suffix`'s two unconstrained allomorphs surface in every combination, all glossed "free PAST".
 #[test]
 fn free_fluctuation() {
     let mrules = r#"
@@ -87,12 +59,7 @@ fn free_fluctuation() {
     assert_morphs_eq(&m.parse_word("tasd"), &["free PAST"]);
 }
 
-/// Ports `LexEntryTests.PartialEntry` (LexEntryTests.cs:265-316). Entry "54" ("pi") carries an
-/// EMPTY syntactic FS (`IsPartial=true`, matching a FLEx placeholder/underspecified entry): a
-/// V-requiring `nominalizer` still applies to it (empty unifies with anything), so "pi"/"piv" both
-/// parse. Once `nominalizer` is replaced by an optional-slot template (`s_suffix`), "pi" still parses
-/// bare but "pis" does NOT (Tier-2 #13 gate 2: the *root morpheme* being partial blocks the template
-/// from ever being applicable, so there is no path to attach "s").
+/// Ports `LexEntryTests.PartialEntry`: entry "54" carries an empty syntactic FS (`IsPartial=true`), so a V-requiring rule still applies (empty unifies with anything), but a partial root morpheme blocks a template from ever being applicable at all.
 #[test]
 fn partial_entry() {
     let mrules_nominalizer = r#"
@@ -129,17 +96,8 @@ fn partial_entry() {
     assert_empty(&m2.parse_word("pis"));
 }
 
-/// Ports `LexEntryTests.StemNames` (LexEntryTests.cs:85-166, W5/D-batch-3 — formerly out of scope
-/// per this file's module doc; the W5 realizational-cluster port unlints `StemName`). The
-/// `stemname` root (`HermitCrabTestBase.cs:722-768`: FS `{V, head:{tense:pres}}`, allomorphs
-/// `san`/`sad`/`sap`, with `sad` restricted to stem name `sn1` = regions `{pers:1}|{pers:2}` and
-/// `sap` to `sn2` = `{pers:1}|{pers:3}`) is supplied via `build_grammar_w5`'s extra-lexicon
-/// block; three suffix rules assign `pers` 1/2/3 via `OutputHeadFeatures` exactly as the C# test's
-/// `ed`/`t`/`s` suffixes do. Every `AssertMorphsEqual` literal is transcribed verbatim; the
-/// interesting rows are `sadɯd`/`sapɯd` (same `pers=1`, DIFFERENT allomorphs both valid, because
-/// `sn1`/`sn2` share the `{pers:1}` region and `StemName.IsExcludedMatch` exempts shared regions)
-/// and `sanɯd`/`sant`/`sans` (the unrestricted `san` is blocked wherever either named stem's
-/// region claims the word's `pers` value).
+/// Ports `LexEntryTests.StemNames`.
+/// See `docs/research/csharp-port-stem-names.md` for the shared-region exemption the interesting rows (`sadɯd`/`sapɯd`) pin down.
 #[test]
 fn stem_names() {
     let stem_names = r#"
@@ -158,8 +116,7 @@ fn stem_names() {
         </StemName>
       </StemNames>
     "#;
-    // ed_suffix/t_suffix/s_suffix (LexEntryTests.cs:90-148): RequiredSyntacticFeatureStruct V,
-    // OutSyntacticFeatureStruct head pers=1/2/3, glosses "1"/"2"/"3".
+    // ed_suffix/t_suffix/s_suffix: require syntactic FS V, output head pers=1/2/3, glosses "1"/"2"/"3".
     let mrules = r#"
       <MorphologicalRule id="mrSnEd" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>ed_suffix</Name>
         <MorphologicalSubrules>
@@ -213,22 +170,19 @@ fn stem_names() {
     );
     let m = Morpher::new(&g, usize::MAX);
 
-    // LexEntryTests.cs:152-155: the unrestricted `san` allomorph is excluded wherever a named
-    // stem's region claims the suffixed word's pers value; the bare form parses.
+    // The unrestricted `san` allomorph is excluded wherever a named stem's region claims the suffixed word's pers value; the bare form parses.
     assert_empty(&m.parse_word("sanɯd"));
     assert_empty(&m.parse_word("sant"));
     assert_empty(&m.parse_word("sans"));
     assert_morphs_eq(&m.parse_word("san"), &["stemname"]);
 
-    // cs:157-160: `sad`/sn1 covers pers 1 and 2 only; the bare form fails sn1's IsRequiredMatch
-    // (no pers on the word at all).
+    // `sad`/sn1 covers pers 1 and 2 only; the bare form fails sn1's IsRequiredMatch (no pers on the word at all).
     assert_morphs_eq(&m.parse_word("sadɯd"), &["stemname 1"]);
     assert_morphs_eq(&m.parse_word("sadt"), &["stemname 2"]);
     assert_empty(&m.parse_word("sads"));
     assert_empty(&m.parse_word("sad"));
 
-    // cs:162-165: `sap`/sn2 covers pers 1 and 3 only; `sapɯd` (pers=1, sn1's SHARED region) is
-    // the exempted-shared-region row.
+    // `sap`/sn2 covers pers 1 and 3 only; `sapɯd` (pers=1, sn1's shared region) is the exempted-shared-region row.
     assert_morphs_eq(&m.parse_word("sapɯd"), &["stemname 1"]);
     assert_empty(&m.parse_word("sapt"));
     assert_morphs_eq(&m.parse_word("saps"), &["stemname 3"]);

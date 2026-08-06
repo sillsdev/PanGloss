@@ -1,12 +1,4 @@
-//! P12 chunk 6 acceptance test: phonological rule tracing (`pg_rules::rewrite`/`pg_rules::metathesis`
-//! wired into `pg_rules::stratum::synthesize_stratum_traced`'s trailing prule application, plus the
-//! live `stratum.rs` call-site swap that makes it observable through `Morpher::parse_word_traced`).
-//!
-//! Before this chunk, a `--trace` run's tree had zero `PhonologicalRuleSynthesis`/
-//! `PhonologicalRuleAnalysis` nodes anywhere, no matter how many phonological rules actually fired --
-//! chunk 6 closes that gap on the SYNTHESIS side (the analysis-side stratum caller
-//! (`StratumAnalyzer::analyze`) is itself untraced, a separate, pre-existing, documented P12 gap; see
-//! `rust-optimizations-phase2.md`'s P12 section).
+//! Phonological rule tracing: `pg_rules::rewrite`/`pg_rules::metathesis` wired into `synthesize_stratum_traced`'s trailing prule application, observable through `Morpher::parse_word_traced` (the analysis-side stratum caller remains untraced).
 
 mod csharp_port_common;
 use csharp_port_common::build_grammar;
@@ -28,11 +20,7 @@ fn phon_synth_nodes(
     }
 }
 
-/// A single feature-change rewrite rule (final devoicing: C -> VlUnasp / _ #), reusing the shared
-/// grammar's `ncC`/`ncVlUnasp` natural classes and `posV` roots "11"/"12" (underlying "gab") --
-/// `csharp_port_rewrite.rs::anchor_rules` case (2)'s exact rule/grammar shape, minus the case (1)
-/// root ("10") that test's own doc flags as separately broken (unrelated to this rule -- a
-/// cross-table `StrRep` gap in root lookup, not the rewrite rule itself).
+/// A single feature-change rewrite rule (final devoicing: C -> VlUnasp / _ #), reusing the shared grammar's `ncC`/`ncVlUnasp` natural classes.
 fn devoicing_grammar() -> pg_grammar::model::Grammar {
     build_grammar(
         r#"<PhonologicalRule id="pr3"><Name>rule3</Name>
@@ -53,9 +41,7 @@ fn devoicing_grammar() -> pg_grammar::model::Grammar {
 fn live_trace_shows_phonological_rule_applied_for_a_word_the_rule_fires_on() {
     let g = devoicing_grammar();
     let m = Morpher::new(&g, usize::MAX);
-    // "gap": root "11"/"12" (underlying "gab") word-final-devoiced to "gap" by rule3 during
-    // synthesis's trailing-prule pass -- confirming the parse succeeds at all already exercises the
-    // rule (analysis un-devoices "p" back to an optional "b"/"p", then synthesis re-devoices it).
+    // "gap": word-final-devoiced from underlying "gab" by rule3 during synthesis's trailing-prule pass; a successful parse already exercises the rule.
     let word = "gap";
     let plain = m.parse_word(word);
     let sink = TreeTraceSink::new();
@@ -95,11 +81,7 @@ fn live_trace_shows_phonological_rule_applied_for_a_word_the_rule_fires_on() {
 fn live_trace_reports_pattern_fallback_for_a_word_the_rule_never_matches() {
     let g = devoicing_grammar();
     let m = Morpher::new(&g, usize::MAX);
-    // Root "44" (posV, underlying "gigigi") from the shared lexicon: every segment is a vowel, so
-    // rule3's LHS target (`ncC`, a consonant natural class) never finds a single match position
-    // anywhere in the word -- `syn_feature`'s scan comes back empty, so subrule 0 must report
-    // `NotApplied(Pattern)` on this derivation (there is no more specific gate to have failed: no
-    // MPR/POS restriction is declared on this subrule at all).
+    // Every segment of "gigigi" is a vowel, so rule3's consonant-only LHS never finds a match position, and subrule 0 must report `NotApplied(Pattern)`.
     let word = "gigigi";
     let plain = m.parse_word(word);
     let sink = TreeTraceSink::new();
@@ -126,10 +108,7 @@ fn live_trace_reports_pattern_fallback_for_a_word_the_rule_never_matches() {
     );
 }
 
-/// `pg_rules::metathesis::synthesize_cached_traced`'s live-wiring, via
-/// `csharp_port_metathesis.rs::simple_rule`'s exact grammar (adjacent i/u swap). Metathesis has no
-/// subrules (`MetathesisRuleDef` carries ONE pattern, no gate) -- `subrule_index` is always `-1`
-/// (`SynthesisMetathesisRule.cs:47,52`), unlike every rewrite-rule node above.
+/// `pg_rules::metathesis::synthesize_cached_traced`'s live-wiring; metathesis has no subrules, so `subrule_index` is always `-1`, unlike every rewrite-rule node above.
 #[test]
 fn live_trace_shows_metathesis_rule_applied() {
     let g = build_grammar(

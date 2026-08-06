@@ -1,17 +1,4 @@
-//! Templated-morphotactics prototype driver: the Aweti sibling of
-//! `examples/p6_replace_prototype.rs` (Indonesian). Builds the composed network
-//! `underlying-lexc(templated) .o. prule1 .o. .. .o. prule18 .o. boundary-cleanup` for Aweti (855
-//! entries, 135 mrules, 18 prules, 14 templates/43 slots, 3 strata) using
-//! `pg_foma::emit::emit_underlying_templated` instead of the enumeration-based
-//! `pg_foma::emit::emit` (which OOMs on this grammar — `p6_templated_diagnostics.rs`'s/the emit
-//! budget's own numbers: 2,833,559 fusion entries, a 691MB/9.7M-line lexc, ~8.8GB `apply_up`
-//! allocation). Unlike its Indonesian sibling, this driver does NOT attempt a full-corpus
-//! recall-parity gate — see the comment above the spot-check section below (and
-//! `tests/p6_aweti_gate.rs`'s own module doc) for why: `apply_up` against the composed network
-//! can run for a very long time on some real corpus words, with no reliable in-process way to
-//! bound it, discovered while building this driver.
-//!
-//! Run: `cargo run --release -p pg-foma --example p6_aweti_replace_prototype`
+//! Prototype driver: composes an underlying-templated lexc network for a large grammar via `emit_underlying_templated` (`emit::emit` OOMs on it), and skips a full-corpus recall gate since `apply_up` against the composed network can hang unboundedly on some words with no reliable in-process bound.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -30,10 +17,7 @@ use pg_grammar::chardef::CharDefKind;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions};
 
-/// Same large-stack convention `p6_replace_prototype.rs`/`p6_templated_rules_probe.rs` use — the vendored
-/// foma-rs's own `fsm_compose`/`fsm_minimize` constructions and this crate's own morphotactic
-/// derivation-layer recursion both recurse deeply enough (14 templates/43 slots here) to overflow
-/// the default thread stack.
+/// Large stack: `fsm_compose`/`fsm_minimize` plus this grammar's deep template/slot recursion can overflow the default thread stack.
 const STACK_BYTES: usize = 512 * 1024 * 1024;
 
 fn sample_path(name: &str) -> PathBuf {
@@ -102,9 +86,7 @@ fn run() {
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
 
-    // ---------------------------------------------------------------------------------------
-    // 1. Templated underlying-form lexc emitter (the P6 milestone under test).
-    // ---------------------------------------------------------------------------------------
+    // 1. Templated underlying-form lexc emitter.
     let t_emit = Instant::now();
     let result = emit_underlying_templated(&g, &alphabet, None);
     let emit_elapsed = t_emit.elapsed();
@@ -148,10 +130,7 @@ fn run() {
         lexc_net.statecount, lexc_net.arccount
     );
 
-    // ---------------------------------------------------------------------------------------
-    // 2. Compile + compose the 18 phonological rules, in stratum/document order (mirrors
-    //    `p6_templated_rules_probe.rs`'s own stratum-order collection).
-    // ---------------------------------------------------------------------------------------
+    // 2. Compile and compose the phonological rules, in stratum order.
     let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
     for st in &g.strata {
         for &prid in &st.prules {
@@ -192,9 +171,7 @@ fn run() {
         rule_net.statecount, rule_net.arccount
     );
 
-    // ---------------------------------------------------------------------------------------
-    // 3. Boundary cleanup: every Boundary-kind char-def's token -> 0 (deleted), applied LAST.
-    // ---------------------------------------------------------------------------------------
+    // 3. Boundary cleanup: every Boundary-kind char-def token maps to 0 (deleted), applied last.
     let boundary_tokens: Vec<char> = table
         .iter()
         .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
@@ -209,9 +186,7 @@ fn run() {
     let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None)
         .unwrap_or_else(|| panic!("boundary cleanup regex failed to compile: {cleanup_regex:?}"));
 
-    // ---------------------------------------------------------------------------------------
-    // 4. Compose: lexc .o. rules .o. cleanup, then minimize.
-    // ---------------------------------------------------------------------------------------
+    // 4. Compose lexc, rules, and cleanup, then minimize.
     let t_compose = Instant::now();
     let composed = fsm_compose(&opts, lexc_net, rule_net);
     let composed = fsm_compose(&opts, composed, cleanup_net);
@@ -224,34 +199,8 @@ fn run() {
 
     let mut handle = apply_init(&composed);
 
-    // ---------------------------------------------------------------------------------------
-    // 5/6. SPOT-CHECK RECALL ONLY -- a full-corpus parity gate is NOT attempted here (deliberate
-    // scope decision, not an oversight). See the module doc's investigation record and
-    // `tests/p6_aweti_gate.rs`'s own module doc for the full write-up; summary:
-    //
-    // `apply_up` against this composed network is safe/fast for SOME queries and can run for a
-    // very long time (observed: minutes, stopped only by an external OS-level process kill -- no
-    // in-process technique tried, including a worker-thread + `mpsc::recv_timeout` that was
-    // independently verified to work against a synthetic spinning thread, reliably bounded it)
-    // for OTHERS, with no way to predict which from the query alone. Iterating the whole corpus
-    // here the way `p6_replace_prototype.rs` does for Indonesian would risk this process hanging
-    // indefinitely. Individually verified (external-kill-safe) instead:
-    //   - "parua" (oracle: 1 analysis, bare root, no affixes): resolves at raw result #1, <1ms.
-    //   - "an" (oracle: 1 analysis): completes 250,000 raw results fast (~146ms) but does NOT
-    //     decode the correct analysis anywhere in that window -- a genuine miss, not a timeout.
-    //   - "ti": did not complete even 500 raw results within 45s of wall clock; killed externally.
-    // Root-cause hypothesis (not fully proven at the composed-FSM transition-table level, but
-    // well-supported by the word-dependent behavior above): `build_deriv_chain`'s ~24-level
-    // template-less suffix derivation chain re-offers the SAME ~24 standalone suffix mrules at
-    // every level (no "each specific rule used at most once" bookkeeping -- a property that
-    // predates this P6 work, shared with the mainline `SurfaceProbed` path, simply never
-    // previously observable for Aweti since `emit_with_budget`'s own composite pipeline always
-    // OOMs first). Several of those rules have an "elsewhere" allomorph whose entire underlying
-    // insert text is a single Boundary-kind token (`"+"` alone); `boundary_cleanup` turns that
-    // into a true epsilon-on-lower/tag-on-upper arc, and `fsm_minimize` may be collapsing
-    // structurally-identical derivation levels into far fewer states than 24 -- quite possibly
-    // introducing a genuine cycle (an unboundedly-repeatable free tag insertion), which would
-    // explain "hangs, does not merely run long" for queries whose search reaches it.
+    // 5/6. Spot-check recall only: a full-corpus parity gate is deliberately not attempted here.
+    // See docs/research/templated-underlying-apply-up-hang.md for why apply_up can hang unboundedly on this composed network.
     println!("\n--- spot-check recall (NOT a full-corpus gate -- see comment above) ---");
     let morpher = Morpher::new(&g, usize::MAX);
     let popts = ParseOptions::default();

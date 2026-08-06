@@ -1,97 +1,5 @@
-//! ## Delanguaging note
-//! Still corpus-blocked: needs `samples/data/aweti.json` + `samples/data/aweti-words.txt`
-//! (gitignored). This IS the gate for the exact historical pathology this file's own §"deriv
-//! chain" doc below describes — MEASURED result (see `tests/phase_c_chain_scale.rs`'s own module
-//! doc, `examples/deep_chain_scale_probe.rs`/`examples/deep_chain_compose_probe.rs`): a synthetic
-//! deep standalone-affix chain (`pg_grammar_gen::build::chain`) at this grammar's own real
-//! per-zone rule-count scale (N=24) does NOT reproduce the apply_up explosion/OOM this grammar
-//! historically hit — both the bare net and one composed against a trivial identity rule stay in
-//! the microsecond range even on a deliberately maximally-path-ambiguous query. The likely missing
-//! ingredient (not independently confirmed) is real, content-differentiated rule interaction (this
-//! grammar's own real phonological conditioning + its two independent per-zone chain instances),
-//! which a synthetic recipe using inert identity-like rules cannot exercise. This gate therefore
-//! stays genuinely corpus-blocked, not merely unattempted. Kept `#[ignore]`d unconditionally.
-//!
-//! Templated-morphotactics acceptance gate: the Aweti gate, mirroring
-//! `examples/p6_aweti_replace_prototype.rs`'s own compose flow, as a real, CI-shaped `#[ignore]`d
-//! test — matching `f2_junction_gate.rs`/`f3_interdigitation_gate.rs`'s own self-skip-guard
-//! convention for a gitignored real-language corpus fixture.
-//!
-//! ## Why this exists (not just the example)
-//! `pg_foma::emit::emit` (the enumeration-based emitter) OOMs on Aweti before ever reaching a
-//! compilable lexc source (855 entries, 135 mrules — the composite pre-expansion stage trips the
-//! enumeration budget). Test (a) below is the first thing that gets Aweti's templated
-//! (`<AffixTemplate>`-based) morphotactics past that wall at all, via
-//! `pg_foma::emit::emit_underlying_templated` + a replace-rule cascade
-//! (`pg_foma::replace::compile_and_compose_rules_recall_safe`) — this is fully achieved and
-//! asserted here: valid `tier`, plausible counts, clean lexc/rule compile, successful `.o.`
-//! composition + minimize (35,846 states / 800,354 arcs).
-//!
-//! ## `build_deriv_chain`'s dedicated-level-per-rule chain restriction
-//! An earlier investigation found `apply_up` against the composed network hanging indefinitely
-//! for some query words (`"ti"` did not complete even 500 raw results within 45s and had to be
-//! killed externally) — root-caused to `build_deriv_chain`'s legacy strategy offering the SAME
-//! full standalone-rule set at EVERY one of its ~11-24 levels, letting an epsilon-yielding rule's
-//! tag be chosen up to 22x (prefix)/48x (suffix) along one path.
-//! `pg_foma::emit::build_deriv_chain`'s dedicated-level-per-rule strategy (one rule per level,
-//! `TextMode::UnderlyingTokens` only — the `SurfaceProbed`/mainline `emit()` path is completely
-//! unchanged, verified by the Indonesian/Sena/parity gates staying green) fixes this: the composed
-//! network shrank from 35,846 states/800,354 arcs to 14,806 states/270,541 arcs, and `apply_up` on
-//! `"ti"`/`"an"`/`"parua"` all terminate promptly.
-//!
-//! ## Full-corpus recall gate (composition-based, no `apply_up`)
-//! `b_full_corpus_recall_via_compose` uses the composition technique (word-FST `.o.`
-//! composed net, `fsm_upper`, intersect against each oracle analysis's own tag acceptor,
-//! `fsm_isempty`) — an ordinary, terminating automaton construction with NO backtracking search
-//! and NO query-ordering dependence, safe to run over the whole corpus (`Morpher::new(&g,
-//! ORACLE_STEP_CAP)` for the oracle throughout — `usize::MAX` is NOT actually safe for Aweti: the
-//! corpus word `"tomoʼatu"` ran the HC engine itself for >10 minutes uncapped).
-//!
-//! **Measured: 32/104 = 30.8% (honest, post-detection).** History of this number:
-//! - A chain-restriction-era diagnostic measured 68/104 (equivalently 65/101 with 3 probe words
-//!   excluded). That figure was inflated: it was reachability inside a network in which Aweti's
-//!   two non-`Iterative`/`LeftToRight` rules were SILENTLY MIS-COMPILED as plain foma `->` (the
-//!   old `replace.rs` read and discarded `rule.mode`/`rule.dir`), i.e. a wrong-but-permissive net.
-//! - A later fix wired `pg_foma::replace::is_fully_supported_shape` into
-//!   `compile_rewrite_rule_subset`: a rule outside `Iterative`/`LeftToRight` is now DETECTED and
-//!   honestly reported `skipped` rather than silently mis-mapped. Aweti has exactly two such rules
-//!   — `e41e45d9-6eb8-45f1-a16b-a6a05fa6bb6c` (`Dir::RightToLeft`) and
-//!   `2996dcb3-2e00-4d41-926e-fe5ed11f0753` (`RewriteMode::Simultaneous`) — so composing only the
-//!   16 correctly-compilable rules drops recall to the honest 32/104. This is the INTENDED
-//!   consequence of the fix ("recall drops honestly; never silently wrong"), chosen deliberately
-//!   over keeping the silent-but-lucky 68.
-//! - **Recovering the ~36 skipped-rule-dependent words is the job of a real `RightToLeft`
-//!   (`fsm_reverse`) + `Simultaneous` compiler — scheduled follow-on work, not a defect in this
-//!   gate.** When it lands, this gate's floor rises and `BASELINE_MISSES` shrinks accordingly.
-//!
-//! **Since then, the `RightToLeft` half of that follow-on has landed**
-//! (`pg_foma::replace::compile_rtl_branch_net`, real reversal-plus-safety-net-union semantics —
-//! see that function's own doc). `is_fully_supported_shape` now reports Aweti's
-//! `Dir::RightToLeft` rule (`e41e45d9-6eb8-45f1-a16b-a6a05fa6bb6c`) fully-supported; only the
-//! `Simultaneous` rule (`2996dcb3-2e00-4d41-926e-fe5ed11f0753`) remains honestly skipped below
-//! (`Simultaneous` is a separate, not-yet-built algorithm requiring a different construction from
-//! `RightToLeft`). **NOT RUN**: re-measuring this gate's actual recall floor against the real,
-//! gitignored Aweti corpus (`samples/data/aweti.json`, absent from this checkout/CI) is recorded
-//! here as `not_run` (missing prerequisite: the gitignored corpus data), per this repo's own
-//! not-run convention, rather than blocked on or guessed at. The `32/104`/`BASELINE_MISSES`
-//! figures below are therefore STALE (pre-RTL-fix) and are expected to rise once someone with the
-//! real corpus data re-runs this `#[ignore]`d test — left as-is (not fabricated a new number)
-//! until that re-run happens.
-//!
-//! A separate, still-unexplained gap (a bare root with zero affixes, `"mã"`, also misses this
-//! recall check even with the entire phonological cascade removed from the composition) is an
-//! open finding. (A companion marker-token truncation mechanism was designed and validated sound
-//! but NOT shipped — premise refuted for Aweti, 0/16 recall gain.) The gate below asserts the
-//! ACHIEVED honest figure (`>= 32`), and separately asserts no regression against the documented
-//! 72-word post-detection miss list (`BASELINE_MISSES`).
-//!
-//! ## `apply_up` termination spot-check (test (c))
-//! `"parua"` is now itself among the skipped-rule-dependent misses (its single oracle analysis
-//! needs one of the two skipped rules), so test (c) no longer asserts recall. Its durable value is
-//! the chain restriction's real guarantee: `apply_up` on the composed net TERMINATES promptly and
-//! does not explode (pre-restriction, `"ti"`/`"parua"` hung indefinitely). It enumerates up to
-//! `SAFE_WORD_RAW_CAP` raw results and asserts the enumeration completes well within a generous
-//! wall-clock bound. Uses `ORACLE_STEP_CAP` (not `usize::MAX`) for the oracle `Morpher`.
+//! Templated-morphotactics acceptance gate for Aweti; needs the gitignored real corpus. See
+//! `docs/research/pg-foma-p6-aweti-gate.md` for the full investigation history and rationale.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -119,107 +27,18 @@ use pg_grammar::chardef::{CharDefId, CharDefKind};
 use pg_grammar::model::{Grammar, MorphemeId, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions};
 
-/// Same large-stack convention `p6_gate_parity.rs`'s Amharic regression test and every P6
-/// example driver use — the vendored foma-rs's own `fsm_compose`/`fsm_minimize` constructions and
-/// this crate's own morphotactic derivation-layer recursion (14 templates/43 slots here) both
-/// recurse deeply enough to overflow the default thread stack.
+/// The `fsm_compose`/`fsm_minimize` constructions and this crate's morphotactic derivation-layer recursion both recurse deeply enough to overflow the default thread stack.
 const STACK_BYTES: usize = 512 * 1024 * 1024;
 
-/// `apply_up` termination-probe query for test (c) — module doc. `"parua"` is now a
-/// skipped-rule-dependent miss (its analysis needs one of Aweti's two honestly-skipped
-/// RightToLeft/Simultaneous rules), so test (c) probes that `apply_up` enumerates up to this
-/// bounded raw-result cap and TERMINATES promptly (the chain restriction's guarantee), not that
-/// the word is recalled.
+/// Termination-probe query for test (c): `"parua"` is a skipped-rule-dependent miss, so this probes that `apply_up` terminates promptly, not that the word recalls.
 const SAFE_WORD: &str = "parua";
 const SAFE_WORD_RAW_CAP: usize = 50_000;
 
-/// Any oracle `Morpher` call in this file uses this cap, never `usize::MAX`: `Morpher::new(&g,
-/// usize::MAX)` is NOT actually bounded for Aweti — the corpus word `"tomoʼatu"` ran the HC engine
-/// itself for >10 minutes uncapped, two independent runs, neither `StepBudget` bound ever
-/// tripping.
+/// Every oracle `Morpher` call here uses this cap, never `usize::MAX`: one Aweti corpus word ran the engine uncapped for over 10 minutes.
 const ORACLE_STEP_CAP: usize = 20_000;
 
-/// The POST-DETECTION baseline miss list — every corpus word with an oracle analysis that the
-/// composed net does NOT recall. The no-regression assertion in (b) requires every word NOT in
-/// this list to keep recalling. When a real RightToLeft/Simultaneous compiler lands (now landed,
-/// see the module doc's "UPDATE" notes and (a)'s `skipped_rules == []` assertion), any newly-
-/// recalling word simply drops off the *miss* list on its own (recall test (b) never requires
-/// pruning entries that start passing) — a word leaving the recalled set (going from "not in this
-/// list" to "in this list") is a real regression and must be investigated before being added here.
-///
-/// **`"tsãkỹjokwaw"`/`"tsãtomoʼatu"`:** these two words newly appear in the miss list not because
-/// anything about pg-foma's compiled FST regressed, but because the ORACLE (`pg_parse::Morpher`,
-/// used only to
-/// decide which corpus words even get counted/checked at all) started finding an analysis for them,
-/// within the SAME fixed `ORACLE_STEP_CAP`, where it previously found none. Full investigation:
-///
-/// 1. **Why they are newly COUNTED (an accounting change, not a language-modeling one).** Both
-///    words got exactly 0 oracle analyses at `ORACLE_STEP_CAP` (20,000) on every commit through
-///    `485d566` (the parent of `391c2c3`) — confirmed by direct instrumentation, not inferred —
-///    so `n_with_oracle` never included them and they could not appear in this list. Raising the
-///    step cap alone (no code change) to 2,000,000 makes the oracle find exactly the same
-///    analyses these words now get at the unmodified 20,000 cap
-///    (`tsãkỹjokwaw` → `[805, 359, 715, 14]` root_idx=1; `tsãtomoʼatu` → 3 analyses incl.
-///    `[805, 885, 795]` root_idx=1) — i.e. these analyses were always reachable, just not within
-///    budget. `git bisect run` against the actual `b_aweti_full_corpus_recall_via_compose` output
-///    pinned the exact commit where the miss-list membership flips: `391c2c3` ("parse: support
-///    supplied-root overlays"). That commit touches ONLY `pg-rules`/`pg-parse` (never `pg-foma`),
-///    and its one behavior-relevant change for an overlay-less `Morpher::new` call (this gate's own
-///    usage) is adding a `root_provenance` field to `pg_rules::word::WordKey` — the
-///    analysis-memoization dedup key. That extra field perturbs `WordKey`'s hash, which perturbs
-///    `HashMap<WordKey, Word>` iteration order during the step-capped BFS analysis search, which
-///    perturbs which candidates get explored before the cap trips — a resource-budget artifact, not
-///    a correctness change on either the oracle or FST side. None of the nine pg-foma Stage-2
-///    commits this investigation's brief flagged as suspects (`2a98634`, `9473233`, `1576531`,
-///    `18e6835`, `00994e7`, `0ed2545`, `42d5757`, `c4a3d22`, `318efe6`) are responsible — recall
-///    for these two words is identical at every one of those commits (verified by checking out
-///    each and re-running the recall test).
-///
-/// 2. **Why `"tsãkỹjokwaw"` genuinely does not recall.** Both of its oracle analyses' roots
-///    require morpheme 805 (Aweti's `"tsã(n)="` proclitic, `mrule105`, a standalone `AffixProcess`
-///    rule that lives in stratum 1 — this grammar's own `"Clitics"` stratum, layered above stratum
-///    0's root/template stratum). `emit_underlying_templated` DOES classify `mrule105` as
-///    `Role::Prefix`, include it in `deriv_prefix`, declare its `<M:0805>` tag in
-///    `Multichar_Symbols`, and write its lexicon entries (`TmplDispatch`/`TLRoots`/`G0Roots`/
-///    `G1Roots`/`G2Roots` continuations all present, verified by grepping the emitted
-///    `lexc_source`).
-///
-///    `<M:0805>` being absent from the compiled `lexc_net`'s own sigma does NOT mean the
-///    stratum-1 layer is unreachable, even though that is the natural first reading. A dedicated
-///    investigation of the `foma` crate found a narrow port defect (filed as
-///    `divvun/foma-rs#2`): any `Multichar_Symbols` name containing a literal `0` digit is silently
-///    omitted from `sigma` because the declaration path normalizes the lexer's `@ZERO@` marker
-///    while the entry tokenizer still looks for the un-normalized form. `0805` contains zeros, so
-///    its absence from `sigma` is that bookkeeping artifact — NOT evidence of unreachability.
-///    `apply_down` traverses such tags fine; the network's language is intact. C foma does not
-///    have this defect (`lexc_deescape_string` normalizes in one unified pass).
-///
-///    So: `"tsãkỹjokwaw"` IS still genuinely missed — re-measured against the real corpus after
-///    upgrading to foma 0.4.2, RECALL 68/106 with this word still in the miss list — but **the
-///    true cause is NOT YET DETERMINED.** The stratum-above-root wrapping hypothesis is plausible
-///    and unrefuted, but it is no longer supported by the sigma evidence that originally motivated
-///    it (that evidence turned out to be the bookkeeping artifact above, not a reachability
-///    signal), and must be re-established (or discarded) by a fresh investigation that does not
-///    rely on `sigma` for reachability. Recorded this way deliberately: an unexplained-but-verified
-///    miss is honest; a confidently-wrong explanation is not.
-///
-/// 3. **`"tsãtomoʼatu"` is murkier — NOT proven to be the same root cause.** Unlike
-///    `"tsãkỹjokwaw"`, the word-restricted composed net for `"tsãtomoʼatu"` is NON-empty (the FST
-///    does produce this surface form), and `apply_up` on the full composed net independently
-///    decodes a raw candidate `[805, 885, 795]` root_idx=1 — an EXACT match for one of the oracle's
-///    3 analyses. Yet the same investigation that found this also found `<M:0805>` absent from
-///    that restricted-and-projected net's own sigma, so that decoded candidate cannot be trusted at
-///    face value either (most likely an `apply_up` unknown-symbol/identity artifact echoing input
-///    it could not actually match against a real arc, though this was not conclusively pinned down
-///    the way `"tsãkỹjokwaw"`'s cause was). Net effect: `"tsãtomoʼatu"` most likely fails for the
-///    SAME `mrule105`/stratum-1 wiring gap as `"tsãkỹjokwaw"` (it needs the identical morpheme 805),
-///    but this file does not claim that with the same certainty. Recorded as an open, honestly
-///    uncertain sub-finding rather than papered over.
-///
-/// Both words are added below rather than left to fail this gate, because (per this file's own
-/// module doc / the repo's never-overclaim standard) the honest conclusion is "these were never
-/// actually recallable by the FST, and are now counted" — not "the FST regressed." A silently
-/// adjusted assertion without this documented proof would have been the wrong fix.
+/// Post-detection baseline miss list: every corpus word with an oracle analysis the composed net
+/// does not recall; see `docs/research/pg-foma-p6-aweti-gate.md` for two entries' investigation.
 const BASELINE_MISSES: &[&str] = &[
     "tsãkỹjokwaw",
     "tsãtomoʼatu",
@@ -297,9 +116,7 @@ const BASELINE_MISSES: &[&str] = &[
     "tsãnutu",
 ];
 
-/// Current achieved recall, promoted from Task 7 output to an executable
-/// regression boundary. Correctness work must update this list and the exact
-/// numerator together; performance-only changes must preserve both.
+/// Current achieved recall as an executable regression boundary; correctness work must update this list and the exact numerator together.
 const CURRENT_EXPECTED_MISSES: &[&str] = &[];
 
 fn sample_path(name: &str) -> PathBuf {
@@ -307,8 +124,7 @@ fn sample_path(name: &str) -> PathBuf {
     manifest_dir.join("../../../samples/data").join(name)
 }
 
-/// Self-skip guard: gitignored real-corpus fixtures aren't present in a fresh clone or CI —
-/// matches `f2_junction_gate.rs`/`f3_interdigitation_gate.rs`'s own `have()` convention exactly.
+/// Self-skip guard: gitignored real-corpus fixtures aren't present in a fresh clone or CI.
 fn have(name: &str) -> bool {
     sample_path(name).exists()
 }
@@ -324,12 +140,7 @@ fn load_grammar() -> Grammar {
     grammar
 }
 
-/// (a) EMIT + COMPILE + COMPOSE: the P6 milestone itself. `emit_underlying_templated` must
-/// produce a usable, non-`Unsupported` network for Aweti with plausible counts, the templated
-/// lexc must foma-compile, the 18-rule cascade must compile+compose, and the full
-/// `lexc .o. rules .o. cleanup` composition + minimize must succeed — all of this is exactly what
-/// OOMs via the mainline `emit()` (Fix 1's enumeration budget trips in the composite
-/// pre-expansion stage before any of this is reached), so completing it at all is the deliverable.
+/// (a) EMIT + COMPILE + COMPOSE: `emit_underlying_templated` must produce a usable network for Aweti, the templated lexc must foma-compile, the rule cascade must compile+compose, and the full composition + minimize must succeed -- all of this OOMs via the mainline `emit()`, so completing it at all is the deliverable.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
 fn a_templated_emit_compile_and_compose() {
@@ -402,8 +213,7 @@ fn run_emit_compile_compose() {
     );
 }
 
-/// One arc per character of `token_string` (already single-codepoint tokens in `SegAlphabet`'s PUA
-/// scheme), used identically on both tapes — a linear identity transducer for one query word.
+/// One arc per already-tokenized character of `token_string`, used identically on both tapes: a linear identity transducer for one query word.
 fn linear_identity_fsm(name: &str, token_string: &str) -> Fsm {
     let mut h = fsm_construct_init(name);
     let chars: Vec<char> = token_string.chars().collect();
@@ -416,8 +226,7 @@ fn linear_identity_fsm(name: &str, token_string: &str) -> Fsm {
     fsm_construct_done(h)
 }
 
-/// One arc per DECODED tag-text symbol (`tags::root_tag_text`/`morph_tag_text`) — a linear
-/// acceptor for one candidate analysis's own tag sequence, in surface order.
+/// One arc per decoded tag-text symbol: a linear acceptor for one candidate analysis's tag sequence, in surface order.
 fn tag_string_fsm(name: &str, tags: &[String]) -> Fsm {
     let mut h = fsm_construct_init(name);
     for (i, t) in tags.iter().enumerate() {
@@ -428,16 +237,7 @@ fn tag_string_fsm(name: &str, tags: &[String]) -> Fsm {
     fsm_construct_done(h)
 }
 
-/// (b) FULL-CORPUS RECALL GATE (module doc): composition-based, no `apply_up`. Builds the SAME
-/// network as (a) — `lexc .o. rules .o. cleanup` — then, per corpus word with `>=1` oracle
-/// analysis, restricts the composed net to exactly that word's own token string (`fsm_compose`
-/// with a linear identity transducer), projects the UPPER (tag) tape, and checks whether ANY
-/// oracle analysis's own tag sequence intersects it non-emptily. Prints the full recall figure and
-/// the miss list; retains the historical `>= 32`/no-new-baseline-miss checks, then enforces the
-/// current achieved boundary exactly: 106/106 and `CURRENT_EXPECTED_MISSES`. A correctness
-/// change must deliberately update that tuple; performance-only changes must preserve it. Every
-/// corpus word not in `BASELINE_MISSES` must still recall independently of the exact-current
-/// assertion.
+/// (b) FULL-CORPUS RECALL GATE: per corpus word with an oracle analysis, restricts the composed net to that word's token string and checks whether any oracle analysis's tag sequence is reachable in the upper tape.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
 fn b_full_corpus_recall_via_compose() {
@@ -536,17 +336,13 @@ fn run_full_corpus_recall() {
     );
     println!("miss list ({}): {missed_words:?}", missed_words.len());
 
-    // Honest achieved-figure floor (module doc): 32/104 with Aweti's two RightToLeft/Simultaneous
-    // rules honestly skipped rather than silently mis-compiled. A `>=` floor (not `==`) so a real
-    // RTL/Simultaneous compiler landing later RAISES recall without tripping this line — but such a
-    // win must also shrink BASELINE_MISSES (the no-regression check below), so the two move together.
+    // A `>=` floor (not `==`) so a real RTL/Simultaneous compiler landing later raises recall without tripping this line -- such a win must also shrink `BASELINE_MISSES` below, so the two move together.
     assert!(
         n_recalled >= 32,
         "recall regressed below the honest post-detection baseline (32/104): {n_recalled}/{n_with_oracle} (miss list: {missed_words:?})"
     );
 
-    // No-regression assertion: every corpus word with an oracle analysis NOT in the documented
-    // baseline miss list must still recall now.
+    // Every corpus word with an oracle analysis not in the documented baseline miss list must still recall now.
     let missed_set: HashSet<&str> = missed_words.iter().map(|s| s.as_str()).collect();
     let mut newly_missed: Vec<&str> = missed_set
         .iter()
@@ -570,10 +366,7 @@ fn run_full_corpus_recall() {
     );
 }
 
-/// (c) `apply_up` TERMINATION spot-check (module doc). `"parua"`'s single oracle analysis now needs
-/// one of Aweti's two honestly-skipped RightToLeft/Simultaneous rules, so it is NOT recalled — but
-/// the durable property under test is the chain restriction's guarantee that `apply_up` on the
-/// composed net TERMINATES promptly and does not explode (pre-restriction it hung indefinitely).
+/// (c) `apply_up` TERMINATION spot-check: `"parua"` needs an honestly-skipped rule so it is not recalled, but the durable property under test is that `apply_up` on the composed net terminates promptly and does not explode.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
 fn c_apply_up_terminates_parua() {
@@ -641,12 +434,7 @@ fn run_spot_check() {
     }
     let elapsed = t0.elapsed();
     println!("{SAFE_WORD:?}: covered={covered} raw_n={raw_n} elapsed={elapsed:?}");
-    // parua is a skipped-rule-dependent miss now (module doc), so `covered` is expected false — we
-    // intentionally do NOT assert on it (that would be brittle against a future RTL/Simultaneous
-    // compiler flipping it true). The durable guarantee is termination/latency: the chain
-    // restriction bounds apply_up so enumerating up to SAFE_WORD_RAW_CAP results completes quickly
-    // (pre-restriction this hung indefinitely and had to be killed externally). 30s is a generous
-    // machine-independent ceiling; the real figure is well under a few seconds.
+    // `covered` is expected false (a skipped-rule-dependent miss) and deliberately not asserted on, since that would be brittle against a future compiler flipping it true. The durable guarantee is termination/latency.
     assert!(
         elapsed < std::time::Duration::from_secs(30),
         "apply_up on {SAFE_WORD:?} took {elapsed:?} to enumerate {raw_n} raw results (cap \
@@ -655,33 +443,8 @@ fn run_spot_check() {
     );
 }
 
-/// (d) Bare-root TAG ATOMICITY boundary: pins the EXACT boundary where the historically-missing
-/// bare root `"mã"` (morpheme 400) diverged from a recalled bare root of the same entry shape, and
-/// stands as a permanent regression guard for the root cause.
-///
-/// ## The divergence, established by direct investigation (not inspection)
-/// `foma::apply::apply_up` on the FULLY COMPOSED net finds the correct `<R:400>` tag for `"mã"`
-/// directly, at every pipeline stage (lexc alone, lexc+rules, lexc+rules+cleanup, minimized) --
-/// proving the compiled network's LANGUAGE always contained this analysis. Yet
-/// `b_full_corpus_recall_via_compose`'s own compose-restrict-project-intersect recall-counting
-/// technique reported it MISSING (along with 31 other words) before the fix below. The FIRST place
-/// the two techniques diverge is `foma::constructions::fsm_intersect`: it requires the tag to be
-/// registered as ONE atomic multichar symbol in both operands' `sigma`, and the restricted net's own
-/// `upper.sigma` was missing the exact string `"<R:400>"` even though `apply_up` finds it fine.
-/// `pg_foma::tags`'s own module doc (point 3) explains why: a `divvun/foma-rs` upstream defect in
-/// `lexc_string_to_tokens` silently decomposes any `Multichar_Symbols` declaration whose NAME
-/// contains a literal `0` digit into a run of single-character arcs -- invisible to `apply_up`/
-/// `apply_down` (the concatenated string is identical either way) but fatal to any construction,
-/// like `fsm_intersect`, that expects the tag to be one indivisible alphabet symbol. Every one of
-/// the 32 words this fix newly recalls has a morpheme id whose zero-padded numeral contains a `0`;
-/// every remaining miss does not (see `BASELINE_MISSES` and the current miss list).
-///
-/// **This is NOT the already-fixed combining-mark boundary bug**
-/// (`pg_foma::emit::boundary_combining_run_symbols`): `"mã"`'s own char-def is ONE precomposed
-/// segment (not a base char-def immediately followed by a standalone-combining-mark char-def
-/// straddling the boundary that fix covers), and other combining-mark-bearing roots recall fine
-/// (e.g. `"kitã"`, morpheme 395, probed below) -- the divergence tracks the tag NUMBER (does its
-/// zero-padded id contain a `0`?), never the word's own spelling.
+/// (d) Bare-root TAG ATOMICITY boundary: pins where the historically-missing bare root `"mã"` diverged from a recalled bare root of the same shape; see
+/// `docs/research/pg-foma-p6-aweti-gate.md`.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
 fn d_bare_root_tag_atomicity_boundary() {
@@ -709,13 +472,7 @@ fn run_tag_atomicity_boundary() {
         compile_templated_morphotactics(&g).expect("Aweti templated compile pipeline must succeed");
     let composed = compiled.network;
 
-    // Four bare-root probes, all `root_index==0`/zero-affix single-morpheme entries:
-    //   - "mã" (400): the historically-missing word this whole investigation started from.
-    //   - "ma" (69): plain ASCII, ALSO historically missing -- rules out a combining-mark cause
-    //     (no diacritic at all, yet the same divergence: 69's zero-padded id also contains a `0`).
-    //   - "ta" (894): recalled control, no `0` in its zero-padded id.
-    //   - "kitã" (395): recalled control that DOES carry a combining-mark root, no `0` in its
-    //     zero-padded id -- proves the boundary-combining-mark fix is irrelevant to this bug.
+    // Four bare-root probes: two historically-missing words whose zero-padded morpheme id contains a `0` ("mã", "ma"), and two recalled controls whose id does not ("ta", "kitã").
     let probes = [
         ("mã", 400u32),
         ("ma", 69u32),
@@ -729,9 +486,7 @@ fn run_tag_atomicity_boundary() {
             .unwrap_or_else(|| panic!("{word:?} failed to segment into token space"));
         let tag = tags::root_tag_text(pg_grammar::model::MorphemeId(mid), width);
 
-        // Boundary 1: apply_up on the FULLY COMPOSED net finds the tag directly, for every probe
-        // (module doc: "the compiled network's language is unaffected"). Rules out "the network
-        // never contained this path at all".
+        // Boundary 1: apply_up on the fully composed net finds the tag directly, for every probe -- rules out "the network never contained this path at all".
         let mut handle = apply_init(&composed);
         let found_via_apply_up = handle.up(&query).any(|s| s.contains(&tag));
         assert!(
@@ -740,14 +495,7 @@ fn run_tag_atomicity_boundary() {
              language always contains this bare-root analysis)"
         );
 
-        // Boundary 2: the compose-restrict-project-intersect technique
-        // (`b_full_corpus_recall_via_compose`'s own method) -- restrict to the query, project
-        // upper, and check whether the exact tag string is registered as one atomic symbol in the
-        // restricted net's own sigma. THIS is where the divergence used to live: pre-fix,
-        // "mã"/"ma" (ids containing a `0`) failed this exact check while "ta"/"kitã" (no `0`)
-        // passed -- not because the language differed, but because `tags.rs`'s numeral encoding
-        // used to let a literal `0` reach the compiled `Multichar_Symbols` name (see that module's
-        // doc, point 3, for the upstream `lexc_string_to_tokens` mechanism).
+        // Boundary 2: restrict to the query, project upper, and check whether the exact tag string is registered as one atomic symbol in sigma -- this is where the divergence used to live (see docs/research/pg-foma-p6-aweti-gate.md).
         let word_fsm = linear_identity_fsm("word", &query);
         let restricted = fsm_minimize(&opts, fsm_compose(&opts, composed.clone(), word_fsm));
         let upper = fsm_minimize(&opts, fsm_upper(restricted));
@@ -770,8 +518,7 @@ fn run_tag_atomicity_boundary() {
         );
     }
 }
-/// Diagnostic ceilings are checked after each synchronous foma operation returns. They classify
-/// evidence as inconclusive but cannot interrupt an individual vendored-foma call in flight.
+/// Diagnostic ceilings checked after each synchronous foma operation returns; classify evidence as inconclusive but cannot interrupt a call already in flight.
 const DIAGNOSTIC_STATE_CAP: i32 = 2_000_000;
 const DIAGNOSTIC_ARC_CAP: i32 = 20_000_000;
 const DIAGNOSTIC_OPERATION_SECS: u64 = 60;
@@ -823,8 +570,7 @@ struct DiagnosticPipeline {
 }
 
 impl DiagnosticPipeline {
-    /// Mirror `templated_compile.rs` locally because its public result intentionally exposes only
-    /// the final network. Aweti's production disposition is 18 selected rules and zero skips.
+    /// Mirrors `templated_compile.rs` locally because its public result intentionally exposes only the final network.
     fn compile(g: &Grammar) -> Result<Self, String> {
         let table = g
             .char_tables
@@ -1071,8 +817,7 @@ impl DiagnosticRow {
     }
 }
 
-/// Compile stages once and print the earliest observed failing boundary for every complete oracle
-/// analysis of all six pinned residual misses. It is intentionally red until those misses are fixed.
+/// Compiles stages once and prints the earliest failing boundary for every complete oracle analysis of the pinned residual misses; intentionally red until those misses are fixed.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
 fn e_residual_misses_report_first_failing_stage() {
@@ -1315,8 +1060,7 @@ fn run_residual_miss_diagnostic() {
         failures.join("\n")
     );
 }
-/// Try three bounded cascade algorithms after stage localization: prefix reachability,
-/// leave-one-out ablation, and adjacent swaps. These are diagnostic experiments only.
+/// Three bounded diagnostic-only cascade experiments after stage localization: prefix reachability, leave-one-out ablation, and adjacent swaps.
 fn run_rule_variation_diagnostics(
     g: &Grammar,
     alphabet: &SegAlphabet,

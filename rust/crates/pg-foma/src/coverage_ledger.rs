@@ -120,10 +120,7 @@ use crate::strategy_coverage::{representation_of, strategies_that_represent};
 /// This schema's own version (mirrors `crate::health::HEALTH_SCHEMA_VERSION`'s convention).
 pub const COVERAGE_LEDGER_SCHEMA_VERSION: u32 = 1;
 
-// =================================================================================================
-// Wire-name impls for foreign-module types (see module top-doc's last section for why these live
-// here rather than in capability.rs/conformance_coverage.rs)
-// =================================================================================================
+// Wire-name impls for foreign-module types (see module top-doc's last section for why these live here).
 
 fn kind_wire_name(kind: CharacteristicKind) -> &'static str {
     use CharacteristicKind::*;
@@ -263,9 +260,7 @@ impl<'de> Deserialize<'de> for CoverageStatus {
     }
 }
 
-// =================================================================================================
-// The curated containment-evidence table ("owning tests" per construct)
-// =================================================================================================
+// The curated containment-evidence table ("owning tests" per construct).
 
 /// Which shape of evidence `ContainmentEvidence::citation` provides. Not every
 /// `crate::capability::CharacteristicKind` needs (or can meaningfully have) the same shape of
@@ -273,15 +268,9 @@ impl<'de> Deserialize<'de> for CoverageStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContainmentEvidenceKind {
-    /// A test whose specific, stated purpose is proving THIS construct's proposer-to-confirm
-    /// containment (over-propose, confirm prunes to exactly the oracle's set) — the default shape
-    /// every `ConfigPredicate`/`ConfirmOnly` characteristic's kit needs.
+    /// A test whose specific, stated purpose is proving this construct's proposer-to-confirm containment.
     Dedicated,
-    /// No single dedicated fixture exists (or is needed): the characteristic is
-    /// `Disposition::Proven` and is exercised pervasively, as ordinary background material, by
-    /// this crate's general full-grammar propose-confirm gates (`tests/f1_large_lexicon_gate.rs`, `tests/
-    /// f2_junction_gate.rs`, `tests/f4_composite_gate.rs`, etc.) rather than by any one
-    /// construct-specific fixture.
+    /// No dedicated fixture exists or is needed: `Disposition::Proven` and exercised pervasively by this crate's general full-grammar propose-confirm gates.
     GeneralPervasive,
 }
 
@@ -314,17 +303,12 @@ pub struct ContainmentEvidence {
     pub note: String,
 }
 
-/// The strategies a citation demonstrates, as the wire strings `ContainmentEvidence::strategies`
-/// holds. Taken as `EmissionStrategy` values, not free-form strings, so a citation cannot name a
-/// compiler that does not exist and a renamed label updates every row at once.
+/// The strategies a citation demonstrates as `ContainmentEvidence::strategies` wire strings, so a citation cannot name a compiler that does not exist.
 fn strategies_of(strategies: &[EmissionStrategy]) -> Vec<String> {
     strategies.iter().map(|s| s.label().to_string()).collect()
 }
 
-/// # Panics
-/// If `strategies` is empty. Every citation must attribute itself to at least one compiler -- an
-/// unattributed one is the inheritance trap this table exists to close, and defaulting to "all
-/// strategies" would silently re-create exactly the bug (see `ContainmentEvidence`'s own doc).
+/// Panics if `strategies` is empty -- defaulting to "all strategies" would silently recreate the unattributed-coverage bug this table exists to close.
 fn ev(
     kind: ContainmentEvidenceKind,
     citation: &str,
@@ -525,14 +509,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              min-boundary occurrence counts; an inverted/over-budget-finite/alpha-nested \
              quantifier stays honestly unsupported.",
         ),
-        // `RootAllomorphDef::stem_name` (model.rs:798) -- NOT `MorphRuleDef::required_stem_name`
-        // (model.rs:648), which stays folded into
-        // `Affixation`/`RealizationalMorphology` per `tests/cover_realizational_morphology_
-        // constraints.rs`'s own doc ("folding them into a separate CharacteristicKind would
-        // double-count the same ModelLocation::MorphRule occurrence"). The ALLOMORPH-level
-        // restriction that same file's `stem_name_gating_over_propose_confirm_prune` test already
-        // exercises has no `ModelLocation::MorphRule` occurrence to double-count against at all --
-        // it is a genuinely separate model.rs site this ledger had no row for until now.
+        // `RootAllomorphDef::stem_name`, not `MorphRuleDef::required_stem_name` (folded into Affixation/RealizationalMorphology to avoid double-counting the same ModelLocation::MorphRule occurrence).
         StemName => ev(
             Dedicated,
             "tests/cover_realizational_morphology_constraints.rs::\
@@ -543,23 +520,12 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              default-allomorph-excluded-by-a-restricted-sibling case) -- the FST proposes every \
              stem-restricted allomorph unconditionally; confirm's stem_name_gate_reason prunes.",
         ),
-        // The disjunctive-allomorph re-check
-        // (`pg_rules::validity`'s `free_fluctuates`/`disjunctive_candidates`). No DEDICATED
-        // pg-foma-crate propose-then-confirm containment test exists for this specific mechanism
-        // today (unlike `StemName`, which `cover_realizational_morphology_constraints.rs` already
-        // covers) -- `machine/conformance/edge-cases/disjunctive-recheck` and `machine/conformance/
-        // languages/suffixing-evidential-adjacency-chain` exercise it at the ORACLE level
-        // (`conformance_coverage.rs`'s cross-check), but that is a different evidence axis from
-        // this curated table's own FST-propose-then-confirm witness convention -- an honest,
-        // reported gap (this function's own doc: "`None` only where no witness exists at all"),
-        // not a fabricated citation.
+        // No dedicated FST-propose-then-confirm witness exists for the disjunctive-allomorph re-check; only oracle-level conformance fixtures exercise it, a different evidence axis. Honest gap, not a fabricated citation.
         FreeFluctuation => return None,
     })
 }
 
-// =================================================================================================
 // LedgerRow / CoverageLedger / build_ledger
-// =================================================================================================
 
 /// One `crate::capability::CapabilityPredicate` that discharges a `LedgerRow`'s
 /// `CharacteristicKind`, alongside that predicate's own `EvidenceProvenance`.
@@ -698,9 +664,7 @@ pub fn build_ledger(
                 CoverageStatus::Uncovered
             };
 
-            // The per-strategy account (`crate::strategy_coverage`), projected onto this row. Both
-            // lists are DERIVED, never hand-maintained: a new compiler, or a reviewed edit to the
-            // strategy table, moves these without anyone having to remember to.
+            // Both lists are derived from crate::strategy_coverage, never hand-maintained.
             let strategies_cannot_represent: Vec<String> = crate::strategy_coverage::ALL_STRATEGIES
                 .iter()
                 .copied()
@@ -745,10 +709,7 @@ mod tests {
     use super::*;
     use crate::capability::{default_registry, undischarged_kinds};
 
-    /// A fixed, hand-built passing set (every construct id `construct_ids_for` ever names) so
-    /// this test module's ledgers are deterministic and independent of any real fixture's
-    /// pass/fail state elsewhere in the repo (this module builds no dependency on
-    /// `pg_conformance_fixtures`/`pg_parse` replay at all -- see `build_ledger`'s own doc).
+    /// A fixed, hand-built passing set so these ledgers are deterministic and independent of any real fixture's pass/fail state.
     fn fully_covered_constructs() -> HashSet<&'static str> {
         let mut set = HashSet::new();
         for &kind in CharacteristicKind::ALL {
@@ -759,16 +720,9 @@ mod tests {
         set
     }
 
-    // ---------------------------------------------------------------------------------------
     // Exhaustiveness / no-drift
-    // ---------------------------------------------------------------------------------------
 
-    /// The ledger's own honesty test: every `CharacteristicKind` appears in the
-    /// built ledger EXACTLY once. A future `CharacteristicKind` variant added without a
-    /// corresponding `ALL` entry would silently never appear here at all (the same documented,
-    /// non-panicking gap `CharacteristicKind::ALL`'s own doc names) -- the closed-match discipline
-    /// in `containment_evidence_for`/the wire-name functions above is this file's actual
-    /// compile-time backstop against a variant that VANISHES here silently.
+    /// Every `CharacteristicKind` appears in the built ledger exactly once.
     #[test]
     fn every_characteristic_kind_appears_exactly_once() {
         let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
@@ -779,9 +733,7 @@ mod tests {
         }
     }
 
-    /// Single source of truth ("no divergent copy" discipline): every row's
-    /// `disposition` is always exactly `kind.default_disposition()`, never a hardcoded or
-    /// independently-computed value.
+    /// Every row's `disposition` is always exactly `kind.default_disposition()`, never a hardcoded copy.
     #[test]
     fn ledger_disposition_never_diverges_from_default_disposition() {
         let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
@@ -795,11 +747,7 @@ mod tests {
         }
     }
 
-    /// Every non-vacuous `ConfigPredicate` row names at least one discharging
-    /// predicate -- exactly `undischarged_kinds`'s own coverage requirement, cross-checked
-    /// directly against the ledger's own per-row data (not re-derived: this test asserts the
-    /// ledger AGREES with `undischarged_kinds`, the crate's existing single source of truth for
-    /// this rule).
+    /// Every `ConfigPredicate` row names at least one discharging predicate, agreeing with `undischarged_kinds`.
     #[test]
     fn every_config_predicate_row_names_a_discharging_predicate() {
         let registry = default_registry();
@@ -820,9 +768,7 @@ mod tests {
         }
     }
 
-    /// `containment_evidence_for` must be callable end to end for every kind (mirrors
-    /// `crate::conformance_coverage`'s own `construct_ids_for_is_callable_for_every_kind`
-    /// belt-and-suspenders test).
+    /// `containment_evidence_for` must be callable end to end for every kind.
     #[test]
     fn containment_evidence_for_is_callable_for_every_kind() {
         for &kind in CharacteristicKind::ALL {
@@ -830,15 +776,9 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Evidence names its strategies (the coverage-gate inheritance trap, per-STRATEGY axis)
-    // ---------------------------------------------------------------------------------------
+    // Evidence names its strategies (the coverage-gate inheritance trap, per-strategy axis)
 
-    /// The rule: a construct claimed covered must NAME the strategies it was demonstrated on. No
-    /// citation may be unattributed, and no citation may name a compiler that does not exist.
-    ///
-    /// Falsified before the fix trivially -- `ContainmentEvidence` had no `strategies` field, which
-    /// is exactly how one compiler's coverage stood in for three.
+    /// A construct claimed covered must name the strategies it was demonstrated on; no citation may be unattributed or name a compiler that does not exist.
     #[test]
     fn every_containment_citation_names_at_least_one_real_strategy() {
         let valid: HashSet<&str> = crate::strategy_coverage::ALL_STRATEGIES
@@ -863,11 +803,7 @@ mod tests {
         }
     }
 
-    /// A citation may never name a strategy the per-strategy account says CANNOT represent the
-    /// construct -- that combination is either a wrong citation or a wrong table row, and both are
-    /// the kind of drift this pair of tables exists to surface. This is the direct, mechanical
-    /// analogue of the original defect (`tests/cover_compounding.rs` cited as evidence for a
-    /// compiler that could not propose a compound).
+    /// A citation may never name a strategy the per-strategy account says cannot represent the construct -- either the citation or the table row is wrong.
     #[test]
     fn no_citation_claims_a_strategy_that_cannot_represent_the_construct() {
         for &kind in CharacteristicKind::ALL {
@@ -888,9 +824,7 @@ mod tests {
         }
     }
 
-    /// `strategies_unwitnessed` is the whole point: it must be DERIVED (evidence set subtracted
-    /// from the representing set), not hand-maintained, and it must be genuinely non-empty
-    /// somewhere -- a ledger reporting full per-strategy witness coverage today would be lying.
+    /// `strategies_unwitnessed` must be derived (representing set minus evidence set), not hand-maintained, and genuinely non-empty somewhere.
     #[test]
     fn unwitnessed_strategies_are_derived_and_the_gap_is_reported_not_hidden() {
         let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
@@ -921,9 +855,7 @@ mod tests {
         );
     }
 
-    /// The per-row `CannotRepresent` list is likewise a projection of
-    /// `crate::strategy_coverage`, and the live hole (`PlanComposed` x `RealizationalMorphology`)
-    /// is visible in the ledger rather than only in the selection path.
+    /// The per-row `CannotRepresent` list makes the live `PlanComposed` x `RealizationalMorphology` hole visible in the ledger, not only in the selection path.
     #[test]
     fn the_ledger_reports_the_live_whole_construct_hole() {
         let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
@@ -944,15 +876,7 @@ mod tests {
         );
     }
 
-    /// `NaturalClassDefinition` and (research report 13's taxonomy-gap fix) `FreeFluctuation` are
-    /// the deliberate, documented `None`s -- pinned so a future edit that silently starts (or
-    /// stops) returning evidence for either is a reviewed, visible change, not a silent drift
-    /// (mirrors `crate::conformance_coverage`'s own `empty_covered_set_yields_no_covered_rows` pin
-    /// for `LeftToRightRewrite`). `FreeFluctuation` has no DEDICATED pg-foma-crate propose-then-
-    /// confirm containment test today (unlike its sibling `StemName`, which
-    /// `cover_realizational_morphology_constraints.rs` already covers) -- see
-    /// `containment_evidence_for`'s own `FreeFluctuation` arm for why this is an honestly
-    /// reported gap, not an oversight.
+    /// `NaturalClassDefinition` and `FreeFluctuation` are the deliberate, documented `None`s; a future edit that starts or stops returning evidence for either must be a reviewed, visible change.
     #[test]
     fn natural_class_definition_and_free_fluctuation_are_the_only_kinds_with_no_containment_evidence(
     ) {
@@ -970,9 +894,7 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------------------
     // build_ledger: conformance_status classification
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn build_ledger_with_empty_passing_set_never_marks_a_fixture_evidenced_row_covered() {
@@ -1010,10 +932,7 @@ mod tests {
         }
     }
 
-    /// G9: after adding the 4 missing `constructs.txt` rows upstream and mapping them in
-    /// `conformance_coverage::construct_ids_for`, zero ledger rows are `Unmappable` any more --
-    /// this is unconditional (depends only on `construct_ids_for` being non-empty per kind, never
-    /// on the passing-fixture set), matching `conformance_coverage`'s own `zero_unmappable_after_g9`.
+    /// Zero ledger rows are `Unmappable`, unconditionally -- depends only on `construct_ids_for` being non-empty per kind, never on the passing-fixture set.
     #[test]
     fn zero_unmappable_rows_after_g9() {
         let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
@@ -1025,7 +944,7 @@ mod tests {
             .collect();
         assert!(
             unmappable.is_empty(),
-            "G9 must leave zero Unmappable ledger rows; found {unmappable:?}"
+            "expected zero Unmappable ledger rows; found {unmappable:?}"
         );
         for row in &ledger.rows {
             assert!(
@@ -1047,13 +966,9 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
     // Canonical JSON: golden + round trip
-    // ---------------------------------------------------------------------------------------
 
-    /// A deterministic, fully-covered-set ledger -- independent of any real fixture's live
-    /// pass/fail state, so this golden stays stable regardless of unrelated fixture churn
-    /// elsewhere in the repo.
+    /// A deterministic, fully-covered-set ledger, so this golden stays stable regardless of unrelated fixture churn.
     fn golden_ledger() -> CoverageLedger {
         build_ledger(&default_registry(), &fully_covered_constructs())
     }

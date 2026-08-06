@@ -1,84 +1,5 @@
-//! T4 oracle conformance gate (`docs/fwdata-import-plan.md` §5.2): for Sena 3 and Amharic,
-//! import the real FieldWorks `.fwdata` project through the *new* pipeline
-//! (`pg_fwdata::import_file` -> `pg_snapshot::Snapshot` -> `pg_grammar::compile_project` ->
-//! `Grammar`) and independently load the committed HC-XML oracle through the *legacy* pipeline
-//! (`pg_grammar::load`), then run every word in `samples/data/{sena,amharic}-words.txt` through a
-//! `pg_parse::Morpher` built from each `Grammar` and compare results **behaviorally**.
-//!
-//! IDs cannot be compared directly: the legacy XML export keys morphemes by session-scoped `Hvo`
-//! integers while the new pipeline keys everything by FieldWorks GUID, so even the parity
-//! `signature()` strings (which embed those ids) differ trivially between the two paths even when
-//! the underlying analysis is identical. Instead, each analysis is reduced to something
-//! comparable across both compilers: the in-order sequence of morpheme *glosses*
-//! (`Grammar::morphemes[i].gloss`, resolved from each analysis's own `WordAnalysis::morpheme_ids`)
-//! paired with the analysis's surface-shape string. A word's full result is the *multiset* of
-//! these `(glosses, surface)` pairs (order across analyses is not meaningful; order of morphemes
-//! *within* an analysis is).
-//!
-//! # Self-skipping (like `pg-grammar`'s own `sample_path()` tests and `pg-fwdata`'s
-//! `real_projects.rs`)
-//! Both the real FieldWorks project directory (`PANGLOSS_FW_PROJECTS_DIR`, falling back to the
-//! known sibling checkout) and the committed oracle/word-list files under `samples/data/` are
-//! untracked local corpora; either being absent makes the relevant test self-skip with a printed
-//! reason rather than fail.
-//!
-//! # Why every test in this file is `#[ignore]`d
-//! The step cap stays `usize::MAX` (`Morpher::new(&g, usize::MAX)`): a *step* cap truncates the
-//! analysis cascade non-deterministically (`pg-parse/tests/batch_determinism.rs`'s own module
-//! doc), which would surface as spurious cross-compiler mismatches having nothing to do with
-//! either compiler. Uncapped analysis of the full corpora (7,121 Sena words / 673 Amharic words)
-//! through *two* grammars each is expensive, so the two full-corpus tests are `#[ignore]`d on
-//! that basis alone (consistent with this workspace's existing convention for full-corpus runs).
-//! The third, fast 50-word smoke test is ALSO unconditionally `#[ignore]`d, on different grounds:
-//! the default local `cargo test --workspace --release` run must not depend on the gitignored
-//! `samples/data/*` corpus fixtures (or a real FieldWorks project checkout) at all, regardless of
-//! test speed. Run any/all of them explicitly with
-//! `cargo test -p pg-cli --release -- --include-ignored`.
-//!
-//! # The hang (fixed) -- `--word-timeout-ms`, not a step cap
-//! A handful of real corpus words (confirmed: at least one in Amharic's first 50) hit a genuine
-//! combinatorial blowup in the unmemoized-equivalent search space and never terminate under an
-//! uncapped step count -- this used to make `conformance_smoke_first_50_words_each_language`
-//! (previously not `#[ignore]`d) and both full-corpus tests here hang indefinitely. Confirmed via
-//! `fwdata_grammar_equivalence_gate.rs` (which needs no `Morpher` at all) that the two compiled
-//! `Grammar`s are structurally identical, so this is not an importer defect: the same word blows
-//! up identically regardless of which pipeline produced its grammar. `Morpher::with_word_timeout`
-//! (a wall-clock deadline, `pg-parse/tests/word_timeout_pathological_gate.rs`) fixes the hang
-//! without the step cap's non-determinism problem: `run_conformance` arms
-//! `WORD_TIMEOUT` on both morphers, and `compare_word` treats either side timing out as
-//! `WordComparison::TimedOut` -- reported separately, like known oracle drift, never counted as
-//! a match *or* a mismatch (a wall-clock deadline is inherently non-deterministic across runs/
-//! machines, so the partial result at the moment it fires is not a meaningful cross-pipeline
-//! comparison either way).
-//!
-//! # Known oracle drift (Sena 3) -- documented failure, not tolerance
-//! The committed `samples/data/sena-hc.xml` no longer corresponds byte-for-byte to the live
-//! `Sena 3.fwdata`: three lexeme forms were edited in FLEx after the oracle was exported.
-//! Verified precisely by regenerating a fresh oracle with FieldWorks' own
-//! `GenerateHCConfig.exe` from the current `.fwdata` and diffing the digit-stripped line
-//! multisets: the ONLY content differences are
-//! `peno`→`penohoho` (entry 2976cd0f), `guman`→`guman.hello.world`, and `mpaka`→`mpaka.la.la`
-//! (obvious "hello world"/"la la" test edits); everything else is Hvo drift. Each
-//! `KNOWN_ORACLE_DRIFT` entry is matched against the corpus by **substring**, not exact
-//! equality: a root-form edit doesn't just break the bare root word, it breaks every corpus word
-//! *derived* from that root by affixation too (confirmed against the full Sena corpus: 13 words
-//! like `"agumana"`/`"kugumana"`/`"gumanik"` all fail to parse on the new pipeline, `new: []`,
-//! because their surface form is built on `gu[mn]a[mn]`-style patterns that no longer match the
-//! new pipeline's edited `"guman hello world"` root -- while legacy's stale-but-internally-
-//! consistent `"guman"` root still parses them fine). All such words are therefore *expected* to
-//! mismatch against the committed oracle -- the committed oracle is wrong for them, not the new
-//! pipeline (the fresh oracle agrees with the new pipeline).
-//!
-//! This is a **per-root aggregate** invariant, not a per-word one: plenty of corpus words merely
-//! *contain* a drift root's substring incidentally without being derived from the affected lexeme
-//! at all (confirmed against the full Sena corpus: `"kugumanya"`, `"gumanika"`, `"madawipeno"` all
-//! contain `"guman"`/`"peno"` yet parse identically on both pipelines -- healthy, unrelated words).
-//! Such a word matching both pipelines is not a sign of anything wrong. Instead, each drift root is
-//! asserted to still resolve to *at least one* mismatch **somewhere in the corpus** (so this list
-//! self-invalidates if the oracle is ever regenerated), tolerating `WORD_TIMEOUT` noise: a root
-//! is only flagged stale if every corpus word containing it plain-matched with zero timeouts and
-//! zero mismatches, never merely because a thin root's one qualifying word happened to time out.
-//! Confirmed live drift is reported separately, never counted as a conformance failure.
+//! Oracle conformance gate: imports a real FieldWorks project through the new pipeline, loads the committed HC-XML oracle through the legacy one, and compares `Morpher` behavior across both.
+//! Why behavioral (not ID) comparison, self-skipping, why every test is `#[ignore]`d, the hang investigation, and verified Sena oracle drift: docs/research/pg-cli-fwdata-conformance-gate-notes.md.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -87,16 +8,10 @@ use std::time::Duration;
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 
-/// Wall-clock deadline armed on every `Morpher` built in `run_conformance` (see the module
-/// doc's "The hang (fixed)" section). Generous relative to a normal word's parse time (real corpus
-/// words finish in low single-digit milliseconds; see this test file's own timing in the fast
-/// grammar-equivalence gate for comparable grammars) but small enough that even every one of the
-/// 7,121+673 corpus words hitting it in the worst case stays a bounded, if slow, test run rather
-/// than the previous unbounded hang.
+/// Wall-clock deadline armed on every `Morpher` built in `run_conformance`; generous relative to a normal word's low-single-digit-millisecond parse time, but small enough that every corpus word hitting it stays a bounded, if slow, run rather than an unbounded hang.
 const WORD_TIMEOUT: Duration = Duration::from_millis(500);
 
-/// Corpus words known to hit the committed Sena oracle's three stale lexeme forms (see the
-/// module doc's "Known oracle drift" section for the full verification trail).
+/// Corpus words known to hit the committed Sena oracle's three stale lexeme forms; see docs/research/pg-cli-fwdata-conformance-gate-notes.md for the verification trail.
 const KNOWN_ORACLE_DRIFT: &[(&str, &str)] = &[
     ("peno", "committed oracle has stale root \"peno\"; live fwdata says \"penohoho\" (entry 2976cd0f, edited 2026-06-16)"),
     ("mpaka", "committed oracle has stale root \"mpaka\"; live fwdata says \"mpaka la la\""),
@@ -117,8 +32,7 @@ fn project_fwdata(project_dir_name: &str) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// Locates a file under `samples/data/`, or `None` if absent -- mirrors `pg-grammar`'s own
-/// `sample_path()` test helper (`load.rs`).
+/// Locates a file under `samples/data/`, or `None` if absent; mirrors `pg-grammar`'s own `sample_path` test helper.
 fn sample_path(name: &str) -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let path = manifest_dir.join("../../../samples/data").join(name);
@@ -134,20 +48,14 @@ fn read_words(path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// One analysis reduced to a cross-compiler-comparable shape: the in-order morpheme gloss
-/// sequence plus the surface string. `Ord`/`Eq` so a word's full analysis set (a `Vec` of these)
-/// can be sorted into a canonical order and compared as a multiset.
+/// One analysis reduced to a cross-compiler-comparable shape: the in-order morpheme gloss sequence plus the surface string, ordered so a word's analysis set can be sorted and compared as a multiset.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct BehavioralAnalysis {
     glosses: Vec<String>,
     surface: String,
 }
 
-/// Reduce a `Morpher::parse_word` outcome to its sorted, cross-compiler-comparable multiset of
-/// analyses. `outcome.structured[i]` and `outcome.analyses[i]` describe the same analysis (same
-/// index, per `ParseOutcome`'s own doc) -- `structured[i].morpheme_ids` gives the numeric
-/// morpheme sequence (resolved against *this* `Grammar`'s own `morphemes` table for the gloss),
-/// `analyses[i].1` gives the surface string.
+/// Reduces a `parse_word` outcome to its sorted, cross-compiler-comparable multiset of analyses; `outcome.structured[i]` and `outcome.analyses[i]` describe the same analysis, same index.
 fn behavioral_result(
     grammar: &Grammar,
     outcome: &pg_parse::ParseOutcome,
@@ -185,8 +93,7 @@ enum WordComparison {
         new: Vec<BehavioralAnalysis>,
         legacy: Vec<BehavioralAnalysis>,
     },
-    /// Either side's `Morpher` hit `WORD_TIMEOUT` -- see the module doc's "The hang (fixed)"
-    /// section for why this is neither a match nor a mismatch, just reported and skipped.
+    /// Either side's `Morpher` hit `WORD_TIMEOUT`: neither a match nor a mismatch, just reported and skipped.
     TimedOut,
 }
 
@@ -214,28 +121,8 @@ fn compare_word(
     }
 }
 
-/// Runs the full behavioral comparison for one language, printing a summary + up to
-/// `max_mismatches_to_print` compact diffs, and returning the number of mismatched words (0 =
-/// perfect conformance). Deliberately does not assert itself -- callers that compare more than
-/// one language in a loop need every language's results printed before the test fails on the
-/// first mismatch it finds.
-///
-/// `known_drift` is the caller's `KNOWN_ORACLE_DRIFT`-style list (empty for a language with a
-/// faithful oracle). This is a **per-root aggregate** invariant, not a per-word one: many corpus
-/// words merely *contain* a drift root's substring incidentally without being morphologically
-/// derived from the affected lexeme, so an individual such word matching both pipelines is
-/// healthy, not an error -- it counts as an ordinary match. Each root in `known_drift` is instead
-/// judged once, after the full word list has been scanned:
-/// - never appeared in this word list -> skipped silently (absence isn't evidence of staleness;
-///   most roots won't appear in a short prefix like the 50-word smoke test);
-/// - at least one appearance was a confirmed `WordComparison::Mismatch` -> drift is live, as
-///   expected, counted towards the returned summary's known-drift count;
-/// - appeared only as `WordComparison::TimedOut` (zero mismatches) -> inconclusive, not a
-///   failure (a thin root with few qualifying words must not fail just because its one qualifying
-///   word got starved past `WORD_TIMEOUT` on this run);
-/// - appeared, nothing timed out, and nothing mismatched -> the drift entry has gone stale (e.g.
-///   the oracle was regenerated) and is reported as a conformance failure so it gets removed
-///   rather than silently masking a real regression.
+/// Runs the full behavioral comparison for one language, returning the mismatch count; deliberately does not assert itself, so callers comparing multiple languages get every result printed before failing.
+/// How a `known_drift` root is judged once, in aggregate, over the whole word list: docs/research/pg-cli-fwdata-conformance-gate-notes.md.
 fn run_conformance(
     language: &str,
     new_grammar: &Grammar,
@@ -255,15 +142,13 @@ fn run_conformance(
     let mut timed_out = 0usize;
     let mut mismatches: Vec<(String, Vec<BehavioralAnalysis>, Vec<BehavioralAnalysis>)> =
         Vec::new();
-    // Per-root tallies for the aggregate known-drift invariant (see this function's own doc
-    // comment): a root is judged once, after the full word list has been scanned, not per-word.
+    // Per-root tallies for the aggregate known-drift invariant: a root is judged once, after the full word list has been scanned, not per-word.
     let mut drift_mismatches: HashMap<&str, usize> = HashMap::new();
     let mut drift_timeouts: HashMap<&str, usize> = HashMap::new();
     let mut drift_matches: HashMap<&str, usize> = HashMap::new();
 
     for word in words {
-        // Substring, not exact equality -- see the module doc's "Known oracle drift" section:
-        // a drifted root also breaks every corpus word derived from it by affixation.
+        // Substring, not exact equality: a drifted root also breaks every corpus word derived from it by affixation.
         let drift = known_drift.iter().find(|(root, _)| word.contains(root));
         match compare_word(
             new_grammar,
@@ -273,10 +158,7 @@ fn run_conformance(
             word,
         ) {
             WordComparison::Match => {
-                // A word containing a drift root's substring that still matches both pipelines is
-                // healthy -- it merely shares a substring with the drifted root without being
-                // derived from it (see module doc). Counts as an ordinary match either way; only
-                // the per-root aggregate below decides whether a drift entry itself is stale.
+                // Healthy: it merely shares a substring with the drifted root without being derived from it; the per-root aggregate below decides whether a drift entry is stale.
                 matched += 1;
                 if let Some((root, _)) = drift {
                     *drift_matches.entry(root).or_insert(0) += 1;
@@ -310,8 +192,7 @@ fn run_conformance(
             || drift_timeouts.contains_key(root)
             || drift_matches.contains_key(root);
         if !appeared {
-            // Root never showed up in this word list (e.g. the 50-word smoke prefix) -- absence
-            // isn't evidence of staleness, skip silently.
+            // Root never showed up in this word list; absence isn't evidence of staleness, skip silently.
             continue;
         }
         let n_mismatch = drift_mismatches.get(root).copied().unwrap_or(0);
@@ -362,10 +243,7 @@ fn run_conformance(
     mismatches.len()
 }
 
-/// Imports `<fwdata_path>` through the new pipeline (`pg_fwdata` -> `Snapshot` ->
-/// `compile_project`), returning the compiled `Grammar` plus every warning collected along the
-/// way (import report + `Snapshot::validate()` + compile warnings), each labeled by stage so a
-/// caller asserting on a specific known warning (e.g. Amharic's stale ad-hoc rule) can find it.
+/// Imports through the new pipeline, returning the compiled `Grammar` plus every warning collected along the way, each labeled by stage so a caller can find a specific known warning.
 fn import_and_compile(fwdata_path: &Path) -> (Grammar, HashMap<&'static str, Vec<String>>) {
     let (snapshot, report) =
         pg_fwdata::import_file(fwdata_path).expect("import must succeed, not hard-error");
@@ -373,10 +251,7 @@ fn import_and_compile(fwdata_path: &Path) -> (Grammar, HashMap<&'static str, Vec
     let (grammar, compile_warnings) =
         pg_grammar::compile_project(&snapshot).expect("compile_project must succeed");
 
-    // `report.warnings`/`validate_warnings` are `pg_snapshot::Warning` (stable code + prose);
-    // `compile_warnings` is still plain `String`. Flatten to prose here so this test's own
-    // `HashMap<&str, Vec<String>>` shape (unrelated to this task's warning-code work) is
-    // unchanged.
+    // `report.warnings`/`validate_warnings` are `pg_snapshot::Warning` (stable code + prose); `compile_warnings` is still plain `String`. Flattened to prose to keep this test's `HashMap<&str, Vec<String>>` shape.
     let mut warnings = HashMap::new();
     warnings.insert(
         "import",
@@ -482,9 +357,7 @@ fn amharic_new_pipeline_matches_legacy_oracle() {
     for w in warnings.values().flatten() {
         eprintln!("  {w}");
     }
-    // §1's motivating example: a stale MoMorphAdhocProhib that crashes FieldWorks' own C#
-    // exporter. The importer must succeed (asserted via `.expect` in `import_and_compile`) and
-    // produce exactly the one known warning about it.
+    // A stale MoMorphAdhocProhib that crashes FieldWorks' own C# exporter: the importer must still succeed and produce exactly the one known warning about it.
     assert_eq!(
         warnings["import"].len(),
         1,
@@ -516,24 +389,11 @@ fn amharic_new_pipeline_matches_legacy_oracle() {
     );
 }
 
-/// A fast smoke test over a small prefix of each corpus, giving *some* live signal on this
-/// pipeline. One of Amharic's first 50 words used to hang this test indefinitely (the same
-/// uncapped-`Morpher` combinatorial blowup as the full-corpus tests above; bisection showed it
-/// predates every fix on this branch, present even at the bare T5-gate commit before any grammar-
-/// compiler changes) -- fixed the same way as the full-corpus tests, via `run_conformance`'s
-/// `WORD_TIMEOUT` (see the module doc's "The hang (fixed)" section): the pathological word now
-/// reports as timed-out rather than hanging the whole suite, and this test terminates promptly.
-///
-/// Test-timing policy: despite being fast, this still loads a real
-/// FieldWorks project checkout and the gitignored `samples/data/{sena,amharic}-{hc.xml,words.txt}`
-/// corpus fixtures, so per policy it is unconditionally `#[ignore]`d too (the default local
-/// `cargo test --workspace --release` run must not depend on gitignored corpus data at all); the
-/// self-skip guards below already keep `--include-ignored` runs green when either is absent.
+/// A fast smoke test over a small prefix of each corpus; still `#[ignore]`d since it loads a real FieldWorks checkout and gitignored corpus data, self-skipping below when either is absent.
 #[test]
 #[ignore = "needs a real FieldWorks project checkout + local gitignored corpus data (samples/data/{sena,amharic}-{hc.xml,words.txt}); run with --include-ignored"]
 fn conformance_smoke_first_50_words_each_language() {
-    // Collect every language's result before asserting -- otherwise the first mismatching
-    // language would panic before a second, independent language ever got to run.
+    // Collected before asserting, so the first mismatching language doesn't panic before a second, independent one runs.
     let mut failures: Vec<(String, usize, usize)> = Vec::new();
 
     for (project, oracle, wordfile) in [

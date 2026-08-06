@@ -1,20 +1,5 @@
-//! The wire schemas (handoff spec §17.3) checked against real emitted artifacts.
-//!
-//! A schema derived from the Rust types could never disagree with the emitter, so it would be
-//! worthless as a check. These schemas are written independently in `schemas/`, and this file
-//! validates them **against artifacts the code actually produces** — so drift fails the build
-//! whichever side moves.
-//!
-//! ## The validator is a declared subset, not a JSON Schema implementation
-//!
-//! It covers exactly what these schemas use: `type` (including `[..., "null"]`), `required`,
-//! `properties`, `additionalProperties`, `enum`, `const`, `items`, `oneOf`, `$ref` to `#/$defs/*`,
-//! `minimum`, `minLength`, `maxLength`, `minItems`, `maxItems`, `pattern` (anchored literal-class
-//! subset). Anything outside that set is a **hard error**, never a silent pass — otherwise a schema
-//! could grow a construct nothing checks and still look green.
-//!
-//! Pulling a real JSON Schema crate would be the alternative; this repo has not taken that
-//! dependency, and inventing a general validator would be worse than declaring the subset honestly.
+//! The wire schemas checked against real emitted artifacts, using a hand-written validator that implements only the JSON Schema subset these schemas use.
+//! See `docs/research/schema-conformance-validator.md` for why the schemas are independent of the Rust types and why the validator is a declared subset rather than a full implementation.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -27,9 +12,7 @@ use pg_assess::{
     Provenance, ReportDraft, Severity, SuiteRef, IDENTITY_PROFILE,
 };
 
-// ---------------------------------------------------------------------------------------------
-// The subset validator
-// ---------------------------------------------------------------------------------------------
+// --- The subset validator ---
 
 struct Validator {
     /// `$defs` from the schema itself, merged over the shared `common.defs.json`.
@@ -250,8 +233,7 @@ fn type_matches(instance: &Value, expected: &Value) -> bool {
     }
 }
 
-/// The one pattern the schemas use: `^sha256:[0-9a-f]{64}$`. Implemented literally rather than by
-/// pulling a regex engine, and anything else is refused so the coverage claim stays true.
+/// The one pattern the schemas use, implemented literally rather than by pulling a regex engine; anything else is refused so the coverage claim stays true.
 fn matches_pattern(text: &str, pattern: &str) -> bool {
     assert_eq!(
         pattern, "^sha256:[0-9a-f]{64}$",
@@ -265,9 +247,7 @@ fn matches_pattern(text: &str, pattern: &str) -> bool {
     })
 }
 
-// ---------------------------------------------------------------------------------------------
-// Loading
-// ---------------------------------------------------------------------------------------------
+// --- Loading ---
 
 fn schemas_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("schemas")
@@ -314,9 +294,7 @@ fn assert_rejected(name: &str, instance: &Value, expected_path_fragment: &str) {
     );
 }
 
-// ---------------------------------------------------------------------------------------------
-// Artifacts built the way production builds them
-// ---------------------------------------------------------------------------------------------
+// --- Artifacts built the way production builds them ---
 
 fn identity(morphemes: &[Option<&str>], category: Option<&str>) -> AnalysisIdentity {
     AnalysisIdentity {
@@ -354,8 +332,7 @@ fn case(case_id: &str, outcome: CaseOutcome) -> CaseRecord {
     }
 }
 
-/// A report exercising every per-case outcome, a guessed root, a duplicate, and a diagnostic — so
-/// the schema is checked against the full shape rather than the easy one.
+/// A report exercising every per-case outcome, a guessed root, a duplicate, and a diagnostic, so the schema is checked against the full shape.
 fn report(cases: Vec<CaseRecord>) -> pg_assess::AssessmentReport {
     let mut budgets = BTreeMap::new();
     budgets.insert("candidates".to_string(), 4096u64);
@@ -453,9 +430,7 @@ const SUITE_JSON: &str = r#"{
   ]
 }"#;
 
-// ---------------------------------------------------------------------------------------------
-// Positive: the real emitters produce schema-conformant artifacts
-// ---------------------------------------------------------------------------------------------
+// --- Positive: the real emitters produce schema-conformant artifacts ---
 
 #[test]
 fn every_schema_file_parses_and_declares_its_id() {
@@ -479,8 +454,7 @@ fn a_real_assessment_report_conforms() {
 #[test]
 fn a_real_suite_conforms() {
     let parsed = pg_assess::parse_suite(SUITE_JSON).expect("fixture suite is valid to the code");
-    // Validate the document the caller actually supplies, and confirm the code accepts the same one
-    // — the schema and the validator must agree about what a suite is.
+    // Validate the document the caller actually supplies: the schema and the validator must agree about what a suite is.
     assert_valid(
         "assessment-suite",
         &serde_json::from_str::<Value>(SUITE_JSON).unwrap(),
@@ -588,14 +562,11 @@ fn a_real_investigation_handoff_conforms() {
     assert_valid("investigation-handoff", &handoff.to_value());
 }
 
-// ---------------------------------------------------------------------------------------------
-// Negative: each fixture must be rejected, and rejected for its own reason
-// ---------------------------------------------------------------------------------------------
+// --- Negative: each fixture must be rejected, and rejected for its own reason ---
 
 #[test]
 fn a_successful_report_states_failure_as_null_rather_than_omitting_it() {
-    // An explicit null says "this run did not fail". A missing key would leave a consumer unable to
-    // distinguish that from an older producer that never emitted the field.
+    // An explicit null says "did not fail"; a missing key would look identical to an older producer that never emitted the field.
     let value = full_report().to_value();
     assert!(value.as_object().unwrap().contains_key("failure"));
     assert_eq!(value["failure"], Value::Null);
@@ -604,7 +575,7 @@ fn a_successful_report_states_failure_as_null_rather_than_omitting_it() {
 
 #[test]
 fn a_failed_report_carries_a_typed_top_level_failure() {
-    // Spec 17.7: "An assessment report has top-level `status` ... and nullable typed `failure`."
+    // A failed run carries a top-level status and a nullable typed failure.
     let mut draft = full_report().draft().clone();
     draft.cases = vec![case(
         "never-ran",

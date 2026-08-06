@@ -1,10 +1,4 @@
-//! MPR ("morphological/phonological rule") feature groups: inflection classes, exception
-//! features, and lexEntryInflTypes — `HCLoader.LoadLanguage` HCLoader.cs:168-192. All three
-//! populate ONE shared bit space (`Language.MprFeatures`/`MprSet`, capped at 64 total, mirroring
-//! `mod@crate::load`'s own >64 MPR-feature lint), each wrapped in its own `MprGroup` with the
-//! fixed match/output semantics HCLoader always uses (never authored, since the legacy HC-XML
-//! `<MorphologicalPhonologicalRuleFeatureGroup>` element has no snapshot analog — these three
-//! groups are the *entire* set of `MprGroup`s a `compile_project`-built grammar ever has).
+//! MPR feature groups: inflection classes, exception features, and lexEntryInflTypes, all populating one shared bit space capped at 64 total — the entire set of `MprGroup`s a `compile_project`-built grammar ever has.
 
 use hashbrown::HashMap;
 
@@ -20,17 +14,14 @@ pub(crate) struct MprTables {
     pub mpr_groups: Vec<MprGroup>,
     /// Inflection class guid -> its own bit (HCLoader.cs:571-577 `LoadMprFeature`).
     pub infl_class_bit: HashMap<String, MprId>,
-    /// Inflection class guid -> direct subclass guids (for the "required" side's descendant-
-    /// closure expansion, `LoadAllInflClasses`, HCLoader.cs:2593-2608).
+    /// Inflection class guid -> direct subclass guids, for the required side's descendant-closure expansion.
     pub infl_class_children: HashMap<String, Vec<String>>,
     pub exception_feature_bit: HashMap<String, MprId>,
     pub lex_entry_infl_type_bit: HashMap<String, MprId>,
 }
 
 impl MprTables {
-    /// A single inflection class's own bit, no descendant expansion — the "output"/"to" side
-    /// convention (`GetInflClass`/`m_mprFeatures[inflClass]` used directly, HCLoader.cs:697,
-    /// 1901, 1961, 1988).
+    /// A single inflection class's own bit, no descendant expansion — the output/to side convention.
     pub fn infl_class_single(&self, guid: &str) -> Option<MprSet> {
         self.infl_class_bit.get(guid).map(|&b| {
             let mut s = MprSet::EMPTY;
@@ -39,8 +30,7 @@ impl MprTables {
         })
     }
 
-    /// An inflection class plus every (recursive) subclass — the "required"/"from" side
-    /// convention (`LoadAllInflClasses`, HCLoader.cs:2593-2608, 2600-2608).
+    /// An inflection class plus every recursive subclass — the required/from side convention.
     pub fn infl_class_with_descendants(&self, guid: &str) -> Option<MprSet> {
         let bit = *self.infl_class_bit.get(guid)?;
         let mut set = MprSet::EMPTY;
@@ -76,11 +66,7 @@ impl MprTables {
         })
     }
 
-    /// A "rule feature" / "exception feature" reference (`requiredRuleFeatures`,
-    /// `excludedRuleFeatures`, MSA `exceptionFeatures`, ...): resolves against either the
-    /// inflection-class registry or the exception-feature registry (`LoadMprFeatures`,
-    /// HCLoader.cs:2610-2623) — `None` if it resolves to neither (dangling reference; caller
-    /// warns and skips).
+    /// A rule/exception feature reference: resolves against either the inflection-class or exception-feature registry, or `None` for a dangling reference the caller warns and skips.
     pub fn rule_feature(&self, guid: &str) -> Option<MprSet> {
         self.infl_class_single(guid)
             .or_else(|| self.exception_feature(guid))

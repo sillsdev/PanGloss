@@ -1,38 +1,5 @@
-//! `RewriteMode::Simultaneous` REAL semantics for
-//! the configurations the `simultaneous.subrule-overlap` predicate (D3, `crate::capability::
-//! SimultaneousSubruleOverlapPredicate`) ADMITS -- reusing `replace.rs`'s
-//! existing plain/iterative sequential-compose machinery UNCHANGED (that predicate's own defining
-//! property: non-overlapping simultaneous == sequential, `replace.rs`'s own module doc, "compiling
-//! the ADMITTED case"). A rule the predicate proves
-//! pairwise non-overlapping actually compiles; one it cannot clear stays gated.
-//!
-//! Synthetic, delanguaged fixtures ("synthetic data only"), named by construct:
-//! - `sim-trivial`: the pre-existing `pg_grammar_gen` bail-gate recipe (a single, ungated,
-//!   environment-free subrule) -- vacuously admitted (no peer subrule for D3's pairwise loop to
-//!   ever examine), now proven to actually COMPILE, not merely detected.
-//! - `sim-nonoverlap-env`: two subrules whose right environments are mutually exclusive natural
-//!   classes (`Front`/`Back`, no shared segment) -- the same shape `capability.rs`'s own
-//!   `simultaneous_predicate_admits_genuinely_non_overlapping_subrules_via_lowered_span` unit test
-//!   proves D3 Admits, here exercised end-to-end: compiles, and a proposer-to-confirm CONTAINMENT
-//!   check against `pg_parse::Morpher` (this codebase's own full-HC oracle) holds EXACTLY, following
-//!   `tests/phase_c_right_to_left.rs`'s established methodology.
-//! - `sim-overlap-env`: two subrules whose right environments genuinely OVERLAP (share a segment) --
-//!   the same shape `capability.rs`'s own `simultaneous_predicate_refuses_genuinely_overlapping_
-//!   subrules_via_lowered_span` unit test proves D3 Refuses, here exercised end-to-end: stays
-//!   honest-unsupported (`Ok(None)`, reported `skipped`), never a wrong compile.
-//!
-//! ## Why no oracle mode-blindness workaround is needed here (contrast `phase_c_right_to_left.rs`)
-//! Unlike `Dir::RightToLeft` (whose "Known, out-of-scope oracle gap" required a recall-preserving
-//! safety-net union, that file's own top doc), `pg_rules::rewrite` is NOT mode-blind for
-//! `Simultaneous` vs `Iterative`: it dispatches to genuinely distinct `sim_feature`/`sim_narrow`
-//! synthesis functions and wraps analysis in a `self_opaquing`-gated repeat-until-fixpoint loop
-//! (already shipped). D3's own
-//! `self_opaquing`-Refuse early-out (plus `crate::capability::
-//! simultaneous_rule_admitted_for_compile`'s own STRICTER lone-self-opaquing refusal, that
-//! function's doc) keeps every rule this file's tests below actually compile OUTSIDE the region
-//! where that asymmetry could ever bite -- see `replace.rs`'s own module doc for the full argument.
-//! No union, no superset-widening: exact oracle equality is the bar for `sim-nonoverlap-env`, and it
-//! holds.
+//! `RewriteMode::Simultaneous` compiles via `replace.rs`'s ordinary sequential-compose machinery, unchanged, for any rule the overlap predicate proves pairwise non-overlapping; one it cannot clear stays honestly gated.
+//! See `docs/research/pg-foma-simultaneous-rewrite-notes.md` for the fixture design and why no oracle mode-blindness workaround is needed here.
 
 mod common;
 
@@ -67,8 +34,7 @@ fn entry_id_of(g: &Grammar, xml_id: &str) -> LexEntryId {
     )
 }
 
-/// Every DECODED `apply_up` candidate for `query` against `net` (`tests/two_table_symbol_
-/// divergence.rs`'s/`tests/phase_c_right_to_left.rs`'s own helper, reused verbatim).
+/// Every decoded `apply_up` candidate for `query` against `net`.
 fn fst_candidate_set(net: &foma::types::Fsm, query: &str) -> HashSet<(i32, Vec<u32>)> {
     let mut out = HashSet::new();
     let mut handle = apply_init(net);
@@ -98,9 +64,7 @@ fn oracle_candidate_set(
         .collect()
 }
 
-/// Compiles `rule` (stratum 0's own table) via `compile_and_compose_rules_with_budget`, composes
-/// it after `lexc_source`, and minimizes -- the shared plumbing every containment witness below
-/// uses (`tests/phase_c_right_to_left.rs`'s own `compile_net`, reused verbatim).
+/// Compiles `rule` via `compile_and_compose_rules_with_budget`, composes it after `lexc_source`, and minimizes.
 fn compile_net(
     g: &Grammar,
     alphabet: &SegAlphabet,
@@ -135,10 +99,7 @@ fn compile_net(
     fsm_minimize(&opts, fsm_compose(&opts, lexc_net, rule_net))
 }
 
-// =================================================================================================
-// sim-trivial: the pre-existing bail-gate recipe (single, ungated, environment-free subrule) --
-// vacuously admitted, now proven to actually compile end-to-end.
-// =================================================================================================
+// sim-trivial: single, ungated, environment-free subrule -- vacuously admitted, now proven to actually compile end-to-end.
 
 fn trivial_recipe() -> Recipe {
     Recipe {
@@ -244,12 +205,7 @@ fn sim_trivial_lone_subrule_now_compiles() {
     );
 }
 
-// =================================================================================================
-// sim-nonoverlap-env: two subrules whose right environments are mutually exclusive natural classes
-// (Front/Back, no shared segment) -- D3 proves this pair non-overlapping via the real lowered-span
-// intersection (the SAME shape `capability.rs`'s own unit test proves Admit for). Full grammar +
-// lexicon + `pg_parse::Morpher` CONTAINMENT check.
-// =================================================================================================
+// sim-nonoverlap-env: two subrules with mutually exclusive right environments (Front/Back) -- proven non-overlapping via lowered-span intersection; full grammar + lexicon + oracle containment check.
 
 const SIM_NONOVERLAP_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -413,8 +369,7 @@ fn sim_nonoverlap_env_now_compiles_and_matches_oracle_exactly() {
         "'bi' and 'du' must decode to DISTINCT roots"
     );
 
-    // The raw, un-rewritten spellings must never surface (both subrules are obligatory wherever
-    // their own environment holds, and every occurrence of the target class here has one).
+    // Raw, un-rewritten spellings must never surface: both subrules are obligatory wherever their environment holds.
     let oracle_pi_raw = oracle_candidate_set(&morpher, "pi", &allowed);
     assert!(
         oracle_pi_raw.is_empty(),
@@ -427,11 +382,7 @@ fn sim_nonoverlap_env_now_compiles_and_matches_oracle_exactly() {
     );
 }
 
-// =================================================================================================
-// sim-overlap-env: two subrules whose right environments genuinely OVERLAP (one accepts
-// {Front, Back}, the other accepts {Back} alone -- a shared member) -- D3 must Refuse, and the
-// rule must stay honest-unsupported: `Ok(None)`, reported `skipped`, never a wrong compile.
-// =================================================================================================
+// sim-overlap-env: two subrules whose right environments genuinely overlap (shared member) -- must stay honest-unsupported (`Ok(None)`, `skipped`), never a wrong compile.
 
 const SIM_OVERLAP_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>

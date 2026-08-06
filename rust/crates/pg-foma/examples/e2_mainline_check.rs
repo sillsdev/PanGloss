@@ -1,13 +1,4 @@
-//! Dispositive check (not mainline, throwaway diagnostic): does mainline's ACTUAL production path
-//! (`crate::emit::emit` with `crate::preexpand` ON, via `FomaProposer`/`FomaAnalyzer`) cover the
-//! word "ሰብሬ" (root "break" + mrule6/-conv- infix + mrule31/conv.1.sg [an OutputAction::Modify
-//! ablaut rule] + mrule75/poss.1s)? The E2 probe (junction/preexpand OFF by design) misses this
-//! word; the open question is whether mainline ALSO misses it (pre-existing, non-blocking gap) or
-//! whether preexpand's real-phonology resolution actually covers it (a genuine regression risk for
-//! E2, load-bearing, not deferrable). One word, direct measurement, no extrapolation from doc
-//! comments.
-//!
-//! Run: `cargo run --release -p pg-foma --example e2_mainline_check`
+//! Checks whether the real production path (`emit::emit` with `preexpand` on) covers a specific infix+ablaut+suffix word that a junction/preexpand-off probe missed.
 
 use std::path::{Path, PathBuf};
 

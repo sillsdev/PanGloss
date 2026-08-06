@@ -103,8 +103,7 @@ pub struct Diagnostic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FailureKind {
-    /// Suite validation passed, then import, compile, or setup failed safely. Cases are
-    /// `not_attempted/assessment_setup_failed` and all available build evidence is retained.
+    /// Suite validation passed, then import, compile, or setup failed safely, with all available build evidence retained.
     AssessmentSetupFailed,
     /// The requested pipeline cannot run this grammar. Never a silent fallback to the other one.
     UnsupportedCapability,
@@ -183,8 +182,7 @@ impl ReportDraft {
             semantic_digest,
             outcome_digest,
         };
-        // `reportId` covers the whole artifact, so it is computed over the artifact with the
-        // `reportId` field itself absent — the only value it cannot contain is its own.
+        // Computed over the artifact with the `reportId` field itself absent — the only value it cannot contain is its own.
         report.report_id = digest_projection(
             &format!("{REPORT_SCHEMA}/v{REPORT_SCHEMA_VERSION}"),
             &report.to_value(),
@@ -192,8 +190,7 @@ impl ReportDraft {
         Ok(report)
     }
 
-    /// "Was this the same run?" — everything but timestamps, paths, timings, `sourceSha256`, and
-    /// diagnostic prose.
+    /// "Was this the same run?" — everything but timestamps, paths, timings, `sourceSha256`, and diagnostic prose.
     fn semantic_value(&self) -> Value {
         json!({
             "suite": serde_json::to_value(&self.suite).expect("suite ref is plain strings"),
@@ -215,15 +212,12 @@ impl ReportDraft {
         })
     }
 
-    /// "Did the grammar behave the same?" — suite digest, per-case outcome kind, and identity sets.
-    /// Deliberately blind to which pipeline ran, what it cost, and which build of PanGloss ran it.
+    /// "Did the grammar behave the same?" — suite digest, per-case outcome kind, and identity sets, deliberately blind to pipeline, cost, and PanGloss build.
     fn outcome_value(&self) -> Value {
         json!({
             "suiteDigest": self.suite.semantic_digest,
             "analysisIdentityProfile": self.suite.analysis_identity_profile,
-            // `supersedes` is lineage, not behavior: declaring that a case replaces another changes
-            // how a comparison joins, never what the grammar did. It stays out of this projection
-            // so relabelling a suite's case IDs cannot look like a behavior change.
+            // `supersedes` is lineage, not behavior, so it stays out of this projection: relabelling a suite's case IDs must never look like a behavior change.
             "cases": self.cases.iter().map(|c| json!({
                 "caseId": c.case_id,
                 "outcome": c.outcome.kind(),
@@ -297,8 +291,7 @@ impl AssessmentReport {
             serde_json::to_value(self.status).expect("status is a unit enum"),
         );
         root.insert("reproducible".into(), json!(self.reproducible));
-        // Always emitted, never skipped when absent: an explicit null says "this run did not fail",
-        // where a missing key would leave a consumer unable to tell that from an older producer.
+        // Always emitted, never skipped when absent: an explicit null says "did not fail", where a missing key would look identical to an older producer.
         root.insert(
             "failure".into(),
             serde_json::to_value(&self.draft.failure)
@@ -343,11 +336,7 @@ impl AssessmentReport {
     }
 }
 
-/// Interned stable source keys.
-///
-/// The table is sorted so it is deterministic, but nothing depends on its order: every digest is
-/// taken over expanded identities, and `read` resolves indices back to key strings before anything
-/// else looks at them.
+/// Interned stable source keys, sorted for determinism — every digest is taken over expanded identities, never the table's order.
 struct KeyTable {
     keys: Vec<String>,
     index: BTreeMap<String, usize>,
@@ -385,8 +374,7 @@ impl KeyTable {
     fn identity_value(&self, identity: &AnalysisIdentity) -> Value {
         json!({
             "morphemes": identity.morphemes.iter().map(|slot| match slot {
-                // A guessed root has no authored source, so it interns to nothing rather than to a
-                // key that happens to spell "null".
+                // A guessed root has no authored source, so it interns to nothing rather than to a key that happens to spell "null".
                 None => Value::Null,
                 Some(key) => self.intern(key),
             }).collect::<Vec<_>>(),
@@ -453,8 +441,7 @@ fn diagnostic_counts(diagnostics: &[Diagnostic]) -> Value {
     )
 }
 
-/// A case's contribution to the semantic projection: the outcome kind, why it stopped if it did,
-/// and the full analysis set with duplicate evidence.
+/// A case's contribution to the semantic projection: outcome kind, why it stopped if it did, and the full analysis set with duplicate evidence.
 fn outcome_semantic_value(outcome: &CaseOutcome) -> Value {
     let mut obj = Map::new();
     obj.insert("kind".into(), json!(outcome.kind()));
@@ -542,9 +529,7 @@ pub fn parse_report(document: &str) -> Result<AssessmentReport, ReportError> {
 
     let suite: SuiteRef = field(object, "suite")?;
     if suite.analysis_identity_profile != IDENTITY_PROFILE {
-        // Refused rather than best-effort: expectations written under another profile's encoding
-        // would silently miss (spec: "An identity profile cannot strand a caller's adjudicated
-        // corpus").
+        // Refused rather than best-effort: expectations written under another profile's encoding would silently miss.
         return Err(ReportError::ForeignIdentityProfile(
             suite.analysis_identity_profile,
         ));
@@ -581,8 +566,7 @@ pub fn parse_report(document: &str) -> Result<AssessmentReport, ReportError> {
         extensions: object.get("extensions").cloned(),
     };
 
-    // The digests are recomputed from the expanded content rather than trusted from the file, so a
-    // hand-edited report is caught the first time anything compares it.
+    // Recomputed from the expanded content rather than trusted from the file, so a hand-edited report is caught immediately.
     draft
         .finish()
         .map_err(|e| ReportError::Malformed(e.to_string()))
@@ -803,8 +787,7 @@ mod tests {
 
     #[test]
     fn a_compiler_upgrade_moves_the_semantic_digest_but_not_the_outcome_digest() {
-        // The query a diff tool asks constantly: "did the grammar's behaviour change?" A digest
-        // family that cannot answer it across a PanGloss bump is useless for that.
+        // The query a diff tool asks constantly: "did the grammar's behaviour change?" independent of any PanGloss version bump.
         let a = sample().finish().unwrap();
         let mut upgraded = sample();
         upgraded.provenance.compiler_version = "2".into();
@@ -816,9 +799,7 @@ mod tests {
 
     #[test]
     fn a_source_hash_change_moves_neither_semantic_nor_outcome_digest() {
-        // D3a: `core.autocrlf` gives the same grammar different bytes on Windows and Linux. If the
-        // source hash were in the semantic projection, every cross-platform comparison would report
-        // a permanent false context difference.
+        // `core.autocrlf` gives the same grammar different bytes on Windows and Linux, so the source hash must stay out of the semantic projection.
         let a = sample().finish().unwrap();
         let mut relf = sample();
         relf.provenance.source_sha256 = "sha256:crlf-flavoured".into();

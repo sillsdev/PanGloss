@@ -1,30 +1,5 @@
-//! The single-owner invariant for `pg_foma::grammar_semantics::GrammarSemantics`.
-//!
-//! The invariant this pins: **no migrated consumer re-reads `Grammar` to decide something
-//! `GrammarSemantics` already owns.** Two shapes of evidence, and they are not equally strong --
-//! stated plainly rather than padded:
-//!
-//! 1. **Call counting (the real gate).** `pg_foma::capability::characterize` is the expensive
-//!    walk -- it builds real `foma::types::Fsm` networks for `Simultaneous`-mode subrules -- and
-//!    nothing memoized it before this task. `select_plan` called it ONCE PER CANDIDATE PLAN and
-//!    `preflight_findings` called it twice. Both assertions below FAIL on the pre-7.11 code (2 and
-//!    2 respectively, against the 1 asserted here) and pass after. This is the load-bearing test.
-//!
-//! 2. **The declared-vs-cascade phonology split.** `Applicability::HasPhonology` and
-//!    `PhonologyProbe::new`'s existence gate are DIFFERENT predicates that genuinely disagree, and
-//!    the fixture here proves it. This assertion also fails on any future "simplification" that
-//!    unifies them -- which is exactly what it is for, since unifying them would change which recipe
-//!    families a grammar is offered.
-//!
-//! What is NOT claimed: the projection equalities (`Applicability::HasTemplates` ==
-//! `declared_templates`, and so on) are tautologies given the implementation and would pass either
-//! way. They are not asserted here, because a test that cannot fail is not evidence.
-//!
-//! # Why one `#[test]` function
-//! `characterize_call_count` is thread-local, so it cannot be polluted by other test binaries or by
-//! tests on other threads -- but two `#[test]`s in THIS file could still be scheduled on the same
-//! thread by the harness's thread reuse. Keeping the counting work in one function makes the reading
-//! unambiguous without depending on how the harness schedules.
+//! The single-owner invariant for `GrammarSemantics`: no consumer re-reads `Grammar` to decide
+//! something it already owns; see `docs/research/pg-foma-grammar-semantics-owner-gate.md`.
 
 use foma::options::FomaOptions;
 use pg_grammar::model::{Grammar, PhonRuleDef};
@@ -41,11 +16,7 @@ use pg_foma::recipe_registry::Applicability;
 use pg_foma::replace::SegAlphabet;
 use pg_foma::selection::select_plan;
 
-/// One MPR-gated subrule and two entries realizing both truth values of that gate key, so
-/// `enumerate_candidates` yields TWO candidates (`"default"` and `"gate-group-permuted"`) -- the
-/// shape that makes `select_plan`'s per-candidate `characterize` visible. Same synthetic fixture
-/// `selection.rs`'s own test module uses, duplicated here because test modules do not share private
-/// helpers across files.
+/// One MPR-gated subrule and two entries realizing both truth values of that gate key, so `enumerate_candidates` yields two candidates -- the shape that makes per-candidate `characterize` calls visible.
 const GATED_TWO_GROUP_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -93,10 +64,7 @@ const GATED_TWO_GROUP_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-/// The disagreement fixture: `prule1` is declared in the global `<PhonologicalRuleDefinitions>`
-/// block and named by NO stratum's `phonologicalRules` attribute. `pg_grammar::load`'s stratum
-/// loader only ever pushes ids that attribute names, so the rule lands in `g.prules` and in no
-/// `sd.prules`.
+/// The disagreement fixture: `prule1` is declared globally but named by no stratum's `phonologicalRules` attribute, so it lands in `g.prules` and in no `sd.prules`.
 const ORPHANED_PRULE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -146,10 +114,7 @@ fn prules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
         .collect()
 }
 
-/// `select_plan` characterizes the GRAMMAR once, not once per candidate PLAN.
-///
-/// Falsified by moving `GrammarSemantics::derive` back inside `select_plan`'s
-/// per-candidate closure: this test then reported 2 (one per candidate) and FAILED.
+/// `select_plan` characterizes the grammar once, not once per candidate plan; falsified by moving `GrammarSemantics::derive` back inside its per-candidate closure.
 #[test]
 fn select_plan_characterizes_the_grammar_once_not_once_per_candidate() {
     let g = load(GATED_TWO_GROUP_XML);
@@ -157,9 +122,7 @@ fn select_plan_characterizes_the_grammar_once_not_once_per_candidate() {
     let ro = prules_in_order(&g);
     let phon = PhonologyProbe::new(&g);
     let opts = FomaOptions::default();
-    // `ComposeBudget::unbounded()` is `#[cfg(test)]`-only inside the crate, so an integration test
-    // builds the equivalent never-trips budget through the public constructor (same shape
-    // `plan_interaction_coverage::fuzz_gate_group_reordering_for_grammar` uses).
+    // `ComposeBudget::unbounded()` is `#[cfg(test)]`-only inside the crate, so this builds the equivalent never-trips budget via the public constructor.
     let budget = ComposeBudget::with_caps(
         usize::MAX,
         usize::MAX,
@@ -198,11 +161,7 @@ fn select_plan_characterizes_the_grammar_once_not_once_per_candidate() {
     );
 }
 
-/// `preflight_findings` characterizes once, not twice.
-///
-/// Falsified by restoring the two independent walks (`capability::characterize(g)` here
-/// plus a second inside a freshly derived `evaluate_capability`): this test then reported 2 and
-/// FAILED.
+/// `preflight_findings` characterizes once, not twice; falsified by restoring two independent `characterize` walks.
 #[test]
 fn preflight_findings_characterizes_once_not_twice() {
     let g = load(GATED_TWO_GROUP_XML);
@@ -221,17 +180,11 @@ fn preflight_findings_characterizes_once_not_twice() {
          verdict from two independent walks before task 7.11, which its own module doc called \
          'an acceptable duplication ... while waiting on 7.11'"
     );
-    // A sanity check that preflight actually ran rather than short-circuiting: this grammar has a
-    // gated MPR subrule and a rewrite rule, so preflight has real cardinality to look at.
+    // Sanity check that preflight actually ran rather than short-circuited: this grammar has real cardinality to look at.
     let _ = findings;
 }
 
-/// Declared phonology and cascade phonology are DIFFERENT facts, and each consumer keeps the one it
-/// already meant. A "simplification" that unified them fails here.
-///
-/// Falsified by pointing `Applicability::HasPhonology` at `cascade_phonology`: this test then
-/// FAILED on the orphaned-rule fixture, which is exactly the routing change this invariant
-/// forbids.
+/// Declared phonology and cascade phonology are different facts; each consumer keeps the one it means. Falsified by pointing `Applicability::HasPhonology` at `cascade_phonology` instead.
 #[test]
 fn declared_and_cascade_phonology_stay_separate_facts_for_their_separate_consumers() {
     let orphan = load(ORPHANED_PRULE_XML);

@@ -1,24 +1,10 @@
-//! Ports `AffixTemplateTests` (parse-opt: `tests/SIL.Machine.Morphology.HermitCrab.Tests/
-//! AffixTemplateTests.cs`) bucket-B/C rows per `rust/parity-out/audit/phase2/D-test-coverage-map.md`
-//! §3. Grammar/lexicon shared via `csharp_port_common`; every test drives the real end-to-end
-//! `pg_parse::Morpher::parse_word` pipeline over an XML-loaded grammar, matching each C# test's own
-//! `morpher.ParseWord(...)` calls. Expected values are transcribed verbatim from the C# source's
-//! `AssertMorphsEqual` literals (oracle = the C# assertion itself, per the task's fixture-strategy
-//! doc §5: "a human reading the assertion can transcribe it in under a minute").
-//!
-//! `RealizationalRule` (the 4th `AffixTemplateTests` test) is now ported (see
-//! `realizational_rule`) — the W5 realizational-cluster port unlinted
-//! `RealizationalAffixProcessRule`, closing the former scope-cut.
+//! Ports `AffixTemplateTests` (`SIL.Machine.Morphology.HermitCrab.Tests`). Grammar/lexicon shared via `csharp_port_common`; every test drives `pg_parse::Morpher::parse_word` end-to-end over an XML-loaded grammar, matching each C# test's own `ParseWord` calls, with expected values transcribed verbatim from the C# source's `AssertMorphsEqual` literals.
 
 mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq};
 use pg_parse::Morpher;
 
-/// Ports `AffixTemplateTests.NonFinalTemplate` (AffixTemplateTests.cs:222-348). Two configurations of
-/// the same grammar: `verbTemplate.IsFinal` defaults to `true` (a template slot rule cannot be
-/// followed by further morphological rules), then is flipped to `false` (ordinary rules/compounding/
-/// a second template may apply after it). `ed_suffix` picks its allomorph by phonological context
-/// (alveolar-stop-final -> "+ɯd"; voiceless-final -> "+t"; else -> "+d"); "sag" -> "sagd".
+/// Ports `AffixTemplateTests.NonFinalTemplate`: two configurations of the same grammar toggling `verbTemplate.IsFinal`, with `ed_suffix` picking its allomorph by phonological context.
 #[test]
 fn non_final_template() {
     let mrules_final = r#"
@@ -81,9 +67,7 @@ fn non_final_template() {
       </CompoundingRule>
     "#;
 
-    // `ed_suffix`/`s_suffix` are template-slot-only in C# (never added to `MorphologicalRules`); only
-    // `nominalizer`/`rule1` (the compound) are ordinary cascade rules -- hence `mrNom mrCompound` here,
-    // not `mrEd`/`mrS` (see `build_grammar`'s doc comment on the ordinary-vs-template-only distinction).
+    // `ed_suffix`/`s_suffix` are template-slot-only in C#; only `nominalizer`/`rule1` are ordinary cascade rules, hence `mrNom mrCompound` here, not `mrEd`/`mrS`.
     let templates_final = r#"
       <AffixTemplate requiredPartsOfSpeech="posV"><Name>verb</Name><Slot morphologicalRules="mrEd"><Name>Sl1</Name></Slot></AffixTemplate>
       <AffixTemplate requiredPartsOfSpeech="posN"><Name>noun</Name><Slot morphologicalRules="mrS" optional="true"><Name>Sl2</Name></Slot></AffixTemplate>
@@ -121,9 +105,7 @@ fn non_final_template() {
     assert_morphs_eq(&m2.parse_word("sagdmis"), &["32 PAST 53 PL"]);
 }
 
-/// Ports `AffixTemplateTests.AffixTemplateAppliedAfterMorphologicalRule` (AffixTemplateTests.cs:350-397).
-/// Bucket C: feature-complete (template-battery + ordinary-rule interleaving both exist), never a
-/// dedicated test. An ordinary V->N `nominalizer` rule feeds a `noun` template's `s_suffix` slot.
+/// Ports `AffixTemplateTests.AffixTemplateAppliedAfterMorphologicalRule`: an ordinary V->N `nominalizer` rule feeds a `noun` template's `s_suffix` slot.
 #[test]
 fn affix_template_applied_after_morphological_rule() {
     let mrules = r#"
@@ -153,11 +135,7 @@ fn affix_template_applied_after_morphological_rule() {
     assert_morphs_eq(&m.parse_word("sagvs"), &["32 NOM PL"]);
 }
 
-/// Ports `AffixTemplateTests.SameRuleUsedInMultipleTemplates` (AffixTemplateTests.cs:399-457).
-/// Bucket C: Rust's `Grammar` model references rules from templates by `MRuleId` handle, so sharing
-/// one rule across two templates is structurally trivial -- never asserted until now. `ed_suffix`
-/// (requires V/IV/TV) is referenced by both the (unused-here) TV template and the IV template; a
-/// nominalizer (N -> IV) feeds the IV template's slot.
+/// Ports `AffixTemplateTests.SameRuleUsedInMultipleTemplates`: `ed_suffix` is referenced by both the TV and IV templates, and a nominalizer feeds the IV template's slot.
 #[test]
 fn same_rule_used_in_multiple_templates() {
     let mrules = r#"
@@ -188,10 +166,7 @@ fn same_rule_used_in_multiple_templates() {
     assert_morphs_eq(&m.parse_word("mivd"), &["53 IVERB PAST"]);
 }
 
-/// `build_morph_grammar` reuses the shared common lexicon which lacks entry "53" (mi, N) and the
-/// TV/IV parts of speech `SameRuleUsedInMultipleTemplates` needs. This test is small enough that a
-/// bespoke tiny grammar (matching the style of `pg-rules/tests/validity_gate.rs`) is clearer than
-/// growing the shared fixture for one test's two extra POS symbols + one extra entry.
+/// The shared common lexicon lacks entry "53" and the TV/IV parts of speech this test needs, and is small enough that a bespoke tiny grammar is clearer than growing the shared fixture for it.
 fn build_grammar_with_tv_iv(mrules_xml: &str, templates_xml: &str) -> pg_grammar::model::Grammar {
     let xml = format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
@@ -237,18 +212,9 @@ fn build_grammar_with_tv_iv(mrules_xml: &str, templates_xml: &str) -> pg_grammar
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("grammar failed to load: {e}\n---\n{xml}"))
 }
 
-// =================================================================================================
-// AffixTemplateTests.RealizationalRule (W5/D-batch-3 — formerly the scope-cut noted in this file's
-// module doc; the realizational-cluster port unlinted `RealizationalRule`).
-// =================================================================================================
+// --- AffixTemplateTests.RealizationalRule ---
 
-/// The three realizational rules of `AffixTemplateTests.RealizationalRule`
-/// (AffixTemplateTests.cs:10-222), transcribed with `evid_features` left as a substitution point
-/// because the C# test flips `evidential.RealizationalFeatureStruct` mid-test (cs:194-198) and
-/// rebuilds the `Morpher` — two grammars in this port. Natural-class stand-ins (see
-/// `csharp_port_common`'s `NATURAL_CLASSES_XML` convention): `ncAlvStop2` = C# `alvStop`
-/// (cons+/strident-/del_rel-/alveolar), `ncVlCons` = `voicelessCons`, `ncLabC` = `labiodental`,
-/// `ncVoiced` = `voiced`, `ncStrident` = `strident`.
+/// The three realizational rules of `AffixTemplateTests.RealizationalRule`; `evid_features` is a substitution point because the C# test flips `evidential`'s feature struct mid-test and rebuilds the `Morpher` (two grammars in this port). Natural-class stand-ins: `ncAlvStop2`=`alvStop`, `ncVlCons`=`voicelessCons`, `ncLabC`=`labiodental`, `ncVoiced`=`voiced`, `ncStrident`=`strident`.
 fn realizational_rule_mrules(evid_features: &str) -> String {
     format!(
         r#"
@@ -330,8 +296,7 @@ fn realizational_rule_mrules(evid_features: &str) -> String {
     )
 }
 
-/// The `SEE` family roots (`HermitCrabTestBase.cs:648-665`), absent from the shared lexicon:
-/// `bl1` = "si" (V), `bl2` = "sau" (V, tense=past), `bl3` = "sis" (V, tense=pres).
+/// The `SEE` family roots, absent from the shared lexicon: `bl1` = "si" (V), `bl2` = "sau" (V, tense=past), `bl3` = "sis" (V, tense=pres).
 const SEE_FAMILY_LEXICON: &str = r#"
   <LexicalEntry id="eBl1" partOfSpeech="posV" family="famSee">
     <Allomorphs><Allomorph id="aBl1"><PhoneticShape>si</PhoneticShape></Allomorph></Allomorphs>
@@ -349,24 +314,8 @@ const SEE_FAMILY_LEXICON: &str = r#"
   </LexicalEntry>
 "#;
 
-/// Ports `AffixTemplateTests.RealizationalRule` (AffixTemplateTests.cs:10-222). Three
-/// `RealizationalAffixProcessRule`s (`ed_suffix` realizing `tense=past`, `s_suffix` realizing
-/// `pers=3 & tense=pres`, `evidential` realizing `evidential=witnessed`) in a two-optional-slot
-/// `verb` template — no ordinary cascade rules at all (`mrule_ids` empty; the realizational rules
-/// are template-slot-only in C# too). The C# `AssertSyntacticFeatureStructsEqual` companions have
-/// no public Rust surface (`ParseOutcome` exposes morphemes + surface, not the word's syntactic
-/// FS) and are omitted; the morph assertions are transcribed verbatim.
-///
-/// Key rows:
-/// - `sid` empty: `si` (`bl1`) + PAST synthesizes FS `{V, tense:past}`, which subsumes family-mate
-///   `bl2`'s lexical FS — `Word.CheckBlocking` swaps in a `sau`-shaped word that no longer matches
-///   the surface, killing the parse. This is the realizational-rule × LexFamily interaction (the
-///   irregular form blocks the over-regularized one).
-/// - `sau` -> `bl2`: the irregular form itself (bare root; both slots optional).
-/// - second grammar: `evidential`'s realizational FS gains `tense:pres` (cs:194-198), making
-///   `sagzv` realize 3SG+WIT — their realizational FSs must UNIFY on the shared `tense` feature
-///   during analysis (`AnalysisRealizationalAffixProcessRule.cs:47`), pinning the unify (not
-///   overwrite) semantics of `real_fs` accumulation.
+/// Ports `AffixTemplateTests.RealizationalRule` in a two-optional-slot `verb` template with no ordinary cascade rules.
+/// See `docs/research/csharp-port-realizational-rule.md` for what each assertion pins down, including the family-blocking and realizational-unify cases.
 #[test]
 fn realizational_rule() {
     let templates = r#"

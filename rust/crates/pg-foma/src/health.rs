@@ -88,9 +88,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// wire-incompatible change to this module's types.
 pub const HEALTH_SCHEMA_VERSION: u32 = 1;
 
-// =================================================================================================
-// Severity + size bands (R6)
-// =================================================================================================
+// Severity + size bands
 
 /// The cost/health severity axis — deliberately **distinct** from the capability-trust axis
 /// (proven-vs-unproven capability checks). Declaration order is worst-last and is what `Ord`
@@ -104,13 +102,9 @@ pub enum Severity {
     Info,
     /// Action-worthy but does not block publication.
     Warning,
-    /// Requires an explicit, recorded `OverrideRecord` (overridable, not a hard refusal) before
-    /// the compilation/artifact may publish.
+    /// Requires an explicit, recorded `OverrideRecord` before the artifact may publish.
     Error,
-    /// The worst band. Still overridable via the same capability override as `Severity::Error`
-    /// — see this module's doc "Override policy" section. The only non-overridable floor is
-    /// apply-time execution containment, which is not a `Severity` value at all (it is a runtime
-    /// containment outcome, not a predicted health verdict).
+    /// The worst band; still overridable like `Severity::Error`. Apply-time execution containment is the only non-overridable floor, and it is not a `Severity` value at all.
     Critical,
 }
 
@@ -152,9 +146,7 @@ pub const fn severity_for_size_bytes(bytes: u64) -> Severity {
     }
 }
 
-// =================================================================================================
 // Phase, Metric, ValueProvenance, MetricValue
-// =================================================================================================
 
 /// Which production stage a `HealthFinding` was produced in or predicted for. See this module's
 /// doc "Design notes" section for why this has three values rather than a simpler
@@ -166,8 +158,7 @@ pub enum Phase {
     Preflight,
     /// During or immediately after compile-time FST construction.
     Compile,
-    /// During or immediately after per-word application (propose + HermitCrab confirm, or
-    /// HermitCrab-only analysis).
+    /// During or immediately after per-word application (propose + HermitCrab confirm, or HermitCrab-only analysis).
     Apply,
 }
 
@@ -178,8 +169,7 @@ pub enum Phase {
 pub enum Metric {
     /// Final FST payload size, in bytes (decimal, matching `severity_for_size_bytes`).
     PayloadBytes,
-    /// An intermediate composition/union/minimize product's state count (`Fsm::statecount`,
-    /// mirroring `crate::compose_budget::DEFAULT_STATE_BUDGET`'s own dimension).
+    /// An intermediate composition/union/minimize product's state count (`Fsm::statecount`).
     IntermediateStateCount,
     /// An intermediate product's arc count (`Fsm::arccount`).
     IntermediateArcCount,
@@ -205,34 +195,15 @@ pub enum Metric {
     DuplicateAnalysisRatio,
     /// Apply-time derivation/unapplication chain depth — an unbounded chain risks stack overflow.
     ApplyChainDepth,
-    /// Apply-time reserved allocation/logical-memory budget, in bytes — an unbounded budget risks
-    /// OOM.
+    /// Apply-time reserved allocation/logical-memory budget, in bytes — an unbounded budget risks OOM.
     ApplyAllocationBytes,
-    /// A construct whose cost cannot be bounded ahead of time; paired with
-    /// `MetricValue::Unbounded` and `ValueProvenance::Predicted`.
+    /// A construct whose cost cannot be bounded ahead of time; paired with `MetricValue::Unbounded` and `ValueProvenance::Predicted`.
     UnknownUnboundedWork,
-    /// An `Unordered` stratum's own loose-rule count, checked against
-    /// `crate::compose_budget::ComposeBudget::ordering_multiplicity_cap`
-    /// (`crate::compose_budget::ComposeError::OrderingMultiplicityExceeded`). Appended rather
-    /// than reusing `Metric::AlphaTupleCount` or `Metric::GateGroupCount` for an unrelated
-    /// quantity, which would make either variant's stored meaning ambiguous forever in canonical
-    /// JSON — new variants only ever append; none is renumbered or removed.
+    /// An `Unordered` stratum's own loose-rule count; kept distinct from `AlphaTupleCount`/`GateGroupCount` so neither variant's stored meaning becomes ambiguous in canonical JSON.
     OrderingRuleCount,
-    /// A sampled resident-set-size (RSS) reading of the spawned compile-worker child process, in
-    /// bytes, taken via `sysinfo` at a reported interval (`crate::worker::WorkerOutcome::
-    /// RssLimitExceeded`). Appended rather than reusing `Metric::ApplyAllocationBytes` (that
-    /// variant is an APPLY-time, RESERVED-before-allocation quantity — a different phase and a
-    /// different provenance shape than a periodic, COMPILE-time, OBSERVED-after-the-fact sample).
-    /// **Never a hard ceiling** — see `crate::worker`'s own module doc "Sampled RSS is not a hard
-    /// ceiling": allocation between samples means a reading below a guardrail is never proof the
-    /// process stayed under it.
+    /// A sampled compile-worker RSS reading, in bytes — never a hard ceiling, since allocation between samples means a reading below a guardrail is not proof the process stayed under it.
     SampledCompileRssBytes,
-    /// The compound HEAD x NON-HEAD root-allomorph cross product a grammar's `CompoundingRuleDef`s
-    /// license, checked against `crate::compose_budget::DEFAULT_COMPOUND_PAIR_BUDGET`
-    /// (`crate::compose_budget::ComposeError::CompoundPairBudgetExceeded`). Appended rather than
-    /// reusing `Metric::AlphaTupleCount` or `Metric::EmittedLineCount`, which would make
-    /// either variant's stored meaning ambiguous forever in canonical JSON. No existing variant
-    /// renumbered or removed.
+    /// The compound HEAD x NON-HEAD root-allomorph cross product a grammar's `CompoundingRuleDef`s license.
     CompoundRootPairCount,
 }
 
@@ -241,11 +212,9 @@ pub enum Metric {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValueProvenance {
-    /// A heuristic estimate: diagnostic evidence only, never by itself a rejection proof — it may
-    /// raise a finding but cannot by itself prevent an attempted budgeted compilation.
+    /// A heuristic estimate: diagnostic evidence only, never by itself a rejection proof.
     Predicted,
-    /// An exact value or a conservative mathematical lower bound, sound enough to prove an
-    /// operation cannot fit the remaining budget, so compilation stops before that operation.
+    /// An exact value or conservative lower bound, sound enough to prove an operation cannot fit the remaining budget.
     ProvenBound,
     /// An actual measured value from a completed (possibly budget-terminated) attempt.
     Observed,
@@ -263,17 +232,13 @@ pub enum MetricValue {
     Bytes(u64),
     /// A millisecond duration.
     Millis(u64),
-    /// A dimensionless ratio (rejection share, duplicate ratio, ...), `0.0..=1.0` by convention
-    /// but not enforced by this type.
+    /// A dimensionless ratio, `0.0..=1.0` by convention but not enforced by this type.
     Ratio(f64),
-    /// Cost uncertainty: no bound is available at all (paired with `ValueProvenance::Predicted`
-    /// — unknown cost is not itself Critical when construction is recall-preserving).
+    /// Cost uncertainty: no bound is available at all (paired with `ValueProvenance::Predicted`).
     Unbounded,
 }
 
-// =================================================================================================
 // FindingCode registry
-// =================================================================================================
 
 /// The immutable `PGFdddd` finding-code registry: codes use `PGF` plus four decimal digits and
 /// never change meaning after publication, so a stored report or external reference to a code
@@ -285,24 +250,19 @@ pub enum FindingCode {
     PayloadSizeBand,
     /// An intermediate composition/union/minimize product grew large relative to its budget.
     IntermediateNetworkGrowth,
-    /// Compile-time logical construction work (states/arcs/tuples/groups/lines) approached or
-    /// reached its budget.
+    /// Compile-time logical construction work approached or reached its budget.
     CompileWorkBudget,
     /// FST-propose candidate or path volume is large, independent of final correctness or size.
     ProposalVolume,
     /// HermitCrab confirmation count, rejection share, or confirmation work is large.
     ConfirmationWork,
-    /// Pre-dedup duplicate analysis count/ratio with rule or proposal-path provenance, when
-    /// available.
+    /// Pre-dedup duplicate analysis count/ratio with rule or proposal-path provenance, when available.
     DuplicateAnalysisOverlap,
-    /// A recall-preserving construct's cost cannot be bounded ahead of time (cost uncertainty; not
-    /// itself Critical).
+    /// A recall-preserving construct's cost cannot be bounded ahead of time; not itself Critical.
     UnknownUnboundedConstruct,
-    /// A compilation attempt reached an enforced logical/byte/time budget and stopped with a typed
-    /// resource finding.
+    /// A compilation attempt reached an enforced logical/byte/time budget and stopped.
     ResourceBudgetReached,
-    /// An exact value or proven conservative lower bound shows an operation cannot fit the
-    /// remaining budget; compilation stopped before that operation.
+    /// An exact value or proven lower bound shows an operation cannot fit the remaining budget.
     ProvenBoundExceedsBudget,
     /// Per-word apply-time work (chain depth, allocation, elapsed time) is elevated.
     ApplicationTimeWork,
@@ -409,9 +369,7 @@ impl<'de> Deserialize<'de> for FindingCode {
     }
 }
 
-// =================================================================================================
 // Remedy, OverrideRecord, HealthFinding, HealthReport
-// =================================================================================================
 
 /// One ranked, applicable remedy for a `HealthFinding`. Findings explain computational
 /// consequences only and never assert that a change improves the grammar — a remedy that would
@@ -540,9 +498,7 @@ impl HealthReport {
 mod tests {
     use super::*;
 
-    // ---------------------------------------------------------------------------------------
-    // fst_health_size_bands: R6's exact decimal-byte thresholds, every band edge.
-    // ---------------------------------------------------------------------------------------
+    // fst_health_size_bands: exact decimal-byte thresholds, every band edge.
 
     #[test]
     fn fst_health_size_bands_zero_is_ideal() {
@@ -595,10 +551,7 @@ mod tests {
         assert_eq!(severity_for_size_bytes(u64::MAX), Severity::Critical);
     }
 
-    // ---------------------------------------------------------------------------------------
-    // fst_health_override_policy: Error/Critical overridability + worst-non-overridden
-    // aggregation ("FST admission result").
-    // ---------------------------------------------------------------------------------------
+    // fst_health_override_policy: Error/Critical overridability + worst-non-overridden aggregation.
 
     #[test]
     fn fst_health_override_policy_error_and_critical_are_overridable() {
@@ -689,9 +642,7 @@ mod tests {
         assert_eq!(report.admission(), Severity::Error);
     }
 
-    // ---------------------------------------------------------------------------------------
     // fst_health_schema: code registry, golden JSON, round trip, closed-enum exhaustiveness.
-    // ---------------------------------------------------------------------------------------
 
     #[test]
     fn fst_health_schema_codes_are_unique_and_well_formed() {
@@ -725,10 +676,7 @@ mod tests {
         assert_eq!(FindingCode::from_code("PGF9999"), None);
     }
 
-    /// Closed-enum exhaustiveness demonstration: an exhaustive `match` with **no catch-all arm**
-    /// over every `Severity` variant, the same discipline `crate::plan`/`crate::capability`
-    /// document for their own closed enums. If a variant is ever added to `Severity`, this stops
-    /// compiling until this function (and every other exhaustive match in this file) is updated.
+    /// An exhaustive `match` with no catch-all arm over every `Severity` variant, so adding a variant stops this from compiling until every exhaustive match in this file is updated.
     #[test]
     fn fst_health_schema_severity_is_closed_and_exhaustive() {
         const fn label(severity: Severity) -> &'static str {
@@ -747,9 +695,7 @@ mod tests {
         assert_eq!(label(Severity::Critical), "critical");
     }
 
-    /// A representative, fully-populated report exercising: two findings, one Warning with a
-    /// linguistic-equivalence-caveated remedy, one Error that carries a permanent
-    /// `OverrideRecord` (which remains recorded in reports and packages).
+    /// Two findings: one Warning with a linguistic-equivalence-caveated remedy, one Error carrying a permanent `OverrideRecord`.
     fn representative_report() -> HealthReport {
         HealthReport::new(vec![
             HealthFinding {
@@ -895,8 +841,7 @@ mod tests {
 
     #[test]
     fn fst_health_schema_golden_admission_is_warning() {
-        // Confirms the golden's Error finding is overridden and therefore does not dominate --
-        // the same "FST admission result" semantics `fst_health_override_policy` pins directly.
+        // The golden's Error finding is overridden and therefore must not dominate.
         assert_eq!(representative_report().admission(), Severity::Warning);
     }
 }

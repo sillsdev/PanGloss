@@ -1,8 +1,4 @@
-//! Cross-compiler equivalence gates for the independent recipe construction pipelines.
-//!
-//! The gate observes only the final candidate vector after `propose UNION peel`, never raw Foma
-//! paths or the peeler's internal residual queries.  This keeps the evidence tied to the same
-//! candidate identities that the confirmation stage actually receives.
+//! Cross-compiler equivalence gates: observes only the final candidate vector after `propose UNION peel`, never raw Foma paths, keeping evidence tied to what confirmation actually receives.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -28,9 +24,7 @@ const REQUIRED_STRATEGIES: [EmissionStrategy; 3] = [
     EmissionStrategy::TemplatedUnderlyingTokens,
 ];
 
-/// The role this gate's hand-built candidates carry: all three candidates share ONE baseline
-/// `Plan`, so the plan-COMPOSING one is that plan's own compilation and the two whole-grammar
-/// adapters -- which never read a plan at all -- are not.
+/// All three candidates share one baseline `Plan`; only the plan-composing strategy reads it, so it alone counts as `Baseline`.
 fn baseline_role(strategy: EmissionStrategy) -> CandidateRole {
     if strategy == EmissionStrategy::PlanComposed {
         CandidateRole::Baseline
@@ -448,21 +442,7 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
     assert_eq!(empty.words, Some(Vec::new()));
 }
 
-/// **This test DELIBERATELY opts out of the per-word apply envelope, and that is the point of it.**
-///
-/// Its whole subject is the magnitude of the flattened uflexc route's over-generation on this
-/// fixture: it observes the proposal count, divides by the oracle's own analysis count, and requires
-/// the ratio to be a violation. The default envelope
-/// (`pg_foma::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`, 1,000,000) exists to stop exactly
-/// that magnitude from being enumerated — measured 2,985,984 = 12^6 raw paths for `xxxxxxk` — so under
-/// the default this candidate is refused with a `ResourceBreach` and there is no proposal count to
-/// observe at all. A test that measures an over-generation and a budget that refuses it are not in
-/// conflict; they are the same finding at two seams.
-///
-/// So the envelope is raised HERE, explicitly, to 3,000,000 — just above the measured figure, chosen
-/// over `Some(usize::MAX)` so this test stays bounded rather than trading one unbounded enumeration
-/// for another. The corpus is `["k", "xxxxxxk"]` only; the fixture's third word (`xxxxxxxxxxxxk`,
-/// 12^12 raw paths) is deliberately absent and no envelope should ever admit it.
+/// Deliberately raises the apply-path budget above the default (which would otherwise refuse this fixture outright) so the resulting proposal-ratio violation can be observed directly, bounded rather than unbounded.
 #[test]
 fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
     // Just above the measured 12^6 for this fixture's 6-x word. See this test's own doc.
@@ -588,33 +568,7 @@ fn three_pipeline_gate_reports_proposal_ratio_violation_details() {
     assert_proposal_ratio(EmissionStrategy::PlanComposed, 7, 2);
 }
 
-/// RED-1: pins the compounding recall gap `uflexc.rs`'s module doc used to name --
-/// `EmissionStrategy::PlanComposed` uses `uflexc::emit_underlying_filtered_with_budget` as its ONLY
-/// lexicon emitter (`build.rs`), and that emitter's continuation graph WAS structurally single-root
-/// (no arc from at-or-after `RootBare` back to `RootBare`/`PrefixOrRoot`), so it could never propose
-/// a compound no matter what a `MorphRuleDef::Compounding` rule said. `uflexc`'s bounded compound
-/// loop (that module's own "Bounded compound loop" section) closes it; this test was written BEFORE
-/// that fix, deliberately un-shapeable by it, and is now un-`#[ignore]`d.
-///
-/// Runs the already-staged `conformance-staging/edge-cases/compounding-non-recursive` fixture's
-/// two-stem positive witness `fasubel` (headA `fasu` + nonHeadOk `bel`, via the grammar's single
-/// `CompoundingRuleDef` `cr1`) through all three `REQUIRED_STRATEGIES` and asserts each one's final,
-/// oracle-certified candidate set is the SAME. Deliberately does not go through
-/// `Registry::seeded()`/`recipe_registry::Applicability` at all: this fixture declares no
-/// phonological rules and no templates, so `FAMILY_TOKEN_CASCADE_MORPHOLOGY`'s
-/// `Applicability::HasPhonologyOrTemplates` gate would never offer `TemplatedUnderlyingTokens` for
-/// it (that gate only controls which candidates the OPTIMIZER auto-proposes, not what a compiler can
-/// legally be asked to build) -- so each `LoweredCandidate` here is built directly, all three sharing
-/// the one baseline `Plan` (`recipe_runtime::evaluate_plans_with_cache_mode`'s own dispatch
-/// proves this is safe: the two whole-grammar strategies ignore `plan` entirely and only
-/// `PlanComposed` ever reads it).
-///
-/// **OBSERVED, not merely expected** (verified running with this test temporarily un-ignored):
-/// fails for `PlanComposed` (its candidate set for `fasubel` differs from the oracle -- the
-/// HEADA+NONHEADOK compound is never proposed), passes for `TunedSurfaceProbed` and
-/// `TemplatedUnderlyingTokens` (both route through `emit.rs`'s `compound_license`/compound-chain
-/// support, which `emit_underlying_templated` -- `TemplatedUnderlyingTokens`'s own emitter --
-/// shares with the main surface-probed `emit()` path).
+/// Builds each `LoweredCandidate` directly instead of through `Registry`: `Applicability::HasPhonologyOrTemplates` gates only what the optimizer auto-proposes, not what a compiler can legally build, and this template-less fixture would never trigger it.
 #[test]
 fn plan_composed_cannot_represent_compounding_construct_red1() {
     let fixture = discover()
@@ -661,9 +615,7 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
             label: "red1-compounding-cross-compiler",
             plan: baseline_plan.clone(),
             adapter: LoweringAdapter::for_strategy(strategy),
-            // Exactly what the deleted `is_baseline` slice said here: the plan-composing candidate
-            // carries the grammar's own default plan and so is the baseline; the two whole-grammar
-            // adapters never read a plan, so their role is never consulted.
+            // The plan-composing candidate carries the grammar's default plan and so is baseline; the two whole-grammar adapters never read a plan, so their role is never consulted.
             role: baseline_role(strategy),
         })
         .collect();
@@ -707,43 +659,7 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
     }
 }
 
-/// RED-2: pins the compounding discrimination `pg_parse::identity::AnalysisIdentity` makes
-/// load-bearing via `root_index` -- two analyses of the SAME word, with the SAME ordered morpheme
-/// sequence and the SAME output category, differing ONLY in which morpheme is the compound's
-/// head/root. This is NOT the same claim RED-1 pins (RED-1 is "a compound gets proposed at all");
-/// RED-2 is "when TWO headedness readings of the SAME surface form both exist, does the strategy
-/// retain BOTH, not just one."
-///
-/// This discrimination is invisible to the flat `morphs|surface` signature string every other
-/// staged fixture (including RED-1's own `compounding-non-recursive`) diffs against:
-/// `pg_parse::result_signature`/`BatchCommand.BuildSignature` joins bare `MorphemeId`s with no root
-/// marker at all, so `conformance-staging/edge-cases/head-ambiguous-compounding`'s two `dakimo`
-/// readings both render to the identical string `"DAK+IMO|dakimo"` (see that fixture's own
-/// `words.yaml` header note). A words.yaml-only pin of this fixture is therefore an ANNOTATION, not
-/// an assertion -- a human note claiming "these two identical-looking entries differ in headedness"
-/// that nothing machine-checks. The assertion below is the first-class one: it compares
-/// deduplicated `pg_parse::identity::AnalysisIdentity` SETS via `certify_corpus`, exactly as
-/// RED-1 already does -- `AnalysisIdentity` carries `root_index`, so `certify_corpus` was already
-/// root-index-aware, just never exercised by a fixture where the flat signature string alone
-/// couldn't tell the difference.
-///
-/// Runs the newly-staged `head-ambiguous-compounding` fixture's two-reading witness `dakimo`
-/// (crLeftHead's dak-headed reading, root_index 0; crRightHead's imo-headed reading, root_index 1)
-/// through all three `REQUIRED_STRATEGIES`, built directly as `LoweredCandidate`s exactly as RED-1
-/// does: this fixture likewise declares no phonological rules and no templates, so
-/// `Registry`/`Applicability::HasPhonologyOrTemplates` would never auto-offer
-/// `TemplatedUnderlyingTokens` for it (that gate controls what the OPTIMIZER auto-proposes, not
-/// what a compiler can legally be asked to build), and `recipe_runtime::
-/// evaluate_plans_with_cache_mode`'s own dispatch proves sharing one baseline `Plan` across
-/// all three is safe (the two whole-grammar strategies ignore `plan` entirely).
-///
-/// **OBSERVED** (verified by running this test): all three strategies -- `PlanComposed`,
-/// `TunedSurfaceProbed`, and `TemplatedUnderlyingTokens` -- retain BOTH headedness readings for
-/// `dakimo`, matching the oracle's own two-reading `AnalysisIdentity` set exactly.
-/// `EmissionStrategy::PlanComposed`'s bounded compound loop (`uflexc.rs`) closes RED-1's
-/// single-root recall gap generally enough that headedness ambiguity survives too, not merely
-/// generic compound proposal -- so this fixture is committed un-`#[ignore]`d as a green regression
-/// guard, not a pinned gap.
+/// Distinguishes headedness readings that share an identical flat `morphs|surface` signature: compares deduplicated `AnalysisIdentity` sets (root-index aware) instead, since a signature-only diff cannot tell the two readings apart.
 #[test]
 fn plan_composed_distinguishes_headedness_ambiguity_red2() {
     let fixture = discover()
@@ -816,9 +732,7 @@ fn plan_composed_distinguishes_headedness_ambiguity_red2() {
         });
         let oracle = oracle.get_or_insert_with(|| expected_multiset(evidence));
 
-        // Sanity: the fixture's own oracle (full-HC parser) must retain both headedness readings
-        // -- this is the fixture's own claim, checked before asking anything of the strategy under
-        // test. A regression here would mean the FIXTURE stopped being ambiguous, not the compiler.
+        // Sanity: confirms the fixture's own oracle still finds both headedness readings before testing the strategy -- a failure here means the fixture regressed, not the compiler.
         let oracle_roots: BTreeSet<i32> = oracle
             .iter()
             .find(|(w, _)| w == "dakimo")
