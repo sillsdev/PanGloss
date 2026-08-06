@@ -5,8 +5,8 @@ description: >-
   code — module headers, `//!`/`///` docs, inline `//` notes, and commit-adjacent prose that has
   leaked into code. Enforces minimal comments that explain WHY, and forbids project state in
   source: no plan/spec/task/openspec references, no step-numbers, no dates, no wiring status, no
-  changelog narrative. Also caps comment blocks at three lines unless they carry a machine-checked
-  anchor (intra-doc link, doctest, or an existing `docs/research/` path), and forbids bare
+  changelog narrative. Caps IMPLEMENTATION comments (`//`, and `///` on private items) at ONE line
+  while API docstrings on public items may run long form as appropriate, and forbids bare
   behavioral claims about other code entities ("X refuses Y", "the only caller is Z",
   "unreachable") — those become a link or a test. Trigger on "add a comment", "document this
   module", "fix the doc comment", "why is this commented", "this comment is too long", any
@@ -181,14 +181,40 @@ reason is what no gate catches, and a paragraph of prose reasoning is how you ge
 
 ## Length: three lines, and longer costs you an anchor
 
-**A comment block of three lines or fewer needs no justification. Over three lines, it must carry an
-anchor a machine can check** — a ``` doctest, a `pinned by `<test_name>`` citation, or a path under
-`docs/research/` that exists. `rust\tools\comment-hygiene.ps1` enforces this as `comment-block-too-long`.
+**The cap depends on which KIND of comment it is, and that distinction is standard, not local.**
+[Ousterhout](https://web.stanford.edu/~ouster/cgi-bin/cs190-spring16/lecture.php?topic=comments)
+separates *interface documentation* ("what someone needs to know to use the class or method") from
+*implementation documentation* ("how the method works internally"), and his central rule is: **do not
+describe the implementation in the interface documentation.** Java's conventions draw the same line
+syntactically — [documentation comments](https://www.oracle.com/java/technologies/javase/codeconventions-comments.html)
+"describe the specification of the code, from an implementation-free perspective", such that a reader
+"should be able to use the class and its methods without having to read any source code", while
+*implementation comments* merely "clarify how a particular piece of code operates".
+
+Rust has the same split in syntax: `///` and `//!` are documentation comments; `//` is an
+implementation comment.
+
+| Kind | Cap | Why |
+|---|---|---|
+| **API docstring** — `///` / `//!` on a `pub` (or `pub(crate)`) item | **long form as appropriate** | This is the abstraction. Without it the caller must read the body, and there is no interface — Ousterhout's point, and the one place length genuinely pays. |
+| **Implementation comment** — any `//`, and `///` on a private item | **one line** | It explains code the reader is already looking at. If one line cannot carry it, the knowledge belongs in the interface doc or in a test, not here. |
+
+**One line. Not three.** The earlier three-line allowance was itself a compromise, and it produced
+3,269 blocks — about 80 per module, which is not a plausible count of things you can get catastrophically
+wrong. If an implementation comment wants a paragraph, that is a signal, and it has exactly two honest
+destinations: **lift it to the API docstring** if a caller needs it, or **make it a test** if it is a
+claim that could stop being true. Prose in the body is the option that rots.
+
+**Deciding whether a long API docstring earns its length:** it must tell a caller something they cannot
+get from the signature — a precondition, a trap, an invariant they must preserve, or a rejected
+alternative that looks better than it is. If it narrates what the body does, it is implementation
+documentation in the wrong place; delete it or move it down to one line.
 
 **An intra-doc link is NOT an anchor**, though it used to be. Two reasons it was removed: it only ever
 proved a path resolved, so it licensed length without licensing truth; and making it an anchor created
 an incentive to add links at exactly the moment we established that code links should be deleted. The
-three remaining anchors all survive semantic drift, which a link never did.
+anchors that remain — a doctest, a ``pinned by `<test_name>`` citation, an existing `docs/research/`
+path — all survive semantic drift, which a link never did.
 
 Three, not one, and the reason is specific: **one claim plus the falsifier that keeps it honest.**
 One line holds a claim and nothing else, and a claim with no named falsifier is precisely what went
