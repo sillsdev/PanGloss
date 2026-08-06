@@ -309,7 +309,11 @@ function Get-BlockKind {
         if ($l.Trim() -eq '') { continue }
         # `pub(crate)` counts as API: it is a real interface for every other module in the crate, and
         # its callers are exactly as unable to see the body as an external caller is.
-        if ($l -match '^\s*pub(\s|\()') { return 'api' }
+        #
+        # But `pub` INSIDE A PRIVATE MODULE reaches nobody -- the module gate closes over it, so the
+        # item is effectively private and its doc is implementation documentation. Requiring both is
+        # what makes "is this an interface?" mean reachability rather than just spelling.
+        if ($l -match '^\s*pub(\s|\()') { if ($InPublicModule) { return 'api' } else { return 'impl' } }
         return 'impl'
     }
     return 'impl'
