@@ -67,7 +67,7 @@ fn every_applicable_distinct_recipe_builds_and_full_hc_matches_each_word() {
     plans.push(pg_foma::enumerate::LoweredCandidate {
         label: "baseline",
         plan: baseline,
-        adapter: pg_foma::executable_candidate::LoweringAdapter::ControllablePlanCompose,
+        adapter: pg_foma::lowering_adapter::LoweringAdapter::ControllablePlanCompose,
         // This candidate carries the grammar's own default plan, which is exactly what
         // `evaluate_plans`'s deleted positional `i == 0` rule used to assert about it from outside.
         role: pg_foma::enumerate::CandidateRole::Baseline,

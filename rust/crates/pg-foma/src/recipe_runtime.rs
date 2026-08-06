@@ -6,7 +6,7 @@ use crate::compose_budget::{ApplyBudget, ComposeBudget, ComposeError};
 use crate::composite::{FomaAnalyzer, ProfiledFomaApplyOutcomeWithCandidates};
 use crate::emit::surface_table;
 use crate::enumerate::{EmissionStrategy, LoweredCandidate};
-use crate::executable_candidate::LoweringAdapter;
+use crate::lowering_adapter::LoweringAdapter;
 use crate::parity::{certified_occurrence, IdentityDivergence, OccurrenceIdentities, ParitySide};
 use crate::recipe_accuracy::{AccuracyCounters, AccuracyVerdict, CandidateAccuracy};
 use crate::recipe_optimizer::{
@@ -546,8 +546,7 @@ pub const NET_REUSE_KEY_PROJECTION: &str = "pangloss.foma.net-reuse-key/v1";
 
 /// Feeds `part` into `hash` LENGTH-PREFIXED, so no two different tuples of parts can share a
 /// preimage. Without it `("ab", "c")` and `("a", "bc")` hash alike, and a projection name is exactly
-/// the kind of string that gets extended — the same framing rule
-/// `crate::executable_candidate::digest_projection` already states.
+/// the kind of string that gets extended.
 fn framed(hash: &mut Sha256, part: &[u8]) {
     hash.update((part.len() as u64).to_le_bytes());
     hash.update(part);
@@ -1963,9 +1962,8 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
             // realized by their own compilers and never touch `build_controllable`, so routing them
             // through the composed path below would build the controllable subtree and then
             // attribute that network to a candidate that asked for a different compilation
-            // entirely. Keyed on the candidate's own `LoweringAdapter` -- the same
-            // value `ExecutableCandidate` seals -- instead of a second enum that would have to be
-            // kept in correspondence with it by hand.
+            // entirely. Keyed on the candidate's own `LoweringAdapter` instead of a second enum
+            // that would have to be kept in correspondence with it by hand.
             match candidate.adapter {
                 LoweringAdapter::ControllablePlanCompose => {}
                 LoweringAdapter::TunedSurfaceEmit => {

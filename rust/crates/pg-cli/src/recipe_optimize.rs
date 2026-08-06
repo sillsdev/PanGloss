@@ -486,7 +486,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         LoweredCandidate {
             label: "baseline",
             plan: baseline.clone(),
-            adapter: pg_foma::executable_candidate::LoweringAdapter::ControllablePlanCompose,
+            adapter: pg_foma::lowering_adapter::LoweringAdapter::ControllablePlanCompose,
             // The one candidate in this run that IS the grammar's default compilation. Stated on the
             // candidate itself so the evaluator can never infer it from position or from a
             // caller-maintained parallel slice.

@@ -97,9 +97,9 @@
 
 use pg_grammar::model::{Grammar, LexEntryId, PRuleId, PhonRuleDef};
 
-use crate::executable_candidate::LoweringAdapter;
 use crate::gate::{find_gated_subrules, partition_entries};
 use crate::junctions::PhonologyProbe;
+use crate::lowering_adapter::LoweringAdapter;
 use crate::oracle::permute_gate_groups;
 use crate::plan::{
     ComposeStrategy, FragmentSpec, GateGroupSpec, GatePartitionSpec, GatedSubruleRef, NodeId, Plan,
@@ -309,14 +309,13 @@ impl CandidateRole {
 /// caller's provenance report.
 ///
 /// # Why the compiler axis is a typed adapter, and the baseline fact lives here
-/// 1. **The compiler axis is a typed `LoweringAdapter`, not an `EmissionStrategy`.** The
-///    adapter is the identity `ExecutableCandidate` already binds, so the lowering step
-///    dispatches on the same value the sealed candidate carries instead of on a second enum that
-///    had to be kept in correspondence with it by hand. `EmissionStrategy` survives, deliberately:
+/// 1. **The compiler axis is a typed `LoweringAdapter`, not an `EmissionStrategy`.** Lowering
+///    dispatches on the adapter the candidate itself carries instead of on a second enum that had
+///    to be kept in correspondence with it by hand. `EmissionStrategy` survives, deliberately:
 ///    it is the REPORTED selection axis (`RuntimeEvaluation::realized_strategy`,
 ///    `RecipeOptimizationReport::winner_strategy`, `strategy_coverage`), measured to be the
 ///    decisive one — two whole-grammar compilers win two different languages. The
-///    two are 1:1 in both directions (`executable_candidate`'s own
+///    two are 1:1 in both directions (`lowering_adapter`'s own
 ///    `every_strategy_has_exactly_one_adapter_and_back`), so `Self::strategy` is a projection,
 ///    not a second source of truth.
 /// 2. **The baseline fact lives here**, as `CandidateRole` — see that type for the two measured

@@ -8,30 +8,14 @@ use pg_grammar::model::Grammar;
 use serde::{Deserialize, Serialize};
 
 use crate::enumerate::{CandidateRole, LoweredCandidate};
-use crate::executable_candidate::LoweringAdapter;
-use crate::executable_candidate::{CandidateConstructionError, ExecutableCandidate};
 use crate::grammar_semantics::GrammarSemantics;
-use crate::mechanism_provider::derive_mechanism_graph;
+use crate::lowering_adapter::LoweringAdapter;
 use crate::oracle::{
     permute_gate_groups, permute_union_children, refine_gate_partition, PartitionGranularity,
 };
 use crate::plan::{NodeId, Plan};
 
 pub const REGISTRY_SCHEMA_VERSION: u16 = 1;
-
-/// The witness that an `ExecutableCandidate` was built by the Registry.
-///
-/// Its only field is a private unit, declared in THIS module. That single fact is the whole
-/// enforcement: no other module -- in this crate or any other -- can name the field, so no other
-/// module can produce a value of this type, so no other module can call
-/// `crate::executable_candidate::seal`. It is deliberately neither `Copy` nor `Clone`, so an
-/// authority obtained for one candidate cannot be kept and reused to seal a second, unvalidated
-/// one.
-///
-/// This is the same shape used for `crate::recipe_mechanism::MechanismBinding` -- private
-/// fields plus a single constructor -- scaled up to a type whose validation lives in a different
-/// module from the type itself, where field privacy alone would not have reached.
-pub struct RegistryAuthority(());
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Parameter {
@@ -598,52 +582,6 @@ impl Registry {
         Ok(candidates)
     }
 
-    /// The SOLE constructor of a validated `ExecutableCandidate`.
-    ///
-    /// Materializes `instance` exactly as `Self::materialize_with_semantics` does -- same
-    /// validation, same applicability re-check, same typed `MaterializeError`, so nothing about
-    /// WHICH candidates a grammar is offered changes here -- and then binds the parts a
-    /// a `LoweredCandidate` does not carry: a stable semantic digest, a portable round-trippable Plan
-    /// document and its digest, the exact lowering adapter, the runtime requirements the evaluator
-    /// already enforces, the mechanism graph with its per-adapter bindings, and the certification
-    /// scope those bindings license.
-    ///
-    /// The mechanism graph is derived from `semantics` alone, through
-    /// `crate::mechanism_provider::derive_mechanism_graph` -- the rule that no provider may
-    /// reread the `Grammar` to decide applicability is inherited here rather than restated, because
-    /// this function has no other way to obtain a graph.
-    ///
-    /// # Refuses, never substitutes
-    /// Every failure is a `CandidateConstructionError`. If the named adapter cannot represent a
-    /// construct this grammar's mechanisms require, that is
-    /// `CandidateConstructionError::MechanismRefused` naming the mechanism and the adapter -- not
-    /// a quiet switch to a compiler that happens to work. A cheaper candidate can be a WRONG
-    /// candidate (Amharic's 2.2x-cheaper `identity-mismatch`), so a substitution made here would be
-    /// indistinguishable, downstream, from a measurement of the candidate that was asked for.
-    ///
-    /// # Builds and verifies data only, like `crate::mechanism_provider`
-    /// Constructing an `ExecutableCandidate` changes no outcome and makes nothing selectable that
-    /// was not selectable before -- no applicability predicate, dispatch, or evaluation in
-    /// `crate::recipe_runtime` is required to consume one.
-    pub fn executable_candidate(
-        &self,
-        instance: &RecipeInstance,
-        context: &MaterializerContext<'_>,
-        semantics: &GrammarSemantics<'_>,
-    ) -> Result<ExecutableCandidate, CandidateConstructionError> {
-        let candidate = self
-            .materialize_with_semantics(instance, context, semantics)
-            .map_err(CandidateConstructionError::Materialize)?;
-        crate::executable_candidate::seal(
-            RegistryAuthority(()),
-            &instance.family_id,
-            instance,
-            &candidate.plan,
-            candidate.adapter,
-            derive_mechanism_graph(semantics),
-        )
-    }
-
     pub fn canonical_json(&self) -> String {
         #[derive(Serialize)]
         struct View<'a> {
@@ -832,8 +770,8 @@ impl Materializer for SeededFamily {
             label: self.id,
             plan,
             adapter: self.adapter,
-            // DERIVED, never declared -- the same discipline imposed on `MechanismEdge` and
-            // `RuntimeRequirement`. A family whose transform is `Identity` hands back
+            // DERIVED, never declared -- the same discipline imposed on `MechanismEdge`.
+            // A family whose transform is `Identity` hands back
             // `context.baseline` VERBATIM, so under the one adapter that interprets a plan that
             // candidate IS this grammar's default compilation and nothing else can be. Every other
             // family rewrites the assembly tree (an alternative by construction), and a whole-grammar

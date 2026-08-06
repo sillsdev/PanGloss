@@ -40,7 +40,7 @@ use pg_foma::compose_budget::{
     DEFAULT_EVALUATION_APPLY_CANDIDATE_BUDGET, DEFAULT_EVALUATION_APPLY_PATH_BUDGET,
 };
 use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
-use pg_foma::executable_candidate::LoweringAdapter;
+use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::recipe_optimizer::Certification;
 use pg_foma::recipe_runtime::{

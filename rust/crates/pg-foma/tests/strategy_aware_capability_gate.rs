@@ -35,7 +35,7 @@ use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::enumerate::{
     enumerate_default, prules_in_order, CandidateRole, EmissionStrategy, LoweredCandidate,
 };
-use pg_foma::executable_candidate::LoweringAdapter;
+use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::plan::Plan;

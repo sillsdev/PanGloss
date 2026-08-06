@@ -125,15 +125,6 @@ pub mod emit;
 /// to `gate.rs`'s own, separate compile entry point; see that module's own doc for full scope and
 /// the judgment calls it surfaces.
 pub mod enumerate;
-/// The validated
-/// `executable_candidate::ExecutableCandidate` and the portable, round-trippable
-/// `executable_candidate::PortablePlan` document it binds. Its sole constructor is
-/// `recipe_registry::Registry::executable_candidate`, enforced by a
-/// `recipe_registry::RegistryAuthority` no other module can produce. Builds and verifies portable
-/// data only -- see that module's own doc for
-/// why the artifact identity is domain-framed SHA-256 rather than the plan's FNV root, and for the
-/// typed refusals that replace an implicit fallback.
-pub mod executable_candidate;
 /// Static MPR/POS subrule gating, a sibling of `replace`/`uflexc`. See that module's doc for
 /// the design and why it is a flag-free static partition rather than a flag-diacritics encoding.
 pub mod gate;
@@ -171,6 +162,10 @@ pub mod junctions;
 /// other existing caller; see that module's own doc for full scope, what stayed in
 /// `replace` (`SegAlphabet`, `owning_table`) and why, and the judgment calls it surfaces.
 pub mod lower;
+/// `lowering_adapter::LoweringAdapter`, the typed compiler axis a candidate carries: which of
+/// this crate's compilers lowers it into a network. 1:1 with `enumerate::EmissionStrategy`, which
+/// stays the axis reports and `strategy_coverage` speak in.
+pub mod lowering_adapter;
 /// The ONE derivation of a
 /// `recipe_mechanism::MechanismGraph`, taking `grammar_semantics::GrammarSemantics` and no
 /// `&Grammar` at all. Builds and verifies data only -- see that module's own doc for why the

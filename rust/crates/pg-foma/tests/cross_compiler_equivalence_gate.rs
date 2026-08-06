@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
-use pg_foma::executable_candidate::LoweringAdapter;
+use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::recipe_registry::{
     MaterializerContext, Registry, FAMILY_COMPLETE_TEMPLATE, FAMILY_SURFACE_PROBE_MORPHOLOGY,
     FAMILY_TOKEN_CASCADE_MORPHOLOGY,

@@ -24,7 +24,6 @@
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::{enumerate_default, EmissionStrategy, LoweredCandidate};
-use pg_foma::executable_candidate::PortablePlan;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::recipe_optimizer::{Certification, Score};
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
@@ -441,72 +440,6 @@ fn the_reuse_key_discriminates_grammar_corpus_mode_and_net() {
         net_reuse_key("ab", "c", false, "net"),
         net_reuse_key("a", "bc", false, "net"),
         "the reuse key's parts must be length-prefixed"
-    );
-}
-
-/// **This Plan identity is an EXPLICIT canonical serialization, stable across two independent
-/// constructions from two independent loads.**
-///
-/// This is the property the RED test below shows `grammar_identity` does NOT have, and it is here
-/// rather than beside the sealing gates precisely so the contrast is readable in one file. The
-/// difference is not care taken; it is the choice of preimage:
-///
-/// * `grammar_identity` hashes the grammar's derived `Debug` projection. `Grammar` holds hash-ordered
-///   collections as struct fields (`CharDefTable::lookup`, `featsys`'s `symbol_index`/`id_to_flat`),
-///   Rust seeds `RandomState` per `HashMap` INSTANCE, so two loads print those fields in different
-///   orders and hash differently.
-/// * `PortablePlan::canonical_json` serializes a document whose every collection is in a defined
-///   order by construction: nodes come from `Plan`'s `BTreeMap<NodeId, _>` (content-address order),
-///   children/rules/groups are in their own semantic order, and `serde_json` emits struct fields in
-///   declaration order. No `HashMap` is ever in the preimage, and no `Debug` impl is either -- so a
-///   later edit "for readability" cannot narrow or reorder it.
-///
-/// Both halves are asserted, because either alone is worthless: a constant would pass stability and a
-/// nonce would pass discrimination.
-///
-/// TWO independent loads AND two independent enumerations, deliberately. Re-encoding one in-memory
-/// `Plan` twice would only prove `serde_json` is deterministic; re-loading the grammar is what
-/// exercises the hash-ordered collections that `enumerate_default` reads on its way to a plan.
-#[test]
-fn the_plan_document_identity_is_canonical_across_two_independent_constructions() {
-    let plan_of = |name: &str| {
-        let (grammar, _) = load(name);
-        let alphabet = SegAlphabet::new(surface_table(&grammar));
-        let prules: Vec<&PhonRuleDef> = pg_foma::enumerate::prules_in_order(&grammar);
-        let phonology = PhonologyProbe::new(&grammar);
-        let plan = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
-        let document = PortablePlan::encode(&plan);
-        (document.canonical_json(), document.digest())
-    };
-
-    let (first_json, first_digest) = plan_of(FIRING_FIXTURE);
-    let (second_json, second_digest) = plan_of(FIRING_FIXTURE);
-    assert_eq!(
-        first_json, second_json,
-        "the canonical serialization must be BYTE-identical across two independent loads of the same \
-         grammar; if it is not, the preimage contains something ordered by a per-instance hash seed \
-         and this identity names a process rather than an artifact"
-    );
-    assert_eq!(
-        first_digest, second_digest,
-        "and therefore so must the digest -- this is the property `grammar_identity` lacks (see the \
-         RED test below), and it is what makes this digest usable as a persisted artifact identity"
-    );
-    assert!(
-        first_digest.starts_with("sha256:"),
-        "domain-framed SHA-256, never the plan's 64-bit FNV root: {first_digest}"
-    );
-
-    // Discrimination: a genuinely different grammar's default plan must not share the identity. The
-    // stability assertion above is satisfied by any constant, so without this the test proves nothing.
-    let (other_json, other_digest) = plan_of("recipe-gated-generic");
-    assert_ne!(
-        first_json, other_json,
-        "two different grammars' default plans must not serialize identically"
-    );
-    assert_ne!(
-        first_digest, other_digest,
-        "two different plans must not share a plan-document digest"
     );
 }
 

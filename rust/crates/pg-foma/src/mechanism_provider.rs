@@ -43,9 +43,9 @@
 //! nothing observable, so there is exactly one order and no permutation of it is representable.
 //!
 //! # What this module does NOT do
-//! It does not construct an `ExecutableCandidate`, register anything, or feed selection -- the
-//! recipe registry owns that, and nothing here is called from any routing, applicability or
-//! candidate path. Deriving a graph changes no outcome; it only makes one describable.
+//! It does not register anything or feed selection -- the recipe registry owns that, and nothing
+//! here is called from any routing, applicability or candidate path. Deriving a graph changes no
+//! outcome; it only makes one describable.
 //!
 //! It also does not split mechanisms per stratum. Placing a rule-located observation in a stratum
 //! needs a rule -> stratum map that `GrammarSemantics` does not own, and inventing one here would

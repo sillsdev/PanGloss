@@ -154,6 +154,25 @@ $citationPath = '(?i)([A-Za-z0-9_./\\-]+\.rs)::([a-z_][A-Za-z0-9_]*)'
 $identToken = '`[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z0-9_]+)*(\(\))?`'
 $intraDocLink = '\[`[^`]+`\]'
 
+# The ONLY grounds on which an implementation comment may exceed one line. An author must CLAIM one
+# by name; there is no generic escape.
+#
+# Enumerated deliberately, and narrow. A free-form marker becomes universal and then means nothing --
+# this file already records that failure mode for a different gate. A closed set is different in kind:
+# you cannot invent a class, each claim is falsifiable ("what change does this TRAP prevent?"), and the
+# per-class counts are printed, so inflation of any one class is visible rather than silent.
+#
+# The set comes from what long comments demonstrably bought here, and from the standard advice that
+# comments must carry what code cannot -- a design decision's rationale, the conditions under which a
+# call makes sense, and hazards. Descriptive prose is absent on purpose: the code, the LSP and git
+# already provide it.
+$exceptionTags = @(
+    'SAFETY:',     # Rust's own convention for an unsafe block's proof obligation.
+    'INVARIANT:',  # A property the code must preserve that is not locally checkable; breaking it is silent.
+    'TRAP:',       # A hazard in surrounding behaviour that a plausible edit would trip.
+    'WHY-NOT:'     # A rejected alternative that looks better than it is, with the reason it fails.
+)
+
 # Comment lines only. A plan path inside a string literal is usually a real file the code opens.
 #
 # Per-language, not one union pattern: a shared `#` alternative matches every Rust ATTRIBUTE
@@ -175,7 +194,11 @@ $files = @(
     Get-ChildItem -Path (Join-Path $repoRoot '.claude\hooks') -Filter '*.py' -File -ErrorAction SilentlyContinue
 ) | Where-Object { $_.FullName -notmatch '\\target\\' }
 
-$blockCategories = @('comment-block-too-long', 'cross-reference-claim', 'docs-link-broken', 'dead-citation')
+# `comment-block-too-long` is RETIRED and replaced by the two below. It applied one length to every
+# comment regardless of kind, which is the wrong axis: an API docstring IS the abstraction and should
+# run as long as the contract needs, while an implementation comment explains code the reader is
+# already looking at. Conflating them produced 3,269 violations and no way to tell the two apart.
+$blockCategories = @('impl-comment-too-long', 'unanchored-exception', 'cross-reference-claim', 'docs-link-broken', 'dead-citation')
 foreach ($cat in $blockCategories) { $categories[$cat] = $null }
 
 # Every `fn` name in the tree, so a "pinned by X" citation can be checked rather than trusted. One
@@ -199,7 +222,32 @@ foreach ($f in $files) {
 $counts = [ordered]@{}
 $hits = @{}
 foreach ($cat in $categories.Keys) { $counts[$cat] = 0; $hits[$cat] = @() }
-$anchoredLongBlocks = 0
+$apiDocsLong = 0
+$claimed = [ordered]@{}
+foreach ($t in $exceptionTags) { $claimed[$t] = 0 }
+
+# Is this block an API docstring or an implementation comment? The standard distinction (Ousterhout's
+# interface vs implementation documentation; Java's doc vs implementation comments) is what decides
+# the cap, so getting it right is the whole point of this function.
+#
+# `//!` is a module/crate front page and always counts as API. `///` documents the NEXT item, so the
+# item's visibility decides -- and attributes and blank lines sit between the two, which is why this
+# skips forward rather than reading one line. Anything else (`//`, `/* */`) is implementation.
+function Get-BlockKind {
+    param([string]$FirstLine, [string[]]$AllLines, [int]$EndIdx)
+    if ($FirstLine -match '^\s*//!') { return 'api' }
+    if ($FirstLine -notmatch '^\s*///') { return 'impl' }
+    for ($j = $EndIdx; $j -lt [Math]::Min($EndIdx + 12, $AllLines.Count); $j++) {
+        $l = $AllLines[$j]
+        if ($l -match '^\s*#!?\[') { continue }
+        if ($l.Trim() -eq '') { continue }
+        # `pub(crate)` counts as API: it is a real interface for every other module in the crate, and
+        # its callers are exactly as unable to see the body as an external caller is.
+        if ($l -match '^\s*pub(\s|\()') { return 'api' }
+        return 'impl'
+    }
+    return 'impl'
+}
 
 # Returns the anchor kind a block carries, or $null. A docs path counts only under docs/research/
 # AND only if the file is really there -- an anchor nobody can follow is not an anchor.
@@ -288,14 +336,34 @@ foreach ($f in $files) {
             }
             $anchor = Get-BlockAnchor -Text $text -RepoRoot $repoRoot
             if (-not $anchor -and $blockCited) { $anchor = 'test-citation' }
-            if ($blockLines.Count -gt $MaxBlockLines) {
-                if ($anchor) {
-                    $anchoredLongBlocks++
-                } else {
-                    $counts['comment-block-too-long']++
+
+            $kind = Get-BlockKind -FirstLine $blockLines[0] -AllLines $allLines -EndIdx ($lineNo - 1)
+            if ($kind -eq 'api') {
+                # An API docstring may run as long as the contract needs. Counted, never gated: the
+                # number is worth watching, but capping an interface is how you destroy the abstraction.
+                if ($blockLines.Count -gt $MaxBlockLines) { $apiDocsLong++ }
+            } elseif ($blockLines.Count -gt 1) {
+                $tag = $null
+                foreach ($t in $exceptionTags) {
+                    if ($text -match ('(?m)^\s*(?:///|//!|//|\*)\s*' + [regex]::Escape($t))) { $tag = $t; break }
+                }
+                if (-not $tag) {
+                    $counts['impl-comment-too-long']++
                     if ($List) {
-                        $hits['comment-block-too-long'] +=
-                            "$rel`:$blockStart`: $($blockLines.Count) lines, no anchor: $($blockLines[0].Trim())"
+                        $hits['impl-comment-too-long'] +=
+                            "$rel`:$blockStart`: $($blockLines.Count) lines, no claim: $($blockLines[0].Trim())"
+                    }
+                } else {
+                    $claimed[$tag]++
+                    # A claim buys three lines on the tag alone; past that it must also be falsifiable.
+                    # The graduation matters: the short form covers "state the hazard", while anything
+                    # longer is an argument, and an argument is exactly what rots without a test.
+                    if ($blockLines.Count -gt $MaxBlockLines -and -not $anchor) {
+                        $counts['unanchored-exception']++
+                        if ($List) {
+                            $hits['unanchored-exception'] +=
+                                "$rel`:$blockStart`: $($blockLines.Count) lines, $tag claimed but no anchor"
+                        }
                     }
                 }
             }
@@ -372,9 +440,13 @@ foreach ($cat in $categories.Keys) {
     Write-Host ("  {0,-24} {1,5}  (baseline {2,5})  {3}" -f $cat, $now, $was, $mark) -ForegroundColor $color
 }
 
-# Reported, never gated: this is how many long blocks bought their length with a machine-checked
-# anchor. It climbing while comment-block-too-long falls means the escape hatch is becoming the norm.
-Write-Host ("  {0,-24} {1,5}  (informational, not gated)" -f 'long-blocks-anchored', $anchoredLongBlocks) -ForegroundColor Gray
+# Reported, never gated. Per class on purpose: a closed set of exceptions is only trustworthy while
+# you can see which one is being leaned on. `TRAP:` quietly becoming the most-claimed class would mean
+# it has turned into the generic escape hatch this design exists to avoid.
+Write-Host ("  {0,-24} {1,5}  (informational, not gated)" -f 'api-docstrings-long', $apiDocsLong) -ForegroundColor Gray
+foreach ($t in $exceptionTags) {
+    Write-Host ("  {0,-24} {1,5}  (claimed exception)" -f ("  " + $t), $claimed[$t]) -ForegroundColor Gray
+}
 
 if ($regressed.Count -gt 0) {
     Write-Host ''

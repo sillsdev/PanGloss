@@ -45,7 +45,7 @@
 
 use pg_conformance_fixtures::{discover, FixtureRef, Root};
 use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
-use pg_foma::executable_candidate::LoweringAdapter;
+use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::parity::IdentityDivergence;
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
