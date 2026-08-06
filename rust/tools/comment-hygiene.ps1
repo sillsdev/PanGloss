@@ -344,6 +344,17 @@ function Get-BlockKind {
         # item is effectively private and its doc is implementation documentation. Requiring both is
         # what makes "is this an interface?" mean reachability rather than just spelling.
         if ($l -match '^\s*pub(\s|\()') { if ($InPublicModule) { return 'api' } else { return 'impl' } }
+        # An enum VARIANT or a struct FIELD in a public type is API surface, but neither ever carries a
+        # `pub` token -- the enclosing item's visibility governs them. Requiring the literal keyword read
+        # every variant doc as an implementation comment, so a caller-facing description of what a
+        # variant MEANS was capped at one line while the enum's own doc was not. A sweep agent hit this
+        # and shortened two real API docs rather than leave a violation it could not clear.
+        #
+        # Detected by shape: `Variant,` / `Variant(..)` / `Variant {` / `name: Type,` in a public module.
+        # Deliberately narrow -- it must not swallow ordinary statements, so it requires the line to look
+        # like a declaration and nothing else.
+        if ($InPublicModule -and $l -match '^\s*[A-Z][A-Za-z0-9_]*\s*(,|\(|\{|=)') { return 'api' }
+        if ($InPublicModule -and $l -match '^\s*[a-z_][A-Za-z0-9_]*\s*:\s*[A-Za-z_&<\[]') { return 'api' }
         return 'impl'
     }
     return 'impl'
