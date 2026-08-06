@@ -39,6 +39,14 @@ gaps — and its own test pins that emptiness in place.
 This is the same shape as the vacuous regression pin deleted earlier, which would have passed with its
 own fix reverted. Two independent instances is no longer bad luck.
 
+**Now also owns the retired coverage contract.** `define-grammar-coverage-contract` was archived
+2026-08-06 with no successor: its Gate-contract-v2 half had already been built by whoever needed it
+(`assert_matches_oracle`, `AnalysisIdentity`, `OccurrenceIdentities`, typed `not_comparable`), and its
+unbuilt half was the ledger inventory — which is this question. What that change wanted per row, and
+what a non-vacuous row should therefore mean here: an explicit disposition, an owning test, a POSITIVE
+witness **and a negative witness**. The negative one is the whole point; a row with only a positive
+witness is how 22 rows come to read `covered`.
+
 **Recommendation: a falsification audit, but scoped.** Not all 77 gate files — only the gates that can
 *refuse* something and the ones CI depends on. For each: break what it guards, confirm it goes red.
 Anything that cannot go red gets deleted, because a gate that cannot fail is worse than no gate: it

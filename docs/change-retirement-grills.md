@@ -92,7 +92,15 @@ Each of these says, in its own words, that its original framing no longer holds.
 once to survive ADR 0001; the question is whether what remains is worth keeping at all now that specs
 are gone and coverage is not the definition.
 
-### B1 — `define-grammar-coverage-contract` (0 done / 14 open)
+### B1 — `define-grammar-coverage-contract` — RETIRED 2026-08-06, no successor
+
+**Resolved.** Its Gate-contract-v2 half was already built elsewhere by whoever needed it. Its unbuilt
+half is the ledger inventory, which is Q2. Archived with no successor precisely to avoid a second
+name for one problem — the duplication that turned one recall figure into three. Q2 now carries the
+per-row definition it wanted: disposition, owning test, positive AND negative witness.
+
+<details><summary>original grill</summary>
+
 
 *Its own proposal:* "**Demoted to an evidence role** … this ledger is no longer itself the gate. The
 load-bearing, dynamic, hard-failing gate is `add-capability-characteristics-check`."
@@ -102,9 +110,8 @@ read `covered`**, which Q2 calls vacuous. So this change would formalise a contr
 whose current content is exactly what we distrust. It is also the most spec-shaped change remaining,
 in a project that has just deleted its specs.
 
-**Choices:** (a) retire — the gate it defers to is real and shipped, and the ledger's problem is Q2's
-to fix; (b) keep, rescoped to "make the ledger non-vacuous", which is Q2 by another name; (c) keep.
-**Recommendation: (a), with Q2 owning the ledger.**
+**Choices:** (a) retire, Q2 owns the ledger; (b) rescope; (c) keep. Chose (a).
+</details>
 
 ### B2 — `run-synthetic-conformance-matrix` (0 done / 12 open)
 
