@@ -161,7 +161,16 @@ change what the verdict should say.
 
 ## Group C — premised on the prototype path we intend to retire
 
-### C1 — `profile-fst-compilation` (0 done / 13 open)
+### C1 — `profile-fst-compilation` — RETIRED 2026-08-06, no successor
+
+**Resolved.** Section A (profiling the production path) is built — `emit_with_budget_profiled` in
+production `emit.rs`, `profile.rs` at 22KB, sink-off equivalence already proven under
+`add-grammar-diagnostics` 2.4. Section B is architected around the P6 cascade being promoted to
+production (three tasks reference the switch explicitly), which the recipe direction makes unlikely.
+Section C includes the now-unsatisfiable OpenSpec validation task. Retired with nothing carried.
+
+<details><summary>original grill</summary>
+
 
 *Its own proposal:* "a per-rule cascade curve is truthful only after Stage 2 wires that cascade into
 production. Today production uses the surface-prebaked `emit_with_budget` path; **the P6 replacement
@@ -171,9 +180,8 @@ cascade is experimental**."
 into the mainline. If the cascade never becomes production, this change's stated precondition never
 arrives.
 
-**Choices:** (a) retire, and let the recipe-retirement scoping decide whether any profiling survives;
-(b) keep, blocked, pending that decision; (c) keep. **Recommendation: (a) — it is downstream of a
-decision you have already leaned toward.**
+**Choices:** (a) retire; (b) keep blocked; (c) keep. Chose (a), no successor.
+</details>
 
 ### C2 — `reconcile-deep-truncation-baseline` (0 done / 12 open)
 
