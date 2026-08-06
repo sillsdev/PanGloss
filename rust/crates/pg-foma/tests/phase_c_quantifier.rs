@@ -1,53 +1,5 @@
-//! GATE: quantifier / `OptionalSegmentSequence` compile gate -- pure test-writing, this pins the
-//! loader/compiler's
-//! ACTUAL disposition per shape, so a regression (a genuinely out-of-scope shape silently
-//! mis-compiling, or a now-supported shape silently regressing back to a bail) is caught.
-//!
-//! `pg_foma::replace::pattern_slots` returns `None` on any out-of-scope `PatternNode::Quantifier`
-//! it meets in a REWRITE rule's own LHS/RHS/environment (inverted-finite/over-budget-finite/
-//! alpha-nested), which `compile_rewrite_rule_subset` turns into `Ok(None)` for the whole rule;
-//! `compile_and_compose_rules_with_budget` reports that via `skipped.push(rule.xml_id.clone())`
-//! (design doc §5's "Honest skip now" list).
-//!
-//! ## Bounded quantifiers now compile
-//! A FINITELY bounded, alpha-free quantifier (`min`/`max` both concrete) compiles now, via
-//! `pg_foma::replace::Slot::Repeat` (that variant's own doc: foma's native `^{min,max}` bounded-
-//! repetition xre operator). `quantifier_bounded_environment_compiles_and_matches_oracle` (below) is
-//! this change's own containment fixture: a bounded quantifier used INSIDE a rule's right
-//! environment, proposer-to-confirm CONTAINMENT-checked against `pg_parse::Morpher` (this codebase's
-//! own full-HC oracle) at BOTH its `min` and `max` boundary occurrence counts, plus a negative
-//! control below `min`.
-//!
-//! ## Genuinely unbounded quantifiers ALSO now compile
-//! The construct's own ORIGINAL, unbounded (`max="-1"`) shape used to be this file's own
-//! honest-skip witness (`quantifier_rule_is_honestly_reported_skipped`, the generator-produced
-//! LHS-focus fixture, and `quantifier_unbounded_environment_stays_honestly_unsupported`, the
-//! right-environment fixture) -- `pg_foma::replace::Slot::Repeat`'s `max: Option<u32>` widening now
-//! compiles this shape too (foma's native `*`/`^>N` unbounded-repetition xre operator instead of
-//! `^{min,max}`), so BOTH witnesses below are renamed and flipped to prove the NEW disposition
-//! (compiles, no longer skipped) instead of the old one. `MAX_QUANTIFIER_BOUND`/the inverted-bound
-//! check still apply ONLY to a FINITE `max` -- an inverted-finite or over-budget-finite or
-//! alpha-nested quantifier stays exactly as unsupported as before (unaffected by this widening).
-//!
-//! **Why the environment, not the LHS/RHS focus** (a documented, load-bearing choice, not an
-//! arbitrary one): `pg_rules::rewrite::width_matches`'s own doc names a "Shared width-mismatch
-//! guard" that requires a matched span's PHYSICAL width to equal the rule's raw `lhs.nodes.len()`/
-//! `rhs.nodes.len()` -- a plain node COUNT that is always exactly 1 for "one `Quantifier` node
-//! occupies the whole LHS/RHS", regardless of how many physical segments it actually consumes. A
-//! Quantifier match whose real width differs from that fixed count (any `max > 1`, or a `min == 0`
-//! zero-occurrence skip) is silently discarded by this guard before the RHS is ever applied --
-//! independent of this change (the guard predates it; its own doc explains it exists for an
-//! unrelated scenario that merely also catches this one). This is a real, pre-existing,
-//! now-surfaced confirm-engine gap, documented in `pg_foma::replace`'s own module doc ("Confirm-
-//! engine finding") rather than silently worked around -- exactly the RTL precedent's own
-//! "recall-preserve, don't paper over" discipline (`tests/phase_c_right_to_left.rs`'s "Known,
-//! out-of-scope oracle gap" section). A `Quantifier` used INSIDE an environment has NO such gap:
-//! `pg_rules::rewrite::left_env_match`/`right_env_match` test only first-match EXISTENCE
-//! (`Transduce::first_match`) against a `PatternBridge::compile_pattern`-compiled (Quantifier-
-//! faithful) environment FST, never a positional per-node array -- no width count to mismatch. This
-//! file's own containment fixture therefore places its quantifier there, where exact oracle
-//! equality is provable today, following the SAME `fst_candidate_set`/`oracle_candidate_set`
-//! methodology `tests/phase_c_right_to_left.rs`/`tests/two_table_symbol_divergence.rs` already use.
+//! GATE: quantifier / `OptionalSegmentSequence` compile gate: pins the loader/compiler's ACTUAL disposition per shape (bounded now compiles via `Slot::Repeat`'s `^{min,max}`; unbounded now compiles via its `*`/`^>N` widening), placing the containment fixture in an environment rather than the LHS/RHS focus since only the former is free of a pre-existing confirm-engine width-mismatch gap.
+//! See `docs/research/pg-foma-phase-c-quantifier-gate-notes.md` for the width-mismatch gap and why the environment placement is load-bearing, not arbitrary.
 
 mod common;
 
@@ -88,16 +40,7 @@ fn rules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
         .collect()
 }
 
-/// **Was honestly skipped; now compiles.** The generator's own `build::quantifier` builder
-/// (`pg-grammar-gen/src/build/quantifier.rs`)
-/// always mints a genuinely UNBOUNDED (`max="-1"`) quantifier occupying the rule's WHOLE LHS focus
-/// (`<PhoneticInput>`) -- `pg_foma::replace::Slot::Repeat`'s `max: Option<u32>` widening now renders
-/// this via foma's native `E^>N`/`E*` operator (`crate::lower::render_slots`'s own doc), so this
-/// rule compiles to `Some(net)`, no longer `skipped`. (This rule's own FULL-RECALL containment
-/// against `pg_rules::rewrite` is a separate, documented, pre-existing confirm-engine gap for ANY
-/// LHS/RHS-focus-quantified rule regardless of occurrence-count shape -- `crate::replace` module
-/// doc's "Confirm-engine finding" -- this unit test only exercises the FST COMPILE side, same as
-/// this file's other two witnesses.)
+/// Was honestly skipped; now compiles. The generator always mints a genuinely UNBOUNDED (`max="-1"`) quantifier occupying the rule's WHOLE LHS focus; `Slot::Repeat`'s widening now renders it, so this compiles to `Some(net)` -- this unit test exercises the FST COMPILE side only, not confirm-side containment (a separate, pre-existing gap, see `crate::replace`'s "Confirm-engine finding").
 #[test]
 fn quantifier_unbounded_lhs_focus_now_compiles() {
     let recipe = recipe();
@@ -142,8 +85,7 @@ fn quantifier_unbounded_lhs_focus_now_compiles() {
     )
     .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
 
-    // Post-`build-unbounded-quantifier-support`: the quantifier-bearing rule is no longer skipped
-    // at all -- it compiles to a real network, alpha-free (a trivial 1-entry tuple report).
+    // The quantifier-bearing rule is no longer skipped at all -- it compiles to a real network, alpha-free (a trivial 1-entry tuple report).
     assert!(
         skipped.is_empty(),
         "the unbounded LHS-focus quantifier rule must no longer be skipped: {skipped:?}"
@@ -163,18 +105,13 @@ fn quantifier_unbounded_lhs_focus_now_compiles() {
     assert_eq!(tuple_reports[0].1[0].surviving, 1);
 }
 
-// =================================================================================================
-// Bounded quantifier, IN AN ENVIRONMENT (see this file's own top doc, "Bounded quantifiers now
-// compile" / "Why the environment, not the LHS/RHS focus"): synthetic, delanguaged fixtures,
-// named by construct.
-// =================================================================================================
+// Bounded quantifier, IN AN ENVIRONMENT (see this file's top doc): synthetic fixtures, named by construct.
 
 fn load(xml: &str) -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// Every DECODED `apply_up` candidate for `query` against `net` (`tests/phase_c_right_to_left.rs`'s
-/// own helper, reused verbatim).
+/// Every DECODED `apply_up` candidate for `query` against `net` (`tests/phase_c_right_to_left.rs`'s helper, reused verbatim).
 fn fst_candidate_set(net: &foma::types::Fsm, query: &str) -> HashSet<(i32, Vec<u32>)> {
     let mut out = HashSet::new();
     let mut handle = apply_init(net);
@@ -189,8 +126,7 @@ fn fst_candidate_set(net: &foma::types::Fsm, query: &str) -> HashSet<(i32, Vec<u
     out
 }
 
-/// The full-HC oracle's own candidate set for `surface`, restricted to `allowed_morphemes`
-/// (`tests/phase_c_right_to_left.rs`'s own helper, reused verbatim).
+/// The full-HC oracle's own candidate set for `surface`, restricted to `allowed_morphemes` (`tests/phase_c_right_to_left.rs`'s helper, reused verbatim).
 fn oracle_candidate_set(
     morpher: &Morpher,
     surface: &str,
@@ -205,24 +141,8 @@ fn oracle_candidate_set(
         .collect()
 }
 
-/// One `a -> b` rewrite rule, gated by a right environment `<OptionalSegmentSequence min="1"
-/// max={max_attr}"><SimpleContext naturalClass="ncZ" /></OptionalSegmentSequence>` (one or more `z`
-/// segments) -- `max_attr` is either a concrete bound (`"2"`, the bounded/must-compile fixture) or
-/// `"-1"` (the DTD's own unbounded Kleene sentinel, the out-of-scope fixture). Three entries probe
-/// the quantifier's own boundary behavior: `entryMin` (exactly `min` occurrences), `entryMax`
-/// (exactly the bound's own `max`, when `max` is concrete), and `entryBelowMin` (zero occurrences,
-/// below `min` -- the environment must NOT match, so the rule must NOT fire).
-///
-/// One distinct symbol value PER SEGMENT (not per natural-class membership), matching
-/// `tests/phase_c_right_to_left.rs`'s own `RTL_FEATURE_ENV_XML` fixture's documented finding:
-/// `pg_parse::Morpher`'s own analysis-side unapplication needs this to disambiguate segments -- a
-/// grammar with NO `PhonologicalFeatureSystem` at all (every char-def's feature lanes empty) was
-/// this fixture's own first-drafted shape, and it silently failed to fire the rule during
-/// SYNTHESIS at all (`Morpher::generate_words` returned the root's own raw, un-rewritten spelling
-/// unchanged) -- a genuine, pre-existing `pg_rules::rewrite`/zero-phonological-feature-grammar
-/// interaction this fixture works around by giving every segment its own distinct feature value,
-/// the same way the reference/synthetic RTL environment fixture already does, rather than a
-/// Quantifier-specific finding worth its own module-doc callout.
+/// One `a -> b` rewrite rule gated by a right environment of one-or-more `z` segments, `max_attr` either a concrete bound or the DTD's unbounded Kleene sentinel `"-1"`; three entries (`entryMin`/`entryMax`/`entryBelowMin`) probe the quantifier's boundary behavior.
+/// See `docs/research/pg-foma-phase-c-quantifier-gate-notes.md` for why every segment gets its own distinct feature value.
 fn quantifier_env_xml(max_attr: &str) -> String {
     format!(
         r#"<HermitCrabInput><Language><Name>QuantifierBoundedEnv</Name>
@@ -279,9 +199,7 @@ fn quantifier_env_xml(max_attr: &str) -> String {
     )
 }
 
-/// Compiles `rule` over `alphabet`'s table, composes after `lexc_source`, and minimizes -- the
-/// shared plumbing both witnesses below use (`tests/phase_c_right_to_left.rs`'s own `compile_net`
-/// helper, reused verbatim).
+/// Compiles `rule` over `alphabet`'s table, composes after `lexc_source`, and minimizes -- shared plumbing both witnesses below use (`tests/phase_c_right_to_left.rs`'s `compile_net` helper, reused verbatim).
 fn compile_net(
     g: &Grammar,
     alphabet: &SegAlphabet,
@@ -316,15 +234,7 @@ fn compile_net(
     fsm_minimize(&opts, fsm_compose(&opts, lexc_net, rule_net))
 }
 
-/// **Must-compile, oracle-exact containment.** A bounded (`min="1" max="2"`) right-environment
-/// quantifier: `entryMin` ("az", exactly 1 occurrence) and `entryMax` ("azz", exactly 2
-/// occurrences) both obligatorily devoice-rewrite `a -> b` (the environment holds for either
-/// count); `entryBelowMin` ("a", 0 occurrences) does NOT (the environment requires at least 1), so
-/// the rule must NOT fire and the root's own spelling must survive unchanged. Exercising BOTH the
-/// `min` and `max` boundary occurrence counts against the SAME rule is what actually distinguishes
-/// genuine bounded (1..2) behavior from an accidental always-1 (no real quantifier effect) or
-/// silently-unbounded (would also accept 3+ occurrences of an environment this fixture never
-/// authors) compile.
+/// Must-compile, oracle-exact containment for a bounded (`min="1" max="2"`) right-environment quantifier: exercising BOTH the `min` and `max` boundary counts against the SAME rule is what distinguishes genuine bounded behavior from an accidental always-1 or silently-unbounded compile.
 #[test]
 fn quantifier_bounded_environment_compiles_and_matches_oracle() {
     let g = load(&quantifier_env_xml("2"));
@@ -394,8 +304,7 @@ fn quantifier_bounded_environment_compiles_and_matches_oracle() {
         "CONTAINMENT for 'bzz' (max-boundary, 2 occurrences)"
     );
 
-    // Both roots' own RAW (un-rewritten) spellings must never surface (obligatory rule, and both
-    // occurrence counts satisfy the environment).
+    // Both roots' own RAW (un-rewritten) spellings must never surface (obligatory rule, both occurrence counts satisfy the environment).
     let oracle_raw_min = oracle_candidate_set(&morpher, "az", &allowed);
     assert!(
         oracle_raw_min.is_empty(),
@@ -422,15 +331,7 @@ fn quantifier_bounded_environment_compiles_and_matches_oracle() {
     );
 }
 
-/// **Was out-of-scope; now compiles, oracle-exact containment.** Same shape as
-/// `quantifier_bounded_environment_compiles_and_matches_oracle` above, but the right-environment
-/// quantifier's own `max` is the DTD's unbounded Kleene sentinel (`max="-1"`) --
-/// `pg_foma::replace::pattern_slots` now ACCEPTS this (`crate::replace::Slot::Repeat`'s
-/// `max: Option<u32>` widening, foma's native `E^>N` operator), so the rule compiles instead of
-/// being `skipped`. Mirrors the bounded fixture's own min/below-min boundary containment proof
-/// against `pg_parse::Morpher`, and additionally proves GENUINE unboundedness directly at the FST
-/// level (a 3rd occurrence count -- above the bounded fixture's own `max="2"` -- still matches,
-/// which a merely-widened-but-still-secretly-bounded compile would fail).
+/// Was out-of-scope; now compiles, oracle-exact containment: same shape as the bounded fixture, but `max` is the DTD's unbounded sentinel `"-1"`, and this additionally proves GENUINE unboundedness (a 3rd occurrence, above the bounded fixture's `max="2"`, still matches).
 #[test]
 fn quantifier_unbounded_environment_compiles_and_matches_oracle() {
     let g = load(&quantifier_env_xml("-1"));
@@ -549,12 +450,7 @@ fn quantifier_unbounded_environment_compiles_and_matches_oracle() {
         composed.expect("an unbounded environment quantifier must compile to a real network");
     assert_eq!(tuple_reports.len(), 1, "one compiled (alpha-free) rule");
 
-    // --- GENUINE unboundedness, FST-only against the BARE rule net (no lexicon involved -- the
-    // full lexc-composed `net` above has no LexicalEntry spelling 3 z's at all, so testing THAT
-    // would conflate lexicon coverage with environment matching). Applied "down" (underlying "a"
-    // side -> surface "b" side, this file's own `Dir::LeftToRight`-style plain rule convention):
-    // 3 occurrences of 'z' (above the bounded fixture's own max=2) must STILL obligatorily rewrite
-    // -- an accidentally-still-capped compile would instead pass "azzz" through unchanged. ---
+    // GENUINE unboundedness, FST-only against the BARE rule net (no lexicon involved, since testing through the lexicon would conflate lexicon coverage with environment matching): 3 occurrences of 'z' must still obligatorily rewrite.
     let underlying_three = alphabet
         .encode_query("azzz")
         .expect("'azzz' must segment against this fixture's own table");

@@ -1,24 +1,5 @@
-//! Tier-2 #13 acceptance gate — the three template/partial synthesis gates added to
-//! `stratum.rs::synth_apply_templates` and `morph.rs::synth_affix{,_cached}`:
-//!
-//! - **Gate 1** (`SynthesisAffixTemplatesRule.cs:59-77`): when no template produces output, C#
-//!   passes the input through (marked final) UNLESS it is non-partial AND some template was
-//!   applicable (in which case it is dropped, only traced as `ApplicableTemplatesNotApplied`).
-//! - **Gate 2** (`SynthesisAffixTemplatesRule.cs:37-41`): a template only counts as applicable if,
-//!   among the other conditions, the word's ROOT MORPHEME is not itself partial
-//!   (`input.RootAllomorph.Morpheme.IsPartial`) — distinct from `Word.IsPartial`.
-//! - **Gate 3** (`SynthesisAffixProcessRule.cs:86-105`): right after a *non-final* template applied,
-//!   a rule may run only if it is itself partial or the input is already partial — i.e. a
-//!   *non*-partial input blocks a *partial* rule immediately following a non-final template.
-//!
-//! Gates 1 and 2 are exercised through the real public entry point `stratum::synthesize_stratum`
-//! (the only way to reach the private `synth_apply_templates`), each isolated from the other two by
-//! construction (see per-test comments). Gate 3 is exercised the same way but additionally routes
-//! through the cached production path (`synthesize_stratum` -> `synth_apply_mrules` ->
-//! `guided_synth` -> `synthesize_cached` -> `synth_affix_cached`) by hand-setting the
-//! `IsLastAppliedRuleFinal == Some(false)` state a word carries immediately after a non-final
-//! template applied — the same state `SynthesisAffixTemplatesRule.cs:44-49` produces — without
-//! needing to actually run a template first.
+//! The three template/partial synthesis gates added to `stratum.rs`/`morph.rs`.
+//! See `docs/research/pg-rules-template-partial-gate-design-notes.md`.
 
 mod common;
 
@@ -107,13 +88,8 @@ fn allomorph(id: u32, lhs: Vec<Pattern>, rhs: Vec<OutputAction>) -> AffixAllomor
     }
 }
 
-/// Push a single-allomorph AffixProcess suffix rule (`CopyFromInput(0) + InsertSegments(seg)`),
-/// registering its allomorph in `g.allomorph_owners` the way `pg_grammar::load` would
-/// (`AllomorphOwner::Affix(mrule_id, 0)` at the next sequential `AllomorphId`). This is required for
-/// the cached production path: `RuleCache::build` eagerly compiles every registered allomorph and
-/// `synth_affix_cached`/`analyze_cached` look matchers up by `AllomorphId` through that registry —
-/// an allomorph minted with an arbitrary id (as the earlier, uncached-only test files in this crate
-/// do; see `morph_gate.rs`'s `allomorph` helper) is never resolvable through `RuleCache`.
+/// Push a single-allomorph AffixProcess suffix rule, registering its allomorph in `g.allomorph_owners` the way `pg_grammar::load` would.
+/// See `docs/research/pg-rules-template-partial-gate-design-notes.md`.
 fn push_suffix_rule(g: &mut Grammar, morpheme: u32, seg: &str, partial: bool) -> MRuleId {
     let mrule_id = MRuleId(g.mrules.len() as u32);
     let allo_id = AllomorphId(g.allomorph_owners.len() as u32);
@@ -142,10 +118,7 @@ fn push_suffix_rule(g: &mut Grammar, morpheme: u32, seg: &str, partial: bool) ->
     mrule_id
 }
 
-/// Retroactively tag `mid` as a template-slot rule, mirroring what `pg_grammar::load`'s
-/// `IsTemplateRule` post-pass would do for a rule actually referenced from an
-/// `AffixTemplateSlot` — these hand-built fixtures construct rules and templates independently of
-/// the real loader, so this stands in for that post-pass.
+/// Retroactively tag `mid` as a template-slot rule, standing in for `pg_grammar::load`'s own post-pass.
 fn mark_template_rule(g: &mut Grammar, mid: MRuleId) {
     if let MorphRuleDef::AffixProcess(def) = &mut g.mrules[mid.0 as usize] {
         def.is_template_rule = true;
@@ -188,9 +161,7 @@ fn push_template(g: &mut Grammar, is_final: bool, slot_rule: MRuleId) -> Templat
 }
 
 /// A lexicon root entry registered through `allomorph_owners` the way the loader would.
-/// `root_is_partial` only reads `entries[..].partial`, but `RuleCache::build` eagerly walks every
-/// registered owner (including `Root` ones) and indexes into `entries[le].allomorphs[idx]`, so a
-/// real (if trivial) `RootAllomorphDef` must back the registration or the cache build panics.
+/// See `docs/research/pg-rules-template-partial-gate-design-notes.md`.
 fn push_root_entry(g: &mut Grammar, partial: bool) -> AllomorphId {
     let allo_id = AllomorphId(g.allomorph_owners.len() as u32);
     let lex_id = LexEntryId(g.entries.len() as u32);
@@ -220,23 +191,12 @@ fn push_root_entry(g: &mut Grammar, partial: bool) -> AllomorphId {
     allo_id
 }
 
-// =================================================================================================
-// Gate 1 — partial-word passthrough (stratum.rs `synth_apply_templates`).
-// =================================================================================================
+// Gate 1: partial-word passthrough (`stratum.rs::synth_apply_templates`).
 
 #[test]
 fn gate1_partial_word_with_applicable_template_passes_through() {
-    // One template whose required FS is trivially satisfied (empty FS on both sides) — so it IS
-    // applicable — but whose single mandatory slot rule can never actually apply: the word starts
-    // with no confirmed unapplication trail (`mrule_app_index == -1`, `Word::new`'s default), and
-    // `stratum.rs`'s `guided_synth` short-circuits on `w.mrule_app_index < 0` before even
-    // inspecting the rule. So the template yields zero output here, isolating
-    // gate 1 (the passthrough condition) from gate 2 (root-partial) and gate 3 (post-template rule
-    // gating): `applicable = true`, the internal `out` map stays empty, and the only question left
-    // is whether the passthrough fires.
-    //
-    // Before the fix the passthrough condition was `!applicable` alone, so an applicable-but-
-    // unproductive template on a partial word was (wrongly) dropped instead of passed through.
+    // Isolates gate 1 (passthrough) from gates 2/3: the template is applicable but unproductive.
+    // See `docs/research/pg-rules-template-partial-gate-design-notes.md`.
     let mut g = load_alpha_grammar();
     let r = push_suffix_rule(&mut g, 200, "p", false);
     let tid = push_template(&mut g, true, r);
@@ -253,38 +213,19 @@ fn gate1_partial_word_with_applicable_template_passes_through() {
         1,
         "a partial word with an applicable-but-unapplied template must pass through, not be dropped"
     );
-    // `synthesize_stratum` clears `is_last_applied_rule_final` to `None` on every surviving
-    // candidate (cs:82, "clear the final flag" — the flag is stratum-internal orchestration state,
-    // not part of a stratum's public output); the passthrough itself sets it `Some(true)` internally
-    // (asserted indirectly by this word surviving `synthesize_stratum`'s own
-    // `is_last_applied_rule_final != Some(true)` filter at all).
+    // `synthesize_stratum` clears `is_last_applied_rule_final` on every surviving candidate (cs:82).
     assert_eq!(
         char_defs(&out[0].shape),
         char_defs(&shape_with_lanes(&g, "a"))
     );
 }
 
-// =================================================================================================
-// Gate 2 — partial-root blocks template applicability (stratum.rs `root_is_partial` / the
-// `root_partial` short-circuit in `synth_apply_templates`'s per-template loop).
-// =================================================================================================
+// Gate 2: partial-root blocks template applicability (`stratum.rs::root_is_partial`).
 
 #[test]
 fn gate2_partial_root_morpheme_blocks_template_application() {
-    // Same template as gate 1 (required FS trivially satisfied, slot rule never actually reachable
-    // without an unapplication trail), but now `input.flags.is_partial` stays FALSE and instead the
-    // word's ROOT is marked partial via a registered lexicon entry. With gate 2 active the template
-    // is skipped before ever being counted `applicable` (the `root_partial` short-circuit), so
-    // `applicable` stays false and the passthrough's `!applicable` disjunct fires unconditionally,
-    // returning the untemplated word unchanged.
-    //
-    // Reverting gate 2 (dropping `root_partial` from the per-template `continue` condition) flips
-    // `applicable` to true (the required FS is still trivially satisfiable) — and because the word
-    // is *not* itself partial, gate 1 (still active, unaffected by this revert) now refuses the
-    // passthrough (non-partial input + applicable template => drop, matching
-    // `ApplicableTemplatesNotApplied`), while the slot rule still can't actually apply (no
-    // unapplication trail). Net effect of reverting gate 2: the result collapses from 1 candidate to
-    // 0 — a clean revert-to-red signal.
+    // Isolates gate 2 from gate 1: the root, not the word, is marked partial.
+    // See `docs/research/pg-rules-template-partial-gate-design-notes.md`.
     let mut g = load_alpha_grammar();
     let r = push_suffix_rule(&mut g, 200, "p", false);
     let tid = push_template(&mut g, true, r);
@@ -308,19 +249,12 @@ fn gate2_partial_root_morpheme_blocks_template_application() {
     );
 }
 
-// =================================================================================================
-// Gate 3 — partial rule prohibited right after a non-final template, unless the input is itself
-// partial (morph.rs `synth_affix` / `synth_affix_cached`).
-// =================================================================================================
+// Gate 3: partial rule prohibited after a non-final template, unless the input is itself partial.
 
 #[test]
 fn gate3_partial_rule_prohibited_after_nonfinal_template_unless_input_partial() {
-    // `IsLastAppliedRuleFinal == Some(false)` is exactly the state a word carries immediately after
-    // a non-final template applied (`SynthesisAffixTemplatesRule.cs:44-49`); hand-setting it here
-    // (plus a one-entry confirmed unapplication trail so `guided_synth` will actually attempt the
-    // rule) isolates gate 3 from gates 1/2's template machinery while still driving the REAL cached
-    // production pipeline: `synthesize_stratum` -> `synth_apply_mrules` -> `guided_synth` ->
-    // `synthesize_cached` -> `synth_affix_cached`.
+    // Hand-sets the post-non-final-template state to isolate gate 3 from gates 1/2's template machinery.
+    // See `docs/research/pg-rules-template-partial-gate-design-notes.md`.
     let mut g = load_alpha_grammar();
     let r = push_suffix_rule(&mut g, 200, "p", true); // a PARTIAL affix rule
     let s = push_stratum(&mut g, MorphRuleOrder::Linear, vec![r], vec![]);
@@ -338,8 +272,7 @@ fn gate3_partial_rule_prohibited_after_nonfinal_template_unless_input_partial() 
         out_a.iter().map(|w| char_defs(&w.shape)).collect::<Vec<_>>()
     );
 
-    // (B) already-partial input: the same rule must be ALLOWED (the exception clause) and produce
-    // the suffixed word.
+    // (B) already-partial input: the same rule must be allowed and produce the suffixed word.
     let mut input_b = word(&g, "a", s);
     input_b.flags.is_last_applied_rule_final = Some(false);
     input_b.flags.is_partial = true;
@@ -357,21 +290,12 @@ fn gate3_partial_rule_prohibited_after_nonfinal_template_unless_input_partial() 
     );
 }
 
-// =================================================================================================
-// Gate 4 (plan §6 item 6 / W1.6) — `IsTemplateRule`: a rule that IS itself a template-slot member
-// must be EXEMPT from gate 3's post-non-final-template partial check, unlike an ordinary rule.
-// C# `SynthesisAffixProcessRule.cs:64,86`'s `!_rule.IsTemplateRule &&` guard applies to both
-// checks identically; this test isolates the second (gate 3's exact shape) since it's the one
-// with an existing, directly-invertible sibling test (gate 3 above) to contrast against.
-// =================================================================================================
+// Gate 4: `IsTemplateRule` exempts a template-slot member from gate 3's post-template partial check.
 
 #[test]
 fn gate4_template_rule_is_exempt_from_the_post_template_gates() {
-    // Same non-final-template state and PARTIAL rule as gate 3's case (A) above -- which, for an
-    // ORDINARY rule, is prohibited outright on a non-partial word. Here the rule is ALSO tagged
-    // `is_template_rule` (as `pg_grammar::load`'s post-pass would tag any rule referenced from an
-    // `AffixTemplateSlot`), so it must NOT be gated at all, regardless of the word's partial state.
-    // Before this fix `synth_affix_cached` applied the check unconditionally to every affix rule.
+    // Same state as gate 3's case (A), but the rule is also tagged `is_template_rule`.
+    // See `docs/research/pg-rules-template-partial-gate-design-notes.md`.
     let mut g = load_alpha_grammar();
     let r = push_suffix_rule(&mut g, 200, "p", true); // a PARTIAL rule...
     mark_template_rule(&mut g, r); // ...that is ALSO a template-slot member.
@@ -380,8 +304,7 @@ fn gate4_template_rule_is_exempt_from_the_post_template_gates() {
 
     let mut input = word(&g, "a", s);
     input.flags.is_last_applied_rule_final = Some(false);
-    // input.flags.is_partial stays FALSE -- gate 3 alone would prohibit this rule outright (see
-    // gate3's case A); IsTemplateRule must exempt it regardless.
+    // is_partial stays false -- IsTemplateRule must exempt this rule regardless.
     input.mrule_apps = vec![Some(r)];
     input.mrule_app_index = 0;
     let out = synthesize_stratum(&g, s, input, 10_000, &cache);

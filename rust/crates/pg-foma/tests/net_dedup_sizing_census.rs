@@ -1,34 +1,5 @@
-//! **The sizing measurement for net-level candidate dedup — committed BEFORE the optimization it
-//! justifies.**
-//!
-//! # The question
-//!
-//! `evaluate_plans_with_cache_mode` builds, finishes and runs the WHOLE corpus for every plan.
-//! Nothing notices that two plans produced the same network. The optimization that follows this file
-//! collapses those duplicates, and its entire value is the ratio measured here:
-//!
-//! > across a fixture's materialized candidate set, how many DISTINCT finished networks are there,
-//! > against how many plans?
-//!
-//! If that ratio is 1:1 everywhere, the optimization is worth nothing on our corpora and the honest
-//! finding is worth more than the code. So the number is taken first, with the instrument
-//! (`finished_net_digests`) and this census committed as their own change, and it stays as a
-//! permanent gate: a future change that made every plan produce a distinct network would silently
-//! remove the whole basis for the dedup, and this test is what says so out loud.
-//!
-//! # Why the digest is taken after `finish_controllable_net`
-//!
-//! That is the last point at which a plan-composed candidate is still an `Fsm`, and it is the net that
-//! is actually queried. Digesting the pre-finish net would key on a network that returns nothing for
-//! every surface query (`crate::build::finish_controllable_net`'s own doc), and digesting the plan
-//! instead would measure the wrong thing entirely — plan-shape differences are ERASED by
-//! minimization, which is exactly why duplicates exist.
-//!
-//! # What this census deliberately does not do
-//!
-//! No oracle, no propose, no confirm. It is the build half only, which is what makes a sweep over the
-//! whole discoverable fixture corpus affordable. A distinct-net count needs nothing else: the
-//! measurement is a property of the compilation.
+//! The sizing measurement for net-level candidate dedup, committed BEFORE the optimization it justifies: how many DISTINCT finished networks a fixture's materialized candidate set produces, against how many plans -- build half only, no oracle/propose/confirm.
+//! See `docs/research/pg-foma-net-dedup-sizing-census.md` for why the digest is taken after `finish_controllable_net` and why the census excludes no fixture.
 
 use pg_conformance_fixtures::{discover, FixtureRef};
 use pg_foma::enumerate::{enumerate_default, LoweredCandidate};
@@ -39,10 +10,7 @@ use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use std::collections::BTreeSet;
 
-/// `pg_foma::emit::surface_table`, which is `pub(crate)`: the surface char-def table is the LAST
-/// stratum's, not `char_tables[0]`, and on a multi-stratum grammar those differ. Replicated (as
-/// `parity_divergence_census` already does) so the census builds over the same alphabet the evaluator
-/// does.
+/// `pg_foma::emit::surface_table`, which is `pub(crate)`: the surface char-def table is the LAST stratum's, not `char_tables[0]`, and on a multi-stratum grammar those differ. Replicated so the census builds over the same alphabet the evaluator does.
 fn surface_table(grammar: &Grammar) -> &pg_grammar::chardef::CharDefTable {
     let surface_stratum = grammar
         .strata
@@ -85,18 +53,10 @@ impl Sizing {
     }
 }
 
-// `deep-optional-affix-nesting`/`recipe-template-generic` are NOT excluded here: this census runs
-// no propose/confirm, and measurement shows it survives them -- `finished_net_digests` for that
-// grammar's registry plans completes in 0.027s, since the death seen elsewhere is entirely in
-// `apply_up` traversal (`12^k` paths for a k-`x` word), never in construction. See
-// `tests/apply_path_refusal_gate.rs` and
-// `pg_foma::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`. So this census sweeps every
-// discoverable fixture with no exclusion at all.
+// No fixture is excluded: this census runs no propose/confirm, so the `apply_up` traversal blowup seen elsewhere (see `tests/apply_path_refusal_gate.rs`) never applies to construction alone.
 
 fn measure_one_fixture(fixture: &FixtureRef) -> Result<Sizing, String> {
-    // Named BEFORE any work, so a process-killing fixture is identifiable from the last line of
-    // captured output. `parity_divergence_census` learned this the hard way: without it, a 250s abort
-    // names nothing at all.
+    // Named BEFORE any work, so a process-killing fixture is identifiable from the last line of captured output.
     eprintln!("net-dedup sizing: entering {}", fixture.label());
     let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
         return Err(format!("{}: grammar failed to load", fixture.label()));
@@ -127,16 +87,13 @@ fn measure_one_fixture(fixture: &FixtureRef) -> Result<Sizing, String> {
     })
 }
 
-/// **The measurement.** Per-fixture rows plus the corpus-wide totals, printed unconditionally so the
-/// number is in the run log whether the assertions pass or not.
+/// The measurement: per-fixture rows plus corpus-wide totals, printed unconditionally so the number is in the run log whether the assertions pass or not.
 #[test]
 fn distinct_finished_nets_versus_plan_count_per_fixture() {
     let mut measured: Vec<Sizing> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
     for fixture in discover() {
-        // A panic in one fixture's compilation must not cost the corpus-wide number. Known live
-        // example: `machine:edge-cases/loader-pattern-shapes` panics at `replace.rs:498` ("char table
-        // too large for the PUA token scheme"). Caught, named, and counted -- never swallowed.
+        // A panic in one fixture's compilation must not cost the corpus-wide number: caught, named, and counted, never swallowed.
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             measure_one_fixture(&fixture)
         }));
@@ -201,9 +158,7 @@ fn distinct_finished_nets_versus_plan_count_per_fixture() {
         "no fixture produced a finished network at all, so a zero duplicate count is the absence of \
          evidence rather than evidence of absence"
     );
-    // The claim the optimization rests on, asserted rather than assumed. If this ever fails, the
-    // finding is that net-level dedup buys nothing on this corpus -- which is a reason to delete the
-    // optimization, not to weaken this line.
+    // The claim the optimization rests on, asserted rather than assumed: a failure here means dedup buys nothing on this corpus, a reason to delete the optimization, not to weaken this line.
     assert!(
         duplicates > 0,
         "every one of {digested} digested plans produced a DISTINCT finished network across {} \

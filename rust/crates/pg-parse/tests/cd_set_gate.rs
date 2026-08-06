@@ -1,21 +1,5 @@
-//! Regression gate for plan §13.1 Tier-1 #3 (the char-def-set / `StrRep`-analog fix): an
-//! `InsertSimpleContext` (`OutputAction::InsertContext`) natural-class insertion must render/match
-//! as exactly the class's real members, never the whole char-def table.
-//!
-//! Two hand-built grammars, spanning `pg-rules` (synthesis) and `pg-parse` (surface rendering):
-//! - `zero_feat_segments_class_renders_only_its_members` mirrors Sena's actual situation: a
-//!   grammar with **zero phonological features**, where the pre-fix lane-only representation was
-//!   *no constraint at all* (every char-def's lanes are `&[]`, so `flat_unifiable(&[],&[])` is
-//!   vacuously true for the entire table) — the confirmed mechanism behind the Sena "mbali"
-//!   full-inventory-bracket bug (`rust-conversion.md` §13.1 Tier-1 #3, `parity-out/audit/
-//!   C-loader-pipeline.md` Detail #1).
-//! - `feature_grammar_segments_class_narrows_tighter_than_lane_union` and
-//!   `feature_grammar_feature_class_behavior_is_unchanged` mirror Indonesian/Amharic: a
-//!   phonological-feature-bearing table where a `Segments`-kind class must narrow to *exactly* its
-//!   explicit members (tighter than the old lane-union over-approximation, which would have also
-//!   admitted a same-lane non-member), while a `Feature`-kind class's lane-unification rendering is
-//!   preserved unchanged (its char-def set is derived *from* the lanes, not an independent
-//!   constraint).
+//! Regression gate for the char-def-set fix: a class insertion must render/match its real members.
+//! See `docs/research/pg-parse-cd-set-gate-notes.md`.
 
 use pg_grammar::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, Grammar, MorphRuleDef, MorphemeId, MprSet,
@@ -26,11 +10,7 @@ use pg_rules::morph::synthesize;
 use pg_rules::word::MorphRecord;
 use pg_rules::Word;
 
-// =================================================================================================
-// Shared hand-built-grammar plumbing (the `common::load_alpha_grammar()` pattern used across
-// `pg-rules/tests/*.rs`, reproduced here since integration-test `tests/common` modules are not
-// shared across crates).
-// =================================================================================================
+// Shared hand-built-grammar plumbing, reproduced here since integration-test `tests/common` modules are not shared across crates.
 
 fn nat_class(g: &Grammar, xml_id: &str) -> NatClassId {
     let i = g
@@ -98,14 +78,8 @@ fn prefix_rule(morpheme: u32, insert_nc: &str, g: &Grammar) -> MorphRuleDef {
     })
 }
 
-/// Builds the root's shape the way production code actually does (`Morpher::set_root_allomorph`,
-/// `pg-parse/src/morpher.rs:226-241`) — via `segment_with_features`, which attaches each node's
-/// real per-char-def phonological lanes, not the bare feature-less `pg_grammar::segment::segment`.
-/// This matters for the feature-bearing test below: with unfilled (unconstrained) lanes the root's
-/// *own* concrete segment would misrender regardless of this milestone's fix, which would test the
-/// wrong thing. At `feat_width == 0` (the zero-feature test) the two are identical by construction
-/// (`segment_with_features`'s own doc comment) — the char-def-set fix is the *only* discriminator
-/// available there, which is exactly the case this milestone addresses.
+/// Builds the root's shape the way production code actually does, via `segment_with_features`.
+/// See `docs/research/pg-parse-cd-set-gate-notes.md`.
 fn root_word(g: &Grammar, text: &str) -> Word {
     let shape = pg_rules::shape_feat::segment_with_features(g, &g.char_tables[0], text)
         .expect("root segments");
@@ -123,9 +97,7 @@ fn synth_display(g: &Grammar, text: &str, rule: &MorphRuleDef) -> String {
     pg_parse::surface::to_regex_display(&g.char_tables[0], &out[0].shape)
 }
 
-// =================================================================================================
 // (a) Zero-phonological-feature grammar (mirrors Sena exactly: no <PhonologicalFeatureSystem>).
-// =================================================================================================
 
 const ZERO_FEAT_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -161,17 +133,12 @@ fn load_zero_feat_grammar() -> Grammar {
     pg_grammar::load(ZERO_FEAT_XML).expect("zero-feat grammar loads")
 }
 
-/// Mirrors Sena's actual "mbali" situation directly: a zero-phonological-feature grammar (so the
-/// pre-fix lane-only check was vacuously true for every table entry, `pg-rules/src/morph.rs`'s
-/// `InsertSimpleContext` handling — see that module and `pg_parse::surface::matching_str_reps`).
-/// Root "bali" + a prefix that inserts the 2-member `Segments`-kind `nc_nasal` class must render as
-/// `[mn]bali` — exactly the class's members, not the whole 9-char-def table (`[mn]` vs
-/// `[abiklmnst]`-style full inventory).
+/// Mirrors Sena's actual "mbali" situation directly.
+/// See `docs/research/pg-parse-cd-set-gate-notes.md`.
 #[test]
 fn zero_feat_segments_class_renders_only_its_members() {
     let g = load_zero_feat_grammar();
-    // Plan §13.1 Tier-1 #1: `len()` is never 0 post-fix (the always-appended synthetic `Type`
-    // feature) — `is_empty()` is the correct "zero *authored* phonological features" check now.
+    // `len()` is never 0 post-fix (the always-appended synthetic `Type` feature); `is_empty()` is the correct check.
     assert!(
         g.phon_features.is_empty(),
         "sanity: this grammar has zero authored phonological features"
@@ -182,11 +149,8 @@ fn zero_feat_segments_class_renders_only_its_members() {
     assert_eq!(sig, "[mn]bali");
 }
 
-// =================================================================================================
-// (b) Feature-bearing grammar (mirrors Indonesian/Amharic): one symbolic feature (voice), five
-// segments -- b/d/g voiced, p voiceless, a voiced vowel -- so a Segments-kind class of {b,d} shares
-// its lane-union with g and a (also voiced) without being identical to the whole voiced set.
-// =================================================================================================
+// (b) Feature-bearing grammar (mirrors Indonesian/Amharic).
+// See `docs/research/pg-parse-cd-set-gate-notes.md`.
 
 const FEATURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -241,21 +205,8 @@ fn load_feature_grammar() -> Grammar {
     pg_grammar::load(FEATURE_XML).expect("feature grammar loads")
 }
 
-/// `nc_bd` is `Segments`-kind with exactly `{b, d}`, but `g` and `a` share the *same* voice lane
-/// (`voi+`) as `b`/`d`. The pre-fix lane-union representation would have admitted `g` and `a` too
-/// (over-approximation flagged in `parity-out/audit/C-loader-pipeline.md` row 1 as "narrower but
-/// still real" on feature-bearing grammars); the fix must render exactly `[bd]p`, not `[bdga]p`.
-///
-/// Root text is `"p"`, not `"a"`: `p` is the table's only `voi-` segment, so it is
-/// FeatureStruct-unique and its own rendering stays a plain `"p"`. Rooting on `"a"` would
-/// (correctly) also render the root's OWN segment as
-/// `[bdga]` -- confirmed against the C# oracle (`CharacterDefinitionTable.cs:125`,
-/// `new ShapeNode(cd.FeatureStruct.Clone())`: a feature-bearing char-def's segmented node carries
-/// no `StrRep` at all, so `GetMatchingStrReps` genuinely unifies `a` against `b`/`d`/`g` too, since
-/// this minimal fixture gives all four an identical `Type+voi+` FeatureStruct) -- that's the P5
-/// fix working as designed, not a bug, but it would conflate the assertion below (about the
-/// INSERTED class node) with an unrelated (also-correct) change to the root node's own rendering.
-/// `p` isolates the assertion to just the inserted class's narrowing, this test's actual intent.
+/// `nc_bd` is `Segments`-kind with exactly `{b, d}`, but `g` and `a` share the same voice lane; the fix must render exactly `[bd]p`, not `[bdga]p`.
+/// See `docs/research/pg-parse-cd-set-gate-notes.md`.
 #[test]
 fn feature_grammar_segments_class_narrows_tighter_than_lane_union() {
     let g = load_feature_grammar();
@@ -272,13 +223,8 @@ fn feature_grammar_segments_class_narrows_tighter_than_lane_union() {
     );
 }
 
-/// `nc_voiced` is `Feature`-kind (`voi+`), matching `b`, `d`, `g`, `a` but excluding `p` (voiceless)
-/// -- this must render as the full lane-unifying set, `[bdga]`, **unchanged** by the fix (a
-/// Feature-kind class's char-def set is derived *from* the lanes, not an independent restriction).
-///
-/// Root text is `"p"` for the same P5 reason as the sibling test above (see its doc comment): `p`
-/// is FeatureStruct-unique in this table, so its own rendering is unaffected by the P5 closure
-/// fallback, isolating this assertion to the inserted class's (unchanged) lane-union rendering.
+/// `nc_voiced` is `Feature`-kind, matching b/d/g/a but excluding p; must render unchanged as `[bdga]`.
+/// See `docs/research/pg-parse-cd-set-gate-notes.md`.
 #[test]
 fn feature_grammar_feature_class_behavior_is_unchanged() {
     let g = load_feature_grammar();

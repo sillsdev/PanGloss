@@ -1,20 +1,4 @@
-//! Regression gate for the `MaxApplicationCount` cap (Tier-1 #4, rust-conversion.md §13.1).
-//!
-//! C# gates every rule-(un)application attempt *before* trying any allomorph:
-//! `input.GetUnapplicationCount(_rule) >= _rule.MaxApplicationCount` → skip the rule entirely for
-//! this candidate (`AnalysisAffixProcessRule.cs:46-52`, identically `AnalysisCompoundingRule.cs:48`).
-//! Every rule in the DTD defaults to `MaxApplicationCount = 1`. Without a matching gate in
-//! `StratumAnalyzer::apply_one_mrule`, a rule whose LHS still matches its own unapplied output can
-//! re-unapply indefinitely (bounded only by shape shrinkage / the step-cap safety valve), which is
-//! both a search-space blowup and — because guided synthesis re-confirms whatever the analysis
-//! trail recorded — a source of outright wrong surface forms.
-//!
-//! This uses a suffix rule whose pattern is `X+` over "any segment" (`nc_any`), so after unapplying
-//! one trailing "p" the *result* still matches the rule's own LHS — exactly the self-re-application
-//! shape the gate must block. Two cases:
-//! - `max_apps: 1` (the universal DTD default): the rule may unapply at most once on any path.
-//! - `max_apps: 2` (boundary case): confirms the gate is `count >= max_apps`, not a hardcoded "once
-//!   forever" — the rule must be allowed to unapply exactly twice, no more.
+//! Regression gate for the `MaxApplicationCount` cap: a self-matching rule must not re-unapply indefinitely.
 
 mod common;
 
@@ -101,9 +85,7 @@ fn allomorph(id: u32, lhs: Vec<Pattern>, rhs: Vec<OutputAction>) -> AffixAllomor
     }
 }
 
-/// A single-allomorph suffix rule whose LHS is `nc_any+` — it still matches its own unapplied
-/// output, so without the `max_apps` gate it can re-unapply to itself indefinitely.
-/// `CopyFromInput(0) + InsertSegments(seg)`.
+/// A single-allomorph suffix rule whose LHS is `nc_any+`, so it still matches its own unapplied output.
 fn self_matching_suffix_rule(g: &Grammar, morpheme: u32, seg: &str, max_apps: u16) -> MorphRuleDef {
     MorphRuleDef::AffixProcess(AffixProcessRuleDef {
         morpheme: MorphemeId(morpheme),
@@ -158,15 +140,11 @@ fn word(g: &Grammar, text: &str, stratum: StratumId) -> Word {
     Word::new(shape_with_lanes(g, text), stratum)
 }
 
-// =================================================================================================
-// max_apps: 1 (the universal DTD default) — the rule fires at most once on any analysis path.
-// =================================================================================================
+// max_apps: 1 (the universal DTD default) -- the rule fires at most once on any analysis path.
 
 #[test]
 fn max_apps_one_gates_a_self_matching_rule_to_a_single_unapplication() {
-    // Root "a" + suffix "p" + suffix "p" (same rule, re-applied at synthesis time) → surface "app".
-    // The rule's LHS (`nc_any+`) still matches "ap" and "a", so an ungated cascade would unapply it
-    // twice: app -> ap -> a. With `max_apps: 1`, only the first unapplication is allowed.
+    // Root "a" + suffix "p" + suffix "p" -> surface "app"; ungated, the rule would unapply twice.
     let mut g = load_alpha_grammar();
     let r = self_matching_suffix_rule(&g, 200, "p", 1);
     let rid = push_mrule(&mut g, r);
@@ -203,15 +181,11 @@ fn max_apps_one_gates_a_self_matching_rule_to_a_single_unapplication() {
     }
 }
 
-// =================================================================================================
-// max_apps: 2 (boundary case) — the same rule now unapplies exactly twice, confirming the gate is
-// an inequality (`count >= max_apps`), not an accidental "exactly 1 forever" hardcode.
-// =================================================================================================
+// max_apps: 2 (boundary case) -- confirms the gate is `count >= max_apps`, not a hardcoded "once forever".
 
 #[test]
 fn max_apps_two_allows_exactly_two_unapplications_not_three() {
-    // Root "a" + "p" + "p" + "p" -> surface "appp". With max_apps=2 the rule may unapply twice
-    // (appp -> app -> ap) but the third attempt (-> a) must be blocked.
+    // Root "a" + "p" + "p" + "p" -> "appp"; max_apps=2 allows two unapplications, blocks the third.
     let mut g = load_alpha_grammar();
     let r = self_matching_suffix_rule(&g, 200, "p", 2);
     let rid = push_mrule(&mut g, r);

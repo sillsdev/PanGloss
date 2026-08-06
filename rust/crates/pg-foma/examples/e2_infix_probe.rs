@@ -1,11 +1,4 @@
-//! E2 feasibility probe driver (`pg_foma::e2_infix_probe`, not mainline): builds the composed
-//! network `underlying-lexc(+infix-composites) .o. rules .o. boundary-cleanup` for Amharic, then
-//! runs the corpus parity gate against `pg_parse::Morpher` (same oracle shape as
-//! `examples/p6_replace_prototype.rs`), broken out by infix-bearing vs non-infix-bearing words —
-//! the exact split the E2 build session's census found (43/79 infix-bearing, 36/79 non-infix, on
-//! the first 300 corpus words).
-//!
-//! Run: `cargo run --release -p pg-foma --example e2_infix_probe_amharic`
+//! E2 feasibility probe driver (`pg_foma::e2_infix_probe`, not mainline): builds the composed network `underlying-lexc(+infix-composites) .o. rules .o. boundary-cleanup` for Amharic, then runs the corpus parity gate against `pg_parse::Morpher`, split by infix-bearing vs non-infix-bearing words.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -33,12 +26,7 @@ fn sample_path(name: &str) -> PathBuf {
     manifest_dir.join("../../../samples/data").join(name)
 }
 
-/// Same pinned-outlier convention `examples/deadend_census.rs::read_pinned` uses (see the E2 build
-/// session's log for why: every time the corpus sample widened this session, a new gap class
-/// surfaced -- this grammar's known-hard cases specifically live in the tail, which is exactly what
-/// the pinned worst-words fixture exists to guarantee gets exercised regardless of where a `take`
-/// cap would otherwise cut the sample). `#`-prefixed lines are provenance comments; skipped. Absent
-/// file => empty, never an error.
+/// Same pinned-outlier convention `examples/deadend_census.rs::read_pinned` uses: guarantees known-hard tail cases are exercised regardless of where a `take` cap would otherwise cut the sample. `#`-prefixed lines are provenance comments; skipped. Absent file => empty, never an error.
 fn read_pinned(words_file: &str) -> Vec<String> {
     let base = words_file.strip_suffix("-words.txt").unwrap_or(words_file);
     let path = sample_path(&format!("{base}-worst-words.txt"));
@@ -67,8 +55,7 @@ fn main() {
     handle.join().expect("worker thread panicked");
 }
 
-// --- local Role classification (duplicated from crate::emit -- pub(crate) there, not visible from
-// an example binary; kept intentionally identical in shape to that module's `classify_affix`). ---
+// Local Role classification, duplicated from `crate::emit` since it's `pub(crate)` there and not visible from an example binary.
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Role {
@@ -194,9 +181,7 @@ fn run() {
     }
     println!("infix morphemes: {:?}", infix_morphemes);
 
-    // ---------------------------------------------------------------------------------------
     // 1. Underlying-form lexc emit (templated skeleton + infix composites).
-    // ---------------------------------------------------------------------------------------
     let t_emit = Instant::now();
     let ureport = emit_underlying_amharic_probe(&g, &alphabet);
     let emit_elapsed = t_emit.elapsed();
@@ -225,9 +210,7 @@ fn run() {
         ureport.lexc_source.len()
     );
 
-    // ---------------------------------------------------------------------------------------
-    // 2. Rule cascade compile+compose (already proven: p6_interdigitation_probe.rs, 2.14s, 82st/1.1M arcs).
-    // ---------------------------------------------------------------------------------------
+    // 2. Rule cascade compile+compose.
     let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
     for st in &g.strata {
         for &prid in &st.prules {
@@ -254,9 +237,7 @@ fn run() {
         rule_net.statecount, rule_net.arccount
     );
 
-    // ---------------------------------------------------------------------------------------
     // 3. Boundary cleanup, compose, minimize.
-    // ---------------------------------------------------------------------------------------
     let boundary_tokens: Vec<char> = table
         .iter()
         .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
@@ -282,9 +263,7 @@ fn run() {
 
     let mut handle = apply_init(&composed);
 
-    // ---------------------------------------------------------------------------------------
     // 4. Corpus parity gate, split by infix-bearing vs non-infix-bearing, vs the real engine.
-    // ---------------------------------------------------------------------------------------
     let morpher = Morpher::new(&g, usize::MAX).with_word_timeout(Some(ENGINE_TIMEOUT));
     let popts = ParseOptions::default();
     let words_text =

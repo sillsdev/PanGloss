@@ -1,18 +1,4 @@
-//! Part C (delanguaging) measurement tool, second required shape: a synthetic LARGE-CASCADE
-//! grammar (many roots x several circumfix rules, all routed through `pg_foma::emit`'s
-//! "structural composite" builder -- `build::circumfix`'s own module doc: circumfix ALWAYS routes
-//! through the full `pg_parse::Morpher`-driven composite synthesis, `O(roots x rules)` probes,
-//! never literal-lexc concatenation) -- the shape closest to the OTHER historical Aweti anchor
-//! quoted directly in `pg_foma::analyzer::FomaError::EnumerationBudgetExceeded`'s own doc: "the
-//! Aweti grammar -- 855 roots, 123 rules, 3 strata -- ... 2,833,559 fusion entries, a
-//! 691MB/9.7M-line lexc, and an ~8.8GB `apply_up` allocation that killed the process outright."
-//! That is Fix 1's OWN motivating case, and Fix 1 (the default-on `EnumerationBudget`) already
-//! guards it -- this probe measures whether a synthetic roots x rules cascade (1) stays cheap at
-//! moderate scale and (2) trips the SAME honest, typed `EnumerationBudgetExceeded` (never an OOM)
-//! once pushed past default budget, using nothing but `pg_grammar_gen::build::circumfix` at
-//! increasing `entries_per_stratum x circumfix_count`.
-//!
-//! Run with `cargo run -p pg-foma --release --example large_cascade_scale_probe`.
+//! A synthetic large-cascade grammar measuring whether it stays cheap or trips `EnumerationBudgetExceeded`.
 
 use std::time::Instant;
 
@@ -42,9 +28,7 @@ fn main() {
         "=== large_cascade_scale_probe: roots x circumfix-rules composite-cascade scale ===\n"
     );
 
-    // (entries, circumfix_count) pairs -- both axes of the "roots x rules" product Fix 1's own
-    // motivating case names. Capped at entries=24 (table_count=1 needs entries+2 <= 26 distinct
-    // ASCII letters, `build::tables`' own ceiling).
+    // (entries, circumfix_count) pairs, capped at entries=24 (table_count=1 needs entries+2 <= 26 letters).
     for &(entries, rules) in &[
         (3usize, 1usize),
         (8, 2),

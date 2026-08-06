@@ -144,8 +144,7 @@ impl SelectionOutcome {
 /// If `candidates` contains a `crate::plan::Plan` with no root set — a caller/plan-construction
 /// contract violation (`crate::enumerate::enumerate_candidates` always sets a root), not a
 /// judgment this function can make a decision about.
-#[allow(clippy::too_many_arguments)] // mirrors build_controllable's/differential_oracle's own many
-                                     // grammar-derived parameters, taken once per candidate here.
+#[allow(clippy::too_many_arguments)] // mirrors build_controllable's/differential_oracle's own many grammar-derived parameters, taken once per candidate here.
 pub fn select_plan(
     candidates: &[LoweredCandidate],
     g: &Grammar,
@@ -155,11 +154,7 @@ pub fn select_plan(
     prules_in_order: &[&PhonRuleDef],
     budget: &ComposeBudget,
 ) -> SelectionOutcome {
-    // Derived once, outside the loop.
-    // This function used to call `compose_envelope(g, ..)` per candidate, and each of those calls
-    // re-ran the whole `capability::characterize` grammar walk -- real `Simultaneous`-mode
-    // `foma::types::Fsm` construction included -- for a profile that cannot differ between
-    // candidates, because it is a function of the GRAMMAR and candidates differ only in their PLAN.
+    // Derived once, outside the loop: a per-candidate profile that cannot differ between candidates.
     let semantics = GrammarSemantics::derive(g);
     let considered: Vec<CandidateReport> = candidates
         .iter()
@@ -171,12 +166,7 @@ pub fn select_plan(
                 )
             });
 
-            // STRATEGY-AWARE (this is the point a candidate becomes selectable, and the one place
-            // that holds both the plan and the compiler that will realize it). `compose_envelope`
-            // alone checks a `ConfirmOnly` disposition against the UNION of every compiler's
-            // abilities; `LoweredCandidate::strategy` names the compiler actually in use, so the
-            // per-strategy account (`crate::strategy_coverage`) is met in here. See
-            // `compose_envelope_for_strategy`'s own doc for why this can only lower a decision.
+            // Strategy-aware: the only place holding both the plan and the compiler that will realize it.
             let decision = compose_envelope_for_strategy(
                 &semantics,
                 &candidate.plan,
@@ -184,9 +174,7 @@ pub fn select_plan(
                 registry,
             );
 
-            // D3: only an admissible (non-Refuse) candidate is even worth building/measuring --
-            // a Refused candidate is excluded from selection by construction, so spending a real
-            // foma build on it would be wasted work, never consulted by the ranking below.
+            // Only an admissible candidate is worth building; a Refused one is excluded by construction.
             let measure = if matches!(decision, CompileDecision::Refuse(_)) {
                 None
             } else {
@@ -214,16 +202,7 @@ pub fn select_plan(
     SelectionOutcome { considered, chosen }
 }
 
-/// The pure ranking core (module doc, D3's objective + tie-break), factored out of `select_plan`
-/// so it can be unit-tested directly against synthetic `CandidateReport`s without building any
-/// real `Fsm` — same discipline `crate::oracle::resolve_verdict` uses for its own pure selection
-/// core.
-///
-/// Primary rule: among admissible (`is_admissible`) candidates with a `Some` measure, pick the
-/// minimum `(objective, root)` pair -- `Ord` on that tuple IS the objective-then-content-address
-/// tie-break D3 asks for. Fallback: if NO admissible candidate measured successfully (module doc:
-/// unmeasurable is not un-admissible), pick the minimum-`NodeId` admissible candidate instead of
-/// reporting "nothing selected" when a valid, if unmeasured, choice exists.
+/// The pure ranking core, factored out of `select_plan` so it can be unit-tested without building a real `Fsm`.
 fn choose(considered: &[CandidateReport]) -> Option<usize> {
     let measured = considered
         .iter()
@@ -277,11 +256,7 @@ mod tests {
             .collect()
     }
 
-    /// One MPR-gated subrule and two entries realizing both truth values of that gate key --
-    /// the same synthetic shape `enumerate.rs`/`build.rs`/`oracle.rs` each duplicate for their own
-    /// test modules (see any of those for the same fixture-sharing rationale). Two real gate groups
-    /// means `enumerate_candidates` yields both `"default"` and `"gate-group-permuted"`, exactly
-    /// what a selection test over ≥2 candidates needs.
+    /// One MPR-gated subrule and two entries realizing both truth values of that gate key, yielding two candidates.
     fn gated_two_group_fixture_xml() -> &'static str {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -331,10 +306,7 @@ mod tests {
 "#
     }
 
-    /// An ordinary, ungated affix+rewrite grammar (`capability_entry.rs`'s own `Admit` fixture,
-    /// reused verbatim) -- `enumerate_candidates` yields exactly 1 candidate for it
-    /// (`enumerate.rs`'s own test proves the single-group collapse), and `compose_envelope` must
-    /// `Admit` it (no Compounding/Unordered/MPR-group/Simultaneous/etc. construct declared).
+    /// An ordinary, ungated affix+rewrite grammar that yields exactly one candidate and must `Admit`.
     fn ordinary_admit_fixture_xml() -> &'static str {
         r#"<HermitCrabInput><Language><Name>Ordinary</Name>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
@@ -384,10 +356,7 @@ mod tests {
         </Language></HermitCrabInput>"#
     }
 
-    /// A single, non-recursive `Compounding` rule (`capability_entry.rs`'s own `ConfirmOnly`
-    /// fixture, reused verbatim) -- `compose_envelope` must reach `ConfirmOnly`, not `Refuse`, so a
-    /// grammar exercising this construct is still fully selectable (D3: `ConfirmOnly` is first-class
-    /// admissible, not a failure).
+    /// A single, non-recursive `Compounding` rule; `compose_envelope` must reach `ConfirmOnly`, not `Refuse`.
     fn confirm_only_compounding_fixture_xml() -> &'static str {
         r#"<HermitCrabInput><Language><Name>X</Name>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
@@ -421,11 +390,7 @@ mod tests {
         </Language></HermitCrabInput>"#
     }
 
-    /// A grammar with a permanent `compose_envelope` refusal, so a selector run over its
-    /// candidates must find NONE admissible. Genuinely-overlapping simultaneous subrules are the
-    /// construct, pinned by `fixture_grammar_subrules_genuinely_overlap_and_are_refused`: unlike a
-    /// construct refused only pending a proof (`compounding.recursive`), this one cannot be
-    /// reclassified later.
+    /// A grammar with a permanent `compose_envelope` refusal (pinned by `fixture_grammar_subrules_genuinely_overlap_and_are_refused`), so a selector run finds none admissible.
     fn refuse_overwrite_mpr_group_fixture_xml() -> &'static str {
         include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml")
     }
@@ -444,11 +409,7 @@ mod tests {
         }
     }
 
-    /// `NodeId` has no public constructor (by design -- D1: identity is always content-derived), so
-    /// synthetic `choose`-only tests recover a real one the only sanctioned way: interning a `Leaf`
-    /// whose `FragmentSpec::RewriteRule { rule }` carries a caller-chosen `PRuleId`, which is exactly
-    /// as good a stand-in "distinct, ordered identity" as any other content for these tests' purposes
-    /// (they only need several MUTUALLY DISTINCT, orderable `NodeId`s, never a specific hash value).
+    /// `NodeId` has no public constructor, so tests recover one by interning a `Leaf` with a caller-chosen `PRuleId`.
     fn node_id_from_raw(distinguishing_rule: u64) -> NodeId {
         use crate::plan::{FragmentSpec, Plan, PlanNodeKind, Provenance};
         use pg_grammar::model::PRuleId;
@@ -462,9 +423,7 @@ mod tests {
         })
     }
 
-    // -----------------------------------------------------------------------------------------
     // `choose` (pure ranking core): synthetic-report tests.
-    // -----------------------------------------------------------------------------------------
 
     #[test]
     fn choose_excludes_a_refused_candidate() {
@@ -503,11 +462,7 @@ mod tests {
         );
     }
 
-    /// `NodeId` is a content HASH (D1) -- unrelated monotonically to whatever raw seed
-    /// `node_id_from_raw` was given -- so this test cannot simply declare "the candidate built
-    /// from the smaller seed wins"; it must compute the two real `NodeId`s first, determine which
-    /// one is actually smaller, and assert THAT candidate wins. What is being pinned is the
-    /// tie-break's determinism/correctness (min-by-root), never a specific hash value.
+    /// `NodeId` is a content hash, unrelated monotonically to the raw seed, so the winner is computed, not assumed.
     #[test]
     fn choose_breaks_equal_objective_ties_by_smallest_root_node_id() {
         let root_a = node_id_from_raw(5);
@@ -588,13 +543,9 @@ mod tests {
         assert_eq!(choose(&considered), None);
     }
 
-    // -----------------------------------------------------------------------------------------
-    // `select_plan` end-to-end: real synthetic grammars through enumerate_candidates.
-    // -----------------------------------------------------------------------------------------
+    // `select_plan` end-to-end: real synthetic grammars through `enumerate_candidates`.
 
-    /// Determinism (deliverable 3, bullet 1): running `select_plan` twice over two INDEPENDENTLY
-    /// built candidate lists (two separate `enumerate_candidates` calls, not the same `Vec` reused)
-    /// must choose the same candidate label and root NodeId both times.
+    /// Determinism: running `select_plan` twice over independently built candidate lists must choose the same candidate.
     #[test]
     fn select_plan_is_deterministic_across_independently_built_candidate_lists() {
         let g = load(gated_two_group_fixture_xml());
@@ -622,8 +573,7 @@ mod tests {
         assert_eq!(chosen_1.root, chosen_2.root);
     }
 
-    /// Deliverable 3, bullet 2: a grammar whose `compose_envelope` verdict is `Refuse` (recursive
-    /// Compounding) must select NOTHING -- every candidate excluded.
+    /// A grammar whose `compose_envelope` verdict is `Refuse` must select nothing.
     #[test]
     fn select_plan_excludes_a_refusing_grammars_only_candidate() {
         let g = load(refuse_overwrite_mpr_group_fixture_xml());
@@ -656,13 +606,7 @@ mod tests {
         }
     }
 
-    /// Deliverable 3, bullet 3: with ≥2 admissible candidates (the gated-two-group fixture, whose
-    /// grammar has no Refuse-triggering construct so BOTH `"default"` and `"gate-group-permuted"`
-    /// are admissible), the minimum-`states+arcs` one is chosen; ties break by content-address --
-    /// exercised here by the concrete fact that gate-group order cannot change compiled size at all
-    /// (union is commutative, `crate::oracle`'s own module doc), so this fixture's two candidates
-    /// are a genuine, real-world equal-objective tie, and the tie-break must be exactly the smaller
-    /// root `NodeId`.
+    /// With >=2 admissible candidates, the minimum-`states+arcs` one is chosen; ties break by content-address.
     #[test]
     fn select_plan_chooses_minimum_objective_tie_broken_by_content_address() {
         let g = load(gated_two_group_fixture_xml());
@@ -689,9 +633,7 @@ mod tests {
             outcome.considered
         );
 
-        // Reordering gate groups cannot change compiled size (union commutative + final minimize,
-        // crate::oracle's own module doc) -- so this is a REAL equal-objective tie, not a contrived
-        // one, and the winner must be exactly the smaller root NodeId.
+        // Reordering gate groups cannot change compiled size, so this is a real, not contrived, tie.
         let objectives: Vec<i64> = outcome
             .considered
             .iter()
@@ -714,13 +656,7 @@ mod tests {
         );
     }
 
-    /// The load-bearing invariant: EVERY capability-passing plan is recall-preserving, so all
-    /// produce the identical confirmed set. For every grammar this module's own fixtures exercise,
-    /// every pair of ADMISSIBLE candidates
-    /// `select_plan` considered must AGREE under `differential_oracle` -- proving selection
-    /// among them can only ever trade cost, never correctness. Run over the two grammars whose
-    /// candidate sets actually contain ≥2 admissible plans (the ordinary-Admit fixture collapses to
-    /// 1 candidate, so it is included too as a trivial/vacuous check of the same property).
+    /// The load-bearing invariant: every pair of admissible candidates must agree under `differential_oracle`.
     #[test]
     fn every_admissible_candidate_pair_agrees_under_the_differential_oracle() {
         let opts = FomaOptions::default();

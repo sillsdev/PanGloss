@@ -705,12 +705,7 @@ impl TraceSink for TreeTraceSink {
         output: &Word,
         unapplied: bool,
     ) -> TraceHandle {
-        // P12 chunk 5 correction: `TraceManager.cs:61-66` sets `Output = unapplied ? output : null`
-        // and touches NO `FailureReason` field at all -- chunk 0's original body fabricated a
-        // `FailureReason::PartialParse` here that C# never records (that reason is real only for
-        // `NonFinalTemplateAppliedLast`/`ApplicableTemplatesNotApplied`, a DIFFERENT pair of call
-        // sites entirely -- see those methods' docs). Fixed here, at this method's first real call
-        // site, before any caller could come to depend on the fabricated reason.
+        // `TraceManager.cs:61-66` sets `Output = unapplied ? output : null`, touching no `FailureReason` field.
         let mut n = TraceNode::new(
             TraceType::TemplateAnalysisOutput,
             TraceSource::Template(template),
@@ -740,8 +735,7 @@ impl TraceSink for TreeTraceSink {
         output: &Word,
         applied: bool,
     ) -> TraceHandle {
-        // P12 chunk 5 correction: same fix as `end_unapply_template` above -- `TraceManager.cs:
-        // 211-216` sets `Output = applied ? output : null`, no `FailureReason` touched.
+        // Same fix as `end_unapply_template` above -- `TraceManager.cs:211-216`.
         let mut n = TraceNode::new(
             TraceType::TemplateSynthesisOutput,
             TraceSource::Template(template),
@@ -991,10 +985,7 @@ mod tests {
         assert!(sink.is_tracing());
     }
 
-    /// The first cursor subtlety (§1.2): applying a rule reassigns the cursor so a LATER event nests
-    /// UNDER the rule's own node, rather than as a sibling of it. The call site is responsible for
-    /// passing the handle returned by the previous call as the next call's `parent` — this test
-    /// exercises exactly that discipline and asserts the resulting tree shape.
+    /// Applying a rule reassigns the cursor so a later event nests under the rule's own node.
     #[test]
     fn rule_applied_return_nests_next_event_under_it() {
         let sink = TreeTraceSink::new();
@@ -1014,11 +1005,7 @@ mod tests {
         );
     }
 
-    /// The second, trickier cursor subtlety (§1.2): `SynthesizeWord` reaches TWO levels deep --
-    /// `parent`'s LAST child's children -- because by the time it fires the cursor logically needs
-    /// to descend into the just-appended `LexicalLookup` node's children, even though `LexicalLookup`
-    /// itself never reassigned the cursor (the call site still passes the unchanged `root` as
-    /// `parent`).
+    /// `SynthesizeWord` reaches two levels deep, descending into the just-appended `LexicalLookup` node's children.
     #[test]
     fn synthesize_word_nests_two_levels_deep_under_lexical_lookup() {
         let sink = TreeTraceSink::new();

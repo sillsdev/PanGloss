@@ -93,9 +93,7 @@ impl OccurrenceIdentities {
     /// Applies NO policy: a guessed or supplied-root analysis projects normally here and is merely
     /// annotated. See this module's doc for why evidence and policy are separated.
     pub fn project(analyses: &[WordAnalysis], grammar: &Grammar) -> Result<Self, IdentityError> {
-        // Keyed by the identity value itself rather than by a digest of it: the value IS the key
-        // here (`AnalysisIdentity` derives a total `Ord` over every field it carries), so there is
-        // no hash to collide and no second canonicalization to keep in step with the first.
+        // Keyed by the identity value itself, not a digest: `AnalysisIdentity` derives a total `Ord`, so there is no hash to collide.
         let mut by_identity: BTreeMap<AnalysisIdentity, IdentityEvidence> = BTreeMap::new();
         for analysis in analyses {
             let identity = AnalysisIdentity::project(analysis, grammar)?;
@@ -104,8 +102,7 @@ impl OccurrenceIdentities {
             match by_identity.get_mut(&identity) {
                 Some(existing) => {
                     existing.duplicate_paths = existing.duplicate_paths.saturating_add(1);
-                    // Keep the fact that SOME path carried the annotation rather than letting
-                    // whichever copy arrived last decide.
+                    // Keep the fact that SOME path carried the annotation, not whichever copy arrived last.
                     existing.guessed |= guessed;
                     existing.supplied_root |= supplied_root;
                 }
@@ -461,8 +458,7 @@ pub fn certified_occurrence(
 ) -> Result<OccurrenceIdentities, ParityFault> {
     let identities = OccurrenceIdentities::project(analyses, grammar)
         .map_err(|error| ParityFault::IdentityProjection { side, error })?;
-    // Supplied roots first: a supplied root is the more specific and more actionable diagnosis, and
-    // an analysis that is both is refused either way.
+    // Supplied roots first: it is the more specific, actionable diagnosis, and an analysis that is both is refused either way.
     if identities.any_supplied_root() {
         return Err(ParityFault::SuppliedRoot { side });
     }
@@ -534,9 +530,7 @@ mod tests {
 
     #[test]
     fn an_admission_key_standing_for_two_identities_is_counted_not_ignored() {
-        // Two identities with the SAME ordered morphemes and the SAME root position, differing only
-        // in `category`. This is the shape that makes admission-key containment coarser than
-        // identity containment, so it must be COUNTED rather than silently collapsed.
+        // Two identities differing only in `category` -- the shape that makes admission-key containment coarser than identity containment, so it must be COUNTED, not collapsed.
         let shared = vec![Some("m0".to_string())];
         let one = AnalysisIdentity {
             morphemes: shared.clone(),
@@ -549,9 +543,7 @@ mod tests {
             category: Some("posB".into()),
         };
         let mut set = OccurrenceIdentities::default();
-        // Built directly rather than projected: the projector needs a grammar carrying two
-        // categories for one morpheme sequence, and the property under test is a property of the
-        // SET, not of projection.
+        // Built directly, not projected: the property under test is a property of the SET, not of projection.
         set.entries = vec![
             IdentityEvidence {
                 identity: one,
@@ -584,8 +576,7 @@ mod tests {
         assert_eq!(divergence.occurrences_compared, 1);
         assert_eq!(divergence.oracle_identities, 2);
         assert_eq!(divergence.candidate_identities, 2);
-        // `analysis(0)` is oracle-only (a recall failure); `analysis(2)` is candidate-only (the
-        // soundness hazard). The two must never be summed into one "they differ" number.
+        // `analysis(0)` is oracle-only (recall failure); `analysis(2)` is candidate-only (soundness hazard) -- never summed into one "they differ" number.
         assert_eq!(divergence.oracle_only_identities, 1);
         assert_eq!(divergence.candidate_only_identities, 1);
         assert_eq!(divergence.occurrences_with_candidate_only, 1);
@@ -599,8 +590,7 @@ mod tests {
         assert_eq!(agreeing.oracle_only_identities, 0);
         assert!(agreeing.supports_free_containment());
 
-        // "I could not look" is not "everything is fine": zero candidate-only identities over zero
-        // compared occurrences supports nothing.
+        // "I could not look" is not "everything is fine": zero candidate-only identities over zero compared occurrences supports nothing.
         let blind = IdentityDivergence::not_compared(7);
         assert_eq!(blind.candidate_only_identities, 0);
         assert_eq!(blind.occurrences_not_compared, 7);
@@ -617,9 +607,7 @@ mod tests {
 
     #[test]
     fn the_admission_key_is_the_key_confirm_routes_on() {
-        // Pins the correspondence this whole mechanism rests on: `confirm_batch` keys its routing
-        // map on `(wa.morpheme_ids.clone(), wa.root_morpheme_index)`. If `admission_key` ever stops
-        // being that exact pair, key containment stops implying admissibility.
+        // `admission_key` must equal `(morpheme_ids, root_morpheme_index)`, the pair `confirm_batch` routes on, pinned by `the_admission_key_is_the_key_confirm_routes_on`.
         let a = analysis(1);
         assert_eq!(
             admission_key(&a),
@@ -653,9 +641,7 @@ mod tests {
 
     #[test]
     fn projection_records_annotations_while_certification_refuses_them() {
-        // The layering this module's doc describes: `project` annotates, `certified_occurrence`
-        // applies policy. A test that only exercised the policy could not tell the difference
-        // between "annotated then refused" and "never recorded".
+        // Layering: `project` annotates, `certified_occurrence` applies policy -- a policy-only test couldn't distinguish "annotated then refused" from "never recorded".
         let g = test_grammar();
         let mut guessed = analysis(0);
         guessed.guessed = true;

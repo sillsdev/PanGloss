@@ -27,3 +27,36 @@ ordinary surface text is a materially different case, and escaping does not fix 
 
 `flag_id` therefore avoids the digit `0` altogether (`Z` substitutes for it, and is never itself
 produced by `u32::to_string`, so the substitution is injective) rather than escaping it.
+
+## `tests/pk1_precision_recall_invariance.rs`: the recall-invariance harness
+
+The knob is performance-only, so the composite propose→confirm path must reach IDENTICAL confirmed
+analyses at `PrecisionConfig::Strip` (default) and `PrecisionConfig::AllFlags`, and the raw
+candidate set must only ever SHRINK (never gain a candidate) between them.
+
+**Why this file drives `apply_up`/peel/confirm directly instead of `FomaAnalyzer`.**
+`FomaAnalyzer::new`/`FomaProposer::new` both hardcode `emit::emit(g)` (`PrecisionConfig::Strip`)
+internally, and this file's ownership is scoped to `emit.rs`/`precision.rs`/`lib.rs`/its own tests
+only — `analyzer.rs`/`composite.rs` are left untouched. So it reimplements the same
+propose→confirm composite (`propose(word)` UNION `peel_candidates(word, propose)`, deduped by
+`(morphemes, root_index)`, then `confirm_batch`) using only PUBLIC building blocks:
+`emit::emit_with_precision` for a lexc source under either preset, the `foma` crate directly to
+compile+`apply_up` it, and `pg_foma::peel`/`pg_foma::confirm`'s already-`pub` pieces verbatim — the
+same peel/confirm machinery every other gate in this crate exercises, just re-plumbed to accept
+either compiled network.
+
+**Non-vacuity, against a knob that "passes" by doing nothing.** Indonesian declares zero
+environment constraints at all, so `AllFlags` there is CORRECTLY byte-identical to `Strip` — proves
+nothing about the mechanism biting. Sena DOES have real coverable instances
+(`precision::tests::sena_catalog_finds_the_expected_left_literal_instances`), so this file asserts
+for Sena specifically: the `AllFlags` lexc source actually contains flag-diacritic symbols, and at
+least one Sena corpus word's raw candidate set is a STRICT subset under `AllFlags` (fewer
+candidates than `Strip`, not just an equal-size coincidence) — i.e. the flags visibly prune
+something, not merely compile to a no-op.
+
+**Test-timing policy.** The default local test run must stay under ~60s and must not depend on the
+gitignored real-language corpus fixtures at all — every test in this file loads one, so all four
+are unconditionally `#[ignore]`d. `load_grammar`'s `Option`-returning self-skip keeps
+`--include-ignored` runs green where the fixture is absent (CI); the `#[ignore]` is what keeps
+them out of the default run at all, run speed aside. Run the full set locally with
+`cargo test -p pg-foma --release --test pk1_precision_recall_invariance -- --include-ignored`.

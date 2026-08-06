@@ -1,25 +1,5 @@
-//! **The fast accuracy path, gated against the slow one.**
-//!
-//! `pg_foma::recipe_runtime::assess_accuracy_with_cache` answers "did we undergenerate?" by
-//! admission-key set containment against the run's already-shared oracle result, performing NO
-//! full-HC confirmation per candidate. This file pins the three claims that make it worth having,
-//! and the one it must never make.
-//!
-//! 1. **It agrees with certification about accuracy.** On a fixture whose candidates certify, the
-//!    accuracy verdict is `NoLoss`; the two mechanisms answer the same accuracy question.
-//! 2. **It really is confirmation-free.** The same fixture's certification path does non-zero
-//!    full-HC work (`Score::confirmation`, `Score::confirmation_steps`), and the accuracy path's
-//!    counters for those SAME quantities are zero — a comparison, not an assertion about a field
-//!    nobody feeds.
-//! 3. **The check executes.** `AccuracyCounters::membership_tests` is non-zero on a real fixture and
-//!    zero on a path where the check could not run. A mechanism that is merged but never fires is
-//!    the exact failure a reverted per-candidate proposal budget already produced once.
-//! 4. **It never reports a pass it did not earn.** A refused corpus is `NotDetermined`, not
-//!    `NoLoss`; and a real recall failure is detected and named.
-//!
-//! What it deliberately does NOT claim: that the accuracy verdict may select a candidate. Selection
-//! still requires full-HC confirmation, and `Score` is untouched — pinned here too, because a change
-//! that moved a winner would be a defect in the change rather than a finding about the grammar.
+//! The fast accuracy path, gated against the slow one: pins that it agrees with certification, is really confirmation-free, actually executes, and never reports a pass it did not earn -- but never that its verdict may select a candidate.
+//! See `docs/research/pg-foma-recipe-accuracy-gate-notes.md` for the four claims in full and why each matters.
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
@@ -79,9 +59,7 @@ fn registry_plans(grammar: &Grammar) -> Vec<LoweredCandidate> {
         .collect()
 }
 
-/// Claims 1, 2 and 3 together, on one fixture, because they are only meaningful side by side: "zero
-/// confirmation calls" means nothing without a run that shows what non-zero looks like on the same
-/// input.
+/// Claims 1, 2 and 3 together, on one fixture: "zero confirmation calls" means nothing without a run that shows what non-zero looks like on the same input.
 #[test]
 fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work() {
     let (grammar, words) = fixture(FIXTURE);
@@ -112,10 +90,7 @@ fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work(
     );
     assert_eq!(assessed.len(), plans.len());
 
-    // The hazard the whole containment argument rests on, measured on THIS run rather than assumed
-    // from the census. `parity_divergence_census.rs` carries the corpus-wide measurement and the
-    // reasoning; this is the local guard, so a regression here cannot be missed by reading only the
-    // verdict.
+    // The hazard the whole containment argument rests on, measured on THIS run rather than assumed from the census (`parity_divergence_census.rs` carries the corpus-wide version).
     let divergence = certify_cache.identity_divergence();
     assert_eq!(
         divergence.candidate_only_identities, 0,
@@ -138,9 +113,7 @@ fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work(
         );
         total_membership_tests += accuracy.counters.membership_tests;
 
-        // Claim 2: the accuracy path reports zero for the SAME quantities the certification path
-        // reports non-zero for. Not a field nobody feeds -- the certification side proves the field
-        // moves.
+        // Claim 2: the accuracy path reports zero for the SAME quantities certification reports non-zero for -- not a field nobody feeds.
         assert_eq!(
             (
                 accuracy.counters.confirmation_calls,
@@ -162,9 +135,7 @@ fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work(
              compares against nothing: {:?}",
             certification.score
         );
-        // Claim 1: where certification says the identity sets are equal, containment says nothing
-        // was lost. (The converse is not claimed -- containment is blind to over-generation, which
-        // is by design, since the FST proposes and HC prunes.)
+        // Claim 1: where certification says the identity sets are equal, containment says nothing was lost (the converse is not claimed -- containment is blind to over-generation by design).
         assert_eq!(
             accuracy.verdict,
             AccuracyVerdict::NoLoss,
@@ -204,12 +175,7 @@ fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work(
     );
 }
 
-/// Claim 4a: a refused corpus is `NotDetermined`, never `NoLoss`.
-///
-/// Uses the same `oracle_step_cap: Some(0)` lever `cross_compiler_equivalence_gate.rs` uses to force
-/// an eligibility exclusion. This is also the fire-counter's zero reading: `membership_tests` is 0
-/// here and non-zero in the test above, on the same fixture, so the counter tracks execution rather
-/// than being a constant.
+/// Claim 4a: a refused corpus is `NotDetermined`, never `NoLoss`. Also the fire-counter's zero reading: `membership_tests` is 0 here and non-zero in the test above, on the same fixture, so the counter tracks execution rather than being a constant.
 #[test]
 fn a_refused_corpus_is_undetermined_and_the_check_provably_does_not_run() {
     let (grammar, words) = fixture(FIXTURE);
@@ -242,26 +208,13 @@ fn a_refused_corpus_is_undetermined_and_the_check_provably_does_not_run() {
     }
 }
 
-/// Claim 4b: a real recall failure is detected and named.
-///
-/// Uses the `compounding-non-recursive` fixture RED-1 already pins as a genuine
-/// `EmissionStrategy::PlanComposed` recall case history: the two-stem compound `fasubel` exercises
-/// the compound-proposal path that `uflexc`'s bounded compound loop closed. Rather than depend on
-/// that gap still existing (it is fixed, and this test must not silently invert when it is fixed
-/// again), the negative is constructed the only way that cannot rot: the containment check is run
-/// against a proposal set with a required key REMOVED, and must report exactly that key.
-///
-/// This is the "does it genuinely fail with the mechanism reverted" check in positive form — the
-/// verdict is derived from the same `check_occurrence` production uses, on real oracle analyses from
-/// a real grammar.
+/// Claim 4b: a real recall failure is detected and named. Rather than depend on a fixed gap still existing, the negative is constructed the only way that cannot rot: the containment check runs against a proposal set with a required key REMOVED, and must report exactly that key.
 #[test]
 fn a_removed_proposal_is_reported_as_the_exact_lost_analysis() {
     let (grammar, words) = fixture(FIXTURE);
     let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
         .expect("oracle preparation must succeed for this fixture");
-    // The word the control uses has to be one the oracle actually analyses -- a word with no
-    // analyses would make "every required key is missing" trivially true over an empty set, which is
-    // the vacuous pass this whole design refuses elsewhere.
+    // The word the control uses has to be one the oracle actually analyses, or "every required key is missing" would be trivially true over an empty set.
     let word = words
         .iter()
         .find(|word| {
@@ -300,8 +253,7 @@ fn a_removed_proposal_is_reported_as_the_exact_lost_analysis() {
     assert!(baseline.counters.oracle_keys_required > 0);
     assert!(baseline.counters.membership_tests > 0);
 
-    // Now the control: the same containment check, over the same oracle analyses, with every
-    // proposal withheld. It must find every required key missing and name each one.
+    // Now the control: the same containment check, over the same oracle analyses, with every proposal withheld -- must find every required key missing and name each one.
     let mut misses = Vec::new();
     let counters = pg_foma::recipe_accuracy::check_occurrence(&word, 0, &oracle, &[], &mut misses);
     assert_eq!(
@@ -324,9 +276,7 @@ fn a_removed_proposal_is_reported_as_the_exact_lost_analysis() {
     assert!(matches!(verdict, AccuracyVerdict::Undergenerated { .. }));
 }
 
-/// The admission key IS the routing key, checked on real proposals from a real compiled network
-/// rather than on hand-built values. If these two ever disagree, containment stops implying
-/// admissibility and every verdict above becomes meaningless.
+/// The admission key IS the routing key, checked on real proposals from a real compiled network rather than hand-built values -- if these two ever disagree, containment stops implying admissibility.
 #[test]
 fn proposal_and_analysis_admission_keys_are_the_same_notion() {
     let candidate = pg_foma::tags::Candidate {

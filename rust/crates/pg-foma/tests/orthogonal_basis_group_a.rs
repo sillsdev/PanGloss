@@ -12,13 +12,9 @@ use pg_grammar::model::{
 use pg_parse::identity::MorphemeKey;
 use pg_parse::Morpher;
 
-// ------------------------------------------------------------------------------------------------
-// The exercise inventory. One table, so the shape guard at the bottom can check the whole basis
-// rather than trusting that eleven separate `#[test]` functions still cover what they claim.
-// ------------------------------------------------------------------------------------------------
+// The exercise inventory: one table, so the shape guard below checks the whole basis.
 
-/// Group A's five mechanisms, verbatim from 7.8's list (its slash-separated names kept as one
-/// mechanism each, which is how 7.8 writes them).
+/// Group A's five mechanisms; each slash-separated source name counts as one mechanism.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Mechanism {
     TemplateOrderCoOccurrence,
@@ -28,16 +24,13 @@ enum Mechanism {
     ZeroMorphology,
 }
 
-/// One exercise: a mechanism, the committed fixture that exercises it, and — the part that makes
-/// "at least twice" mean something — the falsifier NO OTHER exercise of the same mechanism can
-/// detect.
+/// One exercise: a mechanism, its committed fixture, and the falsifier no sibling exercise can detect.
 struct Exercise {
     mechanism: Mechanism,
     root: Root,
     category: &'static str,
     name: &'static str,
-    /// Prose, checked by a human, not by the compiler. Recorded here so a future edit that points
-    /// two exercises at one falsifier is visible in one place.
+    /// Human-checked prose, so a future edit that points two exercises at one falsifier is visible.
     independent_falsifier: &'static str,
 }
 
@@ -165,12 +158,7 @@ const EX_ALLOMORPH_PRIORITY_EARLIER_BLOCKS: &Exercise = &Exercise {
 
 const EX_ALLOMORPH_PRIORITY_LATER_REACHABLE: &Exercise = &Exercise {
     mechanism: Mechanism::AllomorphPriority,
-    // `Root::Staging`, not `Machine`: this fixture lives at
-    // `conformance-staging/edge-cases/circumfix-non-first-allomorph-selection`. The module doc above
-    // said `staging:` all along and only this constant disagreed, which is what a never-executed test
-    // file buys you. Caught by the deliberate panic-rather-than-skip on a missing fixture -- "a
-    // fixture this file could not LOOK at must never read as a fixture that passed" earned its keep
-    // on its first run.
+    // `Root::Staging`, not `Machine`: fixture lives under `conformance-staging/edge-cases/circumfix-non-first-allomorph-selection`.
     root: Root::Staging,
     category: "edge-cases",
     name: "circumfix-non-first-allomorph-selection",
@@ -224,9 +212,7 @@ const EXERCISES: &[&Exercise] = &[
     EX_ZERO_MORPH_ZERO_DERIVATION,
 ];
 
-// ------------------------------------------------------------------------------------------------
 // Fixture plumbing.
-// ------------------------------------------------------------------------------------------------
 
 fn fixture_of(exercise: &Exercise) -> FixtureRef {
     discover()
@@ -254,27 +240,20 @@ fn load(xml: &str, label: &str) -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("{label}: fixture failed to load: {e}"))
 }
 
-// ------------------------------------------------------------------------------------------------
-// The committed expectation record. Read out of `words.yaml`; never computed from the engine.
-// ------------------------------------------------------------------------------------------------
+// The committed expectation record: read out of `words.yaml`, never computed from the engine.
 
-/// One word's committed expectation. Both counts come out of the fixture's own `parses:` list, so
-/// this struct cannot express a number its fixture did not already record.
+/// One word's committed expectation, read from the fixture's own `parses:` list.
 #[derive(Debug)]
 struct CommittedWord {
     word: String,
     /// Total `parses:` rows -- the MULTISET cardinality.
     raw_parses: usize,
-    /// Distinct MORPHEME-JOIN parts (the text before `|`) among those rows: a sound LOWER bound on
-    /// the number of distinct identities. The morpheme half is used rather than the whole signature
-    /// because two rows CAN differ only in their rendered surface, which would make a
-    /// whole-signature count an unsound lower bound.
+    /// Distinct morpheme-join parts (text before `|`) among those rows: a sound lower bound on distinct identities.
     distinct_morph_joins: usize,
 }
 
 impl CommittedWord {
-    /// True when the committed record pins the distinct-identity count EXACTLY -- lower and upper
-    /// bounds coincide, so every row is a distinct identity of multiplicity one.
+    /// True when the committed record pins the distinct-identity count exactly (lower and upper bounds coincide).
     fn pins_exact_identity_count(&self) -> bool {
         self.distinct_morph_joins == self.raw_parses
     }
@@ -284,11 +263,7 @@ fn committed_words(words: &WordsYaml) -> Vec<CommittedWord> {
     words
         .words
         .iter()
-        // `adapter_visible()` is PROTOCOL.md section 3's rule: a word carrying any `guess: true`
-        // parse is invisible to the adapter contract `Morpher::parse_word` implements, so asserting
-        // on it would compare against a record the engine was never asked to produce. `expect_skip`
-        // words raise `InvalidShapeException` and have no analysis set at all -- the two fixtures
-        // here that carry such words assert them SEPARATELY and explicitly.
+        // `adapter_visible()` implements PROTOCOL.md's guess-word rule; `expect_skip` words are asserted separately.
         .filter(|word| word.adapter_visible() && !word.expect_skip)
         .map(|word| {
             let joins: BTreeSet<&str> = word
@@ -305,9 +280,7 @@ fn committed_words(words: &WordsYaml) -> Vec<CommittedWord> {
         .collect()
 }
 
-// ------------------------------------------------------------------------------------------------
-// The parity core: identity, root, multiplicity. Mirrors 7.7's, relation names included.
-// ------------------------------------------------------------------------------------------------
+// The parity core: identity, root, and multiplicity, each relation named at its assertion site.
 
 fn assert_word_parity(
     label: &str,
@@ -323,9 +296,7 @@ fn assert_word_parity(
         expect.word
     );
 
-    // A projection FAULT is an internal inconsistency, never a parity miss (`pg_foma::parity`'s
-    // "Faults are not misses"). Panicking names it as such instead of letting it read as
-    // disagreement.
+    // A projection FAULT is an internal inconsistency, never a parity miss; panicking names it as such.
     let occurrence =
         OccurrenceIdentities::project(&outcome.structured, grammar).unwrap_or_else(|e| {
             panic!(
@@ -335,8 +306,7 @@ fn assert_word_parity(
             )
         });
 
-    // -- MULTIPLICITY (the multiset relation, strictly stronger than the program's set-equality
-    //    parity relation).
+    // -- MULTIPLICITY: the multiset relation, strictly stronger than the set-equality parity relation.
     assert_eq!(
         occurrence.raw_analyses() as usize,
         expect.raw_parses,
@@ -374,10 +344,7 @@ fn assert_word_parity(
         );
     }
 
-    // -- ROOT: a well-formedness floor (a root position must index its own morpheme sequence), not
-    //    a discrimination claim. 7.7's `root_index_discriminates_two_readings_of_one_surface`
-    //    carries the discrimination claim; this file's own root claim is the ordered-sequence /
-    //    root-position pair in the non-first-allomorph exercise.
+    // -- ROOT: a well-formedness floor only (a root position must index its own morpheme sequence).
     for entry in occurrence.entries() {
         let len = entry.identity.morphemes.len() as i32;
         assert!(
@@ -389,10 +356,7 @@ fn assert_word_parity(
         );
     }
 
-    // -- v1 certification scope: a guessed or supplied-root analysis is not evidence about the
-    //    compiled grammar, so it must not reach a parity claim. These fixtures are replayed through
-    //    the plain adapter contract, so both must be absent; asserting it keeps a future
-    //    `guess:`-carrying row from silently widening the scope.
+    // -- v1 scope: a guessed or supplied-root analysis is not evidence about the compiled grammar.
     assert!(
         !occurrence.any_guessed(),
         "{label}: word {:?} -- a guessed analysis reached a parity claim",
@@ -407,8 +371,7 @@ fn assert_word_parity(
     occurrence
 }
 
-/// One exercise, run: the fixture anchored against its committed signature record, then every
-/// committed word's identity set.
+/// One exercise, run: the fixture anchored against its signatures, then every word's identity set.
 struct ExerciseRun {
     label: String,
     grammar: Grammar,
@@ -417,8 +380,7 @@ struct ExerciseRun {
 }
 
 impl ExerciseRun {
-    /// The identity set for one pinned word. Panics if the word is not pinned, so a fixture that
-    /// dropped a row breaks loudly instead of silently testing less.
+    /// The identity set for one pinned word; panics if the word is not pinned, so a dropped row breaks loudly.
     fn at(&self, word: &str) -> &OccurrenceIdentities {
         self.occurrences.get(word).unwrap_or_else(|| {
             panic!(
@@ -466,11 +428,7 @@ impl ExerciseRun {
     }
 }
 
-/// Anchor a whole fixture against its committed signature record, through the shared oracle replay
-/// every conformance fixture already goes through.
-///
-/// Called first in every exercise: it is what makes the per-word identity work a REFINEMENT of the
-/// existing ground truth rather than a second, independently-drifting one.
+/// Anchors the fixture against its committed signatures, so per-word work below refines existing ground truth rather than drifting independently.
 fn anchor_against_committed_signatures(label: &str, grammar: &Grammar, words: &WordsYaml) {
     let morpher = Morpher::new(grammar, usize::MAX).with_memo(true);
     let checked = assert_matches_oracle(label, words, &morpher);
@@ -480,10 +438,7 @@ fn anchor_against_committed_signatures(label: &str, grammar: &Grammar, words: &W
     );
 }
 
-/// Every committed word's identity set for one fixture, keyed by word.
-///
-/// A separate function rather than an inline block so the `Morpher`'s borrow of `grammar` ends here,
-/// leaving the caller free to move the grammar into `ExerciseRun`.
+/// Every committed word's identity set for one fixture, keyed by word; kept separate so `Morpher`'s borrow of `grammar` ends here.
 fn occurrences_for(
     label: &str,
     grammar: &Grammar,
@@ -531,11 +486,7 @@ fn run_exercise(exercise: &Exercise) -> ExerciseRun {
     }
 }
 
-// ------------------------------------------------------------------------------------------------
-// Grammar-side (TOP end) predicates. Each is computed here from `pg_grammar::model` rather than
-// restated from a fixture comment, so a grammar edit that removed the mechanism fails the exercise
-// that claims to test it.
-// ------------------------------------------------------------------------------------------------
+// Grammar-side (TOP end) predicates, computed from `pg_grammar::model` rather than restated from a fixture comment.
 
 fn prule_xml_id(def: &PhonRuleDef) -> &str {
     match def {
@@ -544,12 +495,7 @@ fn prule_xml_id(def: &PhonRuleDef) -> &str {
     }
 }
 
-/// The morpheme key (`pg_parse::identity::AnalysisIdentity`'s own vocabulary --
-/// `MorphemeInfo::xml_key`) of the morpheme whose committed `<MorphemeId>` is `morph_id`.
-///
-/// `morph_id` is read out of the fixture's own committed signatures (e.g. `MONU+VAC|monu` names
-/// `VAC`), so this resolves a COMMITTED name to the key the engine reports -- it does not invent an
-/// identifier. A miss panics: a fixture that renamed the morpheme must break loudly.
+/// The morpheme key whose committed `<MorphemeId>` is `morph_id`; panics unless exactly one match resolves.
 fn morpheme_key_of(grammar: &Grammar, morph_id: &str, label: &str) -> MorphemeKey {
     let matches: Vec<&str> = grammar
         .morphemes
@@ -566,8 +512,7 @@ fn morpheme_key_of(grammar: &Grammar, morph_id: &str, label: &str) -> MorphemeKe
     Some(matches[0].to_string())
 }
 
-/// The morpheme key of the morpheme a morphological rule realizes, or `None` for a compounding rule
-/// (which is not a morpheme at all -- it has no `<MorphemeId>`) or an out-of-range id.
+/// The morpheme key of the morpheme a morphological rule realizes, or `None` for a compounding rule.
 fn morpheme_key_of_mrule(grammar: &Grammar, id: MRuleId) -> MorphemeKey {
     let morpheme = match grammar.mrules.get(id.0 as usize) {
         Some(MorphRuleDef::AffixProcess(def)) => def.morpheme,
@@ -580,14 +525,7 @@ fn morpheme_key_of_mrule(grammar: &Grammar, id: MRuleId) -> MorphemeKey {
         .map(|info| info.xml_key.clone())
 }
 
-/// Every morphological rule in `grammar` whose exponence is ZERO, as `(morpheme key, rule name)`.
-///
-/// The structural definition of zero exponence used here, and the reason it is a definition rather
-/// than a fixture comment restated: an affix-process rule is zero-exponence iff EVERY one of its
-/// subrules takes exactly ONE input part and its whole output is a single `CopyFromInput` of that
-/// part. That excludes an inserting rule (its output has an `InsertSegments`) and, importantly, also
-/// excludes a TRUNCATING rule -- truncation copies one of SEVERAL input parts, dropping the others,
-/// so `lhs.len() > 1`. Subtractive morphology is not zero morphology.
+/// Every morphological rule in `grammar` whose exponence is zero: every subrule copies its single input part verbatim, excluding both inserting and truncating rules.
 fn zero_exponence_rules(grammar: &Grammar) -> Vec<(MorphemeKey, String)> {
     let mut out = Vec::new();
     for rule in &grammar.mrules {
@@ -606,8 +544,7 @@ fn zero_exponence_rules(grammar: &Grammar) -> Vec<(MorphemeKey, String)> {
             allomorph.lhs.len() == 1 && allomorph.rhs == [OutputAction::Copy(PartRef::Input(0))]
         });
         if zero {
-            // `MorphemeKey` IS `Option<String>` (`None` only ever for a fabricated guessed root,
-            // which no grammar table row can be), so the lookup's own `Option` is the key.
+            // `MorphemeKey` is `Option<String>`; `None` is reserved for a fabricated guessed root, never a table row.
             let key: MorphemeKey = grammar
                 .morphemes
                 .get(morpheme.0 as usize)
@@ -627,11 +564,7 @@ fn segment_representations(grammar: &Grammar, table_index: usize) -> BTreeSet<St
         .collect()
 }
 
-/// The maximum number of DISTINCT phonological rules any single committed parse records.
-///
-/// Read out of `words.yaml`'s own `rules:` lists, intersected with the grammar's declared
-/// phonological-rule ids -- so it is the fixture's own measured cascade depth, not a number chosen
-/// here. Two or fewer would mean "a rewrite fired", which is not a cascade.
+/// The maximum number of distinct phonological rules any single committed parse records, per `words.yaml`'s own `rules:` lists.
 fn committed_cascade_depth(run: &ExerciseRun) -> usize {
     let declared: BTreeSet<&str> = run.grammar.prules.iter().map(prule_xml_id).collect();
     run.words
@@ -649,34 +582,10 @@ fn committed_cascade_depth(run: &ExerciseRun) -> usize {
         .unwrap_or(0)
 }
 
-// ================================================================================================
-// Mechanism 1 -- template order / co-occurrence.
-// ================================================================================================
+// Mechanism 1: template order / co-occurrence.
 
-/// **Exercise 1 of template order/co-occurrence: AffixTemplate SLOT ORDER.**
-///
-/// TOP end: the grammar must declare a template with at least three slots, at least one of them
-/// NON-optional (an obligatory slot is what makes "order" enforceable at all) and at least two
-/// optional (two optional neighbours are what makes the reverse-order finding below possible).
-///
-/// BOTTOM end, four claims, each over the committed rows:
-/// 1. the obligatory slot is enforced -- `andik`, the bare root with the obligatory slot unfilled,
-///    has NO analysis;
-/// 2. the two optional slots compose independently of one another -- one filled, the other skipped,
-///    each exactly one identity;
-/// 3. all three slots filled is exactly one identity; and
-/// 4. **order is observable in the identity, and the two orders are two identities.** The committed
-///    record pins both `AND+CAUS+APPL+FV` and `AND+APPL+CAUS+FV`, and the fixture's own header
-///    records that the reverse order was hand-derived as `expect_fail` and the ORACLE ACCEPTED it
-///    (a template's slot sequence is a hard synthesis constraint but the stratum retries its rule
-///    set to a fixpoint, so two optional generically-shaped slots can be peeled in either order).
-///    So the honest claim is not "the reverse order is refused" -- it is that the two orders are
-///    DISTINCT identities with the SAME morpheme set and DIFFERENT ordered sequences. Asserting the
-///    refusal instead would assert a proposal ceiling, and would be wrong besides.
-///
-/// The relation in claim 4 is ordered-sequence inequality plus unordered-set equality. Set equality
-/// alone is blind to order, which is the whole mechanism; the program's parity relation
-/// (`OccurrenceIdentities::same_identities`) is asserted FALSE here for the same reason.
+/// Exercise 1 of template order/co-occurrence: AffixTemplate slot order, obligatory slot outermost.
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn template_order_exercise_slot_sequence_and_obligatory_slot() {
     let run = run_exercise(EX_TEMPLATE_SLOT_ORDER);
@@ -711,16 +620,7 @@ fn template_order_exercise_slot_sequence_and_obligatory_slot() {
         );
     }
 
-    // -- TOP end, the two properties that make this exercise INDEPENDENT of the other template
-    //    exercise, asserted rather than asserted-by-comment:
-    //
-    //    1. The obligatory slot is OUTERMOST (last in slot order). That is exactly the condition
-    //       under which the stratum's fixpoint retry can rescue an out-of-order optional pair: the
-    //       obligatory slot is stripped first, unconditionally, leaving nothing but optional slots
-    //       between the swappable pair and the root. The other template exercise's grammar is the
-    //       mirror image (obligatory slots INNERMOST) and therefore REFUSES its own reverse order.
-    //    2. No slot holds more than one rule -- this grammar has no DISJUNCTIVE slot at all, which
-    //       is the construct the other exercise carries and this one cannot.
+    // -- TOP end: the obligatory slot is outermost and no slot holds more than one rule, keeping this independent of the other template exercise.
     assert!(
         !ordering_template
             .slots
@@ -792,41 +692,8 @@ fn template_order_exercise_slot_sequence_and_obligatory_slot() {
     );
 }
 
-/// **Exercise 2 of template order/co-occurrence: a DISJUNCTIVE slot, and template order that IS
-/// enforced on analysis.**
-///
-/// The exact converse of exercise 1, and the pair is what makes either claim honest. Exercise 1's
-/// grammar puts its one obligatory slot OUTERMOST, so the stratum's fixpoint retry rescues an
-/// out-of-order optional pair and the reverse order is ACCEPTED. This grammar puts three obligatory
-/// slots between the swappable optional pair and the root, so the single-pass outer-to-inner analysis
-/// walk hits an obligatory slot out of turn and the reverse order is REFUSED. Both facts are the
-/// fixtures' own committed, reconciled findings; an engine cannot satisfy both by treating template
-/// order as unconditionally enforced, or as unconditionally rescuable.
-///
-/// TOP end: one template with at least six slots, at least three obligatory and at least three
-/// optional; its last two slots optional and at least one earlier (inward) slot obligatory -- the
-/// obligatory-INNERMOST shape whose mirror image exercise 1 asserts for itself; and at least one slot
-/// holding TWO OR MORE rules, which is the DISJUNCTIVE third of the "obligatory/disjunctive/ordering"
-/// construct and is absent from exercise 1's grammar by assertion.
-///
-/// BOTTOM end, five claims:
-/// 1. obligatory slots are enforced from the OTHER edge -- the bare root and the one-slot-short word
-///    both have no analysis;
-/// 2. the minimal well-formed word (obligatory slots only) and each added optional slot are one
-///    identity each, up to the fully-loaded six-slot word;
-/// 3. **the reverse order of the two outermost optional slots is REFUSED**, which is the claim
-///    exercise 1 cannot make;
-/// 4. the DISCONTINUOUS dependency is a real gate: an outer optional slot whose requirement is set
-///    two slots inward is refused when the intervening choice went the other way, while that other
-///    choice is independently well-formed on its own; and
-/// 5. **the disjunctive slot admits exactly ONE of its members per analysis, and both members are
-///    reachable.** Stated over every identity in the fixture, not just one word: no identity's
-///    morpheme sequence may contain two of that slot's morpheme keys, and each key must appear in
-///    at least one identity. Without the second half the first would hold vacuously for a slot whose
-///    members were both unreachable.
-///
-/// Relations: multiplicity + set per word (via `assert_word_parity`); claim 5 is morpheme-key
-/// CONTAINMENT counted per identity, which is neither the parity relation nor a set comparison.
+/// Exercise 2 of template order/co-occurrence: a disjunctive slot, with template order enforced (the converse of exercise 1).
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn template_order_exercise_disjunctive_slot_and_enforced_order() {
     let run = run_exercise(EX_TEMPLATE_DISJUNCTIVE_SLOT_AND_ENFORCED_ORDER);
@@ -854,9 +721,7 @@ fn template_order_exercise_disjunctive_slot_and_enforced_order() {
             )
         });
 
-    // The obligatory-INNERMOST shape: the two outermost slots optional, with an obligatory slot
-    // somewhere inward of them. That is the structural reason claim 3 below holds here and its
-    // opposite holds in exercise 1.
+    // The obligatory-innermost shape: two outermost slots optional, an obligatory slot inward of them.
     let count = template.slots.len();
     assert!(
         template.slots[count - 2..].iter().all(|slot| slot.optional),
@@ -975,25 +840,8 @@ fn template_order_exercise_disjunctive_slot_and_enforced_order() {
     }
 }
 
-/// **Exercise 3 of template order/co-occurrence: MORPHEME and ALLOMORPH CO-OCCURRENCE.**
-///
-/// TOP end: the grammar must declare co-occurrence constraints of both polarities (`require` and
-/// `exclude`) covering at least four distinct adjacency kinds, AND at least one ALLOMORPH-level
-/// constraint -- co-occurrence at two different granularities is the second half of what this
-/// exercise is for.
-///
-/// BOTTOM end: six committed positive/negative PAIRS, one per constraint shape. Each pair is what
-/// makes the claim discriminating rather than merely true: without the negative half, "the
-/// constraint passed" is indistinguishable from "the constraint is never evaluated"; without the
-/// positive half, "the constraint blocked" is indistinguishable from "nothing parses here".
-///
-/// The two adjacency pairs that carry the sharpest claim are the third and fourth: a
-/// `somewhereToLeft` requirement is SATISFIED across an intervening morpheme (`walaknichiktan`)
-/// while an `adjacentToLeft` requirement is NOT (`walaknichikwas`). Collapsing the two kinds in
-/// either direction flips exactly one of those two words.
-///
-/// Relations: multiplicity + set for every word (via `assert_word_parity`); the pair claims are
-/// stated as exact distinct-identity counts, `1` versus `0`.
+/// Exercise 3 of template order/co-occurrence: morpheme and allomorph co-occurrence.
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn co_occurrence_exercise_adjacency_and_granularity() {
     let run = run_exercise(EX_CO_OCCURRENCE_ADJACENCY);
@@ -1068,9 +916,7 @@ fn co_occurrence_exercise_adjacency_and_granularity() {
     );
     run.expect_refused("walakntan", "the required partner is absent entirely");
 
-    // Pair 3 vs pair 4: THE adjacency discrimination. Same intervening-morpheme configuration,
-    // opposite verdicts, because one constraint is `somewhereToLeft` and the other
-    // `adjacentToLeft`.
+    // Pair 3 vs pair 4: the adjacency discrimination -- same configuration, opposite verdicts.
     run.expect_identities(
         "walaknichiktan",
         1,
@@ -1116,36 +962,10 @@ fn co_occurrence_exercise_adjacency_and_granularity() {
     );
 }
 
-// ================================================================================================
-// Mechanism 2 -- cascade / strata.
-// ================================================================================================
+// Mechanism 2: cascade / strata.
 
-/// **Exercise 1 of cascade/strata: an ORDERED PHONOLOGICAL RULE CASCADE inside one stratum.**
-///
-/// TOP end: exactly ONE stratum (so no stratum-ordering defect can reach this exercise) whose
-/// ordered `phonologicalRules` list has at least three members, and whose committed records show a
-/// single parse driving at least three of them -- the fixture's own measured cascade depth, computed
-/// by `committed_cascade_depth` from `words.yaml`'s `rules:` lists intersected with the grammar's
-/// declared phonological-rule ids, never chosen here.
-///
-/// BOTTOM end: three positive words that each require a DIFFERENT subset of the cascade, and three
-/// negative controls.
-/// - the deep-cascade word needs three phonological rules applied in the stratum's declared
-///   sequence; the fixture's own header records that the ordering is load-bearing (the harmony rule
-///   must see the pre-epenthesis consonant cluster, since its transparency span elides consonants
-///   and not vowels);
-/// - one word where the harmony rule correctly does NOT fire because the nearest vowel is of the
-///   wrong class, and
-/// - one where it correctly does NOT fire because the bounded transparency span is exhausted first,
-///   while the epenthesis rule still fires at two seams in one pass.
-///
-/// Without the two non-firing words, "the cascade fired" would be indistinguishable from "the
-/// cascade always fires". Their identity sets must be pairwise DISJOINT, which is what makes them
-/// three exercises of the cascade rather than one word looked at three times.
-///
-/// Relations: multiplicity + set per word; the disjointness claim is stated over
-/// `OccurrenceIdentities::identities` as set intersection, and explicitly is NOT the parity
-/// relation (which asks about equality).
+/// Exercise 1 of cascade/strata: an ordered phonological-rule cascade inside one stratum.
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn cascade_exercise_ordered_phonological_rule_chain() {
     let run = run_exercise(EX_CASCADE_ORDERED_RULES);
@@ -1231,22 +1051,8 @@ fn cascade_exercise_ordered_phonological_rule_chain() {
     }
 }
 
-/// **Exercise 2 of cascade/strata: a DERIVATION CHAIN ACROSS STRATA.**
-///
-/// TOP end: at least two strata, and — the claim that makes this a strata exercise rather than a
-/// second cascade one — the derivational morpheme and the inflectional morpheme must be owned by
-/// DIFFERENT strata (`MorphemeInfo::stratum`, the engine's own record of which stratum owns a
-/// morpheme). The two morphemes are named by their committed `<MorphemeId>`s, read out of the
-/// fixture's own signatures (`NUNA+DERIV+INFL|nunaliqvuq`).
-///
-/// BOTTOM end: one identity SPANS the two strata. `nunaliqvuq`'s single morpheme sequence must
-/// contain BOTH keys; the intermediate word's must contain the deep one and NOT the shallow one; and
-/// the word that attempts the shallow rule directly on the bare root must have NO analysis, because
-/// nothing verbalized it. That last negative control is what distinguishes "strata are ordered" from
-/// "strata exist": an engine ignoring stratum membership admits it.
-///
-/// Relations: multiplicity + set per word; the spanning claim is morpheme-key CONTAINMENT within one
-/// identity's ordered sequence, named as such because it is not a set-equality question.
+/// Exercise 2 of cascade/strata: a derivation chain across strata.
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn strata_exercise_cross_stratum_derivation_feed() {
     let run = run_exercise(EX_STRATA_CROSS_STRATUM_FEED);
@@ -1279,8 +1085,7 @@ fn strata_exercise_cross_stratum_derivation_feed() {
          strata label"
     );
 
-    // -- TOP end: this grammar must NOT be a per-stratum-table grammar, which is what keeps it
-    //    independent of the third cascade/strata exercise.
+    // -- TOP end: this grammar must not be a per-stratum-table grammar, keeping it independent of the third cascade/strata exercise.
     let tables: BTreeSet<u16> = run
         .grammar
         .strata
@@ -1323,24 +1128,8 @@ fn strata_exercise_cross_stratum_derivation_feed() {
     );
 }
 
-/// **Exercise 3 of cascade/strata: ONE CHARACTER-DEFINITION TABLE PER STRATUM.**
-///
-/// TOP end, computed independently of any fixture comment: the grammar's strata must reference at
-/// least two DIFFERENT tables; those tables must SHARE at least one segment representation (the
-/// overlap that makes `Grammar::char_tables` non-pairwise-disjoint); and each must declare at least
-/// one representation the other lacks (without which "two tables" would be a distinction with no
-/// content).
-///
-/// BOTTOM end: the surface tokenization is scoped to the LAST stratum's table, so a root declared
-/// only on a non-final stratum is not a tokenizable surface word at all. The fixture pins that
-/// honestly as invalid-shape rather than omitting it, and this exercise asserts it directly through
-/// `Morpher` -- those words are `expect_skip` and therefore excluded from
-/// `committed_words`/`assert_word_parity`, so asserting them here is the only thing that keeps
-/// them from being silently dropped. An engine that merged the two tables makes them tokenize, which
-/// is precisely the falsifier neither other cascade/strata exercise can see.
-///
-/// Relations: `invalid_shape` (a status, not an analysis relation) for the two skipped words;
-/// multiplicity + set for the three that do have analysis sets.
+/// Exercise 3 of cascade/strata: one character-definition table per stratum.
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn strata_exercise_per_stratum_character_table() {
     let run = run_exercise(EX_STRATA_PER_STRATUM_TABLE);
@@ -1411,39 +1200,11 @@ fn strata_exercise_per_stratum_character_table() {
     );
 }
 
-// ================================================================================================
-// Mechanism 3 -- lexical class.
-//
-// A note on what "lexical class" is taken to mean here, because 7.8's list is terse and its
-// neighbouring entry is "feature/POS/MPR gates". The reading used: a lexical class is a class
-// declared ON THE LEXICAL ENTRY (or on one of its allomorphs) that partitions the lexicon into
-// groups taking different morphology; the mechanism under test is the PARTITION and its
-// admissibility table, not the match semantics of a feature gate. Both exercises below use the
-// grammar model's `StemName` machinery, which is the only device in this repo whose class label is
-// stored on the entry/allomorph itself. They are independent because the two consumers of that
-// label are different checks: an allomorph-level region unification, and a rule-level presence
-// requirement -- a distinction the upstream grammar's own comment draws by name.
-// ================================================================================================
+// Mechanism 3: lexical class -- a class declared on the entry/allomorph that partitions the lexicon.
+// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 
-/// **Exercise 1 of lexical class: ALLOMORPH-LEVEL class with OVERLAPPING regions and a default.**
-///
-/// TOP end: at least two stem names, each with at least two regions; one lexical entry carrying at
-/// least two allomorphs restricted to DIFFERENT stem names PLUS at least one unrestricted
-/// (default-fallback) allomorph. That shape -- classes plus a default -- is what makes a priority
-/// question out of a partition question.
-///
-/// BOTTOM end: the committed twelve-cell admissibility table, read straight out of `words.yaml`.
-/// Three allomorphs (default, class A, class B) × four contexts (bare, +feature1, +feature2,
-/// +feature3). The two classes OVERLAP on feature1, so both class allomorphs are admitted there;
-/// the default is admitted ONLY bare, because the two classes jointly exhaust the feature space.
-/// A plain identity/inequality implementation of the class check flips at least one cell.
-///
-/// The overlap cell carries the second, sharper claim, and it is the one place in this file where
-/// the PROGRAM's parity relation (`OccurrenceIdentities::same_identities`, deduplicated identity
-/// set equality) is the right question: the two class allomorphs are allomorphs of ONE morpheme, so
-/// their analyses of the overlap feature must be THE SAME identity set even though the two surface
-/// words differ. If that fails, the identity relation has become allomorph-sensitive, and "lexical
-/// class" would be indistinguishable from "two lexemes".
+/// Exercise 1 of lexical class: allomorph-level class with overlapping regions and a default.
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn lexical_class_exercise_allomorph_level_stem_name_regions() {
     let run = run_exercise(EX_LEXICAL_CLASS_ALLOMORPH_REGIONS);
@@ -1492,8 +1253,7 @@ fn lexical_class_exercise_allomorph_level_stem_name_regions() {
         "{label}: the partitioned entry must have at least three allomorphs"
     );
 
-    // -- BOTTOM end: the committed twelve-cell table.
-    // Default allomorph: admitted bare only.
+    // -- BOTTOM end: the committed twelve-cell table (default allomorph admitted bare only).
     run.expect_identities(
         "mun",
         1,
@@ -1542,20 +1302,8 @@ fn lexical_class_exercise_allomorph_level_stem_name_regions() {
     );
 }
 
-/// **Exercise 2 of lexical class: RULE-LEVEL class requirement.**
-///
-/// TOP end: at least one affix-process rule declaring `requiredStemName`, and the lexicon PARTITIONED
-/// by it -- at least one root allomorph carrying exactly that class and at least one carrying none.
-/// A rule with a class requirement and no unclassed root would be a requirement nothing can fail.
-///
-/// This is a DIFFERENT check from exercise 1's, and the independence is asserted rather than
-/// asserted-by-comment: this grammar declares exactly ONE class with exactly ONE region, so the
-/// overlapping-region algebra exercise 1 turns on is not merely unused here but not EXPRESSIBLE
-/// here. Only presence versus absence of the class label on the selected root allomorph can decide
-/// the two cells below.
-///
-/// BOTTOM end: the two committed cells. The classed root admits the rule (exactly one identity); the
-/// unclassed root does not (no analysis).
+/// Exercise 2 of lexical class: rule-level class requirement, independent of exercise 1's region algebra.
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn lexical_class_exercise_rule_level_required_stem_name() {
     let run = run_exercise(EX_LEXICAL_CLASS_RULE_LEVEL);
@@ -1600,13 +1348,7 @@ fn lexical_class_exercise_rule_level_required_stem_name() {
          partition"
     );
 
-    // -- TOP end: the independence claim, asserted rather than asserted-by-comment. This grammar
-    //    declares exactly ONE stem name with exactly ONE region, so the overlapping-region algebra
-    //    the other lexical-class exercise turns on is not merely unused here -- it is not
-    //    EXPRESSIBLE here. A single region cannot overlap another, so nothing but presence versus
-    //    absence of the class label on the selected root allomorph can decide the two cells below.
-    //    If a future edit added a second stem name or a second region to this grammar, the two
-    //    lexical-class exercises would stop being independent, and this assertion is what says so.
+    // -- TOP end: exactly one stem name with exactly one region -- a single region cannot overlap another, keeping this independent of exercise 1's region algebra.
     assert_eq!(
         run.grammar.stem_names.len(),
         1,
@@ -1635,32 +1377,10 @@ fn lexical_class_exercise_rule_level_required_stem_name() {
     );
 }
 
-// ================================================================================================
-// Mechanism 4 -- allomorph priority.
-// ================================================================================================
+// Mechanism 4: allomorph priority.
 
-/// **Exercise 1 of allomorph priority: an EARLIER-INDEXED alternative BLOCKS a later one.**
-///
-/// TOP end, three shapes the grammar must declare, since the three word groups below each need one:
-/// - a lexical entry with an environment-constrained allomorph at an EARLIER index than an
-///   unconstrained "elsewhere" one (root disjunctivity);
-/// - an affix rule with the same shape across its subrules (affix disjunctivity);
-/// - a lexical entry with two allomorphs whose constraint sets are IDENTICAL and empty (the
-///   free-fluctuation escape). Without this third one, the rejection could be unconditional and the
-///   escape untested.
-///
-/// BOTTOM end: five committed pairs/controls.
-/// - root disjunctivity: the later-indexed allomorph is REJECTED where the earlier one would also
-///   have matched, and ACCEPTED where the earlier one's own environment fails;
-/// - affix disjunctivity: the same, one level up;
-/// - free fluctuation: the later-indexed allomorph is NOT rejected, because the two allomorphs'
-///   constraint sets are identical.
-///
-/// The free-fluctuation pair also carries a relation claim, and it is the second of the two places
-/// in this file where the PROGRAM's parity relation is the right question: the two free variants are
-/// allomorphs of ONE morpheme, so their identity SETS must be EQUAL even though the surface strings
-/// differ. That is the relation being blind to allomorph choice, which is exactly what it is
-/// specified to be.
+/// Exercise 1 of allomorph priority: an earlier-indexed allomorph blocks a later one.
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn allomorph_priority_exercise_earlier_index_blocks() {
     let run = run_exercise(EX_ALLOMORPH_PRIORITY_EARLIER_BLOCKS);
@@ -1772,29 +1492,8 @@ fn allomorph_priority_exercise_earlier_index_blocks() {
     );
 }
 
-/// **Exercise 2 of allomorph priority: a LATER-INDEXED allomorph must be REACHABLE.**
-///
-/// The opposite failure direction from exercise 1: there the danger is over-acceptance (index
-/// priority ignored), here it is under-generation (only the first index ever consulted).
-///
-/// TOP end: one affix rule with at least two allomorphs whose OUTPUT SHAPES differ in kind -- the
-/// first inserting material on one side of the copied stem only, a later one inserting on BOTH
-/// sides. That difference is computed from the rule's own output actions, not read from a comment,
-/// because it is the whole reason a first-allomorph-only classification could go wrong: a rule
-/// classified by its first allomorph alone never gets routed through the machinery the second one
-/// needs.
-///
-/// BOTTOM end: three committed words, all with exactly one identity -- the bare root, the
-/// first-allomorph derivation, and the LATER-allomorph derivation. The last one is the load-bearing
-/// row; the fixture's own record notes it was once unreachable from the proposer for exactly this
-/// reason.
-///
-/// A second claim makes it a priority claim rather than merely a reachability one: the first- and
-/// later-allomorph derivations are the SAME morpheme in DIFFERENT positions. Their unordered
-/// morpheme SETS must be equal, their ordered SEQUENCES must differ, and their `root_index` values
-/// must differ -- one allomorph puts the affix after the root and the other wraps it. The
-/// program's parity relation is therefore asserted FALSE for the pair, which is the honest verdict:
-/// they are two analyses, not one.
+/// Exercise 2 of allomorph priority: a later-indexed allomorph must remain reachable.
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn allomorph_priority_exercise_later_index_is_reachable() {
     let run = run_exercise(EX_ALLOMORPH_PRIORITY_LATER_REACHABLE);
@@ -1888,29 +1587,10 @@ fn allomorph_priority_exercise_later_index_is_reachable() {
     );
 }
 
-// ================================================================================================
-// Mechanism 5 -- zero morphology.
-// ================================================================================================
+// Mechanism 5: zero morphology.
 
-/// **Exercise 1 of zero morphology: a SILENT rule in a MANDATORY template slot.**
-///
-/// TOP end: exactly one rule in the grammar is zero-exponence by `zero_exponence_rules`'s
-/// structural definition, it is the one the committed signatures name, and it is referenced by a
-/// NON-optional template slot. "Mandatory but silent" is that conjunction, and asserting the
-/// uniqueness matters: if a second zero rule appeared, the word-level counts below would stop
-/// meaning what this exercise says they mean.
-///
-/// BOTTOM end: the zero morpheme creates AMBIGUITY. One surface has two identities whose ordered
-/// morpheme sequences differ by EXACTLY the zero morpheme's key, in one direction. Two further
-/// claims raise this above what 7.7 already pinned for the same fixture (7.7 pinned the COUNTS --
-/// two identities, two distinct sequences, four doubled words):
-/// - every doubled word's extra key is the SAME key, so this is ONE zero morpheme rather than an
-///   assortment of extra analyses, and
-/// - no identity anywhere in the fixture consists of the zero morpheme alone: it is a morpheme, not
-///   a root.
-///
-/// Relation: sequence SET-DIFFERENCE of size exactly one, named as such -- not the parity relation,
-/// which would only say the two readings differ.
+/// Exercise 1 of zero morphology: a silent rule in a mandatory template slot.
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn zero_morphology_exercise_silent_mandatory_template_slot() {
     let run = run_exercise(EX_ZERO_MORPH_SILENT_TEMPLATE_SLOT);
@@ -2028,30 +1708,8 @@ fn zero_morphology_exercise_silent_mandatory_template_slot() {
     }
 }
 
-/// **Exercise 2 of zero morphology: ZERO DERIVATION, outside any template.**
-///
-/// The opposite direction from exercise 1. There the zero morpheme is freely available and creates
-/// ambiguity; here it is forced and REMOVES it, so this exercise carries an OVER-generation
-/// falsifier the other structurally cannot: a spuriously insertable zero morpheme would give the
-/// un-derived word a second analysis, and exercise 1's grammar cannot detect that because there the
-/// zero morpheme genuinely is insertable everywhere.
-///
-/// TOP end: exactly one zero-exponence rule, named by the committed signatures, and — the
-/// independence claim, structural rather than asserted — it is NOT a template rule
-/// (`AffixProcessRuleDef::is_template_rule`), so the template-composite-pruning defect that
-/// falsifies exercise 1 cannot reach it. Its output feature structure must also differ from its
-/// requirement, since a category change is the rule's ONLY effect.
-///
-/// BOTTOM end: two committed words of the same length over the same alphabet.
-/// - the un-derived word has exactly one identity, of morpheme-sequence length one, NOT containing
-///   the zero morpheme's key (the over-generation falsifier);
-/// - the derived word has exactly one identity, of morpheme-sequence length two, containing it (the
-///   under-generation falsifier). Its surface differs from the other only by a segment the
-///   category-gated rewrite produced -- so the zero morpheme's presence is inferable ONLY from that
-///   downstream consequence, never from any segment of its own.
-///
-/// The equal surface LENGTH of the two words is asserted directly: it is the cheapest available
-/// direct statement that the zero morpheme contributed no segment.
+/// Exercise 2 of zero morphology: zero derivation, outside any template (the converse of exercise 1).
+/// See `docs/research/pg-foma-orthogonal-basis-group-a-notes.md`.
 #[test]
 fn zero_morphology_exercise_zero_derivation_changes_only_category() {
     let run = run_exercise(EX_ZERO_MORPH_ZERO_DERIVATION);
@@ -2137,10 +1795,7 @@ fn zero_morphology_exercise_zero_derivation_changes_only_category() {
          only thing that explains its surface, and it contributes no segment of its own"
     );
 
-    // The zero morpheme contributed NO segment, stated directly. The two surfaces are read back out
-    // of the fixture's own pinned word list rather than written as literals here, so this is a claim
-    // about the committed record (which a fixture edit could break, loudly) and not an arithmetic
-    // identity between two string constants that the compiler could have folded away.
+    // The equal-length claim is read from the fixture's own pinned word list, not written as literals, so a fixture edit that broke it would break loudly.
     let pinned = |word: &str| -> usize {
         run.words
             .words
@@ -2158,27 +1813,9 @@ fn zero_morphology_exercise_zero_derivation_changes_only_category() {
     );
 }
 
-// ================================================================================================
 // The basis shape guard.
-// ================================================================================================
 
-/// A guard against group A's half of the basis quietly shrinking.
-///
-/// The exercise `#[test]` functions above each assert their own exercise. If a future edit pointed two
-/// exercises of ONE mechanism at the same fixture, or dropped a mechanism, or dropped an exercise,
-/// every other test in this file would still pass while the basis covered less than it claims. So
-/// this asserts the SHAPE itself:
-/// - all five of group A's mechanisms appear;
-/// - each has at least TWO exercises (7.8's "at least twice");
-/// - no two exercises of the SAME mechanism share a fixture (two exercises that are one fixture
-///   under two names are one exercise);
-/// - every exercise records a non-empty independence rationale; and
-/// - every named fixture is really discoverable and really loads.
-///
-/// A fixture MAY appear under two DIFFERENT mechanisms -- 7.8 says outright that "a language may
-/// compose any number of mechanisms", and one of group A's does exactly that (a slot-ordering
-/// grammar that also declares a rule-level lexical class). What is forbidden is the same fixture
-/// twice within one mechanism.
+/// A guard against group A's half of the basis quietly shrinking (every mechanism, at least two exercises each, no shared fixtures).
 #[test]
 fn group_a_basis_has_two_independent_exercises_per_mechanism() {
     let all = [
@@ -2189,9 +1826,7 @@ fn group_a_basis_has_two_independent_exercises_per_mechanism() {
         Mechanism::ZeroMorphology,
     ];
 
-    // Keyed by mechanism, valued by the fixture's own canonical label (`<root>:<category>/<name>`) --
-    // one string per exercise, so "two exercises of one mechanism share a fixture" is a duplicate in
-    // this list and nothing subtler.
+    // Keyed by mechanism, valued by each exercise's fixture label; a shared fixture shows up as a duplicate here.
     let mut by_mechanism: BTreeMap<Mechanism, Vec<String>> = BTreeMap::new();
     for exercise in EXERCISES {
         assert!(
@@ -2236,8 +1871,7 @@ fn group_a_basis_has_two_independent_exercises_per_mechanism() {
          six of 7.8's list belong to group B"
     );
 
-    // Every named fixture really exists and really loads. A test that silently skipped a missing
-    // fixture would be the same defect as one that compares nothing.
+    // Every named fixture really exists and really loads; silently skipping one would test nothing.
     for exercise in EXERCISES {
         let fixture = fixture_of(exercise);
         let label = fixture.label();

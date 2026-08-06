@@ -1,51 +1,16 @@
-//! Traversal of a frozen `Fst` over a linear segment sequence: the acceptor port of
-//! `Fst.Transduce` (Fst.cs:304-414), the deterministic/nondeterministic FSA traversal methods,
-//! and `ResultCompare` (Fst.cs:416-441).
-//!
-//! ## Input model
-//! HermitCrab's `Fst<Word, int>` traverses shape annotations that are, for the FST arc path, a
-//! **linear** sequence with integer offsets and per-node `Optional` (boundaries). We model exactly
-//! that: segment `i` occupies physical range `[i, i+1)`; there are `n` segments over positions
-//! `0..=n`. The overlap/hierarchy helpers (`GetNextNonoverlappingAnnotationIndex` etc.) collapse to
-//! `±1`; the `Optional`-annotation branches of `Initialize`/`Advance` are kept (boundaries need
-//! them).
-//!
-//! ## Direction (`Fst.cs`/`TraversalMethodBase.cs`)
-//! C# bakes direction into the ordered annotation list and the `Range.GetStart/GetEnd(_dir)`
-//! accessors, not into the walk arithmetic (which always increments `annIndex`). We do the same:
-//! traversal index `j` maps to physical segment `phys(j)` — `j` for L2R, `n-1-j` for R2L
-//! (`GetNodes(_dir)` + `CompareAnnotations`' sign flip, TraversalMethodBase.cs:41-73). The
-//! offsets written into registers are **direction-relative** (`GetStart/GetEnd(_dir)`,
-//! Range.cs:109-117): under R2L a segment's "start" is its physical *end*. `Fst::get_offsets`
-//! un-swaps them back to physical `(min,max)` (Fst.cs:128-137). Because the same forward-built
-//! automaton is walked from the opposite end, an R2L traversal accepts the *reversed* reading of
-//! the input (pattern `a b c` matches physical `c b a`); the M3 loader owns whether a rule's
-//! pattern nodes are pre-reversed so the composition matches HermitCrab end-to-end.
-//! `ResultCompare` honors direction for its sign (Fst.cs:423-424); `next_ann` is the physical
-//! `Range.Start` so that sign is applied to a direction-agnostic value, exactly as C#.
-//!
-//! Frozen FSTs have **no epsilon arcs** (removed by `Determinize`/`EpsilonRemoval`), so the
-//! nondeterministic method's epsilon branch never fires; it is omitted and noted.
+//! Traversal of a frozen `Fst` over a linear segment sequence: the acceptor port of `Fst.Transduce` (Fst.cs:304-414), the deterministic/nondeterministic FSA traversal methods, and `ResultCompare` (Fst.cs:416-441). Direction is baked into offset arithmetic (`phys`/`ann_start`/`ann_end`), not the walk itself, matching C#'s `Range.GetStart/GetEnd(_dir)` convention.
+//! See `docs/research/pg-fst-traverse-design-notes.md` for the full input model and direction derivation.
 
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::rc::Rc;
-// std::time::Instant panics ("time not implemented on this platform") on wasm32-unknown-unknown;
-// web-time is a drop-in replacement (Performance.now()-backed there, a re-export of std::time
-// elsewhere) needed because the O2 profiling calls below are unconditional on every traversal,
-// not just when HC_FST_PROFILE is actually read (pg-wasm builds this crate for the browser demo).
+// std::time::Instant panics on wasm32-unknown-unknown; web-time is a drop-in replacement needed since the O2 profiling calls below are unconditional on every traversal.
 use web_time::Instant;
 
 use crate::fst::Fst;
 use crate::{Cmd, Direction, Register, CURRENT_POSITION};
 
-// --- O2 profiling instrumentation (rust-optimizations-phase2.md O2) -------------------------
-// A permanent diagnostic in the `HC_STEP_STATS` style (near-zero cost when unread: a few
-// `Instant::now()` calls per `Transduce::run`/`distinct()` invocation, thread-local `Cell` adds).
-// Kept (not reverted) because it is the load-bearing evidence for `docs/o2-profile-findings.md`
-// and the Fable follow-up will want the same counters to confirm whatever fix it picks actually
-// moves `distinct_ms`/`nondet_ms`. Read via `pg_fst::profile::snapshot()`, gated on
-// `HC_FST_PROFILE=1` in `pg-cli` (see `main.rs`'s `FSTPROF` stderr line).
+// A permanent diagnostic, near-zero cost when unread (a few `Instant::now()` calls per `Transduce::run`/`distinct()`, thread-local `Cell` adds). Read via `pg_fst::profile::snapshot()`, gated on `HC_FST_PROFILE=1` in `pg-cli`.
 pub mod profile {
     use super::Cell;
 
@@ -90,11 +55,7 @@ pub mod profile {
         DISTINCT_TOTAL_INPUT_LEN.with(|c| c.set(c.get() + input_len as u64));
     }
 
-    /// (run_calls, run_total_ns, run_max_ns, nondet_calls, nondet_total_ns, nondet_max_traversed,
-    /// nondet_total_traversed, det_calls, det_total_ns, distinct_calls, distinct_total_ns,
-    /// distinct_max_input_len, distinct_total_input_len) -- snapshot only, never reset (matches
-    /// `StepBudget::steps()`'s read-only style); the CLI reads this once per word since each word
-    /// gets a fresh process invocation in `batch` mode's per-word timing loop.
+    /// (run_calls, run_total_ns, run_max_ns, nondet_calls, nondet_total_ns, nondet_max_traversed, nondet_total_traversed, det_calls, det_total_ns, distinct_calls, distinct_total_ns, distinct_max_input_len, distinct_total_input_len) -- snapshot only, never reset.
     #[allow(clippy::type_complexity)]
     pub fn snapshot() -> (
         u64,
@@ -129,8 +90,7 @@ pub mod profile {
     }
 }
 
-/// One input segment: its symbolic-feature lanes and whether it is optional (C#
-/// `Annotation.Optional`, e.g. a boundary node).
+/// One input segment: its symbolic-feature lanes and whether it is optional (C# `Annotation.Optional`, e.g. a boundary node).
 #[derive(Clone, Debug)]
 pub struct Segment {
     pub lanes: Vec<u64>,
@@ -152,8 +112,7 @@ impl Segment {
     }
 }
 
-/// A match result (C# `FstResult`, acceptor projection). `registers` is the flat
-/// `register_count * 2` scaffold; use `Fst::get_offsets` to read a group span.
+/// A match result (C# `FstResult`, acceptor projection). `registers` is the flat `register_count * 2` scaffold; use `Fst::get_offsets` to read a group span.
 #[derive(Clone, Debug)]
 pub struct FstResult {
     pub id: Option<String>,
@@ -180,16 +139,8 @@ impl FstResult {
     }
 }
 
-/// A live traversal instance (C# `TraversalInstance`).
-///
-/// `registers` is copy-on-write shared (`Rc`): the nondeterministic traversal clones an instance
-/// once per matching arc plus once more for the visited-set key, but most arcs carry **no**
-/// register commands (`cmd_lo == cmd_hi`), so eagerly deep-copying the `register_count * 2`
-/// scaffold on every clone dominated the confirm path (`docs/o2-profile-findings.md`:
-/// `nondet_max_traversed` reached 360K–542K on the pathological Amharic words). Cloning an `Inst`
-/// is now an O(1) refcount bump; `Rc::make_mut` deep-copies lazily, only at the moment an arc's
-/// non-empty command range actually writes (see `Transduce::advance`). Purely a representation
-/// change: every observable value (register contents, results, ordering) is identical.
+/// A live traversal instance (C# `TraversalInstance`). `registers` is copy-on-write shared (`Rc`): cloning an `Inst` is an O(1) refcount bump, and `Rc::make_mut` deep-copies lazily, only when an arc's non-empty command range actually writes.
+/// See `docs/research/pg-fst-traverse-design-notes.md` for why this representation change was needed and why it's purely a representation change.
 #[derive(Clone)]
 struct Inst {
     state: usize,
@@ -197,20 +148,8 @@ struct Inst {
     registers: Rc<Vec<Register>>,
 }
 
-/// Visited-set key wrapper for the shared register scaffold of the nondeterministic traversal.
-///
-/// Semantically identical to the plain `Vec<Register>` key it replaces (derived `Eq`/`Hash` over
-/// the register contents — the same key the C# reference uses, keeping every distinct
-/// `(state, ann_index, registers)` thread alive; do NOT collapse threads Pike-VM-style), but it
-/// stores the instance's `Rc` (a refcount bump) instead of a second deep clone of the registers.
-///
-/// - `Eq`: `Rc::ptr_eq` fast path (same allocation ⇒ trivially content-equal), falling back to
-///   full content equality. This is a pure optimization: it can never disagree with content
-///   equality, because pointer-equal implies content-equal.
-/// - `Hash`: hashes the **content** (exactly what `Vec<Register>`'s derived `Hash` did). Hashing
-///   the pointer instead would break the `Eq`/`Hash` consistency contract (content-equal keys in
-///   different allocations must collide); the win here is eliminating the extra deep clone, not
-///   the hashing.
+/// Visited-set key wrapper for the shared register scaffold of the nondeterministic traversal: semantically identical to the plain `Vec<Register>` key it replaces, but stores the instance's `Rc` instead of a second deep clone of the registers.
+/// See `docs/research/pg-fst-traverse-design-notes.md` for the `Eq`/`Hash` contract this must preserve.
 struct RegKey(Rc<Vec<Register>>);
 
 impl PartialEq for RegKey {
@@ -224,8 +163,7 @@ impl Eq for RegKey {}
 impl std::hash::Hash for RegKey {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
-        // Content-based, delegating to Vec<Register>'s derived Hash — bit-for-bit the hash the
-        // old `(usize, usize, Vec<Register>)` key produced for the registers component.
+        // Content-based, delegating to Vec<Register>'s derived Hash -- bit-for-bit the hash the old key produced for the registers component.
         self.0.hash(h);
     }
 }
@@ -267,8 +205,7 @@ impl<'f> Transduce<'f> {
 
     // --- offset helpers (linear model, direction-aware) ---------------------------------------
 
-    /// Physical segment index for traversal index `j` (`GetNodes(_dir)` ordering,
-    /// TraversalMethodBase.cs:41-73). L2R is the identity; R2L reverses.
+    /// Physical segment index for traversal index `j` (`GetNodes(_dir)` ordering): L2R is the identity; R2L reverses.
     #[inline]
     fn phys(&self, j: usize) -> usize {
         match self.dir {
@@ -277,15 +214,13 @@ impl<'f> Transduce<'f> {
         }
     }
 
-    /// The input segment at traversal index `j` (physically remapped under R2L). Callers guard
-    /// `j < n`.
+    /// The input segment at traversal index `j` (physically remapped under R2L). Callers guard `j < n`.
     #[inline]
     fn seg(&self, j: usize) -> &Segment {
         &self.segs[self.phys(j)]
     }
 
-    /// Direction-relative start offset `Range.GetStart(_dir)` (Range.cs:109-112): physical left of
-    /// `phys(j)` under L2R, physical right under R2L.
+    /// Direction-relative start offset `Range.GetStart(_dir)`: physical left of `phys(j)` under L2R, physical right under R2L.
     #[inline]
     fn ann_start(&self, j: usize) -> i32 {
         match self.dir {
@@ -293,8 +228,7 @@ impl<'f> Transduce<'f> {
             Direction::RightToLeft => (self.n() - j) as i32,
         }
     }
-    /// Direction-relative end offset `Range.GetEnd(_dir)` (Range.cs:114-117): physical right of
-    /// `phys(j)` under L2R, physical left under R2L.
+    /// Direction-relative end offset `Range.GetEnd(_dir)`: physical right of `phys(j)` under L2R, physical left under R2L.
     #[inline]
     fn ann_end(&self, j: usize) -> i32 {
         match self.dir {
@@ -302,9 +236,7 @@ impl<'f> Transduce<'f> {
             Direction::RightToLeft => (self.n() - 1 - j) as i32,
         }
     }
-    /// Direction-relative end-of-data offset: `GetLast(_dir).Range.GetEnd(_dir)`
-    /// (TraversalMethodBase.cs:267). Physical right end `n` under L2R, physical left end `0` under
-    /// R2L.
+    /// Direction-relative end-of-data offset: `GetLast(_dir).Range.GetEnd(_dir)` -- physical right end `n` under L2R, physical left end `0` under R2L.
     #[inline]
     fn end_pos(&self) -> i32 {
         match self.dir {
@@ -312,9 +244,7 @@ impl<'f> Transduce<'f> {
             Direction::RightToLeft => 0,
         }
     }
-    /// The **physical** `Range.Start` of the next annotation (or end-of-data) — C#
-    /// `FstResult.NextAnnotation`, which `ResultCompare` compares via the direction-agnostic
-    /// `Range.CompareTo` before applying its own R2L sign flip (Fst.cs:422-424).
+    /// The **physical** `Range.Start` of the next annotation (or end-of-data) -- C# `FstResult.NextAnnotation`, compared via direction-agnostic `Range.CompareTo` before `ResultCompare`'s own R2L sign flip.
     #[inline]
     fn next_ann_pos(&self, j: usize) -> i32 {
         if j < self.n() {
@@ -405,8 +335,7 @@ impl<'f> Transduce<'f> {
         }
     }
 
-    /// C# `Advance` (TraversalMethodBase.cs:248-351), linear acceptor path. Returns the produced
-    /// continuation instances.
+    /// C# `Advance` (TraversalMethodBase.cs:248-351), linear acceptor path. Returns the produced continuation instances.
     fn advance(
         &self,
         mut inst: Inst,
@@ -416,13 +345,8 @@ impl<'f> Transduce<'f> {
     ) -> Vec<Inst> {
         let next_index = inst.ann_index + 1; // GetNextNonoverlappingAnnotationIndex, linear
         let end = self.ann_end(inst.ann_index);
-        // Borrowed straight from the CSR pool (`execute_commands` is an associated fn; `self` is
-        // never mutably borrowed here, so no defensive copy is needed). Most arcs have an EMPTY
-        // command range — the `is_empty` guards below skip `execute_commands` entirely for those
-        // (a no-op either way: it just loops over the commands), so `Rc::make_mut` deep-copies the
-        // shared register scaffold only when an arc genuinely writes. Finisher command ranges
-        // (`fin_lo..fin_hi`) are untouched by this: `check_accepting` runs them on its own
-        // per-result copy of the registers, as before.
+        // Borrowed straight from the CSR pool; most arcs have an EMPTY command range, so `Rc::make_mut` deep-copies the shared register scaffold only when an arc genuinely writes.
+        // See `docs/research/pg-fst-traverse-design-notes.md` for why finisher command ranges are unaffected.
         let arc_cmds = &self.fst.commands[arc.cmd_lo as usize..arc.cmd_hi as usize];
 
         if next_index < self.n() {
@@ -476,8 +400,7 @@ impl<'f> Transduce<'f> {
         }
     }
 
-    /// C# `Initialize` (TraversalMethodBase.cs:193-246), linear model. Advances `ann_index` past
-    /// the (single, in the linear model) co-starting annotation and returns seed instances.
+    /// C# `Initialize` (TraversalMethodBase.cs:193-246), linear model. Advances `ann_index` past the single co-starting annotation and returns seed instances.
     fn initialize(
         &self,
         ann_index: &mut usize,
@@ -549,10 +472,7 @@ impl<'f> Transduce<'f> {
         if deterministic {
             let __o2_det_start = Instant::now();
             while let Some(inst) = stack.pop() {
-                // `Arc` is `Copy` and `state_arcs` borrows straight from the frozen `Fst`'s CSR
-                // pool, so the slice can be iterated in place instead of cloned into a fresh
-                // `Vec` every pop — no other borrow of `self` conflicts (`check_input_match`/
-                // `advance` are themselves `&self` methods). Same arcs, same order, same result.
+                // `Arc` is `Copy` and `state_arcs` borrows straight from the frozen `Fst`'s CSR pool, so the slice is iterated in place instead of cloned into a fresh `Vec` every pop.
                 let arcs = self.state_arcs(inst.state);
                 let mut advanced = false;
                 for arc in arcs {
@@ -569,35 +489,18 @@ impl<'f> Transduce<'f> {
             profile::record_det(__o2_det_start.elapsed().as_nanos());
         } else {
             let __o2_nondet_start = Instant::now();
-            // Same visited-set key as before (and as the C# reference): the full
-            // (state, ann_index, register contents) triple — two insts at the same
-            // (state, ann_index) with different registers are genuinely different analyses and
-            // both stay live. `RegKey` only changes the key's *representation* (shares the
-            // instance's Rc instead of deep-cloning the registers a second time).
+            // Same visited-set key as before: the full (state, ann_index, register contents) triple, since two insts at the same (state, ann_index) with different registers are genuinely different analyses.
             let mut traversed: HashSet<(usize, usize, RegKey)> = HashSet::new();
             let n = self.n();
             let min_hops = self.fst.min_hops_to_accept();
             while let Some(inst) = stack.pop() {
-                // See the deterministic branch's comment above: `Arc` is `Copy` and this slice
-                // borrows straight from the frozen `Fst`, so no per-pop clone is needed.
+                // See the deterministic branch's comment above: `Arc` is `Copy` and this slice borrows straight from the frozen `Fst`, so no per-pop clone is needed.
                 let arcs = self.state_arcs(inst.state);
                 for arc in arcs {
                     // frozen FSTs have no epsilon arcs; only the input-match branch fires.
                     if self.check_input_match(arc, inst.ann_index) {
-                        // Min-hops-to-accept pruning (`Fst::min_hops_to_accept`, an admissible
-                        // lower bound computed at freeze time). After this arc consumes the
-                        // segment at `ann_index` (`check_input_match` guarantees
-                        // `ann_index < n`), at most `n - ann_index - 1` further arcs can ever be
-                        // taken: every arc consumes >= 1 segment (frozen FSTs are epsilon-free),
-                        // and `advance`'s optional-segment skips consume *extra* segments without
-                        // taking arcs, so they only lower the true count — `remaining` stays an
-                        // upper bound in both traversal directions (`ann_index` is a traversal
-                        // index; `phys()` only remaps which physical segment it denotes, not how
-                        // many are left). If even `remaining` hops cannot reach an accepting
-                        // state from `arc.target`, no thread through this arc can ever produce a
-                        // result — results are only emitted by `check_accepting` at accepting
-                        // states, and an accepting `arc.target` itself (min_hops == 0) is never
-                        // pruned since `remaining >= 0`. Dropping the thread loses nothing.
+                        // Min-hops-to-accept pruning: `remaining` upper-bounds arcs still takeable, and if even that many hops cannot reach an accepting state from `arc.target`, no thread through this arc can ever produce a result.
+                        // See `docs/research/pg-fst-traverse-design-notes.md` for why `remaining` is a true upper bound in both traversal directions.
                         let remaining = (n - inst.ann_index - 1) as u32;
                         if min_hops[arc.target as usize] > remaining {
                             continue;
@@ -697,14 +600,8 @@ impl<'f> Transduce<'f> {
         self.first_match().is_some()
     }
 
-    /// C# `ResultCompare` (Fst.cs:416-441), minus the `Priorities` zip tiebreak (T-C,
-    /// rust-optimizations-phase2.md "Tear-out candidates"): C#'s nondeterministic branch breaks
-    /// ties on accept-priority + `NextAnnotation` by comparing the arc-priority trail, but that
-    /// trail is byte-parity-only machinery — removing it was verified order-invariant by A/B
-    /// diffing Indonesian, Amharic, and a Sena probe under step-caps low enough to truncate most
-    /// or all words (forcing exactly the code path the trail exists for), at multiple cap levels;
-    /// every comparison came back byte-identical, not just set-equal. The deterministic branch's
-    /// `IsLazy` flip is unaffected and stays.
+    /// C# `ResultCompare` (Fst.cs:416-441), minus the `Priorities` zip tiebreak: byte-parity-only machinery, removed after verifying order-invariance by A/B diffing under step-caps low enough to force the code path it existed for.
+    /// See `docs/research/pg-fst-traverse-design-notes.md` for the verification methodology.
     pub fn result_compare(&self, x: &FstResult, y: &FstResult) -> std::cmp::Ordering {
         use std::cmp::Ordering;
         let c = x.priority.cmp(&y.priority);
@@ -726,14 +623,8 @@ impl<'f> Transduce<'f> {
     }
 }
 
-/// Hash a `FstResult` consistently with `FstResult::result_eq`: the `id`, the register count,
-/// and each register in **canonicalized** form — an unset register (`has == false`) contributes
-/// only its `has` bit, mirroring how `Register::value_eq` ignores `offset`/`start` when unset.
-/// (Today `Register::unset()` is the only `has == false` constructor and always zeroes those
-/// fields, so `Register`'s derived `Hash` would coincide in practice — but canonicalizing here
-/// removes the reliance on that invariant: `result_eq`-equal results hash identically by
-/// construction, not by bit-pattern luck.) `priority`/`is_lazy`/`next_ann`/`order` are excluded,
-/// exactly as `result_eq` excludes them.
+/// Hash a `FstResult` consistently with `FstResult::result_eq`: the `id`, the register count, and each register in **canonicalized** form, excluding `priority`/`is_lazy`/`next_ann`/`order` exactly as `result_eq` does.
+/// See `docs/research/pg-fst-traverse-design-notes.md` for why canonicalizing removes a reliance on `Register::unset()` being the only `has == false` constructor.
 fn result_hash<H: std::hash::Hasher>(r: &FstResult, hasher: &mut H) {
     use std::hash::Hash;
     r.id.hash(hasher);
@@ -747,17 +638,8 @@ fn result_hash<H: std::hash::Hasher>(r: &FstResult, hasher: &mut H) {
     }
 }
 
-/// C# `Enumerable.Distinct` over `FstResult.Equals`, order-preserving (first occurrence wins).
-///
-/// Hash-backed (O2 fix, `docs/o2-profile-findings.md`): the original implementation linearly
-/// scanned everything kept so far with pairwise `result_eq` — `O(n × kept)`, and `n` reached
-/// 327K–501K on the pathological Amharic words, making this single step 59–81% of total
-/// wall-clock. C#'s `Enumerable.Distinct(IEqualityComparer)` is hash-set-backed; this mirrors it
-/// with a hash → first-occurrence-indices table (buckets are almost always singletons), falling
-/// back to `result_eq` within a bucket so equality semantics are bit-for-bit the old scan's.
-/// Which duplicate survives matters — `result_eq` ignores `priority`/`next_ann`/`order`, and
-/// downstream consumers (`first_match`, rule application order) depend on the sorted result
-/// order — so the output is exactly the old scan's: first occurrence wins, order preserved.
+/// C# `Enumerable.Distinct` over `FstResult.Equals`, order-preserving (first occurrence wins), hash-backed rather than the original's linear pairwise scan (`O(n × kept)`, which reached 59-81% of wall-clock on pathological Amharic words).
+/// See `docs/research/pg-fst-traverse-design-notes.md` for why which duplicate survives matters and how equality semantics stay bit-for-bit identical.
 fn distinct(results: Vec<FstResult>) -> Vec<FstResult> {
     use std::collections::HashMap;
     use std::hash::{BuildHasher, Hasher};
@@ -789,9 +671,7 @@ mod tests {
         h.finish()
     }
 
-    /// `RegKey`'s Eq/Hash contract: content-equal keys in DIFFERENT allocations must be equal and
-    /// must collide (hash is content-based, never pointer-based); the `Rc::ptr_eq` fast path is
-    /// only ever an accelerator for the same-allocation case.
+    /// `RegKey`'s Eq/Hash contract: content-equal keys in DIFFERENT allocations must be equal and must collide, since the `Rc::ptr_eq` fast path is only ever an accelerator for the same-allocation case.
     #[test]
     fn regkey_eq_and_hash_are_content_based() {
         let a = RegKey(Rc::new(vec![Register::at(1, true), Register::unset()]));
@@ -803,8 +683,7 @@ mod tests {
         assert!(a != d, "different contents differ");
         assert_eq!(hash_of(&a), hash_of(&b), "equal keys must hash equal");
         assert_eq!(hash_of(&a), hash_of(&c));
-        // and RegKey's hash must equal the plain Vec<Register> hash it replaced (same visited-set
-        // behavior as the old (usize, usize, Vec<Register>) key, representation aside).
+        // and RegKey's hash must equal the plain Vec<Register> hash it replaced (same visited-set behavior, representation aside).
         assert_eq!(hash_of(&a), hash_of(&*a.0));
     }
 }

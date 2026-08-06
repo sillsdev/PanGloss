@@ -1,20 +1,4 @@
-//! FST precision knob bench matrix (the "fst-stats successor"): per (grammar × preset), prints
-//! network size, load/compile time, lookup throughput, candidates/word, and confirm time as a
-//! markdown table — the "try out different combinations" playground, produced automatically.
-//!
-//! Run manually (not part of `cargo test`):
-//!
-//!   cargo run -p pg-foma --release --example precision_bench
-//!
-//! Only `PrecisionConfig::Strip` and `PrecisionConfig::AllFlags` are benched — `FullCompile`/
-//! `Auto` are emit-identical to `Strip` as of this step (`crate::precision`'s own doc: "`crate::emit`
-//! treats every config other than `AllFlags` identically to `Strip`"), so benching them would just
-//! reprint the `Strip` row under a different name.
-//!
-//! The propose/peel/confirm plumbing below is copied (not imported — examples can't depend on test
-//! code) from `tests/pk1_precision_recall_invariance.rs`; see that file for the property-level
-//! justification of each step. This file only times it and prints a table; it makes no correctness
-//! assertions of its own (that is `pk1`'s job).
+//! FST precision knob bench matrix: prints network size, compile time, throughput, and confirm time.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -34,19 +18,13 @@ use pg_foma::tags::{self, Candidate};
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 
-// -------------------------------------------------------------------------------------------
-// Corpus word caps (keeps the whole bench at a few minutes total -- Amharic's compile alone is
-// ~35s per preset, and its engine-oracle confirm is the slowest step per word, so its cap is kept
-// lower than Sena/Indonesian's).
-// -------------------------------------------------------------------------------------------
+// Corpus word caps: keeps the whole bench at a few minutes; Amharic's cap is lower since its confirm step is the slowest.
 
 const SENA_WORD_CAP: usize = 100;
 const INDONESIAN_WORD_CAP: usize = 100;
 const AMHARIC_WORD_CAP: usize = 40;
 
-/// Per-word engine timeout passed to `Morpher` (mirrors `tests/f3_amharic_gate.rs`'s
-/// `ENGINE_TIMEOUT`) -- without this, one pathological word's confirm could dominate the whole
-/// bench's wall time.
+/// Per-word engine timeout, so one pathological word's confirm can't dominate the whole bench's wall time.
 const ENGINE_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct GrammarSpec {
@@ -88,9 +66,7 @@ fn preset_label(p: PrecisionConfig) -> &'static str {
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// Sample loading (mirrors `tests/pk1_precision_recall_invariance.rs`'s helpers exactly).
-// -------------------------------------------------------------------------------------------
+// Sample loading, mirroring `tests/pk1_precision_recall_invariance.rs`'s helpers exactly.
 
 fn sample_path(name: &str) -> PathBuf {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -115,12 +91,7 @@ fn read_words(name: &str) -> Option<Vec<String>> {
     )
 }
 
-// -------------------------------------------------------------------------------------------
-// Propose/peel/confirm plumbing -- copied from `tests/pk1_precision_recall_invariance.rs` (module
-// doc there explains why this can't just be `use`d: `FomaAnalyzer`/`FomaProposer` hardcode
-// `emit::emit(g)`, i.e. always `Strip`, so both this bench and pk1 re-plumb the public pieces
-// against a caller-supplied network instead).
-// -------------------------------------------------------------------------------------------
+// Propose/peel/confirm plumbing, copied (not `use`d -- examples can't depend on test code) from `tests/pk1_precision_recall_invariance.rs`.
 
 fn propose(net: &Fsm, word: &str) -> Vec<Candidate> {
     let normalized = pg_grammar::nfd::nfd(word);
@@ -148,9 +119,7 @@ fn propose_and_peel(
     word: &str,
 ) -> Vec<Candidate> {
     let mut candidates = propose(net, word);
-    // Real bench words, never an adversarial synthetic stress string -- an unbounded chain-depth
-    // budget is safe here (`pg_foma::peel`'s own module doc, "Chain depth and nested
-    // reduplication", ADR 0003).
+    // Real bench words, never an adversarial synthetic stress string, so an unbounded budget is safe.
     let budget = ComposeBudget::from_env();
     let peeled = peeler
         .peel_candidates(g, word, &budget, &mut |r: &str| propose(net, r))
@@ -169,9 +138,7 @@ fn propose_and_peel(
     candidates
 }
 
-/// Total confirmed-analysis COUNT for `word` (flattened across all candidate buckets) -- this bench
-/// only needs cardinality, not the identity `pk1`'s `confirmed_multiset` checks, so this skips that
-/// function's sort/collect-into-a-comparable-key step.
+/// Total confirmed-analysis count for `word`; this bench needs only cardinality, not identity.
 fn confirmed_count(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
@@ -185,9 +152,7 @@ fn confirmed_count(
         .sum()
 }
 
-// -------------------------------------------------------------------------------------------
 // Per (grammar, preset) measurement.
-// -------------------------------------------------------------------------------------------
 
 struct ConstraintStats {
     total: usize,
@@ -410,12 +375,7 @@ fn run_grammar(spec: &GrammarSpec) {
     print_grammar_table(spec, &rows);
 }
 
-/// Amharic's deep composite/rule-chain recursion (`pg-foma/src/preexpand.rs`'s depth-3 chains,
-/// plus the engine's own recursive descent in `pg_rules`) overflows the default ~8MB main-thread
-/// stack under a release build's larger inlined frames -- run the whole bench on a dedicated thread
-/// with a generous stack instead (the same trick `f3_amharic_gate.rs`'s test-harness thread gets for
-/// free from the `cargo test` runner's own stack size, which a plain `cargo run --example` binary's
-/// main thread does not).
+/// Amharic's deep recursion overflows the default main-thread stack; run on a dedicated thread with a generous stack instead.
 fn main() {
     let handle = std::thread::Builder::new()
         .stack_size(256 * 1024 * 1024)

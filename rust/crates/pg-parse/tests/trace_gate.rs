@@ -1,16 +1,4 @@
-//! P12 chunk 2 acceptance test (design doc §5, chunk 2): the smallest end-to-end tracing slice --
-//! `Morpher::parse_word_traced` mints the root `WordAnalysis` node and wires the three morpher-level
-//! `Failed(...)` reasons (`PartialParse`/`ObligatorySyntacticFeatures` in `is_word_valid_traced`,
-//! `SurfaceFormMismatch` in `is_match_traced`) plus `Successful`. This file proves the handle threads
-//! correctly from `parse_word`'s entry through to its exit without touching `pg_rules` internals.
-//!
-//! `ObligatorySyntacticFeatures` and `SurfaceFormMismatch` are exercised with real, deterministic
-//! fixtures below (a rule that declares an obligatory feature it never actually contributes; a real
-//! Indonesian word empirically confirmed, via this same tracing machinery, to produce a
-//! `SurfaceFormMismatch`-rejected candidate on the normal parse path). `PartialParse` needs a
-//! multi-stratum/template scenario this crate's shared test grammar helper does not cheaply support
-//! (see `pg-parse/src/morpher.rs`'s own `#[cfg(test)]` module for a direct, hand-built-`Word` unit
-//! test of that gate instead, since it is private-method-level and does not need a full grammar).
+//! The smallest end-to-end tracing slice: `Morpher::parse_word_traced` mints the root `WordAnalysis` node and wires the three morpher-level `Failed(...)` reasons plus `Successful`, proving the handle threads correctly from `parse_word`'s entry to its exit without touching `pg_rules` internals. `PartialParse` needs a scenario this crate's grammar helper can't cheaply support; see `pg-parse/src/morpher.rs`'s `#[cfg(test)]` module for a direct unit test of that gate instead.
 
 mod csharp_port_common;
 use csharp_port_common::build_grammar;
@@ -24,9 +12,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// The shared `ed_suffix`-shaped grammar (same shape as `word_timeout_gate.rs`'s `simple_grammar`,
-/// duplicated here to keep this file self-contained): `posV` entry "32" = "sag", rule `ed_suffix`
-/// appends "+d". A trivially-valid word.
+/// The shared `ed_suffix`-shaped grammar, duplicated here to keep this file self-contained: `posV` entry "32" = "sag", rule `ed_suffix` appends "+d" -- a trivially-valid word.
 fn valid_grammar() -> pg_grammar::model::Grammar {
     let mrules = r#"
       <MorphologicalRule id="mrEd" requiredPartsOfSpeech="posV"><Name>ed_suffix</Name><MorphemeId>PAST</MorphemeId>
@@ -41,15 +27,7 @@ fn valid_grammar() -> pg_grammar::model::Grammar {
     build_grammar("", "", mrules, "mrEd", "")
 }
 
-/// A rule that declares `outputObligatoryFeatures="featEvid"` (the shared `featEvid`/`symWit`
-/// evidential feature, never otherwise referenced by any fixture in this crate's shared grammar
-/// helper — grepped clean) but whose own `<MorphologicalOutput>` never sets it (no
-/// `<OutputHeadFeatures>` at all) and which no lexical entry provides either. Confirming this rule
-/// during synthesis unconditionally pushes `featEvid`'s `FeatId` onto `Word::obligatory`
-/// (`pg_rules::morph::synth_process_allomorph`, unconditional `w.obligatory.extend_from_slice`) while
-/// `Word::syn_fs` never actually contains it -- a guaranteed, deterministic
-/// `FailureReason::ObligatorySyntacticFeatures` rejection at `Morpher::is_word_valid_traced`'s second
-/// clause.
+/// A rule that declares `outputObligatoryFeatures="featEvid"` but whose output never sets it and which no lexical entry provides either -- a guaranteed, deterministic `FailureReason::ObligatorySyntacticFeatures` rejection.
 fn obligatory_feature_never_satisfied_grammar() -> pg_grammar::model::Grammar {
     let mrules = r#"
       <MorphologicalRule id="mrObl" requiredPartsOfSpeech="posV" outputObligatoryFeatures="featEvid">
@@ -65,8 +43,7 @@ fn obligatory_feature_never_satisfied_grammar() -> pg_grammar::model::Grammar {
     build_grammar("", "", mrules, "mrObl", "")
 }
 
-/// Walk the whole tree collecting `(TraceType, FailureReason)` for every node that carries a
-/// `failure_reason`, plus a flag for whether any `Successful` node exists.
+/// Walk the whole tree collecting `(TraceType, FailureReason)` for every node that carries a `failure_reason`, plus a flag for whether any `Successful` node exists.
 fn scan(
     sink: &TreeTraceSink,
     h: pg_rules::trace::TraceHandle,
@@ -147,22 +124,10 @@ fn obligatory_syntactic_feature_never_satisfied_is_reported() {
     );
 }
 
-// =================================================================================================
-// G4: the five previously-unwired analysis-side trace events
-// (`begin_unapply_stratum`/`end_unapply_stratum`/`begin_unapply_template`/`end_unapply_template`/
-// `lexical_lookup`) -- a synthetic, single-stratum, single-template grammar small enough to hand-
-// derive the exact expected tree shape (see the wiring sites' own doc comments in
-// `pg-rules/src/stratum.rs`'s `analyze`/`analyze_template`/`template_unapply_slots` and
-// `pg-parse/src/morpher.rs`'s `lexical_lookup_filtered`).
-// =================================================================================================
+// G4: the five previously-unwired analysis-side trace events.
+// See `docs/research/pg-parse-trace-gate-notes.md` for the full event list and wiring sites.
 
-/// One stratum, no phonological rules, ONE affix template (`requiredPartsOfSpeech="posV"`) with a
-/// single MANDATORY slot referencing a template-only rule (`mrEdT`, never listed in the stratum's
-/// own `morphologicalRules` -- mirrors `csharp_port_affix_template.rs::non_final_template`'s
-/// ordinary-vs-template-only convention). "sagd" unapplies as: `AnalysisStratumRule.Apply` ->
-/// `ApplyTemplates` -> `AnalysisAffixTemplateRule.Apply` -> the one mandatory slot unapplies "+d"
-/// off entry "32" ("sag", posV) -> falls through (no more slots) -> the fully-unapplied "sag"
-/// survives as a second stratum output alongside "sagd" itself.
+/// One stratum, no phonological rules, ONE affix template with a single MANDATORY slot referencing a template-only rule: "sagd" unapplies its "+d" off entry "32" ("sag"), and the fully-unapplied "sag" survives as a second stratum output alongside "sagd" itself.
 fn template_grammar() -> pg_grammar::model::Grammar {
     let mrules = r#"
       <MorphologicalRule id="mrEdT" requiredPartsOfSpeech="posV"><Name>ed_suffix_t</Name><MorphemeId>PASTT</MorphemeId>
@@ -210,10 +175,8 @@ fn is_descendant(sink: &TreeTraceSink, ancestor: TraceHandle, target: TraceHandl
     false
 }
 
-/// Pins all five newly-wired G4 events: that each fires, in the right order, and nested under the
-/// right parent (mirroring the already-wired synthesis-side bookends' "no cursor reassignment on
-/// Begin/marker events, but the ALREADY-WIRED rule-level event's cursor reassignment carries
-/// forward" discipline).
+/// Pins all five newly-wired G4 events: that each fires, in the right order, and nested under the right parent.
+/// See `docs/research/pg-parse-trace-gate-notes.md` for the cursor-reassignment discipline this mirrors.
 #[test]
 fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
     let g = template_grammar();
@@ -230,9 +193,7 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
     let root_child_types: Vec<TraceType> =
         root_children.iter().map(|&h| sink.node(h).type_).collect();
 
-    // `BeginUnapplyStratum`/`EndUnapplyStratum`(for `input` itself)/`BeginUnapplyTemplate` never
-    // reassign the trace cursor (mirroring the already-wired synthesis-side `begin_apply_stratum`/
-    // `end_apply_stratum`/`begin_apply_template`), so all three fire as DIRECT children of root.
+    // `BeginUnapplyStratum`/`EndUnapplyStratum`(for `input` itself)/`BeginUnapplyTemplate` never reassign the trace cursor, so all three fire as DIRECT children of root.
     assert!(
         root_child_types.contains(&TraceType::StratumAnalysisInput),
         "expected a StratumAnalysisInput (BeginUnapplyStratum) child of root; got {root_child_types:?}"
@@ -247,10 +208,7 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
         "expected a TemplateAnalysisInput (BeginUnapplyTemplate) child of root; got {root_child_types:?}"
     );
 
-    // Order (children are appended in call order): Begin before End; End(input) before
-    // BeginUnapplyTemplate (this port evaluates `apply_templates`/`apply_mrules` eagerly, so the
-    // `input`-itself `EndUnapplyStratum` is placed textually before that computation starts --
-    // see `analyze`'s own doc comment for why that reproduces C#'s lazy-`IEnumerable` event order).
+    // Order: Begin before End; End(input) before BeginUnapplyTemplate, since this port evaluates eagerly and places the `input`-itself `EndUnapplyStratum` before that computation starts.
     let pos = |ty: TraceType| {
         root_child_types
             .iter()
@@ -271,10 +229,7 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
          {end_stratum} then {begin_template} in {root_child_types:?}"
     );
 
-    // The mandatory slot's OWN level always exits `unapplied=false` for the ORIGINAL "sagd" word
-    // (`AnalysisAffixTemplateRule.cs:71-72`) -- also a direct child of root (no cursor reassignment
-    // there either); `TreeTraceSink::end_unapply_template` only sets `.output` when `unapplied`, so
-    // "no `output`" identifies this exit.
+    // The mandatory slot's OWN level always exits `unapplied=false` for the ORIGINAL "sagd" word -- `end_unapply_template` only sets `.output` when `unapplied`, so "no `output`" identifies this exit.
     let mut template_outputs = Vec::new();
     find_all_by_type(
         &sink,
@@ -294,11 +249,7 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
             .collect::<Vec<_>>()
     );
 
-    // The RECURSED (fully-consumed) level exits `unapplied=true` for the UNAPPLIED "sag" word
-    // (`AnalysisAffixTemplateRule.cs:77-78`) -- and THAT word's own trace cursor was already
-    // reassigned by the already-wired rule-level `MorphologicalRuleUnapplied` event
-    // (`morph.rs::ana_affix_cached_traced`), so this exit nests UNDER that rule event, not as a
-    // second sibling of the bookends above.
+    // The RECURSED (fully-consumed) level exits `unapplied=true` for the UNAPPLIED "sag" word, and that word's cursor was already reassigned by the rule-level event, so this exit nests UNDER that rule event, not as a second sibling of the bookends above.
     let mut mrule_events = Vec::new();
     find_all_by_type(
         &sink,
@@ -322,11 +273,7 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
          its word (the reassigned trace cursor), not float as a root sibling"
     );
 
-    // The per-word EndUnapplyStratum for the SURVIVING unapplied word ("sag") is subject to the
-    // exact same cursor-reassignment rule (`AnalysisStratumRule.cs:141-143`, C#'s `output.Add(...)`
-    // unconditional-then-trace idiom -- see `analyze`'s own doc comment): find a SECOND
-    // StratumAnalysisOutput and confirm it nests under a MorphologicalRuleAnalysis event too,
-    // rather than becoming a second direct child of root.
+    // The per-word EndUnapplyStratum for the SURVIVING unapplied word is subject to the same cursor-reassignment rule: find a SECOND StratumAnalysisOutput nested under a MorphologicalRuleAnalysis event, not a second direct child of root.
     let mut stratum_outputs = Vec::new();
     find_all_by_type(
         &sink,
@@ -350,8 +297,7 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
          produced it, not directly under root"
     );
 
-    // `LexicalLookup` (G4's fifth site, `Morpher::lexical_lookup_filtered`) fires during
-    // synthesis-confirmation for the surviving analysis candidate(s).
+    // `LexicalLookup` fires during synthesis-confirmation for the surviving analysis candidate(s).
     let mut lex = Vec::new();
     find_all_by_type(&sink, root, TraceType::LexicalLookup, &mut lex);
     assert!(
@@ -360,9 +306,7 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
     );
 }
 
-/// `pg_rules::trace::NoopSink`'s five G4 methods are all `unreachable!()` (see that module's
-/// doc): a successful, non-panicking untraced parse over the SAME template grammar is direct
-/// proof none of them were invoked on that path.
+/// `pg_rules::trace::NoopSink`'s five G4 methods are all `unreachable!()`: a successful, non-panicking untraced parse over the SAME template grammar is direct proof none were invoked on that path.
 #[test]
 fn g4_events_do_not_fire_when_tracing_is_off() {
     let g = template_grammar();
@@ -382,13 +326,7 @@ fn g4_events_do_not_fire_when_tracing_is_off() {
     );
 }
 
-/// `Morpher.cs` fires `LexicalLookup` from TWO sites -- the real-lexicon path
-/// (`LexicalLookup`/`Morpher.cs:349-371`, exercised above) and the guesser path
-/// (`LexicalGuess`/`Morpher.cs:373+`, `guess::lexical_guess` here). This grammar (duplicated from
-/// `guesser_gate.rs`'s own fixture, self-contained per this file's existing convention) has NO
-/// entry any real word can match at all -- only a lexical-PATTERN entry, which never enters the
-/// trie (P11) -- so a guess-root parse reaches `lexical_guess` exclusively, confirming the second
-/// site independently of the first.
+/// `Morpher.cs` fires `LexicalLookup` from TWO sites: the real-lexicon path (exercised above) and the guesser path. This grammar has no entry any real word can match, only a lexical-PATTERN entry, so a guess-root parse reaches `lexical_guess` exclusively, confirming the second site independently.
 fn guess_only_grammar() -> pg_grammar::model::Grammar {
     let xml = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -428,9 +366,7 @@ fn g4_lexical_lookup_fires_on_the_guess_path_too() {
     let g = guess_only_grammar();
     let m = Morpher::new(&g, usize::MAX);
     let sink = TreeTraceSink::new();
-    // `guess_only` skips `lexical_lookup_filtered`'s own real-lexicon loop entirely (the OTHER
-    // `LexicalLookup` call site, already confirmed by the test above) -- isolating this test to
-    // the guess path (`guess::lexical_guess`) exclusively.
+    // `guess_only` skips `lexical_lookup_filtered`'s real-lexicon loop entirely, isolating this test to the guess path (`guess::lexical_guess`) exclusively.
     let opts = ParseOptions::default()
         .with_guess_root(true)
         .with_guess_only(true);
@@ -450,12 +386,7 @@ fn g4_lexical_lookup_fires_on_the_guess_path_too() {
     );
 }
 
-/// Real-corpus fixture (self-skips if the untracked sample corpus isn't present on disk, matching
-/// `reduplication_gate.rs`'s existing convention): empirically confirmed (via this same tracing
-/// machinery, during this chunk's development) that Indonesian's "memaca" produces at least one
-/// synthesis candidate that passes `is_word_valid_traced` but is rejected by `is_match_traced` with
-/// `SurfaceFormMismatch` -- the real grammar naturally exercises the third wired reason, not just a
-/// hand-built one.
+/// Real-corpus fixture, self-skips if the untracked sample corpus isn't present on disk: a real grammar naturally exercising the third wired reason (`SurfaceFormMismatch`), not just a hand-built one.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn real_indonesian_word_exercises_surface_form_mismatch() {

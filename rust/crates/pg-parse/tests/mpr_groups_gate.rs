@@ -1,14 +1,4 @@
-//! Conformance replay for W3.1 (MPR feature groups): `rust/conformance/mpr-groups/{required-all,
-//! output-overwrite}`. Both `expected.tsv` files are C#-oracle-generated (parse-opt @ `ccf750e6`);
-//! see each fixture's README for the grammar design and the distinguishing rows.
-//!
-//! Red-on-revert:
-//! - `required-all`: revert `Grammar::mpr_group_ok` (back to flat `have.overlaps(required)`) and
-//!   `sodz` starts parsing (`+|sodz` vs the oracle's `-`) — the All-group's second member is no
-//!   longer demanded.
-//! - `output-overwrite`: revert `Grammar::mpr_add_output` (back to plain union) and `yxpitz`
-//!   starts parsing — ruleY's Overwrite no longer drops the group-sibling `mprA` that ruleZ
-//!   requires.
+//! Conformance replay for W3.1 (MPR feature groups) against C#-oracle-generated `rust/conformance/mpr-groups/{required-all,output-overwrite}` fixtures; see each fixture's README for grammar design.
 
 use std::path::{Path, PathBuf};
 
@@ -22,8 +12,7 @@ fn fixture_dir(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// Parse `expected.tsv`'s completed rows (`idx \t word \t ms \t status \t signature`) into
-/// `(word, status, signature)` triples, skipping the interleaved `STARTED` sentinel rows.
+/// Parses `expected.tsv`'s completed rows into `(word, status, signature)` triples, skipping the interleaved `STARTED` sentinel rows.
 fn expected_rows(dir: &Path) -> Vec<(String, String, String)> {
     let text = std::fs::read_to_string(dir.join("expected.tsv")).expect("read expected.tsv");
     text.lines()
@@ -65,8 +54,7 @@ fn replay(fixture: &str) {
     }
 }
 
-/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
-/// runs (CI's release sweep included) must not panic on the missing directory.
+/// Self-skip guard: `rust/conformance/` isn't a submodule yet, so `--include-ignored` runs must not panic on the missing directory.
 fn have_fixture(name: &str) -> bool {
     fixture_dir(name).join("grammar.xml").exists()
 }

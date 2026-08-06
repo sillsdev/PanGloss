@@ -315,8 +315,7 @@ mod tests {
 
     #[test]
     fn fst_profile_stage_label_is_stable_and_exhaustive() {
-        // Closed-enum discipline (crate::health's own convention): every variant has a label, no
-        // catch-all arm above -- adding a stage breaks this file's own match until labeled.
+        // Closed-enum discipline: every variant has a label and there is no catch-all arm, so adding a stage breaks this match until labeled.
         for stage in [
             CompileStage::SurfaceSetup,
             CompileStage::RootCollection,
@@ -358,8 +357,7 @@ mod tests {
 
     #[test]
     fn fst_profile_finish_with_no_compiled_network_leaves_counts_none() {
-        // The production path can bail out (budget trip, empty roots) before ever reaching a
-        // compiled network -- `None`, never a fabricated `0`.
+        // The production path can bail out before ever reaching a compiled network -- `None`, never a fabricated `0`.
         let profile = CompileProfileBuilder::production().finish(None, None);
         assert_eq!(profile.final_state_count, None);
         assert_eq!(profile.final_arc_count, None);
@@ -378,9 +376,7 @@ mod tests {
 
     #[test]
     fn fst_profile_experimental_composition_label_is_distinct_from_production() {
-        // An experimental cascade's profile is labeled early: the label exists and is distinguishable
-        // from Production, even though nothing outside this test constructs one (see
-        // module doc "Scope: the production path only").
+        // An experimental cascade's profile is labeled early and distinguishable from Production, even though nothing outside this test constructs one.
         assert_ne!(
             ProfileLabel::Production,
             ProfileLabel::ExperimentalComposition

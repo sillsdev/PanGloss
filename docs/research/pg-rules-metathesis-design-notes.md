@@ -166,6 +166,59 @@ segment identity. C#'s `Union` has no analogous per-node identity dimension to r
 `FeatureStruct` algebra), so this is this port's own addition to a representation gap C# does not
 have — not a divergence in engine behavior.
 
+## Public API: `match_candidates`, `seg_range_to_nodes`
+
+`match_candidates` finds every distinct match of `pattern` over `segs`, each with its
+`ENTIRE_MATCH`/`LEFT_GROUP`/`RIGHT_GROUP` capture offsets, sorted ascending and deduped — mirroring
+`pg_rules::rewrite::all_spans`'s convention, extended with the two named group offsets
+`pg_rules::rewrite`'s single-pattern rules never need (metathesis is the first rule kind whose
+mutation is driven by which sub-span matched, not just "the whole pattern matched here"). Passes
+`pattern`'s already traversal-relative anchor flags through to `Transduce::anchored`, matching how
+every anchor-bearing pattern in this crate is enforced (an anchor is a call-site flag, never baked
+into the compiled `Fst` itself).
+
+`seg_range_to_nodes` translates a segment-index range to the `ms.nodes` indices it covers, via
+`node_of` (`ms.segs(...)`'s second return value).
+
+## Phonological rule tracing (synthesis side)
+
+C# `SynthesisMetathesisRule.Apply` (`PhonologicalRules/SynthesisMetathesisRule.cs:35-55`) is the
+simplest of the four phonological-rule trace call sites: one compiled pattern, no subrules, no
+MPR/POS gate, so there is no per-subrule side channel to build — just
+`PhonologicalRuleApplied(_rule, -1, origInput, input)` on success or
+`PhonologicalRuleNotApplied(_rule, -1, input, FailureReason.Pattern, null)` on failure, subrule index
+always -1 either way (cs:47,52). `FailureReason::Pattern` is the only reason a metathesis rule can
+ever report, since there is no gate to decompose the way rewrite's subrules have.
+
+`report_metathesis_synth` is the shared readout for `synthesize_traced`/`synthesize_cached_traced`:
+`result` is what the untraced `synthesize`/`synthesize_cached` already returned — empty means
+`NotApplied(Pattern)` (using the original input), non-empty means `Applied` (using the rewritten
+shape).
+
+## Phonological rule tracing (analysis side)
+
+C# `AnalysisMetathesisRule.Apply` (`PhonologicalRules/AnalysisMetathesisRule.cs:38-58`): same
+single-pattern, no-subrule shape as the synthesis side, but the analysis event pair carries no
+`FailureReason` at all (`ITraceManager.cs:42-43`) — `PhonologicalRuleUnapplied(_rule, -1, origInput,
+input)` on success, `PhonologicalRuleNotUnapplied(_rule, -1, input)` on failure (cs:49-55).
+`crate::stratum::StratumAnalyzer::analyze` dispatches to `analyze_traced`/`analyze_cached_traced`,
+which fast-path straight back to the untraced call whenever tracing is off, so every pre-existing
+production caller is unaffected. `report_metathesis_analysis` is the shared readout, mirroring
+`report_metathesis_synth` but with no `FailureReason` attached, matching C# exactly.
+
+## `MetaCache`
+
+`ana_pattern_len` (`non_anchor_count` of the rebuilt analysis pattern's nodes) is cached rather than
+recomputed by re-running `build_analysis_pattern` on every `analyze_cached` call, because that
+rebuild is `&Grammar`-aware (`is_boundary_node`) and `analyze_cached` itself has no `&Grammar` in
+scope (only `build_meta_cache` does).
+
+`table_id` is the rule's own owning table, already resolved once by
+`crate::cache::owning_table_for_prule`/`RuleCache::build`, never a guess. `synthesize_cached`
+resolves this back into the actual `CharDefTable` that `synthesis_reorder`'s per-node validity check
+reads. Stored as an id rather than a borrowed table reference to sidestep this cache's own lifetime:
+it outlives any one `&Grammar` borrow across `pg_parse::Morpher::new`'s construction.
+
 ## `is_boundary_node`
 
 Whether `node` lowers to a `NodeKind::Boundary` shape node at segmentation time — the only

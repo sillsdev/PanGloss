@@ -1,8 +1,4 @@
-//! Providers derive from the shared `GrammarSemantics` and from nothing else.
-//!
-//! Synthetic, delanguaged fixtures only (no natural-language names, per this repo's standing
-//! conformance rule), built through `pg_grammar::load` exactly as `capability.rs`'s own test module
-//! does.
+//! Providers derive from the shared `GrammarSemantics` and from nothing else. Synthetic fixtures only, built through `pg_grammar::load`.
 
 use pg_foma::capability::CharacteristicKind;
 use pg_foma::enumerate::EmissionStrategy;
@@ -17,9 +13,7 @@ fn load(xml: &str) -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// A single affixation rule whose only allomorph carries `redupMorphType="prefix"` -- a
-/// `ReduplicationHint` -- while its output copies its one input part EXACTLY ONCE. The hint is
-/// therefore inert: nothing is reduplicated.
+/// A single affixation rule carrying a `ReduplicationHint` whose output copies its one input part EXACTLY ONCE, so the hint is inert: nothing is reduplicated.
 const INERT_REDUPLICATION_HINT_XML: &str = r#"<HermitCrabInput><Language><Name>InertHint</Name>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions>
@@ -58,8 +52,7 @@ const INERT_REDUPLICATION_HINT_XML: &str = r#"<HermitCrabInput><Language><Name>I
   </Strata>
 </Language></HermitCrabInput>"#;
 
-/// The same shape, but the output copies its one input part TWICE -- real reduplication, which
-/// `rhs_has_true_reduplication` (the single authority) recognizes.
+/// The same shape, but the output copies its one input part TWICE -- real reduplication, recognized by `rhs_has_true_reduplication`.
 const TRUE_REDUPLICATION_XML: &str = r#"<HermitCrabInput><Language><Name>TrueRedup</Name>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions>
@@ -99,14 +92,7 @@ const TRUE_REDUPLICATION_XML: &str = r#"<HermitCrabInput><Language><Name>TrueRed
   </Strata>
 </Language></HermitCrabInput>"#;
 
-/// Two MPR-gated phonological subrules over six lexical entries, so
-/// `gate::partition_entries` produces FOUR groups and two of them have more than one member.
-///
-/// This fixture is what makes the byte-identity test non-vacuous. `partition_entries` collects
-/// into a `HashMap` and each group's `entries` is a `HashSet`; without
-/// `GrammarSemantics::entry_partition`'s group sort AND the provider's member sort, the derived
-/// `StaticPartition` body is in hash order and the projection differs between runs. The other
-/// fixtures never build a `StaticPartition` node at all, so they cannot exercise either sort.
+/// Two MPR-gated phonological subrules over six lexical entries, so `gate::partition_entries` produces FOUR groups, two with more than one member -- what makes the byte-identity test non-vacuous, since `partition_entries` collects into a `HashMap` and needs both the group and member sorts to be stable.
 const GATED_PARTITION_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput><Language><Name>GatedPartition</Name>
   <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
@@ -155,14 +141,7 @@ const GATED_PARTITION_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
   </Strata>
 </Language></HermitCrabInput>"#;
 
-/// A grammar declaring one table and one otherwise-empty stratum: no rules, no entries, no
-/// natural classes.
-///
-/// This is NOT an observation-free grammar, and finding that out is worth recording.
-/// `capability::characterize` raises one `OrderedMorphRuleApplication` per stratum
-/// unconditionally, from the stratum's default `MorphRuleOrder::Linear` -- so the minimum any
-/// loadable grammar can observe is one construct per stratum, and the truly-empty graph is
-/// unreachable from a loadable fixture.
+/// A grammar declaring one table and one otherwise-empty stratum. NOT an observation-free grammar: `capability::characterize` raises one `OrderedMorphRuleApplication` per stratum unconditionally, so a truly-empty graph never occurs for a loadable fixture.
 const MINIMAL_XML: &str = r#"<HermitCrabInput><Language><Name>Minimal</Name>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions>
@@ -178,19 +157,9 @@ fn kinds(graph: &pg_foma::recipe_mechanism::MechanismGraph) -> Vec<MechanismKind
     graph.nodes.iter().map(|n| n.kind()).collect()
 }
 
-// ---------------------------------------------------------------------------------------------
 // REQUIRED TEST 1: canonical graph identity is byte-identical across a fresh load.
-// ---------------------------------------------------------------------------------------------
 
-/// Two INDEPENDENT loads of the same source, each with its own `GrammarSemantics`, must produce
-/// graphs that are equal as data and byte-identical as a projection.
-///
-/// This is not free. Every collection reaching the projection has a source whose natural order is
-/// a hash order: `gate::partition_entries` returns `HashMap` iteration order (which is why
-/// `GrammarSemantics::entry_partition` sorts by gate key), a group's `entries` is a `HashSet`
-/// (which is why the provider sorts members), and grouping the observations goes through a map
-/// (which is why it is a `BTreeMap` and the node order is `COMPOSITION_ORDER`). Remove any one of
-/// those and this assertion fails on a rerun.
+/// Two INDEPENDENT loads of the same source, each with its own `GrammarSemantics`, must produce graphs that are equal as data and byte-identical as a projection -- not free, since every collection reaching the projection has a hash-order source that needs an explicit sort to stay stable.
 #[test]
 fn canonical_graph_identity_is_byte_identical_across_a_fresh_load() {
     for xml in [
@@ -211,8 +180,7 @@ fn canonical_graph_identity_is_byte_identical_across_a_fresh_load() {
             "two fresh loads produced different canonical projections"
         );
 
-        // ...and re-deriving from the SAME semantics is stable too, so a memoized field cannot
-        // hand the second caller a different answer than the first.
+        // ...and re-deriving from the SAME semantics is stable too, so a memoized field can't hand the second caller a different answer.
         let semantics = GrammarSemantics::derive(&g1);
         assert_eq!(
             derive_mechanism_graph(&semantics).canonical_projection(),
@@ -223,18 +191,9 @@ fn canonical_graph_identity_is_byte_identical_across_a_fresh_load() {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // REQUIRED TEST 2: an inert hint creates no mechanism.
-// ---------------------------------------------------------------------------------------------
 
-/// A `ReduplicationHint` on an allomorph that does not actually reduplicate must create NO
-/// `CopyProcess` mechanism -- and the second half of the test is what makes the first half mean
-/// something: the identically-shaped grammar that DOES reduplicate creates exactly one.
-///
-/// The repo's standing trap here is the `redup_hint != Implicit` shortcut, which
-/// `rhs_has_true_reduplication`'s own doc names. The provider is immune to it by construction: it
-/// never reads the hint, only `characterize`'s observations, and `characterize` uses the structural
-/// test. This pins that the immunity is real rather than incidental.
+/// A `ReduplicationHint` on an allomorph that doesn't actually reduplicate must create NO `CopyProcess` mechanism, and the identically-shaped grammar that DOES reduplicate must create exactly one -- pinning that the provider is immune to the `redup_hint != Implicit` shortcut trap by construction.
 #[test]
 fn an_inert_reduplication_hint_creates_no_copy_process_mechanism() {
     let inert = load(INERT_REDUPLICATION_HINT_XML);
@@ -296,17 +255,9 @@ fn an_inert_reduplication_hint_creates_no_copy_process_mechanism() {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Structure of a derived graph.
-// ---------------------------------------------------------------------------------------------
 
-/// A mechanism exists because a construct was OBSERVED -- so a grammar observing one construct
-/// derives one mechanism (plus the terminal cleanup), and the other FOUR are absent. No skeleton
-/// of six empty nodes, and no mechanism standing in for a construct the grammar does not contain.
-///
-/// The one construct is not a choice of fixture: `characterize` raises
-/// `OrderedMorphRuleApplication` for every stratum unconditionally, so this is the floor for any
-/// loadable grammar.
+/// A mechanism exists because a construct was OBSERVED, so a grammar observing one construct derives one mechanism (plus terminal cleanup) with the other FOUR absent -- the one construct is not a fixture choice, since `characterize` raises `OrderedMorphRuleApplication` for every stratum unconditionally.
 #[test]
 fn a_minimal_grammar_derives_only_the_mechanisms_its_observations_justify() {
     let g = load(MINIMAL_XML);
@@ -344,9 +295,7 @@ fn a_minimal_grammar_derives_only_the_mechanisms_its_observations_justify() {
     assert_eq!(graph.edges.len(), 1);
 }
 
-/// Nodes appear in the single canonical composition order, edges chain the present ones, and the
-/// terminal mechanism is always cleanup. There is exactly one such order -- no permutation of it is
-/// representable, because Wave 3 measured plan-shape permutation to vary nothing.
+/// Nodes appear in the single canonical composition order, edges chain the present ones, and the terminal mechanism is always cleanup -- no permutation of that order is representable.
 #[test]
 fn a_derived_graph_is_a_canonical_spine_terminating_in_cleanup() {
     let g = load(TRUE_REDUPLICATION_XML);
@@ -370,8 +319,7 @@ fn a_derived_graph_is_a_canonical_spine_terminating_in_cleanup() {
         "not a single chain"
     );
 
-    // Cleanup's source is the character table it cleans -- the one source kind with no
-    // `ModelLocation` counterpart -- and its body carries the table's own boundary inventory.
+    // Cleanup's source is the character table it cleans -- the one source kind with no `ModelLocation` counterpart -- and its body carries the table's boundary inventory.
     let cleanup = graph
         .node(&MechanismId(
             MechanismKind::BoundaryCleanup.label().to_owned(),
@@ -389,10 +337,7 @@ fn a_derived_graph_is_a_canonical_spine_terminating_in_cleanup() {
     }
 }
 
-/// The `StaticPartition` body really is the deterministically-ordered projection of the real
-/// partition mechanism: groups ascending by gate key, members ascending within each group, and the
-/// group count agreeing with `GrammarSemantics::partition_count`. Both orderings have a hash-order
-/// source, so this is what the byte-identity assertion above actually rides on.
+/// The `StaticPartition` body is deterministically ordered: groups ascending by gate key, members ascending within each group, group count agreeing with `GrammarSemantics::partition_count` -- what the byte-identity assertion above actually rides on.
 #[test]
 fn the_static_partition_body_is_sorted_by_gate_key_and_by_member() {
     let g = load(GATED_PARTITION_XML);
@@ -435,9 +380,7 @@ fn the_static_partition_body_is_sorted_by_gate_key_and_by_member() {
         .contains(&CharacteristicKind::SubruleGating));
 }
 
-/// Every node's typed sources trace back to a real characteristic observation (or, for cleanup, to
-/// the character table), and every requirement is a construct that was actually observed. A
-/// mechanism cannot appear for a construct the grammar does not contain.
+/// Every node's typed sources trace back to a real characteristic observation (or, for cleanup, to the character table), and every requirement is a construct that was actually observed.
 #[test]
 fn every_requirement_and_source_traces_to_an_observation() {
     let g = load(TRUE_REDUPLICATION_XML);

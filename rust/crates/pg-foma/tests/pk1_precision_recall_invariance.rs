@@ -1,44 +1,5 @@
-//! The recall-invariance harness for the FST precision knob's step-1 `AllFlags` preset
-//! (`pg_foma::precision`) — THE key property: the knob is performance-only, so the composite
-//! propose→confirm path must reach IDENTICAL confirmed analyses at `PrecisionConfig::Strip`
-//! (default) and `PrecisionConfig::AllFlags`, and the raw candidate set must only ever SHRINK
-//! (never gain a candidate) between them.
-//!
-//! ## Why this file drives `apply_up`/peel/confirm directly instead of `FomaAnalyzer`
-//! `pg_foma::composite::FomaAnalyzer::new`/`pg_foma::analyzer::FomaProposer::new` both hardcode
-//! `emit::emit(g)` (`PrecisionConfig::Strip`) internally, and this task's ownership is scoped to
-//! `emit.rs`/`precision.rs`/`lib.rs`/new tests only — `analyzer.rs`/`composite.rs` are left
-//! untouched. So this file reimplements the SAME propose→confirm composite
-//! (`crate::composite::FomaAnalyzer::analyze_word`'s own doc names the pipeline: `propose(word)`
-//! UNION `peel_candidates(word, propose)`, deduped by `(morphemes, root_index)`, then
-//! `confirm_batch`) using only PUBLIC building blocks: `pg_foma::emit::emit_with_precision` to get
-//! a lexc source for either preset, the `foma` crate directly to compile+`apply_up` it (mirroring
-//! `FomaProposer::propose`'s own logic via `pg_foma::tags::{decode_path, to_candidates}`), and
-//! `pg_foma::peel`/`pg_foma::confirm`'s already-`pub` pieces (`ReduplicationPeeler`,
-//! `build_morpheme_owners`, `confirm_batch`) verbatim — the SAME peel/confirm machinery every
-//! other gate in this crate exercises, just re-plumbed to accept either compiled network.
-//!
-//! ## Non-vacuity (guards against a knob that "passes" by doing nothing — advisor guidance)
-//! Indonesian declares zero environment constraints at all (`pg_grammar` XML has no
-//! `RequiredEnvironments`/`ExcludedEnvironments` element), so `AllFlags` there is CORRECTLY
-//! byte-identical to `Strip` — proves nothing about the mechanism biting. Sena DOES have real
-//! coverable instances (`pg_foma::precision`'s own catalog test:
-//! `precision::tests::sena_catalog_finds_the_expected_left_literal_instances`). This file asserts,
-//! for Sena specifically: (a) the `AllFlags` lexc source actually contains flag-diacritic symbols;
-//! (b) at least one Sena corpus word's raw candidate set is a STRICT subset under `AllFlags`
-//! (fewer candidates than `Strip`, not just an equal-size coincidence) — i.e. the flags visibly
-//! prune something, not merely compile to a no-op.
-//!
-//! ## Test-timing policy
-//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
-//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all — every test
-//! in this file loads one, so ALL FOUR (including the otherwise-fast
-//! `emit_and_emit_with_precision_strip_are_the_same_call`) are unconditionally
-//! `#[ignore = "..."]`d, replacing the old `cfg_attr(debug_assertions, ...)` debug-only ignore on
-//! the three engine-oracle tests. `load_grammar`'s existing `Option`-returning self-skip already
-//! keeps `--include-ignored` runs green where the fixture is absent (CI); the `#[ignore]` is what
-//! keeps them out of the default run at all, run speed aside. Run the full set locally with
-//! `cargo test -p pg-foma --release --test pk1_precision_recall_invariance -- --include-ignored`.
+//! The recall-invariance harness for the FST precision knob's step-1 `AllFlags` preset: the knob is performance-only, so the composite propose→confirm path must reach IDENTICAL confirmed analyses at `PrecisionConfig::Strip` and `AllFlags`, and the raw candidate set must only ever SHRINK between them. All four tests here are `#[ignore]`d and depend on gitignored real-language corpus fixtures.
+//! See `docs/research/pg-foma-precision-design-notes.md` for why this file drives `apply_up`/peel/confirm directly instead of `FomaAnalyzer`, and the non-vacuity argument for Sena vs Indonesian.
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
@@ -79,9 +40,7 @@ fn read_words(name: &str) -> Vec<String> {
         .collect()
 }
 
-/// Emit `g` under `precision` and foma-compile it — panics loudly (not gracefully) on a compile
-/// failure, since that itself is exactly the kind of "AllFlags broke the network" finding this
-/// harness exists to catch.
+/// Emit `g` under `precision` and foma-compile it -- panics loudly on a compile failure, since that itself is exactly the kind of "AllFlags broke the network" finding this harness exists to catch.
 fn compile(g: &Grammar, precision: PrecisionConfig) -> (Fsm, EmitResult) {
     let result = emit::emit_with_precision(g, precision);
     let opts = FomaOptions::default();
@@ -97,10 +56,7 @@ fn compile(g: &Grammar, precision: PrecisionConfig) -> (Fsm, EmitResult) {
     (net, result)
 }
 
-/// Mirrors `pg_foma::analyzer::FomaProposer::propose` exactly (same NFD normalization, same
-/// `decode_path`/`to_candidates`/dedup-by-`(morphemes, root_index)`-preserving-first-seen-order
-/// convention) but against a caller-supplied network instead of an owned `FomaProposer`, so the
-/// SAME adapter works for both the `Strip` and `AllFlags` compiled nets.
+/// Mirrors `pg_foma::analyzer::FomaProposer::propose` exactly, but against a caller-supplied network instead of an owned `FomaProposer`, so the SAME adapter works for both the `Strip` and `AllFlags` compiled nets.
 fn propose(net: &Fsm, word: &str) -> Vec<Candidate> {
     let normalized = pg_grammar::nfd::nfd(word);
     let mut handle = apply_init(net);
@@ -120,9 +76,7 @@ fn propose(net: &Fsm, word: &str) -> Vec<Candidate> {
     out
 }
 
-/// `(morphemes, root_index)` key set for a candidate slice -- the identity `crate::confirm`'s
-/// `analyses_match`/this harness's subset and equality checks are keyed on throughout (plan §2:
-/// "Allomorph IDs are NOT part of candidate identity").
+/// `(morphemes, root_index)` key set for a candidate slice -- the identity this harness's subset and equality checks are keyed on throughout.
 fn candidate_keys(cands: &[Candidate]) -> BTreeSet<(Vec<u32>, i32)> {
     cands
         .iter()
@@ -130,9 +84,7 @@ fn candidate_keys(cands: &[Candidate]) -> BTreeSet<(Vec<u32>, i32)> {
         .collect()
 }
 
-/// `propose(word)` UNION `peeler.peel_candidates(word, propose)`, deduped by `(morphemes,
-/// root_index)` -- exactly `FomaAnalyzer::analyze_word`'s own candidate-assembly step (that
-/// module's doc), reimplemented here against a caller-supplied net (module doc's "why this file...").
+/// `propose(word)` UNION `peeler.peel_candidates(word, propose)`, deduped by `(morphemes, root_index)` -- `FomaAnalyzer::analyze_word`'s candidate-assembly step, reimplemented here against a caller-supplied net.
 fn propose_and_peel(
     net: &Fsm,
     g: &Grammar,
@@ -140,9 +92,7 @@ fn propose_and_peel(
     word: &str,
 ) -> Vec<Candidate> {
     let mut candidates = propose(net, word);
-    // Reference-grammar/edge-case words, never an adversarial synthetic stress string -- an
-    // unbounded chain-depth budget is safe here (`pg_foma::peel`'s own module doc, "Chain depth
-    // and nested reduplication", ADR 0003).
+    // Reference-grammar/edge-case words, never an adversarial synthetic stress string -- an unbounded chain-depth budget is safe here.
     let budget = ComposeBudget::from_env();
     let peeled = peeler
         .peel_candidates(g, word, &budget, &mut |r: &str| propose(net, r))
@@ -158,10 +108,7 @@ fn propose_and_peel(
     candidates
 }
 
-/// `confirm_batch` + flatten to the `(morpheme_ids, root_morpheme_index)` multiset key
-/// `f4_composite_gate.rs`'s own `structured_multiset` uses, for comparing against the OTHER
-/// preset's confirmed set (not against the full engine here -- that parity is every OTHER gate's
-/// job; this harness's only question is Strip-vs-AllFlags agreement).
+/// `confirm_batch` + flatten to the `(morpheme_ids, root_morpheme_index)` multiset key, for comparing against the OTHER preset's confirmed set -- this harness's only question is Strip-vs-AllFlags agreement, not full-engine parity.
 fn confirmed_multiset(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
@@ -179,17 +126,12 @@ fn confirmed_multiset(
     m
 }
 
-/// One grammar's precision-recall-invariance run: builds both compiled nets ONCE, then for every
-/// word in `words` asserts (1) upward-only candidates (`AllFlags` keys ⊆ `Strip` keys) and (2)
-/// identical confirmed multisets. Returns whether AT LEAST ONE word saw a STRICTLY smaller
-/// `AllFlags` candidate set (module doc, "Non-vacuity") -- callers decide whether that's required.
+/// One grammar's precision-recall-invariance run: builds both compiled nets ONCE, asserts upward-only candidates and identical confirmed multisets per word, and returns whether AT LEAST ONE word saw a STRICTLY smaller `AllFlags` candidate set (callers decide whether that's required).
 fn run_invariance(g: &Grammar, words: &[String]) -> bool {
     let (net_strip, result_strip) = compile(g, PrecisionConfig::Strip);
     let (net_allflags, result_allflags) = compile(g, PrecisionConfig::AllFlags);
 
-    // Sanity: uncovered-construct counts must be identical between presets (the knob never adds or
-    // removes what's REPRESENTABLE, only how it's compiled) -- a divergence here would mean
-    // `PrecisionEmit`'s wiring accidentally perturbed something outside its own gate logic.
+    // Sanity: uncovered-construct counts must be identical between presets -- the knob never adds or removes what's REPRESENTABLE, only how it's compiled.
     assert_eq!(
         result_strip.report.uncovered.len(),
         result_allflags.report.uncovered.len(),
@@ -236,24 +178,12 @@ fn run_invariance(g: &Grammar, words: &[String]) -> bool {
     saw_strict_shrink
 }
 
-// -------------------------------------------------------------------------------------------
-// Sena: real coverable ENVIRONMENT instances exist (root-side /ma_//na_, rule-side /mb_) --
-// the harness's main, non-vacuous target.
-// -------------------------------------------------------------------------------------------
+// Sena: real coverable ENVIRONMENT instances exist -- the harness's main, non-vacuous target.
 
-/// How many Sena corpus words this gate scans. Each word here runs propose+peel+confirm FOUR
-/// times over (Strip candidates, AllFlags candidates, Strip confirm, AllFlags confirm), so this
-/// stays well under `f4_composite_gate.rs`'s own "40 words" mini-parity budget.
+/// How many Sena corpus words this gate scans. Each word runs propose+peel+confirm FOUR times over, so this stays well under `f4_composite_gate.rs`'s "40 words" mini-parity budget.
 const SENA_SCAN_WORDS: usize = 30;
 
-/// Fast focused regression for the specific word ("miseru") whose recall the FIRST version of the
-/// `AllFlags` set-side broke (module doc / `precision.rs` findings: a missing `@P@` value zeroed
-/// every `@R@` gate, and a whole-literal-only `ends_with` under-set boundary-spanning contexts).
-/// Compiles the two Sena nets once (~1 min in release) and confirms a HANDFUL of words at both
-/// presets — orders of magnitude faster than `sena_precision_recall_invariance`'s full-corpus
-/// scan, so the fix can be iterated without paying the whole-corpus engine-oracle cost each time.
-/// Asserts only the confirmed-set identity (recall) here; non-vacuity (strict shrink) is the
-/// full-corpus test's job.
+/// Fast focused regression for the specific word ("miseru") whose recall the FIRST version of the `AllFlags` set-side broke: compiles the two Sena nets once and confirms a HANDFUL of words at both presets, orders of magnitude faster than the full-corpus test, so a fix can be iterated cheaply.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_miseru_focused_recall_invariance() {
@@ -265,8 +195,7 @@ fn sena_miseru_focused_recall_invariance() {
         .iter()
         .map(|s| s.to_string())
         .collect();
-    // `run_invariance`'s per-word assertions (AllFlags ⊆ Strip candidates; Strip == AllFlags
-    // confirmed multiset) are exactly the recall property; a panic here pins the regression.
+    // `run_invariance`'s per-word assertions are exactly the recall property; a panic here pins the regression.
     let saw_strict_shrink = run_invariance(&g, &words);
     println!("focused miseru run: saw_strict_candidate_shrink={saw_strict_shrink}");
 }
@@ -279,12 +208,9 @@ fn sena_precision_recall_invariance() {
         return;
     };
 
-    // Non-vacuity guard (a): the AllFlags source must actually contain flag-diacritic symbols for
-    // this grammar -- if this ever fails, the catalog stopped finding Sena's coverable instances
-    // (a regression in `precision::classify`, not a property of Sena itself).
+    // Non-vacuity guard (a): the AllFlags source must actually contain flag-diacritic symbols for this grammar, or the catalog stopped finding Sena's coverable instances.
     let (_, result_allflags) = compile(&g, PrecisionConfig::AllFlags);
-    // NB: flag NAMES are dot-free (`precision::flag_id` -- `@R.ENV7.y@`, never `@R.ENV.0007@`;
-    // see that module's flag_check/zero-digit findings), so match `@R.ENV` without a trailing dot.
+    // NB: flag NAMES are dot-free (`precision::flag_id`), so match `@R.ENV` without a trailing dot.
     assert!(
         result_allflags.lexc_source.contains("@R.ENV"),
         "Sena's AllFlags lexc source must contain at least one owner-side ENV require flag \
@@ -305,11 +231,7 @@ fn sena_precision_recall_invariance() {
     );
 
     let saw_strict_shrink = run_invariance(&g, &words);
-    // Non-vacuity guard (b): among the scanned words, AllFlags must have actually pruned at least
-    // one raw candidate somewhere -- otherwise every assertion above passed vacuously (the flags
-    // compiled but never bit). If this fails, widen `SENA_SCAN_WORDS` or re-check that the
-    // coverable instances' literals actually occur adjacent to their gated allomorphs in real
-    // corpus words before concluding the mechanism itself is inert.
+    // Non-vacuity guard (b): among the scanned words, AllFlags must have pruned at least one raw candidate, or every assertion above passed vacuously.
     assert!(
         saw_strict_shrink,
         "expected AllFlags to strictly shrink the raw candidate set for at least one of the first \
@@ -318,11 +240,7 @@ fn sena_precision_recall_invariance() {
     );
 }
 
-// -------------------------------------------------------------------------------------------
-// Indonesian: zero environment constraints declared at all -- AllFlags is CORRECTLY
-// byte-identical to Strip here (`precision::tests::indonesian_catalog_is_empty`), so this leg
-// only asserts the identity/subset properties hold (trivially), not non-vacuity.
-// -------------------------------------------------------------------------------------------
+// Indonesian: zero environment constraints declared -- AllFlags is CORRECTLY byte-identical to Strip here, so this leg only asserts identity/subset holds trivially, not non-vacuity.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
@@ -350,17 +268,12 @@ fn indonesian_precision_recall_invariance() {
     let _saw_strict_shrink = run_invariance(&g, &words);
 }
 
-// -------------------------------------------------------------------------------------------
-// The Strip default's byte-identity property, in one direct assertion (no engine oracle needed --
-// fast, runs in BOTH debug and release).
-// -------------------------------------------------------------------------------------------
+// The Strip default's byte-identity property, in one direct assertion.
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/{sena,indonesian}-hc.xml); run with --include-ignored"]
 fn emit_and_emit_with_precision_strip_are_the_same_call() {
-    // `emit::emit` is defined as `emit_with_precision(g, PrecisionConfig::Strip)` -- this is a
-    // structural/documentation-level assertion (loaded once, cheaply, on whichever sample grammar
-    // is present) that the wrapper hasn't drifted from that contract.
+    // `emit::emit` is defined as `emit_with_precision(g, PrecisionConfig::Strip)`: a structural assertion that the wrapper hasn't drifted from that contract.
     for name in ["sena-hc.xml", "indonesian-hc.xml"] {
         let Some(g) = load_grammar(name) else {
             eprintln!("skipping {name}: not present on disk");

@@ -1,22 +1,4 @@
-//! GATE: alpha-variable scale -- recall-parity (up to `tuple_cap`) + `_overbudget`
-//! (`AlphaTupleBudgetExceeded`).
-//!
-//! See `pg_grammar_gen::build::alpha`'s own module doc for TWO load-bearing findings recorded
-//! there: two earlier rule shapes (a degenerate single occurrence, then a copy-from-left-neighbor
-//! construct) each produced a real, empirically-confirmed MISMATCH between the real engine's own
-//! synthesis and the P6 prototype's compiled net. `build::alpha` now mints an LHS+RHS IDENTITY
-//! rule (both sides alpha-bound to the same var, no environment) -- unambiguous for both
-//! implementations BY CONSTRUCTION (an identity map can never disagree with itself), while still
-//! genuinely exercising `resolve_alpha_tuples`' real joint-agreement machinery at
-//! `alpha_class_size`-many real tuples per rule.
-//!
-//! Recall technique: same compose-recall approach as GATE 1/`phase_c_partition_k.rs`, but over the
-//! UNGATED cascade (`compile_and_compose_rules_with_budget`) composed with the underlying lexc net
-//! (`emit_underlying_filtered_with_budget`) -- this recipe has no MPR gating at all, so the ordinary
-//! (non-`crate::gate`) compose path applies. Ground truth is `pg_grammar_gen::oracle::sweep`'s
-//! bare-root generation (the real per-stratum phonological cascade, same technique GATE 1/
-//! partition-k already use) -- expected to reproduce the root's own UNCHANGED spelling (module doc
-//! of `build::alpha`), cross-checked against that expectation directly, not just trusted blind.
+//! GATE: alpha-variable scale -- recall-parity (up to `tuple_cap`) + `_overbudget` (`AlphaTupleBudgetExceeded`), against an LHS+RHS identity rule that is unambiguous by construction; see `pg_grammar_gen::build::alpha`'s module doc for why that construction was chosen over two earlier ones that mismatched the real engine.
 
 mod common;
 
@@ -56,10 +38,7 @@ fn recipe() -> Recipe {
     }
 }
 
-/// A SEPARATE, deliberately larger single-rule recipe (module doc): one alpha rule whose own
-/// `surviving` tuple count (== `alpha_class_size`) is driven to 10 -- large enough to exceed a
-/// tiny TEST `tuple_cap` (never the production default; design doc §6: explicit-caps constructors,
-/// never env vars), without needing the recipe itself to be large.
+/// A separate, deliberately larger single-rule recipe: one alpha rule whose `surviving` tuple count is driven to 10, large enough to exceed a tiny TEST `tuple_cap` without needing the recipe itself to be large.
 fn overbudget_recipe() -> Recipe {
     Recipe {
         name: "phase-c-alpha-scale-overbudget",
@@ -148,8 +127,7 @@ fn alpha_scale_recall_parity_via_generator_and_oracle() {
     );
     let rules_net = rules_net.expect("the alpha rule cascade must compile to Some(net)");
 
-    // Every alpha-bearing subrule's own tuple report: `alpha_class_size` (3) surviving assignments
-    // each, `var_count` (2) reports total (one per independent rule).
+    // Every alpha-bearing subrule's own tuple report: `alpha_class_size` (3) surviving assignments each, `var_count` (2) reports total.
     assert_eq!(
         tuple_reports.len(),
         2,
@@ -173,8 +151,7 @@ fn alpha_scale_recall_parity_via_generator_and_oracle() {
     );
     assert_net_size_within(&composed, 2_000, 20_000);
 
-    // Oracle (design doc §3): bare-root generation for the single root runs the REAL phonological
-    // cascade (both alpha rules), ground truth for the surface form actually produced.
+    // Oracle: bare-root generation for the single root runs the REAL phonological cascade (both alpha rules), ground truth for the surface form actually produced.
     let oracle_opts = OracleOpts {
         step_cap: 20_000,
         word_timeout: Some(Duration::from_millis(500)),
@@ -194,10 +171,7 @@ fn alpha_scale_recall_parity_via_generator_and_oracle() {
         .encode_query(surface)
         .unwrap_or_else(|| panic!("oracle surface {surface:?} must segment against table 0"));
 
-    // Cross-check the oracle against `build::alpha`'s own documented expectation (module doc:
-    // every rule here is an LHS/RHS identity map, so the root's own spelling must come back
-    // UNCHANGED) -- independent confirmation this isn't accidentally exercising a no-op grammar
-    // for some OTHER reason (e.g. the rules failing to match at all).
+    // Cross-check against `build::alpha`'s documented expectation (every rule is an identity map, so spelling must come back UNCHANGED) -- confirms this isn't accidentally a no-op grammar for some other reason.
     assert_eq!(*surface, alpha.root_shape, "oracle surface must equal the root's own (unchanged) spelling -- build::alpha's rules are identity maps");
 
     let t0 = Instant::now();
@@ -213,11 +187,7 @@ fn alpha_scale_recall_parity_via_generator_and_oracle() {
     );
 }
 
-/// Honest failure (design doc §4c): a single alpha rule whose own `surviving` tuple count is 10
-/// (== `alpha_class_size`, module doc) must trip `AlphaTupleBudgetExceeded` under a `tuple_cap` of
-/// 3, BEFORE the (potentially expensive) per-tuple compile loop runs -- mirrors `pg_foma::replace`'s
-/// own `compose_budget_tests::alpha_tuple_budget_trips_on_synthetic_rule` test exactly, on a
-/// generated (not hand-authored) fixture.
+/// Honest failure: a single alpha rule with `surviving` tuple count 10 must trip `AlphaTupleBudgetExceeded` under a `tuple_cap` of 3 before the expensive per-tuple compile loop runs, on a generated (not hand-authored) fixture.
 #[test]
 fn alpha_scale_overbudget_trips_tuple_budget() {
     let recipe = overbudget_recipe();

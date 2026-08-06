@@ -1,25 +1,4 @@
-//! Citation liveness for the coverage ledger's containment evidence.
-//!
-//! # Why this gate exists
-//! `pg_foma::coverage_ledger::containment_evidence_for` returns hand-curated
-//! `pg_foma::coverage_ledger::ContainmentEvidence` citations of the form
-//! `tests/<file>.rs::<test_fn>`. A citation that names a deleted file, or a `#[test]` that was
-//! renamed or removed, is a dangling pointer the ledger keeps reporting as evidence it does not
-//! have. Renaming a test is routine; this gate is what makes that routine change fail loudly.
-//!
-//! # What it checks
-//! For every citation string on every ledger row:
-//! 1. every `tests/<name>.rs` path token names a file that EXISTS in this crate's `tests/`
-//!    directory (or, for the handful of citations that point at a `src/` unit-test module, that
-//!    `src/` file), and
-//! 2. every `<file>.rs::<ident>` test-function reference — including the ones listed in a
-//!    `(+ a, b, c)` continuation, which is this crate's own established citation style — names an
-//!    identifier that actually appears as `fn <ident>` somewhere under `tests/` or `src/`.
-//!
-//! # What it deliberately does NOT check
-//! That the cited test actually *proves* what its `note` claims. That is a human review
-//! obligation and no test can discharge it. This gate closes the mechanical half only: the
-//! citation cannot be a dangling pointer. The `note` field remains hand-reviewed.
+//! Citation liveness for the coverage ledger's containment evidence: checks that every hand-curated `tests/<file>.rs::<test_fn>` citation names a file and function that still exist, since a renamed or deleted test would otherwise leave a dangling pointer the ledger keeps reporting as evidence it does not have. Does NOT check that the cited test actually proves its `note` claim -- that stays a human review obligation.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -27,17 +6,12 @@ use std::path::{Path, PathBuf};
 use pg_foma::capability::default_registry;
 use pg_foma::coverage_ledger::build_ledger;
 
-/// Crate root (`rust/crates/pg-foma`), from `CARGO_MANIFEST_DIR` — never a path relative to the
-/// process CWD, which differs between `cargo test` and a bare test-binary invocation.
+/// Crate root, from `CARGO_MANIFEST_DIR` -- never a path relative to the process CWD, which differs between `cargo test` and a bare test-binary invocation.
 fn crate_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Every `tests/<name>.rs` (or `src/<name>.rs`) path token appearing in `citation`.
-///
-/// Citations are free prose with embedded paths, multi-file lists, and parenthetical
-/// continuations, so this scans for the `.rs` suffix and walks backwards over the path token
-/// rather than trying to impose a grammar on the prose.
+/// Every `tests/<name>.rs` (or `src/<name>.rs`) path token appearing in `citation`, found by scanning for the `.rs` suffix and walking backwards over the path token rather than imposing a grammar on the free prose.
 fn cited_paths(citation: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let bytes = citation.as_bytes();
@@ -63,15 +37,7 @@ fn cited_paths(citation: &str) -> BTreeSet<String> {
     out
 }
 
-/// Every test-function identifier referenced by `citation`.
-///
-/// Two forms, both already in use in `containment_evidence_for`:
-/// - `tests/<file>.rs::<ident>` — the primary reference.
-/// - `(+ <ident>, <ident>, ...)` — a continuation listing sibling tests in the same file.
-///
-/// A `(+ ...)` group is only scanned for snake_case identifiers; prose words inside it (`for`,
-/// `the`, `split`) are filtered by requiring at least one `_`, which every test name in this
-/// crate has and no bare English word in these notes does.
+/// Every test-function identifier referenced by `citation`, in either of the two forms `containment_evidence_for` uses: `tests/<file>.rs::<ident>`, or a `(+ <ident>, ...)` continuation listing sibling tests, filtered to snake_case so prose words aren't mistaken for identifiers.
 fn cited_test_fns(citation: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
 
@@ -106,9 +72,7 @@ fn cited_test_fns(citation: &str) -> BTreeSet<String> {
                 .chars()
                 .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
                 .collect();
-            // Require a `_` (every test fn in this crate is snake_case with at least one) and a
-            // reasonable length, so prose fragments in the continuation are not mistaken for
-            // identifiers.
+            // Require a `_` and a reasonable length, so prose fragments in the continuation aren't mistaken for identifiers.
             if ident.contains('_') && ident.len() >= 8 {
                 out.insert(ident);
             }
@@ -119,8 +83,7 @@ fn cited_test_fns(citation: &str) -> BTreeSet<String> {
     out
 }
 
-/// Read every `.rs` file under `dir` (one level; this crate keeps integration tests flat) and
-/// concatenate them, for a cheap `fn <ident>` containment scan.
+/// Read every `.rs` file under `dir` (one level; this crate keeps integration tests flat) and concatenate them, for a cheap `fn <ident>` containment scan.
 fn concat_rs_sources(dir: &Path) -> String {
     let mut all = String::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -138,9 +101,7 @@ fn concat_rs_sources(dir: &Path) -> String {
     all
 }
 
-/// Every ledger citation's file paths resolve to a file that exists.
-///
-/// This is the half that catches a deleted or renamed test FILE.
+/// Every ledger citation's file paths resolve to a file that exists -- the half that catches a deleted or renamed test FILE.
 #[test]
 fn every_ledger_citation_names_a_file_that_exists() {
     let ledger = build_ledger(&default_registry(), &std::collections::HashSet::new());
@@ -173,10 +134,7 @@ fn every_ledger_citation_names_a_file_that_exists() {
     );
 }
 
-/// Every ledger citation's `::<test_fn>` references resolve to a real `fn`.
-///
-/// This is the half that catches a RENAMED test inside a file that still exists — the more
-/// likely of the two failure modes, and the one a file-existence check alone cannot see.
+/// Every ledger citation's `::<test_fn>` references resolve to a real `fn` -- the half that catches a RENAMED test inside a file that still exists, which a file-existence check alone cannot see.
 #[test]
 fn every_ledger_citation_names_a_test_fn_that_exists() {
     let ledger = build_ledger(&default_registry(), &std::collections::HashSet::new());

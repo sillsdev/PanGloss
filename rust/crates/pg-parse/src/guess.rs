@@ -340,15 +340,11 @@ pub fn lexical_guess(
             let fab_stratum = g.morphemes[owning_entry.morpheme.0 as usize].stratum;
             let fab_table = &g.char_tables[g.strata[fab_stratum.0 as usize].table.0 as usize];
             let Ok(fab_shape) = segment_with_features(g, fab_table, &shape_string) else {
-                // The rendered text doesn't literally segment against the pattern's own stratum
-                // table (no stored fallback shape exists for a freshly rendered guess, unlike
-                // `set_root_allomorph`'s real-allomorph fallback) — drop this candidate silently,
-                // the same way a real word's own segmentation failure yields no analyses.
+                // No stored fallback shape exists for a freshly rendered guess; drop it silently.
                 continue;
             };
 
-            // §1.3 step 7: `newWord = input.Clone(); newWord.RootAllomorph = root` — mirrors
-            // `Morpher::lexical_lookup`'s clone-and-reroot exactly.
+            // Mirrors `Morpher::lexical_lookup`'s clone-and-reroot exactly.
             let mut nw = aw.clone_without_alternatives();
             nw.source = Some(Rc::new(aw.clone()));
             nw.shape = fab_shape;
@@ -378,8 +374,7 @@ mod tests {
     use super::*;
     use pg_shape::CdBits;
 
-    // --- Hand-built node constructors (no Shape/Grammar needed -- match_nodes_with_pattern is a
-    // pure function over `&[GuessNode]`) -----------------------------------------------------
+    // Hand-built node constructors: `match_nodes_with_pattern` is a pure function over `&[GuessNode]`.
 
     /// A concrete segment node (a real char-def, e.g. table id 1 = "a").
     fn seg(cd: u32) -> GuessNode {
@@ -394,8 +389,7 @@ mod tests {
         }
     }
 
-    /// A mandatory `[Any]` class-reference node: abstract, matches every segment (the "Any"
-    /// class's empty-FS / all-members convention, `nat_class_cd_set`'s `Unrestricted` fallback).
+    /// A mandatory `[Any]` class-reference node: abstract, matches every segment.
     fn any_class(optional: bool, iterative: bool) -> GuessNode {
         GuessNode {
             kind: NodeKind::Segment,
@@ -429,17 +423,9 @@ mod tests {
         (0..n).map(|_| seg(A)).collect()
     }
 
-    // =============================================================================================
     // Ported from `MorpherTests.TestMatchNodesWithPattern` (MorpherTests.cs:349-449).
-    // =============================================================================================
 
-    /// C#'s "test feature matching" block: unifying two nodes that each constrain a DIFFERENT
-    /// lane must produce a node carrying BOTH constraints (a genuine merge, not just a
-    /// compatibility check) -- ported onto this port's lane model (symbolic bit-lanes) rather
-    /// than C#'s arbitrary `StringFeature`s, which this engine does not model at all. Lane 0 =
-    /// "feat1" (only the input constrains it, to bit 0b01 = "A"); lane 1 = "feat2" (only the
-    /// pattern constrains it, to bit 0b01 = "B"); each side leaves the other lane unconstrained
-    /// (all-ones), so the unified node's lanes show both narrowed values.
+    /// C#'s "test feature matching" block: unifying two nodes that each constrain a different lane must produce a node carrying both constraints.
     #[test]
     fn unify_merges_disjoint_lane_constraints_from_both_sides() {
         let a_is_valuea = 0b01u64;
@@ -461,8 +447,7 @@ mod tests {
         );
     }
 
-    /// "Test sequences": a single 'a' node against a single 'i' pattern node -- different
-    /// concrete char-defs never unify.
+    /// "Test sequences": different concrete char-defs never unify.
     #[test]
     fn one_node_against_a_different_literal_fails() {
         let got = match_nodes_with_pattern(&nodes(1), &[seg(I)]);
@@ -503,9 +488,7 @@ mod tests {
         );
     }
 
-    /// "Test ambiguity": `([Any])([Any])` -- two independently optional (non-iterative) slots.
-    /// One real node matches via EITHER slot -- two distinct paths, both rendering the same
-    /// one-node list ("it is up to the caller to eliminate duplicates").
+    /// "Test ambiguity": two independently optional slots; one node matches via either, two distinct paths.
     #[test]
     fn two_independent_optionals_are_ambiguous_for_one_node_but_not_zero_or_two() {
         let pattern = vec![any_class(true, false), any_class(true, false)];
@@ -535,8 +518,7 @@ mod tests {
         );
     }
 
-    /// "Test Kleene star": `[Any]*` -- zero, one, or more real nodes, always exactly one path
-    /// (the iterative-reuse `obligatory` guard suppresses the duplicate skip-after-consume path).
+    /// "Test Kleene star": zero, one, or more real nodes, always exactly one path.
     #[test]
     fn kleene_star_matches_any_count_with_exactly_one_path() {
         let pattern = vec![any_class(true, true)];
@@ -547,11 +529,7 @@ mod tests {
         }
     }
 
-    /// "Test Kleene plus look alike": `[Any]+` -- '+' is a BOUNDARY marker, not a Kleene-plus
-    /// operator, so this segments to [mandatory class node, optional boundary node]. Zero real
-    /// nodes fails outright (the class node is mandatory); one node matches (boundary skipped,
-    /// since there's no boundary in the input); two nodes fails (nothing left to match the
-    /// optional boundary against but a second real segment, a kind mismatch).
+    /// "Test Kleene plus look alike": `[Any]+` -- `+` is a boundary marker, not a Kleene-plus operator.
     #[test]
     fn plus_after_class_is_a_boundary_not_kleene_plus() {
         let pattern = vec![any_class(false, false), boundary(PLUS)];
@@ -574,10 +552,7 @@ mod tests {
         );
     }
 
-    // =============================================================================================
-    // Additional unify_shape_nodes coverage (identity narrowing -- not in the C# test, but
-    // directly exercised by §4.3's "the narrowing matters for rendering" claim).
-    // =============================================================================================
+    // Additional `unify_shape_nodes` coverage: identity narrowing, not in the C# test.
 
     #[test]
     fn kind_mismatch_never_unifies() {
@@ -637,14 +612,9 @@ mod tests {
         );
     }
 
-    // =============================================================================================
-    // render_match: the rendering half (§1.3 step 3), against a tiny real table.
-    // =============================================================================================
+    // `render_match`: the rendering half, against a tiny real table.
 
-    /// Grammar-load-based table probe (mirrors this crate's established test convention, e.g.
-    /// `loader_n3_pattern_shapes_gate.rs` / `csharp_port_common`) rather than reaching for
-    /// `pg-grammar`'s internal `pub(crate)` raw constructors, which are private outside that
-    /// crate.
+    /// Grammar-load-based table probe, mirroring this crate's established test convention.
     fn render_grammar() -> pg_grammar::model::Grammar {
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>

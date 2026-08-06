@@ -40,8 +40,7 @@ pub struct Cascade {
     pub cap: usize,
 }
 
-/// Accumulated output: a dedup set keyed by `K`, preserving first-seen insertion order so callers
-/// that later sort (the signature path) see a deterministic pre-sort sequence.
+/// Accumulated output: a dedup set keyed by `K`, preserving first-seen insertion order.
 struct Acc<T, K: Hash + Eq> {
     seen: HashMap<K, usize>,
     items: Vec<T>,
@@ -102,8 +101,7 @@ impl Cascade {
         }
     }
 
-    /// `LinearRuleCascade.ApplyRules` — returns `true` iff no rule applied at or after `rule_index`
-    /// (a terminal derivation, which is what gets added to the output; LinearRuleCascade.cs:32-56).
+    /// `LinearRuleCascade.ApplyRules` -- returns `true` iff no rule applied at or after `rule_index`.
     #[allow(clippy::too_many_arguments)]
     fn linear_rec<T, K, A, F>(
         &self,
@@ -275,9 +273,7 @@ impl Cascade {
 mod tests {
     use super::*;
 
-    // A mock rule set over integers: each "rule" i adds a distinct power of ten if a decimal digit
-    // is free, so applications commute and terminate — letting us reason the reachable set by hand
-    // and check each cascade's traversal against the C# recursion exactly.
+    // A mock rule set over integers: each "rule" i adds a distinct power of ten, so applications commute and terminate.
 
     /// rule i: if digit i (10^i place) of `n` is 0, set it to (i+1); else no output (doesn't apply).
     fn digit_rule(i: usize, n: &i64) -> Vec<i64> {
@@ -294,9 +290,7 @@ mod tests {
 
     #[test]
     fn linear_applies_first_applicable_then_recurses_in_order() {
-        // Linear over rules [0,1]: from 0, rule0 fires →1, then rule1 fires →21. rule0 can't refire
-        // (multi_app=false, recurse at i+1). Terminal = 21. Non-multi: each rule at most once, in
-        // order. Output = {21} (only the terminal derivation is added).
+        // Linear over rules [0,1]: 0 -> rule0 -> 1 -> rule1 -> 21 (terminal); only 21 is added.
         let c = Cascade::new(false, UNCAPPED);
         let out = c.linear(2, 0i64, &digit_rule, &|n: &i64| *n);
         assert_eq!(out.words, vec![21]);
@@ -305,9 +299,7 @@ mod tests {
 
     #[test]
     fn permutation_adds_every_intermediate_subset_in_index_order() {
-        // Permutation (multi_app=false) over [0,1] from 0: adds rule0's result (1), then from 1
-        // adds rule1's result (21); also at top level rule1 from 0 → 20. Index-ordered subsets:
-        // {1, 21, 20}. Every intermediate is added (unlike linear).
+        // Permutation over [0,1] from 0: every intermediate is added (unlike linear), giving {1, 20, 21}.
         let c = Cascade::new(false, UNCAPPED);
         let mut got = c.permutation(2, 0i64, &digit_rule, &|n: &i64| *n).words;
         got.sort();
@@ -316,10 +308,7 @@ mod tests {
 
     #[test]
     fn combination_explores_all_orderings() {
-        // Combination (multi_app=false, applied-set) over [0,1] from 0 reaches every subset in any
-        // order: {1, 20, 21} — same *set* as permutation here because the rules commute (21==12),
-        // but combination recurses from 0 each level (all orderings), which matters when order
-        // changes reachability. Dedup collapses 21 and the 12-ordering to one.
+        // Combination reaches every subset in any order, recursing from 0 each level; same set here since the rules commute.
         let c = Cascade::new(false, UNCAPPED);
         let mut got = c.combination(2, 0i64, &digit_rule, &|n: &i64| *n).words;
         got.sort();
@@ -328,10 +317,7 @@ mod tests {
 
     #[test]
     fn combination_order_sensitive_reachability() {
-        // Rules where order changes what's reachable: r0 adds 1 only to an even number; r1 doubles.
-        // From 2: r0→3 (then r1→6), r1→4 (r0 can't, 4 even→r0→5)... we just assert combination
-        // reaches strictly more than a fixed order would by checking a value only reachable via
-        // r1-then-r0.
+        // Rules where order changes what's reachable; asserts a value only reachable via r1-then-r0.
         let r = |i: usize, n: &i64| -> Vec<i64> {
             match i {
                 0 if n % 2 == 0 => vec![n + 1],

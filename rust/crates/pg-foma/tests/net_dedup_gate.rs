@@ -1,26 +1,5 @@
-//! **Pins net-level candidate dedup: that it fires, that it changes nothing it reports, and that a
-//! cached measurement cannot cross a grammar, a corpus, or an evidence mode.**
-//!
-//! # What is being optimized, and why it is sound
-//!
-//! Plan-shape recipes are ERASED by minimization — measured spread 0 across 8 fixtures, and all five
-//! Indonesian plan-composed permutations landed on identical states/arcs with identical proposals. So
-//! `evaluate_plans_with_cache` was paying a full propose + confirm + whole-corpus traversal for
-//! candidates whose finished networks are bit-identical. Net-level dedup collapses those.
-//!
-//! Score attribution is TRIVIALLY sound here, and that is the whole reason this shape was chosen over
-//! confirmation-memoization: identical networks legitimately have identical deterministic scores, so
-//! nothing becomes order-dependent. Contrast a set-difference confirmation scheme, which is sound as a
-//! RESULT but unsound as a MEASUREMENT, because each candidate's measured cost would become a function
-//! of its position in the evaluation order — exactly what `Score::key`'s "why work and not time"
-//! section exists to prevent. `dedup_moves_no_certification_and_no_deterministic_score_field` is the
-//! assertion that keeps it that way.
-//!
-//! # Every test here is a NEGATIVE control by construction
-//!
-//! `RunEvaluationCache::without_net_dedup` is not a convenience; it is the falsifier. Every claim
-//! below is stated as "dedup ON versus dedup OFF", so each test genuinely fails if the mechanism is
-//! reverted or neutered — a same-path-twice comparison would pass whatever the mechanism did.
+//! Pins net-level candidate dedup: that it fires, that it changes nothing it reports, and that a cached measurement cannot cross a grammar, a corpus, or an evidence mode. Every test is a NEGATIVE control by construction: `RunEvaluationCache::without_net_dedup` is the falsifier, so each test fails if the mechanism is reverted or neutered.
+//! See `docs/research/pg-foma-net-dedup-sizing-census.md` for why this optimization is sound and why score attribution cannot become order-dependent.
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::{enumerate_default, EmissionStrategy, LoweredCandidate};
@@ -34,29 +13,7 @@ use pg_foma::recipe_runtime::{
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
-/// The fixture the fire-count is pinned on.
-///
-/// Named, not searched for: a test that scans for "some fixture where dedup fires" cannot fail when
-/// the mechanism stops firing everywhere — it fails only when it stops firing *and* nothing else
-/// starts. `net_dedup_sizing_census` measured this fixture's duplicate count; if that number ever goes
-/// to zero, this test failing is the correct and informative outcome.
-// Chosen FROM the sizing census, not by guessing, because these gates refuse to run vacuously and so
-// only a fixture that genuinely produces a duplicate network can exercise them
-// (`net_dedup_sizing_census::distinct_finished_nets_versus_plan_count_per_fixture`):
-// `recipe-ordered-generic` is plans=7 digested=5 DISTINCT=4 duplicates=1.
-//
-// It was `recipe-gated-generic`, which the same census reports as plans=5 digested=3 DISTINCT=3
-// **duplicates=0** — so all four fire-count-guarded gates failed on `nets_deduped() > 0`, exactly as
-// their own assertion message predicted ("this fixture stopped producing duplicate networks -- check
-// net_dedup_sizing_census before relaxing this"). The guard earned its place: without it these four
-// would have passed VACUOUSLY, since dedup-on and dedup-off are trivially identical on a fixture where
-// dedup can never fire.
-//
-// If this fixture ever stops producing a duplicate, re-read the census and pick another rather than
-// relaxing the guard. Eight fixtures had a duplicate at that measurement: metathesis-phase-isolation,
-// suffixing-extension-slot-ordering, suffixing-vowel-harmony, circumfix-reduplication-precedence,
-// deletion-reduplication-exception-composite, guesser-pattern-root-fallback,
-// optional-template-composite, recipe-ordered-generic.
+/// The fixture the fire-count is pinned on. Named, not searched for, so a test cannot pass vacuously by scanning for "some fixture where dedup fires" -- see `docs/research/pg-foma-net-dedup-sizing-census.md` for why this one was chosen and what happened when the wrong one was tried first.
 const FIRING_FIXTURE: &str = "recipe-ordered-generic";
 
 fn surface_table(grammar: &Grammar) -> &pg_grammar::chardef::CharDefTable {
@@ -98,11 +55,7 @@ fn registry_plans(grammar: &Grammar) -> Vec<LoweredCandidate> {
         .collect()
 }
 
-/// Every `Score` field that is a property of the COMPILATION rather than of the machine it ran on.
-///
-/// `build` and `apply` are excluded because they are wall-clock diagnostics with a documented 15-50%
-/// and 6-20% run-to-run spread (`Score::key`), so requiring them to be equal would assert that time
-/// is reproducible — the very claim `Score::key` exists to deny. Everything that RANKS is here.
+/// Every `Score` field that is a property of the COMPILATION, not the machine it ran on. `build`/`apply` are excluded as wall-clock diagnostics with a documented run-to-run spread; everything that RANKS is here.
 type DeterministicScore = (u64, u64, u64, u64, u64, u64, [u64; 6]);
 
 fn deterministic(score: Score) -> DeterministicScore {
@@ -132,8 +85,7 @@ fn verdicts(
         .collect()
 }
 
-/// The winner, chosen exactly as `RecipeOptimizationReport` chooses it: only a `selectable()`
-/// candidate may win, ranked by `Score::key`.
+/// The winner, chosen exactly as `RecipeOptimizationReport` chooses it: only a `selectable()` candidate may win, ranked by `Score::key`.
 fn winner(evaluations: &[RuntimeEvaluation]) -> Option<(usize, (u64, u64, u64, u64, String))> {
     evaluations
         .iter()
@@ -161,12 +113,9 @@ fn evaluate(
     (evaluations, cache)
 }
 
-// -------------------------------------------------------------------------------------------------
-// The mechanism engaged
-// -------------------------------------------------------------------------------------------------
+// The mechanism engaged.
 
-/// **The fire-count**, stated as a counter that is provably ZERO with the mechanism off and non-zero
-/// with it on, on a NAMED input — never as a timing.
+/// The fire-count, stated as a counter provably ZERO with the mechanism off and non-zero with it on, on a NAMED input -- never as a timing.
 #[test]
 fn dedup_fires_and_avoids_propose_and_confirm_work() {
     let (grammar, words) = load(FIRING_FIXTURE);
@@ -207,8 +156,7 @@ fn dedup_fires_and_avoids_propose_and_confirm_work() {
          possible at all",
         on.distinct_nets()
     );
-    // Deterministic counters, never elapsed time: one propose call per corpus word per deduped
-    // candidate, and the donor's own confirmation-call count per deduped candidate.
+    // Deterministic counters, never elapsed time: one propose call per corpus word per deduped candidate, and the donor's confirmation-call count per deduped candidate.
     assert!(
         on.propose_calls_avoided() > 0,
         "a deduped candidate must have skipped PROPOSE as well as confirm -- skipping only \
@@ -225,13 +173,9 @@ fn dedup_fires_and_avoids_propose_and_confirm_work() {
     );
 }
 
-// -------------------------------------------------------------------------------------------------
-// Nothing it reports moves
-// -------------------------------------------------------------------------------------------------
+// Nothing it reports moves.
 
-/// **Recall is not negotiable**: a deduped candidate reports exactly what it would have reported
-/// unduplicated — same certification, same realized strategy, same every deterministic `Score` field,
-/// and the same winner.
+/// Recall is not negotiable: a deduped candidate reports exactly what it would have reported unduplicated -- same certification, same realized strategy, same every deterministic `Score` field, same winner.
 #[test]
 fn dedup_moves_no_certification_and_no_deterministic_score_field() {
     let (grammar, words) = load(FIRING_FIXTURE);
@@ -252,9 +196,7 @@ fn dedup_moves_no_certification_and_no_deterministic_score_field() {
         winner(&on),
         "net-level dedup moved the winner"
     );
-    // The run-scoped parity divergence must be folded exactly once per candidate either way: a
-    // deduped candidate legitimately contributes the SAME counts its donor did, because it would have
-    // compared the same identities against the same ground truth.
+    // The run-scoped parity divergence must be folded exactly once per candidate either way: a deduped candidate legitimately contributes the SAME counts its donor did.
     assert_eq!(
         off_cache.identity_divergence(),
         on_cache.identity_divergence(),
@@ -262,9 +204,7 @@ fn dedup_moves_no_certification_and_no_deterministic_score_field() {
     );
 }
 
-/// **Never truncate a word's proposal set.** The observed evaluator retains the exact deduplicated
-/// candidate vector per word, and the parity relation reads a truncated set as disagreement — so this
-/// compares the per-word evidence itself, not just the verdict derived from it.
+/// Never truncate a word's proposal set: the observed evaluator retains the exact deduplicated candidate vector per word, so this compares the per-word evidence itself, not just the verdict derived from it.
 #[test]
 fn a_deduped_candidate_keeps_every_words_full_proposal_set() {
     let (grammar, words) = load(FIRING_FIXTURE);
@@ -314,20 +254,8 @@ fn a_deduped_candidate_keeps_every_words_full_proposal_set() {
     }
 }
 
-/// **A dedup hit re-runs the budget breach ladder against its OWN score; it never inherits the
-/// donor's verdict.**
-///
-/// This is the one place a naive dedup would smuggle evaluation order into a CERTIFICATION, and the
-/// production optimizer makes it live rather than hypothetical: `pg_cli`'s evaluator calls in once per
-/// candidate with `build: Some(remaining.build)` — a budget that DECLINES as the run proceeds. So the
-/// same network, measured at call 1 under a generous allowance and hit at call 20 under a nearly
-/// exhausted one, must produce call 20's verdict.
-///
-/// Modelled exactly that way: one cache, two calls, the second with a limit the first did not have.
-/// The limit is `states`, a deterministic dimension, deliberately NOT `build` — `RuntimeBudget::build`
-/// doubles as the `ComposeBudget` step timeout, so a value low enough to breach would sometimes kill
-/// the compose instead and the test would be asserting flakiness. The ladder being re-run is the
-/// property under test, and `states` exercises the identical code path with none of the ambiguity.
+/// A dedup hit re-runs the budget breach ladder against its OWN score; it never inherits the donor's verdict -- modelled as one cache, two calls, the second with a `states` limit (deterministic, unlike `build` which doubles as a compose timeout) the first did not have.
+/// See `docs/research/pg-foma-net-dedup-sizing-census.md` for why a naive dedup would otherwise smuggle evaluation order into a certification.
 #[test]
 fn a_dedup_hit_re_runs_the_budget_breach_ladder_on_its_own_score() {
     let (grammar, words) = load(FIRING_FIXTURE);
@@ -359,8 +287,7 @@ fn a_dedup_hit_re_runs_the_budget_breach_ladder_on_its_own_score() {
         first[0].certification
     );
 
-    // Same plan, same grammar, same corpus, same mode -- a guaranteed hit -- but now with a limit no
-    // network can meet.
+    // Same plan, same grammar, same corpus, same mode -- a guaranteed hit -- but now with a limit no network can meet.
     let second = evaluate_plans_with_cache(
         &grammar,
         &composed,
@@ -386,30 +313,21 @@ fn a_dedup_hit_re_runs_the_budget_breach_ladder_on_its_own_score() {
         first[0].certification,
         second[0].certification
     );
-    // The deterministic half is still the donor's, because it is the same network -- that is the whole
-    // point. Only the verdict is re-derived.
+    // The deterministic half is still the donor's, because it is the same network -- only the verdict is re-derived.
     assert_eq!(
         deterministic(second[0].score),
         deterministic(first[0].score)
     );
-    // `build` is measured on the hit's own call, not inherited. Exact equality with a clock cannot be
-    // asserted (that is the premise of `Score::key`), so what is asserted is that a real measurement
-    // happened: `realize_plan_composed` floors its reading at 1, and a candidate served entirely from
-    // the cache without building would have no reading at all.
+    // `build` is measured on the hit's own call, not inherited: `realize_plan_composed` floors its reading at 1, and a candidate served entirely from cache would have no reading at all.
     assert!(
         second[0].score.build >= 1,
         "a dedup hit still builds its own network -- it must report its own build reading"
     );
 }
 
-// -------------------------------------------------------------------------------------------------
-// A cached measurement cannot cross a grammar, a corpus, or an evidence mode
-// -------------------------------------------------------------------------------------------------
+// A cached measurement cannot cross a grammar, a corpus, or an evidence mode.
 
-/// The reuse key discriminates on all four of its inputs.
-///
-/// A net digest ALONE would let a cached result cross grammars — silently, and in the reassuring
-/// direction, since the reused verdict is usually a pass. Each of the four is varied in isolation.
+/// The reuse key discriminates on all four of its inputs: a net digest ALONE would let a cached result cross grammars silently, and in the reassuring direction, since the reused verdict is usually a pass.
 #[test]
 fn the_reuse_key_discriminates_grammar_corpus_mode_and_net() {
     let base = net_reuse_key("grammar-a", "corpus-a", false, "net-a");
@@ -443,42 +361,8 @@ fn the_reuse_key_discriminates_grammar_corpus_mode_and_net() {
     );
 }
 
-/// The grammar identity is stable across independent loads of the same grammar, differs between two
-/// different grammars, and moves for a change to a SINGLE allomorph field deep in the tree.
-///
-/// The last of these is the one that matters: `grammar_identity` hashes the grammar's derived `Debug`
-/// projection precisely so that no field can be forgotten, and this asserts that property rather than
-/// trusting it. If a future member of the grammar tree acquires a hand-written `Debug` that elides
-/// content, a test like this is the only thing that notices.
-/// RED — this FAILS today, on its FIRST assertion, and the defect it exposes is real.
-///
-/// `grammar_identity` hashes the grammar's derived `Debug` projection. That projection is NOT
-/// CANONICAL, because the grammar tree holds hash-ordered collections as struct fields —
-/// `pg_grammar::chardef::CharDefTable::lookup` (`HashMap<String, CharDefId>`, chardef.rs:125) and
-/// `featsys`'s `symbol_index` / `id_to_flat` (featsys.rs:46, :93) among them. Rust's `RandomState` is
-/// seeded per `HashMap` instance, so two independent loads of the SAME grammar hold identical contents
-/// in different iteration order, print different `Debug` output, and hash to different digests.
-///
-/// WHICH DIRECTION IT FAILS IN, because that decides how urgent it is: it fails SAFE. An unstable
-/// identity means a key never matches across loads, so a cached measurement is never reused where it
-/// should not be — the failure costs reuse, never correctness. The net-level dedup that ships in this
-/// commit is RUN-SCOPED and holds one `&Grammar` for the whole run, so it is unaffected and its own
-/// gates pass.
-///
-/// WHAT IT DOES BREAK: any PERSISTENT, CROSS-RUN cache keyed on this identity — which is exactly the
-/// design of the queued persistent oracle cache. That task's premise is a digest keyed on
-/// (grammar identity, word, step cap, memory ceiling), and this digest cannot serve it. Fix this first
-/// or that cache will silently never hit, which is the inert-mechanism failure this project has already
-/// shipped once.
-///
-/// THE FIX IS NOT "sort the HashMaps in `Debug`" — a `Debug` impl written to be canonical is a
-/// `Debug` impl someone will later edit for readability, and the whole point of hashing the derived
-/// projection was that no field can be forgotten. Prefer an explicit canonical serialization of the
-/// semantic content, following the `ModelRevision` precedent that already split semantic from
-/// presentation-only fields for this same class of reason.
-///
-/// The SECOND assertion in this test (flipping one `is_bound` moves the identity) is the property
-/// worth keeping either way, and it has never been reached. Re-enable the whole test with the fix.
+/// The grammar identity is stable across independent loads, differs between two different grammars, and moves for a change to a SINGLE allomorph field -- RED today because `grammar_identity` hashes a non-canonical `Debug` projection over hash-ordered collections, failing SAFE (costs reuse, not correctness).
+/// See `docs/research/pg-foma-net-dedup-sizing-census.md` for the full diagnosis, what it breaks, and why the fix is not "sort the HashMaps".
 #[test]
 #[ignore = "RED: grammar_identity hashes a non-canonical derived Debug projection, so two loads of \
             the same grammar disagree (hash-ordered HashMap fields in chardef/featsys). Fails safe \

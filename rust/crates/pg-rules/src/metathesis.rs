@@ -217,15 +217,8 @@ struct Candidate {
     right: (usize, usize),
 }
 
-/// Every distinct match of `pattern` over `segs`, each with its `ENTIRE_MATCH`/`LEFT_GROUP`/
-/// `RIGHT_GROUP` capture offsets, sorted ascending (leftmost first) and deduped — mirrors
-/// `pg_rules::rewrite::all_spans`'s convention, extended with the two named group offsets
-/// `pg_rules::rewrite`'s single-pattern rules never need (metathesis is the first rule kind whose
-/// mutation is driven by *which sub-span* matched, not just "the whole pattern matched here"). Passes
-/// `pattern`'s (already traversal-relative — see `compile_switch_pattern`'s doc) anchor flags through
-/// to `Transduce::anchored`, matching how every anchor-bearing pattern in this crate is enforced (an
-/// anchor is a call-site flag, never baked into the compiled `Fst` itself — `pg_rules::bridge`'s
-/// module doc).
+/// Every distinct match of `pattern` over `segs`, with its `ENTIRE_MATCH`/`LEFT_GROUP`/`RIGHT_GROUP` capture offsets, sorted ascending and deduped.
+/// See `docs/research/pg-rules-metathesis-design-notes.md`.
 fn match_candidates(pattern: &CompiledSwitchPattern, segs: &[Segment]) -> Vec<Candidate> {
     if segs.is_empty() {
         return Vec::new();
@@ -261,8 +254,7 @@ fn match_candidates(pattern: &CompiledSwitchPattern, segs: &[Segment]) -> Vec<Ca
         .collect()
 }
 
-/// Translate a segment-index range (from a `Candidate`) to the `ms.nodes` indices it covers, via
-/// `node_of` (`ms.segs(...)`'s second return value).
+/// Translate a segment-index range (from a `Candidate`) to the `ms.nodes` indices it covers.
 fn seg_range_to_nodes(node_of: &[usize], range: (usize, usize)) -> Vec<usize> {
     node_of[range.0..range.1].to_vec()
 }
@@ -375,23 +367,15 @@ fn ana_union(ms: &mut MutShape, left: &[usize], right: &[usize]) {
     }
 }
 
-// =================================================================================================
 // Public API (mirrors `pg_rules::rewrite::synthesize`/`analyze`'s signatures/return convention).
-// =================================================================================================
 
 /// Apply `rule` forward to `input` (C# `SynthesisMetathesisRule.Apply`). Returns the rewritten shape
 /// in a one-element vec if the rule applied, else empty. No MPR/POS gating exists for a metathesis
 /// rule at all (see `MetathesisRuleDef`'s doc) — unlike `rewrite::synthesize_with_mpr`, there is no
 /// `_with_mpr` sibling to call instead.
 pub fn synthesize(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shape> {
-    // Resolve `rule`'s own owning stratum's table (`crate::cache::owning_table_for_metathesis_rule`)
-    // rather than hardcoding `TableId(0)` regardless of which table the rule's own stratum actually
-    // owns -- the exact antipattern `pg_foma::replace::owning_table` exists to remove on the
-    // compiled side. Falls back to `TableId(0)` only when `rule` is NOT grammar-resident at all (never
-    // registered into any `Grammar`'s `prules` -- this crate's well-established "standalone rule"
-    // fixture pattern, `crate::cache`'s module doc; e.g. `tests/metathesis_gate.rs`'s hand-built
-    // rules, never loaded via `pg_grammar::load`), where there is no owning-stratum concept to
-    // resolve and every such fixture grammar this crate's tests use is single-table anyway.
+    // Resolves `rule`'s own owning stratum's table rather than hardcoding `TableId(0)`.
+    // See `docs/research/pg-rules-metathesis-design-notes.md`.
     let table_id = crate::cache::owning_table_for_metathesis_rule(g, rule).unwrap_or(TableId(0));
     let dir = dir_from_model(rule.dir);
     let left_idx = compiled_index(&rule.pattern, rule.left_switch);
@@ -459,18 +443,8 @@ fn synthesize_with_pattern(
     }
 }
 
-// =================================================================================================
-// P12 chunk 6 — phonological rule tracing (metathesis, synthesis side).
-//
-// C# `SynthesisMetathesisRule.Apply` (`PhonologicalRules/SynthesisMetathesisRule.cs:35-55`) is the
-// simplest of the four phonological-rule trace call sites: ONE compiled pattern, no subrules, no
-// MPR/POS gate (see this module's own doc), so there is no per-subrule side channel to build at all
-// -- just `PhonologicalRuleApplied(_rule, -1, origInput, input)` on success or
-// `PhonologicalRuleNotApplied(_rule, -1, input, FailureReason.Pattern, null)` on failure, subrule
-// index ALWAYS -1 either way (cs:47,52). `FailureReason::Pattern` is the ONLY reason a metathesis
-// rule can ever report (metathesis's sole call site is in the `Pattern`
-// row's fan-out list) -- there is no gate to decompose the way rewrite's subrules have.
-// =================================================================================================
+// Phonological rule tracing (metathesis, synthesis side).
+// See `docs/research/pg-rules-metathesis-design-notes.md`.
 
 /// `synthesize`'s traced sibling — standalone (recompiles every call, like `synthesize` itself).
 /// `pid` is a nominal trace-tree identity for fixtures with no grammar-resident prule table (mirrors
@@ -527,9 +501,8 @@ pub(crate) fn synthesize_cached_traced(
     result
 }
 
-/// Shared readout for the two synthesis-traced functions above: `result` is what the untraced
-/// `synthesize`/`synthesize_cached` already returned -- empty means `NotApplied(Pattern)` (using
-/// the original `input`), non-empty means `Applied` (using the rewritten shape).
+/// Shared readout for the two synthesis-traced functions above.
+/// See `docs/research/pg-rules-metathesis-design-notes.md`.
 fn report_metathesis_synth(
     trace: &dyn TraceSink,
     parent: TraceHandle,
@@ -552,8 +525,7 @@ fn report_metathesis_synth(
 /// Un-apply `rule` to `input` (C# `AnalysisMetathesisRule.Apply`). Returns the un-applied shape in a
 /// one-element vec if the rule un-applied, else empty.
 pub fn analyze(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shape> {
-    // See `synthesize`'s doc for the full rationale -- same owning-table resolution, same fallback
-    // contract, applied to the analysis (un-apply) direction.
+    // Same owning-table resolution and fallback contract as `synthesize`, for the un-apply direction.
     let table_id = crate::cache::owning_table_for_metathesis_rule(g, rule).unwrap_or(TableId(0));
     let dir = reverse(dir_from_model(rule.dir));
     let (ana_pattern, left_idx_full, right_idx_full) = build_analysis_pattern(
@@ -618,17 +590,8 @@ fn analyze_with_pattern(
     }
 }
 
-// =================================================================================================
 // Phonological rule tracing (metathesis, analysis side).
-//
-// C# `AnalysisMetathesisRule.Apply` (`PhonologicalRules/AnalysisMetathesisRule.cs:38-58`): same
-// single-pattern, no-subrule shape as the synthesis side, but the analysis event pair carries no
-// `FailureReason` at all (`ITraceManager.cs:42-43`) -- `PhonologicalRuleUnapplied(_rule, -1,
-// origInput, input)` on success, `PhonologicalRuleNotUnapplied(_rule, -1, input)` on failure
-// (cs:49-55). `crate::stratum::StratumAnalyzer::analyze` dispatches to `analyze_traced`/
-// `analyze_cached_traced` below, which fast-path straight back to the untraced call above whenever
-// `self.trace.is_tracing()` is false, so every pre-existing (production) caller is unaffected.
-// =================================================================================================
+// See `docs/research/pg-rules-metathesis-design-notes.md`.
 
 /// `analyze`'s traced sibling — standalone (recompiles every call). `pid` is a nominal trace-tree
 /// identity, matching every other standalone `_traced` function's convention in this crate.
@@ -668,8 +631,7 @@ pub(crate) fn analyze_cached_traced(
     result
 }
 
-/// Shared readout for the two analysis-traced functions above (see this section's doc for why no
-/// `FailureReason` is ever attached, mirroring C# exactly).
+/// Shared readout for the two analysis-traced functions above; no `FailureReason` is ever attached, mirroring C# exactly.
 fn report_metathesis_analysis(
     trace: &dyn TraceSink,
     parent: TraceHandle,
@@ -689,26 +651,17 @@ fn report_metathesis_analysis(
     }
 }
 
-// =================================================================================================
 // Compile-once cache (`crate::cache::RuleCache`'s metathesis-rule slice).
-// =================================================================================================
 
 /// Per-metathesis-rule precompiled matchers (`crate::cache::RuleCache`'s analog of
 /// `rewrite::PruleCache` for this rule kind).
 pub(crate) struct MetaCache {
     syn: CompiledSwitchPattern,
     ana: CompiledSwitchPattern,
-    /// `non_anchor_count` of the REBUILT analysis pattern's nodes -- cached here (rather than
-    /// recomputed by re-running `build_analysis_pattern` on every `analyze_cached` call, as an
-    /// earlier revision did) because that rebuild is now `&Grammar`-aware (`is_boundary_node`),
-    /// and `analyze_cached` itself has no `&Grammar` in scope (only `build_meta_cache` does).
+    /// `non_anchor_count` of the rebuilt analysis pattern's nodes, cached because the rebuild is `&Grammar`-aware and `analyze_cached` has no `&Grammar` in scope.
     ana_pattern_len: usize,
-    /// The rule's own owning table (already resolved once by `crate::cache::
-    /// owning_table_for_prule`/[`RuleCache::build`](crate::cache::RuleCache::build), never a
-    /// guess) -- `synthesize_cached` resolves this back into the actual `CharDefTable`
-    /// `synthesis_reorder`'s own per-node validity check reads (see that function's doc); stored as
-    /// an id rather than a borrowed table reference to sidestep this cache's own lifetime (it
-    /// outlives any one `&Grammar` borrow across `pg-parse::Morpher::new`'s construction).
+    /// The rule's own owning table, already resolved once by `crate::cache::owning_table_for_prule`.
+    /// See `docs/research/pg-rules-metathesis-design-notes.md`.
     table_id: TableId,
 }
 

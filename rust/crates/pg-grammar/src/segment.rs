@@ -179,8 +179,7 @@ pub fn segment_with_patterns(
 
     let mut optional = false;
     let mut optional_pos = 0usize;
-    // Node count (interior, i.e. excluding the left anchor) at the moment `(` was seen — C#'s
-    // `optionalCount = nodesList.Count`.
+    // Interior node count at the moment `(` was seen -- C#'s `optionalCount = nodesList.Count`.
     let mut optional_count = 0usize;
 
     let mut i = 0usize;
@@ -265,13 +264,7 @@ pub fn segment_with_patterns(
     Ok(builder.finish())
 }
 
-/// The char-def-set a `[ClassName]` pattern reference carries, mirroring `pg_rules::morph`'s
-/// `ctx_cd_set` (the `InsertSimpleContext` convention, plan §13.1 Tier-1 #3) at the pg-grammar
-/// layer: a `Segments`-kind class is exactly its explicit member list; a `Feature`-kind class is
-/// every `Segment`-kind character definition in `table` whose feature lanes satisfy every pinned
-/// `(lane, symbols)` constraint (`NaturalClassKind::Feature` always includes the synthetic
-/// `Type=Segment` pin — see `load_phon_constraints` — so boundaries can never be members). Falls
-/// back to `CdSet::Unrestricted` when every segment in the table qualifies.
+/// The char-def-set a `[ClassName]` pattern reference carries: a `Segments`-kind class is exactly its member list; a `Feature`-kind class is every segment whose lanes satisfy every pinned constraint.
 fn nat_class_cd_set(table: &CharDefTable, nc: &NaturalClass) -> CdSet {
     match &nc.kind {
         NaturalClassKind::Segments(segs) => {
@@ -373,8 +366,7 @@ mod tests {
         assert_eq!(interior.len(), 3, "b, [Vowel], t");
         assert_eq!(interior[0].2, t.lookup_nfd("b").unwrap().0);
         assert_eq!(interior[2].2, t.lookup_nfd("t").unwrap().0);
-        // The middle node is the abstract class reference: NO_CHAR_DEF, not optional/iterative,
-        // with a CdSet containing exactly {a, e}.
+        // The middle node is the abstract class reference: NO_CHAR_DEF, not optional/iterative.
         assert_eq!(interior[1].2, pg_shape::NO_CHAR_DEF);
         assert!(!interior[1].3.is_optional());
         assert!(!interior[1].3.is_iterative());
@@ -389,9 +381,7 @@ mod tests {
 
     #[test]
     fn bracket_class_lookup_is_by_name_not_by_xml_id() {
-        // The class's `id` attribute is "vwl" but its `<Name>` text is "Vowel" -- C#'s
-        // `_naturalClassLookup` is keyed by `Name`, never by `id` (XmlLanguageLoader.cs:704,719).
-        // `[vwl]` (the id) must NOT resolve; only `[Vowel]` (the name) does.
+        // Lookup is keyed by `Name` ("Vowel"), never by the `id` attribute ("vwl") (XmlLanguageLoader.cs:704,719).
         let t = table(vec![seg("c_b", &["b"]), seg("c_a", &["a"])]);
         let a = t.lookup_nfd("a").unwrap();
         let nc = segments_class("vwl", "Vowel", vec![a]);
@@ -425,9 +415,7 @@ mod tests {
 
     #[test]
     fn kleene_star_does_not_apply_after_an_optional_groups_close_paren() {
-        // C#'s Kleene-star check is a literal "previous char is ']'" test -- `([Vowel])*` does NOT
-        // make the class node iterative (the char right before '*' is ')', not ']'), so the
-        // trailing '*' has no defined meaning here and the segmentation must fail.
+        // C#'s Kleene-star check is a literal "previous char is ']'" test, so `([Vowel])*` fails.
         let t = table(vec![seg("c_b", &["b"]), seg("c_a", &["a"])]);
         let a = t.lookup_nfd("a").unwrap();
         let nc = segments_class("nc1", "Vowel", vec![a]);
@@ -441,8 +429,7 @@ mod tests {
         let e = t.lookup_nfd("e").unwrap();
         let vowel = segments_class("nc1", "Vowel", vec![a]);
         let front = segments_class("nc2", "Front", vec![e]);
-        // "([Vowel][Front])" pushes two nodes before ')' -- C#'s `nodesList.Count ==
-        // optionalCount + 1` guard fails, so this is a hard error, not "make the last one optional".
+        // Two nodes before ')' fails C#'s `nodesList.Count == optionalCount + 1` guard.
         assert!(segment_with_patterns(&t, &[vowel, front], "([Vowel][Front])").is_err());
     }
 
@@ -482,9 +469,7 @@ mod tests {
 
     #[test]
     fn greedy_longest_match_prefers_two_char_rep_over_two_singles() {
-        // "s", "y", and "sy" are all defined; segmenting "sy" must pick the 2-char "sy" match,
-        // not "s" followed by "y" — this is the greedy longest-match requirement from
-        // GetShapeNodes' `for (int j = normalized.Length - i; j > 0; j--)` descending loop.
+        // Greedy longest-match: "sy" must win over "s" + "y" (GetShapeNodes' descending `j` loop).
         let t = table(vec![
             seg("c_s", &["s"]),
             seg("c_y", &["y"]),
@@ -537,24 +522,18 @@ mod tests {
 
     #[test]
     fn error_position_remaps_from_nfd_space_to_original_space() {
-        // Table only recognizes lone "e" and a lone combining acute as separate one-char
-        // segments (no "n", no precomposed "é", no 2-char combo) — chosen so the normalized
-        // (NFD) failure index (2: after "e" + combining-acute, both consumed as separate nodes)
-        // differs from the position C#'s remap reports in the *original* string's coordinates.
+        // Chosen so the NFD failure index differs from the remapped original-string position.
         let t = table(vec![seg("c_e", &["e"]), seg("c_acc", &["\u{0301}"])]);
         let word = "\u{00e9}n"; // precomposed é (not NFD) followed by an undefined "n"
         assert!(!is_nfd(word));
         let err = segment(&t, word).unwrap_err();
-        // Normalized-space index would be 2 (one node for "e", one for the combining acute);
-        // the remap recomposes the consumed NFD prefix ("e" + acute -> precomposed "é", 1 char)
-        // back to the original string's coordinates, where "n" sits at index 1.
+        // The remap recomposes the consumed NFD prefix back to the original string's coordinates.
         assert_eq!(err.position, 1);
     }
 
     #[test]
     fn representation_matches_after_nfd_normalization() {
-        // The char def is authored with a combining sequence; a precomposed input word must
-        // still match it (both sides are NFD-normalized before lookup).
+        // The char def uses a combining sequence; a precomposed input word must still match it.
         let t = table(vec![seg("c1", &["e\u{0301}"])]); // e + combining acute
         let shape = segment(&t, "\u{00e9}").unwrap(); // precomposed é
         assert_eq!(shape.interior().count(), 1);

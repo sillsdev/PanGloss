@@ -1,22 +1,10 @@
-//! Environment-string tokenization and pattern building
-//! (`TokenizeContext`/`LoadPatternNodes`/`LoadEnvironmentPattern`/`SplitEnvironment`,
-//! HCLoader.cs:2260-2457) plus the `AnyPlus`/`AnyStar`/`PrefixNull`/`SuffixNull` helpers
-//! (HCLoader.cs:2283-2311) concatenative affix rules assemble their LHS patterns from.
-//!
-//! A `pg_snapshot::phonology::Environment::representation` is a hand-authored string like
-//! `/_[UnVDent]` or `/#[C]_` — this module re-tokenizes and validates it at compile time exactly
-//! as HCLoader does at load time (lazily, tolerantly: a malformed environment is a warning, never
-//! a hard failure — `IsValidEnvironment`, HCLoader.cs:1205-1271).
+//! Environment-string tokenization and pattern building (`TokenizeContext`/`LoadPatternNodes`/`LoadEnvironmentPattern`/`SplitEnvironment`, HCLoader.cs:2260-2457): re-tokenizes and validates a hand-authored string like `/_[UnVDent]` at compile time exactly as HCLoader does at load time -- lazily and tolerantly, since a malformed environment is a warning, never a hard failure.
 
 use crate::model::{AnchorSide, Pattern, PatternNode, SimpleContext};
 
 use super::Ctx;
 
-/// `SplitEnvironment` + `IsValidEnvironment` + `LoadEnvironmentPattern`, folded into one
-/// tokenize-and-build pass: parses `/left_right` into `(leftPattern, rightPattern)`, `None` on
-/// either side for an empty context (`LoadEnvironmentPattern`'s `string.IsNullOrEmpty` check).
-/// `Err(String)` for anything `IsValidEnvironment` would reject — caller pushes a warning and
-/// treats the whole environment as absent (`GetValidEnvironments`' `hasBlankEnv` fallback).
+/// `SplitEnvironment` + `IsValidEnvironment` + `LoadEnvironmentPattern` folded into one tokenize-and-build pass: parses `/left_right` into `(leftPattern, rightPattern)`, `Err` for anything `IsValidEnvironment` would reject so the caller can fall back to treating the environment as absent.
 pub(crate) fn parse_environment(
     representation: &str,
     ctx: &Ctx,
@@ -38,9 +26,7 @@ pub(crate) fn parse_environment(
     Ok((left, right))
 }
 
-/// `SplitEnvironment` (HCLoader.cs:2260-2266) alone, without building patterns — needed wherever
-/// a concatenative affix rule embeds one side's raw context tokens directly into its LHS pattern
-/// (`LoadFormAffixProcessAllomorph`'s prefix/suffix/infix branches, HCLoader.cs:1523-1606).
+/// `SplitEnvironment` (HCLoader.cs:2260-2266) alone, without building patterns -- needed wherever a concatenative affix rule embeds one side's raw context tokens directly into its LHS pattern.
 pub(crate) fn split_environment_string(representation: &str) -> Result<(String, String), String> {
     let body = representation
         .trim()
@@ -55,8 +41,7 @@ pub(crate) fn split_environment_string(representation: &str) -> Result<(String, 
     Ok((parts[0].trim().to_string(), parts[1].trim().to_string()))
 }
 
-/// `LoadEnvironmentPattern` (HCLoader.cs:2268-2281). `left` selects which edge (start for the
-/// left context, end for the right context) a bare `#` anchors.
+/// `LoadEnvironmentPattern` (HCLoader.cs:2268-2281): `left` selects which edge a bare `#` anchors (start for the left context, end for the right).
 pub(crate) fn load_environment_pattern(
     s: &str,
     left: bool,
@@ -77,8 +62,7 @@ pub(crate) fn load_environment_pattern(
     Ok(Some(Pattern { nodes }))
 }
 
-/// `TokenizeContext` (HCLoader.cs:2420-2457): splits a context string into `#`, `[...]`
-/// (natural-class reference), `(...)` (optional group), and plain-text tokens.
+/// `TokenizeContext` (HCLoader.cs:2420-2457): splits a context string into `#`, `[...]` (natural-class reference), `(...)` (optional group), and plain-text tokens.
 pub(crate) fn tokenize(s: &str) -> Result<Vec<String>, String> {
     let chars: Vec<char> = s.chars().collect();
     let mut out = Vec::new();
@@ -124,9 +108,7 @@ fn find_from(chars: &[char], from: usize, target: char) -> Option<usize> {
         .map(|d| from + d)
 }
 
-/// Balanced-parenthesis scan for a `(` starting at `open` (nested optional groups are not valid
-/// HC environment syntax, but scanning to the matching depth-0 `)` is a harmless superset that
-/// still rejects a genuinely unbalanced string).
+/// Balanced-parenthesis scan for a `(` starting at `open`; nested optional groups aren't valid HC syntax, but scanning to the matching depth-0 `)` is a harmless superset that still flags an unbalanced string as invalid.
 fn find_matching_paren(chars: &[char], open: usize) -> Option<usize> {
     let mut depth = 0i32;
     for (i, &c) in chars.iter().enumerate().skip(open) {
@@ -144,9 +126,7 @@ fn find_matching_paren(chars: &[char], open: usize) -> Option<usize> {
     None
 }
 
-/// `LoadPatternNodes` (HCLoader.cs:2391-2418): builds pattern nodes from already-tokenized
-/// context text. A bare `#` token contributes no node here (the edge anchor, if any, was already
-/// pushed by `load_environment_pattern`) — mirrors C#'s `case '#': break;`.
+/// `LoadPatternNodes` (HCLoader.cs:2391-2418): builds pattern nodes from already-tokenized context text; a bare `#` token contributes no node here since the edge anchor, if any, was already pushed by `load_environment_pattern`.
 fn nodes_from_tokens(tokens: &[String], ctx: &Ctx) -> Result<Vec<PatternNode>, String> {
     let mut out = Vec::new();
     for tok in tokens {
@@ -248,9 +228,7 @@ pub(crate) fn any_star(ctx: &Ctx) -> Vec<PatternNode> {
     ]
 }
 
-/// `LoadPatternNodes(patternStr)` for a plain (non-environment-split) context string — used by
-/// the infix LHS builder, which runs `LoadPatternNodes` directly on each side of the environment
-/// (not through `LoadEnvironmentPattern`, so no edge-anchor handling here).
+/// `LoadPatternNodes(patternStr)` for a plain (non-environment-split) context string -- used by the infix LHS builder, which runs it directly on each side, not through `LoadEnvironmentPattern`, so no edge-anchor handling here.
 pub(crate) fn pattern_nodes(s: &str, ctx: &Ctx) -> Result<Vec<PatternNode>, String> {
     if s.is_empty() {
         return Ok(Vec::new());
@@ -259,28 +237,8 @@ pub(crate) fn pattern_nodes(s: &str, ctx: &Ctx) -> Result<Vec<PatternNode>, Stri
     nodes_from_tokens(&tokens, ctx)
 }
 
-/// `IsValidEnvironment` (HCLoader.cs:1205-1271), the *upfront, whole-string* validity check every
-/// affix-allomorph environment goes through before any pattern is built from it: syntax (the
-/// split/tokenize grammar `m_envValidator` recognizes), literal-segment recognizability
-/// ("Unrecognized phoneme at position N" — e.g. an environment containing `~`), and natural-class
-/// resolution (`m_naturalClassLookup[abbr]` + `TryLoadNaturalClass` — both "no such abbreviation"
-/// and "the class exists but was skipped because a member phoneme didn't load", which in this
-/// compiler collapse into one `natclass_by_name` miss since skipped classes are never registered
-/// there).
-///
-/// Getting the *granularity* right matters, not just the verdict: an environment that fails any
-/// of these checks is invalid **as a whole** and takes `GetValidEnvironments`' blank-environment
-/// fallback (the allomorph gets an *unrestricted* pass — see `affixes::resolve_environments`),
-/// which is very different from the failure being discovered later, deep inside one side's
-/// pattern-node construction, where the only possible reaction is dropping that pass with no
-/// blank fallback. Sena 3 exercises this for real: its archiphoneme `N` claims graphemes `m`/`n`,
-/// so the standalone `m`/`n` phonemes are duplicate-grapheme-skipped, so `[Nas]`/`[-Lab]`/`[-Nas]`
-/// (whose members include those phonemes) fail to load, so environments like `/_[Nas]` are
-/// invalid — and HCLoader therefore emits those allomorphs' subrules *unrestricted*.
-///
-/// Implemented as a dry run of exactly the machinery the real build uses
-/// (`split_environment_string` + `tokenize` + `nodes_from_tokens` per side), so verdicts
-/// cannot drift from what pattern construction would actually accept.
+/// `IsValidEnvironment` (HCLoader.cs:1205-1271): the whole-string validity check every environment goes through before any pattern is built, as a dry run of the same tokenize/build machinery so verdicts cannot drift from what construction would accept.
+/// See `docs/research/pg-grammar-environment-validation-granularity.md` for why the check must fail the environment as a whole rather than per side.
 pub(crate) fn validate_environment(representation: &str, ctx: &Ctx) -> Result<(), String> {
     let (left, right) = split_environment_string(representation)?;
     for side in [left, right] {

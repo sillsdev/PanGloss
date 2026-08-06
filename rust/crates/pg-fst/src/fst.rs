@@ -1,14 +1,10 @@
-//! Frozen CSR finite-state automaton (plan §5.4). Built by `crate::optimize`, consumed by
-//! `crate::traverse`. Arc constraints are interned into a shared pool addressed by
-//! `crate::ConstraintId`; states and arcs are flat `Vec`s with CSR ranges.
+//! Frozen CSR finite-state automaton, built by `crate::optimize` and consumed by `crate::traverse`.
 
 use crate::lanes::{flat_subsumes, UNCONSTRAINED};
 use crate::{AcceptInfo, Cmd, ConstraintId, Direction};
 use pg_featstruct::flat_unifiable;
 
-/// A determinized/epsilon-removed arc input: a positive constraint plus a set of negated
-/// constraints (C# `Input`, acceptor path: `enqueueCount == 0`). Matching uses **unifiability**
-/// (`Matcher.UseUnification`); satisfiability pruning uses **subsumption** (Input.cs:49-63).
+/// A determinized/epsilon-removed arc input: a positive constraint plus a set of negated constraints (C# `Input`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MatchInput {
     /// Canonical positive constraint lanes (an empty slice matches any segment).
@@ -17,8 +13,7 @@ pub struct MatchInput {
 }
 
 impl MatchInput {
-    /// C# `Input.Matches` on the unification path (Input.cs:49-55): unifiable with the positive
-    /// constraint and *not* unifiable with any negated one.
+    /// C# `Input.Matches`: unifiable with the positive constraint and not unifiable with any negated one.
     #[inline]
     pub fn matches(&self, seg: &[u64]) -> bool {
         flat_unifiable(seg, &self.pos) && self.negated.iter().all(|n| !flat_unifiable(seg, n))
@@ -31,21 +26,18 @@ impl MatchInput {
     }
 }
 
-/// A CSR arc: target state, interned constraint, and a range of register commands to run when the
-/// arc is taken (C# `Arc.Commands`).
+/// A CSR arc: target state, interned constraint, and a range of register commands to run when taken.
 #[derive(Copy, Clone, Debug)]
 pub struct Arc {
     pub target: u32,
     pub constraint: ConstraintId,
     pub cmd_lo: u32,
     pub cmd_hi: u32,
-    /// Arc priority from `MarkArcPriorities`, propagated through `EpsilonRemoval` (Fst.cs:795).
-    /// Consumed by the nondeterministic traversal's `Priorities` tiebreak (Fst.cs:431).
+    /// Arc priority from `MarkArcPriorities`, consumed by the nondeterministic traversal's tiebreak.
     pub priority: i32,
 }
 
-/// A CSR state: accept flag + ranges into the shared `accept_infos`, `commands` (finishers), and
-/// `arcs` pools.
+/// A CSR state: accept flag plus ranges into the shared `accept_infos`, `commands`, and `arcs` pools.
 #[derive(Copy, Clone, Debug)]
 pub struct StateMeta {
     pub accepting: bool,
@@ -73,15 +65,8 @@ pub struct Fst {
     pub(crate) groups: Vec<(String, i32)>,
     /// Commands run once at the start of each traversal attempt (C# `_initializers`).
     pub(crate) initializers: Vec<Cmd>,
-    /// Per-state minimum number of arcs to reach ANY accepting state, ignoring arc constraints
-    /// (`u32::MAX` = no accepting state reachable at all). Computed once at freeze time by a
-    /// multi-source BFS on the reversed arc graph from all accepting states (see
-    /// `crate::optimize`). Ignoring constraints only *adds* edges relative to any real
-    /// traversal, so this is an admissible lower bound: a real thread at state `s` must take at
-    /// least `min_hops_to_accept[s]` more arcs before it can accept. Frozen FSTs are epsilon-free
-    /// (both `Determinize` and `EpsilonRemoval` outputs), so every arc consumes >= 1 input
-    /// segment and "hops remaining" is bounded above by "segments remaining" — the invariant the
-    /// nondeterministic traversal's pruning (see `crate::traverse`) relies on.
+    /// Per-state admissible lower bound on arcs-to-accept, ignoring constraints (`u32::MAX` sentinel = no accepting state reachable).
+    /// See `docs/research/pg-fst-optimize-design-notes.md`.
     pub(crate) min_hops_to_accept: Vec<u32>,
 }
 
@@ -124,9 +109,7 @@ impl Fst {
         self.groups.iter().find(|(n, _)| n == name).map(|&(_, t)| t)
     }
 
-    /// C# `Fst.GetOffsets` (Fst.cs:117-144), left-to-right: the captured `(start, end)` of a
-    /// group from a result's registers, or `None` if unset/empty. `registers` is the flat
-    /// `register_count * 2` scaffold (column `c` of register `r` at `r*2 + c`).
+    /// C# `Fst.GetOffsets`: the captured `(start, end)` of a group from a result's registers, or `None` if unset/empty.
     pub fn get_offsets(&self, name: &str, registers: &[crate::Register]) -> Option<(i32, i32)> {
         let tag = self.group_tag(name)? as usize;
         let start_val = registers[tag * 2]; // [tag, 0]
@@ -143,8 +126,7 @@ impl Fst {
     }
 }
 
-/// Intern a constraint pool while freezing. Canonical lanes make structurally-equal inputs share
-/// an id (the shared, cache-resident constraint table of §5.4).
+/// Intern a constraint pool while freezing; canonical lanes make structurally-equal inputs share an id.
 #[derive(Default)]
 pub(crate) struct ConstraintPool {
     pub items: Vec<MatchInput>,
@@ -171,6 +153,5 @@ impl ConstraintPool {
     }
 }
 
-/// Trailing-all-ones trimming sentinel re-export guard (keeps `UNCONSTRAINED` referenced so the
-/// canonicalization contract lives next to the pool).
+/// Keeps `UNCONSTRAINED` referenced so the canonicalization contract lives next to the pool.
 const _: u64 = UNCONSTRAINED;
