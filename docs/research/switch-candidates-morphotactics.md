@@ -21,10 +21,9 @@ after the grammars were actually checked and found not to exercise them.
 
 **Where a candidate is already implemented in the shipped mainline, that is said first and counted as
 the strongest evidence available** — an existing construction with a measured payoff outranks a
-citation. Six of the seventeen catalogued candidates are already shipping under another name;
-`mainline-selection-audit.md` §A2/§A3 is the map, and this document cross-references its S-numbers.
-Eleven of the seventeen (a)-backed candidates turn out to be shipping already, several under a
-different name; six have a live trigger in a real grammar and no construction at all.
+citation. `mainline-selection-audit.md` §A2/§A3 is the map, and this document cross-references its
+S-numbers. Eleven of the seventeen (a)-backed candidates turn out to be shipping already, several
+under a different name; six have a live trigger in a real grammar and no construction at all.
 
 **Fixture rule.** Every proposed conformance grammar is **synthetic only** — no real-language data,
 and no fixture named for a language or family. Family names appear below in prose, as motivation,
