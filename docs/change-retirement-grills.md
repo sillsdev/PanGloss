@@ -134,7 +134,17 @@ already retired once, referencing a vocabulary the code never adopted.
 **Choices:** (a) retire, fold hygiene into Q7; (b) keep as a hygiene note; (c) keep. Chose (a).
 </details>
 
-### B3 — `certify-language-readiness` (0 done / 22 open)
+### B3 — `certify-language-readiness` — RETIRED 2026-08-06
+
+**Resolved.** Its verdict library was built and tested (`readiness_verdict.rs`, 50KB, 18 tests, tiered
+verdict + trust/coverage/check types); only the CLI, timing harness and thresholds were missing, and
+those thresholds are recipe-dependent. Rescoped to `score-grammar-completeness`: readiness is
+open-world (needs data the grammar was NOT built from) where health is closed-world, so it keeps the
+completeness axis — semantic-domain breadth/depth plus overall precision/recall/F1 — and artifact
+thresholds move to `recipe-scoped-fst-health`.
+
+<details><summary>original grill</summary>
+
 
 *For:* answering "will this language work well on a device?" by composing conformance, benchmarks,
 the capability gate and pack size into one reproducible verdict.
@@ -144,9 +154,8 @@ the capability gate and pack size into one reproducible verdict.
 certification product is a large commitment, and it sits downstream of everything: sub-recipes will
 change what the verdict should say.
 
-**Choices:** (a) retire now, re-open after sub-recipes when the verdict's inputs are stable;
-(b) shrink to the part that exists and close; (c) keep. **Recommendation: (a) — premature, and
-carrying 22 open tasks costs attention every time the list is read.**
+**Choices:** (a) retire; (b) shrink; (c) keep. Chose retire into a completeness-scoped successor.
+</details>
 
 ---
 
