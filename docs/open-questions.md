@@ -101,6 +101,19 @@ exercises it. Do not leave a "proven" label resting on nothing.
 Recall for the grammar that drove the enumeration-blow-up work appears in the documents as 65/101,
 68/104 and 100/106, unresolved. That grammar's numbers motivated a significant piece of design.
 
+**Now carries the retired matrix's hygiene rules.** `run-synthetic-conformance-matrix` was archived
+2026-08-06; its runs duplicated tasks 3.1/3.3/5.3 already inside `cleanup-and-recipe-parity`, but its
+first three tasks were the discipline this question needs. A corpus measurement is not admissible
+here unless it states, alongside the number:
+
+- the commit, the grammar and word-list hashes, the toolchain and the platform it was taken on;
+- that corpus's **denominator**, its **exclusions**, its **timeout policy**, and its **correctness
+  unit** — the four things that differed silently between the reports that produced 65/101, 68/104
+  and 100/106;
+- that no field was locally re-derived from an incompatible report schema.
+
+A number without those is not a smaller claim than one with them. It is an unfalsifiable one.
+
 **Recommendation:** re-measure once, record the method alongside the number, and supersede the others.
 Conclusions drawn from a figure that exists in three versions are unanchored.
 
@@ -232,3 +245,19 @@ different standards — warn on cost, never hard-fail — and nothing warns toda
 **G8 — Nested and grouped quantifier rows are uncovered.** `phase_c_quantifier.rs` covers
 optional/bounded/unbounded/environment; no nested or grouped row exists.
 *(compile-bounded-fst-quantifiers 1.1)*
+
+**Correction to G1–G8's framing (2026-08-06).** Two archived Stage 2 tasks were recorded as blocked
+on "absent corpus, `samples/data/aweti.json`", quoting their own task notes. **The corpus is
+present** — 13 files in `samples/data/`, `aweti.json` among them at 2MB. It is untracked because
+`.gitignore` excludes `samples/data/*.json`, which is not the same fact as absent. So
+`compile-right-to-left-rewrites` 2.2 and `compile-simultaneous-rewrites` 3.2 (re-run the Aweti
+manifest and attribute recalled analyses) were **runnable all along** on any checkout with the local
+data, and remain so.
+
+Whether they are worth running is a separate question — both are attribution re-runs against a
+manifest, and the recipe work may change what should be measured. But "we cannot" was wrong; the
+honest statement is "we did not".
+
+This one is worth noting as method, not just as fact: the note was repeated as evidence during a
+sweep whose whole purpose is distrusting notes. A checkout-local claim ("absent from this checkout")
+is exactly the kind that silently stops being true when the checkout changes.

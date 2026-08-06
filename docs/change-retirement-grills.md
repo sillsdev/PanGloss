@@ -113,7 +113,16 @@ in a project that has just deleted its specs.
 **Choices:** (a) retire, Q2 owns the ledger; (b) rescope; (c) keep. Chose (a).
 </details>
 
-### B2 — `run-synthetic-conformance-matrix` (0 done / 12 open)
+### B2 — `run-synthetic-conformance-matrix` — RETIRED 2026-08-06
+
+**Resolved.** Its runs duplicated tasks 3.1/3.3/5.3 already owned by `cleanup-and-recipe-parity`; its
+framing was retired in its own words; and it was internally contradictory — named "synthetic" while
+tasks 2.1–2.4 run four named real languages. Tasks 1.1–1.3 were the real kernel and moved to Q7 as
+admissibility rules for any corpus measurement. Note also that its runs were never blocked: all four
+corpora are present locally in `samples/data/`.
+
+<details><summary>original grill</summary>
+
 
 *Its own proposal:* "Reframed 2026-07-24 … under the honest-capability architecture there is **no
 terminal certification stage** and no external reference-language gate."
@@ -122,9 +131,8 @@ terminal certification stage** and no external reference-language gate."
 `timed_out_before_any_result`) — a 100% miss rate, the worst of any change. A change whose framing was
 already retired once, referencing a vocabulary the code never adopted.
 
-**Choices:** (a) retire; (b) keep only as a measurement-hygiene note (heterogeneous denominators and
-timeout rules are a real hazard — see Q7); (c) keep. **Recommendation: (a), folding the denominator
-warning into Q7.**
+**Choices:** (a) retire, fold hygiene into Q7; (b) keep as a hygiene note; (c) keep. Chose (a).
+</details>
 
 ### B3 — `certify-language-readiness` (0 done / 22 open)
 
