@@ -147,7 +147,10 @@ audience is the user), then the rest.
 
       What survives as the real defect: the guard's *stated reason* was false while the guard was
       fine — no gate here catches being right for a wrong reason.
-- [ ] 5.4b **Rewrite the 18 plan references that ship to users.** The checker reads comment lines
+- [ ] 5.4b PARTIAL -- 18 down to 7 in `src/`, incidentally, as sweeps rewrote surrounding prose.
+      Remaining: `analyzer.rs:79`, `capability.rs:2179`/`:2934`, `compose_budget.rs:522`,
+      `coverage_ledger.rs:441`/`:506`, `plan_interaction_coverage.rs:367`.
+      **Rewrite the 18 plan references that ship to users.** The checker reads comment lines
       only — correctly, since a plan path in a string literal is often a file the code opens — so it
       cannot see diagnostic and error *text* that cites internal openspec folders: `capability.rs` (5),
       `coverage_ledger.rs` (5), `plan_interaction_coverage.rs` (2), and one each in `make_report.rs`,
@@ -170,7 +173,8 @@ audience is the user), then the rest.
       `Overwrite`-output `MprGroup` "the Refuse-worthy half". The test's `ConfirmOnly` expectation is
       correct — `MprGroupOverwrite`'s disposition is `ConfigPredicate`, not `FailClosed` — so only the
       message and the function name mislead. A string literal, hence out of a comment-only pass.
-- [ ] 5.4e Consider whether `Score::scalar_objective()` should exist. It returns bare `states + arcs`
+- [x] 5.4e DONE -- Score::scalar_objective() is deleted; zero references remain in the tree.
+      Consider whether `Score::scalar_objective()` should exist. It returns bare `states + arcs`
       — the objective this change explicitly rejected — and has **zero consumers**. Already a Stage 4
       instance in the grill agenda; listed here so it is not lost if the grill defers. Last because
       it is the only item that is purely a deletion judgement, with nothing depending on it.
@@ -242,7 +246,9 @@ re-measuring:
 - You cannot link *through* a private module from outside its parent; `--document-private-items` makes
   such items documented, not nameable. This answers the open question left in round 1.
 
-- [ ] 5.6a **Decide the fate of `Disposition::FailClosed` — the gate that pins it cannot fail.**
+- [x] 5.6a DONE (485b50a) -- retired as dead. `FailClosed` and the RefusalWitness machinery are
+      gone from the tree; the vacuous pin went with them.
+      **Decide the fate of `Disposition::FailClosed` — the gate that pins it cannot fail.**
       `grep '=> Disposition::FailClosed'` returns **nothing**: all three former FailClosed
       characteristics are now `ConfigPredicate`. So `build_ledger`'s G8 branch,
       `EvidenceRequirement::RefusalWitness` and `ContainmentEvidenceKind::RefusalWitness` have no live
@@ -252,7 +258,9 @@ re-measuring:
       set". **It would pass with its own fix reverted.** Either retire the machinery as dead, or restore
       a genuine FailClosed characteristic and make the test assert what its name says. Full derivation
       in `docs/doc-code-mismatch-ledger.md` Tier 4c.
-- [ ] 5.6b Fix the false rationale string at `coverage_ledger.rs:421` ("FailClosed … proves
+- [x] 5.6b DONE -- the string went with the FailClosed deletion; no `FailClosed` text remains in
+      `coverage_ledger.rs`.
+      Fix the false rationale string at `coverage_ledger.rs:421` ("FailClosed … proves
       compose_envelope genuinely **Refuses**") — the cited witness asserts `ConfirmOnly`. Production
       string, so it belongs with 5.4b's layer, not the comment layer. Needs a golden re-check.
 - [x] 5.6c Dead test citations fixed (3): `overwrite_group_composes_to_refuse` (×2),
@@ -273,10 +281,14 @@ re-measuring:
       `rust/Cargo.toml`, `[lints] workspace = true` in every member crate (a bare `[workspace.lints]`
       with no opt-in does *nothing*), and a doc build in the managed path so it actually executes.
       Verify by falsification: break one link on purpose and require a non-zero exit.
-- [ ] 5.5b Drive `cross-reference-claim` to 0. Each hit resolves one of three ways, in preference
+- [x] 5.5b DONE -- `cross-reference-claim` is 0, resolved by citing pinning tests rather than by
+      blanket deletion.
+      Drive `cross-reference-claim` to 0. Each hit resolves one of three ways, in preference
       order: convert the claim to a test and cite the test; make the entity an intra-doc link; or
       delete it if the code below already says it. **Do not blanket-delete** — see 5.5d.
-- [ ] 5.5c Sweep `comment-block-too-long` where it is cheap, treating the 2041 as a ratchet. Roughly
+- [x] 5.5c SUPERSEDED -- the category was retired and split by kind. `impl-comment-too-long` is 0
+      and API docstrings are counted but never gated, which is the distinction this task was groping for.
+      Sweep `comment-block-too-long` where it is cheap, treating the 2041 as a ratchet. Roughly
       1200 are `///`/`//!` doc blocks and 800 are `//` implementation blocks; the second group is the
       cheaper and higher-value half, since the first is often a struct/field doc doing its job.
 - [ ] 5.5d **Do not let this pass gut the interface docs.** Ousterhout's objection is correct and is
@@ -337,7 +349,9 @@ for deletion must be deleted first, or its cleanup is thrown away.
       list as "where the value is", never as "when we are done". Per module: read it, delete what is
       dead, extract what is doing two jobs, and let the comments fall out of that — a block that
       cannot be got under three lines usually marks the seam worth extracting.
-- [ ] 5.7c Finish `cross-reference-claim` at 0 and hold it. Ratchet `comment-block-too-long` down as
+- [x] 5.7c DONE -- `cross-reference-claim` is 0 and `comment-block-too-long` was retired rather
+      than ratcheted; every gated category now reports 0.
+      Finish `cross-reference-claim` at 0 and hold it. Ratchet `comment-block-too-long` down as
       5.7b lands; it is **not** a target of zero and never was.
 - [ ] 5.7d Residue from round 2, each verified, none blocking:
       - `EvidenceProvenance::Behavioral` is now unproducible — all 12 predicates return `Structural`.
@@ -653,7 +667,9 @@ over an erased transform is not an exercise.
       scopes. Record raw/source hashes, deterministic exclusions, all candidates, certification,
       Pareto frontier, and remaining unsupported constructs. Four-language parity is not achieved
       until all four pass these evidence gates; synthetic construct coverage alone is insufficient.
-- [ ] 7.11 Introduce one immutable typed `GrammarSemantics::derive(&Grammar)` owner and migrate
+- [x] 7.11 DONE -- see the slice note below, which records both the migration and the exclusions
+      that were deliberate rather than outstanding.
+      Introduce one immutable typed `GrammarSemantics::derive(&Grammar)` owner and migrate
       capability, registry applicability, recipe-space accounting, and later mechanism providers to
       projections over it. Delete all other authoritative semantic grammar walkers.
       Slice note (2026-08-02): `pg_foma::grammar_semantics::GrammarSemantics` now exists and owns
