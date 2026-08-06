@@ -107,20 +107,17 @@ conditioned-versus-unconditioned allomorph sets, and root suppletion.
 All six are evidence-backed. **Ask:** pick by measured cost, by how many grammars share the trigger, or
 by what the next language family is expected to need?
 
-## Q10 — PowerShell block comments escape every hygiene rule
+## Q10 — PowerShell block comments escape every hygiene rule — ANSWERED, closed
 
-`comment-hygiene.ps1` classifies a `.ps1` comment line as `^\s*(#|<#)`. A `<# … #>` block's *body*
-lines start with neither, so the whole body is invisible to every line-level category — a script
-header can carry plan references, dates and history prose freely, and several do. Rust has no
-equivalent hole because `//` prefixes every line of a Rust comment block.
+Decision: close the hole; scripts are held to the same rules. Delimited-block bodies are now scored,
+which recovered 387 previously-unscored lines and 251 blocks over the cap, all since cleared.
 
-Two ways to close it, and they differ in cost rather than correctness: track the open/close state of
-`<# … #>` and score the body like any other comment (uniform, but it will flag a lot of existing
-tooling prose at once), or leave script headers deliberately exempt and say so in the skill, on the
-grounds that a tool's own header is documentation for a human operator rather than a claim about
-code. The current state is the second one by accident, not by decision.
-
-**Ask:** close the hole, or make the exemption explicit?
+The interesting part was the escape hatch it created. Comment-based help is uncapped, and the first
+version of the rule granted that on POSITION alone — which turned out to be a claim I had not
+checked: `Get-Help` rendered nothing for any of the 67 blocks in a help position, because PowerShell
+requires a help keyword. Position alone was also just a typeable marker. The rule now requires both,
+so the uncapped class is one a tool will confirm. See
+`docs/research/comment-hygiene-checker-design.md`.
 
 ## Defects surfaced by the one-line comment sweep
 
