@@ -106,6 +106,15 @@ a wrapper with no compiler under it?
 
 ---
 
+## Queued: run the formatter once comments are clean
+
+`rustfmt` now applies automatically before every mode that compiles, so this needs no new mechanism —
+only a checkpoint. **When `impl-comment-too-long` reaches 0, run one managed build and confirm
+`rustfmt: already formatted`.** The formatting pass is deliberately held until then: rustfmt rewriting a
+file an agent is mid-edit in can invalidate that agent's view of it and cost its work.
+
+28 hunks are outstanding as of writing; they will be absorbed by the first build after the sweeps land.
+
 ## Not a decision — just the remaining work
 
 **Implementation comments over one line: ~4,330.** This is the backlog under the new one-line rule, and
