@@ -6,6 +6,11 @@ it is not ready to be asked.
 
 Ordered by consequence, not by size.
 
+**Fourteen change-retirement grills are queued separately** in
+`docs/change-retirement-grills.md` — every active OpenSpec change that does not align with the
+sub-recipe work, with what actually exists in the tree versus what its proposal claims, and the
+choices. Working through those first would take the active list from 17 changes to 5 or 6.
+
 ---
 
 ## Q1 — We may be refusing grammars because a compiler we do not ship cannot handle them
