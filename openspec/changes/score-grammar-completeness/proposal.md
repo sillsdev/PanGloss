@@ -36,22 +36,48 @@ claim when they are independent. Both are wanted; they are separate columns.
 affix mechanics are covered, and per-domain slicing would give thin, noisy denominators. One set of
 numbers.
 
-## The open question this must answer before it is built
+## Accuracy has a precondition, and without it the number must not be produced
 
-**F1 against what gold standard?** Agreement with the HC oracle is parser-versus-parser parity — it
-says the port is faithful, not that the analysis is linguistically right. Real accuracy needs
-human-annotated text, and whether a corpus is representative of a language is not a fact a tool can
-settle. The predecessor was honest about this and modelled held-out corpus status as an
-**attestation** — attestor, date, explicitly stated as unverified — rather than pretending to measure
-it. Keep that. A score whose provenance is a signed human claim is more useful than one that hides the
-same claim inside a number.
+**F1, precision and recall only mean anything against a held-out corpus that is all three of:
+substantively sized, known to contain only good words, and believed to be fully within what this
+grammar should cover.**
+
+That is not a caveat on the metric. It is the metric's definition of a miss. On an uncurated corpus a
+failed analysis is ambiguous between three unrelated causes — a real gap in the grammar, a typo or OCR
+artifact, or a token the grammar was never meant to cover (a name, a loanword, a code-switch). Those
+demand opposite responses: fix the grammar, fix the corpus, or do nothing. A single number that
+averages them tells a project to work on whichever is loudest, which is not the same as whichever
+matters.
+
+So corpus curation is a **gate**, not preparation. Three properties, each recorded:
+
+- **Substantively sized** — enough tokens that the figure is stable rather than a sample artifact. The
+  threshold is a real question, not a formality.
+- **Known clean** — the words are words. Somebody looked.
+- **In scope** — the grammar *should* analyse every token in it. This is the strongest claim and the
+  easiest to get wrong; a corpus with names and borrowings in it fails here while looking fine.
+
+**When the corpus does not satisfy all three, the report states that accuracy is not computable and
+why — it does not print a number with an asterisk.** This repo already holds the symmetric rule
+elsewhere: "I could not look" must never read as "everything is fine". A precision figure computed on
+an unvetted corpus is that failure in its most persuasive form, because it looks like evidence.
+
+**And the gold standard still has to be named.** Agreement with the HC oracle is parser-versus-parser
+parity — it shows the port is faithful, not that an analysis is linguistically right. Only
+human-annotated text supports the second claim. Whether a corpus is representative is likewise not a
+fact a tool can settle, which is why the predecessor modelled held-out status as an **attestation**
+(attestor, date, stated as unverified). Keep that. A score whose provenance is a signed human claim is
+worth more than one that hides the same claim inside a number.
 
 ## What Changes
 
 - Extract semantic domains in `pg-fwdata` instead of discarding them.
 - Breadth and depth measures over the domain hierarchy, plus per-project custom domains.
 - Genre-scoped corpus evaluation as a separate column.
-- Overall precision/recall/F1, with its gold standard named on the report.
+- Overall precision/recall/F1, with its gold standard named on the report, gated on a curated
+  held-out corpus and **suppressed entirely** when that corpus does not qualify.
+- A corpus qualification record — size, cleanliness, in-scope claim, attestor, date — carried with any
+  accuracy figure, so a reader can see what the number rests on without leaving the report.
 - A small headline set, stable over time so a project can watch it rise, composing to an overall
   readiness statement.
 - Artifact thresholds (pack size, latency, device class) are **not** here — they move to
