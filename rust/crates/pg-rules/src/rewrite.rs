@@ -1,24 +1,18 @@
-//! Part 2 — rewrite (phonological) rule application: synthesis (forward) and analysis (reverse).
+//! Rewrite (phonological) rule application: `synthesize` applies a rule forward, `analyze`
+//! un-applies it. The three rewrite shapes — feature-change, deletion/narrowing, and epenthesis —
+//! are dispatched by C#'s LHS-vs-RHS child-count rule.
 //!
-//! Ports `SIL.Machine.Morphology.HermitCrab/PhonologicalRules/` at the **rule level** (the full
-//! Morpher is a later milestone): given a `pg_grammar::model::RewriteRuleDef` and a
-//! feature-bearing input `Shape`, `synthesize` applies the rule forward and `analyze`
-//! un-applies it. The three rewrite shapes the reference grammars use — feature-change,
-//! deletion/narrowing, and epenthesis — are dispatched by the C# LHS-vs-RHS child-count rule
-//! (`AnalysisRewriteRule` ctor / `SynthesisRewriteRuleSpec` ctor).
-//!
-//! ## Model impedance (see the module report for the flagged gaps)
 //! HermitCrab threads three engine-only symbolic features through matching that the frozen
-//! `pg_shape`/`pg_fst` contracts do **not** encode as lanes:
-//! - **`Type`** (Segment/Boundary/Anchor) → `NodeKind` + which nodes are fed to the matcher
-//!   (synthesis: Segment+Boundary; analysis: Segment only) + the anchor endpoints;
-//! - **`Modified`** (Dirty/Clean) → an aux `dirty` bit on `MutNode`; the iterative loop's primary
-//!   termination is the cursor advance (C# `start = end.Next`), with `dirty` as the re-match guard
-//!   that the iterative-synthesis `Modified=Clean` LHS constraint provides;
-//! - **`Deletion`** (Deleted/NotDeleted) → an aux `deleted` bit (synthesis) / physical delete.
+//! `pg_shape`/`pg_fst` contracts do not encode as lanes, so each has a local stand-in:
+//! - **`Type`** becomes `NodeKind` plus which nodes reach the matcher at all (synthesis feeds
+//!   segments and boundaries, analysis only segments) plus the anchor endpoints;
+//! - **`Modified`** becomes `MutNode::dirty`. The iterative loop's primary termination is still the
+//!   cursor advance; `dirty` only provides the re-match guard C#'s `Modified=Clean` LHS gives;
+//! - **`Deletion`** becomes `MutNode::deleted` on synthesis, a physical delete on analysis.
 //!
-//! The FST matcher (`pg_fst`) also cannot bind alpha variables or apply `UseDefaults` feature
-//! defaults; those are reported as frozen-contract gaps. The hand-built gate rules avoid them.
+//! `pg_fst` can bind neither alpha variables nor `UseDefaults` feature defaults, so a compiled FST
+//! here is an over-approximation: every site that matches one must re-check the candidate span
+//! against real node lanes afterwards.
 
 use pg_featstruct::{FeatureStruct, FeatureValue};
 use pg_fst::{
@@ -38,15 +32,12 @@ use crate::word::Word;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 // =================================================================================================
-// Mutable working shape (C# `Shape` with Optional / Deleted / Dirty flags, which the frozen
-// `pg_shape::Shape` does not carry).
+// Mutable working shape — C# `Shape` plus the Optional/Deleted/Dirty flags `pg_shape` omits.
 // =================================================================================================
 
-// `pub(crate)` (not `pub`, still crate-private): `pg_rules::metathesis` (a sibling module, not a
-// submodule of `rewrite`) reuses this exact mutable-shape machinery rather than duplicating it —
-// the "resolve to concrete node data before mutating" discipline this type already encodes is
-// precisely what the metathesis synthesis reorder (`pg_rules::metathesis::synthesis_reorder`) needs,
-// matching how the C# original structures this same operation.
+// Crate-visible because `crate::metathesis` reuses this machinery rather than duplicating it: the
+// "resolve to concrete node data before mutating" discipline it encodes is exactly what that
+// module's synthesis reorder needs, matching how C# structures the same operation.
 #[derive(Clone, Debug)]
 pub(crate) struct MutNode {
     pub(crate) kind: NodeKind,
@@ -128,16 +119,13 @@ impl MutShape {
         shape
     }
 
-    /// Build the FST segment sequence + node-index mapping under the matcher filter. Analysis
-    /// filters to Segment|Anchor (boundaries excluded); synthesis adds Boundary as optional
-    /// segments. Deleted nodes are always skipped (`!ann.IsDeleted()`).
+    /// Build the FST segment sequence and node-index mapping under the matcher filter. Analysis
+    /// excludes boundaries; synthesis adds them as optional segments. Deleted nodes are skipped.
     ///
-    /// A `Segment`-kind node's own `optional` flag must also produce `Segment::optional`, not just
-    /// boundaries — see the identical fix/rationale on `pg_rules::morph::segs_of`. Within this
-    /// module it matters for a *later* phonological rule's own matching (e.g. Indonesian prule1
-    /// re-scanning a shape after prule5/prule4 already marked a re-inserted candidate segment
-    /// Optional) as well as for downstream morphological-rule analysis, which reuses these Optional
-    /// segments via the frozen shape this rule's `analyze` returns.
+    /// A `Segment`-kind node's own optional flag must also produce an optional segment, not just
+    /// boundaries — see `crate::morph::segs_of` for the same requirement. It matters both for a
+    /// LATER phonological rule re-scanning a shape this one marked, and for the morphological
+    /// analysis that reuses those Optional segments off the frozen shape `analyze` returns.
     pub(crate) fn segs(&self, include_boundaries: bool) -> (Vec<Segment>, Vec<usize>) {
         let mut segs = Vec::new();
         let mut node_of = Vec::new();
@@ -173,15 +161,9 @@ fn full_mask(g: &Grammar, f: usize) -> u64 {
     g.phon_features.mask(FlatIndex(f as u32))
 }
 
-/// The `(feature, symbol-bits)` pairs a `Context`/`CharDef` pattern node **pins**. A feature is
-/// pinned iff the node constrains it to a proper subset of its symbols (an unconstrained lane is
-/// `full_mask`); alpha-variable features are treated as unpinned (unconstrained — the flagged
-/// variable-binding gap).
-///
-/// `pub` (F7, HYBRID_FST_RUST_PLAN.md §7.1): exposed so `hc_hybrid::env_nfa`/`hc_hybrid::compiler`
-/// can build identity-arc/probe-representative lane rows for a pattern node without duplicating
-/// this natural-class/char-def lane resolution — a small, additive, reviewed contract change (no
-/// existing caller's behavior changes; the function body itself is unmodified).
+/// The `(feature, symbol-bits)` pairs a `Context` or `CharDef` pattern node **pins**. A feature is
+/// pinned iff the node constrains it to a proper subset of its symbols; alpha-variable features
+/// count as unpinned, since the compiled FST cannot bind them.
 pub fn node_pins(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<(usize, u64)> {
     let w = g.phon_features.len();
     match node {
@@ -214,10 +196,8 @@ pub fn node_pins(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<(
     }
 }
 
-/// Full `W`-lane vector for a pattern node, unconstrained lanes = `full_mask` (the driver's
-/// feature-math representation, distinct from the FST-facing `UNCONSTRAINED = u64::MAX`).
-///
-/// `pub` (F7, HYBRID_FST_RUST_PLAN.md §7.1) — see `node_pins`'s doc for why.
+/// Full `W`-lane vector for a pattern node, unconstrained lanes being `full_mask` — the driver's
+/// feature-math representation, distinct from the FST-facing `UNCONSTRAINED`.
 pub fn node_full_lanes(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<u64> {
     let w = g.phon_features.len();
     let mut lanes: Vec<u64> = (0..w).map(|f| full_mask(g, f)).collect();
@@ -231,19 +211,13 @@ pub fn node_full_lanes(g: &Grammar, table: &CharDefTable, node: &PatternNode) ->
 // Matching (target + environments) on top of the frozen FST.
 // =================================================================================================
 
-/// Compile a lane sequence (pattern nodes in DOCUMENT order) to a target FST for traversal in
-/// `dir`, C#-faithfully: `PatternNode.GenerateNfa` builds the NFA from `Children.GetNodes(
-/// fsa.Direction)` (`SIL.Machine/Matching/PatternNode.cs:55`), i.e. the children are enumerated
-/// REVERSED for a `RightToLeft` matcher — so a C# RtL matcher consumes the pattern's LAST child at
-/// the physically-rightmost annotation and matches the SAME physical substring as LtR (direction
-/// changes scan order/preference, not the matched string). `pg_fst`'s own frozen convention is the
-/// opposite (`compile_with_direction` never reorders; its guard test
-/// `rtl_asymmetric_language_walks_right_to_left` asserts an RtL-compiled `[a b c]` accepts physical
-/// `c b a`), so the document→traversal reorder must happen HERE, at the pattern-compile boundary.
-/// Every current caller is an analysis-side target compiled with `reverse(dir_of(rule))`; without
-/// this reversal a multi-node analysis target (e.g. `boundary_rules`' 2-node epenthesis RHS `ta`)
-/// silently matched the physically-reversed sequence — invisible on the reference grammars'
-/// single-node targets, wrong on anything wider.
+/// Compile a lane sequence, given in DOCUMENT order, to a target FST traversed in `dir`.
+///
+/// The reversal is load-bearing and must happen HERE, at the pattern-compile boundary. C# enumerates
+/// a pattern's children reversed for a right-to-left matcher, so direction changes scan preference
+/// but not the physical substring matched; `pg_fst` takes the opposite convention and never
+/// reorders. Without this, a multi-node target silently matches the physically-reversed sequence —
+/// invisible on a single-node target, wrong on anything wider.
 fn compile_lane_fst(lanes_seq: &[Vec<u64>], dir: Direction, deterministic: bool) -> Fst {
     let mut nodes: Vec<CompileNode> = lanes_seq
         .iter()
@@ -257,21 +231,14 @@ fn compile_lane_fst(lanes_seq: &[Vec<u64>], dir: Direction, deterministic: bool)
         .compile_with_direction(dir)
 }
 
-/// `compile_lane_fst`, but each row is wrapped in its own named `CompileNode::Group` ("g0".."g
-/// {N-1}", DOCUMENT order, i.e. `lanes_seq`'s own index — stable regardless of the `RightToLeft`
-/// physical reorder below) so a caller can recover, per accepted match, which single physical
-/// segment each row *actually* consumed via `Fst::get_offsets(name, ..).0` (the group's START
-/// tag) — needed by `ana_feature`. See that function's module-doc citation of
-/// `FeatureAnalysisRewriteRuleSpec.cs:48,68-71`'s `new Group("target"+i)`, the real C# mechanism
-/// this mirrors; `EnvFst::group_names`/`crate::morph::compile_parts` already use the identical
-/// `pg_fst` primitive for the same "recover a sub-match's real position" need.
+/// `compile_lane_fst`, but each row is wrapped in its own named group ("g0".."g{N-1}", in DOCUMENT
+/// order, so the names stay stable across the right-to-left physical reorder). A caller can then
+/// recover which single physical segment each row actually consumed, which is what `ana_feature`
+/// needs. C# mirrors this with its own per-target-position groups.
 ///
-/// Empirically probed (P6 investigation): a group's START offset is always the row's true
-/// single-segment position, even when `pg_fst::traverse::Transduce::advance`'s "skip the next
-/// Optional annotation" branch (see `width_matches`'s doc) widens that SAME group's END tag to
-/// swallow a transparently-skipped Optional segment immediately following it — only the END is
-/// contaminated by the skip, never the START. Do not read a `get_offsets` END from this FST's
-/// groups for anything semantic; only `.0` (the start) is trustworthy.
+/// **Only the group's START offset is trustworthy.** The traversal's "skip the next Optional
+/// annotation" branch (see `width_matches`) can widen a group's END tag to swallow a transparently
+/// skipped segment; the START is never contaminated. Do not read an END from this FST's groups.
 fn compile_lane_fst_grouped(
     lanes_seq: &[Vec<u64>],
     dir: Direction,
@@ -295,89 +262,30 @@ fn compile_lane_fst_grouped(
     (fst, names)
 }
 
-/// Shared width-mismatch guard (plan §6 item 1 / rust-optimizations-phase2.md W1.1): a
-/// nondeterministic FST match against a `segs` sequence containing Optional segments (any
-/// boundary — always `Segment::optional` in `MutShape::segs` — or an Optional-flagged
-/// re-inserted segment) can report an `ENTIRE_MATCH` span `[s, e)` **wider** than the compiled
-/// pattern it matched: `pg_fst::traverse::Transduce::advance`'s "skip the next Optional
-/// annotation" branch reuses the *same* arc a second time at a position two physical segments
-/// ahead (to let a pattern transparently pass over a boundary the way C#'s matcher does), and the
-/// registers it writes on that path record the *skipped* segment's own extent, so the recovered
-/// span silently absorbs it. Every call site that then indexes a per-pattern-position array
-/// positionally by `target_nodes[k]` (`k` in `0..pattern_len`) must reject such an over-wide span
-/// first: `ana_feature` used to (independently discovered, `29241a84`) but no longer does (see
-/// below); this helper still guards every other `all_spans`-fed site — `ana_epenthesis` (silent
-/// wrong-mutation risk) and `syn_feature`/`syn_narrow` (**panic risk**: both index/consume a
-/// per-node array sized to the compiled pattern's own node count with no bounds check). A
-/// too-narrow span cannot occur (each arc consumes at least one segment), so this is a plain
-/// equality test, not `<`.
+/// Shared width-mismatch guard. A nondeterministic match over a `segs` sequence containing Optional
+/// segments can report an `ENTIRE_MATCH` span WIDER than the pattern that matched: the traversal's
+/// "skip the next Optional annotation" branch reuses the same arc two segments ahead, and the
+/// registers it writes record the skipped segment's extent too. Any call site that then indexes a
+/// per-pattern-position array positionally must reject such a span first — for `ana_epenthesis`
+/// that means a silent wrong mutation, for `syn_feature`/`syn_narrow` an out-of-bounds panic. A
+/// too-narrow span cannot occur, since every arc consumes at least one segment, hence equality.
 ///
-/// **RESIDUAL (P6):** this guard's own assumption — that discarding an over-wide span is safe
-/// because a *tight*, exactly-`pattern_len`-wide alternative always survives alongside it — is
-/// FALSE exactly when an earlier rule's own analysis-unapply has interposed an Optional segment
-/// directly between every candidate pair of this pattern's real target positions (no tight
-/// alternative can exist then); see `ana_feature`'s doc for the full derivation. `ana_feature`
-/// no longer uses this guard at all (its target rows are recovered via
-/// `compile_lane_fst_grouped`'s per-row `Group` capture instead, immune to the issue). The
-/// OTHER three callers of this guard (`ana_narrow_general`, `syn_feature`, `syn_narrow`) are
-/// still exposed to the identical latent failure mode in principle — none of the three reference
-/// grammars (Indonesian/Amharic/Sena) exercises it: `ana_narrow_general`'s only live subrules
-/// (Amharic's CV mergers) have single-node RHS targets (no multi-row adjacency to break), and no
-/// reference grammar composes a flooding vacuous-deletion rule ahead of a `syn_feature`/
-/// `syn_narrow` multi-node target the way this P6 fixture's `ana_feature` case did. Flagged, not
-/// fixed — a real grammar exercising that combination would need the same per-row `Group`-capture
-/// treatment applied to whichever of those three functions hits it.
+/// **Residual.** The guard assumes a tight, exactly-`pattern_len`-wide alternative always survives
+/// alongside the over-wide one. That is false when an earlier rule's unapply has interposed an
+/// Optional segment between every candidate pair of this pattern's real target positions — then no
+/// tight alternative exists and the match is lost. `ana_feature` sidesteps this entirely by
+/// recovering its rows through `compile_lane_fst_grouped`'s per-row captures; the three remaining
+/// callers are exposed in principle. Fixing one means giving it the same group-capture treatment.
 ///
-/// **INVESTIGATED, LEFT AS-IS: a bounded `Quantifier` occupying the WHOLE LHS/RHS** (docs/
-/// `phase_c_quantifier.rs`'s own "Why the environment, not the LHS/RHS focus" section; also
-/// `phase_c_right_to_left.rs`'s epenthesis note references this same shape). A single
-/// `PatternNode::Quantifier` node as the entire LHS or RHS has `Pattern::nodes.len() == 1`
-/// regardless of its own `min`/`max`, so every caller here (`rhs_pins.len()`/`rule.lhs.nodes.len()`/
-/// `target_len`/`expected_len` — all plain node counts) will reject any REAL match of that
-/// Quantifier whose physical width differs from 1 (`max > 1`, or a `min == 0` skip), exactly per
-/// this doc's opening paragraph. Probed directly (`pg-rules` synthesis, throwaway, not checked in):
-/// `LHS = [Quantifier{min:1, max:2, children:[CharDef(a)]}]`, `RHS = [CharDef(t)]` against "aa"/
-/// "aaa" does not crash and does not mis-group — but it also does not honor the quantifier's own
-/// multiplicity at all: because every INDIVIDUAL occurrence of the quantifier's own child (a bare
-/// single `a`) independently satisfies `min=1` and is a width-1 match, the Iterative scan finds and
-/// applies each one separately (rewriting every `a` to `t` one at a time) before the wider,
-/// width-2+ span is ever reachable (its start node is already `dirty` by the time the scan gets
-/// there) — the quantifier's own grouping is silently invisible to this machinery, not merely its
-/// non-unit-width occurrences.
-///
-/// This is **not treated as a Rust-side gap to close**, because C# has no defined behavior for this
-/// shape either — it crashes. `SynthesisRewriteRuleSpec`'s constructor unconditionally does
-/// `lhs.Children.Cast<Constraint<Word, ShapeNode>>()` over the RULE's own Lhs
-/// (`PhonologicalRules/SynthesisRewriteRuleSpec.cs:33`), and every subrule-spec constructor that
-/// consumes a subrule's Rhs does the identical unconditional cast: `FeatureAnalysisRewriteRuleSpec.
-/// cs:104`, `NarrowAnalysisRewriteRuleSpec.cs:45`, `EpenthesisAnalysisRewriteRuleSpec.cs:18`
-/// (analysis side, one per `Kind`), plus the Simultaneous-mode self-opaquing probe at
-/// `AnalysisRewriteRule.cs:53-55` and the metathesis siblings `SynthesisMetathesisRuleSpec.cs:31`/
-/// `AnalysisMetathesisRuleSpec.cs:53`. `Constraint<TData,TOffset>` and `Quantifier<TData,TOffset>`
-/// are SIBLING subclasses of `PatternNode<TData,TOffset>` with no inheritance relation
-/// (`SIL.Machine/Matching/Constraint.cs:12-13`, `Quantifier.cs:13-14`), so LINQ's `Cast<T>` throws
-/// `InvalidCastException` the instant it reaches a `Quantifier` child. The DTD genuinely allows one
-/// there — `PhoneticInput`/`PhoneticOutput`'s shared `PhoneticSequence` production
-/// (`HermitCrabInput.dtd:515`) permits `OptionalSegmentSequence` exactly like `PhoneticTemplate`'s
-/// environments do, and `XmlLanguageLoader`'s generic `LoadPatternNodes`/`LoadPhoneticSequence`
-/// (`XmlLanguageLoader.cs:1405-1415,1493-1505`) builds a real `Quantifier<Word,ShapeNode>` for it
-/// with no LHS/RHS-vs-environment distinction at load time — so this is a genuine DTD-vs-
-/// implementation gap IN C# ITSELF (uncaught anywhere between XML loading and `Morpher`
-/// construction, `RewriteRule.CompileSynthesisRule`/`CompileAnalysisRule`, both called with no
-/// surrounding `try`/`catch` — `SynthesisRewriteRule.cs:31-36`), not an unglamorous corner nobody
-/// exercises. `pg_grammar::load` is more permissive than C# here (it happily loads this shape
-/// structurally into `PatternNode::Quantifier`, matching the loader's own permissiveness, but
-/// nothing downstream crashes) — deliberately so, since crashing to match a C# bug would be a
-/// strictly worse outcome than this module's existing behavior for no compensating fidelity gain.
-///
-/// Per this port's own governing rule (match C# and cite it; if C# is ambiguous or the shape is
-/// unrepresentable, do not guess), `width_matches` is left EXACTLY as-is for this shape: there is no
-/// C# behavior to converge on. Contrast the ENVIRONMENT case (`phase_c_quantifier.rs`'s own
-/// containment fixture): an environment's Quantifier is matched via `EnvFst`/
-/// `Transduce::first_match`, a pure existence test with no positional array to mismatch, and C#'s
-/// environment matchers are ordinary `Matcher<Word,ShapeNode>` instances built directly from the
-/// SAME `Pattern` with no Constraint-only cast anywhere — environments have real, well-defined C#
-/// behavior for a Quantifier, and this port already provides it.
+/// **A bounded `Quantifier` spanning the whole LHS or RHS is deliberately unsupported.** Such a
+/// pattern has one node whatever its min/max, so every caller's plain node count rejects any real
+/// match wider than one segment, and the quantifier's grouping is invisible to this machinery
+/// rather than merely mis-measured. There is no C# behavior to converge on: its rule-spec
+/// constructors cast every LHS/RHS child to a constraint type that a quantifier does not inherit
+/// from, so C# throws on load for the same shape, even though its own DTD and loader permit it.
+/// Loading it without crashing is the deliberate choice. Environments are the contrasting case —
+/// there a quantifier is a pure existence test with no positional array, C# handles it, and so
+/// does this module.
 #[inline]
 pub(crate) fn width_matches(target_nodes: &[usize], pattern_len: usize) -> bool {
     target_nodes.len() == pattern_len
@@ -399,36 +307,15 @@ pub(crate) fn all_spans(fst: &Fst, segs: &[Segment]) -> Vec<(usize, usize)> {
     spans
 }
 
-/// `all_spans`, reordered to match an Iterative pick-one-then-rescan loop's own scan preference
-/// (`syn_feature`/`syn_narrow`/`probe_narrow`/`ana_feature` — every direction-BLIND site
-/// this fix corrects). C# `IterativePhonologicalPatternRule.Apply`
-/// (`PhonologicalRules/IterativePhonologicalPatternRule.cs:17-48`) finds the match nearest the
-/// shape's `Matcher.Direction`-side edge first (`Matcher.Match(input)`, no explicit start ⇒ scan
-/// from the anchor in `Direction`), applies it (or, if `MatchSubrule` declines it, just steps past
-/// its start), then resumes scanning FURTHER in that SAME `Direction`
-/// (`targetMatch.Range.GetEnd(Direction).GetNext(Direction)` /
-/// `GetStart(Direction).GetNext(Direction)`, cs:29,33) — i.e. for `LeftToRight` it always tries the
-/// leftmost not-yet-tried position next; for `RightToLeft` it always tries the rightmost
-/// not-yet-tried position next.
+/// `all_spans`, reordered to an Iterative pick-one-then-rescan loop's own scan preference: C#
+/// takes the match nearest the direction-side edge first, then resumes scanning further in that
+/// same direction. Only a pick-one loop needs this. Every other caller is a Simultaneous
+/// collect-then-apply-all consumer with no "which one wins" question, so `all_spans` itself stays
+/// a direction-agnostic ascending sort rather than changing its contract for everyone.
 ///
-/// `all_spans` itself stays a plain, direction-agnostic ascending sort — its other callers
-/// (`sim_feature`/`sim_narrow`/`probe_sim_narrow`/`ana_narrow_general`, all confirmed Simultaneous-
-/// mode / collect-then-apply-every-match consumers, see their own docs and
-/// `AnalysisRewriteRule.cs:72-90`'s `mode = RewriteApplicationMode.Simultaneous` for the Narrow
-/// cases) apply EVERY accepted candidate regardless of order, so they have no "which one wins"
-/// question for this fix to touch. Only a pick-one Iterative loop needs its candidates tried in
-/// scan order, so each such loop reorders its own copy via this helper instead of changing
-/// `all_spans`'s contract for everyone.
-///
-/// `target.direction()` is always the right thing to key off, for EITHER caller family: synthesis
-/// compiles `target` with `dir_of(rule)` (`lhs_fst`'s own call in `synthesize_with_mpr`), while
-/// analysis compiles it with `reverse(dir_of(rule))` (`ana_feature_target_lanes`'s caller) —
-/// mirroring `AnalysisRewriteRule`'s own constructor, which builds its `Matcher.Direction` as
-/// `rule.Direction == LeftToRight ? RightToLeft : LeftToRight` (`PhonologicalRules/
-/// AnalysisRewriteRule.cs:33`), i.e. analysis always scans the OPPOSITE way synthesis would have.
-/// Reading `target.direction()` directly (rather than re-deriving `dir_of(rule)`/`reverse(..)` at
-/// each call site) means both sides reduce to the same one-line rule — "scan in the direction THIS
-/// specific compiled matcher actually traverses" — with no risk of the two getting out of sync.
+/// Keying off `target.direction()` rather than the rule's is what keeps both caller families
+/// correct with one rule: synthesis compiles its target in the rule's direction, analysis in the
+/// reverse, and reading the compiled matcher's own direction cannot get out of sync with either.
 fn ordered_spans(target: &Fst, segs: &[Segment]) -> Vec<(usize, usize)> {
     let mut spans = all_spans(target, segs);
     if target.direction() == Direction::RightToLeft {
@@ -437,84 +324,48 @@ fn ordered_spans(target: &Fst, segs: &[Segment]) -> Vec<(usize, usize)> {
     spans
 }
 
-/// A compiled environment (already lifted from a model `Pattern` with its anchors as flags).
-///
-/// `pub(crate)` (plan §13.1 Tier-1 #5): reused as-is by `crate::validity`'s allomorph-environment
-/// gate (`RequiredEnvironments`/`ExcludedEnvironments`, C# `AllomorphEnvironment`), which needs
-/// the exact same anchored-suffix/prefix matching this module's phonological-rule environments use
-/// — the DTD's `<Environment>`/`<LeftEnvironment>`/`<RightEnvironment>` are one shared XML shape
-/// consumed by both `<PhonologicalSubrule>` and `<MorphologicalSubrule>`/lexical `<Allomorph>`.
+/// A compiled environment, already lifted from a model `Pattern` with its anchors as flags. Also
+/// serves `crate::validity`'s allomorph-environment gate, which needs the same anchored
+/// suffix/prefix matching — one shared XML shape feeds both.
 pub(crate) struct EnvFst {
     fst: Fst,
     anchor_start: bool,
     anchor_end: bool,
     /// The env is a bare word-boundary anchor (`#`) with no segment constraints.
     only_anchor: bool,
-    /// Per-top-level-pattern-node alpha-variable occurrences, aligned with the authored pattern
-    /// (`pattern_var_occurrences`; one entry per top-level node including quantifiers, which are
-    /// always empty here — quantifier-nested variables are a separate, pre-existing, flagged
-    /// limitation, see that function's doc).
+    /// Per-top-level-pattern-node alpha-variable occurrences, aligned with the authored pattern —
+    /// one entry per top-level node, quantifiers included and always empty, since variables nested
+    /// inside a quantifier are a separate flagged limitation of `pattern_var_occurrences`.
     node_vars: Vec<Vec<VarOccur>>,
-    /// The capture-group name for each var-bearing entry of `node_vars` (`None` where the node has
-    /// no occurrences — those nodes were left unwrapped, see `compile_env_impl`).
+    /// The capture-group name for each var-bearing entry of `node_vars`; `None` where the node has
+    /// no occurrences and so was left unwrapped.
     ///
-    /// Tier-2 #12. **Verified against the actual C# mechanism** (not the Group-capture guess an
-    /// earlier draft of this fix assumed): C# does not need any post-match position recovery at
-    /// all, because its compiled FSA arcs carry the *live* `FeatureStruct` constraint — variables
-    /// included — and `VariableBindings` is bound/checked **inline, arc by arc, during traversal**
-    /// (`Input.Matches`/`FeatureValue.IsUnifiableImpl`, `FiniteState/Input.cs:49-61`,
-    /// `FeatureModel/SimpleFeatureValue.cs:52-102`, esp. the `IsVariable` arms at 63-94 that this
-    /// port's `bind_or_check` already mirrors, `SimpleFeatureValue.cs:62-77` in the earlier, narrower
-    /// citation). Because the automaton structurally distinguishes "the quantifier's looping arc"
-    /// from "the singular var-bearing arc", the correct annotation is bound the instant that
-    /// specific arc fires — a variable-width quantifier elsewhere in the pattern cannot desynchronize
-    /// it; there is no analog of this struct or this bug on the C# side.
-    ///
-    /// The Rust side has this problem only because `pg-fst`'s frozen FSA path cannot carry variables
-    /// in arcs at all — `PatternBridge::simple_context_lanes` (`bridge.rs:213-227`) lowers every
-    /// variable-governed lane to `UNCONSTRAINED` *before* compiling, making the compiled FST a sound
-    /// over-approximation that this module re-checks against real node lanes *after* a candidate
-    /// span is found (module doc above). That post-hoc re-check needs some way to recover, for the
-    /// specific match found, which segment a given pattern node actually consumed — the pre-fix code
-    /// used a positional guess (`s - node_vars.len() + k`) that is only correct when every node
-    /// (including quantifiers) consumes exactly one segment. This field is the actual fix: reuse
-    /// pg-fst's existing frozen `CompileNode::Group`/`Fst::get_offsets` capture primitive (already
-    /// used identically by `pg_rules::morph::compile_parts`/`part_ranges` for affix-part captures) to
-    /// read the matched span's real per-node offsets directly off the traversal's own registers,
-    /// independent of how many segments any quantifier in the pattern actually consumed. Note C# does
-    /// use exactly this class of position-recovery-by-Group elsewhere in this same file family — e.g.
-    /// `FeatureAnalysisRewriteRuleSpec` wraps each *target* position in `new Group("target"+i)` and
-    /// reads it back via `match.GroupCaptures["target"+i]` for its nonvacuous-unapplication check
-    /// (`FeatureAnalysisRewriteRuleSpec.cs:48,68-71`) — so this is a faithful reuse of a real C#
-    /// technique, just applied here to the specific gap (environment alpha-variable positions under a
-    /// quantifier) that only exists because of this port's pre-compile variable erasure, not because
-    /// C#'s *environment* binding uses Group too (it doesn't; see above).
-    /// independent of how many segments any quantifier in the pattern actually consumed. No pg-fst
-    /// change — this is an additive use of an existing primitive.
+    /// C# needs no such recovery: its arcs carry the live constraint, variables included, and
+    /// bindings are checked inline as each arc fires, so the automaton itself distinguishes a
+    /// quantifier's looping arc from the var-bearing one. This port cannot, because compilation
+    /// erases variable-governed lanes to `UNCONSTRAINED` before the FST is built, leaving a
+    /// post-hoc re-check that has to recover which segment each pattern node really consumed. A
+    /// positional guess is only correct when every node consumes exactly one segment; these
+    /// captures are correct whatever a quantifier elsewhere in the pattern swallowed.
     group_names: Vec<Option<String>>,
 }
 
-/// Compile an environment for **synthesis** (and `crate::validity`'s allomorph-environment gate,
-/// which mirrors `AllomorphEnvironment.cs`'s own `Segment|Boundary|Anchor` filter): boundary-marker
-/// constraints are kept verbatim, matching `SynthesisRewriteRule.cs:26`'s matcher filter
-/// (`Segment|Boundary|Anchor`) and `SynthesisRewriteSubruleSpec.cs`, which passes
-/// `subrule.LeftEnvironment`/`RightEnvironment` straight through with no stripping. Analysis callers
-/// must use `compile_env_analysis` instead — see its doc for why.
+/// Compile an environment for **synthesis**, and for the allomorph-environment gate, which shares
+/// C#'s segment-boundary-anchor filter: boundary-marker constraints are kept verbatim, since C#
+/// passes both environments straight through unstripped. Analysis callers must use
+/// `compile_env_analysis` instead — see its doc for why.
 pub(crate) fn compile_env(g: &Grammar, table_id: TableId, env: Option<&Pattern>) -> Option<EnvFst> {
     compile_env_impl(g, table_id, env, false, false)
 }
 
-/// `compile_env` with the P10 `StrRep` identity lane enabled (see `PatternBridge::id_lane`) —
-/// for **allomorph** environments only (`crate::validity` / `crate::cache::build_env_cache`),
-/// whose match inputs come from `crate::morph::segs_of` and therefore carry the same lane. The
-/// phonological-rule environment sites keep plain `compile_env`: their inputs are the rewrite
-/// driver's own node lanes (no id lane), and an id-lane constraint against a lane-less input
-/// would mis-fire on determinized negated arcs (see the `id_lane` field doc). This split matters
-/// beyond precision: allomorph environments feed the W3.2 disjunctive re-check, where an
-/// environment that OVER-matches (pre-P10: any `Segments`-class or literal-segment environment on
-/// a zero-phonological-feature grammar matched anything) flips into wrongly REJECTING the word —
-/// e.g. Sena `ndi-`'s passed-over `i+` allomorph (env `/ _ mb`) spuriously "matching" before
-/// `phemb` killed every `ku+ndi+...` parse.
+/// `compile_env` with the `StrRep` identity lane enabled, for **allomorph** environments only,
+/// whose match inputs come from `crate::morph::segs_of` and carry the same lane. Phonological-rule
+/// environments must keep plain `compile_env`: their inputs are the rewrite driver's own lane-less
+/// node lanes, and an id-lane constraint against those mis-fires on determinized negated arcs.
+///
+/// The split is not merely about precision. Allomorph environments feed the disjunctive re-check,
+/// where an environment that OVER-matches flips into wrongly REJECTING the word — a passed-over
+/// allomorph "matching" spuriously kills every parse through it.
 pub(crate) fn compile_env_allomorph(
     g: &Grammar,
     table_id: TableId,
@@ -523,31 +374,18 @@ pub(crate) fn compile_env_allomorph(
     compile_env_impl(g, table_id, env, false, true)
 }
 
-/// Compile an environment for phonological **analysis** — C#
-/// `AnalysisRewriteSubruleSpec.CreateEnvironmentPattern` (AnalysisRewriteSubruleSpec.cs:26-32), which
-/// runs every left/right environment pattern through `HermitCrabExtensions.DeepCloneExceptBoundaries`
-/// (HermitCrabExtensions.cs:143-198) before compiling it.
+/// Compile an environment for phonological **analysis**, stripping boundary constraints as C#'s
+/// analysis subrule spec does.
 ///
-/// Why: the analysis matcher's own `Filter` is `Segment|Anchor` only (`AnalysisRewriteRule.cs:34`) —
-/// `Type=Boundary` nodes are never presented to the FST traversal at all
-/// (`TraversalMethodBase.cs:41-46` skips any annotation failing the filter when building its node
-/// list), so a literal `BoundaryMarker` constraint left in an environment pattern could never match
-/// anything and the environment would always spuriously fail. C# instead drops the boundary
-/// constraint from the pattern entirely, which — combined with the *matcher's* filter transparently
-/// skipping over physical boundary nodes when it lands on one mid-traversal (`Matcher.cs:335-337`,
-/// `TraversalMethodBase`) — makes a morpheme boundary invisible/transparent during analysis-side
-/// environment matching: e.g. Amharic `prule5` ("a deletion before a")'s `RightEnvironment =
-/// [BoundaryMarker, Segment(a)]` degenerates on analysis to "the next real segment is *a*", silently
-/// skipping over any boundary in between.
+/// The analysis matcher's filter admits segments and anchors only, so a boundary node never reaches
+/// the traversal at all and a literal boundary constraint left in the pattern could never match. C#
+/// drops the constraint entirely, which — with its matcher transparently stepping over physical
+/// boundaries mid-traversal — makes a morpheme boundary invisible during analysis-side environment
+/// matching: "delete before a boundary then `a`" degenerates to "the next real segment is `a`".
 ///
-/// This port's `ana_*` functions already mirror the Segment|Anchor filter by building their match
-/// universe via `ms.segs(false)` (boundaries excluded from the sequence). Without this stripping
-/// step, a `compile_env`-compiled environment that still requires a literal Boundary segment could
-/// never find one in that boundary-free sequence — `left_env_ok`/`right_env_ok` would always return
-/// `false`, silently killing every analysis subrule whose environment references a morpheme
-/// boundary. Confirmed real, current, grammar-agnostic impact: Indonesian's *meN-* prefix
-/// nasal-assimilation analysis environments reference morpheme boundaries and were silently always
-/// failing before this fix.
+/// This port's `ana_*` functions mirror the same filter by building their match universe with
+/// boundaries excluded. Without this stripping, any analysis subrule whose environment mentions a
+/// morpheme boundary silently fails every time.
 pub(crate) fn compile_env_analysis(
     g: &Grammar,
     table_id: TableId,
@@ -590,11 +428,9 @@ fn compile_env_impl(
         .expect("environment compiles");
     let only_anchor = compiled.top_level_len == 0 && (compiled.anchor_start || compiled.anchor_end);
 
-    // Tier-2 #12: wrap each var-bearing top-level node in a named capture group so its matched
-    // segment can be recovered positionally-independent of any quantifier elsewhere in the pattern
-    // (see `EnvFst::group_names`'s doc). Mirrors `pg_rules::morph::compile_parts`'s identical
-    // `CompileNode::Group` wrapping for affix-part captures — same frozen pg-fst primitive, no
-    // pg-fst change. Nodes with no alpha-variable occurrence are left unwrapped (no capture needed).
+    // Wrap each var-bearing top-level node in a named capture group so its matched segment can be
+    // recovered independently of any quantifier elsewhere in the pattern; see `EnvFst::group_names`.
+    // A node with no alpha-variable occurrence needs no capture and is left unwrapped.
     let group_names: Vec<Option<String>> = compiled
         .node_vars
         .iter()
@@ -632,21 +468,14 @@ fn compile_env_impl(
     })
 }
 
-/// C# `HermitCrabExtensions.DeepCloneExceptBoundaries` (HermitCrabExtensions.cs:143-198): drop every
-/// node that denotes a literal morpheme-boundary character (`Type() == HCFeatureSystem.Boundary`),
-/// recursing into `Quantifier` groups and dropping a quantifier entirely once its filtered children
-/// are empty (mirroring C#'s `if (newQuantifier.Children.Count > 0) yield return ...`). Only
-/// `PatternNode::CharDef` can denote a boundary in this port's flattened model (a `Context` natural
-/// class always injects `Type=Segment`, C# `NaturalClass.cs`; `Anchor` is the `#` word-edge marker,
-/// a distinct `Type` from `Boundary`, and is never stripped by C# either).
+/// C# `DeepCloneExceptBoundaries`: drop every node denoting a literal morpheme-boundary character,
+/// recursing into quantifiers and dropping one entirely once its filtered children are empty. Only
+/// a `CharDef` can denote a boundary in this flattened model — a natural class always injects
+/// segment type, and an anchor is a distinct type C# does not strip either.
 ///
-/// KNOWN RESIDUAL: `PatternNode::Segments` (a pre-segmented `<Segments>` shape) could in principle
-/// embed a boundary character too, but no `<PhonologicalRule>` environment in any of the three
-/// reference grammars uses `<Segments>` (confirmed by grep; Sena's `<Segments>`-bearing environments
-/// are all `<MorphologicalSubrule>`/lexical-allomorph environments — a different C# code path,
-/// `AllomorphEnvironment.cs`, whose own filter is `Segment|Boundary|Anchor` and is *not* stripped, so
-/// it correctly keeps calling plain `compile_env`, not this function). Left unhandled here per this
-/// module's existing scope-note convention — flagged, not silently wrong on any exercised path.
+/// Known residual: a pre-segmented `Segments` node could in principle embed a boundary too. Such
+/// environments only ever occur on allomorphs, which take the unstripped `compile_env` path, so
+/// this is flagged rather than silently wrong on an exercised path.
 fn strip_boundary_nodes(table: &CharDefTable, nodes: &[PatternNode]) -> Vec<PatternNode> {
     nodes
         .iter()
@@ -669,16 +498,13 @@ fn strip_boundary_nodes(table: &CharDefTable, nodes: &[PatternNode]) -> Vec<Patt
         .collect()
 }
 
-/// Left environment holds iff some suffix of the left context (`segs[0..left_end]`), ending
-/// adjacent to the target, matches the env (word-start-anchored if the env began with `#`). A bare
-/// `#` left env holds iff the target is at the word start (`left_end == 0`).
+/// Left environment holds iff some suffix of `segs[0..left_end]`, ending adjacent to the target,
+/// matches the env; a bare `#` left env holds iff the target is at the word start.
 ///
-/// Returns the match itself (`Some(Option<FstResult>)`) rather than a bare bool so a caller that
-/// also needs alpha-variable bindings (`resolve_bindings`) can reuse the *same* traversal's
-/// registers for group-capture lookups instead of re-running the FST: outer `None` = the
-/// environment failed to match (reject the candidate); `Some(None)` = no environment was authored
-/// (vacuous pass, nothing to bind); `Some(Some(result))` = matched, `result.registers` holds the
-/// capture groups `resolve_bindings` reads via `EnvFst`'s `group_names`.
+/// The nested `Option` is so `resolve_bindings` can reuse this same traversal's registers instead
+/// of re-running the FST. Outer `None` means the environment failed — reject the candidate;
+/// `Some(None)` means none was authored, a vacuous pass with nothing to bind; `Some(Some(r))` means
+/// matched, with `r.registers` holding the capture groups.
 pub(crate) fn left_env_match(
     env: &Option<EnvFst>,
     segs: &[Segment],
@@ -704,10 +530,9 @@ pub(crate) fn left_env_ok(env: &Option<EnvFst>, segs: &[Segment], left_end: usiz
     left_env_match(env, segs, left_end).is_some()
 }
 
-/// Right environment holds iff a prefix of the right context (`segs[right_start..]`), starting
-/// adjacent to the target, matches the env (word-end-anchored if the env ended with `#`). A bare
-/// `#` right env holds iff the target is at the word end (`right_start == segs.len()`). See
-/// `left_env_match`'s doc for the `Option<Option<FstResult>>` shape.
+/// Right environment holds iff a prefix of `segs[right_start..]`, starting adjacent to the target,
+/// matches the env; a bare `#` right env holds iff the target is at the word end. See
+/// `left_env_match` for the nested-`Option` shape.
 pub(crate) fn right_env_match(
     env: &Option<EnvFst>,
     segs: &[Segment],
@@ -737,20 +562,14 @@ pub(crate) fn right_env_ok(env: &Option<EnvFst>, segs: &[Segment], right_start: 
 }
 
 // =================================================================================================
-// Alpha-variable agreement (C# `SimpleFeatureValue.cs` variable arms + `VariableBindings`).
-// =================================================================================================
+// Alpha-variable agreement.
 //
-// The frozen FST cannot bind variables, so its arc constraints over-approximate (variable lanes
-// lowered to UNCONSTRAINED). After it reports a candidate span, we run the *actual* agreement check
-// against node lanes, exactly mirroring `SimpleFeatureValue.IsUnifiableImpl`'s `IsVariable &&
-// !otherSfv.IsVariable` arm (SimpleFeatureValue.cs:62-77):
-//   - first occurrence BINDS `varBindings[name] = otherSfv.GetVariableValue(Agree)` — the node's
-//     symbol set if agree, its negation (within the feature mask) if disagree
-//     (SimpleFeatureValue.cs:391-393);
-//   - a subsequent occurrence checks `binding.Overlaps(!Agree, nodeValue)` — the (polarity-adjusted)
-//     binding must share a symbol with the node (SimpleFeatureValue.cs:66-69). No overlap ⇒ reject.
-// Binding order matches C# `RewriteRuleSpec.MatchSubrule`: the target match binds first, then the
-// left environment, then the right environment (RewriteRuleSpec.cs:82-101).
+// The FST cannot bind variables, so its arcs over-approximate and the real agreement check runs
+// against node lanes after a candidate span is reported: the first occurrence BINDS the node's
+// symbol set, or its negation within the feature mask when the occurrence disagrees; a later
+// occurrence requires the polarity-adjusted binding to share a symbol with the node, and rejects
+// otherwise. Binding order is C#'s — target match first, then left environment, then right.
+// =================================================================================================
 
 /// Bindings: `VarId.0` → (bound symbol bits, governed feature index). The feature index recovers the
 /// full mask for the disagree/negation cases.
@@ -970,44 +789,19 @@ fn classify(rule: &RewriteRuleDef, sr: &RewriteSubruleDef) -> Kind {
     }
 }
 
-/// C# `SynthesisRewriteSubruleSpec.IsApplicable` (SynthesisRewriteSubruleSpec.cs:31-70): required
-/// syntactic FS (POS) + required/excluded MPR feature gating, checked dynamically against the
-/// *current word being synthesized* — not a static, compile-time property of the subrule. Both
-/// halves are now threaded: `syn_fs` (the word's current `SyntacticFeatureStruct`/`Word.syn_fs`) for
-/// the POS half (see `required_pos_ok`), and `mpr` (the word's current `MprFeatures`/`Word.mpr`)
-/// for the MPR half, gated exactly as C#: `MprFeatureSet.IsMatchRequired`/`IsMatchExcluded`, i.e.
-/// `pg_grammar::model::Grammar::mpr_group_ok` (W3.1: MPR-group-aware; this was a flat overlap
-/// check before that fix, correct only because every reference grammar's groups are singletons).
+/// C# `SynthesisRewriteSubruleSpec.IsApplicable`: required-POS plus required/excluded MPR gating,
+/// checked dynamically against the *word currently being synthesized* — not a static property of
+/// the subrule. Treating either half as static makes every subrule declaring one unconditionally
+/// inapplicable, which is silent: the subrule simply never fires, and the resynthesized surface
+/// then cannot equal the input, so the whole parse fails however correct the rest of it was.
 ///
-/// Before the POS half was ported, every
-/// subrule declaring a nonempty `requiredPartsOfSpeech` was unconditionally treated as inapplicable
-/// during synthesis, regardless of the actual word's POS — Amharic authors this 3× (`amharic-hc.xml
-/// :12151,12169,12188`), so those subrules silently never fired. Real Amharic corpus impact measured
-/// after the fix (see `pg-parse/tests/csharp_port_rewrite.rs::boundary_rules_required_pos_on_subrule
-/// _finding`'s doc for the synthetic-fixture confirmation).
+/// **Synthesis only.** C#'s analysis-side subrule spec does not override the base `IsApplicable`,
+/// which returns true unconditionally, so unapplication is never MPR- or POS-gated. `analyze` must
+/// not call this.
 ///
-/// Before the MPR half was ported (an earlier fix, unrelated to this one): every subrule declaring a
-/// nonempty `required_mpr`/`excluded_mpr` was unconditionally treated as inapplicable during
-/// synthesis, regardless of the actual word — e.g. Indonesian `prule5` ("Voiceless obstruent
-/// deletion", `excludedMPRFeatures="mpr1"`) never fired for *any* word, so a re-synthesized
-/// `meN-`-prefixed word (analysis round-trip via `SynthesisStratumRule`'s trailing prule application)
-/// never deleted the assimilated-nasal's following obstruent, and the resynthesized surface could
-/// never equal the input surface — `is_match` always failed, producing a complete non-parse
-/// regardless of how correct the rest of the analysis was.
-///
-/// C#'s analysis-side counterpart, `AnalysisRewriteSubruleSpec`, does **not** override
-/// `RewriteSubruleSpec.IsApplicable` (whose base implementation is `return true`
-/// unconditionally, RewriteSubruleSpec.cs:46-49) — so unapplication is never MPR/POS-gated. This
-/// port's `analyze()` correctly never calls `subrule_applicable` at all; this gate is
-/// synthesis-only, matching that asymmetry.
-///
-/// `pub` (not `pub(crate)`): `pg_foma`'s P6 MPR/POS flag-diacritics prototype
-/// (`pg-foma/src/gate.rs`) calls this DIRECTLY, at grammar-compile time, once per (lexical entry,
-/// gated subrule) pair, to partition entries into groups that agree on every gated subrule's
-/// applicability — the compiled foma network is then built per-group with each group's
-/// inapplicable subrules dropped, rather than re-deriving this predicate's semantics (MPR groups'
-/// All/Any match-type, the POS "unset = vacuous pass" rule) a second time in a different crate.
-/// Reusing the engine's own function is what makes the two paths provably agree.
+/// `pub` because `pg_foma` calls it at grammar-compile time to partition lexical entries into
+/// groups agreeing on every gated subrule. Reusing the engine's own predicate is what makes the
+/// two paths provably agree rather than re-deriving MPR match-types and the POS vacuous-pass rule.
 pub fn subrule_applicable(
     g: &Grammar,
     sr: &RewriteSubruleDef,
@@ -1018,22 +812,10 @@ pub fn subrule_applicable(
         && g.mpr_group_ok(sr.required_mpr, sr.excluded_mpr, mpr)
 }
 
-/// The POS half of `subrule_applicable`: C# `_subrule.RequiredSyntacticFeatureStruct.IsUnifiable(
-/// input.SyntacticFeatureStruct)` (`SynthesisRewriteSubruleSpec.cs:33`). `required_pos` is
-/// `pg_grammar::model::RewriteSubruleDef::required_pos` — already loaded from
-/// `requiredPartsOfSpeech` as a POS symbol bitset (`pg-grammar/src/load.rs::parse_pos_bits`), the
-/// port's flattened analog of C#'s `FeatureStruct{POS: symbolset}`.
-///
-/// `None` (no `requiredPartsOfSpeech` attribute — C#'s default empty `RequiredSyntacticFeatureStruct`)
-/// is vacuously satisfied: an empty `FeatureStruct` has no entries, and `is_unifiable`
-/// (`pg-featstruct/src/ops.rs:106`) treats a feature present on only one side as never blocking. When
-/// `required_pos` IS present, that reduces to a single symbolic-feature comparison: `syn_fs` missing
-/// a POS entry entirely (also unconstrained — same "feature present on only one side" rule) always
-/// satisfies it; a present POS entry must share at least one symbol with `required_pos`
-/// (`SymbolBits::overlaps`'s un-negated arm — plain non-empty-intersection, matching
-/// `SimpleFeatureValue.IsUnifiableImpl`'s non-variable arm exactly). The mask parameter is unused on
-/// that arm (`pg-featstruct/src/ops.rs`'s own `NO_MASK` constant documents this same shortcut for the
-/// tree-level `is_unifiable`), so `0` is passed rather than computing `g.syn_features.mask(..)`.
+/// The POS half of `subrule_applicable`, a unifiability test flattened to one symbolic comparison.
+/// Either side absent is vacuously satisfied, since a feature present on only one side never
+/// blocks unification; when both are present they must share at least one symbol. The mask
+/// argument is unused on that arm, hence the `0`.
 fn required_pos_ok(
     g: &Grammar,
     required_pos: &Option<pg_featstruct::SymbolBits>,
@@ -1057,31 +839,19 @@ fn required_pos_ok(
 // Public API.
 // =================================================================================================
 
-/// Apply `rule` forward to `input` (C# `SynthesisRewriteRule.Apply`). Returns the rewritten shape
-/// in a one-element vec if the rule applied, else an empty vec (mirroring `Apply`'s
-/// `input.ToEnumerable()` / `Empty`).
-///
-/// Thin wrapper over `synthesize_with_mpr` with an empty MPR set AND an empty syntactic FS —
-/// preserves this function's existing signature (and every existing caller/test) for grammars/rules
-/// with no MPR/POS gating (an empty `FeatureStruct` has no POS entry, so `required_pos_ok`'s
-/// "feature present on only one side" rule vacuously satisfies any `requiredPartsOfSpeech`, matching
-/// this wrapper's pre-existing MPR behavior exactly); real pipeline callers that need `Word.mpr`/
-/// `Word.syn_fs` gating (`pg_rules::stratum::synthesize_stratum`'s trailing prule application) call
-/// `synthesize_with_mpr` directly.
+/// Apply `rule` forward to `input`: the rewritten shape in a one-element vec if it applied, empty
+/// otherwise. A thin wrapper passing empty MPR and syntactic FS, so every subrule gate is vacuously
+/// satisfied. A caller that needs real gating must use `synthesize_with_mpr` directly.
 pub fn synthesize(g: &Grammar, rule: &RewriteRuleDef, input: &Shape) -> Vec<Shape> {
     synthesize_with_mpr(g, rule, input, &FeatureStruct::EMPTY, MprSet::EMPTY)
 }
 
-/// Identical to `synthesize`, but gates each subrule's `requiredPartsOfSpeech`/`required_mpr`/
-/// `excluded_mpr` (see `subrule_applicable`) against the synthesizing word's actual syntactic FS
-/// and MPR feature set instead of assuming empty.
+/// Identical to `synthesize`, but gates each subrule against the synthesizing word's actual
+/// syntactic FS and MPR set rather than assuming empty ones. See `subrule_applicable`.
 ///
-/// Recompiles every subrule's target/environment matchers on every call — kept as-is (not folded
-/// into the cache) because this function (like `synthesize`/`analyze` below) is also called directly
-/// on standalone, non-grammar-resident `RewriteRuleDef` fixtures throughout the test suite, which
-/// have no stable index into a `crate::cache::RuleCache`. The real per-word pipeline
-/// (`crate::stratum`) calls `synthesize_with_mpr_cached` instead, which skips all of this
-/// recompilation. See `crate::cache`'s module doc for the full compile-once rationale.
+/// Recompiles every subrule's matchers per call, deliberately: this entry point is also used on
+/// standalone, non-grammar-resident fixtures with no index into a `RuleCache`. The real pipeline
+/// calls `synthesize_with_mpr_cached`.
 pub fn synthesize_with_mpr(
     g: &Grammar,
     rule: &RewriteRuleDef,
@@ -1098,11 +868,9 @@ pub fn synthesize_with_mpr(
         if !subrule_applicable(g, sr, syn_fs, mpr) {
             continue;
         }
-        // P13: `rule.mode` selects the function pair for Feature/Narrow; Epenthesis reuses
-        // `syn_epenthesis` for both modes -- its existing one-snapshot-collect-then-apply
-        // shape already matches `SimultaneousPhonologicalPatternRule`'s semantics, and is also the
-        // (pre-existing, unrelated-to-P13) best-available stand-in for Iterative epenthesis today
-        // -- see `syn_epenthesis`'s own doc for the documented residual.
+        // `rule.mode` selects the function pair for Feature and Narrow. Epenthesis reuses
+        // `syn_epenthesis` for both: its collect-then-apply shape already matches Simultaneous
+        // semantics and stands in for Iterative — see that function's own documented residual.
         let did = match (classify(rule, sr), rule.mode) {
             (Kind::Feature, RewriteMode::Iterative) => {
                 let target = lhs_fst(g, table_id, &rule.lhs, dir_of(rule), true);
@@ -1144,11 +912,9 @@ pub fn synthesize_with_mpr(
     }
 }
 
-/// The `crate::cache::RuleCache`-aware sibling of `synthesize_with_mpr`, used by the real
-/// per-word pipeline (`crate::stratum::synthesize_stratum`'s trailing prule application): every
-/// target/environment matcher is read from `cache.prule_rewrite(pid)` instead of being recompiled. `pid`
-/// must identify `rule` (i.e. `rule as *const _ == &g.prules[pid.0 as usize] as *const _`) — every
-/// production call site already has both in hand (it indexed `g.prules` by `pid` to get `rule`).
+/// The cache-aware sibling of `synthesize_with_mpr`, used by the real pipeline: every
+/// target/environment matcher is read from the cache instead of recompiled. `pid` must identify
+/// `rule` — every production call site indexed `g.prules` by `pid` to get it in the first place.
 pub(crate) fn synthesize_with_mpr_cached(
     g: &Grammar,
     pid: pg_grammar::model::PRuleId,
@@ -1158,10 +924,8 @@ pub(crate) fn synthesize_with_mpr_cached(
     mpr: MprSet,
     cache: &crate::cache::RuleCache,
 ) -> Vec<Shape> {
-    // `pid` (a grammar-resident cache key -- every call site derived it from `g.prules`) resolves
-    // this rule's OWN owning stratum's table (`crate::cache::owning_table_for_prule`), never an
-    // implicit table-zero default -- see that function's doc for the fallback contract (an
-    // orphaned-but-grammar-resident prule, provably unreachable via this cached path in practice).
+    // `pid` resolves this rule's OWN owning stratum's table, never an implicit table zero; the
+    // fallback covers only an orphaned prule, unreachable via this cached path.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
@@ -1173,10 +937,8 @@ pub(crate) fn synthesize_with_mpr_cached(
             continue;
         }
         let sc = &pc.subrules[i];
-        // Same `(Kind, rule.mode)` dispatch as `synthesize_with_mpr` (§4.2) — `pc.syn_target`/
-        // `sc.syn_left`/`sc.syn_right` are identical for either mode of a given `Kind` (§4.2: "no
-        // cache schema change expected", confirmed — `sim_feature`/`sim_narrow` read the exact same
-        // compiled target/env FSTs `syn_feature`/`syn_narrow` do; only the driving loop differs).
+        // The cached matchers are identical for either mode of a given `Kind` — the Simultaneous
+        // functions read the same compiled target and env FSTs; only the driving loop differs.
         let did = match (classify(rule, sr), rule.mode) {
             (Kind::Feature, RewriteMode::Iterative) => syn_feature(
                 g,
@@ -1294,17 +1056,14 @@ fn subrule_gate_reason(
     None
 }
 
-/// The shared C#-`SynthesisRewriteRule.Apply` readout tail (cs:65-85): given every subrule's
-/// `SubruleOutcome` (in subrule-index order), fire the exact trace events C# would, in the exact
-/// order and with the exact early-stop C# uses. `out_word` is the single snapshot passed to EVERY
-/// call — matching C#'s own behavior of reusing ONE mutated `Word` reference for every readout call
-/// (the readout runs after `_patternRule.Apply` has already fully finished mutating `input` in
-/// place, so even a FAILED subrule's reported "Input" reflects the rule's final post-mutation state,
-/// not a snapshot from when that subrule was tried — a real, verified-from-source C# quirk, not an
-/// approximation). `phonological_rule_applied`/`phonological_rule_not_applied` (`trace.rs`) do not
-/// reassign the trace cursor (verified against `TraceManager.cs:174-202`: neither method touches
-/// `.CurrentTrace`, unlike `MorphologicalRuleApplied`) — the returned handle is discarded here,
-/// matching every call site's existing discipline of only reassigning the cursor where C# does.
+/// The shared readout tail: given every subrule's outcome in index order, fire C#'s trace events in
+/// C#'s order, with its early stop on the first applied subrule.
+///
+/// `out_word` is deliberately ONE snapshot passed to every call, because C# reuses one mutated word
+/// reference for the whole readout — which runs after the rule has finished mutating in place, so
+/// even a failed subrule reports the rule's FINAL state rather than the state when it was tried.
+/// That is a verified C# quirk, not an approximation here. Neither trace method reassigns the
+/// cursor, so the returned handle is discarded.
 fn report_subrule_outcomes(
     trace: &dyn TraceSink,
     parent: TraceHandle,
@@ -1325,13 +1084,10 @@ fn report_subrule_outcomes(
     }
 }
 
-/// `synthesize_with_mpr`'s traced sibling — standalone (recompiles every call, like
-/// `synthesize_with_mpr` itself), for hand-built fixtures with no grammar-resident
-/// `crate::cache::RuleCache` index. `pid` is only used as the trace tree's rule identity (a
-/// fixture with no real grammar-resident prule table may pass any nominal value); no `&Word` input
-/// is required — a snapshot carrying `syn_fs`/`mpr` is built internally via `Word::new`, since
-/// this function (unlike its `_cached` sibling below) has no live `Word` in hand to draw a `.trace`
-/// cursor from — the caller-supplied `parent` is used as-is.
+/// `synthesize_with_mpr`'s traced sibling, recompiling per call for hand-built fixtures with no
+/// `RuleCache` index. `pid` serves only as the trace tree's rule identity, so a fixture with no
+/// grammar-resident prule table may pass any nominal value. With no live `Word` to draw a cursor
+/// from, the caller's `parent` is used as-is and the trace snapshot is built internally.
 #[allow(clippy::too_many_arguments)]
 pub fn synthesize_with_mpr_traced(
     g: &Grammar,
@@ -1346,7 +1102,7 @@ pub fn synthesize_with_mpr_traced(
     if !trace.is_tracing() {
         return synthesize_with_mpr(g, rule, input, syn_fs, mpr);
     }
-    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
@@ -1415,11 +1171,9 @@ pub fn synthesize_with_mpr_traced(
     }
 }
 
-/// The `crate::cache::RuleCache`-aware sibling of `synthesize_with_mpr_traced` — the real
-/// per-word pipeline's traced entry point (`crate::stratum::synthesize_stratum_traced`'s trailing
-/// prule application). Takes the real `&Word` (not bare `Shape`/`syn_fs`/`mpr`) so the trace snapshot
-/// carries the word's actual full state, and so `node_parent` can fall back to `input.trace` exactly
-/// like every other traced call site in `stratum.rs` (`word.trace.unwrap_or(parent)`).
+/// The cache-aware sibling of `synthesize_with_mpr_traced`, and the real pipeline's traced entry
+/// point. It takes a whole `&Word` rather than a shape/FS/MPR triple so the trace snapshot carries
+/// the word's real state and the cursor can fall back to `input.trace` like every other call site.
 pub fn synthesize_with_mpr_cached_traced(
     g: &Grammar,
     pid: PRuleId,
@@ -1440,7 +1194,7 @@ pub fn synthesize_with_mpr_cached_traced(
             cache,
         );
     }
-    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(&input.shape);
@@ -1545,12 +1299,10 @@ pub fn analyze(g: &Grammar, rule: &RewriteRuleDef, input: &Shape) -> Vec<Shape> 
     let mut applied = false;
 
     for sr in &rule.subrules {
-        // P13 §4.4: `sr.self_opaquing` (Feature/Epenthesis only -- always `false` for Narrow, which
-        // needs no wrapper, §2.2) gates a repeat-until-fixpoint loop around the single-pass
-        // `ana_feature`/`ana_epenthesis` call, mirroring C#'s `while (data != null) { applied =
-        // true; data = sr.Item2.Apply(data).SingleOrDefault(); }` exactly: repeat calling the SAME
-        // unchanged function until a call makes no further change. Both functions already return
-        // `bool` ("did anything change"), so the `while` condition falls out directly.
+        // `sr.self_opaquing` — Feature and Epenthesis only, always false for Narrow — gates a
+        // repeat-until-fixpoint loop around the single-pass call, exactly as C# repeats the same
+        // unchanged apply until it makes no further change. Both functions already report whether
+        // anything changed, so the loop condition falls out directly.
         let did = match classify(rule, sr) {
             Kind::Feature => {
                 let target_lanes = ana_feature_target_lanes(g, table, rule, sr);
@@ -1614,9 +1366,8 @@ pub fn analyze(g: &Grammar, rule: &RewriteRuleDef, input: &Shape) -> Vec<Shape> 
     }
 }
 
-/// The `crate::cache::RuleCache`-aware sibling of `analyze`, used by the real per-word pipeline
-/// (`crate::stratum::StratumAnalyzer::analyze`'s prule sweep). See `synthesize_with_mpr_cached`'s
-/// doc for the `pid`/`rule` correspondence contract.
+/// The cache-aware sibling of `analyze`, used by the real pipeline. See `synthesize_with_mpr_cached`
+/// for the `pid`/`rule` correspondence contract.
 pub(crate) fn analyze_cached(
     g: &Grammar,
     pid: pg_grammar::model::PRuleId,
@@ -1624,7 +1375,7 @@ pub(crate) fn analyze_cached(
     input: &Shape,
     cache: &crate::cache::RuleCache,
 ) -> Vec<Shape> {
-    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
@@ -1727,27 +1478,17 @@ pub(crate) fn analyze_cached(
 }
 
 // =================================================================================================
-// P12 chunk 6 — phonological rule tracing (analysis side).
+// Phonological rule tracing, analysis side.
 //
-// C# `AnalysisRewriteRule.Apply` (`PhonologicalRules/AnalysisRewriteRule.cs:128-193`) traces INLINE,
-// per subrule, unlike the synthesis side's post-hoc side-channel readout: each loop iteration snapshots
-// `origInput` BEFORE that subrule's own attempt, tries it (possibly repeatedly, for `Deletion`/
-// `SelfOpaquing` reapply types — out of scope here, this port's `self_opaquing` while-loop already
-// covers the same ground per subrule, §4.4), then immediately fires `PhonologicalRuleUnapplied(_rule,
-// i, origInput, input)` on success or `PhonologicalRuleNotUnapplied(_rule, i, input)` on failure
-// (`AnalysisRewriteRule.cs:178-187`) — no `FailureReason` at all either way (`ITraceManager.cs:42-43`
-// takes none), matching this port's existing doc note that `AnalysisRewriteSubruleSpec` never
-// overrides `IsApplicable` (no MPR/POS gate on analysis), so there is no reason to decompose. Per
-// `TraceSink::phonological_rule_unapplied`/`phonological_rule_not_unapplied`'s own simplified
-// signatures (chunk 0 — neither carries a separate `input`-before/`output`-after pair, only one
-// `&Word`), a single post-subrule snapshot suffices for both branches, exactly mirroring how the
-// synthesis-side functions above needed no separate origInput either.
+// Unlike synthesis's post-hoc readout, C# traces INLINE per subrule: try it, then immediately fire
+// unapplied or not-unapplied. Neither event carries a `FailureReason`, because analysis has no
+// MPR/POS gate to attribute a failure to, so there is nothing to decompose. A single post-subrule
+// snapshot serves both branches.
 // =================================================================================================
 
-/// `analyze`'s traced sibling — standalone (recompiles every call). `pid` is a nominal trace-tree
-/// identity for fixtures with no grammar-resident prule table (mirrors
-/// `synthesize_with_mpr_traced`'s same convention). No `&Word` input is required (analysis has no
-/// syn_fs/MPR gate to carry, see this section's doc); the caller-supplied `parent` is used as-is.
+/// `analyze`'s traced sibling, recompiling per call. `pid` is a nominal trace-tree identity for
+/// fixtures with no grammar-resident prule table. No `&Word` is needed, analysis having no gate to
+/// carry, so the caller's `parent` is used as-is.
 pub fn analyze_traced(
     g: &Grammar,
     pid: PRuleId,
@@ -1759,7 +1500,7 @@ pub fn analyze_traced(
     if !trace.is_tracing() {
         return analyze(g, rule, input);
     }
-    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
@@ -1833,13 +1574,8 @@ pub fn analyze_traced(
     }
 }
 
-/// The `crate::cache::RuleCache`-aware sibling of `analyze_traced` — not yet wired into the live
-/// per-word pipeline (`crate::stratum::StratumAnalyzer::analyze` is itself untraced today, a
-/// pre-existing, separately-documented P12 gap — "Analysis-side stratum bookends stay untraced",
-/// `rust-optimizations-phase2.md`'s P12 chunk-5 note). Built now so the mechanism exists and is
-/// tested; a future pass that traces `StratumAnalyzer::analyze` calls this instead of
-/// `analyze_cached`, threading a real `trace`/`parent` the same way
-/// `synthesize_stratum_traced` already does for the synthesis side.
+/// The cache-aware sibling of `analyze_traced`, called by the analysis stratum driver's prule
+/// sweep. An untracing sink short-circuits straight back to `analyze_cached`.
 pub fn analyze_cached_traced(
     g: &Grammar,
     pid: PRuleId,
@@ -1852,7 +1588,7 @@ pub fn analyze_cached_traced(
     if !trace.is_tracing() {
         return analyze_cached(g, pid, rule, input, cache);
     }
-    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
@@ -1983,10 +1719,8 @@ fn syn_feature(
         .iter()
         .map(|n| node_pins(g, table, n))
         .collect();
-    // Finding N2: the LHS's own full per-position lane rows, needed only by `pattern_defaults_ok`'s
-    // UseDefaults confirm step (§ below) — `rhs_pins` already existed for `ApplyRhs`; this is the
-    // LHS-side analog (full rows, not sparse pins, since `pattern_defaults_ok` needs to tell
-    // "pinned to X" apart from "unpinned" using `full_mask` comparison, same as `node_full_lanes`).
+    // The LHS's full per-position lane rows, needed only by `pattern_defaults_ok`. Full rows, not
+    // sparse pins: that check must tell "pinned to X" apart from "unpinned" by mask comparison.
     let lhs_lanes: Vec<Vec<u64>> = rule
         .lhs
         .nodes
@@ -1999,16 +1733,13 @@ fn syn_feature(
     let mut applied = false;
     loop {
         let (segs, node_of) = ms.segs(true);
-        // First span (in `target.direction()`'s own scan order — leftmost-first for LtR, rightmost-
-        // first for RtL, see `ordered_spans`'s doc) whose target nodes are all clean
-        // (Modified=Clean) and where the environments hold. (Feeding order beyond that is out of
-        // scope; the gate rules don't feed.)
+        // First span in the target's own scan order whose nodes are all clean and whose
+        // environments hold. See `ordered_spans`.
         let mut acted = false;
         for (s, e) in ordered_spans(target, &segs) {
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
-            // Width guard (plan §6 item 1): reject an over-wide Optional-skip artifact before the
-            // positional `rhs_pins[k]` index below, which would otherwise panic on a multi-node
-            // target abutting a boundary — see `width_matches`'s doc.
+            // Reject an over-wide Optional-skip artifact before the positional `rhs_pins[k]` index
+            // below, which would otherwise panic on a multi-node target abutting a boundary.
             if !width_matches(&target_nodes, rhs_pins.len()) {
                 continue;
             }
@@ -2187,10 +1918,9 @@ fn sim_feature(
     if accepted.is_empty() {
         return false;
     }
-    // THEN apply every accepted candidate (C# second `foreach` loop). Note this still mutates `ms`
-    // progressively as it goes, exactly like C#'s shared-`Word` `ApplyRhs` loop -- only the MATCHING
-    // phase above is simultaneous/snapshot-based; the applying phase is sequential (this matters
-    // only for the unexercised overlapping-target-span case, §4.1's warning).
+    // THEN apply every accepted candidate. Only the MATCHING phase above is snapshot-based; this
+    // one mutates progressively, exactly like C#'s shared-word apply loop. The difference is
+    // observable only for overlapping target spans.
     for (target_nodes, bindings) in accepted {
         for (k, &node) in target_nodes.iter().enumerate() {
             for &(f, bits) in &rhs_pins[k] {
@@ -2210,10 +1940,8 @@ fn sim_feature(
     true
 }
 
-/// The `ana_feature` target FST's per-node lanes (`LHS ⊕ RHS` priority-union, FST-facing),
-/// factored out so [`RuleCache`](crate::cache::RuleCache) construction can compile this target
-/// exactly once instead of on every `ana_feature` call — see that function's doc for the full
-/// rationale (alpha-variable handling, the prule4 archiphoneme example).
+/// The `ana_feature` target FST's per-node lanes — the FST-facing `LHS ⊕ RHS` priority-union —
+/// factored out so cache construction can compile this target once rather than per call.
 fn ana_feature_target_lanes(
     g: &Grammar,
     table: &CharDefTable,
@@ -2239,28 +1967,16 @@ fn ana_feature_target_lanes(
         .collect()
 }
 
-/// C# `FeatureAnalysisRewriteRuleSpec`: the analysis matcher's target is `LHS ⊕ RHS`
-/// (priority-union), and `Unapply` makes each feature the RHS *changed* underspecified (the
-/// `rhs.AntiFS − lhs.AntiFS` then `Union` at the lane level = set the changed feature to its full
-/// symbol mask). Direction is reversed (RtoL), nondeterministic.
+/// C# `FeatureAnalysisRewriteRuleSpec`: the analysis matcher's target is the `LHS ⊕ RHS`
+/// priority-union, and unapplying underspecifies each feature the RHS changed. Direction is
+/// reversed relative to synthesis, and nondeterministic.
 ///
-/// `target` is compiled by `compile_lane_fst_grouped` (NOT the plain `compile_lane_fst`): each
-/// target-pattern row is wrapped in its own named `Group` (`names[k]`), read back per accepted
-/// match via that group's START offset — see `compile_lane_fst_grouped`'s doc for the empirically
-/// confirmed reason this is needed (root cause of the P6 "deletion composition" finding, `rust/
-/// crates/pg-parse/tests/csharp_port_rewrite.rs::multiple_segment_rules_deletion_composition_
-/// finding`): a positional `node_of[s..e]` slice (this function's pre-fix approach, still used by
-/// `syn_feature`/`syn_narrow`/`ana_narrow_general`) silently assumes the pattern's own N target
-/// rows land on N *physically contiguous* real segments. That assumption breaks when an earlier
-/// rule's own analysis-unapply (e.g. `ana_narrow_deletion`'s vacuous multi-site OPTIONAL
-/// reinsertion) has interposed an Optional non-matching segment directly between two of THIS rule's
-/// real target positions: `pg_fst::traverse::Transduce::advance`'s "skip the next Optional
-/// annotation" branch (see `width_matches`'s doc) then reports every candidate match as an
-/// over-wide `[s, e)` span (it must consume the interposed Optional to reach the second real
-/// match), and since NO tight (exactly-`changed.len()`-wide) alternative exists in that case
-/// either, `width_matches` discards every candidate — the rule silently unapplies nothing. Group
-/// capture sidesteps the whole `[s, e)`-contiguity assumption by reading each row's own real
-/// position directly, independent of whatever got transparently skipped between rows.
+/// `target` must come from `compile_lane_fst_grouped`, never the plain `compile_lane_fst`, and its
+/// rows must be recovered through their own groups. A positional `node_of[s..e]` slice assumes the
+/// pattern's N rows land on N physically contiguous segments; an earlier rule's vacuous unapply can
+/// interpose an Optional segment between two of this rule's real target positions, at which point
+/// every candidate span is over-wide, no tight alternative exists, `width_matches` discards them
+/// all, and the rule silently unapplies nothing.
 #[allow(clippy::too_many_arguments)]
 fn ana_feature(
     g: &Grammar,
@@ -2277,42 +1993,21 @@ fn ana_feature(
     // target pattern — see `ana_feature_target_lanes` — and the changed-feature set below).
     let rhs_vars = pattern_var_occurrences(&sr.rhs);
 
-    // Finding N2: the analysis target's own full per-position lane rows (`LHS ⊕ RHS`), for
-    // `pattern_defaults_ok`'s UseDefaults confirm step below. `analyze`/`analyze_cached` already
-    // compute this once to build the `target: &Fst` this function receives; recomputing it here is
-    // the same "recompile on every call" tradeoff this whole function already makes (module doc on
-    // `analyze`) rather than threading a new parameter through both call sites and the cache.
+    // Recomputed rather than threaded in: the same recompile-per-call tradeoff `analyze` makes.
     let target_lanes = ana_feature_target_lanes(g, table, rule, sr);
 
-    // The features each RHS node changed relative to the LHS, paired with the bits to OR onto the
-    // node's current (matched) value on unapply — Tier-2 #11 (plan §6 item 4 / rust-conversion.md
-    // Tier-2 #11): C#'s `FeatureAnalysisRewriteRuleSpec` does NOT reset a changed feature to the
-    // full symbol mask; it computes a real `AntiFeatureStruct` negation
-    // (`rhsConstraint.FeatureStruct.AntiFeatureStruct()`, then `.Subtract(lhsConstraint.
-    // FeatureStruct.AntiFeatureStruct())`, `FeatureAnalysisRewriteRuleSpec.cs:50-51`), unions the
-    // result onto the matched node's own current value via `PriorityUnion` then a final
-    // struct-level `Union` (`cs:110-112`). Reducing that object-graph chain to bitset algebra (each
-    // step here re-derived and cross-checked against `SimpleFeatureValue.SubtractImpl`'s `ExceptWith`
-    // and `FeatureStruct.UnionImpl`'s per-leaf `UnionWith`): for a literal (non-alpha) RHS pin with
-    // bits `R` against an LHS pin with bits `L`, `AntiFeatureStruct(R).Subtract(AntiFeatureStruct(L))`
-    // algebraically simplifies to `L & !R` (both terms already confined within the feature's own
-    // mask), and `Union`-ing that onto the matched node's current value `C` (always `C == R` for a
-    // literal pin, since the node concretely matched the RHS-pinned target) gives `C | (L & !R) = L
-    // | R`. This is a **strict subset** of `full_mask` whenever the feature has a 3rd (or more)
-    // symbol neither side mentions — `full_mask` (the pre-fix value) wrongly also accepts that
-    // untouched symbol. On a 2-symbol feature (every phonological feature in all 3 reference
-    // grammars happens to be 2-valued or the LHS/RHS jointly exhaust >2 values) `L ∪ R` always
-    // *equals* `full_mask`, which is exactly why this bug survived those corpora undetected — see
-    // this fix's fixture (`rewrite_gate.rs`) for a 3-symbol feature that distinguishes the two.
+    // The features each RHS node changed, paired with the bits to OR onto the node's matched value
+    // on unapply. C# does NOT reset a changed feature to the full symbol mask — it negates, then
+    // subtracts the LHS negation, then unions onto the current value. In bitset terms, for a
+    // literal RHS pin `R` against an LHS pin `L` that reduces to `L | R`, which is a STRICT SUBSET
+    // of the full mask whenever the feature has a third symbol neither side mentions. Resetting to
+    // the full mask wrongly accepts that untouched symbol; the two coincide only on a 2-symbol
+    // feature, which is exactly why the difference hides on most grammars.
     //
-    // Alpha-governed RHS features (e.g. prule4 "Nasal assimilation"'s output `nc11` + an alpha
-    // variable over place) keep the pre-existing full-mask fallback: the bound value isn't known
-    // until match time (see `resolve_bindings`), so no per-feature `L & !R` can be precomputed here;
-    // `node_pins` deliberately excludes alpha-governed features from its own pin computation (see
-    // its doc), which is correct for *matching* but means the literal-only computation would
-    // otherwise miss this feature as "changed" entirely — for prule4 the only literal RHS pin
-    // already equals the LHS's own value, so without explicitly adding the alpha feature here the
-    // nonvacuous check below would be vacuously always false and prule4 analysis would never fire.
+    // An alpha-governed RHS feature keeps the full-mask fallback: its bound value is unknown until
+    // match time. It must still be listed as changed even though `node_pins` deliberately omits
+    // alpha features — otherwise a rule whose only literal RHS pin equals its LHS value looks
+    // vacuous and never fires at all.
     let changed: Vec<Vec<(usize, u64)>> = rule
         .lhs
         .nodes
@@ -2340,36 +2035,15 @@ fn ana_feature(
     // LHS variables that survive on unchanged features plus the environment variables.
     let lhs_vars = pattern_var_occurrences(&rule.lhs);
 
-    // Group-capture recovery (see this function's doc / `compile_lane_fst_grouped`'s doc): each
-    // accepted match's per-row real segment position is read from its own named Group's tag,
-    // never from a positional `node_of[s..e]` slice -- the slice approach silently assumes the
-    // pattern's N target rows land on N *physically contiguous* real segments, which an earlier
-    // rule's vacuous deletion-unapply can break by interposing an Optional segment directly
-    // between two of THIS rule's own target positions (root cause of the P6 "deletion
-    // composition" finding).
+    // Which tag half is trustworthy is DIRECTION-DEPENDENT. A spawned Optional skip re-executes a
+    // row's tag commands at a widened offset, corrupting exactly one raw half but never the other,
+    // and never a row's entering tag. Left-to-right traversal visits rows in document order, so a
+    // row's START is always the fresh one. Right-to-left visits them reversed AND `get_offsets`
+    // swaps the pair for that direction, so there the reported END is the fresh one instead.
     //
-    // WHICH tag half (START vs END) is trustworthy is direction-dependent (empirically probed,
-    // `pg-rules/src/rewrite.rs`'s `group_probe_diag` module): `pg_fst::traverse::Transduce::
-    // advance`'s "skip the next Optional annotation" branch (see `width_matches`'s doc)
-    // re-executes a row's own tag commands at a widened offset when a skip is spawned right
-    // after that row, corrupting exactly one raw tag half per skip -- but never the OTHER half,
-    // and never a row's *entering* tag. For `LeftToRight` (traversal visits rows in document
-    // order 0,1,2,..) that means a row's START is always the fresh "just entered this row" value
-    // and is never corrupted; only a row's END can be widened by a *following* skip. For
-    // `RightToLeft` the compiled node order is document-reversed (`compile_lane_fst_grouped`) so
-    // traversal visits rows in REVERSE document order, AND `Fst::get_offsets` swaps
-    // (start,end)->(end,start) for this direction (`fst.rs`'s doc) -- both facts together mean
-    // the reported END is the one that's always fresh/reliable, never the reported START.
-    //
-    // NOTE: the `!rtl` (LeftToRight) branch below is DEAD for every reference grammar's own
-    // `ana_feature` call -- `analyze`/`analyze_cached` always compile this target with
-    // `reverse(dir_of(rule))`, and every `<PhonologicalRule>` in all three reference grammars
-    // omits `direction="rtl"`, i.e. `dir_of(rule)` is always `Dir::LeftToRight`, so `reverse(..)`
-    // is always `RightToLeft` in practice. The LTR branch is only exercised by
-    // `group_probe_diag::group_offsets_survive_interposed_optional_ltr` (a synthetic `pg_fst`-level
-    // unit test of `compile_lane_fst_grouped` itself, not an end-to-end `ana_feature` case) --
-    // kept correct and tested in case a future grammar (or a currently-unexercised RtL-declared
-    // rule) needs it, but do not assume it has full-pipeline coverage.
+    // The left-to-right branch has no full-pipeline coverage: this target is always compiled in the
+    // reverse of the rule's own direction, and a rule declaring right-to-left is unexercised. It is
+    // pinned only by `group_probe_diag`'s synthetic unit test.
     let rtl = target.direction() == Direction::RightToLeft;
     let recover_pos = |name: &str, regs: &[pg_fst::Register]| -> Option<usize> {
         target
@@ -2518,12 +2192,9 @@ fn syn_narrow(
         .iter()
         .map(|n| new_seg_node_dirty(g, table, n, false, true))
         .collect();
-    // Plan §6 item 3 (W1.3): give the RHS the same alpha-variable resolution `syn_feature`'s
-    // `rhs_vars` step already has (`PriorityUnion(fs, varBindings)`/`ReplaceVariables` — same C#
-    // mechanism, narrowing has no separate code path for it). Before this fix `syn_narrow` never
-    // computed bindings at all, so a narrowing RHS natural class carrying an alpha variable bound
-    // from a merged LHS segment (e.g. Amharic prule6/7's 20-var CV merger) left that lane at its
-    // unresolved default (full-unconstrained) instead of the captured value.
+    // The RHS gets the same alpha-variable resolution `syn_feature` does; narrowing has no
+    // separate C# code path for it. Skipping it leaves a narrowing RHS natural class that carries
+    // an alpha variable bound from a merged LHS segment sitting at full-unconstrained.
     let lhs_vars = pattern_var_occurrences(&rule.lhs);
     let rhs_vars = pattern_var_occurrences(&sr.rhs);
 
@@ -2531,14 +2202,12 @@ fn syn_narrow(
     loop {
         let (segs, node_of) = ms.segs(true);
         let mut acted = false;
-        // Direction-ordered scan (see `ordered_spans`'s doc): leftmost-first for LtR, rightmost-
-        // first for RtL — matching C# `IterativePhonologicalPatternRule.Apply`'s own scan order.
+        // Direction-ordered scan; see `ordered_spans`.
         for (s, e) in ordered_spans(target, &segs) {
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
-            // Width guard (plan §6 item 1): an over-wide Optional-skip span here would delete more
-            // physical nodes than the LHS pattern actually matched (a silent wrong mutation, not a
-            // panic — this site has no positional per-node array to overrun) — see
-            // `width_matches`'s doc.
+            // An over-wide Optional-skip span would delete more physical nodes than the LHS
+            // matched — a silent wrong mutation here, not a panic, since there is no positional
+            // array to overrun. See `width_matches`.
             if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
                 continue;
             }
@@ -2697,19 +2366,13 @@ fn sim_narrow(
     true
 }
 
-/// C# `NarrowAnalysisRewriteRuleSpec`: dispatches on whether the subrule's RHS is empty
-/// (`IsTargetEmpty`), exactly mirroring the constructor's own `if (subrule.Rhs.IsEmpty) ... else
-/// ...` branch (`NarrowAnalysisRewriteRuleSpec.cs:24-35`) — see `ana_narrow_deletion` /
-/// `ana_narrow_general`'s docs for the two cases. Dispatch lives at each call site (`analyze`/
-/// `analyze_cached`) rather than in a shared wrapper, matching this module's existing
-/// per-call-site-compiles-its-own-target convention (the general case needs a target `Fst` the
-/// deletion case does not).
+/// The empty-RHS branch of C#'s narrowing analysis: match a single site node, then re-insert the
+/// LHS segments as **optional** after it. Sites are collected against the un-mutated shape and
+/// applied descending, mirroring C#'s all-matches-then-apply.
 ///
-/// C# `NarrowAnalysisRewriteRuleSpec` (Simultaneous, reapply=Deletion): the analysis matcher for a
-/// deletion rule matches a single Segment|Anchor node (the site), and `Unapply` re-inserts the LHS
-/// segment(s) as **optional** after that node and marks the target nodes optional. We collect all
-/// matching sites against the un-mutated shape, then apply (descending) — mirroring
-/// AllMatches-then-apply.
+/// Which branch to take is decided at each call site rather than in a shared wrapper, matching this
+/// module's convention that a call site compiles its own target — the general case needs one, this
+/// case does not.
 fn ana_narrow_deletion(
     g: &Grammar,
     table: &CharDefTable,
@@ -2735,14 +2398,10 @@ fn ana_narrow_deletion(
     // begins after it.
     let (segs, node_of) = ms.segs(false);
     let mut sites: Vec<usize> = Vec::new(); // shape node index after which to insert
-                                            // C# `RewriteRuleSpec.MatchSubrule`'s `_isTargetEmpty` branch also matches the word-initial
-                                            // gap: the substitute `Segment|Anchor` pattern matches the shape's left-anchor node itself
-                                            // (anchors always bracket a shape, so `leftNode = rangeStart` / `rightNode = rangeEnd.Next`
-                                            // are never null here), and `Unapply` inserts `AddAfter(range.Start)` = right after that
-                                            // anchor. `ms.nodes[0]` is always the left anchor per `MutShape::from_shape`/`to_shape`'s own
-                                            // invariant. Without this site, a word-initial deletion (e.g. an elided root-initial segment)
-                                            // can never be re-inserted by analysis. See `RewriteRuleSpec.cs:55-77` (`isTargetEmpty`
-                                            // branch) and `NarrowAnalysisRewriteRuleSpec.cs:24-31`.
+
+    // The word-initial gap is a real site: C#'s substitute pattern matches the left anchor itself
+    // and inserts right after it. Node 0 is always that anchor here. Without this, a word-initial
+    // deletion can never be re-inserted by analysis at all.
     if left_env_ok(left, &segs, 0) && right_env_ok(right, &segs, 0) {
         sites.push(0);
     }
@@ -2764,31 +2423,17 @@ fn ana_narrow_deletion(
     true
 }
 
-/// General narrowing (`LHS.count > RHS.count > 0`) / expansion (`0 < LHS.count < RHS.count`) — the
-/// `NarrowAnalysisRewriteRuleSpec.cs`'s non-empty-RHS branch (`AnalysisRewriteRule.cs`'s own
-/// comment: "`NarrowAnalysisRewriteRuleSpec` works for expansion, too"). Unlike
-/// `ana_narrow_deletion`, the analysis matcher's target is the RHS's *own* constraints
-/// (`subrule.Rhs.Children`, cloned) — **not** a LHS-vs-RHS priority union like the feature case —
-/// matched in the reversed direction, nondeterministically (shape nodes may be underspecified
-/// during analysis; the RHS lane formula is textually identical to `ana_epenthesis_target_lanes`'s
-/// "the RHS segment sequence, FST-facing", reused by both this function's uncached caller and
-/// `build_prule_cache`). On a match, C#'s `Unapply`:
-///  1. clones the ORIGINAL (un-narrowed) LHS pattern's constraints, resolves any alpha-variable
-///     bindings from the match onto them (`fs.ReplaceVariables(varBindings)`), and splices them in
-///     right after the match (`curNode = range.End`, then chained `AddAfter(curNode, fs, true)` —
-///     each new node is OPTIONAL);
-///  2. marks the RHS-matched nodes themselves optional too (**not** deleted, unlike
-///     `ana_narrow_deletion`).
+/// The non-empty-RHS branch, covering both narrowing and expansion. Unlike `ana_narrow_deletion`,
+/// the matcher's target is the RHS's OWN constraints — not a LHS-vs-RHS priority union as in the
+/// feature case — matched in the reversed direction, nondeterministically. On a match, the original
+/// un-narrowed LHS constraints are cloned, have the match's alpha bindings resolved onto them, and
+/// are spliced in right after the match as OPTIONAL nodes; the RHS-matched nodes are marked
+/// optional too, not deleted.
 ///
-/// All matches are found against the pristine (pre-subrule) shape, then applied once, in descending
-/// node-index order — mirroring `ana_narrow_deletion`'s existing AllMatches-then-apply technique
-/// (C#'s linked-list `ShapeNode` insertions don't invalidate other captured node references, but
-/// this port's `Vec<MutNode>`-index representation does, so descending application is the
-/// index-safe equivalent). All five Amharic narrowing/expansion subrules have a single-node RHS
-/// (`_targetCount == 1`: `prule1`–`prule3` merge concrete segments, `prule6`/`prule7` merge a
-/// natural class), so match spans are inherently non-overlapping; a multi-node RHS with
-/// overlapping candidate spans (needing real non-overlap interval selection) is a documented
-/// residual not exercised by any of the three reference grammars.
+/// Matches are found against the pristine shape, then applied descending. C#'s linked-list nodes
+/// survive insertion; this port's index-based nodes do not, so descending order is the index-safe
+/// equivalent. Documented residual: a multi-node RHS with overlapping candidate spans would need
+/// real non-overlap interval selection, and gets none.
 #[allow(clippy::too_many_arguments)]
 fn ana_narrow_general(
     g: &Grammar,
@@ -2820,18 +2465,11 @@ fn ana_narrow_general(
     let mut matches: Vec<(usize, usize, Bindings)> = Vec::new();
     for (s, e) in all_spans(target, &segs) {
         let target_nodes: Vec<usize> = node_of[s..e].to_vec();
-        // Width guard (plan §6 item 1): an Optional-aware nondeterministic FST match can report a
-        // span WIDER than the RHS pattern — see `width_matches`'s doc. `all_spans` separately
-        // reports the correctly-sized ("tight") match for the same target, so dropping the
-        // over-wide span here only discards a duplicate. Without this guard, on Amharic's
-        // Optional-flooded analysis shapes the single-node CV-merger targets (`prule6`/`prule7` →
-        // `nc17`; `prule1`/`prule2` → a concrete segment) spuriously match multi-segment windows,
-        // marking whole windows Optional and re-reconstructing at every one — one prule sweep
-        // compounds a 2-segment word to 40+ Optional nodes and the downstream affix matcher then
-        // enumerates a combinatorial number of Optional-skip submatches (a self-inflicted flood C#
-        // never has: its RHS target pattern binds each position with a named `Group` capture, so
-        // its match range is always exactly the target nodes regardless of interleaved Optional
-        // nodes).
+        // Dropping an over-wide span discards only a duplicate here, since `all_spans` reports the
+        // tight match for the same target too. Without the guard, on Optional-flooded analysis
+        // shapes a single-node target spuriously matches whole multi-segment windows, marks each
+        // Optional and reconstructs at every one — a compounding flood C# never has, because its
+        // target pattern binds each position with a group capture.
         if !width_matches(&target_nodes, target_len) {
             continue;
         }
@@ -2913,42 +2551,19 @@ fn syn_epenthesis(
     // is between fixed contexts and does not cascade.
     let (segs, node_of) = ms.segs(true);
     let mut sites: Vec<usize> = Vec::new();
-    // Word-initial gap (synthesis twin of `ana_narrow_deletion`'s site-0 fix): C#
-    // `SynthesisRewriteRuleSpec`'s empty-LHS pattern is a single `Segment|Anchor` constraint
-    // (`SynthesisRewriteRuleSpec.cs:23-30`), so the shape's LEFT-ANCHOR node is itself an ordinary
-    // match site; `RewriteRuleSpec.MatchSubrule`'s `_isTargetEmpty` branch then takes
-    // `leftNode = rangeStart` (the anchor) / `rightNode = rangeEnd.Next` (`RewriteRuleSpec.cs:
-    // 58-73`) — the left env is matched right-to-left AT the anchor (only `#`/no-env can hold,
-    // exactly `left_env_ok(_, _, 0)`'s `only_anchor`/`None` arms) and the right env left-to-right
-    // from the first post-anchor node — and `EpenthesisSynthesisRewriteSubruleSpec.ApplyRhs`
-    // inserts `AddAfter(range.Start)` = right after the anchor
-    // (`EpenthesisSynthesisRewriteSubruleSpec.cs:29-41`). `ms.nodes[0]` is always the left anchor
-    // per `MutShape::from_shape`/`to_shape`'s invariant (anchors are never in `node_of`, so the
-    // per-segment loop below can't reach this gap). Without this site, a bare-root word-initial
-    // epenthesis (e.g. `∅ → ta / # _ C V #`) can never fire during synthesis-confirm.
+    // The word-initial gap is a real site, the synthesis twin of `ana_narrow_deletion`'s: C#'s
+    // empty-LHS pattern matches the left anchor itself and inserts right after it. Anchors never
+    // appear in `node_of`, so the per-segment loop below cannot reach this gap, and without this a
+    // word-initial epenthesis can never fire during synthesis-confirm.
     if left_env_ok(left, &segs, 0) && right_env_ok(right, &segs, 0) {
         sites.push(0);
     }
     for (site, &node) in node_of.iter().enumerate() {
-        // A `Boundary` entry in `node_of` (present here because `segs(true)` feeds boundaries
-        // into the matcher stream as transparently-skippable Optional segments — needed so an
-        // environment can see *through* an internal morpheme boundary to a real segment beyond
-        // it) is never itself a valid epenthesis TARGET/site. C#'s empty-LHS pattern is a single
-        // `Symbol(HCFeatureSystem.Segment, HCFeatureSystem.Anchor)` constraint
-        // (`SynthesisRewriteRuleSpec.cs:26-29`) — `Segment|Anchor`, never `Boundary` — so the
-        // general pattern matcher never produces an LHS match sitting AT a boundary node, and
-        // `RewriteRuleSpec.MatchSubrule`'s `rightNode = match.Range.End.Next` is therefore always
-        // the shape's structural next node (which MAY be a boundary, matched transparently by the
-        // right-environment traversal itself, but is never a *distinct* match position in its own
-        // right). Without this guard, treating a boundary's own `node_of` slot as a candidate site
-        // double-counts it: the REAL preceding segment's own site already reaches past the
-        // boundary via the shared transparent-skip mechanism (`TraversalMethodBase.cs:203-222`,
-        // ported by `pg_fst::traverse::Transduce::initialize`'s `start_anchor && optional` arm),
-        // so re-checking the identical environment one node later (now anchored directly at the
-        // real segment beyond the boundary, needing no skip at all) manufactures a second,
-        // C#-nonexistent site — confirmed root cause of `csharp_port_rewrite.rs::epenthesis_rules`
-        // sub-cases (2)/(5): root 19's shape "b+ubu" produced 3 "i" epenthesis sites (one per real
-        // high vowel, PLUS one spurious extra at the boundary's own slot) instead of the correct 2.
+        // A boundary appears in `node_of` because `segs(true)` feeds boundaries in as
+        // transparently-skippable Optional segments, so an environment can see through one. It is
+        // never itself a valid epenthesis site: C#'s empty-LHS pattern admits segments and anchors
+        // only. Counting a boundary's slot double-counts, because the preceding real segment's own
+        // site already reaches past it via that same transparent skip.
         if ms.nodes[node].kind == NodeKind::Boundary {
             continue;
         }
@@ -3511,7 +3126,7 @@ pub(crate) fn probe_apply_rule_cached(
     ms: &mut MutShape,
     cache: &crate::cache::RuleCache,
 ) -> ProbeOutcome {
-    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let pc = cache.prule_rewrite(pid);
