@@ -1,15 +1,21 @@
 <#
   Counts comment-hygiene violations in Rust sources and fails when a category grows.
 
-  A hard "zero violations" gate is unusable against a large existing backlog, and a gate that
-  cannot pass gets disabled and then protects nothing. So this is a RATCHET: the baseline records
-  the current count per category and the run fails only if a category goes UP. Cleanup lowers the
-  baseline; the number cannot climb back.
+  ZERO TOLERANCE. Every violation is reported and every one is meant to go; there is no accepted
+  count and no baseline file.
+
+  This replaced a ratchet, which was the right instrument while an inherited backlog was being worked
+  down and is the wrong one now. A baseline records the CURRENT count as acceptable -- so 4,330
+  violations printed as "passing" -- and re-baselining after a rule change quietly relabels old debt as
+  the new normal, which happened twice in one session.
+
+  Locally this is a WARNING: `pg.ps1` prints the result on every managed build and never fails on it,
+  because a documentation finding that blocks every build is the gate shape this repo has already
+  watched get switched off. In CI it is FATAL: invoke this script directly and honour the exit code.
 
   Usage:
-    rust\tools\comment-hygiene.ps1            # check against the baseline
+    rust\tools\comment-hygiene.ps1            # report; exit 1 if any violation exists
     rust\tools\comment-hygiene.ps1 -List      # show the offending lines
-    rust\tools\comment-hygiene.ps1 -Update    # re-baseline after a cleanup pass
 
   Rules enforced are stated in .claude/skills/code-comments/SKILL.md. Summary: a comment explains
   why; code says what, git says when, the plan says where the project is. Project state in a
@@ -55,14 +61,11 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [switch]$List,
-    [switch]$Update,
-    [int]$ListLimit = 400,
-    [string]$BaselinePath = ''
+    [int]$ListLimit = 400
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-if (-not $BaselinePath) { $BaselinePath = Join-Path $PSScriptRoot 'comment-hygiene-baseline.json' }
 
 # One claim plus the falsifier that keeps it honest fits in three lines. One line cannot hold both,
 # and a claim with no named falsifier is exactly what went stale for eight days.
@@ -170,9 +173,15 @@ $exceptionTags = @(
     'SAFETY:',     # Rust's own convention for an unsafe block's proof obligation.
     'INVARIANT:',  # A property the code must preserve that is not locally checkable; breaking it is silent.
     'TRAP:',       # A hazard in surrounding behaviour that a plausible edit would trip.
-    'WHY-NOT:',    # A rejected alternative that looks better than it is, with the reason it fails.
-    'PORT:'        # A required correspondence with, or deliberate divergence from, the C# oracle.
+    'WHY-NOT:',              # A rejected alternative that looks better than it is, and why it fails.
+    'PORT-CORRESPONDENCE:',  # This code must match the C# oracle exactly; here is the behaviour it matches.
+    'PORT-DIVERGENCE:'       # This code deliberately differs from the C# oracle; here is what and why.
 )
+
+# The port tag is SPLIT rather than one `PORT:` on purpose. Forcing the author to pick a direction makes
+# the claim checkable: a reviewer can read the cited C# and ask "does ours match?" for one, and "is the
+# stated difference real and intended?" for the other. A single tag lets a comment stay vague about
+# which it is, and vague is the state in which a claim quietly stops being true.
 
 # PORT: earns its place on the same ground the skill already grants a paper or an upstream issue: the
 # knowledge is DURABLE because its subject is external and frozen. This crate ports FieldWorks'
@@ -239,6 +248,43 @@ foreach ($f in $files) {
     }
 }
 
+# Is THIS FILE's own module public? `//!` documents the module it sits in, so its visibility is
+# declared in the PARENT file, not this one -- which is why a `//!` block could previously hide any
+# amount of prose in a private module and be waved through as "API".
+#
+# Resolved by path rather than by matching module names globally: two crates can both have a `plan`
+# module with different visibility, and a name-keyed map would silently pick one.
+$publicModuleFile = [System.Collections.Generic.HashSet[string]]::new()
+foreach ($f in $files) {
+    if ($f.Extension -ne '.rs') { continue }
+    $dir = $f.DirectoryName
+    $stem = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
+    # A crate root is the public front page by definition.
+    if ($stem -eq 'lib' -or $stem -eq 'main') { [void]$publicModuleFile.Add($f.FullName); continue }
+    # `tests/` and `examples/` are their own crate roots, but nobody consumes their docs -- they are not
+    # an API, so their headers are held to the implementation cap like any other private prose.
+    if ($f.FullName -match '\\(tests|examples|benches)\\') { continue }
+    if ($stem -eq 'mod') {
+        $stem = Split-Path $dir -Leaf
+        $dir = Split-Path $dir -Parent
+    }
+    $parents = @(
+        (Join-Path $dir 'mod.rs'),
+        (Join-Path $dir 'lib.rs'),
+        (Join-Path $dir 'main.rs'),
+        ((Join-Path (Split-Path $dir -Parent) ((Split-Path $dir -Leaf) + '.rs')))
+    )
+    foreach ($p in $parents) {
+        if (-not (Test-Path $p)) { continue }
+        $decl = Select-String -Path $p -Pattern ('^\s*(pub(\([^)]*\))?\s+)?mod\s+' + [regex]::Escape($stem) + '\s*;') -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($decl) {
+            if ($decl.Line -match '^\s*pub') { [void]$publicModuleFile.Add($f.FullName) }
+            break
+        }
+    }
+}
+
 $counts = [ordered]@{}
 $hits = @{}
 foreach ($cat in $categories.Keys) { $counts[$cat] = 0; $hits[$cat] = @() }
@@ -254,8 +300,8 @@ foreach ($t in $exceptionTags) { $claimed[$t] = 0 }
 # item's visibility decides -- and attributes and blank lines sit between the two, which is why this
 # skips forward rather than reading one line. Anything else (`//`, `/* */`) is implementation.
 function Get-BlockKind {
-    param([string]$FirstLine, [string[]]$AllLines, [int]$EndIdx)
-    if ($FirstLine -match '^\s*//!') { return 'api' }
+    param([string]$FirstLine, [string[]]$AllLines, [int]$EndIdx, [bool]$InPublicModule)
+    if ($FirstLine -match '^\s*//!') { if ($InPublicModule) { return 'api' } else { return 'impl' } }
     if ($FirstLine -notmatch '^\s*///') { return 'impl' }
     for ($j = $EndIdx; $j -lt [Math]::Min($EndIdx + 12, $AllLines.Count); $j++) {
         $l = $AllLines[$j]
@@ -357,7 +403,8 @@ foreach ($f in $files) {
             $anchor = Get-BlockAnchor -Text $text -RepoRoot $repoRoot
             if (-not $anchor -and $blockCited) { $anchor = 'test-citation' }
 
-            $kind = Get-BlockKind -FirstLine $blockLines[0] -AllLines $allLines -EndIdx ($lineNo - 1)
+            $kind = Get-BlockKind -FirstLine $blockLines[0] -AllLines $allLines -EndIdx ($lineNo - 1) `
+                -InPublicModule $publicModuleFile.Contains($f.FullName)
             if ($kind -eq 'api') {
                 # An API docstring may run as long as the contract needs. Counted, never gated: the
                 # number is worth watching, but capping an interface is how you destroy the abstraction.
@@ -428,36 +475,22 @@ if ($List) {
     Write-Host ''
 }
 
-if ($Update) {
-    ($counts | ConvertTo-Json) | Set-Content -Path $BaselinePath -Encoding utf8
-    Write-Host "[comment-hygiene] baseline written: $BaselinePath" -ForegroundColor Green
-    foreach ($cat in $categories.Keys) { Write-Host ("  {0,-24} {1}" -f $cat, $counts[$cat]) }
-    exit 0
-}
-
-if (-not (Test-Path $BaselinePath)) {
-    # Absent baseline is NOT a pass. "I could not look" must never read as "everything is fine".
-    Write-Host "[comment-hygiene] no baseline at $BaselinePath -- run with -Update to create one." -ForegroundColor Red
-    exit 2
-}
-
-$baseline = Get-Content $BaselinePath -Raw | ConvertFrom-Json
-$regressed = @()
-$improved = @()
+# ZERO TOLERANCE, not a ratchet. The ratchet was the right instrument against an inherited backlog
+# nobody had budgeted to clear -- it stopped the number growing while cleanup happened. It is the wrong
+# instrument now, for two reasons the ratchet itself surfaced: a baseline records the CURRENT count as
+# acceptable, so 4,330 violations read as "passing"; and re-baselining after a rule change quietly
+# relabels old debt as the new normal, which happened twice in one session here.
+#
+# Every violation is reported and every violation must go. Locally this is a WARNING (pg.ps1 prints it
+# and never fails the build -- a documentation finding that blocks every managed build is the gate shape
+# this repo has watched get switched off). In CI it is fatal: run this script directly and honour the
+# exit code.
+$total = 0
 foreach ($cat in $categories.Keys) {
-    # A category absent from the baseline is new. Scoring it against an implicit 0 would fail every
-    # run until someone re-baselines, so it reports as unbaselined and gates nothing yet.
-    if ($null -eq $baseline.PSObject.Properties[$cat]) {
-        Write-Host ("  {0,-24} {1,5}  (no baseline)  new -- run -Update to start its ratchet" -f $cat, $counts[$cat]) -ForegroundColor Yellow
-        continue
-    }
-    $was = [int]$baseline.$cat
     $now = [int]$counts[$cat]
-    $mark = if ($now -gt $was) { $regressed += "$cat`: $was -> $now"; 'WORSE' }
-            elseif ($now -lt $was) { $improved += "$cat`: $was -> $now"; 'better' }
-            else { 'same' }
-    $color = if ($now -gt $was) { 'Red' } elseif ($now -lt $was) { 'Green' } else { 'Gray' }
-    Write-Host ("  {0,-24} {1,5}  (baseline {2,5})  {3}" -f $cat, $now, $was, $mark) -ForegroundColor $color
+    $total += $now
+    $color = if ($now -gt 0) { 'Red' } else { 'Green' }
+    Write-Host ("  {0,-24} {1,5}" -f $cat, $now) -ForegroundColor $color
 }
 
 # Reported, never gated. Per class on purpose: a closed set of exceptions is only trustworthy while
@@ -468,17 +501,13 @@ foreach ($t in $exceptionTags) {
     Write-Host ("  {0,-24} {1,5}  (claimed exception)" -f ("  " + $t), $claimed[$t]) -ForegroundColor Gray
 }
 
-if ($regressed.Count -gt 0) {
+if ($total -gt 0) {
     Write-Host ''
-    Write-Host '[comment-hygiene] FAILED -- a category grew:' -ForegroundColor Red
-    $regressed | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-    Write-Host '[comment-hygiene] See .claude/skills/code-comments/SKILL.md. Run -List to find them.' -ForegroundColor Yellow
+    Write-Host "[comment-hygiene] $total violation(s). Every one must go -- there is no accepted count." -ForegroundColor Red
+    Write-Host '[comment-hygiene] rules: .claude/skills/code-comments/SKILL.md   offenders: -List' -ForegroundColor Yellow
     exit 1
 }
 
-if ($improved.Count -gt 0) {
-    Write-Host ''
-    Write-Host '[comment-hygiene] improved -- re-baseline with -Update so the gain is locked in:' -ForegroundColor Green
-    $improved | ForEach-Object { Write-Host "    $_" -ForegroundColor Green }
-}
+Write-Host ''
+Write-Host '[comment-hygiene] clean.' -ForegroundColor Green
 exit 0

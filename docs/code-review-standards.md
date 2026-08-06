@@ -11,10 +11,15 @@ cost is stated so a future reader can judge whether the rule still earns its pla
 **Authoritative rules: `.claude/skills/code-comments/SKILL.md`. Enforced by
 `rust/tools/comment-hygiene.ps1` and `pg.ps1 -Mode doc`.** The review-time summary:
 
+**Zero tolerance, not a ratchet.** Every violation is reported and every one is meant to go; there is
+no accepted count and no baseline file. `pg.ps1` runs the checker on **every managed build** and treats
+it as a warning; **CI invokes the checker directly and honours the exit code.**
+
 | Check | Standard |
 |---|---|
-| Implementation comment (`//`, or `///` on a private item) | **one line** |
-| API docstring (`///` / `//!` on a `pub` / `pub(crate)` item) | long form as appropriate |
+| Implementation comment (`//`, `///` on a private item, or `//!` in a private module / test file) | **one line** |
+| API docstring (`///` / `//!` on a `pub` / `pub(crate)` item, or a public module's header) | long form as appropriate |
+| An implementation comment over one line | must claim `SAFETY:`, `INVARIANT:`, `TRAP:`, `WHY-NOT:`, `PORT-CORRESPONDENCE:` or `PORT-DIVERGENCE:`; past three lines it also needs an anchor |
 | Code-to-code doc links (`` [`Foo`] ``) | **banned** — plain backticks; the LSP navigates |
 | Links to research (`docs/research`, papers, upstream issues) | keep; they are checked |
 | Project state — plans, dates, wiring status, history prose | **banned** |

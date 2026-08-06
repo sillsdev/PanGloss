@@ -413,11 +413,13 @@ function Invoke-CommentHygieneReport {
     $sw.Stop()
     $secs = [math]::Round($sw.Elapsed.TotalSeconds, 1)
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "[pg] comment hygiene: no category grew since the baseline (${secs}s)." -ForegroundColor Green
+        Write-Host "[pg] comment hygiene: clean (${secs}s)." -ForegroundColor Green
     } else {
-        Write-Host "[pg] comment hygiene: REGRESSED -- a category grew since the baseline (${secs}s)." -ForegroundColor Red
-        $hygieneOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
-        Write-Host '  rules: .claude/skills/code-comments/SKILL.md   offenders: rust\tools\comment-hygiene.ps1 -List' -ForegroundColor Yellow
+        # A WARNING here and fatal in CI, deliberately. There is no accepted count -- every violation
+        # listed is meant to go -- but blocking every local build on documentation is how a gate gets
+        # switched off, and a switched-off gate protects nothing.
+        Write-Host "[pg] comment hygiene: violations present -- warning here, fatal in CI (${secs}s)." -ForegroundColor Yellow
+        $hygieneOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
     }
 }
 

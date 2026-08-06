@@ -205,6 +205,33 @@ wrong. If an implementation comment wants a paragraph, that is a signal, and it 
 destinations: **lift it to the API docstring** if a caller needs it, or **make it a test** if it is a
 claim that could stop being true. Prose in the body is the option that rots.
 
+**An implementation comment may exceed one line only by CLAIMING one of these, by name:**
+
+| Tag | For |
+|---|---|
+| `SAFETY:` | an unsafe block's proof obligation (Rust's own convention) |
+| `INVARIANT:` | a property the code must preserve that is not locally checkable; breaking it is silent |
+| `TRAP:` | a hazard in surrounding behaviour that a plausible edit would trip |
+| `WHY-NOT:` | a rejected alternative that looks better than it is, and why it fails |
+| `PORT-CORRESPONDENCE:` | this must match the C# oracle exactly; here is the behaviour it matches |
+| `PORT-DIVERGENCE:` | this deliberately differs from the C# oracle; here is what and why |
+
+Past three lines a claim also needs an anchor. There is no generic escape and you may not invent a
+class. The port tag is **split so you must pick a direction** — that is what makes it checkable, since
+a reviewer can read the cited C# and ask "does ours match?" or "is the stated difference real?". A
+single vague tag lets a comment avoid saying which, and vague is the state in which a claim quietly
+stops being true.
+
+**Each class's count is printed on every build**, so leaning on one shows up as a number. If `TRAP:`
+ever becomes the most-claimed class, it has turned into the generic escape hatch this design exists to
+prevent.
+
+**There is no accepted count.** The checker is zero-tolerance: every violation is reported and every one
+is meant to go. It is a warning locally and fatal in CI. The ratchet it replaced was right against an
+inherited backlog and wrong afterwards — a baseline records the current count as *acceptable*, so 4,330
+violations printed as "passing", and re-baselining after a rule change quietly relabels old debt as the
+new normal.
+
 **Deciding whether a long API docstring earns its length:** it must tell a caller something they cannot
 get from the signature — a precondition, a trap, an invariant they must preserve, or a rejected
 alternative that looks better than it is. If it narrates what the body does, it is implementation
