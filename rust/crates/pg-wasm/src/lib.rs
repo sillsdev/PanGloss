@@ -47,79 +47,52 @@ struct AnalysisOut {
     /// True if this analysis came from the guess-root fallback (word absent from the lexicon).
     guessed: bool,
     provenance: pg_parse::AnalysisProvenance,
-    /// One entry per surface morpheme, same order as `pg_realize::GlossBundle.tokens` (which is
-    /// itself `WordAnalysis.morpheme_ids` order) — each morpheme's `<Property name="ID">` value
-    /// from the HermitCrab XML if it has one, `None` otherwise (guessed roots and any morpheme
-    /// the grammar didn't tag). For a FieldWorks-converted grammar this is the LCM Hvo (as a
-    /// string) `GenerateHCConfig.exe`'s `LexicalDataDump` sidecar is keyed by — the caller looks
-    /// each one up there for headword/POS/definition; for the toy/hand-built grammars there's no
-    /// sidecar and every entry here is simply `None`.
+    /// One entry per surface morpheme, same order as `pg_realize::GlossBundle.tokens`: each morpheme's `<Property name="ID">` value if it has one, `None` otherwise; for a FieldWorks-converted grammar this is the LCM Hvo the `LexicalDataDump` sidecar is keyed by.
     morpheme_ids: Vec<Option<String>>,
 }
 
-/// Everything about a parsed word that's deterministic for a given (grammar, exact authored word)
-/// pair — i.e. safe to cache and replay without re-running the morpher. Kept separate from
-/// `TokenOut` because `TokenOut` also carries call-specific bookkeeping (`parse_ms`,
-/// `from_cache`) that must NOT be cached (a cache hit's `parse_ms` is always ~0, not the original
-/// call's timing).
+/// Everything about a parsed word that's deterministic for a given (grammar, exact authored word) pair, safe to cache and replay without re-running the morpher; kept separate from `TokenOut`, which also carries call-specific bookkeeping that must not be cached.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct CachedWord {
-    /// Overlay revision that produced this record. A caller-provided record is reusable only when
-    /// it exactly matches the handle's current revision.
+    /// Overlay revision that produced this record; a caller-provided record is reusable only when it exactly matches the handle's current revision.
     overlay_revision: pg_lexicon::Revision,
-    /// Every surviving analysis, in `ParseOutcome.structured` order (first is the one the view
-    /// stacks under the word; the rest are what a tooltip lists as alternate readings). Empty for
-    /// words with no surviving analysis at all.
+    /// Every surviving analysis, in `ParseOutcome.structured` order (first is what the view stacks under the word); empty for words with no surviving analysis at all.
     analyses: Vec<AnalysisOut>,
-    /// `ParseOutcome.capped` — the analysis cascade hit its step budget before exhausting search.
+    /// `ParseOutcome.capped`: the analysis cascade hit its step budget before exhausting search.
     capped: bool,
-    /// `ParseOutcome.invalid_shape` — the word contains characters outside the grammar's
-    /// orthography, so it was never actually run through the cascade.
+    /// `ParseOutcome.invalid_shape`: the word contains characters outside the grammar's orthography, so it was never run through the cascade.
     invalid_shape: bool,
-    /// `ParseOutcome.candidates_generated` — total synthesis candidates the parser produced
-    /// before the validity/match gate, win or lose (see that field's doc in `pg-parse`).
+    /// `ParseOutcome.candidates_generated`: total synthesis candidates the parser produced before the validity/match gate, win or lose.
     candidates_generated: usize,
-    /// `ParseOutcome.structured.len()` — the subset of `candidates_generated` that survived the
-    /// gate and became an entry in `analyses`.
+    /// `ParseOutcome.structured.len()`: the subset of `candidates_generated` that survived the gate and became an entry in `analyses`.
     candidates_accepted: usize,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TokenOut {
-    /// `"word"` for a token that went through morphological analysis, `"other"` for whitespace/
-    /// punctuation/digits passed through verbatim (see `tokenize`).
+    /// `"word"` for a token that went through morphological analysis, `"other"` for whitespace/punctuation/digits passed through verbatim.
     kind: &'static str,
-    /// Original surface text, unchanged — concatenating every token's `text` in order reconstructs
-    /// the input exactly.
+    /// Original surface text, unchanged; concatenating every token's `text` in order reconstructs the input exactly.
     text: String,
-    /// Every surviving analysis, in `ParseOutcome.structured` order (first is the one the view
-    /// stacks under the word; the rest are what a tooltip lists as alternate readings). Empty for
-    /// `"other"` tokens and for words with no surviving analysis at all.
+    /// Every surviving analysis, in `ParseOutcome.structured` order; empty for `"other"` tokens and for words with no surviving analysis at all.
     analyses: Vec<AnalysisOut>,
-    /// `ParseOutcome.capped` — the analysis cascade hit its step budget before exhausting search.
+    /// `ParseOutcome.capped`: the analysis cascade hit its step budget before exhausting search.
     capped: bool,
-    /// `ParseOutcome.invalid_shape` — the word contains characters outside the grammar's
-    /// orthography, so it was never actually run through the cascade.
+    /// `ParseOutcome.invalid_shape`: the word contains characters outside the grammar's orthography, so it was never run through the cascade.
     invalid_shape: bool,
     /// See `CachedWord::candidates_generated`. `0` for `"other"` tokens.
     candidates_generated: usize,
     /// See `CachedWord::candidates_accepted`. `0` for `"other"` tokens.
     candidates_accepted: usize,
-    /// Wall-clock milliseconds this call spent in `Morpher::parse_word_opts` for this word — `0.0`
-    /// for a cache hit (nothing was re-parsed) and for `"other"` tokens (never parsed at all).
+    /// Wall-clock milliseconds this call spent in `Morpher::parse_word_opts` for this word; `0.0` for a cache hit or an `"other"` token.
     parse_ms: f64,
-    /// True if this word's result came from the `cache` argument to `PanGlossGrammar::analyze_text`
-    /// rather than a fresh parse this call. Always `false` for `"other"` tokens.
+    /// True if this word's result came from the `cache` argument to `PanGlossGrammar::analyze_text` rather than a fresh parse; always `false` for `"other"` tokens.
     from_cache: bool,
 }
 
-/// Return value of `PanGlossGrammar::analyze_text`: the token stream to render, plus every
-/// newly-parsed (not-a-cache-hit) word's `CachedWord`, keyed by its exact surface form, for
-/// the caller to merge into whatever persistent cache it keeps across calls. Only *new* entries are
-/// returned — words already present in the `cache` argument aren't echoed back, since the caller
-/// already has them.
+/// Return value of `PanGlossGrammar::analyze_text`: the token stream to render, plus every newly-parsed word's `CachedWord`, keyed by surface form, for the caller to merge into its persistent cache; words already present in the `cache` argument aren't echoed back.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AnalyzeTextResult {
@@ -127,17 +100,7 @@ struct AnalyzeTextResult {
     new_cache_entries: HashMap<String, CachedWord>,
 }
 
-/// The OWNED (non-borrowing) pieces of a compiled `pg_foma::composite::FomaAnalyzer` for one
-/// grammar: the compiled foma net (`FomaProposer`, plan P4's expensive emit+foma-compile step),
-/// the reduplication peeler, and the morpheme-owner map. Stored separately from a `FomaAnalyzer`
-/// itself (which additionally borrows `&'g Grammar` and owns a `Morpher<'g>`) because
-/// `PanGlossGrammar` also OWNS the `Grammar` these would borrow from — a `PanGlossGrammar` field
-/// of type `FomaAnalyzer<'g>` tied to a sibling `grammar: Grammar` field is a self-referential
-/// struct Rust cannot express directly. Instead this crate does what it already does for
-/// `Morpher<'g>` (see `PanGlossGrammar::analyze_text`: never stored, always built fresh per call
-/// from `&self.grammar`). `FomaCheckout` reconstructs a short-lived `FomaAnalyzer` and owns the
-/// mandatory restoration path; its `Drop` implementation returns the unchanged compiled pieces
-/// during ordinary return, error return, or panic unwinding.
+/// The owned (non-borrowing) pieces of a compiled `pg_foma::composite::FomaAnalyzer` for one grammar, stored separately because `PanGlossGrammar` owns the `Grammar` a `FomaAnalyzer<'g>` field would need to borrow from, which Rust cannot express as a self-referential struct; `FomaCheckout` reconstructs a short-lived `FomaAnalyzer` and its `Drop` returns the unchanged compiled pieces on every return path.
 struct FomaState {
     proposer: pg_foma::analyzer::FomaProposer,
     peeler: pg_foma::peel::ReduplicationPeeler,
@@ -180,9 +143,7 @@ impl Drop for FomaCheckout<'_, '_> {
     }
 }
 
-/// Emit + foma-compile `grammar`'s propose→confirm pieces. `Err` carries a human-readable message
-/// (`pg_foma::analyzer::FomaError`'s `Display`) — a compiler-gap diagnostic, not a grammar-content
-/// problem the caller can fix by editing their text.
+/// Emit + foma-compile `grammar`'s propose→confirm pieces; `Err` carries a human-readable compiler-gap diagnostic, not a grammar-content problem the caller can fix by editing their text.
 fn build_foma_state(grammar: &Grammar) -> Result<FomaState, String> {
     let proposer = pg_foma::analyzer::FomaProposer::new(grammar).map_err(|e| e.to_string())?;
     Ok(FomaState {
@@ -192,10 +153,7 @@ fn build_foma_state(grammar: &Grammar) -> Result<FomaState, String> {
     })
 }
 
-/// Attempt to build `FomaState` for `grammar`; on failure, log the automatic fallback (plan P4:
-/// "compile failure → automatic fallback to full engine, logged") and return the diagnostic
-/// message alongside `None` so `PanGlossGrammar::engine_diagnostic` can surface it to JS without
-/// the caller needing to inspect the browser console.
+/// Attempt to build `FomaState` for `grammar`; on failure, log the fallback and return the diagnostic message alongside `None` so `PanGlossGrammar::engine_diagnostic` can surface it to JS.
 fn init_foma(grammar: &Grammar) -> (Option<FomaState>, Option<String>) {
     match build_foma_state(grammar) {
         Ok(state) => (Some(state), None),
@@ -206,10 +164,7 @@ fn init_foma(grammar: &Grammar) -> (Option<FomaState>, Option<String>) {
     }
 }
 
-/// `console.error` in a browser (wasm32) build, `eprintln!` natively (this crate's own `cargo
-/// test` runs off the wasm32 target) — the "logged" half of plan P4's automatic-fallback
-/// requirement. Deliberately independent of `console_error_panic_hook` (set up in `start`),
-/// which only intercepts Rust panics; this is an ordinary `Err` return, not a panic.
+/// `console.error` in a browser (wasm32) build, `eprintln!` natively; deliberately independent of `console_error_panic_hook`, which only intercepts Rust panics, since this is an ordinary `Err` return.
 fn log_foma_fallback(msg: &str) {
     let full = format!(
         "pg-wasm: foma proposer compile failed, falling back to the full engine for this grammar: {msg}"
@@ -220,11 +175,7 @@ fn log_foma_fallback(msg: &str) {
     eprintln!("{full}");
 }
 
-/// Build one `CachedWord` from a (possibly foma- or full-engine-sourced) list of confirmed
-/// analyses plus the diagnostic fields `ParseOutcome`/`FomaOutcome` each carry under different
-/// names — shared by both engine paths in `PanGlossGrammar::analyze_text` so the
-/// gloss/leipzig/realize construction (which neither knows nor cares which engine produced
-/// `structured`) is written once.
+/// Build one `CachedWord` from a (possibly foma- or full-engine-sourced) list of confirmed analyses plus the diagnostic fields both engine paths carry under different names, so the gloss/leipzig/realize construction is written once.
 struct CacheAnalysis {
     structured: Vec<WordAnalysis>,
     capped: bool,
@@ -287,25 +238,13 @@ pub struct PanGlossGrammar {
     runtime: pg_lexicon::SuppliedLexiconRuntime,
     realize_map: RealizeMap,
     realizer: TableRealizer,
-    /// `Some` iff this grammar's foma propose→confirm proposer compiled successfully (plan P4) —
-    /// see `FomaState`'s doc for why these are owned pieces rather than a stored `FomaAnalyzer`.
-    /// `None` means every word in this grammar routes through the full engine because compilation
-    /// failed (see `foma_diagnostic`). A transient checkout is protected by `FomaCheckout`,
-    /// whose destructor restores this slot even while unwinding.
+    /// `Some` iff this grammar's foma propose→confirm proposer compiled successfully; `None` means every word routes through the full engine (see `foma_diagnostic`). A transient checkout is protected by `FomaCheckout`, whose destructor restores this slot even while unwinding.
     foma: Option<FomaState>,
-    /// `Some` iff construction failed to build `foma` — the human-readable reason, surfaced to JS via
-    /// `PanGlossGrammar::engine_diagnostic`. `None` once foma is active.
+    /// `Some` iff construction failed to build `foma`, surfaced to JS via `PanGlossGrammar::engine_diagnostic`; `None` once foma is active.
     foma_diagnostic: Option<String>,
 }
 
-/// Every affix-morpheme `<Gloss>` string in `grammar` — the `AffixProcess`/`Realizational`
-/// morphological rules' own `pg_grammar::model::MorphemeInfo::gloss` (resolved through each
-/// rule's `morpheme: MorphemeId`), as opposed to lexical-ENTRY (root) glosses. `CompoundingRule`
-/// carries no `MorphemeId` at all (`pg_grammar::model::CompoundingRuleDef`'s own doc: "Not a
-/// morpheme") so it contributes nothing here. This is the gloss vocabulary
-/// `pg_realize::infer_english` matches its built-in English alias table against — root glosses
-/// (e.g. "house") are never affix category labels ("pl", "1sg.poss", ...) so including them would
-/// only ever add noise, never a match.
+/// Every affix-morpheme `<Gloss>` string in `grammar` (`AffixProcess`/`Realizational` rules' own morpheme gloss, never lexical-entry root glosses); this is the vocabulary `pg_realize::infer_english` matches its English alias table against, where a root gloss like "house" would only ever add noise.
 fn affix_glosses(grammar: &Grammar) -> Vec<String> {
     grammar
         .mrules
@@ -320,11 +259,7 @@ fn affix_glosses(grammar: &Grammar) -> Vec<String> {
         .collect()
 }
 
-/// Build the `RealizeMap` a `PanGlossGrammar` should use: always start from
-/// `pg_realize::infer_english` over the grammar's own affix-morpheme glosses (see
-/// `affix_glosses`) as the base, then, if `realize_toml` is `Some` and non-empty, parse it and
-/// let it override the base per-key (`RealizeMap::extend_overriding` — sidecar wins). Shared by
-/// `PanGlossGrammar::new`.
+/// Build the `RealizeMap` a `PanGlossGrammar` should use: start from `pg_realize::infer_english` over the grammar's affix-morpheme glosses, then, if `realize_toml` is non-empty, parse it and let it override the base per-key (sidecar wins).
 fn build_realize_map(grammar: &Grammar, realize_toml: Option<&str>) -> Result<RealizeMap, JsValue> {
     let glosses = affix_glosses(grammar);
     let mut map = pg_realize::infer_english(glosses.iter().map(String::as_str));
@@ -415,15 +350,11 @@ impl PanGlossGrammar {
             serde_wasm_bindgen::from_value(cache).map_err(|e| JsValue::from_str(&e.to_string()))?
         };
 
-        // Never stored as a field (same "build fresh per call from an owned `&Grammar`" shape as
-        // `FomaState`'s rehydrated `FomaAnalyzer` below) — needed unconditionally, both as the
-        // sole engine when `self.foma` is `None` and as the guess-root retry when foma confirms
-        // nothing for a particular word.
+        // Never stored as a field, same "build fresh per call from an owned `&Grammar`" shape as `FomaState`'s rehydrated `FomaAnalyzer` below.
         let mut new_cache_entries: HashMap<String, CachedWord> = HashMap::new();
         self.ensure_foma();
 
-        // Rehydrate a `FomaAnalyzer` borrowing `&self.grammar` for this call. The checkout guard
-        // restores the compiled pieces on every exit path, including panic unwinding.
+        // Rehydrate a `FomaAnalyzer` borrowing `&self.grammar`; the checkout guard restores the compiled pieces on every exit path, including panic unwinding.
         let mut foma = FomaCheckout::new(&mut self.foma, &self.grammar);
 
         let mut tokens: Vec<TokenOut> = Vec::new();
@@ -441,8 +372,7 @@ impl PanGlossGrammar {
                     from_cache: false,
                 },
                 Piece::Word(word) => {
-                    // Machine/LibLCM lexical identity is writing-system aware. Preserve the
-                    // authored token exactly; applications may offer case correction separately.
+                    // Machine/LibLCM lexical identity is writing-system aware; preserve the authored token exactly.
                     let lexical = word.to_string();
 
                     let current_revision = self.runtime.snapshot().revision().clone();
@@ -461,15 +391,7 @@ impl PanGlossGrammar {
                                 candidates_generated: outcome.candidates_generated,
                             }
                         });
-                        // `guess_fallback: true` -- explicit, and load-bearing. The guesser retry
-                        // is opt-in inside `pg_lexicon`, defaulting
-                        // OFF, because `hc_parse_word`/`hc_parse_batch`'s wire format cannot mark a
-                        // guessed analysis and so must never return one. This demo is the opposite
-                        // case: its own `analyze_text` doc states that unknown words producing a
-                        // guessed-root analysis is "part of what the demo is for, not a fallback to
-                        // hide", and `UnifiedAnalysisOut` carries the `guessed` flag through to JS,
-                        // so a guess here is always presented AS a guess. Passing `true` preserves
-                        // this crate's pre-existing behavior exactly across that default flip.
+                        // `guess_fallback: true`, explicit and load-bearing: unlike the FFI wire format (which can't mark a guessed analysis), this demo always presents a guess as a guess, so the retry stays on here.
                         let outcome = self.runtime.analyze_word_opts(&lexical, official, true);
                         let structured = outcome.structured;
                         let capped = outcome.capped;
@@ -514,10 +436,7 @@ impl PanGlossGrammar {
             tokens,
             new_cache_entries,
         };
-        // `serialize_maps_as_objects`: default serde-wasm-bindgen serializes a Rust `HashMap` as a
-        // JS `Map`, not a plain object -- but `new_cache_entries` is meant to be merged into the
-        // caller's plain-object cache via `Object.assign` (and re-fed straight back into this same
-        // method's `cache` parameter next call), so it must come back as a plain object instead.
+        // Default serde-wasm-bindgen serializes a Rust `HashMap` as a JS `Map`, but `new_cache_entries` must come back as a plain object so the caller can `Object.assign` it into its own cache.
         let serializer = serde_wasm_bindgen::Serializer::json_compatible();
         result
             .serialize(&serializer)
@@ -652,11 +571,7 @@ impl PanGlossGrammar {
         }
     }
 
-    /// `guess_fallback: true` at the `analyze_word_opts` call below -- see the twin call site in
-    /// `analyze_text` for the full rationale. Short version: `pg_lexicon`'s guesser retry is now
-    /// opt-in and defaults OFF (so the FFI wire formats that cannot mark a guess never return one),
-    /// and this crate is the case that genuinely wants it, because every guess it returns reaches JS
-    /// carrying `UnifiedAnalysisOut`'s own `guessed` flag.
+    /// `guess_fallback: true`, same rationale as the twin call site in `analyze_text`: every guess this crate returns reaches JS carrying `UnifiedAnalysisOut`'s own `guessed` flag.
     fn analyze_unified(&mut self, word: &str) -> pg_lexicon::UnifiedAnalysis {
         self.ensure_foma();
         let mut foma = FomaCheckout::new(&mut self.foma, &self.grammar);
@@ -854,10 +769,7 @@ impl PgPack {
     }
 }
 
-/// Maps `pack::PackLoadError` to this crate's usual `pg_lexicon::StructuredError` JSON shape
-/// (the same convention `structured_js` already applies to every other fallible wasm-bindgen
-/// method here) so JS callers get one consistent `{code, message, details}` diagnostic regardless
-/// of which layer refused the pack.
+/// Maps `pack::PackLoadError` to this crate's usual `StructuredError` JSON shape, so JS callers get one consistent `{code, message, details}` diagnostic regardless of which layer refused the pack.
 fn pack_load_err_to_js(err: pack::PackLoadError) -> JsValue {
     let structured = match err {
         pack::PackLoadError::Container(inner) => pg_lexicon::StructuredError {
@@ -950,12 +862,7 @@ enum Piece<'a> {
     Other(&'a str),
 }
 
-/// Splits `text` into alternating word/other runs. A "word" run is a maximal span of
-/// alphabetic-or-apostrophe characters (apostrophe included because it's phonemic in several
-/// sample languages' orthographies, e.g. Sena `m'phole`, not just an English quote mark) — anything
-/// else (whitespace, digits, punctuation) is an "other" run, passed straight through for display
-/// with no analysis attempted. Concatenating every returned piece's text, in order, reconstructs
-/// `text` exactly (needed so View mode never silently drops or reorders characters Edit mode has).
+/// Splits `text` into alternating word/other runs; a "word" run is a maximal span of alphabetic-or-apostrophe characters (apostrophe included since it's phonemic in some orthographies), anything else is an "other" run passed through unanalyzed. Concatenating every piece's text reconstructs `text` exactly.
 fn tokenize(text: &str) -> Vec<Piece<'_>> {
     let mut pieces = Vec::new();
     let mut start = 0;
@@ -1014,20 +921,13 @@ mod tests {
 
     #[test]
     fn tokenize_splits_words_from_punctuation_and_digits() {
-        // "hi" / ", 16" / "th" / "!" -- punctuation, whitespace, and digits are all "other" and
-        // merge into one run; only word-vs-other transitions split pieces.
+        // "hi" / ", 16" / "th" / "!": punctuation, whitespace, and digits merge into one "other" run; only word-vs-other transitions split pieces.
         let pieces = tokenize("hi, 16th!");
         let kinds: Vec<bool> = pieces.iter().map(|p| matches!(p, Piece::Word(_))).collect();
         assert_eq!(kinds, vec![true, false, true, false]);
     }
 
-    // A small, hand-built, ORIGINAL HermitCrab XML fixture (not derived from any real language
-    // project) with one noun lexical entry ("house", gloss "house") and one affix rule (plural,
-    // gloss "pl") -- just enough to exercise `affix_glosses`/`build_realize_map` without a real
-    // grammar. `PanGlossGrammar`'s wasm-bindgen methods can't easily be driven from a plain
-    // `cargo test` (their JS-boundary types are meant to be called across the wasm-bindgen glue,
-    // not constructed natively), so these tests target the plain-Rust helpers directly, per this
-    // phase's testing guidance.
+    // A small, hand-built, original HermitCrab XML fixture, just enough to exercise affix_glosses/build_realize_map; PanGlossGrammar's wasm-bindgen methods can't easily be driven from a plain cargo test, so these tests target the plain-Rust helpers directly.
     const TEST_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -1173,20 +1073,9 @@ mod tests {
         );
     }
 
-    // --- Native parity smoke -------------------------------------------------------------------
-    //
-    // Not a browser round-trip, but the IDENTICAL Rust functions `PanGlossGrammar::new`/
-    // `analyze_text` call (`build_foma_state`, `pg_foma::composite::FomaAnalyzer::from_cached`/
-    // `analyze_word`), compiled natively, run over real corpus words from `samples/data/` and
-    // compared against the full engine's own `Morpher::parse_word_opts` as multisets keyed by
-    // `(morpheme_ids, root_index)` -- exactly the parity contract the
-    // underlying `pg-foma` crate is already gated on; this test just confirms the wasm-facing
-    // wiring didn't lose anything in translation.
+    // Native parity smoke: not a browser round-trip, but the identical Rust functions PanGlossGrammar::new/analyze_text call, compiled natively, run over real corpus words and compared against the full engine as multisets.
 
-    /// Loads `grammar_file`/`words_file` from `samples/data/` (skipping quietly if either is
-    /// absent, matching this workspace's usual "sample data may not be checked out" convention),
-    /// takes the first `sample` non-empty lines of the word list, and asserts the foma path's
-    /// confirmed analyses exactly multiset-match the full engine's for every one of them.
+    /// Loads `grammar_file`/`words_file` from `samples/data/`, skipping quietly if either is absent, takes the first `sample` non-empty lines, and asserts the foma path's confirmed analyses exactly multiset-match the full engine's.
     fn assert_foma_matches_engine(grammar_file: &str, words_file: &str, sample: usize) {
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let samples_dir = manifest_dir.join("../../../samples/data");
@@ -1254,8 +1143,7 @@ mod tests {
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn foma_path_matches_full_engine_on_indonesian_corpus() {
-        // Indonesian's whole corpus file is only 121 words -- small enough to run in full rather
-        // than sampling.
+        // Indonesian's whole corpus file is only 121 words, small enough to run in full rather than sampling.
         assert_foma_matches_engine("indonesian-hc.xml", "indonesian-words.txt", usize::MAX);
     }
 }

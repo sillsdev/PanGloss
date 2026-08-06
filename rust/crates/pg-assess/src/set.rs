@@ -44,8 +44,7 @@ impl AnalysisSet {
     /// Discovery order is deliberately discarded: it is not semantic, and letting it reach a digest
     /// would make engine internals observable as grammar changes.
     pub fn from_annotated<I: IntoIterator<Item = (AnalysisIdentity, bool)>>(observed: I) -> Self {
-        // Keyed by digest so ordering is stable under any future field reordering of
-        // `AnalysisIdentity`, which a derived `Ord` would not survive.
+        // Keyed by digest so ordering is stable under any future field reordering of `AnalysisIdentity`, which a derived `Ord` would not survive.
         let mut by_digest: BTreeMap<String, AnalysisSetEntry> = BTreeMap::new();
         for (identity, guessed) in observed {
             let digest = identity_digest(&identity);
@@ -56,9 +55,7 @@ impl AnalysisSet {
                         "identity digest collision: unequal identities share {digest}"
                     );
                     existing.duplicate_count += 1;
-                    // The guess branch is all-or-nothing per parse, so copies of one identity agree
-                    // in practice. If they ever disagree, keep the fact that a fabricated root was
-                    // involved rather than letting whichever copy arrived last decide.
+                    // If copies of one identity ever disagree on guessed, keep the fact a fabricated root was involved rather than letting the last-arrived copy decide.
                     existing.guessed |= guessed;
                 }
                 None => {
@@ -174,8 +171,7 @@ mod tests {
 
     #[test]
     fn duplicate_counts_are_invisible_to_the_outcome_projection() {
-        // The load-bearing property behind `outcomeDigest`: redundant proposal work is not a
-        // behavior change.
+        // The load-bearing property behind `outcomeDigest`: redundant proposal work is not a behavior change.
         let once = AnalysisSet::from_observed([id(&["x"])]);
         let thrice = AnalysisSet::from_observed([id(&["x"]), id(&["x"]), id(&["x"])]);
         assert_eq!(once.to_outcome_value(), thrice.to_outcome_value());
@@ -192,8 +188,7 @@ mod tests {
 
     #[test]
     fn a_guessed_flip_is_visible_to_the_outcome_projection() {
-        // A root that fell out of the lexicon and was fabricated instead is a behavior change, even
-        // though the morpheme sequence and category are untouched.
+        // A root that fell out of the lexicon and was fabricated instead is a behavior change, even though the morpheme sequence and category are untouched.
         let found = AnalysisSet::from_annotated([(id(&["x"]), false)]);
         let fabricated = AnalysisSet::from_annotated([(id(&["x"]), true)]);
         assert_eq!(

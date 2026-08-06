@@ -1,18 +1,4 @@
-//! Guesser conformance gate: drives the staged
-//! `conformance-staging/edge-cases/guesser-pattern-root-fallback/` fixture directly, through the
-//! same `pg_parse::Morpher`/`ParseOptions` surface `pg-cli`'s own `--guess` flag uses, proving:
-//!
-//! 1. guesser OFF reproduces the pre-existing (empty) result for an out-of-lexicon word whose
-//!    only "lexical entry" is a guess-only pattern;
-//! 2. guesser ON analyzes that same word and marks every resulting analysis guessed; and
-//! 3. the ordinary control root ("kad") never gets guessed, on or off -- the guesser only ever
-//!    fires on a genuine total miss.
-//!
-//! This is the "guesser exercised" half of the fixture's own gate; the generic, always-on
-//! `pg-parse/tests/conformance_fixtures_gate.rs::all_discovered_fixtures_match_oracle` replay
-//! covers the guess-OFF/adapter-visible half (it discovers this fixture too, replays "kad"
-//! normally, and correctly skips "gag"/"gagd" via `WordEntry::adapter_visible()` since every one
-//! of their parses carries `guess: true` -- see `STAGING.md`).
+//! Guesser conformance gate: drives the `guesser-pattern-root-fallback` staged fixture through `pg_parse::Morpher`/`ParseOptions`, proving guesser OFF/ON/negative-control behavior for its two out-of-lexicon words.
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_parse::{AnalysisProvenance, Morpher, ParseOptions};
@@ -33,10 +19,7 @@ fn fixture_grammar() -> pg_grammar::model::Grammar {
         .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", f.label()))
 }
 
-/// Gate 1 + gate 4: guesser OFF (the default -- `ParseOptions::default()`, and equally
-/// `Morpher::parse_word`'s pre-existing entry point) must reproduce the pre-existing empty result
-/// for both out-of-lexicon words. Also the "flag default is OFF" pin: `ParseOptions::default()` is
-/// exactly what `pangloss batch`/`parse` build when `--guess` is never passed.
+/// Gate 1 + gate 4: guesser OFF (the default) must reproduce the pre-existing empty result for both out-of-lexicon words.
 #[test]
 fn guess_off_is_the_default_and_reproduces_the_pre_existing_empty_result() {
     let g = fixture_grammar();
@@ -58,16 +41,13 @@ fn guess_off_is_the_default_and_reproduces_the_pre_existing_empty_result() {
             via_default_opts.structured.is_empty(),
             "guess off must produce zero structured analyses for {word:?}"
         );
-        // `ParseOptions::default()` and the plain `parse_word` entry point must be byte-identical
-        // (P11 sec 4.1) -- proving `--guess` omitted is truly a no-op, not just "usually agrees".
+        // Byte-identical to the plain parse_word entry point, proving --guess omitted is truly a no-op.
         assert_eq!(via_default_opts.signature(), via_parse_word.signature());
         assert_eq!(via_default_opts.guessed, via_parse_word.guessed);
     }
 }
 
-/// Gate 2: guesser ON analyzes both out-of-lexicon words and marks every resulting analysis
-/// guessed, with the exact signatures this fixture's `words.yaml`/`STAGING.md` pin (transcribed
-/// directly from a live engine run, per `STAGING.md`'s Verification section).
+/// Gate 2: guesser ON analyzes both out-of-lexicon words and marks every resulting analysis guessed, with the exact signatures this fixture's `words.yaml` pins.
 #[test]
 fn guess_on_analyzes_the_out_of_lexicon_words_and_marks_them_guessed() {
     let g = fixture_grammar();
@@ -98,10 +78,7 @@ fn guess_on_analyzes_the_out_of_lexicon_words_and_marks_them_guessed() {
         .all(|s| s.provenance == AnalysisProvenance::Guessed));
 }
 
-/// Gate 3 (the negative control this fixture exists to pin, per `STAGING.md`): the ordinary
-/// lexical root "kad" analyzes identically with guessing on or off, and is NEVER marked guessed --
-/// proving the guesser only fires on a genuine total miss, never overriding or duplicating a real
-/// lexical hit.
+/// Gate 3, the negative control: ordinary lexical root "kad" analyzes identically on or off and is never marked guessed, proving the guesser only fires on a genuine total miss.
 #[test]
 fn control_root_never_guessed_on_or_off() {
     let g = fixture_grammar();

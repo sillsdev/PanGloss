@@ -39,9 +39,7 @@ use crate::model::*;
 use crate::segment::{segment, segment_with_patterns};
 use crate::{load_char_def_table_from_xml, GrammarError, GrammarPhonology};
 
-// =============================================================================================
 // Minimal read-only DOM built from quick_xml events (mirrors the XElement subset the C# uses).
-// =============================================================================================
 
 #[derive(Debug)]
 struct Node {
@@ -125,8 +123,7 @@ fn start_node(e: &BytesStart) -> Result<Node, GrammarError> {
     })
 }
 
-/// Parse the whole document into a synthetic root node (its children are the top-level
-/// elements, e.g. `HermitCrabInput`).
+/// Parse the whole document into a synthetic root node (its children are the top-level elements, e.g. `HermitCrabInput`).
 fn parse_document(xml: &str) -> Result<Node, GrammarError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
@@ -168,22 +165,15 @@ fn parse_document(xml: &str) -> Result<Node, GrammarError> {
     Ok(stack.pop().unwrap())
 }
 
-// =============================================================================================
 // Read-only resolvers (`Ro`) and mutable accumulators (`Acc`).
-// =============================================================================================
 
-/// Read-only resolution tables used while building patterns and feature structs. Held by
-/// reference so `Acc` (the mutable side) can be borrowed independently.
+/// Read-only resolution tables used while building patterns and feature structs, held by reference so `Acc` (the mutable side) can be borrowed independently.
 struct Ro<'a> {
     phon: &'a GrammarPhonology,
     syn: &'a SynFeatureSystem,
     /// natural-class XML id → dense id.
     natclass: &'a HashMap<String, NatClassId>,
-    /// Full natural-class definitions, document order (dense-id-indexed: `NatClassId(i)` is
-    /// `natural_class_defs[i]`). Only `load_root_allomorph` needs the definitions themselves
-    /// (not just the id) — finding N3's `[ClassName]` pattern-language lookup is by `<Name>` text,
-    /// a full linear scan over this slice (mirrors C#'s per-table `_naturalClassLookup`, which is
-    /// likewise populated from every natural class regardless of which table is being segmented).
+    /// Full natural-class definitions, document order (dense-id-indexed); only `load_root_allomorph` needs the definitions themselves, for its `[ClassName]` pattern-language lookup by `<Name>` text.
     natural_class_defs: &'a [NaturalClass],
     /// character-definition XML id → (owning table, per-table id).
     chardef: &'a HashMap<String, (TableId, CharDefId)>,
@@ -191,13 +181,9 @@ struct Ro<'a> {
     table: &'a HashMap<String, TableId>,
     /// MPR feature XML id → bit position.
     mpr: &'a HashMap<String, MprId>,
-    /// `<StemName>` XML id → dense id (W5). Fixed before the strata loop starts (`<StemNames>`
-    /// loads before `<Strata>`, `XmlLanguageLoader.cs:280-281`), so a plain `Ro` field — unlike
-    /// `families`' entry-membership half, which mutates during the strata loop and lives on
-    /// `Acc` instead.
+    /// `<StemName>` XML id → dense id; fixed before the strata loop starts, so a plain `Ro` field unlike `families`' entry-membership half, which mutates during the strata loop and lives on `Acc`.
     stem_names: &'a HashMap<String, StemNameId>,
-    /// `<Family>` XML id → dense id (W5). Fixed before the strata loop the same way; see
-    /// `Acc::families` for where the mutable `entries` list this indexes into lives.
+    /// `<Family>` XML id → dense id, fixed the same way; see `Acc::families` for where the mutable `entries` list this indexes into lives.
     families: &'a HashMap<String, FamilyId>,
 }
 
@@ -209,18 +195,9 @@ struct Acc {
     allomorph_owners: Vec<AllomorphOwner>,
     templates: Vec<AffixTemplateDef>,
     entries: Vec<LexEntryDef>,
-    /// `<Family>` definitions (W5), pre-seeded (name + empty `entries`) before the strata loop
-    /// starts; `try_load_lex_entry` pushes each successfully-loaded entry's `LexEntryId` onto
-    /// its family's `entries` as it goes (C# `family.Entries.Add(entry)`,
-    /// `XmlLanguageLoader.cs:463-465` — see that function's doc for the one documented C# edge
-    /// case this does not reproduce).
+    /// `<Family>` definitions, pre-seeded (name + empty `entries`) before the strata loop starts; `try_load_lex_entry` pushes each successfully-loaded entry's `LexEntryId` onto its family's `entries` as it goes.
     families: Vec<FamilyDef>,
-    /// XML `id` → `AllomorphId` (C#'s `_allomorphs` dict: `<Allomorph id="...">` and
-    /// `<MorphologicalSubrule id="...">` share one namespace there, so this does too). Consumed
-    /// only by the post-strata `<AllomorphCoOccurrenceRule>` pass in `load()` — mirrors C#'s own
-    /// `primaryAllomorph`/`otherAllomorphs` IDREF resolution, which runs after every stratum is
-    /// loaded (`XmlLanguageLoader.LoadLanguage`'s `Strata` loop precedes its
-    /// `AllomorphCoOccurrenceRules` loop).
+    /// XML `id` → `AllomorphId` (`<Allomorph id="...">` and `<MorphologicalSubrule id="...">` share one namespace, so this does too); consumed only by the post-strata `<AllomorphCoOccurrenceRule>` pass in `load()`.
     allomorph_xml_index: HashMap<String, AllomorphId>,
 }
 
@@ -240,15 +217,12 @@ fn mk_part_ref(kind: PartKind, idx: u16) -> PartRef {
     }
 }
 
-/// A load error that should *drop the current allomorph* (C# error-handler path) rather than
-/// abort the whole load. `Unsupported` is never a drop — it must propagate to trigger managed
-/// fallback (plan §8 layer 6).
+/// A load error that should drop the current allomorph rather than abort the whole load; `Unsupported` is never a drop, since it must propagate to trigger managed fallback.
 fn is_droppable(e: &GrammarError) -> bool {
     !matches!(e, GrammarError::Unsupported(_))
 }
 
-/// C# `XmlLanguageLoader.GetMorphCoOccurrenceAdjacency` (XmlLanguageLoader.cs:137-157): unknown/
-/// absent values default to `Anywhere` (also the DTD's own default).
+/// C# `XmlLanguageLoader.GetMorphCoOccurrenceAdjacency`: unknown/absent values default to `Anywhere` (also the DTD's own default).
 fn load_co_occurrence_adjacency(v: Option<&str>) -> CoOccurrenceAdjacency {
     match v {
         Some("somewhereToLeft") => CoOccurrenceAdjacency::SomewhereToLeft,
@@ -267,9 +241,7 @@ fn parse_bool(v: Option<&str>, default: bool) -> bool {
     }
 }
 
-// =============================================================================================
 // Entry point.
-// =============================================================================================
 
 /// Load a full HermitCrab XML grammar into the frozen `Grammar` runtime tables.
 ///
@@ -287,18 +259,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         .and_then(|hc| hc.elems("Language").find(|l| l.is_active()))
         .ok_or_else(|| GrammarError::Xml("no active <Language> element".into()))?;
 
-    // --- top-level lints (constructs the reference grammars never contain) --------------------
-    // FootFeatures (F1, HYBRID_FST_RUST_PLAN.md §7.1 item 4): no longer hard-linted — loaded by
-    // `build_syn_features` below, mirroring HeadFeatures exactly (see that function + the
-    // `SynFeatureSystem::foot` doc for the confirmed-against-C# shared-namespace behavior).
-    // StemName / Family / RealizationalRule (plan W5): no longer hard-linted — loaded below
-    // (StemNames/Families passes) and inline in `load_stratum`/`try_load_lex_entry`.
-    // MorphemeCoOccurrenceRule / AllomorphCoOccurrenceRule (plan W6): no longer hard-linted here —
-    // parsed by the post-strata pass near the end of this function (their `primaryMorpheme`/
-    // `primaryAllomorph`/`otherMorphemes`/`otherAllomorphs` IDREFs resolve against the
-    // `acc.morphemes`/`acc.allomorph_xml_index` registries the strata loop populates, mirroring
-    // C#'s `XmlLanguageLoader.LoadLanguage` placing its own `MorphemeCoOccurrenceRules`/
-    // `AllomorphCoOccurrenceRules` loops after the `Strata` loop).
+    // Top-level lints (constructs the reference grammars never contain): FootFeatures, StemName/Family/RealizationalRule, and MorphemeCoOccurrenceRule/AllomorphCoOccurrenceRule are all loaded below rather than hard-linted here; the co-occurrence rules run in a post-strata pass since their IDREFs resolve against registries the strata loop populates.
 
     // --- syntactic feature system (POS = feature 0; head complex feature = feature 1) ---------
     let syn = build_syn_features(lang)?;
@@ -416,11 +377,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         stem_names.push(load_stem_name(&mut fs_interner, sn, &syn)?);
     }
 
-    // --- families (W5; `XmlLanguageLoader.cs:289-294`) ----------------------------------------
-    // `entries` fills in during lexical-entry loading (`try_load_lex_entry`), mirroring C#'s
-    // `family.Entries.Add(entry)` — stored on `Acc` (mutated throughout the strata loop), while
-    // the xml-id lookup itself (fixed once families are declared) lives on `Ro`, same split as
-    // every other id-index/mutable-accumulator pair in this loader.
+    // Families: `entries` fills in during lexical-entry loading and is stored on `Acc` (mutated throughout the strata loop), while the fixed xml-id lookup lives on `Ro`, same split as every other id-index/mutable-accumulator pair in this loader.
     let mut family_defs: Vec<FamilyDef> = Vec::new();
     let mut family_index: HashMap<String, FamilyId> = HashMap::new();
     for fam in lang.elems2("Families", "Family").filter(|e| e.is_active()) {
@@ -486,12 +443,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         strata.push(def);
     }
 
-    // `IsTemplateRule` post-pass (plan §6 item 6 / W1.6, `AffixProcessRuleDef::is_template_rule`'s
-    // doc): tag every affix rule referenced from any template's slot, across every stratum. Must
-    // run after the whole strata loop (not inline per-stratum) because `acc.templates`/`acc.mrules`
-    // are both flat, grammar-global vectors indexed by ids minted throughout that loop — a template
-    // in stratum N could in principle be loaded before or after the rule it references relative to
-    // other strata, so only a post-pass over the complete sets is correct.
+    // `IsTemplateRule` post-pass: tag every affix rule referenced from any template's slot, across every stratum. Must run after the whole strata loop, since a template in stratum N could be loaded before or after the rule it references relative to other strata.
     let mut is_template_rule = vec![false; acc.mrules.len()];
     for t in &acc.templates {
         for slot in &t.slots {
@@ -506,10 +458,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         }
     }
 
-    // --- co-occurrence rules (plan W6; post-strata, mirroring `XmlLanguageLoader.LoadLanguage`'s
-    // own placement after its `Strata` loop — `primaryMorpheme`/`otherMorphemes`/
-    // `primaryAllomorph`/`otherAllomorphs` IDREFs resolve against the morpheme/allomorph
-    // registries the strata loop just finished populating) -------------------------------------
+    // Co-occurrence rules, post-strata: their IDREFs resolve against the morpheme/allomorph registries the strata loop just finished populating.
     let mut morpheme_xml_index: HashMap<String, MorphemeId> = HashMap::new();
     for (i, m) in acc.morphemes.iter().enumerate() {
         morpheme_xml_index.insert(m.xml_key.clone(), MorphemeId(i as u32));
@@ -593,8 +542,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         }
     }
 
-    // All borrows of `phon` (via `ro`) have ended; the grammar takes ownership of its
-    // phonology so `TableId`/`CharDefId`/`FlatIndex` stay resolvable downstream.
+    // All borrows of `phon` (via `ro`) have ended; the grammar takes ownership of its phonology so ids stay resolvable downstream.
     let (phon_features, char_tables) = phon.into_parts();
 
     Ok(Grammar {
@@ -619,9 +567,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
     })
 }
 
-// =============================================================================================
 // Syntactic feature system.
-// =============================================================================================
 
 fn build_syn_features(lang: &Node) -> Result<SynFeatureSystem, GrammarError> {
     let mut features: Vec<SynFeature> = Vec::new();
@@ -652,8 +598,7 @@ fn build_syn_features(lang: &Node) -> Result<SynFeatureSystem, GrammarError> {
     });
     let pos = FeatId(0);
 
-    // Feature 1: the head complex feature, present iff <HeadFeatures> exists (even if empty,
-    // as Indonesian's `<HeadFeatures/>` — C# still calls AddHeadFeature).
+    // Feature 1: the head complex feature, present iff <HeadFeatures> exists, even if empty.
     let mut head = None;
     if let Some(hf) = lang.child("HeadFeatures") {
         head = Some(FeatId(features.len() as u16));
@@ -670,13 +615,7 @@ fn build_syn_features(lang: &Node) -> Result<SynFeatureSystem, GrammarError> {
         }
     }
 
-    // The foot complex feature, present iff <FootFeatures> exists (F1: mirrors <HeadFeatures>
-    // exactly, `XmlLanguageLoader.cs:250-255` — `AddFootFeature()` + `LoadSyntacticFeatureSystem
-    // (footFeatsElem, SyntacticFeatureType.Foot)`). Foot-declared features are added to the SAME
-    // `features` vec as head's — there is one shared syntactic feature namespace in C#, not two —
-    // so a real grammar could in principle declare a feature under `<FootFeatures>` that
-    // `<AssignedHeadFeatures>` references, and vice versa (confirmed, not assumed: see the
-    // `SynFeatureSystem` doc).
+    // The foot complex feature, present iff <FootFeatures> exists, mirrors <HeadFeatures> exactly; foot-declared features join the SAME `features` vec as head's, since C# has one shared syntactic feature namespace, not two (see `SynFeatureSystem`'s doc).
     let mut foot = None;
     if let Some(ff) = lang.child("FootFeatures") {
         foot = Some(FeatId(features.len() as u16));
@@ -779,12 +718,7 @@ fn load_syn_fs(elem: &Node, syn: &SynFeatureSystem) -> Result<FeatureStruct, Gra
     Ok(b.build())
 }
 
-/// Build a `{POS?, head?, foot?}` syntactic feature struct from an element carrying a POS id-list
-/// attribute (`pos_attr`), a head-features child element (`head_elem`), and/or a foot-features
-/// child element (`foot_elem`), then intern it. `foot_elem` mirrors `head_elem` exactly (F1,
-/// HYBRID_FST_RUST_PLAN.md §7.1 item 4) — both are `None`/absent-element no-ops when the grammar
-/// declares no `<FootFeatures>` at all (`syn.foot == None`), matching every pre-F1 caller's
-/// behavior bit-for-bit.
+/// Build a `{POS?, head?, foot?}` syntactic feature struct from an element carrying a POS id-list attribute, a head-features child element, and/or a foot-features child element, then intern it; `foot_elem` mirrors `head_elem` exactly, a no-op when the grammar declares no `<FootFeatures>`.
 fn build_syn_fs(
     elem: &Node,
     syn: &SynFeatureSystem,
@@ -811,11 +745,7 @@ fn build_syn_fs(
     Ok(b.build())
 }
 
-/// `LoadStemName` (`XmlLanguageLoader.cs:323-345`, W5). Each `<Region>` becomes one region FS:
-/// the `<StemName>`'s own `partsOfSpeech` attribute (shared by every region) plus that region's
-/// own optional `<AssignedHeadFeatures>`/`<AssignedFootFeatures>` — exactly the `{POS, head, foot}`
-/// shape `build_syn_fs` produces for `RequiredSyntacticFeatureStruct` elsewhere, so a region FS is
-/// directly comparable (via `subsumes`) to a word's accumulated syntactic FS.
+/// `LoadStemName`: each `<Region>` becomes one region FS, in the same `{POS, head, foot}` shape `build_syn_fs` produces elsewhere, so a region FS is directly comparable (via `subsumes`) to a word's accumulated syntactic FS.
 fn load_stem_name(
     fs_interner: &mut Interner<FeatureStruct>,
     sn: &Node,
@@ -829,8 +759,7 @@ fn load_stem_name(
         if let (Some(head_fid), Some(hn)) = (syn.head, region.child("AssignedHeadFeatures")) {
             b.add(head_fid, FeatureValue::Complex(load_syn_fs(hn, syn)?));
         }
-        // F1: `AssignedFootFeatures` on a StemName `<Region>` (`XmlLanguageLoader.cs:332-337`) —
-        // previously dead here because FootFeatures lint made `syn.foot` always `None`.
+        // `AssignedFootFeatures` on a StemName `<Region>`.
         if let (Some(foot_fid), Some(fnode)) = (syn.foot, region.child("AssignedFootFeatures")) {
             b.add(foot_fid, FeatureValue::Complex(load_syn_fs(fnode, syn)?));
         }
@@ -854,9 +783,7 @@ fn intern_syn_fs(
     Ok(acc.fs_interner.intern(fs))
 }
 
-// =============================================================================================
 // MPR, natural-class, and variable helpers.
-// =============================================================================================
 
 fn load_mpr_set(ids: Option<&str>, mpr: &HashMap<String, MprId>) -> Result<MprSet, GrammarError> {
     let mut set = MprSet::EMPTY;
@@ -871,8 +798,7 @@ fn load_mpr_set(ids: Option<&str>, mpr: &HashMap<String, MprId>) -> Result<MprSe
     Ok(set)
 }
 
-/// `LoadFeatureStruct` for a `FeatureNaturalClass` against the phonological feature system,
-/// flattened to sparse `(lane, symbols)` constraints sorted by lane (union on repeats).
+/// `LoadFeatureStruct` for a `FeatureNaturalClass` against the phonological feature system, flattened to sparse `(lane, symbols)` constraints sorted by lane (union on repeats).
 fn load_phon_constraints(
     nc: &Node,
     phon: &GrammarPhonology,
@@ -898,14 +824,7 @@ fn load_phon_constraints(
         let entry = map.entry(flat.0).or_insert(SymbolBits::EMPTY);
         entry.0 |= bits.0;
     }
-    // Plan §13.1 Tier-1 #1: every `FeatureNaturalClass` unconditionally requires `Type=Segment`,
-    // mirroring C# `NaturalClass`'s base-constructor `fs.AddValue(HCFeatureSystem.Type,
-    // HCFeatureSystem.Segment)` (`NaturalClass.cs:7-15`), which fires regardless of what
-    // `<FeatureValue>`s the class authors. No `<FeatureValue feature="...">` in real HC XML ever
-    // names the synthetic `Type` feature, so this can never collide with (or be overridden by) an
-    // authored constraint — it is inserted unconditionally, last. `SegmentNaturalClass` needs no
-    // equivalent injection: it gets `Type=Segment` "for free" via the lane-union-of-members logic
-    // once each member char-def's own lanes correctly carry `Type` (`pg-grammar/src/chardef.rs`).
+    // Every `FeatureNaturalClass` unconditionally requires `Type=Segment`, inserted last, mirroring C#'s base-constructor `fs.AddValue`. `SegmentNaturalClass` needs no equivalent injection, since it gets `Type=Segment` for free via the lane-union-of-members logic.
     map.insert(
         fs.type_flat().0,
         SymbolBits::single(crate::featsys::TYPE_SEGMENT_SYMBOL),
@@ -935,9 +854,7 @@ fn load_variables(elem: Option<&Node>, phon: &GrammarPhonology) -> Result<VarTab
     Ok(VarTable { vars })
 }
 
-// =============================================================================================
 // Patterns (`LoadPatternNodes` / `LoadSimpleContext` / templates / sequences).
-// =============================================================================================
 
 fn load_simple_context(
     rec: &Node,
@@ -970,12 +887,7 @@ fn load_simple_context(
     })
 }
 
-/// Build one `PatternNode` from a single `<SimpleContext>`/`<Segment>`/`<BoundaryMarker>`/
-/// `<OptionalSegmentSequence>`/`<Segments>` element (`None` for any other/unrecognized tag, mirroring
-/// C#'s `LoadPatternNodes` switch falling through with no `node` assigned). Factored out of
-/// `load_pattern_nodes` so `load_metathesis_pattern_nodes` can reuse the exact same per-element
-/// logic while additionally checking each element's own `id` attribute for switch-tagging (the DTD's
-/// only group-authoring mechanism, used exclusively by `<MetathesisRule>`).
+/// Build one `PatternNode` from a single `<SimpleContext>`/`<Segment>`/`<BoundaryMarker>`/`<OptionalSegmentSequence>`/`<Segments>` element (`None` for any other tag). Factored out of `load_pattern_nodes` so `load_metathesis_pattern_nodes` can reuse the same per-element logic while additionally checking each element's `id` attribute for switch-tagging.
 fn load_one_pattern_node(
     rec: &Node,
     vars: &VarTable,
@@ -1065,8 +977,7 @@ fn load_phonetic_sequence(
     }
 }
 
-/// `LoadPhoneticTemplate`: `None` when the template element is absent (C# builds an empty
-/// pattern; the model represents "no template on this side" as `None`, matching semantics).
+/// `LoadPhoneticTemplate`: `None` when the template element is absent, matching C#'s semantics ("no template on this side").
 fn load_phonetic_template(
     ptemp: Option<&Node>,
     vars: &VarTable,
@@ -1104,10 +1015,7 @@ fn segment_text(
     })
 }
 
-/// `segment_text`'s pattern-aware counterpart (finding N3): C# `LoadRootAllomorph` is the
-/// **only** `new Segments(...)` call site that passes `allowPattern = true`
-/// (`XmlLanguageLoader.cs:501`), so this is used only by `load_root_allomorph`, never by
-/// `segment_text`'s other two call sites (rule/environment `<Segments>` patterns).
+/// `segment_text`'s pattern-aware counterpart: C# `LoadRootAllomorph` is the only `new Segments(...)` call site that passes `allowPattern = true`, so this is used only by `load_root_allomorph`.
 fn segment_text_with_patterns(
     table: TableId,
     shape_str: &str,
@@ -1126,9 +1034,7 @@ fn segment_text_with_patterns(
     })
 }
 
-/// `LoadAllomorphEnvironments` for one `RequiredEnvironments`/`ExcludedEnvironments` block. The
-/// variable scope is always empty (C# `LoadAllomorphEnvironment`), so an `AlphaVariable` here
-/// lints `Unsupported` via `load_simple_context`.
+/// `LoadAllomorphEnvironments` for one `RequiredEnvironments`/`ExcludedEnvironments` block; the variable scope is always empty, so an `AlphaVariable` here lints `Unsupported` via `load_simple_context`.
 fn load_allomorph_environments(
     envs: Option<&Node>,
     require: bool,
@@ -1155,18 +1061,11 @@ fn load_allomorph_environments(
     Ok(out)
 }
 
-// =============================================================================================
 // Phonological (rewrite) rules.
-// =============================================================================================
 
 fn load_rewrite_rule(pr: &Node, ro: &Ro) -> Result<RewriteRuleDef, GrammarError> {
     let mult = pr.attr("multipleApplicationOrder").unwrap_or("");
-    // P13: the former
-    // stopgap hard lint here (W1.4) has been REMOVED now that `RewriteMode::Simultaneous` has real
-    // execution semantics in `pg-rules` (`rewrite::sim_feature`/`sim_narrow` for synthesis;
-    // `analyze`/`analyze_cached`'s `self_opaquing` repeat-wrapper for analysis). A grammar
-    // authoring `multipleApplicationOrder="simultaneous"` now loads and runs
-    // with its authored semantics instead of hard-failing.
+    // The former stopgap hard lint here has been removed now that `RewriteMode::Simultaneous` has real execution semantics in `pg-rules`.
     let mode = match mult {
         "simultaneous" => RewriteMode::Simultaneous,
         _ => RewriteMode::Iterative,
@@ -1220,16 +1119,7 @@ fn load_rewrite_subrule(
     mode: RewriteMode,
     lhs: &Pattern,
 ) -> Result<RewriteSubruleDef, GrammarError> {
-    // NOT hard-linted, despite `subrule_applicable` (pg-rules) silently treating it as always-false:
-    // a stopgap lint here was drafted and REJECTED during W1 development after direct measurement
-    // showed Amharic's real grammar authors `requiredPartsOfSpeech` on 3 `<PhonologicalSubrule>`s
-    // (`amharic-hc.xml:12151,12169,12188`) — contradicting the audit's "0 across all 5 sample
-    // grammars" premise (phase2/B-phonology-parity.md §3's requiredPOS-gate row is wrong; flagged
-    // for correction). A hard lint here would drop Amharic's load entirely (532/673 -> 0), a clear
-    // regression. The construct stays silently-always-false (today's actual, already-measured
-    // 532/673 baseline runs with these 3 subrules effectively disabled) until the real port lands
-    // (needs `Word` syntactic-FS threaded into `pg_rules::rewrite`'s rule-level API — tracked as a
-    // real, Effort-M port, not a W1 stopgap).
+    // NOT hard-linted, despite `subrule_applicable` (pg-rules) silently treating it as always-false: Amharic's real grammar authors `requiredPartsOfSpeech` on 3 subrules, so a hard lint here would drop Amharic's load entirely. The construct stays silently-always-false until the real port (needing `Word` syntactic-FS threaded into `pg_rules::rewrite`'s rule-level API) lands.
     let required_pos = match sub.attr_ne("requiredPartsOfSpeech") {
         Some(ids) => Some(parse_pos_bits(ro.syn, ids)?),
         None => None,
@@ -1281,13 +1171,9 @@ fn load_rewrite_subrule(
     })
 }
 
-// ---------------------------------------------------------------------------------------------
-// P13: `RewriteSubruleDef::self_opaquing` -- computed once at load time from the rule's own
-// (already-loaded) patterns; see that field's doc for the exact per-kind formula.
-// ---------------------------------------------------------------------------------------------
+// `RewriteSubruleDef::self_opaquing` -- computed once at load time from the rule's own already-loaded patterns; see that field's doc for the exact per-kind formula.
 
-/// C# `AnalysisRewriteRule.cs:106-120,75-80`'s self-opaquing precheck. See
-/// `RewriteSubruleDef::self_opaquing`'s doc for the per-kind dispatch this implements.
+/// C# `AnalysisRewriteRule`'s self-opaquing precheck. See `RewriteSubruleDef::self_opaquing`'s doc for the per-kind dispatch this implements.
 fn compute_self_opaquing(
     ro: &Ro,
     table_id: TableId,
@@ -1301,17 +1187,14 @@ fn compute_self_opaquing(
         return false;
     }
     if lhs.nodes.is_empty() {
-        // Epenthesis: unconditional whenever Simultaneous, no unifiability precheck
-        // (`AnalysisRewriteRule.cs:75-80`).
+        // Epenthesis: unconditional whenever Simultaneous, no unifiability precheck.
         return true;
     }
     if lhs.nodes.len() != rhs.nodes.len() {
-        // Narrow/Expansion: irrelevant field, this kind's analysis is always unconditionally
-        // Simultaneous+Deletion regardless of `rule.mode`.
+        // Narrow/Expansion: irrelevant field, this kind's analysis is always unconditionally Simultaneous+Deletion regardless of rule.mode.
         return false;
     }
-    // Feature: self-opaquing iff some RHS constraint is not feature-unifiable with every
-    // Segment-typed node of EITHER environment (`IsUnifiable`, `AnalysisRewriteRule.cs:106-120`).
+    // Feature: self-opaquing iff some RHS constraint is not feature-unifiable with every Segment-typed node of either environment.
     let phon = ro.phon.feature_system();
     let table = &ro.phon.tables()[table_id.0 as usize];
     rhs.nodes.iter().any(|rhs_node| {
@@ -1321,13 +1204,7 @@ fn compute_self_opaquing(
     })
 }
 
-/// `IsUnifiable(rhsConstraint, environment)`: every Segment-typed (`Context`/`CharDef`) node
-/// inside `environment`'s pattern (recursing into quantifiers, mirroring
-/// `strip_boundary_nodes`'s own recursion) must be feature-unifiable with `rhs_pins` -- i.e. for
-/// every phonological feature BOTH sides pin, their symbol-bit sets must overlap (a feature
-/// pinned by only one side never blocks -- the same "is_unifiable" convention this port already
-/// uses throughout, e.g. `pg-featstruct/src/ops.rs::is_unifiable`). No environment (`None`) or one
-/// with no Segment-typed nodes is vacuously unifiable (nothing to violate).
+/// `IsUnifiable(rhsConstraint, environment)`: every Segment-typed node inside `environment`'s pattern (recursing into quantifiers) must be feature-unifiable with `rhs_pins`, i.e. for every phonological feature both sides pin, their symbol-bit sets must overlap. No environment, or one with no Segment-typed nodes, is vacuously unifiable.
 fn env_unifiable(
     phon: &PhonFeatureSystem,
     table: &CharDefTable,
@@ -1364,13 +1241,7 @@ fn env_nodes_unifiable(
     })
 }
 
-/// Local mirror of `pg_rules::rewrite::node_pins` -- kept as a duplicate in THIS crate (not
-/// imported) because `pg-grammar` cannot depend on `pg-rules` (the dependency runs the other
-/// way: `pg-rules` depends on `pg-grammar`). Used ONLY to compute `self_opaquing` above; MUST
-/// stay semantically identical to `node_pins` (same alpha-variable exclusion via `sc.vars`, same
-/// `Feature`/`Segments` natural-class dispatch) -- see `node_pins`'s own doc for the exact
-/// contract this mirrors, and `self_opaquing_pin_semantics_match_node_pins` (below) for the
-/// pinned parity check.
+/// Local mirror of `pg_rules::rewrite::node_pins`, kept as a duplicate since `pg-grammar` cannot depend on `pg-rules` (the dependency runs the other way). Must stay semantically identical; see `self_opaquing_pin_semantics_match_node_pins` below for the pinned parity check.
 fn pattern_node_pin_bits(
     phon: &PhonFeatureSystem,
     table: &CharDefTable,
@@ -1408,27 +1279,8 @@ fn pattern_node_pin_bits(
     }
 }
 
-/// `LoadMetathesisRule` (`XmlLanguageLoader.cs:826-850`). No `VariableFeatures` scope (the DTD's
-/// `<MetathesisRule>` has none) and no default char-def table context (same convention
-/// `load_rewrite_rule` documents for `<PhonologicalRule>`'s LHS/RHS: `Segment`/`BoundaryMarker`
-/// reference char-defs by a table-independent global IDREF; only a nested `<Segments>` element's own
-/// optional `characterDefinitionTable` attribute needs a fallback, and C# passes `null` there too —
-/// ported as `TableId(0)`, matching every reference/fixture grammar's single-table convention).
-///
-/// Group-authoring: the DTD has no `<Group>` element. `XmlLanguageLoader.LoadMetathesisRule` instead
-/// builds a `groupNames` dictionary mapping {the id the `leftSwitch` attribute references → an
-/// internal name, the id the `rightSwitch` attribute references → another internal name} and has
-/// `LoadPatternNodes` wrap whichever single pattern element carries a matching `id` attribute in a
-/// `Group` of that name — so `MetathesisRule.LeftSwitchName` ends up bound to whatever
-/// `leftSwitch`'s IDREF points at (C# names that internal group `"r"`; the naming is an
-/// implementation detail — see the `MetathesisRuleDef` doc for why "left" doesn't mean "physically
-/// left"). This port skips minting a `Group` pattern-node kind entirely: since a real grammar's
-/// `<MetathesisRule>` can only ever validly switch-tag a *single* `<SimpleContext>`/`<Segment>`/
-/// `<BoundaryMarker>` element (a `<Segments>`/`<OptionalSegmentSequence>` switch group is DTD-legal
-/// but fails to compile against the real C# engine — see
-/// `rust/conformance/metathesis/complex_rule/README.md`'s finding), recording each switch as a plain
-/// index into `pattern.nodes` is sufficient and avoids adding an authored-`Group` pattern-node kind
-/// (and the matching `pg_rules::bridge::PatternBridge` case) that would only ever wrap one node.
+/// `LoadMetathesisRule`: no `VariableFeatures` scope and no default char-def table context; each switch is recorded as a plain index into `pattern.nodes` rather than minting a `Group` pattern-node kind.
+/// See docs/research/pg-grammar-metathesis-load-design-notes.md for why no `Group` kind is needed.
 fn load_metathesis_rule(pr: &Node, ro: &Ro) -> Result<MetathesisRuleDef, GrammarError> {
     let left_switch_xml = pr.attr("leftSwitch").ok_or_else(|| {
         GrammarError::Semantic("MetathesisRule missing required 'leftSwitch' attribute".into())
@@ -1436,8 +1288,7 @@ fn load_metathesis_rule(pr: &Node, ro: &Ro) -> Result<MetathesisRuleDef, Grammar
     let right_switch_xml = pr.attr("rightSwitch").ok_or_else(|| {
         GrammarError::Semantic("MetathesisRule missing required 'rightSwitch' attribute".into())
     })?;
-    // DTD: `multipleApplicationOrder (leftToRightIterative | rightToLeftIterative)` — no
-    // `simultaneous` option here (unlike `<PhonologicalRule>`), so no W1.4-style lint is needed.
+    // DTD: no `simultaneous` option here (unlike `<PhonologicalRule>`), so no such lint is needed.
     let dir = match pr.attr("multipleApplicationOrder") {
         Some("rightToLeftIterative") => Dir::RightToLeft,
         _ => Dir::LeftToRight,
@@ -1505,9 +1356,7 @@ fn load_metathesis_rule(pr: &Node, ro: &Ro) -> Result<MetathesisRuleDef, Grammar
     })
 }
 
-// =============================================================================================
 // Strata (morphological rules, templates, lexicon).
-// =============================================================================================
 
 fn load_stratum(
     stratum: &Node,
@@ -1642,9 +1491,7 @@ fn try_load_affix_process_rule(
             Ok(def) => {
                 acc.allomorph_owners
                     .push(AllomorphOwner::Affix(mrule_id, allomorphs.len() as u16));
-                // C#'s `_allomorphs[(string)subruleElem.Attribute("id")] = allomorph`
-                // (XmlLanguageLoader.cs:925) — the id `<AllomorphCoOccurrenceRule
-                // otherAllomorphs="...">` resolves against for an affix allomorph.
+                // The id `<AllomorphCoOccurrenceRule otherAllomorphs="...">` resolves against for an affix allomorph.
                 if let Some(xid) = sub.attr("id") {
                     acc.allomorph_xml_index.insert(xid.to_string(), allo_id);
                 }
@@ -1699,18 +1546,13 @@ fn try_load_affix_process_rule(
             obligatory_features,
             required_stem_name,
             allomorphs,
-            // Set by the post-pass in `load()` once every stratum's templates are known — default
-            // `false` here, same as every other not-yet-known-at-construction-time field pattern in
-            // this loader.
+            // Set by the post-pass in `load()` once every stratum's templates are known; default `false` here.
             is_template_rule: false,
         }));
     Ok(Some(mrule_id))
 }
 
-/// `TryLoadRealizationalRule` (`XmlLanguageLoader.cs:947-1014`, W5). Shares `load_affix_allomorph`
-/// with the regular affix-process loader above (C#'s `LoadAffixProcessAllomorph` is the one method
-/// both call) — see `crate::model::MorphRuleDef::affix_allomorphs`'s doc for why that's
-/// exact, not coincidental.
+/// `TryLoadRealizationalRule`. Shares `load_affix_allomorph` with the regular affix-process loader above; see `crate::model::MorphRuleDef::affix_allomorphs`'s doc for why that's exact, not coincidental.
 fn try_load_realizational_rule(
     real: &Node,
     default_table: TableId,
@@ -1720,8 +1562,7 @@ fn try_load_realizational_rule(
 ) -> Result<Option<MRuleId>, GrammarError> {
     let mrule_id = MRuleId(acc.mrules.len() as u32);
 
-    // No `requiredPartsOfSpeech`/POS attribute on `<RealizationalRule>` (DTD + loader both omit
-    // it) — head/foot only, foot dead as everywhere else.
+    // No `requiredPartsOfSpeech`/POS attribute on `<RealizationalRule>`: head/foot only.
     let required_syn_fs = intern_syn_fs(
         acc,
         real,
@@ -1731,10 +1572,7 @@ fn try_load_realizational_rule(
         Some("RequiredFootFeatures"),
     )?;
 
-    // `<RealizationalFeatures>` wrapped in the head feature (`XmlLanguageLoader.cs:972-980`):
-    // `FeatureStruct.New().Feature(_headFeature).EqualTo(LoadFeatureStruct(realFeatElem, ...))`.
-    // Empty (unwrapped) FS if the element is absent, matching `RealizationalAffixProcessRule`'s
-    // ctor default (`FeatureStruct.New().Value`).
+    // `<RealizationalFeatures>` wrapped in the head feature; empty (unwrapped) FS if the element is absent.
     let real_fs = match (ro.syn.head, real.child("RealizationalFeatures")) {
         (Some(head_fid), Some(rf)) => {
             let mut b = FeatureStructBuilder::new();
@@ -2126,11 +1964,7 @@ fn try_load_lex_entry(
     ro: &Ro,
     acc: &mut Acc,
 ) -> Result<Option<LexEntryId>, GrammarError> {
-    // `LexicalEntry@family` (W5, `XmlLanguageLoader.cs:460-465`): resolved to a `FamilyId` now;
-    // the entry is pushed onto that family's `entries` below, once its own id is known and it has
-    // been confirmed to load at least one allomorph (see `Acc::families`'s doc for the one
-    // documented C# edge case — a family reference on an entry that ends up with zero allomorphs —
-    // this does not reproduce).
+    // `LexicalEntry@family`: resolved to a `FamilyId`; the entry is pushed onto that family's `entries` below once its own id is known and it has loaded at least one allomorph.
     let family = match entry.attr_ne("family") {
         Some(fid) => Some(*ro.families.get(fid).ok_or_else(|| {
             GrammarError::Semantic(format!("LexicalEntry references unknown family '{fid}'"))
@@ -2160,8 +1994,7 @@ fn try_load_lex_entry(
             Ok(def) => {
                 acc.allomorph_owners
                     .push(AllomorphOwner::Root(lex_id, allomorphs.len() as u16));
-                // C#'s `_allomorphs[(string)alloElem.Attribute("id")] = allomorph`
-                // (XmlLanguageLoader.cs:477).
+                // Same allomorph-id registry `try_load_lex_entry`'s AllomorphCoOccurrenceRule resolution reads.
                 if let Some(xid) = allo.attr("id") {
                     acc.allomorph_xml_index.insert(xid.to_string(), allo_id);
                 }
@@ -2209,9 +2042,7 @@ fn load_root_allomorph(
     ro: &Ro,
 ) -> Result<RootAllomorphDef, GrammarError> {
     let shape_str = allo.text_of("PhoneticShape").unwrap_or("");
-    // Finding N3: `LoadRootAllomorph` is C#'s one `allowPattern = true` call site — root-allomorph
-    // shapes fall back to the `[NatClass]`/`([NatClass])`/`[NatClass]*` pattern language wherever a
-    // literal character-definition match fails, instead of erroring the whole allomorph out.
+    // `LoadRootAllomorph` is C#'s one `allowPattern = true` call site: root-allomorph shapes fall back to the `[NatClass]`/`([NatClass])`/`[NatClass]*` pattern language wherever a literal character-definition match fails.
     let shape =
         segment_text_with_patterns(default_table, shape_str, ro.phon, ro.natural_class_defs)?;
     // C# throws InvalidShapeException (→ dropped) if the shape is entirely boundary markers.
@@ -2242,11 +2073,7 @@ fn load_root_allomorph(
         None => None,
     };
 
-    // P11 §4.2: C# `RootAllomorph` ctor rule (`RootAllomorph.cs:16-29`) — any interior node that
-    // is iterative, or optional-and-not-a-boundary, makes this a lexical pattern. A bare mandatory
-    // `[Class]` node does NOT qualify (that's a normal trie-indexed root, e.g. `b[Vowel]t`), and
-    // ordinary boundary-optional shapes (every `pi+t`-style root, since `+` is always Optional
-    // after segmentation) don't qualify either — the `kind != Boundary` guard is exactly why.
+    // C# `RootAllomorph` ctor rule: any interior node that is iterative, or optional-and-not-a-boundary, makes this a lexical pattern. A bare mandatory `[Class]` node does not qualify (a normal trie-indexed root), nor does an ordinary boundary-optional shape -- the `kind != Boundary` guard is exactly why.
     let is_pattern = shape.shape.interior().any(|(_, kind, _, flags)| {
         flags.is_iterative() || (flags.is_optional() && kind != NodeKind::Boundary)
     });
@@ -2256,10 +2083,7 @@ fn load_root_allomorph(
         shape,
         is_bound: parse_bool(allo.attr("isBound"), false),
         environments,
-        // Populated by the post-strata co-occurrence-rule pass in `load()`; empty at construction
-        // (mirrors C#'s `RootAllomorph` ctor, whose `AllomorphCoOccurrenceRules` set starts empty
-        // and is only filled later by `LoadAllomorphCoOccurrenceRule`, itself run after every
-        // stratum is loaded).
+        // Populated by the post-strata co-occurrence-rule pass in `load()`; empty at construction.
         co_occurrence: Vec::new(),
         properties: load_properties(allo.child("Properties")),
         stem_name,
@@ -2277,9 +2101,7 @@ fn load_properties(props: Option<&Node>) -> Vec<(String, String)> {
     }
 }
 
-// =============================================================================================
-// Deterministic loader dump (plan §8 layer-1 gate).
-// =============================================================================================
+// Deterministic loader dump.
 
 impl Grammar {
     /// A normalized, deterministic, human-readable structural inventory of the grammar, for the
@@ -2455,9 +2277,7 @@ mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
 
-    /// Same self-skipping corpus-file locator as the lib.rs segmentation tests: the `*-hc.xml`
-    /// grammars are untracked local corpus files (`rust-conversion.md` §8), present on this dev
-    /// machine but not guaranteed elsewhere. Returns `None` if absent so callers self-skip.
+    /// Same self-skipping corpus-file locator as the lib.rs segmentation tests: `*-hc.xml` grammars are untracked local corpus files. Returns `None` if absent so callers self-skip.
     fn sample_path(name: &str) -> Option<PathBuf> {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let path = manifest_dir.join("../../../samples/data").join(name);
@@ -2471,10 +2291,7 @@ mod tests {
         }
     }
 
-    /// Load a real grammar and assert exact structural counts. Every expected count was obtained
-    /// **independently of this loader** by grepping the raw XML (the exact greps are stated per
-    /// call site), so a match is real evidence the loader isn't dropping/double-counting, not an
-    /// echo of its own output.
+    /// Load a real grammar and assert exact structural counts; every expected count was obtained independently of this loader by grepping the raw XML, so a match is real evidence, not an echo of its own output.
     #[allow(clippy::too_many_arguments)]
     fn check(
         xml_name: &str,
@@ -2545,35 +2362,21 @@ mod tests {
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn loads_indonesian() {
-        // Independently confirmed via `grep -c` on indonesian-hc.xml:
-        //   syn features = 1 POS + 1 head (empty <HeadFeatures/> still adds it) + 0 head-declared = 2
-        //   POS symbols  = 6  (`<PartOfSpeech `)
-        //   natural classes = 10 `<FeatureNaturalClass ` + 4 `<SegmentNaturalClass ` = 14
-        //   prules = 5 `<PhonologicalRule ` ; mrules = 13 `<MorphologicalRule ` + 2 `<CompoundingRule ` = 15
-        //   templates = 0 `<AffixTemplate ` ; entries = 66 `<LexicalEntry ` ; strata = 3 `<Stratum `
+        // Counts independently confirmed via grep -c on indonesian-hc.xml: 2 syn features, 6 POS symbols, 14 natural classes, 5 prules, 15 mrules, 0 templates, 66 entries, 3 strata.
         check("indonesian-hc.xml", 2, 6, 14, 5, 15, 0, 66, 3);
     }
 
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
     fn loads_amharic() {
-        // Independently confirmed via `grep -c` on amharic-hc.xml:
-        //   syn features = 1 POS + 1 head + 16 head-declared (11 SymbolicFeature + 5 ComplexFeature
-        //                  inside the <HeadFeatures> block) = 18
-        //   POS symbols = 16 ; natural classes = 14 Feature + 3 Segment = 17
-        //   prules = 7 ; mrules = 87 `<MorphologicalRule ` + 1 `<CompoundingRule ` = 88
-        //   templates = 15 ; entries = 76 ; strata = 3
+        // Counts independently confirmed via grep -c on amharic-hc.xml: 18 syn features, 16 POS symbols, 17 natural classes, 7 prules, 88 mrules, 15 templates, 76 entries, 3 strata.
         check("amharic-hc.xml", 18, 16, 17, 7, 88, 15, 76, 3);
     }
 
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn loads_sena() {
-        // Independently confirmed via `grep -c` on sena-hc.xml:
-        //   syn features = 1 POS + 1 head + 3 head-declared = 5 ; POS symbols = 37
-        //   natural classes = 1 Feature + 12 Segment = 13
-        //   prules = 0 ; mrules = 132 `<MorphologicalRule ` + 8 `<CompoundingRule ` = 140
-        //   templates = 24 ; entries = 1371 `<LexicalEntry ` ; strata = 3
+        // Counts independently confirmed via grep -c on sena-hc.xml: 5 syn features, 37 POS symbols, 13 natural classes, 0 prules, 140 mrules, 24 templates, 1371 entries, 3 strata.
         check("sena-hc.xml", 5, 37, 13, 0, 140, 24, 1371, 3);
     }
 
@@ -2607,9 +2410,7 @@ mod tests {
         assert!(dump.contains("entries=66"));
     }
 
-    /// A hand-built minimal grammar exercises the loader end-to-end without the corpus files,
-    /// so it runs in CI too: POS + empty head, one MPR feature, one natural class, one stratum
-    /// with one affix-process rule (one allomorph) and one lexical entry.
+    /// A hand-built minimal grammar exercises the loader end-to-end without the corpus files, so it runs in CI too.
     #[test]
     fn loads_hand_built_minimal_grammar() {
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -2713,9 +2514,7 @@ mod tests {
         assert_eq!(g.morphemes.len(), 3); // two affix rules + one entry
         assert_eq!(g.allomorph_owners.len(), 3);
         assert_eq!(g.strata[0].mrule_order, MorphRuleOrder::Unordered);
-        // Parity-critical: stratum rules follow the `morphologicalRules` id-list ORDER, not
-        // document order, and unknown ids ("bogus") are silently skipped. mr1/mr2 are assigned
-        // MRuleId 0/1 in document order, but the attribute lists them "mr2 bogus mr1".
+        // Parity-critical: stratum rules follow the morphologicalRules id-list order, not document order, and unknown ids ("bogus") are silently skipped.
         assert_eq!(g.strata[0].mrules, vec![MRuleId(1), MRuleId(0)]);
         // Affix rule references its output MPR feature and has one allomorph.
         let MorphRuleDef::AffixProcess(a) = &g.mrules[0] else {
@@ -2730,18 +2529,7 @@ mod tests {
         ));
     }
 
-    /// Finding N3: a root-allomorph `<PhoneticShape>` whose text doesn't literally match a
-    /// character definition at some position must fall back to the `[NatClass]` pattern language
-    /// (`load_root_allomorph` -> `segment_text_with_patterns` -> `segment::segment_with_patterns`)
-    /// instead of erroring the whole allomorph out. Pre-fix (plain `segment_text`/`segment::segment`,
-    /// no pattern awareness at all), `load("b[Vowel]t")` would return `GrammarError::Semantic`
-    /// from `segment()`'s `InvalidShape` at the `[`, which `load_stratum`'s allomorph-loading loop
-    /// treats as droppable (`is_droppable`); this fixture's entry has only that one allomorph, so
-    /// dropping it drops the *entry* too (confirmed empirically by reverting the fix locally:
-    /// `g.entries.len()` goes to 0, not just `allomorphs.len()`). This test's assertions are the
-    /// red-on-revert signal for that: reverting `load_root_allomorph`'s call back to
-    /// `segment_text` makes both fail (the entry and its allomorph silently disappear, exactly
-    /// the class of bug the audit flags).
+    /// A root-allomorph `<PhoneticShape>` whose text doesn't literally match a character definition must fall back to the `[NatClass]` pattern language instead of erroring the whole allomorph out; a regression here drops not just the allomorph but the whole entry, since this fixture's entry has only that one allomorph.
     #[test]
     fn root_allomorph_shape_falls_back_to_pattern_language_natural_class_reference() {
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -2806,10 +2594,7 @@ mod tests {
         }
     }
 
-    /// P11 §4.2: `RootAllomorphDef.is_pattern` must match C#'s `RootAllomorph` ctor rule exactly
-    /// (`RootAllomorph.cs:16-29`) — any interior node that is iterative, or optional-and-not-a-
-    /// boundary, classifies the whole allomorph as a lexical pattern (diverted out of the trie,
-    /// P11 chunk 2). One grammar, one allomorph per shape variant, checked by entry order.
+    /// `RootAllomorphDef.is_pattern` must match C#'s `RootAllomorph` ctor rule exactly: any interior node that is iterative, or optional-and-not-a-boundary, classifies the whole allomorph as a lexical pattern.
     #[test]
     fn is_pattern_matches_the_csharp_root_allomorph_classification_rule() {
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -2893,14 +2678,7 @@ mod tests {
         );
     }
 
-    /// F1 (HYBRID_FST_RUST_PLAN.md §7.1 item 4): `<FootFeatures>` is no longer hard-linted
-    /// unsupported — the `fst-advisor-toys/HermitCrabTestBase.shared.xml` fixture needs it (an
-    /// empty `<FootFeatures/>` plus `AssignedFootFeatures` referencing head-declared features).
-    /// This test now pins the *positive* behavior: `<FootFeatures>` loads, adds a foot complex
-    /// feature (mirroring `<HeadFeatures>`/`syn.head` exactly), and its own declared features join
-    /// the shared syntactic feature namespace (confirmed against `XmlLanguageLoader.cs:244-256`
-    /// which adds both under the SAME `SyntacticFeatureSystem` — see the `SynFeatureSystem::foot`
-    /// doc). Was `foot_features_lints_unsupported` pre-F1.
+    /// `<FootFeatures>` is not hard-linted unsupported: it loads, adds a foot complex feature mirroring `<HeadFeatures>`/`syn.head` exactly, and its declared features join the shared syntactic feature namespace.
     #[test]
     fn foot_features_loads_as_a_complex_feature_mirroring_head() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -2918,8 +2696,7 @@ mod tests {
         );
     }
 
-    /// An absent `<FootFeatures>` element must still leave `syn.foot == None` (no spurious complex
-    /// feature invented) — the exact `<HeadFeatures>`-absent behavior already pinned elsewhere.
+    /// An absent `<FootFeatures>` element must still leave `syn.foot == None`, the exact `<HeadFeatures>`-absent behavior already pinned elsewhere.
     #[test]
     fn absent_foot_features_element_leaves_foot_none() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -2929,27 +2706,8 @@ mod tests {
         assert!(g.syn_features.foot.is_none());
     }
 
-    /// Regression test for the `<AffixTemplate final>` bug (rust-conversion.md §13.1 T1-#2):
-    /// C#'s DTD-validating XML reader (`XmlLanguageLoader.cs:209-218` + `HermitCrabInput.dtd:259`,
-    /// `final (true | false) "true"`) materializes the DTD default into the parsed tree, so an
-    /// omitted `final` attribute reads as `true` in C#. The loader must match. This test also
-    /// pins every other DTD `ATTLIST` default reachable from `load.rs` (full sweep against
-    /// `HermitCrabInput.dtd`, beyond the single `final` spot-check), so a future change can't
-    /// silently reintroduce a mismatch of this class:
-    ///
-    /// - `AffixTemplate final` "true" (the bug fixed here)
-    /// - `Slot optional` "false"
-    /// - `MorphologicalRule blockable` "true", `partial` "false", `multipleApplication` "1"
-    /// - `Allomorph isBound` "false"
-    /// - `MorphologicalOutput redupMorphType` "implicit"
-    /// - `MorphologicalPhonologicalRuleFeatureGroup matchType` "any", `outputType` "overwrite"
-    /// - `Stratum morphologicalRuleOrder` "linear"
-    /// - `PhonologicalRule multipleApplicationOrder` "leftToRightIterative"
-    ///
-    /// (`isActive` "yes" is exercised pervasively elsewhere via `Node::is_active`; `Stratum`'s
-    /// `cyclicity`/`phonologicalRuleOrder` attributes are not modeled by this loader at all — a
-    /// separate architectural scope-cut, not a wrong-default bug, and neither attribute appears
-    /// in any of the three reference grammars.)
+    /// Regression test for the `<AffixTemplate final>` default-value bug, generalized into a full sweep of every DTD `ATTLIST` default reachable from `load.rs`.
+    /// See docs/research/pg-grammar-dtd-attribute-defaults.md for the full pinned list and the two attributes deliberately out of scope.
     #[test]
     fn dtd_attribute_defaults_match_spec() {
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -3081,11 +2839,7 @@ mod tests {
         assert_eq!(pr0.dir, Dir::LeftToRight);
     }
 
-    /// P13: the former W1.4 stopgap lint (`RewriteMode::Simultaneous` hard-failed at load because
-    /// it had zero readers in `pg-rules`) is gone now that Simultaneous has real execution
-    /// semantics. This test now asserts the POSITIVE
-    /// case the lint used to block: a `multipleApplicationOrder="simultaneous"` rule loads
-    /// successfully and round-trips into `RewriteRuleDef.mode`.
+    /// The former stopgap lint (`RewriteMode::Simultaneous` hard-failed at load) is gone now that Simultaneous has real execution semantics: a `multipleApplicationOrder="simultaneous"` rule loads successfully and round-trips into `RewriteRuleDef.mode`.
     #[test]
     fn rewrite_mode_simultaneous_loads_and_round_trips() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -3115,8 +2869,7 @@ mod tests {
             "multipleApplicationOrder=\"simultaneous\" must round-trip"
         );
 
-        // Sanity: the same rule with `leftToRightIterative` (the default) must still load fine and
-        // round-trip Iterative — confirms this isn't a blanket "always Simultaneous now" bug.
+        // Sanity: the same rule with the default order must still load fine and round-trip Iterative, confirming this isn't a blanket "always Simultaneous now" bug.
         let iterative_xml = XML.replace(r#" multipleApplicationOrder="simultaneous""#, "");
         let g2 = load(&iterative_xml).expect("an ordinary iterative rule must still load");
         let PhonRuleDef::Rewrite(pr0b) = &g2.prules[0] else {
@@ -3125,20 +2878,8 @@ mod tests {
         assert_eq!(pr0b.mode, RewriteMode::Iterative);
     }
 
-    /// Pin `RewriteSubruleDef::self_opaquing`'s
-    /// per-kind formula directly, mirroring C#'s own dispatch (`AnalysisRewriteRule.cs:26-104`)
-    /// rather than just eyeballing agreement. Five rules, one
-    /// subrule each:
-    /// - `prA` (Feature, Simultaneous): RHS pin `Voiced` (voi+) IS feature-unifiable with its
-    ///   RightEnvironment `Voiced` (voi+ again, bits overlap) -> `self_opaquing` must be `false`.
-    /// - `prB` (Feature, Simultaneous): RHS pin `Voiced` (voi+) is NOT unifiable with its
-    ///   RightEnvironment `Voiceless` (voi-, disjoint bits on the SAME feature) -> `true`.
-    /// - `prC`: identical patterns to `prB` but `multipleApplicationOrder` omitted (Iterative) ->
-    ///   `false` (the mode gate short-circuits before the unifiability check ever runs).
-    /// - `prD` (Epenthesis: empty LHS, Simultaneous): `true` unconditionally, no unifiability
-    ///   precheck for this branch (`AnalysisRewriteRule.cs:75-80`).
-    /// - `prE` (Narrow: 2-node LHS, 1-node RHS, Simultaneous): `false` -- irrelevant field, this
-    ///   kind is always unconditionally Simultaneous+Deletion regardless of `rule.mode`.
+    /// Pins `RewriteSubruleDef::self_opaquing`'s per-kind formula directly across five rule shapes, mirroring C#'s own dispatch rather than just eyeballing agreement.
+    /// See docs/research/pg-grammar-self-opaquing-pin-cases.md for what each of the five cases (prA-prE) pins and why.
     #[test]
     fn self_opaquing_pin_semantics_match_node_pins() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SelfOpaquingProbe</Name>
@@ -3233,9 +2974,7 @@ mod tests {
         );
     }
 
-    /// Plan §6 item 6 (audit phase2/C-loader-parity.md §item 6): pin the exact `>= 64` vs `> 64`
-    /// boundary for the two symbol-count caps a real grammar is most likely to hit. Neither edge
-    /// was previously exercised by a unit test (all 3 reference grammars sit comfortably under 64).
+    /// Pins the exact `>= 64` vs `> 64` boundary for the two symbol-count caps a real grammar is most likely to hit; neither edge was previously exercised by a unit test.
     fn pos_grammar_with_n_symbols(n: usize) -> String {
         let mut pos = String::new();
         for i in 0..n {

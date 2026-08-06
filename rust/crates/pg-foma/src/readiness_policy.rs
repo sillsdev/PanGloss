@@ -74,14 +74,9 @@ pub const THRESHOLD_POLICY_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum Calibration {
-    /// Backed by real measured evidence. `citation` names exactly where (a doc path, a benchmark
-    /// run, a reproducible harness invocation) and must be specific enough that a reader can go
-    /// re-derive or re-check it — never a bare "measured".
+    /// Backed by real measured evidence; `citation` must be specific enough to re-derive or re-check, never a bare "measured".
     Measured { citation: String },
-    /// Not yet backed by measurement. `rationale` states why the chosen value is not arbitrary
-    /// even though no evidence backs it yet (e.g. "borrows an existing declared policy from
-    /// elsewhere in this repo as a starting point" or "a conventional bar, not derived from this
-    /// grammar's own evidence") — never left empty, and never phrased so as to look authoritative.
+    /// Not yet backed by measurement; `rationale` states why the value is not arbitrary even though no evidence backs it yet, and must never be empty or phrased to look authoritative.
     Placeholder { rationale: String },
 }
 
@@ -283,12 +278,7 @@ mod tests {
         assert_eq!(policy.to_canonical_json(), policy.to_canonical_json());
     }
 
-    /// Gate: every threshold in the seeded policy carries an explicit `Calibration`, and every
-    /// `Calibration::Placeholder` names a non-empty rationale, every `Calibration::Measured`
-    /// names a non-empty citation -- "never invent a number that merely looks authoritative" is
-    /// unenforceable by the type system alone (a caller could still write `rationale: ""`), so this
-    /// test pins that today's real seed values actually satisfy the discipline the module doc
-    /// promises.
+    /// The type system can't stop a caller writing `rationale: ""`, so this pins that today's seed values actually carry a non-empty citation/rationale.
     #[test]
     fn every_seeded_threshold_names_its_calibration_honestly() {
         let policy = policy_v1();
@@ -323,9 +313,7 @@ mod tests {
         }
     }
 
-    /// Gate: the four values this task explicitly instructs to be marked un-calibrated
-    /// (pack size, lexicon scale, coverage rate -- no measured evidence exists for any of them
-    /// yet) are actually `Placeholder`, not accidentally `Measured`.
+    /// Pack size, lexicon scale, and coverage rate have no measured evidence yet, so they must be `Placeholder`, not accidentally `Measured`.
     #[test]
     fn unmeasured_dimensions_are_placeholders_not_measured() {
         let policy = policy_v1();
@@ -337,8 +325,7 @@ mod tests {
             .is_placeholder());
     }
 
-    /// Gate: the latency thresholds, which DO have real cited evidence behind them, are marked
-    /// `Measured` -- not everything degrades to a placeholder by default.
+    /// The latency thresholds have real cited evidence, so they must be `Measured`, not a default placeholder.
     #[test]
     fn latency_dimensions_are_measured_not_placeholders() {
         let policy = policy_v1();

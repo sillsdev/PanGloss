@@ -122,41 +122,10 @@ use crate::tags::Candidate;
 /// operation.
 pub const RUNTIME_FEATURE_REDUPLICATION_PEEL: &str = "reduplication.peel";
 
-/// `crate::compose_budget::ComposeBudget::check_chain_depth`'s `site` label for every check this
-/// module makes (that function's own doc: `site` names the call site for
-/// `crate::compose_budget::ComposeError::ChainDepthExceeded`'s message).
+/// `ComposeBudget::check_chain_depth`'s `site` label for every check this module makes.
 const CHAIN_DEPTH_SITE: &str = "peel::ReduplicationPeeler::propose_for_residual";
 
-/// C# `ReduplicationProposer.IsReduplication` (`ReduplicationProposer.cs:233-247`): **only** an
-/// `AffixProcessRule` is ever checked — a `RealizationalAffixProcessRule` is never considered for
-/// reduplication classification at all, even if one of its allomorphs would classify as
-/// `Role::Reduplication` — a real, faithfully-preserved C# quirk (ported from
-/// `hc-hybrid/src/proposers.rs::is_reduplication_rule` verbatim, `.any()` over EVERY allomorph,
-/// unlike `crate::emit::rule_role`'s "first allomorph only" — a deliberately different aggregation
-/// for a deliberately different question: emit's `rule_role` asks "how does this rule's PRIMARY
-/// allomorph route in the morphotactic chain", this asks "does ANY allomorph of this rule
-/// reduplicate").
-///
-/// **Still faithful after `classify_affix`'s circumfix-vs-reduplication reordering — no code
-/// change needed here.** `classify_affix` now lets `Role::CircumfixPrefix`
-/// win whenever an RHS is SIMULTANEOUSLY circumfix-shaped (leading AND trailing insert) and
-/// reduplication-shaped (some `Copy`d part echoed >= 2 times) — this function's `.any()` scan calls
-/// that exact same port, so an allomorph with that combined shape now silently drops out of THIS
-/// scan too (it is no longer `Role::Reduplication`, so `.any()` no longer sees it), without touching
-/// a single line of this file. That is the CORRECT outcome, not an accidental side effect: this
-/// module's four scan kinds (module doc: prefix-copy, suffix-copy, separator+tail-copy,
-/// separator+suffix-peel) are each a ONE-SIDED surface-string match, none of which searches for a
-/// repeated span with independent material wrapping it on BOTH sides — the peel was never able to
-/// recall a genuine circumfix-plus-reduplication surface faithfully in the first place, so
-/// `crate::emit::build_structural_composites` (which resynthesizes via the real engine regardless of
-/// shape) claiming the rule instead is a strictly BETTER outcome, not merely a lateral handoff. The
-/// carve-out this function's own doc names above (`RealizationalRule` never peel-eligible) is
-/// UNCHANGED and orthogonal: it is a rule-KIND distinction (`AffixProcess` vs `Realizational`),
-/// while C2 is a Role-shape distinction that applies identically to either rule kind — a
-/// `RealizationalRule` allomorph that is simultaneously circumfix-and-reduplication-shaped was
-/// ALREADY excluded from this function (the `_ => false` arm fires on rule kind alone, before
-/// `classify_affix` is even consulted), so C2's fix changes nothing about that pre-existing
-/// exclusion.
+/// C# `ReduplicationProposer.IsReduplication` port (`.any()` over every allomorph, unlike `crate::emit::rule_role`'s first-allomorph-only): only `AffixProcessRule` is checked, never `RealizationalAffixProcessRule`; an allomorph `classify_affix` resolves to `CircumfixPrefix` over `Reduplication` correctly drops out of this scan too, since this module's one-sided surface match could never recall a circumfix-plus-reduplication surface anyway.
 fn is_reduplication_rule(def: &MorphRuleDef) -> bool {
     match def {
         MorphRuleDef::AffixProcess(d) => d
@@ -167,11 +136,7 @@ fn is_reduplication_rule(def: &MorphRuleDef) -> bool {
     }
 }
 
-/// C# `ReduplicationProposer.RenderSurfaceOnly` (`ReduplicationProposer.cs:113-130`): render only
-/// the Segment-kind nodes of `shape` through `table`'s FIRST representation, `None` the instant any
-/// Segment node has no representation (the underlying representation may carry boundary characters
-/// that must not appear in the rendered surface text). Ported from
-/// `hc-hybrid/src/proposers.rs::render_surface_only` verbatim.
+/// C# `ReduplicationProposer.RenderSurfaceOnly`: renders only the Segment-kind nodes of `shape` through `table`'s first representation, `None` the instant any Segment node has none.
 fn render_surface_only(table: &CharDefTable, shape: &Shape) -> Option<String> {
     let mut out = String::new();
     for (_, kind, cd, _flags) in shape.interior() {
@@ -192,12 +157,9 @@ fn render_surface_only(table: &CharDefTable, shape: &Shape) -> Option<String> {
 /// original's constructor also took: this port needs neither, since residuals recurse through the
 /// caller's `propose` closure instead of a shared trie/walker).
 pub struct ReduplicationPeeler {
-    /// `AffixProcessRule`s whose RHS classifies as reduplication, in grammar document order
-    /// (stratum order, then `stratum.mrules` order).
+    /// `AffixProcessRule`s whose RHS classifies as reduplication, in grammar document order.
     redup_rules: Vec<MRuleId>,
-    /// `(suffix surface text, owning rule)` pairs for every ordinary SUFFIX-classified allomorph in
-    /// the grammar (`AffixProcess` or `Realizational`), document order — the separator+suffix-peel
-    /// scan's search list.
+    /// `(suffix surface text, owning rule)` pairs for every SUFFIX-classified allomorph in the grammar; the separator+suffix-peel scan's search list.
     suffix_surfaces: Vec<(String, MRuleId)>,
 }
 
@@ -273,10 +235,7 @@ impl ReduplicationPeeler {
         self.peel_at_depth(g, word, 1, budget, propose)
     }
 
-    /// `Self::peel_candidates`'s actual recursive core: `depth` names which reduplication layer
-    /// (1-based) this call is peeling — `1` for the top-level word itself, `2` for a residual
-    /// peeled once already, and so on. See module doc for the full chain-depth design and why the
-    /// budget check itself lives in `Self::propose_for_residual`, not here.
+    /// `Self::peel_candidates`'s recursive core: `depth` (1-based) names which reduplication layer this call is peeling. See module doc for why the budget check lives in `Self::propose_for_residual`, not here.
     fn peel_at_depth(
         &self,
         g: &Grammar,
@@ -294,22 +253,14 @@ impl ReduplicationPeeler {
         let max_copy_len = len / 2;
 
         for l in 1..=max_copy_len {
-            // Prefix copy: chars[0..l] repeats immediately (chars[l..2l]) -- strip it. The
-            // reduplicant sits at the FRONT (surface position 0), so its morpheme PRECEDES the
-            // base's in ascending surface order — `prepend = true` (gate F3 3b: `metathesis-phase-isolation`'s
-            // `redupMorphType="prefix"` rules `mrRedupCV`/`mrRedupFull`, "tutula"/"tulatula", whose
-            // engine analyses are `[RED, root]` root_index=1; the old unconditional append produced
-            // `[root, RED]` root_index=0, which `crate::confirm`'s positional `analyses_match`
-            // rejected — an under-generation the recall gate never caught because the reference
-            // grammars' only redup was Indonesian's TAIL copy).
+            // Prefix copy: chars[0..l] repeats immediately after -- strip it. The reduplicant sits at the front, so its morpheme precedes the base's -- `prepend = true`.
             if chars[0..l] == chars[l..2 * l] {
                 let residual: String = chars[l..len].iter().collect();
                 self.propose_for_residual(
                     g, &residual, None, true, depth, budget, propose, &mut out,
                 )?;
             }
-            // Suffix copy: the last l chars repeat the l chars before them -- strip the trailing copy.
-            // The reduplicant sits at the END, so its morpheme FOLLOWS the base's — `prepend = false`.
+            // Suffix copy: the last l chars repeat the l chars before them -- strip it; the reduplicant trails the base, so `prepend = false`.
             if chars[len - l..len] == chars[len - 2 * l..len - l] {
                 let residual: String = chars[0..len - l].iter().collect();
                 self.propose_for_residual(
@@ -350,8 +301,7 @@ impl ReduplicationPeeler {
                     && before[before.len() - stripped_copy.len()..] == *stripped_copy
                 {
                     let residual: String = before.iter().collect();
-                    // separator + suffix-peel + tail copy: reduplicant + peeled suffix both trail
-                    // the base -> append (never a prefix reduplicant here).
+                    // separator + suffix-peel + tail copy: reduplicant + peeled suffix both trail the base -> append.
                     self.propose_for_residual(
                         g,
                         &residual,
@@ -368,30 +318,7 @@ impl ReduplicationPeeler {
         Ok(out)
     }
 
-    /// C# `ProposeForResidual` (`ReduplicationProposer.cs:211-231`): recurse `residual` through the
-    /// caller's proposer, then wrap every returned base candidate with the reduplication morpheme
-    /// (and, for the separator+suffix-peel path, the peeled suffix morpheme afterward). Since
-    /// `cover-template-truncation-reduplication`, ALSO recurses `residual` back into
-    /// `Self::peel_at_depth` one layer deeper (module doc: the new nested-reduplication capability)
-    /// and unions those wrapped candidates in too.
-    ///
-    /// This function is called if and only if a REAL match was found at `depth` (every call site is
-    /// inside a `peel_at_depth` scan branch that just matched) — which is exactly why the
-    /// `crate::compose_budget::ComposeBudget::check_chain_depth` call belongs HERE and not at
-    /// `Self::peel_at_depth`'s own entry (module doc's "why the check sits at a real match, not at
-    /// entering the recursive scan" section): an attempt to peel a residual that turns out to have no
-    /// further structure of its own costs nothing and never reaches this function again, so it never
-    /// counts against `budget`; only a genuine chain of successive real matches ever trips the cap.
-    ///
-    /// `prepend` (gate F3 3b): a `redupMorphType="prefix"` reduplication puts the reduplicant at the
-    /// FRONT of the surface word, so its morpheme must PRECEDE the base's in ascending surface order
-    /// (`crate::confirm`'s `analyses_match` is positional) — `prepend = true` puts the redup morpheme
-    /// first and shifts `root_index` right by one to keep it pointing at the same root. Every
-    /// tail/suffix scan passes `prepend = false` (the reduplicant trails the base, HC's
-    /// `root … RED suffix` order, `root_index` unchanged) — the original append-only behavior, which
-    /// was correct only because the reference grammars' one redup (Indonesian's tail copy) happened
-    /// never to be a prefix reduplicant. `extra_suffix` is only ever supplied on an append path, so
-    /// it is unconditionally appended after the base.
+    /// C# `ProposeForResidual` port: recurses `residual` through the caller's proposer and one layer deeper into `Self::peel_at_depth`, then wraps every base candidate with the reduplication (and any peeled suffix) morpheme. Called only on a real match, so `budget.check_chain_depth` here counts only genuine chains, never a failed attempt; `prepend` puts the redup morpheme first (and shifts `root_index`) for a prefix reduplicant, else it trails the base.
     #[allow(clippy::too_many_arguments)]
     fn propose_for_residual(
         &self,
@@ -407,12 +334,7 @@ impl ReduplicationPeeler {
         // A real reduplication layer at `depth` is about to be used -- gate it now (module doc).
         budget.check_chain_depth(depth, CHAIN_DEPTH_SITE)?;
         let mut base_candidates = propose(residual);
-        // Nested reduplication (module doc): `residual` may ALSO carry its own further
-        // reduplication structure -- try peeling it again, one layer deeper. Cheap and a pure
-        // no-op when `residual` has no such structure (returns `Ok(vec![])` without ever calling
-        // `propose` again or consulting `budget` a second time); only a genuine further match
-        // recurses into another `propose_for_residual` call, which is where `budget` is actually
-        // checked again (at `depth + 1`).
+        // Nested reduplication: `residual` may carry its own further structure -- peel it again one layer deeper; a no-op (no propose call, no budget check) when it does not.
         base_candidates.extend(self.peel_at_depth(g, residual, depth + 1, budget, propose)?);
         for base in &base_candidates {
             for &redup in &self.redup_rules {
@@ -423,8 +345,7 @@ impl ReduplicationPeeler {
                     morphemes.extend_from_slice(&base.morphemes);
                     out.push(Candidate {
                         morphemes,
-                        // The base's own root sat at `base.root_index`; prepending one morpheme
-                        // shifts every base morpheme (root included) one position right.
+                        // Prepending one morpheme shifts every base morpheme (root included) one position right.
                         root_index: if base.root_index < 0 {
                             base.root_index
                         } else {
@@ -471,8 +392,7 @@ mod tests {
         Some(pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load grammar: {e}")))
     }
 
-    /// Sena has no reduplication rules at all -- the peeler must be a true no-op (empty `redup_rules`,
-    /// `peel_candidates` short-circuits to empty for any word without ever calling `propose`).
+    /// Sena has no reduplication rules at all -- the peeler must be a true no-op, never calling `propose`.
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn sena_has_no_redup_rules() {
@@ -498,8 +418,7 @@ mod tests {
         );
     }
 
-    /// Indonesian's redup rules recover "membagi-bagi" (a known corpus word) when the residual
-    /// "membagi" is handed a stub proposer that returns one fixed base candidate.
+    /// Indonesian's redup rules recover "membagi-bagi" when residual "membagi" is handed a stub proposer returning one fixed base candidate.
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn reduplication_recovers_known_corpus_word() {
@@ -544,23 +463,9 @@ mod tests {
         }
     }
 
-    // =============================================================================================
-    // Chain-depth / nested-reduplication tests. These build a MINIMAL hand-authored `Grammar`
-    // directly (no XML, no gitignored corpus data -- always run, never `#[ignore]`d) carrying
-    // nothing but the one shape `ReduplicationPeeler::new` needs: an `AffixProcessRule` whose RHS
-    // classifies `Role::Reduplication` (`is_reduplication_rule`'s own trigger). The `propose`
-    // closure is a trivial stub (this module's scan/recursion/budget logic is independent of the
-    // FST proposer entirely) -- exactly the same style the two corpus-gated tests above already
-    // use, just without needing a real compiled lexicon underneath.
-    // =============================================================================================
+    // Chain-depth / nested-reduplication tests, using a minimal hand-authored Grammar (never #[ignore]d) with a stub propose closure.
 
-    /// A grammar with exactly one `AffixProcessRule` classifying `Role::Reduplication`
-    /// (`OutputAction::Copy(PartRef::Input(0))` twice — `crate::emit::classify_affix`'s own
-    /// trigger), wired into stratum 0 — everything `ReduplicationPeeler::new` itself reads.
-    /// `char_tables`/`entries`/`morphemes` stay at their loader-provided minimum (peel.rs's own
-    /// scan never touches segment features or the lexicon at all — only `render_surface_only`/
-    /// `surface_table`, used solely by the separator+suffix-peel scan's `suffix_surfaces` list,
-    /// which this fixture leaves empty by construction).
+    /// A grammar with exactly one `AffixProcessRule` classifying `Role::Reduplication` (`Copy(Input(0))` twice), wired into stratum 0.
     fn minimal_redup_grammar() -> Grammar {
         use pg_grammar::model::{
             AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, MRuleId as ModelMRuleId,
@@ -603,10 +508,7 @@ mod tests {
                     out_mpr: pg_grammar::model::MprSet::EMPTY,
                     redup_hint: pg_grammar::model::ReduplicationHint::Suffix,
                     lhs: vec![],
-                    // Copy(Input(0)) twice, no other actions -- `classify_affix`'s exact
-                    // `Role::Reduplication` trigger (a `PartRef` echoed >= 2 times via `Copy`),
-                    // independent of whether part 0 exists on this rule's own (empty, unused) LHS --
-                    // `is_reduplication_rule` only inspects the RHS shape.
+                    // Copy(Input(0)) twice, no other actions: classify_affix's exact Role::Reduplication trigger.
                     rhs: vec![
                         OutputAction::Copy(PartRef::Input(0)),
                         OutputAction::Copy(PartRef::Input(0)),
@@ -626,20 +528,12 @@ mod tests {
         g
     }
 
-    /// A word engineered to be maximally self-similar (every character identical) — every
-    /// prefix/suffix/separator scan position matches simultaneously at every layer, so nested
-    /// recursion (module doc) is genuinely, repeatedly exercised layer after layer, not merely
-    /// attempted-and-empty. This is the adversarial shape the chain-depth budget exists for
-    /// (module doc's "Big-O" section): with NO cap this is exactly the unbounded-branching hazard
-    /// the chain-depth cap exists for, so every test below that does NOT expect a refusal uses a small INPUT
-    /// (never an unbounded budget on a large one) to stay fast and safe regardless.
+    /// A word engineered to be maximally self-similar (every character identical): every scan position matches at every layer, so nested recursion is genuinely, repeatedly exercised, the adversarial shape the chain-depth budget exists for.
     fn monochar_word(len: usize) -> String {
         "a".repeat(len)
     }
 
-    /// A small chain-depth cap deterministically refuses a genuinely deep self-similar chain —
-    /// `crate::compose_budget::ComposeError::ChainDepthExceeded`, never a hang or an unbounded
-    /// candidate blow-up.
+    /// A small chain-depth cap deterministically refuses a genuinely deep self-similar chain, never a hang or unbounded blow-up.
     #[test]
     fn deep_self_similar_chain_is_refused_deterministically_under_a_small_cap() {
         let g = minimal_redup_grammar();
@@ -665,11 +559,7 @@ mod tests {
         }
     }
 
-    /// The SAME adversarial word, under a cap generous enough to admit it in full, succeeds and
-    /// actually exercises real nested recursion (proven here by counting `propose` calls: strictly
-    /// MORE than the single-layer-only baseline `1 * max_copy_len`-ish count a non-recursive peel
-    /// would make, since every accepted nested layer calls `propose` on its own, shorter residual
-    /// too).
+    /// The same adversarial word, under a generous cap, succeeds and genuinely recurses, proven by a `propose`-call count strictly above the single-layer baseline.
     #[test]
     fn deep_self_similar_chain_succeeds_under_a_generous_cap_and_genuinely_recurses() {
         let g = minimal_redup_grammar();
@@ -679,9 +569,7 @@ mod tests {
             propose_calls += 1;
             Vec::new()
         };
-        // Generous but still explicit and finite (module doc: never hand an unbounded budget to
-        // an adversarial input, even in the "succeeds" branch) -- comfortably above the depth a
-        // 10-character monochar word can reach (bounded by the word's own length).
+        // Generous but still explicit and finite: never hand an unbounded budget to an adversarial input, even here.
         let budget = ComposeBudget::unbounded().with_chain_depth_cap(64);
         let word = monochar_word(10);
         let out = peeler
@@ -696,11 +584,7 @@ mod tests {
         );
     }
 
-    /// An ORDINARY, non-adversarial single-layer reduplication (a residual with no further
-    /// structure of its own) must succeed even under the SMALLEST meaningful cap (1) -- proving the
-    /// module doc's central soundness claim: an attempt that finds nothing never counts against the
-    /// budget, only a genuine further match does. `"kabkab"` peels its trailing copy ("kab"+"kab")
-    /// down to residual `"kab"`, which has no reduplication structure of its own at all.
+    /// An ordinary single-layer reduplication must succeed even under the smallest meaningful cap (1): an attempt that finds nothing never counts against the budget.
     #[test]
     fn ordinary_single_layer_reduplication_never_trips_the_smallest_cap() {
         let g = minimal_redup_grammar();

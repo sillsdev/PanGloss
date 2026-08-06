@@ -1,11 +1,4 @@
-//! Exercises the additive `hc_parse_word_opts`/`hc_parse_batch_opts` FFI entry points against the
-//! real `extern "C"` boundary (never reaching into `pg-ffi` internals), using the same synthetic
-//! lexical-pattern grammar as `conformance-staging/edge-cases/guesser-pattern-root-fallback/` and
-//! `pg-cli`'s own `guess_tests` module, so all three surfaces (library, CLI, FFI) are provably
-//! testing the exact same engine behavior. Unlike `ffi_transport_parity.rs`, this grammar is
-//! self-contained and synthetic (no gitignored corpus dependency), so every test here runs in the
-//! default `cargo test --workspace` suite — this IS the "FFI path agrees with the CLI/library
-//! path" gate.
+//! Exercises the additive `hc_parse_word_opts`/`hc_parse_batch_opts` FFI entry points against the real `extern "C"` boundary, using the same synthetic lexical-pattern grammar as the library/CLI guesser tests, so all three surfaces provably test the same engine behavior; self-contained and synthetic, so it runs in the default suite.
 
 use std::ffi::c_void;
 
@@ -107,11 +100,7 @@ fn parse_opts_one(handle: *mut c_void, word: &str, guess_root: i32) -> DecodedWo
     decoded.pop().unwrap()
 }
 
-/// In-process baseline: an independent grammar load + `pg_parse::Morpher::parse_word_opts`,
-/// encoded through the exact same public encoder the FFI entry point uses
-/// (`encode_single_guess`), then decoded with the same reference decoder -- "same encoder, two
-/// callers", exactly `ffi_transport_parity.rs`'s own established pattern, not a hand-rolled
-/// reimplementation that could itself disagree with the real one.
+/// In-process baseline: an independent grammar load + `Morpher::parse_word_opts`, encoded through the same public encoder the FFI entry point uses ("same encoder, two callers"), never a hand-rolled reimplementation that could disagree with the real one.
 fn in_process_one(word: &str, guess_root: bool) -> DecodedWordGuess {
     let grammar = pg_grammar::load(GRAMMAR_XML).expect("load grammar in-process");
     let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
@@ -122,10 +111,7 @@ fn in_process_one(word: &str, guess_root: bool) -> DecodedWordGuess {
     decoded.pop().unwrap()
 }
 
-/// Gate 4 (flag default is OFF) + gate 1 (guesser OFF reproduces the pre-existing empty result):
-/// `guess_root == 0` through the real FFI boundary must be byte-for-byte identical (via the
-/// decoded struct) to the in-process `Morpher::parse_word_opts` with `guess_root: false` --
-/// proving the FFI's default path is genuinely a no-op wrapper, not just "usually agrees".
+/// Gate 4 + gate 1: `guess_root == 0` through the real FFI boundary must be byte-for-byte identical to the in-process `Morpher::parse_word_opts` with `guess_root: false`.
 #[test]
 fn guess_root_zero_matches_in_process_and_finds_nothing_for_the_pattern_only_word() {
     let handle = load_handle();
@@ -143,8 +129,7 @@ fn guess_root_zero_matches_in_process_and_finds_nothing_for_the_pattern_only_wor
     unsafe { hc_grammar_free(handle) };
 }
 
-/// Gate 2: `guess_root != 0` through the FFI analyzes the out-of-lexicon words and marks the
-/// result guessed (word-level AND per-analysis), matching the in-process engine exactly.
+/// Gate 2: `guess_root != 0` through the FFI marks the result guessed (word-level and per-analysis), matching the in-process engine.
 #[test]
 fn guess_root_nonzero_matches_in_process_and_marks_pattern_only_words_guessed() {
     let handle = load_handle();
@@ -167,8 +152,7 @@ fn guess_root_nonzero_matches_in_process_and_marks_pattern_only_words_guessed() 
     unsafe { hc_grammar_free(handle) };
 }
 
-/// Gate 3 (negative control): the ordinary lexical root "kad" is never marked guessed, on or off,
-/// through the FFI boundary -- matching the in-process engine and `pg-cli`'s own control test.
+/// Gate 3 (negative control): ordinary lexical root "kad" is never marked guessed, on or off, through the FFI boundary.
 #[test]
 fn ordinary_root_is_never_marked_guessed_through_ffi() {
     let handle = load_handle();
@@ -183,9 +167,7 @@ fn ordinary_root_is_never_marked_guessed_through_ffi() {
     unsafe { hc_grammar_free(handle) };
 }
 
-/// The batch entry point (`hc_parse_batch_opts`) agrees with the single-word one, per word, in
-/// original request order -- proving the parallel dispatch path carries `guess_root` correctly
-/// too, not just the single-word one.
+/// `hc_parse_batch_opts` agrees with the single-word entry point, per word, in original request order, proving the parallel dispatch path carries `guess_root` correctly too.
 #[test]
 fn batch_opts_agrees_with_word_opts_per_word_in_request_order() {
     let handle = load_handle();
@@ -221,10 +203,7 @@ fn batch_opts_agrees_with_word_opts_per_word_in_request_order() {
     unsafe { hc_grammar_free(handle) };
 }
 
-/// The pre-existing `hc_parse_word` entry point (and its wire format) is untouched by this
-/// addition: it still returns `HC_OK` and a well-formed (old-format) buffer for the same grammar
-/// -- a coarse but real "nothing broke" check alongside `pg-ffi`'s own `buffer.rs` unit tests,
-/// which pin the old format's exact bytes directly.
+/// The pre-existing `hc_parse_word` entry point (and its wire format) is untouched by this addition: it still returns `HC_OK` and a well-formed old-format buffer.
 #[test]
 fn pre_existing_hc_parse_word_still_works_unchanged_on_this_grammar() {
     let handle = load_handle();
@@ -241,18 +220,9 @@ fn pre_existing_hc_parse_word_still_works_unchanged_on_this_grammar() {
     }
 }
 
-// -- Guess-off analyses must never be an unmarked guess ---------------------------------------
-//
-// `hc_parse_word`/`hc_parse_batch` encode through the `MAGIC` wire format, which has no
-// `guessed` bit at all -- a guessed analysis would be byte-indistinguishable from a confirmed
-// one for any caller of those two symbols if either ever retried through `pg_lexicon`'s guesser
-// on a total analysis miss. "gag"/"gagd" are this file's own guess-only words (see
-// `guess_root_zero_matches_in_process_and_finds_nothing_for_the_pattern_only_word` above: the
-// plain, guess-off engine finds nothing for them at all), making them the exact fixture this
-// invariant needs.
+// Guess-off analyses must never be an unmarked guess: the MAGIC wire format `hc_parse_word`/`hc_parse_batch` use has no guessed bit at all, so a guessed analysis would be byte-indistinguishable from a confirmed one.
 
-/// Gate: `hc_parse_word` AND `hc_parse_batch` return ZERO analyses for a guess-only word, not an
-/// unmarked guess.
+/// Gate: `hc_parse_word` AND `hc_parse_batch` return zero analyses for a guess-only word, not an unmarked guess.
 #[test]
 fn hc_parse_word_and_batch_return_zero_analyses_for_a_guess_only_word() {
     let handle = load_handle();
@@ -273,8 +243,7 @@ fn hc_parse_word_and_batch_return_zero_analyses_for_a_guess_only_word() {
     );
     unsafe { hc_buf_free(&mut out) };
 
-    // Batch: mix a real word in with the two guess-only ones, so the test also proves the guard
-    // is selective (only the guess-only entries come back empty), not an accidental blanket wipe.
+    // Batch: mix a real word in with the two guess-only ones, proving the guard is selective, not a blanket wipe.
     let words = ["kad", "gag", "gagd"];
     let hcstrs: Vec<HcStr> = words
         .iter()
@@ -304,14 +273,7 @@ fn hc_parse_word_and_batch_return_zero_analyses_for_a_guess_only_word() {
     unsafe { hc_grammar_free(handle) };
 }
 
-/// Gate: `hc_parse_word`'s bytes for a word WITH real (non-guessed) analyses are exactly what they
-/// always were, unaffected by the `guess_fallback` plumbing this fix threads through
-/// `GrammarHandle`/`pg_lexicon`. Same "same encoder, two callers" proof `ffi_transport_parity.rs`
-/// uses for the Indonesian corpus: encode the in-process `Morpher::parse_word` result through the
-/// exact same `encode_single` writer the FFI entry point uses and require byte-identical output.
-/// `guess_fallback` never influences this word at all (the retry only fires on a total miss, and
-/// "kad" is a real lexical root), so this also stands as the "before vs after" proof the gate
-/// asks for: the bytes match a computation this change cannot have touched.
+/// Gate: `hc_parse_word`'s bytes for a word with real (non-guessed) analyses are unaffected by the `guess_fallback` plumbing: encode the in-process `Morpher::parse_word` result through the same `encode_single` writer the FFI entry point uses and require byte-identical output.
 #[test]
 fn hc_parse_word_bytes_for_a_real_word_are_byte_identical_to_the_in_process_encoding() {
     let handle = load_handle();

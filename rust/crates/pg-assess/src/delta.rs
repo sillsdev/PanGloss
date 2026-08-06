@@ -41,17 +41,13 @@ pub const DELTA_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DeltaCategory {
-    /// Identical identity sets and identical annotations. Duplicate counts and context may still
-    /// differ; those are flags, not changes.
+    /// Identical identity sets and identical annotations; duplicate counts and context may still differ, but those are flags, not changes.
     Unchanged,
     AddedOnly,
     RemovedOnly,
-    /// Both added and removed. The category FieldWorks' count subtraction cannot express when the
-    /// two happen to balance.
+    /// Both added and removed: the category FieldWorks' count subtraction cannot express when the two happen to balance.
     Mixed,
-    /// Every identity was retained but an annotation moved — in practice `guessed` flipping. Real
-    /// change: `false → true` means the root stopped being found in the lexicon and the parser
-    /// fabricated one, with the morpheme sequence and category untouched.
+    /// Every identity was retained but an annotation moved, in practice `guessed` flipping: the root stopped being found in the lexicon and the parser fabricated one.
     AnnotationChanged,
     /// The outcome kind itself moved, e.g. `complete → incomplete`.
     CompletenessChanged,
@@ -91,8 +87,7 @@ pub enum NotComparableReason {
     BothIncomplete,
     /// Neither side ran.
     BothNotAttempted,
-    /// One side finished and the other did not. Reported here rather than as
-    /// `completeness_changed` only when neither side is complete — see `categorize`.
+    /// One side finished and the other did not, reported here rather than as `completeness_changed` only when neither side is complete (see `categorize`).
     IncomparableOutcomes,
     /// Two unequal identities share a digest within one report. An integrity error, never a match.
     KeyCollision,
@@ -182,8 +177,7 @@ impl GrammarDelta {
             "candidate": { "reportId": self.candidate_report_id, "outcomeDigest": self.candidate_outcome_digest },
             "outcomeDigestsAgree": self.outcome_digests_agree,
             "contextDifferences": self.context_differences,
-            // Denominators, never a rate: how many cases fell in each category, with the total, so
-            // a consumer can compute whatever it wants without the artifact implying a verdict.
+            // Denominators, never a rate, so a consumer can compute whatever it wants without the artifact implying a verdict.
             "summary": { "totalCases": self.cases.len(), "byCategory": counts,
                          "changedCases": self.changed_cases().count() },
             "cases": self.cases.iter().map(case_value).collect::<Vec<_>>(),
@@ -274,9 +268,7 @@ pub fn compare(
     let profiles_agree = baseline.draft().suite.analysis_identity_profile
         == candidate.draft().suite.analysis_identity_profile;
 
-    // Candidate cases by ID, and the supersession map: a candidate case declaring `supersedes: [x]`
-    // answers for baseline case `x`. Without it a caller who renumbers gets phantom
-    // baseline_only/candidate_only pairs on every future comparison, permanently.
+    // Candidate cases by ID, and the supersession map: a candidate declaring `supersedes: [x]` answers for baseline case `x`, or a renumbering caller gets phantom baseline_only/candidate_only pairs permanently.
     let candidate_by_id: BTreeMap<&str, &CaseRecord> = candidate
         .cases()
         .iter()
@@ -378,9 +370,7 @@ fn categorize(base: &CaseRecord, cand: &CaseRecord, profiles_agree: bool) -> Cas
     let (base_set, cand_set) = (base.outcome.analyses(), cand.outcome.analyses());
     let (base_set, cand_set) = match (base_set, cand_set) {
         (Some(b), Some(c)) => (b, c),
-        // Exactly one side finished. The outcome kind itself is the change, and there is no
-        // authoritative set on one side to diff — reporting an empty set as "everything removed"
-        // would be the collapse the atomic-outcome contract exists to prevent.
+        // Exactly one side finished; reporting an empty set as "everything removed" would be the collapse the atomic-outcome contract exists to prevent.
         (Some(_), None) | (None, Some(_)) => {
             let mut delta = not_comparable(base, cand, NotComparableReason::IncomparableOutcomes);
             delta.category = DeltaCategory::CompletenessChanged;
@@ -410,13 +400,7 @@ fn categorize(base: &CaseRecord, cand: &CaseRecord, profiles_agree: bool) -> Cas
     delta
 }
 
-/// Join two deduplicated sets on identity digest.
-///
-/// A key present on one side and absent on the other is `added` or `removed` — never
-/// `not_comparable` (D6). The coverage contract's opposite rule was written for engine parity,
-/// where both sides run the same model and an unresolvable key is an internal fault. Here the two
-/// sides are different grammars by construction, and a deleted affix is the most ordinary edit
-/// there is.
+/// Join two deduplicated sets on identity digest; a key present on one side and absent on the other is `added`/`removed`, never `not_comparable`, since a deleted affix is the most ordinary edit there is.
 fn diff_sets(base: &AnalysisSet, cand: &AnalysisSet) -> CaseDelta {
     let base_by_digest: BTreeMap<&str, _> = base
         .entries()
@@ -559,8 +543,7 @@ fn context_differences(
         json!(baseline.is_reproducible()),
         json!(candidate.is_reproducible()),
     );
-    // By code and count, never by prose: rewording an importer warning is not a change in the
-    // grammar's context.
+    // By code and count, never by prose: rewording an importer warning is not a change in the grammar's context.
     note(
         "diagnostics",
         diagnostic_code_counts(&b.diagnostics),
@@ -638,8 +621,7 @@ mod tests {
 
     #[test]
     fn two_analyses_replaced_by_two_others_is_mixed_not_no_change() {
-        // The FieldWorks defect, pinned. `ParserReport.cs:418-442` subtracts counts, so 2 - 2 = 0
-        // and the diff says nothing changed about a word whose every analysis was replaced.
+        // The FieldWorks defect, pinned: ParserReport.cs subtracts counts, so 2 - 2 = 0 reads as no change even when every analysis was replaced.
         let base = report(vec![complete("c1", "w", &[id(&["a"]), id(&["b"])])]);
         let cand = report(vec![complete("c1", "w", &[id(&["x"]), id(&["y"])])]);
 
@@ -654,8 +636,7 @@ mod tests {
 
     #[test]
     fn a_deleted_morpheme_is_removed_evidence_not_a_refusal() {
-        // D6 / ADR 0006: the primary use case. A key present on one side and absent on the other is
-        // the most ordinary FieldWorks edit there is.
+        // A key present on one side and absent on the other is the most ordinary FieldWorks edit there is.
         let base = report(vec![complete("c1", "w", &[id(&["stem", "affix"])])]);
         let cand = report(vec![complete("c1", "w", &[])]);
 
@@ -677,9 +658,7 @@ mod tests {
 
     #[test]
     fn a_guessed_flip_on_a_retained_identity_is_a_changed_case() {
-        // Decision 4: the morpheme sequence and category are identical, but the root stopped being
-        // found in the lexicon and the parser fabricated one. Burying that as an unchanged case
-        // with a flag would hide a real regression behind a green result.
+        // The morpheme sequence and category are identical, but the root stopped being found in the lexicon and the parser fabricated one; burying that as unchanged would hide a real regression.
         let base = report(vec![CaseRecord {
             case_id: "c1".into(),
             input: "w".into(),
@@ -703,9 +682,7 @@ mod tests {
 
     #[test]
     fn a_duplicate_count_move_is_a_flag_not_a_change() {
-        // The opposite of a guessed flip: redundant proposal paths doing more or less work for
-        // identical linguistic output. Forcing investigation on it would generate noise on every
-        // FST tuning change.
+        // The opposite of a guessed flip: redundant proposal paths doing more or less work for identical linguistic output, so forcing investigation on it would generate noise on every FST tuning change.
         let base = report(vec![complete("c1", "w", &[id(&["a"])])]);
         let cand = report(vec![complete("c1", "w", &[id(&["a"]), id(&["a"])])]);
 
@@ -718,8 +695,7 @@ mod tests {
 
     #[test]
     fn a_complete_empty_set_and_an_incomplete_outcome_are_not_the_same_case() {
-        // If these compared alike, a budget trip would read as "the grammar analyzes this no way at
-        // all" — the exact conflation `XAmpleParser.cs:183-228` makes.
+        // If these compared alike, a budget trip would read as "the grammar analyzes this no way at all" -- the exact conflation XAmpleParser.cs makes.
         let base = report(vec![complete("c1", "w", &[id(&["a"])])]);
         let cand = report(vec![CaseRecord {
             case_id: "c1".into(),
@@ -866,8 +842,7 @@ mod tests {
 
     #[test]
     fn incompatible_profiles_produce_a_valid_artifact_of_refusals() {
-        // A refusal is still evidence. Every case is typed, and the artifact is well formed
-        // rather than an error exit with nothing to read.
+        // A refusal is still evidence: every case is typed, and the artifact is well formed rather than an error exit with nothing to read.
         let base = report(vec![complete("c1", "w", &[id(&["a"])])]);
         let mut draft = report(vec![complete("c1", "w", &[id(&["a"])])])
             .draft()

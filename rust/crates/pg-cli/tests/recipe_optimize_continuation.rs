@@ -1,64 +1,16 @@
-//! THE RUN SURVIVES PRODUCING A VERDICT. Pinned end to end, through the real binary.
-//!
-//! # The gap this file exists to close
-//! A per-candidate proposal budget (`--candidate-proposal-work`, `327d559`/`08ac430`/`f228d47`,
-//! reverted) shipped with 763 passing tests including a purpose-built gate. Every one of them
-//! checked the VERDICT'S SHAPE — that it was typed, that it carried its budget, that it could not be
-//! relabelled. Not one checked that the RUN SURVIVED producing it. The reported symptom was the
-//! opposite of the feature's purpose: optimizer runs banked FEWER candidates with the bound in force
-//! than without it, and a verdict that exists only in a final report that is never written is a
-//! silent absence in exactly the case the banking machinery exists for.
-//!
-//! So the durable property is not "the bound works", it is:
-//!
-//! > A candidate that ends in a NON-SELECTABLE verdict must (a) appear in `progress.jsonl` as
-//! > itself, and (b) leave every other candidate evaluable.
-//!
-//! That is a property of the optimizer loop, the evaluator, the progress writer, the supervisor and
-//! the report validator TOGETHER, which is why these tests drive the real `pangloss` binary rather
-//! than `optimize_with_evaluator` directly. Two of the three defects they pin are invisible from
-//! inside `pg-foma`: one is a report the validator refuses to accept, the other is a run whose
-//! artifacts never reach disk.
-//!
-//! # Why these bounds and not a per-candidate one
-//! There is no per-candidate resource bound reachable from the CLI today — that is precisely what
-//! the reverted budget was. `--confirmation-work` is the closest thing: the same number is handed to
-//! `RuntimeBudget::confirmation` (a per-candidate post-hoc ceiling that yields
-//! `Certification::ResourceBreach`) AND compared against the run's running total by `Budget::admits`.
-//! One knob doing double duty means "abandon this candidate" and "end the run" are the SAME event by
-//! arithmetic: making candidate k breach requires `allowance - prefix[k] < conf[k]`, and continuing
-//! past it requires `prefix[k] + conf[k] <= allowance`, which cannot both hold. A future
-//! per-candidate bound has to break that tie, and when it does, the property above is what it owes.
-//!
-//! # Self-calibration, deliberately
-//! Every bound below is computed from an unbounded run of the same fixture in the same test, never
-//! hardcoded. `Score`'s confirmation counts are exactly reproducible (see `Score::key`'s doc), so a
-//! derived bound is as deterministic as a literal one — and it survives a fixture edit that a
-//! literal would silently turn vacuous.
+//! Pins that a non-selectable-verdict candidate still appears in `progress.jsonl` and leaves every other candidate evaluable; drives the real `pangloss` binary because this is a property of the loop, evaluator, progress writer, supervisor and report validator together.
+//! See docs/research/pg-cli-recipe-optimize-continuation-test-notes.md for why this file exists and why its bounds are self-calibrated rather than hardcoded.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// The staged fixture, chosen because ONE unbounded run of it produces the mix every test here
-/// needs: several confirmed candidates, one genuine `identity-mismatch` in the MIDDLE of the
-/// sequence, and one candidate whose confirmation work is far above the rest (so a derived bound can
-/// single it out). Measured, deterministic, evaluation order:
-///
-/// | # | realized strategy | confirmation | verdict |
-/// |---|---|---|---|
-/// | 0-2 | `plan-composed` | 13 each | `full-hc-confirmed` |
-/// | 3 | `templated-underlying-tokens` | 11 | `identity-mismatch` |
-/// | 4 | `tuned-surface-probed` | 30 | `full-hc-confirmed` |
-/// | 5 | `plan-composed` | 13 | `full-hc-confirmed` |
-///
-/// Nothing below hardcodes those numbers; they are here so a reader knows what the fixture is for.
+/// The staged fixture, chosen because one unbounded run produces the exact mix every test here needs.
+/// See docs/research/pg-cli-recipe-optimize-continuation-test-notes.md for the measured evaluation order this file's bounds are derived against.
 const FIXTURE: &str = "conformance-staging/edge-cases/recipe-strata-generic/grammar.xml";
 
-/// Verbatim from that fixture's `words.yaml`. Duplicated rather than parsed so the test needs no
-/// YAML round trip to produce the plain word list the CLI takes; the non-vacuity assertions in every
-/// test below fail loudly if the fixture drifts far enough to matter.
+/// Verbatim from that fixture's `words.yaml`, duplicated rather than parsed so the test needs no YAML round trip; the non-vacuity assertions below fail loudly if the fixture drifts.
 const WORDS: &[&str] = &[
     "nuna",
     "nunaliq",
@@ -82,8 +34,7 @@ const WORDS: &[&str] = &[
     "matu",
 ];
 
-/// Generous enough that no assertion here can be decided by the machine's load. These runs measure
-/// ~0.3s of work; the deadline exists only so the supervisor has one.
+/// Generous enough that no assertion here can be decided by the machine's load; these runs measure ~0.3s of work.
 const ELAPSED_NS: &str = "600000000000";
 
 fn repo_file(relative: &str) -> PathBuf {
@@ -96,11 +47,9 @@ fn repo_file(relative: &str) -> PathBuf {
 
 struct Run {
     root: PathBuf,
-    /// `progress.jsonl`, in the order the run banked it. Parsed strictly: an unparseable line is a
-    /// failure here, unlike the CLI's own tolerant reader, because these runs are not killed.
+    /// `progress.jsonl`, in banked order. Parsed strictly, unlike the CLI's tolerant reader, because these runs are never killed.
     rows: Vec<serde_json::Value>,
-    /// `None` when the worker produced no `report.json` at all — which is itself a finding, and one
-    /// of the defects this file pins.
+    /// `None` when the worker produced no `report.json` at all -- itself one of the defects this file pins.
     report: Option<serde_json::Value>,
     worker_succeeded: bool,
 }
@@ -121,9 +70,7 @@ impl Run {
             .collect()
     }
 
-    /// What the PILOT spent before the search began. `optimize_with_evaluator` is handed
-    /// `--confirmation-work` minus this, so a bound derived from per-candidate counts has to add it
-    /// back or it lands somewhere else entirely.
+    /// What the pilot spent before the search began; `optimize_with_evaluator` is handed `--confirmation-work` minus this, so a derived bound has to add it back.
     fn pilot_confirmation(&self) -> u64 {
         let report = self.report.as_ref().expect("run wrote a report");
         report["usage"]["confirmation"]
@@ -193,13 +140,7 @@ fn with_confirmation_work(tag: &str, allowance: u64) -> Run {
     )
 }
 
-/// THE continuation property, in its purest form: a candidate that disagrees with the oracle sits in
-/// the MIDDLE of the sequence, and the candidates after it must still be evaluated, banked, and
-/// eligible to win.
-///
-/// No resource bound is in force here on purpose. A failing candidate must not truncate the run even
-/// when nothing is being rationed — if this cannot hold with an unlimited budget, no bound built on
-/// top of it can hold either.
+/// The continuation property in its purest form, with no resource bound in force: a candidate that disagrees with the oracle sits mid-sequence, and the candidates after it must still be evaluated, banked, and eligible to win.
 #[test]
 fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
     let run = unbounded();
@@ -224,9 +165,7 @@ fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
          (verdicts in evaluation order: {statuses:?})"
     );
 
-    // (a) Nothing evaluated is missing from the frontier's own ledger. `progress.jsonl` is what
-    //     survives a deadline kill, so a candidate present in the report but absent from it is
-    //     exactly the silent absence this file is about.
+    // (a) Nothing evaluated is missing from progress.jsonl, what survives a deadline kill.
     let reported = report["candidates"].as_array().unwrap();
     assert_eq!(
         run.rows.len(),
@@ -250,8 +189,7 @@ fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
     in_report.sort_unstable();
     assert_eq!(banked, in_report);
 
-    // (b) The run continued: candidates were evaluated AFTER the failing one, and the run reached a
-    //     clean completion with a winner rather than stopping on the failure.
+    // (b) The run continued past the failure and reached a clean completion with a winner.
     assert_eq!(report["termination"], "complete");
     assert_eq!(report["quality"], "exact");
     assert_eq!(report["search"]["unexplored"].as_u64().unwrap(), 0);
@@ -263,23 +201,14 @@ fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
     }));
 }
 
-/// A candidate abandoned by a resource bound is reported AS THAT, with its own dimension and
-/// numbers, and every candidate the bound does not reach keeps its verdict byte for byte.
-///
-/// Both relabel directions are pinned here, and they are the same two the reverted `f228d47` pinned
-/// for `BudgetExceeded` — carried forward onto the bound that actually remains:
-///   * cost is never reported as a disagreement (the breaching candidate must not come back as an
-///     `identity-mismatch`, which would blame it for being WRONG when it was only expensive), and
-///   * a disagreement is never absorbed by the cost gate (the fixture's genuine `identity-mismatch`
-///     is inside the bound and must survive it verbatim).
+/// A candidate abandoned by a resource bound is reported as that, with its own dimension and numbers, and every candidate the bound does not reach keeps its verdict byte for byte; cost must never be relabelled as a disagreement, nor a disagreement absorbed by the cost gate.
 #[test]
 fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
     let baseline = unbounded();
     let confirmations = baseline.confirmations();
     let statuses = baseline.statuses();
 
-    // Single out the most expensive candidate and give the run exactly one unit less than it needs,
-    // measured at the point the run reaches it. Derived, never hardcoded -- see this module's doc.
+    // Single out the most expensive candidate and give the run exactly one unit less than it needs.
     let target = (0..confirmations.len())
         .max_by_key(|index| confirmations[*index])
         .expect("the fixture evaluates at least one candidate");
@@ -330,9 +259,7 @@ fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
             bounded_rows[index]["certification"], baseline.rows[index]["certification"],
             "candidate {index} is inside the bound, so nothing about its verdict may change"
         );
-        // The DETERMINISTIC score components only. `build` and `apply` are wall-clock and vary
-        // 15-50% / 6-20% run to run (see `Score::key`'s doc), so comparing them across two
-        // invocations would measure the machine rather than the bound.
+        // The deterministic score components only; build/apply are wall-clock and vary run to run, so comparing them would measure the machine rather than the bound.
         for field in [
             "states",
             "arcs",
@@ -353,9 +280,7 @@ fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
         .report
         .as_ref()
         .expect("a run that abandons a candidate still writes a report");
-    // The bound is derived from the BASELINE run's pilot cost, and the pilot gets a quarter of the
-    // same flag -- so a fixture whose pilot grew enough to breach that quarter would move the target
-    // silently. Fail loudly instead.
+    // The bound is derived from the baseline's pilot cost; a fixture whose pilot grew enough to move the target silently must fail loudly here instead.
     assert_eq!(
         bounded.pilot_confirmation(),
         baseline.pilot_confirmation(),
@@ -372,16 +297,7 @@ fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
         .any(|candidate| candidate["certification"]["status"] == "resource-breach"));
 }
 
-/// A run that evaluated EVERY candidate it selected and only then discovered it had overrun an
-/// aggregate bound must still write its report.
-///
-/// This is the failure mode that loses the most and shows the least: the measured-overrun path
-/// leaves `unexplored` at zero by construction — nothing was left unexplored — so a report
-/// pairing that with `quality: Approximate` fails
-/// `pg_foma::recipe_report::RecipeOptimizationReport::validate`'s invariant. A worker that hit
-/// this would exit 1 with no `report.json`, and the supervisor's `partial-report.json` does not
-/// cover it either (that's written only on a deadline or memory KILL, never a non-zero exit) —
-/// losing every already-evaluated, certified, banked candidate, leaving only `progress.jsonl`.
+/// A run that evaluated every candidate it selected and only then discovered it had overrun an aggregate bound must still write its report: pairing zero unexplored with `quality: Approximate` fails `RecipeOptimizationReport::validate`, and the supervisor's partial-report.json does not cover a non-zero exit either.
 #[test]
 fn a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report() {
     let baseline = unbounded();
@@ -393,9 +309,7 @@ fn a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report() {
          ({confirmations:?})"
     );
 
-    // One unit under what the whole corpus of candidates costs: every candidate is still reached
-    // (the running total only passes the bound once the LAST one is added), and the overrun is
-    // therefore discovered with nothing left unexplored.
+    // One unit under the whole corpus's cost: every candidate is still reached, since the running total only passes the bound once the last one is added.
     let allowance = total - 1;
     assert!(
         (1..confirmations.len()).all(|index| confirmations[..index].iter().sum::<u64>() <= allowance),

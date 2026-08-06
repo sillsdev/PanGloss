@@ -1,38 +1,4 @@
-//! `pangloss coverage [--json] [--grammar=<path>] [<out.json>]` — capability-coverage VISIBILITY:
-//! answers "do we have full HC coverage?" / "so many of this and so many of that?" by rendering
-//! `pg_foma`'s own coverage/capability primitives, never inventing a parallel data source.
-//!
-//! # What this composes (read/reuse only — no `pg_foma` coverage/ledger/capability semantics touched)
-//! - `pg_foma::coverage_ledger::build_ledger`: one row per [`pg_foma::capability::
-//!   CharacteristicKind`] — disposition, discharging predicates, conformance-construct mapping/
-//!   status, and curated containment evidence. This is the single source of truth every count below
-//!   is tallied FROM (never a second, independently-computed number that could drift).
-//! - `pg_foma::capability::default_registry`: the same twelve real predicates every production
-//!   compile-time gate uses.
-//! - The "supported (Proven) constructs vs. conformance-covered" ADR 0001 cross-check
-//!   (`pg_foma::conformance_coverage`'s own contract) is rendered as a FILTER over the ledger's own
-//!   `disposition == Proven` rows — not a second call to `supported_coverage_report` with its own
-//!   passing-set — so it is provably impossible for this section to disagree with the ledger.
-//! - `pg_foma::plan_interaction_coverage` (node-kind adjacency-tuple coverage): OPTIONAL, only when
-//!   `--grammar=<path>` is given (it needs a compiled `Plan`, which needs a grammar) — omitted
-//!   entirely, and said so in both the human summary and the JSON (`plan_interaction: null`), when no
-//!   grammar is supplied.
-//!
-//! # The "passing conformance construct" set
-//! `build_ledger` (like `pg_foma::conformance_coverage::supported_coverage_report`) needs a
-//! caller-supplied "which `constructs.txt` ids are exercised by a CURRENTLY-PASSING fixture" set.
-//! `passing_covered_constructs` builds it by replaying every discoverable IN-REPO SYNTHETIC
-//! conformance fixture (`pg_conformance_fixtures::discover()` — `machine/conformance/**` +
-//! `conformance-staging/**`; never real-language data, per this repo's own hard rule) against
-//! `pg_parse::Morpher`, mirroring `pg-foma/tests/conformance_coverage_gate.rs`'s own
-//! `passing_covered_constructs` helper exactly (same oracle, same "only a currently-matching word's
-//! `exercises:` tags count toward coverage" rule) — restated here (not imported) because that helper
-//! is a private fn in a dev-only test file, not a library export this binary can call.
-//!
-//! # Tests
-//! The command must run and emit valid JSON that round-trips, and every count in the human/JSON
-//! summary must match a direct recount over the SAME `pg_foma::coverage_ledger::CoverageLedger`
-//! this module built — see this file's own `tests` module.
+//! `pangloss coverage [--json] [--grammar=<path>] [<out.json>]`: renders `pg_foma`'s own coverage/capability primitives (`coverage_ledger::build_ledger`, `conformance_coverage`, optionally `plan_interaction_coverage` when `--grammar` is given), never inventing a parallel data source or count.
 
 use std::collections::HashSet;
 use std::fs;
@@ -48,15 +14,10 @@ use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 use serde::Serialize;
 
-/// This CLI report's own schema version — independent of [`pg_foma::coverage_ledger::
-/// COVERAGE_LEDGER_SCHEMA_VERSION`], which the embedded `ledger` field carries in its own right.
+/// This CLI report's own schema version, independent of `pg_foma::coverage_ledger::COVERAGE_LEDGER_SCHEMA_VERSION`, which the embedded `ledger` field carries in its own right.
 pub const COVERAGE_CLI_SCHEMA_VERSION: u32 = 1;
 
-/// Mirrors `pg-foma/tests/conformance_coverage_gate.rs::passing_covered_constructs` exactly (see
-/// this module's own top-doc for why it is restated rather than imported). Replays every discovered
-/// SYNTHETIC fixture against `pg_parse::Morpher` and collects the `exercises:` construct ids named
-/// by every word/parse whose engine output CURRENTLY MATCHES the fixture's declared ground truth —
-/// a currently-failing word's `exercises:` tags do not count.
+/// Mirrors `pg-foma/tests/conformance_coverage_gate.rs::passing_covered_constructs` exactly, restated rather than imported since that helper is private to a dev-only test file.
 fn passing_covered_constructs() -> HashSet<String> {
     let mut covered = HashSet::new();
 
@@ -166,9 +127,7 @@ fn compute_evidence_counts(ledger: &CoverageLedger) -> EvidenceCounts {
     }
 }
 
-/// One row of the ADR 0001 "supported (Proven) vs. conformance-covered" cross-check — a pure FILTER
-/// over the ledger's own `disposition == Proven` rows (this module's top-doc: provably no drift
-/// against the ledger, since it recomputes nothing).
+/// One row of the "supported (Proven) vs. conformance-covered" cross-check: a pure filter over the ledger's own `disposition == Proven` rows, so it cannot drift from the ledger.
 #[derive(Serialize)]
 struct SupportedConformanceRow {
     kind: CharacteristicKind,
@@ -207,11 +166,7 @@ struct PlanInteractionSummary {
     rows: Vec<PlanInteractionRow>,
 }
 
-/// Node-kind adjacency-tuple coverage (`pg_foma::plan_interaction_coverage`) for exactly ONE
-/// grammar's own compiled plan — a single-fixture corpus. Most tuples will legitimately read
-/// `Uncovered` here (one grammar rarely exercises every legal adjacency shape); this is honest, not
-/// a bug — the full-corpus picture is `tests/plan_interaction_coverage_gate.rs`'s own job, not this
-/// command's.
+/// Node-kind adjacency-tuple coverage for exactly one grammar's compiled plan; most tuples legitimately read `Uncovered` here, since the full-corpus picture is `tests/plan_interaction_coverage_gate.rs`'s job, not this command's.
 fn plan_interaction_summary(grammar_path: &str, g: &Grammar) -> PlanInteractionSummary {
     let (plan, profile) = plan_and_profile(g);
     let refs = vec![(grammar_path, &plan, &profile)];
@@ -420,11 +375,7 @@ fn render_human(summary: &CoverageSummary) -> String {
     out
 }
 
-/// `pangloss coverage [--json] [--grammar=<path>] [<out.json>]` — see this module's top doc for the
-/// full contract. `<out.json>` omitted and `--json` unset prints the human-readable summary to
-/// stdout; `--json` (with no `<out.json>`) prints the same canonical JSON to stdout instead;
-/// `<out.json>` given always writes the canonical JSON there (mirroring `fst-health`'s own
-/// stdout-vs-file convention) regardless of `--json`.
+/// `<out.json>` omitted and `--json` unset prints the human-readable summary to stdout; `--json` alone prints canonical JSON to stdout; `<out.json>` given always writes canonical JSON there regardless of `--json`.
 pub fn run_coverage(args: &[String]) -> Result<(), String> {
     let mut json = false;
     let mut grammar_path: Option<String> = None;
@@ -498,8 +449,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
         assert_eq!(value["schema_version"], COVERAGE_CLI_SCHEMA_VERSION);
 
-        // No independent recount: every count must equal a direct tally over the embedded ledger's
-        // own rows (the exact same `summary.ledger` this JSON also carries).
+        // No independent recount: every count must equal a direct tally over the embedded ledger's own rows.
         let ledger = &summary.ledger;
         let recount = compute_disposition_counts(ledger);
         assert_eq!(recount.proven, summary.disposition_counts.proven);
@@ -550,8 +500,7 @@ mod tests {
         // Plan-interaction section must be honestly absent when no grammar was supplied.
         assert!(value.get("plan_interaction").is_none() || value["plan_interaction"].is_null());
 
-        // Full round trip: parsing back into serde_json::Value and re-serializing the original
-        // struct must be stable (same content, not necessarily the same Value object identity).
+        // Full round trip: re-serializing the original struct must be stable (same content, not necessarily object identity).
         let json2 = serde_json::to_string_pretty(&summary).expect("serialize again");
         assert_eq!(json, json2, "serialization must be deterministic");
     }

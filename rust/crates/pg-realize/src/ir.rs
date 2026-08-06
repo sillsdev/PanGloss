@@ -19,8 +19,7 @@ use crate::{GlossBundle, GlossToken};
 pub enum Concept {
     /// The root morpheme's gloss (its citation form), e.g. `"house"`.
     Lex(String),
-    /// No lexical gloss available (a guess-branch analysis with no lexicon entry) — the surface
-    /// word itself, e.g. `Guessed("mbal")`.
+    /// No lexical gloss available (a guess-branch analysis with no lexicon entry); the surface word itself, e.g. `Guessed("mbal")`.
     Guessed(String),
 }
 
@@ -223,22 +222,19 @@ pub fn to_ir(bundle: &GlossBundle, map: &RealizeMap, surface_word: &str) -> Glos
     }
 }
 
-/// Priority chain steps 1-2: `realize` property, then sidecar-by-gloss. `None` means step 3
-/// applies (unmapped -> caller pushes to `extras`).
+/// Priority chain steps 1-2: `realize` property, then sidecar-by-gloss; `None` means unmapped, so the caller pushes to `extras`.
 fn resolve_assignment(token: &GlossToken, map: &RealizeMap) -> Option<FeatureAssignment> {
     if let Some((_, raw)) = token.properties.iter().find(|(k, _)| k == "realize") {
         if let Ok(assignment) = crate::map::parse_feature_assignment(raw) {
             return Some(assignment);
         }
-        // Parse error in grammar-author data: degrade to unmapped by this source, fall through
-        // to the sidecar rather than treating it as this token's final (unmapped) answer.
+        // Parse error in grammar-author data: degrade to unmapped by this source, fall through to the sidecar.
     }
     let gloss = token.gloss.as_deref()?;
     map.lookup(gloss)
 }
 
-/// First writer to a feature slot wins; a later conflicting token's display string goes to
-/// `extras` instead of being dropped or silently overwriting.
+/// First writer to a feature slot wins; a later conflicting token's display string goes to `extras` instead of being dropped or silently overwriting.
 fn assign_or_extra<T>(
     slot: &mut Option<T>,
     value: T,
@@ -252,8 +248,7 @@ fn assign_or_extra<T>(
     }
 }
 
-/// A token's fallback display string — the same rule `leipzig` uses for a non-root token:
-/// its gloss, or `"[?]"` when it has none.
+/// A token's fallback display string, the same rule `leipzig` uses for a non-root token: its gloss, or `"[?]"` when it has none.
 fn display_token(token: &GlossToken) -> String {
     token.gloss.clone().unwrap_or_else(|| "[?]".to_string())
 }
@@ -403,8 +398,7 @@ mod tests {
 
     #[test]
     fn full_priority_and_multiple_features_together() {
-        // root "house" + Num:Pl (property) + Poss:P1Sg (sidecar) + Case:Loc (sidecar) + one
-        // unmapped extra token ("obj").
+        // root "house" + Num:Pl (property) + Poss:P1Sg (sidecar) + Case:Loc (sidecar) + one unmapped extra token ("obj").
         let root = tok(Some("house"), true);
         let pl = tok_with_property(Some("pl-ish"), "Num:Pl");
         let poss = tok(Some("poss.1s"), false);

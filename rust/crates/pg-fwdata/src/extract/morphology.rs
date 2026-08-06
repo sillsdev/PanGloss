@@ -61,9 +61,7 @@ pub fn extract_morphology(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Parts of speech
-// ---------------------------------------------------------------------------------------------
 
 fn extract_pos_forest(ctx: &mut Ctx, list_guid: &str) -> Vec<PartOfSpeech> {
     let Some(list) = ctx.require(list_guid, "CmPossibilityList", "morphology.partsOfSpeech") else {
@@ -198,9 +196,7 @@ fn extract_affix_template(ctx: &mut Ctx, guid: &str) -> Option<AffixTemplate> {
     })
 }
 
-// ---------------------------------------------------------------------------------------------
 // Compound rules
-// ---------------------------------------------------------------------------------------------
 
 fn extract_compound_rules(ctx: &mut Ctx, morph_data: &Record) -> Vec<CompoundRule> {
     morph_data
@@ -255,8 +251,7 @@ fn extract_compound_rule(ctx: &mut Ctx, guid: &str) -> Option<CompoundRule> {
     }
 }
 
-/// A compound side/outcome is always an `MoStemMsa`, but `HCLoader` only ever reads its
-/// `PartOfSpeechRA`/`ProdRestrictRC` pair for a *side* requirement (HCLoader.cs:1848-1941).
+/// A compound side/outcome is always an `MoStemMsa`, but `HCLoader` only ever reads its `PartOfSpeechRA`/`ProdRestrictRC` pair for a side requirement.
 fn compound_side(
     ctx: &mut Ctx,
     msa_guid: Option<String>,
@@ -287,9 +282,7 @@ fn compound_outcome(ctx: &mut Ctx, msa_guid: Option<String>, label: &str) -> Com
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Ad-hoc co-occurrence prohibitions
-// ---------------------------------------------------------------------------------------------
 
 fn extract_adhoc_prohibitions(ctx: &mut Ctx, morph_data: &Record) -> Vec<AdhocProhibition> {
     morph_data
@@ -353,18 +346,7 @@ fn extract_adhoc_prohibition(ctx: &mut Ctx, guid: &str) -> Option<AdhocProhibiti
     }
 }
 
-/// Beyond the raw-guid dangling-reference check `Snapshot::validate()` already performs, cross
-/// -check whether an *enabled* `Msa::Inflectional` ad-hoc "morpheme" prohibition can ever
-/// actually be realized: does the MSA's slot appear in at least one non-disabled
-/// `AffixTemplate`? An inflectional affix confined to a slot that only ever appears in disabled
-/// templates can never be placed in any stratum — this is precisely the situation the FieldWorks
-/// exporter's `WriteMorphemeCoOccurrenceRule` crashes on (a `KeyNotFoundException` when a rule
-/// references a morpheme the writer never emitted; see `docs/fwdata-import-plan.md` §1 and the
-/// `machine` submodule's `XmlLanguageWriter.cs`, whose already-applied fix comment describes
-/// exactly this scenario: "an ad-hoc prohibition still targets the affix in a slot whose owning
-/// inflectional-affix template was disabled"). `pg-fwdata` cannot avoid this the way the writer
-/// does (silently drop the rule) without contradicting the "snapshot keeps the full authored
-/// data" principle, so it surfaces it as an import warning instead.
+/// Beyond the raw-guid dangling-reference check `Snapshot::validate()` already performs: cross-check whether an enabled `Msa::Inflectional` ad-hoc prohibition's slot appears in any non-disabled `AffixTemplate` -- exactly the scenario FieldWorks' own exporter crashes on -- surfacing it as an import warning since this crate keeps the full authored data rather than silently dropping the rule.
 pub fn check_stale_adhoc_morpheme_rules(ctx: &mut Ctx, morphology: &Morphology, lexicon: &Lexicon) {
     use pg_snapshot::Msa;
 
@@ -425,9 +407,7 @@ pub fn check_stale_adhoc_morpheme_rules(ctx: &mut Ctx, morphology: &Morphology, 
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Exception features ("production restriction" registry)
-// ---------------------------------------------------------------------------------------------
 
 fn extract_exception_features(
     ctx: &mut Ctx,
@@ -474,9 +454,7 @@ fn exception_feature(ctx: &mut Ctx, rec: &Record) -> ExceptionFeature {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // LexEntryInflType (irregular-inflection variant types)
-// ---------------------------------------------------------------------------------------------
 
 fn extract_lex_entry_infl_types(ctx: &mut Ctx, lex_db: &Record) -> Vec<LexEntryInflType> {
     let mut out = Vec::new();
@@ -516,16 +494,9 @@ fn lex_entry_infl_type(ctx: &mut Ctx, rec: &Record) -> Option<LexEntryInflType> 
     })
 }
 
-// ---------------------------------------------------------------------------------------------
 // Shared `CmPossibilityList` pre-order walk (used by exception features + LexEntryInflType)
-// ---------------------------------------------------------------------------------------------
 
-/// Pre-order walk of a `CmPossibilityList`'s `Possibilities`, recursing into each visited item's
-/// own `SubPossibilities` — the generic shape `ReallyReallyAllPossibilities` flattens for
-/// `MorphologicalData.ProdRestrict`/`PhPhonData.PhonRuleFeats`, and the shape the
-/// `VariantEntryTypes`/`ComplexEntryTypes` hierarchies share. Calls `visit` for every resolved
-/// item regardless of concrete class (callers filter); a dangling item guid is warned and simply
-/// not descended into.
+/// Pre-order walk of a `CmPossibilityList`'s `Possibilities`, recursing into each item's own `SubPossibilities`; calls `visit` for every resolved item regardless of class (callers filter), and a dangling item guid is warned and simply not descended into.
 fn walk_possibility_list(
     ctx: &mut Ctx,
     list_guid: &str,

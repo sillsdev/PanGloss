@@ -27,8 +27,7 @@ pub enum CompileNode {
     },
     /// `(alt0 | alt1 | ...)` — each alternative is its own node sequence.
     Alternation(Vec<Vec<CompileNode>>),
-    /// `{min,max}` repetition of a child sequence; `max == None` is unbounded (Kleene).
-    /// `min == 0` makes the whole thing optional.
+    /// `{min,max}` repetition of a child sequence; `max == None` is unbounded (Kleene), `min == 0` makes it optional.
     Quantifier {
         min: u32,
         max: Option<u32>,
@@ -123,8 +122,7 @@ fn gen_node(nfa: &mut Nfa, source: usize, node: &CompileNode) -> usize {
     }
 }
 
-/// Compile a `{min,max}` quantifier. Mandatory copies are concatenated; optional copies each get
-/// a skip epsilon to the shared exit; unbounded adds a back-epsilon loop.
+/// Compile a `{min,max}` quantifier: mandatory copies are concatenated, optional copies each get a skip epsilon to the shared exit, unbounded adds a back-epsilon loop.
 fn gen_quantifier(
     nfa: &mut Nfa,
     source: usize,
@@ -138,8 +136,7 @@ fn gen_quantifier(
     }
     match max {
         None => {
-            // Kleene tail: `cur` is both a possible exit and the loop entry. A body copy loops
-            // back to `cur`; continuation arcs added after `cur` exit the loop.
+            // Kleene tail: `cur` is both a possible exit and the loop entry; continuation arcs added after `cur` exit the loop.
             let body_end = gen_seq(nfa, cur, children);
             nfa.add_epsilon(body_end, cur);
             cur

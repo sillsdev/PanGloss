@@ -147,19 +147,7 @@ pub fn load_char_def_table_from_xml(xml: &str) -> Result<GrammarPhonology, Gramm
 
     let mut raw_features: Vec<RawFeature> = Vec::new();
     let mut raw_tables: Vec<(String, Option<String>, Vec<RawCharDef>)> = Vec::new();
-    // Finding N1 (phase2 audit C): C# `XmlLanguageLoader.LoadLanguage` selects
-    // `langElem.Elements("PhonologicalFeatureSystem").SingleOrDefault(IsActive)`
-    // (`XmlLanguageLoader.cs:239`) — the one active block among possibly several (the DTD
-    // comment on `PhonologicalFeatureSystem@isActive` explicitly anticipates dialect-variant
-    // drafts: "at most one should be active at a time"). This loop used to parse *every*
-    // `<PhonologicalFeatureSystem>` block unconditionally and let the last one win, with no
-    // `isActive` check at all (unlike the very next `CharacterDefinitionTable` branch below,
-    // which always checked it) — silently loading whichever block happened to appear last in
-    // the file. `phon_feat_sys_selected` now gates on `is_active` and latches after the first
-    // active block is taken, mirroring "first active one, else none" (C#'s `SingleOrDefault`
-    // additionally throws if *more than one* block is active; Rust is lenient there and simply
-    // keeps the first, matching the `Language@isActive`/load.rs:241-244 precedent of leniency
-    // in this crate for the analogous "more than one active" case).
+    // C# selects the one active `<PhonologicalFeatureSystem>` block among possibly several (`SingleOrDefault(IsActive)`); `phon_feat_sys_selected` gates on `is_active` and latches after the first active block, leniently keeping the first if more than one is active rather than throwing.
     let mut phon_feat_sys_selected = false;
 
     loop {
@@ -174,9 +162,7 @@ pub fn load_char_def_table_from_xml(xml: &str) -> Result<GrammarPhonology, Gramm
                 }
             }
             Event::Empty(e) if local(&e) == b"PhonologicalFeatureSystem" => {
-                // `<PhonologicalFeatureSystem/>` with no children: zero features, same as a
-                // grammar (like Sena) that omits the element entirely. Still must respect
-                // isActive/first-wins so an inactive empty block can't block a later active one.
+                // `<PhonologicalFeatureSystem/>` with no children: zero features, same as omitting the element entirely; still respects isActive/first-wins so an inactive empty block can't block a later active one.
                 if is_active(&e)? && !phon_feat_sys_selected {
                     phon_feat_sys_selected = true;
                 }
@@ -213,8 +199,7 @@ fn xml_err(e: impl std::fmt::Display) -> GrammarError {
     GrammarError::Xml(e.to_string())
 }
 
-/// HC XML has no namespaces, so local name == qualified name; standardize on `local_name()`
-/// everywhere (its `LocalName::into_inner()` hands back the tag's raw bytes for `==` comparison).
+/// HC XML has no namespaces, so local name == qualified name; standardize on `local_name()` everywhere.
 #[inline]
 fn local<'a>(e: &'a BytesStart<'a>) -> &'a [u8] {
     e.local_name().into_inner()
@@ -241,8 +226,7 @@ fn is_active(e: &BytesStart) -> Result<bool, GrammarError> {
     }
 }
 
-/// Read text content (concatenating `Text`/`CData` events) up to and including the matching
-/// `End(tag)`. Caller has already consumed the opening `Start(tag)`.
+/// Read text content (concatenating `Text`/`CData` events) up to and including the matching `End(tag)`; caller has already consumed the opening `Start(tag)`.
 fn read_text_until(reader: &mut Reader<&[u8]>, tag: &[u8]) -> Result<String, GrammarError> {
     let mut text = String::new();
     loop {
@@ -257,8 +241,7 @@ fn read_text_until(reader: &mut Reader<&[u8]>, tag: &[u8]) -> Result<String, Gra
     Ok(text)
 }
 
-/// Drain a subtree whose opening `Start(tag)` has already been consumed, counting nested
-/// same-named elements so the matching `End(tag)` is identified correctly.
+/// Drain a subtree whose opening `Start(tag)` has already been consumed, counting nested same-named elements so the matching `End(tag)` is identified correctly.
 fn skip_to_end(reader: &mut Reader<&[u8]>, tag: &[u8]) -> Result<(), GrammarError> {
     let mut depth = 0u32;
     loop {
@@ -293,9 +276,7 @@ fn parse_phon_feature_system(reader: &mut Reader<&[u8]>) -> Result<Vec<RawFeatur
             Event::Start(e) if local(&e) == b"SymbolicFeature" => {
                 if is_active(&e)? {
                     let xml_id = get_attr(&e, "id")?.unwrap_or_default();
-                    // Finding N2: `defaultSymbol` must be read here (from the `<SymbolicFeature>`
-                    // start tag itself), not inside `parse_symbolic_feature`, since by the time
-                    // that function returns the `BytesStart` borrow has ended.
+                    // `defaultSymbol` must be read here, from the start tag itself, since by the time `parse_symbolic_feature` returns the `BytesStart` borrow has ended.
                     let default_symbol = get_attr(&e, "defaultSymbol")?.filter(|s| !s.is_empty());
                     features.push(parse_symbolic_feature(reader, xml_id, default_symbol)?);
                 }
@@ -483,11 +464,7 @@ fn parse_definition_body(
                     if let Some(fv) = feature_value_from_attrs(&e)? {
                         feature_values.push(fv);
                     }
-                    // else: a nested-ComplexFeature FeatureValue (no `symbolValues`). None of the
-                    // three reference grammars' char-def tables ever omit `symbolValues` (verified
-                    // by corpus scan); M1 doesn't need nested/complex char-def features (they only
-                    // matter to the M3 FST/rules pipeline), so it is silently dropped here rather
-                    // than failing the whole grammar load over an unused field.
+                    // else: a nested-ComplexFeature FeatureValue (no symbolValues); silently dropped since this pass doesn't need nested/complex char-def features, rather than failing the whole grammar load over an unused field.
                 }
             }
             Event::Start(e) if local(&e) == b"FeatureValue" => {
@@ -626,14 +603,7 @@ mod tests {
 
     // --- Finding N1 (phase2 audit C): PhonologicalFeatureSystem@isActive -----------------------
 
-    /// Two `<PhonologicalFeatureSystem>` blocks, the SECOND (inactive, `isActive="no"`) listed
-    /// last with a different feature set than the first (active, default `isActive`). Mirrors
-    /// C# `XmlLanguageLoader.LoadLanguage`'s `Elements("PhonologicalFeatureSystem")
-    /// .SingleOrDefault(IsActive)` (`XmlLanguageLoader.cs:239`): the active block must win
-    /// regardless of document position. Pre-fix, this loop had no `isActive` check at all and
-    /// simply let the *last* block win — with this fixture's ordering that bug would select the
-    /// inactive block (`feat_b`, not `feat_a`), which this test's assertions on `flat_index`
-    /// would catch immediately (`feat_a` absent, `feat_b` present — the reverse of what follows).
+    /// Two `<PhonologicalFeatureSystem>` blocks, the second (inactive) listed last with a different feature set than the first (active): the active block must win regardless of document position, so a regression that lets the last block win would select `feat_b` instead of `feat_a`, which this test's `flat_index` assertions would catch immediately.
     const TWO_PHON_FEATURE_SYSTEMS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -682,8 +652,7 @@ mod tests {
         );
     }
 
-    /// A single inactive block (no active block at all) must behave like no
-    /// `<PhonologicalFeatureSystem>` at all — zero authored features (`SingleOrDefault` -> null).
+    /// A single inactive block (no active block at all) must behave like no `<PhonologicalFeatureSystem>` at all: zero authored features.
     #[test]
     fn phon_feature_system_all_inactive_yields_no_features() {
         let xml = TWO_PHON_FEATURE_SYSTEMS_XML.replacen(
@@ -708,11 +677,7 @@ mod tests {
         assert!(d1.contains("char_defs=5"));
     }
 
-    /// Locates a real sample grammar file on disk. These are untracked corpus files (per
-    /// `rust-conversion.md` §8's "corpora stay untracked local files with self-skipping
-    /// `[Explicit]`/`#[ignore]` tests" process rule) — present on this development machine but
-    /// not guaranteed present elsewhere (CI, a fresh clone). Returns `None` if absent so callers
-    /// can self-skip rather than fail.
+    /// Locates a real sample grammar file on disk; these are untracked corpus files, present on this development machine but not guaranteed present elsewhere. Returns `None` if absent so callers can self-skip rather than fail.
     fn sample_path(name: &str) -> Option<PathBuf> {
         // CARGO_MANIFEST_DIR = .../rust/crates/pg-grammar ; samples live at repo_root/samples/data.
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -731,19 +696,7 @@ mod tests {
         )
     }
 
-    /// Shared body for the three real-grammar tests: load, sanity-check the feature system and
-    /// char-def table (against **exact counts independently confirmed by scanning the raw XML**,
-    /// not just non-empty — a loader that silently dropped char defs would still pass a
-    /// non-empty check as long as any survived), segment every requested word without error, and
-    /// check determinism + node-count sanity.
-    ///
-    /// `expected_feature_count`/`expected_char_def_count` were obtained independently of this
-    /// crate (`grep -c '<SymbolicFeature id'` scoped to the `<PhonologicalFeatureSystem>` block,
-    /// and `grep -c '<SegmentDefinition id\|<BoundaryDefinition id'`), so a match here is real
-    /// evidence the loader isn't dropping elements, not just an echo of its own output.
-    /// `expected_feature_count` is the *authored* (XML-visible) count; the assertion below adds 1
-    /// for the always-appended synthetic `Type` feature (plan §13.1 Tier-1 #1), which is not an
-    /// XML-grep-able quantity and so is kept out of each call site's grep-verified number.
+    /// Shared body for the three real-grammar tests: load, sanity-check the feature system and char-def table against exact counts independently confirmed by scanning the raw XML (not just non-empty), segment every requested word without error, and check determinism + node-count sanity. `expected_feature_count` is the authored (XML-visible) count; the assertion below adds 1 for the always-appended synthetic `Type` feature, which is not an XML-grep-able quantity.
     fn check_grammar(
         xml_name: &str,
         words_name: &str,
@@ -805,9 +758,7 @@ mod tests {
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn loads_and_segments_indonesian() {
-        // Counts independently confirmed via `grep -c` scoped to the relevant XML blocks:
-        // 14 <SymbolicFeature> under <PhonologicalFeatureSystem>; 29 <SegmentDefinition> + 3
-        // <BoundaryDefinition> = 32 char defs under <CharacterDefinitionTable>.
+        // Counts independently confirmed via grep -c: 14 SymbolicFeature; 29 SegmentDefinition + 3 BoundaryDefinition = 32 char defs.
         check_grammar(
             "indonesian-hc.xml",
             "indonesian-words.txt",
@@ -820,10 +771,7 @@ mod tests {
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
     fn loads_and_segments_amharic() {
-        // amharic-words.txt's first few lines are English glosses (leftover header content, not
-        // target-language forms); the actual Amharic surface words are in Ge'ez/Ethiopic script.
-        // Counts independently confirmed via `grep -c`: 22 <SymbolicFeature> under
-        // <PhonologicalFeatureSystem>; 417 <SegmentDefinition> + 3 <BoundaryDefinition> = 420.
+        // amharic-words.txt's first few lines are English glosses, not target-language forms; the actual surface words are in Ge'ez/Ethiopic script. Counts confirmed via grep -c: 22 SymbolicFeature; 417 SegmentDefinition + 3 BoundaryDefinition = 420.
         check_grammar(
             "amharic-hc.xml",
             "amharic-words.txt",
@@ -836,13 +784,7 @@ mod tests {
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn loads_and_segments_sena() {
-        // Sena's real XML has no <PhonologicalFeatureSystem> element at all (its SymbolicFeatures
-        // live under HeadFeatures, the syntactic feature system, out of this milestone's scope) —
-        // `expected_feature_count: 0` documents that as a verified data reality, not a bug (the
-        // loader still reports `feature_system().len() == 1`: `check_grammar`'s `+ 1` for the
-        // always-appended synthetic `Type` feature, plan §13.1 Tier-1 #1).
-        // Char-def count independently confirmed via `grep -c`: 40 <SegmentDefinition> + 3
-        // <BoundaryDefinition> = 43.
+        // Sena's real XML has no <PhonologicalFeatureSystem> element at all, so expected_feature_count: 0 documents a verified data reality, not a bug (the loader still reports len() == 1 for the always-appended synthetic Type feature). Char-def count confirmed via grep -c: 40 SegmentDefinition + 3 BoundaryDefinition = 43.
         check_grammar(
             "sena-hc.xml",
             "sena-words.txt",
@@ -852,9 +794,7 @@ mod tests {
         );
     }
 
-    /// Diagnostic, not a required gate (the full-corpus golden-parity gate is plan §8 layer 3,
-    /// a later milestone): segments *every* word in each corpus and reports the failure rate.
-    /// `#[ignore]`d so `cargo test` stays fast; run explicitly with `--ignored --nocapture`.
+    /// Diagnostic, not a required gate: segments every word in each corpus and reports the failure rate; `#[ignore]`d so `cargo test` stays fast.
     #[test]
     #[ignore = "diagnostic full-corpus survey, not part of the M1 acceptance gate"]
     fn full_corpus_segmentation_survey() {

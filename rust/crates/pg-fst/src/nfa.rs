@@ -157,9 +157,7 @@ impl Nfa {
 mod tests {
     use super::*;
 
-    /// Hand-reasoned pre-order DFS numbering of `MarkArcPriorities` (Fst.cs:801-817). The start
-    /// state's arcs are explored first-to-last (initial `Reverse()`), but a deeper state is fully
-    /// descended before the start's next arc — verifying the exact stack discipline.
+    /// Hand-reasoned pre-order DFS numbering of `MarkArcPriorities` (Fst.cs:801-817): a deeper state is fully descended before the start's next arc, verifying the exact stack discipline.
     #[test]
     fn mark_arc_priorities_preorder() {
         // states: 0(start) -> 1 (arc s0a0), 0 -> 2 (arc s0a1); 1 -> 3, 2 -> 3.

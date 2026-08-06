@@ -1,4 +1,4 @@
-//! Surface-form rendering + input matching (plan §8 layer 0 — the batch signature's surface half).
+//! Surface-form rendering + input matching: the batch signature's surface half.
 //!
 //! Faithful ports of two C# `SIL.Machine.Morphology.HermitCrab` primitives that together define the
 //! batch protocol's `surface` column and the `IsMatch` synthesis filter:
@@ -48,13 +48,9 @@ use pg_grammar::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use pg_shape::{EffectiveCdSet, NodeKind, Shape, NO_CHAR_DEF};
 use unicode_normalization::UnicodeNormalization;
 
-// NOTE (plan §13.1 Tier-1 #3): the module doc above predates the `cd_set` fix below and still
-// describes the pre-fix mechanism (lanes + type only). `matching_str_reps` now additionally
-// consults `Shape::node_cd_set` — see that function's inline comment for the corrected mechanism
-// and why it was needed (a confirmed, not just theoretical, full-inventory rendering bug on Sena).
+// The module doc above predates the `cd_set` fix and still describes the pre-fix mechanism (lanes + type only); `matching_str_reps` now additionally consults `Shape::node_cd_set` -- see that function's inline comment for the corrected mechanism.
 
-/// Whether a char-def's kind matches a shape node's kind (the segment/boundary type discriminator
-/// that is part of the C# feature-struct unification).
+/// Whether a char-def's kind matches a shape node's kind, the segment/boundary type discriminator that is part of the C# feature-struct unification.
 fn kind_matches(node: NodeKind, cd: &CharDef) -> bool {
     match node {
         NodeKind::Segment => cd.kind() == CharDefKind::Segment,
@@ -63,20 +59,10 @@ fn kind_matches(node: NodeKind, cd: &CharDef) -> bool {
     }
 }
 
-/// The representations of every char-def whose feature struct unifies with the node at `i`
-/// (`CharacterDefinitionTable.GetMatchingStrReps`, CharacterDefinitionTable.cs:96). `nfd = true`
-/// selects the NFD-normalized representations (for `is_match`); `false` the as-authored ones (for
-/// `to_regex_display`, which prints what the golden prints). Order = table document order, then
-/// representation order within a char-def.
-///
-/// Delegates to `matching_reps_for_node`, the node-view-generalized core (P11 §4.3): identical
-/// behavior to before that split, just built from `shape`'s own accessors instead of inline.
+/// The representations of every char-def whose feature struct unifies with the node at `i` (C# `CharacterDefinitionTable.GetMatchingStrReps`). `nfd = true` selects NFD-normalized representations (for `is_match`); `false` the as-authored ones (for `to_regex_display`). Order = table document order, then representation order within a char-def. Delegates to `matching_reps_for_node`, the node-view-generalized core.
 fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -> Vec<String> {
     let node_kind = shape.kind(i);
-    // Boundaries carry no phonological features and never feature-underspecify, so a boundary node
-    // would trivially unify with *every* boundary char-def (all have empty lanes). C# keeps it to the
-    // one boundary via `StrRep`; the Rust `StrRep` analog (root_trie.rs docs) is the node's own
-    // `char_def`, so a boundary renders exactly its authored representation (`+` → `+?`).
+    // Boundaries carry no phonological features and would trivially unify with every boundary char-def, so the Rust `StrRep` analog is the node's own `char_def`: a boundary renders exactly its authored representation (`+` -> `+?`).
     if node_kind == NodeKind::Boundary {
         return matching_reps_for_node(
             table,
@@ -88,26 +74,10 @@ fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -
         );
     }
 
-    // Segments: `cd.FeatureStruct.IsUnifiable(node.FeatureStruct)` on the **full** FS, which in C#
-    // always includes the `StrRep` disjunction (CharacterDefinitionTable.cs:68-76) in addition to
-    // the phonological lanes. The port's analog is `Shape::node_cd_set` (plan §13.1 Tier-1 #3): a
-    // concrete/segmented node is an implicit singleton of its own `char_def` (so "gambar"'s first
-    // segment only ever matches the one char-def that owns both the "g" and "G" spellings — the
-    // `[gG]` case is one char-def's own multiple representations, not a multi-char-def union); an
-    // underspecified (`InsertSimpleContext`-inserted) node uses its stored membership set instead.
-    // Without the `cd_set` term this loop degenerates for a zero-phonological-feature grammar
-    // (Sena): every char-def's lanes are `&[]`, so `flat_unifiable(&[],&[])` is vacuously true for
-    // *every* table entry, rendering the whole inventory instead of the node's real identity — the
-    // confirmed mechanism behind the Sena "mbali" full-inventory-bracket bug (affects concrete root
-    // segments too, not only class insertions). Table document order → representation order in `[..]`.
+    // Segments: C# unifies on the full FS, which always includes the StrRep disjunction in addition to phonological lanes. The port's analog is `Shape::node_cd_set`: a concrete node is an implicit singleton of its own `char_def`; an underspecified node uses its stored membership set. Without the `cd_set` term, a zero-phonological-feature grammar's lanes are all `&[]`, making `flat_unifiable` vacuously true for every table entry and rendering the whole inventory instead of the node's real identity -- the confirmed mechanism behind a full-inventory-bracket rendering bug.
     let node_lanes = shape.node_lanes(i);
     let char_def = shape.char_def(i);
-    // `matching_reps_for_node`'s identity gate is "concrete singleton (char_def != NO_CHAR_DEF) OR
-    // the given CdSet" — a concrete node's own `char_def` already supplies the singleton, so the
-    // CdSet argument is only consulted for a `NO_CHAR_DEF` node, matching `Shape::node_cd_set`'s own
-    // Singleton/Unrestricted/Members cases exactly: a concrete char_def short-circuits before the
-    // CdSet is even read, so the match arm below folds Singleton into Unrestricted rather than
-    // giving it a distinct case.
+    // `matching_reps_for_node`'s identity gate is "concrete singleton OR the given CdSet"; a concrete char_def short-circuits before CdSet is read, so the match arm below folds Singleton into Unrestricted rather than giving it a distinct case.
     let cd_set = match shape.node_cd_set(i) {
         EffectiveCdSet::Members(b) => pg_shape::CdSet::Members(b.clone()),
         EffectiveCdSet::Singleton(_) | EffectiveCdSet::Unrestricted => {
@@ -152,9 +122,7 @@ pub(crate) fn matching_reps_for_node(
             continue;
         }
         let member = if char_def != NO_CHAR_DEF {
-            // Design A, P5: identity equality stays the fast path; the miss path additionally
-            // consults the build-time unifiability closure (`None` for a zero-feature table, so
-            // Sena/en/sp keep the pre-P5 identity-only behavior bit-for-bit — see module doc).
+            // Identity equality stays the fast path; the miss path additionally consults the build-time unifiability closure (`None` for a zero-feature table, keeping identity-only behavior there bit-for-bit).
             id.0 == char_def
                 || table
                     .unifiable_cds(CharDefId(char_def))
@@ -225,8 +193,7 @@ pub fn to_plain_string(table: &CharDefTable, shape: &Shape, include_boundaries: 
         if kind == NodeKind::Boundary && !include_boundaries {
             continue;
         }
-        // C# takes `GetMatchingStrReps(node).FirstOrDefault()` — the single first representation,
-        // not the full alternation `to_regex_display` brackets.
+        // C# takes GetMatchingStrReps(node).FirstOrDefault(), the single first representation, not the full alternation to_regex_display brackets.
         if let Some(first) = matching_str_reps(table, shape, i, false).into_iter().next() {
             sb.push_str(&first);
         }
@@ -239,9 +206,7 @@ pub fn to_plain_string(table: &CharDefTable, shape: &Shape, include_boundaries: 
 /// representations, optional nodes skippable), anchored start-to-end. See module docs.
 pub fn is_match(table: &CharDefTable, shape: &Shape, word: &str) -> bool {
     let input: String = word.nfd().collect();
-    // Per-node candidate representations + optionality. Nodes with zero matching reps emit nothing
-    // in the C# regex (no alternation, no `?`), i.e. they contribute the empty string — modelled by
-    // dropping them here (an empty node cannot consume input and is not optional-skippable material).
+    // Per-node candidate representations + optionality; nodes with zero matching reps contribute the empty string in the C# regex, modelled by dropping them here.
     let mut nodes: Vec<(Vec<String>, bool)> = Vec::new();
     for i in 0..shape.len() {
         let kind = shape.kind(i);
@@ -336,9 +301,7 @@ mod tests {
             .unwrap_or_else(|| panic!("no char def {xml_id}"))
     }
 
-    /// A single concrete `Segment` node whose lanes are exactly `cd`'s own (mimicking real
-    /// segmentation, which stamps a node's lanes from its char-def -- `root_trie.rs`'s
-    /// `char_def_lanes`/`shape_search_segments` do the equivalent for lexical lookup).
+    /// A single concrete `Segment` node whose lanes are exactly `cd`'s own, mimicking real segmentation which stamps a node's lanes from its char-def.
     fn one_segment_shape(table: &CharDefTable, cd: CharDefId) -> Shape {
         let lanes = table.get(cd).feature_lanes().to_vec();
         let mut b = ShapeBuilder::with_features(lanes.len() as u32);
@@ -369,10 +332,7 @@ mod tests {
         let g = pg_grammar::load(FEATURE_XML).expect("grammar loads");
         let table = &g.char_tables[0];
         let shape = one_segment_shape(table, find_cd(table, "char_x"));
-        // The node is concretely "x", but "y" (its P5 closure sibling) must also confirm --
-        // C#'s GetMatchingStrReps/IsMatch is pure FeatureStruct unification for a feature-bearing
-        // table (no separate StrRep gate, verified against `CharacterDefinitionTable.cs:96-106`),
-        // so this is the faithful (not over-eager) behavior.
+        // The node is concretely "x", but "y" (its closure sibling) must also confirm: C#'s IsMatch is pure FeatureStruct unification for a feature-bearing table, no separate StrRep gate.
         assert!(
             is_match(table, &shape, "y"),
             "closure-sibling spelling must confirm"
@@ -396,10 +356,7 @@ mod tests {
             "sanity: zero authored phon features (Sena regime)"
         );
         let shape = one_segment_shape(table, find_cd(table, "char_x"));
-        // No closure exists (StrRep/identity regime, `CharDefTable::unifiable_cds` returns `None`
-        // for every cd here): rendering/matching stay identity-only, bit-for-bit pre-P5 behavior --
-        // "y" would trivially lane-unify with "x" (both have zero authored lanes) but must NOT
-        // confirm, exactly the pre-P5 Sena "mbali" fix this milestone must not regress.
+        // No closure exists here, so rendering/matching stay identity-only: "y" would trivially lane-unify with "x" (both zero authored lanes) but must NOT confirm.
         assert_eq!(to_regex_display(table, &shape), "x");
         assert_eq!(to_plain_string(table, &shape, false), "x");
         assert!(is_match(table, &shape, "x"));

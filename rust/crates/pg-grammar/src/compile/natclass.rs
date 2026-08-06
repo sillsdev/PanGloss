@@ -1,57 +1,5 @@
-//! Natural classes, plus the synthetic "Any" class HCLoader always creates
-//! (`TryLoadNaturalClass`, HCLoader.cs:2788-2829; `m_any`, HCLoader.cs:200-202).
-//!
-//! # Eager extraction vs. legacy's mixed eager/lazy population
-//! `pg-fwdata` extracts *every* declared `PhNCSegments`/`PhNCFeatures` object from the project
-//! unconditionally (`docs/snapshot-format.md`'s "keep the full authored data" principle — the
-//! same reasoning that keeps every declared boundary marker, including the unreferenced `#` this
-//! crate's own gate test documents as inert). `HCLoader` does not include every declared natural
-//! class in its exported grammar, but it is *not* a pure lazy/reference-only filter either — two
-//! separate mechanisms both feed `m_language.NaturalClasses`:
-//! 1. **Named classes, eagerly, regardless of use.** `LoadCharacterDefinitionTable`
-//!    (HCLoader.cs:88-90, 2736-2741) builds `m_naturalClassLookup`, a `Dictionary<string,
-//!    IPhNaturalClass>` keyed by `Abbreviation.BestAnalysisAlternative.Text` — *every* declared
-//!    natural class gets inserted here, last-write-wins on a key collision — then unconditionally
-//!    calls `TryLoadNaturalClass` on every *distinct key* in that dictionary "to [add classes] to
-//!    table for lexical patterns" (root-allomorph `[Abbr]` bracket notation can reference any
-//!    declared class by name, whether or not any rule/environment also does, so every named class
-//!    must be loadable). A class with a real, non-empty abbreviation is therefore *always*
-//!    present in the final grammar — this has nothing to do with reachability.
-//! 2. **Unnamed classes, lazily, only on actual reference.** An unnamed class's abbreviation is
-//!    `""`; `m_naturalClassLookup` keeps only the *last*-declared one at that key (every earlier
-//!    unnamed class is silently overwritten and never reachable through this dictionary at all).
-//!    Every unnamed class — including the ones this dictionary lost — can still end up loaded the
-//!    *other* way `TryLoadNaturalClass` gets called: on-demand, by direct LCM object reference,
-//!    from `SimpleContext`/pattern/rewrite-rule/`MoInsertNC`/`MoModifyFromInput` resolution
-//!    elsewhere in the loader (`TryLoadNaturalClass`'s per-object memoization cache,
-//!    `m_naturalClasses`). So an unnamed class survives iff it is the dictionary's last-declared
-//!    `""` entry, or something in the grammar actually references it — never merely because it was
-//!    declared.
-//!
-//! Confirmed directly against live data: Amharic's `.fwdata` has three distinct, unnamed
-//! `PhNCFeatures` objects with the identical `cons=+,syl=+` content — one (`c0c895da…`) is
-//! referenced by the enabled "Consonant-Vowel merger at morpheme boundaries" rewrite rule (kept
-//! either way); the other two (`54a2d302…`/`c1f3f7aa…`) are referenced by nothing in the grammar
-//! and are not the project's last-declared unnamed class, so HCLoader's own export never surfaces
-//! them, while `pg-fwdata`'s eager extraction does.
-//!
-//! `compact_to_referenced` reconciles this the same way `build` already reconciles the
-//! synthetic-boundary-vs-real-inventory difference for phonemes: build every declared natural
-//! class up front (as before — every other compile step still needs the full `by_guid`/`by_name`
-//! lookup to resolve a reference, wherever in the snapshot it's authored), then, once the whole
-//! `Grammar` is otherwise fully assembled, keep (a) every named class, (b) the synthetic "Any"
-//! class, (c) the last-declared unnamed class (`NatClassBuild::last_unnamed`), and (d) every
-//! *other* natural class actually referenced somewhere structurally (every `SimpleContext` —
-//! patterns, environments, phonological rewrite/metathesis rules, compounding subrules,
-//! root-allomorph environments) — dropping the rest and remapping survivors to dense ids. One
-//! known, narrow gap in (d): `crate::segment::segment_with_patterns`'s `[ClassName]`-in-a-root-
-//! shape bracket notation resolves a natural class straight into a raw `CdSet` at segmentation
-//! time (see that function's own doc) rather than leaving a `NatClassId` anywhere in the compiled
-//! `Grammar` for this sweep to find — an *unnamed* natural class reachable *only* that way would
-//! be incorrectly dropped here (a named one is safe regardless, per (a) above). Confirmed inert
-//! for both reference corpora: neither Sena's nor Amharic's snapshot has a single root-allomorph
-//! form containing a literal `[` (grepped), so this bracket path is never exercised by real data
-//! today; worth revisiting if a future corpus does use it.
+//! Natural classes, plus the synthetic "Any" class HCLoader always creates; `compact_to_referenced` keeps every named class, the synthetic "Any" class, the last-declared unnamed class, and every other class actually referenced structurally, matching HCLoader's own mixed eager/lazy population rather than `pg-fwdata`'s eager extraction of every declared class.
+//! See docs/research/pg-grammar-natclass-compaction-design-notes.md for HCLoader's two-mechanism population rule, the confirmed Amharic divergence, and the one known gap in the reference sweep.
 
 use std::collections::HashMap as StdHashMap;
 
@@ -72,16 +20,10 @@ use crate::model::{
 pub(crate) struct NatClassBuild {
     pub defs: Vec<NaturalClass>,
     pub by_guid: HashMap<String, NatClassId>,
-    /// By `<Name>`/abbreviation text — the key environment strings' `[Abbr]` notation and lexical
-    /// patterns resolve against (`m_naturalClassLookup`, keyed by `Abbreviation`, HCLoader.cs:88-90).
+    /// By `<Name>`/abbreviation text -- the key environment strings' `[Abbr]` notation and lexical patterns resolve against.
     pub by_name: HashMap<String, NatClassId>,
     pub any: NatClassId,
-    /// The *last*-declared natural class (in snapshot order) whose name/abbreviation is empty, if
-    /// any — see `compact_to_referenced`'s doc: `m_naturalClassLookup` (HCLoader.cs:88-90) is a
-    /// `Dictionary<string, IPhNaturalClass>` keyed by abbreviation text, last-write-wins, so
-    /// exactly the last-declared unnamed class ends up at key `""` and gets eagerly force-loaded
-    /// alongside every other distinct abbreviation — independent of whether anything actually
-    /// references it. Every *other* unnamed class is only kept if something references it.
+    /// The last-declared natural class (in snapshot order) whose name/abbreviation is empty, if any (see module doc for why it survives regardless of reference).
     pub last_unnamed: Option<NatClassId>,
 }
 
@@ -154,8 +96,7 @@ pub(crate) fn build(
         }
     }
 
-    // Synthetic "Any" natural class (`m_any`, HCLoader.cs:200-202): matches any segment, i.e. no
-    // constraint beyond the mandatory `Type=Segment` every `FeatureNaturalClass` carries.
+    // Synthetic "Any" natural class: matches any segment, no constraint beyond the mandatory Type=Segment every FeatureNaturalClass carries.
     let any_id = NatClassId(defs.len() as u32);
     defs.push(NaturalClass {
         xml_id: "__any__".to_string(),
@@ -175,10 +116,7 @@ pub(crate) fn build(
     }
 }
 
-/// Sparse `(lane, symbols)` constraints from a `FeatureStructure` against the phonological
-/// feature system, unioning repeats and unconditionally requiring `Type=Segment` — mirrors
-/// `crate::load::load_phon_constraints` (see plan §13.1 Tier-1 #1 there for why `Type` is always
-/// injected).
+/// Sparse `(lane, symbols)` constraints from a `FeatureStructure` against the phonological feature system, unioning repeats and unconditionally requiring `Type=Segment`; mirrors `crate::load::load_phon_constraints`.
 fn feature_constraint_pairs(
     fs: &pg_snapshot::feature::FeatureStructure,
     phon: &PhonFeatureSystem,
@@ -220,9 +158,7 @@ fn feature_constraint_pairs(
     out
 }
 
-// =================================================================================================
 // Post-hoc reachability compaction (see this module's top doc).
-// =================================================================================================
 
 fn walk_pattern_mut(p: &mut Pattern, f: &mut dyn FnMut(&mut NatClassId)) {
     for n in &mut p.nodes {
@@ -276,10 +212,7 @@ fn walk_affix_allos_mut(allos: &mut [AffixAllomorphDef], f: &mut dyn FnMut(&mut 
     }
 }
 
-/// Visits every `NatClassId` occurrence anywhere in `grammar`'s structural data (see this
-/// module's top doc for the full rationale and the one documented gap). Used both to *collect*
-/// the referenced set (the closure just records ids) and to *rewrite* it in place (the closure
-/// remaps each id) — one traversal, so the two passes can never drift apart on which fields count.
+/// Visits every `NatClassId` occurrence anywhere in `grammar`'s structural data; used both to collect the referenced set and to rewrite it in place, one traversal, so the two passes can never drift apart on which fields count.
 fn walk_all_natclass_ids_mut(grammar: &mut Grammar, f: &mut dyn FnMut(&mut NatClassId)) {
     for p in &mut grammar.prules {
         match p {
@@ -324,15 +257,7 @@ fn walk_all_natclass_ids_mut(grammar: &mut Grammar, f: &mut dyn FnMut(&mut NatCl
     }
 }
 
-/// Drops every natural class in `grammar.natural_classes` that HCLoader would never load (see
-/// this module's top doc for the exact rule), remapping every surviving `NatClassId` to a dense
-/// index. Kept unconditionally: `any_nc` (the synthetic "Any" class, HCLoader.cs:200-202),
-/// `last_unnamed` (the project's last-declared unnamed class — the sole survivor of
-/// `m_naturalClassLookup`'s `""`-keyed last-write-wins collision, HCLoader.cs:88-90), and every
-/// *named* class (`grammar.natural_classes[..].name` non-empty — HCLoader loads every distinct
-/// abbreviation eagerly, HCLoader.cs:2736-2741, so a name is never a reachability question).
-/// Everything else (an unnamed class that is neither `any_nc` nor `last_unnamed`) is kept only if
-/// `walk_all_natclass_ids_mut` actually finds a structural reference to it.
+/// Drops every natural class in `grammar.natural_classes` that HCLoader would never load (module doc), remapping every surviving `NatClassId` to a dense index. Kept unconditionally: `any_nc`, `last_unnamed`, and every named class; everything else is kept only if `walk_all_natclass_ids_mut` finds a structural reference to it.
 pub(crate) fn compact_to_referenced(
     grammar: &mut Grammar,
     any_nc: NatClassId,

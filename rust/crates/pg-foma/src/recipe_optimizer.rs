@@ -204,10 +204,7 @@ impl CorpusCompletenessEvidence {
             excluded: exclusions.len() as u64,
             requested_hash: hash_words(requested),
             included_hash: hash_words(included),
-            // Keep the historical field name for wire compatibility, but make its meaning
-            // explicit: this is the exclusion ledger hash, including ordinal, word, and reason --
-            // and, since v2, the oracle configuration the ledger was derived under, so that two
-            // runs at different caps cannot produce the same ledger hash over the same words.
+            // Historical field name kept for wire compatibility; since v2 this also hashes the oracle config, so two runs at different caps can't collide.
             excluded_hash: hash_exclusion_ledger(&exclusions, oracle),
             oracle_step_cap: oracle.step_cap,
             oracle_memory_ceiling_bytes: oracle.memory_ceiling_bytes,
@@ -270,10 +267,7 @@ pub enum Certification {
     },
     Truncated {
         stage: String,
-        /// Optional additive diagnostic evidence. `default` keeps legacy serialized
-        /// `Truncated { stage }` values readable; `skip_serializing_if` keeps those values' wire
-        /// shape unchanged. This field is transitional and non-authoritative until the versioned
-        /// `CorpusSnapshot`/`CertificationScope` schema lands.
+        /// Optional additive diagnostic evidence; `default`/`skip_serializing_if` keep legacy `Truncated { stage }` values readable and their wire shape unchanged.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         corpus: Option<CorpusCompletenessEvidence>,
     },
@@ -289,17 +283,7 @@ pub enum Certification {
         word: String,
         detail: String,
     },
-    /// **No longer produced.** Retained so reports written before the parity relation moved to
-    /// deduplicated `pg_parse::identity::AnalysisIdentity` set equality still deserialize, and so
-    /// that such a report keeps ranking as the non-selectable failure it was recorded as.
-    ///
-    /// It used to mean "the two engines found a different NUMBER of analyses for this word".
-    /// Multiplicity is not part of the parity relation (see `crate::parity`): two analyses
-    /// reaching one identity by different derivational paths are one member of the set, so a
-    /// difference in count is not by itself a disagreement. The count difference that IS a
-    /// disagreement -- different numbers of DISTINCT identities -- is necessarily also a set
-    /// difference and is reported as `Self::IdentityMismatch`, whose detail names both
-    /// cardinalities. Do not reintroduce a producer for this variant.
+    /// No longer produced (kept for deserializing old reports): multiplicity isn't part of the parity relation (`crate::parity`, set equality over deduplicated identities), so a bare count difference was never a real disagreement -- that case is now `Self::IdentityMismatch`. Do not reintroduce a producer for this variant.
     MultiplicityMismatch {
         word: String,
         expected: u64,
@@ -827,11 +811,7 @@ pub fn optimize_with_evaluator(
 ) -> OptimizationOutcome {
     let mut search = strategy.search(candidates, budget, seed);
     let selected_count = search.selected.len() as u64;
-    // `reserve` is a real floor on `elapsed`, not only a selector nudge: the exploratory sweep may
-    // spend at most `search_elapsed()`, so `reserve` nanoseconds of the caller's deadline are still
-    // unspent when the sweep ends. Before this was enforced here, `reserve` was read exactly once
-    // (`choose_strategy_with_policy`) and the loop below could consume the whole deadline, so the
-    // "confirmation_available" half of the documented two-phase allocation protected nothing.
+    // `reserve` is a real floor on `elapsed`, not only a selector nudge: the exploratory sweep may spend at most `search_elapsed()`, leaving `reserve` nanoseconds of the caller's deadline unspent.
     let search_elapsed = budget.search_elapsed();
     let mut usage = BudgetUsage::default();
     let mut evaluated = Vec::new();
@@ -839,9 +819,7 @@ pub fn optimize_with_evaluator(
         if usage.evaluations >= budget.evaluations {
             break;
         }
-        // The baseline is element zero and is always evaluated: a reserve large enough to swallow
-        // the whole deadline must still not strip the run of the baseline the spec requires
-        // ("Every optimization SHALL include the current default plan as a baseline").
+        // The baseline is element zero and always evaluated: a reserve that swallows the whole deadline must still not strip the run of it.
         if !evaluated.is_empty() && usage.elapsed >= search_elapsed {
             break;
         }
@@ -879,29 +857,8 @@ pub fn optimize_with_evaluator(
         search.explored = search.explored.saturating_sub(deficit);
         search.unexplored = search.unexplored.saturating_add(deficit);
     } else if !budget.admits(usage) {
-        // Every selected candidate was evaluated, but the *measured* cost of the last one breached a
-        // budget dimension — only `evaluations` is pre-checked; `elapsed`/`build`/`memory`/
-        // `confirmation` are known after the evaluator returns. Without this arm a run whose final
-        // candidate blew the deadline reported `Complete`, claiming it stayed inside a bound it had
-        // already exceeded. The candidate-count deficit above cannot catch it: the overrun happens
-        // on the last selected candidate, so no candidate is left unevaluated.
-        //
-        // TERMINATION ONLY, never `quality`, and that distinction is load-bearing rather than
-        // stylistic. `SearchQuality` answers "did the search look at everything it selected?" and
-        // `Termination` answers "why did it stop?". In THIS arm the first answer is yes — the
-        // deficit branch above owns the case where it is no — so the two answers genuinely differ,
-        // and only the second one changed.
-        //
-        // Downgrading `quality` here as well produced a report that could not be written AT ALL.
-        // `crate::recipe_report::RecipeOptimizationReport::validate` refuses `Approximate` with
-        // `unexplored == 0` ("approximate search must quantify unexplored space"), and `unexplored` is zero by
-        // construction on this path — every selected candidate was evaluated. So the child exited 1
-        // with no `report.json`, and `write_supervisor_failure_report` never ran either (it fires
-        // only on a deadline/memory KILL, not on a non-zero exit), which means an entire run's
-        // banked candidates were reachable only through `progress.jsonl`. Reproduced end to end on
-        // `recipe-strata-generic` with `--confirmation-work` set one unit below the corpus's total
-        // confirmation work; pinned by
-        // `pg-cli/tests/recipe_optimize_continuation.rs::a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report`.
+        // Termination only, never quality: the last selected candidate's measured cost breached a budget dimension after the fact, but it was still evaluated, so SearchQuality's "looked at everything selected?" answer stays yes.
+        // See docs/research/pg-foma-recipe-optimizer-design-notes.md for why downgrading quality here breaks report-writing entirely.
         search.termination = Termination::BudgetExhausted;
     }
     let ranking: Vec<(String, Certification, Score)> = evaluated
@@ -1084,16 +1041,7 @@ mod tests {
         assert_eq!(result.quality, SearchQuality::Exact);
     }
 
-    /// Pins `SearchAccounting.pruned`'s structural inertness (recipe-pipeline-hygiene D7): the
-    /// only production caller of `BranchAndBound`, `pg-cli/src/recipe_optimize.rs`, builds every
-    /// `CandidateState` with `exact_objective: None` -- neither call site there ever runs a cheap
-    /// evaluation before search, so no candidate can ever populate the incumbent, and
-    /// `incumbent` (initialized to `u64::MAX`) never drops below it. `lower_bound > incumbent` is
-    /// then never true regardless of how the bounds are spread, so `pruned` is always `0`. This
-    /// test builds candidates the same production-shaped way (varied `lower_bound`, `baseline`
-    /// flag, always `exact_objective: None`) and pins that `pruned == 0` -- if a future change
-    /// wires a real bound (populating `exact_objective` from an actual completed evaluation) this
-    /// test's premise changes and it should be revisited, not "fixed" back to zero.
+    /// Pins `pruned`'s structural inertness: the only production caller never populates `exact_objective`, so the incumbent never drops from `u64::MAX` and `pruned` is always 0; a future change wiring a real bound should revisit this test, not "fix" it back to zero.
     #[test]
     fn pruned_is_structurally_zero_in_production_shaped_run() {
         use crate::recipe_registry::FAMILY_ORDERED_MORPHOPHONOLOGY;
@@ -1181,17 +1129,7 @@ mod tests {
         assert_eq!(outcome.search.unexplored, 1);
     }
 
-    /// The measured-overrun sibling of the test above. `evaluations` is the *only* dimension checked
-    /// before the evaluator runs; `elapsed`/`build`/`memory`/`confirmation` are known only after it
-    /// returns. When the breach happens on the LAST selected candidate, no candidate is left
-    /// unevaluated, so the candidate-count deficit branch cannot fire — and the run used to report
-    /// `Complete` while having already spent more than the caller's deadline.
-    ///
-    /// `quality` must nonetheless stay `Exact`, and that is not cosmetic: an `Approximate` result
-    /// with `unexplored == 0` is a combination that makes
-    /// `crate::recipe_report::RecipeOptimizationReport::validate`'s own `if` arm return `Err`, so
-    /// the fix for the termination label used to make the whole report unwritable. See the arm's
-    /// own comment in `optimize_with_evaluator`.
+    /// The measured-overrun sibling of the test above: when the breach happens on the last selected candidate, `quality` must stay `Exact` (see docs/research/pg-foma-recipe-optimizer-design-notes.md for why `Approximate` here made the report unwritable).
     #[test]
     fn measured_overrun_on_the_final_candidate_still_reports_budget_exhausted() {
         struct ExpensiveEvaluator;
@@ -1228,8 +1166,7 @@ mod tests {
             candidate("baseline", "base", "base", 1, Some(1), true),
             candidate("other", "other", "other", 2, Some(2), false),
         ];
-        // 100ns deadline, no reserve: both candidates are selected and started (the second begins at
-        // usage.elapsed 60 < 100), but together they measure 120ns.
+        // 100ns deadline, no reserve: both candidates start (the second at usage.elapsed 60 < 100), but together measure 120ns.
         let budget = Budget {
             candidates: 2,
             evaluations: 2,
@@ -1257,9 +1194,7 @@ mod tests {
             "the deadline was really breached"
         );
         assert_eq!(outcome.search.termination, Termination::BudgetExhausted);
-        // Nothing was left unexplored, so nothing may claim otherwise -- the pair
-        // (`Approximate`, `unexplored == 0`) is exactly the combination
-        // `crate::recipe_report::RecipeOptimizationReport::validate`'s own `if` arm returns `Err` for.
+        // Nothing was left unexplored: (Approximate, unexplored == 0) is the combination RecipeOptimizationReport::validate returns Err for.
         assert_eq!(outcome.search.unexplored, 0);
         assert_eq!(
             outcome.search.quality,
@@ -1307,8 +1242,7 @@ mod tests {
             candidate("second", "second", "second", 2, Some(2), false),
             candidate("third", "third", "third", 3, Some(3), false),
         ];
-        // 200ns deadline with a 120ns reserve leaves an 80ns sweep: two 40ns candidates fit, the
-        // third is never started, and 120ns of the deadline is still unspent afterwards.
+        // 200ns deadline with a 120ns reserve leaves an 80ns sweep: two 40ns candidates fit, the third never starts, and 120ns stays unspent.
         let budget = Budget {
             elapsed: 200,
             reserve: 120,
@@ -1327,8 +1261,7 @@ mod tests {
         assert_eq!(budget.elapsed - outcome.usage.elapsed, budget.reserve);
         assert_eq!(outcome.search.termination, Termination::BudgetExhausted);
 
-        // A reserve that swallows the entire deadline still evaluates the baseline: an optimization
-        // with no baseline would violate the "baseline is always included" requirement outright.
+        // A reserve that swallows the entire deadline still evaluates the baseline; an optimization with no baseline would violate that requirement outright.
         let starved = Budget {
             elapsed: 200,
             reserve: 200,
@@ -1461,9 +1394,7 @@ mod tests {
         );
         assert_ne!(evidence.excluded_hash, changed_reason.excluded_hash);
 
-        // The generating CONFIGURATION is part of the ledger hash too: same words, same exclusions,
-        // a different oracle step cap must not hash the same, or two runs at different caps produce
-        // indistinguishable evidence -- the defect this field exists to close.
+        // The generating configuration is part of the ledger hash too: same words and exclusions but a different oracle step cap must not hash the same.
         let changed_cap = CorpusCompletenessEvidence::from_selection(
             &requested,
             &included,
@@ -1513,9 +1444,7 @@ mod tests {
         );
     }
 
-    /// The oracle configuration these constructor tests declare. Any value works -- what matters is
-    /// that the constructor now REQUIRES one, so no evidence can exist without stating the bounds it
-    /// was derived under.
+    /// The oracle configuration these constructor tests declare; any value works, what matters is that the constructor requires one.
     fn test_oracle_config() -> OracleEligibilityConfig {
         OracleEligibilityConfig {
             step_cap: 20_000,
@@ -1560,33 +1489,13 @@ mod tests {
                 },
             ),
         ];
-        // Both stay on the frontier: neither dominates the other, since one is smaller and the other
-        // does less work. That is unchanged by the ranking policy.
+        // Both stay on the frontier: neither dominates, one is smaller and the other does less work.
         assert_eq!(pareto_frontier(&items), vec!["large-fast", "small-slow"]);
-        // `large-fast`, and this assertion REVERSED deliberately -- it is the clearest statement of
-        // what the objective now optimizes. These two fixtures are built to disagree: `small-slow` has
-        // a 5x smaller network (4 vs 20) but does 9x the confirmation work (9 calls vs 1).
-        //
-        // The old key ranked `states + arcs` first and so chose `small-slow` -- the smaller net,
-        // regardless of what it costs to use. That preference is wrong for this project twice over.
-        // First, a smaller FST is not a better one: the one documented case where a candidate's net
-        // shrank sharply, it had shrunk because it was MISSING the material that makes the grammar
-        // work. Second, and measured: on a marker-free fixture two candidates compiled to identical
-        // 11 states / 13 arcs while doing 2 and 4 confirmation calls respectively, and a size-first
-        // key tied them and fell through to build time -- naming the candidate that does twice the
-        // work. Confirmation work is the cost that dominates propose->confirm, so it ranks first now
-        // and size is only a tiebreak beneath it.
+        // `large-fast` wins deliberately over the smaller `small-slow`: confirmation work dominates propose->confirm cost, so it ranks first and size is only a tiebreak beneath it (a smaller FST is not a better one -- the old size-first key could tie two candidates and fall through to build time, naming whichever did twice the confirmation work).
         assert_eq!(select_confirmed(&items), Some("large-fast".to_owned()));
     }
 
-    /// The motivating case, pinned as a synthetic fixture: the measured Sena shape where the
-    /// plan-composed candidate proposes several-fold more (higher `raw_paths`) for a marginally
-    /// LOWER confirm-step count, and the old steps-only key picked it on that alone. Measured
-    /// four-corpus numbers: plan-composed 575 proposals / 42 confirmation calls /
-    /// 1192 confirmation_steps, vs hand-spun 127 proposals / 17 calls / 1252 steps. `raw_paths`
-    /// (pre-dedup traversal, necessarily >= the post-dedup `proposals` count) is not one of the
-    /// measured columns, so this fixture invents illustrative values consistent with "several-fold
-    /// more propose-side work" and asserts the new key reverses the old steps-only preference.
+    /// The motivating Sena-shaped case: a plan-composed candidate proposes several-fold more (higher `raw_paths`) for a marginally lower confirm-step count, and the old steps-only key picked it on that alone; asserts the new key reverses that preference.
     #[test]
     fn sena_shaped_lower_total_work_wins_despite_higher_confirmation_steps() {
         let confirmed = Certification::FullHcConfirmed {
@@ -1601,8 +1510,7 @@ mod tests {
             proposals: 575,
             confirmation: 42,
             confirmation_steps: 1192,
-            // Several-fold more propose-side traversal than the hand-spun candidate below -- the
-            // cost chunk fusion hides from `confirmation_steps` alone.
+            // Several-fold more propose-side traversal than hand-spun below -- a cost chunk fusion hides from confirmation_steps alone.
             raw_paths: 2000,
         };
         let hand_spun = Score {
@@ -1615,11 +1523,9 @@ mod tests {
             confirmation_steps: 1252,
             raw_paths: 400,
         };
-        // Under the OLD key (confirmation_steps alone, ascending) `plan_composed` would win: 1192 <
-        // 1252. Confirm that fact directly, so this test also documents the regression it guards.
+        // Under the old key (confirmation_steps alone) plan_composed would win: 1192 < 1252.
         assert!(plan_composed.confirmation_steps < hand_spun.confirmation_steps);
-        // Under the NEW key the combined leading term reverses that: 1192 + 2000 = 3192 for
-        // `plan_composed` against 1252 + 400 = 1652 for `hand_spun` -- lower total work wins.
+        // Under the new combined key that reverses: 3192 for plan_composed vs 1652 for hand_spun -- lower total work wins.
         let items = vec![
             ("plan-composed".to_owned(), confirmed.clone(), plan_composed),
             ("hand-spun".to_owned(), confirmed, hand_spun),
@@ -1627,10 +1533,7 @@ mod tests {
         assert_eq!(select_confirmed(&items), Some("hand-spun".to_owned()));
     }
 
-    /// The measured Indonesian shape: one candidate is better-or-equal on every deterministic work
-    /// metric (states+arcs, proposals, confirmation calls, confirmation_steps, and raw_paths) and
-    /// strictly better on at least one. A dominant winner must be selected regardless of the new
-    /// `raw_paths` term -- adding it must never flip an outcome that was already unambiguous.
+    /// The Indonesian-shaped case: one candidate is better-or-equal on every deterministic work metric and strictly better on at least one; adding `raw_paths` to the key must never flip an outcome that was already unambiguous.
     #[test]
     fn dominant_on_every_metric_still_wins_with_raw_paths_in_the_key() {
         let confirmed = Certification::FullHcConfirmed {
@@ -1825,8 +1728,7 @@ mod tests {
         let slower = Score {
             states: 10,
             arcs: 10,
-            // These two fields are wall-clock diagnostics. They must not create dominance when
-            // every deterministic coordinate is tied.
+            // These two fields are wall-clock diagnostics and must not create dominance when every deterministic coordinate is tied.
             build: 999,
             apply: 999,
             proposals: 10,
@@ -1894,10 +1796,7 @@ mod tests {
         assert_eq!(select_confirmed(&items), Some("certified".to_owned()));
     }
 
-    /// Backward compatibility: a report written before `raw_paths` existed has no such key in its
-    /// JSON at all. `#[serde(default)]` must resolve that absence to `0` -- "not measured", not a
-    /// deserialization failure -- mirroring the same convention already documented on
-    /// `confirmation_steps`.
+    /// Backward compatibility: a report written before `raw_paths` existed has no such key at all; `#[serde(default)]` must resolve that absence to `0` ("not measured"), not a deserialization failure.
     #[test]
     fn score_without_raw_paths_deserializes_with_zero_default() {
         let json = r#"{

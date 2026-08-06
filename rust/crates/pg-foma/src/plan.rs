@@ -38,26 +38,9 @@ use std::hash::{Hash, Hasher};
 
 use pg_grammar::model::{LexEntryId, MRuleId, PRuleId, TemplateId};
 
-// ---------------------------------------------------------------------------------------------
 // Content-addressed node identity
-// ---------------------------------------------------------------------------------------------
 
-/// A hand-rolled, unseeded 64-bit FNV-1a (Fowler-Noll-Vo) hasher.
-///
-/// `NodeId`s must be **reproducible across processes** (the plan cache key, cross-plan subtree
-/// sharing, and fixture tagging by node address all depend on the same logical node hashing to
-/// the same id every time it is built). `std::collections::hash_map::DefaultHasher` is explicitly
-/// wrong here: its `RandomState` reseeds per-process, so the same content hashes differently on
-/// every run. FNV-1a has no seed/salt at all, so it is deterministic across processes for a fixed
-/// plan schema and Rust hashing ABI, and is small enough not to justify a new dependency — a small
-/// hand-rolled stable hash is fine and preferred here. The preimage still
-/// comes from standard Hash implementations, whose encoding is not a portable persistence format
-/// across platforms or compiler versions; any future cross-toolchain cache needs a separately
-/// versioned canonical encoding.
-///
-/// Not collision-resistant, and that is an accepted tradeoff at this data-modeling step: a 64-bit
-/// non-cryptographic hash is adequate for "is this the same subtree" over the grammars this crate
-/// compiles today. Revisit if collision risk ever becomes a real concern.
+/// FNV-1a, unseeded: deterministic across processes, unlike `DefaultHasher`'s per-run `RandomState`; not collision-resistant, an accepted tradeoff for same-process subtree dedup.
 #[derive(Clone)]
 struct StableHasher(u64);
 
@@ -105,19 +88,14 @@ impl fmt::Display for NodeId {
     }
 }
 
-/// Computes `kind`'s content address. `PlanNodeKind`'s derived `Hash` impl already covers
-/// "kind tag" (the enum discriminant) + every field of the matched variant, including nested
-/// `Vec<NodeId>` children and config payloads — so hashing the whole value is exactly
-/// `hash(kind, child NodeIds, config)`, not an approximation of it.
+/// `kind`'s content address: hashes the whole value, which already covers the discriminant, children, and config.
 fn content_address(kind: &PlanNodeKind) -> NodeId {
     let mut hasher = StableHasher::new();
     kind.hash(&mut hasher);
     NodeId(hasher.finish())
 }
 
-// ---------------------------------------------------------------------------------------------
 // Compose strategy: physical strategy kept separate from topology
-// ---------------------------------------------------------------------------------------------
 
 /// The *physical* strategy for a `PlanNodeKind::Compose` node, kept as a separate enum from
 /// topology so a future cost model can vary the strategy per edge without the enumerator
@@ -130,26 +108,20 @@ fn content_address(kind: &PlanNodeKind) -> NodeId {
 /// in this enum, not in a new field elsewhere.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComposeStrategy {
-    /// Materialize-then-trim: build the full composed network eagerly. The only strategy any
-    /// builder in this crate constructs or interprets.
+    /// Materialize-then-trim: builds the full composed network eagerly, the only strategy in use.
     Static,
 }
 
 impl Hash for ComposeStrategy {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Preserve the explicit discriminant encoding used when this enum had multiple variants.
-        // Rust's derived `Hash` emits no bytes for a single-variant enum, which would otherwise
-        // change every existing Static compose node's persistent content address merely because
-        // the two unconstructible variants were deleted.
+        // Manual discriminant hash: derived `Hash` emits no bytes for a single-variant enum, which would change every existing Static node's NodeId.
         match self {
             Self::Static => 0_isize.hash(state),
         }
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Leaf payload: FragmentSpec (what to compile) + Provenance (which grammar construct)
-// ---------------------------------------------------------------------------------------------
 
 /// What a `PlanNodeKind::Leaf` will be compiled from — the *compile-shape* descriptor a builder
 /// needs to know HOW to produce this leaf's `Fsm`. Deliberately lightweight: no grammar
@@ -165,29 +137,15 @@ impl Hash for ComposeStrategy {
 /// even though most of today's variants line up one-to-one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FragmentSpec {
-    /// A lexc-compiled lexicon fragment. `entries = None` means the whole grammar's lexicon;
-    /// `Some(_)` names an explicit subset (mirrors `gate::EntryGroup::entries`, without
-    /// recomputing it here — see `GatePartitionSpec`'s doc).
+    /// A lexc-compiled lexicon fragment; `entries = None` means the whole grammar's lexicon, `Some(_)` an explicit subset.
     LexiconFragment { entries: Option<Vec<LexEntryId>> },
     /// A single rewrite rule's transducer, addressed by its `PRuleId` (cascade position).
     RewriteRule { rule: PRuleId },
-    /// A gate/guard automaton for one partition group's gating key (mirrors
-    /// `gate::EntryGroup::key`).
+    /// A gate/guard automaton for one partition group's gating key.
     GuardAutomaton { group_key: Vec<bool> },
-    /// A composite-emission subtree marker: "compile whatever `preexpand`/`emit` already build for
-    /// this grammar's composite entries" (see those modules' own docs for what "composite" means).
-    /// Opaque here — an interpreter resolves it against the grammar, not this descriptor.
+    /// Opaque marker resolved against the grammar by an interpreter, not this descriptor: whatever `preexpand`/`emit` already build for this grammar's composite entries.
     CompositeEmissionMarker,
-    /// A structural-composite subtree marker (`emit::probe_would_refuse`
-    /// / `emit::structural_candidate_rules`): "compile whatever `emit::build_structural_composites`
-    /// already builds for this grammar's structural-candidate rules" — rules `crate::preexpand`'s
-    /// ordinary composite mechanism cannot represent at all (circumfixes, subtractive/dropped-LHS-
-    /// material rules), plus every ordinary `Prefix`/`Suffix`/`Infix` rule when
-    /// `emit::probe_would_refuse` holds (that construct's own doc). Kept as a DISTINCT marker from
-    /// `Self::CompositeEmissionMarker` even though both are "opaque, resolved-against-
-    /// the-grammar-later" leaves: they gate on two different seams (`preexpand::should_run` vs.
-    /// `emit::probe_would_refuse`/`structural_candidate_rules`) and a grammar can need either, both,
-    /// or neither independently — collapsing them into one marker would lose that independence.
+    /// Opaque marker for `emit::build_structural_composites`'s route (circumfixes/subtractive rules, plus any affix rule where `emit::probe_would_refuse` holds); kept distinct from `CompositeEmissionMarker` because the two gate on different seams and a grammar can need either, both, or neither.
     StructuralCompositeMarker,
 }
 
@@ -212,15 +170,11 @@ pub enum Provenance {
     Replace,
     /// A composite-emission subtree (multi-tag composite entries).
     CompositeEmission,
-    /// A structural-composite subtree (the `emit::build_structural_composites` route — see
-    /// `FragmentSpec::StructuralCompositeMarker`'s doc for why this is kept distinct from
-    /// `Self::CompositeEmission`).
+    /// A structural-composite subtree; kept distinct from `Self::CompositeEmission` per `FragmentSpec::StructuralCompositeMarker`'s doc.
     StructuralComposite,
 }
 
-// ---------------------------------------------------------------------------------------------
 // Gate payload: gate.rs's partition-and-union, promoted to a named node kind
-// ---------------------------------------------------------------------------------------------
 
 /// One `(rule position in cascade order, subrule index within that rule)` pair the partition keys
 /// on — the same shape as `gate::GatedSubrule`, duplicated here (not re-imported) because this
@@ -256,9 +210,7 @@ pub struct GatePartitionSpec {
     pub groups: Vec<GateGroupSpec>,
 }
 
-// ---------------------------------------------------------------------------------------------
 // Replace payload: replace.rs's rewrite-cascade construction, promoted to a named node kind
-// ---------------------------------------------------------------------------------------------
 
 /// The cascade descriptor for a `PlanNodeKind::Replace` node: the ordered rewrite rules the
 /// cascade applies, addressed by `PRuleId` in cascade order.
@@ -303,9 +255,7 @@ pub struct ReplaceCascadeSpec {
     pub group_key: Vec<bool>,
 }
 
-// ---------------------------------------------------------------------------------------------
 // The closed node-kind enum
-// ---------------------------------------------------------------------------------------------
 
 /// The closed set of compilation-plan node kinds. Exactly five variants — no catch-all is
 /// ever written against this enum in this file: any `match` over node kinds fails to
@@ -317,33 +267,19 @@ pub enum PlanNodeKind {
         fragment: FragmentSpec,
         provenance: Provenance,
     },
-    /// N-ary composition (not binary — Allauzen & Mohri's 3-way composition result proves
-    /// n-ary composition is strictly cost-relevant... when out-degrees are skewed). `strategy` is
-    /// the physical strategy, kept separate from topology (see `ComposeStrategy`'s doc).
+    /// N-ary composition (Allauzen & Mohri: cost-relevant, not sugar for a binary fold); `strategy` is the physical strategy, kept separate from topology.
     Compose {
         children: Vec<NodeId>,
         strategy: ComposeStrategy,
     },
-    /// Merges independently-compiled branches. Legal only where the characteristics check's
-    /// orthogonality predicate licenses it — that check happens elsewhere; this kind
-    /// only needs to exist as data here.
+    /// Merges independently-compiled branches; legal only where the characteristics check's orthogonality predicate licenses it (checked elsewhere).
     Union { children: Vec<NodeId> },
-    /// `gate.rs`'s subrule-gated partition-and-union, promoted to a named node kind. See
-    /// `GatePartitionSpec`'s doc for the invariant between `partition.groups` and `children`.
+    /// `gate.rs`'s subrule-gated partition-and-union, promoted to a named node kind.
     Gate {
         partition: GatePartitionSpec,
         children: Vec<NodeId>,
     },
-    /// `replace.rs`'s rewrite-cascade construction, promoted to a named node kind so a future
-    /// enumerator can reorder/rewire around it rather than treating it as an opaque `Compose`.
-    /// `children` are the cascade's ordered per-rule (or per-alpha-tuple) constituent subplans —
-    /// the same shape as `Compose`'s children, but named separately because a rewrite cascade's
-    /// order sensitivity and alpha-tuple resolution semantics (`replace.rs`'s
-    /// `resolve_alpha_tuples`) are specific to this construction, not "any n-ary compose" — the
-    /// enumerator needs to recognize a cascade AS a cascade (the `emit::probe_would_refuse` seam:
-    /// whether the plan routes affix rules through the structural-composite subtree vs. the
-    /// ordinary concatenative one is exactly a choice made *about* a `Replace` node, not a generic
-    /// `Compose`).
+    /// `replace.rs`'s rewrite-cascade construction as a named node kind rather than an opaque `Compose`: its order sensitivity and alpha-tuple resolution are specific to it, and the enumerator needs to recognize a cascade as a cascade.
     Replace {
         cascade: ReplaceCascadeSpec,
         children: Vec<NodeId>,
@@ -377,9 +313,7 @@ impl PlanNodeKind {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // The Plan arena/interner
-// ---------------------------------------------------------------------------------------------
 
 /// The arena of interned nodes for one compilation plan, plus its root: a `Plan`
 /// arena/interner so that constructing an identical subtree twice yields the SAME `NodeId` and
@@ -425,13 +359,7 @@ impl Plan {
         }
         let id = content_address(&kind);
         if let Some(existing) = self.nodes.get(&id) {
-            // Dedup is correct only if equal content addresses imply equal content. A 64-bit
-            // non-cryptographic hash makes that overwhelmingly likely but not certain; a collision
-            // between two DISTINCT nodes would otherwise silently alias them (the existing node is
-            // kept, the new one dropped), which would corrupt a differential-correctness oracle
-            // by making two genuinely different subplans look identical. Turn that silent
-            // hazard into a loud debug-mode failure, in the same spirit as the Gate invariant above
-            // (never a release-mode behavior change). Revisit the hash width if this ever fires.
+            // Debug-only collision check: a 64-bit hash makes two distinct nodes aliasing to the same NodeId unlikely but not impossible, and a silent alias would corrupt any oracle comparing subplans.
             debug_assert_eq!(
                 *existing, kind,
                 "content-address collision: two distinct plan nodes hashed to the same NodeId {id}"
@@ -500,8 +428,7 @@ mod tests {
         }
     }
 
-    /// The core dedup claim: constructing the identical subtree twice yields the SAME `NodeId`
-    /// and stores it once, not twice.
+    /// The core dedup claim: constructing the identical subtree twice yields the same `NodeId` and stores it once.
     #[test]
     fn identical_subtree_interned_once() {
         let mut plan = Plan::new();
@@ -514,13 +441,7 @@ mod tests {
         assert_eq!(plan.len(), 1, "must be stored exactly once, not duplicated");
     }
 
-    /// The core content-addressing claim, at the `ReplaceCascadeSpec` level directly (no
-    /// `Grammar`/`Gate` node involved -- `crate::enumerate`/`crate::build`'s own tests exercise the
-    /// same property end-to-end on real seam-derived data; this is the minimal, data-only proof):
-    /// two `Replace` nodes with the SAME `rules`/`gated_subrules` but DIFFERENT `group_key` must get
-    /// DIFFERENT `NodeId`s (the soundness fix itself -- distinct groups never false-share), while
-    /// two `Replace` nodes with IDENTICAL `rules`/`gated_subrules`/`group_key` must get the SAME
-    /// `NodeId` and dedup to one stored node (identically-gated cascades still share correctly).
+    /// The core content-addressing claim at the `ReplaceCascadeSpec` level: two `Replace` nodes with the same `rules`/`gated_subrules` but different `group_key` get different `NodeId`s, while identical ones dedup to one.
     #[test]
     fn replace_nodes_differing_only_in_group_key_yield_different_ids_but_identical_keys_dedup() {
         let mut plan = Plan::new();
@@ -573,9 +494,7 @@ mod tests {
         );
     }
 
-    /// A small hand-built DAG where two parents share one child leaf: the leaf is stored once, not
-    /// once per parent (the "two plans share a lexicon leaf" scenario, scaled down to two
-    /// parents within one plan rather than two separate plans — the storage argument is the same).
+    /// Two parents sharing one child leaf: the leaf is stored once, not once per parent.
     #[test]
     fn shared_child_leaf_stored_once_across_two_parents() {
         let mut plan = Plan::new();
@@ -596,17 +515,14 @@ mod tests {
             parent_a, parent_b,
             "the two parents differ in one child, so must differ"
         );
-        // 1 shared leaf + 2 distinct rule leaves + 2 distinct parents = 5 stored nodes, NOT 6 (a
-        // tree would store the shared leaf twice, once per parent).
+        // 1 shared leaf + 2 rule leaves + 2 parents = 5 stored nodes, not 6 (a tree would store the shared leaf twice).
         assert_eq!(plan.len(), 5);
         assert!(plan.contains(shared_leaf));
         assert_eq!(plan.get(parent_a).unwrap().children()[0], shared_leaf);
         assert_eq!(plan.get(parent_b).unwrap().children()[0], shared_leaf);
     }
 
-    /// The removed Lazy variants historically made derived Hash encode Static's discriminant as
-    /// eight zero bytes on this target. Keep that legacy tag reserved: changing it moves every
-    /// Compose node and its ancestors, which can alter candidate ordering and tie-breaks.
+    /// Pins Static's legacy hash tag (from when Lazy variants existed); changing it moves every Compose node's `NodeId` and can alter candidate ordering.
     #[test]
     fn static_compose_strategy_preserves_legacy_hash_tag() {
         let mut hasher = StableHasher::new();
@@ -614,10 +530,7 @@ mod tests {
         assert_eq!(hasher.finish(), 0xa8c7_f832_281a_39c5);
     }
 
-    /// Content addresses are stable/deterministic: building the same plan (same nodes, same
-    /// order) in two completely independent `Plan` instances yields equal `NodeId`s for
-    /// corresponding nodes — the property that lets two different process runs (or two plans in
-    /// the same enumerator pass) agree on a subtree's identity without communicating.
+    /// Two independently built `Plan`s with identical content produce equal `NodeId`s for corresponding nodes.
     #[test]
     fn content_addresses_are_stable_across_independently_built_plans() {
         let mut plan_1 = Plan::new();
@@ -669,16 +582,7 @@ mod tests {
         assert_eq!(plan.get(gate).unwrap().kind_name(), "Gate");
     }
 
-    /// The debug-only invariant in `Plan::add_node` catches a `Gate` node whose `children` count
-    /// doesn't match its partition's group count.
-    ///
-    /// `#[cfg(debug_assertions)]`-gated because the invariant it exercises is a `debug_assert!`,
-    /// which the compiler strips under `--release` — so a `#[should_panic]` test of it cannot pass
-    /// there. Without this gate `cargo test --workspace --release` fails on this one test even though
-    /// nothing is wrong (found by the delanguaging Part C sweep, which ran the release suite). Gating
-    /// keeps the assertion genuinely tested in the debug profile — where `debug_assert!` actually
-    /// fires and where the whole test suite normally runs — instead of weakening it to an
-    /// always-checked `assert!` purely to satisfy a profile that strips it.
+    /// `Plan::add_node`'s debug-only invariant on a `Gate` node whose `children` count doesn't match its partition's group count; gated on `debug_assertions` because `debug_assert!` is stripped in release, where a `#[should_panic]` test of it would fail.
     #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "one child per partition group")]
@@ -699,9 +603,7 @@ mod tests {
         });
     }
 
-    /// Exercises `PlanNodeKind::children`/`PlanNodeKind::kind_name`'s exhaustive matches over
-    /// every variant. If a sixth kind is ever added without updating those matches, THIS FILE
-    /// fails to compile -- not this test ("adding a node kind is a closed-set change").
+    /// Exercises `PlanNodeKind::children`/`kind_name`'s exhaustive matches over every variant; a new variant fails the FILE to compile, not this test.
     #[test]
     fn kind_name_and_children_cover_every_node_kind() {
         let mut plan = Plan::new();

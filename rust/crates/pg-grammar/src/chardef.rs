@@ -61,25 +61,7 @@ pub struct CharDef {
     representations: Vec<String>,
     /// NFD-normalized representations, parallel to `representations`.
     representations_nfd: Vec<String>,
-    /// Per-`FlatIndex` symbolic-feature lane, `pg_featstruct::SymbolBits` bits packed into `u64`.
-    /// Length always equals `feat_sys.len()` for **every** char def, segment or boundary
-    /// (`feat_sys.len() >= 1` always, since it includes the synthetic `Type` feature — see
-    /// `featsys` module docs; a grammar with zero authored phonological features, e.g. Sena,
-    /// still gets width 1 here, not 0). A feature not mentioned by an explicit `FeatureValue`
-    /// defaults to `full_mask` (uninstantiated / unconstrained — C#'s `EnsureFlat` seeding); an
-    /// explicit `FeatureValue` overrides that lane with the union of its symbol bits.
-    ///
-    /// **`Type` (plan §13.1 Tier-1 #1):** the `feat_sys.type_flat()` lane is *always* pinned —
-    /// never left at the default full mask, and never settable by an authored `FeatureValue`
-    /// (no `<FeatureValue feature="...">` in real HC XML ever names it) — to `Segment`-only bits
-    /// for a `SegmentDefinition` or `Boundary`-only bits for a `BoundaryDefinition`. This mirrors
-    /// C# `CharacterDefinitionTable.Add`'s unconditional `fs.AddValue(HCFeatureSystem.Type,
-    /// type)` (`CharacterDefinitionTable.cs:56-89`), which fires even in the `fs == null` branch —
-    /// i.e. even a boundary def (which authors no phonological `FeatureValue`s) gets a real,
-    /// non-empty `FeatureStruct` purely from this `Type` tag. Before this fix boundaries stored
-    /// an empty `Vec` here, which every lane-consuming matcher (`pg_fst`'s `flat_unifiable`
-    /// treats an absent lane as unconstrained) silently read as "matches any segment" — the
-    /// confirmed root cause of the `meN-`/`peN-`-prefix boundary-environment bug.
+    /// Per-`FlatIndex` symbolic-feature lane, `pg_featstruct::SymbolBits` bits packed into `u64`; always `feat_sys.len()` wide for every char def, defaulting to `full_mask` unless an explicit `FeatureValue` overrides it. The `Type` lane is always pinned to Segment-only or Boundary-only bits regardless of authored `FeatureValue`s -- an empty `Vec` here previously let `flat_unifiable` read a boundary as matching any segment.
     feature_lanes: Vec<u64>,
 }
 
@@ -120,18 +102,9 @@ pub struct CharDefTable {
     xml_id: String,
     name: Option<String>,
     defs: Vec<CharDef>,
-    /// NFD-normalized representation -> owning char def. This is the exact lookup
-    /// `CharacterDefinitionTable._charDefLookup` performs (`TryGetValue` in `GetShapeNodes`).
+    /// NFD-normalized representation -> owning char def, the exact lookup `CharacterDefinitionTable._charDefLookup` performs.
     lookup: HashMap<String, CharDefId>,
-    /// Static unifiability closure over segment char-defs. `None` ⇔ the grammar declared zero
-    /// authored phonological features (`PhonFeatureSystem::is_empty()`) — C#'s `StrRep` regime,
-    /// so identity gating
-    /// (char-def equality) stays exactly today's behavior, bit-for-bit. `Some(v)`: `v[i].contains
-    /// (j)` ⇔ `flat_unifiable(lanes_i, lanes_j)` for segment char-defs `i`, `j` (reflexive,
-    /// symmetric by construction). Boundary rows are left empty (`CdBits::empty()`) — C#
-    /// boundaries always carry `StrRep` (`AddBoundary` always passes `fs: null`), so boundary
-    /// identity gating is untouched by this closure; `Self::unifiable_cds` additionally guards
-    /// this explicitly rather than relying on the row being empty.
+    /// Static unifiability closure over segment char-defs. `None` when the grammar declared zero authored phonological features, so identity gating stays bit-for-bit today's behavior; `Some(v)`: `v[i].contains(j)` iff `flat_unifiable(lanes_i, lanes_j)`. Boundary rows are left empty since C# boundaries always carry `StrRep`.
     unif_closure: Option<Vec<CdBits>>,
 }
 
@@ -149,8 +122,7 @@ impl CharDefTable {
             let representations_nfd: Vec<String> =
                 raw.representations.iter().map(|r| nfd(r)).collect();
 
-            // C# CharacterDefinitionTable.Add: collision on any normalized representation is an
-            // error, checked before the char def is admitted to the table.
+            // C# CharacterDefinitionTable.Add: collision on any normalized representation is an error, checked before the char def is admitted to the table.
             for norm in &representations_nfd {
                 if lookup.contains_key(norm) {
                     return Err(GrammarError::DuplicateRepresentation(format!(
@@ -161,14 +133,7 @@ impl CharDefTable {
                 }
             }
 
-            // Every char def gets a full `feat_sys.len()`-wide lane row (segments *and*
-            // boundaries — see the `feature_lanes` field docs): segments resolve their authored
-            // `<FeatureValue>`s (boundaries author none — C#'s `AddBoundary` always passes
-            // `fs: null`, so every other lane defaults to the uninstantiated full mask, matching
-            // a sparse FeatureStruct with no phonological features set). The `Type` lane is then
-            // unconditionally pinned below, overriding whatever `build_feature_lanes` defaulted
-            // it to (it can never come from an authored `FeatureValue`, so this never overwrites
-            // real author intent).
+            // Every char def gets a full `feat_sys.len()`-wide lane row: segments resolve their authored `<FeatureValue>`s, boundaries author none so every lane defaults to full mask; the Type lane is then unconditionally pinned below, which never overwrites real author intent since it can never come from an authored `FeatureValue`.
             let mut feature_lanes = if matches!(raw.kind, CharDefKind::Segment) {
                 Self::build_feature_lanes(&raw.feature_values, feat_sys)?
             } else {
@@ -195,11 +160,7 @@ impl CharDefTable {
             });
         }
 
-        // Design A (P5): precompute the static unifiability closure over segment char-defs, but
-        // only for a feature-bearing grammar — see `unif_closure`'s field doc for why a
-        // zero-authored-feature grammar (Sena, en, sp) must NOT build this (it would make
-        // char-def identity gating a no-op there, since every segment's non-`Type` lanes are the
-        // same full mask and would spuriously cross-unify).
+        // Precompute the static unifiability closure over segment char-defs, but only for a feature-bearing grammar: building it for a zero-authored-feature grammar would make char-def identity gating a no-op, since every segment's non-Type lanes are the same full mask and would spuriously cross-unify.
         let unif_closure = if !feat_sys.is_empty() {
             let n = defs.len();
             let mut closure: Vec<CdBits> = vec![CdBits::empty(); n];
@@ -235,8 +196,7 @@ impl CharDefTable {
         values: &[RawFeatureValue],
         feat_sys: &PhonFeatureSystem,
     ) -> Result<Vec<u64>, GrammarError> {
-        // Default every lane to "uninstantiated" (all symbols allowed), matching C#'s
-        // `EnsureFlat` seeding of absent features to `ulong.MaxValue`-equivalent.
+        // Default every lane to "uninstantiated" (all symbols allowed), matching C#'s `EnsureFlat` seeding of absent features.
         let mut lanes: Vec<u64> = (0..feat_sys.len())
             .map(|i| feat_sys.mask(FlatIndex(i as u32)))
             .collect();
@@ -371,9 +331,7 @@ mod tests {
 
     #[test]
     fn boundary_kind_is_preserved() {
-        // Plan §13.1 Tier-1 #1: a boundary's `feature_lanes()` is no longer empty — it is
-        // `feat_sys.len()`-wide (1, here: just the synthetic `Type` feature, since `table_with`
-        // builds a zero-authored-feature system), with `Type` pinned to `Boundary`-only bits.
+        // A boundary's `feature_lanes()` is not empty: it is `feat_sys.len()`-wide with `Type` pinned to `Boundary`-only bits.
         let table = table_with(vec![bnd("char41", &["+"])]).unwrap();
         let id = table.lookup_nfd("+").unwrap();
         let cd = table.get(id);
@@ -433,9 +391,7 @@ mod tests {
 
     #[test]
     fn greedy_longest_match_prefers_two_char_rep() {
-        // The table itself doesn't do the matching (that's segment.rs), but confirm both "s",
-        // "y", and "sy" are independently resolvable so segment.rs's greedy scan has real work
-        // to do choosing between them.
+        // The table itself doesn't do the matching (that's segment.rs), but confirm "s", "y", and "sy" are all independently resolvable so its greedy scan has real work to do.
         let table = table_with(vec![
             seg("c1", &["s"]),
             seg("c2", &["y"]),

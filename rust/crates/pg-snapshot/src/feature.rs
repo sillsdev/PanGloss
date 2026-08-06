@@ -120,8 +120,7 @@ pub struct FeatureValue {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum FeatureValueKind {
-    /// ← `IFsClosedValue.ValueRA` — the guid of a `FeatureValueSymbol` belonging to the
-    /// referenced feature.
+    /// ← `IFsClosedValue.ValueRA`: the guid of a `FeatureValueSymbol` belonging to the referenced feature.
     Closed { value: Guid },
     /// ← `IFsComplexValue.ValueOA` — a nested feature structure.
     Complex { value: FeatureStructure },

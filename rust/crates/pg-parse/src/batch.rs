@@ -35,17 +35,10 @@ use rayon::prelude::*;
 
 use crate::morpher::{Morpher, ParseOutcome};
 
-/// Stack size for each rayon pool worker thread. Matches `pg-cli::main`'s main-thread worker
-/// stack (`src/main.rs`) — the same recursion depth risk applies to pool threads.
+/// Stack size for each rayon pool worker thread; matches `pg-cli::main`'s main-thread worker stack, since the same recursion-depth risk applies to pool threads.
 const WORKER_STACK_SIZE: usize = 1 << 30; // 1 GiB
 
-/// A magic sentinel word that panics **only** when this crate is built with the
-/// `test-panic-hook` feature (off by default — see `Cargo.toml`). Its sole consumer is
-/// `pg-ffi`'s abort-safety test (plan §8 layer 7, M8), which needs a real panic raised *inside a
-/// rayon worker thread, on this exact production call path* — not a lookalike loop bolted onto
-/// the test binary — to prove `catch_unwind` at the FFI boundary actually catches an unwind that
-/// crosses a rayon `par_iter` join point. Embedded NUL bytes make it un-typeable by accident and
-/// impossible to collide with any real corpus word.
+/// A magic sentinel word that panics only when this crate is built with the `test-panic-hook` feature (off by default). Its sole consumer is `pg-ffi`'s abort-safety test, which needs a real panic raised inside a rayon worker thread on this exact production call path to prove `catch_unwind` at the FFI boundary actually catches an unwind crossing a `par_iter` join point. Embedded NUL bytes make it un-typeable by accident and impossible to collide with any real corpus word.
 #[cfg(feature = "test-panic-hook")]
 pub const TEST_PANIC_WORD: &str = "\u{0}__hc_test_panic_hook__\u{0}";
 
@@ -86,8 +79,7 @@ pub fn hc_parse_batch(
         return Vec::new();
     }
 
-    // Longest-surface-first dispatch order (plan §7 / Phase 8a). Sorting *indices* (not the words
-    // themselves) is what lets the final result carry original position independent of this order.
+    // Longest-surface-first dispatch order; sorting indices (not the words themselves) is what lets the result carry original position independent of this order.
     let mut order: Vec<usize> = (0..n).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(words[i].chars().count()));
 
@@ -99,8 +91,7 @@ pub fn hc_parse_batch(
         .build()
         .expect("build rayon pool for hc_parse_batch");
 
-    // Phase 1 (parallel): each task writes exactly one slot of `scratch`, indexed by its rank in
-    // the dispatch order — a disjoint mutable borrow via `zip`, no unsafe, no locking.
+    // Phase 1 (parallel): each task writes exactly one slot of `scratch` via a disjoint mutable borrow (`zip`), no unsafe, no locking.
     let mut scratch: Vec<Option<BatchWordOutcome>> = (0..n).map(|_| None).collect();
     pool.install(|| {
         order

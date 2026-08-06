@@ -1,6 +1,4 @@
-//! Phonological rules: rewrite rules (`LoadRewriteRule`, HCLoader.cs:2003-2101) placed on the
-//! stratum `NotOnClitics` selects (HCLoader.cs:313-317). Metathesis rules (HCLoader.cs:2103-2161)
-//! are not implemented — each produces a warning, not a rule.
+//! Phonological rules: rewrite rules placed on the stratum `NotOnClitics` selects. Metathesis rules are not implemented -- each produces a warning, not a rule.
 
 use pg_snapshot::phonology::{PhonContext, PhonologicalRule, RewriteRhs, RewriteRule};
 use pg_snapshot::Snapshot;
@@ -13,16 +11,14 @@ use crate::GrammarError;
 
 use super::Ctx;
 
-/// Greek-letter alpha-variable names, in assignment order (`HCLoader.VariableNames`,
-/// HCLoader.cs:37-41).
+/// Greek-letter alpha-variable names, in assignment order (`HCLoader.VariableNames`).
 const VAR_NAMES: [&str; 24] = [
     "\u{3b1}", "\u{3b2}", "\u{3b3}", "\u{3b4}", "\u{3b5}", "\u{3b6}", "\u{3b7}", "\u{3b8}",
     "\u{3b9}", "\u{3ba}", "\u{3bb}", "\u{3bc}", "\u{3bd}", "\u{3be}", "\u{3bf}", "\u{3c0}",
     "\u{3c1}", "\u{3c3}", "\u{3c4}", "\u{3c5}", "\u{3c6}", "\u{3c7}", "\u{3c8}", "\u{3c9}",
 ];
 
-/// All phonological-rule definitions, plus which of them run on the Morphology vs. Clitics
-/// stratum (`NotOnClitics`, HCLoader.cs:313-317).
+/// All phonological-rule definitions, plus which of them run on the Morphology vs. Clitics stratum.
 type RuleBuild = (Vec<PhonRuleDef>, Vec<PRuleId>, Vec<PRuleId>);
 
 pub(crate) fn build(
@@ -34,8 +30,7 @@ pub(crate) fn build(
     let mut morphology_prules = Vec::new();
     let mut clitic_prules = Vec::new();
 
-    // `m_notOnClitics` (default true) -> rules run on the morphophonemic (Morphology) stratum;
-    // `false` -> the clitic stratum (HCLoader.cs:313-317).
+    // `m_notOnClitics` (default true) -> rules run on the morphophonemic (Morphology) stratum; `false` -> the clitic stratum.
     let on_morphology = snapshot.morphology.parser_parameters.not_on_clitics;
 
     for rule in &snapshot.phonology.rules {
@@ -194,15 +189,7 @@ fn build_subrule(
         }
     };
 
-    // Self-opaquing: a simplified, conservative port of `crate::load`'s `compute_self_opaquing`
-    // (not reusable here — it is a private `load.rs` function and this crate's own module-privacy
-    // keeps that loader frozen). Exact for
-    // Iterative mode (always `false`) and epenthesis (`lhs` empty -> unconditionally `true` when
-    // Simultaneous); for a feature-changing Simultaneous subrule this conservatively reports
-    // `false` (no forced fixpoint repeat) rather than replicating the RHS/environment
-    // feature-unifiability precheck — a documented gap, not a crash risk (affects only analysis of
-    // Simultaneous-mode rules whose structural change and environment happen to pin the same
-    // phonological feature to conflicting values).
+    // Self-opaquing: a simplified, conservative port of crate::load's compute_self_opaquing. Exact for Iterative (always false) and epenthesis (unconditionally true when Simultaneous); for a feature-changing Simultaneous subrule this conservatively reports false rather than replicating the feature-unifiability precheck -- a documented gap, not a crash risk.
     let self_opaquing = mode == RewriteMode::Simultaneous && lhs.nodes.is_empty();
 
     Ok(RewriteSubruleDef {
@@ -236,10 +223,7 @@ fn right_is_word_boundary(pc: &PhonContext) -> bool {
     }
 }
 
-/// `LoadPatternNode`'s recursive dispatch (HCLoader.cs:2313-2389), alpha-variable-aware version
-/// used by rewrite rules -- unlike `super::affixes::phon_context_nodes`, whose signature carries
-/// no `vars: &VarTable` at all: `MoAffixProcess` input carries no variable scope in LCM, so
-/// there is nothing there for it to resolve.
+/// `LoadPatternNode`'s recursive dispatch, alpha-variable-aware version used by rewrite rules -- unlike `super::affixes::phon_context_nodes`, since `MoAffixProcess` input carries no variable scope in LCM.
 fn phon_context_nodes(
     pc: &PhonContext,
     ctx: &Ctx,

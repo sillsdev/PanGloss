@@ -1,52 +1,5 @@
-//! Post-hoc reachability compaction for morphological rules and morpheme co-occurrence rules —
-//! the mrule/morpheme-scoped sibling of `super::natclass::compact_to_referenced` (read that
-//! function's doc first; this module mirrors its used-set + remap-with-expect pattern exactly,
-//! extended to cover the extra wrinkle `MRuleId` has that `NatClassId` doesn't: an owner-registry
-//! back-reference, not just read-only structural edges).
-//!
-//! # Why `mrules` needs this at all
-//! `compile_project` already filters *templates*: a disabled `MoInflAffixTemplate` never becomes
-//! an `AffixTemplateDef` (`templates::build_pos`'s `if tmpl.disabled { continue; }`). That
-//! filtering does not propagate to the affix-process rule(s) whose *only* slot lives in that
-//! disabled template. `lexicon::build`'s own doc explains why: an `Msa::Inflectional` MSA with at
-//! least one slot is `template_only` (HCLoader's `LoadMorphologicalRule`, HCLoader.cs:887-892: `if
-//! (inflMsa.SlotsRC.Count > 0) s = null` — the rule is reachable *only* through
-//! `AddMorphologicalRule`'s per-slot fallout, `stratum.MorphologicalRules` never sees it). Such a
-//! rule is still built unconditionally (`LoadMorphologicalRules` is called per-MSA regardless of
-//! template membership) and still lands in `acc.mrules`/`acc.slot_rules[slot_guid]` — but if every
-//! slot referencing it belongs to a *disabled* template, nothing in the final `Grammar` ever
-//! records that `MRuleId` anywhere HCLoader's own exporter would visit (neither a stratum's own
-//! `mrules` list nor an enabled template's slot content). HCLoader's XML export walks exactly
-//! those two places, so this reference set is precisely "every place the legacy exporter looks."
-//!
-//! # Why the allomorph-owner registry needs a cascade, unlike `natclass`
-//! `super::natclass::compact_to_referenced` only ever *reads* a `NatClassId` from structural
-//! sites (patterns/environments/rules) — dropping an unreferenced class breaks nothing else,
-//! because nothing else's own identity depends on that class's position in the `Vec`.
-//! `Grammar::allomorph_owners` is different: it's an owner *registry*, indexed by `AllomorphId`,
-//! and every `RootAllomorphDef`/`AffixAllomorphDef` in the grammar carries its *own* `id` field
-//! that must round-trip back to its position in that registry
-//! (`compile::tests::assert_grammar_ids_are_internally_consistent` checks exactly this, and
-//! several `pg-rules`/`hc-hybrid` consumers enumerate `allomorph_owners` in registry order and
-//! dereference every entry unconditionally — a stale `AllomorphOwner::Affix` pointing at a
-//! `MRuleId` outside the now-shorter `mrules` `Vec`, or silently aliasing an unrelated surviving
-//! rule after the shift, is a live bug, not a merely-unobserved one). Dropping an `MRuleId` that
-//! owns allomorphs therefore requires: dropping its `AllomorphOwner::Affix` rows from
-//! `allomorph_owners` too, remapping every surviving `AllomorphId` to a dense index, and fixing up
-//! every surviving allomorph's own `id` field plus any `AllomorphCoOccurrenceRuleDef.others`
-//! reference through the same table (steps 3-4 below).
-//!
-//! # Morpheme co-occurrence rules
-//! Separately, `MorphemeCoOccurrenceRuleDef`s live on `Grammar::morphemes[i].co_occurrence`
-//! (`strata_assign_co_occurrence` in `compile/mod.rs` populates them from the snapshot's
-//! `MoMorphAdhocProhib` ad-hoc rules, keyed by MSA guid via `acc.msa_guid_index`) — entirely
-//! independent of the `mrules`/`allomorph_owners` cascade above. `Grammar::morphemes` is never
-//! compacted (nothing else needs `MorphemeId` to stay dense — the gate's own multiset comparisons
-//! resolve `MorphemeId` by content, never by raw index), so no id remap is needed there. But a
-//! morpheme whose *sole* mrule was just dropped above is exactly as unreachable as that mrule was,
-//! and HCLoader's own XML export skips such a morpheme's `MorphemeCoOccurrenceRules` too
-//! (same "walks only what's stratum/template-reachable" principle) — so any co-occurrence
-//! rule keyed to (or targeting, via `others`) such a morpheme must be dropped too.
+//! Post-hoc reachability compaction for morphological rules and morpheme co-occurrence rules, the mrule/morpheme-scoped sibling of `super::natclass::compact_to_referenced`, extended to cascade through the allomorph-owner registry's back-references.
+//! See docs/research/pg-grammar-reachability-compaction-design-notes.md for why `mrules` needs this, why the cascade is required unlike `natclass`, and how morpheme co-occurrence rules are handled separately.
 
 use std::collections::HashMap as StdHashMap;
 
@@ -57,12 +10,7 @@ use crate::model::{
     MorphRuleDef,
 };
 
-/// Step 1-2: compact `grammar.mrules` to exactly the set HCLoader's own exporter would ever visit
-/// (every stratum's own `mrules` list, plus every already-enabled-template-filtered template
-/// slot's `rules`), remapping every surviving `MRuleId` to a dense index in both of those places.
-/// Step 3-4: cascade the same treatment to `grammar.allomorph_owners` and every surviving
-/// allomorph's own `id`/`co_occurrence` (see this module's top doc for why that cascade is
-/// required, unlike `super::natclass::compact_to_referenced`'s simpler read-only-edge case).
+/// Compact `grammar.mrules` to exactly the set HCLoader's own exporter would ever visit, remapping every surviving `MRuleId` to a dense index, then cascade the same treatment to `grammar.allomorph_owners` and every surviving allomorph's own `id`/`co_occurrence` (see module doc for why the cascade is required).
 pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) {
     // --- 1. Every mrule a stratum or an (enabled) template slot actually names. ---
     let mut used_mrules: HashSet<u32> = HashSet::new();
@@ -108,9 +56,7 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
         }
     }
 
-    // --- 3. Cascade to the allomorph-owner registry: a `Root`-owned allomorph (lex entries are
-    // untouched by this pass) always survives; an `Affix`-owned one survives iff its mrule did,
-    // remapped to that mrule's new dense id.
+    // 3. Cascade to the allomorph-owner registry: a `Root`-owned allomorph always survives; an `Affix`-owned one survives iff its mrule did, remapped to that mrule's new dense id.
     let old_owners = std::mem::take(&mut grammar.allomorph_owners);
     let mut old_to_new_allo: StdHashMap<u32, u32> = StdHashMap::with_capacity(old_owners.len());
     let mut new_owners = Vec::with_capacity(old_owners.len());
@@ -128,10 +74,7 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
     }
     grammar.allomorph_owners = new_owners;
 
-    // --- 4. Fix up every surviving allomorph's own self-tagging `id` (the round-trip invariant
-    // `compile::tests::assert_grammar_ids_are_internally_consistent` checks) and remap/drop any
-    // `AllomorphCoOccurrenceRuleDef.others` reference through the same table. A dropped mrule's
-    // own allomorphs vanished along with it in step 2, so only surviving allomorphs need visiting.
+    // 4. Fix up every surviving allomorph's own self-tagging `id` and remap/drop any `others` reference through the same table; a dropped mrule's own allomorphs vanished along with it in step 2.
     for e in &mut grammar.entries {
         for a in &mut e.allomorphs {
             remap_allomorph_id_and_coocc(
@@ -186,12 +129,7 @@ fn remap_allomorph_id_and_coocc(
     });
 }
 
-/// Drops a `crate::model::MorphemeCoOccurrenceRuleDef` whose primary morpheme (the one whose
-/// `co_occurrence` list holds it) or any `others` target is no longer reachable after
-/// `compact_mrules` has run — see this module's top doc for why `Grammar::morphemes` itself is
-/// never compacted (only its `co_occurrence` contents are filtered here). Must run *after*
-/// `compact_mrules`, since "reachable" is defined in terms of the already-compacted
-/// `grammar.mrules`/`grammar.entries`.
+/// Drops a `MorphemeCoOccurrenceRuleDef` whose primary morpheme or any `others` target is no longer reachable after `compact_mrules`; must run after it, since "reachable" is defined in terms of the already-compacted grammar.
 pub(crate) fn trim_unreachable_morpheme_coocurrence(grammar: &mut Grammar) {
     let mut reachable: HashSet<u32> = HashSet::new();
     for r in &grammar.mrules {

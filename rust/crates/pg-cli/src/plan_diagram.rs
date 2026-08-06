@@ -1,18 +1,4 @@
-//! `pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]` renders
-//! `pg_foma::plan_diagram`'s versioned JSON projection of a grammar's reified compilation `Plan`,
-//! and/or the mermaid diagram rendered from it, mirroring `coverage`/`fst-health`'s own
-//! argument-parsing and stdout-vs-file convention (see `coverage.rs`/`fst_health.rs`).
-//!
-//! - No flags: prints the mermaid diagram (the default "how is my language handled" view).
-//! - `--json`: prints `pg_foma::plan_diagram::PlanDocument`'s canonical JSON instead. The JSON is
-//!   ALWAYS the complete, uncollapsed plan — it is the source artifact, so `--full`/`--threshold`
-//!   are mermaid-only and have no effect when combined with `--json`.
-//! - `--full`: opt-in full mermaid rendering (no sibling-leaf collapsing, regardless of size).
-//! - `--threshold=N`: overrides the default sibling-leaf collapsing threshold for mermaid rendering.
-//!   Mutually exclusive with `--full` (both named at once is a usage error, not a silent pick).
-//! - `<out>` given: writes the selected output (JSON or mermaid) there instead of stdout. A stderr
-//!   summary line (node counts, threshold, whether summarization occurred, the overall capability
-//!   verdict) is always printed, mirroring `fst-health`'s own post-run summary.
+//! `pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]` renders `pg_foma::plan_diagram`'s JSON projection of a grammar's reified `Plan`, and/or the mermaid diagram from it (default: mermaid; `--json` prints the always-complete JSON instead, ignoring the mermaid-only `--full`/`--threshold`; `<out>` writes to a file instead of stdout).
 
 use std::fs;
 

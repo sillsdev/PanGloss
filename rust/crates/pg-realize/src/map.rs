@@ -1,26 +1,23 @@
-//! Natural-phrases N1 (`docs/natural-phrases-plan.md` N1): sidecar mapping config from raw
-//! grammar-author gloss strings to `crate::ir`'s typed feature vocabulary.
+//! Sidecar mapping config from raw grammar-author gloss strings to `crate::ir`'s typed feature
+//! vocabulary.
 //!
-//! **File format decision (orchestrator, N1):** a hand-rolled, restricted TOML *subset* — not
-//! the `toml` crate. The workspace is deliberately zero-external-deps
-//! (`docs/natural-phrases-plan.md`'s non-negotiable constraint 3), and the actual format need
-//! only express: full-line comments (`#`), exactly one `[features]` section header, and
-//! `key = "value"` lines where `key` is either a bare identifier (letters/digits/`_`/`-`) or a
-//! double-quoted string (for keys containing characters a bare identifier can't hold, notably
-//! the `.` in gloss strings like `"poss.1s"`), and `value` is always a double-quoted string. No
-//! multi-line values, no escape sequences, no other section headers, no nested tables, no
-//! arrays — pulling in a real TOML parser (or hand-rolling one) for that generality bought
-//! nothing this crate needs. Anything outside this subset is a load-time error carrying the
-//! 1-indexed source line number, so a typo in a sidecar file (a stray section, a bad quote, an
-//! unrecognized `Feature:Value` pair) fails loudly instead of silently becoming an unmapped
-//! gloss (which degrades *gracefully but silently* to `extras` — exactly the failure mode a
-//! line-numbered load error is meant to prevent for sidecar typos specifically; see
-//! `RealizeMap::parse`).
+//! **File format:** a hand-rolled, restricted TOML *subset* — not the `toml` crate. This
+//! workspace is deliberately zero-external-deps, and the actual format need only express:
+//! full-line comments (`#`), exactly one `[features]` section header, and `key = "value"` lines
+//! where `key` is either a bare identifier (letters/digits/`_`/`-`) or a double-quoted string
+//! (for keys containing characters a bare identifier can't hold, notably the `.` in gloss
+//! strings like `"poss.1s"`), and `value` is always a double-quoted string. No multi-line
+//! values, no escape sequences, no other section headers, no nested tables, no arrays — pulling
+//! in a real TOML parser (or hand-rolling one) for that generality bought nothing this crate
+//! needs. Anything outside this subset is a load-time error carrying the 1-indexed source line
+//! number, so a typo in a sidecar file fails loudly instead of silently becoming an unmapped
+//! gloss (which degrades gracefully but silently to `extras` — exactly the failure mode a
+//! line-numbered load error is meant to prevent; see `RealizeMap::parse`).
 //!
-//! N2 (`docs/natural-phrases-plan.md` N2) reuses this exact subset for `crate::table::
-//! TableRealizer`'s two embedded assets (`templates.toml`'s `[cells]`, `lexicon.toml`'s
-//! `[plural_exceptions]`) rather than writing a third parser — `parse_section` is the
-//! generalized (any single section name) core `RealizeMap::parse` itself now sits on top of.
+//! This exact subset is reused for `crate::table::TableRealizer`'s two embedded assets
+//! (`templates.toml`'s `[cells]`, `lexicon.toml`'s `[plural_exceptions]`) rather than writing a
+//! third parser — `parse_section` is the generalized (any single section name) core
+//! `RealizeMap::parse` itself now sits on top of.
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
@@ -29,16 +26,13 @@ use std::fmt;
 use crate::ir::{CaseRole, Num, Poss};
 
 /// One parsed `"Feature:Value"` (or bare `"Ignore"`) right-hand side — the common currency
-/// between a sidecar TOML value and a morpheme's `realize` property (`docs/natural-phrases-
-/// plan.md` N1's mapping-source priority chain: property, then sidecar, share this parser).
+/// between a sidecar TOML value and a morpheme's `realize` property, which share this parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeatureAssignment {
     Num(Num),
     Poss(Poss),
     Case(CaseRole),
-    /// Explicitly mapped to nothing (e.g. a purely morphophonological gloss) — drops the token
-    /// from `crate::ir::GlossIr::extras` entirely, rather than letting it fall through as an
-    /// unmapped fallback string.
+    /// Explicitly mapped to nothing (e.g. a purely morphophonological gloss); drops the token from `crate::ir::GlossIr::extras` entirely, rather than an unmapped fallback string.
     Ignore,
 }
 
@@ -94,10 +88,7 @@ impl RealizeMap {
                 message: format!("{key:?}: {message}"),
             })?;
 
-            // Last entry for a given key in the same file wins (a plain overwrite, no
-            // conflict-to-extras behavior here -- that rule is about multiple *tokens* in one
-            // parse mapping to the same IR feature at to_ir time, not about duplicate sidecar
-            // keys, which is authoring config, not runtime data).
+            // Last entry for a given key in the same file wins: a plain overwrite, not the conflict-to-extras rule, which is about multiple tokens in one parse, not duplicate sidecar keys.
             entries.insert(key, assignment);
         }
 
@@ -193,8 +184,7 @@ pub(crate) fn parse_section(
     Ok(entries)
 }
 
-/// Parse a `key` token: either a bare identifier (`[A-Za-z0-9_-]+`) or a double-quoted string
-/// (for keys needing characters a bare identifier can't hold, e.g. `.`).
+/// Parse a `key` token: either a bare identifier (`[A-Za-z0-9_-]+`) or a double-quoted string (for keys needing characters a bare identifier can't hold, e.g. `.`).
 fn parse_key(raw: &str, line_no: usize) -> Result<String, MapError> {
     if let Some(inner) = raw.strip_prefix('"') {
         match inner.strip_suffix('"') {

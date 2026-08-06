@@ -1,16 +1,4 @@
-//! Character-definition table synthesis from the snapshot's phoneme/boundary inventory
-//! (`HCLoader.LoadCharacterDefinitionTable`, HCLoader.cs:2669-2743).
-//!
-//! Beyond the phonemes/boundary markers themselves, HCLoader always appends: the "null" boundary
-//! (representations `^0`, `*0`, `&0`, `∅` — used by `AnyPlus`/`AnyStar`/`PrefixNull`/`SuffixNull`
-//! to make morpheme-boundary matching optional around a phonological/environment context) and a
-//! standalone `.` boundary (the space-replacement character, `FormatForm`). The user-authored
-//! morpheme-boundary marker (conventionally `+`) is looked up by representation afterward.
-//!
-//! Dotted-circle (U+25CC) stripping already happened in `pg-fwdata` (see
-//! `pg_snapshot::phonology::Phoneme::representations`'s doc) — this module does not repeat it.
-//! Space -> `.` replacement (`FormatForm`) applies to *forms* (allomorph/entry text), not
-//! phoneme/boundary representations themselves, so it is not applied here either.
+//! Character-definition table synthesis from the snapshot's phoneme/boundary inventory (`HCLoader.LoadCharacterDefinitionTable`); beyond the phonemes/boundary markers themselves, HCLoader always appends the "null" boundary and a standalone `.` boundary, with the user-authored morpheme-boundary marker looked up by representation afterward; dotted-circle stripping and space->`.` replacement both happen elsewhere and are not repeated here.
 
 use hashbrown::HashMap;
 
@@ -45,8 +33,7 @@ pub(crate) fn build(
 
     let mut raw_defs: Vec<RawCharDef> = Vec::new();
     let mut seen_nfd: hashbrown::HashSet<String> = hashbrown::HashSet::new();
-    // xml_id (here: the phoneme/boundary guid) -> index into `raw_defs`, so we can map back to a
-    // `CharDefId` once the table is built (dense ids match `raw_defs` order 1:1).
+    // xml_id -> index into `raw_defs`, so we can map back to a `CharDefId` once the table is built (dense ids match `raw_defs` order 1:1).
     let mut phoneme_of: HashMap<String, CharDefId> = HashMap::new();
     let mut boundary_of: HashMap<String, CharDefId> = HashMap::new();
 
@@ -84,8 +71,7 @@ pub(crate) fn build(
     for bd in &snapshot.phonology.boundary_markers {
         let reps = boundary_representations(bd, default_ws);
         if reps.is_empty() {
-            // HCLoader silently omits a boundary marker with no representation (no `InvalidPhoneme`-
-            // style logger call for boundaries) — not even a warning.
+            // HCLoader silently omits a boundary marker with no representation, not even a warning.
             continue;
         }
         let norm: Vec<String> = reps.iter().map(|r| nfd(r)).collect();
@@ -174,9 +160,7 @@ fn push_synthetic_boundary(
     });
 }
 
-/// HCLoader's boundary-marker representation rule uses `BestVernacularAlternative`, distinct from
-/// phonemes' `VernacularDefaultWritingSystem` (HCLoader.cs:2700-2702) — both fold to "prefer the
-/// project's default vernacular WS, else whatever's there" in this snapshot format.
+/// HCLoader's boundary-marker representation rule uses `BestVernacularAlternative`, distinct from phonemes' `VernacularDefaultWritingSystem`, but both fold to "prefer the project's default vernacular WS, else whatever's there" in this snapshot format.
 fn boundary_representations(bd: &BoundaryMarker, default_ws: Option<&str>) -> Vec<String> {
     ws_forms(&bd.representations, default_ws)
         .into_iter()

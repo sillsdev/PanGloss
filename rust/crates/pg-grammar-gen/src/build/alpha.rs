@@ -84,9 +84,7 @@ pub fn build(var_count: usize, table: &TableSpec, ids: &mut IdMinter) -> AlphaBu
         root_shape.push(seg.ch);
         let rule_xml_id = ids.next("pruleAlpha");
         let var_xml_id = ids.next("var");
-        // LHS is ALSO an alpha-bound occurrence of the same var (module doc) -- not a fixed
-        // `<Segment>` reference -- so the compiled rule is an identity map on whichever segment it
-        // matches, by construction, regardless of which specific character `seg` is.
+        // LHS is also an alpha-bound occurrence of the same var, not a fixed <Segment> reference, so the compiled rule is an identity map on whichever segment it matches.
         prules_xml.push_str(&format!(
             "\n      <PhonologicalRule id=\"{rule_xml_id}\">\n        <Name>alpha{j}</Name>\n        \
              <VariableFeatures>\n          <VariableFeature id=\"{var_xml_id}\" name=\"v{j}\" phonologicalFeature=\"{feat_id}\" />\n        \

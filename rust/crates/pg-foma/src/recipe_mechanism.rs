@@ -83,9 +83,7 @@ use crate::strategy_coverage::{representation_of, StrategyCoverageRow, StrategyR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MechanismId(pub String);
 
-// ---------------------------------------------------------------------------------------------
 // Typed source references (wire domain)
-// ---------------------------------------------------------------------------------------------
 
 /// The model-id domain a `WireModelId` belongs to. Kept from the initial commit unchanged: it is
 /// the type-tag half of a typed source reference, and it is what stops a `PRuleId` being read back
@@ -236,10 +234,7 @@ pub enum MechanismSourceKind {
     NaturalClass,
     MorphemeCoOccurrence,
     AllomorphCoOccurrence,
-    /// The active `CharacterDefinitionTable`. The one source kind with no `ModelLocation`
-    /// counterpart: `MechanismKind::BoundaryCleanup` is derived from the character table it
-    /// cleans, not from an observed construct, and a node with no typed source at all is rejected
-    /// by `MechanismGraph::validate`.
+    /// The active `CharacterDefinitionTable`; the one source kind with no `ModelLocation` counterpart, since `BoundaryCleanup` derives from the table it cleans, not an observed construct.
     CharacterTable,
 }
 
@@ -336,8 +331,7 @@ impl MechanismSource {
         }
     }
 
-    /// The wire domains this source kind's `owner`/`child` must belong to. `None` for a slot that
-    /// must be absent.
+    /// The wire domains this source kind's `owner`/`child` must belong to; `None` for a slot that must be absent.
     fn expected_domains(
         kind: MechanismSourceKind,
     ) -> (Option<WireModelKind>, Option<WireModelKind>) {
@@ -362,9 +356,7 @@ impl MechanismSource {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // The six mechanism kinds
-// ---------------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -421,10 +413,7 @@ impl MechanismKind {
 pub fn mechanism_kind_for(kind: CharacteristicKind) -> MechanismKind {
     use CharacteristicKind::*;
     match kind {
-        // Morphotactics owns complete morphological alternatives: which analyses are legal before
-        // phonological lowering (its dossier's scope paragraph). Rule kind, rule ordering,
-        // co-occurrence units, lexical continuation restrictions and allomorph priority are all
-        // statements about which complete analyses exist.
+        // Morphotactics owns complete morphological alternatives: which analyses are legal before phonological lowering.
         Affixation
         | RealizationalMorphology
         | Compounding
@@ -434,13 +423,10 @@ pub fn mechanism_kind_for(kind: CharacteristicKind) -> MechanismKind {
         | StemName
         | FreeFluctuation => MechanismKind::Morphotactics,
 
-        // A static partition is a lexical/MPR split fixed for the compilation's lifetime.
-        // `SubruleGating` is literally what `crate::gate` partitions on; MPR-group append/overwrite
-        // is the same shape of fixed state split.
+        // A static partition is a lexical/MPR split fixed for the compilation's lifetime; SubruleGating is what crate::gate partitions on.
         SubruleGating | MprGroupAppend | MprGroupOverwrite => MechanismKind::StaticPartition,
 
-        // Ordered phonology owns the compiled rewrite cascade: mode, direction, metathesis,
-        // epenthesis, quantified patterns, and the natural classes those patterns are written over.
+        // Ordered phonology owns the compiled rewrite cascade: mode, direction, metathesis, epenthesis, quantified patterns, natural classes.
         IterativeRewrite
         | SimultaneousRewrite
         | LeftToRightRewrite
@@ -456,22 +442,12 @@ pub fn mechanism_kind_for(kind: CharacteristicKind) -> MechanismKind {
         // Copying a span of the stem.
         Reduplication => MechanismKind::CopyProcess,
 
-        // JUDGMENT CALL, recorded rather than hidden. The work of threading a per-rule owning table
-        // lives in `crate::replace` (i.e. in the ordered-phonology cascade), which argues for
-        // `OrderedPhonology`. It is assigned to `BoundaryCleanup` instead on a structural ground:
-        // cleanup is the only mechanism in this vocabulary that is *table-parameterized* (its
-        // symbol space is the identity `validate` checks along every incident edge, and its own
-        // dossier's invariant is "table/symbol-space identity is preserved"), whereas the
-        // ordered-phonology node is stratum-parameterized. Putting the "there is more than one
-        // table to get right" fact on the node whose contract IS table identity keeps the two
-        // together. Revisit if a later slice makes phonology nodes table-parameterized.
+        // Judgment call: MultiTable is assigned to BoundaryCleanup, not OrderedPhonology, because cleanup is the only mechanism that is table-parameterized (its contract IS table identity), while ordered-phonology is stratum-parameterized.
         MultiTable => MechanismKind::BoundaryCleanup,
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Bodies -- only what sources, symbol space and stratum cannot already express
-// ---------------------------------------------------------------------------------------------
 
 /// Morphotactics' non-provenance facts.
 ///
@@ -545,9 +521,7 @@ pub enum MechanismBody {
     BoundaryCleanup(BoundaryCleanupSpec),
 }
 
-// ---------------------------------------------------------------------------------------------
 // Position facts: symbol space and boundary state (NOT recall guarantees)
-// ---------------------------------------------------------------------------------------------
 
 /// Which symbol alphabet a mechanism reads and writes, and in which character-definition table.
 ///
@@ -591,9 +565,7 @@ pub enum InterfaceField {
     Stratum,
 }
 
-// ---------------------------------------------------------------------------------------------
 // The node
-// ---------------------------------------------------------------------------------------------
 
 /// One mechanism.
 ///
@@ -646,9 +618,7 @@ impl MechanismNode {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // The edge: dependency and order, and nothing else
-// ---------------------------------------------------------------------------------------------
 
 /// `producer`'s output is `consumer`'s input, and therefore `producer` runs first.
 ///
@@ -670,9 +640,7 @@ pub enum MechanismEndpoint {
     Consumer,
 }
 
-// ---------------------------------------------------------------------------------------------
 // The candidate binding: the ONLY place an execution disposition can exist
-// ---------------------------------------------------------------------------------------------
 
 /// What executing one mechanism costs under one named compiler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -680,15 +648,11 @@ pub enum MechanismEndpoint {
 pub enum ExecutionDisposition {
     /// Every required construct is represented by this compiler with no cited gap.
     ExactFst,
-    /// At least one required construct has a documented partial gap for this compiler
-    /// (`StrategyRepresentation::RepresentsWithKnownGap`), so the mechanism's output must be
-    /// confirm-gated.
+    /// At least one required construct has a documented partial gap for this compiler, so the mechanism's output must be confirm-gated.
     ConfirmOnly,
-    /// Executed outside the compiled FST by `crate::peel` -- the division `crate::capability`'s
-    /// `Reduplication` arm describes, which holds for every strategy alike.
+    /// Executed outside the compiled FST by `crate::peel`, per `crate::capability`'s `Reduplication` arm.
     Peeled,
-    /// At least one required construct is `StrategyRepresentation::CannotRepresent` for this
-    /// compiler: a whole-construct recall hole, so no disposition short of refusal is honest.
+    /// At least one required construct is `CannotRepresent` for this compiler: a whole-construct recall hole, so no disposition short of refusal is honest.
     Refused,
 }
 
@@ -721,8 +685,7 @@ impl MechanismBinding {
     pub fn derive(node: &MechanismNode, strategy: EmissionStrategy) -> Self {
         let mut worst = StrategyRepresentation::Represents;
         let mut limiting_rows = Vec::new();
-        // `construct_requirements` is a `BTreeSet<CharacteristicKind>`, so iteration order is
-        // deterministic and `limiting_rows` is too.
+        // `construct_requirements` is a `BTreeSet`, so iteration order (and `limiting_rows`) is deterministic.
         for &kind in &node.construct_requirements {
             let row = representation_of(strategy, kind);
             if row.representation != StrategyRepresentation::Represents {
@@ -787,9 +750,7 @@ fn worse_of(a: StrategyRepresentation, b: StrategyRepresentation) -> StrategyRep
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // The graph
-// ---------------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MechanismGraph {
@@ -1177,9 +1138,7 @@ fn cyclic_members(
 mod tests {
     use super::*;
 
-    /// Every construct is routed to exactly one mechanism, and every mechanism kind is reached. The
-    /// routing function is exhaustively matched, so this pins that the partition is also *onto* --
-    /// a mechanism nothing routes to would be a node kind with no reason to exist.
+    /// Every construct is routed to exactly one mechanism, and every mechanism kind is reached (the partition is also onto).
     #[test]
     fn every_construct_routes_and_every_mechanism_is_reached() {
         let mut reached = BTreeSet::new();
@@ -1194,8 +1153,7 @@ mod tests {
         );
     }
 
-    /// The disposition of the SAME mechanism differs by compiler. If it did not, the binding type's
-    /// mandatory `strategy` would be decoration.
+    /// The disposition of the same mechanism differs by compiler; if it did not, `strategy` would be decoration.
     #[test]
     fn one_mechanism_gets_different_dispositions_from_different_compilers() {
         let node = MechanismNode {

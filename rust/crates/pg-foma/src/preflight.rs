@@ -100,9 +100,7 @@ use crate::health::{
     FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
 
-/// See this module's doc, "Bounded products" — a conservative, provisional placeholder (no
-/// real-grammar calibration evidence exists yet for this specific `mrule_count * prule_count`
-/// product). Never used to reject a compile; `Predicted`/`Warning` evidence only.
+/// A conservative, uncalibrated placeholder (see this module's doc, "Bounded products"); never used to reject a compile, `Predicted`/`Warning` evidence only.
 const RULE_PRODUCT_WARNING_THRESHOLD: u64 = 64;
 
 /// The preflight walker: every `crate::health::HealthFinding` this crate can derive BEFORE any
@@ -116,8 +114,7 @@ pub fn preflight_findings(g: &Grammar) -> Vec<HealthFinding> {
 /// preflight alongside its own capability gate (`pangloss fst-health` is exactly such a caller)
 /// characterizes once in total, not once per call site.
 pub fn preflight_findings_with_semantics(semantics: &GrammarSemantics<'_>) -> Vec<HealthFinding> {
-    // ONE derivation, shared, rather than a separate `characterize` walk here and another inside
-    // `evaluate_capability`.
+    // One derivation, shared, rather than a separate characterize walk here and another inside `evaluate_capability`.
     let profile = semantics.characteristics();
     let decision = evaluate_capability_with_semantics(semantics);
 
@@ -130,8 +127,7 @@ pub fn preflight_findings_with_semantics(semantics: &GrammarSemantics<'_>) -> Ve
     findings
 }
 
-/// `CompileDecision::Refuse` — this grammar's capability gate has at least one construct with no
-/// predicate-proven recall-preserving compilation path. `None` for `Admit`/`ConfirmOnly`.
+/// `CompileDecision::Refuse`: at least one construct has no predicate-proven recall-preserving compilation path. `None` for `Admit`/`ConfirmOnly`.
 fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding> {
     let CompileDecision::Refuse(diags) = decision else {
         return None;
@@ -169,11 +165,7 @@ fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFind
     })
 }
 
-/// `CompileDecision::ConfirmOnly`
-/// — recall-preserving (the FST proposer proposes the superset; HermitCrab confirm prunes), but
-/// this preflight stage has no proven cost bound for whichever construct(s) landed here. Always
-/// `Warning`, `Predicted` (a pre-compile heuristic, not an exact count of compile work). `None` for
-/// `Admit`/`Refuse`.
+/// `CompileDecision::ConfirmOnly`: recall-preserving, but this preflight stage has no proven cost bound for the construct(s) that landed here. Always `Warning`/`Predicted`; `None` for `Admit`/`Refuse`.
 fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding> {
     if !matches!(decision, CompileDecision::ConfirmOnly) {
         return None;
@@ -199,10 +191,7 @@ fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding>
     })
 }
 
-/// The per-rule cost-uncertainty case: every `crate::capability::QuantifierPatternDetail`
-/// observation whose `all_bounded` is `false` (a genuinely unbounded `max="-1"` quantifier
-/// occurrence) — one finding per affected rule, `Predicted`/`Warning` (same reasoning as
-/// `cost_uncertainty_finding`).
+/// One `Predicted`/`Warning` finding per rule with a genuinely unbounded (`max="-1"`) quantifier occurrence.
 fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<HealthFinding> {
     profile
         .observations()
@@ -233,12 +222,7 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
         .collect()
 }
 
-/// The bounded-product case for `MorphRuleOrder::Unordered` strata: reuses
-/// `crate::capability::CharacteristicsProfile::unordered_stratum_details`'s ALREADY-COMPUTED
-/// `rule_count`/`within_bound` (see this module's doc). `within_bound == false` means the exact
-/// rule count is already proven, before foma runs, to exceed
-/// `DEFAULT_ORDERING_MULTIPLICITY_BUDGET` — `ProvenBound`, `Critical`: a proven lower bound can
-/// reject work before allocation.
+/// Bounded-product case for `MorphRuleOrder::Unordered` strata: `within_bound == false` means the exact rule count is already proven to exceed `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, so this is `ProvenBound`/`Critical`.
 fn unordered_stratum_findings(profile: &CharacteristicsProfile) -> Vec<HealthFinding> {
     profile
         .unordered_stratum_details()
@@ -264,8 +248,7 @@ fn unordered_stratum_findings(profile: &CharacteristicsProfile) -> Vec<HealthFin
         .collect()
 }
 
-/// The grammar-wide bounded-product case: see this module's doc "Bounded products". `None` when
-/// the product is at or below `RULE_PRODUCT_WARNING_THRESHOLD`.
+/// The grammar-wide bounded-product case (module doc, "Bounded products"); `None` at or below `RULE_PRODUCT_WARNING_THRESHOLD`.
 fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<HealthFinding> {
     let mrule_count = profile.cardinality.mrule_count as u64;
     let prule_count = profile.cardinality.prule_count as u64;
@@ -300,13 +283,7 @@ mod tests {
     use super::*;
     use crate::capability_entry::evaluate_capability;
 
-    /// A synthetic (delanguaged) `MorphRuleOrder::Unordered` stratum with more loose rules than
-    /// `DEFAULT_ORDERING_MULTIPLICITY_BUDGET` — this module's own "shaped synthetic grammar"
-    /// gate: `preflight_findings` must raise a `ProvenBoundExceedsBudget`/`OrderingRuleCount`
-    /// finding BEFORE any foma compile is attempted. Ported verbatim from `crate::capability`'s own
-    /// identically-named test-only fixture generator (this crate's repo-wide "port a fixture across
-    /// a module boundary" convention for a `pub(crate)`/private helper neither side can share
-    /// directly).
+    /// A synthetic `Unordered` stratum with more loose rules than `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, to check `preflight_findings` raises `ProvenBoundExceedsBudget`/`OrderingRuleCount` before any foma compile.
     fn unordered_overflow_grammar_xml(rule_count: u32) -> String {
         let mut rules = String::new();
         let mut segs = String::new();
@@ -380,11 +357,7 @@ mod tests {
             ))
         );
 
-        // This same grammar's capability gate also resolves to Refuse (an unbounded
-        // Unordered stratum is exactly `unordered-application.unbounded`; capability.rs's own
-        // compose_envelope_refuses_unordered_morph_rule_order_grammar test) -- the generic
-        // semantic-uncertainty finding must ALSO be present, naming the same construct in a less
-        // specific (grammar-wide) way.
+        // This same grammar's capability gate also resolves to Refuse, so the generic semantic-uncertainty finding must also be present, naming the same construct less specifically.
         assert!(
             findings.iter().any(|f| f.severity == Severity::Critical
                 && f.code == FindingCode::UnknownUnboundedConstruct),
@@ -392,8 +365,7 @@ mod tests {
         );
     }
 
-    /// A comfortably-within-budget unordered stratum must raise no `OrderingRuleCount` finding —
-    /// proving the check above is real gating, not an unconditional finding.
+    /// A comfortably-within-budget unordered stratum must raise no `OrderingRuleCount` finding, proving the check above is real gating.
     #[test]
     fn preflight_raises_no_ordering_finding_when_within_budget() {
         let xml = unordered_overflow_grammar_xml(3);
@@ -408,12 +380,7 @@ mod tests {
         );
     }
 
-    /// A grammar with no Refuse/ConfirmOnly-resolved construct, no unbounded quantifier, and a
-    /// small rule-interaction product must raise no preflight finding at all — the empty-input
-    /// convention every other health producer in this crate pins
-    /// (`crate::health_evaluator::fst_health_evaluator_empty_report_is_ideal`). Same shape as
-    /// `pg-cli`'s own `CLEAN_GRAMMAR_XML` (`pack.rs`'s test module), independently known to compose
-    /// to `CompileDecision::Admit`.
+    /// A clean grammar (no Refuse/ConfirmOnly construct, no unbounded quantifier, small rule-interaction product) must raise no preflight finding at all.
     #[test]
     fn preflight_raises_nothing_for_a_clean_small_grammar() {
         const CLEAN_XML: &str = r#"<HermitCrabInput><Language><Name>PreflightCleanFixture</Name>
@@ -447,13 +414,7 @@ mod tests {
         );
     }
 
-    /// This module's semantic-uncertainty scenario: a grammar whose capability verdict is
-    /// `crate::capability::CompileDecision::Refuse` must produce a `Critical`
-    /// `UnknownUnboundedConstruct` finding naming the refusing construct, before foma ever runs.
-    /// Genuinely-overlapping simultaneous subrules are the fixture because
-    /// `simultaneous.subrule-overlap` refuses on a structural automaton intersection; a construct
-    /// refused only pending a proof (`compounding.recursive`) can be reclassified later and is not
-    /// a reliable Refuse case.
+    /// A grammar whose capability verdict is `Refuse` must produce a `Critical` `UnknownUnboundedConstruct` finding naming the refusing construct; genuinely-overlapping simultaneous subrules are the fixture because that refusal is structural, not a proof gap that could be reclassified later.
     #[test]
     fn preflight_raises_critical_finding_for_refuse_verdict() {
         const REFUSE_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
@@ -481,11 +442,7 @@ mod tests {
         );
     }
 
-    /// The grammar-wide bounded-product case: enough morphological/phonological rules to
-    /// cross `RULE_PRODUCT_WARNING_THRESHOLD` raises a `Predicted`/`Warning` finding naming the
-    /// exact product. Exercised directly against `rule_interaction_product_finding` (a synthetic
-    /// `CharacteristicsProfile` with only `cardinality` populated) rather than a large generated
-    /// grammar, since this finding depends on nothing else in the profile.
+    /// Crossing `RULE_PRODUCT_WARNING_THRESHOLD` raises a `Predicted`/`Warning` finding naming the exact product; exercised directly against a synthetic `CharacteristicsProfile` since this finding depends on nothing else in the profile.
     #[test]
     fn rule_interaction_product_finding_fires_above_threshold_not_below() {
         let mut above = CharacteristicsProfile::default();

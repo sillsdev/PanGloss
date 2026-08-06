@@ -158,9 +158,7 @@ pub fn enumerate_default(
         })
     });
 
-    // Row 2: emit::probe_would_refuse / structural_candidate_rules -> structural-composite
-    // subtree presence. Mirrors `emit::emit_with_budget`'s own `!struct_rules.is_empty()` gate
-    // exactly (module doc: a strict superset of "probe_would_refuse alone").
+    // Row 2: structural_candidate_rules -> structural-composite subtree presence, mirroring emit::emit_with_budget's own gate.
     let structural_leaf = (!emit::structural_candidate_rules(g).is_empty()).then(|| {
         plan.add_node(PlanNodeKind::Leaf {
             fragment: FragmentSpec::StructuralCompositeMarker,
@@ -171,13 +169,10 @@ pub fn enumerate_default(
     // Row 3: gate::find_gated_subrules / gate::partition_entries -> the Gate node's partition.
     let gated = find_gated_subrules(g, prules_in_order);
     let mut groups = partition_entries(g, &gated, prules_in_order);
-    // Reproducibility (module doc): `partition_entries` buckets through a `HashMap`, so re-sort by
-    // key before this order becomes part of the Gate node's content address.
+    // Reproducibility: `partition_entries` buckets through a `HashMap`, so re-sort by key before this order becomes part of the Gate node's content address.
     groups.sort_by(|a, b| a.key.cmp(&b.key));
 
-    // The gated-subrule universe: the SAME for every group in this grammar, so
-    // computed once and cloned into each group's own Replace node below (only `group_key` differs
-    // per group).
+    // The gated-subrule universe is the same for every group, computed once and cloned into each group's own Replace node below.
     let gated_subrule_refs: Vec<GatedSubruleRef> = gated
         .iter()
         .map(|gs| GatedSubruleRef {
@@ -187,10 +182,7 @@ pub fn enumerate_default(
         .collect();
     let cascade_rules: Vec<PRuleId> = prules_in_order.iter().map(|pr| rule_id_of(g, pr)).collect();
 
-    // The rewrite-rule Leaf children (`replace.rs`'s per-rule transducers, promoted to `Replace`
-    // leaves): content-identical regardless of which group compiles them, so these dedup across
-    // every group's own Replace node below even though the Replace PARENT node itself no longer
-    // does (see module doc's "Judgment calls").
+    // The rewrite-rule Leaf children are content-identical regardless of which group compiles them, so they dedup across every group's Replace node even though the Replace parent itself no longer does.
     let rule_children: Vec<NodeId> = prules_in_order
         .iter()
         .map(|pr| {
@@ -202,11 +194,7 @@ pub fn enumerate_default(
         })
         .collect();
 
-    // One Compose (group lexicon fragment .o. THIS GROUP'S OWN Replace node) per partition group --
-    // mirrors `compile_gated_grammar_with_budget`'s own per-group `lexc_net .o. rules_net` step.
-    // Each group's Replace node carries its OWN `group_key`, so distinct groups get
-    // distinct Replace NodeIds (module doc) rather than sharing one node under different intended
-    // meanings.
+    // One Compose (group lexicon fragment .o. this group's own Replace node) per partition group; each Replace carries its own group_key, so distinct groups get distinct NodeIds.
     let group_children: Vec<NodeId> = groups
         .iter()
         .map(|group| {
@@ -246,9 +234,7 @@ pub fn enumerate_default(
         children: group_children,
     });
 
-    // Root: the gate-partitioned, rule-composed lexicon, UNIONed with whichever composite-emission
-    // markers this grammar's should_run/structural facts license (module doc's judgment call on
-    // why Union, and why these sit OUTSIDE the Gate node rather than nested per-group).
+    // Root: the gate-partitioned, rule-composed lexicon, unioned with whichever composite-emission markers this grammar's should_run/structural facts license.
     let mut root_children = vec![gate_node];
     root_children.extend(composite_leaf);
     root_children.extend(structural_leaf);
@@ -285,14 +271,9 @@ pub fn enumerate_default(
 /// filtering, or evaluating a single candidate cannot separate them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CandidateRole {
-    /// This grammar's default compilation. See `crate::recipe_runtime` for the one behaviour that
-    /// reads this: a baseline whose plan needs marker subtrees `build::build_controllable` cannot
-    /// build is realized by the whole-grammar tuned adapter instead, because for the DEFAULT
-    /// compilation that adapter's network is the right answer.
+    /// This grammar's default compilation; a baseline needing marker subtrees `build_controllable` can't build is realized by the whole-grammar tuned adapter instead (see `crate::recipe_runtime`).
     Baseline,
-    /// Any other candidate. An alternative can never be realized by a whole-grammar adapter it did
-    /// not ask for: that adapter derives its own topology, so measuring a permutation there would
-    /// measure the baseline network and report it as the permutation.
+    /// Any other candidate; never realized by a whole-grammar adapter it did not ask for, since that adapter derives its own topology and would measure the baseline network instead.
     Alternative,
 }
 
@@ -372,19 +353,12 @@ impl LoweredCandidate {
 /// offered as a candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EmissionStrategy {
-    /// Interpret `plan` with `build::build_controllable`. The only strategy that honours a plan's
-    /// assembly shape, and the only one that can express a permutation — but it builds the
-    /// controllable subtree ONLY, so on a plan carrying marker leaves its network omits whatever
-    /// those subtrees contribute.
+    /// Interpret `plan` with `build::build_controllable`: the only strategy honouring a plan's assembly shape and expressing a permutation, but it builds the controllable subtree only, omitting whatever marker leaves contribute.
     #[default]
     PlanComposed,
-    /// `emit::emit` (surface-probed) + rules, via `analyzer::FomaProposer::new`. Whole-grammar, every
-    /// construct covered. Ignores `plan` entirely: this compiler derives its own topology, so it can
-    /// express a grammar's DEFAULT compilation and nothing else.
+    /// `emit::emit` (surface-probed) + rules: whole-grammar, every construct covered, ignoring `plan` entirely since this compiler derives its own topology.
     TunedSurfaceProbed,
-    /// `emit::emit_underlying_templated` + a compiled rewrite cascade, via
-    /// `templated_compile::compile_templated_morphotactics`. Whole-grammar and composite-free.
-    /// Also ignores `plan`, for the same reason.
+    /// `emit::emit_underlying_templated` + a compiled rewrite cascade: whole-grammar, composite-free, also ignoring `plan` for the same reason.
     TemplatedUnderlyingTokens,
 }
 
@@ -465,8 +439,7 @@ pub fn enumerate_candidates(
         label: "default",
         plan: default_plan,
         adapter: LoweringAdapter::ControllablePlanCompose,
-        // The enumerator's first candidate IS this grammar's default compilation. Stated here rather
-        // than inferred from its position, which is the whole point of `CandidateRole`.
+        // Stated here rather than inferred from position, which is the whole point of `CandidateRole`.
         role: CandidateRole::Baseline,
     }];
 
@@ -531,11 +504,7 @@ mod tests {
             .collect()
     }
 
-    /// A bare, rule-free grammar: no `PhonologicalRuleDefinitions` element at all (so
-    /// `PhonologyProbe::new` returns `None`), no `MorphologicalRuleDefinitions` (so no `Role::Infix`
-    /// rule exists either) -- `should_run` must be `false`. No gated subrule can exist (there are no
-    /// phonological subrules at all), so this is also the ungated case: exactly one partition group
-    /// with an empty key ("ungated grammar collapses to a single-group Gate").
+    /// A bare, rule-free grammar (no phonological or morphological rules): `should_run` is `false`, and it is the ungated case, one partition group with an empty key.
     fn ungated_no_composite_fixture() -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -567,12 +536,7 @@ mod tests {
         .to_string()
     }
 
-    /// A grammar with one real (ungated, ordinary) phonological rewrite rule -- `PhonologyProbe::
-    /// new` returns `Some`, so `should_run` must be `true` (`preexpand::should_run`'s own doc: `phon.
-    /// is_some() || any_infix_rule(g)`). The rule's LHS is a real segment (no empty `<PhoneticInput
-    /// />`, no `Metathesis`), so `probe_would_refuse` must be `false` and `structural_candidate_
-    /// rules` empty (no circumfix/dropped-material rule declared either) -- the structural route
-    /// must be ABSENT. No MPR/POS restriction anywhere, so still ungated (1 group).
+    /// A grammar with one real ungated phonological rewrite rule: `should_run` is `true`, the structural route is absent (no circumfix/dropped-material rule), and it is still ungated (1 group).
     fn should_run_ordinary_phonology_fixture() -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -619,12 +583,7 @@ mod tests {
         .to_string()
     }
 
-    /// A grammar with ONE gated MPR-restricted subrule (`requiredMPRFeatures="mpr1"`) and two
-    /// entries realizing both truth values of that gate key -- `partition_entries` must yield
-    /// exactly 2 groups (mirrors `gate.rs`'s own `sixteen_group_fixture` pattern, scaled down to the
-    /// smallest case that still exercises >1 group). Also gives `should_run` a real phonological
-    /// rule to be `true` on, and no epenthesis/metathesis/circumfix construct, so the structural
-    /// route stays absent -- isolating the Gate seam from the other two.
+    /// A grammar with one gated MPR-restricted subrule and two entries realizing both truth values of that gate key, so `partition_entries` must yield exactly 2 groups; the structural route stays absent, isolating the Gate seam from the other two.
     fn gated_two_group_fixture() -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -694,9 +653,7 @@ mod tests {
             .expect("plan must contain exactly one Gate node")
     }
 
-    /// Row 3: the enumerated Plan's Gate `partition.groups.len()` equals the REAL
-    /// `partition_entries(g, &gated, &prules_in_order).len()` -- for the ungated fixture, both must
-    /// be 1 (the degenerate-collapse case).
+    /// Row 3: the enumerated Plan's Gate `partition.groups.len()` equals the real `partition_entries` count; both must be 1 for the ungated fixture.
     #[test]
     fn ungated_fixture_collapses_to_single_group_gate_matching_real_seam() {
         let g = load(&ungated_no_composite_fixture());
@@ -740,8 +697,7 @@ mod tests {
         .is_empty());
     }
 
-    /// Row 1: the composite-emission subtree is present in the enumerated Plan IFF the REAL
-    /// `preexpand::should_run` says so, for a grammar that actually exercises it.
+    /// Row 1: the composite-emission subtree is present in the enumerated Plan iff `preexpand::should_run` says so.
     #[test]
     fn composite_subtree_present_iff_should_run() {
         let g = load(&should_run_ordinary_phonology_fixture());
@@ -767,8 +723,7 @@ mod tests {
             "composite-emission subtree presence must match preexpand::should_run exactly"
         );
 
-        // Row 2: the structural route must be ABSENT here (probe_would_refuse is false and this
-        // fixture declares no circumfix/dropped-material rule).
+        // Row 2: the structural route must be absent (probe_would_refuse is false, no circumfix/dropped-material rule).
         let structural_leaves = leaves_matching(&plan, |f| {
             matches!(f, FragmentSpec::StructuralCompositeMarker)
         });
@@ -780,16 +735,7 @@ mod tests {
         );
     }
 
-    /// Row 3 on a REAL gated multi-group grammar: the enumerated Plan's Gate
-    /// `partition.groups.len()` equals `partition_entries(...).len()` (here, 2), one
-    /// `GatedSubruleRef` per `find_gated_subrules` entry, and (the soundness invariant)
-    /// each group's `Compose` child now references its OWN, DISTINCT `Replace` `NodeId` — the two
-    /// groups here realize different gate keys (`[true]`/`[false]`), so they MUST get different
-    /// `Replace` nodes (a single shared node would be unsound:
-    /// see `ReplaceCascadeSpec`'s own doc). The companion test below,
-    /// `identically_gated_groups_across_independent_plans_share_the_same_replace_node_id`, proves
-    /// the other half of the invariant: groups that DO gate identically still dedup to the SAME
-    /// `Replace` `NodeId`.
+    /// Row 3 on a real gated multi-group grammar: the two groups realize different gate keys, so each must get a distinct `Replace` `NodeId` (the soundness invariant); the companion test below proves the other half, that identically-gated groups still dedup to the same `NodeId`.
     #[test]
     fn gated_two_group_fixture_matches_real_partition_and_gives_distinct_per_group_replace_nodes() {
         let g = load(&gated_two_group_fixture());
@@ -821,15 +767,12 @@ mod tests {
         assert_eq!(partition.gated_subrules[0].rule_pos, gated[0].rule_pos);
         assert_eq!(partition.gated_subrules[0].sub_idx, gated[0].sub_idx);
 
-        // Both possible keys (true and false) must be realized, since the fixture's 2 entries
-        // split exactly that way.
+        // Both possible keys (true and false) must be realized, since the fixture's 2 entries split exactly that way.
         let mut keys: Vec<Vec<bool>> = partition.groups.iter().map(|gr| gr.key.clone()).collect();
         keys.sort();
         assert_eq!(keys, vec![vec![false], vec![true]]);
 
-        // The soundness invariant: every group's Compose child must reference its OWN
-        // Replace NodeId -- these two groups gate DIFFERENTLY ([true] vs. [false]), so sharing one
-        // Replace node between them would be unsound.
+        // The soundness invariant: these two groups gate differently ([true] vs [false]), so sharing one Replace node between them would be unsound.
         let PlanNodeKind::Gate { children, .. } = plan.get(gate_id).unwrap() else {
             unreachable!("gate_of only ever returns a Gate node")
         };
@@ -859,8 +802,7 @@ mod tests {
              shared/deduped node"
         );
 
-        // The two groups' own LexiconFragment leaves, by contrast, must differ (different entries
-        // subsets) -- the real per-group filtering `compile_gated_grammar_with_budget` performs.
+        // The two groups' own LexiconFragment leaves must differ (different entries subsets), the real per-group filtering.
         let lexicon_leaves =
             leaves_matching(&plan, |f| matches!(f, FragmentSpec::LexiconFragment { .. }));
         assert_eq!(
@@ -871,15 +813,7 @@ mod tests {
         );
     }
 
-    /// The other half of the soundness invariant (companion to the test above, which proves
-    /// DIFFERENTLY-gated groups get DISTINCT `Replace` NodeIds): groups that gate IDENTICALLY still
-    /// dedup to the SAME `Replace` `NodeId`, even across two INDEPENDENT `enumerate_default` calls
-    /// (two separate `Plan` arenas) -- content addressing dedups by CONTENT (`rules` +
-    /// `gated_subrules` + `group_key`), never by which `Plan`/`Gate` node happened to build a node.
-    /// A single `partition_entries` call can never itself realize two groups with the same key
-    /// (`partition_entries` is a true partition -- one group per DISTINCT key by construction), so
-    /// this property can only be exercised across two independently-enumerated `Plan`s, exactly
-    /// what this test does: build the same fixture twice and match up each plan's groups by key.
+    /// The other half of the soundness invariant: groups that gate identically still dedup to the same `Replace` `NodeId` across two independent `enumerate_default` calls, since content addressing dedups by content, never by which `Plan` built a node.
     #[test]
     fn identically_gated_groups_across_independent_plans_share_the_same_replace_node_id() {
         let g = load(&gated_two_group_fixture());
@@ -927,11 +861,7 @@ mod tests {
         }
     }
 
-    /// A regression pin for `rule_id_of`: every rewrite-rule Leaf's `PRuleId` inside the
-    /// enumerated Plan's Replace cascade must equal the `PRuleId` `prules_in_order` was itself built
-    /// from (`g.strata`'s own `phonologicalRules` id-list order), not merely "some id or other" --
-    /// this is what makes `FragmentSpec::RewriteRule`/`Provenance::RewriteRule` a faithful
-    /// capability-evidence-provenance tag rather than a coincidentally-plausible one.
+    /// A regression pin for `rule_id_of`: every rewrite-rule Leaf's `PRuleId` must equal the one `prules_in_order` was itself built from, not merely "some id or other".
     #[test]
     fn rewrite_rule_leaves_carry_the_correct_prule_id() {
         let g = load(&should_run_ordinary_phonology_fixture());
@@ -961,9 +891,7 @@ mod tests {
         assert_eq!(*provenance, Provenance::RewriteRule(expected_id));
     }
 
-    /// A small diagnostic-only sanity check that the module-doc example XML actually compiles into
-    /// the shape it claims -- exercises `Plan::root` resolving to a `Union` when both a Gate node
-    /// AND a composite marker are present.
+    /// `Plan::root` resolves to a `Union` when both a Gate node and a composite marker are present.
     #[test]
     fn root_is_union_when_composite_marker_and_gate_both_present() {
         let g = load(&should_run_ordinary_phonology_fixture());
@@ -981,9 +909,7 @@ mod tests {
         }
     }
 
-    /// Companion to the above: when NEITHER composite marker is present (the ungated,
-    /// should_run=false fixture), the root collapses directly to the Gate node -- no pointless
-    /// `Union` of one child.
+    /// Companion to the above: when neither composite marker is present, the root collapses directly to the Gate node, no pointless one-child `Union`.
     #[test]
     fn root_is_gate_directly_when_no_composite_markers_present() {
         let g = load(&ungated_no_composite_fixture());
@@ -1000,9 +926,7 @@ mod tests {
         );
     }
 
-    /// Determinism: building the same fixture's Plan twice yields the same root NodeId and the
-    /// same node count -- content addresses must be reproducible across independent calls, not just
-    /// stable within one.
+    /// Determinism: building the same fixture's Plan twice yields the same root NodeId and node count.
     #[test]
     fn enumerate_default_is_deterministic_across_independent_calls() {
         let g = load(&gated_two_group_fixture());
@@ -1017,13 +941,9 @@ mod tests {
         assert_eq!(plan_a.len(), plan_b.len());
     }
 
-    // ---------------------------------------------------------------------------------------------
     // enumerate_candidates
-    // ---------------------------------------------------------------------------------------------
 
-    /// A grammar with ≥2 gate groups must yield 2 candidates: `"default"` and
-    /// `"gate-group-permuted"`, with genuinely different root NodeIds (the whole point of the
-    /// second axis -- see `enumerate_candidates`'s own doc).
+    /// A grammar with ≥2 gate groups must yield 2 candidates, `"default"` and `"gate-group-permuted"`, with genuinely different root NodeIds.
     #[test]
     fn enumerate_candidates_yields_two_distinct_candidates_for_a_multi_group_gated_fixture() {
         let g = load(&gated_two_group_fixture());
@@ -1046,9 +966,7 @@ mod tests {
         );
     }
 
-    /// An ungated (single-group) grammar must yield exactly 1 candidate: permuting a single-element
-    /// group list is a no-op (same root NodeId as `"default"`), so `enumerate_candidates` must not
-    /// append a second, merely-relabeled copy of the same plan.
+    /// An ungated (single-group) grammar must yield exactly 1 candidate: permuting a single-element group list is a no-op, so `enumerate_candidates` must not append a relabeled copy.
     #[test]
     fn enumerate_candidates_yields_one_candidate_for_an_ungated_fixture() {
         let g = load(&ungated_no_composite_fixture());
@@ -1066,8 +984,7 @@ mod tests {
         assert_eq!(candidates[0].label, "default");
     }
 
-    /// Determinism across independent calls (mirrored for the candidate list): building the
-    /// same fixture's candidates twice yields the same root NodeIds in the same order.
+    /// Determinism across independent calls: building the same fixture's candidates twice yields the same root NodeIds in the same order.
     #[test]
     fn enumerate_candidates_is_deterministic_across_independent_calls() {
         let g = load(&gated_two_group_fixture());

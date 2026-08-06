@@ -126,8 +126,7 @@ mod tests {
 
     #[test]
     fn projections_are_namespaced_so_the_same_value_digests_differently() {
-        // The whole point of binding the projection name into the preimage: an outcome projection
-        // and a semantic projection over identical bytes must never collide.
+        // The whole point of binding the projection name into the preimage: two different projections over identical bytes must never collide.
         let v = json!({ "cases": [] });
         assert_ne!(
             digest_projection(SEMANTIC_PROJECTION, &v).unwrap(),
@@ -147,8 +146,7 @@ mod tests {
 
     #[test]
     fn sha256_bytes_is_exact_and_does_not_normalize_line_endings() {
-        // D12: the whole reason `sourceSha256` cannot reuse
-        // `pg_lexicon::grammar_source_fingerprint`.
+        // The whole reason `sourceSha256` cannot reuse `pg_lexicon::grammar_source_fingerprint`.
         assert_ne!(sha256_bytes(b"a\r\nb"), sha256_bytes(b"a\nb"));
     }
 }
