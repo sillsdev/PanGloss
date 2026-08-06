@@ -423,6 +423,34 @@ function Invoke-CommentHygieneReport {
     }
 }
 
+# Formatting is APPLIED, not merely checked, before any mode that is about to compile. Deciding line
+# breaks and spacing by tool removes a whole class of diff churn and of "who reformatted this" argument,
+# and it is the one cleanup that is provably semantics-preserving.
+#
+# Applying rather than checking is safe HERE specifically because agents in this repo are instructed not
+# to build: the compile modes are the coordinator's path, so this never rewrites a file out from under an
+# agent mid-edit. If that ever changes, this must become a check.
+#
+# No rustfmt.toml on purpose. Stock defaults already match this repo's conventions -- max_width 100 is
+# both rustfmt's default and the width the comments here wrap to -- and a config file is an invitation to
+# relitigate settings that nothing depends on. `wrap_comments` stays off, so this never rewrites comment
+# TEXT; that is the comment checker's job and the two must not fight over the same lines.
+function Invoke-RustFmt {
+    param([Parameter(Mandatory)][string]$RustRoot)
+    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { return }
+    $before = & cargo fmt --all --manifest-path (Join-Path $RustRoot 'Cargo.toml') -- --check 2>&1
+    $hunks = @($before | Where-Object { $_ -match '^Diff in ' }).Count
+    if ($hunks -eq 0) { Write-Host '[pg] rustfmt: already formatted.' -ForegroundColor Green; return }
+    & cargo fmt --all --manifest-path (Join-Path $RustRoot 'Cargo.toml') 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[pg] rustfmt: applied ($hunks hunk(s) reformatted -- they are in your working tree now)." -ForegroundColor Yellow
+    } else {
+        # A parse error is the usual cause, and it will fail the build a moment later with a better
+        # message. Never fatal here: refusing to build because the formatter tripped helps nobody.
+        Write-Host '[pg] rustfmt: could not run (syntax error?) -- continuing to the build for a real diagnostic.' -ForegroundColor Yellow
+    }
+}
+
 $profileLabel = switch ($Mode) {
     'release' { 'release (fat LTO)' }
     'test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
@@ -476,6 +504,10 @@ if (-not $memCheck.Ok) {
 # Not in doctor: doctor reports it in its own findings section further up, and this path runs for every
 # mode, so an unguarded call ran the ~7s scan twice there.
 if ($Mode -ne 'doctor') { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }
+
+# Only for modes that actually compile. `gc` and `run` must not rewrite source as a side effect, and
+# `doctor` is explicitly a read-only environment report.
+if ($Mode -in @('build', 'test', 'corpus-test', 'release', 'doc')) { Invoke-RustFmt -RustRoot $rustRoot }
 
 if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
     Write-Host '[pg] corpus-test refused BEFORE starting cargo -- required corpus file(s) missing:' -ForegroundColor Red
