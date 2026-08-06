@@ -484,8 +484,22 @@ foreach ($f in $files) {
                     }
                 }
             }
+            # A doc block on a #[test] is SELF-ANCHORING for this category: the claim's falsifier is the
+            # very item the block documents, sitting directly beneath it. "This test proves X refuses Y"
+            # cannot rot unnoticed the way the same sentence can three modules away -- if it stops being
+            # true, the test fails. Demanding a `pinned by` citation there would ask a test to cite
+            # itself, which was three of the four hits when this was measured.
+            $documentsATest = $false
+            for ($j = $lineNo - 1; $j -lt [Math]::Min($lineNo + 11, $allLines.Count); $j++) {
+                $l2 = $allLines[$j]
+                if ($l2 -match '^\s*#\[test\]|^\s*#\[tokio::test\]') { $documentsATest = $true; break }
+                if ($l2 -match '^\s*#!?\[') { continue }
+                if ($l2.Trim() -eq '') { continue }
+                break
+            }
+
             foreach ($bl in $blockLines) {
-                if ($blockCited) { break }
+                if ($blockCited -or $documentsATest) { break }
                 if ($bl -match $intraDocLink) { continue }
                 if (($bl -match $claimVerbs) -and ($bl -match $identToken)) {
                     $counts['cross-reference-claim']++

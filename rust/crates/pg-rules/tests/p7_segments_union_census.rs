@@ -1,4 +1,4 @@
-//! P7 closure census: asserts the `NaturalClassKind::Segments` union over-approximation (id-lane-off matching, where P10's `StrRep` identity lane is disabled) is inert on the reference grammars — every `Segments`-kind class union is exact, and every unifiable distinct char-def pair is unreachable in any `<PhoneticShape>`. A failure means the grammar data on disk no longer satisfies the conditions P7 closure relied on, not that engine code broke. Self-skips when the untracked sample grammars are absent.
+//! Census of the `NaturalClassKind::Segments` union over-approximation under id-lane-off matching: on the reference grammars every `Segments`-kind class union is exact, and no unifiable distinct char-def pair occurs in any `<PhoneticShape>`. A failure means the grammar data on disk changed, not that engine code broke. Self-skips when the untracked sample grammars are absent.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn production_default_budget_refuses_a_deep_unordered_stratum() {
-        // Exercises the same path `FomaProposer::new` uses in production (`ComposeBudget::from_env`, no explicit cap) — proves the calibrated default actually refuses an unbounded configuration.
+        // Uses the production construction path (`FomaProposer::new`, `ComposeBudget::from_env`, no explicit cap) so the assertion below is about the calibrated default rather than a hand-set cap.
         let g = load(&stratum_xml(
             "unordered",
             crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,
