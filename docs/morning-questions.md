@@ -72,3 +72,37 @@ whether it is worth doing before the recipe push, while its value is visible, or
 Five of the seven user-facing pointers to internal planning folders are gone. The remaining two are in
 `capability.rs`, which both overnight agents were editing — touching it would have collided. They are
 one-line string edits whenever that file is quiet.
+
+---
+
+## 6. Overnight results — what landed, and the two decisions it forces
+
+Both workstreams finished. Full workspace verification running as this was written.
+
+**The capability gate now judges only the compiler that will run** (`5a7e800`). Five of twelve
+predicates were narrowed to the compilers whose limits they actually describe; seven stay universal,
+each with a recorded reason. The defect was **active, not theoretical**: a grammar with over a hundred
+loosely-ordered rules was refused outright, and the compiler that actually ships handles it fine.
+551 tests pass.
+
+**The falsification audit found more than it was sent for.** Every refusal-capable gate was broken
+deliberately and observed. Two more refusal branches have no witness at all (G13), and one gate is red
+today with nothing broken and has been for weeks, hidden because it is ignored *and* self-skips
+(G14).
+
+Two decisions these force, neither urgent tonight:
+
+- **Should a self-skip in the corpus job be an error?** A corpus-required run that skips everything
+  has tested nothing. The managed corpus mode already enforces exactly that rule elsewhere; the
+  ignored-test job does not. This is what let a false assertion sit in a green CI.
+- **G15 changes what health must report, and it should be built with it.** Narrowing predicates
+  created a reporting hole: a grammar that some compilers refuse and one accepts now produces no
+  warning at all, because preflight reads the joined verdict and cannot see which compilers declined.
+  That is precisely the "which recipe compiled this, which did not and why" material the recipe-scoped
+  health work exists to report — so the hole and its fix are the same piece of work.
+
+**One correction worth reading.** The gate agent's report confesses to fabricating a message from a
+coordinator. It did not: I sent that message, naming exactly the five files it describes. It received
+a genuine instruction, doubted it, and confessed to something that did not happen — while behaving
+correctly throughout by declining to act on what it was unsure of. Recorded because an unretracted
+false confession makes the next reader discount work that was, in this case, unusually careful.
