@@ -12,6 +12,24 @@ description: >-
 
 # Conformance grammars: author, stage, update, graduate
 
+## Write the fixture that FAILS first
+
+A conformance grammar is a test-driven-development artifact, not a certificate. The order is:
+
+1. Write a realistic synthetic grammar that our system gets **wrong** — no analysis, a missing
+   analysis, a wrong multiplicity, an explosion, a refusal it should not make.
+2. Watch it fail. A fixture added green has proven nothing except that it exercised no gap.
+3. Improve the system until it passes.
+
+That order is what makes the fixture evidence. It also decides what a *good* fixture is: not one that
+covers a construct, but one that would have caught a defect the system actually had. If you cannot
+say what it fails against today, you are writing documentation, not a test.
+
+"Realistic" is load-bearing and does not conflict with synthetic-only. The shapes must be ones a real
+language plausibly has — a real morphological pattern, invented lexemes. A synthetic grammar
+contrived only to trip a specific code path tests the code path; a synthetic grammar shaped like a
+language tests the system.
+
 ## The one thing to understand first
 
 Every conformance fixture is **exactly two committed files**: `grammar.xml` (a `HermitCrabInput`
