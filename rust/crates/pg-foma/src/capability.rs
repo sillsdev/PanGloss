@@ -500,15 +500,16 @@ pub struct CircumfixOutputActionDetail {
     /// WHOLE rule's surface via `pg_rules::morph::synthesize`, which does not special-case by
     /// allomorph, once the rule is admitted every allomorph rides along.
     ///
-    /// `false` means NO allomorph of this rule is `CircumfixPrefix` AND allomorph 0's role
-    /// (`Role::Infix`/`Role::Reduplication`/`Role::Process`/`Role::CircumfixSuffix`/`Role::None`\
-    /// `Prefix`\`Suffix` with no LHS-material-dropping allomorph, per `crate::emit::classify_affix`)
-    /// falls outside `is_structural_rule`'s covered set even though THIS allomorph still drops real
-    /// LHS material -- e.g. a rule whose primary shape is genuine interdigitation
-    /// (`crate::preexpand`'s own job) or whose RHS uses `OutputAction::Modify`/`InsertContext`
-    /// (`Role::Process`, never compilable as a literal string at all, module doc "Not emittable as
-    /// literal lexc"). The real compiler already honestly skips such an allomorph everywhere (never
-    /// silently mis-compiled): `crate::emit::emit_rule_allomorphs`'s own role/zone check reports it
+    /// `false` means NO allomorph of this rule is `CircumfixPrefix`, none carries an
+    /// `OutputAction::Modify`/`InsertContext`, AND allomorph 0's role
+    /// (`Role::Infix`/`Role::Reduplication`/`Role::CircumfixSuffix`/`Role::None`\`Prefix`\`Suffix`
+    /// with no LHS-material-dropping allomorph, per `crate::emit::classify_affix`) falls outside
+    /// `is_structural_rule`'s covered set even though THIS allomorph still drops real LHS material —
+    /// e.g. a rule whose primary shape is genuine interdigitation (`crate::preexpand`'s own job).
+    /// `Role::Process` is NOT such a case: `is_structural_rule` admits it unconditionally, because
+    /// the structural composite replays `pg_rules::morph::synthesize` rather than emitting literal
+    /// text. The real compiler already honestly skips a `false` allomorph everywhere (never silently
+    /// mis-compiled): `crate::emit::emit_rule_allomorphs`'s own role/zone check reports it
     /// `uncovered`, and it never reaches `build_structural_composites` either.
     pub structural_composite_attempted: bool,
 }
@@ -1599,6 +1600,20 @@ pub enum PredicateVerdict {
     Refuse(CapabilityDiagnostic),
 }
 
+/// The compilers that compose `crate::replace`'s rewrite cascade, and so the only ones a
+/// `crate::lower::pattern_slots` admission failure can constrain. See docs/research/pg-foma-capability-design-notes.md.
+pub const CASCADE_COMPOSING_STRATEGIES: &[EmissionStrategy] = &[
+    EmissionStrategy::PlanComposed,
+    EmissionStrategy::TemplatedUnderlyingTokens,
+];
+
+/// The compilers built on `crate::emit`'s derivation layers, and so the only ones the
+/// ordering-multiplicity budget can constrain. See docs/research/pg-foma-capability-design-notes.md.
+pub const DERIVATION_LAYER_STRATEGIES: &[EmissionStrategy] = &[
+    EmissionStrategy::TunedSurfaceProbed,
+    EmissionStrategy::TemplatedUnderlyingTokens,
+];
+
 /// An oracle-verified, conservative proof obligation. Implementors MUST over-refuse rather than
 /// under-refuse — the discipline every predicate in this module follows.
 pub trait CapabilityPredicate {
@@ -1609,14 +1624,8 @@ pub trait CapabilityPredicate {
     /// Which `crate::enumerate::EmissionStrategy`s this predicate's judgement actually constrains —
     /// the compilers whose proposer could exhibit the shape it refuses.
     ///
-    /// **Defaults to EVERY strategy, and that default is load-bearing.** A predicate's subject
-    /// matter is a claim about a COMPILER (see `Disposition::ConfirmOnly`'s own definition), so a
-    /// predicate that has not been examined compiler by compiler cannot honestly be said to leave
-    /// any of them alone. Overriding this narrows what gets gated for the strategies dropped, which
-    /// is a behaviour change requiring per-compiler evidence — never a cleanup, and never a
-    /// side effect of adding a predicate. `compose_envelope_across_strategies` derives the
-    /// whole-grammar verdict from the per-strategy ones, so with every predicate at this default the
-    /// derived verdict is exactly what a single strategy-blind pass produced.
+    /// Defaults to every strategy; narrowing is a behaviour change requiring per-compiler evidence,
+    /// and the identity tests move with it. See docs/research/pg-foma-capability-design-notes.md.
     fn constrains_strategies(&self) -> &[EmissionStrategy] {
         ALL_STRATEGIES
     }
@@ -1691,6 +1700,11 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
 
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::SimultaneousRewrite]
+    }
+
+    // The overlap proof gates `crate::replace`'s sequential compose; the mainline emitter never runs it.
+    fn constrains_strategies(&self) -> &[EmissionStrategy] {
+        CASCADE_COMPOSING_STRATEGIES
     }
 
     fn provenance(&self) -> EvidenceProvenance {
@@ -2027,6 +2041,11 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
         &[CharacteristicKind::RightToLeftRewrite]
     }
 
+    // `compile_rtl_branch_net` is a cascade construction; the mainline emitter composes no cascade.
+    fn constrains_strategies(&self) -> &[EmissionStrategy] {
+        CASCADE_COMPOSING_STRATEGIES
+    }
+
     fn provenance(&self) -> EvidenceProvenance {
         EvidenceProvenance::Structural
     }
@@ -2144,6 +2163,11 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::Metathesis]
+    }
+
+    // `compile_metathesis_rule` is a cascade construction; the mainline emitter composes no cascade.
+    fn constrains_strategies(&self) -> &[EmissionStrategy] {
+        CASCADE_COMPOSING_STRATEGIES
     }
 
     fn provenance(&self) -> EvidenceProvenance {
@@ -2639,6 +2663,11 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
         &[CharacteristicKind::UnorderedMorphRuleApplication]
     }
 
+    // The budget bounds `emit::build_deriv_chain`; `uflexc`'s self-looping chains build no such layers.
+    fn constrains_strategies(&self) -> &[EmissionStrategy] {
+        DERIVATION_LAYER_STRATEGIES
+    }
+
     fn provenance(&self) -> EvidenceProvenance {
         EvidenceProvenance::Structural
     }
@@ -2900,6 +2929,11 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::QuantifierPattern]
+    }
+
+    // `compile_attempted` reads `pattern_slots`, a cascade seam the mainline emitter never asks.
+    fn constrains_strategies(&self) -> &[EmissionStrategy] {
+        CASCADE_COMPOSING_STRATEGIES
     }
 
     fn provenance(&self) -> EvidenceProvenance {
@@ -5067,7 +5101,7 @@ mod tests {
       </Strata>
     </Language></HermitCrabInput>"#;
 
-    /// Same 2-part-LHS-drop shape, but the RHS uses `ModifyFromInput` instead of `CopyFromInput`: `classify_affix` reads this as `Role::Process`, the out-of-scope case that must stay honestly unsupported.
+    /// Same 2-part-LHS-drop shape, but the RHS uses `ModifyFromInput` instead of `CopyFromInput`: `classify_affix` reads this as `Role::Process`, which `is_structural_rule` admits unconditionally.
     const CIRCUMFIX_PROCESS_XML: &str = r#"<HermitCrabInput><Language><Name>CircProcess</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -5087,6 +5121,38 @@ mod tests {
                   </MorphologicalInput>
                   <MorphologicalOutput>
                     <ModifyFromInput index="pA"><SimpleContext naturalClass="ncAll" /></ModifyFromInput>
+                  </MorphologicalOutput>
+                </MorphologicalSubrule>
+              </MorphologicalSubrules>
+            </MorphologicalRule>
+          </MorphologicalRuleDefinitions>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// A 3-part LHS whose RHS interleaves an `InsertSegments` between two `CopyFromInput`s and drops `qC`: `classify_affix` reads `Role::Infix`, which `is_structural_rule` excludes, so the drop reaches no faithful construction at all.
+    const CIRCUMFIX_INFIX_NON_STRUCTURAL_XML: &str = r#"<HermitCrabInput><Language><Name>CircInfix</Name>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+      <Strata>
+        <Stratum characterDefinitionTable="t1" morphologicalRules="mrDropInfix">
+          <Name>S</Name>
+          <MorphologicalRuleDefinitions>
+            <MorphologicalRule id="mrDropInfix">
+              <Name>dropInfix</Name>
+              <MorphologicalSubrules>
+                <MorphologicalSubrule id="subDropInfix">
+                  <MorphologicalInput>
+                    <PhoneticSequence id="qA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                    <PhoneticSequence id="qB"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                    <PhoneticSequence id="qC"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                  </MorphologicalInput>
+                  <MorphologicalOutput>
+                    <CopyFromInput index="qA" />
+                    <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
+                    <CopyFromInput index="qB" />
                   </MorphologicalOutput>
                 </MorphologicalSubrule>
               </MorphologicalSubrules>
@@ -5134,9 +5200,9 @@ mod tests {
         );
     }
 
-    /// The out-of-scope `Role::Process` drop shape is still observed as `CircumfixOutputAction`, independent of which `OutputAction` variant realizes it.
+    /// The `Role::Process` drop shape is still observed as `CircumfixOutputAction`, independent of which `OutputAction` variant realizes it.
     #[test]
-    fn characterize_marks_circumfix_output_action_not_structural_for_process_role() {
+    fn characterize_marks_circumfix_output_action_structural_for_process_role() {
         let g = load(CIRCUMFIX_PROCESS_XML);
         assert!(
             crate::emit::is_structural_rule(&g, MRuleId(0)),
@@ -5176,9 +5242,9 @@ mod tests {
         );
     }
 
-    /// The out-of-scope `Role::Process` drop shape, checked against the predicate's actual verdict.
+    /// `Role::Process` reaches `build_structural_composites` unconditionally, so its drop is `ConfirmOnly`, NOT the refusal branch.
     #[test]
-    fn circumfix_output_action_predicate_refuses_non_structural_case() {
+    fn circumfix_output_action_predicate_confirm_only_for_process_role_drop() {
         let g = load(CIRCUMFIX_PROCESS_XML);
         let profile = characterize(&g);
         let predicate = CircumfixStructuralCompositePredicate;
@@ -5186,6 +5252,39 @@ mod tests {
             predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::ConfirmOnly
         );
+    }
+
+    /// The negative witness: an `Role::Infix` allomorph that still drops LHS material lands on `evaluate`'s `Refuse` branch.
+    #[test]
+    fn circumfix_output_action_predicate_refuses_infix_role_drop() {
+        let g = load(CIRCUMFIX_INFIX_NON_STRUCTURAL_XML);
+        assert_eq!(
+            crate::emit::rule_role(&g, MRuleId(0)),
+            crate::emit::Role::Infix
+        );
+        assert!(
+            !crate::emit::is_structural_rule(&g, MRuleId(0)),
+            "an Infix rule must stay outside build_structural_composites"
+        );
+
+        let profile = characterize(&g);
+        let detail = profile
+            .circumfix_output_action_details()
+            .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 0)
+            .expect("an Infix allomorph dropping qC still observes CircumfixOutputAction");
+        assert!(!detail.structural_composite_attempted);
+
+        let predicate = CircumfixStructuralCompositePredicate;
+        match predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))) {
+            PredicateVerdict::Refuse(diag) => {
+                assert_eq!(
+                    diag.predicate,
+                    "circumfix-output-action.faithful-structural-composite"
+                );
+                assert!(diag.construct.contains("mrule 0 allomorph #0"));
+            }
+            other => panic!("expected Refuse for the Role::Infix drop shape, got {other:?}"),
+        }
     }
 
     /// A grammar with no LHS-material-dropping allomorph never observes `CircumfixOutputAction`, and the predicate vacuously `Admit`s.
@@ -6468,24 +6567,31 @@ mod tests {
         )
     }
 
-    /// A grammar whose `Unordered` stratum's loose-rule count exceeds the calibrated budget must compose to `Refuse`, naming `unordered-application.unbounded`.
+    /// A grammar whose `Unordered` stratum's loose-rule count exceeds the calibrated budget refuses the compiler whose derivation layers the budget bounds, and names the stratum when it does.
     #[test]
-    fn compose_envelope_refuses_unordered_morph_rule_order_grammar() {
+    fn compose_envelope_refuses_unordered_morph_rule_order_grammar_for_the_tuned_compiler() {
         let xml = unordered_stratum_xml(
             crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,
         );
         let g = load(&xml);
+        let semantics = GrammarSemantics::derive(&g);
         let plan = enumerated_plan(&g);
         let registry = default_registry();
 
-        match compose_envelope(&g, &plan, &registry) {
+        let tuned = compose_envelope_for_strategy(
+            &semantics,
+            &plan,
+            EmissionStrategy::TunedSurfaceProbed,
+            &registry,
+        );
+        match tuned {
             CompileDecision::Refuse(diags) => {
                 assert!(
                     diags.iter().any(|d| d.construct.contains("Unordered")),
                     "expected a diagnostic naming the Unordered stratum: {diags:?}"
                 );
             }
-            other => panic!("expected Refuse, got {other:?}"),
+            other => panic!("expected Refuse from the tuned compiler, got {other:?}"),
         }
     }
 
@@ -6778,7 +6884,7 @@ mod tests {
         );
     }
 
-    /// The same shape, but neither subrule declares an MPR gate, so overlap can't be ruled out and this must compose to `Refuse`.
+    /// The same shape, but neither subrule declares an MPR gate, so overlap can't be ruled out and the cascade-composing compilers must `Refuse`.
     #[test]
     fn compose_envelope_refuses_simultaneous_rule_when_overlap_cannot_be_ruled_out() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SimRefuse</Name>
@@ -6823,20 +6929,40 @@ mod tests {
         assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
         assert!(r.subrules[0].required_mpr.is_empty() && r.subrules[0].excluded_mpr.is_empty());
 
+        let semantics = GrammarSemantics::derive(&g);
         let plan = enumerated_plan(&g);
         let registry = default_registry();
 
-        match compose_envelope(&g, &plan, &registry) {
-            CompileDecision::Refuse(diags) => {
-                assert!(
-                    diags
-                        .iter()
-                        .any(|d| d.predicate == "simultaneous.subrule-overlap"),
-                    "expected a simultaneous.subrule-overlap diagnostic: {diags:?}"
-                );
+        for &strategy in CASCADE_COMPOSING_STRATEGIES {
+            match compose_envelope_for_strategy(&semantics, &plan, strategy, &registry) {
+                CompileDecision::Refuse(diags) => {
+                    assert!(
+                        diags
+                            .iter()
+                            .any(|d| d.predicate == "simultaneous.subrule-overlap"),
+                        "{strategy:?}: expected a simultaneous.subrule-overlap diagnostic: {diags:?}"
+                    );
+                }
+                other => panic!(
+                    "{strategy:?} composes replace's cascade, so it must Refuse; got {other:?}"
+                ),
             }
-            other => panic!("expected Refuse, got {other:?}"),
         }
+
+        // The mainline emitter composes no cascade, so `replace`'s admission floor is not its limit.
+        assert_eq!(
+            compose_envelope_for_strategy(
+                &semantics,
+                &plan,
+                EmissionStrategy::TunedSurfaceProbed,
+                &registry
+            ),
+            CompileDecision::ConfirmOnly
+        );
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::ConfirmOnly
+        );
     }
 
     /// Meet correctness: a grammar with both a self-feeding `Compounding` rule and an `Overwrite` `MprGroup` must compose deterministically over both constructs' verdicts, dropping neither.
@@ -6917,7 +7043,34 @@ mod tests {
         compose_over_predicates(semantics, plan, &predicates)
     }
 
-    // Returns the verdict so a caller can tally which of the three the corpus actually reached.
+    // Narrowing moves a verdict toward ConfirmOnly from either end; it never crosses to the far side.
+    fn assert_narrowing_only_softens(
+        label: &str,
+        strategy: EmissionStrategy,
+        blind_narrowed: &CompileDecision,
+        composed: &CompileDecision,
+    ) {
+        let ok = match (blind_narrowed, composed) {
+            (CompileDecision::ConfirmOnly, CompileDecision::ConfirmOnly) => true,
+            (CompileDecision::ConfirmOnly, _) => false,
+            (CompileDecision::Admit, CompileDecision::Admit | CompileDecision::ConfirmOnly) => true,
+            (CompileDecision::Admit, _) => false,
+            (
+                CompileDecision::Refuse(_),
+                CompileDecision::Refuse(_) | CompileDecision::ConfirmOnly,
+            ) => true,
+            (CompileDecision::Refuse(_), _) => false,
+        };
+        assert!(
+            ok,
+            "{label}: narrowing moved {strategy:?} from {blind_narrowed:?} to {composed:?} -- a \
+             dropped predicate lands its kind on disposition_floor (ConfirmOnly for every kind any \
+             narrowed predicate discharges), so the only legal moves are Refuse->ConfirmOnly and \
+             Admit->ConfirmOnly. Anything else means a narrowing manufactured a verdict."
+        );
+    }
+
+    // Returns the whole-grammar verdict so a caller can tally which of the three the corpus reached.
     fn assert_per_strategy_derivation_is_identical(label: &str, g: &Grammar) -> CompileDecision {
         let semantics = GrammarSemantics::derive(g);
         let alphabet = SegAlphabet::new(crate::emit::surface_table(g));
@@ -6929,34 +7082,34 @@ mod tests {
         let envelope = compose_envelope_across_strategies(&semantics, &plan, &registry);
 
         assert_eq!(
-            envelope.global(),
-            blind,
-            "{label}: the verdict derived from the per-compiler ones differs from the \
-             compiler-blind verdict it replaced"
-        );
-        assert_eq!(
             compose_envelope_with_semantics(&semantics, &plan, &registry),
-            blind,
-            "{label}: the public whole-grammar entry point moved"
+            envelope.global(),
+            "{label}: the public whole-grammar entry point is no longer StrategyEnvelope::global"
         );
 
+        let whole_registry: Vec<usize> = (0..registry.predicates().len()).collect();
         for &strategy in ALL_STRATEGIES {
             let composed = compose_envelope_for_strategy(&semantics, &plan, strategy, &registry);
-            // The OLD per-strategy form: the compiler-blind verdict, narrowed by the coverage rows.
-            let narrowed = with_strategy_coverage(&semantics, strategy, blind.clone());
-            assert_eq!(
-                composed, narrowed,
-                "{label}: {strategy:?}'s composed-from-its-own-predicates verdict differs from the \
-                 narrowed-from-blind verdict it replaced"
-            );
             assert_eq!(
                 envelope.decision_for(strategy),
                 Some(&composed),
                 "{label}: {strategy:?}'s row in the envelope differs from asking for it directly"
             );
+
+            // The OLD per-strategy form: the compiler-blind verdict, narrowed by the coverage rows.
+            let blind_narrowed = with_strategy_coverage(&semantics, strategy, blind.clone());
+            if constraining_predicate_indices(&registry, strategy) == whole_registry {
+                assert_eq!(
+                    composed, blind_narrowed,
+                    "{label}: {strategy:?} is still gated by every registered predicate, so its \
+                     composed verdict must equal the narrowed-from-blind one"
+                );
+            } else {
+                assert_narrowing_only_softens(label, strategy, &blind_narrowed, &composed);
+            }
         }
 
-        blind
+        envelope.global()
     }
 
     fn decision_label(decision: &CompileDecision) -> &'static str {
@@ -7065,15 +7218,20 @@ mod tests {
           </Strata>
         </Language></HermitCrabInput>"#;
 
-        let refusing_xml = unordered_stratum_xml(
-            crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,
-        );
+        // Refuses through a predicate no narrowing touches, so every compiler declines it alike.
+        let refusing_xml = REDUP_REALIZATIONAL_XML.to_string();
 
         let mut seen: Vec<&'static str> = Vec::new();
         for (label, xml) in [
             ("ordinary", ORDINARY_XML.to_string()),
             ("realizational", REALIZATIONAL_XML.to_string()),
-            ("unordered-unbounded", refusing_xml),
+            (
+                "unordered-unbounded",
+                unordered_stratum_xml(
+                    crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,
+                ),
+            ),
+            ("reduplication-on-realizational-rule", refusing_xml),
         ] {
             let g = load(&xml);
             let decision = assert_per_strategy_derivation_is_identical(label, &g);
@@ -7092,22 +7250,102 @@ mod tests {
         );
     }
 
-    // The precondition making the identity above hold by construction; pinned by `some_strategy_represents_every_kind`.
+    // The tripwire this replaced forbade narrowing outright; this one gates its QUALITY instead.
     #[test]
-    fn no_registered_predicate_is_narrowed_to_a_subset_of_the_compilers() {
+    fn every_narrowing_excuses_only_a_compiler_that_can_represent_the_construct() {
         let registry = default_registry();
         for predicate in registry.predicates() {
             let constrained = predicate.constrains_strategies();
+            assert!(
+                !constrained.is_empty(),
+                "predicate {} constrains no compiler at all -- a predicate nothing is gated by is \
+                 dead weight, not a narrowing",
+                predicate.id()
+            );
             for &strategy in ALL_STRATEGIES {
-                assert!(
-                    constrained.contains(&strategy),
-                    "predicate {} no longer constrains {strategy:?} -- an evidence-backed \
-                     behaviour change, not a refactor; the identity tests above pin the old \
-                     behaviour and must be revisited with it",
+                if constrained.contains(&strategy) {
+                    continue;
+                }
+                // Excusing a compiler that cannot even PROPOSE the construct is the inheritance trap run backwards.
+                for &kind in predicate.discharges() {
+                    assert_ne!(
+                        crate::strategy_coverage::representation_of(strategy, kind).representation,
+                        crate::strategy_coverage::StrategyRepresentation::CannotRepresent,
+                        "predicate {} does not constrain {strategy:?}, but strategy_coverage says \
+                         that compiler emits NOTHING for {kind:?} -- letting it off this predicate \
+                         hands it an admission it has not earned",
+                        predicate.id()
+                    );
+                }
+            }
+        }
+    }
+
+    // The property making every narrowing safe: the floor a dropped predicate lands on is ConfirmOnly.
+    #[test]
+    fn a_narrowed_predicate_can_never_land_its_kind_on_an_admit_floor() {
+        let registry = default_registry();
+        let mut narrowed_kinds = 0usize;
+        for predicate in registry.predicates() {
+            if predicate.constrains_strategies().len() == ALL_STRATEGIES.len() {
+                continue;
+            }
+            for &kind in predicate.discharges() {
+                narrowed_kinds += 1;
+                assert_eq!(
+                    disposition_floor(kind.default_disposition()),
+                    CompileDecision::ConfirmOnly,
+                    "predicate {} is narrowed, so a compiler it no longer constrains falls back to \
+                     disposition_floor for {kind:?} -- that floor must be ConfirmOnly, or narrowing \
+                     could manufacture an Admit and license an admission filter nothing proved",
                     predicate.id()
                 );
             }
         }
+        assert!(
+            narrowed_kinds > 0,
+            "no predicate is narrowed, so this property is vacuous -- it must be re-pointed at \
+             whatever replaced the narrowing rather than left passing on an empty set"
+        );
+    }
+
+    /// An over-budget `Unordered` stratum is a limit of `emit::build_deriv_chain`; `uflexc` builds no such layers, so `PlanComposed` must not be refused for it.
+    #[test]
+    fn an_over_budget_unordered_stratum_is_refused_only_by_the_derivation_layer_compilers() {
+        let xml = unordered_stratum_xml(
+            crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,
+        );
+        let g = load(&xml);
+        let semantics = GrammarSemantics::derive(&g);
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+        let envelope = compose_envelope_across_strategies(&semantics, &plan, &registry);
+
+        for &strategy in DERIVATION_LAYER_STRATEGIES {
+            match envelope.decision_for(strategy) {
+                Some(CompileDecision::Refuse(diags)) => assert!(
+                    diags.iter().any(|d| d.construct.contains("Unordered")),
+                    "{strategy:?} must refuse naming the Unordered stratum: {diags:?}"
+                ),
+                other => panic!("{strategy:?} builds the derivation layers the budget bounds, so it must refuse; got {other:?}"),
+            }
+        }
+
+        let plan_composed = envelope
+            .decision_for(EmissionStrategy::PlanComposed)
+            .expect("PlanComposed must have a row");
+        assert_eq!(
+            plan_composed,
+            &CompileDecision::ConfirmOnly,
+            "uflexc's self-looping prefix/suffix chains admit every order of a stratum's loose \
+             rules by construction, so the ordering-multiplicity budget is not its limit"
+        );
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::ConfirmOnly,
+            "the whole-grammar verdict is a JOIN -- one compiler that can handle the grammar is \
+             enough, and refusing here is exactly the defect StrategyEnvelope::global exists to fix"
+        );
     }
 
     // Hand-built verdicts, so the join claim does not wait on finding a grammar of each shape.

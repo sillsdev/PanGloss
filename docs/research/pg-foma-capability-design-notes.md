@@ -247,3 +247,124 @@ anywhere. Deliberately does not branch on `m.dir` any more: `compile_metathesis_
 RTL rewrite rules, over this identical structural floor — the remap is pure index arithmetic over an
 already-checked slot list, introducing no new way to fail — so the floor is genuinely Dir-agnostic
 now, not merely relaxed.
+
+## `constrains_strategies`: which compiler each predicate's limit actually belongs to
+
+`CapabilityPredicate::constrains_strategies` defaults to every strategy, and for a long time every
+registered predicate took that default. The consequence was that
+`compose_envelope_for_strategy` handed all three compilers an identical predicate set, so all three
+reached an identical verdict, so `StrategyEnvelope::global` — a JOIN, whose whole purpose is to
+rescue a grammar only one compiler can handle — had nothing to join over. A grammar could be refused
+whole-grammar because of a limit belonging to a compiler that would never run for it.
+
+This section records, predicate by predicate, which compilers each one's limit actually constrains
+and why. The criterion is the trait's own: *the compilers whose proposer could exhibit the shape it
+refuses*. Reading a predicate's `evaluate` body is not enough — what matters is which emitter's
+mechanism the verdict is a fact about.
+
+### The three compilers, and the two mechanisms that split them
+
+- `EmissionStrategy::PlanComposed` — `uflexc` lexicon + `build::build_controllable`, which composes
+  `replace::compile_and_compose_rules_gated_with_budget`'s rewrite cascade.
+- `EmissionStrategy::TunedSurfaceProbed` — `emit::emit_with_budget` -> lexc -> foma, reached in
+  production through `analyzer::FomaProposer::new`. It composes **no rewrite cascade at all**: there
+  is not one call to any `replace::compile_and_compose_rules*` entry point anywhere in `emit.rs`.
+  Phonology is baked into the emitted lexc text by `junctions::PhonologyProbe` driving
+  `pg_rules::surface_probe::probe_synthesize` — the real engine — and, where the probe refuses, by
+  `emit::build_structural_composites` replaying `pg_rules::morph::synthesize`.
+- `EmissionStrategy::TemplatedUnderlyingTokens` — `emit::emit_underlying_templated` (emit.rs's
+  derivation-layer morphotactics) + `templated_compile::compile_templated_morphotactics`, which
+  composes `replace::compile_and_compose_rules_recall_safe`.
+
+Two mechanisms therefore split the three compilers two different ways:
+
+| Mechanism | PlanComposed | TunedSurfaceProbed | TemplatedUnderlyingTokens |
+|---|---|---|---|
+| `replace`'s rewrite cascade (and so `lower::pattern_slots`' admission floor) | yes | **no** | yes |
+| `emit::build_deriv_chain`'s derivation layers | **no** (`uflexc` self-loops) | yes | yes |
+
+### Narrowed: the four cascade predicates
+
+`simultaneous.subrule-overlap`, `right-to-left-rewrite.faithful-reversal-construction`,
+`metathesis.faithful-swap-construction` and `quantifier.bounded-expansion` each refuse exactly when
+`replace` declines to compile a rule — `compile_rewrite_rule_subset`'s pairwise-overlap consumer,
+`compile_rtl_branch_net`, `compile_metathesis_rule`, and `pattern_slots`' whole-pattern admission
+respectively. Each of their `Refuse` witnesses says so in as many words: *"the real compiler already
+honestly skips (`Ok(None)`) this exact rule."* That sentence is true of `PlanComposed` and
+`TemplatedUnderlyingTokens` and simply false of `TunedSurfaceProbed`, which never asks `replace`
+anything about a phonological rule. So all four narrow to
+`[PlanComposed, TemplatedUnderlyingTokens]`.
+
+### Narrowed: the ordering-multiplicity predicate
+
+`unordered-application.chain-depth-bounded` refuses when a stratum's loose-rule count exceeds
+`compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`. That budget bounds the multiplicity of
+`emit::build_deriv_chain`'s ordering union, and `build_deriv_chain` lives in `emit.rs`: it is reached
+by `emit_with_budget` and `emit_underlying_templated` and by nothing else.
+`uflexc` — `PlanComposed`'s only lexicon emitter — builds no derivation layers at all;
+`strategy_coverage`'s own `PlanComposed` x `UnorderedMorphRuleApplication` row records why its
+self-looping prefix/suffix continuation chains "admit every order of a stratum's loose rules by
+construction". The compile-time gate this predicate mirrors,
+`unordered::check_unordered_strata_bound`, is likewise called from exactly one place:
+`FomaProposer::new_with_budget_and_profile`, the `TunedSurfaceProbed` entry point. Neither
+`build_controllable` nor `compile_templated_morphotactics` calls it. So it narrows to
+`[TunedSurfaceProbed, TemplatedUnderlyingTokens]` — `TemplatedUnderlyingTokens` is included because
+it genuinely builds the derivation layers the budget bounds, not because it checks the budget today.
+
+### Left at every strategy, with the reason
+
+- `multi-table.faithful-table-threading` — cannot refuse, and the hazard is not cascade-only:
+  `emit.rs` picks ONE table for the whole grammar (`emit::surface_table`, the last stratum's), which
+  is a cross-table question in the mainline exactly as `owning_table` is in the cascade.
+- `circumfix-output-action.faithful-structural-composite` — its ground truth,
+  `emit::is_structural_rule`, is `TunedSurfaceProbed`'s mechanism, but the other two compilers do not
+  merely lack that limit, they lack the whole construct: `uflexc` skips every non-Prefix/Suffix
+  allomorph and `emit_underlying_templated`'s own doc says "No composite pipeline at all". Narrowing
+  here would hand those two an admission they have not earned — the inheritance trap run backwards —
+  so it stays at every strategy. Their `strategy_coverage` rows (`RepresentsWithKnownGap`) are
+  arguably too generous for this construct; that is a question for that table, not for this
+  predicate.
+- `reduplication.peel-eligible-rule-kind` — `peel::ReduplicationPeeler` runs OUTSIDE the compiled
+  FST, and `FomaAnalyzer` builds one for every strategy's proposer alike.
+- `compounding.non-recursive` — `emit::build_compound_chain`/`compound_license` are shared by all
+  three emitters (`emit.rs` generalized the unroller over the root-record and emitter-state types
+  precisely so `uflexc` could reuse it).
+- `mpr-group.append-output`, `mpr-group.overwrite-output` — the verified non-narrowing baseline is a
+  claim about `gate`, `emit` AND `uflexc` together; none of the three filters on MPR state.
+- `epenthesis.structural-composite-route` — cannot refuse, and each compiler has its own route:
+  `emit`'s structural composites for the mainline, `replace`'s compiled cascade for the other two.
+
+### Why narrowing is safe in the direction it moves
+
+`compose_over_predicates` folds in `disposition_floor(kind.default_disposition())` for every observed
+kind no *surviving* predicate discharges. Every kind these five predicates discharge is a
+`ConfigPredicate`, whose floor is `ConfirmOnly`. So dropping a predicate for a strategy lands that
+strategy at `ConfirmOnly` for the kind — never `Admit`. A narrowing can therefore turn a per-strategy
+`Refuse` into `ConfirmOnly`, and can turn a per-strategy `Admit` into `ConfirmOnly`, but it can never
+manufacture an `Admit`, and so can never license an admission filter that was not already licensed.
+
+### What this changed for the blind-form consumers
+
+Two modules consume the strategy-BLIND composition, and narrowing separated them from
+`StrategyEnvelope::global` for the first time.
+
+`plan_diagram::per_node_verdicts` mirrors the blind walk — every registered predicate, at every
+node — while `PlanDocument::overall_verdict` is `compose_envelope`, i.e. the join. Those two used to
+agree by construction and no longer do: a cascade-only refusal marks the root node `Refuse` while the
+join rests at `ConfirmOnly`. The mirror is still faithful, just to a different comparand — the
+compiler still gated by *every* predicate, which is
+`EmissionStrategy::TemplatedUnderlyingTokens`, since it is the one strategy in BOTH
+`CASCADE_COMPOSING_STRATEGIES` and `DERIVATION_LAYER_STRATEGIES`. That is what
+`plan_diagram_root_verdict_matches_the_fully_constrained_strategys_envelope` now compares against,
+and it asserts that premise about the registry before relying on it, so the test cannot quietly
+become vacuous if a future narrowing touches Templated.
+
+`preflight::semantic_uncertainty_finding` reads the scalar `CompileDecision`, so its
+`Critical`/`UnknownUnboundedConstruct` finding now fires only for a construct EVERY compiler
+declines. Its fixture moved from genuinely-overlapping simultaneous subrules (a cascade-only
+refusal) to true reduplication owned by a `RealizationalRule`, which no narrowing touches.
+
+**This leaves a real gap, recorded rather than fixed:** preflight consumes the join and has no access
+to `StrategyEnvelope::declining`, so a grammar that only SOME compilers refuse now raises no
+preflight finding at all. Before this change that case could not exist, because every predicate
+constrained every compiler. Surfacing per-compiler refusals in preflight is a separate piece of work.

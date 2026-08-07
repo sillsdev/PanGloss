@@ -1273,23 +1273,43 @@ mod tests {
         }
     }
 
-    /// The root's own per-node verdict must equal the real, unmodified `compose_envelope` verdict, pinning that the mirror is faithful, not a second, independently-drifting computation.
+    /// The blind per-node mirror is faithful to the one compiler still gated by every predicate, not to the JOIN `overall_verdict` reports.
+    /// See docs/research/pg-foma-capability-design-notes.md.
     #[test]
-    fn plan_diagram_root_verdict_matches_compose_envelope() {
+    fn plan_diagram_root_verdict_matches_the_fully_constrained_strategys_envelope() {
         for xml in [
             ordinary_fixture(),
             gated_plus_independent_stratum_fixture(false),
             multi_stratum_refused_fixture(),
             mixed_node_local_refusal_fixture(),
         ] {
+            let strategy = crate::enumerate::EmissionStrategy::TemplatedUnderlyingTokens;
             let g = load(&xml);
+            let semantics = GrammarSemantics::derive(&g);
+            let registry = default_registry();
+            assert_eq!(
+                registry
+                    .predicates()
+                    .iter()
+                    .filter(|p| p.constrains_strategies().contains(&strategy))
+                    .count(),
+                registry.predicates().len(),
+                "this test's comparand is only valid while TemplatedUnderlyingTokens is constrained \
+                 by every registered predicate"
+            );
+
+            let plan = plan_for_semantics(&semantics);
             let doc = build_plan_document(&g);
             let root_id = doc.root.clone().expect("root must be set");
             let root_verdict = doc.node(&root_id).unwrap().verdict.clone();
+            let fully_constrained = crate::capability::compose_envelope_for_strategy(
+                &semantics, &plan, strategy, &registry,
+            );
             assert_eq!(
-                root_verdict, doc.overall_verdict,
-                "the root node's own mirrored verdict must match the real compose_envelope verdict \
-                 for {xml}"
+                root_verdict,
+                NodeVerdict::from_decision(&fully_constrained),
+                "the root node's own mirrored verdict must match the fully-constrained compiler's \
+                 verdict for {xml}"
             );
         }
     }
@@ -1314,9 +1334,15 @@ mod tests {
     fn plan_diagram_node_local_refusal_leaves_unrelated_sibling_rule_admitted() {
         let g = load(&mixed_node_local_refusal_fixture());
         let doc = build_plan_document(&g);
+        let root_id = doc.root.clone().expect("root must be set");
         assert!(
-            doc.overall_verdict.is_refused(),
-            "the overlapping rule must refuse the whole plan"
+            doc.node(&root_id).unwrap().verdict.is_refused(),
+            "the overlapping rule must refuse the whole plan's node-local walk"
+        );
+        assert!(
+            !doc.overall_verdict.is_refused(),
+            "the whole-grammar JOIN must NOT refuse: the mainline compiler composes no cascade, so \
+             this rule's overlap is not its limit"
         );
 
         let overlap_leaf = doc

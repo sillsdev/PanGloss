@@ -357,11 +357,17 @@ mod tests {
             ))
         );
 
-        // This same grammar's capability gate also resolves to Refuse, so the generic semantic-uncertainty finding must also be present, naming the same construct less specifically.
+        // The ordering finding rests on the profile's own rule count, so it survives the JOIN no longer refusing.
+        assert_eq!(
+            evaluate_capability(&grammar),
+            CompileDecision::ConfirmOnly,
+            "one compiler can still handle this grammar, so the join must not refuse it"
+        );
         assert!(
-            findings.iter().any(|f| f.severity == Severity::Critical
+            !findings.iter().any(|f| f.severity == Severity::Critical
                 && f.code == FindingCode::UnknownUnboundedConstruct),
-            "expected the Refuse-derived semantic-uncertainty finding too, got {findings:?}"
+            "the semantic-uncertainty finding is Refuse-derived, so it must be absent here: \
+             {findings:?}"
         );
     }
 
@@ -414,10 +420,38 @@ mod tests {
         );
     }
 
-    /// A grammar whose capability verdict is `Refuse` must produce a `Critical` `UnknownUnboundedConstruct` finding naming the refusing construct; genuinely-overlapping simultaneous subrules are the fixture because that refusal is structural, not a proof gap that could be reclassified later.
+    /// A `Refuse` verdict must produce a `Critical` finding naming the construct; the fixture reduplicates on a `RealizationalRule` because only a construct EVERY compiler declines reaches the JOIN.
+    /// See docs/research/pg-foma-capability-design-notes.md.
     #[test]
     fn preflight_raises_critical_finding_for_refuse_verdict() {
-        const REFUSE_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
+        const REFUSE_XML: &str = r#"<HermitCrabInput><Language><Name>RedupRealizational</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="rrRedupBad">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <RealizationalRule id="rrRedupBad">
+                  <Name>redupBad</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="subRedupBad">
+                      <MorphologicalInput>
+                        <PhoneticSequence id="qA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </MorphologicalInput>
+                      <MorphologicalOutput redupMorphType="suffix">
+                        <CopyFromInput index="qA" />
+                        <CopyFromInput index="qA" />
+                      </MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                  <MorphemeId>REDBAD</MorphemeId>
+                </RealizationalRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
         let grammar =
             pg_grammar::load(REFUSE_XML).unwrap_or_else(|e| panic!("fixture load failed: {e}"));
         assert!(matches!(
@@ -437,8 +471,8 @@ mod tests {
             finding
                 .affected
                 .iter()
-                .any(|a| a.contains("prule 0 subrules 0/1")),
-            "expected the simultaneous-overlap construct named: {finding:?}"
+                .any(|a| a.contains("mrule 0 allomorph #0")),
+            "expected the non-peel-eligible reduplication construct named: {finding:?}"
         );
     }
 
