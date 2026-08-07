@@ -47,6 +47,13 @@ what a non-vacuous row should therefore mean here: an explicit disposition, an o
 witness **and a negative witness**. The negative one is the whole point; a row with only a positive
 witness is how 22 rows come to read `covered`.
 
+**The mechanism is now located (2026-08-06).** The 22 golden rows read `covered` because the golden
+is built from `fully_covered_constructs()` — a hardcoded everything-passes set — so `covered` is true
+BY CONSTRUCTION rather than measured. Note the split: the classification *logic* is falsifiable and
+tested (`build_ledger_with_empty_passing_set_never_marks_a_fixture_evidenced_row_covered` genuinely
+exercises `Uncovered`); it is the GOLDEN that is vacuous. So the fix is not "write a test" — one
+exists — it is to build the golden from a real passing set.
+
 **Recommendation: a falsification audit, but scoped.** Not all 77 gate files — only the gates that can
 *refuse* something and the ones CI depends on. For each: break what it guards, confirm it goes red.
 Anything that cannot go red gets deleted, because a gate that cannot fail is worse than no gate: it
@@ -319,3 +326,35 @@ separately; and that loading performs no license or entitlement network request.
 
 That last pair is worth not losing: "analyzable regardless of signature, with trust reported
 separately" and "no network call on load" are user-facing guarantees, not implementation details.
+
+**G13 — Two more refusal branches with no witness, D4's pattern exactly.** Found by the falsification
+audit: `metathesis.faithful-swap-construction` and `quantifier.bounded-expansion` produce **zero red
+tests when their refusals are disabled**, and their predicate ids appear nowhere in the tree outside
+their own definitions. Both are reachable, not dead: metathesis refuses when `left_switch ==
+right_switch` or when `pattern_slots` rejects the pattern; quantifier's `compile_attempted` is
+literally `rtl_reversal_construction_attempted` — the same function whose `false` case the
+right-to-left predicate DOES have a red witness for. Same fix shape as D4: a fixture that lands on the
+branch, and a test asserting the refusal. Flagged rather than fixed, deliberately.
+
+That is now **four** refusal branches found unwitnessed in one pass (circumfix, metathesis,
+quantifier, plus the earlier deleted one). The pattern is not bad luck; it is what happens when a
+predicate is written with its positive case in mind and the negative case is assumed.
+
+**G14 — A gate that can only FAIL, arranged never to run.** `pg-foma::readiness_certification_gate`
+is red today with nothing broken, and has been since commit `2639067`. That commit removed
+`MprGroupOverwritePredicate`'s `Refuse` — it now returns only `ConfirmOnly`/`Admit` — while the gate
+still asserts that `mpr-group.overwrite-output` appears among every reference grammar's refusals.
+Verified independently: that predicate contains zero `PredicateVerdict::Refuse`. The assertion cannot
+pass.
+
+It is invisible because it is `#[ignore]`d **and** self-skips when the gitignored `samples/data/` is
+absent. `rust-ci.yml`'s `--include-ignored` job does run it — and it skips there, silently, so CI
+stays green while the assertion is false.
+
+This is the mirror image of the vacuous-gate problem and arguably worse, because a gate that cannot
+fail at least reports something. Two questions: should a self-skip in the `--include-ignored` job be
+an error rather than a skip (a corpus-required job that skips everything has tested nothing — the same
+rule `-Mode corpus-test` already enforces), and should this gate assert a refusal that still exists?
+
+**The same commit `2639067` is responsible for both D4 and G14.** Worth a look at what else it
+touched.
