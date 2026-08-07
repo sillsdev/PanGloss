@@ -2,35 +2,46 @@
 
 This context defines the language used to describe HermitCrab compatibility, FST proposal coverage, and resource safety.
 
-## Compilers, switches, and the compatibility report
+## The compiler, its backends, and the compatibility report
 
 Settled 2026-08-07. Terminology first, because it decides how the thing gets built.
 
-**Compiler.** A whole-grammar compilation strategy. There are three. They are not variations on one
-compiler — they combine features in genuinely different ways, so they grow and fail differently on the
-same grammar. Called compilers rather than *recipes* deliberately: no analogy. Every metaphor tested
-broke somewhere (a recipe implies the same dish each time and is overloaded in build tooling; a
-kitchen has no word for the small variations; a road has none either; an *accelerator* actively
-misleads, because a switch can change what is REPRESENTABLE, not merely how fast). The domain already
-carries grammar, rules, strata, feeding and bleeding. It does not need a kitchen.
+**Compiler.** PanGloss itself — the whole process that turns a HermitCrab grammar into an FST-backed
+analyzer. Singular. There is one compiler.
 
-**Switch.** An optional variation within one compiler. Composable, and each must earn its place;
+**Backend.** One of three ways the compiler can emit. They are not variations on a theme: they
+combine features in genuinely different ways, so they grow and fail differently on the same grammar.
+
+Called backends rather than *recipes*, and deliberately no analogy at all. Every metaphor tested broke
+somewhere — a recipe implies the same dish each time and is overloaded in build tooling (it had
+already confused us, since "sub-recipe" could not decide whether it meant a menu item or a composable
+part); a kitchen has no word for the small variations; a road has none either; an *accelerator*
+actively misleads, because a switch can change what is REPRESENTABLE, not merely how fast. The domain
+already carries grammar, rules, strata, feeding and bleeding; it does not need a kitchen.
+
+The compiler/backend split is the standard one, and the vocabulary was chosen against what the words
+already mean HERE rather than in the abstract. `build` was the natural candidate for the whole process
+and is the worst available choice: 882 uses across 244 files, and it already means compiling the Rust
+(`-Mode build`) — ambiguity in exactly the context where it would hurt most. `path` (1770 uses),
+`engine` (514, already `--engine=foma`) and `pipeline` (212) are likewise taken. `backend` had 34.
+
+**Switch.** An optional variation within one backend. Composable, and each must earn its place;
 added complexity is earned rather than assumed.
 
-**Compatibility report.** What each compiler says about a given grammar, after characterization. Not
+**Compatibility report.** What each backend says about a given grammar, after characterization. Not
 a verdict — a report, with reasoning a human or an AI can act on.
 
-**Selector.** Reads every compiler's compatibility report and chooses no path, one path, or two. Its
+**Selector.** Reads every backend's compatibility report and chooses no path, one path, or two. Its
 decision, and the reports behind it, are what the user sees.
 
 ### The report has two axes and they must never merge
 
-**Correctness is binary.** Either this compiler can produce right answers for this grammar, or it
+**Correctness is binary.** Either this backend can produce right answers for this grammar, or it
 cannot. There is no "probably".
 
-- can represent it, and the result is right — **yes**
+- the backend can represent it, and the result is right — **yes**
 - can represent it, with the confirm pass pruning the proposal to keep it right — **yes**
-- cannot represent the construct at all — **no**
+- the backend cannot represent the construct at all — **no**
 - might produce INCORRECT results — **no**. This is a rejection, not a caveat.
 
 **Cost is graded, and never a rejection on its own.** How large, how slow, how fast it grows with the
@@ -39,7 +50,7 @@ stated.
 
 The distinction is the whole point. "Not sure" is not a third category: it is either uncertainty about
 SIZE, which is a yes carrying a caveat, or uncertainty about CORRECTNESS, which is a no. Merging them
-gives "maybe" somewhere to hide, and a maybe is how a compiler ends up shipping analyses nobody
+gives "maybe" somewhere to hide, and a maybe is how a backend ends up shipping analyses nobody
 checked.
 
 This is not a new rule, only a consistently applied one — `docs/adr/0001` already requires cost and
