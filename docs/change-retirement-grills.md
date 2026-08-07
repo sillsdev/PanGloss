@@ -209,7 +209,16 @@ unsupported constructs were refused.
 These are not stale. The question is only whether they should sit in an active list during the
 sub-recipe push.
 
-### D1 — `harden-foma-resource-safety` (7 done / 21 open)
+### D1 — `harden-foma-resource-safety` — CLOSED 2026-08-06 (I had recommended keeping it)
+
+**Resolved against my own recommendation, and correctly.** I argued to keep it because it guards the
+path the recipe work will stress. Audited against the three guards actually wanted — don't exhaust
+memory, don't take the CPU, don't hang forever — all three are present and tested, so the change was
+not protecting anything today. Residual lifted as G11; the only item there with an incident behind it
+is that kernel ceilings apply to the managed launcher only.
+
+<details><summary>original grill</summary>
+
 
 *For:* a single foma call can hang or allocate excessively; timeout threads are abandoned; apply
 traversal is uncapped.
@@ -218,9 +227,8 @@ traversal is uncapped.
 (terminal typed outcomes, raw-path coverage). This is **safety work on the path sub-recipes will
 exercise hardest** — arguably it should be more aligned, not less.
 
-**Choices:** (a) keep active — it protects the work you are about to do; (b) retire and re-open when
-a sub-recipe actually trips a budget; (c) shrink to the apply-traversal cap alone.
-**Recommendation: (a) keep.** This is the one in Group D I would not retire.
+**Choices:** (a) keep; (b) retire; (c) shrink. Chose retire — the guards already hold.
+</details>
 
 ### D2 — `calibrate-fst-resource-envelopes` (0 done / 17 open)
 

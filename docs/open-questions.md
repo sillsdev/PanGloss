@@ -279,3 +279,23 @@ examined. Same change's tasks 2.1/2.2: extract one constructor used by both call
 matching fingerprint, states, arcs and rule dispositions across them. This is the "two consumers
 re-deriving one fact" hazard that this sweep has now hit four times — in the plan diagram, in health
 versus selection, in the comment checker versus its verifier, and here.
+
+**G11 — Resource-safety residual, after `harden-foma-resource-safety` was closed (2026-08-06).** The
+three guards that matter are in place and tested: a compile runs in a child process killed on a
+wall-clock deadline and reported as a timeout rather than a crash or a false success
+(`tiny_wall_timeout_is_killed_and_reported_as_timeout_not_crash_or_false_success`, green); net size is
+checked between operations and apply-path exploration is capped
+(`DEFAULT_EVALUATION_APPLY_PATH_BUDGET`, 1,000,000); and managed builds and runs execute inside a job
+object carrying both a committed-memory and a CPU-rate ceiling, at below-normal priority.
+
+What is left is refinement, not protection:
+
+- **Failures are not uniformly typed.** A budget trip, a timeout and a raw-path failure should be one
+  outcome type a caller can exhaustively match; today they are not.
+- **Timeout threads are abandoned rather than joined.** Correct today because the child is killed, but
+  it leaks a thread per timeout in any caller that loops.
+- **A few compile and apply paths still bypass the checks**, reachable only from library callers.
+- **The kernel ceilings apply only to the managed launcher.** A binary run directly keeps the
+  in-process budgets but gets no memory or CPU ceiling — the documented route by which a
+  directly-launched binary once reached 118GB. `-Mode run` exists to close this and nothing compels
+  its use. This is the only item with a real-world incident behind it.
