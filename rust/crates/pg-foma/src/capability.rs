@@ -2200,9 +2200,7 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
                           EMPTY VarTable, so any AlphaVariable inside a MetathesisRule errors the \
                           whole grammar load before reaching this predicate at all), or has no \
                           resolvable owning character-definition table -- NOT a direction, since \
-                          openspec/changes/plan-construct-coverage-completion task 4.6 (docs/\
-                          conformance/needs-decision-resolutions.md row 8): Dir::RightToLeft \
-                          compiles via the same mirror-and-reverse construction \
+                          Dir::RightToLeft compiles via the same mirror-and-reverse construction \
                           compile_rtl_branch_net uses for RTL rewrite rules -- the real compiler \
                           already honestly skips (Ok(None)) this exact rule rather than silently \
                           mis-compiling it"
@@ -2965,7 +2963,7 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
                           whole pattern shape at all. (A GENUINELY unbounded quantifier, max=-1, is \
                           NOT by itself such a construct: crate::replace::Slot::Repeat's \
                           max: Option<u32> widening compiles it via foma's own native E*/E^>N xre \
-                          operator, openspec/changes/build-unbounded-quantifier-support.)"
+                          operator.)"
                     .to_string(),
             });
         }

@@ -294,7 +294,7 @@
         "strategies": [
           "plan-composed"
         ],
-        "note": "Dedicated swap-relation containment against the real oracle in BOTH directions -- Dir::RightToLeft is no longer a scope boundary (openspec/changes/build-unbounded-quantifier-support's sibling task, plan-construct-coverage-completion tasks.md 4.6): it compiles via the same mirror-and-reverse construction compile_rtl_branch_net uses, so the union is a superset the oracle prunes. The remaining refusals are pattern-shape ones (Anchor, and any Slot::Repeat -- slot_candidates enumerates concrete alternatives), never the direction itself."
+        "note": "Dedicated swap-relation containment against the real oracle in BOTH directions -- Dir::RightToLeft is no longer a scope boundary: it compiles via the same mirror-and-reverse construction compile_rtl_branch_net uses, so the union is a superset the oracle prunes. The remaining refusals are pattern-shape ones (Anchor, and any Slot::Repeat -- slot_candidates enumerates concrete alternatives), never the direction itself."
       },
       "strategies_cannot_represent": [],
       "strategies_unwitnessed": [
@@ -484,7 +484,7 @@
       "conformance_status": "covered",
       "containment": {
         "kind": "dedicated",
-        "citation": "tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle (+ quantifier_unbounded_environment_compiles_and_matches_oracle for the genuinely-unbounded case, openspec/changes/build-unbounded-quantifier-support)",
+        "citation": "tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle (+ quantifier_unbounded_environment_compiles_and_matches_oracle for the genuinely-unbounded case)",
         "strategies": [
           "plan-composed"
         ],

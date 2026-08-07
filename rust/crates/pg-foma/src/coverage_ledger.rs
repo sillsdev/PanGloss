@@ -438,9 +438,8 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              direction-blindness guard)",
             &[EmissionStrategy::PlanComposed],
             "Dedicated swap-relation containment against the real oracle in BOTH directions -- \
-             Dir::RightToLeft is no longer a scope boundary (openspec/changes/\
-             build-unbounded-quantifier-support's sibling task, plan-construct-coverage-completion \
-             tasks.md 4.6): it compiles via the same mirror-and-reverse construction \
+             Dir::RightToLeft is no longer a scope boundary: it compiles via the same \
+             mirror-and-reverse construction \
              compile_rtl_branch_net uses, so the union is a superset the oracle prunes. The \
              remaining refusals are pattern-shape ones (Anchor, and any Slot::Repeat -- \
              slot_candidates enumerates concrete alternatives), never the direction itself.",
@@ -503,7 +502,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_\
              oracle (+ quantifier_unbounded_environment_compiles_and_matches_oracle for the \
-             genuinely-unbounded case, openspec/changes/build-unbounded-quantifier-support)",
+             genuinely-unbounded case)",
             &[EmissionStrategy::PlanComposed],
             "Bounded- AND unbounded-quantifier containment against the real oracle, both at \
              min-boundary occurrence counts; an inverted/over-budget-finite/alpha-nested \
