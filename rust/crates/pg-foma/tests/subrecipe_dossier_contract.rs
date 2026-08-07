@@ -62,9 +62,7 @@ fn read_dossiers() -> Vec<(&'static str, String)> {
         .collect()
 }
 
-/// One `YYYY-MM-DD` cell. Shared by both date checks below so they cannot disagree about what a date
-/// is, and matching the SHAPE rather than a literal: a frozen date fails every dossier updated after
-/// it while still claiming to test only that a row is dated.
+/// One `YYYY-MM-DD` cell, shared by both date checks so they cannot disagree; a SHAPE, never a literal.
 fn is_iso_date(cell: &str) -> bool {
     let b = cell.as_bytes();
     b.len() == 10
