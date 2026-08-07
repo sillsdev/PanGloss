@@ -305,3 +305,17 @@ What is left is refinement, not protection:
   in-process budgets but gets no memory or CPU ceiling — the documented route by which a
   directly-launched binary once reached 118GB. `-Mode run` exists to close this and nothing compels
   its use. This is the only item with a real-world incident behind it.
+
+**G12 — Browser packaging work, descoped from the compiler-removal change (2026-08-06).** Sixteen
+tasks removed so that change could be only its release blocker. Each is real; none is "remove the
+compiler from the browser": a native one-file package builder producing packages only after supervised
+compilation, with round-trip and fingerprint-mismatch tests; container v1 rejecting executable
+sections; isolated immutable model handles with explicit per-request selection; explicit combined
+versus HermitCrab-only analysis selection; proof that native and browser agree byte-for-byte on the
+canonical manifest and produce equivalent analyses; that malformed, stale, oversized and unsupported
+artifacts fail closed; that browser analysis stays inside per-word path/output/candidate/time budgets;
+that signed, unsigned and invalidly-signed packages all remain analyzable with trust reported
+separately; and that loading performs no license or entitlement network request.
+
+That last pair is worth not losing: "analyzable regardless of signature, with trust reported
+separately" and "no network call on load" are user-facing guarantees, not implementation details.

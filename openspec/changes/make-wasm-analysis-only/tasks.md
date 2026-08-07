@@ -37,22 +37,9 @@ compiled foma/HC artifacts, so it is not yet "native artifact production" in the
 - [x] 1.5 Define the optional Ed25519 block, domain-separated signed bytes, public-key/key-ID handling,
       and `unsigned`/`valid`/`invalid` reporting without authorization semantics
       (`pg-pack/src/signature.rs`, exercised by `format.rs` round-trip tests)
-- [ ] 1.6 Reject executable extension sections or declarations; container v1 is a data-only
-      PanGloss Language Pack whose behavior is supplied solely by PanGloss Runtime
-      (not verified — no extension-rejection check found)
 
 ## 2. Native artifact production
 
-- [ ] 2.1 Expose the existing foma binary-memory writer through a native one-file package builder
-      (not done — `write_pack` takes arbitrary `&[u8]` payloads; no producer function found that
-      builds a real foma-compiled binary from a `Grammar`)
-- [ ] 2.2 Serialize the matching Rust HermitCrab runtime grammar payload into the same package
-      (not done — same gap, no real HC runtime payload producer found)
-- [ ] 2.3 Produce packages only after supervised FST compilation and all size/resource checks succeed
-      (not done — no such gate exists on the package-write path)
-- [ ] 2.4 Add deterministic round-trip, cross-payload mismatch, and fingerprint-mismatch tests
-      (partial — round-trip tests exist but only over synthetic byte arrays
-      (`SYNTHETIC_RUNTIME_PAYLOAD`/`SYNTHETIC_FOMA_PAYLOAD`), not real compiled artifacts)
 - [x] 2.5 Add an offline native `sign package with private key` operation; never place a private key or
       shared secret in the package or WASM runtime
       (`pg-pack/src/signature.rs` sign/verify; no private key material in the package format)
@@ -68,34 +55,28 @@ compiled foma/HC artifacts, so it is not yet "native artifact production" in the
 - [ ] 3.3 Remove compiler construction code and dependencies from the WASM target
       (**not done** — confirmed: `pg-wasm/Cargo.toml` still depends on `pg-foma` directly; this is the
       change's own stated NOT-done item per `STAGING.md`)
-- [ ] 3.4 Integrate separately supplied stems only through the analysis-data boundary (not verified — blocked on 3.2/3.3)
-- [ ] 3.5 Expose explicit combined and HermitCrab-only analysis selection from the same package;
-      return named-pipeline parse diagnostics and never switch pipelines automatically (not done)
 - [x] 3.6 Expose a versioned native-C/WASM capability query; omit compiler exports from WASM and
       return typed `unsupported_capability` for operations absent from a build
       (`pg-wasm/src/pack.rs::is_unproven`/trust-status match; the "omit compiler exports from WASM"
       half is not true yet per 3.3)
-- [ ] 3.7 Return isolated immutable model handles, require every request to select one, remove any
-      global active-language state, and test native concurrent multi-pack analysis (not verified)
 
 ## 4. Boundary verification
 
-- [ ] 4.1 Prove native and WASM execute equivalent FST-propose plus Rust-HermitCrab-confirm/full-analysis
-      results from the same package (not done — depends on 3.2/3.3)
 - [ ] 4.2 Add a build/export audit that fails if a compiler constructor or compile API reaches WASM
       (not done — and would currently fail, since `pg-foma`'s compiler IS reachable from WASM today)
-- [ ] 4.3 Test malformed, stale, mismatched, oversized, and unsupported artifacts fail closed
-      (partial — `pg-pack`-level malformed/oversized/version tests exist; WASM-specific artifact
-      rejection not separately confirmed)
-- [ ] 4.4 Verify WASM analysis remains subject to per-word path/output/candidate/time budgets (not verified)
-- [ ] 4.5 Add golden byte fixtures proving native and WASM readers agree on canonical pack-manifest
-      bytes, integer byte order, section boundaries, digest coverage, and rejection behavior (not verified)
-- [ ] 4.9 Prove an older Runtime loads a pack whose required-runtime-feature set it fully provides,
-      and refuses (with a typed incompatibility, not a crash) a pack requiring a feature it lacks
-      (the `required ⊆ provided` containment check exists (`pg-pack/src/compat.rs`) but this specific
-      round-trip proof was not separately confirmed)
-- [ ] 4.6 Prove unsigned, validly signed, and invalidly signed packages all remain analyzable while
-      exposing distinct signature status and the unchanged license declaration (not verified end to end)
-- [ ] 4.7 Prove package loading and analysis perform no license-server or entitlement network request (not verified; no networking code found, but not proven)
-- [ ] 4.8 Prove HermitCrab-only analysis uses packaged grammar data, shared budgets, and diagnostic
-      outcomes without invoking the FST or any compiler (not done — no HermitCrab-only WASM pipeline exists yet)
+
+
+## Descoped 2026-08-06
+
+Sixteen open tasks were removed from this change. They were real, but they were not this change: native
+package building (2.x), signing and licensing behaviour, isolated model handles, byte-level reader
+agreement, and artifact-failure cases. Bundling them is why this sat at 10 of 29 rather than finishing
+the one thing that blocks a release.
+
+What remains is the release blocker and nothing else: take the compiler out of the browser, and make
+it impossible to put back. Task 4.2 is the load-bearing one — an audit that fails if a compiler
+constructor or compile API reaches the browser build means nobody has to remember this before
+shipping, because the build refuses. Write it first: it fails immediately, which converts a thing
+someone must remember into a thing someone must fix.
+
+The descoped items are recorded in `docs/open-questions.md` under G12 rather than lost.
