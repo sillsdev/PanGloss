@@ -258,7 +258,15 @@ function Get-BlockKind {
     if ($FirstLine -notmatch '^\s*///') { return 'impl' }
     for ($j = $EndIdx; $j -lt [Math]::Min($EndIdx + 12, $AllLines.Count); $j++) {
         $l = $AllLines[$j]
-        if ($l -match '^\s*#!?\[') { continue }
+        # Consume the WHOLE attribute: a multi-line one left its continuation unmatched, ending the walk.
+        if ($l -match '^\s*#!?\[') {
+            $depth = ([regex]::Matches($l, '\[')).Count - ([regex]::Matches($l, '\]')).Count
+            while ($depth -gt 0 -and $j -lt [Math]::Min($EndIdx + 40, $AllLines.Count - 1)) {
+                $j++
+                $depth += ([regex]::Matches($AllLines[$j], '\[')).Count - ([regex]::Matches($AllLines[$j], '\]')).Count
+            }
+            continue
+        }
         if ($l.Trim() -eq '') { continue }
         # `pub(crate)` is API, but `pub` inside a PRIVATE module reaches nobody; requiring both makes
         # this mean reachability rather than spelling. See docs/research/comment-hygiene-checker-design.md
