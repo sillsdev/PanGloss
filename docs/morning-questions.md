@@ -106,3 +106,44 @@ coordinator. It did not: I sent that message, naming exactly the five files it d
 a genuine instruction, doubted it, and confessed to something that did not happen — while behaving
 correctly throughout by declining to act on what it was unsure of. Recorded because an unretracted
 false confession makes the next reader discount work that was, in this case, unusually careful.
+
+
+---
+
+## 7. THE BRANCH IS RED — three tests, one decision, and an error of mine
+
+**Read this before anything else in this file.** Full workspace verification after the night's work
+fails. A complete no-fail-fast run was still going when this was written; the fail-fast run showed
+three, all in one place:
+
+```
+pg-cli make_report::tests::refused_grammar_report_names_not_supported_and_every_unmeasured_check
+pg-cli make_report::tests::allow_unproven_override_report_blocks_every_check_and_never_certifies
+pg-cli make_report::tests::supplied_pack_trust_stamp_is_read_from_the_real_artifact
+```
+
+All three share one fixture, so it is one cause, not three.
+
+**The cause is the change working.** That fixture is refused via `simultaneous.subrule-overlap`,
+which was narrowed last night to the cascade-composing compilers. The mainline compiler has no such
+limit, so the grammar now compiles — and the report correctly stops saying "NOT SUPPORTED". The tests
+assert a grammar is permanently refused; after the narrowing it is not.
+
+**The decision, and it is a real one rather than a fixture swap.** Those tests exist to prove that a
+permanently-refused grammar names its refusing predicate and never certifies. That property still
+matters. But the set of grammars PanGloss refuses **outright, under every compiler** is now much
+smaller — only three predicates still refuse universally: the circumfix structural-composite one,
+reduplication owned by a realizational rule, and non-recursive compounding.
+
+So: which grammar should stand for "permanently unsupported"? I did not guess. The audit agent built
+and falsified a proven universally-refusing fixture last night
+(`CIRCUMFIX_INFIX_NON_STRUCTURAL_XML`, an infix that drops material), and pointing these tests at
+that shape is the obvious candidate — but it lives inside another crate's test module, and copying a
+fixture across crates is the duplication this sweep has spent all day removing. Promoting it to a
+staged conformance fixture is the cleaner answer and is more than a one-line change.
+
+**My error, not the agent's.** I told it to verify with `-Mode test -Package pg-foma --lib`. That
+excludes integration tests *and* every other package, so fallout outside pg-foma's unit tests was
+never going to be caught. The agent reported 551/551 honestly and that number was true of what I
+asked it to run. Narrow verification instructions produce narrow verification, and the scope was
+mine to set.
