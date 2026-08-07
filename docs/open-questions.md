@@ -358,3 +358,30 @@ rule `-Mode corpus-test` already enforces), and should this gate assert a refusa
 
 **The same commit `2639067` is responsible for both D4 and G14.** Worth a look at what else it
 touched.
+
+**G15 — The gate change created a reporting hole: a partly-refused grammar now warns about nothing.**
+Introduced deliberately by the per-compiler narrowing (`5a7e800`) and worth closing before the recipe
+work leans on it. `preflight`'s `semantic_uncertainty_finding` reads the scalar `CompileDecision`,
+which is the JOIN across compilers — the best any of them offers. It has no access to
+`StrategyEnvelope::declining`, which is the list of compilers that declined and why. So a grammar that
+*some* compilers refuse and one accepts now produces no preflight finding at all.
+
+Before the narrowing that case could not arise, because every predicate bound every compiler and the
+join was therefore unanimous. The change is right; the reporting has not caught up. This is precisely
+the material `recipe-scoped-fst-health` wants ("which recipe compiled this, which did not and why"),
+so the two should be built together rather than separately.
+
+**G16 — `plan_diagram` now mixes two verdict models.** Its per-node verdicts mirror the
+compiler-blind walk while its overall verdict is the join, so the two can legitimately disagree after
+`5a7e800`. The test was re-pointed at the fully-constrained compiler rather than change the artifact's
+meaning — the conservative call — but the module doc still frames the overall verdict as "the ONE
+authoritative answer", which sits badly beside a per-node view that can answer differently. Decide
+which model the artifact publishes, then make the doc say it.
+
+**G17 — Two coverage rows look too generous.** `strategy_coverage` records
+`CircumfixOutputAction` as `RepresentsWithKnownGap` for `PlanComposed` and
+`TemplatedUnderlyingTokens`, but neither has a composite pipeline at all: the lexicon emitter skips
+non-prefix/suffix roles, and the templated emitter's own doc says "No composite pipeline at all".
+`RepresentsWithKnownGap` means "emits something, just not provably a superset" — `CannotRepresent`
+looks closer to the truth. This is why the circumfix predicate was deliberately NOT narrowed: with
+rows that generous, narrowing would have been the coverage-inheritance trap run backwards.
