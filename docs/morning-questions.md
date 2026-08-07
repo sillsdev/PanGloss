@@ -147,3 +147,51 @@ excludes integration tests *and* every other package, so fallout outside pg-foma
 never going to be caught. The agent reported 551/551 honestly and that number was true of what I
 asked it to run. Narrow verification instructions produce narrow verification, and the scope was
 mine to set.
+
+
+---
+
+## 8. Corrected damage report: 12 failures, three causes — and one is a design decision
+
+The no-fail-fast run finished: **1868 tests, 1856 passed, 12 failed**. My earlier "three" was the
+fail-fast truncation, and I reported it before the complete run finished. Three distinct causes:
+
+**Nine** in the command-line tool (report generation, packaging, and the capability gate's own
+enforcement tests) — all one root cause: a fixture that used to be refused outright no longer is.
+
+**One** is mine and unfinished: I edited evidence prose in the coverage ledger, whose text is stored
+verbatim in a golden file, and the regeneration run had not completed when this was written. Purely
+mechanical to finish.
+
+**One** the agent predicted in its own report and could not have caught, because I scoped its
+verification to unit tests only and this is an integration test.
+
+### The decision, and it is not a test fix
+
+That last failure is the interesting one. A grammar with 101 loosely-ordered rules:
+
+- the **capability gate** now says *confirm-only* — some compiler can handle it, which is true;
+- the **shipping compiler** still refuses it outright with a low-level budget error.
+
+Both statements are correct. The architecture is deliberate: the per-compiler verdict decides which
+compiler to select, while the joined verdict is a whole-grammar summary. They answer different
+questions.
+
+But the command-line tool's enforcement reads the **joined** verdict. So the user-visible change is
+that a grammar which used to be refused cleanly at the gate — *"this construct is unsupported,
+here is which one"* — now passes the gate and fails deep inside the compiler with an internal budget
+message. Same outcome, much worse explanation. And explaining the refusal is the entire reason the
+gate exists.
+
+Three ways out, and this is genuinely your call:
+
+1. **Enforcement reads the per-compiler verdict for the compiler it is about to run**, not the join.
+   Most correct, and it makes the gate's promise match what actually happens. Largest change.
+2. **The join keeps a refusal when the compiler that would actually be selected refuses**, so
+   "best available" never means "best hypothetical".
+3. **Accept it**: the grammar still does not compile, and the error is worse but not wrong. Cheapest,
+   and it degrades the one thing this gate was built to do well.
+
+My preference is (1), because the gate's contract is to fail loudly *with a reason* at compile time,
+and (3) trades exactly that away. But (1) touches the enforcement path, so I have not started it
+overnight.
