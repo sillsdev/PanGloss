@@ -37,6 +37,15 @@ X, which would be faster/smaller, if these things were changed" — even when X 
 recipe. That is the most valuable form the advice can take, because it converts a refusal into a
 route.
 
+**Report the resulting size, per recipe, without gating on it.** States, arcs and on-disk bytes for
+what each recipe actually produced. Comparing recipes is comparing costs, so the numbers exist
+anyway; surfacing them is nearly free and it is the figure a project watches over time. Deliberately
+a **measurement, not a threshold** — `calibrate-fst-resource-envelopes` was closed 2026-08-06 because
+its thresholds were derived from a single language's net and would now be set against a compiler
+about to change. Thresholds are demoted, not abandoned: once several recipes have been measured on
+several grammars, a threshold can be proposed from that spread instead of from one point. Until then
+a reported size that a reader can compare beats a pass/fail line nobody can justify.
+
 **Carried from the archived change**, each verified as genuinely outstanding rather than trusted from
 its notes:
 

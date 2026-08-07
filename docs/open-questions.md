@@ -240,7 +240,13 @@ reachable only via a non-document-order application sequence; and the MPR order-
 witness. A unit test proves the engine; a fixture proves the grammar shape is representable.
 *(cover-compounding 4.1, cover-unordered-morph-rules 4.2, cover-mpr-groups 4.2)*
 
-**G7 — No resource thresholds were ever proposed to `calibrate-fst-resource-envelopes`.** Two changes
+**G7 — Resource thresholds: DEMOTED 2026-08-06, not abandoned.** `calibrate-fst-resource-envelopes`
+was closed; nothing consumed it, and the two changes that each owed it a threshold were archived
+without producing one, which is a fair reading of demand. Its defaults also came from a single
+language's net. Size is now reported as a **measurement** by `recipe-scoped-fst-health` rather than
+gated; a threshold can be proposed later from the spread across several recipes and grammars, which is
+evidence a single point never had. Machine-safety guards are unaffected and tracked separately in G11.
+Original finding: Two changes
 carry the same task and neither produced a diff. ADR 0001 wants cost and capability gated by
 different standards — warn on cost, never hard-fail — and nothing warns today.
 *(cover-compounding 5.2, cover-mpr-groups 5.2)*

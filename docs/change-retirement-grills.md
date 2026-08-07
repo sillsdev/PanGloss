@@ -230,7 +230,15 @@ exercise hardest** — arguably it should be more aligned, not less.
 **Choices:** (a) keep; (b) retire; (c) shrink. Chose retire — the guards already hold.
 </details>
 
-### D2 — `calibrate-fst-resource-envelopes` (0 done / 17 open)
+### D2 — `calibrate-fst-resource-envelopes` — CLOSED 2026-08-06, thresholds demoted
+
+**Resolved.** Nothing consumed it, and the two changes that each owed it a threshold were archived
+without ever producing one. Its defaults came from one language's net. Size becomes a reported
+measurement in `recipe-scoped-fst-health` instead of a gate; a threshold can be proposed later from
+the spread across recipes and grammars. Machine-safety guards are untouched (G11).
+
+<details><summary>original grill</summary>
+
 
 *For:* current defaults are calibrated from one Aweti net; they do not measure transient RSS,
 cumulative work, or opaque-operation cliffs.
@@ -238,10 +246,8 @@ cumulative work, or opaque-operation cliffs.
 *Now:* **G7 points directly at this change** — two archived changes each owed it a resource threshold
 and neither delivered. So it has inbound dependencies from work we just lifted.
 
-**Choices:** (a) keep — G7 has nowhere else to go; (b) retire and fold G7's thresholds into whichever
-sub-recipe needs them first; (c) keep, deprioritised. **Recommendation: (b)** — thresholds are more
-honest when a real consumer demands them, which is the same argument the repo makes about unmeasured
-placeholders.
+**Choices:** (a) keep; (b) retire, fold into whoever needs it; (c) deprioritise. Chose (b).
+</details>
 
 ### D3 — `make-wasm-analysis-only` (10 done / 19 open)
 
