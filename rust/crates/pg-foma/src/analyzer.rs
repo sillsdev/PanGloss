@@ -76,7 +76,7 @@ impl fmt::Display for FomaError {
                  any-order/any-subset combination cascade admits a combinatorial number of \
                  admissible rule orderings in the loose-rule count; this grammar's \
                  unordered-application.unbounded configuration is honestly unsupported \
-                 (openspec/changes/cover-unordered-morph-rules) rather than silently truncated. \
+                 rather than silently truncated. \
                  Raise HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET only if you understand why this \
                  stratum's rule count is this large."
             ),

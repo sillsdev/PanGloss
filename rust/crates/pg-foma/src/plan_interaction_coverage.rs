@@ -364,9 +364,8 @@ pub fn retired_interactions() -> Vec<RetiredInteraction> {
     vec![
         RetiredInteraction {
             label: "mpr-group.append-output x unordered-application (co-occurring at a Gate node)",
-            evidence: "openspec/changes/cover-mpr-groups design.md D4 (\"x unordered morphological \
-                rule application -- load-bearing, not open\"): Append accumulation is a commutative- \
-                monoid set union, order-invariant by construction -- an Append-only group's final \
+            evidence: "Append accumulation is a commutative-monoid set union, order-invariant by \
+                construction -- an Append-only group's final \
                 accumulated state is identical regardless of a stratum's rule-application order, so \
                 cover-unordered-morph-rules' any-order proposal composes with mpr-group.append-output \
                 for free once both reach ConfirmOnly (\"a rare case of two Stage-2 predicates being \

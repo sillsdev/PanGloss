@@ -519,8 +519,7 @@ impl fmt::Display for ComposeError {
                  combination cascade (pg_rules::cascade::Cascade::combination) admits up to a \
                  factorial (or, under multi-application, exponential) number of admissible rule \
                  orderings in the loose-rule count -- this grammar's own unordered-application.\
-                 unbounded configuration is honestly unsupported (openspec/changes/\
-                 cover-unordered-morph-rules), never silently truncated; raise \
+                 unbounded configuration is honestly unsupported, never silently truncated; raise \
                  HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET only if you understand why this stratum's \
                  rule count is this large."
             ),

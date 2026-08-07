@@ -62,6 +62,23 @@ fn read_dossiers() -> Vec<(&'static str, String)> {
         .collect()
 }
 
+/// One `YYYY-MM-DD` cell. Shared by both date checks below so they cannot disagree about what a date
+/// is, and matching the SHAPE rather than a literal: a frozen date fails every dossier updated after
+/// it while still claiming to test only that a row is dated.
+fn is_iso_date(cell: &str) -> bool {
+    let b = cell.as_bytes();
+    b.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b.iter()
+            .enumerate()
+            .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+}
+
+fn has_dated_row(log: &str) -> bool {
+    log.split('|').map(str::trim).any(is_iso_date)
+}
+
 fn section(text: &str, heading: &str) -> String {
     let marker = format!("## {heading}");
     let start = text
@@ -76,13 +93,7 @@ fn has_dated_evidence_decision(decisions: &str) -> bool {
     decisions.lines().any(|line| {
         let cells: Vec<_> = line.split('|').map(str::trim).collect();
         cells.len() >= 5
-            && cells[1].len() == 10
-            && cells[1].as_bytes()[4] == b'-'
-            && cells[1].as_bytes()[7] == b'-'
-            && cells[1]
-                .bytes()
-                .enumerate()
-                .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+            && is_iso_date(cells[1])
             && matches!(cells[2], "fits" | "refines" | "splits/adds")
             && !cells[3].is_empty()
             && !cells[4].is_empty()
@@ -239,8 +250,8 @@ fn subrecipe_dossier_logs_links_and_decision_triggers_are_dated() {
     for (name, text) in read_dossiers() {
         let log = section(&text, "Research log");
         assert!(
-            log.contains("| 2026-08-01 |"),
-            "{name} needs a dated research-log row"
+            has_dated_row(&log),
+            "{name} needs a dated research-log row (a `| YYYY-MM-DD |` cell)"
         );
         assert!(
             log.contains("https://") || log.contains("]("),
