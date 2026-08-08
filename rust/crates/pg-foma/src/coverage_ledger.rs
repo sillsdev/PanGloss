@@ -147,6 +147,7 @@ fn kind_wire_name(kind: CharacteristicKind) -> &'static str {
         QuantifierPattern => "quantifier_pattern",
         StemName => "stem_name",
         FreeFluctuation => "free_fluctuation",
+        ProcessMorphology => "process_morphology",
     }
 }
 
@@ -521,6 +522,8 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
         ),
         // No dedicated FST-propose-then-confirm witness exists for the disjunctive-allomorph re-check; only oracle-level conformance fixtures exercise it, a different evidence axis. Honest gap, not a fabricated citation.
         FreeFluctuation => return None,
+        // No test drives an ablaut grammar through propose-then-confirm; None surfaces that as a gap.
+        ProcessMorphology => return None,
     })
 }
 
@@ -877,8 +880,7 @@ mod tests {
 
     /// `NaturalClassDefinition` and `FreeFluctuation` are the deliberate, documented `None`s; a future edit that starts or stops returning evidence for either must be a reviewed, visible change.
     #[test]
-    fn natural_class_definition_and_free_fluctuation_are_the_only_kinds_with_no_containment_evidence(
-    ) {
+    fn every_kind_without_a_containment_witness_is_named_and_justified() {
         let missing: Vec<CharacteristicKind> = CharacteristicKind::ALL
             .iter()
             .copied()
@@ -888,8 +890,12 @@ mod tests {
             missing,
             vec![
                 CharacteristicKind::NaturalClassDefinition,
-                CharacteristicKind::FreeFluctuation
-            ]
+                CharacteristicKind::FreeFluctuation,
+                // No test drives an ablaut grammar through propose-then-confirm on ANY backend.
+                CharacteristicKind::ProcessMorphology
+            ],
+            "every kind without a containment witness must be named here with a reason -- an \
+             unexplained addition means somebody added a construct and skipped its witness"
         );
     }
 

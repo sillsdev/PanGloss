@@ -238,6 +238,10 @@ fn plan_composed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static 
             "every allomorph of a multi-allomorph entry gets its own root line, uniformly -- the \
              uniform over-proposal capability.rs's FreeFluctuation arm describes",
         ),
+        ProcessMorphology => (
+            CannotRepresent,
+            "uflexc::emit_underlying_filtered -- its own module doc lists Role::Process in the \n             SKIPPED set (\"Reduplication/Infix/CircumfixPrefix/CircumfixSuffix/Process/None is \n             skipped and reported\"); no lexc line is emitted for an in-place mutation at all",
+        ),
     }
 }
 
@@ -271,6 +275,10 @@ fn tuned_surface_probed(kind: CharacteristicKind) -> (StrategyRepresentation, &'
         | QuantifierPattern
         | StemName
         | FreeFluctuation => (Represents, mainline),
+        ProcessMorphology => (
+            Represents,
+            "emit::is_structural_rule admits Role::Process unconditionally (emit.rs), routing it \n             through build_structural_composites, which replays pg_rules::morph::synthesize -- the \n             real engine -- so the mutated surface is faithful rather than spliced",
+        ),
     }
 }
 
@@ -324,6 +332,10 @@ fn templated_underlying_tokens(kind: CharacteristicKind) -> (StrategyRepresentat
             Represents,
             "confirm-time or representational only -- identical for every strategy; no lexicon \
              emitter filters on any of these",
+        ),
+        ProcessMorphology => (
+            CannotRepresent,
+            "emit::emit_underlying_templated's own doc: \"No composite pipeline at all\" -- with no \n             composite route there is nothing to realize an in-place mutation with",
         ),
         MultiTable => (
             Represents,
@@ -490,10 +502,20 @@ mod tests {
     }
 
     #[test]
-    fn unrepresentable_kinds_reports_the_plan_composed_hole_and_nothing_for_the_mainline() {
+    fn unrepresentable_kinds_names_every_hole_and_leaves_the_mainline_clear() {
         assert_eq!(
             unrepresentable_kinds(EmissionStrategy::PlanComposed),
-            vec![CharacteristicKind::RealizationalMorphology]
+            vec![
+                CharacteristicKind::RealizationalMorphology,
+                // uflexc lists Role::Process in its own skipped set; no lexc line is emitted at all.
+                CharacteristicKind::ProcessMorphology
+            ]
+        );
+        assert_eq!(
+            unrepresentable_kinds(EmissionStrategy::TemplatedUnderlyingTokens),
+            vec![CharacteristicKind::ProcessMorphology],
+            "the templated emitter's own doc says it has no composite pipeline, so it cannot \
+             realize an in-place mutation"
         );
         assert!(unrepresentable_kinds(EmissionStrategy::TunedSurfaceProbed).is_empty());
     }

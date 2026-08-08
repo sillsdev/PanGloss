@@ -421,6 +421,8 @@ pub fn mechanism_kind_for(kind: CharacteristicKind) -> MechanismKind {
         | UnorderedMorphRuleApplication
         | CoOccurrenceConstraint
         | StemName
+        // In-place mutation decides WHICH analyses exist, before any phonological lowering.
+        | ProcessMorphology
         | FreeFluctuation => MechanismKind::Morphotactics,
 
         // A static partition is a lexical/MPR split fixed for the compilation's lifetime; SubruleGating is what crate::gate partitions on.

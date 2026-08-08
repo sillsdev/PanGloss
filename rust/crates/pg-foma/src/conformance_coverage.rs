@@ -214,6 +214,7 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
         StemName => &["Stem names"],
         // Same correction, same source row: also used to be in ORPHAN_CONSTRUCT_ROWS.
         FreeFluctuation => &["Disjunctive allomorphs / free-fluctuation"],
+        ProcessMorphology => &["MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext"],
     }
 }
 
@@ -245,11 +246,6 @@ pub const ORPHAN_CONSTRUCT_ROWS: &[(&str, &str)] = &[
          CircumfixOutputAction coverage; D1's table has no distinct admission-gated characteristic \
          for individual OutputAction variants (they collapse into whichever MorphRuleDef/\
          AffixAllomorphDef characteristic uses them).",
-    ),
-    (
-        "MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext",
-        "same reasoning as \"CopyFromInput/InsertSegments\" above -- an ordinary output-action \
-         primitive, not its own gated phenomenon.",
     ),
     (
         "Affix template slots (obligatory/disjunctive/ordering)",

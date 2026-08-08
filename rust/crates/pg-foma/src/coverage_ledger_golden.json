@@ -532,6 +532,22 @@
         "tuned-surface-probed",
         "templated-underlying-tokens"
       ]
+    },
+    {
+      "kind": "process_morphology",
+      "disposition": "confirm_only",
+      "discharging_predicates": [],
+      "construct_ids": [
+        "MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext"
+      ],
+      "conformance_status": "covered",
+      "strategies_cannot_represent": [
+        "plan-composed",
+        "templated-underlying-tokens"
+      ],
+      "strategies_unwitnessed": [
+        "tuned-surface-probed"
+      ]
     }
   ]
 }

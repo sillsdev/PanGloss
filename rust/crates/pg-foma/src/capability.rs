@@ -189,6 +189,11 @@ pub enum CharacteristicKind {
     /// to reason about this mechanism at all — so this characteristic remains wholly
     /// `ConfirmOnly`, undischarged by anything this crate compiles.
     FreeFluctuation,
+    /// A `Modify`-only allomorph: the input is mutated in place rather than affixed to (ablaut,
+    /// mutation, simulfix). Distinct from `CircumfixOutputAction`, which cannot fire here at all --
+    /// its `allomorph_drops_lhs_material` trigger returns early on a single-part input, and a
+    /// single-part input is exactly the ablaut shape.
+    ProcessMorphology,
 }
 
 impl CharacteristicKind {
@@ -221,6 +226,7 @@ impl CharacteristicKind {
         CharacteristicKind::QuantifierPattern,
         CharacteristicKind::StemName,
         CharacteristicKind::FreeFluctuation,
+        CharacteristicKind::ProcessMorphology,
     ];
 
     /// The characteristic's disposition BEFORE any predicate runs. Exhaustively matched (no
@@ -259,6 +265,8 @@ impl CharacteristicKind {
             CharacteristicKind::StemName => Disposition::ConfirmOnly,
             // Same shape: `crate::emit` proposes every allomorph uniformly; confirm enforces "first-listed wins".
             CharacteristicKind::FreeFluctuation => Disposition::ConfirmOnly,
+            // Correct via replayed real synthesis, unproven as an admission filter; cost is health's.
+            CharacteristicKind::ProcessMorphology => Disposition::ConfirmOnly,
         }
     }
 }
@@ -1123,6 +1131,17 @@ fn characterize_allomorph(
     // Exhaustive match per action, discipline-only; see `output_action_label`'s own doc.
     for action in &allo.rhs {
         let _ = output_action_label(action);
+    }
+    // `allomorph_drops_lhs_material` cannot see this: it returns early on the single-part ablaut shape.
+    if crate::emit::classify_affix(&allo.rhs) == crate::emit::Role::Process {
+        observations.push(CharacteristicObservation::new(
+            CharacteristicKind::ProcessMorphology,
+            ModelLocation::AffixAllomorph {
+                rule,
+                allomorph_index,
+            },
+            ObservationDetail::None,
+        ));
     }
     if allomorph_drops_lhs_material(allo) {
         observations.push(CharacteristicObservation::new(
@@ -5168,6 +5187,50 @@ mod tests {
         }
     }
 
+    /// Pure ablaut: ONE input part, mutated in place, nothing copied and nothing dropped. `classify_affix` reads this as `Role::Process`; `allomorph_drops_lhs_material` cannot fire because the input has one part.
+    const ABLAUT_PROCESS_XML: &str = r#"<HermitCrabInput><Language><Name>Ablaut</Name>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+      <Strata>
+        <Stratum characterDefinitionTable="t1" morphologicalRules="mrAblaut">
+          <Name>S</Name>
+          <MorphologicalRuleDefinitions>
+            <MorphologicalRule id="mrAblaut">
+              <Name>ablaut</Name>
+              <MorphologicalSubrules>
+                <MorphologicalSubrule id="subAblaut">
+                  <MorphologicalInput>
+                    <PhoneticSequence id="pA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                  </MorphologicalInput>
+                  <MorphologicalOutput>
+                    <ModifyFromInput index="pA"><SimpleContext naturalClass="ncAll" /></ModifyFromInput>
+                  </MorphologicalOutput>
+                </MorphologicalSubrule>
+              </MorphologicalSubrules>
+            </MorphologicalRule>
+          </MorphologicalRuleDefinitions>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// A grammar whose morphology is ENTIRELY in-place mutation must not characterize as carrying nothing.
+    #[test]
+    fn characterize_marks_process_morphology_for_a_pure_ablaut_allomorph() {
+        let g = load(ABLAUT_PROCESS_XML);
+        let profile = characterize(&g);
+
+        assert!(
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::ProcessMorphology),
+            "a Modify-only allomorph must be observed as ProcessMorphology -- without it the gate              reports a clean grammar it structurally cannot see: {:?}",
+            profile.observations()
+        );
+    }
+
     /// The in-scope `Role::None` drop shape characterizes `ConfigPredicate` with `structural_composite_attempted == true`.
     #[test]
     fn characterize_marks_circumfix_output_action_config_predicate_when_structural() {
@@ -6267,9 +6330,10 @@ mod tests {
         }
         assert_eq!(
             CharacteristicKind::ALL.len(),
-            22,
-            "bumped from 20 by research report 13's taxonomy-gap fix: new \
-             CharacteristicKind::StemName/FreeFluctuation (both ConfirmOnly -- see their own docs)"
+            23,
+            "20 -> 22 by research report 13 (StemName/FreeFluctuation); 22 -> 23 by \
+             ProcessMorphology, which NOTHING observed -- a pure-ablaut grammar reported \
+             Affixation/Ordered/NaturalClass all Proven and nothing about the mutation"
         );
     }
 
