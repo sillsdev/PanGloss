@@ -247,15 +247,21 @@ budget types.
 
 ### 0D. FST compilation-health contract
 
-`define-fst-compilation-health`: Rust-owned finding schema, stable codes, severity/override
-semantics, size bands, and the boundary between compilation health (cost axis) and linguistic
-grammar quality. Distinct from the capability-trust axis (ADR 0005).
+`recipe-scoped-fst-health` (successor; `define-fst-compilation-health` archived 2026-08-08 with its
+schema shipped and its six open tasks carried over). Rust-owned finding schema, stable codes,
+severity/override semantics, size bands, and the boundary between compilation health (cost axis) and
+linguistic grammar quality. Distinct from the capability-trust axis (ADR 0005). The open half is
+scoping a finding to the backend that produced it, populating remedies, and recalibrating the size
+bands — which are a stated target, not a measurement.
 
 ### 0E. Reference oracle harness — pulled early
 
-`add-reference-hermitcrab-parity`: the C# HermitCrab oracle harness that **authors** conformance
-ground truth (gloss/analysis signatures) and supplies investigative parity evidence. Pulled into
-Stage 0 because the 0A conformance gate depends on oracle-authored fixtures existing. It is
+`add-reference-hermitcrab-parity`: **shrunk 2026-08-08 from a standing harness to an on-demand
+procedure** — the upstream adapter (`machine/conformance/adapters/hc-dotnet-wrapper.sh`) and the
+already-oracle-authored fixtures cover the consuming case, so what remained was documenting how to
+reach the oracle when a NEW fixture needs ground truth. That now lives in
+`.claude/skills/conformance-grammars/SKILL.md`; the submodule's sparse checkout omits `machine/src`,
+which is why the oracle looks unavailable by default. The original text follows for context. It is
 investigative evidence, never the gate itself.
 
 ## Stage 1 — the compilation refactor

@@ -137,10 +137,60 @@ or a second `words.yaml` parser — extend that crate instead.
      triplicated identical entries is hard for a future reader to trust).
 4. **Oracle discipline** (`docs/conformance-staging-plan.md`): ground truth SHOULD come from the C#
    founding oracle (`SIL.Machine.Morphology.HermitCrab.Tool`) when available. When you author against
-   `pangloss` instead (the common case in this environment, where no `dotnet`/C# toolchain is set up),
-   **say so explicitly** in the fixture's `STAGING.md` (staged fixtures) or PR description (direct
-   upstream contributions) — `pangloss` IS the oracle for that fixture until re-verified. Never claim
-   C#-oracle provenance you didn't actually run.
+   `pangloss` instead, **say so explicitly** in the fixture's `STAGING.md` (staged fixtures) or PR
+   description (direct upstream contributions) — `pangloss` IS the oracle for that fixture until
+   re-verified. Never claim C#-oracle provenance you didn't actually run.
+
+   Authoring against `pangloss` is still the common case, but the reason has changed and the old one
+   is worth un-learning: it is a CHECKOUT question now, not a toolchain question. This skill used to
+   say no `dotnet`/C# toolchain was set up here. One is (see below), so "I couldn't run the oracle"
+   needs a better reason than that.
+
+   **"When available" means the submodule's SOURCE is checked out, and a default worktree does not
+   have it.** This is the step people miss, because ordinary conformance work never needs it.
+   `Initialize-ConformanceSubmodule` deliberately materializes `machine/conformance` ONLY (~1MB);
+   the oracle lives in `machine/src/SIL.Machine.Morphology.HermitCrab.Tool/`, which that sparse
+   checkout omits. A worktree can run the whole conformance suite green and still have no oracle in
+   it. "Not available" is the DEFAULT state, not a sign anything is broken.
+
+   **Check which state you are in before doing anything — the fix is opposite in each:**
+   ```
+   git -C machine sparse-checkout list
+   #   prints the checked-out paths        => sparse
+   #   "fatal: this worktree is not sparse" => full checkout
+   ```
+   Do not pipe that command into anything when testing it — a pipe replaces its exit status with the
+   downstream command's, which silently turns the "not sparse" failure into a success with no output.
+   - **Sparse** (a worktree born from `pg.ps1 -Mode new-worktree`): widen by ADDING `src`, then
+     narrow back when done. Do not re-clone and do not disable sparse mode.
+     ```
+     git -C machine sparse-checkout set conformance src
+     ...                                    # author, run the oracle
+     git -C machine sparse-checkout set conformance
+     ```
+   - **Full checkout** (some older worktrees, including ones created before the sparse init landed):
+     `machine/src` is already present and there is nothing to widen. Do NOT run
+     `sparse-checkout set` here "to be consistent" — sparse mode is off, so that command ENABLES it
+     and NARROWS the checkout, which is the reverse of what you want.
+
+   Widening is a deliberate, on-demand act for one authoring session, never a standing per-worktree
+   setup: `machine/src` alone is 350MB and this machine carries a couple dozen worktrees, which is
+   the entire reason the checkout is sparse (CLAUDE.md, "The `machine` conformance submodule
+   auto-initializes"). Narrowing back is not tidiness — a left-open `src` costs 350MB here and is
+   invisible afterwards, because `git status` does not report sparse-checkout changes as
+   modifications.
+
+   **Run it through the upstream adapter, not a hand-rolled command.**
+   `machine/conformance/adapters/hc-dotnet-wrapper.sh` already implements the 3-argument `batch`
+   contract that `pangloss` implements (`machine/conformance/PROTOCOL.md` § 1), resolves paths
+   relative to itself rather than your cwd, and takes an optional 5th argument pointing at a
+   prebuilt `hc.dll` (otherwise it looks for the Debug then Release build):
+   ```
+   dotnet build machine/src/SIL.Machine.Morphology.HermitCrab.Tool
+   machine/conformance/adapters/hc-dotnet-wrapper.sh batch <grammar.xml> <words.txt> <out.tsv>
+   ```
+   A `dotnet` toolchain IS installed on this machine (verified: 10.0.302), so a missing oracle here
+   is a checkout question, not a toolchain one.
 5. **Write a red-on-revert case, not just a passing signature.** A fixture that only pins "the
    correct signature" is vacuous if the grammar doesn't actually exercise the pathology it claims —
    e.g. don't just assert a word parses; also assert a STRUCTURALLY-invalid neighbor word does

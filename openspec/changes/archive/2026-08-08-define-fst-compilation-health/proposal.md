@@ -1,3 +1,12 @@
+> **Archived 2026-08-08 — the schema shipped and is live; the six open tasks moved to
+> `recipe-scoped-fst-health`.** Unlike the other changes archived in this sweep, this one is not
+> being abandoned: `pg-foma/src/health.rs` is in production use, its severity axis already matches
+> the settled two-axis rule (cost graded, correctness binary), and a finding already carries the
+> free-form explanation and ranked remedies that health was asked for. What it lacks is a way to say
+> WHICH BACKEND a finding was measured under, which only matters once more than one compiler can
+> run — so that work belongs to the successor, not here. Its size bands were raised 10x on the same
+> day and are documented in code as a stated target rather than a measurement.
+
 ## Why
 
 PanGloss needs compiler warnings that explain when a grammar's FST construction is large, slow, or

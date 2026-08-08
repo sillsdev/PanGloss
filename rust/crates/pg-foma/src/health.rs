@@ -16,9 +16,9 @@
 //! not a re-implementation of the capability registry itself.
 //!
 //! # Severity and size bands
-//! `severity_for_size_bytes` implements the exact decimal-byte FST-payload bands: Ideal
-//! `<=10_000_000`; Info `>10_000_000..=20_000_000`; Warning `>20_000_000..=100_000_000`; Error
-//! `>100_000_000..=500_000_000`; Critical `>500_000_000`. Size is one dimension among several —
+//! `severity_for_size_bytes` implements the exact decimal-byte FST-payload bands from the
+//! `*_MAX_BYTES` constants. The warning a crossed band raises is wanted; the exact edge is
+//! provisional — read `IDEAL_MAX_BYTES` before citing an edge as evidence. Size is one dimension among several —
 //! see `Metric` for the others (compile work, intermediate nets, candidates, paths, application
 //! time, unknown/unbounded constructs) — and `HealthReport::admission` aggregates across all of
 //! them, not size alone.
@@ -119,27 +119,46 @@ impl Severity {
     }
 }
 
-/// The exact decimal-byte FST-payload size bands, inclusive upper edges: Ideal `<=10_000_000`;
-/// Info `>10_000_000..=20_000_000`; Warning `>20_000_000..=100_000_000`; Error
-/// `>100_000_000..=500_000_000`; Critical `>500_000_000`. The 100,000,000-byte edge case
-/// (exactly on the Warning/Error boundary) is pinned by this function's test.
+/// Inclusive upper edge of the Ideal payload band.
+///
+/// **The warning these bands raise is real; the exact numbers are provisional.** A compiled
+/// grammar that runs to a gigabyte is not something anyone can ship, so a payload that large has
+/// to reach its author as a warning — that much is settled, and it is why these are thresholds and
+/// not just a reported number. What is unsettled is where each edge sits: no grammar was measured
+/// to pick them, and the change whose job was to derive such thresholds from evidence was retired
+/// without producing one.
+///
+/// They encode an intent. A grammar is on the order of a thousand parameters, so the whole
+/// difficulty is combining them compactly — which is exactly what different backends do better or
+/// worse. Read a crossed band as "this backend did not combine this grammar well", never as a
+/// proven resource limit. Provenance and the pending recalibration against a real spread across
+/// backends and grammars: `docs/change-retirement-grills.md`.
+pub const IDEAL_MAX_BYTES: u64 = 100_000_000;
+/// Inclusive upper edge of the Info payload band. Provenance: see [`IDEAL_MAX_BYTES`].
+pub const INFO_MAX_BYTES: u64 = 200_000_000;
+/// Inclusive upper edge of the Warning payload band. Provenance: see [`IDEAL_MAX_BYTES`].
+pub const WARNING_MAX_BYTES: u64 = 1_000_000_000;
+/// Inclusive upper edge of the Error payload band; above this is Critical. Provenance: see
+/// [`IDEAL_MAX_BYTES`].
+pub const ERROR_MAX_BYTES: u64 = 5_000_000_000;
+
+/// The exact decimal-byte FST-payload size bands, inclusive upper edges, from the
+/// `*_MAX_BYTES` constants — which are a stated target, NOT a measured limit; read
+/// [`IDEAL_MAX_BYTES`] before citing any band as evidence. Each edge is pinned by this
+/// function's tests, so the constants and the bands cannot drift apart silently.
 ///
 /// Size is one health dimension, not the whole story: compile work, intermediate nets,
 /// candidates, paths, time, and unknown/unbounded constructs may also raise severity. Combine
 /// this with other dimensions' findings via `HealthReport::admission`, never use this
 /// function's result alone as overall admission.
 pub const fn severity_for_size_bytes(bytes: u64) -> Severity {
-    const IDEAL_MAX: u64 = 10_000_000;
-    const INFO_MAX: u64 = 20_000_000;
-    const WARNING_MAX: u64 = 100_000_000;
-    const ERROR_MAX: u64 = 500_000_000;
-    if bytes <= IDEAL_MAX {
+    if bytes <= IDEAL_MAX_BYTES {
         Severity::Ideal
-    } else if bytes <= INFO_MAX {
+    } else if bytes <= INFO_MAX_BYTES {
         Severity::Info
-    } else if bytes <= WARNING_MAX {
+    } else if bytes <= WARNING_MAX_BYTES {
         Severity::Warning
-    } else if bytes <= ERROR_MAX {
+    } else if bytes <= ERROR_MAX_BYTES {
         Severity::Error
     } else {
         Severity::Critical
@@ -498,7 +517,23 @@ impl HealthReport {
 mod tests {
     use super::*;
 
-    // fst_health_size_bands: exact decimal-byte thresholds, every band edge.
+    // Edges by relation via the constants; the four values are pinned once, separately, below.
+
+    #[test]
+    fn fst_health_size_band_values_are_the_declared_targets() {
+        // Changing one of these changes a stated target: say so in `IDEAL_MAX_BYTES`'s doc.
+        assert_eq!(IDEAL_MAX_BYTES, 100_000_000);
+        assert_eq!(INFO_MAX_BYTES, 200_000_000);
+        assert_eq!(WARNING_MAX_BYTES, 1_000_000_000);
+        assert_eq!(ERROR_MAX_BYTES, 5_000_000_000);
+    }
+
+    #[test]
+    fn fst_health_size_bands_are_strictly_ascending() {
+        assert!(IDEAL_MAX_BYTES < INFO_MAX_BYTES);
+        assert!(INFO_MAX_BYTES < WARNING_MAX_BYTES);
+        assert!(WARNING_MAX_BYTES < ERROR_MAX_BYTES);
+    }
 
     #[test]
     fn fst_health_size_bands_zero_is_ideal() {
@@ -507,43 +542,55 @@ mod tests {
 
     #[test]
     fn fst_health_size_bands_ideal_upper_edge_inclusive() {
-        assert_eq!(severity_for_size_bytes(10_000_000), Severity::Ideal);
+        assert_eq!(severity_for_size_bytes(IDEAL_MAX_BYTES), Severity::Ideal);
     }
 
     #[test]
     fn fst_health_size_bands_info_lower_edge_exclusive_of_ideal() {
-        assert_eq!(severity_for_size_bytes(10_000_001), Severity::Info);
+        assert_eq!(severity_for_size_bytes(IDEAL_MAX_BYTES + 1), Severity::Info);
     }
 
     #[test]
     fn fst_health_size_bands_info_upper_edge_inclusive() {
-        assert_eq!(severity_for_size_bytes(20_000_000), Severity::Info);
+        assert_eq!(severity_for_size_bytes(INFO_MAX_BYTES), Severity::Info);
     }
 
     #[test]
     fn fst_health_size_bands_warning_lower_edge_exclusive_of_info() {
-        assert_eq!(severity_for_size_bytes(20_000_001), Severity::Warning);
+        assert_eq!(
+            severity_for_size_bytes(INFO_MAX_BYTES + 1),
+            Severity::Warning
+        );
     }
 
     #[test]
-    fn fst_health_size_bands_warning_upper_edge_exactly_100_000_000_bytes() {
-        // The size-band boundary case: exactly 100,000,000 bytes lands in Warning, not Error.
-        assert_eq!(severity_for_size_bytes(100_000_000), Severity::Warning);
+    fn fst_health_size_bands_warning_upper_edge_inclusive() {
+        // The band boundary is INCLUSIVE: exactly WARNING_MAX_BYTES is Warning, not Error.
+        assert_eq!(
+            severity_for_size_bytes(WARNING_MAX_BYTES),
+            Severity::Warning
+        );
     }
 
     #[test]
     fn fst_health_size_bands_error_lower_edge_exclusive_of_warning() {
-        assert_eq!(severity_for_size_bytes(100_000_001), Severity::Error);
+        assert_eq!(
+            severity_for_size_bytes(WARNING_MAX_BYTES + 1),
+            Severity::Error
+        );
     }
 
     #[test]
     fn fst_health_size_bands_error_upper_edge_inclusive() {
-        assert_eq!(severity_for_size_bytes(500_000_000), Severity::Error);
+        assert_eq!(severity_for_size_bytes(ERROR_MAX_BYTES), Severity::Error);
     }
 
     #[test]
     fn fst_health_size_bands_critical_lower_edge_exclusive_of_error() {
-        assert_eq!(severity_for_size_bytes(500_000_001), Severity::Critical);
+        assert_eq!(
+            severity_for_size_bytes(ERROR_MAX_BYTES + 1),
+            Severity::Critical
+        );
     }
 
     #[test]
@@ -729,11 +776,11 @@ mod tests {
                 phase: Phase::Compile,
                 affected: vec!["synthetic-stress-grammar".to_string()],
                 metric: Metric::PayloadBytes,
-                value: MetricValue::Bytes(150_000_000),
+                value: MetricValue::Bytes(1_500_000_000),
                 provenance: ValueProvenance::Observed,
-                threshold: Some(MetricValue::Bytes(100_000_000)),
-                explanation: "Final FST payload is 150,000,000 bytes, in the Error band \
-                    (>100,000,000..=500,000,000)."
+                threshold: Some(MetricValue::Bytes(WARNING_MAX_BYTES)),
+                explanation: "Final FST payload is 1,500,000,000 bytes, in the Error band \
+                    (>1,000,000,000..=5,000,000,000)."
                     .to_string(),
                 remedies: vec![Remedy {
                     rank: 1,
@@ -793,14 +840,14 @@ mod tests {
       "metric": "payload_bytes",
       "value": {
         "kind": "bytes",
-        "value": 150000000
+        "value": 1500000000
       },
       "provenance": "observed",
       "threshold": {
         "kind": "bytes",
-        "value": 100000000
+        "value": 1000000000
       },
-      "explanation": "Final FST payload is 150,000,000 bytes, in the Error band (>100,000,000..=500,000,000).",
+      "explanation": "Final FST payload is 1,500,000,000 bytes, in the Error band (>1,000,000,000..=5,000,000,000).",
       "remedies": [
         {
           "rank": 1,

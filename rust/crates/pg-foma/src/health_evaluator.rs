@@ -281,16 +281,16 @@ fn retry_full_engine_remedy() -> Remedy {
     }
 }
 
-/// `severity_for_size_bytes`'s own band boundaries, returned as the crossed threshold for every non-`Severity::Ideal` band (the ceiling of the band just below).
+/// The band edge just below `severity` -- the threshold a non-`Severity::Ideal` finding crossed -- read from the shared `*_MAX_BYTES` constants so a band change cannot desync a second copy.
 fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
     match severity {
         Severity::Ideal => {
             unreachable!("payload_size_finding filters Severity::Ideal before calling this")
         }
-        Severity::Info => MetricValue::Bytes(10_000_000),
-        Severity::Warning => MetricValue::Bytes(20_000_000),
-        Severity::Error => MetricValue::Bytes(100_000_000),
-        Severity::Critical => MetricValue::Bytes(500_000_000),
+        Severity::Info => MetricValue::Bytes(crate::health::IDEAL_MAX_BYTES),
+        Severity::Warning => MetricValue::Bytes(crate::health::INFO_MAX_BYTES),
+        Severity::Error => MetricValue::Bytes(crate::health::WARNING_MAX_BYTES),
+        Severity::Critical => MetricValue::Bytes(crate::health::ERROR_MAX_BYTES),
     }
 }
 
@@ -673,39 +673,56 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_ideal_payload_produces_no_finding() {
-        let report = evaluate_health(Some(10_000_000), None, &[], &[], None);
+        let report = evaluate_health(Some(crate::health::IDEAL_MAX_BYTES), None, &[], &[], None);
         assert!(report.findings.is_empty());
         assert_eq!(report.admission(), Severity::Ideal);
     }
 
     #[test]
     fn fst_health_evaluator_warning_payload_produces_payload_size_band_finding() {
-        let report = evaluate_health(Some(50_000_000), None, &[], &[], None);
+        // Mid-band, not an edge: the edges are pinned in `health.rs`.
+        let mid_warning = (crate::health::INFO_MAX_BYTES + crate::health::WARNING_MAX_BYTES) / 2;
+        let report = evaluate_health(Some(mid_warning), None, &[], &[], None);
         assert_eq!(report.findings.len(), 1);
         let finding = &report.findings[0];
         assert_eq!(finding.code, FindingCode::PayloadSizeBand);
         assert_eq!(finding.severity, Severity::Warning);
         assert_eq!(finding.metric, Metric::PayloadBytes);
-        assert_eq!(finding.value, MetricValue::Bytes(50_000_000));
-        assert_eq!(finding.threshold, Some(MetricValue::Bytes(20_000_000)));
+        assert_eq!(finding.value, MetricValue::Bytes(mid_warning));
+        assert_eq!(
+            finding.threshold,
+            Some(MetricValue::Bytes(crate::health::INFO_MAX_BYTES))
+        );
         assert_eq!(finding.provenance, ValueProvenance::Observed);
         assert_eq!(report.admission(), Severity::Warning);
     }
 
     #[test]
     fn fst_health_evaluator_error_payload_matches_health_schema_worked_scenario() {
-        // 100,000,000 bytes is the upper edge of Warning; one byte more crosses into Error.
-        let report = evaluate_health(Some(100_000_001), None, &[], &[], None);
+        // `WARNING_MAX_BYTES` is the upper edge of Warning; one byte more crosses into Error.
+        let report = evaluate_health(
+            Some(crate::health::WARNING_MAX_BYTES + 1),
+            None,
+            &[],
+            &[],
+            None,
+        );
         assert_eq!(report.findings[0].severity, Severity::Error);
         assert_eq!(
             report.findings[0].threshold,
-            Some(MetricValue::Bytes(100_000_000))
+            Some(MetricValue::Bytes(crate::health::WARNING_MAX_BYTES))
         );
     }
 
     #[test]
     fn fst_health_evaluator_critical_payload_is_critical_and_overridable() {
-        let report = evaluate_health(Some(500_000_001), None, &[], &[], None);
+        let report = evaluate_health(
+            Some(crate::health::ERROR_MAX_BYTES + 1),
+            None,
+            &[],
+            &[],
+            None,
+        );
         assert_eq!(report.findings[0].severity, Severity::Critical);
         assert!(report.findings[0].severity.overridable());
         assert_eq!(report.admission(), Severity::Critical);
@@ -1066,7 +1083,7 @@ mod tests {
 
     /// Three distinct measurement sources (payload size, an emit report, a compose error) feeding one report, the shape a real caller assembles.
     fn representative_inputs() -> (u64, EmitReport, ComposeError) {
-        let payload_bytes = 25_000_000u64; // Warning band
+        let payload_bytes = 250_000_000u64; // Warning band: >INFO_MAX_BYTES, <=WARNING_MAX_BYTES
         let emit_report = EmitReport {
             uncovered: vec![UncoveredItem {
                 kind: "process-morph".to_string(),
@@ -1097,14 +1114,14 @@ mod tests {
       "metric": "payload_bytes",
       "value": {
         "kind": "bytes",
-        "value": 25000000
+        "value": 250000000
       },
       "provenance": "observed",
       "threshold": {
         "kind": "bytes",
-        "value": 20000000
+        "value": 200000000
       },
-      "explanation": "Final FST payload is 25000000 bytes, in the Warning band (R6 decimal-byte size thresholds).",
+      "explanation": "Final FST payload is 250000000 bytes, in the Warning band (R6 decimal-byte size thresholds).",
       "remedies": []
     },
     {
