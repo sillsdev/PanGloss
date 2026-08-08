@@ -1759,7 +1759,7 @@ subrecipes underneath it, rather than either a pure menu-of-five or a fully gene
   audit. The most likely explanation (construct-coverage work landing between the two dates) is stated
   as a hypothesis, not a fact.
 - The `docs/fst-plan/` corpus contains several LEGACY documents describing the earlier, fully-sunset
-  C# `hc-hybrid` prototype (`HERMITCRAB_FST_ADVISOR.md`, `LEVER_2.md`, and by their own banners several
+  C# `hc-hybrid` prototype (`HERMITCRAB_FST_ADVISOR.md (retired 2026-08-08)`, `LEVER_2.md (retired 2026-08-08)`, and by their own banners several
   others) — explicitly marked superseded in their own headers and excluded from this catalogue's
   "implemented" claims; they are cited only where a current doc/module explicitly ports or references
   their reasoning (e.g. `emit.rs`'s own module doc naming `hc-hybrid/src/trie.rs` throughout).

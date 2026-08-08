@@ -622,12 +622,12 @@ git commit -m "feat: validate executable recipe artifacts"
 ### Task 6: Establish maintained research dossiers
 
 **Files:**
-- Create: `docs/fst-plan/subrecipes/morphotactics.md`
-- Create: `docs/fst-plan/subrecipes/static-partition.md`
-- Create: `docs/fst-plan/subrecipes/ordered-phonology.md`
-- Create: `docs/fst-plan/subrecipes/structural-allomorph.md`
-- Create: `docs/fst-plan/subrecipes/copy-process.md`
-- Create: `docs/fst-plan/subrecipes/boundary-cleanup.md`
+- Create: `docs/research/subrecipes/morphotactics.md`
+- Create: `docs/research/subrecipes/static-partition.md`
+- Create: `docs/research/subrecipes/ordered-phonology.md`
+- Create: `docs/research/subrecipes/structural-allomorph.md`
+- Create: `docs/research/subrecipes/copy-process.md`
+- Create: `docs/research/subrecipes/boundary-cleanup.md`
 - Test: `rust/crates/pg-foma/tests/subrecipe_dossier_contract.rs`
 
 - [x] **Step 1: Add a dossier-contract RED**
@@ -701,7 +701,7 @@ git commit -m "docs: establish subrecipe research dossiers"
 - Modify: `rust/crates/pg-foma/src/recipe_runtime.rs`
 - Modify: `rust/crates/pg-foma/src/templated_compile.rs`
 - Test: existing/new promoted template fixture tests under `rust/crates/pg-foma/tests/`
-- Update: `docs/fst-plan/subrecipes/morphotactics.md`
+- Update: `docs/research/subrecipes/morphotactics.md`
 
 - [ ] **Step 1: Add two independent semantic RED fixtures**
 
@@ -768,7 +768,7 @@ git add -- rust/crates/pg-foma/src/enumerate.rs `
   rust/crates/pg-foma/src/recipe_runtime.rs `
   rust/crates/pg-foma/src/templated_compile.rs `
   rust/crates/pg-foma/tests `
-  docs/fst-plan/subrecipes/morphotactics.md
+  docs/research/subrecipes/morphotactics.md
 git commit -m "feat: materialize complete-template subrecipes"
 ```
 

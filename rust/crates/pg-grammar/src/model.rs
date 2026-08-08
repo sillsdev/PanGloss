@@ -165,8 +165,8 @@ impl MprSet {
 
 /// The syntactic feature system: POS (always feature 0 in C# via `AddPartsOfSpeech`) plus the
 /// head complex feature (every feature declared under `<HeadFeatures>`) and the foot complex
-/// feature (every feature declared under `<FootFeatures>` — F1, HYBRID_FST_RUST_PLAN.md §7.1
-/// item 4: previously hard-linted unsupported because no reference grammar used it; the
+/// feature (every feature declared under `<FootFeatures>` — previously hard-linted unsupported
+/// because no reference grammar used it; the
 /// `fst-advisor-toys/HermitCrabTestBase.shared.xml` fixture does, via an empty `<FootFeatures/>`
 /// plus `AssignedFootFeatures`/`RequiredFootFeatures` regions). Symbol/feature ids are dense
 /// indices in declaration order; tree feature structs (`pg_featstruct::FeatureStruct`)

@@ -44,7 +44,7 @@ const REQUIRED_EVIDENCE_FIELDS: [&str; 8] = [
 ];
 
 fn dossier_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/fst-plan/subrecipes")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/research/subrecipes")
 }
 
 fn read_dossiers() -> Vec<(&'static str, String)> {

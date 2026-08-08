@@ -233,10 +233,10 @@ All seven carry their own banner naming `../fst-plan/foma-fst-plan.md` as the su
 the retired C# hybrid prototype. Read them only when a current module explicitly ports their reasoning
 (`emit.rs`'s module doc does, throughout).
 
-`../fst-plan/F1_QUIRK_AUDIT.md`, `../fst-plan/FST_FAST_PATH_PLAN.md`,
-`../fst-plan/FST_FULL_GRAMMAR_PLAN.md`, `../fst-plan/HERMITCRAB_FST_ADVISOR.md`,
-`../fst-plan/HYBRID_FST_FEASIBILITY.md`, `../fst-plan/HYBRID_FST_RUST_PLAN.md`,
-`../fst-plan/LEVER_2.md`.
+`../fst-plan/F1_QUIRK_AUDIT.md (retired 2026-08-08)`, `../fst-plan/FST_FAST_PATH_PLAN.md (retired 2026-08-08)`,
+`../fst-plan/FST_FULL_GRAMMAR_PLAN.md (retired 2026-08-08)`, `../fst-plan/HERMITCRAB_FST_ADVISOR.md (retired 2026-08-08)`,
+`../fst-plan/HYBRID_FST_FEASIBILITY.md (retired 2026-08-08)`, `../fst-plan/HYBRID_FST_RUST_PLAN.md (retired 2026-08-08)`,
+`../fst-plan/LEVER_2.md (retired 2026-08-08)`.
 
 Also superseded, but not legacy — the content is still correct, only the numbers are stale:
 
@@ -309,7 +309,7 @@ code was read.
     construction. For `ordered-phonology` and `boundary-cleanup` the mainline's existing construction
     has the *better measured record*. See each migrated dossier's "As shipped" section, and
     `mainline-selection-audit.md` §B3.
-11. **Coverage.** `../fst-plan/FST_FULL_GRAMMAR_PLAN.md` says both grammars it targeted are "fully
+11. **Coverage.** `../fst-plan/FST_FULL_GRAMMAR_PLAN.md (retired 2026-08-08)` says both grammars it targeted are "fully
     covered"; `../benchmark-matrix.md` says all three reference grammars are refused by
     `--engine=foma` under default capability enforcement; `../fst-plan/recipe-parity-plan-2026-07-30.md`
     says two remain uncertified. Different dates, different meanings of "covered"; the benchmark matrix

@@ -1,7 +1,6 @@
-//! F2 prerequisite (HYBRID_FST_RUST_PLAN.md §7.1 item 2a): "run this stratum's/language's
-//! synthesis cascade over this shape" -- the build-time probing API `hc_hybrid::surface`'s
-//! `SurfacePhonology` needs (`Variants`/`DeletionJunctions`), exposed on top of the existing
-//! engine machinery rather than cloning it (per the plan's own instruction). See
+//! Runs this stratum's synthesis cascade over a shape -- the build-time probing API
+//! `SurfacePhonology` needs (`Variants`/`DeletionJunctions`), built on the existing engine
+//! machinery rather than cloning it. See
 //! `crate::rewrite`'s "F2 prerequisite" module note for the position-preserving mechanism
 //! (soft-delete instead of physical removal) this builds on and why it reproduces C#'s node-count
 //! arithmetic exactly.

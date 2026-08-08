@@ -1,6 +1,5 @@
 # StructuralAllomorph subrecipe dossier
 
-> Migrated from `docs/fst-plan/subrecipes/`. Everything below the divider is the dossier as written.
 > The section immediately following is new: the dossier proposes an architecture for subject matter
 > the shipped compiler already implements, under a different name, and does not say so.
 

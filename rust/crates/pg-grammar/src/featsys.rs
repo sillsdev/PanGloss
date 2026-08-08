@@ -222,8 +222,8 @@ impl PhonFeatureSystem {
 
     /// A symbol's display name (`<Symbol id="...">NAME</Symbol>` text — C# `FeatureSymbol.
     /// Description`), by the owning feature's `FlatIndex` and the symbol's dense index (as used
-    /// in a feature-lane bitmask). F2 prerequisite (HYBRID_FST_RUST_PLAN.md §7.1 bullet 4): needed
-    /// to render a char-def's `FeatureStruct` in C#'s `FeatureStruct.ToString()` format
+    /// in a feature-lane bitmask). Needed to render a char-def's `FeatureStruct` in C#'s
+    /// `FeatureStruct.ToString()` format
     /// (`SurfacePhonology`'s `DeletionJunctions` dump prints the deleted neighbor's own feature
     /// struct this way). Panics on an out-of-range `idx` (a caller bug — every `idx` in this crate
     /// comes from iterating that same feature's own mask/symbol_count).
