@@ -14,11 +14,19 @@
 
 ## 2. Prove the procedure end to end, once
 
-- [ ] 2.1 Run the documented steps on one real fixture and confirm the adapter produces a TSV
-      matching that fixture's committed expectation. Until this is done the procedure above is
-      written-but-unrun, which is the same defect this change was shrunk for finding elsewhere
-- [ ] 2.2 Record what the run cost (checkout size, build time, run time) so the next person can
-      judge whether to widen a worktree or use a dedicated one
+- [x] 2.1 DONE, and the procedure works: `deletion-reduplication-exception-composite`, 10 words,
+      every signature matching the committed expectation exactly. Also an independent cross-check --
+      that fixture's `words.yaml` discloses `pangloss` as its oracle, so C# agreeing is two engines
+      agreeing rather than one engine repeating itself
+- [x] 2.2 Cost recorded: full checkout already present (no widening), `dotnet build` 12s, adapter run
+      94ms for 10 words. Cheap enough that a dedicated worktree is unnecessary here
+- [ ] 2.3 NEW, found by running it: **18 of 25 staged fixtures are not well-formed XML** and cannot
+      be loaded by the oracle, by FieldWorks, or by any strict parser (`--` inside an XML comment,
+      illegal per XML 1.0; verified with Python's expat as well as .NET). Zero upstream fixtures are
+      affected. This blocks both oracle-checking and upstream graduation for those 18, and it means
+      `pangloss` accepts malformed XML -- a permissiveness divergence from real HermitCrab in its own
+      right. Caveats recorded in the skill; the fixture fix itself is unstarted
+- [ ] 2.4 Decide whether `pangloss`'s loader should keep accepting XML that no other consumer will
 
 ## 3. Withdrawn from the original scope
 

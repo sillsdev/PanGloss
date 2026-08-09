@@ -191,6 +191,8 @@ pub mod net_shape;
 /// always-on tier only (an expensive exact-equivalence stretch tier and any real confirm-engine
 /// integration are explicitly out of scope; see that module's own doc).
 pub mod oracle;
+/// Grammar-derived recipe-space bounds, pruning accounting, and pilot measurements.
+pub mod ordering_witnesses;
 /// The recipe parity RELATION, stated once: deduplicated `pg_parse::identity::AnalysisIdentity`
 /// set equality per word occurrence, plus the typed faults that make a candidate non-selectable
 /// without ever being reported as disagreement. `recipe_runtime::certify_word` is the only
@@ -269,7 +271,6 @@ pub mod recipe_registry;
 /// Schema-versioned machine and human views over recipe-optimization runs.
 pub mod recipe_report;
 pub mod recipe_runtime;
-/// Grammar-derived recipe-space bounds, pruning accounting, and pilot measurements.
 pub mod recipe_space;
 /// Replace-calculus rule compilation + underlying-form lexc -- the relational encoding of a
 /// rewrite rule, used by `build` and `gate`.

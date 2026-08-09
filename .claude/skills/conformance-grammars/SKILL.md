@@ -191,6 +191,32 @@ or a second `words.yaml` parser — extend that crate instead.
    ```
    A `dotnet` toolchain IS installed on this machine (verified: 10.0.302), so a missing oracle here
    is a checkout question, not a toolchain one.
+
+   **But a reachable oracle does NOT mean your fixture can run against it.** Measured by running the
+   whole procedure: of 25 staged fixtures, **18 are not well-formed XML** and no strict parser will
+   load them -- not the C# oracle, not FieldWorks, not Python's expat. Zero upstream fixtures have
+   the problem. Two independent causes, both places where THIS repo's loader is more permissive than
+   the XML spec and than real HermitCrab:
+
+   - **`--` inside an XML comment is illegal** (XML 1.0 section 2.5) and it is pervasive here,
+     because `--` is the house style for an em-dash in prose. `pangloss` accepts it; everything else
+     refuses the whole file. Such a fixture cannot be graduated upstream and cannot be oracle-checked.
+   - **A grammar with no `PartsOfSpeech` element** (pure-phonology probes) loads in `pangloss` and is
+     rejected by C#'s schema, which requires the element.
+
+   Check before assuming the oracle is at fault:
+   ```
+   python -c "import xml.etree.ElementTree as ET; ET.parse('<fixture>/grammar.xml')"
+   ```
+   A failure there is a defect in the FIXTURE, not in the oracle, and worth fixing on sight: these
+   files are meant to graduate upstream, where a strict parser is the entry condition.
+
+   **Path translation, on this machine specifically.** `hc-dotnet-wrapper.sh` writes its
+   `words.txt`/`out.tsv` arguments into a temp script's CONTENT, and git-bash path-translates argv
+   but not file content. A POSIX path therefore reaches .NET verbatim and resolves to a bogus
+   drive-relative path, failing with `DirectoryNotFoundException`. Convert those two arguments with
+   `cygpath -w` first; `grammar.xml` needs no conversion because it is passed straight through as
+   argv.
 5. **Write a red-on-revert case, not just a passing signature.** A fixture that only pins "the
    correct signature" is vacuous if the grammar doesn't actually exercise the pathology it claims —
    e.g. don't just assert a word parses; also assert a STRUCTURALLY-invalid neighbor word does
