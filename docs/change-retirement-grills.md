@@ -314,6 +314,31 @@ optional oracle is a lot of standing attention.
 
 ## Group E — waiting on something that has since landed
 
+### E1 — `add-pairwise-grammar-interaction-coverage` — SUPERSEDED 2026-08-09 by a real design
+
+**Resolved, and neither retired nor kept as written.** Two subagent audits (rule interactions;
+phonological rule ordering), each claim re-verified by hand, showed the existing mechanism answers a
+different question than its name suggests, and that the gap is larger than this grill said. Full
+design: `docs/rule-interaction-and-ordering-coverage-plan.md`. Findings that changed the decision:
+
+- **Rule identity is discarded at the door.** `leaf_detail` matches `FragmentSpec::RewriteRule { .. }`
+  and returns a static string; the `PRuleId` is right there and thrown away. Seven legal tuples
+  exist in total, over a five-value node-kind vocabulary, and a fixture with twenty rewrite rules
+  contributes the same single tuple as one with a single rule.
+- **Morphological rules are not plan nodes in production at all.** `Provenance::MorphRule` is
+  constructed only inside `#[cfg(test)]`.
+- **It sees one backend of three** — the inheritance trap `coverage_ledger.rs` documents elsewhere.
+- **I was wrong that ordering is unmodelled.** `ReplaceCascadeSpec.rules` is an ordered `Vec` feeding
+  a content address, so order IS plan identity. And `enumerate.rs` already draws the exact
+  mandate/report line wanted here: it permutes gate-group order (proven commutative) and refuses to
+  permute rewrite-rule order (not proven). The discipline exists in the enumerator, not in coverage.
+- **A subagent finding I had to correct**: it reported no live feeding/bleeding fixture, having
+  checked the fixture the docs name. The fixture exists under a different name
+  (`templatic-root-modification`, not `polysynthetic-stratal-derivation-chain`); the citation in
+  `docs/research/grammar-feature-space.md` is wrong, not the suite.
+
+<details><summary>original grill</summary>
+
 ### E1 — `add-pairwise-grammar-interaction-coverage` (0 done / 10 open)
 
 *For:* single-construct fixtures miss emergent interactions; pairwise arrays over raw knobs are
@@ -327,6 +352,7 @@ loses its keep.
 **Choices:** (a) keep, and treat it as sub-recipe groundwork; (b) retire — pairwise coverage is a
 large machine and the sub-recipe work will surface interactions naturally; (c) keep, deferred.
 **Recommendation: (a) or (c)** — this is the one I would think hardest about before retiring.
+</details>
 
 ### E2 — `define-fst-compilation-health` — CLOSED 2026-08-08, schema kept, tasks carried
 
