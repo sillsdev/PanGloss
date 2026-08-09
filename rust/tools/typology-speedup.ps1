@@ -1,4 +1,5 @@
 <#
+  .DESCRIPTION
   Per-word, per-construct timing over the conformance suite IN BOTH ENGINES -- the complete Rust
   HermitCrab (`pg_parse::Morpher`) and the compiled propose+confirm path
   (`pg_foma::composite::FomaAnalyzer`) -- writing `typology-speedup.csv` (canonical data) and
@@ -30,12 +31,9 @@
 param(
     # Default matches the bash script's, so a CSV produced either way lands in the same place.
     [string]$OutDir = '',
-    # Timed samples per word per engine, after one discarded warmup. The harness's own default is 7;
-    # 0 here means "say nothing and let the harness decide" rather than restating its default in a
-    # second place, which is the same convention test.ps1/build.ps1 use for -Jobs/-TestThreads.
+    # 0 means "let the harness decide", same convention test.ps1/build.ps1 use for -Jobs.
     [int]$Repeats = 0,
-    # nextest gives no live output for a single long-running test. libtest with --nocapture does,
-    # which is worth having when the run is measured in minutes and you want to see it progressing.
+    # nextest gives no live output for one long-running test; libtest with --nocapture does.
     [switch]$NoNextest,
     [int]$MaxConcurrent = 2,
     [int]$Jobs = 0,
@@ -59,8 +57,7 @@ try {
     Write-Host "[typology-speedup] out-dir: $OutDir"
     Write-Host "[typology-speedup] timing BOTH engines over every conformance fixture -- this is a long run."
 
-    # -TestTarget selects the binary (compilation), -Filter selects the test (execution). Both are
-    # needed and they are not interchangeable.
+    # -TestTarget selects the binary (compilation); -Filter selects the test (execution).
     $pgArgs = @{
         Mode       = 'test'
         Package    = 'pg-foma'
@@ -89,9 +86,7 @@ if ($code -ne 0) {
     exit $code
 }
 
-# "I could not look" must never read as "everything is fine": a green test run that wrote no CSV is
-# a harness that did not measure, not a measurement of nothing. The suite passing and the artifact
-# existing are two different facts, so check the second one explicitly.
+# A green run that wrote no CSV is a harness that did not measure, not a measurement of nothing.
 if (-not (Test-Path $csv)) {
     Write-Host "[typology-speedup] run reported success but produced no CSV at $csv" -ForegroundColor Red
     Write-Host "[typology-speedup] the filter matched no test, or the harness wrote elsewhere -- treat this as NO measurement." -ForegroundColor Yellow
