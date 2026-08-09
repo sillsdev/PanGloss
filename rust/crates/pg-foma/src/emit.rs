@@ -1878,7 +1878,7 @@ fn plan_has_leaf(plan: &Plan, fragment: &FragmentSpec) -> bool {
 /// `gate::partition_entries`, belongs to `gate.rs`'s separate compile entry point, which this
 /// mainline lexc-emission path never calls at all -- see `emit_with_budget_profiled`'s own doc.)
 ///
-/// `prules_in_order`/`alphabet` mirror `crate::capability_entry::evaluate_capability`'s own
+/// `prules_in_order`/`alphabet` mirror `crate::capability_entry::best_case_across_backends`'s own
 /// construction of these same `enumerate_default` inputs (that module's own doc: this crate's
 /// mainline lexc-emission path doesn't build a `Replace` cascade at all, so `prules_in_order` isn't
 /// already a local anywhere in `emit.rs` -- built the same way every other real construction site in

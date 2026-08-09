@@ -164,7 +164,7 @@ Settled 2026-08-09, and it changes both the definition and the mechanism.
 
 **`Proven` is per backend and evidence-backed.** It means "THIS backend supports this construct and
 there is evidence", never "some backend can". A grade that is true of one backend and read as true
-of the compiler is the same defect as `evaluate_capability`'s join, one level up.
+of the compiler is the same defect as `best_case_across_backends`'s join, one level up.
 
 **Evidence is COLLECTED BY RUNNING, never asserted.** At specific gates the conformance suite runs
 and records, as a byproduct, which `(characteristic, backend)` pairs were actually exercised. A

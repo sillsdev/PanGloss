@@ -502,9 +502,12 @@ admissibility line at `Refuse`") **and** empirically measured **recall parity** 
 HermitCrab oracle over the candidate's target corpus. A cheaper candidate that loses recall is never
 in competition with a faithful one — this is not a dimension to weigh, it is a filter to apply first.
 
-- Tool for the disposition half: `capability::characterize` + `capability_entry::evaluate_capability`
-  (`pg-foma::capability`), already wired into `pangloss pack`/`make-report`/`preflight.rs`.
-  **Computable today.**
+- Tool for the disposition half: `capability::characterize` + the per-backend selector
+  `backend_selection::select_backends` (`pg-foma::backend_selection`), which `pangloss
+  pack`/`make-report` actually enforce; `capability_entry::best_case_across_backends` is the
+  separate, advisory-only whole-grammar join `preflight.rs` reads for its health findings, and is
+  the wrong tool for a real accept/reject decision (see that function's own doc). **Computable
+  today.**
 - Tool for the recall half: a `differential_oracle`-style parity check (`oracle.rs`'s own pattern) or
   the corpus-parity-harness pattern `tests/f3_parity.rs` establishes — build or reuse an equivalent
   check for your own candidate set (that specific file is owned by another workstream; do not run or
@@ -519,7 +522,7 @@ in competition with a faithful one — this is not a dimension to weigh, it is a
 | **Build time** | Wall-clock, in-process, from grammar source to a loadable analyzer | `pangloss make-report`'s own in-process timing (`make_report.rs`'s "Latency methodology"/build-time section) | `pangloss batch`'s TSV does **not** surface `compile_ms`/`grammar_load_ms` even though `pg-cli/src/main.rs:963-1117` computes them internally — named as an open gap in `docs/benchmark-matrix.md`'s own "What would make this table complete" list. `make-report` does not have this gap; use it, not `batch`, for build-time comparisons. |
 | **Per-candidate apply cost** | p50/p90/p99, median-of-repeats over a corpus | `rust/tools/typology-speedup.sh` + `typology_speedup.rs`; `make-report`'s own latency section for a single grammar/word-list | None — this is the one dimension with no measurement gap. |
 | **Proposer looseness** | See below | `pangloss fst-health <grammar> <words.txt>` (shallow); `cargo run -p pg-foma --release --example deadend_census <grammar>` (deep, attributed) | The deep tool exists but is a manual workflow (`.claude/skills/dead-end-census`), not wired into automatic health output — see Part 4. |
-| **Faithfulness/coverage** | Disposition per touched construct + conformance pass/fail + interaction-coverage tuple status | `capability::characterize`/`evaluate_capability`; the conformance suite (`cargo test --workspace`, both `machine/conformance` and `conformance-staging`); `plan_interaction_coverage::compute_interaction_coverage` | The interaction-coverage check only sees candidates expressed as a real `crate::plan::Plan` value — an ad hoc candidate built outside the reified-plan machinery gets **no** automatic interaction-coverage check at all. |
+| **Faithfulness/coverage** | Disposition per touched construct + conformance pass/fail + interaction-coverage tuple status | `capability::characterize`/`backend_selection::select_backends`; the conformance suite (`cargo test --workspace`, both `machine/conformance` and `conformance-staging`); `plan_interaction_coverage::compute_interaction_coverage` | The interaction-coverage check only sees candidates expressed as a real `crate::plan::Plan` value — an ad hoc candidate built outside the reified-plan machinery gets **no** automatic interaction-coverage check at all. |
 
 **Proposer looseness, defined concretely** (the metric this catalogue was specifically asked to find
 or define): primary measure is **candidates-proposed-per-confirmed-analysis**,

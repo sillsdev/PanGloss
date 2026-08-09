@@ -421,7 +421,7 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
     }
 }
 
-/// Decides what `run_batch`/`run_parse` should do about `evaluate_capability`'s `CompileDecision` for `g`, given the resolved `enforce`/`allow_unproven` booleans, and what to print to stderr about it.
+/// Decides what `run_batch`/`run_parse` should do about the gated backend's `CompileDecision` for `g` (`gated_backend_decision` over `pg_foma::backend_selection::select_backends_for_grammar`'s report), given the resolved `enforce`/`allow_unproven` booleans, and what to print to stderr about it.
 /// See `docs/research/pg-cli-main-design-notes.md` for the full enforce/override contract and why the override marker is session-level, not a persistent stamp.
 struct GateResult {
     /// `false` only for `enforce == true, Refuse, !allow_unproven`; every other combination proceeds.

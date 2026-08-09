@@ -83,11 +83,12 @@ pub mod build;
 /// may offer, while the compile passes themselves are untouched.
 pub mod capability;
 /// A production-shaped convenience entry point into `capability::compose_envelope`:
-/// `capability_entry::evaluate_capability` assembles `characterize` + `enumerate_default`'s
+/// `capability_entry::best_case_across_backends` assembles `characterize` + `enumerate_default`'s
 /// inputs the way `emit::emit_with_budget`'s own setup does (`surface_table` + [`replace::
 /// SegAlphabet`], `PhonologyProbe::new`, stratum-cascade `prules_in_order`) and returns the
-/// resulting `CompileDecision` from one call. Check-only -- see that
-/// module's own doc.
+/// ADVISORY-ONLY, best-of-every-backend `CompileDecision` from one call -- never the per-backend
+/// verdict a real compile is licensed by; see that module's own doc for the distinction and
+/// `backend_selection` for the entry point that decides.
 pub mod capability_entry;
 /// Composition-path budget guards:
 /// `morphotactics::EnumerationBudget`'s sibling for the composition path (`replace`,
@@ -232,8 +233,9 @@ pub(crate) mod preexpand;
 /// The
 /// cheap, pre-compile health pass -- `preflight::preflight_findings` turns
 /// `capability::characterize`'s already-computed `capability::CharacteristicsProfile` and
-/// `capability_entry::evaluate_capability`'s already-resolved `capability::CompileDecision`
-/// into `health::HealthFinding`s BEFORE any foma compile is attempted -- semantic uncertainty
+/// `capability_entry::best_case_across_backends`'s already-resolved, advisory-only
+/// `capability::CompileDecision` into `health::HealthFinding`s BEFORE any foma compile is
+/// attempted -- semantic uncertainty
 /// (`Refuse`), cost uncertainty (`ConfirmOnly`/unbounded quantifiers), and bounded-product findings
 /// (`Unordered`-stratum rule counts, a grammar-wide mrule x prule product). See that module's own
 /// doc for the full design and judgment calls.
@@ -255,7 +257,8 @@ pub mod profile;
 pub mod readiness_policy;
 /// The tiered
 /// certification verdict — `readiness_verdict::certify` evaluates a grammar's REAL capability
-/// decision (always calling `capability_entry::evaluate_capability` itself), its ADR-0005 trust
+/// decision (always resolving it itself, through the gated backend's own report from
+/// `backend_selection::select_backends` -- never the whole-grammar join), its ADR-0005 trust
 /// status, and its measured facts against a `readiness_policy::ThresholdPolicy`, producing a
 /// `readiness_verdict::ReadinessReport` that distinguishes `not-yet` (actionable by the language
 /// team) from `not-supported` (actionable only by compiler work) and never lets an override-

@@ -14,18 +14,21 @@
 //!   (`crate::capability::QuantifierPatternDetail::all_bounded`,
 //!   `crate::capability::UnorderedStratumDetail::rule_count`/`within_bound`) feed this module's
 //!   cardinality/bounded-product findings verbatim — never re-walked from the grammar.
-//! - `crate::capability_entry::best_case_across_backends` — the SAME capability-gate
-//!   entry point `pg-cli`'s own `run_capability_gate`/`pangloss pack` already call (through its
-//!   `&Grammar` front end `evaluate_capability`), composing `characterize` with the predicate
-//!   registry (`crate::capability::compose_envelope`/`crate::capability::default_registry`) into
-//!   one final `crate::capability::CompileDecision`. This module reuses that FINAL,
-//!   predicate-resolved verdict directly rather than re-implementing the disposition/predicate-
-//!   resolution logic itself — a raw, unresolved `crate::capability::Disposition::ConfigPredicate`
-//!   characteristic (e.g. `Compounding`, `UnorderedMorphRuleApplication`, `QuantifierPattern`) only
-//!   resolves to a real `ConfirmOnly`-vs-`Refuse` verdict THROUGH that predicate registry, so
-//!   reasoning from raw per-kind dispositions alone (without running the registry) would
-//!   misclassify most `ConfigPredicate` characteristics. Both this module and `evaluate_capability`
-//!   read the SAME memoized profile off one `crate::grammar_semantics::GrammarSemantics`, so a
+//! - `crate::capability_entry::best_case_across_backends` — an ADVISORY-ONLY, whole-grammar join
+//!   over every backend's compatibility report (see that function's own doc), composing
+//!   `characterize` with the predicate registry (`crate::capability::compose_envelope`/
+//!   `crate::capability::default_registry`) into one final `crate::capability::CompileDecision`.
+//!   This is NOT the same verdict `pg-cli`'s own `run_capability_gate`/`pangloss pack` enforce —
+//!   those read one specific backend's report via `crate::backend_selection::select_backends`, so
+//!   this module's findings carry "some backend" semantics rather than "the backend this run will
+//!   compile with." This module reuses the join's FINAL, predicate-resolved verdict directly
+//!   rather than re-implementing the disposition/predicate-resolution logic itself — a raw,
+//!   unresolved `crate::capability::Disposition::ConfigPredicate` characteristic (e.g.
+//!   `Compounding`, `UnorderedMorphRuleApplication`, `QuantifierPattern`) only resolves to a real
+//!   `ConfirmOnly`-vs-`Refuse` verdict THROUGH that predicate registry, so reasoning from raw
+//!   per-kind dispositions alone (without running the registry) would misclassify most
+//!   `ConfigPredicate` characteristics. Both this module and `best_case_across_backends` read the
+//!   SAME memoized profile off one `crate::grammar_semantics::GrammarSemantics`, so a
 //!   `pangloss fst-health` run characterizes once rather than running `characterize`'s real
 //!   `foma::types::Fsm` construction for `Simultaneous`-mode subrules twice.
 //!
@@ -36,8 +39,9 @@
 //!   `Critical` finding naming every `crate::capability::CapabilityDiagnostic` the gate collected.
 //!   This finding never itself blocks the actual compiler pass (it is evidence, not a second gate —
 //!   `pg-cli`'s own `run_capability_gate`/`pangloss pack` are the real enforcement points a caller
-//!   consults separately); it is this report's own honest record of the same fact, consistent with
-//!   (never duplicating the logic of) that gate.
+//!   consults separately, and read a different, per-backend verdict — see this doc's opening
+//!   section); it is this module's own whole-grammar-join reading, never a re-implementation of
+//!   that gate's predicate-resolution logic.
 //! - **Cost uncertainty** (`cost_uncertainty_finding`, `unbounded_quantifier_findings`):
 //!   `crate::capability::CompileDecision::ConfirmOnly` (a first-class, non-failure verdict:
 //!   propose the superset, HermitCrab confirm prunes false positives) or a specific

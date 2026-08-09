@@ -6,9 +6,11 @@ call site; the site names the function/type so this doc can be found from either
 
 ## `GateResult`/`capability_gate`: the enforce/override contract
 
-`capability_gate` decides what `run_batch`/`run_parse` should do about
-`pg_foma::capability_entry::evaluate_capability`'s `CompileDecision` for a grammar, given the
-resolved `enforce`/`allow_unproven` booleans, and what to print to stderr about it. The function
+`capability_gate` decides what `run_batch`/`run_parse` should do about the `CompileDecision` in
+`GATED_BACKEND`'s own compatibility report — read via `gated_backend_decision` over
+`pg_foma::backend_selection::select_backends_for_grammar`, fail-closed to `Refuse` if the selector
+never reported on that backend — for a grammar, given the resolved `enforce`/`allow_unproven`
+booleans, and what to print to stderr about it. The function
 itself is engine-agnostic — it only implements the enforce/override boolean contract below. Which
 engines actually pass `enforce == true` is a policy decision made by the caller: default-enforcing
 on the `--engine=foma` path (the FST proposer is what a `Refuse` verdict is about), never enforced

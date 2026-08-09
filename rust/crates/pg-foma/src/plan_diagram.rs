@@ -571,7 +571,7 @@ fn build_node(
 }
 
 /// Builds `g`'s `PlanDocument`: `plan_for_semantics` assembles the real `Plan`/
-/// `CharacteristicsProfile` the way `crate::capability_entry::evaluate_capability` does; [`crate::
+/// `CharacteristicsProfile` the way `crate::capability_entry::best_case_across_backends` does; [`crate::
 /// capability::compose_envelope`] supplies the real whole-grammar verdict; `per_node_verdicts`
 /// supplies the real per-node verdicts (mirroring the same algorithm, see its own doc). Every label
 /// is derived from each node's own payload plus `g` — see this module's top-doc.

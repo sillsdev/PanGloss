@@ -518,7 +518,7 @@ pub fn compute_interaction_coverage(
 // Assembly glue: building a Plan + CharacteristicsProfile the way a real caller would
 
 /// Assembles `g`'s reified `Plan` (`enumerate_default`) and `CharacteristicsProfile` the way a
-/// real caller would — mirrors `crate::capability_entry::evaluate_capability`'s own setup exactly
+/// real caller would — mirrors `crate::capability_entry::best_case_across_backends`'s own setup exactly
 /// (same `surface_table`/`SegAlphabet`/`PhonologyProbe` assembly), just returning both pieces
 /// instead of folding them into a `crate::capability::CompileDecision`. Lives in `src/` (not a
 /// test-only helper) because it needs `crate::emit::surface_table`, which is `pub(crate)` —

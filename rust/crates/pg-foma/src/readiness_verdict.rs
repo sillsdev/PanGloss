@@ -271,8 +271,9 @@ impl From<&CapabilityDiagnostic> for RefusalCitation {
     }
 }
 
-/// The real capability decision this report was computed from (`certify` always calls
-/// `evaluate_capability_with_semantics` itself -- see this module's top doc).
+/// The real capability decision this report was computed from (`certify` always resolves it
+/// itself, through the gated backend's own report from `crate::backend_selection::select_backends`
+/// -- see `certify_with_semantics`'s own doc, "Which backend the certificate is about").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "decision", rename_all = "snake_case")]
 pub enum CapabilitySummary {
@@ -685,7 +686,7 @@ mod tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
     }
 
-    /// A tiny, ordinary synthetic affix grammar with none of the constructs that would keep `evaluate_capability` from reaching `Admit`.
+    /// A tiny, ordinary synthetic affix grammar with none of the constructs that would keep the capability gate from reaching `Admit`.
     const ADMIT_XML: &str = r#"<HermitCrabInput><Language><Name>Synthetic</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>

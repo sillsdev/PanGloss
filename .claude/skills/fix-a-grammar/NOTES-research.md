@@ -14,7 +14,7 @@ catalogue and scoring metric themselves are in
 | (b) | Produces a large artifact | **Automatic.** `health.rs::severity_for_size_bytes` bands payload bytes into five severities (Ideal/Info/Warning/Error/Critical) per R6's exact decimal-byte thresholds. This is the *only* one of the five triggers with a real, pre-built, magnitude-aware severity function. State/arc counts (`PlanMeasure`, `selection.rs`) are measured but not banded the same way — only bytes are. |
 | (c) | Over-relies on confirm to prune (proposer looseness) | **Numbers exist, no auto-threshold, and the deep diagnosis is a manual workflow.** `pangloss fst-health` reports `ProposalCandidateCount`/`ConfirmationCount`/`RejectionShare`/`DuplicateAnalysisRatio`, but every one of these is hardcoded to `Severity::Info` in `fst_health.rs` regardless of magnitude ("a high rejection share is expected overapproximation evidence, not itself a correctness problem" — true, but it also means nothing ever escalates this automatically). The dead-end census's own d1–d6 attribution *does* have a real go/no-go bar (≥20% of failing-candidate time AND ≥15% end-to-end win), but that bar is applied by a human running `cargo run --example deadend_census` and reading the printed table — it is not wired into `pangloss fst-health`'s automatic output at all. These are two separate tools measuring related things at two different depths, and neither one currently escalates severity by magnitude. |
 | (d) | Per-candidate cost over ~10 ms | **Numbers exist, no auto-threshold.** `rust/tools/typology-speedup.sh` and `make-report`'s latency section produce real p50/p90/p99 figures with a real timer-floor discipline (never a fabricated bare `0`). No severity band exists for latency the way one exists for size. The ~10 ms target comes from a memory record (`[[build-for-full-scale-grammars]]`), not from anything the CLI itself asserts against. |
-| (e) | Cannot faithfully represent some grammar feature | **Fully automatic, and the only trigger with a hard, build-relevant signal.** `capability::evaluate_capability` returns `CompileDecision::Refuse` and `preflight.rs::semantic_uncertainty_finding` always reports this as `Severity::Critical`. `pangloss pack`'s own capability gate hard-fails on this without `--allow-unproven`. This is the one trigger where "should I reach for this skill" requires zero judgment — the compiler already refuses to proceed. |
+| (e) | Cannot faithfully represent some grammar feature | **Fully automatic, and the only trigger with a hard, build-relevant signal.** `pg_foma::backend_selection::select_backends` returns a `CompileDecision::Refuse` report for a backend that cannot represent the grammar, and `preflight.rs::semantic_uncertainty_finding` reports the separate whole-grammar-join reading of the same fact as `Severity::Critical`. `pangloss pack`'s own capability gate hard-fails on the selector's per-backend verdict without `--allow-unproven`. This is the one trigger where "should I reach for this skill" requires zero judgment — the compiler already refuses to proceed. |
 
 **Net observation for skill design:** only (e) is a hard stop today; (b) has a graduated automatic
 severity; (a), (c), (d) all have real, already-built measurement but land at a flat `Info` severity
@@ -30,8 +30,9 @@ automatic than judgment-call — flagged here, not done, per this task's read-on
 ## Other process-relevant observations
 
 - **The scoring metric's own Step 0 (capability + recall) is cheap and already fully tool-backed**
-  (`characterize`/`evaluate_capability`, plus a differential-oracle-style parity pattern). The skill
-  can require this gate unconditionally with no new tooling — it is pure composition of what exists.
+  (`characterize`/`backend_selection::select_backends`, plus a differential-oracle-style parity
+  pattern). The skill can require this gate unconditionally with no new tooling — it is pure
+  composition of what exists.
 
 - **Generality and regression-risk are the two dimensions with no single existing script**, but both
   decompose entirely into loops over tools that already exist (`characterize`/dead-end census run

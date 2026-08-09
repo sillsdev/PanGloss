@@ -8,8 +8,8 @@ table (a view over it).
 ## Why this lives in `pg-foma/tests/`, not `pg-parse/tests/`
 
 The harness needs both engines: `pg_parse::Morpher` (the complete engine) and
-`pg_foma::composite::FomaAnalyzer` plus `pg_foma::capability_entry::evaluate_capability` (the
-compiled path and its capability gate). `pg-foma` already depends on `pg-parse` normally; putting
+`pg_foma::composite::FomaAnalyzer` plus `pg_foma::capability_entry::best_case_across_backends_for_grammar`
+(the compiled path and its capability gate). `pg-foma` already depends on `pg-parse` normally; putting
 this harness in `pg-parse/tests/` would require adding `pg-foma` as a new dev-dependency of
 `pg-parse` — a reversed layering edge, since `pg-foma` is downstream of `pg-parse`, not the other
 way around.
@@ -34,7 +34,11 @@ CSV and the Markdown table.
 ## Refusal as its own outcome, not an edge case
 
 Before ever calling `FomaAnalyzer::new` (which would force-compile), each fixture's grammar is
-evaluated once via the same `evaluate_capability` entry point the production capability gate uses.
+evaluated once via `best_case_across_backends_for_grammar` — the whole-grammar, advisory-only join
+across every backend's compatibility report. Since this harness only ever drives the foma backend,
+a `Refuse` here is conclusive for it; the join is used for convenience (one call) rather than
+because it stands in for the production capability gate, which since the backend-selection split
+reads one specific backend's report via `backend_selection::select_backends` instead.
 A `Refuse` verdict is recorded as its own fixture-level outcome row per diagnostic, naming the
 refusing predicate, construct, and witness — never a zero time and never a dropped row. This harness
 never force-compiles a refused grammar: publishing a force-compiled number for a permanently
