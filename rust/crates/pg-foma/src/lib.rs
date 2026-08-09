@@ -318,6 +318,14 @@ pub(crate) mod unordered;
 /// "wasm32"))]`: this crate's own wasm32 dependency-graph discipline (WASM is analysis-only
 /// and needs no compile watchdog) -- see that module's own top doc for why its three extra
 /// dependencies are scoped to the identical target cfg in `Cargo.toml`.
+/// The COLLECTED half of the per-strategy construct account: `witnessed_coverage::observe_grammar`
+/// characterizes a grammar, asks `backend_selection` which backends may run it, and then actually
+/// compiles with each one, crediting a `(capability::CharacteristicKind, enumerate::
+/// EmissionStrategy)` pair only when that backend's own compile returned `Ok`. Where
+/// `strategy_coverage` is a reviewed table and `coverage_ledger`'s unwitnessed counts are derived
+/// from hand-written citations, this module's positive evidence is produced by running. The
+/// cannot-represent half necessarily stays declarative -- a run yields positive evidence only.
+pub mod witnessed_coverage;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod worker;
 
