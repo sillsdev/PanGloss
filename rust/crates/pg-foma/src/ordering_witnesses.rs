@@ -10,11 +10,12 @@
 //!
 //! # What is kept, and what is not
 //! Traces are not kept. A trace is built, read and dropped per word; what survives is a
-//! [`WitnessId`] — the caller's own word locator, an integer. So the cost of this whole mechanism
+//! [`crate::ordering_witnesses::WitnessId`] — the caller's own word locator, an integer. So the cost of this whole mechanism
 //! is a few thousand integers, not a forest of derivation trees.
 //!
 //! # Counts are exact; samples are bounded
-//! [`OrderingWitnesses::count`] is the statistic and [`OrderingWitnesses::witnesses`] is the
+//! [`OrderingWitnesses::count`](crate::ordering_witnesses::OrderingWitnesses::count) is the statistic
+//! and [`OrderingWitnesses::witnesses`](crate::ordering_witnesses::OrderingWitnesses::witnesses) is the
 //! evidence, and one is never derived from the other. Deriving the count from the retained sample
 //! would silently turn "how many words did this" into "how many we chose to keep".
 //!
@@ -45,7 +46,7 @@ use std::collections::BTreeMap;
 pub type WitnessId = u64;
 
 /// Default number of witnesses retained per ordering. Configurable via
-/// [`OrderingWitnesses::with_cap`].
+/// [`OrderingWitnesses::with_cap`](crate::ordering_witnesses::OrderingWitnesses::with_cap).
 ///
 /// Ten rather than one because a single witness cannot distinguish a systematic rare pattern from a
 /// one-off data error — around three to five is where shared structure (same text, same lexeme,
