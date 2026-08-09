@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use pg_foma::capability::CompileDecision;
-use pg_foma::capability_entry::evaluate_capability;
+use pg_foma::capability_entry::best_case_across_backends_for_grammar;
 use pg_grammar::model::{Dir, Grammar, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions};
 
@@ -36,7 +36,7 @@ fn fixture_rule_is_right_to_left() {
 fn capability_gate_confirms_only_for_bounded_quantifier_in_rtl_environment() {
     let g = load();
     assert_eq!(
-        evaluate_capability(&g),
+        best_case_across_backends_for_grammar(&g),
         CompileDecision::ConfirmOnly,
         "a BOUNDED Quantifier in an RTL rule's own environment must be ConfirmOnly (not Refuse) -- \
          if this now Refuses, `pattern_slots`'/`compile_rtl_branch_net`'s own bounded-quantifier \

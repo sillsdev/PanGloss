@@ -3,11 +3,11 @@
 //! `CompileDecision` for this `Grammar`" without hand-assembling `characterize`'s `enumerate_default`
 //! inputs themselves.
 //!
-//! `evaluate_capability` only ever COMPUTES a `crate::capability::CompileDecision`, it
+//! `best_case_across_backends` only ever COMPUTES a `crate::capability::CompileDecision`, it
 //! does not consult one itself: a `Refuse` is reported rather than silently
 //! papered over so an unrepresentable construct never turns into a quietly wrong parse. Whether a
 //! `CompileDecision` actually blocks/stamps a real compile path is a fact
-//! about the call graph, not this module — grep for callers of `evaluate_capability` to check.
+//! about the call graph, not this module — grep for callers to check.
 //!
 //! # Mirroring the real compile setup
 //! `crate::emit::emit_with_budget`'s own SETUP (its first few lines, before any lexc text is
@@ -16,7 +16,7 @@
 //!   LAST stratum's char-def table — that function's own doc) and wraps it in a
 //!   `crate::replace::SegAlphabet` wherever the compose/gate seams need one (`crate::gate`/
 //!   `crate::replace`'s own production call sites, mirrored by `crate::enumerate`'s test-module
-//!   helpers this function also mirrors). `evaluate_capability` does the identical
+//!   helpers this function also mirrors). `best_case_across_backends` does the identical
 //!   `SegAlphabet::new(surface_table(g))`.
 //! - `phon`: `emit_with_budget` calls `PhonologyProbe::new(g)` directly; so does this function.
 //! - `prules_in_order`: not a literal local in `emit_with_budget` itself (that function's mainline
@@ -28,9 +28,9 @@
 //!   modules) builds it the same way: `g`'s strata, in order, flattened over each stratum's own
 //!   `phonologicalRules` id list, as literal borrows of `g.prules` (required for
 //!   `crate::enumerate::rule_id_of`'s pointer-identity `PRuleId` recovery). That construction is
-//!   the shared `crate::enumerate::prules_in_order`, which `evaluate_capability` calls.
+//!   the shared `crate::enumerate::prules_in_order`, which `best_case_across_backends` calls.
 //!
-//! `evaluate_capability` then hands all three to `crate::enumerate::enumerate_default`
+//! `best_case_across_backends` then hands all three to `crate::enumerate::enumerate_default`
 //! to get the reified `crate::plan::Plan`, and folds that together with
 //! `crate::capability::characterize`'s profile via `crate::capability::compose_envelope` against
 //! `crate::capability::default_registry` — the same two spines
@@ -40,10 +40,9 @@
 //! # One verdict, three compilers
 //! The scalar `CompileDecision` this module returns is a DERIVED fact: the primary judgement is
 //! per-`crate::enumerate::EmissionStrategy`, and the whole-grammar answer is the best any of them
-//! offers (`crate::capability::StrategyEnvelope::global`). A caller that needs to know WHICH
-//! compiler declined, and on what, wants `evaluate_capability_across_strategies` instead — a
-//! `Refuse` from `evaluate_capability` means every compiler declined, and a non-`Refuse` says
-//! nothing about the compiler the caller was actually about to use.
+//! offers (`crate::capability::StrategyEnvelope::global`). A caller that DECIDES anything wants `crate::backend_selection::select_backends`; one that
+//! needs per-backend detail wants `evaluate_capability_across_strategies`. A non-`Refuse` here says
+//! nothing about the backend the caller was actually about to run.
 
 use pg_grammar::model::Grammar;
 
@@ -57,29 +56,18 @@ use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
 use crate::replace::SegAlphabet;
 
-/// Computes the overall, whole-grammar `CompileDecision` for `g` — `characterize` + `enumerate_
-/// default` + `compose_envelope`, assembled the way a real caller would, over
-/// `crate::capability::default_registry` (today's shipped predicate set — see that function's
-/// own doc).
+/// Takes an already-derived `GrammarSemantics` so a caller needing both the profile and the verdict
+/// characterizes once rather than paying for a second full `crate::capability::characterize` walk.
+/// Check-only: it builds no live `Fsm`, runs no foma, and touches no compile path.
 ///
-/// **Check-only.** Calling this function has no effect on `g` or on any other compile path; it does
-/// not build a live `Fsm`, does not run foma, and does not touch `emit.rs`/`gate.rs`/`replace.rs`/
-/// `preexpand.rs`. A caller (e.g. `pg-cli`) that wants to SURFACE this decision (as advisory output,
-/// non-blocking) is responsible for printing it; nothing here does that itself, and nothing here
-/// enforces it either — see this module's own top-doc.
-pub fn evaluate_capability(g: &Grammar) -> CompileDecision {
-    evaluate_capability_with_semantics(&GrammarSemantics::derive(g))
-}
-
-/// `evaluate_capability` over an already-derived `GrammarSemantics`. A caller that needs BOTH the profile and the
-/// verdict -- `crate::preflight::preflight_findings` is exactly that, and `pangloss make-report`
-/// needs the verdict three times in one process -- derives the owner once and calls this, instead of
-/// paying for a second (and third) full `crate::capability::characterize` walk.
-///
-/// This is not "accept a caller-supplied verdict": a `GrammarSemantics` is a pure, deterministic
-/// function of the grammar, and this function still computes the `CompileDecision` itself through
-/// the same `enumerate_default` + `compose_envelope` spine `evaluate_capability` always used.
-pub fn evaluate_capability_with_semantics(semantics: &GrammarSemantics<'_>) -> CompileDecision {
+/// **ADVISORY ONLY — never gate on this.** The best verdict ANY backend offers, joined into one
+/// scalar. It is the right answer for a whole-grammar summary and the wrong answer for every
+/// decision: a non-`Refuse` here says nothing about the backend a caller is about to run, so
+/// gating on it lets a grammar past that the selected backend cannot compile, which then fails
+/// deep in the compiler with an internal message instead of at the gate with a named construct.
+/// Enforcement wants `crate::backend_selection::select_backends`; a caller needing per-backend
+/// detail wants [`evaluate_capability_across_strategies`].
+pub fn best_case_across_backends(semantics: &GrammarSemantics<'_>) -> CompileDecision {
     let g = semantics.grammar();
     let alphabet = SegAlphabet::new(surface_table(g));
     let phon = PhonologyProbe::new_with_semantics(semantics);
@@ -89,11 +77,18 @@ pub fn evaluate_capability_with_semantics(semantics: &GrammarSemantics<'_>) -> C
     compose_envelope_with_semantics(semantics, &plan, &registry)
 }
 
-/// Every compiler's own verdict for `g`, assembled exactly as `evaluate_capability` assembles the
+/// Every compiler's own verdict for `g`, assembled exactly as `best_case_across_backends` assembles the
 /// derived scalar one — which is `crate::capability::StrategyEnvelope::global` over this.
 ///
-/// **Check-only**, on the same terms as `evaluate_capability`: nothing here builds an `Fsm` or
+/// **Check-only**, on the same terms as `best_case_across_backends`: nothing here builds an `Fsm` or
 /// alters a compile path.
+/// [`best_case_across_backends`] over a `&Grammar`, deriving the semantics itself. Advisory only,
+/// exactly like the function it wraps -- read that doc before calling this from anything that
+/// decides something.
+pub fn best_case_across_backends_for_grammar(g: &Grammar) -> CompileDecision {
+    best_case_across_backends(&GrammarSemantics::derive(g))
+}
+
 pub fn evaluate_capability_across_strategies(g: &Grammar) -> StrategyEnvelope {
     let semantics = GrammarSemantics::derive(g);
     let alphabet = SegAlphabet::new(surface_table(g));
@@ -168,7 +163,10 @@ mod tests {
         </Language></HermitCrabInput>"#;
         let g = load(XML);
 
-        assert_eq!(evaluate_capability(&g), CompileDecision::Admit);
+        assert_eq!(
+            best_case_across_backends(&GrammarSemantics::derive(&g)),
+            CompileDecision::Admit
+        );
     }
 
     /// A grammar with a single, non-recursive `Compounding` rule must evaluate to `ConfirmOnly` through this entry point too, not bare `Refuse`.
@@ -206,7 +204,10 @@ mod tests {
         </Language></HermitCrabInput>"#;
         let g = load(XML);
 
-        assert_eq!(evaluate_capability(&g), CompileDecision::ConfirmOnly);
+        assert_eq!(
+            best_case_across_backends(&GrammarSemantics::derive(&g)),
+            CompileDecision::ConfirmOnly
+        );
     }
 
     /// A self-feeding (`multipleApplication="2"`) `Compounding` rule evaluates to `ConfirmOnly` through this entry point too, not just through `compose_envelope` called directly.
@@ -245,7 +246,7 @@ mod tests {
         let g = load(XML);
 
         assert_eq!(
-            evaluate_capability(&g),
+            best_case_across_backends(&GrammarSemantics::derive(&g)),
             CompileDecision::ConfirmOnly,
             "a self-feeding Compounding rule must now evaluate to ConfirmOnly through this entry \
              point too -- task 4.1 closed the construction gap"

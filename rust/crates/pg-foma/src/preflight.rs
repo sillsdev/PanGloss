@@ -14,7 +14,7 @@
 //!   (`crate::capability::QuantifierPatternDetail::all_bounded`,
 //!   `crate::capability::UnorderedStratumDetail::rule_count`/`within_bound`) feed this module's
 //!   cardinality/bounded-product findings verbatim — never re-walked from the grammar.
-//! - `crate::capability_entry::evaluate_capability_with_semantics` — the SAME capability-gate
+//! - `crate::capability_entry::best_case_across_backends` — the SAME capability-gate
 //!   entry point `pg-cli`'s own `run_capability_gate`/`pangloss pack` already call (through its
 //!   `&Grammar` front end `evaluate_capability`), composing `characterize` with the predicate
 //!   registry (`crate::capability::compose_envelope`/`crate::capability::default_registry`) into
@@ -93,7 +93,7 @@
 use pg_grammar::model::Grammar;
 
 use crate::capability::{CharacteristicsProfile, CompileDecision, ObservationDetail};
-use crate::capability_entry::evaluate_capability_with_semantics;
+use crate::capability_entry::best_case_across_backends;
 use crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET;
 use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{
@@ -114,9 +114,9 @@ pub fn preflight_findings(g: &Grammar) -> Vec<HealthFinding> {
 /// preflight alongside its own capability gate (`pangloss fst-health` is exactly such a caller)
 /// characterizes once in total, not once per call site.
 pub fn preflight_findings_with_semantics(semantics: &GrammarSemantics<'_>) -> Vec<HealthFinding> {
-    // One derivation, shared, rather than a separate characterize walk here and another inside `evaluate_capability`.
+    // One derivation, shared, rather than a second characterize walk inside the join.
     let profile = semantics.characteristics();
-    let decision = evaluate_capability_with_semantics(semantics);
+    let decision = best_case_across_backends(semantics);
 
     let mut findings = Vec::new();
     findings.extend(semantic_uncertainty_finding(&decision));
@@ -281,7 +281,7 @@ fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capability_entry::evaluate_capability;
+    use crate::capability_entry::best_case_across_backends;
 
     /// A synthetic `Unordered` stratum with more loose rules than `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, to check `preflight_findings` raises `ProvenBoundExceedsBudget`/`OrderingRuleCount` before any foma compile.
     fn unordered_overflow_grammar_xml(rule_count: u32) -> String {
@@ -359,7 +359,7 @@ mod tests {
 
         // The ordering finding rests on the profile's own rule count, so it survives the JOIN no longer refusing.
         assert_eq!(
-            evaluate_capability(&grammar),
+            best_case_across_backends(&GrammarSemantics::derive(&grammar)),
             CompileDecision::ConfirmOnly,
             "one compiler can still handle this grammar, so the join must not refuse it"
         );
@@ -412,7 +412,10 @@ mod tests {
         </Language></HermitCrabInput>"#;
         let grammar =
             pg_grammar::load(CLEAN_XML).unwrap_or_else(|e| panic!("fixture load failed: {e}"));
-        assert_eq!(evaluate_capability(&grammar), CompileDecision::Admit);
+        assert_eq!(
+            best_case_across_backends(&GrammarSemantics::derive(&grammar)),
+            CompileDecision::Admit
+        );
         let findings = preflight_findings(&grammar);
         assert!(
             findings.is_empty(),
@@ -455,7 +458,7 @@ mod tests {
         let grammar =
             pg_grammar::load(REFUSE_XML).unwrap_or_else(|e| panic!("fixture load failed: {e}"));
         assert!(matches!(
-            evaluate_capability(&grammar),
+            best_case_across_backends(&GrammarSemantics::derive(&grammar)),
             CompileDecision::Refuse(_)
         ));
         let findings = preflight_findings(&grammar);

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use pg_foma::capability::CompileDecision;
-use pg_foma::capability_entry::evaluate_capability;
+use pg_foma::capability_entry::best_case_across_backends_for_grammar;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
@@ -25,7 +25,7 @@ fn load() -> Grammar {
 fn capability_gate_is_confirm_only_for_recursive_compounding_shape() {
     let g = load();
     assert_eq!(
-        evaluate_capability(&g),
+        best_case_across_backends_for_grammar(&g),
         CompileDecision::ConfirmOnly,
         "a self-feeding CompoundingRule (multipleApplication > 1) must now evaluate to ConfirmOnly"
     );

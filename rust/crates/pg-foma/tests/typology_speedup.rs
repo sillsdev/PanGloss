@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use pg_conformance_fixtures::{discover, FixtureRef};
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
-use pg_foma::capability_entry::evaluate_capability;
+use pg_foma::capability_entry::best_case_across_backends_for_grammar;
 use pg_foma::composite::FomaAnalyzer;
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
@@ -317,7 +317,7 @@ fn time_complete_engine(
         .collect()
 }
 
-/// Evaluates `evaluate_capability` before ever attempting `FomaAnalyzer::new`; `Refuse` becomes one row per diagnostic, naming the refusing predicate/construct/witness, never force-compiled.
+/// Evaluates the whole-grammar join before ever attempting `FomaAnalyzer::new`; `Refuse` becomes one row per diagnostic, naming the refusing predicate/construct/witness, never force-compiled.
 fn refusal_rows(
     diags: &[CapabilityDiagnostic],
     root: &'static str,
@@ -349,7 +349,7 @@ fn time_compiled_engine(
     floor_ns: u64,
     n: u32,
 ) -> Vec<Row> {
-    match evaluate_capability(g) {
+    match best_case_across_backends_for_grammar(g) {
         CompileDecision::Refuse(diags) => refusal_rows(&diags, root, category, fixture, floor_ns),
         CompileDecision::Admit | CompileDecision::ConfirmOnly => match FomaAnalyzer::new(g) {
             Err(e) => vec![Row::compile_error(
