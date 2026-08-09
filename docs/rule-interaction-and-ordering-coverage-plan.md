@@ -157,6 +157,71 @@ argument for keeping it and against auto-proposing a grammar edit from a count a
   rows to build-breaking only when a real fixture earns it — the path
   `plan_interaction_coverage` itself took.
 
+
+## Decided: what "proven" means, and how evidence is obtained
+
+Settled 2026-08-09, and it changes both the definition and the mechanism.
+
+**`Proven` is per backend and evidence-backed.** It means "THIS backend supports this construct and
+there is evidence", never "some backend can". A grade that is true of one backend and read as true
+of the compiler is the same defect as `evaluate_capability`'s join, one level up.
+
+**Evidence is COLLECTED BY RUNNING, never asserted.** At specific gates the conformance suite runs
+and records, as a byproduct, which `(characteristic, backend)` pairs were actually exercised. A
+completeness test then asks "did I cover everything" and fails if not. This replaces today's
+hand-written citations in `strategy_coverage.rs` — a citation can be stale, wrong, or written by
+someone who ran nothing, which is exactly how a `Proven` grade ends up resting on air.
+
+**The two halves have different provenance, deliberately.** A run only ever produces POSITIVE
+evidence, so:
+
+- **witnessed** — collected mechanically; cannot be hand-asserted.
+- **cannot represent** — declarative, backed by the backend's own code and tests.
+
+Every `(kind, backend)` pair must be one or the other. `unwitnessed` stops being a permanent third
+category and becomes simply the failure condition. If both halves were declarative we would be back
+where we started; if we tried to collect both, a missing fixture would silently read as "this
+backend cannot do it".
+
+**The denominator must be stated or the completeness test is meaningless.** "Covered everything"
+depends on which fixtures ran and which backends ran. `pg.ps1 -Mode conformance-test -Scope
+local|all` already forces the first to be claimed — 25 fixtures under `local`, 46 under `all` — and
+the completeness assertion must carry both that scope and the set of backends exercised. Otherwise a
+green "covered everything" means one scope with one backend, which is the inheritance trap wearing a
+new hat.
+
+**Forcing gates on stated capability, not on evidence.** A user may force a specific backend when it
+CAN REPRESENT the grammar, even where no witness exists yet — requiring evidence to force would make
+an unwitnessed backend impossible to ever witness. Forcing an unproven-but-capable backend is loud,
+reusing the existing capability-override degraded-trust broadcast, not forbidden. Cost is never the
+reason to refuse a force: a deliberately-forced performance grammar is a cost decision.
+
+### Where this stands, measured
+
+23 characteristics x 3 backends = 69 pairs. **44 are gaps.**
+
+| backend | witnessed | gaps | cannot represent |
+|---|---|---|---|
+| `plan-composed` | 8 | 13 | 2 |
+| `tuned-surface-probed` | 14 | 9 | 0 |
+| `templated-underlying-tokens` | **0** | **22** | 1 |
+
+One backend has no evidence for anything it claims to support.
+
+### Consequences accepted
+
+- **Release is held until every backend is sorted.** `templated-underlying-tokens` at 0-of-22 is not
+  a release-blocking accident to be waived; it is the work.
+- **The conformance runner must run every backend that can support a grammar, not just the best
+  one.** Today `cross_compiler_equivalence_gate` runs all three backends against ONE pinned fixture
+  (`template-category-sharing`); evidence for the other 45 fixtures is collected for no backend at
+  all. Generalising that is what turns the 44 gaps into a real number instead of an artefact of what
+  the gate happens to run.
+- **CI fails on any gap**, once the collecting run exists and the backlog is worked down. Enforcing
+  it before the gaps are closed would make main red on 44 counts and get the gate switched off,
+  which protects nobody — the same reasoning that retired the comment-hygiene ratchet applies here
+  in the opposite direction, because that backlog was already at zero and this one is not.
+
 ## Status
 
 Design agreed. Not built. The witness-retention section is the resolution of "how do we get the
