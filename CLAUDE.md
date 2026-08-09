@@ -226,6 +226,44 @@ worktree under `.claude/worktrees/` has this repo root as an ancestor), but noth
 process priority from a config file; that's what the `block-bare-cargo.py` hook is for. And
 rust-analyzer's background `cargo check` gets the job floor but likewise runs at `Normal`.
 
+## A conformance run must claim what it covers (`-Mode conformance-test -Scope local|all`)
+
+Conformance fixtures live under two roots — `conformance-staging/**` (this repo's own, 25 fixtures)
+and `machine/conformance/**` (upstream, 21) — and until now every run silently walked both. That
+makes a green result ambiguous in the one way that matters: "the suite passes" over the staged
+fixtures alone and "the suite passes" over those plus every upstream fixture are **different
+claims**, and the weaker run reports identically to the stronger one.
+
+`rust/tools/pg.ps1 -Mode conformance-test` fixes that by refusing to run until told:
+
+- `-Scope local` — `conformance-staging/**` only. Nothing upstream can contribute to the result, so
+  a green local run cannot borrow credit from a fixture it never touched. It also needs no submodule
+  at all, so it skips that init entirely.
+- `-Scope all` — both roots.
+- **No default.** An unclaimed run exits `$script:ExitCodeConformanceScopeUnclaimed` (**20**) before
+  taking a build slot, starting cargo, or fetching a submodule, because nothing this script can do
+  resolves the question — the caller has to decide what the run covers. Passing `-Scope` to a mode
+  that cannot honour it is refused with the same code, since that would read as scoping while
+  scoping nothing.
+
+**The claim is enforced in the library, not just the launcher.**
+`pg_conformance_fixtures::discover` reads `PANGLOSS_CONFORMANCE_SCOPE` and **panics when it is
+unset**, rather than falling back to either root. A fallback is exactly the silent guess this
+exists to prevent, and a launcher-only check protects nothing the moment a test binary is run
+another way. `-Mode test` and `-Mode corpus-test` therefore claim `all` **explicitly at the call
+site** and print it — a claim made by the mode, deliberately not a default hidden inside the
+library.
+
+Every other caller claims too. `pangloss coverage` walks fixtures at runtime, where there is no
+environment claim to inherit, so it calls `discover_scoped(ConformanceScope::All)` outright — a
+shipped CLI command must never panic because a developer variable is unset.
+
+**What this does NOT yet do:** `conformance-test` runs the same test set `test` does. There is no
+fixture-only filter, and inventing one would silently drop gates. So `-Scope local` narrows the
+FIXTURES, not the tests — and a gate that looks up a named upstream fixture and unwraps it will
+fail under `local` rather than skip. That is honest (the gate really cannot run) but it is not yet
+comfortable; making those gates skip-with-a-reason is follow-on work.
+
 ## The `machine` conformance submodule auto-initializes — never run `git submodule update` by hand
 
 A worktree created by `pg.ps1 -Mode new-worktree` never ran `git submodule update` for the

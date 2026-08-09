@@ -12,6 +12,12 @@
 //!
 //! Either root may be absent (a fresh clone with the `machine` submodule not initialized still
 //! discovers staged fixtures fine); `discover` tolerates both independently.
+//!
+//! # A run must claim its scope
+//! `discover` covers whichever roots the run CLAIMED, via `SCOPE_ENV`, and there is no default:
+//! `local` is this repo's staged fixtures alone, `all` is those plus every upstream fixture. Those
+//! are different claims, so an unclaimed run panics instead of picking one -- read `SCOPE_ENV`'s
+//! own doc for why silently picking either is worse than refusing.
 
 pub mod corpus;
 
@@ -126,11 +132,91 @@ fn scan_one_root(root_dir: &Path, root: Root, out: &mut Vec<FixtureRef>) {
     }
 }
 
-/// Discover every fixture under both roots (`machine/conformance/**` and
-/// `conformance-staging/**`), sorted deterministically within each root/category.
+/// Which fixtures a conformance run covers. There is deliberately **no default**: see
+/// [`SCOPE_ENV`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConformanceScope {
+    /// `conformance-staging/**` only — this repo's own fixtures, nothing from upstream.
+    Local,
+    /// Both roots.
+    All,
+}
+
+impl ConformanceScope {
+    /// The wire name a caller claims, and what `SCOPE_ENV` is set to.
+    pub fn label(self) -> &'static str {
+        match self {
+            ConformanceScope::Local => "local",
+            ConformanceScope::All => "all",
+        }
+    }
+
+    /// Parses a claimed scope. No catch-all arm, and no fallback for an unrecognized value.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value.trim() {
+            "local" => Ok(ConformanceScope::Local),
+            "all" => Ok(ConformanceScope::All),
+            other => Err(format!(
+                "{SCOPE_ENV} is set to {other:?}, which is not a scope. Set it to \"local\" \
+                 (conformance-staging only) or \"all\" (both roots)."
+            )),
+        }
+    }
+}
+
+/// The variable a conformance run claims its scope in. **Unset is an error, never a default.**
+///
+/// A conformance result is only meaningful alongside what it covered: "green" over this repo's
+/// staged fixtures alone and "green" over those plus every upstream fixture are different claims,
+/// and silently picking either one lets a run report the stronger claim while having done the
+/// weaker work. So there is no fallback — an unclaimed run refuses rather than guessing, the same
+/// fail-closed rule the corpus gate applies to its own declared inputs.
+///
+/// `rust/tools/pg.ps1 -Mode conformance-test -Scope local|all` sets this; `-Mode test` and
+/// `-Mode corpus-test` claim `all` explicitly and record it in the preflight, which is a claim made
+/// by the mode rather than a default hidden in here.
+pub const SCOPE_ENV: &str = "PANGLOSS_CONFORMANCE_SCOPE";
+
+/// The scope this run claimed. Panics if unclaimed or unrecognized — a test binary reaching
+/// fixture discovery without a scope has no correct set to return, and returning either one would
+/// be the silent guess this exists to prevent.
+pub fn claimed_scope() -> ConformanceScope {
+    scope_from_env_value(std::env::var(SCOPE_ENV).ok().as_deref())
+        .unwrap_or_else(|error| panic!("{error}"))
+}
+
+/// The claim decision, as a pure function of what the environment held: `None` is an absent
+/// variable. Split out from [`claimed_scope`] so both refusals — unclaimed and unrecognized — are
+/// testable without mutating a process-wide variable under a parallel test runner.
+pub fn scope_from_env_value(value: Option<&str>) -> Result<ConformanceScope, String> {
+    match value {
+        Some(value) => ConformanceScope::parse(value),
+        None => Err(format!(
+            "{SCOPE_ENV} is not set, so this run has not said which fixtures it covers. Run it \
+             through `rust/tools/pg.ps1 -Mode conformance-test -Scope local` (this repo's staged \
+             fixtures only) or `-Scope all` (those plus every upstream fixture). There is no \
+             default on purpose: a green run must say what it covered."
+        )),
+    }
+}
+
+/// Discover every fixture in scope, sorted deterministically within each root/category. The scope
+/// is the one this run claimed ([`SCOPE_ENV`]); this function panics rather than guess when none
+/// was claimed.
 pub fn discover() -> Vec<FixtureRef> {
+    discover_scoped(claimed_scope())
+}
+
+/// Discover every fixture under `scope`, sorted deterministically within each root/category. Takes
+/// the scope explicitly, for callers that already know it and for testing the scoping itself.
+pub fn discover_scoped(scope: ConformanceScope) -> Vec<FixtureRef> {
     let mut out = Vec::new();
-    scan_one_root(&machine_conformance_root(), Root::Machine, &mut out);
+    match scope {
+        ConformanceScope::Local => {}
+        ConformanceScope::All => {
+            scan_one_root(&machine_conformance_root(), Root::Machine, &mut out)
+        }
+    }
     scan_one_root(&staging_root(), Root::Staging, &mut out);
     out
 }
@@ -302,6 +388,93 @@ pub fn assert_matches_oracle(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // These exercise `parse`/`discover_scoped` directly; `claimed_scope`'s env var is process-wide.
+
+    #[test]
+    fn scope_parse_accepts_exactly_the_two_claims() {
+        assert_eq!(
+            ConformanceScope::parse("local"),
+            Ok(ConformanceScope::Local)
+        );
+        assert_eq!(ConformanceScope::parse("all"), Ok(ConformanceScope::All));
+        assert_eq!(
+            ConformanceScope::parse("  all  "),
+            Ok(ConformanceScope::All),
+            "a claim passed through a shell should survive incidental whitespace"
+        );
+    }
+
+    #[test]
+    fn scope_parse_refuses_anything_else_including_the_tempting_ones() {
+        // "" is a set-but-empty env var; the rest are near-misses that must not resolve to a scope.
+        for value in [
+            "", "  ", "both", "ALL", "Local", "staging", "machine", "true", "1",
+        ] {
+            assert!(
+                ConformanceScope::parse(value).is_err(),
+                "{value:?} must not parse as a scope"
+            );
+        }
+    }
+
+    #[test]
+    fn an_absent_claim_is_refused_rather_than_defaulted() {
+        // Falsify by making this return a scope: no claim must mean NO scope, never a quiet one.
+        let refusal = scope_from_env_value(None).expect_err("an absent claim must not resolve");
+        assert!(
+            refusal.contains(SCOPE_ENV) && refusal.contains("conformance-test"),
+            "the refusal must name the variable and how to claim it, got: {refusal}"
+        );
+    }
+
+    #[test]
+    fn a_present_claim_is_honoured_and_a_bogus_one_refused() {
+        assert_eq!(
+            scope_from_env_value(Some("local")),
+            Ok(ConformanceScope::Local)
+        );
+        assert_eq!(scope_from_env_value(Some("all")), Ok(ConformanceScope::All));
+        assert!(scope_from_env_value(Some("")).is_err());
+        assert!(scope_from_env_value(Some("both")).is_err());
+    }
+
+    #[test]
+    fn scope_labels_round_trip_through_parse() {
+        for scope in [ConformanceScope::Local, ConformanceScope::All] {
+            assert_eq!(ConformanceScope::parse(scope.label()), Ok(scope));
+        }
+    }
+
+    #[test]
+    fn local_scope_reaches_no_upstream_fixture() {
+        // A green local run must never borrow credit from an upstream fixture.
+        assert!(
+            discover_scoped(ConformanceScope::Local)
+                .iter()
+                .all(|f| f.root == Root::Staging),
+            "local scope must yield staged fixtures only"
+        );
+    }
+
+    #[test]
+    fn all_scope_is_a_superset_of_local_scope() {
+        let local = discover_scoped(ConformanceScope::Local);
+        let all = discover_scoped(ConformanceScope::All);
+        assert!(
+            all.len() >= local.len(),
+            "all scope ({}) must cover at least what local does ({})",
+            all.len(),
+            local.len()
+        );
+        for fixture in &local {
+            assert!(
+                all.iter().any(|f| f.dir == fixture.dir),
+                "{} is in local scope but missing from all scope",
+                fixture.label()
+            );
+        }
+    }
 
     #[test]
     fn discover_tolerates_absent_roots() {

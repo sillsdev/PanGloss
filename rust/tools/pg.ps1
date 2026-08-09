@@ -30,6 +30,17 @@
                   file is absent, sets PANGLOSS_CORPUS_REQUIRED=1 so pg_conformance_fixtures::corpus
                   panics rather than skips on a missing input, and fails afterward if cargo
                   exited 0 having recorded zero executed corpus cases.
+    conformance-test
+                  the same suite `test` runs, but it MUST be told which fixtures it covers:
+                  -Scope local (conformance-staging/** only, this repo's own fixtures) or
+                  -Scope all (those plus machine/conformance/**). There is NO default -- an
+                  unclaimed run exits $script:ExitCodeConformanceScopeUnclaimed (20) before
+                  taking a build slot or starting cargo, because "green" over the staged
+                  fixtures alone and "green" over those plus every upstream fixture are
+                  different claims and nothing here should guess which one you meant. The
+                  claim reaches the fixture walker as PANGLOSS_CONFORMANCE_SCOPE and is
+                  printed. -Scope local needs no submodule, so it skips that init entirely.
+                  `test` and `corpus-test` claim `all` explicitly and print it too.
     release       cargo build --release -- the actual fat-LTO deliverable profile, for optimized
                   binaries and production-equivalent perf measurements. Marks the target dir's
                   ownership marker `preserved` on success so a dry-run gc reports it rather than
@@ -117,8 +128,10 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('build', 'test', 'corpus-test', 'release', 'doc', 'doctor', 'gc', 'run', 'new-worktree')]
+    [ValidateSet('build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc', 'doctor', 'gc', 'run', 'new-worktree')]
     [string]$Mode,
+    # conformance-test only and MANDATORY there; no default by design (see CLAUDE.md).
+    [ValidateSet('local', 'all')][string]$Scope = '',
     # new-worktree only: where to create it, which revision to base it on, and the branch name.
     [string]$Path = '',
     [string]$Base = '',
@@ -159,6 +172,21 @@ Assert-ScriptAndCwdAgreeOnWorktree -ScriptRoot $PSScriptRoot
 # Binder-proof passthrough for callers that cannot use the call operator; appended AFTER $ExtraArgs so an explicit arg still wins.
 if ($env:PANGLOSS_EXTRA_ARGS) {
     $ExtraArgs = @($ExtraArgs) + @(Split-ExtraArgsSpec $env:PANGLOSS_EXTRA_ARGS)
+}
+
+# Refuse an unclaimed scope before ANY work -- no build slot, no cargo, no submodule fetch.
+if ($Mode -eq 'conformance-test' -and [string]::IsNullOrWhiteSpace($Scope)) {
+    Write-Host "[pg] conformance-test requires -Scope, and has no default." -ForegroundColor Red
+    Write-Host "     -Scope local  conformance-staging/** only (this repo's own fixtures)"
+    Write-Host "     -Scope all    those plus machine/conformance/** (every upstream fixture)"
+    Write-Host "     A green conformance run has to say what it covered, so this will not guess."
+    exit $script:ExitCodeConformanceScopeUnclaimed
+}
+# -Scope on a mode that cannot honour it would read as scoping while scoping nothing.
+if ($Scope -and $Mode -ne 'conformance-test') {
+    Write-Host "[pg] -Scope applies to -Mode conformance-test only; '$Mode' would ignore it." -ForegroundColor Red
+    Write-Host "     -Mode test and -Mode corpus-test always cover every fixture, and say so."
+    exit $script:ExitCodeConformanceScopeUnclaimed
 }
 
 # The thin-LTO profile rust/Cargo.toml declares as `[profile.pg-test-opt]`; see that file's comment for why.
@@ -303,7 +331,8 @@ if ($Mode -eq 'corpus-test') {
 
 # Not computed for build/release/gc/run: those modes never reach conformance_fixtures_gate, so even a fast-path Test-Path is an avoidable tax.
 $conformanceCheck = $null
-if ($Mode -eq 'test' -or $Mode -eq 'corpus-test' -or $Mode -eq 'doctor') {
+if ($Mode -eq 'test' -or $Mode -eq 'corpus-test' -or $Mode -eq 'doctor' -or ($Mode -eq 'conformance-test' -and $Scope -ne 'local')) {
+    # -Scope local reads conformance-staging/** only, so it does not need the submodule at all.
     $conformanceCheck = Initialize-ConformanceSubmodule -RepoRoot $repoRoot
 }
 
@@ -369,6 +398,7 @@ $profileLabel = switch ($Mode) {
     'release' { 'release (fat LTO)' }
     'test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
     'corpus-test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
+    'conformance-test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
     'doc' { 'dev (rustdoc; no codegen)' }
     'doctor' { '<none -- doctor runs no cargo command>' }
     'gc' { '<none -- gc runs no cargo command>' }
@@ -386,7 +416,7 @@ Write-Preflight -Mode $Mode -Profile $profileLabel -RepoRoot $repoRoot -TargetDi
     -CorpusState $corpusState -ConformanceCheck $conformanceCheck `
     -MaxConcurrent $MaxConcurrent -Jobs $Jobs -JobsExplicit:$jobsExplicit `
     -JobsBudget $jobsBudget -PerJobMemoryGB $perJobMemGB `
-    -TestThreads $(if ($Mode -eq 'test' -or $Mode -eq 'corpus-test') { $TestThreads } else { 0 }) `
+    -TestThreads $(if ($Mode -in @('test', 'corpus-test', 'conformance-test')) { $TestThreads } else { 0 }) `
     -TestThreadsBudget $testThreadsBudget -Priority $Priority
 
 if ($BaseMode -ne 'off' -and $baseCheck.Checked -and -not $baseCheck.Ok) {
@@ -417,7 +447,7 @@ if (-not $memCheck.Ok) {
 if ($Mode -ne 'doctor') { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }
 
 # Only for modes that actually compile: `gc`/`run` must not rewrite source, and `doctor` is read-only.
-if ($Mode -in @('build', 'test', 'corpus-test', 'release', 'doc')) { Invoke-RustFmt -RustRoot $rustRoot }
+if ($Mode -in @('build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc')) { Invoke-RustFmt -RustRoot $rustRoot }
 
 if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
     Write-Host '[pg] corpus-test refused BEFORE starting cargo -- required corpus file(s) missing:' -ForegroundColor Red
@@ -427,7 +457,7 @@ if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
 }
 
 # Same fail-closed shape as the corpus-missing gate above: conformance_fixtures_gate is part of the ordinary suite.
-if (($Mode -eq 'test' -or $Mode -eq 'corpus-test') -and $conformanceCheck -and -not $conformanceCheck.Ok) {
+if (($Mode -in @('test', 'corpus-test', 'conformance-test')) -and $conformanceCheck -and -not $conformanceCheck.Ok) {
     Write-Host "[pg] conformance submodule unavailable BEFORE starting cargo: $($conformanceCheck.Detail)" -ForegroundColor Red
     if ($conformanceCheck.RecoveryCommand) {
         Write-Host "[pg] recovery: $($conformanceCheck.RecoveryCommand)  (or: pwsh -File rust\tools\conformance.ps1)" -ForegroundColor Yellow
@@ -501,7 +531,7 @@ if ($Mode -eq 'gc') {
 if ($Mode -ne 'run') {
 
 # build / test / corpus-test / release all run cargo from here.
-$useNextest = ($Mode -eq 'test' -or $Mode -eq 'corpus-test') -and (-not $NoNextest) -and (Get-Command cargo-nextest -ErrorAction SilentlyContinue)
+$useNextest = ($Mode -in @('test', 'corpus-test', 'conformance-test')) -and (-not $NoNextest) -and (Get-Command cargo-nextest -ErrorAction SilentlyContinue)
 
 $cargoArgs = @()
 switch ($Mode) {
@@ -519,6 +549,16 @@ switch ($Mode) {
     'test' {
         if ($useNextest) {
             # nextest's own flag goes BEFORE `--`; libtest's identically-named one goes after -- see $trailing below.
+            $cargoArgs += @('nextest', 'run', '--test-threads', "$TestThreads")
+            if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
+        } else {
+            $cargoArgs += 'test'
+            if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
+        }
+    }
+    'conformance-test' {
+        # Same runner as 'test'; the MANDATORY -Scope claim is what makes it a separate mode.
+        if ($useNextest) {
             $cargoArgs += @('nextest', 'run', '--test-threads', "$TestThreads")
             if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
         } else {
@@ -549,7 +589,7 @@ if ($useNextest) {
 } else {
     $trailing = @()
     if ($Filter) { $trailing += $Filter }
-    if ($Mode -eq 'test' -or $Mode -eq 'corpus-test') { $trailing += @('--test-threads', "$TestThreads") }
+    if ($Mode -in @('test', 'corpus-test', 'conformance-test')) { $trailing += @('--test-threads', "$TestThreads") }
     if ($Mode -eq 'corpus-test') {
         $trailing += '--nocapture'
         # libtest's spelling of nextest's --run-ignored all: without it, every corpus test (all #[ignore]d) is skipped.
@@ -562,6 +602,13 @@ if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
 } # end: if ($Mode -ne 'run')
 
 if ($Mode -eq 'corpus-test') { $env:PANGLOSS_CORPUS_REQUIRED = '1' }
+
+# 'test'/'corpus-test' claim 'all' HERE, not as a library default, so the claim is visible and printed.
+if ($Mode -in @('test', 'corpus-test', 'conformance-test')) {
+    $claimedScope = if ($Mode -eq 'conformance-test') { $Scope } else { 'all' }
+    $env:PANGLOSS_CONFORMANCE_SCOPE = $claimedScope
+    Write-Host "[pg] conformance scope: $claimedScope" -ForegroundColor DarkCyan
+}
 
 $runPlan = $null
 if ($Mode -eq 'run') {

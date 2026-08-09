@@ -1083,6 +1083,8 @@ $script:ExitCodeLowMemory = 17
 $script:ExitCodeConformanceSubmoduleMissing = 18
 # The invoked script and the CWD it is run from resolve to different worktrees -- nothing is wrong with either tree alone.
 $script:ExitCodeWorktreeMismatch = 19
+# conformance-test invoked without -Scope; recovery is a caller decision, not an environment repair.
+$script:ExitCodeConformanceScopeUnclaimed = 20
 
 function Get-FilterZeroMatchHint {
     <#

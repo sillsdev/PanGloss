@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::fs;
 
-use pg_conformance_fixtures::discover;
+use pg_conformance_fixtures::{discover_scoped, ConformanceScope};
 use pg_foma::capability::{default_registry, CharacteristicKind, Disposition};
 use pg_foma::conformance_coverage::CoverageStatus;
 use pg_foma::coverage_ledger::{build_ledger, CoverageLedger};
@@ -21,7 +21,8 @@ pub const COVERAGE_CLI_SCHEMA_VERSION: u32 = 1;
 fn passing_covered_constructs() -> HashSet<String> {
     let mut covered = HashSet::new();
 
-    for f in discover() {
+    // Claims its scope: a user running the CLI has no environment claim to inherit.
+    for f in discover_scoped(ConformanceScope::All) {
         let words_yaml = f.load_words_yaml();
         if words_yaml.skip_in_generic_replay().is_some() {
             continue;
