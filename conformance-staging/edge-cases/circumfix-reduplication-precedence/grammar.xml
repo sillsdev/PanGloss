@@ -7,21 +7,21 @@
          openspec/changes/plan-construct-coverage-completion task 4.3c): ONE allomorph
          (subCircRedup) whose RHS is SIMULTANEOUSLY circumfixing (an InsertSegments before the
          FIRST CopyFromInput and another InsertSegments after the LAST one) AND reduplicating (the
-         SAME LHS part -- p1, the whole root -- is CopyFromInput'd TWICE, back to back). Before the
+         SAME LHS part - p1, the whole root - is CopyFromInput'd TWICE, back to back). Before the
          fix, `crate::emit::classify_affix`'s reduplication test ran unconditionally before
-         first_copy/last_copy were even computed, so this shape classified Role::Reduplication --
+         first_copy/last_copy were even computed, so this shape classified Role::Reduplication -
          routing this rule to `crate::peel::ReduplicationPeeler` instead of
          `build_structural_composites`. The peel's four scan kinds (prefix-copy, suffix-copy,
          separator+tail-copy, separator+suffix-peel) are each one-sided surface-string matches and
          cannot recall a surface with independent material wrapping a reduplicated span on BOTH
-         sides -- so this was a genuine (not merely relabeled) recall gap. After the fix, the
+         sides - so this was a genuine (not merely relabeled) recall gap. After the fix, the
          leading-AND-trailing test runs FIRST, so this shape now classifies CircumfixPrefix and is
          routed to `build_structural_composites` instead, which resynthesizes it correctly via the
          real engine (pg_rules::morph::synthesize) regardless of RHS shape. -->
     <PartsOfSpeech>
       <PartOfSpeech id="posRootC2"><Name>rootC2</Name></PartOfSpeech>
     </PartsOfSpeech>
-    <!-- No PhonologicalRule/MetathesisRule element at all -- pure morphotactics, so requires: []
+    <!-- No PhonologicalRule/MetathesisRule element at all - pure morphotactics, so requires: []
          (mechanically derived, per the conformance-grammars skill's own note). -->
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>
@@ -43,8 +43,8 @@
         <Name>Main</Name>
         <MorphologicalRuleDefinitions>
           <!-- ONE LHS part (p1 = the whole root), so the RHS can CopyFromInput it TWICE (the
-               census C2 reduplication trigger -- the same PartRef echoed >= 2 times) while ALSO
-               leading with one InsertSegments and trailing with another -- the
+               census C2 reduplication trigger - the same PartRef echoed >= 2 times) while ALSO
+               leading with one InsertSegments and trailing with another - the
                simultaneously-circumfixing-and-reduplicating shape census C2 names. -->
           <MorphologicalRule id="mrCircRedup" requiredPartsOfSpeech="posRootC2" outputPartOfSpeech="posRootC2">
             <Name>circRedup</Name>

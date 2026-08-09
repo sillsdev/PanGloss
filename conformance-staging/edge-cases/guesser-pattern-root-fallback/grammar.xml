@@ -9,7 +9,7 @@
          one allomorph's PhoneticShape "[Any]*" references a natural class with an EMPTY feature
          struct (matches every segment), so RootAllomorphDef::is_pattern is true for it and the
          loader partitions it out of the ordinary root-allomorph trie into
-         Morpher::lexical_patterns (P11 chunk 1/2) -- it can NEVER be found by normal lexical
+         Morpher::lexical_patterns (P11 chunk 1/2) - it can NEVER be found by normal lexical
          lookup, only by the guesser. A second, ordinary root entry ("eKad", surface "kad") is the
          control: a ROOT that IS trie-indexed and analyzes normally with guessing off, pinning that
          the guesser only ever fires on a genuine total miss, never overriding/duplicating a real
@@ -31,7 +31,7 @@
     </CharacterDefinitionTable>
     <NaturalClasses>
       <!-- Empty feature struct: matches every segment (C#'s canonical Guesser test uses the same
-           "Any" empty-FS class -- MorpherTests.AnalyzeWord_CanGuess_ReturnsCorrectAnalysis,
+           "Any" empty-FS class - MorpherTests.AnalyzeWord_CanGuess_ReturnsCorrectAnalysis,
            docs/p11-guesser-api-design.md sec 1.5). Referenced from PhoneticShape below by NAME
            ("Any"), not by this "ncAny" id (C# LoadNaturalClass keys _naturalClassLookup by <Name>). -->
       <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>

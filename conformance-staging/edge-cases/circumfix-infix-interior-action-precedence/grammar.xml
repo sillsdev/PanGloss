@@ -9,18 +9,18 @@
          FIRST CopyFromInput and another InsertSegments after the LAST one) AND infixing (a THIRD
          InsertSegments sits strictly BETWEEN the two CopyFromInput actions). Before the fix,
          `crate::emit::classify_affix`'s interior-action test ran first and returned Role::Infix
-         the instant it saw that interior InsertSegments -- the wrong taxonomic label for a morph
+         the instant it saw that interior InsertSegments - the wrong taxonomic label for a morph
          that genuinely wraps the root on both sides, and one that routed this allomorph's rule to
          `crate::preexpand` instead of `build_structural_composites`. See STAGING.md's own
          "important correction" section: `crate::preexpand` ALSO resynthesizes via the real engine
          (`pg_rules::morph::synthesize_cached`), so this was a misclassification/ownership defect,
-         not an actual recall loss -- confirmed by testing, not assumed. After the fix, the
+         not an actual recall loss - confirmed by testing, not assumed. After the fix, the
          leading-AND-trailing test runs FIRST, so this shape now classifies CircumfixPrefix and is
          routed to `build_structural_composites` instead. -->
     <PartsOfSpeech>
       <PartOfSpeech id="posRoot2"><Name>root2</Name></PartOfSpeech>
     </PartsOfSpeech>
-    <!-- No PhonologicalRule/MetathesisRule element at all -- pure morphotactics, so requires: []
+    <!-- No PhonologicalRule/MetathesisRule element at all - pure morphotactics, so requires: []
          (mechanically derived, per the conformance-grammars skill's own note). -->
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>
@@ -44,7 +44,7 @@
         <MorphologicalRuleDefinitions>
           <!-- Two LHS parts (p1 = the root's first segment, p2 = the remainder), so the RHS can
                place an InsertSegments action strictly BETWEEN their two CopyFromInput actions
-               while ALSO leading with one InsertSegments and trailing with another -- the
+               while ALSO leading with one InsertSegments and trailing with another - the
                simultaneously-circumfixing-and-infixing shape census C3 names. -->
           <MorphologicalRule id="mrCircInfix" requiredPartsOfSpeech="posRoot2" outputPartOfSpeech="posRoot2">
             <Name>circInfix</Name>

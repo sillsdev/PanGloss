@@ -5,7 +5,7 @@
     <Name>Mbalantic</Name>
     <!-- agglutinative-Bantoid reference corpus's pathology mimic (docs/conformance-staging-plan.md's
          pathology catalog): "many templates collapsed into shared category groups so cross-template
-         join mixing is possible (template A's prefix slots + template B's suffix slots -- the d5
+         join mixing is possible (template A's prefix slots + template B's suffix slots - the d5
          ordering dead-end class that dominates that corpus's confirm cost); free-fluctuation
          multiplicity (one surface with a large analysis multiset); zero phonological rules".
          Invented lexemes only (KOLO/MBILI), not copied from any real Bantu corpus. See STAGING.md.
@@ -14,7 +14,7 @@
          disjoint pair of (optional) prefix/suffix slot rules. A foma-style lexc encoding that
          flattens every rule into one shared per-category continuation class (rather than
          preserving per-template exclusivity) can synthesize a candidate combining template A's
-         prefix with template B's suffix -- exactly that reference corpus's real d5 ordering
+         prefix with template B's suffix - exactly that reference corpus's real d5 ordering
          dead-end shape. This
          fixture pins the GROUND TRUTH such a candidate must be checked against: no single
          AffixTemplate contains both rules, so the mixed word has no valid derivation and a
@@ -22,8 +22,8 @@
     <PartsOfSpeech>
       <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
     </PartsOfSpeech>
-    <!-- No PhonologicalFeatureSystem/PhonologicalRuleDefinitions at all -- pure morphotactics,
-         mirroring suffixing-quechua/prefixal-athabaskan's own "requires: []" precedent -- so
+    <!-- No PhonologicalFeatureSystem/PhonologicalRuleDefinitions at all - pure morphotactics,
+         mirroring suffixing-quechua/prefixal-athabaskan's own "requires: []" precedent - so
          RequiresDerivation mechanically derives requires: []. -->
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>
@@ -46,12 +46,12 @@
     <Strata>
       <!-- Deliberately NO morphologicalRules= attribute here: all four rules (mrPfxA/mrSfxA/
            mrPfxB/mrSfxB) are referenced ONLY from their own AffixTemplate's Slot, never listed as
-           free-standing stratum rules. This is load-bearing, not stylistic -- confirmed empirically
+           free-standing stratum rules. This is load-bearing, not stylistic - confirmed empirically
            against this repo's own engine (`pg_rules::stratum`'s `run_mrule_cascade`, the free-
            standing/un-templated rule battery, iterates only the stratum's own `morphologicalRules`
            id-list; `AffixProcessRuleDef::is_template_rule` does NOT gate that list on the analysis
            side at all, so a rule listed there is combinable with ANY other listed rule regardless
-           of which template(s) it also belongs to -- listing these four here, even though each was
+           of which template(s) it also belongs to - listing these four here, even though each was
            already exclusively used by its own template, still let template A's prefix combine
            freely with template B's suffix (an early draft of this fixture measured this directly:
            "pakolola" parsed). Omitting the attribute is what actually makes cross-template mixing
@@ -83,7 +83,7 @@
             </MorphologicalSubrules>
             <MorphemeId>SFXA</MorphemeId>
           </MorphologicalRule>
-          <!-- Template B's prefix/suffix pair -- disjoint literal affixes, disjoint rule ids, but
+          <!-- Template B's prefix/suffix pair - disjoint literal affixes, disjoint rule ids, but
                the SAME requiredPartsOfSpeech/outputPartOfSpeech as template A's rules, exactly the
                "shared category group" that reference corpus's real grammar collapses many templates
                into. -->
@@ -128,7 +128,7 @@
           </LexicalEntry>
           <!-- Free-fluctuation multiplicity: two lexically distinct roots that happen to share one
                phonetic shape, both posV, so the bare surface "mbili" is genuinely ambiguous between
-               them -- a large(r)-than-one analysis multiset for one surface. The
+               them - a large(r)-than-one analysis multiset for one surface. The
                agglutinative-Bantoid reference corpus's free-fluctuation pathology in miniature. -->
           <LexicalEntry id="eMbiliA" partOfSpeech="posV">
             <Allomorphs><Allomorph id="aMbiliA"><PhoneticShape>mbili</PhoneticShape></Allomorph></Allomorphs>

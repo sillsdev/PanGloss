@@ -127,6 +127,8 @@ fn start_node(e: &BytesStart) -> Result<Node, GrammarError> {
 fn parse_document(xml: &str) -> Result<Node, GrammarError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
+    // quick_xml defaults this to false, so `--` inside a comment was silently tolerated.
+    reader.config_mut().check_comments = true;
 
     let mut stack: Vec<Node> = vec![Node {
         tag: String::new(),
@@ -582,6 +584,14 @@ fn build_syn_features(lang: &Node) -> Result<SynFeatureSystem, GrammarError> {
             )
         })
         .collect();
+    // HermitCrabInput.dtd requires `Language (..., PartsOfSpeech, ...)` and `PartsOfSpeech (PartOfSpeech+)`.
+    if pos_symbols.is_empty() {
+        return Err(GrammarError::Xml(
+            "<Language> has no <PartsOfSpeech><PartOfSpeech> entries; HermitCrab's DTD requires \
+             at least one part of speech"
+                .into(),
+        ));
+    }
     if pos_symbols.len() >= 64 {
         return Err(GrammarError::Unsupported(format!(
             "{} parts of speech; the symbol bitset supports at most 63",
@@ -2843,6 +2853,7 @@ mod tests {
     #[test]
     fn rewrite_mode_simultaneous_loads_and_round_trips() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -2883,6 +2894,7 @@ mod tests {
     #[test]
     fn self_opaquing_pin_semantics_match_node_pins() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SelfOpaquingProbe</Name>
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
           <PhonologicalFeatureSystem>
             <SymbolicFeature id="featCons"><Name>cons</Name>
               <Symbols><Symbol id="symConsP">+</Symbol><Symbol id="symConsM">-</Symbol></Symbols>
@@ -3009,6 +3021,7 @@ mod tests {
         }
         format!(
             r#"<HermitCrabInput><Language><Name>X</Name>
+              <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
               <PhonologicalFeatureSystem>
                 <SymbolicFeature id="f1"><Name>f</Name><Symbols>{syms}</Symbols></SymbolicFeature>
               </PhonologicalFeatureSystem>
@@ -3029,5 +3042,67 @@ mod tests {
             matches!(bad, Err(GrammarError::Unsupported(_))),
             "a 64-symbol phonological feature must be rejected at the 64-symbol boundary, got {bad:?}"
         );
+    }
+
+    // --- Well-formedness / DTD-required-element strictness ------------------------------------
+
+    const WELL_FORMED_MINIMAL_XML: &str = r#"<HermitCrabInput><Language><Name>WellFormed</Name>
+      <!-- a comment with a single hyphen - not a double one -->
+      <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+    </Language></HermitCrabInput>"#;
+
+    #[test]
+    fn well_formed_document_with_a_hyphen_in_a_comment_still_loads() {
+        load(WELL_FORMED_MINIMAL_XML).unwrap_or_else(|e| panic!("must load: {e}"));
+    }
+
+    #[test]
+    fn double_hyphen_inside_a_comment_is_refused_not_silently_tolerated() {
+        let xml = r#"<HermitCrabInput><Language><Name>X</Name>
+          <!-- this comment uses -- an illegal double hyphen -->
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+        </Language></HermitCrabInput>"#;
+        let err = load(xml).expect_err("a `--` inside a comment must be refused, not tolerated");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("comment"),
+            "the refusal must name the problem (a comment), got: {msg}"
+        );
+    }
+
+    #[test]
+    fn missing_parts_of_speech_is_refused_not_silently_zero_pos() {
+        let xml = r#"<HermitCrabInput><Language><Name>NoPos</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+        </Language></HermitCrabInput>"#;
+        let err = load(xml).expect_err(
+            "HermitCrabInput.dtd requires <PartsOfSpeech> (at least one <PartOfSpeech>); a document without it must be refused",
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("PartsOfSpeech"),
+            "the refusal must name the missing element, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn empty_parts_of_speech_block_is_also_refused() {
+        let xml = r#"<HermitCrabInput><Language><Name>EmptyPos</Name>
+          <PartsOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+        </Language></HermitCrabInput>"#;
+        let err = load(xml)
+            .expect_err("<PartsOfSpeech> with zero <PartOfSpeech> children violates PartOfSpeech+ and must be refused");
+        assert!(matches!(err, GrammarError::Xml(_)));
     }
 }

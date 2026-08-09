@@ -4,7 +4,7 @@
   <Language>
     <Name>MultiTableMetathesisSharedRepresentation</Name>
     <!-- Synthetic construct-shaped mimic (docs/conformance/representative-typology-basis.md
-         S1.2.4/S1.2.5 combined -- "Metathesis" + "Multi-table: shared-representation-across-tables
+         S1.2.4/S1.2.5 combined - "Metathesis" + "Multi-table: shared-representation-across-tables
          configuration"), the residual-gap fixture `docs/conformance/
          multitable-shared-representation-design.md`'s own "Residual gap this fix does NOT close"
          section flags: `crate::replace::compile_metathesis_swap_net` used to render tokens DIRECTLY
@@ -29,11 +29,14 @@
          ncSwitchA is a genuine 2-member class ({m, w}) so this fixture ALSO exercises the
          pre-existing per-branch cross-product precision fix (`tests/phase_c_metathesis.rs`'s
          `metathesis_multi_member_classes_transpose_precisely_not_naively`) TOGETHER with cross-table
-         aliasing, in the SAME rule -- proving the two fixes compose without either weakening the
+         aliasing, in the SAME rule - proving the two fixes compose without either weakening the
          other (`rust/crates/pg-foma/tests/multi_table_metathesis_shared_representation.rs`'s own
          module doc has the full identity-preservation argument and the FST-proposer-vs-oracle
          containment check; this fixture's own `words.yaml` is graded against the oracle only,
          `pg_parse::Morpher`, per this repo's `conformance_fixtures_gate.rs` convention). -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+    </PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="featId">
         <Name>id</Name>
@@ -61,7 +64,7 @@
     <CharacterDefinitionTable id="t1">
       <Name>Outer</Name>
       <SegmentDefinitions>
-        <!-- "z" declared FIRST so t1's own "m"/"x" sit at raw indices 1/2, not 0/1 -- t0's "m"/"x"
+        <!-- "z" declared FIRST so t1's own "m"/"x" sit at raw indices 1/2, not 0/1 - t0's "m"/"x"
              sit at raw indices 0/1 (t0's only two segments). Deliberately misaligned raw indices for
              BOTH shared spellings across the two tables (module doc). -->
         <SegmentDefinition id="c1z">
@@ -83,11 +86,11 @@
       </SegmentDefinitions>
     </CharacterDefinitionTable>
     <NaturalClasses>
-      <!-- Two-member class (m OR w) -- the SAME multi-member-precision shape
+      <!-- Two-member class (m OR w) - the SAME multi-member-precision shape
            `tests/phase_c_metathesis.rs`'s MULTI_MEMBER_XML fixture uses, here combined with
            cross-table aliasing: "m" is shared with table t0 (aliased), "w" is table-t1-only
            (never aliased). FeatureNaturalClass (not SegmentNaturalClass) so the ORACLE's own
-           feature-lane matching -- not literal per-table CharDefId identity -- is what recognizes
+           feature-lane matching - not literal per-table CharDefId identity - is what recognizes
            an Inner-table "m" as a member, mirroring `two-table-shared-representation-recall`'s own
            FeatureNaturalClass convention (`pg_rules::bridge::nat_class_lanes` matches by
            phonological feature lane, never char-def identity, `docs/conformance/

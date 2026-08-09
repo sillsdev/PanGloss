@@ -6,6 +6,7 @@ const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>CrossTableMetathesisSurfaceMatchProbe</Name>
+    <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="featId">
         <Name>id</Name>

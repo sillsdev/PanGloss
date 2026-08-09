@@ -5,19 +5,19 @@
     <Name>NonFirstAllomorphCircumfixSelection</Name>
     <!-- Pins census C1 (docs/conformance/circumfix-structural-composite-census.md,
          openspec/changes/plan-construct-coverage-completion task 4.3a): one MorphologicalRule
-         ("mrMixed") declaring TWO allomorphs (MorphologicalSubrules, in document order) --
+         ("mrMixed") declaring TWO allomorphs (MorphologicalSubrules, in document order) -
          allomorph 0 is an ORDINARY suffix (subSuffix, "-s"), allomorph 1 is a CIRCUMFIX
          (subCircum, "ke-...-an", leading AND trailing InsertSegments around one CopyFromInput).
          Before the fix, `crate::emit::rule_role` classified this rule from allomorph 0 alone
          (Role::Suffix), so `is_structural_rule` never inspected allomorph 1 at all and the
          circumfix allomorph's own real surface (a discontinuous "wrap the root" shape, plan's own
          "unconditionally unrepresentable" citation for the ordinary concatenative model) was never
-         reachable through `build_structural_composites` -- an honest, fail-closed but real recall
+         reachable through `build_structural_composites` - an honest, fail-closed but real recall
          gap that appeared/disappeared purely by which allomorph a grammar author wrote first. -->
     <PartsOfSpeech>
       <PartOfSpeech id="posRoot"><Name>root</Name></PartOfSpeech>
     </PartsOfSpeech>
-    <!-- No PhonologicalRule/MetathesisRule element at all -- pure morphotactics, so requires: []
+    <!-- No PhonologicalRule/MetathesisRule element at all - pure morphotactics, so requires: []
          (mechanically derived, per the conformance-grammars skill's own note). -->
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>
@@ -42,7 +42,7 @@
         <MorphologicalRuleDefinitions>
           <!-- Allomorph 0 (document order): ORDINARY suffix, "-s". Alone, this would classify
                Role::Suffix from `rule_role` (allomorph 0). -->
-          <!-- Allomorph 1 (document order): CIRCUMFIX, "ke-...-an" -- leading InsertSegments,
+          <!-- Allomorph 1 (document order): CIRCUMFIX, "ke-...-an" - leading InsertSegments,
                one CopyFromInput, trailing InsertSegments. This is the allomorph census C1 names:
                declared SECOND, so a first-allomorph-only classifier never sees it. -->
           <MorphologicalRule id="mrMixed" requiredPartsOfSpeech="posRoot" outputPartOfSpeech="posRoot">

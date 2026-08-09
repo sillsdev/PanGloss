@@ -3,12 +3,12 @@
 <HermitCrabInput>
   <Language>
     <Name>Autoseg</Name>
-    <!-- Autosegmental-tone-shaped pathology mimic (docs/fst-plan's NFD-combining-mark family --
+    <!-- Autosegmental-tone-shaped pathology mimic (docs/fst-plan's NFD-combining-mark family -
          see conformance-staging's own STAGING.md for the full write-up). A HIGH-tone mark is
          modeled as its OWN standalone char-def (cHigh, sole representation U+0301 COMBINING ACUTE
          ACCENT alone) rather than folded into a vowel's own segment the way an ordinary accented-
          letter grammar authors a diacritic (ePah's root text below concatenates cA's "a" then
-         cHigh's own U+0301 -- TWO DIFFERENT char-defs, not one char-def's NFD decomposition). Pure
+         cHigh's own U+0301 - TWO DIFFERENT char-defs, not one char-def's NFD decomposition). Pure
          morphotactics (requires: []): no PhonologicalRule/PhonologicalFeatureSystem needed. -->
     <PartsOfSpeech>
       <PartOfSpeech id="posN"><Name>root</Name></PartOfSpeech>
@@ -27,7 +27,7 @@
       <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
     </NaturalClasses>
     <Strata>
-      <!-- No Stratum-level morphologicalRules= -- mrSuf is reachable only through its own
+      <!-- No Stratum-level morphologicalRules= - mrSuf is reachable only through its own
            template's Slot (same convention as edge-cases/optional-template-composite's Stratum
            comment; immaterial here with a single rule/template, kept for consistency). -->
       <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="linear">
@@ -58,7 +58,7 @@
           </LexicalEntry>
           <!-- Same segmental shape as PA, distinguished ONLY by the standalone tone-mark char-def
                concatenated after the vowel's own char-def within this root's own literal spelling
-               -- the exact pathology this fixture pins (see STAGING.md). -->
+               - the exact pathology this fixture pins (see STAGING.md). -->
           <LexicalEntry id="ePah" partOfSpeech="posN">
             <Allomorphs><Allomorph id="aPah"><PhoneticShape>pa&#x0301;</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>PAH</MorphemeId>

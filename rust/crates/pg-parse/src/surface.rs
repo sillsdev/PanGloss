@@ -254,6 +254,7 @@ mod tests {
 <HermitCrabInput>
   <Language>
     <Name>SurfaceP5</Name>
+    <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="feat_voi">
         <Name>voi</Name>
@@ -282,6 +283,7 @@ mod tests {
 <HermitCrabInput>
   <Language>
     <Name>SurfaceP5Zero</Name>
+    <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>
       <SegmentDefinitions>

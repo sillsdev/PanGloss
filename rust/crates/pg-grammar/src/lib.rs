@@ -144,6 +144,8 @@ impl GrammarPhonology {
 pub fn load_char_def_table_from_xml(xml: &str) -> Result<GrammarPhonology, GrammarError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
+    // quick_xml defaults this to false, so `--` inside a comment was silently tolerated.
+    reader.config_mut().check_comments = true;
 
     let mut raw_features: Vec<RawFeature> = Vec::new();
     let mut raw_tables: Vec<(String, Option<String>, Vec<RawCharDef>)> = Vec::new();

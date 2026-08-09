@@ -4,32 +4,32 @@
   <Language>
     <Name>RecursiveEndocentricCompounding</Name>
     <!-- Synthetic construct-shaped mimic (docs/conformance/representative-typology-basis.md
-         S1.2.1 -- "Compounding: recursive/self-feeding configuration"). Invented CVCV roots only,
+         S1.2.1 - "Compounding: recursive/self-feeding configuration"). Invented CVCV roots only,
          no natural-language lexemes. Representative typological pattern: recursive endocentric
          compounding, where a compound's own output part-of-speech is identical to (a supertype of)
          one of its own input parts-of-speech, so the compounding rule can in principle re-apply to
-         its own output indefinitely -- the ordinary engine behind English-style compound stacking
+         its own output indefinitely - the ordinary engine behind English-style compound stacking
          ("state government tax policy committee meeting") and general N-N-recursive compounding
          rules. Germanic and Sinitic compounding are the families most
          commonly cited for unbounded endocentric N-N stacking (see the doc's own citations); the
          phenomenon itself is not family-specific.
 
          Structural shape: ONE CompoundingRuleDef ("cr1") whose headPartsOfSpeech/
-         nonHeadPartsOfSpeech/outputPartOfSpeech all name the SAME PartOfSpeech ("posRoot") -- the
-         rule's own output re-enters its own input set -- with multipleApplication left at its DTD
+         nonHeadPartsOfSpeech/outputPartOfSpeech all name the SAME PartOfSpeech ("posRoot") - the
+         rule's own output re-enters its own input set - with multipleApplication left at its DTD
          maximum (9, the highest the schema's enumerated attribute allows) rather than the DTD
          default of 1, so a stratum can in principle build (root+root)+root...-shaped nesting.
 
          Per pg-foma::capability's own compounding_recursive (rust/crates/pg-foma/src/
          capability.rs), a CompoundingRuleDef with max_apps > 1 characterizes
-         CharacteristicKind::Compounding as the "compounding.recursive" split unconditionally --
+         CharacteristicKind::Compounding as the "compounding.recursive" split unconditionally -
          this is a purely STRUCTURAL fact about the rule definition, independent of whether any
          particular word in this fixture actually exercises 3+ levels of nesting. This is exactly
          why this fixture exists: cover-compounding's own CompoundingRecursionSafePredicate
          (capability.rs) still Refuses this shape (see the paired rust/crates/pg-foma/tests/
          cover_recursive_endocentric_compounding.rs regression test), so this fixture's job is to
          pin that REFUSAL honestly, plus the oracle's (pg_parse::Morpher) own correct behavior on
-         actual words -- see this directory's STAGING.md for the oracle's own (independently
+         actual words - see this directory's STAGING.md for the oracle's own (independently
          discovered) additional resource-ceiling finding on genuinely-3-level words. -->
     <PartsOfSpeech>
       <PartOfSpeech id="posRoot"><Name>root</Name></PartOfSpeech>

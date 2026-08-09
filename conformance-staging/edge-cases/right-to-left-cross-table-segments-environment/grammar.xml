@@ -3,6 +3,9 @@
 <HermitCrabInput>
   <Language>
     <Name>RightToLeftCrossTableSegmentsEnvironment</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+    </PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="featId"><Name>id</Name><Symbols>
         <Symbol id="symA">a</Symbol><Symbol id="symE">e</Symbol>

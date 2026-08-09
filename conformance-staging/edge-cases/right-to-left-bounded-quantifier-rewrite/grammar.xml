@@ -4,14 +4,14 @@
   <Language>
     <Name>RightToLeftBoundedQuantifierRewrite</Name>
     <!-- Synthetic construct-shaped mimic (docs/conformance/representative-typology-basis.md
-         S1.2.2 -- "Right-to-left rewrite: additional in-scope pattern shapes"). Invented VC(C)C
+         S1.2.2 - "Right-to-left rewrite: additional in-scope pattern shapes"). Invented VC(C)C
          roots only, no natural-language lexemes. Representative typological pattern: directional
          (right-to-left-scanned) phonological rule application, most commonly attested in
          stress-assignment/syllabification systems (end-rule-right/iterative-right-to-left foot
          construction is one of the two basic parameters in every metrical-stress typology, Hayes
          1995 *Metrical Stress Theory*; WALS Ch. 15 "Weight-Sensitive Stress") and in right-to-left
          iterative vowel harmony/deletion (a standard case study in directional rule-ordering; see
-         the research doc's own citations) -- here combined with a BOUNDED (finite, max=2)
+         the research doc's own citations) - here combined with a BOUNDED (finite, max=2)
          quantifier group in the rule's own environment, mirroring a bounded extrametricality/
          lookahead window in a metrical-stress-style system.
 
@@ -33,13 +33,16 @@
          the paired rust/crates/pg-foma/tests/cover_right_to_left_bounded_quantifier_rewrite.rs
          regression test, and this directory's STAGING.md for the full account). This fixture is
          therefore NOT one of the three honestly-refused shapes this task's other three fixtures
-         pin -- its job is to pin the ALREADY-CORRECT ConfirmOnly verdict plus the oracle's
+         pin - its job is to pin the ALREADY-CORRECT ConfirmOnly verdict plus the oracle's
          (pg_parse::Morpher) own correct, direction- and bound-aware analysis of every word below. -->
     <!-- G2a discipline (`conformance-staging/edge-cases/mpr-gated-exception`'s own authoring note,
          re-confirmed empirically while authoring THIS fixture): every segment needs a feature
          bundle that FULLY and UNIQUELY distinguishes it from every other segment, or a
          phonological-subrule reversal collapses feature-identical segments into a bracketed
          alternates class (e.g. "[aect]") instead of the literal input string. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+    </PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="featCons"><Name>cons</Name><Symbols><Symbol id="fConsPlus">+</Symbol><Symbol id="fConsMinus">-</Symbol></Symbols></SymbolicFeature>
       <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols><Symbol id="fVoicePlus">+</Symbol><Symbol id="fVoiceMinus">-</Symbol></Symbols></SymbolicFeature>

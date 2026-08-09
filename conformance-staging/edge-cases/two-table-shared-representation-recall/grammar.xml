@@ -4,18 +4,18 @@
   <Language>
     <Name>TwoTableSharedRepresentationRecall</Name>
     <!-- Synthetic construct-shaped mimic (docs/conformance/representative-typology-basis.md
-         S1.2.5 -- "Multi-table: shared-representation-across-tables configuration"), the
+         S1.2.5 - "Multi-table: shared-representation-across-tables configuration"), the
          RECALL-side counterpart to `bistratal-overlapping-segment-representation` (which pins the
-         REFUSAL/verdict side only, with each stratum's own lexicon deliberately independent -- no
+         REFUSAL/verdict side only, with each stratum's own lexicon deliberately independent - no
          rule threads material between its two tables). This fixture is the one that DOES thread
          material across tables: a root entered on the Inner stratum (table t0) must, to reach the
          surface at all, pass through the Outer stratum's (table t1) own obligatory phonological
-         rule -- and that rule's own natural classes are resolved against table t1, which spells
+         rule - and that rule's own natural classes are resolved against table t1, which spells
          the SAME segment ("x") at a DIFFERENT raw index than table t0 does.
 
          `docs/conformance/multitable-shared-representation-design.md`'s own headline finding is
          that `pg_foma::replace::SegAlphabet::token` (`PUA_BASE + cd.0`) is a pure function of a
-         char-def's RAW PER-TABLE INDEX, blind to which table it came from -- so, pre-fix, a rule
+         char-def's RAW PER-TABLE INDEX, blind to which table it came from - so, pre-fix, a rule
          compiled against table t1 renders its "x" atom using table t1's OWN index, and a root
          emitted from table t0 carries table t0's OWN index for "x": these differ, so the rule
          NEVER FIRES on the Inner-stratum root's material, and the FST proposer never proposes the
@@ -30,7 +30,7 @@
          stratum's own `StratumDef::table` pointing at a DIFFERENT table), NOT pairwise-disjoint
          (both declare "x"), and t1's own char-def ORDER is deliberately misaligned relative to t0
          ("z" declared FIRST in t1, so t1's own "x" sits at raw index 1, while t0's "x" sits at raw
-         index 0) -- the same "deliberately misaligned" construction
+         index 0) - the same "deliberately misaligned" construction
          `tests/two_table_symbol_divergence.rs`/`tests/phase_c_multi_table.rs` already use for the
          DISJOINT-representation case, applied here to a SHARED representation instead. -->
     <PhonologicalFeatureSystem>
@@ -59,7 +59,7 @@
     <CharacterDefinitionTable id="t1">
       <Name>Outer</Name>
       <SegmentDefinitions>
-        <!-- "z" declared FIRST so t1's own "x" (below) sits at raw index 1, not 0 -- t0's "x" sits
+        <!-- "z" declared FIRST so t1's own "x" (below) sits at raw index 1, not 0 - t0's "x" sits
              at raw index 0 (t0's only segment). Deliberately misaligned raw indices for the SAME
              spelling across the two tables (module doc). -->
         <SegmentDefinition id="c1z">

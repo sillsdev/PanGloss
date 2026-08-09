@@ -4,15 +4,15 @@
   <Language>
     <Name>Gezmara</Name>
     <!-- templatic-Semitic pathology mimic (docs/conformance-staging-plan.md's pathology catalog):
-         (1) "infix interdigitation rules (InsertSegments around a root Copy)" -- mrPfv/mrConv
+         (1) "infix interdigitation rules (InsertSegments around a root Copy)" - mrPfv/mrConv
          below, two independent infixes inserted after the root's first consonant, mirroring
-         templatic perfective/converb marking (-pfv-/-conv--plausible) exactly like
+         templatic perfective/converb marking (-pfv-/-conv-plausible) exactly like
          austronesian-phase's mrInfixUm (CopyFromInput C1 + InsertSegments + CopyFromInput rest).
-         (2) "a merged letter-series (two unifiable CharDefs sharing a phoneme -- the U+1338/U+134A
+         (2) "a merged letter-series (two unifiable CharDefs sharing a phoneme - the U+1338/U+134A
          render-variant trap)": cSTz's SegmentDefinition below carries TWO <Representation>
          strings for the SAME segment id, one Unicode codepoint each, mimicking two distinct
          Ethiopic graphemes that a font/keyboard-variant reduces to one phoneme (the general
-         "two spellings, one segment" class real Ethiopic orthography exhibits) -- no existing
+         "two spellings, one segment" class real Ethiopic orthography exhibits) - no existing
          `machine/conformance` fixture declares more than one <Representation> per
          SegmentDefinition, so this is new coverage, not a duplicate of edge-cases/strrep-identity
          (which is about single-representation StrRep IDENTITY as a matching dimension, a related
@@ -21,7 +21,7 @@
       <PartOfSpeech id="posInfix"><Name>vInfix</Name></PartOfSpeech>
       <PartOfSpeech id="posGlyph"><Name>vGlyph</Name></PartOfSpeech>
     </PartsOfSpeech>
-    <!-- No PhonologicalFeatureSystem/PhonologicalRuleDefinitions -- pure morphotactics + a
+    <!-- No PhonologicalFeatureSystem/PhonologicalRuleDefinitions - pure morphotactics + a
          character-table-only construct, so requires: [] (mechanically derived). -->
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>
@@ -70,7 +70,7 @@
             <MorphemeId>PFV</MorphemeId>
           </MorphologicalRule>
           <!-- Infix interdigitation #2: converb marker "cv", independent of mrPfv (same root,
-               disjoint slot -- neither rule's own MorphologicalInput/Output references the
+               disjoint slot - neither rule's own MorphologicalInput/Output references the
                other), so a root can take either infix but the two never co-apply to the same
                derivation because both are gated to consume the WHOLE bare root shape (the
                single-infix-per-derivation grammar this fixture pins). -->

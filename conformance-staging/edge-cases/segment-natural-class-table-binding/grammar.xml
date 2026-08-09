@@ -4,19 +4,19 @@
   <Language>
     <Name>SegmentNaturalClassTableBinding</Name>
     <!-- Synthetic construct-shaped mimic (docs/conformance/representative-typology-basis.md
-         S1.2.5 -- "Multi-table: shared-representation-across-tables configuration" -- combined with
+         S1.2.5 - "Multi-table: shared-representation-across-tables configuration" - combined with
          constructs.txt row 34, "NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass
          precision"). Closes a suite-design blind spot: EVERY existing multi-table conformance
          fixture (two-table-shared-representation-recall, multi-table-metathesis-shared-
          representation, bistratal-overlapping-segment-representation) builds its rules'
          natural classes from `FeatureNaturalClass` only. `pg_rules::bridge::PatternBridge::
          nat_class_lanes`'s `NaturalClassKind::Feature` branch never reads `self.table` at all
-         (feature lanes are table-agnostic by construction -- a `SymbolicFeature`'s bit assignment
+         (feature lanes are table-agnostic by construction - a `SymbolicFeature`'s bit assignment
          is grammar-wide, not per-table), so no existing fixture can DETECT a wrong-table char-def
          resolution: a rule wrongly compiled against table 0 instead of its own owning stratum's
          table would still resolve every `FeatureNaturalClass` identically, and the fixture would
          keep passing. Only `NaturalClassKind::Segments` (`SegmentNaturalClass`) resolves its
-         members via `self.table.get(cd)` -- a genuinely table-DEPENDENT lookup, since a
+         members via `self.table.get(cd)` - a genuinely table-DEPENDENT lookup, since a
          `SegmentNaturalClass`'s members are raw per-table `CharDefId`s with no table of their own
          (see `rust/crates/pg-rules/src/cache.rs`'s `owning_table_tests` module, whose inline probe
          grammar this fixture's own two-table/two-stratum shape mirrors, transplanted into a real
@@ -26,7 +26,7 @@
          own `StratumDef::table` pointing at a DIFFERENT table, non-first stratum S1 (Outer, t1) owns
          the one phonological rule. Both tables assign raw index 0 to a segment, but with
          DELIBERATELY OPPOSITE feature values across the two tables (t0's sole segment "z" is f=+;
-         t1's own raw-index-0 segment "k" is f=-) -- exactly the same "deliberately misaligned raw
+         t1's own raw-index-0 segment "k" is f=-) - exactly the same "deliberately misaligned raw
          indices, opposite feature values at the shared index" construction `cache.rs`'s own probe
          and every staged multi-table fixture already use, so that a wrong-table (table-0) resolution
          of the rule's own `SegmentNaturalClass` (`ncK`, whose one member is t1's "k", raw index 0)
@@ -34,7 +34,7 @@
          real t1 "k" carries f=-. The rule (`prKtoG`, obligatory, no environment: any "k" becomes
          "g") lives entirely on the Outer stratum; ROOT2 is entered directly on that same stratum (no
          cross-stratum material threading is needed for this fixture's own claim, unlike
-         two-table-shared-representation-recall -- keeping the SegmentNaturalClass-table-dependence
+         two-table-shared-representation-recall - keeping the SegmentNaturalClass-table-dependence
          claim isolated from that OTHER fixture's own separate, already-documented synthesis-surface-
          rendering finding). ROOT1 (Inner stratum, t0, spelled "z") is a same-table, rule-untouched
          decoy proving the "more than one table, one per stratum" construct has genuine substance on

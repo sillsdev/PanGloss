@@ -136,7 +136,7 @@ const CHAR_TABLE_XML: &str = r#"
     </SegmentDefinition>
     <!-- Every consonant below specifies ALL of asp/del_rel/strident/cont/nasal explicitly (even
          where C#'s Table1/Table3 leave one unspecified) to avoid Rust's audit-C N2 gap (phonological
-         `defaultSymbol`/`UseDefaults` -- dropped at load, unimplementable downstream): with no
+         `defaultSymbol`/`UseDefaults` - dropped at load, unimplementable downstream): with no
          default-fill, an unspecified binary feature is a wildcard (matches either pole) rather than
          defaulting to its unmarked pole the way C#'s loader would with `UseDefaults` in effect. Fully
          specifying every feature here sidesteps the gap rather than re-discovering it per natural
@@ -412,12 +412,12 @@ const NATURAL_CLASSES_XML: &str = r#"
     <FeatureValue feature="fCons" symbolValues="fCons_p" /><FeatureValue feature="fCont" symbolValues="fCont_m" />
   </FeatureNaturalClass>
   <!-- `RewriteRuleTests.DisjunctiveRules`' `highFrontVowel` (cons-, voc+, high+, back-, W11 batch-5,
-       no round constraint -- distinct from `ncHfuV`, which additionally pins round-) = {i,y} here. -->
+       no round constraint - distinct from `ncHfuV`, which additionally pins round-) = {i,y} here. -->
   <FeatureNaturalClass id="ncHFrontV"><Name>HFrontV</Name>
     <FeatureValue feature="fCons" symbolValues="fCons_m" /><FeatureValue feature="fVoc" symbolValues="fVoc_p" />
     <FeatureValue feature="fHigh" symbolValues="fHigh_p" /><FeatureValue feature="fBack" symbolValues="fBack_m" />
   </FeatureNaturalClass>
-  <!-- `RewriteRuleTests.DisjunctiveRules`' `frontRnd` (back-, round+, no cons/voc, W11 batch-5) --
+  <!-- `RewriteRuleTests.DisjunctiveRules`' `frontRnd` (back-, round+, no cons/voc, W11 batch-5) -
        an OUTPUT-only feature-setter in that test, so its consonant-wildcard reach (back/round are
        unset, hence wildcard, on every consonant in this table) never matters. -->
   <FeatureNaturalClass id="ncFrontRnd"><Name>FrontRnd</Name>
@@ -429,13 +429,13 @@ const NATURAL_CLASSES_XML: &str = r#"
     <FeatureValue feature="fCons" symbolValues="fCons_m" /><FeatureValue feature="fVoc" symbolValues="fVoc_p" />
     <FeatureValue feature="fBack" symbolValues="fBack_m" /><FeatureValue feature="fRound" symbolValues="fRound_p" />
   </FeatureNaturalClass>
-  <!-- `RewriteRuleTests.DisjunctiveRules`' `backUnrnd` (back+, round-, no cons/voc, W11 batch-5) --
+  <!-- `RewriteRuleTests.DisjunctiveRules`' `backUnrnd` (back+, round-, no cons/voc, W11 batch-5) -
        output-only feature-setter, see `ncFrontRnd`'s note. -->
   <FeatureNaturalClass id="ncBackUnrnd"><Name>BackUnrnd</Name>
     <FeatureValue feature="fBack" symbolValues="fBack_p" /><FeatureValue feature="fRound" symbolValues="fRound_m" />
   </FeatureNaturalClass>
   <!-- `RewriteRuleTests.DisjunctiveRules`' `backUnrndVowel` (cons-, voc+, back+, round-, W11 batch-5,
-       no low/high constraint -- distinct from `ncLowBack`, which additionally pins low+/high-) =
+       no low/high constraint - distinct from `ncLowBack`, which additionally pins low+/high-) =
        {a,ɯ} here. -->
   <FeatureNaturalClass id="ncBackUnrndV"><Name>BackUnrndV</Name>
     <FeatureValue feature="fCons" symbolValues="fCons_m" /><FeatureValue feature="fVoc" symbolValues="fVoc_p" />
@@ -458,7 +458,7 @@ const NATURAL_CLASSES_XML: &str = r#"
 /// Lexical entries. Each cites the `HermitCrabTestBase.AddEntry(...)` call it ports.
 const LEXICON_XML: &str = r#"
 <LexicalEntries>
-  <!-- AddEntry("1", N, Allophonic, "pʰit") -- POS simplified to N (only used by EpenthesisRules, which
+  <!-- AddEntry("1", N, Allophonic, "pʰit") - POS simplified to N (only used by EpenthesisRules, which
        never asserts on syntactic FS, only that entry "1" is reachable). -->
   <LexicalEntry id="e1" partOfSpeech="posN"><MorphemeId>1</MorphemeId>
     <Allomorphs><Allomorph id="a1"><PhoneticShape>pʰit</PhoneticShape></Allomorph></Allomorphs>
@@ -487,16 +487,16 @@ const LEXICON_XML: &str = r#"
   <LexicalEntry id="e12" partOfSpeech="posN"><MorphemeId>12</MorphemeId>
     <Allomorphs><Allomorph id="a12"><PhoneticShape>ga+b</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
-  <!-- AddEntry("13", N, Allophonic, "bubabu") -- HermitCrabTestBase.cs:560 (W11 batch-5:
+  <!-- AddEntry("13", N, Allophonic, "bubabu") - HermitCrabTestBase.cs:560 (W11 batch-5:
        LongDistanceRules/QuantifierRules). -->
   <LexicalEntry id="e13" partOfSpeech="posN"><MorphemeId>13</MorphemeId>
     <Allomorphs><Allomorph id="a13"><PhoneticShape>bubabu</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
-  <!-- AddEntry("14", N, Allophonic, "bubabi") -- HermitCrabTestBase.cs:561 (W11 batch-5). -->
+  <!-- AddEntry("14", N, Allophonic, "bubabi") - HermitCrabTestBase.cs:561 (W11 batch-5). -->
   <LexicalEntry id="e14" partOfSpeech="posN"><MorphemeId>14</MorphemeId>
     <Allomorphs><Allomorph id="a14"><PhoneticShape>bubabi</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
-  <!-- AddEntry("15", N, Allophonic, "bɯbabu") -- HermitCrabTestBase.cs:562 (W11 batch-5). -->
+  <!-- AddEntry("15", N, Allophonic, "bɯbabu") - HermitCrabTestBase.cs:562 (W11 batch-5). -->
   <LexicalEntry id="e15" partOfSpeech="posN"><MorphemeId>15</MorphemeId>
     <Allomorphs><Allomorph id="a15"><PhoneticShape>bɯbabu</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
@@ -504,7 +504,7 @@ const LEXICON_XML: &str = r#"
        match): `e18`/`e24`/`e26` previously carried MorphemeIds that did NOT match
        HermitCrabTestBase.cs's real AddEntry("18",...)/(24,...)/(26,...) shapes (a mislabeling from an
        earlier wave: what's now `e18` was really entry 16's shape "bibabi"; `e24`/`e26` were really
-       entries 20's/21's shapes -- exact duplicates of the correctly-labeled "20"/"21" added just
+       entries 20's/21's shapes - exact duplicates of the correctly-labeled "20"/"21" added just
        below, which is what surfaced this). Harmless while undetected: their only consumer,
        `csharp_port_rewrite.rs::epenthesis_rules`/`deletion_rules_multi_position_reinsertion`,
        was wholesale `#[ignore]`d at the time (the latter has since been un-ignored). `e24`/`e26`
@@ -515,12 +515,12 @@ const LEXICON_XML: &str = r#"
        "18"`, a genuine double-segment-epenthesis case, RewriteRuleTests.cs:1291-1301) is the
        collision the note above anticipated. Confirmed against `HermitCrabTestBase.cs:565`
        (`AddEntry("18", ..., Allophonic, "bibu")`) directly: root 18's real shape is "bibu", not
-       "bibabi" -- inserting the double-HFU-vowel RHS after each HighV segment in "bibu" (i at
+       "bibabi" - inserting the double-HFU-vowel RHS after each HighV segment in "bibu" (i at
        position 1, u at position 3) gives "bi[ii]bu[ii]" = "biiibuii", exactly the real test's
        word. Also cross-checked against the OTHER live C# use of root 18
-       (RewriteRuleTests.cs:1256-1289's alpha-variable reconfiguration, not ported here -- see
+       (RewriteRuleTests.cs:1256-1289's alpha-variable reconfiguration, not ported here - see
        `epenthesis_rules`'s own doc): "bibu" + agreeing-HighV epenthesis after i(1)/u(3) gives
-       "biibuu", matching that reconfiguration's own asserted word too -- independent confirmation
+       "biibuu", matching that reconfiguration's own asserted word too - independent confirmation
        the corrected shape is right, not just consistent with the one sub-case that forced this fix. -->
   <LexicalEntry id="e18" partOfSpeech="posN"><MorphemeId>18</MorphemeId>
     <Allomorphs><Allomorph id="a18"><PhoneticShape>bibu</PhoneticShape></Allomorph></Allomorphs>
@@ -529,16 +529,16 @@ const LEXICON_XML: &str = r#"
   <LexicalEntry id="e19" partOfSpeech="posN"><MorphemeId>19</MorphemeId>
     <Allomorphs><Allomorph id="a19"><PhoneticShape>b+ubu</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
-  <!-- AddEntry("20", N, Allophonic, "bubababi") -- HermitCrabTestBase.cs:567 (W11 batch-5:
+  <!-- AddEntry("20", N, Allophonic, "bubababi") - HermitCrabTestBase.cs:567 (W11 batch-5:
        QuantifierRules). -->
   <LexicalEntry id="e20" partOfSpeech="posN"><MorphemeId>20</MorphemeId>
     <Allomorphs><Allomorph id="a20"><PhoneticShape>bubababi</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
-  <!-- AddEntry("21", N, Allophonic, "bibababu") -- HermitCrabTestBase.cs:568 (W11 batch-5). -->
+  <!-- AddEntry("21", N, Allophonic, "bibababu") - HermitCrabTestBase.cs:568 (W11 batch-5). -->
   <LexicalEntry id="e21" partOfSpeech="posN"><MorphemeId>21</MorphemeId>
     <Allomorphs><Allomorph id="a21"><PhoneticShape>bibababu</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
-  <!-- AddEntry("24", N, Allophonic, "bubui") -- HermitCrabTestBase.cs:571 (corrected, was "bubababi"). -->
+  <!-- AddEntry("24", N, Allophonic, "bubui") - HermitCrabTestBase.cs:571 (corrected, was "bubababi"). -->
   <LexicalEntry id="e24" partOfSpeech="posN"><MorphemeId>24</MorphemeId>
     <Allomorphs><Allomorph id="a24"><PhoneticShape>bubui</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
@@ -546,7 +546,7 @@ const LEXICON_XML: &str = r#"
   <LexicalEntry id="e25" partOfSpeech="posN"><MorphemeId>25</MorphemeId>
     <Allomorphs><Allomorph id="a25"><PhoneticShape>buibu</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
-  <!-- AddEntry("26", N, Allophonic, "buibui") -- HermitCrabTestBase.cs:573 (corrected, was "bibababu"). -->
+  <!-- AddEntry("26", N, Allophonic, "buibui") - HermitCrabTestBase.cs:573 (corrected, was "bibababu"). -->
   <LexicalEntry id="e26" partOfSpeech="posN"><MorphemeId>26</MorphemeId>
     <Allomorphs><Allomorph id="a26"><PhoneticShape>buibui</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
@@ -618,7 +618,7 @@ const LEXICON_XML: &str = r#"
   <LexicalEntry id="e48" partOfSpeech="posV"><MorphemeId>48</MorphemeId>
     <Allomorphs><Allomorph id="a48"><PhoneticShape>pag</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
-  <!-- AddEntry("49", V, Morphophonemic, "ktb") -- HermitCrabTestBase.cs:604 (AffixProcessRuleTests.InfixRules' consonantal root). -->
+  <!-- AddEntry("49", V, Morphophonemic, "ktb") - HermitCrabTestBase.cs:604 (AffixProcessRuleTests.InfixRules' consonantal root). -->
   <LexicalEntry id="e49" partOfSpeech="posV"><MorphemeId>49</MorphemeId>
     <Allomorphs><Allomorph id="a49"><PhoneticShape>ktb</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
@@ -626,7 +626,7 @@ const LEXICON_XML: &str = r#"
   <LexicalEntry id="e50" partOfSpeech="posN"><MorphemeId>50</MorphemeId>
     <Allomorphs><Allomorph id="a50"><PhoneticShape>suupu</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
-  <!-- AddEntry("51", N, Morphophonemic, "miu") -- HermitCrabTestBase.cs:606 (MetathesisRuleTests.SimpleRule). -->
+  <!-- AddEntry("51", N, Morphophonemic, "miu") - HermitCrabTestBase.cs:606 (MetathesisRuleTests.SimpleRule). -->
   <LexicalEntry id="e51" partOfSpeech="posN"><MorphemeId>51</MorphemeId>
     <Allomorphs><Allomorph id="a51"><PhoneticShape>miu</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
@@ -695,11 +695,11 @@ const LEXICON_XML: &str = r#"
       <Allomorph id="afree2"><PhoneticShape>tas</PhoneticShape></Allomorph>
     </Allomorphs>
   </LexicalEntry>
-  <!-- AddEntry("54", FeatureStruct.New().Value (no POS -- IsPartial=true), Morphophonemic, "pi") -->
+  <!-- AddEntry("54", FeatureStruct.New().Value (no POS - IsPartial=true), Morphophonemic, "pi") -->
   <LexicalEntry id="e54" partial="true"><MorphemeId>54</MorphemeId>
     <Allomorphs><Allomorph id="a54"><PhoneticShape>pi</PhoneticShape></Allomorph></Allomorphs>
   </LexicalEntry>
-  <!-- AddEntry("55", N, Morphophonemic, "mim+ɯɯ") -- HermitCrabTestBase.cs:610 (W11 batch-5:
+  <!-- AddEntry("55", N, Morphophonemic, "mim+ɯɯ") - HermitCrabTestBase.cs:610 (W11 batch-5:
        LongDistanceRules' 3rd reconfiguration). -->
   <LexicalEntry id="e55" partOfSpeech="posN"><MorphemeId>55</MorphemeId>
     <Allomorphs><Allomorph id="a55"><PhoneticShape>mim+ɯɯ</PhoneticShape></Allomorph></Allomorphs>

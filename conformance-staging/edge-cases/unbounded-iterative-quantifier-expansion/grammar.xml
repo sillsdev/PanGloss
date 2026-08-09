@@ -4,14 +4,14 @@
   <Language>
     <Name>UnboundedIterativeQuantifierExpansion</Name>
     <!-- Synthetic construct-shaped mimic (docs/conformance/representative-typology-basis.md
-         S1.2.6 -- "Quantifier pattern -- genuinely unbounded quantifier"). Invented VC(C*)C roots
+         S1.2.6 - "Quantifier pattern - genuinely unbounded quantifier"). Invented VC(C*)C roots
          only, no natural-language lexemes. Representative typological pattern: scalar/iconic
-         repetition where the degree of copying is not capped at one extra copy -- attested
+         repetition where the degree of copying is not capped at one extra copy - attested
          alongside ordinary (single) reduplication in the iconicity-of-reduplication literature (see
          this fixture's own STAGING.md for citations). Structural shape here: an ordinary
          `Iterative`, `LeftToRight` `PhonRuleDef` whose subrule's own `RightEnvironment` contains a
          `Quantifier` node (`<OptionalSegmentSequence min="1" max="-1">`, the DTD's own UNBOUNDED
-         Kleene sentinel, never any finite cutoff) before a trigger segment -- modeling an
+         Kleene sentinel, never any finite cutoff) before a trigger segment - modeling an
          arbitrarily-long run of "expressive" material standing between a vowel and its own
          triggering context, the phonological-rule-level stand-in this DTD's own construct
          vocabulary offers for scalar copying (the research doc's own "Structural shape" section: a
@@ -22,13 +22,13 @@
          genuinely honestly-`Refuse`d configurations: `crate::replace::pattern_slots`
          unconditionally returned `None` for ANY `PatternNode::Quantifier` with `max == None`,
          regardless of where it occurred, so this rule could not even be compiled by the
-         `--engine=foma` FST path (`rust/crates/pg-foma/src/capability.rs`'s own
+         `-engine=foma` FST path (`rust/crates/pg-foma/src/capability.rs`'s own
          `QuantifierBoundedExpansionPredicate`, pre-widening, `Refuse`d every rule with
          `!all_bounded` unconditionally). `Slot::Repeat`'s widened `max: Option<u32>` now renders
          this via foma's own native `E^>N` unbounded-repetition xre operator
          (`crate::lower::render_slots`'s own doc), so this fixture is a POSITIVE witness:
          `QuantifierPatternDetail::compile_attempted == true` and
-         `QuantifierBoundedExpansionPredicate` returns `ConfirmOnly`, not `Refuse` -- see
+         `QuantifierBoundedExpansionPredicate` returns `ConfirmOnly`, not `Refuse` - see
          STAGING.md for the full account, mirroring `right-to-left-bounded-quantifier-rewrite`'s own
          precedent for a BOUNDED environment quantifier (this fixture is that one's direct
          unbounded/iterative counterpart).
@@ -38,6 +38,9 @@
          segment needs a feature bundle that FULLY and UNIQUELY distinguishes it from every other
          segment, or a phonological-subrule rewrite collapses feature-identical segments into a
          bracketed alternates class instead of the literal input string. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+    </PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="featCons"><Name>cons</Name><Symbols><Symbol id="fConsPlus">+</Symbol><Symbol id="fConsMinus">-</Symbol></Symbols></SymbolicFeature>
       <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols><Symbol id="fVoicePlus">+</Symbol><Symbol id="fVoiceMinus">-</Symbol></Symbols></SymbolicFeature>
