@@ -61,6 +61,12 @@
 mod test_support;
 
 pub mod analyzer;
+/// The selector: `backend_selection::select_backends` turns
+/// `capability::StrategyEnvelope`'s per-backend compatibility reports into a choice — which
+/// backend(s) can compile a grammar, and the named construct each excluded one declined on. No
+/// path, one path and several are all ordinary answers. Check-only, on the same terms as
+/// `capability_entry`.
+pub mod backend_selection;
 /// [`build::
 /// build_controllable`], a `plan::Plan` interpreter for the controllable subtree (the `Gate`
 /// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::

@@ -450,26 +450,57 @@ fn resolve_capability_enforcement(engine: Engine, enforce_flag: Option<bool>) ->
     enforce_flag.unwrap_or(true)
 }
 
+/// The backend a `--engine=foma` run actually compiles with, and therefore the only one whose
+/// compatibility report licenses that run.
+pub(crate) const GATED_BACKEND: pg_foma::enumerate::EmissionStrategy =
+    pg_foma::analyzer::FomaProposer::EMISSION_STRATEGY;
+
+/// `GATED_BACKEND`'s own verdict out of `selection`, fail-closed: a backend the selector never
+/// reported on is a refusal, never a silent pass, since "I could not look" must not read as "the
+/// gate is satisfied".
+pub(crate) fn gated_backend_decision(
+    selection: &pg_foma::backend_selection::BackendSelection,
+) -> pg_foma::capability::CompileDecision {
+    use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
+    match selection.report_for(GATED_BACKEND) {
+        Some(report) => report.decision().clone(),
+        None => CompileDecision::Refuse(vec![CapabilityDiagnostic {
+            predicate: "capability-gate.backend-not-reported",
+            construct: GATED_BACKEND.label().to_string(),
+            witness: "the selector composed no compatibility report for the backend this run \
+                      would compile with, so nothing licenses the run"
+                .to_string(),
+        }]),
+    }
+}
+
+/// The label naming which backend a gate line is about, so a refusal says WHICH compiler declined.
+fn gated_backend_tag() -> String {
+    format!("backend={}", GATED_BACKEND.label())
+}
+
 fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResult {
     use pg_foma::capability::CompileDecision;
-    let decision = pg_foma::capability_entry::evaluate_capability(g);
+    let selection = pg_foma::backend_selection::select_backends_for_grammar(g);
+    let decision = gated_backend_decision(&selection);
+    let backend = gated_backend_tag();
 
     if !enforce {
         // Unchanged: the exact pre-existing advisory-only report, regardless of `allow_unproven`.
         let stderr_lines = match &decision {
-            CompileDecision::Admit => vec![
-                "capability: Admit [advisory/preview -- gate not yet enforced, see ADR 0001]"
-                    .to_string(),
-            ],
-            CompileDecision::ConfirmOnly => vec![
-                "capability: ConfirmOnly [advisory/preview -- gate not yet enforced, see ADR \
+            CompileDecision::Admit => vec![format!(
+                "capability: Admit [{backend}; advisory/preview -- gate not yet enforced, see ADR \
                  0001]"
-                    .to_string(),
-            ],
+            )],
+            CompileDecision::ConfirmOnly => vec![format!(
+                "capability: ConfirmOnly [{backend}; advisory/preview -- gate not yet enforced, \
+                 see ADR 0001]"
+            )],
             CompileDecision::Refuse(diags) => {
                 let mut lines = vec![format!(
-                    "capability: Refuse ({} diagnostic(s)) [advisory/preview -- gate not yet \
-                     enforced; compilation/analysis proceeds unchanged, see ADR 0001]",
+                    "capability: Refuse ({} diagnostic(s)) [{backend} declined; \
+                     advisory/preview -- gate not yet enforced; compilation/analysis proceeds \
+                     unchanged, see ADR 0001]",
                     diags.len()
                 )];
                 for d in diags {
@@ -491,26 +522,25 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
     match decision {
         CompileDecision::Admit => GateResult {
             proceed: true,
-            stderr_lines: vec![
-                "capability: Admit [enforcing: gate satisfied, proceeding]".to_string()
-            ],
+            stderr_lines: vec![format!(
+                "capability: Admit [{backend}; enforcing: gate satisfied, proceeding]"
+            )],
             overridden: false,
         },
         CompileDecision::ConfirmOnly => GateResult {
             proceed: true,
-            stderr_lines: vec![
-                "capability: ConfirmOnly [enforcing: proceeding -- ConfirmOnly is a \
+            stderr_lines: vec![format!(
+                "capability: ConfirmOnly [{backend}; enforcing: proceeding -- ConfirmOnly is a \
                  valid non-failure verdict per ADR 0001, recall-preserving via confirm]"
-                    .to_string(),
-            ],
+            )],
             overridden: false,
         },
         CompileDecision::Refuse(diags) => {
             if !allow_unproven {
                 let mut lines = vec![format!(
-                    "capability: Refuse ({} diagnostic(s)) [enforcing: REFUSING -- no \
-                     analysis will be performed, see ADR 0001; pass --allow-unproven to force-\
-                     compile anyway, see ADR 0005]",
+                    "capability: Refuse ({} diagnostic(s)) [{backend} declined; enforcing: \
+                     REFUSING -- no analysis will be performed, see ADR 0001; pass \
+                     --allow-unproven to force-compile anyway, see ADR 0005]",
                     diags.len()
                 )];
                 for d in &diags {
@@ -528,8 +558,8 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
 
             // The override: force-compile behind an unmissable degraded-trust marker, repeating the machine-readable trust=unproven token at both the top and bottom of the block so a long diagnostic list can never let it scroll out of view.
             let mut lines = vec![format!(
-                "CAPABILITY-OVERRIDE trust=unproven: --allow-unproven force-compiled {} refused \
-                 construct(s) (ADR 0005) -- THIS RUN'S OUTPUT IS RECALL-UNSAFE, NOT a clean \
+                "CAPABILITY-OVERRIDE trust=unproven: --allow-unproven force-compiled {} construct(s) \
+                 {backend} declined (ADR 0005) -- THIS RUN'S OUTPUT IS RECALL-UNSAFE, NOT a clean \
                  result. This is a SESSION/REPORT-LEVEL marker only for this invocation -- \
                  `batch`/`parse` write no persistent artifact of their own, so there is nothing \
                  for a pack-manifest stamp to attach to here. For a real, PERSISTENT, indelible \
@@ -1589,8 +1619,9 @@ mod tests {
         use std::fs;
         use std::sync::atomic::{AtomicU32, Ordering};
 
-        /// A grammar with genuinely-overlapping simultaneous subrules: its `Refuse` verdict is a structural fact about the fixture, unlike a construct refused only pending a proof, which could later be promoted to `ConfirmOnly` and silently make this module vacuous.
-        const PERMANENTLY_REFUSED_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
+        /// A grammar the gated backend declines on a structural fact about the fixture rather than pending a proof; see `crate::test_support::BACKEND_REFUSED_GRAMMAR_XML` for the shape and why it still compiles.
+        const PERMANENTLY_REFUSED_GRAMMAR_XML: &str =
+            crate::test_support::BACKEND_REFUSED_GRAMMAR_XML;
 
         fn load(xml: &str) -> pg_grammar::model::Grammar {
             pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
@@ -1645,8 +1676,56 @@ mod tests {
             assert!(
                 g.stderr_lines
                     .iter()
-                    .any(|l| l.contains("simultaneous.subrule-overlap")),
-                "expected a diagnostic naming the Overwrite MprGroup: {:?}",
+                    .any(|l| l.contains("reduplication.peel-eligible-rule-kind")),
+                "expected a diagnostic naming the construct the backend declined on: {:?}",
+                g.stderr_lines
+            );
+            assert!(
+                g.stderr_lines
+                    .iter()
+                    .any(|l| l.contains(crate::GATED_BACKEND.label())),
+                "a refusal must say WHICH backend declined, not just that something did: {:?}",
+                g.stderr_lines
+            );
+        }
+
+        /// A grammar the gated backend cannot compile at all must be refused AT THE GATE, naming that backend and the construct -- never let through to die inside the compiler on an internal budget message.
+        #[test]
+        fn a_grammar_only_the_gated_backend_refuses_is_still_blocked_at_the_gate() {
+            let xml = crate::test_support::unordered_over_budget_grammar_xml(101);
+            let over_budget = load(&xml);
+
+            let selection = pg_foma::backend_selection::select_backends_for_grammar(&over_budget);
+            assert!(
+                !selection.selected().is_empty(),
+                "this fixture is the interesting case only while ANOTHER backend still accepts it \
+                 -- otherwise a whole-grammar join would have caught it too and the gate's \
+                 per-backend reading would be untested: {selection:?}"
+            );
+            assert!(
+                !selection
+                    .report_for(crate::GATED_BACKEND)
+                    .expect("the gated backend must be reported")
+                    .is_selected(),
+                "the gated backend must decline this fixture: {selection:?}"
+            );
+
+            let g = capability_gate(&over_budget, true, false);
+            assert!(
+                !g.proceed,
+                "the gate must block a grammar the backend it is gating cannot compile: {:?}",
+                g.stderr_lines
+            );
+            assert!(
+                g.stderr_lines
+                    .iter()
+                    .any(|l| l.contains(crate::GATED_BACKEND.label())),
+                "the refusal must name which backend declined: {:?}",
+                g.stderr_lines
+            );
+            assert!(
+                g.stderr_lines.iter().any(|l| l.contains("Unordered")),
+                "the refusal must name the construct declined on: {:?}",
                 g.stderr_lines
             );
         }
@@ -1676,7 +1755,7 @@ mod tests {
             assert!(
                 g.stderr_lines
                     .iter()
-                    .any(|l| l.contains("simultaneous.subrule-overlap")),
+                    .any(|l| l.contains("reduplication.peel-eligible-rule-kind")),
                 "the override record must still name which construct was force-compiled: {:?}",
                 g.stderr_lines
             );

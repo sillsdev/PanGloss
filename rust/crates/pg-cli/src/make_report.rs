@@ -6,8 +6,8 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+use pg_foma::backend_selection::select_backends;
 use pg_foma::capability::CompileDecision;
-use pg_foma::capability_entry::evaluate_capability_with_semantics;
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::plan_diagram::{
@@ -598,7 +598,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
 
     // One derivation, shared by every place this command needs the capability verdict, rather than three independent characterize walks over the same grammar.
     let semantics = GrammarSemantics::derive(&grammar);
-    let decision = evaluate_capability_with_semantics(&semantics);
+    let decision = crate::gated_backend_decision(&select_backends(&semantics));
     let attempt_compile = matches!(
         decision,
         CompileDecision::Admit | CompileDecision::ConfirmOnly
@@ -891,8 +891,8 @@ mod tests {
 </HermitCrabInput>
 "#;
 
-    /// Genuinely-overlapping simultaneous subrules, refused by `simultaneous.subrule-overlap`; the same fixture `pack.rs` and `capability_gate_tests` use for their known-Refuse grammar.
-    const REFUSE_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
+    /// The same known-refused grammar `pack.rs` and `capability_gate_tests` use; see `crate::test_support::BACKEND_REFUSED_GRAMMAR_XML`.
+    const REFUSE_GRAMMAR_XML: &str = crate::test_support::BACKEND_REFUSED_GRAMMAR_XML;
 
     fn run_make_report_raw(
         tag: &str,
@@ -924,10 +924,9 @@ mod tests {
 
         let text = fs::read_to_string(&out_path).expect("read report.md");
         assert!(text.contains("NOT SUPPORTED"), "{text}");
-        assert!(text.contains("simultaneous.subrule-overlap"), "{text}");
         assert!(
-            text.contains("simultaneous.subrule-overlap"),
-            "must name the refused construct: {text}"
+            text.contains("reduplication.peel-eligible-rule-kind"),
+            "must name the construct the gated backend declined on: {text}"
         );
         // Every check must render as NOT ASSESSED, never PASS.
         assert!(text.contains("NOT ASSESSED"), "{text}");

@@ -175,6 +175,16 @@ impl SegmentQueryEncoder {
 }
 
 impl FomaProposer {
+    /// The backend `Self::new` realizes, and so the one a capability gate in front of this
+    /// constructor has to consult.
+    ///
+    /// A whole-grammar verdict cannot answer that question: it is the best any backend offers, and
+    /// this constructor offers exactly one of them. Named here rather than at the call site so the
+    /// fact lives next to the emitter it describes, and moves with it. Pinned by
+    /// `the_named_backend_is_the_one_this_constructor_builds`.
+    pub const EMISSION_STRATEGY: crate::enumerate::EmissionStrategy =
+        crate::enumerate::EmissionStrategy::TunedSurfaceProbed;
+
     /// Build a proposer around an already-compiled network. This constructor performs exactly one
     /// `apply_init` and does not emit, compile, sort, compose, or minimize the supplied network.
     pub fn from_precompiled_network(net: &foma::types::Fsm, report: EmitReport) -> Self {
@@ -1042,6 +1052,20 @@ mod profile_tests {
             "a compiled network must report a final arc count"
         );
         assert!(profile.total_lexc_lines.is_some_and(|v| v > 0));
+    }
+
+    /// `FomaProposer::EMISSION_STRATEGY` must name the same compiler `crate::lowering_adapter::LoweringAdapter::TunedSurfaceEmit` does, since that adapter's own contract is `FomaProposer::new`.
+    #[test]
+    fn the_named_backend_is_the_one_this_constructor_builds() {
+        assert_eq!(
+            crate::lowering_adapter::LoweringAdapter::for_strategy(FomaProposer::EMISSION_STRATEGY),
+            crate::lowering_adapter::LoweringAdapter::TunedSurfaceEmit,
+            "the gate's named backend and this constructor's own lowering adapter must agree"
+        );
+        assert!(
+            FomaProposer::EMISSION_STRATEGY.is_whole_grammar(),
+            "this constructor compiles the whole grammar, not the controllable subtree"
+        );
     }
 
     /// The profiled path must build the same network as the non-profiled path -- proven via identical `propose` results, not just "both `Ok`".

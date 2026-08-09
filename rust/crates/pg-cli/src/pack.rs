@@ -3,8 +3,8 @@
 use std::fs;
 
 use pg_foma::analyzer::FomaProposer;
+use pg_foma::backend_selection::select_backends;
 use pg_foma::capability::CompileDecision;
-use pg_foma::capability_entry::evaluate_capability_with_semantics;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::health_evaluator::evaluate_health;
 use pg_foma::peel::{ReduplicationPeeler, RUNTIME_FEATURE_REDUPLICATION_PEEL};
@@ -151,27 +151,30 @@ pub(crate) fn build_pack(
     watchdog: bool,
 ) -> Result<BuiltPack, String> {
     // ---- ADR 0001/0005: the capability-trust stamp ---------------------------------------------
-    let decision = evaluate_capability_with_semantics(semantics);
+    let backend = crate::GATED_BACKEND.label();
+    let decision = crate::gated_backend_decision(&select_backends(semantics));
     let capability_trust = match &decision {
         CompileDecision::Admit => {
             eprintln!(
-                "capability: Admit -- packing a proven-clean grammar (capability_trust=Proven)"
+                "capability: Admit [backend={backend}] -- packing a proven-clean grammar \
+                 (capability_trust=Proven)"
             );
             CapabilityTrust::Proven
         }
         CompileDecision::ConfirmOnly => {
             eprintln!(
-                "capability: ConfirmOnly -- packing (ADR 0001: first-class, recall-preserving via \
-                 confirm, not a failure; capability_trust=Proven)"
+                "capability: ConfirmOnly [backend={backend}] -- packing (ADR 0001: first-class, \
+                 recall-preserving via confirm, not a failure; capability_trust=Proven)"
             );
             CapabilityTrust::Proven
         }
         CompileDecision::Refuse(diags) => {
             if !allow_unproven {
                 let mut msg = format!(
-                    "capability gate refused this grammar ({} diagnostic(s)); no .pgpack was \
-                     written. Pass --allow-unproven (ADR 0005) to force-pack anyway -- the pack \
-                     will be indelibly stamped capability_trust=Overridden/unproven.\n",
+                    "capability gate refused this grammar: backend={backend} declined on {} \
+                     construct(s); no .pgpack was written. Pass --allow-unproven (ADR 0005) to \
+                     force-pack anyway -- the pack will be indelibly stamped \
+                     capability_trust=Overridden/unproven.\n",
                     diags.len()
                 );
                 for d in diags {
@@ -200,8 +203,9 @@ pub(crate) fn build_pack(
                     .collect(),
             };
             eprintln!(
-                "CAPABILITY-OVERRIDE trust=unproven: --allow-unproven force-packing {} refused \
-                 construct(s) (ADR 0005) -- this pack's capability_trust is Overridden, PERSISTENT, \
+                "CAPABILITY-OVERRIDE trust=unproven: --allow-unproven force-packing {} construct(s) \
+                 backend={backend} declined (ADR 0005) -- this pack's capability_trust is \
+                 Overridden, PERSISTENT, \
                  and INDELIBLE (it survives write->read and can never be laundered back into a \
                  clean Proven claim by any consumer).",
                 record.overridden_configs.len()
@@ -381,9 +385,8 @@ mod tests {
 </HermitCrabInput>
 "#;
 
-    /// A grammar with genuinely-overlapping simultaneous subrules; its `Refuse` verdict is a structural fact,
-    /// pinned by `fixture_grammar_subrules_genuinely_overlap_and_are_refused`.
-    const REFUSE_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
+    /// A grammar the gated backend declines and the compiler still builds; see `crate::test_support::BACKEND_REFUSED_GRAMMAR_XML`.
+    const REFUSE_GRAMMAR_XML: &str = crate::test_support::BACKEND_REFUSED_GRAMMAR_XML;
 
     /// A grammar whose single rule duplicates `stem` via `CopyFromInput` twice, matching `classify_affix`'s `Role::Reduplication` trigger.
     const REDUP_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>PackRedupFixture</Name>
@@ -509,8 +512,8 @@ mod tests {
                     record
                         .overridden_configs
                         .iter()
-                        .any(|c| c.predicate == "simultaneous.subrule-overlap"),
-                    "expected the genuine simultaneous-overlap refusal config: {:?}",
+                        .any(|c| c.predicate == "reduplication.peel-eligible-rule-kind"),
+                    "expected the construct the gated backend declined on: {:?}",
                     record.overridden_configs
                 );
             }

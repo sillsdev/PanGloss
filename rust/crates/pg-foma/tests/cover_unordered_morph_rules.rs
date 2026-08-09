@@ -5,7 +5,8 @@ mod common;
 
 use std::collections::HashSet;
 
-use pg_foma::analyzer::FomaError;
+use pg_foma::analyzer::{FomaError, FomaProposer};
+use pg_foma::backend_selection::select_backends_for_grammar;
 use pg_foma::capability::{compose_envelope, default_registry, CompileDecision};
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::enumerate::enumerate_default;
@@ -303,29 +304,36 @@ fn unbounded_unordered_stratum_deterministically_refuses_to_compile() {
     }
 }
 
-/// The capability characterization for the same unbounded grammar must independently report `Refuse`, agreeing with the compile-time refusal above by reading the same calibrated constant.
+/// The capability characterization for the same unbounded grammar must independently decline it for the backend that would compile it -- read from the selector's per-backend report rather than a whole-grammar join, since the join is the best ANY backend offers and a backend that builds no derivation layers has nothing to say about the budget bounding them.
 #[test]
 fn unbounded_unordered_stratum_composes_to_refuse() {
     let xml = unbounded_fixture_xml(101);
     let g = load(&xml);
-    let ro: Vec<&PhonRuleDef> = g
-        .strata
-        .iter()
-        .flat_map(|s| &s.prules)
-        .map(|&id| &g.prules[id.0 as usize])
-        .collect();
-    let phon = PhonologyProbe::new(&g);
-    let alphabet = SegAlphabet::new(&g.char_tables[0]);
-    let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
-    let registry = default_registry();
+    let selection = select_backends_for_grammar(&g);
 
-    match compose_envelope(&g, &plan, &registry) {
-        CompileDecision::Refuse(diags) => {
-            assert!(
-                diags.iter().any(|d| d.construct.contains("Unordered")),
-                "expected a diagnostic naming the Unordered stratum: {diags:?}"
-            );
-        }
-        other => panic!("expected Refuse, got {other:?}"),
-    }
+    let backend = FomaProposer::EMISSION_STRATEGY;
+    let report = selection
+        .report_for(backend)
+        .expect("every backend must be reported");
+    assert!(
+        !report.is_selected(),
+        "{backend:?} builds the derivation layers the ordering-multiplicity budget bounds, so it \
+         must decline a 101-rule Unordered stratum: {:?}",
+        report.decision()
+    );
+    assert!(
+        report
+            .declined_on()
+            .iter()
+            .any(|d| d.construct.contains("Unordered")),
+        "expected a diagnostic naming the Unordered stratum: {:?}",
+        report.declined_on()
+    );
+
+    // The distinguishing half: another backend still accepts this grammar, so a join over all of them cannot see the refusal at all.
+    assert!(
+        !selection.selected().is_empty(),
+        "if every backend declined here, this test could not tell a per-backend report from a \
+         whole-grammar join: {selection:?}"
+    );
 }

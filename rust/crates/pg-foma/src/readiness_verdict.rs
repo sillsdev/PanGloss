@@ -65,8 +65,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::analyzer::FomaProposer;
+use crate::backend_selection::select_backends;
 use crate::capability::{CapabilityDiagnostic, CompileDecision};
-use crate::capability_entry::evaluate_capability_with_semantics;
 use crate::grammar_semantics::GrammarSemantics;
 use crate::readiness_policy::ThresholdPolicy;
 use pg_grammar::model::Grammar;
@@ -602,8 +603,8 @@ fn build_notes(trust: &TrustStatus, capability: &CapabilitySummary, tier: Tier) 
 
 /// Certifies `g` against `policy`, given its `trust` status and (if any) its `measurements`.
 ///
-/// Always calls `evaluate_capability_with_semantics` itself (never a caller-supplied capability
-/// verdict, never inferred from a failure to run). `measurements` is `None` when no compiled
+/// Always computes the capability verdict itself (never a caller-supplied one, never inferred from
+/// a failure to run). `measurements` is `None` when no compiled
 /// artifact exists to measure (e.g. the grammar was refused before compilation ever produced one);
 /// each measurement's own coverage sub-field is independently `CoverageAssessment::NotAssessed`
 /// or `CoverageAssessment::Attested` regardless of whether the rest of `measurements` is present.
@@ -624,15 +625,32 @@ pub fn certify(
 /// This does NOT weaken the rule that certification never accepts a caller-supplied capability
 /// verdict: a `GrammarSemantics` is a pure, deterministic function of the grammar, not a verdict,
 /// and this function still computes the `CompileDecision` itself through
-/// `evaluate_capability_with_semantics`. The thing a caller cannot do — hand in a `Refuse` it
-/// decided on its own — remains impossible.
+/// `crate::backend_selection::select_backends`. The thing a caller cannot do — hand in a `Refuse`
+/// it decided on its own — remains impossible.
+///
+/// # Which backend the certificate is about
+/// `crate::analyzer::FomaProposer::EMISSION_STRATEGY`'s own report, not the whole-grammar join
+/// over every backend. A certificate describes the artifact a `pangloss` run would produce, and
+/// that artifact comes from exactly one backend; the join would let another backend's ability
+/// certify an artifact it never built.
 pub fn certify_with_semantics(
     semantics: &GrammarSemantics<'_>,
     trust: &TrustStatus,
     measurements: Option<&Measurements>,
     policy: &ThresholdPolicy,
 ) -> ReadinessReport {
-    let decision = evaluate_capability_with_semantics(semantics);
+    let selection = select_backends(semantics);
+    let decision = match selection.report_for(FomaProposer::EMISSION_STRATEGY) {
+        Some(report) => report.decision().clone(),
+        // Fail closed: an unreported backend is not an admitted one.
+        None => CompileDecision::Refuse(vec![CapabilityDiagnostic {
+            predicate: "readiness.backend-not-reported",
+            construct: FomaProposer::EMISSION_STRATEGY.label().to_string(),
+            witness: "no compatibility report was composed for the backend this certificate would \
+                      be about"
+                .to_string(),
+        }]),
+    };
     let capability = CapabilitySummary::from_decision(&decision);
 
     let blocked_reason = match trust {

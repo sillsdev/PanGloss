@@ -92,6 +92,98 @@ pub(crate) fn assert_rendered_text_eq(actual: &str, expected: &str) {
     }
 }
 
+/// Synthetic: true reduplication (one input part copied twice) on a `RealizationalRule`, which the peel cannot propose, so the gated backend declines it while the emitter still compiles a network -- a refusal an `--allow-unproven` run can still produce output under.
+/// Pinned by `capability_gate_enforce_refuses_permanently_refused_without_override`.
+pub(crate) const BACKEND_REFUSED_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>BackendRefusedFixture</Name>
+  <CharacterDefinitionTable id="t1"><Name>Main</Name>
+    <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+  </CharacterDefinitionTable>
+  <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+  <Strata>
+    <Stratum characterDefinitionTable="t1" morphologicalRules="rrRedup">
+      <Name>S</Name>
+      <MorphologicalRuleDefinitions>
+        <RealizationalRule id="rrRedup">
+          <Name>redup</Name>
+          <MorphologicalSubrules>
+            <MorphologicalSubrule id="subRedup">
+              <MorphologicalInput>
+                <PhoneticSequence id="qA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+              </MorphologicalInput>
+              <MorphologicalOutput redupMorphType="suffix">
+                <CopyFromInput index="qA" />
+                <CopyFromInput index="qA" />
+              </MorphologicalOutput>
+            </MorphologicalSubrule>
+          </MorphologicalSubrules>
+          <MorphemeId>RED</MorphemeId>
+        </RealizationalRule>
+      </MorphologicalRuleDefinitions>
+      <LexicalEntries>
+        <LexicalEntry id="e1">
+          <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+          <MorphemeId>A</MorphemeId>
+        </LexicalEntry>
+      </LexicalEntries>
+    </Stratum>
+  </Strata>
+</Language></HermitCrabInput>"#;
+
+/// Synthetic: an `Unordered` stratum of `rule_count` loose rules, generated so "over the calibrated ordering-multiplicity budget" is arithmetic rather than a comment; the shape a gate exists to catch before the compiler does.
+/// Pinned by `a_grammar_only_the_gated_backend_refuses_is_still_blocked_at_the_gate`.
+pub(crate) fn unordered_over_budget_grammar_xml(rule_count: u32) -> String {
+    let mut rules = String::new();
+    let mut segments = String::new();
+    for i in 0..rule_count {
+        segments.push_str(&format!(
+            r#"<SegmentDefinition id="cx{i}"><Representations><Representation>x{i}</Representation></Representations></SegmentDefinition>"#
+        ));
+        rules.push_str(&format!(
+            r#"<MorphologicalRule id="mr{i}" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+                 <Name>r{i}</Name>
+                 <MorphologicalSubrules>
+                   <MorphologicalSubrule id="sub{i}">
+                     <MorphologicalInput><PhoneticSequence id="stem{i}"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                     <MorphologicalOutput><CopyFromInput index="stem{i}" /><InsertSegments><PhoneticShape>x{i}</PhoneticShape></InsertSegments></MorphologicalOutput>
+                   </MorphologicalSubrule>
+                 </MorphologicalSubrules>
+                 <MorphemeId>R{i}</MorphemeId>
+               </MorphologicalRule>"#
+        ));
+    }
+    let rule_ids: Vec<String> = (0..rule_count).map(|i| format!("mr{i}")).collect();
+    format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>UnorderedOverBudgetFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        {segments}
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="{rule_ids}">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>{rules}</MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eK" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>K</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>"#,
+        rule_ids = rule_ids.join(" "),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::any::Any;
