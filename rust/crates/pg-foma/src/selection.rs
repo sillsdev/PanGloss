@@ -309,6 +309,7 @@ mod tests {
     /// An ordinary, ungated affix+rewrite grammar that yields exactly one candidate and must `Admit`.
     fn ordinary_admit_fixture_xml() -> &'static str {
         r#"<HermitCrabInput><Language><Name>Ordinary</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -359,6 +360,7 @@ mod tests {
     /// A single, non-recursive `Compounding` rule; `compose_envelope` must reach `ConfirmOnly`, not `Refuse`.
     fn confirm_only_compounding_fixture_xml() -> &'static str {
         r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>

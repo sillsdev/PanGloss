@@ -214,22 +214,22 @@ const SIM_NONOVERLAP_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <!-- Two ORTHOGONAL features, deliberately: `featVoice` (LHS/RHS, a distinct symbol per
          segment so analysis' own "did this feature genuinely change" check is nonvacuous) and
-         `featPlace` (the environment classes only) -- EVERY segment gets an EXPLICIT value for
+         `featPlace` (the environment classes only) - EVERY segment gets an EXPLICIT value for
          BOTH features (never left unconstrained/full-mask), because this codebase's natural-class
          membership test is bitwise-overlap, not strict equality (this crate's own `AlphaVar` doc):
          an UNCONSTRAINED (full-mask) lane on 'p'/'b'/'d' would overlap-match BOTH `ncFront` AND
          `ncBack`'s single-bit criteria, making the two environments spuriously "genuinely overlap"
-         (found empirically while building this fixture -- an earlier draft that left `featPlace`
+         (found empirically while building this fixture - an earlier draft that left `featPlace`
          unset on the consonants failed `is_fully_supported_shape` for exactly this reason, a real,
          non-cosmetic modeling requirement, not a compiler bug). `symNeutral` gives the consonants a
          concrete, non-Front/non-Back `featPlace` value so they never satisfy either environment
          class. Neither RHS pin (`ncB`/`ncD`, `featVoice` only) ever CONSTRAINS `featPlace`, so it
          still unifies trivially with either environment class (no shared feature dimension to
-         contradict on) -- keeping `self_opaquing` FALSE (checked below) while giving analysis a
+         contradict on) - keeping `self_opaquing` FALSE (checked below) while giving analysis a
          real, non-vacuous feature change to unapply. A single dummy feature shared identically by
          every segment (tried first) keeps `self_opaquing` safe but makes the change feature-
          vacuous (LHS/RHS pins identical), which analysis correctly refuses to unapply as "no
-         actual change" -- this two-feature, fully-specified design is the fix, not a cosmetic
+         actual change" - this two-feature, fully-specified design is the fix, not a cosmetic
          choice. -->
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols>

@@ -44,6 +44,7 @@ const ZERO_FEAT_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>ZeroFeatTypeLane</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>
       <SegmentDefinitions>
@@ -147,6 +148,7 @@ const FEATURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>FeatureTypeLane</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="feat_voi">
         <Name>voi</Name>

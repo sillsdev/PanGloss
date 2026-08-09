@@ -3725,6 +3725,7 @@ mod tests {
     #[test]
     fn characterize_marks_compounding_config_predicate_and_non_recursive() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -3785,6 +3786,7 @@ mod tests {
     #[test]
     fn characterize_marks_compounding_recursive_via_multiple_application() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -3834,6 +3836,7 @@ mod tests {
     #[test]
     fn compounding_max_depth_scales_with_multiple_application() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -3879,6 +3882,7 @@ mod tests {
     #[test]
     fn characterize_marks_compounding_recursive_via_distinct_rule_same_stratum() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -3945,6 +3949,7 @@ mod tests {
     #[test]
     fn compounding_max_depth_scales_with_co_located_rule_count() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -4024,6 +4029,7 @@ mod tests {
     #[test]
     fn compounding_max_depth_is_asymmetric_across_strata() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -4108,6 +4114,7 @@ mod tests {
         fn one_rule_xml(multiple_application: &str) -> String {
             format!(
                 r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -4176,6 +4183,7 @@ mod tests {
     #[test]
     fn characterize_marks_unordered_morph_rule_order_config_predicate() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -4209,6 +4217,7 @@ mod tests {
     #[test]
     fn characterize_marks_append_confirm_only_and_overwrite_config_predicate() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <MorphologicalPhonologicalRuleFeatures>
             <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
             <MorphologicalPhonologicalRuleFeature id="mprB">B</MorphologicalPhonologicalRuleFeature>
@@ -4244,6 +4253,7 @@ mod tests {
     #[test]
     fn characterize_marks_realizational_rule_confirm_only() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -4289,6 +4299,7 @@ mod tests {
     #[test]
     fn characterize_marks_morpheme_co_occurrence_confirm_only() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -4344,6 +4355,7 @@ mod tests {
     #[test]
     fn characterize_marks_allomorph_co_occurrence_confirm_only() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -4455,6 +4467,7 @@ mod tests {
     #[test]
     fn multi_table_predicate_admits_vacuously_for_single_table_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SingleTable</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -4479,6 +4492,7 @@ mod tests {
     // ---- RightToLeftRewrite ----
 
     const RTL_PLAIN_XML: &str = r#"<HermitCrabInput><Language><Name>RtlPlain</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>
           <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -4545,6 +4559,7 @@ mod tests {
     #[test]
     fn right_to_left_predicate_admits_vacuously_for_left_to_right_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>LtrPlain</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -4588,6 +4603,7 @@ mod tests {
     #[test]
     fn right_to_left_predicate_confirm_only_for_unbounded_quantifier_shaped_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlQuantifier</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -4640,6 +4656,7 @@ mod tests {
     #[test]
     fn right_to_left_predicate_confirm_only_for_anchor_shaped_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlAnchor</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -4702,6 +4719,7 @@ mod tests {
     #[test]
     fn right_to_left_predicate_confirm_only_for_same_table_segments_shaped_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlSegments</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -4761,6 +4779,7 @@ mod tests {
     #[test]
     fn right_to_left_predicate_accepts_cross_table_segments_for_confirmation() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlCrossTableSegments</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -4821,6 +4840,7 @@ mod tests {
     #[test]
     fn right_to_left_predicate_refuses_disagree_polarity_alpha_var_shaped_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlDisagree</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <PhonologicalFeatureSystem>
             <SymbolicFeature id="featA"><Name>a</Name><Symbols><Symbol id="symX">x</Symbol><Symbol id="symY">y</Symbol></Symbols></SymbolicFeature>
           </PhonologicalFeatureSystem>
@@ -4899,6 +4919,7 @@ mod tests {
 
     /// Two adjacent, distinct, singleton-class switch segments, no `multipleApplicationOrder` (defaults `Dir::LeftToRight`), the well-formed switch-tag convention.
     const METATHESIS_PLAIN_XML: &str = r#"<HermitCrabInput><Language><Name>MetaPlain</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>
           <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
@@ -4990,6 +5011,7 @@ mod tests {
     #[test]
     fn metathesis_predicate_confirm_only_for_right_to_left_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>MetaRtl</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
@@ -5045,6 +5067,7 @@ mod tests {
     #[test]
     fn metathesis_predicate_confirm_only_for_anchor_shaped_pattern() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>MetaAnchor</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
@@ -5091,6 +5114,7 @@ mod tests {
 
     /// A 2-part LHS (`qA`, `qB`) whose RHS `CopyFromInput`s only `qA`: a null-role subtractive shape that `classify_affix` reads as `Role::None`, the in-scope case `is_structural_rule` admits.
     const CIRCUMFIX_STRUCTURAL_XML: &str = r#"<HermitCrabInput><Language><Name>CircStruct</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
       </CharacterDefinitionTable>
@@ -5120,6 +5144,7 @@ mod tests {
 
     /// Same 2-part-LHS-drop shape, but the RHS uses `ModifyFromInput` instead of `CopyFromInput`: `classify_affix` reads this as `Role::Process`, which `is_structural_rule` admits unconditionally.
     const CIRCUMFIX_PROCESS_XML: &str = r#"<HermitCrabInput><Language><Name>CircProcess</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
       </CharacterDefinitionTable>
@@ -5149,6 +5174,7 @@ mod tests {
 
     /// A 3-part LHS whose RHS interleaves an `InsertSegments` between two `CopyFromInput`s and drops `qC`: `classify_affix` reads `Role::Infix`, which `is_structural_rule` excludes, so the drop reaches no faithful construction at all.
     const CIRCUMFIX_INFIX_NON_STRUCTURAL_XML: &str = r#"<HermitCrabInput><Language><Name>CircInfix</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
       </CharacterDefinitionTable>
@@ -5189,6 +5215,7 @@ mod tests {
 
     /// Pure ablaut: ONE input part, mutated in place, nothing copied and nothing dropped. `classify_affix` reads this as `Role::Process`; `allomorph_drops_lhs_material` cannot fire because the input has one part.
     const ABLAUT_PROCESS_XML: &str = r#"<HermitCrabInput><Language><Name>Ablaut</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
       </CharacterDefinitionTable>
@@ -5372,6 +5399,7 @@ mod tests {
 
     /// An `AffixProcessRule` allomorph `CopyFromInput`s the same part twice, the in-scope peel-eligible case.
     const REDUP_AFFIX_PROCESS_XML: &str = r#"<HermitCrabInput><Language><Name>RedupAffixProcess</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
       </CharacterDefinitionTable>
@@ -5402,6 +5430,7 @@ mod tests {
 
     /// Same shape, but owned by a `RealizationalRule`: the out-of-scope case, a real C# quirk.
     const REDUP_REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RedupRealizational</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
       </CharacterDefinitionTable>
@@ -5536,6 +5565,7 @@ mod tests {
 
     /// An ordinary fixed-segment rewrite gated by a bounded (`min="1" max="2"`) quantifier in its right environment.
     const QUANT_BOUNDED_ENV_XML: &str = r#"<HermitCrabInput><Language><Name>QuantBoundedEnv</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>
           <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -5563,6 +5593,7 @@ mod tests {
 
     /// Same shape, but the right-environment quantifier is genuinely unbounded (`max="-1"`).
     const QUANT_UNBOUNDED_ENV_XML: &str = r#"<HermitCrabInput><Language><Name>QuantUnboundedEnv</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>
           <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -5687,6 +5718,7 @@ mod tests {
     }
 
     const TWO_TABLE_DISJOINT_XML: &str = r#"<HermitCrabInput><Language><Name>TwoTableDisjoint</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t0"><Name>T0</Name>
         <SegmentDefinitions><SegmentDefinition id="c0a"><Representations><Representation>p</Representation></Representations></SegmentDefinition></SegmentDefinitions>
       </CharacterDefinitionTable>
@@ -5700,6 +5732,7 @@ mod tests {
     </Language></HermitCrabInput>"#;
 
     const TWO_TABLE_OVERLAPPING_XML: &str = r#"<HermitCrabInput><Language><Name>TwoTableOverlap</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t0"><Name>T0</Name>
         <SegmentDefinitions><SegmentDefinition id="c0a"><Representations><Representation>p</Representation></Representations></SegmentDefinition></SegmentDefinitions>
       </CharacterDefinitionTable>
@@ -5716,6 +5749,7 @@ mod tests {
     #[test]
     fn ordinary_affix_and_iterative_rewrite_grammar_characterizes_proven() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>Ordinary</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -5791,6 +5825,7 @@ mod tests {
     // ---- simultaneous.subrule-overlap ----
 
     const SIMULTANEOUS_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>SimultaneousOverlapProbe</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <MorphologicalPhonologicalRuleFeatures>
         <MorphologicalPhonologicalRuleFeature id="mprA">Alpha</MorphologicalPhonologicalRuleFeature>
       </MorphologicalPhonologicalRuleFeatures>
@@ -5934,6 +5969,7 @@ mod tests {
     #[test]
     fn simultaneous_predicate_admits_iterative_rule_unconditionally() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -5966,6 +6002,7 @@ mod tests {
     #[test]
     fn simultaneous_predicate_admits_genuinely_non_overlapping_subrules_via_lowered_span() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerAdmit</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="cStop"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
@@ -6019,6 +6056,7 @@ mod tests {
     #[test]
     fn simultaneous_predicate_refuses_genuinely_overlapping_subrules_via_lowered_span() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerRefuse</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="cStop"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
@@ -6074,6 +6112,7 @@ mod tests {
     #[test]
     fn simultaneous_predicate_refuses_unsupported_pattern_node_conservatively() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerUnsupported</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="cStop"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
@@ -6140,6 +6179,7 @@ mod tests {
 <HermitCrabInput>
   <Language>
     <Name>TwoTableSimultaneous</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols>
         <Symbol id="symVless">vless</Symbol><Symbol id="symVd1">vd1</Symbol><Symbol id="symVd2">vd2</Symbol>
@@ -6252,6 +6292,7 @@ mod tests {
 <HermitCrabInput>
   <Language>
     <Name>TwoTableUnwiredSimultaneous</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="t0"><Name>T0</Name>
       <SegmentDefinitions><SegmentDefinition id="c0z"><Representations><Representation>z</Representation></Representations></SegmentDefinition></SegmentDefinitions>
     </CharacterDefinitionTable>
@@ -6412,6 +6453,7 @@ mod tests {
     #[test]
     fn compose_envelope_admits_ordinary_affix_and_iterative_rewrite_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>Ordinary</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -6471,6 +6513,7 @@ mod tests {
     #[test]
     fn compose_envelope_confirm_only_for_non_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -6515,6 +6558,7 @@ mod tests {
     #[test]
     fn compose_envelope_confirm_only_for_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -6560,6 +6604,7 @@ mod tests {
     #[test]
     fn compose_envelope_confirm_only_for_unordered_within_bound() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -6738,6 +6783,7 @@ mod tests {
     #[test]
     fn compose_envelope_confirm_only_for_epenthesis_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>EpenthesisAlone</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
@@ -6797,6 +6843,7 @@ mod tests {
     #[test]
     fn compose_envelope_confirm_only_for_realizational_rule_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -6838,6 +6885,7 @@ mod tests {
     #[test]
     fn compose_envelope_confirm_only_for_co_occurrence_rule_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>CoOccurAlone</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -6950,6 +6998,7 @@ mod tests {
     #[test]
     fn compose_envelope_refuses_simultaneous_rule_when_overlap_cannot_be_ruled_out() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SimRefuse</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
@@ -7235,6 +7284,7 @@ mod tests {
     #[test]
     fn per_strategy_derivation_is_identical_across_all_three_verdicts() {
         const ORDINARY_XML: &str = r#"<HermitCrabInput><Language><Name>Ordinary</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -7253,6 +7303,7 @@ mod tests {
 
         // Where the compilers disagree: PlanComposed emits no lexc line for a RealizationalRule.
         const REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>

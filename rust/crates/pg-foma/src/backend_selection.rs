@@ -290,6 +290,7 @@ mod tests {
     #[test]
     fn the_selection_is_per_backend_not_the_envelope_join() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SelectorFixture</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>

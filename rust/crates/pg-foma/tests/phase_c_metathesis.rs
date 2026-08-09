@@ -159,7 +159,7 @@ const ADJACENT_SINGLETON_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <Name>MetathesisAdjacentSingleton</Name>
     <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
-      <!-- One distinct symbol value PER SEGMENT -- required so `pg_parse::Morpher`'s own
+      <!-- One distinct symbol value PER SEGMENT - required so `pg_parse::Morpher`'s own
            analysis-side unapplication can disambiguate segments (`tests/phase_c_right_to_left.rs`'s
            own "one distinct symbol value per segment" note). -->
       <SymbolicFeature id="featId">

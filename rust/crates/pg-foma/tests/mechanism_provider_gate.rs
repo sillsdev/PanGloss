@@ -15,6 +15,7 @@ fn load(xml: &str) -> Grammar {
 
 /// A single affixation rule carrying a `ReduplicationHint` whose output copies its one input part EXACTLY ONCE, so the hint is inert: nothing is reduplicated.
 const INERT_REDUPLICATION_HINT_XML: &str = r#"<HermitCrabInput><Language><Name>InertHint</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions>
       <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -54,6 +55,7 @@ const INERT_REDUPLICATION_HINT_XML: &str = r#"<HermitCrabInput><Language><Name>I
 
 /// The same shape, but the output copies its one input part TWICE -- real reduplication, recognized by `rhs_has_true_reduplication`.
 const TRUE_REDUPLICATION_XML: &str = r#"<HermitCrabInput><Language><Name>TrueRedup</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions>
       <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -143,6 +145,7 @@ const GATED_PARTITION_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 
 /// A grammar declaring one table and one otherwise-empty stratum. NOT an observation-free grammar: `capability::characterize` raises one `OrderedMorphRuleApplication` per stratum unconditionally, so a truly-empty graph never occurs for a loadable fixture.
 const MINIMAL_XML: &str = r#"<HermitCrabInput><Language><Name>Minimal</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions>
       <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>

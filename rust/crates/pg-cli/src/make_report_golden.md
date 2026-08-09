@@ -69,7 +69,7 @@ classDef pgRefuse fill:#ffebe9,stroke:#cf222e,color:#82071e;
 
 ## Pinned revisions (to re-derive this report)
 
-- grammar: `synthetic-golden-fixture.xml` (sha256=`f53879f4f11b9bfd6685f06a398307a5d5b01d841e5f52b9c78adceedbfdb85e`)
+- grammar: `synthetic-golden-fixture.xml` (sha256=`65dfa3ba4af6c1a725ccb131231601ea3374ed30488ec70082098e46397d5d4c`)
 - pack: built in-process for this report, not persisted to disk (sha256=`fixed-golden-sha`, package_fingerprint=`fixed-golden-fingerprint`)
 - coverage corpus: `synthetic-golden-corpus.txt` (sha256=`0000000000000000000000000000000000000000000000000000000000000000`)
 - `machine` submodule: 1 machine (heads/main)

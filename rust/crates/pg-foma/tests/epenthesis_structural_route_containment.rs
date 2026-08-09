@@ -28,7 +28,7 @@ fn fixture_xml() -> &'static str {
            `RTL_EPENTHESIS_XML` comment): without this, every `SegmentNaturalClass`'s feature
            bundle is vacuously empty (indistinguishable from any other segment's), and the
            epenthesis rule's `PhoneticOutput` natural-class reference has nothing to pick the
-           RIGHT concrete segment BY -- verified empirically while building this fixture: omitting
+           RIGHT concrete segment BY - verified empirically while building this fixture: omitting
            this system, `Morpher::generate_words` inserted the WRONG segment ("x", the table's
            first entry) instead of the intended "e". -->
       <SymbolicFeature id="featId">

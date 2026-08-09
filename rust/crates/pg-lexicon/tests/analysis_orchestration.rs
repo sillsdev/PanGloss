@@ -156,6 +156,7 @@ const GUESS_PATTERN_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>PgLexiconGuessDefaultProbe</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="t1">
       <Name>Main</Name>
       <SegmentDefinitions>

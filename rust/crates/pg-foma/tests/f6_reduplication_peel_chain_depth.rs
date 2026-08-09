@@ -94,6 +94,7 @@ fn minimal_redup_grammar() -> Grammar {
 <HermitCrabInput>
   <Language>
     <Name>PeelChainDepthBoundaryFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>
       <SegmentDefinitions>

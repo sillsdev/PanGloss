@@ -525,6 +525,7 @@ mod tests {
 <HermitCrabInput>
   <Language>
     <Name>CoverageCliFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="table1">
       <Name>Orthography</Name>
       <SegmentDefinitions>

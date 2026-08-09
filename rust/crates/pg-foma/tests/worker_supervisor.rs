@@ -32,6 +32,7 @@ const CLEAN_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>WorkerSupervisorSuccessFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="table1">
       <Name>Orthography</Name>
       <SegmentDefinitions>
@@ -58,6 +59,7 @@ const CLEAN_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 
 /// A synthetic `Unordered` stratum with 3 loose rules, exceeding an `ordering_multiplicity_cap` of 2 to trip a real `ComposeError::OrderingMultiplicityExceeded` through production wiring.
 const UNORDERED_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>WorkerSupervisorBudgetTripFixture</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
   </CharacterDefinitionTable>

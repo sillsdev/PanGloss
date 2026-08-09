@@ -688,6 +688,7 @@ mod tests {
 
     /// A tiny, ordinary synthetic affix grammar with none of the constructs that would keep the capability gate from reaching `Admit`.
     const ADMIT_XML: &str = r#"<HermitCrabInput><Language><Name>Synthetic</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>
           <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -725,6 +726,7 @@ mod tests {
 
     /// A single, non-recursive `Compounding` fixture that evaluates to `ConfirmOnly`, giving this module's tests a second, distinct capability decision to exercise.
     const CONFIRM_ONLY_XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
       </CharacterDefinitionTable>

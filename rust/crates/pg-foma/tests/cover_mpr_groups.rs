@@ -64,18 +64,18 @@ fn fixture_xml() -> &'static str {
           </MorphologicalRule>
         </MorphologicalRuleDefinitions>
         <LexicalEntries>
-          <!-- eK: the out_mpr-accumulation-then-gate ordering witness -- starts with an EMPTY MPR
+          <!-- eK: the out_mpr-accumulation-then-gate ordering witness - starts with an EMPTY MPR
                set, so mrQ (requires mprX+mprY) can only apply once mrP has already fired. -->
           <LexicalEntry id="eK" partOfSpeech="posV">
             <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>K</MorphemeId>
           </LexicalEntry>
-          <!-- eL: the all-type group-aware PARTIAL-match witness -- only mprX, missing mprY. -->
+          <!-- eL: the all-type group-aware PARTIAL-match witness - only mprX, missing mprY. -->
           <LexicalEntry id="eL" partOfSpeech="posV" ruleFeatures="mprX">
             <Allomorphs><Allomorph id="aL"><PhoneticShape>l</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>L</MorphemeId>
           </LexicalEntry>
-          <!-- eM: the all-type group-aware FULL-match positive control -- both mprX and mprY. -->
+          <!-- eM: the all-type group-aware FULL-match positive control - both mprX and mprY. -->
           <LexicalEntry id="eM" partOfSpeech="posV" ruleFeatures="mprX mprY">
             <Allomorphs><Allomorph id="aM"><PhoneticShape>m</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>M</MorphemeId>

@@ -4566,6 +4566,7 @@ mod structural_and_pattern_tests {
     #[test]
     fn plan_topology_decisions_matches_real_seams_bare_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyBare</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
@@ -4590,6 +4591,7 @@ mod structural_and_pattern_tests {
     #[test]
     fn plan_topology_decisions_matches_real_seams_ordinary_phonology_only() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyOrdinaryPhon</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
@@ -4629,6 +4631,7 @@ mod structural_and_pattern_tests {
     #[test]
     fn plan_topology_decisions_matches_real_seams_epenthesis_plus_suffix() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyEpenthesisPlusSuffix</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
@@ -4692,6 +4695,7 @@ mod structural_and_pattern_tests {
     #[test]
     fn plan_topology_decisions_matches_real_seams_circumfix_only() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyCircumfixOnly</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>

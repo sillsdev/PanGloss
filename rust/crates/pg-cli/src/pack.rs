@@ -361,6 +361,7 @@ mod tests {
 <HermitCrabInput>
   <Language>
     <Name>PackCleanFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="table1">
       <Name>Orthography</Name>
       <SegmentDefinitions>
@@ -390,6 +391,7 @@ mod tests {
 
     /// A grammar whose single rule duplicates `stem` via `CopyFromInput` twice, matching `classify_affix`'s `Role::Reduplication` trigger.
     const REDUP_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>PackRedupFixture</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>
           <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>

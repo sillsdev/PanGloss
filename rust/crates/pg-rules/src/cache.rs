@@ -323,6 +323,7 @@ mod owning_table_tests {
 <HermitCrabInput>
   <Language>
     <Name>OwningTableProbe</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="featF">
         <Name>f</Name>

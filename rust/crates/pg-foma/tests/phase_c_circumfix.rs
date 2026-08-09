@@ -206,6 +206,7 @@ fn tag_sequences_for(
 /// Synthetic fixture pinning that ordered multi-`InsertSegments` output is never reduced to just the first inserted segment.
 /// See `docs/research/pg-foma-phase-c-circumfix-gate-notes.md` for the shape and the recall loss this fixes.
 const ORDERED_MULTI_INSERT_XML: &str = r#"<HermitCrabInput><Language><Name>OrderedMultiInsert</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions>
       <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -285,6 +286,7 @@ fn ordered_multi_insert_no_first_insert_shortcut_recall_parity() {
 /// Synthetic fixture (IN-SCOPE): a null-role subtractive LHS drop whose truncated surface is only reachable via `build_structural_composites`'s oracle-backed resynthesis.
 /// See `docs/research/pg-foma-phase-c-circumfix-gate-notes.md` for the full rule shape and classification path.
 const NULL_ROLE_STRUCTURAL_DROP_XML: &str = r#"<HermitCrabInput><Language><Name>NullRoleDrop</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions>
       <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -371,6 +373,7 @@ fn null_role_structural_drop_recall_parity() {
 /// Synthetic fixture (OUT-OF-SCOPE): the same 2-part-LHS drop shape, but RHS uses `ModifyFromInput` instead of `CopyFromInput`, so it must stay honestly unsupported rather than silently compiled.
 /// See `docs/research/pg-foma-phase-c-circumfix-gate-notes.md` for the classification path that excludes it.
 const PROCESS_ROLE_DROP_XML: &str = r#"<HermitCrabInput><Language><Name>ProcessRoleDrop</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions>
       <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>

@@ -440,6 +440,7 @@ mod tests {
 <HermitCrabInput>
   <Language>
     <Name>OrphanedPruleFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="t1">
       <Name>Main</Name>
       <SegmentDefinitions>

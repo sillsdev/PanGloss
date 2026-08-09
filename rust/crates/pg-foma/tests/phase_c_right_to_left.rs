@@ -201,10 +201,10 @@ const RTL_FEATURE_ENV_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <Name>RtlFeatureEnvironment</Name>
     <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
-      <!-- One distinct symbol value PER SEGMENT (not per natural-class membership) -- required so
+      <!-- One distinct symbol value PER SEGMENT (not per natural-class membership) - required so
            `pg_parse::Morpher`'s own analysis-side unapplication can disambiguate segments; two
            segments sharing one feature-value combination defeats it (a real, pre-existing
-           `pg-rules` analysis-engine characteristic, unrelated to this change -- see
+           `pg-rules` analysis-engine characteristic, unrelated to this change - see
            `tests/two_table_symbol_divergence.rs`'s own "Known, out-of-scope anomaly" note for the
            same finding). Natural-class MEMBERSHIP is still by explicit `<Segment>` list below, so
            this feature has no bearing on which segments the rule's own classes contain. -->
@@ -346,7 +346,7 @@ const RTL_DELETION_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <Name>RtlDeletion</Name>
     <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
-      <!-- One distinct symbol value per segment -- see `RTL_FEATURE_ENV_XML`'s own comment. -->
+      <!-- One distinct symbol value per segment - see `RTL_FEATURE_ENV_XML`'s own comment. -->
       <SymbolicFeature id="featId">
         <Name>id</Name>
         <Symbols><Symbol id="symX">x</Symbol><Symbol id="symD">d</Symbol><Symbol id="symY">y</Symbol></Symbols>
@@ -483,7 +483,7 @@ const RTL_EPENTHESIS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <Name>RtlEpenthesis</Name>
     <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
-      <!-- One distinct symbol value per segment -- see `RTL_FEATURE_ENV_XML`'s own comment. -->
+      <!-- One distinct symbol value per segment - see `RTL_FEATURE_ENV_XML`'s own comment. -->
       <SymbolicFeature id="featId">
         <Name>id</Name>
         <Symbols><Symbol id="symX">x</Symbol><Symbol id="symE">e</Symbol><Symbol id="symY">y</Symbol></Symbols>
@@ -633,7 +633,7 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
     <Name>RtlDistinctLeftmostRightmost</Name>
     <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
-      <!-- One distinct symbol value per segment -- see `RTL_FEATURE_ENV_XML`'s own comment. -->
+      <!-- One distinct symbol value per segment - see `RTL_FEATURE_ENV_XML`'s own comment. -->
       <SymbolicFeature id="featId">
         <Name>id</Name>
         <Symbols><Symbol id="symA">a</Symbol><Symbol id="symB">b</Symbol></Symbols>

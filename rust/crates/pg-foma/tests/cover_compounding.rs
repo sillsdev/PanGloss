@@ -76,33 +76,33 @@ fn fixture_xml() -> &'static str {
           </CompoundingRule>
         </MorphologicalRuleDefinitions>
         <LexicalEntries>
-          <!-- headA: RULE-level trap witness -- only mpr1 (of the {mpr1,mpr2} all-group), but
-               BOTH mpr3+mpr4 (of the {mpr3,mpr4} all-group) -- passes head_prod_restrictions_mpr
+          <!-- headA: RULE-level trap witness - only mpr1 (of the {mpr1,mpr2} all-group), but
+               BOTH mpr3+mpr4 (of the {mpr3,mpr4} all-group) - passes head_prod_restrictions_mpr
                via compound_match's flat overlap AND the subrule's required_mpr via mpr_group_ok. -->
           <LexicalEntry id="eHeadA" partOfSpeech="posHead" ruleFeatures="mpr1 mpr3 mpr4">
             <Allomorphs><Allomorph id="aHeadA"><PhoneticShape>fasu</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>HEADA</MorphemeId>
           </LexicalEntry>
-          <!-- headB: SUBRULE-level precision witness -- mpr1 (rule-level, admitted) + mpr3 only
-               (subrule-level, missing mpr4) -- mpr_group_ok's all-type semantics must exclude it. -->
+          <!-- headB: SUBRULE-level precision witness - mpr1 (rule-level, admitted) + mpr3 only
+               (subrule-level, missing mpr4) - mpr_group_ok's all-type semantics must exclude it. -->
           <LexicalEntry id="eHeadB" partOfSpeech="posHead" ruleFeatures="mpr1 mpr3">
             <Allomorphs><Allomorph id="aHeadB"><PhoneticShape>tiku</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>HEADB</MorphemeId>
           </LexicalEntry>
-          <!-- headC: rule-level negative control -- no mpr features at all, so
+          <!-- headC: rule-level negative control - no mpr features at all, so
                head_prod_restrictions_mpr's compound_match (self non-empty, stem empty) rejects it. -->
           <LexicalEntry id="eHeadC" partOfSpeech="posHead">
             <Allomorphs><Allomorph id="aHeadC"><PhoneticShape>numo</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>HEADC</MorphemeId>
           </LexicalEntry>
-          <!-- nonHeadOk: posHead -- unifies with cr1's own nonHeadPartsOfSpeech="posHead". -->
+          <!-- nonHeadOk: posHead - unifies with cr1's own nonHeadPartsOfSpeech="posHead". -->
           <LexicalEntry id="eNonHeadOk" partOfSpeech="posHead">
             <Allomorphs><Allomorph id="aNonHeadOk"><PhoneticShape>bel</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>NONHEADOK</MorphemeId>
           </LexicalEntry>
-          <!-- nonHeadBadPos: posOther -- MPR-licensed (non_head_prod_restrictions_mpr is empty/
+          <!-- nonHeadBadPos: posOther - MPR-licensed (non_head_prod_restrictions_mpr is empty/
                vacuous, so crate::emit::compound_license admits it), but disagrees with
-               nonHeadPartsOfSpeech="posHead" at confirm -- left to confirm, design.md D3. -->
+               nonHeadPartsOfSpeech="posHead" at confirm - left to confirm, design.md D3. -->
           <LexicalEntry id="eNonHeadBadPos" partOfSpeech="posOther">
             <Allomorphs><Allomorph id="aNonHeadBadPos"><PhoneticShape>zon</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>NONHEADBADPOS</MorphemeId>

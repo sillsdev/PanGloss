@@ -867,6 +867,7 @@ mod tests {
 <HermitCrabInput>
   <Language>
     <Name>MakeReportAdmitFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="table1">
       <Name>Orthography</Name>
       <SegmentDefinitions>

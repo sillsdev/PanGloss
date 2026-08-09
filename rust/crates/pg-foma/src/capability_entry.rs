@@ -116,6 +116,7 @@ mod tests {
     #[test]
     fn evaluate_capability_admits_ordinary_affix_and_iterative_rewrite_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>Ordinary</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -173,6 +174,7 @@ mod tests {
     #[test]
     fn evaluate_capability_confirm_only_for_non_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
@@ -214,6 +216,7 @@ mod tests {
     #[test]
     fn evaluate_capability_confirm_only_for_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>

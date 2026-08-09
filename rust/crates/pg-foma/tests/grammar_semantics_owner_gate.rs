@@ -69,6 +69,7 @@ const ORPHANED_PRULE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>SemanticsOwnerOrphanedPruleFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="t1">
       <Name>Main</Name>
       <SegmentDefinitions>

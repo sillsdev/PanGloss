@@ -22,6 +22,7 @@ use pg_grammar::model::{Grammar, MorphRuleDef};
 
 /// A minimal grammar whose only morphological rule is a `RealizationalRule`, reused verbatim from `capability.rs`'s own fixture so this file is not litigating a second, differently-shaped grammar.
 const REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
   </CharacterDefinitionTable>
@@ -51,6 +52,7 @@ const REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone<
 
 /// The negative control: nothing here is strategy-conditional, so every strategy must reach the identical verdict and the strategy-aware filter must be a no-op.
 const NO_REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>PlainAlone</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
   </CharacterDefinitionTable>

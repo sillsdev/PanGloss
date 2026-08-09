@@ -266,6 +266,7 @@ mod tests {
 <HermitCrabInput>
   <Language>
     <Name>FstHealthCleanFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="table1">
       <Name>Orthography</Name>
       <SegmentDefinitions>

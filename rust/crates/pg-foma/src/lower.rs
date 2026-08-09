@@ -815,6 +815,7 @@ mod tests {
     }
 
     const OVERLAP_LOWER_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>OverlapLowerProbe</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <PhonologicalFeatureSystem>
         <SymbolicFeature id="featPlace"><Name>place</Name>
           <Symbols>
@@ -963,6 +964,7 @@ mod tests {
 
     /// One `CharacterDefinitionTable` and five `PhonologicalRule`s, each a bare Segment-focused LHS with one quantifier-bearing probe fed straight to `pattern_slots`, never compiled/composed.
     const QUANTIFIER_SCOPE_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>QuantifierScopeProbe</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <PhonologicalFeatureSystem>
         <SymbolicFeature id="featA"><Name>a</Name>
           <Symbols><Symbol id="symX">x</Symbol><Symbol id="symY">y</Symbol></Symbols>
@@ -1249,6 +1251,7 @@ mod tests {
     fn render_slots_aliases_fixed_and_union_atoms_across_tables() {
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput><Language><Name>RenderSlotsAliasProbe</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t0"><Name>TableA</Name>
     <SegmentDefinitions>
       <SegmentDefinition id="c0x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>

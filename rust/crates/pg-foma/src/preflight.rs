@@ -394,6 +394,7 @@ mod tests {
     #[test]
     fn preflight_raises_nothing_for_a_clean_small_grammar() {
         const CLEAN_XML: &str = r#"<HermitCrabInput><Language><Name>PreflightCleanFixture</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
               <SegmentDefinition id="segA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
@@ -432,6 +433,7 @@ mod tests {
     #[test]
     fn preflight_raises_critical_finding_for_refuse_verdict() {
         const REFUSE_XML: &str = r#"<HermitCrabInput><Language><Name>RedupRealizational</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>

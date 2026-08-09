@@ -8,6 +8,7 @@ pub const GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>Probe</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="feat_cons">
         <Name>cons</Name>
@@ -150,6 +151,7 @@ pub const ALPHA_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>Alpha</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="feat_cons"><Name>cons</Name>
         <Symbols><Symbol id="sym_cp">+</Symbol><Symbol id="sym_cm">-</Symbol></Symbols>
@@ -218,6 +220,7 @@ pub const ZERO_FEAT_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>ZeroFeat</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>
       <SegmentDefinitions>
@@ -246,6 +249,7 @@ pub const ANTI_FS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>AntiFS</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="feat_place">
         <Name>place</Name>

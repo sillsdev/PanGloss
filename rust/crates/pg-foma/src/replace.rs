@@ -574,6 +574,7 @@ mod representation_alias_map_tests {
 <HermitCrabInput>
   <Language>
     <Name>AliasMapUnitProbe</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="t0">
       <Name>TableA</Name>
       <SegmentDefinitions>
@@ -2070,6 +2071,7 @@ mod rtl_repeat_children_reversal_tests {
     fn rtl_hetero_repeat_xml(max_attr: &str) -> String {
         format!(
             r#"<HermitCrabInput><Language><Name>RtlHeteroRepeat</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions>
           <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
