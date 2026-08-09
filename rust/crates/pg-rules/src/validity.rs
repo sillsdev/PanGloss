@@ -173,8 +173,12 @@ impl EnvCheck<'_> {
     }
 }
 
-/// Compares environments as a set plus `is_bound`; `stem_name` is deliberately excluded, matching C#'s own override.
-fn root_constraints_equal(a: &RootAllomorphDef, b: &RootAllomorphDef) -> bool {
+/// The free-fluctuation equality relation (C# `Allomorph.ConstraintsEqual`, Allomorph.cs:100-108):
+/// two root allomorphs compare equal iff their `environments` (as a set) and `is_bound` agree.
+/// `stem_name` is deliberately excluded, matching C#'s own override. `pub` so other crates that
+/// need this exact relation (e.g. a static characterization of a grammar's constructs) reuse it
+/// rather than keeping a second copy that could drift from it.
+pub fn root_constraints_equal(a: &RootAllomorphDef, b: &RootAllomorphDef) -> bool {
     crate::morph::env_set_equal(&a.environments, &b.environments) && a.is_bound == b.is_bound
 }
 

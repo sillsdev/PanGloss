@@ -293,6 +293,12 @@ pub enum ModelLocation {
     /// Index into `Grammar::morphemes` whose `co_occurrence` list this observation came from.
     MorphemeCoOccurrence(usize),
     AllomorphCoOccurrence(AllomorphId),
+    /// A `RootAllomorphDef` (`pg_grammar::model::LexEntryDef::allomorphs`) whose own fields
+    /// induced the observation directly -- `StemName` (its `stem_name` is `Some`) or
+    /// `FreeFluctuation` (it compares `root_constraints_equal` to a sibling allomorph of the same
+    /// entry). Distinct from `AllomorphCoOccurrence`: that variant is keyed by a co-occurrence
+    /// *rule* attached to the allomorph, not a property of the allomorph itself.
+    RootAllomorph(AllomorphId),
 }
 
 /// A subrule's `span(s) = left_env · lhs_focus · right_env`, pre-lowered at `characterize`
@@ -1548,6 +1554,26 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                     ModelLocation::AllomorphCoOccurrence(allo.id),
                     ObservationDetail::None,
                 ));
+            }
+            if allo.stem_name.is_some() {
+                observations.push(CharacteristicObservation::new(
+                    CharacteristicKind::StemName,
+                    ModelLocation::RootAllomorph(allo.id),
+                    ObservationDetail::None,
+                ));
+            }
+        }
+        // Attributed to the first equal pair found (document order), via the real `root_constraints_equal`.
+        'pairs: for (i, a) in entry.allomorphs.iter().enumerate() {
+            for b in &entry.allomorphs[i + 1..] {
+                if pg_rules::validity::root_constraints_equal(a, b) {
+                    observations.push(CharacteristicObservation::new(
+                        CharacteristicKind::FreeFluctuation,
+                        ModelLocation::RootAllomorph(a.id),
+                        ObservationDetail::None,
+                    ));
+                    break 'pairs;
+                }
             }
         }
     }
@@ -5254,6 +5280,96 @@ mod tests {
                 .iter()
                 .any(|o| o.kind == CharacteristicKind::ProcessMorphology),
             "a Modify-only allomorph must be observed as ProcessMorphology -- without it the gate              reports a clean grammar it structurally cannot see: {:?}",
+            profile.observations()
+        );
+    }
+
+    /// `stemName` restricts one root allomorph; `characterize` must see it without any rule ever applying.
+    const STEM_NAME_ROOT_ALLOMORPH_XML: &str = r#"<HermitCrabInput><Language><Name>StemNameCap</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <StemNames>
+        <StemName id="sn1" partsOfSpeech="posV"><Name>SN1</Name><Regions><Region/></Regions></StemName>
+      </StemNames>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <Strata>
+        <Stratum characterDefinitionTable="t1">
+          <Name>S</Name>
+          <LexicalEntries>
+            <LexicalEntry id="eRoot" partOfSpeech="posV">
+              <Allomorphs>
+                <Allomorph id="aRoot" stemName="sn1"><PhoneticShape>a</PhoneticShape></Allomorph>
+              </Allomorphs>
+              <MorphemeId>ROOT</MorphemeId>
+              <Gloss>root</Gloss>
+            </LexicalEntry>
+          </LexicalEntries>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// A `RootAllomorphDef::stem_name` occurrence must be observed as `StemName`, regardless of whether any rule ever applies to reach it.
+    #[test]
+    fn characterize_marks_stem_name_for_a_stem_name_restricted_root_allomorph() {
+        let g = load(STEM_NAME_ROOT_ALLOMORPH_XML);
+        let profile = characterize(&g);
+
+        assert!(
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::StemName),
+            "a stemName-restricted root allomorph must be observed as StemName -- without it the gate reports a clean grammar it structurally cannot see: {:?}",
+            profile.observations()
+        );
+    }
+
+    /// Two root allomorphs of one entry with identical (empty) `environments`/`is_bound` free-fluctuate; a differing pair (one environment-restricted) must not.
+    const FREE_FLUCTUATION_ROOT_ALLOMORPH_XML: &str = r#"<HermitCrabInput><Language><Name>FreeFluctCap</Name>
+      <PartsOfSpeech><PartOfSpeech id="posRoot"><Name>root</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="co"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cl"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <Strata>
+        <Stratum characterDefinitionTable="t1">
+          <Name>S</Name>
+          <LexicalEntries>
+            <LexicalEntry id="eAlt" partOfSpeech="posRoot">
+              <Allomorphs>
+                <Allomorph id="aPol"><PhoneticShape>pol</PhoneticShape></Allomorph>
+                <Allomorph id="aPel"><PhoneticShape>pel</PhoneticShape></Allomorph>
+              </Allomorphs>
+              <MorphemeId>ALT</MorphemeId>
+              <Gloss>alt</Gloss>
+            </LexicalEntry>
+          </LexicalEntries>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// Two allomorphs comparing `root_constraints_equal` must be observed as `FreeFluctuation`.
+    #[test]
+    fn characterize_marks_free_fluctuation_for_two_equal_constraint_root_allomorphs() {
+        let g = load(FREE_FLUCTUATION_ROOT_ALLOMORPH_XML);
+        assert_eq!(g.entries[0].allomorphs.len(), 2);
+        assert!(pg_rules::validity::root_constraints_equal(
+            &g.entries[0].allomorphs[0],
+            &g.entries[0].allomorphs[1]
+        ));
+
+        let profile = characterize(&g);
+        assert!(
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::FreeFluctuation),
+            "two root allomorphs with equal environments/is_bound must be observed as FreeFluctuation: {:?}",
             profile.observations()
         );
     }

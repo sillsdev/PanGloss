@@ -234,6 +234,7 @@ pub enum MechanismSourceKind {
     NaturalClass,
     MorphemeCoOccurrence,
     AllomorphCoOccurrence,
+    RootAllomorph,
     /// The active `CharacterDefinitionTable`; the one source kind with no `ModelLocation` counterpart, since `BoundaryCleanup` derives from the table it cleans, not an observed construct.
     CharacterTable,
 }
@@ -311,6 +312,11 @@ impl From<ModelLocation> for MechanismSource {
                 owner: Some(allomorph.into()),
                 child: None,
             },
+            ModelLocation::RootAllomorph(allomorph) => Self {
+                kind: MechanismSourceKind::RootAllomorph,
+                owner: Some(allomorph.into()),
+                child: None,
+            },
         }
     }
 }
@@ -351,6 +357,7 @@ impl MechanismSource {
             MechanismSourceKind::NaturalClass => (Some(WireModelKind::NatClass), None),
             MechanismSourceKind::MorphemeCoOccurrence => (Some(WireModelKind::MorphemeIndex), None),
             MechanismSourceKind::AllomorphCoOccurrence => (Some(WireModelKind::Allomorph), None),
+            MechanismSourceKind::RootAllomorph => (Some(WireModelKind::Allomorph), None),
             MechanismSourceKind::CharacterTable => (Some(WireModelKind::Table), None),
         }
     }
