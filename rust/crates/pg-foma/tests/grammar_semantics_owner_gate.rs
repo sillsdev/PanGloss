@@ -4,6 +4,7 @@
 use foma::options::FomaOptions;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
+use pg_foma::backend_registry::Applicability;
 use pg_foma::capability::{
     characterize_call_count, default_registry, reset_characterize_call_count,
 };
@@ -12,7 +13,6 @@ use pg_foma::enumerate::enumerate_candidates;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::preflight::preflight_findings;
-use pg_foma::recipe_registry::Applicability;
 use pg_foma::replace::SegAlphabet;
 use pg_foma::selection::select_plan;
 
@@ -203,7 +203,7 @@ fn declared_and_cascade_phonology_stay_separate_facts_for_their_separate_consume
     assert!(
         Applicability::HasPhonology.matches(&orphan),
         "Applicability::HasPhonology reads the grammar-wide declaration and must stay true here -- \
-         switching it to the cascade reading would change which recipe families this grammar is \
+         switching it to the cascade reading would change which backend families this grammar is \
          offered, which task 7.11 explicitly forbids"
     );
     assert!(

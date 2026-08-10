@@ -2,10 +2,10 @@
 //! See `docs/research/pg-foma-net-dedup-sizing-census.md` for why the digest is taken after `finish_controllable_net` and why the census excludes no fixture.
 
 use pg_conformance_fixtures::{discover, FixtureRef};
+use pg_foma::backend_registry::{MaterializerContext, Registry};
+use pg_foma::backend_runtime::{finished_net_digests, RuntimeBudget};
 use pg_foma::enumerate::{enumerate_default, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::recipe_registry::{MaterializerContext, Registry};
-use pg_foma::recipe_runtime::{finished_net_digests, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use std::collections::BTreeSet;

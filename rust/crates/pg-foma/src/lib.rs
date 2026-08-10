@@ -61,12 +61,28 @@
 mod test_support;
 
 pub mod analyzer;
+/// **The accuracy question, split off from the speed question.** Confirmation-free undergeneration
+/// detection by admission-key set containment against the run's already-shared oracle result — zero
+/// full-HC confirmation calls per candidate. Deliberately says NOTHING about cost; ranking stays
+/// `backend_optimizer::Score`'s job. Read that module's own doc for the soundness argument and the
+/// one hazard it is counted against.
+pub mod backend_accuracy;
+/// Serializable mechanism vocabulary and fail-closed executable-backend graph validation.
+pub mod backend_mechanism;
+/// Extensible, budget-aware offline search and confirmed-only backend selection.
+pub mod backend_optimizer;
+/// Extensible registry of realizable compilation-backend families.
+pub mod backend_registry;
+/// Schema-versioned machine and human views over backend-optimization runs.
+pub mod backend_report;
+pub mod backend_runtime;
 /// The selector: `backend_selection::select_backends` turns
 /// `capability::StrategyEnvelope`'s per-backend compatibility reports into a choice — which
 /// backend(s) can compile a grammar, and the named construct each excluded one declined on. No
 /// path, one path and several are all ordinary answers. Check-only, on the same terms as
 /// `capability_entry`.
 pub mod backend_selection;
+pub mod backend_space;
 /// [`build::
 /// build_controllable`], a `plan::Plan` interpreter for the controllable subtree (the `Gate`
 /// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::
@@ -138,8 +154,8 @@ pub mod gate;
 /// [`grammar_semantics::
 /// GrammarSemantics`], the ONE immutable typed owner of this crate's grammar-derived semantic
 /// facts. Capability (`capability`/`capability_entry`/`preflight`/`selection`), registry
-/// applicability (`recipe_registry::Applicability`), recipe-space accounting
-/// (`recipe_space::GrammarFacts`) and the phonology existence gate (`junctions::PhonologyProbe`)
+/// applicability (`backend_registry::Applicability`), backend-space accounting
+/// (`backend_space::GrammarFacts`) and the phonology existence gate (`junctions::PhonologyProbe`)
 /// are projections over it rather than four independent grammar walks. See that module's own
 /// doc for what it deliberately does NOT own (`conformance_coverage`'s independent structural
 /// witnesses, and the compile paths themselves) and for the declared-vs-cascade phonology split.
@@ -174,7 +190,7 @@ pub mod lower;
 /// stays the axis reports and `strategy_coverage` speak in.
 pub mod lowering_adapter;
 /// The ONE derivation of a
-/// `recipe_mechanism::MechanismGraph`, taking `grammar_semantics::GrammarSemantics` and no
+/// `backend_mechanism::MechanismGraph`, taking `grammar_semantics::GrammarSemantics` and no
 /// `&Grammar` at all. Builds and verifies data only -- see that module's own doc for why the
 /// signature is the enforcement.
 pub mod mechanism_provider;
@@ -198,11 +214,11 @@ pub mod net_shape;
 /// always-on tier only (an expensive exact-equivalence stretch tier and any real confirm-engine
 /// integration are explicitly out of scope; see that module's own doc).
 pub mod oracle;
-/// Grammar-derived recipe-space bounds, pruning accounting, and pilot measurements.
+/// Grammar-derived backend-space bounds, pruning accounting, and pilot measurements.
 pub mod ordering_witnesses;
-/// The recipe parity RELATION, stated once: deduplicated `pg_parse::identity::AnalysisIdentity`
+/// The backend parity RELATION, stated once: deduplicated `pg_parse::identity::AnalysisIdentity`
 /// set equality per word occurrence, plus the typed faults that make a candidate non-selectable
-/// without ever being reported as disagreement. `recipe_runtime::certify_word` is the only
+/// without ever being reported as disagreement. `backend_runtime::certify_word` is the only
 /// production consumer; it lives here rather than there so the relation can be read, tested, and
 /// changed without reading the evaluator that applies it.
 pub mod parity;
@@ -265,22 +281,6 @@ pub mod readiness_policy;
 /// trusted or unassessed check render as passing. See that module's own doc for the full honesty-
 /// rule contract.
 pub mod readiness_verdict;
-/// **The accuracy question, split off from the speed question.** Confirmation-free undergeneration
-/// detection by admission-key set containment against the run's already-shared oracle result — zero
-/// full-HC confirmation calls per candidate. Deliberately says NOTHING about cost; ranking stays
-/// `recipe_optimizer::Score`'s job. Read that module's own doc for the soundness argument and the
-/// one hazard it is counted against.
-pub mod recipe_accuracy;
-/// Serializable mechanism vocabulary and fail-closed executable-recipe graph validation.
-pub mod recipe_mechanism;
-/// Extensible, budget-aware offline search and confirmed-only recipe selection.
-pub mod recipe_optimizer;
-/// Extensible registry of realizable compilation-recipe families.
-pub mod recipe_registry;
-/// Schema-versioned machine and human views over recipe-optimization runs.
-pub mod recipe_report;
-pub mod recipe_runtime;
-pub mod recipe_space;
 /// Replace-calculus rule compilation + underlying-form lexc -- the relational encoding of a
 /// rewrite rule, used by `build` and `gate`.
 pub mod replace;

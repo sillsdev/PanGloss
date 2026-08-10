@@ -1,13 +1,13 @@
-//! Measures the one soundness hazard the confirmation-free accuracy path in `pg_foma::recipe_accuracy`
+//! Measures the one soundness hazard the confirmation-free accuracy path in `pg_foma::backend_accuracy`
 //! rests on; see `docs/research/pg-foma-parity-divergence-census-design-notes.md` for the argument.
 
 use pg_conformance_fixtures::{discover, FixtureRef, Root};
+use pg_foma::backend_registry::{MaterializerContext, Registry};
+use pg_foma::backend_runtime::{evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget};
 use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::parity::IdentityDivergence;
-use pg_foma::recipe_registry::{MaterializerContext, Registry};
-use pg_foma::recipe_runtime::{evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
@@ -18,7 +18,7 @@ const OCCURRENCES_PER_FIXTURE: usize = 8;
 const REGISTRY_CENSUS_FIXTURES: [&str; 3] = [
     "template-category-sharing",
     "head-ambiguous-compounding",
-    "recipe-gated-generic",
+    "backend-gated-generic",
 ];
 
 /// Replicates the pub(crate) `pg_foma::emit::surface_table`: the surface table is the last stratum's, not `char_tables[0]`.

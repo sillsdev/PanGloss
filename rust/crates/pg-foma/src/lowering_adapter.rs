@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::enumerate::EmissionStrategy;
 
 /// WHICH of this crate's compilers lowers a candidate into a network -- named as an adapter rather
-/// than left implicit in a `match` on `EmissionStrategy` scattered across `crate::recipe_runtime`.
+/// than left implicit in a `match` on `EmissionStrategy` scattered across `crate::backend_runtime`.
 /// Measurement showed that axis to be decisive (two whole-grammar compilers win two languages).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -38,7 +38,7 @@ impl LoweringAdapter {
     }
 
     /// Whether this adapter INTERPRETS the candidate's plan. `false` for both whole-grammar
-    /// adapters: honouring one in `crate::recipe_runtime::build_candidate` would measure a
+    /// adapters: honouring one in `crate::backend_runtime::build_candidate` would measure a
     /// different compiler than the candidate names.
     pub fn interprets_plan(self) -> bool {
         matches!(self, Self::ControllablePlanCompose)

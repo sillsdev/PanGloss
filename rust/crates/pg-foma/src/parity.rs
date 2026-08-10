@@ -1,4 +1,4 @@
-//! The recipe parity relation: **deduplicated `AnalysisIdentity` set equality, per occurrence.**
+//! The backend parity relation: **deduplicated `AnalysisIdentity` set equality, per occurrence.**
 //!
 //! # What the relation is, and what it is not
 //!
@@ -32,7 +32,7 @@
 //! For the v1 four-language certification, supplied roots are REFUSED and guessing is DISABLED. A
 //! supplied root is grammar-external content injected at runtime, and a guessed analysis has a
 //! fabricated root with no authored source at all (`AnalysisIdentity` records it as a `None`
-//! morpheme key); neither is evidence about the compiled grammar, which is the only thing a recipe
+//! morpheme key); neither is evidence about the compiled grammar, which is the only thing a backend
 //! certification is a statement about. Both are refused as typed faults rather than being silently
 //! excluded, because a certification computed over a silently-narrowed analysis set would carry the
 //! full corpus's name.
@@ -433,12 +433,12 @@ impl std::fmt::Display for ParityFault {
             ),
             ParityFault::SuppliedRoot { side } => write!(
                 f,
-                "{side:?}-side analysis carries a supplied root; v1 recipe certification refuses \
+                "{side:?}-side analysis carries a supplied root; v1 backend certification refuses \
                  grammar-external roots"
             ),
             ParityFault::Guessed { side } => write!(
                 f,
-                "{side:?}-side analysis came from the guess branch; v1 recipe certification \
+                "{side:?}-side analysis came from the guess branch; v1 backend certification \
                  disables guessing"
             ),
         }

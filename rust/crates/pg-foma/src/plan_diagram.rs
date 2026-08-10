@@ -592,8 +592,8 @@ pub fn build_plan_document_with_semantics(semantics: &GrammarSemantics<'_>) -> P
     build_plan_document_for_plan_with_semantics(semantics, &plan)
 }
 
-/// Projects an already materialized recipe plan using the same capability evidence and labels as
-/// the default grammar-derived plan. Recipe optimization uses this for baseline/winner artifacts.
+/// Projects an already materialized backend plan using the same capability evidence and labels as
+/// the default grammar-derived plan. Backend optimization uses this for baseline/winner artifacts.
 pub fn build_plan_document_for_plan(g: &Grammar, plan: &Plan) -> PlanDocument {
     build_plan_document_for_plan_with_semantics(&GrammarSemantics::derive(g), plan)
 }

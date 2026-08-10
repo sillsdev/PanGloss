@@ -4,10 +4,10 @@
 use std::collections::HashSet;
 
 use pg_conformance_fixtures::corpus;
+use pg_foma::backend_registry::{MaterializerContext, Registry};
+use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::recipe_registry::{MaterializerContext, Registry};
-use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::Grammar;
 
@@ -84,11 +84,11 @@ const FIXTURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-/// Mirrors `recipe_runtime_net_is_queryable_gate.rs`'s own helper; drives only public API.
+/// Mirrors `backend_runtime_net_is_queryable_gate.rs`'s own helper; drives only public API.
 fn materialize_and_evaluate(
     grammar: &Grammar,
     words: &[String],
-) -> Vec<pg_foma::recipe_runtime::RuntimeEvaluation> {
+) -> Vec<pg_foma::backend_runtime::RuntimeEvaluation> {
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata

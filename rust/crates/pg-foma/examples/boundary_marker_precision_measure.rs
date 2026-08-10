@@ -5,10 +5,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use pg_foma::backend_registry::{MaterializerContext, Registry};
+use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::recipe_registry::{MaterializerContext, Registry};
-use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::Grammar;
 

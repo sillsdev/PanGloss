@@ -15,7 +15,7 @@
 //!
 //! # Why this module lives in `pg-parse` and not in `pg-assess`
 //!
-//! It was written for `pg-assess` and lived there until the recipe runtime needed the SAME
+//! It was written for `pg-assess` and lived there until the backend runtime needed the SAME
 //! projection to express its parity relation. `pg-foma` is the engine and `pg-assess` is the
 //! assessment/reporting layer, so `pg-foma -> pg-assess` is a backwards dependency and forking the
 //! projection into `pg-foma` would leave two definitions of "the same analysis" free to drift —

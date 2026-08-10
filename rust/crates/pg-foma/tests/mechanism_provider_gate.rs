@@ -1,12 +1,12 @@
 //! Providers derive from the shared `GrammarSemantics` and from nothing else. Synthetic fixtures only, built through `pg_grammar::load`.
 
+use pg_foma::backend_mechanism::{
+    ExecutionDisposition, MechanismBody, MechanismId, MechanismKind, MechanismSourceKind,
+};
 use pg_foma::capability::CharacteristicKind;
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::mechanism_provider::derive_mechanism_graph;
-use pg_foma::recipe_mechanism::{
-    ExecutionDisposition, MechanismBody, MechanismId, MechanismKind, MechanismSourceKind,
-};
 use pg_grammar::model::Grammar;
 
 fn load(xml: &str) -> Grammar {
@@ -156,7 +156,7 @@ const MINIMAL_XML: &str = r#"<HermitCrabInput><Language><Name>Minimal</Name>
   </Strata>
 </Language></HermitCrabInput>"#;
 
-fn kinds(graph: &pg_foma::recipe_mechanism::MechanismGraph) -> Vec<MechanismKind> {
+fn kinds(graph: &pg_foma::backend_mechanism::MechanismGraph) -> Vec<MechanismKind> {
     graph.nodes.iter().map(|n| n.kind()).collect()
 }
 
@@ -251,7 +251,7 @@ fn an_inert_reduplication_hint_creates_no_copy_process_mechanism() {
         EmissionStrategy::TemplatedUnderlyingTokens,
     ] {
         assert_eq!(
-            pg_foma::recipe_mechanism::MechanismBinding::derive(copy, strategy).disposition(),
+            pg_foma::backend_mechanism::MechanismBinding::derive(copy, strategy).disposition(),
             ExecutionDisposition::Peeled,
             "{strategy:?}"
         );
@@ -405,7 +405,7 @@ fn every_requirement_and_source_traces_to_an_observation() {
                 node.id
             );
             assert_eq!(
-                pg_foma::recipe_mechanism::mechanism_kind_for(*requirement),
+                pg_foma::backend_mechanism::mechanism_kind_for(*requirement),
                 node.kind(),
                 "{requirement:?} landed on the wrong mechanism"
             );

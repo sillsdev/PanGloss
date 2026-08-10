@@ -2,21 +2,21 @@
 //! path-growth derivation live in `docs/research/pg-foma-apply-path-refusal-design-notes.md`.
 
 use pg_conformance_fixtures::{discover, FixtureRef, Root};
+use pg_foma::backend_optimizer::Certification;
+use pg_foma::backend_runtime::{
+    evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget, RuntimeEvaluation,
+};
 use pg_foma::compose_budget::{
     DEFAULT_EVALUATION_APPLY_CANDIDATE_BUDGET, DEFAULT_EVALUATION_APPLY_PATH_BUDGET,
 };
 use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::lowering_adapter::LoweringAdapter;
-use pg_foma::recipe_optimizer::Certification;
-use pg_foma::recipe_runtime::{
-    evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget, RuntimeEvaluation,
-};
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 /// The two fixtures the process used to die on -- byte-identical grammars but for `<Name>`.
-const REFUSING_FIXTURES: [&str; 2] = ["deep-optional-affix-nesting", "recipe-template-generic"];
+const REFUSING_FIXTURES: [&str; 2] = ["deep-optional-affix-nesting", "backend-template-generic"];
 
 /// A fixture that must not be refused at the default envelope -- the negative control against a gate that refuses everything.
 const CONTROL_FIXTURE: &str = "compounding-non-recursive";

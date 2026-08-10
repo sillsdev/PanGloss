@@ -2,19 +2,19 @@
 //! See `docs/research/pg-foma-net-dedup-sizing-census.md` for why this optimization is sound and why score attribution cannot become order-dependent.
 
 use pg_conformance_fixtures::{discover, Root};
-use pg_foma::enumerate::{enumerate_default, EmissionStrategy, LoweredCandidate};
-use pg_foma::junctions::PhonologyProbe;
-use pg_foma::recipe_optimizer::{Certification, Score};
-use pg_foma::recipe_registry::{MaterializerContext, Registry};
-use pg_foma::recipe_runtime::{
+use pg_foma::backend_optimizer::{Certification, Score};
+use pg_foma::backend_registry::{MaterializerContext, Registry};
+use pg_foma::backend_runtime::{
     evaluate_plans_observed_with_cache, evaluate_plans_with_cache, grammar_identity, net_reuse_key,
     RunEvaluationCache, RuntimeBudget, RuntimeEvaluation,
 };
+use pg_foma::enumerate::{enumerate_default, EmissionStrategy, LoweredCandidate};
+use pg_foma::junctions::PhonologyProbe;
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 /// The fixture the fire-count is pinned on. Named, not searched for, so a test cannot pass vacuously by scanning for "some fixture where dedup fires" -- see `docs/research/pg-foma-net-dedup-sizing-census.md` for why this one was chosen and what happened when the wrong one was tried first.
-const FIRING_FIXTURE: &str = "recipe-ordered-generic";
+const FIRING_FIXTURE: &str = "backend-ordered-generic";
 
 fn surface_table(grammar: &Grammar) -> &pg_grammar::chardef::CharDefTable {
     let surface_stratum = grammar
@@ -85,7 +85,7 @@ fn verdicts(
         .collect()
 }
 
-/// The winner, chosen exactly as `RecipeOptimizationReport` chooses it: only a `selectable()` candidate may win, ranked by `Score::key`.
+/// The winner, chosen exactly as `BackendOptimizationReport` chooses it: only a `selectable()` candidate may win, ranked by `Score::key`.
 fn winner(evaluations: &[RuntimeEvaluation]) -> Option<(usize, (u64, u64, u64, u64, String))> {
     evaluations
         .iter()

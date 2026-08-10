@@ -3,16 +3,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use pg_conformance_fixtures::{discover, Root};
-use pg_foma::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
-use pg_foma::lowering_adapter::LoweringAdapter;
-use pg_foma::recipe_registry::{
+use pg_foma::backend_registry::{
     MaterializerContext, Registry, FAMILY_COMPLETE_TEMPLATE, FAMILY_SURFACE_PROBE_MORPHOLOGY,
     FAMILY_TOKEN_CASCADE_MORPHOLOGY,
 };
-use pg_foma::recipe_runtime::{
+use pg_foma::backend_runtime::{
     certify_corpus, check_proposal_ratio, evaluate_plans_observed_with_cache,
     evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget, WordEvidence,
 };
+use pg_foma::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
+use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::replace::SegAlphabet;
 use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
 
@@ -199,7 +199,7 @@ fn assert_proposal_containment(strategy: EmissionStrategy, evidence: &[WordEvide
     }
 }
 
-fn deterministic_score(score: pg_foma::recipe_optimizer::Score) -> (u64, u64, u64, u64, u64, u64) {
+fn deterministic_score(score: pg_foma::backend_optimizer::Score) -> (u64, u64, u64, u64, u64, u64) {
     (
         score.states,
         score.arcs,
@@ -423,7 +423,7 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
     );
     assert!(matches!(
         failed.evaluation.certification,
-        pg_foma::recipe_optimizer::Certification::Truncated { ref stage, .. }
+        pg_foma::backend_optimizer::Certification::Truncated { ref stage, .. }
             if stage == "oracle-capped"
     ));
     assert_eq!(failed.evaluation.score.proposals, 0);
@@ -453,8 +453,8 @@ fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
     };
     let fixture = discover()
         .into_iter()
-        .find(|fixture| fixture.root == Root::Staging && fixture.name == "recipe-template-generic")
-        .expect("missing pinned synthetic fixture recipe-template-generic");
+        .find(|fixture| fixture.root == Root::Staging && fixture.name == "backend-template-generic")
+        .expect("missing pinned synthetic fixture backend-template-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
     assert!(!grammar.templates.is_empty());
     let pinned_words = fixture

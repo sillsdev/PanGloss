@@ -199,7 +199,7 @@ pub struct FomaWordDiagnostics {
     /// reduplication peel requested), before tag-decode/dedup -- equal to `proposal.raw_paths`,
     /// duplicated at this level so a caller pricing propose-side work reads it next to
     /// `confirmation_steps` instead of reaching through `proposal`. See
-    /// `crate::recipe_optimizer::Score::key`'s doc for why propose-side work needs its own counted
+    /// `crate::backend_optimizer::Score::key`'s doc for why propose-side work needs its own counted
     /// unit alongside confirm-side steps.
     pub raw_paths: usize,
     pub confirmed_analyses: usize,
@@ -292,7 +292,7 @@ fn accumulate_proposal_diagnostics(total: &mut ProposalDiagnostics, next: Propos
 /// # Why this is a free function and not only a method
 /// `FomaAnalyzer` owns a confirming `Morpher`, and building one runs `RuleCache::build`, which
 /// compiles every matcher FST in the grammar. A caller that only wants to know WHAT a compiled
-/// network proposes — the confirmation-free accuracy check in `crate::recipe_accuracy` — should not
+/// network proposes — the confirmation-free accuracy check in `crate::backend_accuracy` — should not
 /// have to construct the confirmation engine in order to ask. Taking the proposer and peeler as
 /// parameters makes "this call cannot confirm anything" a property of the TYPE SIGNATURE rather than
 /// a promise in a comment: there is no `Morpher` in scope to call.

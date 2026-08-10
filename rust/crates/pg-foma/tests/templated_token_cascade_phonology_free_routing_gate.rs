@@ -2,11 +2,11 @@
 //! See `docs/research/pg-foma-templated-phonology-free-routing-notes.md` for why the old `HasPhonology`-only gate masked this and how the fix is verified beyond mere reachability.
 
 use pg_conformance_fixtures::{discover, Root};
+use pg_foma::backend_optimizer::Certification;
+use pg_foma::backend_registry::{BackendInstance, MaterializerContext, Registry};
+use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::enumerate::{enumerate_default, EmissionStrategy};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::recipe_optimizer::Certification;
-use pg_foma::recipe_registry::{MaterializerContext, RecipeInstance, Registry};
-use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::Grammar;
 
@@ -34,7 +34,7 @@ fn baseline_plan(grammar: &Grammar) -> pg_foma::plan::Plan {
 }
 
 fn token_cascade_candidate(
-    candidates: &[(RecipeInstance, pg_foma::enumerate::LoweredCandidate)],
+    candidates: &[(BackendInstance, pg_foma::enumerate::LoweredCandidate)],
 ) -> &pg_foma::enumerate::LoweredCandidate {
     &candidates
         .iter()
@@ -54,15 +54,15 @@ fn token_cascade_candidate(
 /// The templated, phonology-free fixture gets the token-cascade candidate in addition to the plan-composed baseline.
 #[test]
 fn templated_phonology_free_fixture_offers_the_token_cascade_candidate() {
-    let grammar = load("recipe-template-generic");
+    let grammar = load("backend-template-generic");
     assert!(
         grammar.prules.is_empty(),
-        "recipe-template-generic is used here BECAUSE it declares no phonological rules; if it \
+        "backend-template-generic is used here BECAUSE it declares no phonological rules; if it \
          gains one this test stops covering the phonology-free half of the routing gap"
     );
     assert!(
         !grammar.templates.is_empty(),
-        "recipe-template-generic is used here BECAUSE it declares affix templates"
+        "backend-template-generic is used here BECAUSE it declares affix templates"
     );
 
     let baseline = baseline_plan(&grammar);
@@ -96,10 +96,10 @@ fn templated_phonology_free_fixture_offers_the_token_cascade_candidate() {
 /// A phonology-bearing grammar's offering is unchanged by the widened predicate: `HasPhonology` was already true, so `HasPhonologyOrTemplates` stays true for the same reason -- a regression pin, not new behavior.
 #[test]
 fn phonology_bearing_fixture_offering_is_unchanged() {
-    let grammar = load("recipe-gated-generic");
+    let grammar = load("backend-gated-generic");
     assert!(
         !grammar.prules.is_empty(),
-        "recipe-gated-generic is used here BECAUSE it declares phonological rules"
+        "backend-gated-generic is used here BECAUSE it declares phonological rules"
     );
 
     let baseline = baseline_plan(&grammar);
@@ -123,8 +123,8 @@ fn templated_candidate_builds_and_proposes_on_the_phonology_free_fixture() {
     let fixtures = discover();
     let fixture = fixtures
         .iter()
-        .find(|f| f.root == Root::Staging && f.name == "recipe-template-generic")
-        .expect("missing staged fixture recipe-template-generic");
+        .find(|f| f.root == Root::Staging && f.name == "backend-template-generic")
+        .expect("missing staged fixture backend-template-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
 
     // Only the cheapest word (the boundary case, `words.yaml`'s first entry): this test is about the compiler reaching a real verdict, not replaying the fixture's full analysis pathology.

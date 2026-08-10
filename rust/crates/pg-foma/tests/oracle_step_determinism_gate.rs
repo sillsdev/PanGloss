@@ -1,7 +1,7 @@
 //! Pins that the oracle's `(capped, steps, analyses)` triple and the eligibility ledger built from it are a pure function of `(grammar, word, cap)`, never of machine load -- measured under deliberate CPU load.
 
 use pg_conformance_fixtures::{discover, Root};
-use pg_foma::recipe_runtime::{RunEvaluationCache, RuntimeBudget};
+use pg_foma::backend_runtime::{RunEvaluationCache, RuntimeBudget};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -51,8 +51,8 @@ impl Drop for ArtificialLoad {
 fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
     let fixture = discover()
         .into_iter()
-        .find(|f| f.root == Root::Staging && f.name == "recipe-gated-generic")
-        .expect("missing staged fixture recipe-gated-generic");
+        .find(|f| f.root == Root::Staging && f.name == "backend-gated-generic")
+        .expect("missing staged fixture backend-gated-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("staged fixture must load");
     // "tulik" completes at cap 5; "menulik" exhausts it -- a mixed corpus exercises the classifier's boundary.
     let words = vec!["tulik".to_string(), "menulik".to_string()];

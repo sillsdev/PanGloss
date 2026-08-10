@@ -46,10 +46,10 @@ fn accounted_pruning(report: &Value, label: &str) -> Value {
 const WHOLE_GRAMMAR_TOPOLOGIES: [&str; 2] = ["templated-underlying-tokens", "tuned-surface-probed"];
 
 fn is_whole_grammar_candidate(candidate: &Value) -> bool {
-    let recipe_id = candidate["recipe_id"].as_str().unwrap_or_default();
+    let backend_id = candidate["backend_id"].as_str().unwrap_or_default();
     WHOLE_GRAMMAR_TOPOLOGIES
         .iter()
-        .any(|topology| recipe_id.ends_with(&format!("topology={topology}")))
+        .any(|topology| backend_id.ends_with(&format!("topology={topology}")))
 }
 
 fn word_file(fixture: &str, root: &Path) -> PathBuf {
@@ -105,10 +105,10 @@ fn run_fixture(fixture: &str, root: &Path) -> Value {
 }
 
 fn run_template_characterization(root: &Path, search_all_families: bool) -> Value {
-    let fixture = "edge-cases/recipe-template-generic";
+    let fixture = "edge-cases/backend-template-generic";
     let out = root.join(fixture.replace('/', "-"));
     let words = word_file_from(
-        "conformance-staging/edge-cases/recipe-template-generic/words.yaml",
+        "conformance-staging/edge-cases/backend-template-generic/words.yaml",
         fixture,
         root,
         |words| {
@@ -116,7 +116,7 @@ fn run_template_characterization(root: &Path, search_all_families: bool) -> Valu
             vec![words.first().unwrap().clone()]
         },
     );
-    let grammar = repo_file("conformance-staging/edge-cases/recipe-template-generic/grammar.xml");
+    let grammar = repo_file("conformance-staging/edge-cases/backend-template-generic/grammar.xml");
     let mut command = Command::new(env!("CARGO_BIN_EXE_pangloss"));
     command.args([
         "recipe-optimize",
@@ -174,7 +174,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
             .unwrap()
             .iter()
             .any(|candidate| {
-                candidate["recipe_id"]
+                candidate["backend_id"]
                     == "token-cascade-morphology|topology=templated-underlying-tokens"
             }),
         "the compiler-varying candidate must appear in the evidence: {:?}",
@@ -185,7 +185,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         .unwrap()
         .iter()
         .any(|candidate| {
-            candidate["recipe_id"] == "class-exception-cascade|topology=gate-permutation"
+            candidate["backend_id"] == "class-exception-cascade|topology=gate-permutation"
         }));
     let mpr_out = root.join("edge-cases-mpr-gated-exception");
     for artifact in [
@@ -328,7 +328,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     assert_eq!(template["pilot"]["sample_size"], 3);
     assert_eq!(template["winner_strategy"], "plan-composed");
     // One syntactic duplicate remains; the single-entry applicability predicate still separately declares `specialized-branch` inapplicable.
-    let template_pruning = accounted_pruning(&template, "recipe-template-generic");
+    let template_pruning = accounted_pruning(&template, "backend-template-generic");
     assert_eq!(template_pruning["duplicates"], 1);
     assert_eq!(template_pruning["declared_not_searched"], 1);
     assert!(

@@ -61,7 +61,7 @@ fn recipe_optimize_deadline_banks_complete_rows_but_not_a_malformed_tail() {
     let words = root.join("words.txt");
     fs::create_dir_all(&root).unwrap();
     fs::write(&words, "k\n").unwrap();
-    let grammar = repo_file("conformance-staging/edge-cases/recipe-template-generic/grammar.xml");
+    let grammar = repo_file("conformance-staging/edge-cases/backend-template-generic/grammar.xml");
     let progress = out.join("progress.jsonl");
     let mut child = Command::new(env!("CARGO_BIN_EXE_pangloss"))
         .args([

@@ -89,7 +89,7 @@ pub enum Disposition {
 /// arms produce the same `CharacteristicKind`.
 /// `Ord` is additive and carries no behavior: it is derived declaration order (the same order
 /// `CharacteristicKind::ALL` lists), so a `BTreeSet<CharacteristicKind>` -- which is what
-/// `crate::recipe_mechanism::MechanismNode::construct_requirements` is -- iterates
+/// `crate::backend_mechanism::MechanismNode::construct_requirements` is -- iterates
 /// deterministically. Nothing in the capability gate itself reads it.
 ///
 /// Serde is deliberately NOT derived here: `crate::coverage_ledger` already hand-writes
@@ -960,8 +960,8 @@ fn rule_has_unbounded_quantifier(r: &pg_grammar::model::RewriteRuleDef) -> bool 
 ///
 /// # The single authority for "is this reduplication"
 /// `pub` because this is now the ONLY definition of the fact in this crate.
-/// `crate::recipe_registry::Applicability::HasReduplication` and
-/// `crate::recipe_space::GrammarFacts::reduplicative_allomorphs` each used to carry their own
+/// `crate::backend_registry::Applicability::HasReduplication` and
+/// `crate::backend_space::GrammarFacts::reduplicative_allomorphs` each used to carry their own
 /// `redup_hint != Implicit || copies > lhs.len()` variant — precisely the hint-keyed trap the
 /// paragraph above documents — and so could fire (offering `FAMILY_COPY_BRANCH`, counting
 /// reduplicative allomorphs) on grammars where this predicate, `pg_rules::morph::classify_redup`

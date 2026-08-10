@@ -1,11 +1,11 @@
-//! Derives the `crate::recipe_mechanism::MechanismGraph` from the shared `GrammarSemantics`
+//! Derives the `crate::backend_mechanism::MechanismGraph` from the shared `GrammarSemantics`
 //! and from nothing else.
 //!
 //! # The one rule, and how the signature enforces it
 //! `derive_mechanism_graph` takes `&GrammarSemantics` and no `&Grammar`. That is not a
 //! convention this module promises to keep; it is the whole surface. There is no second entry
 //! point, no `&Grammar` front end (unlike
-//! `crate::recipe_registry::Applicability::matches`, which deliberately keeps one), and
+//! `crate::backend_registry::Applicability::matches`, which deliberately keeps one), and
 //! `GrammarSemantics::grammar` is never called anywhere in this file -- so a provider CANNOT
 //! decide applicability, membership, or ordering from a fresh grammar walk. Everything below is a
 //! projection of a fact `GrammarSemantics` already owns.
@@ -43,7 +43,7 @@
 //! nothing observable, so there is exactly one order and no permutation of it is representable.
 //!
 //! # What this module does NOT do
-//! It does not register anything or feed selection -- the recipe registry owns that, and nothing
+//! It does not register anything or feed selection -- the backend registry owns that, and nothing
 //! here is called from any routing, applicability or candidate path. Deriving a graph changes no
 //! outcome; it only makes one describable.
 //!
@@ -57,13 +57,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::capability::CharacteristicKind;
-use crate::grammar_semantics::GrammarSemantics;
-use crate::recipe_mechanism::{
+use crate::backend_mechanism::{
     mechanism_kind_for, BoundaryCleanupSpec, MechanismBody, MechanismEdge, MechanismGraph,
     MechanismId, MechanismKind, MechanismNode, MechanismSource, MorphotacticsSpec,
     OrderedPhonologySpec, PartitionGroupSpec, SymbolSpace,
 };
+use crate::capability::CharacteristicKind;
+use crate::grammar_semantics::GrammarSemantics;
 
 /// One mechanism's accumulated evidence, before it becomes a node.
 #[derive(Default)]
@@ -147,7 +147,7 @@ fn body_for(kind: MechanismKind, semantics: &GrammarSemantics<'_>) -> MechanismB
                 .entry_partition()
                 .iter()
                 .map(|group| {
-                    let mut members: Vec<crate::recipe_mechanism::WireModelId> =
+                    let mut members: Vec<crate::backend_mechanism::WireModelId> =
                         group.entries.iter().copied().map(Into::into).collect();
                     // `SemanticEntryGroup::entries` is a `HashSet`; the owner sorts groups by gate key, but not membership order.
                     members.sort();

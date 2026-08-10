@@ -1018,7 +1018,7 @@ fn run_residual_miss_diagnostic() {
     if let Ok(pipeline) = &pipeline {
         let recovered = diagnostic_optional_marker_cleanup(&g, &alphabet, pipeline, &rows, width);
         println!(
-            "recipe-candidate\toptional-floating-marker-cleanup\t{}",
+            "backend-candidate\toptional-floating-marker-cleanup\t{}",
             recovered.join(",")
         );
     }

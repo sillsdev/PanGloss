@@ -271,7 +271,7 @@ pub fn enumerate_default(
 /// filtering, or evaluating a single candidate cannot separate them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CandidateRole {
-    /// This grammar's default compilation; a baseline needing marker subtrees `build_controllable` can't build is realized by the whole-grammar tuned adapter instead (see `crate::recipe_runtime`).
+    /// This grammar's default compilation; a baseline needing marker subtrees `build_controllable` can't build is realized by the whole-grammar tuned adapter instead (see `crate::backend_runtime`).
     Baseline,
     /// Any other candidate; never realized by a whole-grammar adapter it did not ask for, since that adapter derives its own topology and would measure the baseline network instead.
     Alternative,
@@ -294,7 +294,7 @@ impl CandidateRole {
 ///    dispatches on the adapter the candidate itself carries instead of on a second enum that had
 ///    to be kept in correspondence with it by hand. `EmissionStrategy` survives, deliberately:
 ///    it is the REPORTED selection axis (`RuntimeEvaluation::realized_strategy`,
-///    `RecipeOptimizationReport::winner_strategy`, `strategy_coverage`), measured to be the
+///    `BackendOptimizationReport::winner_strategy`, `strategy_coverage`), measured to be the
 ///    decisive one — two whole-grammar compilers win two different languages. The
 ///    two are 1:1 in both directions (`lowering_adapter`'s own
 ///    `every_strategy_has_exactly_one_adapter_and_back`), so `Self::strategy` is a projection,
@@ -370,7 +370,7 @@ impl EmissionStrategy {
         !matches!(self, Self::PlanComposed)
     }
 
-    /// Stable identifier for reports and recipe ids.
+    /// Stable identifier for reports and backend ids.
     pub fn label(self) -> &'static str {
         match self {
             Self::PlanComposed => "plan-composed",

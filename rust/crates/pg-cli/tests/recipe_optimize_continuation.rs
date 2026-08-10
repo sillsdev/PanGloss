@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The staged fixture, chosen because one unbounded run produces the exact mix every test here needs.
 /// See docs/research/pg-cli-recipe-optimize-continuation-test-notes.md for the measured evaluation order this file's bounds are derived against.
-const FIXTURE: &str = "conformance-staging/edge-cases/recipe-strata-generic/grammar.xml";
+const FIXTURE: &str = "conformance-staging/edge-cases/backend-strata-generic/grammar.xml";
 
 /// Verbatim from that fixture's `words.yaml`, duplicated rather than parsed so the test needs no YAML round trip; the non-vacuity assertions below fail loudly if the fixture drifts.
 const WORDS: &[&str] = &[
@@ -303,7 +303,7 @@ fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
         .any(|candidate| candidate["certification"]["status"] == "resource-breach"));
 }
 
-/// A run that evaluated every candidate it selected and only then discovered it had overrun an aggregate bound must still write its report: pairing zero unexplored with `quality: Approximate` fails `RecipeOptimizationReport::validate`, and the supervisor's partial-report.json does not cover a non-zero exit either.
+/// A run that evaluated every candidate it selected and only then discovered it had overrun an aggregate bound must still write its report: pairing zero unexplored with `quality: Approximate` fails `BackendOptimizationReport::validate`, and the supervisor's partial-report.json does not cover a non-zero exit either.
 #[test]
 fn a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report() {
     let baseline = unbounded();

@@ -1,8 +1,8 @@
 use pg_conformance_fixtures::{assert_matches_oracle, discover};
+use pg_foma::backend_registry::{MaterializerContext, Registry};
+use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::recipe_registry::{MaterializerContext, Registry};
-use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
 
 fn fixture() -> pg_conformance_fixtures::FixtureRef {
@@ -42,7 +42,7 @@ fn fixture_loads_replays_and_exercises_required_grammar_facts() {
 }
 
 #[test]
-fn every_applicable_distinct_recipe_builds_and_full_hc_matches_each_word() {
+fn every_applicable_distinct_backend_builds_and_full_hc_matches_each_word() {
     let f = fixture();
     let g = pg_grammar::load(&f.load_grammar_xml()).expect("fixture grammar must load");
     let yaml = f.load_words_yaml();
@@ -71,7 +71,7 @@ fn every_applicable_distinct_recipe_builds_and_full_hc_matches_each_word() {
         // This candidate carries the grammar's own default plan.
         role: pg_foma::enumerate::CandidateRole::Baseline,
     });
-    // Scoped to `PlanComposed`: this asserts `build_controllable` honours rewritten assembly trees, not that every compiler this crate owns is equivalent (a different, false claim — `EmissionStrategy::TemplatedUnderlyingTokens`'s own coverage lives in `recipe_emission_strategy_gate.rs`).
+    // Scoped to `PlanComposed`: this asserts `build_controllable` honours rewritten assembly trees, not that every compiler this crate owns is equivalent (a different, false claim — `EmissionStrategy::TemplatedUnderlyingTokens`'s own coverage lives in `backend_emission_strategy_gate.rs`).
     let considered = candidates.len();
     plans.extend(
         candidates
@@ -95,7 +95,7 @@ fn every_applicable_distinct_recipe_builds_and_full_hc_matches_each_word() {
         assert!(
             matches!(
                 result.certification,
-                pg_foma::recipe_optimizer::Certification::FullHcConfirmed { .. }
+                pg_foma::backend_optimizer::Certification::FullHcConfirmed { .. }
             ),
             "non-certifying evidence must remain explicit: {:?}",
             result.certification

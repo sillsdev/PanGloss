@@ -46,7 +46,7 @@ pub(crate) struct ConfirmBatchDiagnostics {
     /// A finer unit than `confirmation_calls`, and the one worth ranking on: a call is not a constant
     /// amount of work, because a long word costs far more to adjudicate than a short one, so counting
     /// calls under-weights exactly the expensive words that dominate real cost. It is also the unit
-    /// HC work is already BOUNDED in (`recipe_runtime::DEFAULT_ORACLE_STEP_CAP` caps these same
+    /// HC work is already BOUNDED in (`backend_runtime::DEFAULT_ORACLE_STEP_CAP` caps these same
     /// ticks), so measuring in it means the objective and the cap finally speak the same language.
     /// Deterministic, like the counts beside it -- no wall-clock anywhere.
     pub confirmation_steps: usize,

@@ -63,11 +63,11 @@ const EXERCISES: &[Fixture] = &[
 /// Fixture pairs where one is a clone of the other.
 const CLONE_PAIRS: &[(Fixture, Fixture)] = &[
     (
-        Fixture::staged("recipe-ordered-generic"),
+        Fixture::staged("backend-ordered-generic"),
         Fixture::upstream("languages", "metathesis-phase-isolation"),
     ),
     (
-        Fixture::staged("recipe-gated-generic"),
+        Fixture::staged("backend-gated-generic"),
         Fixture::upstream("edge-cases", "mpr-gated-exception"),
     ),
 ];

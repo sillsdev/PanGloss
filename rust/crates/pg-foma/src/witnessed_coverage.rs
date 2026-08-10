@@ -103,7 +103,7 @@ impl GrammarObservation {
 
 /// Compiles `g` with `strategy`'s REAL entry point — the only source of a witness in this module.
 ///
-/// Each arm is the same entry point `crate::recipe_runtime`'s own per-adapter realization uses, so
+/// Each arm is the same entry point `crate::backend_runtime`'s own per-adapter realization uses, so
 /// a witness collected here names a compiler the runtime can actually run:
 /// `crate::analyzer::FomaProposer::new` for the surface probe,
 /// `crate::templated_compile::compile_templated_morphotactics` for the templated cascade, and

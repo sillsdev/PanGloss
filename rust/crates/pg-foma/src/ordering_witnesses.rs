@@ -148,7 +148,7 @@ fn stream_value(key: &str, step: u64) -> u64 {
     splitmix64(hash.wrapping_add(step))
 }
 
-/// Same mixer as `crate::recipe_space`'s, which is private to that module.
+/// Same mixer as `crate::backend_space`'s, which is private to that module.
 fn splitmix64(mut value: u64) -> u64 {
     value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
     let mut mixed = value;

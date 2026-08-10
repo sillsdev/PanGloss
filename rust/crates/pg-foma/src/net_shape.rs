@@ -1,5 +1,5 @@
 //! Static structural inspection of a finished `foma::types::Fsm` — the SPEED half of the
-//! candidate-screening split (the accuracy half is `crate::recipe_accuracy`'s set containment).
+//! candidate-screening split (the accuracy half is `crate::backend_accuracy`'s set containment).
 //!
 //! Nothing here applies a word. Every number is read off the compiled net's own line table, so the
 //! whole inspection is `O(states + arcs)` and available before a single corpus word is proposed.

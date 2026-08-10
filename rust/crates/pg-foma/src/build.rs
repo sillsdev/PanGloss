@@ -319,7 +319,7 @@ fn reroute_line_if_null_shaped(
 /// composed net still carries the boundary tokens `uflexc` emitted between morphs, which a surface
 /// query never contains. Skipping it does not degrade recall gracefully; it silently zeroes it. It
 /// was previously open-coded only inside test drivers (`tests/p6_gate_parity.rs`), so
-/// `recipe_runtime::evaluate_plans` -- the one production caller -- omitted it and measured every
+/// `backend_runtime::evaluate_plans` -- the one production caller -- omitted it and measured every
 /// candidate against an unqueryable net.
 pub fn finish_controllable_net(
     opts: &FomaOptions,

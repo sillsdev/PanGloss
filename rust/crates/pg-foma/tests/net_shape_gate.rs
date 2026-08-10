@@ -214,7 +214,7 @@ fn finished_net_from_lexc(grammar: &Grammar, alphabet: &SegAlphabet, lexc_source
     .expect("the boundary-cleanup finish must not trip an unbounded budget")
 }
 
-/// The production plan-composed pipeline `recipe_runtime::realize_plan_composed` hands to a proposer: `build::build_controllable` (applying `reroute_null_shaped_affix_chains`), then `finish_controllable_net`.
+/// The production plan-composed pipeline `backend_runtime::realize_plan_composed` hands to a proposer: `build::build_controllable` (applying `reroute_null_shaped_affix_chains`), then `finish_controllable_net`.
 fn finished_production_net(grammar: &Grammar) -> Fsm {
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = prules_in_order(grammar);
@@ -563,7 +563,7 @@ fn net_shape_of_the_production_compound_net_is_bounded_and_branching_is_reported
 }
 
 /// The two fixtures that used to kill the test process during traversal, not net construction, so a static screen over the finished net has something to read.
-const ABORTING_FIXTURES: &[&str] = &["deep-optional-affix-nesting", "recipe-template-generic"];
+const ABORTING_FIXTURES: &[&str] = &["deep-optional-affix-nesting", "backend-template-generic"];
 
 /// Every discoverable conformance fixture screened on the isolated `uflexc` network, report-only on the verdict: asserts the screen ran and produced structure, never that every fixture is clean.
 #[test]

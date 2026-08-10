@@ -8,13 +8,13 @@ use foma::regex::fsm_parse_regex;
 use foma::types::Fsm;
 
 use pg_conformance_fixtures::{assert_matches_oracle, discover, FixtureRef, Root, WordsYaml};
-use pg_foma::grammar_semantics::GrammarSemantics;
-use pg_foma::mechanism_provider::derive_mechanism_graph;
-use pg_foma::parity::OccurrenceIdentities;
-use pg_foma::recipe_mechanism::{
+use pg_foma::backend_mechanism::{
     BoundaryState, MechanismBody, MechanismGraph, MechanismGraphError, MechanismId, MechanismKind,
     MechanismNode,
 };
+use pg_foma::grammar_semantics::GrammarSemantics;
+use pg_foma::mechanism_provider::derive_mechanism_graph;
+use pg_foma::parity::OccurrenceIdentities;
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::chardef::{CharDefKind, CharDefTable};
 use pg_grammar::model::Grammar;
@@ -26,9 +26,9 @@ const TEMPLATE_EXCLUSION: &str = "template-category-sharing";
 /// Complete-template exercise 2: a mandatory-but-silent slot inside one template.
 const TEMPLATE_SILENT_SLOT: &str = "optional-template-composite";
 /// Cleanup exercise 1: a boundary PRODUCED by morphotactics (the compounding seam).
-const CLEANUP_BOUNDARY_PRODUCER: &str = "recipe-strata-generic";
+const CLEANUP_BOUNDARY_PRODUCER: &str = "backend-strata-generic";
 /// Cleanup exercise 2: a boundary CONSUMED by ordered phonology before cleanup.
-const CLEANUP_BOUNDARY_CONSUMER: &str = "recipe-ordered-generic";
+const CLEANUP_BOUNDARY_CONSUMER: &str = "backend-ordered-generic";
 /// Property-2 witness, not a fifth exercise: the only staged fixture whose two readings of one surface differ only in root position.
 const ROOT_POSITION_WITNESS: &str = "head-ambiguous-compounding";
 

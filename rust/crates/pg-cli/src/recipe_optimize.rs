@@ -7,23 +7,25 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use pg_foma::capability::{compose_envelope, default_registry, CompileDecision};
-use pg_foma::enumerate::{CandidateRole, LoweredCandidate};
-use pg_foma::grammar_semantics::GrammarSemantics;
-use pg_foma::plan_diagram::{render_mermaid, RenderMode};
-use pg_foma::recipe_optimizer::{
+use pg_foma::backend_optimizer::{
     choose_strategy_with_policy, optimize_with_evaluator, AdaptivePolicy, Budget, BudgetUsage,
     CandidateEvaluator, CandidateState, ConfirmationEvidence, ConstraintTopology,
     DefaultStrategyRegistry, PilotCosts, StrategyRegistry,
 };
-use pg_foma::recipe_registry::{Registry, FAMILY_ORDERED_MORPHOPHONOLOGY, REGISTRY_SCHEMA_VERSION};
-use pg_foma::recipe_report::{
-    CandidateReport, PruningWaterfall, RecipeOptimizationReport, SearchAccounting,
-    DETERMINISTIC_SCORE_SCHEMA_VERSION, RECIPE_REPORT_SCHEMA_VERSION,
+use pg_foma::backend_registry::{
+    Registry, FAMILY_ORDERED_MORPHOPHONOLOGY, REGISTRY_SCHEMA_VERSION,
 };
-use pg_foma::recipe_runtime::{evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget};
-use pg_foma::recipe_space::StageMeasurement;
-use pg_foma::recipe_space::{characterize_with_semantics, summarize_pilot};
+use pg_foma::backend_report::{
+    BackendOptimizationReport, CandidateReport, PruningWaterfall, SearchAccounting,
+    BACKEND_REPORT_SCHEMA_VERSION, DETERMINISTIC_SCORE_SCHEMA_VERSION,
+};
+use pg_foma::backend_runtime::{evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget};
+use pg_foma::backend_space::StageMeasurement;
+use pg_foma::backend_space::{characterize_with_semantics, summarize_pilot};
+use pg_foma::capability::{compose_envelope, default_registry, CompileDecision};
+use pg_foma::enumerate::{CandidateRole, LoweredCandidate};
+use pg_foma::grammar_semantics::GrammarSemantics;
+use pg_foma::plan_diagram::{render_mermaid, RenderMode};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,7 +110,7 @@ fn read_progress_rows(path: &Path) -> Vec<CandidateProgressRow> {
         .filter_map(|line| serde_json::from_str::<CandidateProgressRow>(&line).ok())
         .filter(|row| {
             !row.report.id.is_empty()
-                && !row.report.recipe_id.is_empty()
+                && !row.report.backend_id.is_empty()
                 && row.report.score.is_some()
                 && !row.realized_strategy.is_empty()
         })
@@ -225,14 +227,14 @@ impl Evaluator<'_> {
     fn append_progress(
         &mut self,
         candidate: &CandidateState,
-        certification: &pg_foma::recipe_optimizer::Certification,
-        score: pg_foma::recipe_optimizer::Score,
+        certification: &pg_foma::backend_optimizer::Certification,
+        score: pg_foma::backend_optimizer::Score,
         realized_strategy: &str,
     ) {
         let row = CandidateProgressRow {
             report: CandidateReport {
                 id: candidate.id.clone(),
-                recipe_id: candidate.signature.clone(),
+                backend_id: candidate.signature.clone(),
                 certification: certification.clone(),
                 score: Some(score),
                 pruning_reason: None,
@@ -263,7 +265,7 @@ impl CandidateEvaluator for Evaluator<'_> {
             compose_envelope(self.grammar, &plan.plan, &self.capability)
         {
             return ConfirmationEvidence {
-                certification: pg_foma::recipe_optimizer::Certification::CapabilityRejected {
+                certification: pg_foma::backend_optimizer::Certification::CapabilityRejected {
                     reason: format!("{diagnostics:?}"),
                 },
                 score: None,
@@ -450,15 +452,15 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         let materialize_started = Instant::now();
         let plan = match registry.materialize_with_semantics(
             &instance,
-            &pg_foma::recipe_registry::MaterializerContext {
+            &pg_foma::backend_registry::MaterializerContext {
                 grammar: &grammar,
                 baseline: &baseline,
             },
             &semantics,
         ) {
             Ok(plan) => plan,
-            Err(pg_foma::recipe_registry::MaterializeError::Inapplicable(_))
-            | Err(pg_foma::recipe_registry::MaterializeError::Invalid(_)) => {
+            Err(pg_foma::backend_registry::MaterializeError::Inapplicable(_))
+            | Err(pg_foma::backend_registry::MaterializeError::Invalid(_)) => {
                 materialization_rejects = materialization_rejects.saturating_add(1);
                 continue;
             }
@@ -511,7 +513,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         .min(states.len() as u64)
         .min(policy.pilot_candidate_cap as u64) as usize;
     let pilot_ids =
-        pg_foma::recipe_space::deterministic_sample_indices(states.len(), pilot_limit, a.seed);
+        pg_foma::backend_space::deterministic_sample_indices(states.len(), pilot_limit, a.seed);
     for index in pilot_ids {
         let state = &states[index];
         let plan = &plans[&state.id];
@@ -630,7 +632,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         .iter()
         .map(|e| CandidateReport {
             id: e.candidate.id.clone(),
-            recipe_id: e.candidate.signature.clone(),
+            backend_id: e.candidate.signature.clone(),
             certification: e.evidence.certification.clone(),
             score: e.evidence.score,
             pruning_reason: None,
@@ -689,17 +691,17 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
                 .is_some_and(|score| score.states > 0 || score.arcs > 0)
         })
         .count() as u64;
-    let all_evaluated = outcome.search.quality == pg_foma::recipe_optimizer::SearchQuality::Exact
-        && outcome.search.termination == pg_foma::recipe_optimizer::Termination::Complete
+    let all_evaluated = outcome.search.quality == pg_foma::backend_optimizer::SearchQuality::Exact
+        && outcome.search.termination == pg_foma::backend_optimizer::Termination::Complete
         && outcome.evaluated.len() == states.len();
     let feasible = if all_evaluated {
-        pg_foma::recipe_space::FeasibleCount::Exact {
+        pg_foma::backend_space::FeasibleCount::Exact {
             value: built_count,
             overflowed: false,
         }
     } else {
         let upper = states.len() as u64;
-        pg_foma::recipe_space::FeasibleCount::Estimate {
+        pg_foma::backend_space::FeasibleCount::Estimate {
             lower: built_count,
             upper,
             sample_size: outcome.evaluated.len() as u64,
@@ -708,7 +710,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             overflowed: false,
         }
     };
-    let counts = pg_foma::recipe_report::SpaceCounts {
+    let counts = pg_foma::backend_report::SpaceCounts {
         syntactic: c.syntactic.value,
         attested: c.attested.value,
         static_count: states.len() as u64,
@@ -717,8 +719,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let input_hash = hash_inputs(&a.grammar, &a.words)?;
     let registry_hash = hash_bytes(registry.canonical_json().as_bytes());
     let tool_hash = hash_current_executable()?;
-    let report = RecipeOptimizationReport {
-        schema_version: RECIPE_REPORT_SCHEMA_VERSION,
+    let report = BackendOptimizationReport {
+        schema_version: BACKEND_REPORT_SCHEMA_VERSION,
         score_schema_version: DETERMINISTIC_SCORE_SCHEMA_VERSION,
         input_hash,
         registry_version: REGISTRY_SCHEMA_VERSION.to_string(),
@@ -863,7 +865,7 @@ fn merge_supervisor_memory_peak(
     let path = Path::new(&parsed.out_dir).join("report.json");
     let json = fs::read_to_string(&path)
         .map_err(|e| RecipeOptimizeError::Io(format!("read {}: {e}", path.display())))?;
-    let mut report: RecipeOptimizationReport = serde_json::from_str(&json)
+    let mut report: BackendOptimizationReport = serde_json::from_str(&json)
         .map_err(|e| RecipeOptimizeError::Runtime(format!("parse {}: {e}", path.display())))?;
     report.usage.memory_peak = report.usage.memory_peak.max(observed_peak);
     report
@@ -1004,7 +1006,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("pangloss-recipe-progress-{tag}.jsonl"));
         let complete = serde_json::json!({
             "id": "candidate-1",
-            "recipe_id": "recipe-1",
+            "backend_id": "backend-1",
             "certification": {
                 "status": "full-hc-confirmed",
                 "words": 1,

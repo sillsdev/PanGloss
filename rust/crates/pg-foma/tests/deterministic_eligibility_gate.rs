@@ -1,8 +1,8 @@
 //! Pins deterministic corpus eligibility: only the step cap classifies; a clock or memory fault must abort the run rather than produce a silent per-word exclusion.
 
 use pg_conformance_fixtures::{discover, Root};
-use pg_foma::recipe_optimizer::Certification;
-use pg_foma::recipe_runtime::{
+use pg_foma::backend_optimizer::Certification;
+use pg_foma::backend_runtime::{
     OraclePreparationFault, RunEvaluationCache, RuntimeBudget, DEFAULT_ORACLE_LIVENESS_NET,
     DEFAULT_ORACLE_MEMORY_CEILING_BYTES, DEFAULT_ORACLE_STEP_CAP,
 };
@@ -11,8 +11,8 @@ use std::time::Duration;
 fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
     let fixture = discover()
         .into_iter()
-        .find(|f| f.root == Root::Staging && f.name == "recipe-gated-generic")
-        .expect("missing staged fixture recipe-gated-generic");
+        .find(|f| f.root == Root::Staging && f.name == "backend-gated-generic")
+        .expect("missing staged fixture backend-gated-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("staged fixture must load");
     (grammar, vec!["tulik".to_string(), "menulik".to_string()])
 }
@@ -28,8 +28,8 @@ fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::Lowere
     let phonology = pg_foma::junctions::PhonologyProbe::new(grammar);
     let baseline =
         pg_foma::enumerate::enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
-    pg_foma::recipe_registry::Registry::seeded()
-        .materialize_distinct(&pg_foma::recipe_registry::MaterializerContext {
+    pg_foma::backend_registry::Registry::seeded()
+        .materialize_distinct(&pg_foma::backend_registry::MaterializerContext {
             grammar,
             baseline: &baseline,
         })
@@ -227,7 +227,7 @@ fn exclusions_are_candidate_independent() {
     let before = cache.corpus_evidence(&words);
     let plans = plans(&grammar);
     assert!(!plans.is_empty(), "fixture must materialize candidates");
-    let evaluations = pg_foma::recipe_runtime::evaluate_plans_with_cache(
+    let evaluations = pg_foma::backend_runtime::evaluate_plans_with_cache(
         &grammar, &plans, &words, budget, &mut cache,
     );
     let after = cache.corpus_evidence(&words);

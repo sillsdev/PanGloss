@@ -22,7 +22,7 @@
   "corpora": [
     {
       "logical_name": "indonesian",
-      "purpose": "Template-less standalone-rule morphotactics with MPR-gated nasal substitution. The reference grammar for proposer recall on the gated compile path, and the only real grammar whose recipe candidates currently reach full-HC confirmation.",
+      "purpose": "Template-less standalone-rule morphotactics with MPR-gated nasal substitution. The reference grammar for proposer recall on the gated compile path, and the only real grammar whose backend candidates currently reach full-HC confirmation.",
       "files": [
         { "path": "indonesian-hc.xml", "role": "grammar", "required": true },
         {
@@ -40,7 +40,7 @@
       "requiring_tests": [
         "pg-foma --test p6_gate_parity indonesian_full_corpus_parity_unregressed",
         "pg-foma --test p6_gate_parity indonesian_mpr_exclusion_matches_oracle",
-        "pg-foma --test recipe_runtime_net_is_queryable_gate corpus_indonesian_confirms_after_the_finish_step"
+        "pg-foma --test backend_runtime_net_is_queryable_gate corpus_indonesian_confirms_after_the_finish_step"
       ]
     },
     {

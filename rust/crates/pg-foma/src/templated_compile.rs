@@ -216,9 +216,9 @@ mod tests {
             .iter()
             .find(|f| {
                 f.root == pg_conformance_fixtures::Root::Staging
-                    && f.name == "recipe-template-generic"
+                    && f.name == "backend-template-generic"
             })
-            .expect("missing staged fixture recipe-template-generic");
+            .expect("missing staged fixture backend-template-generic");
         let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
         assert!(
             grammar.prules.is_empty(),

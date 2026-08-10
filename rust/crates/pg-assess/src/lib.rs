@@ -47,7 +47,7 @@ pub use outcome::{
 /// The identity projection, re-exported from its owning crate.
 ///
 /// Owned by `pg-parse` rather than this crate: it projects `pg_parse::WordAnalysis`, so putting
-/// it there lets `pg-foma` express the recipe parity relation with the SAME projector instead of
+/// it there lets `pg-foma` express the backend parity relation with the SAME projector instead of
 /// either depending on this crate (the engine depending on the assessment layer is backwards) or
 /// forking the logic (two definitions of "the same analysis", free to drift). This re-export keeps
 /// `pg_assess::identity::*` and `crate::identity::*` working unchanged inside this crate.

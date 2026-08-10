@@ -3,8 +3,8 @@
 //!
 //! # The problem this replaces
 //! Four consumer areas -- the capability gate (`crate::capability`/`crate::capability_entry`/
-//! `crate::preflight`), registry applicability (`crate::recipe_registry::Applicability`),
-//! recipe-space accounting (`crate::recipe_space::GrammarFacts`) and the phonology/morphotactics
+//! `crate::preflight`), registry applicability (`crate::backend_registry::Applicability`),
+//! backend-space accounting (`crate::backend_space::GrammarFacts`) and the phonology/morphotactics
 //! existence gates -- each independently re-walked `Grammar` for the SAME handful of facts. Nothing
 //! memoized anything: `crate::capability::compose_envelope` recomputed
 //! `crate::capability::characterize` unconditionally on every call, and
@@ -58,7 +58,7 @@
 //! So this type owns BOTH, under names that say which is which --
 //! `GrammarSemantics::declared_phonology()` and `GrammarSemantics::cascade_phonology()` -- and each
 //! consumer projects the one it already meant. This is deliberately NOT a unification: collapsing
-//! them would change which recipe families a grammar is offered, and this type's split is a
+//! them would change which backend families a grammar is offered, and this type's split is a
 //! consolidation of existing facts, not a behavior change.
 //!
 //! Templates have no such split, and that is a reasoned negative, not an unchecked assumption. Both
@@ -272,7 +272,7 @@ impl<'g> GrammarSemantics<'g> {
     }
 
     /// `true` iff at least one subrule is gated. The projection
-    /// `crate::recipe_registry::Applicability::HasGatedExceptions` reads.
+    /// `crate::backend_registry::Applicability::HasGatedExceptions` reads.
     pub fn has_gated_exceptions(&self) -> bool {
         !self.gated_subrules.is_empty()
     }
@@ -302,7 +302,7 @@ impl<'g> GrammarSemantics<'g> {
 
     /// `true` iff the grammar declares at least one phonological rule ANYWHERE
     /// (`!g.prules.is_empty()`), whether or not a stratum names it. What
-    /// `crate::recipe_registry::Applicability::HasPhonology` means -- see the module doc for why
+    /// `crate::backend_registry::Applicability::HasPhonology` means -- see the module doc for why
     /// this is not the same question as `Self::cascade_phonology`.
     pub fn declared_phonology(&self) -> bool {
         self.declared_phonology

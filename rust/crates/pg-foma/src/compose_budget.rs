@@ -264,7 +264,7 @@ pub(crate) fn apply_candidate_budget_from_env() -> Option<usize> {
         .and_then(|v| v.parse::<usize>().ok())
 }
 
-// The apply-path dimension's first calibrated default, resolved only by `recipe_runtime::RuntimeBudget` (ordinary `pangloss`
+// The apply-path dimension's first calibrated default, resolved only by `backend_runtime::RuntimeBudget` (ordinary `pangloss`
 // analysis is untouched). See docs/research/pg-foma-compose-budget-design-notes.md for the derivation of 1,000,000.
 pub const DEFAULT_EVALUATION_APPLY_PATH_BUDGET: usize = 1_000_000;
 
