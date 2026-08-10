@@ -255,6 +255,169 @@ pub fn validate_manifest(m: &Manifest) -> Vec<String> {
     problems
 }
 
+/// A `requiring_tests` entry parsed into the source location that must contain it.
+///
+/// Two forms are accepted, mirroring how these suites are actually invoked:
+/// - `pg-<crate> --test <target> [<test_fn>]` — an integration test target under
+///   `rust/crates/<crate>/tests/<target>.rs`, optionally narrowed to one test function in it.
+/// - `pg-<crate> (lib) <module_path>::<test_fn>` — a unit test inside `rust/crates/<crate>/src/`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequiringTest {
+    Integration {
+        crate_name: String,
+        target: String,
+        test_fn: Option<String>,
+    },
+    LibUnit {
+        crate_name: String,
+        test_fn: String,
+    },
+}
+
+/// Parse one `requiring_tests` entry. An unrecognized shape is an error rather than a skip: a
+/// spec this cannot parse is a spec nothing can resolve, which is the state that let a named gate
+/// go missing unnoticed.
+pub fn parse_requiring_test(spec: &str) -> Result<RequiringTest, String> {
+    let fields: Vec<&str> = spec.split_whitespace().collect();
+    let unrecognized = || {
+        format!(
+            "unrecognized requiring_tests form {spec:?}; expected \
+             \"pg-<crate> --test <target> [<test_fn>]\" or \
+             \"pg-<crate> (lib) <module>::<test_fn>\""
+        )
+    };
+    let crate_name = fields.first().ok_or_else(unrecognized)?;
+    if !crate_name.starts_with("pg-") {
+        return Err(unrecognized());
+    }
+    match fields.get(1).copied() {
+        Some("--test") => {
+            let target = fields.get(2).ok_or_else(unrecognized)?;
+            if fields.len() > 4 {
+                return Err(unrecognized());
+            }
+            Ok(RequiringTest::Integration {
+                crate_name: (*crate_name).to_owned(),
+                target: (*target).to_owned(),
+                test_fn: fields.get(3).map(|f| (*f).to_owned()),
+            })
+        }
+        Some("(lib)") => {
+            let path = fields.get(2).ok_or_else(unrecognized)?;
+            if fields.len() != 3 {
+                return Err(unrecognized());
+            }
+            let test_fn = path.rsplit("::").next().filter(|f| !f.is_empty());
+            Ok(RequiringTest::LibUnit {
+                crate_name: (*crate_name).to_owned(),
+                test_fn: test_fn.ok_or_else(unrecognized)?.to_owned(),
+            })
+        }
+        _ => Err(unrecognized()),
+    }
+}
+
+/// `rust/crates`, the root every `requiring_tests` entry resolves against.
+pub fn crates_root() -> PathBuf {
+    repo_root().join("rust").join("crates")
+}
+
+/// Every `requiring_tests` entry that does not name a test present under `crates_root`; empty
+/// means every declared gate exists.
+///
+/// Validating the *shape* of these entries is not enough. `aweti` declared
+/// `pg-foma --test compose_recall_aweti_gate` — a well-shaped name matching no test in any branch
+/// of this repository's history — so a corpus whose whole purpose is failing closed on absent
+/// inputs pointed at a gate that could never run. Pinned by
+/// `a_phantom_requiring_test_is_reported_against_a_synthetic_tree`.
+pub fn unresolvable_requiring_tests(m: &Manifest, crates_root: &Path) -> Vec<String> {
+    let mut problems = Vec::new();
+    for c in &m.corpora {
+        for spec in &c.requiring_tests {
+            let parsed = match parse_requiring_test(spec) {
+                Ok(p) => p,
+                Err(e) => {
+                    problems.push(format!("{}: {e}", c.logical_name));
+                    continue;
+                }
+            };
+            if let Err(e) = resolve_requiring_test(&parsed, crates_root) {
+                problems.push(format!("{}: {spec:?} {e}", c.logical_name));
+            }
+        }
+    }
+    problems
+}
+
+fn resolve_requiring_test(parsed: &RequiringTest, crates_root: &Path) -> Result<(), String> {
+    match parsed {
+        RequiringTest::Integration {
+            crate_name,
+            target,
+            test_fn,
+        } => {
+            let file = crates_root
+                .join(crate_name)
+                .join("tests")
+                .join(format!("{target}.rs"));
+            let text = std::fs::read_to_string(&file)
+                .map_err(|_| format!("names no such test target: {}", file.display()))?;
+            match test_fn {
+                Some(name) if !defines_fn(&text, name) => Err(format!(
+                    "names test function {name:?}, absent from {}",
+                    file.display()
+                )),
+                _ => Ok(()),
+            }
+        }
+        RequiringTest::LibUnit {
+            crate_name,
+            test_fn,
+        } => {
+            let src = crates_root.join(crate_name).join("src");
+            let mut sources = Vec::new();
+            collect_rs_files(&src, &mut sources);
+            if sources.is_empty() {
+                return Err(format!(
+                    "names no such crate source tree: {}",
+                    src.display()
+                ));
+            }
+            let found = sources
+                .iter()
+                .filter_map(|f| std::fs::read_to_string(f).ok())
+                .any(|text| defines_fn(&text, test_fn));
+            if found {
+                Ok(())
+            } else {
+                Err(format!(
+                    "names test function {test_fn:?}, absent from {}",
+                    src.display()
+                ))
+            }
+        }
+    }
+}
+
+/// Textual, not a parse: it only has to distinguish a real test name from a name nothing defines.
+fn defines_fn(text: &str, name: &str) -> bool {
+    text.contains(&format!("fn {name}("))
+}
+
+fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rs_files(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
+        }
+    }
+}
+
 /// Every required manifest path missing under `root`; empty means all are present. Pinned by
 /// `a_missing_required_file_is_reported_against_a_synthetic_manifest`.
 pub fn missing_required_under(m: &Manifest, root: &Path) -> Vec<String> {
@@ -311,6 +474,67 @@ mod tests {
                 "manifest must declare the {expected} corpus"
             );
         }
+    }
+
+    #[test]
+    fn every_requiring_test_in_the_committed_manifest_names_a_test_that_exists() {
+        let m = load_manifest().expect("committed manifest must parse");
+        let problems = unresolvable_requiring_tests(&m, &crates_root());
+        assert!(
+            problems.is_empty(),
+            "requiring_tests naming tests that do not exist: {problems:#?}"
+        );
+        // A manifest that declared no gates at all would pass the loop above vacuously.
+        let declared: usize = m.corpora.iter().map(|c| c.requiring_tests.len()).sum();
+        assert!(declared >= 4, "only {declared} requiring_tests resolved");
+    }
+
+    /// Falsification: a synthetic tree, so the check cannot pass by accident of the real crates.
+    #[test]
+    fn a_phantom_requiring_test_is_reported_against_a_synthetic_tree() {
+        let dir = std::env::temp_dir().join(format!("pg-req-tests-{}", std::process::id()));
+        let tests = dir.join("pg-foma").join("tests");
+        std::fs::create_dir_all(&tests).unwrap();
+        std::fs::write(tests.join("real_gate.rs"), "#[test]\nfn a_real_case() {}\n").unwrap();
+        std::fs::create_dir_all(dir.join("pg-foma").join("src")).unwrap();
+        std::fs::write(
+            dir.join("pg-foma").join("src").join("lib.rs"),
+            "fn a_real_unit_case() {}\n",
+        )
+        .unwrap();
+
+        let resolves = |spec: &str| {
+            let mut m = synthetic();
+            m.corpora[0].requiring_tests = vec![spec.to_owned()];
+            unresolvable_requiring_tests(&m, &dir)
+        };
+
+        assert!(resolves("pg-foma --test real_gate").is_empty());
+        assert!(resolves("pg-foma --test real_gate a_real_case").is_empty());
+        assert!(resolves("pg-foma (lib) some_mod::a_real_unit_case").is_empty());
+
+        // The exact shape that shipped: a target name nothing defines.
+        let problems = resolves("pg-foma --test compose_recall_aweti_gate");
+        assert_eq!(problems.len(), 1, "{problems:#?}");
+        assert!(
+            problems[0].contains("names no such test target"),
+            "{problems:#?}"
+        );
+
+        // A real target with a test function it does not define.
+        let problems = resolves("pg-foma --test real_gate a_case_that_is_not_there");
+        assert!(problems[0].contains("absent from"), "{problems:#?}");
+
+        // A shape nothing can resolve is an error, never a silent pass.
+        for bad in [
+            "synthetic-suite",
+            "pg-foma --tests real_gate",
+            "pg-foma (lib)",
+        ] {
+            assert!(!resolves(bad).is_empty(), "{bad:?} must not resolve");
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// CI proves fail-closed with a synthetic manifest and intentionally missing files, needing no private corpus.

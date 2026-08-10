@@ -15,7 +15,10 @@
     "if-absent. Ordinary fixture-independent test runs are unaffected.",
     "",
     "Keep `requiring_tests` accurate: it is how a reader finds what breaks when a corpus goes",
-    "missing, and the manifest-validation test checks the shape of every entry."
+    "missing. Every entry is RESOLVED against rust/crates/, not merely shape-checked: a name that",
+    "matches no test fails the manifest-validation test. Shape alone was not enough -- aweti",
+    "declared a well-formed `compose_recall_aweti_gate` that matched no test in any branch of this",
+    "repository's history, so a fail-closed contract named a gate that could never run."
   ],
   "schema_version": 1,
   "corpus_root": "samples/data",
@@ -105,8 +108,7 @@
         { "path": "aweti.fwdata", "role": "grammar-fwdata", "required": false }
       ],
       "requiring_tests": [
-        "pg-foma --test p6_templated_morphotactics_gate",
-        "pg-foma --test compose_recall_aweti_gate"
+        "pg-foma --test p6_templated_morphotactics_gate"
       ]
     }
   ]
