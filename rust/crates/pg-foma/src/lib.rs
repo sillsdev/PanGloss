@@ -148,6 +148,13 @@ pub mod emit;
 /// to `gate.rs`'s own, separate compile entry point; see that module's own doc for full scope and
 /// the judgment calls it surfaces.
 pub mod enumerate;
+/// The per-STRATEGY FAITHFULNESS account: whether a backend's proposal set CONTAINS every analysis
+/// full Rust HermitCrab finds, for each discovered fixture exhibiting a
+/// `capability::CharacteristicKind`. Complements `witnessed_coverage` (which proves only that a
+/// backend COMPILED a grammar containing a construct) by running the real propose+observe pipeline
+/// (`backend_runtime::evaluate_plans_observed_with_cache`) and comparing against the same oracle.
+/// See that module's own doc for the containment relation and the denominator discipline.
+pub mod faithfulness_coverage;
 /// Static MPR/POS subrule gating, a sibling of `replace`/`uflexc`. See that module's doc for
 /// the design and why it is a flag-free static partition rather than a flag-diacritics encoding.
 pub mod gate;

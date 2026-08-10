@@ -9,7 +9,8 @@ use pg_foma::backend_registry::{
 };
 use pg_foma::backend_runtime::{
     certify_corpus, check_proposal_ratio, evaluate_plans_observed_with_cache,
-    evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget, WordEvidence,
+    evaluate_plans_with_cache, word_proposal_containment, RunEvaluationCache, RuntimeBudget,
+    WordEvidence,
 };
 use pg_foma::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
 use pg_foma::lowering_adapter::LoweringAdapter;
@@ -166,10 +167,7 @@ fn candidate_key(candidate: &pg_foma::tags::Candidate) -> (Vec<u32>, i32) {
     )
 }
 
-fn analysis_key(analysis: &pg_parse::WordAnalysis) -> (Vec<u32>, i32) {
-    (analysis.morpheme_ids.clone(), analysis.root_morpheme_index)
-}
-
+/// Identity comparison delegates to `word_proposal_containment`; the duplicate-identity check below is this evaluator's own dedup invariant, checked here only.
 fn assert_proposal_containment(strategy: EmissionStrategy, evidence: &[WordEvidence]) {
     for word in evidence {
         let mut proposed = BTreeMap::<(Vec<u32>, i32), usize>::new();
@@ -182,17 +180,9 @@ fn assert_proposal_containment(strategy: EmissionStrategy, evidence: &[WordEvide
             "{strategy:?} evidence for {:?} contains duplicate final candidate identities",
             word.word
         );
-
-        let mut oracle = BTreeMap::<(Vec<u32>, i32), usize>::new();
-        for analysis in &word.expected {
-            *oracle.entry(analysis_key(analysis)).or_default() += 1;
-        }
-        for (identity, required) in oracle {
-            let offered = proposed.get(&identity).copied().unwrap_or_default();
-            assert!(
-                offered >= required,
-                "{strategy:?} failed proposal containment for {:?}: required multiplicity {required}, offered {offered}; proposals={:?}",
-                identity,
+        if let Err(gap) = word_proposal_containment(word) {
+            panic!(
+                "{strategy:?} failed proposal containment: {gap}; proposals={:?}",
                 word.proposals
             );
         }
