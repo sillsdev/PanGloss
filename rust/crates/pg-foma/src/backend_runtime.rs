@@ -707,6 +707,78 @@ pub struct WordEvidence {
     pub actual_identities: Option<OccurrenceIdentities>,
 }
 
+/// One oracle-required analysis identity that `WordEvidence::proposals` did not offer at
+/// sufficient multiplicity for `WordEvidence::word`.
+///
+/// The identity is the same `(morpheme id sequence, root index)` pair
+/// `tests/cross_compiler_equivalence_gate.rs`'s `candidate_key`/`analysis_key` already compared by
+/// hand for one pinned fixture; this type is what that comparison now returns instead of asserting
+/// directly, so a second caller (a fixture-wide faithfulness sweep) can classify the gap rather than
+/// panic on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContainmentGap {
+    pub word: String,
+    pub morpheme_ids: Vec<u32>,
+    pub root_morpheme_index: i32,
+    pub required: usize,
+    pub offered: usize,
+}
+
+impl std::fmt::Display for ContainmentGap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "word {:?}: oracle identity (morphemes={:?}, root_index={}) required multiplicity {}, \
+             proposal set offered {}",
+            self.word, self.morpheme_ids, self.root_morpheme_index, self.required, self.offered
+        )
+    }
+}
+
+impl std::error::Error for ContainmentGap {}
+
+/// Does `evidence.proposals` (the final, deduplicated candidate vector confirmation received)
+/// CONTAIN every oracle identity `evidence.expected` names, at the oracle's own multiplicity?
+///
+/// This is containment, not equality: a proposal set may offer MORE than the oracle found (over-
+/// generation) and still pass here -- `check_proposal_ratio` is the separate, existing guard against
+/// that. It is also the honest question for a propose+confirm pipeline: confirmation can only ever
+/// select from what was proposed, so an emitter that silently drops a construct's material makes the
+/// proposal set under-generate, and this is where that failure first becomes visible -- before
+/// confirmation, which would otherwise just report a smaller `actual` with no way to tell "the oracle
+/// found less" apart from "the proposer never offered it".
+pub fn word_proposal_containment(evidence: &WordEvidence) -> Result<(), ContainmentGap> {
+    let mut proposed = std::collections::BTreeMap::<(Vec<u32>, i32), usize>::new();
+    for candidate in &evidence.proposals {
+        let key = (
+            candidate.morphemes.iter().map(|m| m.0).collect(),
+            candidate.root_index,
+        );
+        *proposed.entry(key).or_default() += 1;
+    }
+    let mut oracle = std::collections::BTreeMap::<(Vec<u32>, i32), usize>::new();
+    for analysis in &evidence.expected {
+        let key = (analysis.morpheme_ids.clone(), analysis.root_morpheme_index);
+        *oracle.entry(key).or_default() += 1;
+    }
+    for ((morpheme_ids, root_morpheme_index), required) in oracle {
+        let offered = proposed
+            .get(&(morpheme_ids.clone(), root_morpheme_index))
+            .copied()
+            .unwrap_or_default();
+        if offered < required {
+            return Err(ContainmentGap {
+                word: evidence.word.clone(),
+                morpheme_ids,
+                root_morpheme_index,
+                required,
+                offered,
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Read-only evidence returned by the opt-in observed evaluator. `None` means evaluation failed
 /// before a complete evidence vector existed; `Some(empty)` is a real, observed empty corpus.
 #[doc(hidden)]
