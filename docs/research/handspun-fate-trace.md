@@ -309,14 +309,19 @@ names `crate::emit` directly.
   before the rename landed, which is consistent with it now reading as unfamiliar/renamed even
   though the underlying code never moved.
 
+**Resolved on a later read of `docs/research/pg-foma-p6-aweti-gate.md` (which §6 below had left
+open): Aweti cannot ever have worked well on hand-spun, because hand-spun cannot compile it.** That
+doc's opening states it directly — Aweti is "a grammar whose enumeration-based emitter
+(`pg_foma::emit::emit`) OOMs before ever reaching a compilable lexc source (855 entries, 135 mrules
+trip the composite pre-expansion stage's enumeration budget)", and `emit_underlying_templated` plus
+a replace-rule cascade "is the first construction that gets Aweti's templated
+(`<AffixTemplate>`-based) morphotactics past that wall at all"
+(`docs/research/pg-foma-p6-aweti-gate.md:3-10`). So Aweti's gate runs
+`TemplatedUnderlyingTokens` not by preference but by necessity: hand-spun has no result on this
+grammar to be measured against. Any recollection that all four grammars worked well on hand-spun
+holds for at most three of them.
+
 **Not established / could not be determined from this repo's history:**
-- Whether Aweti's "worked really well" reputation (if that reputation predates the corpus-manifest
-  gates examined here) was ever actually measured against hand-spun/`TunedSurfaceProbed`
-  specifically, as opposed to being a general impression from early, pre-`EnumerationBudget`
-  experimentation before the documented OOM/crash (§2.13) was found. The audit and the P6 Aweti gate
-  doc (`docs/research/pg-foma-p6-aweti-gate.md`) were not read in full in this pass beyond the
-  confirmations above; a closer read of that document, if it contains a direct hand-spun-vs-Aweti
-  recall measurement, was not located by the searches run here.
 - Whether any branch OTHER than `main`/the ones surfaced by `git log --all` (this repo has roughly
   fifty worktrees, each potentially its own branch) contains a `compose_recall_aweti_gate`
   implementation that was simply never merged. `git log --all` does cover every locally-fetched
