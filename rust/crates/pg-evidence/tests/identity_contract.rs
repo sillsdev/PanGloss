@@ -36,6 +36,15 @@ fn typed_keys_have_stable_wire_identity_ordering_and_hashing() {
             "id_kind": "fieldworks_guid"
         })
     );
+    assert_eq!(construct.namespace(), "fieldworks");
+    assert_eq!(construct.kind(), "morphological_rule");
+    assert_eq!(construct.id(), "11111111-1111-1111-1111-111111111111");
+    assert_eq!(construct.id_kind(), ConstructIdKind::FieldworksGuid);
+    assert_eq!(observation.construct(), &construct);
+    assert_eq!(observation.operation(), "apply");
+    assert_eq!(observation.metric(), "physical_rule_executions");
+    assert_eq!(observation.definition_version(), 1);
+    assert_eq!(observation.aggregation(), "corpus_sum");
     assert_eq!(
         serde_json::from_value::<ObservationKey>(serde_json::to_value(&observation).unwrap())
             .unwrap(),
@@ -59,6 +68,22 @@ fn typed_keys_have_stable_wire_identity_ordering_and_hashing() {
     let mut hashed = HashSet::new();
     assert!(hashed.insert(observation.clone()));
     assert!(!hashed.insert(observation));
+}
+
+#[test]
+fn compiler_assigned_constructs_are_not_misrepresented_as_authored_source_ids() {
+    let key = ConstructKey::new(
+        "pangloss",
+        "stratum",
+        "7",
+        ConstructIdKind::CompilerAssigned,
+    )
+    .unwrap();
+    assert_eq!(key.id_kind(), ConstructIdKind::CompilerAssigned);
+    assert_eq!(
+        serde_json::to_value(&key).unwrap()["id_kind"],
+        serde_json::json!("compiler_assigned")
+    );
 }
 
 #[test]
@@ -110,4 +135,13 @@ fn evidence_context_round_trips_without_requiring_optional_configuration() {
     assert_eq!(no_config.context_version, EVIDENCE_CONTEXT_VERSION);
     assert_eq!(no_config.profile, None);
     assert_eq!(no_config.config_digest, None);
+}
+
+#[test]
+fn sparse_evidence_context_json_means_unknown_not_required_configuration() {
+    let sparse: EvidenceContext = serde_json::from_str("{}").unwrap();
+    assert_eq!(sparse, EvidenceContext::default());
+
+    let version_only: EvidenceContext = serde_json::from_str(r#"{"context_version":1}"#).unwrap();
+    assert_eq!(version_only, EvidenceContext::default());
 }
