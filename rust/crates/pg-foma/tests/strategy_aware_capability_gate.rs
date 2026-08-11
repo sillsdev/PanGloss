@@ -3,6 +3,8 @@
 
 use foma::options::FomaOptions;
 
+use pg_conformance_fixtures::{discover_scoped, ConformanceScope, FixtureRef, Root};
+use pg_foma::backend_selection::select_backends_for_grammar;
 use pg_foma::capability::{
     compose_envelope, compose_envelope_for_strategy, default_registry, CharacteristicKind,
     CompileDecision,
@@ -11,14 +13,36 @@ use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::enumerate::{
     enumerate_default, prules_in_order, CandidateRole, EmissionStrategy, LoweredCandidate,
 };
+use pg_foma::faithfulness_coverage::{observe_fixture_containment, ContainmentOutcome};
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::plan::Plan;
 use pg_foma::replace::SegAlphabet;
 use pg_foma::selection::select_plan;
-use pg_foma::strategy_coverage::{representation_of, StrategyRepresentation};
+use pg_foma::strategy_coverage::{
+    representation_of, unrepresentable_kinds, StrategyRepresentation,
+};
 use pg_grammar::model::{Grammar, MorphRuleDef};
+
+const TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE: &str = "strategy-coverage.templated-unsupported-shape";
+
+fn conformance_fixture(root: Root, category: &str, name: &str) -> FixtureRef {
+    discover_scoped(ConformanceScope::All)
+        .into_iter()
+        .find(|fixture| {
+            fixture.root == root && fixture.category == category && fixture.name == name
+        })
+        .unwrap_or_else(|| panic!("missing conformance fixture {root:?}:{category}/{name}"))
+}
+
+fn load_conformance_fixture(root: Root, category: &str, name: &str) -> (FixtureRef, Grammar) {
+    let fixture = conformance_fixture(root, category, name);
+    let label = fixture.label();
+    let grammar = load(&fixture.load_grammar_xml());
+    assert!(!label.is_empty());
+    (fixture, grammar)
+}
 
 /// A minimal grammar whose only morphological rule is a `RealizationalRule`, reused verbatim from `capability.rs`'s own fixture so this file is not litigating a second, differently-shaped grammar.
 const REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>
@@ -337,4 +361,203 @@ fn the_account_is_per_strategy_not_a_blanket_refusal() {
             "{strategy:?}"
         );
     }
+}
+
+/// Ordinary affixes and simple circumfixes remain selectable.
+#[test]
+fn templated_selector_keeps_ordinary_affixes_and_simple_circumfix_selectable() {
+    for (root, category, name) in [
+        (
+            Root::Staging,
+            "edge-cases",
+            "cross-stem-material-determination",
+        ),
+        (Root::Staging, "edge-cases", "circumfix-in-template-slot"),
+    ] {
+        let (_, grammar) = load_conformance_fixture(root, category, name);
+        let selection = select_backends_for_grammar(&grammar);
+        assert!(
+            selection
+                .report_for(EmissionStrategy::TemplatedUnderlyingTokens)
+                .expect("templated backend must be reported")
+                .is_selected(),
+            "{root:?}:{category}/{name}: ordinary/simple-circumfix shape must keep the templated backend selectable"
+        );
+    }
+}
+
+/// Refuses each unsupported allomorph shape while retaining Tuned as a viable path.
+#[test]
+fn templated_selector_refuses_each_known_unsupported_shape_with_per_allomorph_diagnostics() {
+    let fixtures = [
+        (
+            Root::Machine,
+            "languages",
+            "fusional-realizational-morphology",
+            "vinc",
+        ),
+        (
+            Root::Machine,
+            "languages",
+            "metathesis-phase-isolation",
+            "sumulat",
+        ),
+        (
+            Root::Staging,
+            "edge-cases",
+            "backend-ordered-generic",
+            "sumulat",
+        ),
+        (
+            Root::Staging,
+            "edge-cases",
+            "circumfix-cross-product-and-infix-drop",
+            "bumat",
+        ),
+        (
+            Root::Staging,
+            "edge-cases",
+            "circumfix-infix-interior-action-precedence",
+            "kebzatan",
+        ),
+        (
+            Root::Staging,
+            "edge-cases",
+            "circumfix-reduplication-precedence",
+            "ketamtaman",
+        ),
+        (
+            Root::Staging,
+            "edge-cases",
+            "infix-interdigitation",
+            "kpfotab",
+        ),
+    ];
+
+    for (root, category, name, surface) in fixtures {
+        let (_, grammar) = load_conformance_fixture(root, category, name);
+        let selection = select_backends_for_grammar(&grammar);
+        let templated = selection
+            .report_for(EmissionStrategy::TemplatedUnderlyingTokens)
+            .expect("templated backend must be reported");
+        assert!(
+            !templated.is_selected(),
+            "{root:?}:{category}/{name} ({surface}) must be refused by the templated selector"
+        );
+        let diagnostics = templated.declined_on();
+        assert!(
+            !diagnostics.is_empty(),
+            "{root:?}:{category}/{name} ({surface}) refusal must retain per-shape diagnostics"
+        );
+        assert!(
+            diagnostics.iter().all(|diagnostic| {
+                diagnostic.predicate == TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE
+                    && diagnostic
+                        .witness
+                        .contains("no faithful templated emission path")
+            }),
+            "{root:?}:{category}/{name} ({surface}) diagnostics must use the stable predicate and faithful-path refusal: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics.iter().any(|diagnostic| {
+                diagnostic.construct.contains("mrule")
+                    && diagnostic.construct.contains("allomorph")
+            }),
+            "{root:?}:{category}/{name} ({surface}) must retain a precise mrule/allomorph refusal: {diagnostics:?}"
+        );
+        assert!(
+            selection
+                .report_for(EmissionStrategy::TunedSurfaceProbed)
+                .expect("tuned backend must be reported")
+                .is_selected(),
+            "{root:?}:{category}/{name} ({surface}) must keep the tuned backend selectable"
+        );
+    }
+}
+
+/// Dynamic refusals do not widen static unrepresentable kinds.
+#[test]
+fn templated_static_unrepresentable_kinds_remains_process_morphology_only() {
+    assert_eq!(
+        unrepresentable_kinds(EmissionStrategy::TemplatedUnderlyingTokens),
+        vec![CharacteristicKind::ProcessMorphology]
+    );
+}
+
+/// Refuses unordered loose-rule and self-opaquing epenthesis shapes for Templated.
+#[test]
+fn templated_selector_refuses_unordered_and_self_opaquing_fixture_shapes() {
+    let fixtures = [
+        (
+            Root::Machine,
+            "edge-cases",
+            "strrep-identity",
+            "ndpat",
+            "unordered",
+        ),
+        (
+            Root::Machine,
+            "languages",
+            "suffixing-vowel-harmony",
+            "semitide",
+            "self-opaquing epenthesis",
+        ),
+        (
+            Root::Machine,
+            "languages",
+            "templatic-root-modification",
+            "katabit",
+            "self-opaquing epenthesis",
+        ),
+    ];
+
+    for (root, category, name, surface, shape) in fixtures {
+        let (_, grammar) = load_conformance_fixture(root, category, name);
+        let selection = select_backends_for_grammar(&grammar);
+        let templated = selection
+            .report_for(EmissionStrategy::TemplatedUnderlyingTokens)
+            .expect("templated backend must be reported");
+        assert!(
+            !templated.is_selected(),
+            "{root:?}:{category}/{name} ({surface}) must be refused for its {shape} shape"
+        );
+
+        let diagnostics = templated.declined_on();
+        assert!(
+            diagnostics.iter().any(|diagnostic| {
+                diagnostic.predicate == TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE
+                    && diagnostic.witness.contains("no faithful templated emission path")
+                    && diagnostic
+                        .witness
+                        .to_ascii_lowercase()
+                        .contains(shape)
+            }),
+            "{root:?}:{category}/{name} ({surface}) must identify {shape} and the faithful-path refusal: {diagnostics:?}"
+        );
+        assert!(
+            selection
+                .report_for(EmissionStrategy::TunedSurfaceProbed)
+                .expect("tuned backend must be reported")
+                .is_selected(),
+            "{root:?}:{category}/{name} ({surface}) must keep Tuned selectable"
+        );
+    }
+}
+
+/// A selector refusal is containment `NotAttempted`, never a misleading `Failed` comparison.
+#[test]
+fn refused_templated_fixture_is_not_attempted_by_containment() {
+    let (fixture, grammar) = load_conformance_fixture(
+        Root::Staging,
+        "edge-cases",
+        "circumfix-cross-product-and-infix-drop",
+    );
+    let observation =
+        observe_fixture_containment(&fixture.label(), &grammar, &["bumat".to_string()]);
+    assert_eq!(
+        observation.outcome_for(EmissionStrategy::TemplatedUnderlyingTokens),
+        Some(&ContainmentOutcome::NotAttempted {
+            reason: "refused-by-selector".to_string(),
+        })
+    );
 }

@@ -140,22 +140,34 @@ pub struct FomaProposer {
 struct SegmentQueryEncoder {
     /// NFD representations, longest first, paired with their PUA token.
     representations: Vec<(Vec<char>, char)>,
+    /// Declared boundary representations, longest first, for explicit-query encoding before terminal cleanup.
+    boundary_representations: Vec<Vec<char>>,
 }
 
 impl SegmentQueryEncoder {
     fn new(table: &CharDefTable) -> Self {
         let alphabet = crate::replace::SegAlphabet::new(table);
         let mut representations: Vec<(Vec<char>, char)> = Vec::new();
+        let mut boundary_representations: Vec<Vec<char>> = Vec::new();
         for (id, definition) in table.iter() {
-            if definition.kind() != CharDefKind::Segment {
-                continue;
-            }
             for representation in definition.representations_nfd() {
-                representations.push((representation.chars().collect(), alphabet.token(id)));
+                match definition.kind() {
+                    CharDefKind::Segment => {
+                        representations.push((representation.chars().collect(), alphabet.token(id)))
+                    }
+                    CharDefKind::Boundary => {
+                        boundary_representations.push(representation.chars().collect())
+                    }
+                }
             }
         }
         representations.sort_by_key(|(representation, _)| std::cmp::Reverse(representation.len()));
-        SegmentQueryEncoder { representations }
+        boundary_representations
+            .sort_by_key(|representation| std::cmp::Reverse(representation.len()));
+        SegmentQueryEncoder {
+            representations,
+            boundary_representations,
+        }
     }
 
     fn encode(&self, word: &str) -> Option<String> {
@@ -163,11 +175,22 @@ impl SegmentQueryEncoder {
         let mut encoded = String::with_capacity(normalized.len());
         let mut position = 0;
         while position < normalized.len() {
-            let (representation, token) = self
+            if let Some((representation, token)) = self
                 .representations
                 .iter()
-                .find(|(representation, _)| normalized[position..].starts_with(representation))?;
-            encoded.push(*token);
+                .find(|(representation, _)| normalized[position..].starts_with(representation))
+            {
+                encoded.push(*token);
+                position += representation.len();
+                continue;
+            }
+            let Some(representation) = self
+                .boundary_representations
+                .iter()
+                .find(|representation| normalized[position..].starts_with(representation))
+            else {
+                return None;
+            };
             position += representation.len();
         }
         Some(encoded)

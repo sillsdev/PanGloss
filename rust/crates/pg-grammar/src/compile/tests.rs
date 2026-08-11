@@ -16,7 +16,7 @@ use pg_snapshot::phonology::{
 use pg_snapshot::project::Project;
 use pg_snapshot::{FeatureSystems, Snapshot, WsForm};
 
-use crate::model::MorphRuleDef;
+use crate::model::{MorphRuleDef, OutputAction, PartRef};
 
 use super::{compile_project, environment};
 
@@ -591,9 +591,11 @@ fn metathesis_rule_is_unsupported_and_warns_rather_than_erroring() {
     );
 }
 
-/// A circumfix entry is also unimplemented: it warns and contributes no rule, rather than crashing the whole compile.
+// --- 7b. circumfix cross-product (HCLoader.cs:1048-1332) --------------------------------------
+
+/// Flips the circumfix-drop warning into a positive lowering pin: with no environment on either half, the LHS is a single flat `AnyPlus()`.
 #[test]
-fn circumfix_entry_is_unsupported_and_warns_rather_than_erroring() {
+fn circumfix_entry_lowers_to_a_cross_product_allomorph_and_registers_its_slot() {
     let (mut snapshot, f) = fixture();
     let circumfix_entry = LexEntry {
         guid: "entry-circumfix".to_string(),
@@ -606,6 +608,114 @@ fn circumfix_entry_is_unsupported_and_warns_rather_than_erroring() {
         msas: vec![Msa::Inflectional {
             guid: "msa-circumfix".to_string(),
             part_of_speech: Some(f.noun_pos.clone()),
+            slots: vec![f.slot.clone()],
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(circumfix_entry);
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("circumfix must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let affix_rules: Vec<_> = grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .collect();
+    // The fixture's ordinary suffix rule plus the new circumfix rule.
+    assert_eq!(affix_rules.len(), 2);
+    let circumfix_rule = affix_rules
+        .iter()
+        .find(|r| r.allomorphs.first().is_some_and(|a| a.rhs.len() == 3))
+        .expect("expected the circumfix rule (3-action RHS) among the affix rules");
+    assert_eq!(
+        circumfix_rule.allomorphs.len(),
+        1,
+        "1 prefix x 1 suffix x 1 (blank) prefix-env x 1 (blank) suffix-env = 1 allomorph"
+    );
+    let allo = &circumfix_rule.allomorphs[0];
+    assert!(
+        allo.environments.is_empty(),
+        "no environment authored on either half -> no EnvironmentDef"
+    );
+    assert_eq!(allo.lhs.len(), 1, "one flat LHS pattern for a circumfix");
+    assert_eq!(
+        allo.lhs[0].nodes.len(),
+        3,
+        "AnyPlus() is PrefixNull + one-or-more-Any + SuffixNull"
+    );
+    assert!(
+        allo.lhs[0]
+            .nodes
+            .iter()
+            .all(|n| matches!(n, crate::model::PatternNode::Quantifier { .. })),
+        "all three AnyPlus nodes are quantifiers"
+    );
+    match &allo.rhs[0] {
+        OutputAction::InsertSegments { shape, .. } => assert_eq!(shape.text, "ka+"),
+        other => panic!("expected InsertSegments; got {other:?}"),
+    }
+    assert_eq!(allo.rhs[1], OutputAction::Copy(PartRef::Input(0)));
+    match &allo.rhs[2] {
+        OutputAction::InsertSegments { shape, .. } => assert_eq!(shape.text, "+ta"),
+        other => panic!("expected InsertSegments; got {other:?}"),
+    }
+
+    // The user-visible point of the fix: the owning template's slot gains the circumfix rule too.
+    let circumfix_mrule_id = grammar
+        .mrules
+        .iter()
+        .position(|r| {
+            matches!(r, MorphRuleDef::AffixProcess(d) if d.allomorphs.first().is_some_and(|a| a.rhs.len() == 3))
+        })
+        .map(|i| crate::model::MRuleId(i as u32))
+        .expect("circumfix rule must be registered in grammar.mrules");
+    assert_eq!(grammar.templates[0].slots[0].rules.len(), 2);
+    assert!(grammar.templates[0].slots[0]
+        .rules
+        .contains(&circumfix_mrule_id));
+}
+
+/// MPR asymmetry (HCLoader.cs:1055-1057): a circumfix allomorph's required inflection-class MPR bit comes from the PREFIX half only.
+#[test]
+fn circumfix_required_mpr_comes_from_the_prefix_half_only() {
+    let (mut snapshot, f) = fixture();
+    let prefix_class = "class-prefix-only".to_string();
+    let suffix_class = "class-suffix-only".to_string();
+    snapshot.morphology.parts_of_speech[0]
+        .inflection_classes
+        .push(InflectionClass {
+            guid: prefix_class.clone(),
+            name: "PrefixClass".to_string(),
+            abbreviation: "pfx".to_string(),
+            children: Vec::new(),
+        });
+    snapshot.morphology.parts_of_speech[0]
+        .inflection_classes
+        .push(InflectionClass {
+            guid: suffix_class.clone(),
+            name: "SuffixClass".to_string(),
+            abbreviation: "sfx".to_string(),
+            children: Vec::new(),
+        });
+    let mut prefix_allo = simple_allomorph("allo-mpr-prefix", MorphType::Prefix, "ka");
+    prefix_allo.inflection_classes.push(prefix_class.clone());
+    let mut suffix_allo = simple_allomorph("allo-mpr-suffix", MorphType::Suffix, "ta");
+    suffix_allo.inflection_classes.push(suffix_class.clone());
+    let circumfix_entry = LexEntry {
+        guid: "entry-circumfix-mpr".to_string(),
+        citation_form: vec![ws("sen", "ka-...-ta")],
+        lexeme_morph_type: MorphType::Circumfix,
+        allomorphs: vec![prefix_allo, suffix_allo],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-circumfix-mpr".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
             slots: Vec::new(),
             features: None,
             exception_features: Vec::new(),
@@ -615,13 +725,575 @@ fn circumfix_entry_is_unsupported_and_warns_rather_than_erroring() {
     };
     snapshot.lexicon.entries.push(circumfix_entry);
 
-    let (_grammar, warnings) =
-        compile_project(&snapshot).expect("circumfix must not be a hard error");
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let rule = grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .find(|d| d.allomorphs.first().is_some_and(|a| a.rhs.len() == 3))
+        .expect("expected the circumfix rule");
+    let prefix_bit = grammar
+        .mpr_features
+        .iter()
+        .position(|feat| feat.xml_id == prefix_class)
+        .expect("prefix inflection class must be registered");
+    let suffix_bit = grammar
+        .mpr_features
+        .iter()
+        .position(|feat| feat.xml_id == suffix_class)
+        .expect("suffix inflection class must be registered");
+    let allo = &rule.allomorphs[0];
+    assert!(
+        allo.required_mpr
+            .contains(crate::model::MprId(prefix_bit as u8)),
+        "the prefix half's inflection class must gate the allomorph"
+    );
+    assert!(
+        !allo
+            .required_mpr
+            .contains(crate::model::MprId(suffix_bit as u8)),
+        "the suffix half's inflection class must be ignored (the HCLoader.cs:1055-1057 asymmetry)"
+    );
+}
+
+/// A prefix-only environment inlines its right-context text after `PrefixNull()`; a non-empty left-context text becomes the one external `EnvironmentDef`.
+#[test]
+fn circumfix_prefix_only_environment_inlines_right_context_and_externalizes_left() {
+    let (mut snapshot, f) = fixture();
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-cons".to_string(),
+            name: "C".to_string(),
+            phonemes: vec![
+                "ph-k".to_string(),
+                "ph-t".to_string(),
+                "ph-m".to_string(),
+                "ph-s".to_string(),
+            ],
+        });
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-vowel".to_string(),
+            name: "V".to_string(),
+            phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
+        });
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-prefix-b".to_string(),
+            name: String::new(),
+            representation: "/[C]_[V]".to_string(),
+        });
+    let mut prefix_allo = simple_allomorph("allo-b-prefix", MorphType::Prefix, "ka");
+    prefix_allo.environments.push("env-prefix-b".to_string());
+    let circumfix_entry = LexEntry {
+        guid: "entry-circumfix-b".to_string(),
+        citation_form: vec![ws("sen", "ka-...-ta")],
+        lexeme_morph_type: MorphType::Circumfix,
+        allomorphs: vec![
+            prefix_allo,
+            simple_allomorph("allo-b-suffix", MorphType::Suffix, "ta"),
+        ],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-circumfix-b".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(circumfix_entry);
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let rule = grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .find(|d| d.allomorphs.first().is_some_and(|a| a.rhs.len() == 3))
+        .expect("expected the circumfix rule");
+    assert_eq!(rule.allomorphs.len(), 1);
+    let allo = &rule.allomorphs[0];
+    assert_eq!(
+        allo.environments.len(),
+        1,
+        "the prefix's non-empty left context is the one external EnvironmentDef"
+    );
+    assert!(allo.environments[0].left.is_some());
+    assert!(allo.environments[0].right.is_none());
+}
+
+/// Mirror of the prefix-only case for the suffix half: left-context text inlines before `SuffixNull()`; a non-empty right-context text externalizes.
+#[test]
+fn circumfix_suffix_only_environment_inlines_left_context_and_externalizes_right() {
+    let (mut snapshot, f) = fixture();
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-cons".to_string(),
+            name: "C".to_string(),
+            phonemes: vec![
+                "ph-k".to_string(),
+                "ph-t".to_string(),
+                "ph-m".to_string(),
+                "ph-s".to_string(),
+            ],
+        });
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-vowel".to_string(),
+            name: "V".to_string(),
+            phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
+        });
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-suffix-c".to_string(),
+            name: String::new(),
+            representation: "/[V]_[C]".to_string(),
+        });
+    let mut suffix_allo = simple_allomorph("allo-c-suffix", MorphType::Suffix, "ta");
+    suffix_allo.environments.push("env-suffix-c".to_string());
+    let circumfix_entry = LexEntry {
+        guid: "entry-circumfix-c".to_string(),
+        citation_form: vec![ws("sen", "ka-...-ta")],
+        lexeme_morph_type: MorphType::Circumfix,
+        allomorphs: vec![
+            simple_allomorph("allo-c-prefix", MorphType::Prefix, "ka"),
+            suffix_allo,
+        ],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-circumfix-c".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(circumfix_entry);
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let rule = grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .find(|d| d.allomorphs.first().is_some_and(|a| a.rhs.len() == 3))
+        .expect("expected the circumfix rule");
+    assert_eq!(rule.allomorphs.len(), 1);
+    let allo = &rule.allomorphs[0];
+    assert_eq!(
+        allo.environments.len(),
+        1,
+        "the suffix's non-empty right context is the one external EnvironmentDef"
+    );
+    assert!(allo.environments[0].left.is_none());
+    assert!(allo.environments[0].right.is_some());
+}
+
+/// When both halves carry an environment with an external (left/right) context, they merge into exactly ONE `EnvironmentDef`, never two.
+#[test]
+fn circumfix_both_side_environments_merge_into_one_environment_def() {
+    let (mut snapshot, f) = fixture();
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-cons".to_string(),
+            name: "C".to_string(),
+            phonemes: vec![
+                "ph-k".to_string(),
+                "ph-t".to_string(),
+                "ph-m".to_string(),
+                "ph-s".to_string(),
+            ],
+        });
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-vowel".to_string(),
+            name: "V".to_string(),
+            phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
+        });
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-prefix-d".to_string(),
+            name: String::new(),
+            representation: "/[C]_[V]".to_string(),
+        });
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-suffix-d".to_string(),
+            name: String::new(),
+            representation: "/[V]_[C]".to_string(),
+        });
+    let mut prefix_allo = simple_allomorph("allo-d-prefix", MorphType::Prefix, "ka");
+    prefix_allo.environments.push("env-prefix-d".to_string());
+    let mut suffix_allo = simple_allomorph("allo-d-suffix", MorphType::Suffix, "ta");
+    suffix_allo.environments.push("env-suffix-d".to_string());
+    let circumfix_entry = LexEntry {
+        guid: "entry-circumfix-d".to_string(),
+        citation_form: vec![ws("sen", "ka-...-ta")],
+        lexeme_morph_type: MorphType::Circumfix,
+        allomorphs: vec![prefix_allo, suffix_allo],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-circumfix-d".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(circumfix_entry);
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let rule = grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .find(|d| d.allomorphs.first().is_some_and(|a| a.rhs.len() == 3))
+        .expect("expected the circumfix rule");
+    assert_eq!(rule.allomorphs.len(), 1);
+    let allo = &rule.allomorphs[0];
+    assert_eq!(
+        allo.environments.len(),
+        1,
+        "prefix-left and suffix-right external contexts merge into ONE EnvironmentDef"
+    );
+    assert!(allo.environments[0].left.is_some());
+    assert!(allo.environments[0].right.is_some());
+}
+
+/// 2 prefix alternates x 2 suffix alternates build 4 allomorphs, in HCLoader's exact nesting order (prefix outer, suffix inner) -- load-bearing for disjunctive-ordering semantics.
+#[test]
+fn circumfix_two_by_two_cross_product_builds_four_allomorphs_in_hcloader_nesting_order() {
+    let (mut snapshot, f) = fixture();
+    let circumfix_entry = LexEntry {
+        guid: "entry-circumfix-e".to_string(),
+        citation_form: vec![ws("sen", "ka/ku-...-ta/tu")],
+        lexeme_morph_type: MorphType::Circumfix,
+        allomorphs: vec![
+            simple_allomorph("allo-e-prefix0", MorphType::Prefix, "ka"),
+            simple_allomorph("allo-e-prefix1", MorphType::Prefix, "ku"),
+            simple_allomorph("allo-e-suffix0", MorphType::Suffix, "ta"),
+            simple_allomorph("allo-e-suffix1", MorphType::Suffix, "tu"),
+        ],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-circumfix-e".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(circumfix_entry);
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let rule = grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .find(|d| d.allomorphs.len() == 4)
+        .expect("expected the 4-allomorph circumfix rule");
+    let inserted: Vec<(String, String)> = rule
+        .allomorphs
+        .iter()
+        .map(|a| {
+            let pfx = match &a.rhs[0] {
+                OutputAction::InsertSegments { shape, .. } => shape.text.clone(),
+                other => panic!("expected InsertSegments; got {other:?}"),
+            };
+            let sfx = match &a.rhs[2] {
+                OutputAction::InsertSegments { shape, .. } => shape.text.clone(),
+                other => panic!("expected InsertSegments; got {other:?}"),
+            };
+            (pfx, sfx)
+        })
+        .collect();
+    assert_eq!(
+        inserted,
+        vec![
+            ("ka+".to_string(), "+ta".to_string()),
+            ("ka+".to_string(), "+tu".to_string()),
+            ("ku+".to_string(), "+ta".to_string()),
+            ("ku+".to_string(), "+tu".to_string()),
+        ],
+        "prefix outer, suffix inner nesting order"
+    );
+}
+
+/// An entry declared `Circumfix` but missing an entire half warns and drops the whole entry, mirroring HCLoader's zero-yielded-allomorphs outcome for the same malformed data.
+#[test]
+fn circumfix_missing_suffix_half_warns_and_drops_the_entry() {
+    let (mut snapshot, f) = fixture();
+    let circumfix_entry = LexEntry {
+        guid: "entry-circumfix-f".to_string(),
+        citation_form: vec![ws("sen", "ka-...-ku")],
+        lexeme_morph_type: MorphType::Circumfix,
+        allomorphs: vec![
+            simple_allomorph("allo-f-prefix0", MorphType::Prefix, "ka"),
+            simple_allomorph("allo-f-prefix1", MorphType::Prefix, "ku"),
+        ],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-circumfix-f".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(circumfix_entry);
+
+    let (grammar, warnings) =
+        compile_project(&snapshot).expect("a malformed circumfix must not be a hard error");
     assert!(
         warnings
             .iter()
-            .any(|w| w.contains("unsupported") && w.contains("circumfix")),
-        "expected an 'unsupported: circumfix ...' warning; got {warnings:?}"
+            .any(|w| w.contains("circumfix") && w.contains("empty")),
+        "expected an empty-half warning; got {warnings:?}"
+    );
+    let circumfix_rule_count = grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .filter(|d| d.allomorphs.first().is_some_and(|a| a.rhs.len() == 3))
+        .count();
+    assert_eq!(circumfix_rule_count, 0, "no rule built with an empty half");
+}
+
+/// U+25CC stripping is `pg-fwdata`'s job (`node.rs:187-189`), done before the snapshot exists; the compiled RHS text must carry no residual dotted circle.
+#[test]
+fn circumfix_forms_already_stripped_of_dotted_circles_by_fwdata_round_trip_cleanly() {
+    let (mut snapshot, f) = fixture();
+    let circumfix_entry = LexEntry {
+        guid: "entry-circumfix-g".to_string(),
+        citation_form: vec![ws("sen", "ka-...-ta")],
+        lexeme_morph_type: MorphType::Circumfix,
+        allomorphs: vec![
+            simple_allomorph("allo-g-prefix", MorphType::Prefix, "ka"),
+            simple_allomorph("allo-g-suffix", MorphType::Suffix, "ta"),
+        ],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-circumfix-g".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(circumfix_entry);
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let rule = grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .find(|d| d.allomorphs.first().is_some_and(|a| a.rhs.len() == 3))
+        .expect("expected the circumfix rule");
+    match &rule.allomorphs[0].rhs[0] {
+        OutputAction::InsertSegments { shape, .. } => {
+            assert!(!shape.text.contains('\u{25CC}'));
+            assert_eq!(shape.text, "ka+");
+        }
+        other => panic!("expected InsertSegments; got {other:?}"),
+    }
+}
+
+/// If the fwdata-side strip were ever removed, a raw U+25CC reaching this compiler must fail loudly (a segmentation warning), never silently compile as if absent.
+#[test]
+fn circumfix_form_with_an_unstripped_dotted_circle_is_a_loud_warning_not_a_silent_pass() {
+    let (mut snapshot, f) = fixture();
+    let circumfix_entry = LexEntry {
+        guid: "entry-circumfix-g2".to_string(),
+        citation_form: vec![ws("sen", "ka-...-ta")],
+        lexeme_morph_type: MorphType::Circumfix,
+        allomorphs: vec![
+            simple_allomorph("allo-g2-prefix", MorphType::Prefix, "\u{25CC}ka"),
+            simple_allomorph("allo-g2-suffix", MorphType::Suffix, "ta"),
+        ],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-circumfix-g2".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(circumfix_entry);
+    let (grammar, warnings) =
+        compile_project(&snapshot).expect("an unresolvable phoneme must not be a hard error");
+    assert!(
+        warnings.iter().any(|w| w.contains("cannot segment")),
+        "expected a segmentation warning for the un-stripped dotted circle; got {warnings:?}"
+    );
+    let circumfix_rule_count = grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .filter(|d| d.allomorphs.first().is_some_and(|a| a.rhs.len() == 3))
+        .count();
+    assert_eq!(circumfix_rule_count, 0);
+}
+
+/// The same semantic circumfix built through `compile_project` and through the legacy HC-XML `crate::load` must agree on RHS action sequence and environment count; LHS node shapes are not compared since `compile_project`'s no-environment case synthesizes `PrefixNull()`/`AnyStar()`/`SuffixNull()` wildcards the DTD has no equivalent for.
+#[test]
+fn circumfix_cross_product_matches_the_xml_loaders_generic_affix_process_rhs() {
+    let (mut snapshot, f) = fixture();
+    let circumfix_entry = LexEntry {
+        guid: "entry-circumfix-parity".to_string(),
+        citation_form: vec![ws("sen", "ka-...-ta")],
+        lexeme_morph_type: MorphType::Circumfix,
+        allomorphs: vec![
+            simple_allomorph("allo-parity-prefix", MorphType::Prefix, "ka"),
+            simple_allomorph("allo-parity-suffix", MorphType::Suffix, "ta"),
+        ],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-circumfix-parity".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(circumfix_entry);
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let compiled = grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .find(|d| d.allomorphs.first().is_some_and(|a| a.rhs.len() == 3))
+        .expect("expected the circumfix rule");
+    assert_eq!(compiled.allomorphs.len(), 1);
+
+    const XML: &str = r#"<HermitCrabInput><Language><Name>Parity</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        </SegmentDefinitions>
+        <BoundaryDefinitions>
+          <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+        </BoundaryDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses>
+        <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cK" /><Segment segment="cA" /><Segment segment="cT" /></SegmentNaturalClass>
+      </NaturalClasses>
+      <Strata>
+        <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrCirc">
+          <Name>S</Name>
+          <MorphologicalRuleDefinitions>
+            <MorphologicalRule id="mrCirc" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+              <Name>circ</Name>
+              <MorphologicalSubrules>
+                <MorphologicalSubrule id="subCirc">
+                  <MorphologicalInput>
+                    <PhoneticSequence id="stem">
+                      <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
+                    </PhoneticSequence>
+                  </MorphologicalInput>
+                  <MorphologicalOutput>
+                    <InsertSegments><PhoneticShape>ka+</PhoneticShape></InsertSegments>
+                    <CopyFromInput index="stem" />
+                    <InsertSegments><PhoneticShape>+ta</PhoneticShape></InsertSegments>
+                  </MorphologicalOutput>
+                </MorphologicalSubrule>
+              </MorphologicalSubrules>
+            </MorphologicalRule>
+          </MorphologicalRuleDefinitions>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+    let xml_grammar = crate::load::load(XML).expect("hand-authored XML must load");
+    let xml_rule = xml_grammar
+        .mrules
+        .iter()
+        .find_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .expect("expected the XML-loaded circumfix rule");
+    assert_eq!(xml_rule.allomorphs.len(), 1);
+
+    let compiled_rhs = &compiled.allomorphs[0].rhs;
+    let xml_rhs = &xml_rule.allomorphs[0].rhs;
+    assert_eq!(compiled_rhs.len(), xml_rhs.len());
+    for (c, x) in compiled_rhs.iter().zip(xml_rhs.iter()) {
+        match (c, x) {
+            (
+                OutputAction::InsertSegments { shape: cs, .. },
+                OutputAction::InsertSegments { shape: xs, .. },
+            ) => assert_eq!(cs.text, xs.text),
+            (OutputAction::Copy(cp), OutputAction::Copy(xp)) => assert_eq!(cp, xp),
+            other => panic!("action-kind mismatch: {other:?}"),
+        }
+    }
+    assert_eq!(
+        compiled.allomorphs[0].environments.len(),
+        xml_rule.allomorphs[0].environments.len()
     );
 }
 

@@ -164,7 +164,8 @@
 //! bare-redirect UNION of every post-root continuation (`#`, `TLPost`, every `G{gi}Post`) — so a
 //! composite stem sits exactly where an ordinary root does (any prefix chain before it, any suffix
 //! chain after it), at the cost of a cross-group superset (upward
-//! only, confirm prunes). An `Infix` rule that produced at least one composite is removed from
+//! only, confirm prunes). An `Infix` rule that produced at least one composite here, OR (for an
+//! allomorph that drops LHS material, census C4) via `build_structural_composites`, is removed from
 //! `uncovered` (it IS representable now); one that matched zero roots stays, honestly. Zero-cost
 //! and zero-entry for a grammar with no phonological rules and no `Infix` rules (Sena,
 //! byte-identical) and for one whose junctions the deletion-junction model already covers
@@ -550,6 +551,88 @@ pub(crate) fn surface_table(g: &Grammar) -> &CharDefTable {
     &g.char_tables[surface_stratum.table.0 as usize]
 }
 
+/// Re-encode a shape into final-table tokens, expanding foreign-table NFD representation variants.
+fn underlying_shape_variants(
+    alphabet: &SegAlphabet<'_>,
+    origin_table: &CharDefTable,
+    shape: &Shape,
+) -> Vec<String> {
+    if std::ptr::eq(origin_table, alphabet.table()) {
+        return vec![alphabet.encode_shape(shape)];
+    }
+
+    let mut variants = vec![String::new()];
+    for (_, _, raw_cd, _) in shape.interior() {
+        let source = origin_table.get(CharDefId(raw_cd));
+        let mut tokens: Vec<char> = source
+            .representations_nfd()
+            .iter()
+            .filter_map(|spelling| alphabet.table().lookup_nfd(spelling))
+            .map(|cd| alphabet.token(cd))
+            .collect();
+        tokens.sort_unstable();
+        tokens.dedup();
+        if tokens.is_empty() {
+            return Vec::new();
+        }
+
+        let mut next = Vec::with_capacity(variants.len() * tokens.len());
+        for prefix in &variants {
+            for token in &tokens {
+                let mut encoded = prefix.clone();
+                encoded.push(*token);
+                next.push(encoded);
+            }
+        }
+        variants = next;
+    }
+    variants
+}
+
+fn underlying_shape_concat_variants(
+    alphabet: &SegAlphabet<'_>,
+    origin_table: &CharDefTable,
+    shapes: &[&Shape],
+) -> Vec<String> {
+    let mut variants = vec![String::new()];
+    for shape in shapes {
+        let piece_variants = underlying_shape_variants(alphabet, origin_table, shape);
+        if piece_variants.is_empty() {
+            return Vec::new();
+        }
+        let mut next = Vec::with_capacity(variants.len() * piece_variants.len());
+        for prefix in &variants {
+            for piece in &piece_variants {
+                let mut encoded = prefix.clone();
+                encoded.push_str(piece);
+                next.push(encoded);
+            }
+        }
+        variants = next;
+    }
+    variants
+}
+
+fn origin_table_for_mrule<'a>(
+    g: &'a Grammar,
+    mid: MRuleId,
+    fallback: &'a CharDefTable,
+) -> &'a CharDefTable {
+    for stratum in &g.strata {
+        let owns_rule = stratum.mrules.contains(&mid);
+        let owns_template_rule = stratum.templates.iter().any(|&template_id| {
+            g.templates[template_id.0 as usize]
+                .slots
+                .iter()
+                .any(|slot| slot.rules.contains(&mid))
+        });
+        if owns_rule || owns_template_rule {
+            return &g.char_tables[stratum.table.0 as usize];
+        }
+    }
+    fallback
+}
+
 /// Every surface spelling the engine would accept for `text` (module doc, "Surface spelling"):
 /// re-run `pg_grammar::segment::segment`'s greedy longest-match algorithm, drop `Boundary`-kind
 /// matches, and take the cartesian product of each `Segment`-kind match's char-def
@@ -911,6 +994,15 @@ fn write_tag_entry(
     counts.lexc_lines += 1;
 }
 
+/// A tag-free literal entry: `text` on both tapes, no morpheme tag -- for a circumfix's non-tag-bearing half (`crate::structural_allomorph::circumfix_texts`'s own doc), so its rule's tag is never double-counted across both chain positions.
+fn write_untagged_entry(out: &mut String, text: &str, continuation: &str, counts: &mut EmitCounts) {
+    out.push_str(&escape_lexc_text(text));
+    out.push(' ');
+    out.push_str(continuation);
+    out.push_str(" ;\n");
+    counts.lexc_lines += 1;
+}
+
 fn write_root_entries_with_width(
     out: &mut String,
     roots: &[&RootRec],
@@ -990,12 +1082,22 @@ fn collect_roots(
                         counts.allomorphs_skipped += 1;
                         continue;
                     }
-                    let underlying = alphabet.encode_shape(&allo.shape.shape);
+                    let variants =
+                        underlying_shape_variants(alphabet, stratum_table, &allo.shape.shape);
+                    if variants.is_empty() {
+                        uncovered.push(UncoveredItem {
+                            kind: "unsegmentable-root".to_string(),
+                            id: label,
+                            reason: "root shape has no representation in the final surface character-definition table".to_string(),
+                        });
+                        counts.allomorphs_skipped += 1;
+                        continue;
+                    }
                     roots.push(RootRec {
                         id: allo.id,
                         morpheme: entry.morpheme,
                         category: entry.syn_fs,
-                        variants: vec![underlying],
+                        variants,
                         stripped: Vec::new(),
                         never_valid_bare: entry.allomorphs.len() == 1 && allo.is_bound,
                     });
@@ -1451,6 +1553,36 @@ fn emit_rule_allomorphs(
         }
         let role = classify_affix(&allo.rhs);
         if role != zone_role && role != Role::None {
+            // Only the Prefix-zone occurrence carries the tag (the oracle always orders a circumfix's morpheme before the root); the Suffix-zone occurrence is untagged literal text, or the morpheme would be double-counted.
+            if role == Role::CircumfixPrefix {
+                if let TextMode::UnderlyingTokens(alphabet) = mode {
+                    if let Some((prefix, suffix)) =
+                        crate::structural_allomorph::circumfix_texts(alphabet, allo)
+                    {
+                        match zone_role {
+                            Role::Prefix => {
+                                write_tag_entry(
+                                    out,
+                                    &tag_lexc,
+                                    &prefix,
+                                    next,
+                                    counts,
+                                    pk,
+                                    Some(allo.id),
+                                );
+                                counts.allomorphs_emitted += 1;
+                                continue;
+                            }
+                            Role::Suffix => {
+                                write_untagged_entry(out, &suffix, next, counts);
+                                counts.allomorphs_emitted += 1;
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
             uncovered.push(UncoveredItem {
                 kind: role.label().to_string(),
                 id: label,
@@ -1465,6 +1597,25 @@ fn emit_rule_allomorphs(
         match insert_action_texts(&allo.rhs) {
             InsertText::None => {
                 write_tag_entry(out, &tag_lexc, "", next, counts, pk, owner);
+                if let TextMode::UnderlyingTokens(_) = mode {
+                    let origin_table = origin_table_for_mrule(g, mid, table);
+                    if let Some(marker) = crate::structural_allomorph::structural_marker_for_zone(
+                        g,
+                        allo,
+                        origin_table,
+                        zone_role == Role::Prefix,
+                    ) {
+                        write_tag_entry(
+                            out,
+                            &tag_lexc,
+                            &marker.to_string(),
+                            next,
+                            counts,
+                            pk,
+                            owner,
+                        );
+                    }
+                }
                 counts.allomorphs_emitted += 1;
             }
             // `TextMode::UnderlyingTokens`: concatenates every action's token string via `encode_shape`, in document order — no surface-variant product, no phonology consultation; keeps Boundary nodes since the rule cascade's environments need them.
@@ -1472,12 +1623,26 @@ fn emit_rule_allomorphs(
                 let TextMode::UnderlyingTokens(alphabet) = mode else {
                     unreachable!()
                 };
-                let underlying: String = shapes
-                    .iter()
-                    .map(|shape| alphabet.encode_shape(shape))
-                    .collect();
-                write_tag_entry(out, &tag_lexc, &underlying, next, counts, pk, owner);
-                if let Some(marker) = crate::structural_allomorph::structural_marker(g, allo) {
+                let origin_table = origin_table_for_mrule(g, mid, table);
+                let variants = underlying_shape_concat_variants(alphabet, origin_table, &shapes);
+                if variants.is_empty() {
+                    uncovered.push(UncoveredItem {
+                        kind: "unsegmentable-affix".to_string(),
+                        id: label,
+                        reason: "affix insert shape has no representation in the final surface character-definition table".to_string(),
+                    });
+                    counts.allomorphs_skipped += 1;
+                    continue;
+                }
+                for underlying in variants {
+                    write_tag_entry(out, &tag_lexc, &underlying, next, counts, pk, owner);
+                }
+                if let Some(marker) = crate::structural_allomorph::structural_marker_for_zone(
+                    g,
+                    allo,
+                    origin_table,
+                    zone_role == Role::Prefix,
+                ) {
                     write_tag_entry(out, &tag_lexc, &marker.to_string(), next, counts, pk, owner);
                 }
                 counts.allomorphs_emitted += 1;
@@ -1570,7 +1735,12 @@ fn build_deriv_chain(
     let dedicated: Option<Vec<MRuleId>> = match mode {
         TextMode::UnderlyingTokens(_) => {
             let mut expanded = Vec::with_capacity(rules.len());
-            for &mid in rules {
+            // Reverse prefix rules because underlying-token lexc walks from the surface edge toward the root.
+            let mut ordered = rules.to_vec();
+            if zone_role == Role::Prefix {
+                ordered.reverse();
+            }
+            for mid in ordered {
                 let reps = (g.mrules[mid.0 as usize].max_apps() as usize)
                     .clamp(1, MAX_DEDICATED_LEVELS_PER_RULE);
                 expanded.extend(std::iter::repeat_n(mid, reps));
@@ -1648,13 +1818,16 @@ fn build_deriv_chain(
 
 // --- Slot chains (trie.rs::classify_template + append_slots) --------------------------------------
 
-/// `trie.rs::slot_op`: a slot's zone is that of its first Prefix/Suffix-classified rule; a slot with only zero-morph rules counts as Suffix.
+/// `trie.rs::slot_op`: a slot's zone is that of its first Prefix/Suffix-classified rule; a slot with only zero-morph rules counts as Suffix, and a slot with only circumfix-shaped rules counts as Prefix (the zone `emit_rule_allomorphs` tags).
 fn slot_role(g: &Grammar, slot: &SlotDef) -> Role {
     let mut has_zero = false;
     for &mid in &slot.rules {
         let role = rule_role(g, mid);
         if role == Role::Prefix || role == Role::Suffix {
             return role;
+        }
+        if role == Role::CircumfixPrefix {
+            return Role::Prefix;
         }
         if role == Role::None {
             has_zero = true;
@@ -1781,10 +1954,20 @@ fn any_allomorph_is_circumfix_prefix(g: &Grammar, mid: MRuleId) -> bool {
         .any(|a| classify_affix(&a.rhs) == Role::CircumfixPrefix)
 }
 
-/// True for a rule `crate::preexpand`'s ordinary composite mechanism cannot represent: a
-/// `None`/`Prefix`/`Suffix` allomorph that drops real LHS material (`rhs_drops_lhs_material`), any
-/// `CircumfixPrefix` allomorph, or any `Process` allomorph. `Infix` and `Reduplication` are not
-/// structural — they stay `crate::preexpand`'s and `uncovered`'s job respectively.
+/// True for a rule `crate::preexpand`'s ordinary composite mechanism cannot represent: any
+/// allomorph -- not just the first -- that drops real LHS material (`rhs_drops_lhs_material`)
+/// while ITSELF classifying `None`/`Prefix`/`Suffix`/`Infix`, any `CircumfixPrefix` allomorph, or
+/// any `Process` allomorph. `Reduplication` alone is not structural — it stays `uncovered`'s job
+/// (see `crate::peel::ReduplicationPeeler` for the non-dropping case this emitter never attempts),
+/// and per census C5 that exclusion is checked per allomorph, not per rule: a rule with a dropping
+/// `Reduplication`-classified allomorph and a separate, non-dropping allomorph of some OTHER role
+/// stays excluded on the strength of the `Reduplication` one alone (the copy-count semantics
+/// genuinely differ, so that shape never earns admission by itself), while a dropping
+/// `None`/`Prefix`/`Suffix`/`Infix` allomorph is admitted regardless of what any other allomorph of
+/// the same rule classifies as (pinned by
+/// `redup_first_allomorph_then_dropping_prefix_allomorph_structural_recall_parity`). A non-dropping
+/// `Infix` allomorph stays `crate::preexpand`'s job, per the census
+/// (`docs/research/circumfix-composite-precedence-census.md`, C4-C5).
 ///
 /// `pub(crate)`: `crate::capability`'s `CircumfixStructuralCompositePredicate` calls this directly
 /// so its check reads the same fact the compile path branches on, rather than re-deriving it.
@@ -1798,7 +1981,7 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
             return true;
         }
     }
-    // Checked unconditionally, ahead of the match below, since it only adds cases rule_role's allomorph-0-only view would miss.
+    // Checked unconditionally, ahead of the checks below, since it only adds cases rule_role's allomorph-0-only view would miss.
     if any_allomorph_is_circumfix_prefix(g, mid)
         || allomorphs_of(g, mid)
             .iter()
@@ -1806,16 +1989,14 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
     {
         return true;
     }
-    match rule_role(g, mid) {
-        Role::None | Role::Prefix | Role::Suffix => {
-            allomorphs_of(g, mid).iter().any(rhs_drops_lhs_material)
-        }
-        // A discontinuous circumfix is unrepresentable by this emitter's concatenative model, so it is always-on rather than gated by probe_would_refuse the way Prefix/Suffix/Infix is.
-        Role::CircumfixPrefix => true,
-        // Process allomorphs replay pg_rules::morph::synthesize, which handles Modify/InsertContext exactly rather than approximating them.
-        Role::Process => true,
-        _ => false,
-    }
+    // Admit only representable dropping allomorphs; another allomorph's role must not gate this path.
+    allomorphs_of(g, mid).iter().any(|a| {
+        rhs_drops_lhs_material(a)
+            && matches!(
+                classify_affix(&a.rhs),
+                Role::None | Role::Prefix | Role::Suffix | Role::Infix
+            )
+    })
 }
 
 /// Whether `pg_rules::surface_probe::probe_synthesize` would REFUSE for ANY word synthesized in
@@ -2237,19 +2418,25 @@ pub fn composite_scale_hint(g: &Grammar) -> (bool, usize, usize) {
 ///
 /// `preexpand_candidates`: every `crate::preexpand::build_composites` candidate rule id paired
 /// with its role label ("Infix"/"Prefix"/"Suffix") — mirrors that module's own private
-/// `candidate_rules` (same `rule_role` classification, same `Compounding` exclusion), re-derived
-/// here rather than exposing that sibling module's helper (this crate's diagnostic surface must not
-/// touch `preexpand.rs`).
+/// `candidate_rules` (same `rule_role` classification, same `Compounding` exclusion, and, since
+/// census C4, the same Infix-with-drop ownership handoff onto `build_structural_composites`),
+/// re-derived here rather than exposing that sibling module's helper (this crate's diagnostic
+/// surface must not touch `preexpand.rs`).
 ///
-/// `structural_probe_would_refuse`/`structural_candidate_count`: `probe_would_refuse`'s verdict
-/// and `structural_candidate_rules`'s count for `build_structural_composites`'s OWN flat
-/// depth-3 candidate set — that set widens dramatically (every ordinary Prefix/Suffix/Infix rule
-/// joins it, on top of the always-on structural/circumfix rules) exactly when
-/// `structural_probe_would_refuse` is true.
+/// `structural_probe_would_refuse`/`structural_candidate_count`/`structural_candidates`:
+/// `probe_would_refuse`'s verdict and `structural_candidate_rules`'s own flat depth-3 candidate set
+/// for `build_structural_composites` — that set widens dramatically (every ordinary
+/// Prefix/Suffix/Infix rule joins it, on top of the always-on structural/circumfix rules) exactly
+/// when `structural_probe_would_refuse` is true. `structural_candidates` carries the exact rule ids
+/// (`structural_candidate_count` is simply its length) so a caller can assert set MEMBERSHIP, not
+/// only cardinality — the census C4 handoff test needs this to prove a rule reaches this set
+/// specifically, rather than merely inferring it from a count that could shift for an unrelated
+/// reason.
 pub struct CompositeCandidateDiagnostics {
     pub preexpand_candidates: Vec<(u32, &'static str)>,
     pub structural_probe_would_refuse: bool,
     pub structural_candidate_count: usize,
+    pub structural_candidates: Vec<u32>,
 }
 
 /// See `CompositeCandidateDiagnostics`.
@@ -2261,6 +2448,8 @@ pub fn composite_candidate_rules(g: &Grammar) -> CompositeCandidateDiagnostics {
             }
             let mid = MRuleId(i);
             match rule_role(g, mid) {
+                // Census C4 handoff: an Infix rule that reaches build_structural_composites (some allomorph drops LHS material) relinquishes its crate::preexpand claim.
+                Role::Infix if is_structural_rule(g, mid) => None,
                 Role::Infix => Some((i, "Infix")),
                 Role::Prefix => Some((i, "Prefix")),
                 Role::Suffix => Some((i, "Suffix")),
@@ -2268,10 +2457,13 @@ pub fn composite_candidate_rules(g: &Grammar) -> CompositeCandidateDiagnostics {
             }
         })
         .collect();
+    let structural_candidates: Vec<u32> =
+        structural_candidate_rules(g).iter().map(|m| m.0).collect();
     CompositeCandidateDiagnostics {
         preexpand_candidates,
         structural_probe_would_refuse: probe_would_refuse(g),
-        structural_candidate_count: structural_candidate_rules(g).len(),
+        structural_candidate_count: structural_candidates.len(),
+        structural_candidates,
     }
 }
 
@@ -3137,7 +3329,7 @@ fn emit_with_budget_profiled_with_strategy(
         }
     }
 
-    // Drops "infix"/"circumfix-prefix" uncovered items for a rule that composites now cover; a rule that matched zero roots keeps its uncovered items, honestly.
+    // Drops "infix"/"circumfix-prefix"/"reduplication" uncovered items for a rule that composites now cover; a rule that matched zero roots keeps its uncovered items, honestly.
     uncovered.retain(|u| {
         let rule_idx = || {
             u.id.strip_prefix("mrule")
@@ -3145,8 +3337,11 @@ fn emit_with_budget_profiled_with_strategy(
                 .and_then(|s| s.parse::<u32>().ok())
         };
         !((u.kind == "infix"
-            && rule_idx().is_some_and(|idx| composite_report.covered_infix_rules.contains(&idx)))
-            || (u.kind == "circumfix-prefix"
+            && rule_idx().is_some_and(|idx| {
+                composite_report.covered_infix_rules.contains(&idx)
+                    || struct_covered_rules.contains(&idx)
+            }))
+            || ((u.kind == "circumfix-prefix" || u.kind == "reduplication")
                 && rule_idx().is_some_and(|idx| struct_covered_rules.contains(&idx))))
     });
 
@@ -3415,6 +3610,8 @@ pub fn emit_underlying_templated(
                     deriv_prefix.push(mid);
                     deriv_suffix.push(mid);
                 }
+                // Given both zones below, like Role::None.
+                Role::CircumfixPrefix => {}
                 other => uncovered.push(UncoveredItem {
                     kind: other.label().to_string(),
                     id: format!("mrule{}", mid.0),
@@ -3422,6 +3619,26 @@ pub fn emit_underlying_templated(
                         "standalone rule's primary allomorph classifies as {other:?}; not representable (v1)"
                     ),
                 }),
+            }
+            // Checked unconditionally (not just when rule_role itself said CircumfixPrefix): rule_role only reads allomorph 0, so a rule like mrMixed (allomorph 0 Suffix, allomorph 1 circumfix) already landed in deriv_suffix above and still needs deriv_prefix for its tagged occurrence.
+            if any_allomorph_is_circumfix_prefix(g, mid) {
+                if !deriv_prefix.contains(&mid) {
+                    deriv_prefix.push(mid);
+                }
+                if !deriv_suffix.contains(&mid) {
+                    deriv_suffix.push(mid);
+                }
+            }
+        }
+    }
+
+    // A template-slot circumfix rule never appears in any Stratum's own mrules, so it needs its untagged suffix half added to the universal suffix chain here; its tagged prefix occurrence comes from the slot itself.
+    for t in &g.templates {
+        for slot in &t.slots {
+            for &mid in &slot.rules {
+                if rule_role(g, mid) == Role::CircumfixPrefix && !deriv_suffix.contains(&mid) {
+                    deriv_suffix.push(mid);
+                }
             }
         }
     }

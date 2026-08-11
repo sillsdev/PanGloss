@@ -18,14 +18,14 @@ words:
       `rust/crates/pg-foma/tests/two_table_shared_representation_recall.rs` demonstrates a table-
       blind FST proposer would miss (pre-fix) and the cross-table representation aliasing fix
       (`crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens`) now correctly proposes
-      and confirms. NOTE (transcribed as-is, not hand-derived): the signature's surface half renders
-      empty rather than "y" -- a separate, orthogonal, out-of-scope `pg_parse`/`pg_rules` finding
-      (this fixture's own paired Rust test module doc has the full account); the MORPHEME-level
-      analysis (root identity) is exactly correct, which is what the paired Rust containment test
-      checks directly via `structured`, not via this signature's surface text.
+      and confirms. Signature transcribed after `pg_rules::stratum::synthesize_stratum_traced` was
+      fixed to assign a synthesized word's own `.stratum` field on stratum entry (mirroring the
+      analysis direction's own assignment) -- pre-fix, the surface half rendered empty ("ROOT1|")
+      because the render-time table lookup resolved the root's OWN (Inner) stratum instead of the
+      one its material actually passed through.
     provenance: "rust/crates/pg-foma/tests/two_table_shared_representation_recall.rs"
     parses:
-      - signature: "ROOT1|"
+      - signature: "ROOT1|y"
         rules: []
         exercises:
           - "CharacterDefinitionTable: more than one table, one per stratum"

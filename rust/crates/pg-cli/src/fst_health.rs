@@ -161,8 +161,10 @@ fn confirmation_work_findings(total_candidates: u64, total_confirmed: u64) -> Ve
     findings
 }
 
-/// Compile-time observed health via a standalone profiled compile; duplicated rather than shared with `pack.rs::run_pack`'s own equivalent section since each composes it into a different report shape.
-fn compile_time_findings(grammar: &Grammar) -> Vec<HealthFinding> {
+/// Compile-time observed health via a standalone profiled compile; duplicated rather than shared with `pack.rs::run_pack`'s own equivalent section since each composes it into a different report shape. Returns the raw `CompileProfile` alongside the findings so `--profile-json` can emit it verbatim instead of losing it to `evaluate_health`'s threshold filter.
+fn compile_time_findings(
+    grammar: &Grammar,
+) -> (Vec<HealthFinding>, pg_foma::profile::CompileProfile) {
     let (proposer_result, compile_profile) = FomaProposer::new_with_profile(grammar);
     let report = match &proposer_result {
         Ok(proposer) => evaluate_health(
@@ -177,32 +179,48 @@ fn compile_time_findings(grammar: &Grammar) -> Vec<HealthFinding> {
         }
         Err(_) => evaluate_health(None, None, &[], &[], Some(&compile_profile)),
     };
-    report.findings
+    (report.findings, compile_profile)
 }
 
 /// Composes preflight + compile-time findings, plus apply-side findings only when `words` is `Some`; factored out from `run_fst_health` so the honest no-words contract is directly unit-testable without file I/O.
 fn build_health_report(
     grammar: &Grammar,
     words: Option<&[String]>,
-) -> Result<HealthReport, String> {
+) -> Result<(HealthReport, pg_foma::profile::CompileProfile), String> {
     let mut findings = preflight_findings(grammar);
-    findings.extend(compile_time_findings(grammar));
+    let (compile_findings, compile_profile) = compile_time_findings(grammar);
+    findings.extend(compile_findings);
     if let Some(words) = words {
         findings.extend(measure_apply_side(grammar, words)?);
     }
-    Ok(HealthReport::new(findings))
+    Ok((HealthReport::new(findings), compile_profile))
 }
 
-/// `pangloss fst-health <grammar> [<words.txt>] [<out.json>]`; `<out.json>` omitted writes the canonical JSON to stdout instead of a file, matching this crate's stdout/stderr split.
+/// `pangloss fst-health <grammar> [<words.txt>] [<out.json>] [--profile-json=<path>]`; `<out.json>` omitted writes the canonical JSON to stdout instead of a file, matching this crate's stdout/stderr split. `--profile-json` writes the raw `CompileProfile` (per-stage wall, lexc lines, state/arc counts) to its own file — the stage attribution the findings pipeline deliberately reduces to threshold findings.
 pub fn run_fst_health(args: &[String]) -> Result<(), String> {
-    let (grammar_path, words_path, out_path): (&str, Option<&str>, Option<&str>) = match args {
-        [g] => (g.as_str(), None, None),
-        [g, w] => (g.as_str(), Some(w.as_str()), None),
-        [g, w, o] => (g.as_str(), Some(w.as_str()), Some(o.as_str())),
-        _ => {
-            return Err("usage: fst-health <grammar> [<words.txt>] [<out.json>]".to_string());
+    let mut profile_json_path: Option<String> = None;
+    let mut positional: Vec<&String> = Vec::new();
+    for a in args {
+        if let Some(p) = a.strip_prefix("--profile-json=") {
+            profile_json_path = Some(p.to_string());
+        } else if a == "--profile-json" {
+            return Err("--profile-json requires a path: --profile-json=<path>".to_string());
+        } else {
+            positional.push(a);
         }
-    };
+    }
+    let (grammar_path, words_path, out_path): (&str, Option<&str>, Option<&str>) =
+        match positional.as_slice() {
+            [g] => (g.as_str(), None, None),
+            [g, w] => (g.as_str(), Some(w.as_str()), None),
+            [g, w, o] => (g.as_str(), Some(w.as_str()), Some(o.as_str())),
+            _ => {
+                return Err(
+                    "usage: fst-health <grammar> [<words.txt>] [<out.json>] [--profile-json=<path>]"
+                        .to_string(),
+                );
+            }
+        };
 
     let (grammar, warnings) = crate::load_grammar(grammar_path)?;
     crate::print_grammar_warnings(&warnings);
@@ -218,7 +236,7 @@ pub fn run_fst_health(args: &[String]) -> Result<(), String> {
         ),
         None => None,
     };
-    let report = build_health_report(&grammar, words.as_deref())?;
+    let (report, compile_profile) = build_health_report(&grammar, words.as_deref())?;
     let json = report
         .to_json()
         .map_err(|e| format!("serialize health report: {e}"))?;
@@ -228,6 +246,13 @@ pub fn run_fst_health(args: &[String]) -> Result<(), String> {
             fs::write(path, &json).map_err(|e| format!("write {path}: {e}"))?;
         }
         None => println!("{json}"),
+    }
+
+    if let Some(path) = &profile_json_path {
+        let profile_json = serde_json::to_string_pretty(&compile_profile)
+            .map_err(|e| format!("serialize compile profile: {e}"))?;
+        fs::write(path, &profile_json).map_err(|e| format!("write {path}: {e}"))?;
+        eprintln!("compile profile written to {path}");
     }
 
     eprintln!(
@@ -316,6 +341,39 @@ mod tests {
     }
 
     #[test]
+    fn fst_health_profile_json_writes_the_raw_compile_profile() {
+        let dir = scratch_dir("profile-json");
+        let grammar_path = dir.join("grammar.xml");
+        let profile_path = dir.join("compile-profile.json");
+        std::fs::write(&grammar_path, CLEAN_GRAMMAR_XML).expect("write grammar");
+
+        let args: Vec<String> = vec![
+            grammar_path.to_string_lossy().into_owned(),
+            format!("--profile-json={}", profile_path.to_string_lossy()),
+        ];
+        run_fst_health(&args).expect("fst-health with --profile-json must succeed");
+
+        let json = std::fs::read_to_string(&profile_path).expect("profile file must exist");
+        let profile: pg_foma::profile::CompileProfile =
+            serde_json::from_str(&json).expect("profile JSON must round-trip");
+        assert!(
+            !profile.stages.is_empty(),
+            "a successful compile must attribute at least one stage"
+        );
+        assert!(
+            profile.total_lexc_lines.is_some(),
+            "a successful compile must report its lexc line count"
+        );
+    }
+
+    #[test]
+    fn fst_health_bare_profile_json_flag_is_refused_with_usage() {
+        let err = run_fst_health(&["g.xml".to_string(), "--profile-json".to_string()])
+            .expect_err("bare --profile-json must be refused");
+        assert!(err.contains("--profile-json=<path>"), "got: {err}");
+    }
+
+    #[test]
     fn fst_health_no_words_writes_no_apply_side_findings() {
         let (result, _out_path, _words_path) =
             run_fst_health_raw("no-words", CLEAN_GRAMMAR_XML, None);
@@ -326,7 +384,8 @@ mod tests {
 
         // Precise honesty check: `words: None` must produce no apply-side finding at all, exercised directly against `build_health_report` rather than by scraping stdout.
         let g = grammar(CLEAN_GRAMMAR_XML);
-        let report = build_health_report(&g, None).expect("build_health_report must succeed");
+        let (report, _profile) =
+            build_health_report(&g, None).expect("build_health_report must succeed");
         assert!(
             !report.findings.iter().any(|f| {
                 matches!(

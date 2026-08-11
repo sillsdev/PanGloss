@@ -26,18 +26,15 @@ simulation):
    via `apply_up`, finds exactly the analyses `pg_parse::Morpher` finds — no more, no less — for
    every word in the fixture.
 
-## A separate, orthogonal, out-of-scope finding surfaced while authoring this fixture
+## A finding surfaced while authoring this fixture, since fixed
 
-`pg_parse::Morpher::parse_word_opts("y", ..).signature()`'s surface half renders empty (`"ROOT1|"`,
-not `"ROOT1|y"`) for the cross-stratum-synthesized analysis in this fixture, even though the
-morpheme-level analysis (root identity, `structured`) is exactly correct. Confirmed not
-multi-table-specific (an equivalent single-table environment-free feature-changing rule renders its
-surface half correctly, `"ROOT|y"`), and confirmed to persist regardless of which table is
-`TableId(0)`. This looks like a genuine (if narrow) `pg_parse`/`pg_rules` synthesis-side
-stratum-bookkeeping gap: `pg_rules::stratum::synthesize_stratum_traced` never updates a candidate
-`Word`'s own `.stratum` field the way `analyze`'s un-apply direction does, so
-`Morpher::surface_of`'s `g.strata[w.stratum.0].table` lookup for a root synthesized past its own
-entry stratum may resolve the wrong table — a different crate, a different bug class, out of scope
-for this file's `pg-foma`-only boundary. This file's own containment check therefore compares
-morpheme-level `structured` analyses (root + morpheme ids), never the surface-string half of
-`signature()`.
+`pg_parse::Morpher::parse_word_opts("y", ..).signature()`'s surface half used to render empty
+(`"ROOT1|"`, not `"ROOT1|y"`) for the cross-stratum-synthesized analysis in this fixture, even
+though the morpheme-level analysis (root identity, `structured`) was already exactly correct. Root
+cause: `pg_rules::stratum::synthesize_stratum_traced` never updated a candidate `Word`'s own
+`.stratum` field the way `analyze`'s un-apply direction does, so `Morpher::surface_of`'s
+`g.strata[w.stratum.0].table` lookup for a root synthesized past its own entry stratum resolved the
+wrong table. Fixed in `pg_rules::stratum::synthesize_stratum_traced` by assigning `.stratum` on
+stratum entry, mirroring `analyze`. `words.yaml`'s `y` entry now pins the corrected signature
+(`"ROOT1|y"`); this file's own containment check still compares morpheme-level `structured`
+analyses (root + morpheme ids) directly, never the signature's surface-string half.

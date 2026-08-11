@@ -1,4 +1,4 @@
-//! Builds one `AffixProcessRuleDef` per (entry, MSA) pair from concatenative and `MoAffixProcess`-style allomorphs; circumfix cross-products are not implemented (warned, no rule).
+//! Builds one `AffixProcessRuleDef` per (entry, MSA) pair from concatenative and `MoAffixProcess`-style allomorphs, plus the `MorphType::Circumfix` prefix x suffix cross-product (`build_circumfix_allomorphs`).
 
 use pg_snapshot::lexicon::{Allomorph, LexEntry, Msa, RuleMapping};
 use pg_snapshot::morphology::MorphType;
@@ -57,14 +57,31 @@ pub(crate) fn build_affix_rule(
         return None;
     }
 
-    if entry.lexeme_morph_type == MorphType::Circumfix {
-        warnings.push(format!(
-            "unsupported: circumfix cross-product allomorphs (entry {:?}) not implemented; \
-             entry skipped",
-            entry.guid
-        ));
-        return None;
-    }
+    // HCLoader's exact prefix/suffix guid filter (HCLoader.cs:1053,1058), narrower than `shape_of`'s interfix/clitic-inclusive classes.
+    let circumfix_groups: Option<(Vec<&Allomorph>, Vec<&Allomorph>)> =
+        if entry.lexeme_morph_type == MorphType::Circumfix {
+            let prefix_group: Vec<&Allomorph> = rule_form_allos
+                .iter()
+                .copied()
+                .filter(|a| a.morph_type == MorphType::Prefix)
+                .collect();
+            let suffix_group: Vec<&Allomorph> = rule_form_allos
+                .iter()
+                .copied()
+                .filter(|a| a.morph_type == MorphType::Suffix)
+                .collect();
+            if prefix_group.is_empty() || suffix_group.is_empty() {
+                warnings.push(format!(
+                    "unsupported: circumfix cross-product (entry {:?}) has an empty prefix or \
+                     suffix half; entry skipped",
+                    entry.guid
+                ));
+                return None;
+            }
+            Some((prefix_group, suffix_group))
+        } else {
+            None
+        };
 
     let mrule_id = MRuleId(acc.mrules.len() as u32);
 
@@ -253,14 +270,34 @@ pub(crate) fn build_affix_rule(
     };
 
     let mut allomorphs = Vec::new();
-    for allo in rule_form_allos {
-        for def in build_affix_allomorphs_for(allo, msa, required_mpr, out_mpr, ctx, acc, warnings)
-        {
+    if let Some((prefix_group, suffix_group)) = circumfix_groups {
+        // No per-piece `allomorph_guid_index` entry: a cross-product allomorph has two source guids (prefix and suffix), and that map is 1:1; ad-hoc co-occurrence rules targeting circumfix pieces are not resolved (open item, see report).
+        for def in build_circumfix_allomorphs(
+            &prefix_group,
+            &suffix_group,
+            msa,
+            required_mpr,
+            out_mpr,
+            ctx,
+            acc,
+            warnings,
+        ) {
             let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
             acc.allomorph_owners
                 .push(AllomorphOwner::Affix(mrule_id, allomorphs.len() as u16));
-            acc.allomorph_guid_index.insert(allo.guid.clone(), allo_id);
             allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
+        }
+    } else {
+        for allo in rule_form_allos {
+            for def in
+                build_affix_allomorphs_for(allo, msa, required_mpr, out_mpr, ctx, acc, warnings)
+            {
+                let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
+                acc.allomorph_owners
+                    .push(AllomorphOwner::Affix(mrule_id, allomorphs.len() as u16));
+                acc.allomorph_guid_index.insert(allo.guid.clone(), allo_id);
+                allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
+            }
         }
     }
     if allomorphs.is_empty() {
@@ -369,31 +406,10 @@ fn build_affix_allomorphs_for(
     let form = super::best_ws(&allo.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or("");
     let form = super::format_form(form);
 
-    let allo_infl_mpr = if matches!(msa, Msa::Inflectional { .. }) {
-        let mut set = crate::model::MprSet::EMPTY;
-        for ic in &allo.inflection_classes {
-            match ctx.mpr.infl_class_with_descendants(ic) {
-                Some(s) => set = set.union(s),
-                None => warnings.push(format!(
-                    "allomorph {:?}: inflection class {ic:?} does not resolve",
-                    allo.guid
-                )),
-            }
-        }
-        set
-    } else {
-        crate::model::MprSet::EMPTY
-    };
-
-    let combined_env_guids: Vec<&str> = allo
-        .environments
-        .iter()
-        .chain(&allo.positions)
-        .map(String::as_str)
-        .collect();
+    let allo_infl_mpr = allomorph_infl_mpr(allo, msa, ctx, warnings);
 
     let mut out = Vec::new();
-    for pass in resolve_environments(&combined_env_guids, ctx, warnings) {
+    for pass in resolve_environments(&combined_env_guids(allo), ctx, warnings) {
         let (left_str, right_str) = pass.unwrap_or_default();
         match build_concatenative(&form, &left_str, &right_str, shape, ctx) {
             Ok((lhs, rhs, environments)) => {
@@ -433,6 +449,170 @@ fn build_affix_allomorphs_for(
         }
     }
     out
+}
+
+/// `GetAffixAllomorphEnvironments` (HCLoader.cs:1167-1170): `PhoneEnvRC` + `PositionRS` concatenated, guids only.
+fn combined_env_guids(allo: &Allomorph) -> Vec<&str> {
+    allo.environments
+        .iter()
+        .chain(&allo.positions)
+        .map(String::as_str)
+        .collect()
+}
+
+/// Inflection-class MPR bits for one allomorph; empty for a non-`Inflectional` MSA, matching the ordinary concatenative path's own gate.
+fn allomorph_infl_mpr(
+    allo: &Allomorph,
+    msa: &Msa,
+    ctx: &Ctx,
+    warnings: &mut Vec<String>,
+) -> crate::model::MprSet {
+    if !matches!(msa, Msa::Inflectional { .. }) {
+        return crate::model::MprSet::EMPTY;
+    }
+    let mut set = crate::model::MprSet::EMPTY;
+    for ic in &allo.inflection_classes {
+        match ctx.mpr.infl_class_with_descendants(ic) {
+            Some(s) => set = set.union(s),
+            None => warnings.push(format!(
+                "allomorph {:?}: inflection class {ic:?} does not resolve",
+                allo.guid
+            )),
+        }
+    }
+    set
+}
+
+/// HCLoader's circumfix cross-product (`LoadCircumfixAffixProcessAllomorph`, HCLoader.cs:1048-1332): one `AffixAllomorphDef` per (prefix, suffix, prefix-env, suffix-env) 4-tuple, in that nesting order.
+#[allow(clippy::too_many_arguments)]
+fn build_circumfix_allomorphs(
+    prefix_group: &[&Allomorph],
+    suffix_group: &[&Allomorph],
+    msa: &Msa,
+    required_mpr: crate::model::MprSet,
+    out_mpr: crate::model::MprSet,
+    ctx: &Ctx,
+    acc: &mut Acc,
+    warnings: &mut Vec<String>,
+) -> Vec<AffixAllomorphDef> {
+    let prefix_data: Vec<(&Allomorph, Vec<Option<(String, String)>>)> = prefix_group
+        .iter()
+        .map(|&a| {
+            (
+                a,
+                resolve_environments(&combined_env_guids(a), ctx, warnings),
+            )
+        })
+        .collect();
+    let suffix_data: Vec<(&Allomorph, Vec<Option<(String, String)>>)> = suffix_group
+        .iter()
+        .map(|&a| {
+            (
+                a,
+                resolve_environments(&combined_env_guids(a), ctx, warnings),
+            )
+        })
+        .collect();
+
+    let mut out = Vec::new();
+    for &(prefix_allo, ref prefix_envs) in &prefix_data {
+        // MPR asymmetry: inflection-class MPR is read from the prefix half only (HCLoader.cs:1055-1057).
+        let allo_infl_mpr = allomorph_infl_mpr(prefix_allo, msa, ctx, warnings);
+        for &(suffix_allo, ref suffix_envs) in &suffix_data {
+            for prefix_env in prefix_envs {
+                for suffix_env in suffix_envs {
+                    match build_circumfix_pattern(
+                        prefix_allo,
+                        suffix_allo,
+                        prefix_env.as_ref(),
+                        suffix_env.as_ref(),
+                        ctx,
+                    ) {
+                        Ok((lhs, rhs, environments)) => {
+                            out.push(AffixAllomorphDef {
+                                id: AllomorphId(0),
+                                environments,
+                                co_occurrence: Vec::new(),
+                                // No `required_syn_fs`/`ms_env_features` on circumfix allomorphs -- `LoadCircumfixAffixProcessAllomorph` never sets them.
+                                required_syn_fs: acc
+                                    .fs_interner
+                                    .intern(pg_featstruct::FeatureStruct::EMPTY),
+                                vars: crate::model::VarTable::default(),
+                                required_mpr: required_mpr.union(allo_infl_mpr),
+                                excluded_mpr: crate::model::MprSet::EMPTY,
+                                out_mpr,
+                                redup_hint: ReduplicationHint::Implicit,
+                                lhs,
+                                rhs,
+                                properties: Vec::new(),
+                            });
+                        }
+                        Err(e) => warnings.push(format!(
+                            "circumfix allomorph (prefix {:?}, suffix {:?}): {e}; one \
+                             combination skipped",
+                            prefix_allo.guid, suffix_allo.guid
+                        )),
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// LHS/RHS/environment triple for one circumfix 4-tuple (`LoadCircumfixAffixProcessAllomorph`, HCLoader.cs:1280-1322).
+fn build_circumfix_pattern(
+    prefix_allo: &Allomorph,
+    suffix_allo: &Allomorph,
+    prefix_env: Option<&(String, String)>,
+    suffix_env: Option<&(String, String)>,
+    ctx: &Ctx,
+) -> Result<ConcatBuild, String> {
+    let prefix_form = super::format_form(
+        super::best_ws(&prefix_allo.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or(""),
+    );
+    let suffix_form = super::format_form(
+        super::best_ws(&suffix_allo.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or(""),
+    );
+
+    let mut nodes = Vec::new();
+    let mut left_env_pattern = None;
+    let mut right_env_pattern = None;
+    if prefix_env.is_none() && suffix_env.is_none() {
+        nodes.extend(environment::any_plus(ctx));
+    } else {
+        if let Some((left_str, right_str)) = prefix_env {
+            nodes.push(environment::prefix_null(ctx));
+            nodes.extend(environment::pattern_nodes(right_str, ctx)?);
+            if !left_str.is_empty() {
+                left_env_pattern = environment::load_environment_pattern(left_str, true, ctx)?;
+            }
+        }
+        nodes.extend(environment::any_star(ctx));
+        if let Some((left_str, right_str)) = suffix_env {
+            nodes.extend(environment::pattern_nodes(left_str, ctx)?);
+            nodes.push(environment::suffix_null(ctx));
+            if !right_str.is_empty() {
+                right_env_pattern = environment::load_environment_pattern(right_str, false, ctx)?;
+            }
+        }
+    }
+
+    let lhs = vec![Pattern { nodes }];
+    let rhs = vec![
+        insert_segments(&format!("{prefix_form}+"), ctx)?,
+        OutputAction::Copy(PartRef::Input(0)),
+        insert_segments(&format!("+{suffix_form}"), ctx)?,
+    ];
+    let mut environments = Vec::new();
+    if left_env_pattern.is_some() || right_env_pattern.is_some() {
+        environments.push(EnvironmentDef {
+            require: true,
+            left: left_env_pattern,
+            right: right_env_pattern,
+        });
+    }
+    Ok((lhs, rhs, environments))
 }
 
 /// LHS/RHS/environment triple a concatenative shape builds.
