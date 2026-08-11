@@ -439,3 +439,259 @@ fn process_role_drop_stays_honestly_unsupported() {
         )
     });
 }
+
+/// Synthetic fixture (IN-SCOPE, census C4): a genuinely `Infix`-classified allomorph that drops LHS material, reachable only via `build_structural_composites`.
+const INFIX_DROP_STRUCTURAL_XML: &str = r#"<HermitCrabInput><Language><Name>InfixDropStructural</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+  <CharacterDefinitionTable id="t1"><Name>Main</Name>
+    <SegmentDefinitions>
+      <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cc"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions>
+  </CharacterDefinitionTable>
+  <NaturalClasses>
+    <SegmentNaturalClass id="ncA"><Name>A</Name><Segment segment="ca" /></SegmentNaturalClass>
+    <SegmentNaturalClass id="ncB"><Name>B</Name><Segment segment="cb" /></SegmentNaturalClass>
+    <SegmentNaturalClass id="ncC"><Name>C</Name><Segment segment="cc" /></SegmentNaturalClass>
+  </NaturalClasses>
+  <Strata>
+    <Stratum characterDefinitionTable="t1" morphologicalRules="mrInfixDrop">
+      <Name>S</Name>
+      <MorphologicalRuleDefinitions>
+        <MorphologicalRule id="mrInfixDrop">
+          <Name>infixDrop</Name>
+          <MorphologicalSubrules>
+            <MorphologicalSubrule id="subInfixDrop">
+              <MorphologicalInput>
+                <PhoneticSequence id="qA"><SimpleContext naturalClass="ncA" /></PhoneticSequence>
+                <PhoneticSequence id="qB"><SimpleContext naturalClass="ncB" /></PhoneticSequence>
+                <PhoneticSequence id="qC"><SimpleContext naturalClass="ncC" /></PhoneticSequence>
+              </MorphologicalInput>
+              <MorphologicalOutput>
+                <CopyFromInput index="qA" />
+                <InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments>
+                <CopyFromInput index="qB" />
+              </MorphologicalOutput>
+            </MorphologicalSubrule>
+          </MorphologicalSubrules>
+          <MorphemeId>INFIXDROP</MorphemeId>
+        </MorphologicalRule>
+      </MorphologicalRuleDefinitions>
+      <LexicalEntries>
+        <LexicalEntry id="eRoot">
+          <Allomorphs><Allomorph id="aRoot"><PhoneticShape>abc</PhoneticShape></Allomorph></Allomorphs>
+          <MorphemeId>ROOT</MorphemeId>
+        </LexicalEntry>
+      </LexicalEntries>
+    </Stratum>
+  </Strata>
+</Language></HermitCrabInput>"#;
+
+/// IN-SCOPE positive witness (census C4): candidate-set membership, not just a count, plus full proposer-to-confirm containment against the real oracle.
+#[test]
+fn infix_with_drop_structural_recall_parity() {
+    let g = load(INFIX_DROP_STRUCTURAL_XML);
+    let root = entry_id_of(&g, "eRoot");
+    let mid = mrule_id_of(&g, "mrInfixDrop");
+
+    let diag = emit::composite_candidate_rules(&g);
+    assert!(
+        diag.structural_candidates.contains(&mid.0),
+        "an Infix allomorph that drops LHS material must be admitted into \
+         build_structural_composites's own candidate set: {:?}",
+        diag.structural_candidates
+    );
+    assert!(
+        !diag.preexpand_candidates.iter().any(|&(id, _)| id == mid.0),
+        "the same rule must leave crate::preexpand's candidate set once \
+         build_structural_composites claims it (the ownership handoff): {:?}",
+        diag.preexpand_candidates
+    );
+
+    let emit_result = emit::emit(&g);
+    assert!(
+        emit_result.report.uncovered.is_empty(),
+        "an Infix-with-drop rule covered by build_structural_composites must not leave a stale \
+         uncovered entry: {:?}",
+        emit_result.report.uncovered
+    );
+    let opts = FomaOptions::default();
+    let net = fsm_lexc_parse_string(&opts, None, &emit_result.lexc_source)
+        .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
+
+    // --- Oracle: the REAL synthesis engine, not a hand re-derivation of "a + x + b". ---
+    let morpher = Morpher::new(&g, 20_000);
+    let words = morpher.generate_words(root, &[GenMorpheme::Rule(mid)], FeatureStruct::EMPTY);
+    assert_eq!(
+        words,
+        vec!["axb".to_string()],
+        "the real engine must drop qC while inserting the interior x"
+    );
+    let surface = &words[0];
+
+    let tag_sequences = tag_sequences_for(&g, &morpher, surface);
+    assert!(
+        !tag_sequences.is_empty(),
+        "the oracle's own surface {surface:?} must parse against its own grammar"
+    );
+    let normalized = pg_grammar::nfd::nfd(surface);
+    let any_reachable = tag_sequences
+        .iter()
+        .any(|tags| recall_reachable(&net, &normalized, tags));
+    assert!(
+        any_reachable,
+        "the infix-with-drop surface {surface:?} must be reachable with its own real tag \
+         sequence -- only build_structural_composites's oracle-backed resynthesis can produce a \
+         genuinely-Infix, LHS-dropping surface at all"
+    );
+}
+
+/// Allomorph 0 (`Role::Reduplication`) and allomorph 1 (drops `rB`, `Role::Prefix`); two disjoint roots so only one allomorph's pattern ever matches a given root.
+/// See `docs/research/circumfix-composite-precedence-census.md`, C5.
+const REDUP_FIRST_THEN_PREFIX_DROP_XML: &str = r#"<HermitCrabInput><Language><Name>RedupFirstPrefixDrop</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+  <CharacterDefinitionTable id="t1"><Name>Main</Name>
+    <SegmentDefinitions>
+      <SegmentDefinition id="cr"><Representations><Representation>r</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions>
+  </CharacterDefinitionTable>
+  <NaturalClasses>
+    <SegmentNaturalClass id="ncR"><Name>R</Name><Segment segment="cr" /></SegmentNaturalClass>
+    <SegmentNaturalClass id="ncP"><Name>P</Name><Segment segment="cp" /></SegmentNaturalClass>
+    <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="cq" /></SegmentNaturalClass>
+  </NaturalClasses>
+  <Strata>
+    <Stratum characterDefinitionTable="t1" morphologicalRules="mrRedupThenPrefixDrop">
+      <Name>S</Name>
+      <MorphologicalRuleDefinitions>
+        <MorphologicalRule id="mrRedupThenPrefixDrop">
+          <Name>redupThenPrefixDrop</Name>
+          <MorphologicalSubrules>
+            <MorphologicalSubrule id="subRedup">
+              <MorphologicalInput>
+                <PhoneticSequence id="qA"><SimpleContext naturalClass="ncR" /></PhoneticSequence>
+                <PhoneticSequence id="qB"><SimpleContext naturalClass="ncR" /></PhoneticSequence>
+              </MorphologicalInput>
+              <MorphologicalOutput redupMorphType="suffix">
+                <CopyFromInput index="qA" />
+                <CopyFromInput index="qA" />
+              </MorphologicalOutput>
+            </MorphologicalSubrule>
+            <MorphologicalSubrule id="subPrefixDrop">
+              <MorphologicalInput>
+                <PhoneticSequence id="rA"><SimpleContext naturalClass="ncP" /></PhoneticSequence>
+                <PhoneticSequence id="rB"><SimpleContext naturalClass="ncQ" /></PhoneticSequence>
+              </MorphologicalInput>
+              <MorphologicalOutput>
+                <InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments>
+                <CopyFromInput index="rA" />
+              </MorphologicalOutput>
+            </MorphologicalSubrule>
+          </MorphologicalSubrules>
+          <MorphemeId>REDUPPREDROP</MorphemeId>
+        </MorphologicalRule>
+      </MorphologicalRuleDefinitions>
+      <LexicalEntries>
+        <LexicalEntry id="eRootRedup">
+          <Allomorphs><Allomorph id="aRootRedup"><PhoneticShape>rr</PhoneticShape></Allomorph></Allomorphs>
+          <MorphemeId>ROOTREDUP</MorphemeId>
+        </LexicalEntry>
+        <LexicalEntry id="eRootPrefix">
+          <Allomorphs><Allomorph id="aRootPrefix"><PhoneticShape>pq</PhoneticShape></Allomorph></Allomorphs>
+          <MorphemeId>ROOTPREFIX</MorphemeId>
+        </LexicalEntry>
+      </LexicalEntries>
+    </Stratum>
+  </Strata>
+</Language></HermitCrabInput>"#;
+
+/// Candidate-set membership plus full proposer-to-confirm containment for BOTH allomorphs, swept over their own disjoint roots.
+/// See `docs/research/circumfix-composite-precedence-census.md`, C5.
+#[test]
+fn redup_first_allomorph_then_dropping_prefix_allomorph_structural_recall_parity() {
+    let g = load(REDUP_FIRST_THEN_PREFIX_DROP_XML);
+    let mid = mrule_id_of(&g, "mrRedupThenPrefixDrop");
+
+    let diag = emit::composite_candidate_rules(&g);
+    assert!(
+        diag.structural_candidates.contains(&mid.0),
+        "a rule whose first allomorph classifies Role::Reduplication but whose second allomorph \
+         drops LHS material as a Role::Prefix shape must still be admitted into \
+         build_structural_composites's own candidate set: {:?}",
+        diag.structural_candidates
+    );
+    assert!(
+        !diag.preexpand_candidates.iter().any(|&(id, _)| id == mid.0),
+        "mrRedupThenPrefixDrop's rule_role (Reduplication) was never a crate::preexpand \
+         candidate to begin with (that module's own role filter is Prefix/Suffix/Infix only), so \
+         there is nothing for the ownership handoff to relinquish here: {:?}",
+        diag.preexpand_candidates
+    );
+
+    let emit_result = emit::emit(&g);
+    assert!(
+        emit_result.report.uncovered.is_empty(),
+        "once the rule is admitted, every allomorph must be covered by \
+         build_structural_composites: {:?}",
+        emit_result.report.uncovered
+    );
+    let opts = FomaOptions::default();
+    let net = fsm_lexc_parse_string(&opts, None, &emit_result.lexc_source)
+        .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
+
+    let morpher = Morpher::new(&g, 20_000);
+    let root_redup = entry_id_of(&g, "eRootRedup");
+    let root_prefix = entry_id_of(&g, "eRootPrefix");
+
+    // --- The measured gap's own shape: the later, Prefix-shaped, dropping allomorph. ---
+    let prefix_words =
+        morpher.generate_words(root_prefix, &[GenMorpheme::Rule(mid)], FeatureStruct::EMPTY);
+    assert_eq!(
+        prefix_words,
+        vec!["xp".to_string()],
+        "the real engine must drop rB while prefixing x"
+    );
+    let prefix_surface = &prefix_words[0];
+    let prefix_tags = tag_sequences_for(&g, &morpher, prefix_surface);
+    assert!(
+        !prefix_tags.is_empty(),
+        "the oracle's own surface {prefix_surface:?} must parse against its own grammar"
+    );
+    let prefix_normalized = pg_grammar::nfd::nfd(prefix_surface);
+    assert!(
+        prefix_tags
+            .iter()
+            .any(|tags| recall_reachable(&net, &prefix_normalized, tags)),
+        "the dropping Prefix-shaped allomorph's surface {prefix_surface:?} must be reachable -- \
+         only build_structural_composites's oracle-backed resynthesis can produce it, and it must \
+         not stay hidden behind allomorph 0's own Role::Reduplication classification"
+    );
+
+    // --- The rule's OTHER allomorph, once the rule is admitted, must also stay recalled. ---
+    let redup_words =
+        morpher.generate_words(root_redup, &[GenMorpheme::Rule(mid)], FeatureStruct::EMPTY);
+    assert_eq!(
+        redup_words,
+        vec!["rr".to_string()],
+        "the real engine must reduplicate qA while dropping qB"
+    );
+    let redup_surface = &redup_words[0];
+    let redup_tags = tag_sequences_for(&g, &morpher, redup_surface);
+    assert!(
+        !redup_tags.is_empty(),
+        "the oracle's own surface {redup_surface:?} must parse against its own grammar"
+    );
+    let redup_normalized = pg_grammar::nfd::nfd(redup_surface);
+    assert!(
+        redup_tags
+            .iter()
+            .any(|tags| recall_reachable(&net, &redup_normalized, tags)),
+        "the Reduplication-shaped first allomorph's own surface {redup_surface:?} must also stay \
+         reachable now that the rule is admitted"
+    );
+}

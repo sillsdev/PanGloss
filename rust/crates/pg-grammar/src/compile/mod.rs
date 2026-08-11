@@ -12,13 +12,14 @@
 //!
 //! ## Coverage
 //! **Implemented**: feature systems, phonemes/char-def synthesis, stems, environments,
-//! inflectional/derivational/unclassified affixes (concatenative and `MoAffixProcess`-style),
-//! templates (+ null-affix synthesis for irregular slots), compounding (default + authored),
-//! rewrite rules, ad-hoc co-occurrence rules, strata, variants, parser parameters.
+//! inflectional/derivational/unclassified affixes (concatenative and `MoAffixProcess`-style,
+//! including the `MorphType::Circumfix` prefix x suffix cross-product), templates (+ null-affix
+//! synthesis for irregular slots), compounding (default + authored), rewrite rules, ad-hoc
+//! co-occurrence rules, strata, variants, parser parameters.
 //!
 //! **Not implemented** (each occurrence produces a warning, never an error, mirroring the existing
 //! loader's managed-fallback lint philosophy): metathesis rules, reduplication
-//! (bracket-pattern affix forms), circumfix cross-products, clitic-as-affix-rule
+//! (bracket-pattern affix forms), clitic-as-affix-rule
 //! (`LoadCliticAffixProcessRule`) and clitic-as-stem stratum placement, user-defined `<Strata>`
 //! reorganization strings.
 //!

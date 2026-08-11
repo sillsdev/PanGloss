@@ -54,30 +54,16 @@ this task; `words.yaml` signatures captured via a throwaway test (`rust/crates/p
 zz_throwaway_sig_dump.rs`, deleted after transcription) driving `pg_parse::Morpher::parse_word_opts`
 directly over every word.
 
-## A discovered, out-of-scope finding (transcribed honestly, not hidden)
+## A discovered finding, since fixed
 
-`morpher.parse_word_opts("y", ..).signature()`'s SURFACE half renders empty (`"ROOT1|"`, not
-`"ROOT1|y"`), even though the underlying MORPHEME-level analysis (root identity) is exactly correct
--- `n_analyses == 1`, correctly naming ROOT1. Confirmed, by direct experiment, NOT specific to this
-fixture's multi-table shape: an equivalent SINGLE-TABLE grammar with the identical environment-free,
-natural-class-to-natural-class feature-changing phonological rule renders its surface half
-correctly (`"ROOT|y"`); confirmed also NOT keyed to "the rule's owning table has TableId(0)"
-specifically (swapping which of the two `CharacterDefinitionTable` elements is declared first in
-the XML, so the rule's own table becomes `TableId(0)` instead of `TableId(1)`, does not fix it
-either). This looks like a genuine, narrow `pg_parse`/`pg_rules` synthesis-side bug: `pg_rules::
-stratum::synthesize_stratum_traced` never assigns a candidate `Word`'s own `.stratum` field the way
-the ANALYSIS-direction `analyze()` does (`input.stratum = self.stratum_id;`, `pg-rules/src/
-stratum.rs:1242` -- no equivalent assignment anywhere in the synthesis-direction functions), so
-`Morpher::surface_of`'s `g.strata[w.stratum.0].table` lookup can resolve the WRONG table for a root
-synthesized past its own entry stratum. A DIFFERENT crate (`pg-rules`/`pg-parse`), a DIFFERENT bug
-class, entirely out of scope for `plan-construct-coverage-completion` task 4.4b's `pg-foma`-only
-single-owner boundary -- flagged here for a follow-on, not silently avoided (mirrors `bistratal-
-overlapping-segment-representation`'s own STAGING.md precedent, which similarly documents an
-unrelated "index out of bounds" crash discovered while authoring that fixture). `words.yaml`'s own
-`y` entry pins the signature AS TRANSCRIBED (`"ROOT1|"`) -- this is the honest, current, real engine
-output, not a hand-derived value -- and the paired Rust test's own containment check compares
-MORPHEME-level `structured` analyses directly, never this signature's surface half, so this
-unrelated gap cannot contaminate this fixture's own multi-table-aliasing pin.
+`morpher.parse_word_opts("y", ..).signature()`'s SURFACE half used to render empty (`"ROOT1|"`, not
+`"ROOT1|y"`), even though the underlying MORPHEME-level analysis (root identity) was already exactly
+correct -- `n_analyses == 1`, correctly naming ROOT1. Root cause: `pg_rules::stratum::
+synthesize_stratum_traced` never assigned a candidate `Word`'s own `.stratum` field the way the
+ANALYSIS-direction `analyze()` does, so `Morpher::surface_of`'s `g.strata[w.stratum.0].table` lookup
+resolved the WRONG table for a root synthesized past its own entry stratum. Fixed by assigning
+`.stratum` on stratum entry during synthesis too, mirroring `analyze()`. `words.yaml`'s `y` entry
+now pins the corrected signature (`"ROOT1|y"`).
 
 ## Verification
 

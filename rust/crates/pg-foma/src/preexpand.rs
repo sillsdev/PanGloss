@@ -135,7 +135,7 @@ use pg_shape::NO_CHAR_DEF;
 #[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
-use crate::emit::{rule_role, stripped_variants, surface_variants, Role};
+use crate::emit::{is_structural_rule, rule_role, stripped_variants, surface_variants, Role};
 use crate::junctions::PhonologyProbe;
 use crate::morphotactics::{
     ChainState, EnumerationBudget, ExploreMode, MorphotacticIndex, ProbeBudget,
@@ -186,10 +186,13 @@ pub struct CompositeReport {
     /// Composite entries emitted for `Role::Prefix`/`Role::Suffix` rules whose fused surface differs
     /// from what the ordinary two-entry emission already reaches (miss class 5b).
     pub fusion_entries: usize,
-    /// `g.mrules` indices of `Role::Infix` rules that produced at least one composite entry --
-    /// `emit.rs` suppresses the "standalone rule classifies as Infix; not representable" uncovered
-    /// routing for exactly these (the construct IS representable now, via this module); an infix
-    /// rule that matched zero roots stays uncovered, honestly.
+    /// `g.mrules` indices of the non-dropping `Role::Infix` rules THIS module claims (`candidate_rules`)
+    /// that produced at least one composite entry -- `emit.rs` suppresses the "standalone rule
+    /// classifies as Infix; not representable" uncovered routing for exactly these (the construct IS
+    /// representable now, via this module); an infix rule that matched zero roots stays uncovered,
+    /// honestly. A drop-shaped `Role::Infix` rule is never a candidate here at all (census C4's
+    /// ownership handoff, `candidate_rules`'s own doc) -- `emit.rs` clears ITS uncovered entry from
+    /// `crate::emit::build_structural_composites`'s own covered-rules set instead.
     pub covered_infix_rules: std::collections::BTreeSet<u32>,
 }
 
@@ -205,10 +208,12 @@ fn any_infix_rule(g: &Grammar) -> bool {
 }
 
 /// Every rule id whose PRIMARY allomorph classifies `Infix`/`Prefix`/`Suffix` (mirrors `emit.rs`'s
-/// own `rule_role` convention for "how this rule is treated" everywhere else in the emitter).
-/// `Reduplication` (peel's job, D6), `CircumfixPrefix`/`CircumfixSuffix` (P1d item 3, not exercised
-/// by any reference-grammar corpus fixture at this stage), `Process`, and `None` are out of this
-/// stage's scope.
+/// own `rule_role` convention for "how this rule is treated" everywhere else in the emitter), MINUS
+/// any `Infix` rule `crate::emit::is_structural_rule` now claims (census C4's ownership handoff —
+/// an `Infix` allomorph that drops LHS material is `build_structural_composites`'s job, not this
+/// module's). `Reduplication` (peel's job, D6), `CircumfixPrefix`/`CircumfixSuffix` (P1d item 3, not
+/// exercised by any reference-grammar corpus fixture at this stage), `Process`, and `None` are out
+/// of this stage's scope.
 /// Diagnostic-only: `candidate_rules(g).len()` without exposing the `Role` classification itself
 /// outside the crate (`crate::emit`'s `composite_scale_hint` is the one external caller — see that
 /// function's doc for why this exists).
@@ -225,6 +230,10 @@ fn candidate_rules(g: &Grammar) -> Vec<(MRuleId, Role)> {
         let mid = MRuleId(i as u32);
         let role = rule_role(g, mid);
         if matches!(role, Role::Prefix | Role::Suffix | Role::Infix) {
+            // Ownership handoff (census C4): relinquish an Infix rule the instant it drops LHS material and so qualifies for build_structural_composites instead.
+            if role == Role::Infix && is_structural_rule(g, mid) {
+                continue;
+            }
             out.push((mid, role));
         }
     }

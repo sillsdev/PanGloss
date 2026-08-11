@@ -1,19 +1,24 @@
 //! Bounded local structural-allomorph lowering for the templated proposer.
 //!
-//! This deliberately covers one affine, adjacent suffix shape without enumerating roots:
-//! `lhs = [variable prefix, one tail atom]`, `rhs = [Copy(Input(0)), InsertSegments...]`.
-//! The templated lexc emitter writes an allomorph-owned marker alternative; this module compiles
-//! `tail marker -> inserted tokens` and the caller composes it after lexc and before phonology.
-//! Unsupported shapes receive no marker and remain on the existing literal fallback path.
+//! Covers one affine, adjacent suffix shape without enumerating roots: `lhs = [variable prefix,
+//! one tail atom]`, `rhs = [Copy(Input(0)), InsertSegments...]`. The templated lexc emitter writes
+//! an allomorph-owned marker alternative; this module compiles the local deletion relation and the
+//! caller composes it after lexc and before phonology. Unsupported shapes receive no marker and
+//! remain on the existing literal fallback path.
+//!
+//! The two-sided (circumfix) shape (`lhs = [one whole-root part]`, `rhs = [InsertSegments...,
+//! Copy(Input(0)), InsertSegments...]`) needs no marker or rewrite composition at all: both halves'
+//! text is already known statically, so `circumfix_texts` just hands the caller the two encoded
+//! strings, and `crate::emit` writes each directly at its own real chain position.
 
 use foma::constructions::{fsm_compose, fsm_union, fsm_universal};
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::types::Fsm;
-use pg_grammar::chardef::{CharDefId, CharDefKind};
+use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, Grammar, MorphRuleDef, NaturalClassKind, OutputAction, PartRef,
-    PatternNode, PhonRuleDef, TableId,
+    PatternNode, PhonRuleDef, SegmentedText, TableId,
 };
 
 use crate::replace::SegAlphabet;
@@ -26,10 +31,60 @@ struct LocalRecipe {
     table: TableId,
     tail_members: Vec<CharDefId>,
     inserted: String,
+    leading: bool,
 }
 
 pub(crate) fn marker_for(allomorph: AllomorphId) -> Option<char> {
     char::from_u32(MARKER_BASE.checked_add(allomorph.0)?)
+}
+
+/// Every `InsertSegments` action in `actions`, in order; `None` if anything else appears.
+fn insert_only_shapes(actions: &[OutputAction]) -> Option<Vec<&SegmentedText>> {
+    if actions.is_empty() {
+        return None;
+    }
+    let mut shapes = Vec::with_capacity(actions.len());
+    for action in actions {
+        let OutputAction::InsertSegments { shape, .. } = action else {
+            return None;
+        };
+        shapes.push(shape);
+    }
+    Some(shapes)
+}
+
+/// The already-encoded `(prefix, suffix)` token text for `allomorph`, if it matches a single,
+/// non-reduplicated `Copy(Input(0))` wrapped by leading and trailing `InsertSegments` over a
+/// 1-part LHS (`Role::CircumfixPrefix`'s shape); an interior insert or a repeated copy of the same
+/// part needs root-internal splitting or duplication this cannot represent, so stays uncovered.
+pub(crate) fn circumfix_texts(
+    alphabet: &SegAlphabet,
+    allomorph: &AffixAllomorphDef,
+) -> Option<(String, String)> {
+    if allomorph.lhs.len() != 1 {
+        return None;
+    }
+    let rhs = allomorph.rhs.as_slice();
+    let mut copy_positions = rhs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, a)| matches!(a, OutputAction::Copy(PartRef::Input(0))).then_some(i));
+    let copy_pos = copy_positions.next()?;
+    if copy_positions.next().is_some() {
+        return None;
+    }
+    if copy_pos == 0 || copy_pos == rhs.len() - 1 {
+        return None;
+    }
+    let pfx_shapes = insert_only_shapes(&rhs[..copy_pos])?;
+    let sfx_shapes = insert_only_shapes(&rhs[copy_pos + 1..])?;
+    let encode = |shapes: Vec<&SegmentedText>| -> String {
+        shapes
+            .into_iter()
+            .map(|s| alphabet.encode_shape(&s.shape))
+            .collect()
+    };
+    Some((encode(pfx_shapes), encode(sfx_shapes)))
 }
 
 fn class_members(g: &Grammar, table: TableId, node: &PatternNode) -> Option<Vec<CharDefId>> {
@@ -66,18 +121,24 @@ fn class_members(g: &Grammar, table: TableId, node: &PatternNode) -> Option<Vec<
     (!members.is_empty()).then_some(members)
 }
 
-fn recipe_for(g: &Grammar, allomorph: &AffixAllomorphDef) -> Option<LocalRecipe> {
+fn recipe_for(
+    g: &Grammar,
+    allomorph: &AffixAllomorphDef,
+    table_hint: &CharDefTable,
+) -> Option<LocalRecipe> {
     if allomorph.lhs.len() != 2 {
         return None;
     }
-    let tail_node = allomorph.lhs[1].nodes.as_slice();
-    let [tail_node] = tail_node else { return None };
-    let [OutputAction::Copy(PartRef::Input(0)), rest @ ..] = allomorph.rhs.as_slice() else {
+    let (leading, dropped_node, rest) = match allomorph.rhs.as_slice() {
+        [OutputAction::Copy(PartRef::Input(0)), rest @ ..] => (false, &allomorph.lhs[1], rest),
+        [OutputAction::Copy(PartRef::Input(1))] => {
+            (true, &allomorph.lhs[0], &[] as &[OutputAction])
+        }
+        _ => return None,
+    };
+    let [dropped_node] = dropped_node.nodes.as_slice() else {
         return None;
     };
-    if rest.is_empty() {
-        return None;
-    }
     let mut table = None;
     let mut inserted_shapes = Vec::new();
     for action in rest {
@@ -94,9 +155,17 @@ fn recipe_for(g: &Grammar, allomorph: &AffixAllomorphDef) -> Option<LocalRecipe>
         table = Some(*action_table);
         inserted_shapes.push(shape);
     }
-    let table = table?;
+    let table = match table {
+        Some(table) => table,
+        None => g
+            .char_tables
+            .iter()
+            .position(|candidate| std::ptr::eq(candidate, table_hint))
+            .and_then(|index| u16::try_from(index).ok())
+            .map(TableId)?,
+    };
     let alphabet = SegAlphabet::new(g.char_tables.get(table.0 as usize)?);
-    let tail_members = class_members(g, table, tail_node)?;
+    let tail_members = class_members(g, table, dropped_node)?;
     let inserted = inserted_shapes
         .into_iter()
         .map(|shape| alphabet.encode_shape(&shape.shape))
@@ -106,11 +175,19 @@ fn recipe_for(g: &Grammar, allomorph: &AffixAllomorphDef) -> Option<LocalRecipe>
         table,
         tail_members,
         inserted,
+        leading,
     })
 }
 
-pub(crate) fn structural_marker(g: &Grammar, allomorph: &AffixAllomorphDef) -> Option<char> {
-    recipe_for(g, allomorph).and_then(|recipe| marker_for(recipe.allomorph))
+pub(crate) fn structural_marker_for_zone(
+    g: &Grammar,
+    allomorph: &AffixAllomorphDef,
+    table_hint: &CharDefTable,
+    prefix_zone: bool,
+) -> Option<char> {
+    recipe_for(g, allomorph, table_hint)
+        .filter(|_| !prefix_zone)
+        .and_then(|recipe| marker_for(recipe.allomorph))
 }
 
 fn atom(tokens: &[char]) -> String {
@@ -221,10 +298,10 @@ pub fn compile_layer(
                     "structural-shape\t{:?}\t{:?}\tmatched={}",
                     allomorph.lhs,
                     allomorph.rhs,
-                    recipe_for(g, allomorph).is_some()
+                    recipe_for(g, allomorph, pipeline_alphabet.table()).is_some()
                 );
             }
-            let Some(recipe) = recipe_for(g, allomorph) else {
+            let Some(recipe) = recipe_for(g, allomorph, pipeline_alphabet.table()) else {
                 continue;
             };
             if recipe.table != pipeline_table {
@@ -236,17 +313,39 @@ pub fn compile_layer(
                 .iter()
                 .map(|id| pipeline_alphabet.token(*id))
                 .collect();
-            let regex = format!(
-                "{} {} -> {}",
-                atom(&tails),
-                marker,
+            let output = if recipe.inserted.is_empty() {
+                "0".to_string()
+            } else {
                 spaced(&recipe.inserted)
-            );
-            let recipe_net = fsm_parse_regex(opts, &regex, None, None)
-                .unwrap_or_else(|| panic!("foma rejected structural allomorph regex {regex:?}"));
+            };
+            let regex = if recipe.leading {
+                let segments: Vec<char> = g
+                    .char_tables
+                    .get(recipe.table.0 as usize)
+                    .into_iter()
+                    .flat_map(|table| table.iter())
+                    .filter(|(_, definition)| definition.kind() == CharDefKind::Segment)
+                    .map(|(id, _)| pipeline_alphabet.token(id))
+                    .collect();
+                let right_context = format!("{}* {}", atom(&segments), marker);
+                let drop = fsm_parse_regex(
+                    opts,
+                    &format!("{} -> 0 || .#. _ {}", atom(&tails), right_context),
+                    None,
+                    None,
+                )
+                .unwrap_or_else(|| panic!("foma rejected structural allomorph regex"));
+                let marker_delete = fsm_parse_regex(opts, &format!("{} -> 0", marker), None, None)
+                    .unwrap_or_else(|| panic!("foma rejected structural allomorph marker cleanup"));
+                fsm_compose(opts, drop, marker_delete)
+            } else {
+                let regex = format!("{} {} -> {}", atom(&tails), marker, output);
+                fsm_parse_regex(opts, &regex, None, None)
+                    .unwrap_or_else(|| panic!("foma rejected structural allomorph regex {regex:?}"))
+            };
             net = Some(match net {
-                None => recipe_net,
-                Some(previous) => fsm_compose(opts, previous, recipe_net),
+                None => regex,
+                Some(previous) => fsm_compose(opts, previous, regex),
             });
         }
     }
