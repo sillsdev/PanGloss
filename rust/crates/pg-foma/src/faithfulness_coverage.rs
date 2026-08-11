@@ -362,6 +362,17 @@ impl FaithfulnessReport {
                 self.scope, self.fixtures_discovered
             ));
         }
+        if self.fixtures_observed.len() != self.fixtures_discovered {
+            let gap = self
+                .fixtures_discovered
+                .abs_diff(self.fixtures_observed.len());
+            violations.push(format!(
+                "fixtures_discovered={} but fixtures_observed={} -- {gap} fixture(s) vanished \
+                 from the collection silently, without even an unobservable_fixture row",
+                self.fixtures_discovered,
+                self.fixtures_observed.len(),
+            ));
+        }
         if self.held.is_empty() && self.failed.is_empty() {
             violations.push(
                 "no containment comparison was ever attempted -- every pair is not-attempted, so \
@@ -576,6 +587,101 @@ pub fn unobservable_fixture(
     FixtureContainmentObservation::not_attempted(label, kinds, reason)
 }
 
+/// One `(fixture label, backend label, word)` triple that `tests/faithfulness_expected_failures.txt`
+/// records as an already-known containment failure -- the ratchet's sole unit of state. A fix that
+/// closes the gap must delete the corresponding line in the same change: the file's own header
+/// states the ratchet only tightens, and `check_ratchet` enforces that directionality by failing on
+/// a line that no longer reproduces, exactly as it fails on a failure the line never covered.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ExpectedFailure {
+    pub fixture: String,
+    pub backend: String,
+    pub word: String,
+}
+
+impl ExpectedFailure {
+    /// Parses the ratchet file's body: one `fixture\tbackend\tword` per line, blank lines and
+    /// `#`-prefixed header/comment lines skipped. Never panics on a malformed line -- a short line
+    /// yields empty-string fields rather than aborting the whole file, so one bad edit shows up as
+    /// an unmatched triple in `check_ratchet` rather than an opaque parse failure.
+    pub fn parse_ratchet_file(contents: &str) -> Vec<Self> {
+        contents
+            .lines()
+            .map(str::trim_end)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(|line| {
+                let mut fields = line.split('\t');
+                Self {
+                    fixture: fields.next().unwrap_or_default().to_string(),
+                    backend: fields.next().unwrap_or_default().to_string(),
+                    word: fields.next().unwrap_or_default().to_string(),
+                }
+            })
+            .collect()
+    }
+}
+
+/// Every `(fixture label, backend label, word)` triple this run's observations actually FAILED
+/// containment for. Read directly off `FixtureContainmentObservation::outcomes`, not off
+/// `FaithfulnessReport`'s `failure_examples` -- that field is deduplicated to one example per
+/// `(CharacteristicKind, EmissionStrategy)` pair, which would silently hide every other fixture's
+/// failure on the same pair from the ratchet.
+pub fn failed_triples(
+    observations: &[FixtureContainmentObservation],
+) -> BTreeSet<(String, String, String)> {
+    let mut triples = BTreeSet::new();
+    for observation in observations {
+        for (strategy, outcome) in &observation.outcomes {
+            if let ContainmentOutcome::Failed { word, .. } = outcome {
+                triples.insert((
+                    observation.label.clone(),
+                    strategy.label().to_string(),
+                    word.clone(),
+                ));
+            }
+        }
+    }
+    triples
+}
+
+/// Checks `observed_failures` (from `failed_triples`) against the ratchet's `expected` entries.
+/// Fails in either direction: a triple that failed this run but is absent from `expected` is a NEW
+/// overclaim (a regression the ratchet was built to catch), and an `expected` entry that did NOT
+/// fail this run is STALE (the ratchet only tightens, so a fix must delete its line in the same
+/// change, not leave it for this check to report forever). An empty `expected` with an empty
+/// `observed_failures` -- the ratchet file deleted, or never populated because nothing has ever
+/// failed -- passes trivially, which is the intended end state of the campaign this ratchet serves.
+pub fn check_ratchet(
+    observed_failures: &BTreeSet<(String, String, String)>,
+    expected: &[ExpectedFailure],
+) -> Result<(), Vec<String>> {
+    let expected_set: BTreeSet<(String, String, String)> = expected
+        .iter()
+        .map(|e| (e.fixture.clone(), e.backend.clone(), e.word.clone()))
+        .collect();
+    let mut violations = Vec::new();
+    for (fixture, backend, word) in observed_failures {
+        if !expected_set.contains(&(fixture.clone(), backend.clone(), word.clone())) {
+            violations.push(format!(
+                "NEW containment failure not in the ratchet (overclaim): {fixture}\t{backend}\t{word}"
+            ));
+        }
+    }
+    for (fixture, backend, word) in &expected_set {
+        if !observed_failures.contains(&(fixture.clone(), backend.clone(), word.clone())) {
+            violations.push(format!(
+                "STALE ratchet entry did not fail this run -- delete its line: {fixture}\t{backend}\t{word}"
+            ));
+        }
+    }
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        violations.sort();
+        Err(violations)
+    }
+}
+
 /// Position in `crate::strategy_coverage::ALL_STRATEGIES`, giving `EmissionStrategy` a total order it does not derive.
 fn strategy_index(strategy: EmissionStrategy) -> usize {
     ALL_STRATEGIES
@@ -714,7 +820,7 @@ mod tests {
             .check(FaithfulnessRequirement::NonVacuity)
             .expect_err("an empty collection must not pass");
         assert!(violations.iter().any(|v| v.contains("no fixture")));
-        assert!(violations.iter().any(|v| v.contains("never attempted")));
+        assert!(violations.iter().any(|v| v.contains("was ever attempted")));
     }
 
     /// The strict requirement must reject exactly the failure inventory the lenient one tolerates.
@@ -742,5 +848,188 @@ mod tests {
         assert!(violations
             .iter()
             .any(|v| v.contains("FAILED proposal containment")));
+    }
+
+    /// A silently dropped fixture (no `unobservable_fixture` row at all) must fail `check` by name.
+    #[test]
+    fn observed_count_short_of_discovered_is_a_named_violation() {
+        let report = build_report(
+            "all",
+            5,
+            &[
+                observation(
+                    "fixture-a",
+                    &[CharacteristicKind::Affixation],
+                    &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
+                ),
+                observation(
+                    "fixture-b",
+                    &[CharacteristicKind::Affixation],
+                    &[(
+                        EmissionStrategy::TunedSurfaceProbed,
+                        ContainmentOutcome::Held,
+                    )],
+                ),
+            ],
+        );
+        assert_eq!(report.fixtures_discovered, 5);
+        assert_eq!(report.fixtures_observed.len(), 2);
+        let violations = report
+            .check(FaithfulnessRequirement::NonVacuity)
+            .expect_err("a 3-fixture gap between discovered and observed must not pass");
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.contains("fixtures_discovered=5") && v.contains("fixtures_observed=2")),
+            "violation must name both counts, got {violations:#?}"
+        );
+    }
+
+    /// A matched count must never itself be reported as a violation.
+    #[test]
+    fn matched_observed_and_discovered_counts_add_no_violation() {
+        let report = build_report(
+            "all",
+            2,
+            &[
+                observation(
+                    "fixture-a",
+                    &[CharacteristicKind::Affixation],
+                    &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
+                ),
+                observation(
+                    "fixture-b",
+                    &[CharacteristicKind::Affixation],
+                    &[(
+                        EmissionStrategy::TunedSurfaceProbed,
+                        ContainmentOutcome::Held,
+                    )],
+                ),
+            ],
+        );
+        report
+            .check(FaithfulnessRequirement::NonVacuity)
+            .expect("matched counts must not add a violation");
+    }
+
+    /// Header/comment/blank lines are skipped; a data line splits into exactly three tab fields.
+    #[test]
+    fn parse_ratchet_file_skips_headers_and_splits_on_tabs() {
+        let contents = "# header line\n\n\
+                         fixture-one\tplan-composed\tkolo\n\
+                         # another comment\n\
+                         fixture-two\ttuned-surface-probed\tpakolosa\n";
+        let parsed = ExpectedFailure::parse_ratchet_file(contents);
+        assert_eq!(
+            parsed,
+            vec![
+                ExpectedFailure {
+                    fixture: "fixture-one".to_string(),
+                    backend: "plan-composed".to_string(),
+                    word: "kolo".to_string(),
+                },
+                ExpectedFailure {
+                    fixture: "fixture-two".to_string(),
+                    backend: "tuned-surface-probed".to_string(),
+                    word: "pakolosa".to_string(),
+                },
+            ]
+        );
+    }
+
+    /// `failed_triples` must report every fixture/backend/word, not one example per `(kind, strategy)`.
+    #[test]
+    fn failed_triples_collects_every_fixture_backend_word_combination() {
+        let observations = [
+            observation(
+                "fixture-a",
+                &[CharacteristicKind::Affixation],
+                &[(
+                    EmissionStrategy::PlanComposed,
+                    ContainmentOutcome::Failed {
+                        word: "kolo".to_string(),
+                        detail: "missing identity".to_string(),
+                    },
+                )],
+            ),
+            observation(
+                "fixture-b",
+                &[CharacteristicKind::Affixation],
+                &[
+                    (EmissionStrategy::PlanComposed, ContainmentOutcome::Held),
+                    (
+                        EmissionStrategy::TunedSurfaceProbed,
+                        ContainmentOutcome::Failed {
+                            word: "pakolosa".to_string(),
+                            detail: "missing identity".to_string(),
+                        },
+                    ),
+                ],
+            ),
+        ];
+        let triples = failed_triples(&observations);
+        assert_eq!(
+            triples,
+            BTreeSet::from([
+                (
+                    "fixture-a".to_string(),
+                    "plan-composed".to_string(),
+                    "kolo".to_string()
+                ),
+                (
+                    "fixture-b".to_string(),
+                    "tuned-surface-probed".to_string(),
+                    "pakolosa".to_string()
+                ),
+            ])
+        );
+    }
+
+    /// A failure this run finds that the ratchet does not list must fail as a NEW overclaim.
+    #[test]
+    fn check_ratchet_rejects_a_new_failure_absent_from_the_file() {
+        let observed = BTreeSet::from([(
+            "fixture-a".to_string(),
+            "plan-composed".to_string(),
+            "kolo".to_string(),
+        )]);
+        let violations =
+            check_ratchet(&observed, &[]).expect_err("an unlisted failure must not pass");
+        assert!(violations.iter().any(|v| v.contains("NEW")));
+    }
+
+    /// A ratchet entry that did not fail this run must fail as STALE -- the ratchet only tightens.
+    #[test]
+    fn check_ratchet_rejects_a_stale_entry_that_no_longer_fails() {
+        let expected = [ExpectedFailure {
+            fixture: "fixture-a".to_string(),
+            backend: "plan-composed".to_string(),
+            word: "kolo".to_string(),
+        }];
+        let violations = check_ratchet(&BTreeSet::new(), &expected)
+            .expect_err("a stale entry that no longer fails must not pass");
+        assert!(violations.iter().any(|v| v.contains("STALE")));
+    }
+
+    /// An exact match between what failed and what the ratchet lists passes clean.
+    #[test]
+    fn check_ratchet_accepts_an_exact_match() {
+        let observed = BTreeSet::from([(
+            "fixture-a".to_string(),
+            "plan-composed".to_string(),
+            "kolo".to_string(),
+        )]);
+        let expected = [ExpectedFailure {
+            fixture: "fixture-a".to_string(),
+            backend: "plan-composed".to_string(),
+            word: "kolo".to_string(),
+        }];
+        check_ratchet(&observed, &expected).expect("an exact match must pass");
+    }
+
+    /// A missing ratchet file (`expected` empty) with zero observed failures passes.
+    #[test]
+    fn check_ratchet_accepts_an_absent_file_with_zero_failures() {
+        check_ratchet(&BTreeSet::new(), &[]).expect("no file and no failures must pass");
     }
 }

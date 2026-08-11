@@ -515,11 +515,14 @@ pub struct CircumfixOutputActionDetail {
     /// allomorph, once the rule is admitted every allomorph rides along.
     ///
     /// `false` means NO allomorph of this rule is `CircumfixPrefix`, none carries an
-    /// `OutputAction::Modify`/`InsertContext`, AND allomorph 0's role
-    /// (`Role::Infix`/`Role::Reduplication`/`Role::CircumfixSuffix`/`Role::None`\`Prefix`\`Suffix`
-    /// with no LHS-material-dropping allomorph, per `crate::emit::classify_affix`) falls outside
-    /// `is_structural_rule`'s covered set even though THIS allomorph still drops real LHS material —
-    /// e.g. a rule whose primary shape is genuine interdigitation (`crate::preexpand`'s own job).
+    /// `OutputAction::Modify`/`InsertContext`, and allomorph 0's role (per
+    /// `crate::emit::classify_affix`) is `Role::Reduplication`/`Role::CircumfixSuffix` — since
+    /// census C4, `None`/`Prefix`/`Suffix`/`Infix` all route through `is_structural_rule`'s
+    /// drop-aware arm, and that arm scans EVERY allomorph of the rule
+    /// (`.any(rhs_drops_lhs_material)`, not only allomorph 0), so it is covered whenever THIS
+    /// observation's own dropping allomorph exists, regardless of which of those four roles
+    /// allomorph 0 itself carries. E.g. a rule whose primary shape is genuine reduplication
+    /// (`crate::peel::ReduplicationPeeler`'s own job) with a distinct dropping allomorph elsewhere.
     /// `Role::Process` is NOT such a case: `is_structural_rule` admits it unconditionally, because
     /// the structural composite replays `pg_rules::morph::synthesize` rather than emitting literal
     /// text. The real compiler already honestly skips a `false` allomorph everywhere (never silently
@@ -2272,15 +2275,18 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 /// path.
 ///
 /// A rule stays OUTSIDE `is_structural_rule`'s admitted set only when NONE of its allomorphs
-/// classifies `Role::CircumfixPrefix` AND its allomorph-0 role (per `crate::emit::classify_affix`)
-/// is `Role::Infix`/`Role::Reduplication`/`Role::Process` with no allomorph dropping LHS material —
-/// e.g. a rule whose RHS uses `OutputAction::Modify`/`InsertContext` (ablaut/simulfix-style
-/// "process morphs", never compilable as literal strings) is never routed there, and the ordinary
-/// emission path already honestly reports it `uncovered` (`crate::emit::emit_rule_allomorphs`'s
-/// `has_unemittable_action` check) rather than silently mis-compiling it. `is_structural_rule`
-/// scans every allomorph for `CircumfixPrefix` before falling back to allomorph-0-only
-/// classification (a rule whose allomorph 0 is some OTHER role but a later allomorph is
-/// circumfix-shaped is still admitted), so the exclusion above is exhaustive.
+/// classifies `Role::CircumfixPrefix`, NONE drops LHS material while ITSELF classifying
+/// `Role::None`/`Prefix`/`Suffix`/`Infix` (checked per allomorph, never gated by what some OTHER
+/// allomorph of the same rule classifies as — census C5, below), and the rule carries no
+/// `OutputAction::Modify`/`InsertContext` action anywhere — e.g. a rule whose RHS uses
+/// `OutputAction::Modify`/`InsertContext` (ablaut/simulfix-style "process morphs", never compilable
+/// as literal strings) is never routed there, and the ordinary emission path already honestly
+/// reports it `uncovered` (`crate::emit::emit_rule_allomorphs`'s `has_unemittable_action` check)
+/// rather than silently mis-compiling it. `is_structural_rule` scans every allomorph for
+/// `CircumfixPrefix` and for a dropping `None`/`Prefix`/`Suffix`/`Infix` shape independently (a
+/// rule whose allomorph 0 is some OTHER role but a later allomorph is circumfix-shaped, or drops
+/// LHS material under one of those four roles, is still admitted), so the exclusion above is
+/// exhaustive.
 ///
 /// An RHS that is simultaneously circumfixing (insert before the first `Copy`, insert after the
 /// last) AND infixing (a non-`Copy` action strictly between two `Copy`s) classifies
@@ -2305,6 +2311,30 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 /// its `CircumfixPrefix` admission is unconditional (`is_structural_rule`'s own comment), where
 /// `crate::preexpand`'s Infix coverage of this shape is real but incidental to a module whose own
 /// doc scopes it to interdigitation/boundary-fusion, never to circumfix.
+///
+/// A genuinely `Infix`-classified allomorph — never circumfixing on any allomorph of its own rule —
+/// that drops LHS material is a 4th case, closing the census
+/// (`docs/research/circumfix-composite-precedence-census.md`, C4): `is_structural_rule` admits it
+/// directly via its own drop-aware match arm, never via a `classify_affix` reclassification (unlike
+/// C3 above, `rule_role` genuinely stays `Role::Infix`). This one has real recall consequences, not
+/// merely a relabeling of an outcome `crate::preexpand` already reached: that module's own
+/// resynthesis of this shape is real but incidental (bounded by its own enumeration budget/pruning,
+/// not a proven exact-containment argument for every grammar), so `preexpand.rs`'s own
+/// `candidate_rules` now excludes any `Infix` rule `is_structural_rule` claims, making
+/// `build_structural_composites`'s oracle-backed construction — not `crate::preexpand`'s probe —
+/// the mechanism `structural_composite_attempted` reports here, pinned by
+/// `tests/phase_c_circumfix.rs::infix_with_drop_structural_recall_parity`'s own
+/// candidate-set-membership assertion.
+///
+/// A 5th case, closing the census further (`docs/research/circumfix-composite-precedence-census.md`,
+/// C5): a rule whose FIRST allomorph classifies `Role::Reduplication` (so `crate::emit::rule_role`,
+/// which reads only that first allomorph, calls the whole rule `Reduplication`) but which carries a
+/// LATER allomorph that drops LHS material while ITSELF classifying `None`/`Prefix`/`Suffix`/
+/// `Infix` used to be categorically excluded, exactly as the C1 non-first-allomorph bug excluded a
+/// circumfix declared second — the real-world grammar that surfaced this had such an allomorph
+/// sitting in its own uncovered list ("mrule 189 allomorph #4"). `is_structural_rule` now checks
+/// every allomorph's OWN classification against the drop test, never gated by any other allomorph's
+/// role, so this later allomorph is admitted regardless of what allomorph 0 classifies as.
 ///
 /// An RHS that is simultaneously circumfixing AND reduplicating (some `Copy`d part echoed >= 2
 /// times) ALSO classifies `CircumfixPrefix` rather than `Reduplication`, so
@@ -2342,7 +2372,11 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 ///   (`structural_composite_attempted == false`): `PredicateVerdict::Refuse` — the real compiler
 ///   already honestly skips this exact allomorph everywhere (module doc above), never a silent wrong
 ///   compile, but a grammar depending on it must be refused rather than silently missing recall;
-///   overridable via the capability override.
+///   overridable via the capability override. Since census C4-C5 (above), this is no longer every
+///   `Role::Infix` drop, nor every drop hidden behind a non-safe allomorph 0 — only a rule whose
+///   dropping allomorph(s), checked individually, classify `Role::Reduplication`/
+///   `Role::CircumfixSuffix` themselves still lands here, regardless of what any OTHER allomorph of
+///   the same rule classifies as.
 ///
 /// # Provenance
 /// `EvidenceProvenance::Structural`: `structural_composite_attempted` reads directly-inspectable
@@ -2394,13 +2428,14 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
                     witness:
                         "no allomorph of this allomorph's own rule classifies as crate::emit::\
                               Role::CircumfixPrefix (crate::emit::classify_affix, scanned over \
-                              every allomorph), and its first allomorph does not classify as \
-                              crate::emit::Role::None/Prefix/Suffix with LHS-material-dropping \
-                              content either, or the rule uses OutputAction::Modify/InsertContext, \
-                              so crate::emit::is_structural_rule never routes it through the \
-                              faithful build_structural_composites construction -- the real \
-                              compiler already honestly skips (reports uncovered) this exact \
-                              allomorph rather than silently mis-compiling it"
+                              every allomorph), no allomorph -- scanned individually, not just \
+                              the first -- classifies as crate::emit::Role::None/Prefix/Suffix/\
+                              Infix with LHS-material-dropping content of its own either, and the \
+                              rule does not use OutputAction::Modify/InsertContext, so crate::emit\
+                              ::is_structural_rule never routes it through the faithful \
+                              build_structural_composites construction -- the real compiler \
+                              already honestly skips (reports uncovered) this exact allomorph \
+                              rather than silently mis-compiling it"
                             .to_string(),
                 });
             }
@@ -3491,7 +3526,152 @@ fn with_strategy_coverage(
         decision = meet(decision, strategy_floor(strategy, kind));
     }
 
+    // Shape-specific refusals apply only to templated emission.
+    if strategy == EmissionStrategy::TemplatedUnderlyingTokens {
+        decision = meet(decision, templated_shape_floor(semantics));
+    }
+
     decision
+}
+
+const TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE: &str = "strategy-coverage.templated-unsupported-shape";
+
+/// Applies shape-specific eligibility checks to templated emission.
+fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
+    let mut diagnostics = Vec::new();
+    for (rule_index, rule) in semantics.grammar().mrules.iter().enumerate() {
+        let Some(allomorphs) = rule.affix_allomorphs() else {
+            continue;
+        };
+        for (allomorph_index, allomorph) in allomorphs.iter().enumerate() {
+            let role = crate::emit::classify_affix(&allomorph.rhs);
+            let reason = match role {
+                crate::emit::Role::Infix => Some(
+                    "Role::Infix is handled only by the emitter's uncovered-role branch; the \
+                     templated proposer has no Copy-Insert-Copy/infix entry",
+                ),
+                crate::emit::Role::CircumfixPrefix => {
+                    unsupported_templated_circumfix_reason(allomorph)
+                }
+                _ => None,
+            };
+            let Some(reason) = reason else {
+                continue;
+            };
+            diagnostics.push(CapabilityDiagnostic {
+                predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
+                construct: format!(
+                    "mrule {} allomorph #{} ({role:?})",
+                    rule_index, allomorph_index
+                ),
+                witness: format!(
+                    "no faithful templated emission path: {reason}; \
+                     emit_underlying_templated skips structural composite lowering, so this \
+                     allomorph emits no faithful candidate"
+                ),
+            });
+        }
+    }
+
+    let is_loose_rule = |rule_id: &MRuleId| {
+        let Some(allomorphs) = semantics.grammar().mrules[rule_id.0 as usize].affix_allomorphs()
+        else {
+            return false;
+        };
+        !allomorphs.is_empty()
+            && allomorphs.iter().all(|allomorph| {
+                allomorph.required_mpr.is_empty()
+                    && allomorph.excluded_mpr.is_empty()
+                    && allomorph.out_mpr.is_empty()
+            })
+    };
+    for (stratum_index, stratum) in semantics.grammar().strata.iter().enumerate() {
+        if !matches!(stratum.mrule_order, MorphRuleOrder::Unordered) {
+            continue;
+        }
+        let loose_rule_count = stratum
+            .mrules
+            .iter()
+            .filter(|rule_id| is_loose_rule(rule_id))
+            .count();
+        if loose_rule_count > 1 {
+            diagnostics.push(CapabilityDiagnostic {
+                predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
+                construct: format!(
+                    "stratum {stratum_index} (Unordered, {loose_rule_count} loose rules)"
+                ),
+                witness: format!(
+                    "no faithful templated emission path: unordered stratum has \
+                     {loose_rule_count} loose rules, but the underlying-token proposer fixes one \
+                     authored order instead of preserving their unordered application; this \
+                     grammar shape therefore emits no faithful candidate"
+                ),
+            });
+        }
+    }
+
+    for (prule_index, prule) in semantics.grammar().prules.iter().enumerate() {
+        let PhonRuleDef::Rewrite(rule) = prule else {
+            continue;
+        };
+        if !rule.lhs.nodes.is_empty() {
+            continue;
+        }
+        for (subrule_index, subrule) in rule.subrules.iter().enumerate() {
+            if !subrule.self_opaquing {
+                continue;
+            }
+            diagnostics.push(CapabilityDiagnostic {
+                predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
+                construct: format!("prule {prule_index} subrule {subrule_index} (Epenthesis)"),
+                witness: "no faithful templated emission path: self-opaquing epenthesis needs \
+                          analysis-side fixpoint reapplication, but templated compilation skips \
+                          that fixpoint route; this occurrence emits no faithful candidate"
+                    .to_string(),
+            });
+        }
+    }
+    if diagnostics.is_empty() {
+        CompileDecision::Admit
+    } else {
+        CompileDecision::Refuse(diagnostics)
+    }
+}
+
+fn unsupported_templated_circumfix_reason(allomorph: &AffixAllomorphDef) -> Option<&'static str> {
+    if allomorph.lhs.len() != 1 {
+        return Some("the circumfix has a multi-part LHS, which requires root-internal splitting");
+    }
+
+    let copies: Vec<(usize, &PartRef)> = allomorph
+        .rhs
+        .iter()
+        .enumerate()
+        .filter_map(|(position, action)| match action {
+            OutputAction::Copy(part) => Some((position, part)),
+            _ => None,
+        })
+        .collect();
+    if copies.len() != 1 {
+        return Some("the circumfix repeats or omits its root copy, which requires duplication");
+    }
+
+    let (copy_position, part) = copies[0];
+    if !matches!(part, PartRef::Input(0)) {
+        return Some("the circumfix copy is not the whole root input");
+    }
+    if copy_position == 0 || copy_position + 1 == allomorph.rhs.len() {
+        return Some("the circumfix does not wrap a root copy on both sides");
+    }
+    if allomorph.rhs[..copy_position]
+        .iter()
+        .chain(allomorph.rhs[copy_position + 1..].iter())
+        .any(|action| !matches!(action, OutputAction::InsertSegments { .. }))
+    {
+        return Some("the circumfix has a non-insert action around its root copy");
+    }
+
+    None
 }
 
 /// One compiler's verdict for one grammar+plan: the primary unit of capability judgement.
@@ -5198,8 +5378,8 @@ mod tests {
       </Strata>
     </Language></HermitCrabInput>"#;
 
-    /// A 3-part LHS whose RHS interleaves an `InsertSegments` between two `CopyFromInput`s and drops `qC`: `classify_affix` reads `Role::Infix`, which `is_structural_rule` excludes, so the drop reaches no faithful construction at all.
-    const CIRCUMFIX_INFIX_NON_STRUCTURAL_XML: &str = r#"<HermitCrabInput><Language><Name>CircInfix</Name>
+    /// A 3-part LHS whose RHS interleaves an `InsertSegments` between two `CopyFromInput`s and drops `qC`: `classify_affix` reads `Role::Infix`, which `is_structural_rule` admits since census C4 (the drop-aware arm).
+    const CIRCUMFIX_INFIX_DROP_XML: &str = r#"<HermitCrabInput><Language><Name>CircInfix</Name>
       <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -5222,6 +5402,79 @@ mod tests {
                     <CopyFromInput index="qA" />
                     <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
                     <CopyFromInput index="qB" />
+                  </MorphologicalOutput>
+                </MorphologicalSubrule>
+              </MorphologicalSubrules>
+            </MorphologicalRule>
+          </MorphologicalRuleDefinitions>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// A 2-part LHS whose RHS copies `qA` twice (reduplicating) and never copies `qB` (dropping it): `classify_affix` reads `Role::Reduplication` (it beats `Infix`), which `is_structural_rule` still excludes -- the remaining fail-closed boundary census C4 leaves in place.
+    const CIRCUMFIX_REDUPLICATION_DROP_XML: &str = r#"<HermitCrabInput><Language><Name>CircRedupDrop</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+      <Strata>
+        <Stratum characterDefinitionTable="t1" morphologicalRules="mrDropRedup">
+          <Name>S</Name>
+          <MorphologicalRuleDefinitions>
+            <MorphologicalRule id="mrDropRedup">
+              <Name>dropRedup</Name>
+              <MorphologicalSubrules>
+                <MorphologicalSubrule id="subDropRedup">
+                  <MorphologicalInput>
+                    <PhoneticSequence id="qA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                    <PhoneticSequence id="qB"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                  </MorphologicalInput>
+                  <MorphologicalOutput redupMorphType="suffix">
+                    <CopyFromInput index="qA" />
+                    <CopyFromInput index="qA" />
+                  </MorphologicalOutput>
+                </MorphologicalSubrule>
+              </MorphologicalSubrules>
+            </MorphologicalRule>
+          </MorphologicalRuleDefinitions>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// Allomorph 0 drops `qB` classifying `Role::Reduplication`; allomorph 1 drops `rB` classifying `Role::Prefix`.
+    /// See `docs/research/circumfix-composite-precedence-census.md`, C5.
+    const CIRCUMFIX_REDUP_FIRST_PREFIX_DROP_LATER_XML: &str = r#"<HermitCrabInput><Language><Name>CircRedupFirstPrefixDropLater</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+      <Strata>
+        <Stratum characterDefinitionTable="t1" morphologicalRules="mrRedupThenPrefixDrop">
+          <Name>S</Name>
+          <MorphologicalRuleDefinitions>
+            <MorphologicalRule id="mrRedupThenPrefixDrop">
+              <Name>redupThenPrefixDrop</Name>
+              <MorphologicalSubrules>
+                <MorphologicalSubrule id="subRedup">
+                  <MorphologicalInput>
+                    <PhoneticSequence id="qA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                    <PhoneticSequence id="qB"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                  </MorphologicalInput>
+                  <MorphologicalOutput redupMorphType="suffix">
+                    <CopyFromInput index="qA" />
+                    <CopyFromInput index="qA" />
+                  </MorphologicalOutput>
+                </MorphologicalSubrule>
+                <MorphologicalSubrule id="subPrefixDrop">
+                  <MorphologicalInput>
+                    <PhoneticSequence id="rA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                    <PhoneticSequence id="rB"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                  </MorphologicalInput>
+                  <MorphologicalOutput>
+                    <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
+                    <CopyFromInput index="rA" />
                   </MorphologicalOutput>
                 </MorphologicalSubrule>
               </MorphologicalSubrules>
@@ -5458,17 +5711,18 @@ mod tests {
         );
     }
 
-    /// The negative witness: an `Role::Infix` allomorph that still drops LHS material lands on `evaluate`'s `Refuse` branch.
+    /// Census C4's positive witness: an `Role::Infix` allomorph that drops LHS material now reaches `build_structural_composites`, so `evaluate` returns `ConfirmOnly`, not `Refuse` -- this test used to pin the opposite verdict; see `docs/research/circumfix-composite-precedence-census.md`, C4.
     #[test]
-    fn circumfix_output_action_predicate_refuses_infix_role_drop() {
-        let g = load(CIRCUMFIX_INFIX_NON_STRUCTURAL_XML);
+    fn circumfix_output_action_predicate_confirm_only_for_infix_role_drop() {
+        let g = load(CIRCUMFIX_INFIX_DROP_XML);
         assert_eq!(
             crate::emit::rule_role(&g, MRuleId(0)),
             crate::emit::Role::Infix
         );
         assert!(
-            !crate::emit::is_structural_rule(&g, MRuleId(0)),
-            "an Infix rule must stay outside build_structural_composites"
+            crate::emit::is_structural_rule(&g, MRuleId(0)),
+            "an Infix rule that drops LHS material must reach build_structural_composites since \
+             census C4"
         );
 
         let profile = characterize(&g);
@@ -5476,6 +5730,35 @@ mod tests {
             .circumfix_output_action_details()
             .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 0)
             .expect("an Infix allomorph dropping qC still observes CircumfixOutputAction");
+        assert!(detail.structural_composite_attempted);
+
+        let predicate = CircumfixStructuralCompositePredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "an Infix-with-drop allomorph must be ConfirmOnly, never Refuse, now that \
+             is_structural_rule admits it"
+        );
+    }
+
+    /// The remaining negative boundary: an `Role::Reduplication` allomorph that drops LHS material still lands on `evaluate`'s `Refuse` branch -- `is_structural_rule` never widened for this role.
+    #[test]
+    fn circumfix_output_action_predicate_refuses_reduplication_role_drop() {
+        let g = load(CIRCUMFIX_REDUPLICATION_DROP_XML);
+        assert_eq!(
+            crate::emit::rule_role(&g, MRuleId(0)),
+            crate::emit::Role::Reduplication
+        );
+        assert!(
+            !crate::emit::is_structural_rule(&g, MRuleId(0)),
+            "a Reduplication rule must stay outside build_structural_composites"
+        );
+
+        let profile = characterize(&g);
+        let detail = profile
+            .circumfix_output_action_details()
+            .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 0)
+            .expect("a Reduplication allomorph dropping qB still observes CircumfixOutputAction");
         assert!(!detail.structural_composite_attempted);
 
         let predicate = CircumfixStructuralCompositePredicate;
@@ -5487,8 +5770,52 @@ mod tests {
                 );
                 assert!(diag.construct.contains("mrule 0 allomorph #0"));
             }
-            other => panic!("expected Refuse for the Role::Infix drop shape, got {other:?}"),
+            other => {
+                panic!("expected Refuse for the Role::Reduplication drop shape, got {other:?}")
+            }
         }
+    }
+
+    /// Allomorph 1 must be admitted on its own dropping `Role::Prefix` shape regardless of allomorph 0's `Role::Reduplication`.
+    /// See `docs/research/circumfix-composite-precedence-census.md`, C5.
+    #[test]
+    fn circumfix_output_action_predicate_confirm_only_for_redup_first_then_prefix_drop_later() {
+        let g = load(CIRCUMFIX_REDUP_FIRST_PREFIX_DROP_LATER_XML);
+        assert_eq!(
+            crate::emit::rule_role(&g, MRuleId(0)),
+            crate::emit::Role::Reduplication,
+            "allomorph 0 must be the Reduplication-shaped one -- the exact shape rule_role's \
+             allomorph-0-only view would hide allomorph 1's drop behind"
+        );
+        assert!(
+            crate::emit::is_structural_rule(&g, MRuleId(0)),
+            "a later Prefix-shaped, LHS-material-dropping allomorph must reach \
+             build_structural_composites even though allomorph 0 classifies Reduplication"
+        );
+
+        let profile = characterize(&g);
+        let redup_detail = profile
+            .circumfix_output_action_details()
+            .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 0)
+            .expect("a Reduplication allomorph dropping qB still observes CircumfixOutputAction");
+        assert!(
+            redup_detail.structural_composite_attempted,
+            "structural_composite_attempted is rule-wide, not per-allomorph, so allomorph 0's own \
+             detail must also read true once the rule is admitted"
+        );
+        let prefix_detail = profile
+            .circumfix_output_action_details()
+            .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 1)
+            .expect("a Prefix allomorph dropping rB still observes CircumfixOutputAction");
+        assert!(prefix_detail.structural_composite_attempted);
+
+        let predicate = CircumfixStructuralCompositePredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "the later dropping Prefix-shaped allomorph must be ConfirmOnly, never Refuse, now \
+             that is_structural_rule checks every allomorph rather than only the first"
+        );
     }
 
     /// A grammar with no LHS-material-dropping allomorph never observes `CircumfixOutputAction`, and the predicate vacuously `Admit`s.

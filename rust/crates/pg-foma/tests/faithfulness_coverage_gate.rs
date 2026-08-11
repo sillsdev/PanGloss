@@ -1,30 +1,45 @@
-//! The wired-up edge of `pg_foma::faithfulness_coverage`: runs the real propose+confirm pipeline over every discovered fixture with every backend the selector permits, checks proposal containment against full Rust HermitCrab, states the denominator, and prints the account -- asserting NON-VACUITY only, with the failure inventory reported rather than gated (see `REQUIREMENT`).
+//! Runs the full faithfulness-coverage pipeline and requires zero containment failures.
 
+use std::collections::BTreeSet;
 use std::panic::{self, AssertUnwindSafe};
 
 use pg_conformance_fixtures::{claimed_scope, discover, SCOPE_ENV};
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::faithfulness_coverage::{
-    build_report, containment_outcome_for_evidence, observe_fixture_containment,
-    unobservable_fixture, ContainmentOutcome, FaithfulnessReport, FaithfulnessRequirement,
-    FixtureContainmentObservation,
+    build_report, check_ratchet, containment_outcome_for_evidence, failed_triples,
+    observe_fixture_containment, unobservable_fixture, ContainmentOutcome, FaithfulnessReport,
+    FaithfulnessRequirement, FixtureContainmentObservation,
 };
 
-/// THE PLACE THIS ACCOUNT BECOMES STRICT: swap to `FaithfulnessRequirement::NoFailures` once the printed failure inventory reaches zero.
-const REQUIREMENT: FaithfulnessRequirement = FaithfulnessRequirement::NonVacuity;
+const REQUIREMENT: FaithfulnessRequirement = FaithfulnessRequirement::NoFailures;
+
+/// Loads the grammar, or returns a visible `unobservable_fixture` row naming the load error.
+fn load_or_unobservable(
+    label: &str,
+    grammar_xml: &str,
+) -> Result<pg_grammar::model::Grammar, FixtureContainmentObservation> {
+    pg_grammar::load(grammar_xml).map_err(|err| {
+        unobservable_fixture(label, Vec::new(), format!("grammar failed to load: {err}"))
+    })
+}
 
 /// A fixture that fails to load, is `skip_in_generic_replay`, or panics mid-evaluation contributes an `unobservable_fixture` row rather than aborting the sweep.
-fn collect() -> (usize, Vec<FixtureContainmentObservation>) {
+fn collect() -> (usize, Vec<String>, Vec<FixtureContainmentObservation>) {
     let fixtures = discover();
     let discovered = fixtures.len();
+    let discovered_labels: Vec<String> = fixtures.iter().map(|f| f.label()).collect();
 
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
     let mut observations = Vec::new();
     for fixture in fixtures {
         let label = fixture.label();
-        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
-            continue;
+        let grammar = match load_or_unobservable(&label, &fixture.load_grammar_xml()) {
+            Ok(grammar) => grammar,
+            Err(observation) => {
+                observations.push(observation);
+                continue;
+            }
         };
         let words_yaml = fixture.load_words_yaml();
         if let Some(reason) = words_yaml.skip_in_generic_replay() {
@@ -46,11 +61,11 @@ fn collect() -> (usize, Vec<FixtureContainmentObservation>) {
         observations.push(observation);
     }
     panic::set_hook(default_hook);
-    (discovered, observations)
+    (discovered, discovered_labels, observations)
 }
 
 fn report() -> FaithfulnessReport {
-    let (discovered, observations) = collect();
+    let (discovered, _, observations) = collect();
     build_report(claimed_scope().label(), discovered, &observations)
 }
 
@@ -95,6 +110,58 @@ fn any_containment_failure_is_printed_with_its_missing_analysis() {
         println!(
             "  FAILED {kind:?} x {} -- {fixture}: {detail}",
             strategy.label()
+        );
+    }
+}
+
+/// A grammar that fails to load must still produce a visible row, never a silent drop.
+#[test]
+fn an_unloadable_fixture_produces_a_visible_row_not_a_silent_drop() {
+    let result = load_or_unobservable("synthetic-unloadable", "not valid grammar xml at all");
+    let observation = result.expect_err("garbage XML must not load");
+    assert_eq!(observation.label, "synthetic-unloadable");
+    assert!(observation.kinds.is_empty());
+    assert!(
+        observation.outcomes.iter().all(|(_, outcome)| matches!(
+            outcome,
+            ContainmentOutcome::NotAttempted { reason } if reason.contains("grammar failed to load")
+        )),
+        "every strategy's outcome must be a NotAttempted row naming the load error, got {:?}",
+        observation.outcomes
+    );
+}
+
+/// Every fixture `discover()` finds must end up in `collect()`'s observations, by label.
+#[test]
+fn every_discovered_fixture_produces_an_observation_row() {
+    let (discovered, discovered_labels, observations) = collect();
+    assert_eq!(
+        observations.len(),
+        discovered,
+        "collect() must produce exactly one observation per discovered fixture"
+    );
+    let observed_labels: BTreeSet<&str> = observations.iter().map(|o| o.label.as_str()).collect();
+    let missing: Vec<&str> = discovered_labels
+        .iter()
+        .map(String::as_str)
+        .filter(|label| !observed_labels.contains(label))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "fixture(s) discovered but silently absent from the faithfulness sweep: {missing:?}"
+    );
+}
+
+/// The retired ratchet accepts only an empty observed failure set.
+#[test]
+fn containment_failures_are_empty_after_ratchet_retirement() {
+    let (_, _, observations) = collect();
+    let observed = failed_triples(&observations);
+
+    if let Err(violations) = check_ratchet(&observed, &[]) {
+        panic!(
+            "faithfulness-containment zero-failure check violated:\n{}",
+            violations.join("\n")
         );
     }
 }

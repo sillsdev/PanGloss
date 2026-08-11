@@ -466,10 +466,14 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "tests/phase_c_circumfix.rs::circumfix_recall_parity_via_generator_and_oracle (+ \
              ordered_multi_insert_no_first_insert_shortcut_recall_parity, \
-             null_role_structural_drop_recall_parity)",
+             null_role_structural_drop_recall_parity, \
+             infix_with_drop_structural_recall_parity, \
+             redup_first_allomorph_then_dropping_prefix_allomorph_structural_recall_parity)",
             &[EmissionStrategy::TunedSurfaceProbed],
             "Structural-composite containment for circumfix-shaped (discontinuous/dropped-\
-             material) allomorphs against the real oracle.",
+             material) allomorphs against the real oracle, including a genuinely Infix-classified \
+             allomorph that drops LHS material (census C4) and a dropping allomorph hidden behind \
+             a Role::Reduplication-classified allomorph 0 (census C5).",
         ),
         Reduplication => ev(
             Dedicated,

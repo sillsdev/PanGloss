@@ -13,7 +13,7 @@ use pg_grammar::chardef::CharDefKind;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 use crate::analyzer::{prepare_network_for_apply, FomaProposer};
-use crate::emit::emit_underlying_templated;
+use crate::emit::{emit_underlying_templated, surface_table};
 use crate::replace::{compile_and_compose_rules_recall_safe, SegAlphabet, TupleReport};
 
 /// Timings and sizes from each exact stage of the pipeline.
@@ -69,16 +69,17 @@ impl std::error::Error for TemplatedCompileError {}
 pub fn compile_templated_morphotactics(
     g: &Grammar,
 ) -> Result<TemplatedCompileOutput, TemplatedCompileError> {
-    let table = g
-        .char_tables
-        .first()
-        .ok_or(TemplatedCompileError::MissingCharacterTable)?;
+    // The LAST stratum's table, never `g.char_tables[0]` -- same convention every other caller of `surface_table` already follows.
+    let table = surface_table(g);
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
 
     let started = Instant::now();
     let emitted = emit_underlying_templated(g, &alphabet, None);
     let templated_emit_elapsed = started.elapsed();
+    if let Some(path) = std::env::var_os("ZZ_DUMP_LEXC") {
+        std::fs::write(path, &emitted.lexc_source).expect("write lexc dump");
+    }
 
     let started = Instant::now();
     let lexc_net = fsm_lexc_parse_string(&opts, None, &emitted.lexc_source)
@@ -143,8 +144,33 @@ pub fn compile_templated_morphotactics(
     let cleanup_compile_elapsed = started.elapsed();
 
     let started = Instant::now();
+    if std::env::var_os("ZZ_STAGE_DEBUG").is_some() {
+        let mut probe = lexc_net.clone();
+        crate::analyzer::prepare_network_for_apply(&mut probe);
+        for w in ["bat", "bdt"] {
+            let q = alphabet.encode_query(w).unwrap_or_default();
+            eprintln!(
+                "ZZ stage=lexc_only word={w} encoded_up={:?}",
+                crate::analyzer::apply_up_against(&probe, &q)
+            );
+        }
+    }
     let network = match rule_net {
-        Some(rule_net) => fsm_compose(&opts, lexc_net, rule_net),
+        Some(rule_net) => {
+            let composed = fsm_compose(&opts, lexc_net, rule_net);
+            if std::env::var_os("ZZ_STAGE_DEBUG").is_some() {
+                let mut probe = composed.clone();
+                crate::analyzer::prepare_network_for_apply(&mut probe);
+                for w in ["bat", "bdt"] {
+                    let q = alphabet.encode_query(w).unwrap_or_default();
+                    eprintln!(
+                        "ZZ stage=lexc.o.rules word={w} encoded_up={:?}",
+                        crate::analyzer::apply_up_against(&probe, &q)
+                    );
+                }
+            }
+            composed
+        }
         None => lexc_net,
     };
     let network = match crate::structural_allomorph::compile_authored_deletion_fallback(
@@ -157,6 +183,17 @@ pub fn compile_templated_morphotactics(
         Some(cleanup) => fsm_compose(&opts, network, cleanup),
         None => network,
     };
+    if std::env::var_os("ZZ_STAGE_DEBUG").is_some() {
+        let mut probe = network.clone();
+        crate::analyzer::prepare_network_for_apply(&mut probe);
+        for w in ["bat", "bdt"] {
+            let q = alphabet.encode_query(w).unwrap_or_default();
+            eprintln!(
+                "ZZ stage=pre-minimize word={w} encoded_up={:?}",
+                crate::analyzer::apply_up_against(&probe, &q)
+            );
+        }
+    }
     let mut network = fsm_minimize(&opts, network);
     let final_compose_minimize_elapsed = started.elapsed();
     let final_state_count = network.statecount;

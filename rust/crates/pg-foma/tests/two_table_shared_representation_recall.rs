@@ -1,5 +1,5 @@
 //! The recall-side counterpart to `tests/cover_bistratal_overlapping_segment_representation.rs` (the refusal/verdict-side pin): proves cross-table representation aliasing over the real compile path.
-//! See docs/research/pg-foma-two-table-shared-representation-recall-notes.md for the three-step argument and an out-of-scope pg_parse/pg_rules finding surfaced while authoring this fixture.
+//! See docs/research/pg-foma-two-table-shared-representation-recall-notes.md for the three-step argument and a `pg_parse`/`pg_rules` stratum-bookkeeping finding surfaced while authoring this fixture (since fixed).
 
 use std::collections::HashSet;
 use std::fs;
@@ -328,4 +328,40 @@ fn encode_query_stays_single_token_never_ambiguous() {
              {word:?} -> {encoded:?}"
         );
     }
+}
+
+/// Regression pin, tuned-surface-probed's own production entry point (`FomaProposer::new`): must propose ROOT1 for "y".
+#[test]
+fn tuned_surface_probed_proposes_the_devoiced_root_via_the_production_entry_point() {
+    let g = load();
+    let entry_root1 = entry_id_of(&g, "eRoot1");
+    let morpheme_root1 = g.entries[entry_root1.0 as usize].morpheme.0;
+
+    let mut proposer = pg_foma::analyzer::FomaProposer::new(&g)
+        .expect("tuned-surface-probed compile must not fail");
+    let candidates = proposer.propose("y");
+    assert!(
+        candidates
+            .iter()
+            .any(|c| c.morphemes.iter().any(|m| m.0 == morpheme_root1)),
+        "tuned-surface-probed must propose ROOT1 for \"y\": {candidates:?}"
+    );
+}
+
+/// Regression pin, templated-underlying-tokens's own production entry point (`compile_templated_morphotactics`): must propose ROOT1 for "y".
+#[test]
+fn templated_underlying_tokens_proposes_the_devoiced_root_via_the_production_entry_point() {
+    let g = load();
+    let entry_root1 = entry_id_of(&g, "eRoot1");
+    let morpheme_root1 = g.entries[entry_root1.0 as usize].morpheme.0;
+
+    let mut output = pg_foma::templated_compile::compile_templated_morphotactics(&g)
+        .expect("templated-underlying-tokens compile must not fail");
+    let candidates = output.proposer.propose("y");
+    assert!(
+        candidates
+            .iter()
+            .any(|c| c.morphemes.iter().any(|m| m.0 == morpheme_root1)),
+        "templated-underlying-tokens must propose ROOT1 for \"y\": {candidates:?}"
+    );
 }

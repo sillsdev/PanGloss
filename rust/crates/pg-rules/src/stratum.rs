@@ -1352,6 +1352,8 @@ pub fn synthesize_stratum_traced(
             continue;
         }
         let mut nw = w.clone();
+        // Mirrors `Self::analyze`'s own unconditional stratum assignment: a later table lookup keyed on `.stratum` must resolve the stratum actually reached, not the one entered at.
+        nw.stratum = stratum;
         // Uses `synthesize_with_mpr_cached`, not bare `synthesize`, so the POS/MPR gate sees real state; `break` (not `return`) keeps `nw.shape` as far as the fold got.
         for &pid in &sd.prules {
             if budget.synthesis_over_budget() {
