@@ -3,6 +3,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/pg-evidence",
     "crates/pg-grammar",
     "crates/pg-featstruct",
     "crates/pg-shape",
@@ -95,6 +96,7 @@ pg-lexicon = { path = "crates/pg-lexicon" }
 pg-snapshot = { path = "crates/pg-snapshot" }
 pg-fwdata = { path = "crates/pg-fwdata" }
 pg-assess = { path = "crates/pg-assess" }
+pg-evidence = { path = "crates/pg-evidence" }
 pg-conformance-fixtures = { path = "crates/pg-conformance-fixtures" }
 pg-grammar-gen = { path = "crates/pg-grammar-gen" }
 # `.pgpack` container (R2A / `make-wasm-analysis-only`): ADR 0004 required-runtime-feature

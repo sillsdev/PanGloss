@@ -675,6 +675,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pg-evidence"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pg-featstruct"
 version = "0.1.0"
 dependencies = [
