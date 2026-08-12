@@ -161,6 +161,8 @@ param(
     [switch]$NoSccache,
     [ValidateSet('strict', 'development', 'off')][string]$BaseMode = 'development',
     [switch]$Apply,
+    # gc only: also reclaim fully-committed worktrees idle this many days; 0 (default) leaves them alone.
+    [int]$StaleWorktreeDays = 0,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs
 )
 
@@ -240,8 +242,7 @@ if ($Mode -eq 'new-worktree') {
     exit 0
 }
 
-# Placed before the disk/memory gates deliberately: this mode IS the disk recovery, so gating it on
-# free disk would refuse the one command that creates some.
+# Before the disk/memory gates deliberately: this mode IS the disk recovery, so gating it would refuse the one command that creates some.
 if ($Mode -eq 'remove-worktree') {
     if (-not $Path) { Write-Host '[pg] remove-worktree requires -Path' -ForegroundColor Red; exit 2 }
     $removal = Remove-ManagedWorktree -RepoRoot $repoRoot -Path $Path -Apply:$Apply
@@ -473,9 +474,7 @@ if (-not $diskCheck.Ok) {
     exit $script:ExitCodeLowDisk
 }
 
-# The spawn gate. `gc` and `doctor` are exempt because neither spawns a build: gc IS the recovery
-# action and refusing it here left the machine with no way out, and doctor folds this same check
-# into its own findings and exit code further down.
+# The spawn gate. gc and doctor are exempt: neither spawns a build, gc IS the recovery, and doctor folds this check into its own exit code below.
 if (-not $memCheck.Ok -and $Mode -notin @('gc', 'doctor')) {
     Write-Host "[pg] $($memCheck.Detail)" -ForegroundColor Red
     $top = @(Get-TopMemoryConsumers -Top 5)
@@ -550,6 +549,21 @@ if ($Mode -eq 'gc') {
     Remove-OrphanedCargoProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
     # Separate sweep: reaping a compiler can destroy work another worktree awaits; reaping a scanner cannot.
     Remove-OrphanedScanProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
+
+    # Worktrees first: a target dir stays `live` while its worktree is registered, so the reverse order would report the dirs this frees as untouchable.
+    if ($StaleWorktreeDays -gt 0) {
+        $stale = @(Get-StaleWorktreeCandidates -RepoRoot $repoRoot -IdleDays $StaleWorktreeDays)
+        Write-Host "[gc] $($stale.Count) worktree(s) fully committed and idle $StaleWorktreeDays+ days" -ForegroundColor Cyan
+        foreach ($w in $stale) {
+            $r = Remove-ManagedWorktree -RepoRoot $repoRoot -Path $w.Path -Apply:$Apply -RepositoryId $repoId -BusyProcesses @(Get-LiveBuildProcesses)
+            if (-not $r.Ok) {
+                Write-Host "[gc] skipped $($w.Name) ($($r.Refusal)): $($r.Detail)" -ForegroundColor Yellow
+                continue
+            }
+            $verb = if ($Apply) { 'removed' } else { 'would remove' }
+            Write-Host "[gc] $verb worktree $($w.Name) [$($w.Branch)], $($w.IdleDays)d idle -- $($r.TargetsFreedGB)GB of target dirs" -ForegroundColor Yellow
+        }
+    }
 
     $classification = Get-TargetClassification -RepositoryId $repoId
     foreach ($c in ($classification | Sort-Object Class, Path)) {
