@@ -51,10 +51,35 @@ harder: `confirm_batch_impl` skips pin-failing candidates before any parse, and 
 already consults `MorphotacticIndex` before every recursive emission step, so both target work the
 production path already avoids.
 
-So the measurement is: **attribute HC cascade time by failure reason, then ask which reasons a cheap
-check could predict.** A constraint earns a filter only when its candidates are expensive to reject.
-The 2026-07-16 census harness (`rust/crates/pg-foma/examples/prefilter_census.rs`) already does this
-for one class and is the thing to extend rather than rebuild.
+So the first measurement is: **attribute HC cascade time by failure reason, then ask which reasons a
+cheap check could predict.** A constraint earns a filter only when its candidates are expensive to
+reject. The 2026-07-16 census harness (`rust/crates/pg-foma/examples/prefilter_census.rs`) already
+does this for one class and is the thing to extend rather than rebuild.
+
+Report the **distribution**, never a mean. Per-candidate HC cost is heavy-tailed: at roughly 250ns
+per pass evaluation, avoiding one 1ms candidate pays for four thousand evaluations, so an aggregate
+percentage can hide a real win. Total, median, p90, max, and the count of would-be-killed candidates
+whose HC cost was effectively zero — that last number is what distinguishes a pass that removes
+expensive candidates from one mirroring work the confirmer already skips.
+
+**The second axis: a filter may pay by shrinking the FST, not by speeding up HC.** Precision in the
+proposer is not free — it costs entry count, compile time, and memory. If a cheap filter absorbs the
+over-proposals, the proposer can be built *less* precisely and get smaller. On that axis a pass that
+merely duplicates an existing proposer check is not redundant; it is a candidate **replacement** for
+it, and the gain appears as a smaller artifact rather than as confirmation time saved.
+
+Two concrete instances, both testable with machinery that already exists:
+
+- `ExploreMode::Flat` (`HC_PREEXPAND_FLAT=1`) skips the morphotactic automaton entirely and is kept
+  in the source expressly for A/B measurement. Build Flat, measure the size and compile-time drop
+  and the extra candidates, and ask whether the filter absorbs them for less than pruning costs. If
+  it does, `StructuralTransitionPass` replaces `ExploreMode::Pruned` rather than shadowing it.
+- Circumfix allomorphs are materialized as an N×M cross product at emit time. A partner-agreement
+  check makes N+M viable. The agreement mechanism is only *needed* once materialization stops, which
+  is exactly why it looks worthless while the cross product remains.
+
+Neither instance is settled by the HC-time census alone; each needs a build-two-ways comparison of
+artifact size, compile time, candidate count, and the filter's own cost.
 
 Until that measurement identifies at least one constraint whose candidates are both filter-predictable
 and expensive in HC, Tasks 5-11 are not authorized. Fire counts do not settle it: a pass can fire
