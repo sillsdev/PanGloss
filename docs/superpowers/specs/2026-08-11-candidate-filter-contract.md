@@ -128,17 +128,23 @@ different things and cost different amounts:
 
 ```rust
 pub enum ProofCheckDepth {
-    Envelope,
+    Off,
     Full,
 }
 ```
 
-`Envelope` re-checks the proof's identity, witness, grammar/lexicon revision, lexical origin, and
-that every unit a claim reads was cited. It is near-free, it catches mis-wiring — a proof paired
-with the wrong witness, a stale revision, an uncited unit — and it is the production default.
+`Off` performs no proof checking. A pass's `Reject` is taken at face value, while the proof is
+still constructed, carried, and recorded. **This is the production default.**
 
-`Full` additionally re-derives the claim against the witness's own trace. It is the default for
-tests and for `Shadow`.
+`Full` re-checks the proof's identity, witness, grammar/lexicon revision, lexical origin, and cited
+units, and re-derives the claim against the witness's own trace. It is the default for tests and
+for `Shadow`.
+
+There is deliberately no middle tier. An envelope-only check was considered and rejected: the
+pipeline hands a witness to a pass, the pass builds a proof from that same witness, and an envelope
+check then re-verifies that the proof matches the witness the pipeline just supplied. That is
+first-party code checking itself, which is the same reasoning that moved claim checking out of
+production, applied one level further.
 
 **`Full` is not a production safety mechanism, and the contract does not pretend otherwise.** Every
 pass is first-party compiled code in this crate; no untrusted party authors a proof, so there is no
@@ -156,6 +162,19 @@ first, which is what "verified" should mean here.
 What the proof carries in production is its *explanation* — the death ledger, shadow correlation,
 and the only diagnosis a user has under enforcement. Proofs are carried and recorded always;
 `Full` checking of them is a testing and shadow instrument.
+
+**Reproducibility is what replaces runtime checking, and it is therefore a requirement, not a
+convenience.** A recorded rejection names its pass, rule, category, candidate identity, and
+witness. That, plus the grammar, is enough to re-run the same word offline at `Full`, or with
+filtering off entirely, and re-derive exactly what happened. Paying to check every rejection is not
+needed in order to explain any rejection later. This holds only while filtering is deterministic,
+so determinism is pinned by test: the same passes, input, mode, and budget must produce identical
+retained sets, identical decisions, and an identical ledger, including event ordinals and pass
+order.
+
+It follows that the runtime switch which disables filtering is not a nicety. It is the primary
+diagnostic instrument: the first question about a word that stopped parsing is whether it parses
+with filtering off, and that answer isolates the filter from the proposer and from HC in one step.
 
 Initial proof categories are finite and versioned:
 
