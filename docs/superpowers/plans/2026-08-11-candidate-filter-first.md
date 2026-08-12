@@ -85,6 +85,51 @@ Until that measurement identifies at least one constraint whose candidates are b
 and expensive in HC, Tasks 5-11 are not authorized. Fire counts do not settle it: a pass can fire
 constantly while saving nothing, which is precisely what the ownership pass would do.
 
+### Axis 1 is measured — 2026-08-12, `8b8d8bd`, ideal-filter ceiling
+
+Per-word distributions, three grammars, `filter_ceiling_census`. Confirmation time only; `propose` is
+reported separately below because it changes the conclusion.
+
+| grammar | n | p50 before → after | p99 before → after | p99 change | filter cost p99 |
+|---|---|---|---|---|---|
+| Sena | 859 | 6.269 → 0.933 ms | 354.639 → 24.557 ms | **−93.1%** | 0.678 ms |
+| Amharic | 231 | 12.187 → 4.408 ms | 1508.509 → 1043.747 ms | −30.8% | 0.015 ms |
+| Indonesian | 117 | 0.228 → 0.133 ms | 2.744 → 2.744 ms | **0.0%** | 0.004 ms |
+
+**The gate is met by Sena and the cost condition is met everywhere.** Filter cost is 0.06 ms/word
+mean on Sena against a 354 ms p99 — three orders of magnitude below this document's own 250ns × 4000
+break-even reasoning, which was conservative by a wide margin.
+
+Four findings that constrain what may be built next:
+
+**Achieved saving is 0.00%, on every grammar.** These are oracle ceilings. Zero candidates were
+rejected in any run, because every `TraceFact` arrives `Deferred` and a sound pass must then defer.
+No number of additional passes changes that. The blocker is a *generator* that emits `Known` facts,
+which is why Tasks 5-7 are now gated on that and not on this census.
+
+**`steps` is not a portable work proxy and must not gate a decision across grammars.** Amharic runs
+~13.6 ms per step (111 steps = 1508 ms); Sena ~0.024 ms per step (14994 steps = 355 ms) — a ~570×
+spread. For Amharic, steps *overstate* the win: −64.9% on steps against −30.8% on time, and a 50.1%
+step share against a 41.2% wall share. Decide on measured time; use steps only within one grammar.
+This is the "report time, not percentages" rule one level down, and it caught a real misreading.
+
+**Indonesian's null result is caused by the whole-chunk-only accounting rule, and may be an artifact
+of it.** Its removable chunks are 80% singletons with a median of 1 step, while surviving chunks reach
+104; the tail therefore lives entirely in chunks holding at least one HC survivor. Whether narrowing
+a chunk (rather than eliminating it whole) recovers work is the open question this document already
+refused to claim — it depends on whether the fused reparse cost is per-candidate or per-root-set.
+
+**Axis 2 is now the stronger axis for Sena, on this evidence.** Once the filter works, the proposer
+dominates: `propose` p99 24.875 ms against filtered confirm p99 24.557 ms, and means of 15.399 against
+2.239. Sena's FST emits ~178 candidates/word at 98.1% empty buckets. Confirm-side headroom on Sena is
+nearly exhausted, so the remaining gain is a smaller, sloppier proposer — the axis-2 thesis above,
+now with a number behind it, and pointing away from the three failed attempts to push precision into
+the network.
+
+Two grammars are still unmeasured: Mbugwe and Aweti yield zero candidates through this path (a census
+defect, not a grammar property). No decision to drop passes or shrink the backend set may rest on the
+three-grammar result while the two most differently-shaped grammars are absent.
+
 ---
 
 ## Scope and sequencing
