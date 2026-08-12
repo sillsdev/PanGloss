@@ -9,6 +9,12 @@
             "command": "python \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/block-bare-cargo.py\"",
             "timeout": 15,
             "statusMessage": "checking build command"
+          },
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/block-root-find.py\"",
+            "timeout": 15,
+            "statusMessage": "checking find command"
           }
         ]
       }
