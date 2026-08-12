@@ -378,6 +378,110 @@ git add rust/crates/pg-foma/src/candidate_filter rust/crates/pg-foma/tests/candi
 git commit -m "feat(pg-foma): verify filter rejections and record trace deaths"
 ```
 
+## Task 3c: Per-pass conformance fixtures and the fire-count harness
+
+Every pass must earn its place on evidence, not on argument. This task front-loads the slow,
+judgment-heavy half of that — authoring a synthetic grammar that provokes one specific pass — so
+each later pass slice lands against a fixture already waiting for it.
+
+It deliberately precedes the passes themselves. A fixture pins HC-rust's own analyses for a
+construct, which is exactly the reference a pass must not perturb, and that reference is authorable
+before any pass exists.
+
+**Files:**
+
+- Create: `conformance-staging/filter-passes/<pass>/grammar.xml` and `words.yaml`, one directory per
+  planned pass
+- Create: `conformance-staging/filter-passes/<pass>/filter-expectation.json`
+- Create: `rust/crates/pg-foma/tests/candidate_filter_fixture_weight.rs`
+- Modify: `conformance-staging/STAGING.md` to record each new fixture and its target pass
+
+- [ ] **Step 1: Author one fixture per planned pass**
+
+Directories: `ownership`, `structural-transition`, `slot-order`, `co-occurrence`,
+`static-signature`, `allomorph-compatibility`, `exact-span`, `local-environment`.
+
+`partner-pairing` gets a directory containing only `filter-expectation.json` with
+`"status": "not-yet-provokable"` and a note recording why: the grammar model compiles circumfix
+halves into one cross-product allomorph, so no authored grammar can currently produce the partner
+events that pass consumes. Recording that as data, not prose, keeps it from being mistaken for an
+oversight.
+
+Follow `.claude/skills/conformance-grammars/SKILL.md`. **Synthetic data only** — no actual-language
+data, and no file, feature, or symbol named after a language. Where a fixture mimics a real
+language's pathology, name the pathology and put the family in a comment, exactly as the existing
+staged fixtures do.
+
+Each grammar must provoke its target pass and, as far as practical, not the others: a fixture that
+trips four passes cannot show that any one of them earns its place.
+
+- [ ] **Step 2: Pin expected analyses against HC-rust, transcribed not hand-derived**
+
+Drive `pg_parse::Morpher` directly and transcribe its output verbatim into `words.yaml`, following
+the header convention the existing staged fixtures use — which records the oracle used and states
+plainly that it is this repo's Rust engine, not the C# founding oracle. Do not hand-derive a
+signature; a hand-derived expectation is a guess with a test around it.
+
+Include, per fixture, both words the target pass must not disturb and words whose invalid analyses
+it should eventually remove.
+
+- [ ] **Step 3: Declare each fixture's expectation as data**
+
+```json
+{
+  "pass_id": "structural.ownership.v1",
+  "min_fire_count": 1,
+  "status": "awaiting-pass"
+}
+```
+
+`status` is `awaiting-pass`, `wired`, or `not-yet-provokable`. `min_fire_count` is the number of
+verified rejections that pass must produce over this fixture's words once it exists.
+
+- [ ] **Step 4: Write the harness and its anti-rot gate**
+
+`candidate_filter_fixture_weight.rs` walks `conformance-staging/filter-passes/**` and, per fixture:
+
+- asserts `Off` and `Enforce` yield identical deduplicated `AnalysisIdentity` sets and identical
+  exact `WordAnalysis` multisets — the property that holds at every stage, including now, when no
+  passes exist;
+- for a `wired` fixture, asserts its declared pass fired at least `min_fire_count` times.
+
+The anti-rot gate is the point of the `status` field and must fail loudly in three cases: a fixture
+still `awaiting-pass` whose `pass_id` now exists in the pass registry; a fixture naming a `pass_id`
+neither registered nor in the plan's declared pass list; and a registered pass with no fixture at
+all. Without it, a fixture that never gets wired reads as coverage while asserting nothing.
+
+- [ ] **Step 5: Run the fixture gate**
+
+```powershell
+& rust\tools\pg.ps1 -Mode conformance-test -Scope local -Package pg-foma -TestTarget candidate_filter_fixture_weight
+```
+
+Expected: every fixture parses, every expectation file is well-formed, every `Off`/`Enforce`
+comparison is equal, and the anti-rot gate passes. With no passes yet built, every fixture is
+`awaiting-pass` and no fire count is asserted — that is the correct state, and the gate reports it
+rather than showing a vacuous green.
+
+- [ ] **Step 6: Confirm the fixtures join the existing suite cleanly**
+
+```powershell
+& rust\tools\pg.ps1 -Mode conformance-test -Scope local
+```
+
+Expected: the pre-existing staged fixtures still pass and the new ones are discovered and validated
+by the same machinery, since they live under `conformance-staging/**`.
+
+- [ ] **Step 7: Commit the fixtures and harness**
+
+```powershell
+git add conformance-staging/filter-passes conformance-staging/STAGING.md rust/crates/pg-foma/tests/candidate_filter_fixture_weight.rs
+git commit -m "test(conformance): stage per-pass filter fixtures and the fire-count gate"
+```
+
+Each later pass task adds its own fixture wiring: flip `status` to `wired`, set the real
+`min_fire_count`, and let the harness enforce it.
+
 ## Task 4: Build the immutable grammar fact index and structural passes
 
 **Files:**
