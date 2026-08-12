@@ -1,7 +1,8 @@
 # STAGING: filter-passes/structural-transition
 
-**Target pass:** `structural.transition.v1` -- **status:** `wired` -- **min_fire_count:** 0 (measured; 3 estimated)
-(`filter-expectation.json` is the machine-readable form of that line)
+**Target pass:** `structural.transition.v1` -- **status:** `producer-blocked` -- **min_fire_count:** 3 (declared; measures 0 today)
+**blocked_reasons:** `adapter-defers-a-fact-the-pass-reads-first`, `producer-emits-only-hc-confirmed-analyses`
+(`filter-expectation.json` is the machine-readable form of those lines)
 
 ## Why this fixture exists
 
@@ -39,24 +40,28 @@ is the sharpest separation the grammar model supports.
 
 ## How min_fire_count was arrived at
 
-**0, measured. 3 was the authored estimate**, and the paragraph below records how it was reasoned
-to; the measurement that replaced it follows.
+**3, declared and held; it measures 0 today**, which is what `producer-blocked` records. The
+declared number is not lowered to match the measurement, because the measurement is a fact about
+this harness's producer and adapter rather than about the pass or the grammar.
 
-Measured over this fixture's words with the pass wired: 7 witnesses evaluated, 2 kept, 5 deferred,
-0 rejected -- a 71% defer rate. The two keeps are the single-morpheme rows, which have no adjacent
-pair to judge and so are kept without a grammar fact being read. The other five defer on a missing
+Measured over this fixture's words with the pass built and enforced: 7 witnesses evaluated, 2 kept,
+5 deferred, 0 rejected -- a 71% defer rate. The two keeps are the single-morpheme rows, which have
+no adjacent pair to judge and so are kept without a grammar fact being read. The other five defer on a missing
 slot fact. That is not a property of this grammar: `StructuralTransitionPass` reads slot and then
 stratum before consulting the index at all, the harness adapter marks both `Deferred`, and so the
 pass cannot reach a rejection through this adapter over *any* grammar. It is blocked twice over --
 the three provoking rows are `expect_fail` and yield no candidate to judge either.
 
-**The estimate, as authored: 3.** One verified rejection each for `kolurta`, `rekata`, and `mukolur`, the three
+**The floor, as authored: 3.** One verified rejection each for `kolurta`, `rekata`, and `mukolur`, the three
 words with no valid analysis. Each has exactly one plausible morpheme sequence, so one rejection per
 row is both the floor and the expected count.
 
-That number remains the floor to expect for the run *after* a producer supplies both the candidates
-and the slot and stratum facts the pass reads. Today the harness supplies neither, which is why the
-enforced floor is 0 and this fixture's gate, while wired, asserts nothing yet.
+That number is the floor to enforce for the run *after* a producer supplies both the candidates and
+the slot and stratum facts the pass reads. Until then the harness holds this fixture to the opposite
+claim -- that it still reaches **zero** -- so the first rejection it ever reaches fails the suite and
+forces promotion to `wired`. This fixture is blocked twice over, so it names both
+`blocked_reasons`: `adapter-defers-a-fact-the-pass-reads-first` and
+`producer-emits-only-hc-confirmed-analyses`.
 
 ## Oracle discipline
 

@@ -1,6 +1,7 @@
 {
   "pass_id": "structural.ownership.v1",
-  "min_fire_count": 0,
-  "status": "wired",
-  "min_fire_count_reasoning": "Measured 0, against an authored estimate of 2. The estimate counted candidates a proposer would emit; the harness proposes only what pg_parse::Morpher accepted, and the two rows it counted (\"ta\", \"pata\") are expect_fail rows with no accepted analysis, so the impossible candidates never reach the filter at all. All 8 witnesses that do reach it are pin-resolvable, and OwnershipPass answers Keep on that before reaching any rejection branch. A nonzero floor here needs a producer that enumerates candidates HC refuses, not a different grammar."
+  "min_fire_count": 2,
+  "status": "producer-blocked",
+  "blocked_reasons": ["producer-emits-only-hc-confirmed-analyses"],
+  "min_fire_count_reasoning": "Two, authored, and held as the floor to enforce once a producer exists: one verified rejection each for \"ta\" and \"pata\", the two words with no valid analysis whose every candidate designates a rule-owned morpheme as root. Deliberately a floor rather than a total, since \"papa\", \"tapa\" and \"pa\" each additionally carry an invalid root designation over a sequence that also has a valid one. Measured 0 today: the harness proposes only what pg_parse::Morpher accepted, so the two expect_fail rows contribute no candidate at all, and all 8 witnesses that do reach the pass are pin-resolvable, which OwnershipPass answers Keep on before reaching any rejection branch."
 }

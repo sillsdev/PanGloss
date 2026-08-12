@@ -1,7 +1,8 @@
 # STAGING: filter-passes/ownership
 
-**Target pass:** `structural.ownership.v1` -- **status:** `wired` -- **min_fire_count:** 0 (measured; 2 estimated)
-(`filter-expectation.json` is the machine-readable form of that line)
+**Target pass:** `structural.ownership.v1` -- **status:** `producer-blocked` -- **min_fire_count:** 2 (declared; measures 0 today)
+**blocked_reasons:** `producer-emits-only-hc-confirmed-analyses`
+(`filter-expectation.json` is the machine-readable form of those lines)
 
 ## Why this fixture exists
 
@@ -41,28 +42,32 @@ independently of everything else.
 
 ## How min_fire_count was arrived at
 
-**0, measured. 2 was the authored estimate**, and the paragraph below records how it was reasoned
-to; the measurement that replaced it follows.
+**2, declared and held; it measures 0 today**, which is what `producer-blocked` records. The
+declared number is not lowered to match the measurement, because the measurement is a fact about
+this harness's producer rather than about the pass or the grammar.
 
-Measured over this fixture's words with the pass wired: 8 witnesses evaluated, 8 kept, 0 deferred,
-0 rejected. Every witness is pin-resolvable, so `OwnershipPass` answers `Keep` at its first branch
-and never reaches a rejection. The estimate was not wrong about the grammar -- it was wrong about
+Measured over this fixture's words with the pass built and enforced: 8 witnesses evaluated, 8 kept,
+0 deferred, 0 rejected. Every witness is pin-resolvable, so `OwnershipPass` answers `Keep` at its
+first branch and never reaches a rejection. The floor was not wrong about the grammar -- it was wrong about
 what the harness proposes. `ta` and `pata` are `expect_fail` rows, the harness proposes only the
 analyses `pg_parse::Morpher` accepted, and a word with no accepted analysis contributes no
-candidate at all. The impossible candidates the estimate counted are exactly the ones nothing here
+candidate at all. The impossible candidates the floor counts are exactly the ones nothing here
 emits. Raising this floor needs a producer that enumerates candidates HC refuses; no change to this
 grammar can do it.
 
-**The estimate, as authored: 2.** One verified rejection each for `ta` and `pata`, the two words with no valid
+**The floor, as authored: 2.** One verified rejection each for `ta` and `pata`, the two words with no valid
 analysis whose every candidate designates a rule-owned morpheme as root. Deliberately a floor rather
 than an estimate of the total: `papa`, `tapa`, and `pa` each additionally carry an invalid root
 designation over a sequence that also has a valid one, so the true count once a proposer emits those
 alternatives should be higher. Counting only the rows that cannot be right at all keeps the number
 defensible without knowing how many root positions the future generator enumerates.
 
-That number remains the floor to expect for the run *after* a producer supplies both the candidates
-and the facts the pass needs. Today the harness supplies neither, which is why the enforced floor is
-0 and this fixture's gate, while wired, asserts nothing yet.
+That number is the floor to enforce for the run *after* a producer supplies both the candidates and
+the facts the pass needs. Until then the harness holds this fixture to the opposite claim -- that it
+still reaches **zero** -- so the first rejection it ever reaches fails the suite and forces promotion
+to `wired`. `blocked_reasons` names `producer-emits-only-hc-confirmed-analyses`, which is the whole
+of what is missing here: the adapter's deferred facts never bind, because `OwnershipPass` answers
+`Keep` on pin-resolvability before reading one.
 
 ## Oracle discipline
 

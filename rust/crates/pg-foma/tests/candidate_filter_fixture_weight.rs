@@ -31,12 +31,22 @@ const DECLARED_PASSES: &[&str] = &[
 
 const AWAITING_PASS: &str = "awaiting-pass";
 const WIRED: &str = "wired";
+const PRODUCER_BLOCKED: &str = "producer-blocked";
 const NOT_YET_PROVOKABLE: &str = "not-yet-provokable";
+
+const STATUSES: &[&str] = &[AWAITING_PASS, WIRED, PRODUCER_BLOCKED, NOT_YET_PROVOKABLE];
+
+/// The closed set of ways this harness's producer can withhold every candidate a pass could reject.
+const BLOCKED_REASONS: &[&str] = &[
+    "producer-emits-only-hc-confirmed-analyses",
+    "adapter-defers-a-fact-the-pass-reads-first",
+];
 
 struct Expectation {
     pass_id: String,
     min_fire_count: u64,
     status: String,
+    blocked_reasons: Vec<String>,
 }
 
 struct Fixture {
@@ -126,6 +136,21 @@ fn load_expectation(dir: &Path) -> Expectation {
             .as_str()
             .unwrap_or_else(|| panic!("{}: status must be a string", path.display()))
             .to_string(),
+        blocked_reasons: match value.get("blocked_reasons") {
+            None => Vec::new(),
+            Some(list) => list
+                .as_array()
+                .unwrap_or_else(|| panic!("{}: blocked_reasons must be an array", path.display()))
+                .iter()
+                .map(|item| {
+                    item.as_str()
+                        .unwrap_or_else(|| {
+                            panic!("{}: every blocked_reason must be a string", path.display())
+                        })
+                        .to_string()
+                })
+                .collect(),
+        },
     }
 }
 
@@ -290,6 +315,62 @@ fn assert_word_analysis_multiset_eq(label: &str, off: &[&WordAnalysis], enforce:
     }
 }
 
+/// A status that claims a floor must claim a reachable one; `0 >= 0` is not an assertion.
+fn assert_floor_matches_status(fixture: &Fixture) {
+    let expectation = &fixture.expectation;
+    if expectation.status == WIRED {
+        assert!(
+            expectation.min_fire_count > 0,
+            "{}: status {WIRED:?} with min_fire_count 0 leaves the fire-count gate asserting \
+             0 >= 0, which cannot fail -- record the floor the pass actually reaches, or move the \
+             fixture to {PRODUCER_BLOCKED:?} and name why nothing can reach it",
+            fixture.name
+        );
+    }
+    if expectation.status == PRODUCER_BLOCKED {
+        assert!(
+            expectation.min_fire_count > 0,
+            "{}: status {PRODUCER_BLOCKED:?} keeps the floor to enforce once a producer exists, so \
+             min_fire_count must stay above 0",
+            fixture.name
+        );
+    }
+}
+
+/// The parked status names a cause from a closed set, so a real failure cannot be filed under it.
+fn assert_blocked_reasons_are_closed(fixture: &Fixture) {
+    let expectation = &fixture.expectation;
+    if expectation.status != PRODUCER_BLOCKED {
+        assert!(
+            expectation.blocked_reasons.is_empty(),
+            "{}: status {:?} carries blocked_reasons, which only {PRODUCER_BLOCKED:?} may name",
+            fixture.name,
+            expectation.status
+        );
+        return;
+    }
+    assert!(
+        !expectation.blocked_reasons.is_empty(),
+        "{}: status {PRODUCER_BLOCKED:?} must name at least one blocked_reason from \
+         {BLOCKED_REASONS:?}",
+        fixture.name
+    );
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    for reason in &expectation.blocked_reasons {
+        assert!(
+            BLOCKED_REASONS.contains(&reason.as_str()),
+            "{}: blocked_reason {reason:?} is not one of {BLOCKED_REASONS:?} -- a pass that fails \
+             for any other cause is failing, not parked",
+            fixture.name
+        );
+        assert!(
+            seen.insert(reason.as_str()),
+            "{}: blocked_reason {reason:?} is named twice",
+            fixture.name
+        );
+    }
+}
+
 /// Every fixture declares one well-formed expectation and carries the files its status implies.
 #[test]
 fn every_fixture_declares_a_well_formed_expectation() {
@@ -298,11 +379,8 @@ fn every_fixture_declares_a_well_formed_expectation() {
     for fixture in &fixtures {
         let expectation = &fixture.expectation;
         assert!(
-            matches!(
-                expectation.status.as_str(),
-                AWAITING_PASS | WIRED | NOT_YET_PROVOKABLE
-            ),
-            "{}: status {:?} is not one of {AWAITING_PASS:?}, {WIRED:?}, {NOT_YET_PROVOKABLE:?}",
+            STATUSES.contains(&expectation.status.as_str()),
+            "{}: status {:?} is not one of {STATUSES:?}",
             fixture.name,
             expectation.status
         );
@@ -318,6 +396,8 @@ fn every_fixture_declares_a_well_formed_expectation() {
                 fixture.name, expectation.pass_id
             );
         }
+        assert_floor_matches_status(fixture);
+        assert_blocked_reasons_are_closed(fixture);
         if expectation.status == NOT_YET_PROVOKABLE {
             assert!(
                 !fixture.has_grammar(),
@@ -445,6 +525,46 @@ fn enforced_filtering_keeps_every_analysis_off_keeps() {
     }
 }
 
+/// What the fixture's own declared pass does over that fixture's words, under enforcement.
+fn measure_declared_pass(fixture: &Fixture) -> PassCounters {
+    let reference = fixture.as_ref();
+    let words: WordsYaml = reference.load_words_yaml();
+    let grammar = pg_grammar::load(&reference.load_grammar_xml())
+        .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", reference.label()));
+    let filter = filter_for(&grammar);
+    let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+    let mut own = PassCounters::default();
+    for entry in &words.words {
+        let analyses = morpher.parse_word(&entry.word).structured;
+        let proposals: Vec<ProposedCandidate> = analyses
+            .iter()
+            .enumerate()
+            .map(|(index, analysis)| adapt(index, analysis))
+            .collect();
+        let outcome = filter.filter(FilterMode::Enforce, proposals, FilterBudget::unlimited());
+        for (_, counters) in outcome
+            .report
+            .per_pass
+            .iter()
+            .filter(|(id, _)| id.as_str() == fixture.expectation.pass_id)
+        {
+            add(&mut own, counters);
+        }
+    }
+    eprintln!(
+        "candidate_filter_fixture_weight: {} pass {} evaluated {} witness(es): {} kept, {} \
+         deferred, {} rejected, {} panicked",
+        fixture.name,
+        fixture.expectation.pass_id,
+        evaluated(&own),
+        own.keeps,
+        own.defers,
+        own.rejections,
+        own.panics
+    );
+    own
+}
+
 /// A wired fixture's pass must reject at least as often as that fixture claims.
 #[test]
 fn a_wired_fixture_reaches_its_declared_fire_count() {
@@ -454,41 +574,7 @@ fn a_wired_fixture_reaches_its_declared_fire_count() {
             continue;
         }
         wired += 1;
-        let reference = fixture.as_ref();
-        let words: WordsYaml = reference.load_words_yaml();
-        let grammar = pg_grammar::load(&reference.load_grammar_xml())
-            .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", reference.label()));
-        let filter = filter_for(&grammar);
-        let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
-        let mut own = PassCounters::default();
-        for entry in &words.words {
-            let analyses = morpher.parse_word(&entry.word).structured;
-            let proposals: Vec<ProposedCandidate> = analyses
-                .iter()
-                .enumerate()
-                .map(|(index, analysis)| adapt(index, analysis))
-                .collect();
-            let outcome = filter.filter(FilterMode::Enforce, proposals, FilterBudget::unlimited());
-            for (_, counters) in outcome
-                .report
-                .per_pass
-                .iter()
-                .filter(|(id, _)| id.as_str() == fixture.expectation.pass_id)
-            {
-                add(&mut own, counters);
-            }
-        }
-        let rejections = own.rejections;
-        eprintln!(
-            "candidate_filter_fixture_weight: {} pass {} evaluated {} witness(es): {} kept, {} \
-             deferred, {rejections} rejected, {} panicked",
-            fixture.name,
-            fixture.expectation.pass_id,
-            evaluated(&own),
-            own.keeps,
-            own.defers,
-            own.panics
-        );
+        let rejections = measure_declared_pass(&fixture).rejections;
         assert!(
             rejections >= fixture.expectation.min_fire_count,
             "{}: pass {} produced {rejections} verified rejections, below the declared floor of {}",
@@ -498,6 +584,27 @@ fn a_wired_fixture_reaches_its_declared_fire_count() {
         );
     }
     eprintln!("candidate_filter_fixture_weight: {wired} wired fixture(s) checked for fire count");
+}
+
+/// A parked fixture must still measure zero; the first rejection it reaches makes it wired.
+#[test]
+fn a_producer_blocked_fixture_still_reaches_nothing() {
+    let mut parked = 0usize;
+    for fixture in discover_fixtures() {
+        if fixture.expectation.status != PRODUCER_BLOCKED {
+            continue;
+        }
+        parked += 1;
+        let rejections = measure_declared_pass(&fixture).rejections;
+        assert_eq!(
+            rejections, 0,
+            "{}: pass {} produced {rejections} verified rejections, so the producer no longer \
+             blocks it -- set status to {WIRED:?} with the measured floor, at or above the \
+             declared {}",
+            fixture.name, fixture.expectation.pass_id, fixture.expectation.min_fire_count
+        );
+    }
+    eprintln!("candidate_filter_fixture_weight: {parked} producer-blocked fixture(s) re-measured");
 }
 
 /// A built pass with a waiting fixture, an undeclared pass id, or a fixtureless pass each fail.
@@ -512,7 +619,15 @@ fn no_fixture_or_pass_rots_out_of_sync() {
         if expectation.status == AWAITING_PASS && is_built {
             panic!(
                 "{}: pass {} is now built, so this fixture is no longer waiting -- set status to \
-                 {WIRED:?}, set the measured min_fire_count, and let this gate enforce it",
+                 {WIRED:?} with the measured min_fire_count, or to {PRODUCER_BLOCKED:?} with the \
+                 reason nothing this harness proposes can reach it",
+                fixture.name, expectation.pass_id
+            );
+        }
+        if expectation.status == PRODUCER_BLOCKED && !is_built {
+            panic!(
+                "{}: pass {} is not built, so this fixture waits on the pass rather than on a \
+                 producer -- set status to {AWAITING_PASS:?}",
                 fixture.name, expectation.pass_id
             );
         }

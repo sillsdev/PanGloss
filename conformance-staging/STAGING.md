@@ -32,16 +32,42 @@ Each directory adds a third file the upstream fixture contract does not define,
 { "pass_id": "structural.ownership.v1", "min_fire_count": 2, "status": "awaiting-pass" }
 ```
 
-`status` is `awaiting-pass`, `wired`, or `not-yet-provokable`, and it is what stops an unwired
-fixture from reading as coverage: the harness fails loudly if a fixture is still waiting on a pass
-that has since been built, if it names a pass nobody declared, or if a built pass has no fixture at
-all. `min_fire_count` is a floor on the verified rejections that pass must produce over the
-fixture's words once it exists; each fixture's `STAGING.md` records how the number was arrived at.
+`status` is `awaiting-pass`, `wired`, `producer-blocked`, or `not-yet-provokable`, and it is what
+stops an unwired fixture from reading as coverage: the harness fails loudly if a fixture is still
+waiting on a pass that has since been built, if it names a pass nobody declared, or if a built pass
+has no fixture at all. `min_fire_count` is a floor on the verified rejections that pass must produce
+over the fixture's words once it exists; each fixture's `STAGING.md` records how the number was
+arrived at.
+
+The four statuses are separated by what is missing, and each carries its own obligation:
+
+| Status | Pass built? | Fixture authored? | What the harness enforces |
+|---|---|---|---|
+| `awaiting-pass` | no | yes | Fails the moment the pass appears -- the fixture must then be re-classified |
+| `wired` | yes | yes | The pass must reach `min_fire_count` verified rejections, which **must be above 0** |
+| `producer-blocked` | yes | yes | The pass must still reach **zero**, and the fixture must name `blocked_reasons` from a closed set |
+| `not-yet-provokable` | no | no (`grammar.xml` absent) | Fails the moment the pass appears |
+
+`wired` requiring a floor above 0 is what keeps the fire-count gate from degenerating into `0 >= 0`.
+`producer-blocked` is where a fixture goes instead: the pass is built and the fixture is good, but
+nothing this harness proposes is something the pass could reject. Its `blocked_reasons` must be
+drawn from exactly two values, so the status cannot quietly absorb a genuine failure:
+
+- `producer-emits-only-hc-confirmed-analyses` -- the harness's proposal producer is
+  `pg_parse::Morpher`, so the only candidates offered to the filter are analyses HC already
+  accepted, and a sound filter may never reject one of those.
+- `adapter-defers-a-fact-the-pass-reads-first` -- the harness adapter marks every trace fact
+  `Deferred`, and the pass consults one of them before any grammar fact, so it defers
+  unconditionally.
+
+A `producer-blocked` fixture keeps the floor to enforce once a producer exists, and the harness
+re-measures it every run: the first verified rejection any of them reaches fails the suite and
+demands promotion to `wired`.
 
 | Fixture | Target pass | Status | `min_fire_count` | Provoking construct |
 |---|---|---|---|---|
-| `ownership` | `structural.ownership.v1` | wired | 0 (estimated 2) | Prefix homophonous with a free root, plus surfaces made only of affix material |
-| `structural-transition` | `structural.transition.v1` | wired | 0 (estimated 3) | Affix material on the wrong side of the root, both directions |
+| `ownership` | `structural.ownership.v1` | **producer-blocked** | 2 (measures 0 today) | Prefix homophonous with a free root, plus surfaces made only of affix material |
+| `structural-transition` | `structural.transition.v1` | **producer-blocked** | 3 (measures 0 today) | Affix material on the wrong side of the root, both directions |
 | `slot-order` | `symbolic.slot_order.v1` | awaiting-pass | 2 | One `AffixTemplate` with two ordered suffix slots, reversed |
 | `co-occurrence` | `symbolic.co_occurrence.v1` | awaiting-pass | 4 | `MorphemeCoOccurrenceRule` exclusion and requirement |
 | `static-signature` | `symbolic.static_signature.v1` | awaiting-pass | 4 | Category selection plus an `excludedMPRFeatures` exception class |
@@ -50,16 +76,17 @@ fixture's words once it exists; each fixture's `STAGING.md` records how the numb
 | `local-environment` | `local.environment.v1` | awaiting-pass | 4 | Nasal place assimilation in a one-segment right window |
 | `partner-pairing` | `symbolic.partner.v1` | **not-yet-provokable** | 0 | None -- no authored grammar can emit partner events; see its `STAGING.md` |
 
-The two wired floors are **0, measured**, not the 2 and 3 their authors estimated, and the gap is a
-property of the harness rather than of either pass. The harness's proposal producer is
-`pg_parse::Morpher` itself, so the only candidates ever offered to the filter are analyses HC
-already accepted -- and a sound filter may never reject one of those. Every word each fixture wrote
-to provoke a rejection is an `expect_fail` row that yields no analysis at all, so the impossible
-candidate is never proposed. Separately, the harness adapter marks every trace fact `Deferred`,
-which alone is enough to stop `structural.transition.v1`: it reads slot and stratum first and
-defers before any grammar fact is consulted. Both floors stay 0, and stay honest, until a producer
-exists that proposes candidates HC refuses and carries the trace facts the passes read. The
-measured keep/defer/reject split per pass is printed by the harness under `--no-capture`.
+The two built passes both **measure 0** against the 2 and 3 their fixtures declare, and the gap is a
+property of the harness rather than of either pass -- which is exactly what `producer-blocked`
+records. The harness's proposal producer is `pg_parse::Morpher` itself, so the only candidates ever
+offered to the filter are analyses HC already accepted, and a sound filter may never reject one of
+those. Every word each fixture wrote to provoke a rejection is an `expect_fail` row that yields no
+analysis at all, so the impossible candidate is never proposed. Separately, the harness adapter
+marks every trace fact `Deferred`, which alone is enough to stop `structural.transition.v1`: it
+reads slot and stratum first and defers before any grammar fact is consulted. The declared floors
+stay unenforced, and stay honest, until a producer exists that proposes candidates HC refuses and
+carries the trace facts the passes read. The measured keep/defer/reject split per pass is printed
+by the harness under `--no-capture`.
 
 All eight authored grammars are synthetic, use invented lexemes, and name no language in any file,
 feature, or symbol; where one mimics a real language's pathology the pathology is named and the

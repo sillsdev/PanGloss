@@ -1,6 +1,10 @@
 {
   "pass_id": "structural.transition.v1",
-  "min_fire_count": 0,
-  "status": "wired",
-  "min_fire_count_reasoning": "Measured 0, against an authored estimate of 3. Of the 7 witnesses reaching the pass, 2 are single-morpheme and have no adjacent pair to judge; the other 5 defer on a missing slot fact, because the harness adapter marks role, allomorphs, slot, stratum, surface_span and local_events all Deferred. StructuralTransitionPass reads slot and stratum before anything else, so it cannot reach a rejection through this adapter over any grammar. A nonzero floor here needs a producer that emits slot and stratum facts."
+  "min_fire_count": 3,
+  "status": "producer-blocked",
+  "blocked_reasons": [
+    "adapter-defers-a-fact-the-pass-reads-first",
+    "producer-emits-only-hc-confirmed-analyses"
+  ],
+  "min_fire_count_reasoning": "Three, authored, and held as the floor to enforce once a producer exists: one verified rejection each for \"kolurta\", \"rekata\" and \"mukolur\", the three words with no valid analysis. Each has exactly one plausible morpheme sequence, so one rejection per row is both the floor and the expected count. Measured 0 today: of the 7 witnesses reaching the pass, 2 are single-morpheme and have no adjacent pair to judge, and the other 5 defer on a missing slot fact, because StructuralTransitionPass reads slot and stratum before consulting the index and the harness adapter marks every trace fact Deferred."
 }
