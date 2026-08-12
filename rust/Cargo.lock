@@ -705,6 +705,7 @@ dependencies = [
  "foma",
  "pg-conformance-fixtures",
  "pg-featstruct",
+ "pg-foma",
  "pg-fst",
  "pg-fwdata",
  "pg-grammar",

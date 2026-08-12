@@ -16,7 +16,7 @@ pub mod model;
 pub mod passes;
 pub mod pipeline;
 pub mod report;
-#[doc(hidden)]
+#[cfg(feature = "test-support")]
 pub mod test_support;
 
 pub use decision::{

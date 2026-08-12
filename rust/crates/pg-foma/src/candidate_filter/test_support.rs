@@ -1,12 +1,12 @@
-//! A filter whose enforcement authority is an explicit allow list, for contract tests.
+//! Filter construction for this crate's own contract tests, behind the `test-support` feature.
 //!
 //! Rejection authority is otherwise crate-private, and a contract test lives in its own crate, so
 //! without a seam here the pipeline's semantics could only be exercised from inside this module
-//! tree. What is exposed is deliberately not the ability to supply a verifier: the verifier type
-//! is fixed, and a caller may only enumerate which `(pass, rule, category)` triples it will admit.
-//! Everything else it checks — identity, witness, both revisions, and cited trace units — is not
-//! negotiable from outside, so no caller can widen a proof into one that admits an arbitrary
-//! claim.
+//! tree. The seam is genuinely unsafe to publish: a caller who can build a filter supplies both
+//! the pass and the proof payload, and every field an allow-list verifier re-checks is copyable
+//! off the witness, so a pass that rejects everything with a proof it wrote itself passes
+//! verification and enforcement deletes real analyses. The feature gate, not the verifier, is what
+//! keeps that out of a normal build.
 
 use std::collections::BTreeSet;
 
