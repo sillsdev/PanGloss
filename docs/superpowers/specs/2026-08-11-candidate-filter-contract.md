@@ -123,28 +123,29 @@ A rejection proof contains a stable pass ID, rule ID, category, and machine-chec
 invalid or unverifiable proof becomes `Defer`; it is recorded as a proof-verification failure and
 never kills a witness.
 
-How much of that proof is checked is an explicit, orthogonal knob, because the two halves buy
-different things and cost different amounts:
+**The pipeline performs no verification.** A pass's `Reject` is acted on directly; the proof is
+constructed, carried, and recorded as evidence. There is no verifier in the filter, no check
+before enforcement, and no knob selecting how much to check.
 
-```rust
-pub enum ProofCheckDepth {
-    Off,
-    Full,
-}
-```
+Verification is instead a **post-hoc assertion over recorded evidence**. A test runs the filter
+with a ledger, then checks that every proof the run emitted re-derives against the witness it was
+emitted for. That is a stronger statement than an inline check: it asserts no invalid proof was
+ever produced, rather than that the pipeline declined to act on one.
 
-`Off` performs no proof checking. A pass's `Reject` is taken at face value, while the proof is
-still constructed, carried, and recorded. **This is the production default.**
+Two intermediate designs were considered and rejected, both for the same reason.
 
-`Full` re-checks the proof's identity, witness, grammar/lexicon revision, lexical origin, and cited
-units, and re-derives the claim against the witness's own trace. It is the default for tests and
-for `Shadow`.
+An inline verifier gated by depth kept a checking branch in the pipeline that production would
+never take, and left the verifier reachable from nothing — dead code in a production module,
+described as a safety mechanism.
 
-There is deliberately no middle tier. An envelope-only check was considered and rejected: the
-pipeline hands a witness to a pass, the pass builds a proof from that same witness, and an envelope
-check then re-verifies that the proof matches the witness the pipeline just supplied. That is
-first-party code checking itself, which is the same reasoning that moved claim checking out of
+An envelope-only check — identity, witness, revisions, cited units — looked nearly free, but the
+pipeline hands a witness to a pass, the pass builds a proof from that same witness, and the
+envelope then re-verifies the proof against the witness the pipeline just supplied. That is
+first-party code checking itself, which is the reasoning that moved claim checking out of
 production, applied one level further.
+
+What follows is that verification code lives with the tests that use it, not beside the pipeline,
+and that a pass's correctness is established before it ships rather than watched for at runtime.
 
 **`Full` is not a production safety mechanism, and the contract does not pretend otherwise.** Every
 pass is first-party compiled code in this crate; no untrusted party authors a proof, so there is no
