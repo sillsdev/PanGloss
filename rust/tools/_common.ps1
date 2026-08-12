@@ -1607,6 +1607,49 @@ function Test-DiskReserve {
     }
 }
 
+function Get-StaleWorktreeCandidates {
+    <#
+      .DESCRIPTION
+      Worktrees whose disk is reclaimable: every change committed, and no commit for -IdleDays.
+
+      Removing a worktree does not delete its branch, so committed work survives and is recoverable
+      with a plain checkout. The only thing a removal can destroy is uncommitted or untracked
+      content -- which is exactly why a worktree with ANY dirty or untracked path is never listed
+      here, however old it is. A judgement call on one of those belongs to a human.
+
+      Deliberately does not measure directory sizes: this runs on a refusal path, and walking every
+      file of dozens of checkouts would add minutes to a message whose whole purpose is to be read
+      quickly. Size varies mostly with leftover build output, so the oldest are usually the largest.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [int]$IdleDays = 3
+    )
+    $found = @()
+    $listing = & git -C $RepoRoot worktree list --porcelain 2>$null
+    if ($LASTEXITCODE -ne 0) { return $found }
+    $cutoff = (Get-Date).AddDays(-$IdleDays)
+    foreach ($line in $listing) {
+        if ($line -notmatch '^worktree (.+)$') { continue }
+        $path = $Matches[1]
+        if ((Resolve-Path -LiteralPath $path -ErrorAction SilentlyContinue).ProviderPath -eq (Resolve-Path -LiteralPath $RepoRoot).ProviderPath) { continue }
+        $dirty = & git -C $path status --porcelain --untracked-files=all 2>$null
+        if ($LASTEXITCODE -ne 0 -or $dirty) { continue }
+        $stamp = & git -C $path log -1 --format=%cI 2>$null
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($stamp)) { continue }
+        $when = $null
+        if (-not [datetime]::TryParse($stamp, [ref]$when)) { continue }
+        if ($when -ge $cutoff) { continue }
+        $found += [PSCustomObject]@{
+            Path     = $path
+            Name     = Split-Path $path -Leaf
+            Branch   = (& git -C $path rev-parse --abbrev-ref HEAD 2>$null)
+            IdleDays = [int]((Get-Date) - $when).TotalDays
+        }
+    }
+    return @($found | Sort-Object IdleDays -Descending)
+}
+
 # --- Preflight record ---
 
 function Write-Preflight {

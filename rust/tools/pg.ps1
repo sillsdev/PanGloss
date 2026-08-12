@@ -427,11 +427,25 @@ if ($BaseMode -ne 'off' -and $baseCheck.Checked -and -not $baseCheck.Ok) {
 
 if (-not $diskCheck.Ok) {
     Write-Host "[pg] $($diskCheck.Detail)" -ForegroundColor Red
+    $stale = @(Get-StaleWorktreeCandidates -RepoRoot $repoRoot)
+    if ($stale.Count -gt 0) {
+        Write-Host "[pg] $($stale.Count) worktree(s) look reclaimable -- fully committed, and idle 3+ days:" -ForegroundColor Yellow
+        foreach ($w in ($stale | Select-Object -First 8)) {
+            Write-Host "  $($w.IdleDays)d idle  $($w.Name)  [$($w.Branch)]" -ForegroundColor Yellow
+        }
+        if ($stale.Count -gt 8) { Write-Host "  ... and $($stale.Count - 8) more" -ForegroundColor Yellow }
+        Write-Host '[pg] remove one with: git worktree remove <path> -- the branch outlives the worktree, so committed work stays recoverable by checkout.' -ForegroundColor Yellow
+        Write-Host '[pg] a worktree holding ANY uncommitted or untracked file is never listed above; decide those by hand.' -ForegroundColor Yellow
+    }
+    Write-Host '[pg] also: pg.ps1 -Mode gc -Apply reclaims stale managed target directories this repository owns.' -ForegroundColor Yellow
+    Write-Host '[pg] sibling repositories keep their own worktrees; this list covers only this one.' -ForegroundColor DarkGray
     exit $script:ExitCodeLowDisk
 }
 
-# The spawn gate; gc/doctor are exempt by construction -- gc is the recovery action, doctor only reports.
-if (-not $memCheck.Ok) {
+# The spawn gate. `gc` and `doctor` are exempt because neither spawns a build: gc IS the recovery
+# action and refusing it here left the machine with no way out, and doctor folds this same check
+# into its own findings and exit code further down.
+if (-not $memCheck.Ok -and $Mode -notin @('gc', 'doctor')) {
     Write-Host "[pg] $($memCheck.Detail)" -ForegroundColor Red
     $top = @(Get-TopMemoryConsumers -Top 5)
     if ($top.Count -gt 0) {
