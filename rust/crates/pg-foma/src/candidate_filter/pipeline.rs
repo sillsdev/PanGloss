@@ -39,6 +39,38 @@ pub enum FilterMode {
     Enforce,
 }
 
+/// How much of a claimed rejection's proof a run re-checks before admitting it.
+///
+/// Orthogonal to `FilterMode`, and deliberately so: the mode decides what a verified rejection is
+/// allowed to do, while the depth decides what "verified" cost the run is willing to pay. Naming
+/// them separately is what makes `Enforce` at `Full` available as a debugging lever rather than
+/// something only a shadow run can reach.
+///
+/// `Off` is the production default because every pass is first-party compiled code in this crate:
+/// nothing untrusted authors a proof, so re-checking one is first-party code checking itself. What
+/// replaces that check is reproducibility — a recorded rejection names its pass, rule, category,
+/// candidate identity, and witness, which with the grammar is enough to re-run the same input at
+/// `Full` offline and re-derive the decision. The proof is always built, carried, and recorded; it
+/// is the explanation, and only its checking is a testing and shadow instrument.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProofCheckDepth {
+    /// The pass's rejection is taken at face value.
+    #[default]
+    Off,
+    /// The proof's envelope and its claim are both re-established against the witness.
+    Full,
+}
+
+impl ProofCheckDepth {
+    /// The depth a mode runs at when a caller names no depth of its own.
+    pub const fn for_mode(mode: FilterMode) -> Self {
+        match mode {
+            FilterMode::Shadow => Self::Full,
+            FilterMode::Off | FilterMode::Enforce => Self::Off,
+        }
+    }
+}
+
 /// An upper bound on pass evaluations for one run.
 ///
 /// The unit is one pass's visit to one witness, which is the only work unit the pipeline itself
@@ -248,7 +280,7 @@ impl CandidateFilter {
         self.passes.iter().map(|pass| pass.id()).collect()
     }
 
-    /// Filters a proposal stream, emitting retained candidates as they are decided.
+    /// Filters a proposal stream at the depth the mode implies.
     pub fn filter_into<I, R, T>(
         &self,
         mode: FilterMode,
@@ -262,12 +294,46 @@ impl CandidateFilter {
         R: RetainedCandidateSink,
         T: FilterTraceSink,
     {
-        self.filter_into_seeded(mode, input, retained, trace, budget, OrdinalSeed::default())
+        self.filter_into_at(
+            mode,
+            ProofCheckDepth::for_mode(mode),
+            input,
+            retained,
+            trace,
+            budget,
+        )
+    }
+
+    /// Filters a proposal stream at a named depth, emitting retained candidates as they are decided.
+    pub fn filter_into_at<I, R, T>(
+        &self,
+        mode: FilterMode,
+        depth: ProofCheckDepth,
+        input: I,
+        retained: &mut R,
+        trace: &mut T,
+        budget: FilterBudget,
+    ) -> FilterCompletion
+    where
+        I: IntoIterator<Item = ProposedCandidate>,
+        R: RetainedCandidateSink,
+        T: FilterTraceSink,
+    {
+        self.filter_into_seeded(
+            mode,
+            depth,
+            input,
+            retained,
+            trace,
+            budget,
+            OrdinalSeed::default(),
+        )
     }
 
     pub(crate) fn filter_into_seeded<I, R, T>(
         &self,
         mode: FilterMode,
+        depth: ProofCheckDepth,
         input: I,
         retained: &mut R,
         trace: &mut T,
@@ -293,6 +359,7 @@ impl CandidateFilter {
 
             let verdict = self.evaluate_candidate(
                 mode,
+                depth,
                 &candidate,
                 candidate_ordinal,
                 &mut ordinals,
@@ -322,14 +389,28 @@ impl CandidateFilter {
         }
     }
 
-    /// Filters an entire proposal set into memory.
+    /// Filters an entire proposal set into memory at the depth the mode implies.
     pub fn filter<I>(&self, mode: FilterMode, input: I, budget: FilterBudget) -> FilterOutcome
+    where
+        I: IntoIterator<Item = ProposedCandidate>,
+    {
+        self.filter_at(mode, ProofCheckDepth::for_mode(mode), input, budget)
+    }
+
+    /// Filters an entire proposal set into memory at a named depth.
+    pub fn filter_at<I>(
+        &self,
+        mode: FilterMode,
+        depth: ProofCheckDepth,
+        input: I,
+        budget: FilterBudget,
+    ) -> FilterOutcome
     where
         I: IntoIterator<Item = ProposedCandidate>,
     {
         let mut retained: Vec<ProposedCandidate> = Vec::new();
         let mut trace = CountingTraceSink::new();
-        let status = self.filter_into(mode, input, &mut retained, &mut trace, budget);
+        let status = self.filter_into_at(mode, depth, input, &mut retained, &mut trace, budget);
         FilterOutcome {
             retained,
             report: trace.into_counters(),
@@ -347,9 +428,11 @@ impl CandidateFilter {
         retained.accept(candidate);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn evaluate_candidate<T: FilterTraceSink>(
         &self,
         mode: FilterMode,
+        depth: ProofCheckDepth,
         candidate: &ProposedCandidate,
         candidate_ordinal: u64,
         ordinals: &mut Ordinals,
@@ -361,7 +444,7 @@ impl CandidateFilter {
         let mut survivors = 0usize;
 
         for witness in candidate.witnesses.iter() {
-            match self.evaluate_witness(&context, witness, ordinals, allowance, trace) {
+            match self.evaluate_witness(&context, depth, witness, ordinals, allowance, trace) {
                 WitnessVerdict::Survives => survivors += 1,
                 WitnessVerdict::Died(death) => witness_deaths.push(death),
                 WitnessVerdict::BudgetExhausted => return CandidateVerdict::BudgetExhausted,
@@ -382,6 +465,7 @@ impl CandidateFilter {
     fn evaluate_witness<T: FilterTraceSink>(
         &self,
         context: &FilterContext<'_>,
+        depth: ProofCheckDepth,
         witness: &CandidateWitness,
         ordinals: &mut Ordinals,
         allowance: &mut StepAllowance,
@@ -395,7 +479,9 @@ impl CandidateFilter {
             let outcome = match pass.evaluate(context, witness) {
                 PassDecision::Keep => PassOutcome::Kept,
                 PassDecision::Defer(reason) => PassOutcome::Deferred(reason),
-                PassDecision::Reject(proof) => self.admit(context, witness, pass.id(), proof),
+                PassDecision::Reject(proof) => {
+                    self.admit(context, depth, witness, pass.id(), proof)
+                }
             };
 
             let event = PassEvent {
@@ -426,10 +512,14 @@ impl CandidateFilter {
     fn admit(
         &self,
         context: &FilterContext<'_>,
+        depth: ProofCheckDepth,
         witness: &CandidateWitness,
         declared: StablePassId,
         proof: RejectionProof,
     ) -> PassOutcome {
+        if matches!(depth, ProofCheckDepth::Off) {
+            return PassOutcome::Rejected(proof);
+        }
         if proof.pass_id != declared {
             return PassOutcome::ProofRejected(ProofVerificationError::PassIdMismatch {
                 declared,

@@ -28,7 +28,7 @@ pub use decision::{
 pub use passes::CandidateFilterPass;
 pub use pipeline::{
     CandidateFilter, FilterBudget, FilterCompletion, FilterContext, FilterMode, FilterOutcome,
-    FilterStopReason,
+    FilterStopReason, ProofCheckDepth,
 };
 pub use report::{
     BoundedDeathLedger, CandidateDeath, CountingTraceSink, FilterCounters, FilterTraceSink,

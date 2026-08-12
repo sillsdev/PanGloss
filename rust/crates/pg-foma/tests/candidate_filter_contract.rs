@@ -183,6 +183,7 @@ use pg_foma::candidate_filter::decision::{
 use pg_foma::candidate_filter::passes::CandidateFilterPass;
 use pg_foma::candidate_filter::pipeline::{
     CandidateFilter, FilterBudget, FilterCompletion, FilterContext, FilterMode, FilterStopReason,
+    ProofCheckDepth,
 };
 use pg_foma::candidate_filter::report::{
     BoundedDeathLedger, CandidateDeath, FilterTraceSink, LedgerCaps, PassEvent, PassOutcome,
@@ -612,8 +613,9 @@ fn enforce_mode_removes_a_candidate_whose_every_witness_is_rejected() {
 fn an_unverifiable_proof_defers_instead_of_killing_the_witness() {
     let filter = allow_list_filter(vec![Box::new(ForgedWitnessId)], every_reject_allowed());
 
-    let outcome = filter.filter(
+    let outcome = filter.filter_at(
         FilterMode::Enforce,
+        ProofCheckDepth::Full,
         one_candidate_with_witnesses(&[1]),
         FilterBudget::unlimited(),
     );
@@ -627,8 +629,9 @@ fn an_unverifiable_proof_defers_instead_of_killing_the_witness() {
 fn a_proof_outside_the_allow_list_defers_instead_of_killing_the_witness() {
     let filter = allow_list_filter(vec![Box::new(UnlistedRule)], every_reject_allowed());
 
-    let outcome = filter.filter(
+    let outcome = filter.filter_at(
         FilterMode::Enforce,
+        ProofCheckDepth::Full,
         one_candidate_with_witnesses(&[1]),
         FilterBudget::unlimited(),
     );
@@ -898,6 +901,51 @@ fn the_same_witness_id_in_two_candidates_has_distinct_ledger_keys() {
     assert_eq!(events[0].witness_id, events[1].witness_id);
     assert_ne!(events[0].candidate_ordinal, events[1].candidate_ordinal);
     assert_ne!(events[0].event_ordinal, events[1].event_ordinal);
+}
+
+fn mixed_outcome_filter() -> CandidateFilter {
+    allow_list_filter(
+        vec![
+            Box::new(DeferAll),
+            Box::new(RejectEvenCandidates),
+            Box::new(KeepAll(KEEP_ALL, Arc::new(AtomicUsize::new(0)))),
+        ],
+        every_reject_allowed(),
+    )
+}
+
+fn ledgered_run(filter: &CandidateFilter) -> (Vec<u32>, BoundedDeathLedger) {
+    let mut retained: Vec<ProposedCandidate> = Vec::new();
+    let mut ledger = BoundedDeathLedger::unlimited();
+    filter.filter_into(
+        FilterMode::Enforce,
+        one_candidate_with_witnesses(&[1, 2])
+            .into_iter()
+            .chain(numbered_candidates(6)),
+        &mut retained,
+        &mut ledger,
+        FilterBudget::unlimited(),
+    );
+    let identities = retained
+        .iter()
+        .map(|candidate| candidate.identity.morphemes[0].0)
+        .collect();
+    (identities, ledger)
+}
+
+/// Reproducibility is the safety story a rerun rests on, so two identical runs must agree exactly.
+#[test]
+fn two_identical_runs_produce_identical_decisions_and_evidence() {
+    let filter = mixed_outcome_filter();
+    let (first_retained, first) = ledgered_run(&filter);
+    let (second_retained, second) = ledgered_run(&filter);
+
+    assert!(!first.candidate_deaths().is_empty());
+    assert!(!first_retained.is_empty());
+    assert_eq!(first_retained, second_retained);
+    assert_eq!(first.events(), second.events());
+    assert_eq!(first.candidate_deaths(), second.candidate_deaths());
+    assert_eq!(first.counters(), second.counters());
 }
 
 fn keep_all_filter() -> CandidateFilter {

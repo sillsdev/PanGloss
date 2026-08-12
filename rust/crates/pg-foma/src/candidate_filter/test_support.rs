@@ -17,7 +17,7 @@ use crate::candidate_filter::model::{CandidateWitness, ProposedCandidate};
 use crate::candidate_filter::passes::CandidateFilterPass;
 use crate::candidate_filter::pipeline::{
     CandidateFilter, FilterBudget, FilterCompletion, FilterContext, FilterMode, OrdinalSeed,
-    ProofVerifier,
+    ProofCheckDepth, ProofVerifier,
 };
 use crate::candidate_filter::report::{FilterTraceSink, RetainedCandidateSink};
 
@@ -107,6 +107,7 @@ where
 {
     filter.filter_into_seeded(
         mode,
+        ProofCheckDepth::for_mode(mode),
         input,
         retained,
         trace,

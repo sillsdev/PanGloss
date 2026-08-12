@@ -11,7 +11,7 @@ use pg_foma::candidate_filter::model::{
     TraceFact, TraceRole, TraceSlotId, TraceStratumId, TraceUnit, WitnessId,
 };
 use pg_foma::candidate_filter::pipeline::{
-    CandidateFilter, FilterBudget, FilterContext, FilterMode,
+    CandidateFilter, FilterBudget, FilterContext, FilterMode, ProofCheckDepth,
 };
 use pg_foma::candidate_filter::report::{
     BoundedDeathLedger, CandidateDeath, FilterCounters, PassEvent, PassOutcome,
@@ -77,7 +77,20 @@ struct Run {
 }
 
 fn run(proof: RejectionProof, witness: CandidateWitness) -> Run {
-    run_with(verified_filter(vec![Box::new(ProofPass(proof))]), witness)
+    run_with(
+        verified_filter(vec![Box::new(ProofPass(proof))]),
+        ProofCheckDepth::Full,
+        witness,
+    )
+}
+
+/// The same run with the pass's rejection taken at face value, as production takes it.
+fn unchecked_run(proof: RejectionProof, witness: CandidateWitness) -> Run {
+    run_with(
+        verified_filter(vec![Box::new(ProofPass(proof))]),
+        ProofCheckDepth::Off,
+        witness,
+    )
 }
 
 /// The same run under a verifier that checks the envelope and the rule but never the claim.
@@ -92,23 +105,47 @@ fn claim_blind_run(proof: RejectionProof, witness: CandidateWitness) -> Run {
         .collect();
     run_with(
         allow_list_filter(vec![Box::new(ProofPass(proof))], allowed),
+        ProofCheckDepth::Full,
         witness,
     )
 }
 
-fn run_with(filter: CandidateFilter, witness: CandidateWitness) -> Run {
-    let proposal = ProposedCandidate::new(identity(), vec![witness]).expect("one witness");
+fn run_with(filter: CandidateFilter, depth: ProofCheckDepth, witness: CandidateWitness) -> Run {
     let mut retained: Vec<ProposedCandidate> = Vec::new();
     let mut ledger = BoundedDeathLedger::unlimited();
-    filter.filter_into(
+    filter.filter_into_at(
         FilterMode::Enforce,
-        vec![proposal],
+        depth,
+        vec![proposal_of(witness)],
         &mut retained,
         &mut ledger,
         FilterBudget::unlimited(),
     );
+    collected(retained.len(), ledger)
+}
+
+/// A run that names a mode and lets the depth follow from it, as production does.
+fn unnamed_depth_run(proof: RejectionProof, witness: CandidateWitness, mode: FilterMode) -> Run {
+    let filter = verified_filter(vec![Box::new(ProofPass(proof))]);
+    let mut retained: Vec<ProposedCandidate> = Vec::new();
+    let mut ledger = BoundedDeathLedger::unlimited();
+    filter.filter_into(
+        mode,
+        vec![proposal_of(witness)],
+        &mut retained,
+        &mut ledger,
+        FilterBudget::unlimited(),
+    );
+    collected(retained.len(), ledger)
+}
+
+fn proposal_of(witness: CandidateWitness) -> ProposedCandidate {
+    ProposedCandidate::new(identity(), vec![witness]).expect("one witness")
+}
+
+fn collected(retained: usize, ledger: BoundedDeathLedger) -> Run {
     Run {
-        retained: retained.len(),
+        retained,
         events: ledger.events().to_vec(),
         deaths: ledger.candidate_deaths().to_vec(),
         counters: ledger.counters().clone(),
@@ -1057,6 +1094,116 @@ fn a_claim_may_only_rest_on_units_the_proof_cites() {
         refusal(&run),
         ProofVerificationError::UnitNotCited { index: 0 }
     );
+}
+
+fn a_payload_forgery() -> RejectionProof {
+    payload_forgeries(ProofCategory::ImpossibleOwnership)
+        .into_iter()
+        .next()
+        .expect("ownership has payload forgeries")
+        .1
+}
+
+/// Pins the production guarantee exactly: there is none. Every forgery below kills a real witness.
+#[test]
+fn production_depth_checks_nothing_and_admits_every_forgery_full_depth_refuses() {
+    let mut checked = 0;
+    for category in ALL_CATEGORIES {
+        let forgeries = payload_forgeries(category)
+            .into_iter()
+            .chain(generic_forgeries(category));
+        for (label, forged, expected) in forgeries {
+            assert_eq!(
+                refusal(&run(forged.clone(), base_witness())),
+                expected,
+                "{category}/{label}"
+            );
+            let unchecked = unchecked_run(forged, base_witness());
+            assert_eq!(
+                unchecked.retained, 0,
+                "{category}/{label}: production runs no proof check at all, so a rejection is \
+                 taken at face value and kills its witness however corrupt its proof is; only \
+                 full depth, which tests and shadow runs select, refuses it"
+            );
+            assert_eq!(
+                unchecked.counters.witnesses_rejected, 1,
+                "{category}/{label}"
+            );
+            assert_eq!(
+                unchecked.counters.proof_verification_failures, 0,
+                "{category}/{label}"
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 25 + 9 * ALL_CATEGORIES.len());
+}
+
+#[test]
+fn an_unnamed_depth_is_off_in_production_and_full_in_shadow() {
+    assert_eq!(ProofCheckDepth::default(), ProofCheckDepth::Off);
+    assert_eq!(
+        ProofCheckDepth::for_mode(FilterMode::Enforce),
+        ProofCheckDepth::Off
+    );
+    assert_eq!(
+        ProofCheckDepth::for_mode(FilterMode::Off),
+        ProofCheckDepth::Off
+    );
+    assert_eq!(
+        ProofCheckDepth::for_mode(FilterMode::Shadow),
+        ProofCheckDepth::Full
+    );
+
+    let enforced = unnamed_depth_run(a_payload_forgery(), base_witness(), FilterMode::Enforce);
+    assert_eq!(enforced.retained, 0);
+    assert_eq!(enforced.counters.proof_verification_failures, 0);
+    assert_eq!(enforced.counters.witnesses_rejected, 1);
+
+    let shadowed = unnamed_depth_run(a_payload_forgery(), base_witness(), FilterMode::Shadow);
+    assert_eq!(shadowed.counters.proof_verification_failures, 1);
+    assert_eq!(shadowed.counters.witnesses_rejected, 0);
+}
+
+#[test]
+fn depth_is_chosen_independently_of_the_mode() {
+    let deliberate = run(a_payload_forgery(), base_witness());
+    assert_eq!(deliberate.retained, 1);
+    assert_eq!(deliberate.counters.proof_verification_failures, 1);
+
+    let filter = verified_filter(vec![Box::new(ProofPass(a_payload_forgery()))]);
+    let mut retained: Vec<ProposedCandidate> = Vec::new();
+    let mut ledger = BoundedDeathLedger::unlimited();
+    filter.filter_into_at(
+        FilterMode::Shadow,
+        ProofCheckDepth::Off,
+        vec![proposal_of(base_witness())],
+        &mut retained,
+        &mut ledger,
+        FilterBudget::unlimited(),
+    );
+    assert_eq!(ledger.counters().witnesses_rejected, 1);
+    assert_eq!(ledger.counters().proof_verification_failures, 0);
+    assert_eq!(retained.len(), 1);
+}
+
+/// The diagnostic a production rejection records, which an offline full-depth rerun starts from.
+#[test]
+fn a_production_rejection_records_what_a_rerun_needs() {
+    let unchecked = unchecked_run(a_payload_forgery(), base_witness());
+
+    assert_eq!(unchecked.deaths.len(), 1);
+    let death = &unchecked.deaths[0];
+    assert_eq!(death.identity, identity());
+    let witness_death = &death.witness_deaths[0];
+    assert_eq!(witness_death.witness_id, WitnessId(1));
+    assert_eq!(witness_death.pass_id, PASS);
+    assert_eq!(witness_death.rule_id, RULE);
+    assert_eq!(witness_death.category, ProofCategory::ImpossibleOwnership);
+    assert!(matches!(
+        &unchecked.events[0].outcome,
+        PassOutcome::Rejected(proof) if proof.witness.claim == a_payload_forgery().witness.claim
+    ));
 }
 
 #[test]
