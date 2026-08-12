@@ -229,6 +229,52 @@ fn measure_filter(
     }
 }
 
+/// One `confirm_batch_attributed` call: its chunks, wall time, and `doomed`, indexed into whatever slice was passed in.
+struct ConfirmRun {
+    chunks: Vec<confirm::ConfirmChunkCost>,
+    doomed: Vec<usize>,
+    steps: usize,
+    elapsed: Duration,
+    timed_out: bool,
+}
+
+fn run_confirm(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher,
+    candidates: &[Candidate],
+    word: &str,
+) -> ConfirmRun {
+    let started = Instant::now();
+    let (buckets, chunks) = confirm::confirm_batch_attributed(g, owners, morpher, candidates, word);
+    let elapsed = started.elapsed();
+    let doomed: Vec<usize> = buckets
+        .iter()
+        .enumerate()
+        .filter(|(_, bucket)| bucket.is_empty())
+        .map(|(index, _)| index)
+        .collect();
+    let steps = chunks.iter().map(|c| c.steps).sum();
+    let timed_out = chunks.iter().any(|c| c.timed_out);
+    ConfirmRun {
+        chunks,
+        doomed,
+        steps,
+        elapsed,
+        timed_out,
+    }
+}
+
+/// The candidates a perfect filter would still hand to confirmation: everything outside `doomed`.
+fn prune_doomed(candidates: &[Candidate], doomed: &[usize]) -> Vec<Candidate> {
+    candidates
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !doomed.contains(i))
+        .map(|(_, c)| c.clone())
+        .collect()
+}
+
 /// What one word contributed, or why it contributed nothing.
 enum WordOutcome {
     /// The proposer offered nothing, so there was no confirmation work to price either way.
@@ -254,6 +300,17 @@ struct WordRow {
     surviving_elapsed: Duration,
     confirm_elapsed: Duration,
     pre: PreConfirmCost,
+    /// Steps of the timed full run backing `confirm_elapsed`; compared to the attributed sum as a determinism check.
+    steps_before: usize,
+    /// A second, real `confirm_batch_attributed` call over only the non-doomed candidates -- not the modelled subtraction above.
+    pruned_candidates: usize,
+    chunks_pruned: usize,
+    steps_measured_after: usize,
+    confirm_elapsed_measured_after: Duration,
+    /// A third call repeating `confirm_elapsed`'s exact full-candidate work, to price cache warmth directly.
+    confirm_elapsed_warm_repeat: Duration,
+    /// True when the two identical full runs disagreed on step count, which would make the metric nondeterministic.
+    repeat_mismatch_steps: bool,
 }
 
 fn measure_word(
@@ -268,25 +325,22 @@ fn measure_word(
         return WordOutcome::NoCandidates;
     }
 
-    let start = Instant::now();
-    let (buckets, chunks) = confirm::confirm_batch_attributed(g, owners, morpher, candidates, word);
-    let confirm_elapsed = start.elapsed();
-
-    let doomed: Vec<usize> = buckets
-        .iter()
-        .enumerate()
-        .filter(|(_, bucket)| bucket.is_empty())
-        .map(|(index, _)| index)
-        .collect();
+    // Order is fixed: the pruned run needs `doomed` from a full run first, so call 3 repeats call 1 to price warmth alone.
     let presented: Vec<usize> = (0..candidates.len()).collect();
-    let attribution = shadow::attribute(&doomed, &presented, &chunks);
+
+    let before = run_confirm(g, owners, morpher, candidates, word);
+    let attribution = shadow::attribute(&before.doomed, &presented, &before.chunks);
+    let pruned_candidates = prune_doomed(candidates, &before.doomed);
+    let after_measured = run_confirm(g, owners, morpher, &pruned_candidates, word);
+    let warm_repeat = run_confirm(g, owners, morpher, candidates, word);
+    let repeat_mismatch_steps = warm_repeat.steps != before.steps;
 
     let mut removable_members = Vec::new();
     let mut removable_chunk_steps = Vec::new();
     let mut surviving_chunk_steps_each = Vec::new();
     let mut surviving_elapsed = Duration::ZERO;
-    for chunk in &chunks {
-        if shadow::chunk_is_removable(chunk, &doomed, &presented) {
+    for chunk in &before.chunks {
+        if shadow::chunk_is_removable(chunk, &before.doomed, &presented) {
             removable_members.push(chunk.members.len());
             removable_chunk_steps.push(chunk.steps);
         } else {
@@ -298,8 +352,8 @@ fn measure_word(
     let row = WordRow {
         word: word.to_owned(),
         candidates: candidates.len(),
-        empty_buckets: doomed.len(),
-        chunks_total: chunks.len(),
+        empty_buckets: before.doomed.len(),
+        chunks_total: before.chunks.len(),
         chunks_removable: attribution.removable_chunks,
         removable_steps: attribution.removable_steps,
         surviving_chunk_steps: attribution.surviving_chunk_steps,
@@ -308,10 +362,17 @@ fn measure_word(
         surviving_chunk_steps_each,
         removable_elapsed: attribution.removable_elapsed,
         surviving_elapsed,
-        confirm_elapsed,
+        confirm_elapsed: before.elapsed,
         pre,
+        steps_before: before.steps,
+        pruned_candidates: pruned_candidates.len(),
+        chunks_pruned: after_measured.chunks.len(),
+        steps_measured_after: after_measured.steps,
+        confirm_elapsed_measured_after: after_measured.elapsed,
+        confirm_elapsed_warm_repeat: warm_repeat.elapsed,
+        repeat_mismatch_steps,
     };
-    if chunks.iter().any(|chunk| chunk.timed_out) {
+    if before.timed_out || after_measured.timed_out || warm_repeat.timed_out {
         WordOutcome::TimedOut(row)
     } else {
         WordOutcome::Measured(row)
@@ -388,7 +449,7 @@ fn describe(label: &str, steps: &mut Vec<usize>) -> String {
 
 fn print_row(row: &WordRow, status: &str) {
     println!(
-        "{:<24} {:>6} {:>7} {:>7} {:>9} {:>12} {:>12} {:>9.1} {:>10.3} {}",
+        "{:<24} {:>6} {:>7} {:>7} {:>9} {:>12} {:>12} {:>9.1} {:>10.3} {:>7} {:>9} {:>10} {:>10.3} {:>10} {}",
         row.word,
         row.candidates,
         row.empty_buckets,
@@ -398,6 +459,11 @@ fn print_row(row: &WordRow, status: &str) {
         row.surviving_chunk_steps,
         ms(row.confirm_elapsed),
         ms(row.pre.filter_elapsed),
+        row.pruned_candidates,
+        row.chunks_pruned,
+        row.steps_measured_after,
+        ms(row.confirm_elapsed_measured_after),
+        ms(row.confirm_elapsed_warm_repeat),
         status
     );
 }
@@ -437,7 +503,7 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
     );
     println!();
     println!(
-        "{:<24} {:>6} {:>7} {:>7} {:>9} {:>12} {:>12} {:>9} {:>10} {}",
+        "{:<24} {:>6} {:>7} {:>7} {:>9} {:>12} {:>12} {:>9} {:>10} {:>7} {:>9} {:>10} {:>10} {:>10} {}",
         "word",
         "cands",
         "empty",
@@ -447,6 +513,11 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
         "surv_steps",
         "confirm_ms",
         "filter_ms",
+        "cand_aft",
+        "chnk_aft",
+        "step_aft",
+        "ms_aft",
+        "ms_warm",
         "status"
     );
 
@@ -475,6 +546,16 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
     let mut witness_ms: Vec<f64> = Vec::new();
     let mut filter_evaluations: Vec<f64> = Vec::new();
     let mut filter_rejections = 0u64;
+    // The measured pruned re-run, alongside the modelled `steps_after`/`confirm_ms_after` above.
+    let mut steps_after_measured: Vec<f64> = Vec::new();
+    let mut confirm_ms_after_measured: Vec<f64> = Vec::new();
+    let mut total_pruned_candidates = 0usize;
+    let mut total_chunks_pruned = 0usize;
+    let mut fusion_broke_words = 0usize;
+    let mut fusion_broke_extra_chunks = 0usize;
+    let mut repeat_mismatch_words = 0usize;
+    // The warm repeat is identical work to the cold full run, so their gap is warmth alone.
+    let mut full_ms_warm_repeat: Vec<f64> = Vec::new();
 
     // Strictly sequential: fanning corpus words out concurrently is what has exhausted this machine's memory before.
     for word in &words {
@@ -486,8 +567,8 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
             WordOutcome::NoCandidates => {
                 no_candidates += 1;
                 println!(
-                    "{:<24} {:>6} {:>7} {:>7} {:>9} {:>12} {:>12} {:>9} {:>10} no-candidates",
-                    word, 0, 0, 0, 0, 0, 0, "-", "-"
+                    "{:<24} {:>6} {:>7} {:>7} {:>9} {:>12} {:>12} {:>9} {:>10} {:>7} {:>9} {:>10} {:>10} {:>10} no-candidates",
+                    word, 0, 0, 0, 0, 0, 0, "-", "-", 0, 0, 0, "-", "-"
                 );
             }
             WordOutcome::TimedOut(row) => {
@@ -518,6 +599,22 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
                 filter_ms.push(ms(row.pre.filter_elapsed));
                 witness_ms.push(ms(row.pre.witness_elapsed));
                 filter_evaluations.push(row.pre.evaluations as f64);
+                total_pruned_candidates += row.pruned_candidates;
+                total_chunks_pruned += row.chunks_pruned;
+                if row.chunks_pruned > row.chunks_total {
+                    fusion_broke_words += 1;
+                    fusion_broke_extra_chunks += row.chunks_pruned - row.chunks_total;
+                }
+                if row.repeat_mismatch_steps {
+                    repeat_mismatch_words += 1;
+                    println!(
+                        "  NONDETERMINISM: {} two identical full runs disagreed on steps: first={} repeat differed",
+                        row.word, row.steps_before
+                    );
+                }
+                steps_after_measured.push(row.steps_measured_after as f64);
+                confirm_ms_after_measured.push(ms(row.confirm_elapsed_measured_after));
+                full_ms_warm_repeat.push(ms(row.confirm_elapsed_warm_repeat));
                 print_row(&row, "ok");
             }
         }
@@ -612,6 +709,150 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
         "zero rejections is the expected result here and is not a filter verdict: the legacy adapter establishes no role, slot or stratum fact, so a structural pass can only defer."
     );
 
+    let steps_after_measured = distribution(&mut steps_after_measured);
+    let confirm_after_measured = distribution(&mut confirm_ms_after_measured);
+    let warm_repeat_d = distribution(&mut full_ms_warm_repeat);
+
+    println!();
+    println!(
+        "## before / after-modelled / after-measured ({}), measured words only, n={measured}",
+        corpus.label
+    );
+    println!(
+        "after-modelled is shadow::chunk_is_removable's whole-chunk subtraction (unchanged); \
+         after-measured is a REAL second confirm_batch_attributed call over only the non-doomed \
+         candidates -- the gap between the two columns is the modelling error."
+    );
+    println!(
+        "{:<22} {:>10} {:>16} {:>16}",
+        "metric", "before", "after-modelled", "after-measured"
+    );
+    print_triple(
+        "steps/word p50",
+        steps_before.p50,
+        steps_after.p50,
+        steps_after_measured.p50,
+        0,
+    );
+    print_triple(
+        "steps/word p90",
+        steps_before.p90,
+        steps_after.p90,
+        steps_after_measured.p90,
+        0,
+    );
+    print_triple(
+        "steps/word p99",
+        steps_before.p99,
+        steps_after.p99,
+        steps_after_measured.p99,
+        0,
+    );
+    print_triple(
+        "steps/word max",
+        steps_before.max,
+        steps_after.max,
+        steps_after_measured.max,
+        0,
+    );
+    print_triple(
+        "confirm ms/word p50",
+        confirm_before.p50,
+        confirm_after.p50,
+        confirm_after_measured.p50,
+        3,
+    );
+    print_triple(
+        "confirm ms/word p90",
+        confirm_before.p90,
+        confirm_after.p90,
+        confirm_after_measured.p90,
+        3,
+    );
+    print_triple(
+        "confirm ms/word p99",
+        confirm_before.p99,
+        confirm_after.p99,
+        confirm_after_measured.p99,
+        3,
+    );
+    print_triple(
+        "confirm ms/word max",
+        confirm_before.max,
+        confirm_after.max,
+        confirm_after_measured.max,
+        3,
+    );
+    println!(
+        "modelling error at p99 confirm ms: modelled={:.3} measured={:.3} ({:+.1}% vs the model)",
+        confirm_after.p99,
+        confirm_after_measured.p99,
+        change(confirm_after.p99, confirm_after_measured.p99)
+    );
+    println!(
+        "modelling error at p50 confirm ms: modelled={:.3} measured={:.3} ({:+.1}% vs the model)",
+        confirm_after.p50,
+        confirm_after_measured.p50,
+        change(confirm_after.p50, confirm_after_measured.p50)
+    );
+
+    println!();
+    println!(
+        "chunks: full={total_chunks} pruned={total_chunks_pruned} (parse-call count == chunk \
+         count here, by confirm_batch_attributed's one-call-per-fused-chunk construction)"
+    );
+    println!("candidates: full={total_candidates} pruned={total_pruned_candidates}");
+    if fusion_broke_words > 0 {
+        println!(
+            "FUSION BROKE by pruning on {fusion_broke_words} word(s): pruning changed a chunk's \
+             union_rules enough to split a cross-root-set fusion apart, costing \
+             {fusion_broke_extra_chunks} extra parse call(s) total that the full run never paid."
+        );
+    } else {
+        println!(
+            "fusion never broke by pruning: the pruned run's chunk count never exceeded the full \
+             run's on any measured word."
+        );
+    }
+
+    println!();
+    println!("## warm-repeat control: call 3 repeats call 1's exact full-candidate work");
+    println!(
+        "after-measured (call 2) is necessarily second, because the pruned list needs `doomed` from a \
+         full run. So the honest control is not a fake reordering but an identical full run at call 3: \
+         whatever it gains over call 1 is warmth, and after-measured's win must exceed that to be real."
+    );
+    println!(
+        "full confirm ms:   cold (call 1) p50={:.3} p90={:.3} p99={:.3}  |  warm (call 3) p50={:.3} p90={:.3} p99={:.3}",
+        confirm_before.p50,
+        confirm_before.p90,
+        confirm_before.p99,
+        warm_repeat_d.p50,
+        warm_repeat_d.p90,
+        warm_repeat_d.p99
+    );
+    let warmth_p50 = change(confirm_before.p50, warm_repeat_d.p50);
+    let warmth_p99 = change(confirm_before.p99, warm_repeat_d.p99);
+    let pruned_win_p50 = change(confirm_before.p50, confirm_after_measured.p50);
+    let pruned_win_p99 = change(confirm_before.p99, confirm_after_measured.p99);
+    println!(
+        "warmth alone moves p50 {warmth_p50:+.1}% and p99 {warmth_p99:+.1}%; pruning moves p50 \
+         {pruned_win_p50:+.1}% and p99 {pruned_win_p99:+.1}%"
+    );
+    if pruned_win_p99 >= warmth_p99 {
+        println!(
+            "WARMTH DOMINATES AT p99: the pruned re-run's p99 gain does not exceed what a mere repeat \
+             of identical work already gains, so after-measured's p99 is not evidence of a pruning win."
+        );
+    }
+    if repeat_mismatch_words > 0 {
+        println!(
+            "STEPS NONDETERMINISM: {repeat_mismatch_words} word(s) had different step counts across \
+             two identical full runs -- see the NONDETERMINISM line(s) above. `steps` is supposed to \
+             be the deterministic metric here, so treat step deltas on those words as unreliable."
+        );
+    }
+
     println!();
     println!("per-chunk steps:");
     println!("  {}", describe("removable", &mut removable_chunk_steps));
@@ -664,6 +905,13 @@ fn change(before: f64, after: f64) -> f64 {
         return 0.0;
     }
     100.0 * (after - before) / before
+}
+
+/// One metric's before / after-modelled / after-measured triple, at one percentile.
+fn print_triple(label: &str, before: f64, modelled: f64, measured: f64, precision: usize) {
+    println!(
+        "{label:<22} {before:>10.precision$} {modelled:>16.precision$} {measured:>16.precision$}"
+    );
 }
 
 fn percent(part: usize, whole: usize) -> f64 {
