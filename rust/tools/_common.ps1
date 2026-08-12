@@ -935,9 +935,12 @@ function Get-LiveWorktreeSlugs {
     <#
       .DESCRIPTION
       Slugs (leaf dir names) of every worktree `git worktree list` currently knows about; anything
-      under a cache root not in this set belongs to a worktree that's been deleted.
+      under a cache root not in this set belongs to a worktree that's been deleted. -RepoRoot exists
+      so a caller holding a repo path can ask about THAT repository rather than whichever one the
+      process happens to be standing in.
     #>
-    (git worktree list --porcelain | Select-String '^worktree (.+)$').Matches |
+    param([string]$RepoRoot = (Get-RepoRoot))
+    (git -C $RepoRoot worktree list --porcelain | Select-String '^worktree (.+)$').Matches |
         ForEach-Object { Split-Path $_.Groups[1].Value -Leaf }
 }
 
@@ -1648,6 +1651,164 @@ function Get-StaleWorktreeCandidates {
         }
     }
     return @($found | Sort-Object IdleDays -Descending)
+}
+
+function Get-RegisteredWorktreePaths {
+    <#
+      .DESCRIPTION
+      Every path `git worktree list` knows about for this repository, main checkout FIRST (git's own
+      documented ordering), so a caller can both test registration and identify the main checkout
+      without a second git invocation.
+    #>
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $paths = @()
+    $listing = & git -C $RepoRoot worktree list --porcelain 2>$null
+    if ($LASTEXITCODE -ne 0) { return $paths }
+    foreach ($line in $listing) {
+        if ($line -match '^worktree (.+)$') { $paths += $Matches[1] }
+    }
+    return $paths
+}
+
+function Resolve-ComparablePath {
+    # git prints worktree paths with forward slashes on Windows, so every path comparison here has to normalize first.
+    param([string]$Path)
+    $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction SilentlyContinue)
+    if (-not $resolved) { return $null }
+    return $resolved.ProviderPath.TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+}
+
+function Remove-ManagedWorktree {
+    <#
+      .DESCRIPTION
+      Removes ONE worktree and reclaims the target directories that removal unlocks. The two halves
+      belong together: Get-TargetClassification calls a target dir `live` for exactly as long as its
+      worktree is registered, so the checkout -- usually a couple of GB -- is what stands between
+      several times that much build output and reclamation.
+
+      Refuses on ANY uncommitted or untracked path, with no override parameter. Removing a worktree
+      does not delete its branch, so committed work stays recoverable by checkout; uncommitted work
+      is not recoverable at all, and that judgement belongs to a human rather than to a disk-pressure
+      sweep. The dirty check is character-for-character the one Get-StaleWorktreeCandidates uses, so
+      a worktree that sweep offers can never be one this refuses.
+
+      Deletes the directory and prunes rather than calling `git worktree remove`, which refuses
+      outright on a worktree containing a submodule ("working trees containing submodules cannot be
+      moved or removed") -- and `new-worktree` initializes `machine` in every worktree it creates.
+      `git submodule deinit -f` first does not change that answer.
+
+      Dry run is the default: without -Apply nothing is deleted and nothing is pruned, and the
+      reported target dirs are what removal WOULD free -- classified against the live-slug list this
+      worktree has already been subtracted from, since otherwise a preview of its own targets could
+      only ever say `live`.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$Path,
+        [switch]$Apply,
+        [string]$RepositoryId,
+        [string[]]$Roots = @($script:SsdCacheRoot, $script:HddCacheRoot),
+        # Bound explicitly by tests; otherwise sampled here, matching what gc passes Invoke-TargetGc.
+        [object[]]$BusyProcesses
+    )
+    $result = [ordered]@{
+        Ok               = $false
+        Refusal          = ''
+        Detail           = ''
+        Path             = $Path
+        Slug             = ''
+        Branch           = ''
+        Applied          = [bool]$Apply
+        DirectoryRemoved = $false
+        Pruned           = $false
+        DirtyPaths       = @()
+        Targets          = @()
+        TargetsRemoved   = @()
+        TargetsFreedGB   = 0.0
+        TargetSkipReason = ''
+    }
+
+    $full = Resolve-ComparablePath -Path $Path
+    if (-not $full) {
+        $result.Refusal = 'missing-path'
+        $result.Detail = "no such path: $Path"
+        return [PSCustomObject]$result
+    }
+    $result.Path = $full
+    $result.Slug = Split-Path $full -Leaf
+
+    $registered = @(Get-RegisteredWorktreePaths -RepoRoot $RepoRoot | ForEach-Object { Resolve-ComparablePath -Path $_ } | Where-Object { $_ })
+    if ($registered.Count -eq 0) {
+        $result.Refusal = 'unregistered'
+        $result.Detail = "could not read `git worktree list` for $RepoRoot -- refusing to delete a directory this repository cannot confirm it owns"
+        return [PSCustomObject]$result
+    }
+    if ($full -eq $registered[0]) {
+        $result.Refusal = 'main-checkout'
+        $result.Detail = "$full is this repository's main checkout, not a worktree"
+        return [PSCustomObject]$result
+    }
+    # Removing the tree the caller is standing in would delete the running script out from under itself.
+    $runningRoot = Resolve-ComparablePath -Path $RepoRoot
+    if ($runningRoot -and $full -eq $runningRoot) {
+        $result.Refusal = 'running-checkout'
+        $result.Detail = "$full is the worktree this command is running from"
+        return [PSCustomObject]$result
+    }
+    if ($registered -notcontains $full) {
+        $result.Refusal = 'unregistered'
+        $result.Detail = "$full is not registered in `git worktree list` for this repository"
+        return [PSCustomObject]$result
+    }
+
+    $dirty = @(& git -C $full status --porcelain --untracked-files=all 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        $result.Refusal = 'status-unreadable'
+        $result.Detail = "`git status` failed in $full -- 'I could not look' is not 'there is nothing to lose'"
+        return [PSCustomObject]$result
+    }
+    if ($dirty.Count -gt 0) {
+        $result.Refusal = 'dirty'
+        $result.DirtyPaths = $dirty
+        $result.Detail = "$($dirty.Count) uncommitted or untracked path(s) in $full"
+        return [PSCustomObject]$result
+    }
+    $result.Branch = (& git -C $full rev-parse --abbrev-ref HEAD 2>$null)
+
+    if (-not $RepositoryId) { $RepositoryId = Get-RepoIdentity -RepoRoot $RepoRoot }
+    $liveAfter = @(Get-LiveWorktreeSlugs -RepoRoot $RepoRoot | Where-Object { $_ -ne $result.Slug })
+    # Scoped to this slug alone: a targeted removal must never become a machine-wide sweep of every disposable dir.
+    $scoped = @(Get-TargetClassification -RepositoryId $RepositoryId -Roots $Roots -LiveSlugs $liveAfter |
+        Where-Object { $_.Class -eq 'disposable' -and (Split-Path $_.Path -Leaf) -eq $result.Slug })
+    $result.Targets = $scoped
+    $sum = ($scoped | Measure-Object SizeGB -Sum).Sum
+    $result.TargetsFreedGB = if ($sum) { [math]::Round($sum, 2) } else { 0.0 }
+
+    if (-not $Apply) {
+        $result.Ok = $true
+        $result.Detail = "dry run -- would remove $full and $($scoped.Count) target dir(s) totalling $($result.TargetsFreedGB)GB"
+        return [PSCustomObject]$result
+    }
+
+    try {
+        Remove-Item -Recurse -Force -LiteralPath $full -ErrorAction Stop
+    } catch {
+        $result.Refusal = 'delete-failed'
+        $result.Detail = "could not delete $full : $($_.Exception.Message)"
+        return [PSCustomObject]$result
+    }
+    $result.DirectoryRemoved = $true
+
+    & git -C $RepoRoot worktree prune 2>&1 | Out-Null
+    $result.Pruned = ($LASTEXITCODE -eq 0)
+
+    $busy = if ($PSBoundParameters.ContainsKey('BusyProcesses')) { @($BusyProcesses) } else { @(Get-LiveBuildProcesses) }
+    $gc = Invoke-TargetGc -Classification $scoped -Apply -BusyProcesses $busy -Roots $Roots
+    $result.TargetsRemoved = @($gc.Deleted)
+    $result.TargetSkipReason = $gc.SkipReason
+    $result.Ok = $true
+    $result.Detail = "removed $full; reclaimed $($result.TargetsRemoved.Count) of $($scoped.Count) target dir(s)"
+    return [PSCustomObject]$result
 }
 
 # --- Preflight record ---
