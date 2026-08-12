@@ -128,7 +128,7 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc', 'doctor', 'gc', 'run', 'new-worktree')]
+    [ValidateSet('build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc', 'doctor', 'gc', 'run', 'new-worktree', 'remove-worktree')]
     [string]$Mode,
     # conformance-test only and MANDATORY there; no default by design (see CLAUDE.md).
     [ValidateSet('local', 'all')][string]$Scope = '',
@@ -434,7 +434,9 @@ if (-not $diskCheck.Ok) {
             Write-Host "  $($w.IdleDays)d idle  $($w.Name)  [$($w.Branch)]" -ForegroundColor Yellow
         }
         if ($stale.Count -gt 8) { Write-Host "  ... and $($stale.Count - 8) more" -ForegroundColor Yellow }
-        Write-Host '[pg] remove one with: git worktree remove <path> -- the branch outlives the worktree, so committed work stays recoverable by checkout.' -ForegroundColor Yellow
+        Write-Host '[pg] remove one with: pg.ps1 -Mode remove-worktree -Path <path> -- it also reclaims that worktree''s target dirs, which hold far more than the checkout does.' -ForegroundColor Yellow
+        Write-Host '[pg] NOT `git worktree remove`: it refuses outright on a worktree holding a submodule, and new-worktree initializes `machine` in every one it creates.' -ForegroundColor Yellow
+        Write-Host '[pg] the branch outlives the worktree either way, so committed work stays recoverable by checkout.' -ForegroundColor Yellow
         Write-Host '[pg] a worktree holding ANY uncommitted or untracked file is never listed above; decide those by hand.' -ForegroundColor Yellow
     }
     Write-Host '[pg] also: pg.ps1 -Mode gc -Apply reclaims stale managed target directories this repository owns.' -ForegroundColor Yellow

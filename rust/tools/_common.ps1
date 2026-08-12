@@ -1638,7 +1638,7 @@ function Get-StaleWorktreeCandidates {
         $stamp = & git -C $path log -1 --format=%cI 2>$null
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($stamp)) { continue }
         $when = $null
-        if (-not [datetime]::TryParse($stamp, [ref]$when)) { continue }
+        try { $when = [datetime]::Parse($stamp) } catch { continue }
         if ($when -ge $cutoff) { continue }
         $found += [PSCustomObject]@{
             Path     = $path
