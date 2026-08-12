@@ -499,7 +499,7 @@ impl CandidateFilter {
                 return WitnessVerdict::Died(WitnessDeath {
                     witness_id: witness.witness_id,
                     terminal_event_ordinal: event.event_ordinal,
-                    pass_id: proof.pass_id,
+                    pass_id: event.pass_id,
                     rule_id: proof.rule_id,
                     category: proof.category,
                 });

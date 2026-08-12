@@ -884,6 +884,46 @@ fn a_death_record_names_the_pass_that_killed_each_witness() {
     );
 }
 
+const MISLABELING: StablePassId = StablePassId("test.mislabeling.v1");
+const IMPERSONATED: StablePassId = StablePassId("test.impersonated.v1");
+
+struct MislabeledProof;
+
+impl CandidateFilterPass for MislabeledProof {
+    fn id(&self) -> StablePassId {
+        MISLABELING
+    }
+
+    fn evaluate(&self, context: &FilterContext<'_>, witness: &CandidateWitness) -> PassDecision {
+        PassDecision::Reject(proof(IMPERSONATED, RULE, context, witness.witness_id))
+    }
+}
+
+/// At `Off` nothing reconciles a proof's self-description against the pass that authored it.
+#[test]
+fn a_witness_death_names_the_pass_that_ran_not_the_one_its_proof_claims() {
+    let filter = allow_list_filter(
+        vec![Box::new(MislabeledProof)],
+        vec![allowed(MISLABELING), allowed(IMPERSONATED)],
+    );
+    let mut retained: Vec<ProposedCandidate> = Vec::new();
+    let mut ledger = BoundedDeathLedger::unlimited();
+
+    filter.filter_into_at(
+        FilterMode::Enforce,
+        ProofCheckDepth::Off,
+        one_candidate_with_witnesses(&[1]),
+        &mut retained,
+        &mut ledger,
+        FilterBudget::unlimited(),
+    );
+
+    assert_eq!(retained.len(), 0);
+    let death = &ledger.candidate_deaths()[0];
+    assert_eq!(death.witness_deaths[0].pass_id, MISLABELING);
+    assert_eq!(ledger.events()[0].pass_id, MISLABELING);
+}
+
 #[test]
 fn the_same_witness_id_in_two_candidates_has_distinct_ledger_keys() {
     let mut retained: Vec<ProposedCandidate> = Vec::new();
