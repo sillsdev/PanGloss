@@ -113,11 +113,40 @@ spread. For Amharic, steps *overstate* the win: −64.9% on steps against −30.
 step share against a 41.2% wall share. Decide on measured time; use steps only within one grammar.
 This is the "report time, not percentages" rule one level down, and it caught a real misreading.
 
-**Indonesian's null result is caused by the whole-chunk-only accounting rule, and may be an artifact
-of it.** Its removable chunks are 80% singletons with a median of 1 step, while surviving chunks reach
-104; the tail therefore lives entirely in chunks holding at least one HC survivor. Whether narrowing
-a chunk (rather than eliminating it whole) recovers work is the open question this document already
-refused to claim — it depends on whether the fused reparse cost is per-candidate or per-root-set.
+**Indonesian's null result WAS an artifact of the whole-chunk-only accounting rule.** Confirmed the
+same day by replacing the model with a real pruned re-run (`918f8642`): the census had computed
+"after" by deleting wholly-doomed chunks and copying every surviving chunk's cost through unchanged,
+an assumption `shadow.rs` states outright. A genuine second `confirm_batch_attributed` call over only
+the non-doomed candidates gives, on the deterministic step counter:
+
+| Indonesian | before | after-modelled | after-measured |
+|---|---|---|---|
+| steps/word p99 | 33 | 33 | **5** |
+| steps/word max | 158 | 104 | **16** |
+
+The model said the tail could not move at all; it moves 33 → 5. **Every grammar's measured result
+beats its modelled one**, so the ceilings above are floors, not estimates:
+
+| grammar | p99 confirm ms: before → modelled → measured |
+|---|---|
+| Sena | 348.0 → 24.3 → **15.6** |
+| Amharic | 1446.3 → 985.1 → **651.5** (−30.8% becomes −55.0%) |
+| Indonesian | 2.115 → 2.115 → **1.479** |
+
+**The mechanism is re-grouping, not within-chunk narrowing.** Sena has 1343 surviving chunks but the
+pruned run makes only 981 parse calls: removing the doomed candidates lets surviving candidates
+re-fuse into ~360 fewer calls than the survivors needed while the doomed ones were still forcing
+their own grouping. So a chunk's cost is indeed fixed by its `root_key`/`union_rules` before
+membership re-enters — but pruning changes *which chunks exist*, which the slack bound does not cap.
+The feared opposite (pruning splitting a cross-root-set fusion and costing MORE parse calls) never
+occurred: no grammar printed the FUSION BROKE line.
+
+Controls: a third call repeating the full run's exact work prices cache warmth directly, and warmth
+never dominated (Indonesian p99 −3.4% warmth against −30.1% pruning; Sena −1.9% against −95.5%). No
+step-count nondeterminism appeared, and `timed_out` was 0 on all three grammars. Caveat on precision:
+at n=117 Indonesian's p99 is effectively its second-worst word, and two runs of the same measurement
+gave −11.6% and −30.1%; treat wall-time percentiles there as noisy and prefer the step counter within
+a grammar.
 
 **Axis 2 is now the stronger axis for Sena, on this evidence.** Once the filter works, the proposer
 dominates: `propose` p99 24.875 ms against filtered confirm p99 24.557 ms, and means of 15.399 against
