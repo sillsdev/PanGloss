@@ -70,6 +70,10 @@ pub struct ConfirmChunkCost {
     pub members: Vec<usize>,
     pub steps: usize,
     pub elapsed: Duration,
+    /// Whether the word deadline fired during this chunk's reparse. When it did, `steps` is a
+    /// truncated figure and the chunk's empty buckets are not evidence that anything was rejected —
+    /// a reader that ignores this flag will count abandoned work as removable work.
+    pub timed_out: bool,
 }
 
 /// Which grammar object owns a given `MorphemeId` — ported from `hc-hybrid/src/replay.rs`'s
@@ -524,6 +528,7 @@ fn confirm_batch_impl(
                 members,
                 steps: outcome.steps,
                 elapsed,
+                timed_out: outcome.timed_out,
             });
         }
 

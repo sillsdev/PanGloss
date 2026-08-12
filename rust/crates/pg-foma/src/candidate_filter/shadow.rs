@@ -249,12 +249,17 @@ impl Default for FilterShadowReport {
     }
 }
 
-/// Attributes confirmation cost back to the candidates a run decided against.
+/// Attributes confirmation cost back to a set of candidates something decided against.
 ///
 /// `doomed` holds proposal ordinals; `presented` maps each position in the confirmed slice back to
 /// the ordinal it came from, which is what lets a chunk's membership be read in the caller's own
 /// index space.
-pub(crate) fn attribute(
+///
+/// The doomed set does not have to come from a filter. Supplying the candidates whose confirmation
+/// buckets came back empty answers what a *perfect* filter could have removed, which is the ceiling
+/// any real filter is measured against — and it is the same arithmetic, so it must not be a second
+/// implementation of it.
+pub fn attribute(
     doomed: &[usize],
     presented: &[usize],
     chunks: &[ConfirmChunkCost],
@@ -271,16 +276,7 @@ pub(crate) fn attribute(
                 chunk_of.insert(ordinal, index);
             }
         }
-        let doomed_members = chunk
-            .members
-            .iter()
-            .filter(|&&member| {
-                presented
-                    .get(member)
-                    .is_some_and(|ordinal| doomed.contains(ordinal))
-            })
-            .count();
-        if doomed_members == chunk.members.len() && !chunk.members.is_empty() {
+        if chunk_is_removable(chunk, doomed, presented) {
             attribution.removable_chunks += 1;
             attribution.removable_steps = attribution.removable_steps.saturating_add(chunk.steps);
             attribution.removable_elapsed += chunk.elapsed;
@@ -318,6 +314,23 @@ pub(crate) fn attribute(
     attribution.exact_steps_median = percentile(&exact, 50);
     attribution.exact_steps_p90 = percentile(&exact, 90);
     attribution
+}
+
+/// Whether removing the doomed candidates would delete this chunk's work entirely.
+///
+/// Confirmation fuses candidates into a chunk and parses the chunk once, so a chunk that loses some
+/// members still costs exactly what it cost before. Only a chunk every member of which is doomed
+/// disappears — which is why this predicate, and not the doomed count, is what any saving is
+/// measured through.
+pub fn chunk_is_removable(chunk: &ConfirmChunkCost, doomed: &[usize], presented: &[usize]) -> bool {
+    if chunk.members.is_empty() {
+        return false;
+    }
+    chunk.members.iter().all(|&member| {
+        presented
+            .get(member)
+            .is_some_and(|ordinal| doomed.contains(ordinal))
+    })
 }
 
 /// Nearest-rank percentile over an ascending slice; zero for an empty one.
