@@ -240,6 +240,35 @@ if ($Mode -eq 'new-worktree') {
     exit 0
 }
 
+# Placed before the disk/memory gates deliberately: this mode IS the disk recovery, so gating it on
+# free disk would refuse the one command that creates some.
+if ($Mode -eq 'remove-worktree') {
+    if (-not $Path) { Write-Host '[pg] remove-worktree requires -Path' -ForegroundColor Red; exit 2 }
+    $removal = Remove-ManagedWorktree -RepoRoot $repoRoot -Path $Path -Apply:$Apply
+    if (-not $removal.Ok) {
+        Write-Host "[pg] refusing to remove this worktree ($($removal.Refusal)): $($removal.Detail)" -ForegroundColor Red
+        if ($removal.Refusal -eq 'dirty') {
+            Write-Host '[pg] committed work would survive removal because the branch outlives the worktree; uncommitted work would not, so this one is yours to decide.' -ForegroundColor Yellow
+            foreach ($p in ($removal.DirtyPaths | Select-Object -First 10)) { Write-Host "  $p" -ForegroundColor Yellow }
+            if ($removal.DirtyPaths.Count -gt 10) { Write-Host "  ... and $($removal.DirtyPaths.Count - 10) more" -ForegroundColor Yellow }
+        }
+        exit 2
+    }
+    if (-not $Apply) {
+        Write-Host "[pg] $($removal.Detail)" -ForegroundColor Cyan
+        foreach ($t in $removal.Targets) { Write-Host "  would free $($t.SizeGB)GB  $($t.Path)" -ForegroundColor Cyan }
+        Write-Host '[pg] dry run -- pass -Apply to actually remove it.' -ForegroundColor DarkGray
+        exit 0
+    }
+    Write-Host "[pg] removed worktree $($removal.Path) (branch $($removal.Branch) is untouched and still checkoutable)" -ForegroundColor Green
+    foreach ($t in $removal.TargetsRemoved) { Write-Host "  freed $($t.SizeGB)GB  $($t.Path)" -ForegroundColor Green }
+    if ($removal.TargetsRemoved.Count -lt $removal.Targets.Count) {
+        Write-Host "[pg] $($removal.Targets.Count - $removal.TargetsRemoved.Count) target dir(s) were left in place: $($removal.TargetSkipReason)" -ForegroundColor Yellow
+    }
+    if (-not $removal.Pruned) { Write-Host '[pg] `git worktree prune` did not report success -- run it by hand.' -ForegroundColor Yellow }
+    exit 0
+}
+
 if ($Mode -eq 'run') {
     # Fail fast on usage errors before the expensive preflight machinery below runs; the -Exe existence check stays here since it touches the filesystem.
     $runTargetCheck = Resolve-RunTarget -Example $Example -Bin $Bin -Exe $Exe
