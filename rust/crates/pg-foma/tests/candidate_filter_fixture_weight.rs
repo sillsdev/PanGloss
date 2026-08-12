@@ -604,6 +604,11 @@ fn a_producer_blocked_fixture_still_reaches_nothing() {
             fixture.name, fixture.expectation.pass_id, fixture.expectation.min_fire_count
         );
     }
+    assert!(
+        parked > 0,
+        "no fixture is producer-blocked, so this test measured nothing -- delete it once every \
+         built pass has a producer that can present something it could reject"
+    );
     eprintln!("candidate_filter_fixture_weight: {parked} producer-blocked fixture(s) re-measured");
 }
 
