@@ -452,6 +452,23 @@ impl MorphotacticIndex {
         }
     }
 
+    /// Every `(template, slot index)` site whose own `slot.rules` names `rule` -- the site half of
+    /// the relation [`next_state`](MorphotacticIndex::next_state) consults, exposed so a caller
+    /// that needs the relation itself reads this index rather than rebuilding it from `g.templates`.
+    pub(crate) fn slot_sites_of(&self, rule: MRuleId) -> &[(u16, u8)] {
+        self.rule_slot_sites
+            .get(&rule)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// The stratum that declared `template` in its own `sd.templates`.
+    pub(crate) fn template_stratum(&self, template: u16) -> Option<u8> {
+        self.templates
+            .get(template as usize)
+            .map(|info| info.owning_stratum)
+    }
+
     /// Diagnostic/test accessor (module doc's `loose_by_stratum` field comment) -- every rule id
     /// loose in stratum `s`'s own `sd.mrules`.
     #[cfg(test)]

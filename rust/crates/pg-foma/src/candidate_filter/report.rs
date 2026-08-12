@@ -28,6 +28,11 @@ pub enum PassOutcome {
     Kept,
     Deferred(DeferReason),
     Rejected(RejectionProof),
+    /// The pass unwound instead of deciding, which retains the witness.
+    ///
+    /// Kept apart from `Deferred` because the two mean opposite things about the pass: a defer is
+    /// a pass working, and this is a pass that has to be fixed.
+    Panicked,
 }
 
 /// One pass's visit to one witness.
@@ -99,6 +104,7 @@ pub struct PassCounters {
     pub keeps: u64,
     pub defers: u64,
     pub rejections: u64,
+    pub panics: u64,
 }
 
 /// The compact, deterministic summary of one filter run.
@@ -114,6 +120,9 @@ pub struct FilterCounters {
     pub witnesses_rejected: u64,
     pub candidates_rejected: u64,
     pub candidates_retained: u64,
+    /// Pass evaluations that unwound. Nonzero means a pass is broken, never that a candidate was
+    /// lost: the witness survives the pass that panicked on it.
+    pub panics: u64,
     pub ordinal_overflow: bool,
     pub per_pass: BTreeMap<StablePassId, PassCounters>,
 }
@@ -155,6 +164,10 @@ impl FilterTraceSink for CountingTraceSink {
             PassOutcome::Rejected(_) => {
                 counters.witnesses_rejected = counters.witnesses_rejected.saturating_add(1);
                 per_pass.rejections = per_pass.rejections.saturating_add(1);
+            }
+            PassOutcome::Panicked => {
+                counters.panics = counters.panics.saturating_add(1);
+                per_pass.panics = per_pass.panics.saturating_add(1);
             }
         }
     }

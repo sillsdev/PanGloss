@@ -1,5 +1,8 @@
 //! What re-deriving a recorded rejection accepts, and what it catches.
 
+#[path = "common/filter_fixture.rs"]
+mod fixture;
+
 use pg_foma::candidate_filter::decision::{
     AdmissibleProof, IdentityDefect, PassDecision, ProofCategory, ProofClaim,
     ProofVerificationError, ProofWitness, RejectionProof, SpanDefect, StablePassId, StableRuleId,
@@ -1132,4 +1135,501 @@ fn a_category_the_pass_never_declared_is_not_admissible() {
         refusal(&run),
         ProofVerificationError::CategoryNotSupported(ProofCategory::ForbiddenTransition)
     );
+}
+
+/// What the two structural passes decide, and whether the proofs they emit re-derive.
+mod structural {
+    use std::sync::Arc;
+
+    use pg_foma::candidate_filter::decision::{
+        DeferReason, IdentityDefect, PassDecision, ProofCategory, ProofClaim,
+        ProofVerificationError, RejectionProof, StablePassId, TraceFactKind,
+    };
+    use pg_foma::candidate_filter::index::FilterIndex;
+    use pg_foma::candidate_filter::model::{
+        CandidateWitness, DeferredFactReason, FeatureSet, LexicalOrigin, NonEmpty,
+        ProposalProducer, ProposalProvenance, ProposedCandidate, TraceFact, TraceRole, TraceSlotId,
+        TraceStratumId, TraceUnit, WitnessId,
+    };
+    use pg_foma::candidate_filter::passes::structural::{OwnershipPass, StructuralTransitionPass};
+    use pg_foma::candidate_filter::pipeline::{FilterBudget, FilterContext, FilterMode};
+    use pg_foma::candidate_filter::report::{BoundedDeathLedger, PassOutcome};
+    use pg_foma::candidate_filter::test_support::{
+        filter_of, RecordedRejection, RejectionProofVerifier,
+    };
+    use pg_foma::candidate_filter::CandidateFilterPass;
+    use pg_foma::tags::Candidate;
+    use pg_grammar::model::{AllomorphId, Grammar, MorphemeId};
+
+    use crate::fixture;
+
+    const NO_ROOT: i32 = -1;
+
+    struct World {
+        grammar: Grammar,
+        index: Arc<FilterIndex>,
+    }
+
+    fn world() -> World {
+        let grammar = fixture::grammar();
+        let index = Arc::new(FilterIndex::build(&grammar));
+        World { grammar, index }
+    }
+
+    impl World {
+        fn morpheme(&self, xml_key: &str) -> MorphemeId {
+            fixture::morpheme_of(&self.grammar, xml_key)
+        }
+
+        fn unowned(&self) -> MorphemeId {
+            fixture::unowned_morpheme(&self.grammar)
+        }
+
+        /// The contract slot id of the site listing the rule that owns this element's morpheme.
+        fn slot(&self, xml_key: &str) -> TraceSlotId {
+            let rule = fixture::rule_of(&self.grammar, self.morpheme(xml_key));
+            let (template, slot) = fixture::site_of(&self.grammar, rule);
+            self.index
+                .slot_id(template, slot)
+                .expect("the fixture template slot is in the index")
+        }
+
+        fn stratum(&self, xml_key: &str) -> TraceStratumId {
+            let rule = fixture::rule_of(&self.grammar, self.morpheme(xml_key));
+            let (template, _) = fixture::site_of(&self.grammar, rule);
+            let stratum = fixture::stratum_of_template(&self.grammar, template);
+            self.index
+                .stratum_id(stratum)
+                .expect("the fixture stratum is in the index")
+        }
+    }
+
+    fn opaque_unit(morpheme: MorphemeId) -> TraceUnit {
+        TraceUnit {
+            morpheme,
+            role: TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit),
+            allomorphs: TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit),
+            slot: TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit),
+            stratum: TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit),
+            surface_span: TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit),
+            local_events: TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit),
+        }
+    }
+
+    fn roled_unit(morpheme: MorphemeId, role: TraceRole) -> TraceUnit {
+        TraceUnit {
+            role: TraceFact::Known(role),
+            ..opaque_unit(morpheme)
+        }
+    }
+
+    fn sited_unit(morpheme: MorphemeId, slot: TraceSlotId, stratum: TraceStratumId) -> TraceUnit {
+        TraceUnit {
+            slot: TraceFact::Known(Some(slot)),
+            stratum: TraceFact::Known(Some(stratum)),
+            ..opaque_unit(morpheme)
+        }
+    }
+
+    fn witness_of(units: Vec<TraceUnit>) -> CandidateWitness {
+        CandidateWitness {
+            witness_id: WitnessId(1),
+            lexical_origin: LexicalOrigin::StaticGrammar,
+            lexicon_revision: 0,
+            units,
+            deferred: FeatureSet::empty(),
+            provenance: ProposalProvenance {
+                producer: ProposalProducer::SyntheticFixture,
+                grammar_revision: 0,
+            },
+        }
+    }
+
+    fn identity_of(witness: &CandidateWitness, root_index: i32) -> Candidate {
+        Candidate {
+            morphemes: witness.units.iter().map(|unit| unit.morpheme).collect(),
+            root_index,
+        }
+    }
+
+    /// One decision about one witness, with any proof it emitted already re-derived.
+    fn decide(
+        pass: Box<dyn CandidateFilterPass>,
+        identity: &Candidate,
+        witness: &CandidateWitness,
+    ) -> (PassDecision, Result<(), Vec<ProofVerificationError>>) {
+        let passes: Vec<Box<dyn CandidateFilterPass>> = vec![pass];
+        let verifier = RejectionProofVerifier::of_passes(&passes);
+        let context = FilterContext::new(identity, 0, FilterMode::Enforce);
+        let decision = passes[0].evaluate(&context, witness);
+        let records: Vec<RecordedRejection<'_>> = match &decision {
+            PassDecision::Reject(proof) => vec![RecordedRejection {
+                identity,
+                witness,
+                emitting_pass: passes[0].id(),
+                proof,
+            }],
+            PassDecision::Keep | PassDecision::Defer(_) => Vec::new(),
+        };
+        let verification = verifier.verify_recorded(&records);
+        (decision, verification)
+    }
+
+    fn ownership(world: &World) -> Box<dyn CandidateFilterPass> {
+        Box::new(OwnershipPass::new(Arc::clone(&world.index)))
+    }
+
+    fn transition(world: &World) -> Box<dyn CandidateFilterPass> {
+        Box::new(StructuralTransitionPass::new(Arc::clone(&world.index)))
+    }
+
+    fn rejected(decision: &PassDecision) -> &RejectionProof {
+        match decision {
+            PassDecision::Reject(proof) => proof,
+            other => panic!("expected a rejection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_root_owned_by_a_lexical_entry_is_kept() {
+        let world = world();
+        let witness = witness_of(vec![
+            roled_unit(world.morpheme("eRoot"), TraceRole::Root),
+            roled_unit(world.morpheme("mrP0"), TraceRole::Suffix),
+        ]);
+        let identity = identity_of(&witness, 0);
+
+        let (decision, verification) = decide(ownership(&world), &identity, &witness);
+
+        assert_eq!(decision, PassDecision::Keep);
+        assert_eq!(verification, Ok(()));
+    }
+
+    #[test]
+    fn extra_lexical_roots_are_kept() {
+        let world = world();
+        let witness = witness_of(vec![
+            roled_unit(world.morpheme("eRoot"), TraceRole::Root),
+            roled_unit(world.morpheme("eExtra"), TraceRole::Root),
+            roled_unit(world.morpheme("mrP0"), TraceRole::Suffix),
+        ]);
+        let identity = identity_of(&witness, 0);
+
+        let (decision, _) = decide(ownership(&world), &identity, &witness);
+
+        assert_eq!(decision, PassDecision::Keep);
+    }
+
+    #[test]
+    fn a_designated_root_owned_by_a_rule_has_a_verified_proof() {
+        let world = world();
+        let witness = witness_of(vec![
+            roled_unit(world.morpheme("mrP0"), TraceRole::Root),
+            roled_unit(world.morpheme("eRoot"), TraceRole::Suffix),
+        ]);
+        let identity = identity_of(&witness, 0);
+
+        let (decision, verification) = decide(ownership(&world), &identity, &witness);
+
+        let proof = rejected(&decision);
+        assert_eq!(proof.category, ProofCategory::ImpossibleOwnership);
+        assert!(matches!(
+            proof.witness.claim,
+            ProofClaim::ImpossibleOwnership { unit_index: 0, .. }
+        ));
+        assert_eq!(verification, Ok(()));
+    }
+
+    #[test]
+    fn an_unowned_non_root_morpheme_has_a_verified_proof() {
+        let world = world();
+        let witness = witness_of(vec![
+            roled_unit(world.morpheme("eRoot"), TraceRole::Root),
+            roled_unit(world.unowned(), TraceRole::Suffix),
+        ]);
+        let identity = identity_of(&witness, 0);
+
+        let (decision, verification) = decide(ownership(&world), &identity, &witness);
+
+        let proof = rejected(&decision);
+        assert_eq!(proof.category, ProofCategory::ImpossibleOwnership);
+        assert!(matches!(
+            proof.witness.claim,
+            ProofClaim::ImpossibleOwnership { unit_index: 1, .. }
+        ));
+        assert_eq!(verification, Ok(()));
+    }
+
+    #[test]
+    fn a_root_index_past_the_end_is_a_malformed_identity() {
+        let world = world();
+        let witness = witness_of(vec![roled_unit(world.morpheme("eRoot"), TraceRole::Root)]);
+        let identity = identity_of(&witness, 4);
+
+        let (decision, verification) = decide(ownership(&world), &identity, &witness);
+
+        let proof = rejected(&decision);
+        assert_eq!(proof.category, ProofCategory::MalformedIdentity);
+        assert_eq!(
+            proof.witness.claim,
+            ProofClaim::MalformedIdentity(IdentityDefect::RootIndexOutOfRange {
+                root_index: 4,
+                morphemes: 1,
+            })
+        );
+        assert_eq!(verification, Ok(()));
+    }
+
+    #[test]
+    fn a_root_index_below_zero_is_a_malformed_identity() {
+        let world = world();
+        let witness = witness_of(vec![roled_unit(world.morpheme("eRoot"), TraceRole::Root)]);
+        let identity = identity_of(&witness, -7);
+
+        let (decision, verification) = decide(ownership(&world), &identity, &witness);
+
+        assert_eq!(
+            rejected(&decision).category,
+            ProofCategory::MalformedIdentity
+        );
+        assert_eq!(verification, Ok(()));
+    }
+
+    /// `-1` is the producer established "no root at all", which no identity defect describes.
+    #[test]
+    fn an_absent_root_position_defers() {
+        let world = world();
+        let witness = witness_of(vec![roled_unit(world.morpheme("mrP0"), TraceRole::Suffix)]);
+        let identity = identity_of(&witness, NO_ROOT);
+
+        let (decision, _) = decide(ownership(&world), &identity, &witness);
+
+        assert_eq!(
+            decision,
+            PassDecision::Defer(DeferReason::UnsupportedConstruct)
+        );
+    }
+
+    #[test]
+    fn an_unreadable_role_defers_instead_of_rejecting() {
+        let world = world();
+        let witness = witness_of(vec![
+            roled_unit(world.morpheme("eRoot"), TraceRole::Root),
+            opaque_unit(world.unowned()),
+        ]);
+        let identity = identity_of(&witness, 0);
+
+        let (decision, _) = decide(ownership(&world), &identity, &witness);
+
+        assert_eq!(
+            decision,
+            PassDecision::Defer(DeferReason::MissingTraceFact(TraceFactKind::Role))
+        );
+    }
+
+    #[test]
+    fn a_legal_transition_is_kept() {
+        let world = world();
+        let witness = witness_of(vec![
+            sited_unit(
+                world.morpheme("mrP0"),
+                world.slot("mrP0"),
+                world.stratum("mrP0"),
+            ),
+            sited_unit(
+                world.morpheme("mrP1"),
+                world.slot("mrP1"),
+                world.stratum("mrP1"),
+            ),
+        ]);
+        let identity = identity_of(&witness, NO_ROOT);
+
+        let (decision, _) = decide(transition(&world), &identity, &witness);
+
+        assert_eq!(decision, PassDecision::Keep);
+    }
+
+    #[test]
+    fn a_slot_that_does_not_list_the_rule_has_a_verified_proof() {
+        let world = world();
+        let witness = witness_of(vec![
+            sited_unit(
+                world.morpheme("mrP0"),
+                world.slot("mrP0"),
+                world.stratum("mrP0"),
+            ),
+            sited_unit(
+                world.morpheme("mrP1"),
+                world.slot("mrP0"),
+                world.stratum("mrP0"),
+            ),
+        ]);
+        let identity = identity_of(&witness, NO_ROOT);
+
+        let (decision, verification) = decide(transition(&world), &identity, &witness);
+
+        let proof = rejected(&decision);
+        assert_eq!(proof.category, ProofCategory::ForbiddenTransition);
+        assert_eq!(proof.witness.unit_indices, vec![0, 1]);
+        assert_eq!(verification, Ok(()));
+    }
+
+    #[test]
+    fn a_step_across_two_strata_defers() {
+        let world = world();
+        let witness = witness_of(vec![
+            sited_unit(
+                world.morpheme("mrP0"),
+                world.slot("mrP0"),
+                world.stratum("mrP0"),
+            ),
+            sited_unit(
+                world.morpheme("mrQ"),
+                world.slot("mrQ"),
+                world.stratum("mrQ"),
+            ),
+        ]);
+        let identity = identity_of(&witness, NO_ROOT);
+
+        let (decision, _) = decide(transition(&world), &identity, &witness);
+
+        assert_eq!(
+            decision,
+            PassDecision::Defer(DeferReason::UnsupportedConstruct)
+        );
+    }
+
+    #[test]
+    fn a_loose_rule_outside_every_template_defers() {
+        let world = world();
+        let stratum = world.stratum("mrP0");
+        let mut units = vec![
+            sited_unit(world.morpheme("mrP0"), world.slot("mrP0"), stratum),
+            sited_unit(world.morpheme("mrLoose"), world.slot("mrP1"), stratum),
+        ];
+        units[1].slot = TraceFact::Known(None);
+
+        let witness = witness_of(units);
+        let identity = identity_of(&witness, NO_ROOT);
+
+        let (decision, _) = decide(transition(&world), &identity, &witness);
+
+        assert_eq!(
+            decision,
+            PassDecision::Defer(DeferReason::UnsupportedConstruct)
+        );
+    }
+
+    #[test]
+    fn unknown_transition_metadata_defers() {
+        let world = world();
+        let witness = witness_of(vec![
+            opaque_unit(world.morpheme("mrP0")),
+            opaque_unit(world.morpheme("mrP1")),
+        ]);
+        let identity = identity_of(&witness, NO_ROOT);
+
+        let (decision, _) = decide(transition(&world), &identity, &witness);
+
+        assert_eq!(
+            decision,
+            PassDecision::Defer(DeferReason::MissingTraceFact(TraceFactKind::Slot))
+        );
+    }
+
+    #[test]
+    fn a_known_slot_without_a_stratum_defers() {
+        let world = world();
+        let mut units = vec![
+            sited_unit(
+                world.morpheme("mrP0"),
+                world.slot("mrP0"),
+                world.stratum("mrP0"),
+            ),
+            sited_unit(
+                world.morpheme("mrP1"),
+                world.slot("mrP1"),
+                world.stratum("mrP1"),
+            ),
+        ];
+        units[1].stratum = TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit);
+
+        let witness = witness_of(units);
+        let identity = identity_of(&witness, NO_ROOT);
+
+        let (decision, _) = decide(transition(&world), &identity, &witness);
+
+        assert_eq!(
+            decision,
+            PassDecision::Defer(DeferReason::MissingTraceFact(TraceFactKind::Stratum))
+        );
+    }
+
+    /// A pass that cannot decide at all, for the guard around pass evaluation.
+    struct PanickingPass;
+
+    impl CandidateFilterPass for PanickingPass {
+        fn id(&self) -> StablePassId {
+            StablePassId("test.panicking.v1")
+        }
+
+        fn evaluate(
+            &self,
+            _context: &FilterContext<'_>,
+            _witness: &CandidateWitness,
+        ) -> PassDecision {
+            panic!("a pass that cannot decide");
+        }
+    }
+
+    #[test]
+    fn a_panicking_pass_retains_the_witness_and_is_counted() {
+        let world = world();
+        let witness = witness_of(vec![roled_unit(world.morpheme("eRoot"), TraceRole::Root)]);
+        let identity = identity_of(&witness, 0);
+        let inputs = vec![ProposedCandidate::new(identity, vec![witness]).expect("one witness")];
+
+        let filter = filter_of(vec![Box::new(PanickingPass)]);
+        let mut retained: Vec<ProposedCandidate> = Vec::new();
+        let mut ledger = BoundedDeathLedger::unlimited();
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        filter.filter_into(
+            FilterMode::Enforce,
+            inputs,
+            &mut retained,
+            &mut ledger,
+            FilterBudget::unlimited(),
+        );
+        std::panic::set_hook(previous);
+
+        assert_eq!(retained.len(), 1);
+        assert_eq!(ledger.counters().panics, 1);
+        assert_eq!(ledger.counters().witnesses_rejected, 0);
+        assert!(matches!(ledger.events()[0].outcome, PassOutcome::Panicked));
+    }
+
+    /// The allomorph fact neither structural pass reads leaves both decisions unchanged.
+    #[test]
+    fn neither_structural_pass_reads_an_allomorph_choice() {
+        let world = world();
+        let mut units = vec![
+            roled_unit(world.morpheme("eRoot"), TraceRole::Root),
+            roled_unit(world.morpheme("mrP0"), TraceRole::Suffix),
+        ];
+        units[1].allomorphs =
+            TraceFact::Known(NonEmpty::try_from_vec(vec![AllomorphId(0)]).expect("one allomorph"));
+
+        let witness = witness_of(units);
+        let identity = identity_of(&witness, 0);
+
+        assert_eq!(
+            decide(ownership(&world), &identity, &witness).0,
+            PassDecision::Keep
+        );
+        assert_eq!(
+            decide(transition(&world), &identity, &witness).0,
+            PassDecision::Defer(DeferReason::MissingTraceFact(TraceFactKind::Slot))
+        );
+    }
 }

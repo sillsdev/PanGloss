@@ -123,13 +123,19 @@ pub fn confirm_all(
 }
 
 /// One candidate's resolved pins: root entry, non-root rule set, extra compound roots; `None` when the root isn't a `LexEntry` or a non-root morpheme is unowned.
-struct CandidatePins {
-    root_entry: LexEntryId,
-    rules: HashSet<MRuleId>,
-    extra_roots: HashSet<LexEntryId>,
+pub(crate) struct CandidatePins {
+    pub(crate) root_entry: LexEntryId,
+    pub(crate) rules: HashSet<MRuleId>,
+    pub(crate) extra_roots: HashSet<LexEntryId>,
 }
 
-fn resolve_pins(owners: &[Option<MorphemeOwner>], candidate: &Candidate) -> Option<CandidatePins> {
+/// The pure fact both confirmation and the candidate filter's structural passes read: a candidate
+/// whose pins do not resolve is one this module's own restricted reparse never runs, so its
+/// confirmation bucket stays empty.
+pub(crate) fn resolve_pins(
+    owners: &[Option<MorphemeOwner>],
+    candidate: &Candidate,
+) -> Option<CandidatePins> {
     if candidate.root_index < 0 || candidate.root_index as usize >= candidate.morphemes.len() {
         return None;
     }

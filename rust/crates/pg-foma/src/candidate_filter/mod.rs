@@ -12,6 +12,7 @@
 //! survivors and the audit trail go.
 
 pub mod decision;
+pub mod index;
 pub mod model;
 pub mod passes;
 pub mod pipeline;
@@ -24,6 +25,8 @@ pub use decision::{
     ProofVerificationError, ProofWitness, RejectionProof, SpanDefect, StablePassId, StableRuleId,
     TraceFactKind,
 };
+pub use index::{FilterIndex, RuleShape, SiteVerdict};
+pub use passes::structural::{OwnershipPass, StructuralTransitionPass};
 pub use passes::CandidateFilterPass;
 pub use pipeline::{
     CandidateFilter, FilterBudget, FilterCompletion, FilterContext, FilterMode, FilterOutcome,

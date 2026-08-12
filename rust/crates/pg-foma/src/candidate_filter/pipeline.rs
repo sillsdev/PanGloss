@@ -15,11 +15,19 @@
 //! this crate checking itself, and what replaces it is that a recorded rejection re-derives
 //! against its witness offline.
 //!
+//! A pass that unwinds is caught and its witness carries on to the next pass, recorded as its own
+//! outcome. Filtering is an accelerator in front of an authoritative confirmer, so a broken pass
+//! must cost the filtering it would have done and nothing else. Two failures do not unwind and so
+//! are not covered: a stack overflow and an allocator failure both abort the process (as
+//! `crate::compose_budget`'s own module doc says of the same mechanism).
+//!
 //! Reports are deterministic. Pass order is the declared order, ordinals are assigned by the
 //! traversal itself, and the counters are keyed by stable pass ID, so two runs over the same input
 //! produce byte-identical evidence. Every witness of a decided candidate is evaluated even once
 //! one has survived: stopping at the first survivor would make the evidence depend on witness
 //! order, and the three modes would then no longer be comparable to each other.
+
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use crate::candidate_filter::decision::{PassDecision, StablePassId};
 use crate::candidate_filter::model::{CandidateWitness, ProposedCandidate};
@@ -375,10 +383,12 @@ impl CandidateFilter {
                 return WitnessVerdict::BudgetExhausted;
             }
 
-            let outcome = match pass.evaluate(context, witness) {
-                PassDecision::Keep => PassOutcome::Kept,
-                PassDecision::Defer(reason) => PassOutcome::Deferred(reason),
-                PassDecision::Reject(proof) => PassOutcome::Rejected(proof),
+            let decided = catch_unwind(AssertUnwindSafe(|| pass.evaluate(context, witness))).ok();
+            let outcome = match decided {
+                Some(PassDecision::Keep) => PassOutcome::Kept,
+                Some(PassDecision::Defer(reason)) => PassOutcome::Deferred(reason),
+                Some(PassDecision::Reject(proof)) => PassOutcome::Rejected(proof),
+                None => PassOutcome::Panicked,
             };
 
             let event = PassEvent {
