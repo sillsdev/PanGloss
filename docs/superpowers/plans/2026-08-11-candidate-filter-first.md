@@ -12,6 +12,56 @@
 
 ---
 
+## Revision note — read before implementing any task
+
+**The contract supersedes this plan wherever they disagree.** Two things changed after Tasks 1-3
+were built, and this document's earlier task text still describes the superseded design.
+
+**1. There is no verifier in the pipeline.** Production performs no proof checking of any kind.
+Verification is a post-hoc assertion in test-only code: a run records its rejections, and a test
+then checks that every recorded proof re-derives against the witness it was emitted for.
+`ProofCheckDepth`, `PassOutcome::ProofRejected`, `DeferReason::ProofVerificationFailed`, the
+`verifier` field, the allow-list seam, and the proof-verification counters are all deleted. Task 2's
+and Task 3's text below describes the machinery as originally built; it was replaced, and any
+snippet naming those types is history, not instruction.
+
+**2. Exhaustiveness is not the near-term bar.** Model checks should be modest and cheap. What a pass
+must show is that it earns its keep: accept/defer/reject counts reported per pass, at least one real
+rejection, and a cost figure. Full conformance grammars are coming and will expose the rest.
+
+**A measurement gate now precedes Tasks 5-11, and it is a placement question, not a go/no-go on
+filtering as such.** Every constraint can be enforced in one of three places, with different cost
+shapes:
+
+- **In the FST** — paid once at compile time (entry count, state count) plus traversal cost; the
+  candidate is never proposed.
+- **In a filter** — paid per proposed candidate; the HC cascade for that candidate is skipped.
+- **In HC** — paid per candidate as full cascade cost, and always correct.
+
+HC is the authority and is already correct, so a filter never buys correctness. It buys speed, and
+only when BOTH conditions hold: the constraint cannot go into the FST cheaply, AND the candidates it
+kills would otherwise be *expensive* to reject in HC.
+
+The second condition is where the existing evidence bites.
+`docs/superpowers/specs/2026-07-16-candidate-prefilter-plan.md` records a **NO-GO** from 2026-07-17
+(census merged `571b8a3`): validity-gate rejections were a median ~3% of failing-candidate time,
+while the mrule/template unapply cascade is 88-99% of confirm cost — those candidates fail *cheaply*
+in HC, so predicting them saves little. Two of this plan's own structural passes hit the same wall
+harder: `confirm_batch_impl` skips pin-failing candidates before any parse, and `ExploreMode::Pruned`
+already consults `MorphotacticIndex` before every recursive emission step, so both target work the
+production path already avoids.
+
+So the measurement is: **attribute HC cascade time by failure reason, then ask which reasons a cheap
+check could predict.** A constraint earns a filter only when its candidates are expensive to reject.
+The 2026-07-16 census harness (`rust/crates/pg-foma/examples/prefilter_census.rs`) already does this
+for one class and is the thing to extend rather than rebuild.
+
+Until that measurement identifies at least one constraint whose candidates are both filter-predictable
+and expensive in HC, Tasks 5-11 are not authorized. Fire counts do not settle it: a pass can fire
+constantly while saving nothing, which is precisely what the ownership pass would do.
+
+---
+
 ## Scope and sequencing
 
 This is one filter-only project. It does not build the new FST generator and does not alter HC
@@ -758,7 +808,7 @@ pub struct CompiledTracePass {
 ```
 
 The DFA never directly deletes a candidate. It produces a structured `RejectionProof`, and the
-existing verifier decides whether enforcement is allowed. Unknown alphabet symbols transition to a
+post-hoc verification checks that proof like any other. Unknown alphabet symbols transition to a
 non-rejecting defer state.
 
 - [ ] **Step 4: Run the DFA target and verify GREEN**
@@ -1117,7 +1167,7 @@ After all task branches are rebased and integrated, the primary agent must inspe
 run the Task 11 merged-tip gates once from the clean isolated integration worktree. A fresh
 independent architecture reviewer then checks:
 
-- every rejection path reaches `RejectionProofVerifier`;
+- every recorded rejection re-derives under post-hoc verification;
 - every uncertainty/budget/error path retains candidates;
 - candidate death requires all witnesses to die;
 - shadow and enforced reports cannot claim corpus coverage when private inputs are missing;
