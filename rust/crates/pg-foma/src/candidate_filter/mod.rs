@@ -15,7 +15,6 @@ pub mod decision;
 pub mod model;
 pub mod passes;
 pub mod pipeline;
-mod proof;
 pub mod report;
 #[cfg(feature = "test-support")]
 pub mod test_support;
@@ -28,7 +27,7 @@ pub use decision::{
 pub use passes::CandidateFilterPass;
 pub use pipeline::{
     CandidateFilter, FilterBudget, FilterCompletion, FilterContext, FilterMode, FilterOutcome,
-    FilterStopReason, ProofCheckDepth,
+    FilterStopReason,
 };
 pub use report::{
     BoundedDeathLedger, CandidateDeath, CountingTraceSink, FilterCounters, FilterTraceSink,

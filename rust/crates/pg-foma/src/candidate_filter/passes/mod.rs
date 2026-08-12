@@ -18,9 +18,9 @@ pub trait CandidateFilterPass: Send + Sync {
 
     /// Every `(rule, category)` pair this pass may claim a rejection under.
     ///
-    /// The verifier admits nothing outside what is declared here, so a pass that has not stated
-    /// its rule population cannot kill anything. That is the safe direction and a visible one:
-    /// the refusal is counted and names the rule it could not place.
+    /// This is the pass's only independent statement of what it decides: a rejection carries the
+    /// rule and category as free fields, so re-deriving one afterwards has nothing else to hold it
+    /// to. A pass that leaves this empty can therefore emit no proof that re-derives.
     fn admissible_proofs(&self) -> Vec<AdmissibleProof> {
         Vec::new()
     }

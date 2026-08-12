@@ -177,20 +177,19 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use pg_foma::candidate_filter::decision::{
-    DeferReason, PassDecision, ProofCategory, ProofClaim, ProofWitness, RejectionProof,
-    StablePassId, StableRuleId, TraceFactKind,
+    DeferReason, PassDecision, ProofCategory, ProofClaim, ProofVerificationError, ProofWitness,
+    RejectionProof, StablePassId, StableRuleId, TraceFactKind,
 };
 use pg_foma::candidate_filter::passes::CandidateFilterPass;
 use pg_foma::candidate_filter::pipeline::{
     CandidateFilter, FilterBudget, FilterCompletion, FilterContext, FilterMode, FilterStopReason,
-    ProofCheckDepth,
 };
 use pg_foma::candidate_filter::report::{
     BoundedDeathLedger, CandidateDeath, FilterTraceSink, LedgerCaps, PassEvent, PassOutcome,
     RetainedCandidateSink,
 };
 use pg_foma::candidate_filter::test_support::{
-    allow_list_filter, filter_into_from_ordinals, AllowedProof,
+    filter_into_from_ordinals, filter_of, recorded_rejections, RejectionProofVerifier,
 };
 
 const KEEP_ALL: StablePassId = StablePassId("test.keep_all.v1");
@@ -339,25 +338,28 @@ impl CandidateFilterPass for NeverEvaluated {
     }
 }
 
-fn allowed(pass_id: StablePassId) -> AllowedProof {
-    AllowedProof {
-        pass_id,
-        rule_id: RULE,
-        category: ProofCategory::ImpossibleOwnership,
-    }
-}
-
-fn every_reject_allowed() -> Vec<AllowedProof> {
-    vec![
-        allowed(REJECT_ALL),
-        allowed(REJECT_ONE),
-        allowed(FORGED),
-        allowed(OFF_LIST),
-    ]
-}
-
 fn reject_all_filter() -> CandidateFilter {
-    allow_list_filter(vec![Box::new(RejectAll)], every_reject_allowed())
+    filter_of(vec![Box::new(RejectAll)])
+}
+
+/// Runs one enforced filter over `inputs` and re-derives every rejection it recorded.
+fn verified_run(
+    passes: Vec<Box<dyn CandidateFilterPass>>,
+    inputs: Vec<ProposedCandidate>,
+) -> (usize, Result<(), Vec<ProofVerificationError>>) {
+    let verifier = RejectionProofVerifier::of_passes(&passes);
+    let filter = filter_of(passes);
+    let mut retained: Vec<ProposedCandidate> = Vec::new();
+    let mut ledger = BoundedDeathLedger::unlimited();
+    filter.filter_into(
+        FilterMode::Enforce,
+        inputs.clone(),
+        &mut retained,
+        &mut ledger,
+        FilterBudget::unlimited(),
+    );
+    let verification = verifier.verify_recorded(&recorded_rejections(&inputs, &ledger));
+    (retained.len(), verification)
 }
 
 fn one_candidate_with_witnesses(ids: &[u64]) -> Vec<ProposedCandidate> {
@@ -444,13 +446,10 @@ fn run_logged(
 
 #[test]
 fn candidate_survives_when_any_witness_survives() {
-    let filter = allow_list_filter(
-        vec![
-            Box::new(RejectOne(WitnessId(1))),
-            Box::new(KeepAll(KEEP_ALL, Arc::new(AtomicUsize::new(0)))),
-        ],
-        every_reject_allowed(),
-    );
+    let filter = filter_of(vec![
+        Box::new(RejectOne(WitnessId(1))),
+        Box::new(KeepAll(KEEP_ALL, Arc::new(AtomicUsize::new(0)))),
+    ]);
 
     let outcome = filter.filter(
         FilterMode::Enforce,
@@ -465,11 +464,8 @@ fn candidate_survives_when_any_witness_survives() {
 }
 
 #[test]
-fn witness_evaluation_stops_at_its_first_verified_rejection() {
-    let filter = allow_list_filter(
-        vec![Box::new(RejectAll), Box::new(NeverEvaluated)],
-        every_reject_allowed(),
-    );
+fn witness_evaluation_stops_at_its_first_rejection() {
+    let filter = filter_of(vec![Box::new(RejectAll), Box::new(NeverEvaluated)]);
 
     let outcome = filter.filter(
         FilterMode::Enforce,
@@ -484,13 +480,10 @@ fn witness_evaluation_stops_at_its_first_verified_rejection() {
 #[test]
 fn defer_retains_the_candidate_and_does_not_end_the_pass_loop() {
     let reached = Arc::new(AtomicUsize::new(0));
-    let filter = allow_list_filter(
-        vec![
-            Box::new(DeferAll),
-            Box::new(KeepAll(KEEP_ALL, Arc::clone(&reached))),
-        ],
-        Vec::new(),
-    );
+    let filter = filter_of(vec![
+        Box::new(DeferAll),
+        Box::new(KeepAll(KEEP_ALL, Arc::clone(&reached))),
+    ]);
 
     let outcome = filter.filter(
         FilterMode::Enforce,
@@ -507,13 +500,10 @@ fn defer_retains_the_candidate_and_does_not_end_the_pass_loop() {
 #[test]
 fn passes_run_in_the_declared_order_for_every_witness() {
     let log = Arc::new(Mutex::new(Vec::new()));
-    let filter = allow_list_filter(
-        vec![
-            Box::new(Recorder(StablePassId("test.zeta.v1"), Arc::clone(&log))),
-            Box::new(Recorder(StablePassId("test.alpha.v1"), Arc::clone(&log))),
-        ],
-        Vec::new(),
-    );
+    let filter = filter_of(vec![
+        Box::new(Recorder(StablePassId("test.zeta.v1"), Arc::clone(&log))),
+        Box::new(Recorder(StablePassId("test.alpha.v1"), Arc::clone(&log))),
+    ]);
 
     filter.filter(
         FilterMode::Enforce,
@@ -535,13 +525,10 @@ fn passes_run_in_the_declared_order_for_every_witness() {
 #[test]
 fn pass_counters_are_keyed_by_stable_pass_id_in_sorted_order() {
     let log = Arc::new(Mutex::new(Vec::new()));
-    let filter = allow_list_filter(
-        vec![
-            Box::new(Recorder(StablePassId("test.zeta.v1"), Arc::clone(&log))),
-            Box::new(Recorder(StablePassId("test.alpha.v1"), Arc::clone(&log))),
-        ],
-        Vec::new(),
-    );
+    let filter = filter_of(vec![
+        Box::new(Recorder(StablePassId("test.zeta.v1"), Arc::clone(&log))),
+        Box::new(Recorder(StablePassId("test.alpha.v1"), Arc::clone(&log))),
+    ]);
 
     let outcome = filter.filter(
         FilterMode::Enforce,
@@ -564,10 +551,7 @@ fn pass_counters_are_keyed_by_stable_pass_id_in_sorted_order() {
 
 #[test]
 fn off_mode_bypasses_every_pass() {
-    let filter = allow_list_filter(
-        vec![Box::new(NeverEvaluated), Box::new(RejectAll)],
-        every_reject_allowed(),
-    );
+    let filter = filter_of(vec![Box::new(NeverEvaluated), Box::new(RejectAll)]);
 
     let outcome = filter.filter(
         FilterMode::Off,
@@ -610,34 +594,33 @@ fn enforce_mode_removes_a_candidate_whose_every_witness_is_rejected() {
 }
 
 #[test]
-fn an_unverifiable_proof_defers_instead_of_killing_the_witness() {
-    let filter = allow_list_filter(vec![Box::new(ForgedWitnessId)], every_reject_allowed());
-
-    let outcome = filter.filter_at(
-        FilterMode::Enforce,
-        ProofCheckDepth::Full,
+fn an_unverifiable_proof_kills_its_witness_and_is_caught_after_the_fact() {
+    let (retained, verification) = verified_run(
+        vec![Box::new(ForgedWitnessId)],
         one_candidate_with_witnesses(&[1]),
-        FilterBudget::unlimited(),
     );
 
-    assert_eq!(outcome.retained.len(), 1);
-    assert_eq!(outcome.report.proof_verification_failures, 1);
-    assert_eq!(outcome.report.witnesses_rejected, 0);
+    assert_eq!(retained, 0);
+    assert_eq!(
+        verification,
+        Err(vec![ProofVerificationError::WitnessIdMismatch])
+    );
 }
 
 #[test]
-fn a_proof_outside_the_allow_list_defers_instead_of_killing_the_witness() {
-    let filter = allow_list_filter(vec![Box::new(UnlistedRule)], every_reject_allowed());
-
-    let outcome = filter.filter_at(
-        FilterMode::Enforce,
-        ProofCheckDepth::Full,
+fn a_rule_the_pass_never_declared_kills_its_witness_and_is_caught_after_the_fact() {
+    let (retained, verification) = verified_run(
+        vec![Box::new(UnlistedRule)],
         one_candidate_with_witnesses(&[1]),
-        FilterBudget::unlimited(),
     );
 
-    assert_eq!(outcome.retained.len(), 1);
-    assert_eq!(outcome.report.proof_verification_failures, 1);
+    assert_eq!(retained, 0);
+    assert_eq!(
+        verification,
+        Err(vec![ProofVerificationError::UnrecognizedRule(
+            UNLISTED_RULE
+        )])
+    );
 }
 
 #[test]
@@ -684,10 +667,10 @@ fn budget_exhaustion_forwards_the_remaining_stream_without_collecting_it() {
 
 #[test]
 fn retained_candidates_are_emitted_before_the_input_ends() {
-    let filter = allow_list_filter(
-        vec![Box::new(KeepAll(KEEP_ALL, Arc::new(AtomicUsize::new(0))))],
-        Vec::new(),
-    );
+    let filter = filter_of(vec![Box::new(KeepAll(
+        KEEP_ALL,
+        Arc::new(AtomicUsize::new(0)),
+    ))]);
 
     let (log, retained, status) =
         run_logged(&filter, numbered_candidates(3), FilterBudget::unlimited());
@@ -774,17 +757,14 @@ const FIRST_KILLER: StablePassId = StablePassId("test.kills_first.v1");
 const SECOND_KILLER: StablePassId = StablePassId("test.kills_second.v1");
 
 fn two_killer_filter() -> CandidateFilter {
-    allow_list_filter(
-        vec![
-            Box::new(RejectWitness(FIRST_KILLER, WitnessId(1))),
-            Box::new(RejectWitness(SECOND_KILLER, WitnessId(2))),
-        ],
-        vec![allowed(FIRST_KILLER), allowed(SECOND_KILLER)],
-    )
+    filter_of(vec![
+        Box::new(RejectWitness(FIRST_KILLER, WitnessId(1))),
+        Box::new(RejectWitness(SECOND_KILLER, WitnessId(2))),
+    ])
 }
 
 fn even_candidates_die_filter() -> CandidateFilter {
-    allow_list_filter(vec![Box::new(RejectEvenCandidates)], every_reject_allowed())
+    filter_of(vec![Box::new(RejectEvenCandidates)])
 }
 
 struct RejectEvenCandidates;
@@ -899,19 +879,15 @@ impl CandidateFilterPass for MislabeledProof {
     }
 }
 
-/// At `Off` nothing reconciles a proof's self-description against the pass that authored it.
+/// Attribution comes from the pass the pipeline ran, never from the proof's self-description.
 #[test]
 fn a_witness_death_names_the_pass_that_ran_not_the_one_its_proof_claims() {
-    let filter = allow_list_filter(
-        vec![Box::new(MislabeledProof)],
-        vec![allowed(MISLABELING), allowed(IMPERSONATED)],
-    );
+    let filter = filter_of(vec![Box::new(MislabeledProof)]);
     let mut retained: Vec<ProposedCandidate> = Vec::new();
     let mut ledger = BoundedDeathLedger::unlimited();
 
-    filter.filter_into_at(
+    filter.filter_into(
         FilterMode::Enforce,
-        ProofCheckDepth::Off,
         one_candidate_with_witnesses(&[1]),
         &mut retained,
         &mut ledger,
@@ -944,14 +920,11 @@ fn the_same_witness_id_in_two_candidates_has_distinct_ledger_keys() {
 }
 
 fn mixed_outcome_filter() -> CandidateFilter {
-    allow_list_filter(
-        vec![
-            Box::new(DeferAll),
-            Box::new(RejectEvenCandidates),
-            Box::new(KeepAll(KEEP_ALL, Arc::new(AtomicUsize::new(0)))),
-        ],
-        every_reject_allowed(),
-    )
+    filter_of(vec![
+        Box::new(DeferAll),
+        Box::new(RejectEvenCandidates),
+        Box::new(KeepAll(KEEP_ALL, Arc::new(AtomicUsize::new(0)))),
+    ])
 }
 
 fn ledgered_run(filter: &CandidateFilter) -> (Vec<u32>, BoundedDeathLedger) {
@@ -989,10 +962,10 @@ fn two_identical_runs_produce_identical_decisions_and_evidence() {
 }
 
 fn keep_all_filter() -> CandidateFilter {
-    allow_list_filter(
-        vec![Box::new(KeepAll(KEEP_ALL, Arc::new(AtomicUsize::new(0))))],
-        Vec::new(),
-    )
+    filter_of(vec![Box::new(KeepAll(
+        KEEP_ALL,
+        Arc::new(AtomicUsize::new(0)),
+    ))])
 }
 
 fn run_seeded(next_event: u64, next_candidate: u64) -> (Vec<u32>, BoundedDeathLedger) {

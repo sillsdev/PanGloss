@@ -1,4 +1,4 @@
-//! What the production rejection-proof verifier admits, and what it refuses.
+//! What re-deriving a recorded rejection accepts, and what it catches.
 
 use pg_foma::candidate_filter::decision::{
     AdmissibleProof, IdentityDefect, PassDecision, ProofCategory, ProofClaim,
@@ -10,13 +10,13 @@ use pg_foma::candidate_filter::model::{
     NonEmpty, PartnerClassId, ProposalProducer, ProposalProvenance, ProposedCandidate, SurfaceSpan,
     TraceFact, TraceRole, TraceSlotId, TraceStratumId, TraceUnit, WitnessId,
 };
-use pg_foma::candidate_filter::pipeline::{
-    CandidateFilter, FilterBudget, FilterContext, FilterMode, ProofCheckDepth,
-};
+use pg_foma::candidate_filter::pipeline::{FilterBudget, FilterContext, FilterMode};
 use pg_foma::candidate_filter::report::{
     BoundedDeathLedger, CandidateDeath, FilterCounters, PassEvent, PassOutcome,
 };
-use pg_foma::candidate_filter::test_support::{allow_list_filter, verified_filter, AllowedProof};
+use pg_foma::candidate_filter::test_support::{
+    filter_of, recorded_rejections, RejectionProofVerifier,
+};
 use pg_foma::candidate_filter::CandidateFilterPass;
 use pg_foma::tags::Candidate;
 use pg_grammar::model::{AllomorphId, MorphemeId};
@@ -69,93 +69,75 @@ impl CandidateFilterPass for ProofPass {
     }
 }
 
+/// A pass declaring one `(rule, category)` pair, for proofs that reach outside their own catalog.
+struct NarrowPass(RejectionProof);
+
+impl CandidateFilterPass for NarrowPass {
+    fn id(&self) -> StablePassId {
+        PASS
+    }
+
+    fn admissible_proofs(&self) -> Vec<AdmissibleProof> {
+        vec![AdmissibleProof {
+            rule_id: RULE,
+            category: ProofCategory::ImpossibleOwnership,
+        }]
+    }
+
+    fn evaluate(&self, _context: &FilterContext<'_>, _witness: &CandidateWitness) -> PassDecision {
+        PassDecision::Reject(self.0.clone())
+    }
+}
+
+/// A completed run: what it decided, and what re-deriving its recorded rejections then found.
 struct Run {
     retained: usize,
     events: Vec<PassEvent>,
     deaths: Vec<CandidateDeath>,
     counters: FilterCounters,
+    verification: Result<(), Vec<ProofVerificationError>>,
+    envelopes_only: Result<(), Vec<ProofVerificationError>>,
 }
 
 fn run(proof: RejectionProof, witness: CandidateWitness) -> Run {
-    run_with(
-        verified_filter(vec![Box::new(ProofPass(proof))]),
-        ProofCheckDepth::Full,
-        witness,
-    )
+    run_pass(Box::new(ProofPass(proof)), witness)
 }
 
-/// The same run with the pass's rejection taken at face value, as production takes it.
-fn unchecked_run(proof: RejectionProof, witness: CandidateWitness) -> Run {
-    run_with(
-        verified_filter(vec![Box::new(ProofPass(proof))]),
-        ProofCheckDepth::Off,
-        witness,
-    )
-}
+fn run_pass(pass: Box<dyn CandidateFilterPass>, witness: CandidateWitness) -> Run {
+    let passes: Vec<Box<dyn CandidateFilterPass>> = vec![pass];
+    let verifier = RejectionProofVerifier::of_passes(&passes);
+    let filter = filter_of(passes);
+    let inputs = vec![proposal_of(witness)];
 
-/// The same run under a verifier that checks the envelope and the rule but never the claim.
-fn claim_blind_run(proof: RejectionProof, witness: CandidateWitness) -> Run {
-    let allowed = ALL_CATEGORIES
-        .iter()
-        .map(|&category| AllowedProof {
-            pass_id: PASS,
-            rule_id: RULE,
-            category,
-        })
-        .collect();
-    run_with(
-        allow_list_filter(vec![Box::new(ProofPass(proof))], allowed),
-        ProofCheckDepth::Full,
-        witness,
-    )
-}
-
-fn run_with(filter: CandidateFilter, depth: ProofCheckDepth, witness: CandidateWitness) -> Run {
-    let mut retained: Vec<ProposedCandidate> = Vec::new();
-    let mut ledger = BoundedDeathLedger::unlimited();
-    filter.filter_into_at(
-        FilterMode::Enforce,
-        depth,
-        vec![proposal_of(witness)],
-        &mut retained,
-        &mut ledger,
-        FilterBudget::unlimited(),
-    );
-    collected(retained.len(), ledger)
-}
-
-/// A run that names a mode and lets the depth follow from it, as production does.
-fn unnamed_depth_run(proof: RejectionProof, witness: CandidateWitness, mode: FilterMode) -> Run {
-    let filter = verified_filter(vec![Box::new(ProofPass(proof))]);
     let mut retained: Vec<ProposedCandidate> = Vec::new();
     let mut ledger = BoundedDeathLedger::unlimited();
     filter.filter_into(
-        mode,
-        vec![proposal_of(witness)],
+        FilterMode::Enforce,
+        inputs.clone(),
         &mut retained,
         &mut ledger,
         FilterBudget::unlimited(),
     );
-    collected(retained.len(), ledger)
+
+    let records = recorded_rejections(&inputs, &ledger);
+    Run {
+        retained: retained.len(),
+        events: ledger.events().to_vec(),
+        deaths: ledger.candidate_deaths().to_vec(),
+        counters: ledger.counters().clone(),
+        verification: verifier.verify_recorded(&records),
+        envelopes_only: verifier.verify_recorded_envelopes(&records),
+    }
 }
 
 fn proposal_of(witness: CandidateWitness) -> ProposedCandidate {
     ProposedCandidate::new(identity(), vec![witness]).expect("one witness")
 }
 
-fn collected(retained: usize, ledger: BoundedDeathLedger) -> Run {
-    Run {
-        retained,
-        events: ledger.events().to_vec(),
-        deaths: ledger.candidate_deaths().to_vec(),
-        counters: ledger.counters().clone(),
-    }
-}
-
 fn refusal(run: &Run) -> ProofVerificationError {
-    match &run.events[0].outcome {
-        PassOutcome::ProofRejected(error) => *error,
-        other => panic!("expected a refused proof, got {other:?}"),
+    match &run.verification {
+        Err(errors) if errors.len() == 1 => errors[0],
+        other => panic!("expected exactly one verification failure, got {other:?}"),
     }
 }
 
@@ -897,13 +879,13 @@ fn decisive_fact(category: ProofCategory) -> Option<(usize, TraceFactKind)> {
 
 /// Pairs every forgery test: a verifier that refused everything would pass those on its own.
 #[test]
-fn every_category_has_a_proof_that_verifies_and_kills_its_witness() {
+fn every_category_has_a_proof_that_kills_its_witness_and_re_derives() {
     let mut killed = 0;
     for category in ALL_CATEGORIES {
         let run = run(proof_of(category), base_witness());
         assert_eq!(run.retained, 0, "{category} must remove the candidate");
         assert_eq!(run.counters.witnesses_rejected, 1, "{category}");
-        assert_eq!(run.counters.proof_verification_failures, 0, "{category}");
+        assert_eq!(run.verification, Ok(()), "{category}");
         assert!(
             matches!(run.events[0].outcome, PassOutcome::Rejected(_)),
             "{category} produced {:?}",
@@ -917,17 +899,11 @@ fn every_category_has_a_proof_that_verifies_and_kills_its_witness() {
 }
 
 #[test]
-fn every_generic_forgery_is_refused_and_keeps_the_candidate() {
+fn every_generic_forgery_is_caught_after_the_fact() {
     let mut checked = 0;
     for category in ALL_CATEGORIES {
         for (label, forged, expected) in generic_forgeries(category) {
             let run = run(forged, base_witness());
-            assert_eq!(run.retained, 1, "{category}/{label} must retain");
-            assert_eq!(run.counters.witnesses_rejected, 0, "{category}/{label}");
-            assert_eq!(
-                run.counters.proof_verification_failures, 1,
-                "{category}/{label}"
-            );
             assert_eq!(refusal(&run), expected, "{category}/{label}");
             checked += 1;
         }
@@ -936,15 +912,13 @@ fn every_generic_forgery_is_refused_and_keeps_the_candidate() {
 }
 
 #[test]
-fn every_payload_forgery_is_refused_and_keeps_the_candidate() {
+fn every_payload_forgery_is_caught_after_the_fact() {
     let mut checked = 0;
     for category in ALL_CATEGORIES {
         let forgeries = payload_forgeries(category);
         assert!(!forgeries.is_empty(), "{category} needs payload forgeries");
         for (label, forged, expected) in forgeries {
             let run = run(forged, base_witness());
-            assert_eq!(run.retained, 1, "{category}/{label} must retain");
-            assert_eq!(run.counters.witnesses_rejected, 0, "{category}/{label}");
             assert_eq!(refusal(&run), expected, "{category}/{label}");
             checked += 1;
         }
@@ -953,14 +927,13 @@ fn every_payload_forgery_is_refused_and_keeps_the_candidate() {
 }
 
 #[test]
-fn no_category_may_reject_on_a_fact_the_producer_never_established() {
+fn no_category_may_prove_a_rejection_on_a_fact_the_producer_never_established() {
     let mut checked = 0;
     for category in ALL_CATEGORIES {
         let Some((unit_index, fact)) = decisive_fact(category) else {
             continue;
         };
         let run = run(proof_of(category), opaque_witness());
-        assert_eq!(run.retained, 1, "{category} must retain");
         assert_eq!(
             refusal(&run),
             ProofVerificationError::FactNotEstablished { unit_index, fact },
@@ -971,22 +944,15 @@ fn no_category_may_reject_on_a_fact_the_producer_never_established() {
     assert_eq!(checked, ALL_CATEGORIES.len() - 1);
 }
 
-/// Measures what re-deriving the claim buys: each forgery kills the candidate without it.
+/// Measures what re-deriving the claim buys: an envelope check passes every one of these.
 #[test]
-fn every_payload_forgery_survives_a_verifier_that_skips_the_claim() {
+fn every_payload_forgery_survives_a_check_that_skips_the_claim() {
     let mut checked = 0;
     for category in ALL_CATEGORIES {
         for (label, forged, _) in payload_forgeries(category) {
-            assert_eq!(
-                claim_blind_run(forged.clone(), base_witness()).retained,
-                0,
-                "{category}/{label} was expected to pass a claim-blind verifier"
-            );
-            assert_eq!(
-                run(forged, base_witness()).retained,
-                1,
-                "{category}/{label}"
-            );
+            let run = run(forged, base_witness());
+            assert_eq!(run.envelopes_only, Ok(()), "{category}/{label}");
+            assert!(run.verification.is_err(), "{category}/{label}");
             checked += 1;
         }
     }
@@ -994,18 +960,15 @@ fn every_payload_forgery_survives_a_verifier_that_skips_the_claim() {
 }
 
 #[test]
-fn a_deferred_fact_survives_a_verifier_that_skips_the_claim() {
+fn a_deferred_fact_survives_a_check_that_skips_the_claim() {
     let mut checked = 0;
     for category in ALL_CATEGORIES {
         if decisive_fact(category).is_none() {
             continue;
         }
-        assert_eq!(
-            claim_blind_run(proof_of(category), opaque_witness()).retained,
-            0,
-            "{category} was expected to pass a claim-blind verifier"
-        );
-        assert_eq!(run(proof_of(category), opaque_witness()).retained, 1);
+        let run = run(proof_of(category), opaque_witness());
+        assert_eq!(run.envelopes_only, Ok(()), "{category}");
+        assert!(run.verification.is_err(), "{category}");
         checked += 1;
     }
     assert_eq!(checked, ALL_CATEGORIES.len() - 1);
@@ -1021,7 +984,6 @@ fn a_known_absent_slot_is_not_a_slot_a_transition_may_cite() {
         witness_with(units),
     );
 
-    assert_eq!(run.retained, 1);
     assert_eq!(
         refusal(&run),
         ProofVerificationError::FactMismatch {
@@ -1041,7 +1003,6 @@ fn a_partner_that_is_closed_somewhere_is_not_missing() {
         witness_with(units),
     );
 
-    assert_eq!(run.retained, 1);
     assert_eq!(
         refusal(&run),
         ProofVerificationError::PartnerAlreadyClosed { unit_index: 2 }
@@ -1058,7 +1019,6 @@ fn a_partner_absence_cannot_be_proved_past_an_unreadable_unit() {
         witness_with(units),
     );
 
-    assert_eq!(run.retained, 1);
     assert_eq!(
         refusal(&run),
         ProofVerificationError::FactNotEstablished {
@@ -1075,7 +1035,6 @@ fn a_signature_conflict_cannot_be_proved_while_a_feature_is_deferred() {
 
     let run = run(proof_of(ProofCategory::StaticSignatureConflict), witness);
 
-    assert_eq!(run.retained, 1);
     assert_eq!(
         refusal(&run),
         ProofVerificationError::DeferredFeaturesUnresolved
@@ -1089,7 +1048,6 @@ fn a_claim_may_only_rest_on_units_the_proof_cites() {
 
     let run = run(forged, base_witness());
 
-    assert_eq!(run.retained, 1);
     assert_eq!(
         refusal(&run),
         ProofVerificationError::UnitNotCited { index: 0 }
@@ -1106,94 +1064,35 @@ fn a_payload_forgery() -> RejectionProof {
 
 /// Pins the production guarantee exactly: there is none. Every forgery below kills a real witness.
 #[test]
-fn production_depth_checks_nothing_and_admits_every_forgery_full_depth_refuses() {
+fn production_acts_on_every_forgery_and_only_re_derivation_catches_it() {
     let mut checked = 0;
     for category in ALL_CATEGORIES {
         let forgeries = payload_forgeries(category)
             .into_iter()
             .chain(generic_forgeries(category));
-        for (label, forged, expected) in forgeries {
+        for (label, forged, _) in forgeries {
+            let run = run(forged, base_witness());
             assert_eq!(
-                refusal(&run(forged.clone(), base_witness())),
-                expected,
-                "{category}/{label}"
+                run.retained, 0,
+                "{category}/{label}: a rejection is taken at face value and kills its witness \
+                 however corrupt its proof is"
             );
-            let unchecked = unchecked_run(forged, base_witness());
-            assert_eq!(
-                unchecked.retained, 0,
-                "{category}/{label}: production runs no proof check at all, so a rejection is \
-                 taken at face value and kills its witness however corrupt its proof is; only \
-                 full depth, which tests and shadow runs select, refuses it"
-            );
-            assert_eq!(
-                unchecked.counters.witnesses_rejected, 1,
-                "{category}/{label}"
-            );
-            assert_eq!(
-                unchecked.counters.proof_verification_failures, 0,
-                "{category}/{label}"
-            );
+            assert_eq!(run.counters.witnesses_rejected, 1, "{category}/{label}");
+            assert_eq!(run.deaths.len(), 1, "{category}/{label}");
+            assert!(run.verification.is_err(), "{category}/{label}");
             checked += 1;
         }
     }
     assert_eq!(checked, 25 + 9 * ALL_CATEGORIES.len());
 }
 
+/// The diagnostic a rejection records, which an offline re-derivation starts from.
 #[test]
-fn an_unnamed_depth_is_off_in_production_and_full_in_shadow() {
-    assert_eq!(ProofCheckDepth::default(), ProofCheckDepth::Off);
-    assert_eq!(
-        ProofCheckDepth::for_mode(FilterMode::Enforce),
-        ProofCheckDepth::Off
-    );
-    assert_eq!(
-        ProofCheckDepth::for_mode(FilterMode::Off),
-        ProofCheckDepth::Off
-    );
-    assert_eq!(
-        ProofCheckDepth::for_mode(FilterMode::Shadow),
-        ProofCheckDepth::Full
-    );
+fn a_rejection_records_what_a_rerun_needs() {
+    let run = run(a_payload_forgery(), base_witness());
 
-    let enforced = unnamed_depth_run(a_payload_forgery(), base_witness(), FilterMode::Enforce);
-    assert_eq!(enforced.retained, 0);
-    assert_eq!(enforced.counters.proof_verification_failures, 0);
-    assert_eq!(enforced.counters.witnesses_rejected, 1);
-
-    let shadowed = unnamed_depth_run(a_payload_forgery(), base_witness(), FilterMode::Shadow);
-    assert_eq!(shadowed.counters.proof_verification_failures, 1);
-    assert_eq!(shadowed.counters.witnesses_rejected, 0);
-}
-
-#[test]
-fn depth_is_chosen_independently_of_the_mode() {
-    let deliberate = run(a_payload_forgery(), base_witness());
-    assert_eq!(deliberate.retained, 1);
-    assert_eq!(deliberate.counters.proof_verification_failures, 1);
-
-    let filter = verified_filter(vec![Box::new(ProofPass(a_payload_forgery()))]);
-    let mut retained: Vec<ProposedCandidate> = Vec::new();
-    let mut ledger = BoundedDeathLedger::unlimited();
-    filter.filter_into_at(
-        FilterMode::Shadow,
-        ProofCheckDepth::Off,
-        vec![proposal_of(base_witness())],
-        &mut retained,
-        &mut ledger,
-        FilterBudget::unlimited(),
-    );
-    assert_eq!(ledger.counters().witnesses_rejected, 1);
-    assert_eq!(ledger.counters().proof_verification_failures, 0);
-    assert_eq!(retained.len(), 1);
-}
-
-/// The diagnostic a production rejection records, which an offline full-depth rerun starts from.
-#[test]
-fn a_production_rejection_records_what_a_rerun_needs() {
-    let unchecked = unchecked_run(a_payload_forgery(), base_witness());
-
-    assert_eq!(unchecked.deaths.len(), 1);
-    let death = &unchecked.deaths[0];
+    assert_eq!(run.deaths.len(), 1);
+    let death = &run.deaths[0];
     assert_eq!(death.identity, identity());
     let witness_death = &death.witness_deaths[0];
     assert_eq!(witness_death.witness_id, WitnessId(1));
@@ -1201,7 +1100,7 @@ fn a_production_rejection_records_what_a_rerun_needs() {
     assert_eq!(witness_death.rule_id, RULE);
     assert_eq!(witness_death.category, ProofCategory::ImpossibleOwnership);
     assert!(matches!(
-        &unchecked.events[0].outcome,
+        &run.events[0].outcome,
         PassOutcome::Rejected(proof) if proof.witness.claim == a_payload_forgery().witness.claim
     ));
 }
@@ -1211,11 +1110,26 @@ fn a_rule_the_pass_never_declared_is_not_admissible() {
     let mut forged = proof_of(ProofCategory::ImpossibleOwnership);
     forged.rule_id = UNKNOWN_RULE;
 
-    let run = run(forged, base_witness());
+    let run = run_pass(Box::new(NarrowPass(forged)), base_witness());
 
-    assert_eq!(run.retained, 1);
+    assert_eq!(run.retained, 0);
     assert_eq!(
         refusal(&run),
         ProofVerificationError::UnrecognizedRule(UNKNOWN_RULE)
+    );
+}
+
+/// The category is a free field on a proof, so the pass's own catalog is all that binds it.
+#[test]
+fn a_category_the_pass_never_declared_is_not_admissible() {
+    let run = run_pass(
+        Box::new(NarrowPass(proof_of(ProofCategory::ForbiddenTransition))),
+        base_witness(),
+    );
+
+    assert_eq!(run.retained, 0);
+    assert_eq!(
+        refusal(&run),
+        ProofVerificationError::CategoryNotSupported(ProofCategory::ForbiddenTransition)
     );
 }

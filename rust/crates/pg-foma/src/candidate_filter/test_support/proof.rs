@@ -1,4 +1,8 @@
-//! Re-establishes a claimed rejection against the witness it names, independently of the pass.
+//! Re-derives a recorded rejection against the witness it names, independently of the pass.
+//!
+//! Nothing here runs while filtering. A run acts on a pass's rejection immediately and records the
+//! proof; this re-derives that recorded evidence afterwards, which asserts the stronger property
+//! that no invalid proof was ever produced rather than that the pipeline declined to act on one.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,23 +17,105 @@ use crate::candidate_filter::model::{
     TraceSlotId, TraceStratumId, TraceUnit,
 };
 use crate::candidate_filter::passes::CandidateFilterPass;
-use crate::candidate_filter::pipeline::{FilterContext, ProofVerifier};
 use crate::tags::Candidate;
 
-/// Built from the passes it guards, so a proof cannot also supply the rules that admit it.
-pub(crate) struct RejectionProofVerifier {
+/// One rejection as a run recorded it, together with the witness it was emitted for.
+///
+/// `emitting_pass` is the pass the pipeline ran, which is not necessarily the pass the proof names
+/// itself after. Keeping the two apart is what catches a proof stamped with another pass's ID: the
+/// ledger's own attribution is the trustworthy half of that comparison.
+pub struct RecordedRejection<'a> {
+    pub identity: &'a Candidate,
+    pub witness: &'a CandidateWitness,
+    pub emitting_pass: StablePassId,
+    pub proof: &'a RejectionProof,
+}
+
+/// Re-derives recorded rejections, holding each to the rule population its pass declared.
+///
+/// Built from the passes themselves, so a proof cannot also supply the rules that admit it.
+pub struct RejectionProofVerifier {
     admissible: BTreeMap<StablePassId, BTreeSet<AdmissibleProof>>,
 }
 
 impl RejectionProofVerifier {
-    pub(crate) fn new(admissible: BTreeMap<StablePassId, BTreeSet<AdmissibleProof>>) -> Self {
+    /// Collects what each pass says it may decide, and holds every one of them to it.
+    pub fn of_passes(passes: &[Box<dyn CandidateFilterPass>]) -> Self {
+        let mut admissible: BTreeMap<StablePassId, BTreeSet<AdmissibleProof>> = BTreeMap::new();
+        for pass in passes {
+            admissible
+                .entry(pass.id())
+                .or_default()
+                .extend(pass.admissible_proofs());
+        }
         Self { admissible }
     }
 
-    fn check_rule(&self, proof: &RejectionProof) -> Result<(), ProofVerificationError> {
+    /// Re-derives every recorded rejection, reporting one error per record that fails.
+    pub fn verify_recorded(
+        &self,
+        records: &[RecordedRejection<'_>],
+    ) -> Result<(), Vec<ProofVerificationError>> {
+        self.verify_all(records, true)
+    }
+
+    /// The same, minus re-deriving each claim from its witness.
+    ///
+    /// Stopping at the envelope is what measures the claim re-derivation's worth: a forged payload
+    /// passes this and fails `verify_recorded`.
+    pub fn verify_recorded_envelopes(
+        &self,
+        records: &[RecordedRejection<'_>],
+    ) -> Result<(), Vec<ProofVerificationError>> {
+        self.verify_all(records, false)
+    }
+
+    fn verify_all(
+        &self,
+        records: &[RecordedRejection<'_>],
+        re_derive_claim: bool,
+    ) -> Result<(), Vec<ProofVerificationError>> {
+        let errors: Vec<ProofVerificationError> = records
+            .iter()
+            .filter_map(|record| self.verify_one(record, re_derive_claim).err())
+            .collect();
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn verify_one(
+        &self,
+        record: &RecordedRejection<'_>,
+        re_derive_claim: bool,
+    ) -> Result<(), ProofVerificationError> {
+        let proof = record.proof;
+        if proof.pass_id != record.emitting_pass {
+            return Err(ProofVerificationError::PassIdMismatch {
+                declared: record.emitting_pass,
+                claimed: proof.pass_id,
+            });
+        }
+        check_envelope(record.identity, record.witness, &proof.witness)?;
+        check_declared_category(proof)?;
+        self.check_rule(record.emitting_pass, proof)?;
+        if re_derive_claim {
+            check_claim(record.witness, &proof.witness)?;
+        }
+        Ok(())
+    }
+
+    /// Keyed by the pass that ran, so a proof cannot borrow another pass's declared rules.
+    fn check_rule(
+        &self,
+        emitting_pass: StablePassId,
+        proof: &RejectionProof,
+    ) -> Result<(), ProofVerificationError> {
         let declared = self
             .admissible
-            .get(&proof.pass_id)
+            .get(&emitting_pass)
             .ok_or(ProofVerificationError::UnrecognizedRule(proof.rule_id))?;
         let wanted = AdmissibleProof {
             rule_id: proof.rule_id,
@@ -42,20 +128,6 @@ impl RejectionProofVerifier {
             return Err(ProofVerificationError::CategoryNotSupported(proof.category));
         }
         Err(ProofVerificationError::UnrecognizedRule(proof.rule_id))
-    }
-}
-
-impl ProofVerifier for RejectionProofVerifier {
-    fn verify(
-        &self,
-        context: &FilterContext<'_>,
-        witness: &CandidateWitness,
-        proof: &RejectionProof,
-    ) -> Result<(), ProofVerificationError> {
-        check_envelope(context.identity(), witness, &proof.witness)?;
-        check_declared_category(proof)?;
-        self.check_rule(proof)?;
-        check_claim(witness, &proof.witness)
     }
 }
 
@@ -457,18 +529,4 @@ fn established<'a, T>(
             unit_index,
             fact: kind,
         })
-}
-
-/// Collects what each pass says it may decide, for the verifier that holds every pass to it.
-pub(crate) fn admissible_catalog(
-    passes: &[Box<dyn CandidateFilterPass>],
-) -> BTreeMap<StablePassId, BTreeSet<AdmissibleProof>> {
-    let mut catalog: BTreeMap<StablePassId, BTreeSet<AdmissibleProof>> = BTreeMap::new();
-    for pass in passes {
-        catalog
-            .entry(pass.id())
-            .or_default()
-            .extend(pass.admissible_proofs());
-    }
-    catalog
 }

@@ -13,21 +13,21 @@
 use std::collections::BTreeMap;
 
 use crate::candidate_filter::decision::{
-    DeferReason, ProofCategory, ProofVerificationError, RejectionProof, StablePassId, StableRuleId,
+    DeferReason, ProofCategory, RejectionProof, StablePassId, StableRuleId,
 };
 use crate::candidate_filter::model::{ProposedCandidate, WitnessId};
 use crate::tags::Candidate;
 
-/// What one pass concluded about one witness, after verification.
+/// What one pass concluded about one witness.
 ///
-/// `Rejected` is the only outcome that ends a witness; `ProofRejected` records a rejection that
-/// was claimed and refused, which is diagnostically distinct from a pass that deferred on its own.
+/// `Rejected` is the only outcome that ends a witness, and it carries the whole proof rather than
+/// a summary of it: the proof is both the explanation a reader gets and the material an offline
+/// re-derivation starts from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PassOutcome {
     Kept,
     Deferred(DeferReason),
     Rejected(RejectionProof),
-    ProofRejected(ProofVerificationError),
 }
 
 /// One pass's visit to one witness.
@@ -46,7 +46,7 @@ pub struct PassEvent {
     pub outcome: PassOutcome,
 }
 
-/// The verified rejection that ended one witness.
+/// The rejection that ended one witness.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WitnessDeath {
     pub witness_id: WitnessId,
@@ -56,7 +56,7 @@ pub struct WitnessDeath {
     pub category: ProofCategory,
 }
 
-/// A candidate every one of whose witnesses reached a verified rejection.
+/// A candidate every one of whose witnesses reached a rejection.
 ///
 /// It links each witness to its own terminal event, which is what lets a reader answer both "where
 /// did this trace die" and "why did the candidate die despite the alternative routes to it".
@@ -99,21 +99,19 @@ pub struct PassCounters {
     pub keeps: u64,
     pub defers: u64,
     pub rejections: u64,
-    pub proof_failures: u64,
 }
 
 /// The compact, deterministic summary of one filter run.
 ///
 /// `candidates_rejected` counts decisions, not removals: in shadow mode a candidate can be counted
 /// here and still be emitted, and that difference is the whole content of a shadow run.
-/// `witnesses_rejected` counts witnesses ended by a verified rejection.
+/// `witnesses_rejected` counts witnesses ended by a rejection.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FilterCounters {
     pub pass_evaluations: u64,
     pub keeps: u64,
     pub defers: u64,
     pub witnesses_rejected: u64,
-    pub proof_verification_failures: u64,
     pub candidates_rejected: u64,
     pub candidates_retained: u64,
     pub ordinal_overflow: bool,
@@ -157,11 +155,6 @@ impl FilterTraceSink for CountingTraceSink {
             PassOutcome::Rejected(_) => {
                 counters.witnesses_rejected = counters.witnesses_rejected.saturating_add(1);
                 per_pass.rejections = per_pass.rejections.saturating_add(1);
-            }
-            PassOutcome::ProofRejected(_) => {
-                counters.proof_verification_failures =
-                    counters.proof_verification_failures.saturating_add(1);
-                per_pass.proof_failures = per_pass.proof_failures.saturating_add(1);
             }
         }
     }

@@ -1,13 +1,13 @@
 //! What a pass may conclude about one witness, and the closed vocabulary a rejection speaks.
 //!
 //! A pass never removes anything itself. It returns a decision, and only a `Reject` carrying a
-//! proof that an independent verifier re-establishes against the witness can end that witness.
-//! `Keep` and `Defer` are both retention and differ only in what a report may say about why the
-//! witness survived, so a pass that is unsure has no way to express anything but survival.
+//! proof of why every realization of the witness is impossible can end that witness. `Keep` and
+//! `Defer` are both retention and differ only in what a report may say about why the witness
+//! survived, so a pass that is unsure has no way to express anything but survival.
 //!
-//! The proof categories are closed and versioned on purpose: enforcement is only ever permitted
-//! for a category a verifier knows how to re-derive, and an open-ended category would let a pass
-//! assert a kind of impossibility nothing checks.
+//! The proof categories are closed and versioned on purpose: a rejection may only speak a category
+//! that can be re-derived from the witness afterwards, and an open-ended category would let a pass
+//! assert a kind of impossibility nothing can ever check.
 
 use std::fmt;
 
@@ -96,9 +96,9 @@ impl fmt::Display for ProofCategory {
 
 /// A `(rule, category)` pair a pass is entitled to claim a rejection under.
 ///
-/// A pass declares its own rule population, and a proof naming anything outside it is refused. The
-/// pair is the unit rather than the rule alone because a rule that decides one kind of
-/// impossibility says nothing about another.
+/// A pass declares its own rule population, and a recorded proof naming anything outside it fails
+/// re-derivation. The pair is the unit rather than the rule alone because a rule that decides one
+/// kind of impossibility says nothing about another.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AdmissibleProof {
     pub rule_id: StableRuleId,
@@ -123,11 +123,11 @@ pub enum SpanDefect {
     OverlapsUnit { other_unit_index: usize },
 }
 
-/// The category-specific body of a rejection: everything a verifier needs to re-derive the claim
-/// from the witness rather than take the pass's word for it.
+/// The category-specific body of a rejection: everything a later reader needs to re-derive the
+/// claim from the witness rather than take the pass's word for it.
 ///
-/// Each variant names the trace units it rests on and restates the facts it read from them, so a
-/// verifier can compare the claim against the witness in front of it. A claim that eliminates
+/// Each variant names the trace units it rests on and restates the facts it read from them, so the
+/// claim can be compared against the witness it was emitted for. A claim that eliminates
 /// alternatives carries all of them: exhaustion is the difference between "this reading is
 /// impossible" and "every reading is impossible", and only the latter may end a witness.
 ///
@@ -246,9 +246,9 @@ impl ProofClaim {
 
 /// The machine-checkable body of a rejection: what it was proved against, and where.
 ///
-/// The identity, witness, both revisions, and the lexical origin are carried so a verifier can
-/// re-establish that the proof was built against the very witness now being enforced rather than a
-/// sibling of it, an earlier state of the grammar, or another runtime stem population. The claim
+/// The identity, witness, both revisions, and the lexical origin are carried so that the proof can
+/// be re-established against the very witness it killed rather than a sibling of it, an earlier
+/// state of the grammar, or another runtime stem population. The claim
 /// carries the rest; `unit_indices` is the proof's own statement of which units it read, and a
 /// claim may not rest on a unit it did not cite.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -285,21 +285,20 @@ pub enum TraceFactKind {
 /// Why a pass declined to decide.
 ///
 /// Every variant is a retention. They are distinguished only so a report can say whether the
-/// producer withheld a fact, the construct is outside what the pass can decide, an ambiguity could
-/// not be exhausted, or a rejection was claimed and then failed verification.
+/// producer withheld a fact, the construct is outside what the pass can decide, or an ambiguity
+/// could not be exhausted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeferReason {
     MissingTraceFact(TraceFactKind),
     UnsupportedConstruct,
     AmbiguityNotExhausted,
-    ProofVerificationFailed(ProofVerificationError),
 }
 
-/// Why a claimed rejection was not admitted.
+/// How a recorded rejection failed to re-derive against the witness it names.
 ///
-/// Every variant is a retention. They are distinguished so a report can say whether the proof was
-/// built against something other than this witness, cited a rule the pass never declared, rested
-/// on a fact the producer never established, or stated an impossibility the witness contradicts.
+/// The variants say whether the proof was built against something other than that witness, cited a
+/// rule the pass never declared, rested on a fact the producer never established, or stated an
+/// impossibility the witness contradicts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProofVerificationError {
     PassIdMismatch {
@@ -377,7 +376,7 @@ impl fmt::Display for ProofVerificationError {
             }
             Self::UnrecognizedRule(rule) => write!(f, "rule {rule} is not admissible here"),
             Self::CategoryNotSupported(category) => {
-                write!(f, "category {category} is not verified")
+                write!(f, "category {category} is not declared for that rule")
             }
             Self::CategoryClaimMismatch { declared, claimed } => {
                 write!(f, "proof declares {declared} and claims {claimed}")
