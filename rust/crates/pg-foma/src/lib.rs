@@ -92,6 +92,7 @@ pub mod backend_space;
 /// `String`, not this module's `Fsm`); see that module's own doc for the full scope and the
 /// per-group-Replace-variance obstacle this step surfaced.
 pub mod build;
+pub mod candidate_filter;
 /// The
 /// `CharacteristicsProfile` projection, the `CapabilityPredicate` trait + `PredicateVerdict`, the
 /// exhaustive default-deny `characterize`, and the `simultaneous.subrule-overlap` predicate.
