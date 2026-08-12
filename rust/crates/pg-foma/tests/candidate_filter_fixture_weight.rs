@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use pg_conformance_fixtures::{assert_matches_oracle, FixtureRef, Root, WordsYaml};
-use pg_foma::candidate_filter::test_support::verified_filter;
+use pg_foma::candidate_filter::test_support::filter_of;
 use pg_foma::candidate_filter::{
     CandidateFilter, CandidateFilterPass, CandidateWitness, DeferredFactReason, FeatureSet,
     FilterBudget, FilterMode, LexicalOrigin, ProposalProducer, ProposalProvenance,
@@ -343,7 +343,7 @@ fn every_fixture_matches_the_engine_it_was_transcribed_from() {
 /// Enforced filtering returns exactly what bypassing it returns, per word, in both authorities.
 #[test]
 fn enforced_filtering_keeps_every_analysis_off_keeps() {
-    let filter = verified_filter(production_passes());
+    let filter = filter_of(production_passes());
     let pass_ids = filter.pass_ids();
     let mut total_analyses = 0usize;
     let mut total_words = 0usize;
@@ -403,7 +403,7 @@ fn enforced_filtering_keeps_every_analysis_off_keeps() {
 /// A wired fixture's pass must reject at least as often as that fixture claims.
 #[test]
 fn a_wired_fixture_reaches_its_declared_fire_count() {
-    let filter = verified_filter(production_passes());
+    let filter = filter_of(production_passes());
     let mut wired = 0usize;
     for fixture in discover_fixtures() {
         if fixture.expectation.status != WIRED {
