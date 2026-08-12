@@ -1,0 +1,6 @@
+{
+  "pass_id": "symbolic.co_occurrence.v1",
+  "min_fire_count": 4,
+  "status": "awaiting-pass",
+  "min_fire_count_reasoning": "Two words carrying the excluded tense pair (\"tarosilu\", \"tarolusi\") and two carrying the emphatic without its required partner (\"tarona\", \"minurna\"); one verified rejection each, so a pass implementing only one of the two rule kinds cannot reach this floor."
+}

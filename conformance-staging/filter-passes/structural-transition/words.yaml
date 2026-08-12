@@ -1,0 +1,88 @@
+# Candidate-filter per-pass fixture for structural.transition.v1 -- see STAGING.md and grammar.xml's
+# own header comment for the pathology and the isolation argument.
+#
+# Oracle: pangloss (`pg_parse::Morpher::parse_word`, driven directly rather than through the
+# `pg-cli batch` binary), NOT the C# founding oracle. Every signature below was captured from this
+# repo's own Rust engine and transcribed verbatim; nothing here was hand-derived. Machine
+# acceptance must re-verify against `SIL.Machine.Morphology.HermitCrab.Tool`, and any divergence
+# found there is itself a finding.
+#
+# The Stratum is morphologicalRuleOrder="linear" on purpose. Under "unordered" this engine
+# recursively interleaves free-standing rules, and the prefix-then-suffix and suffix-then-prefix
+# derivations of "takolurmu" serialize to the same text -- measured, giving a duplicated identical
+# signature for that row. The duplicate is faithful but unreadable, and nothing here needs free
+# ordering, so the stratum is linear and every word below has exactly one derivation.
+
+language: Tekumar
+inspired_by: ["synthetic prefix + suffix agglutinative grammar (not modeling any real language)"]
+sources:
+  - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (forbidden morphotactic transition)"
+requires: []
+words:
+  - word: kolur
+    note: Bare root, no transition to check. Plain control.
+    parses:
+      - signature: "KOLUR|kolur"
+        rules: []
+
+  - word: reka
+    note: Second bare root.
+    parses:
+      - signature: "REKA|reka"
+        rules: []
+
+  - word: takolur
+    note: Prefix strictly left of the root -- the legal prefix transition.
+    parses:
+      - signature: "TA+KOLUR|takolur"
+        rules: [mrTa]
+
+  - word: tareka
+    note: The same legal prefix transition over the second root.
+    parses:
+      - signature: "TA+REKA|tareka"
+        rules: [mrTa]
+
+  - word: kolurmu
+    note: Suffix strictly right of the root -- the legal suffix transition.
+    parses:
+      - signature: "KOLUR+MU|kolurmu"
+        rules: [mrMu]
+
+  - word: rekamu
+    note: The same legal suffix transition over the second root.
+    parses:
+      - signature: "REKA+MU|rekamu"
+        rules: [mrMu]
+
+  - word: takolurmu
+    note: Both affixes, each on its own side -- the row the target pass must never disturb.
+    parses:
+      - signature: "TA+KOLUR+MU|takolurmu"
+        rules: [mrTa, mrMu]
+
+  - word: kolurta
+    note: >-
+      THE distinguishing row: the prefix rule's material to the RIGHT of the root. The morpheme
+      sequence (KOLUR, TA) is unreachable in the morphotactic automaton whatever else is true of
+      it, and nothing else in the grammar objects -- the segments are legal, the spans tile the
+      surface exactly, there is one part of speech so no signature conflict exists, there is no
+      AffixTemplate so no slot ordering exists, no co-occurrence rule mentions either morpheme, and
+      each entry has one unconstrained allomorph.
+    provenance: "candidate-filter contract: forbidden morphotactic transition"
+    expect_fail: true
+    blocked_by: [mrTa]
+
+  - word: rekata
+    note: The same wrong-side prefix over the second root, so the pin does not rest on one entry.
+    provenance: "candidate-filter contract: forbidden morphotactic transition"
+    expect_fail: true
+    blocked_by: [mrTa]
+
+  - word: mukolur
+    note: >-
+      The mirror-image violation: the suffix rule's material to the LEFT of the root. A pass that
+      knew only one side of the automaton would leave this row alive.
+    provenance: "candidate-filter contract: forbidden morphotactic transition"
+    expect_fail: true
+    blocked_by: [mrMu]

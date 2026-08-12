@@ -1,0 +1,97 @@
+# Candidate-filter per-pass fixture for symbolic.co_occurrence.v1 -- see STAGING.md and
+# grammar.xml's own header comment for the pathology and the isolation argument.
+#
+# Oracle: pangloss (`pg_parse::Morpher::parse_word`, driven directly rather than through the
+# `pg-cli batch` binary), NOT the C# founding oracle. Every signature below was captured from this
+# repo's own Rust engine and transcribed verbatim; nothing here was hand-derived. Machine
+# acceptance must re-verify against `SIL.Machine.Morphology.HermitCrab.Tool`, and any divergence
+# found there is itself a finding.
+
+language: Tanasil
+inspired_by: ["synthetic suffixing grammar with tense/emphasis co-occurrence constraints (not modeling any real language)"]
+sources:
+  - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (static morpheme/allomorph co-occurrence violation)"
+requires: []
+words:
+  - word: taro
+    note: Bare root. Plain control.
+    parses:
+      - signature: "TARO|taro"
+        rules: []
+
+  - word: minur
+    note: Second bare root.
+    parses:
+      - signature: "MINUR|minur"
+        rules: []
+
+  - word: tarosi
+    note: Past alone -- proves the excluding morpheme is individually attachable.
+    parses:
+      - signature: "TARO+PAST|tarosi"
+        rules: [mrPast]
+
+  - word: tarolu
+    note: Future alone -- proves the excluded morpheme is individually attachable too, so the
+      negative row below cannot be blamed on either affix by itself.
+    parses:
+      - signature: "TARO+FUT|tarolu"
+        rules: [mrFut]
+
+  - word: minursi
+    note: Past alone over the second root.
+    parses:
+      - signature: "MINUR+PAST|minursi"
+        rules: [mrPast]
+
+  - word: minurlu
+    note: Future alone over the second root.
+    parses:
+      - signature: "MINUR+FUT|minurlu"
+        rules: [mrFut]
+
+  - word: tarosina
+    note: >-
+      Emphatic with its required partner present -- the requirement rule's positive row, and one
+      the target pass must never disturb.
+    parses:
+      - signature: "TARO+PAST+EMPH|tarosina"
+        rules: [mrPast, mrEmph]
+
+  - word: taronasi
+    note: >-
+      The same two morphemes in the other order, still accepted: the requirement is stated with
+      adjacency "anywhere", so this row also pins that the pass must not narrow it to adjacency.
+    parses:
+      - signature: "TARO+EMPH+PAST|taronasi"
+        rules: [mrEmph, mrPast]
+
+  - word: tarosilu
+    note: >-
+      THE exclusion row: both tense markers in one word. Each is legal alone (see above), both are
+      suffixes on the correct side, both attach to the same category, the spans tile the surface
+      exactly, there is no AffixTemplate so no slot order exists, and each entry has one
+      unconstrained allomorph. The static co-occurrence rule is the only thing violated.
+    provenance: "candidate-filter contract: static morpheme/allomorph co-occurrence violation"
+    expect_fail: true
+    blocked_by: [mrPast, mrFut]
+
+  - word: tarolusi
+    note: The same forbidden pair in the other order, pinning that the exclusion is order-free.
+    provenance: "candidate-filter contract: static morpheme/allomorph co-occurrence violation"
+    expect_fail: true
+    blocked_by: [mrPast, mrFut]
+
+  - word: tarona
+    note: >-
+      THE requirement row: the emphatic with its required partner absent. A pass that implemented
+      only the exclusion kind of co-occurrence rule would leave this row alive.
+    provenance: "candidate-filter contract: static morpheme/allomorph co-occurrence violation"
+    expect_fail: true
+    blocked_by: [mrEmph]
+
+  - word: minurna
+    note: The same unlicensed emphatic over the second root.
+    provenance: "candidate-filter contract: static morpheme/allomorph co-occurrence violation"
+    expect_fail: true
+    blocked_by: [mrEmph]

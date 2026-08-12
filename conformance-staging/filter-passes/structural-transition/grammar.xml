@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Tekumar</Name>
+    <!-- Pathology: AFFIX SIDEDNESS. One prefix ("ta-") and one suffix ("-mu") over a single part
+         of speech. Every legal word puts prefix material strictly left of the root and suffix
+         material strictly right of it, so a morpheme sequence that places a prefix-rule morpheme
+         after the root - or a suffix-rule morpheme before it - is unreachable in the morphotactic
+         automaton no matter which lexical entry, category, or environment is involved.
+
+         That is the forbidden-transition question in isolation, and it is deliberately NOT a slot
+         question: this grammar declares no AffixTemplate at all, so there are no slots to order
+         (the sibling slot-order fixture is the one that has them and has no sidedness violation).
+         There is also one part of speech, no MorphemeCoOccurrenceRules, no
+         MorphologicalPhonologicalRuleFeatures, no PhonologicalRules, one unconstrained allomorph
+         per entry, and fixed-shape affixes that tile exactly.
+
+         Shape family: agglutinative prefix + suffix morphology; invented lexemes only. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cL"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cR"><Representations><Representation>r</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum
+        characterDefinitionTable="table1"
+        morphologicalRuleOrder="linear"
+        morphologicalRules="mrTa mrMu"
+      >
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <!-- Prefix: inserted segments precede the copied stem. -->
+          <MorphologicalRule id="mrTa" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>ta</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subTa">
+                <MorphologicalInput><PhoneticSequence id="stemTa"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>ta</PhoneticShape></InsertSegments><CopyFromInput index="stemTa" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>TA</MorphemeId>
+          </MorphologicalRule>
+          <!-- Suffix: inserted segments follow the copied stem. -->
+          <MorphologicalRule id="mrMu" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>mu</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subMu">
+                <MorphologicalInput><PhoneticSequence id="stemMu"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemMu" /><InsertSegments><PhoneticShape>mu</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>MU</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eKolur" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aKolur"><PhoneticShape>kolur</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>KOLUR</MorphemeId>
+            <Gloss>root.kolur</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eReka" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aReka"><PhoneticShape>reka</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>REKA</MorphemeId>
+            <Gloss>root.reka</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

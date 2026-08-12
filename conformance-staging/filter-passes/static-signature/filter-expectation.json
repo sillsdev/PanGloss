@@ -1,0 +1,6 @@
+{
+  "pass_id": "symbolic.static_signature.v1",
+  "min_fire_count": 4,
+  "status": "awaiting-pass",
+  "min_fire_count_reasoning": "One word blocked by the excluded rule feature (\"vokadan\") and three blocked by category selection (\"minoan\", \"sanuki\", \"vokadki\"); one verified rejection each, so a pass checking only categories or only rule features cannot reach this floor."
+}

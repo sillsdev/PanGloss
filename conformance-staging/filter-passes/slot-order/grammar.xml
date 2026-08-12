@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Mirachu</Name>
+    <!-- Pathology: RIGID SUFFIX SLOT ORDER. One AffixTemplate with two optional suffix slots -
+         causative before plural, never the reverse. Both suffixes are on the same side of the
+         root, attach to the same category, and are individually legal, so the ONLY thing wrong
+         with the reversed surface is the order of the two slots relative to one another.
+
+         That is what separates this fixture from its structural-transition sibling: there, an
+         affix appears on the wrong side of the root and is unreachable in the morphotactic
+         automaton however it is ordered; here both affixes are on their own correct side and the
+         automaton question reduces to slot sequence. This grammar accordingly declares no prefix
+         at all, so no sidedness violation is even expressible in it.
+
+         Both rules are reachable ONLY through their own template Slot: the Stratum deliberately
+         carries no morphologicalRules attribute, because a rule listed there stays freely
+         combinable with any other listed rule regardless of template membership, which would make
+         the reversed order derivable and this fixture vacuous. See
+         conformance-staging/edge-cases/template-category-sharing for the measurement behind that.
+
+         Everything else is uniform so no other pass has a target: one part of speech, no
+         MorphemeCoOccurrenceRules, no MorphologicalPhonologicalRuleFeatures, no PhonologicalRules,
+         one unconstrained allomorph per entry, fixed-shape affixes that tile exactly.
+
+         Shape family: agglutinative suffixing morphology with a fixed slot template; invented
+         lexemes only. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cC"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cH"><Representations><Representation>h</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cL"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cR"><Representations><Representation>r</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <!-- No morphologicalRules attribute: see this file's header comment. -->
+      <Stratum
+        characterDefinitionTable="table1"
+        morphologicalRuleOrder="unordered"
+      >
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrChi" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>chi</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subChi">
+                <MorphologicalInput><PhoneticSequence id="stemChi"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemChi" /><InsertSegments><PhoneticShape>chi</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>CAUS</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrKu" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>ku</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subKu">
+                <MorphologicalInput><PhoneticSequence id="stemKu"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemKu" /><InsertSegments><PhoneticShape>ku</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>PL</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate requiredPartsOfSpeech="posV">
+            <Name>suffixOrder</Name>
+            <Slot optional="true" morphologicalRules="mrChi"><Name>causative</Name></Slot>
+            <Slot optional="true" morphologicalRules="mrKu"><Name>plural</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="eMira" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aMira"><PhoneticShape>mira</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>MIRA</MorphemeId>
+            <Gloss>root.mira</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eSolan" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aSolan"><PhoneticShape>solan</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>SOLAN</MorphemeId>
+            <Gloss>root.solan</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

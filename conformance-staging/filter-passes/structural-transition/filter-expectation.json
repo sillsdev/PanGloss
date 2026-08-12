@@ -1,0 +1,6 @@
+{
+  "pass_id": "structural.transition.v1",
+  "min_fire_count": 3,
+  "status": "awaiting-pass",
+  "min_fire_count_reasoning": "Three words placing affix material on the wrong side of the root (\"kolurta\", \"rekata\", \"mukolur\"); one verified rejection each."
+}

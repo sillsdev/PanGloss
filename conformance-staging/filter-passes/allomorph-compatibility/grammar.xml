@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Kapinor</Name>
+    <!-- Pathology: A ROOT WITH NO ELSEWHERE ALLOMORPH. One entry has two suppletive allomorphs and
+         BOTH are environment-restricted - one demands a consonant to its right, the other a vowel -
+         so there is no unrestricted fallback to catch the contexts neither covers. A candidate that
+         names this morpheme is therefore impossible exactly when every one of its alternatives is
+         impossible, which is the alternative-exhaustion question the allomorph pass exists to
+         answer, and the reason a pass that stops at the first failing alternative would be unsound
+         here.
+
+         The contrast root next to it has a single unconstrained allomorph and appears in the same
+         two suffix contexts, so a pass that rejected on the mere presence of several allomorphs, or
+         on the mere presence of an environment, would be caught by those rows rather than
+         rewarded.
+
+         Isolation: one part of speech, both suffixes on the correct side of the root, no
+         AffixTemplate, no MorphemeCoOccurrenceRules, no MorphologicalPhonologicalRuleFeatures, and
+         no PhonologicalRules or MetathesisRules at all - so requires: [] and the surface is a
+         literal concatenation, which keeps every negative row's span tiling exact and leaves
+         allomorph compatibility as the only thing wrong with it.
+
+         The PhonologicalFeatureSystem below declares no phonology; it exists solely to give each
+         segment a unique symbol, without which a SegmentNaturalClass constraint degrades to "any
+         segment" in this port's bridge layer and the environment rows would pass for the wrong
+         reason. Same reason and same shape as
+         machine/conformance/edge-cases/free-fluctuating-allomorph-pair.
+
+         Shape family: suffixing morphology with phonologically conditioned root suppletion;
+         invented lexemes only. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featPh">
+        <Name>ph</Name>
+        <Symbols>
+          <Symbol id="symA">a</Symbol><Symbol id="symI">i</Symbol><Symbol id="symO">o</Symbol>
+          <Symbol id="symK">k</Symbol><Symbol id="symN">n</Symbol><Symbol id="symP">p</Symbol>
+          <Symbol id="symR">r</Symbol><Symbol id="symS">s</Symbol><Symbol id="symT">t</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featPh" symbolValues="symA" /></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featPh" symbolValues="symI" /></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations><FeatureValue feature="featPh" symbolValues="symO" /></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations><FeatureValue feature="featPh" symbolValues="symK" /></SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations><FeatureValue feature="featPh" symbolValues="symN" /></SegmentDefinition>
+        <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations><FeatureValue feature="featPh" symbolValues="symP" /></SegmentDefinition>
+        <SegmentDefinition id="cR"><Representations><Representation>r</Representation></Representations><FeatureValue feature="featPh" symbolValues="symR" /></SegmentDefinition>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations><FeatureValue feature="featPh" symbolValues="symS" /></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations><FeatureValue feature="featPh" symbolValues="symT" /></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+      <SegmentNaturalClass id="ncObstruent"><Name>Obstruent</Name><Segment segment="cT" /><Segment segment="cS" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncVowel"><Name>Vowel</Name><Segment segment="cA" /><Segment segment="cO" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum
+        characterDefinitionTable="table1"
+        morphologicalRuleOrder="unordered"
+        morphologicalRules="mrTa mrOn"
+      >
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <!-- Obstruent-initial suffix: only the consonant-selecting root allomorph fits before it. -->
+          <MorphologicalRule id="mrTa" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>ta</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subTa">
+                <MorphologicalInput><PhoneticSequence id="stemTa"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemTa" /><InsertSegments><PhoneticShape>ta</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>TA</MorphemeId>
+          </MorphologicalRule>
+          <!-- Vowel-initial suffix: only the vowel-selecting root allomorph fits before it. -->
+          <MorphologicalRule id="mrOn" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>on</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subOn">
+                <MorphologicalInput><PhoneticSequence id="stemOn"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemOn" /><InsertSegments><PhoneticShape>on</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>ON</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <!-- THE construct: every alternative is restricted, and the two restrictions do not
+               exhaust the contexts this root can appear in. -->
+          <LexicalEntry id="eKapa" partOfSpeech="posV">
+            <Allomorphs>
+              <Allomorph id="aKap">
+                <PhoneticShape>kap</PhoneticShape>
+                <RequiredEnvironments>
+                  <Environment>
+                    <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncObstruent" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+                  </Environment>
+                </RequiredEnvironments>
+              </Allomorph>
+              <Allomorph id="aKapi">
+                <PhoneticShape>kapi</PhoneticShape>
+                <RequiredEnvironments>
+                  <Environment>
+                    <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVowel" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+                  </Environment>
+                </RequiredEnvironments>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>KAPA</MorphemeId>
+            <Gloss>root.kapa</Gloss>
+          </LexicalEntry>
+          <!-- Contrast root: one allomorph, no environment, same two suffix contexts. -->
+          <LexicalEntry id="eNoris" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aNoris"><PhoneticShape>noris</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>NORIS</MorphemeId>
+            <Gloss>root.noris</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

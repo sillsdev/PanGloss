@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Matinlu</Name>
+    <!-- Pathology: STRICTLY CONCATENATIVE FIXED-SHAPE MORPHOLOGY. Every morpheme has exactly one
+         allomorph of a fixed shape, and the grammar declares no phonological or metathesis rule at
+         all, so a word's surface is the literal concatenation of its morphemes' shapes. That makes
+         each morpheme's surface span exact and knowable in advance, and it makes a candidate whose
+         morphemes cannot tile the surface - leaving a segment uncovered, or overrunning the end -
+         impossible on arithmetic alone, before any category, order, or environment is consulted.
+
+         The negative rows are surfaces one segment away from a derivable word: an inserted
+         segment that nothing covers, and a deleted segment that leaves the proposed pieces
+         overrunning what is there. No other morpheme in the grammar can absorb the difference,
+         which is what makes the span the only thing wrong.
+
+         Isolation: one part of speech, one prefix and one suffix each on their own correct side,
+         no AffixTemplate, no MorphemeCoOccurrenceRules, no
+         MorphologicalPhonologicalRuleFeatures, no PhonologicalRules, and one unconstrained
+         allomorph per entry. The root inventory is deliberately chosen so that no root is a
+         substring extension of another, since a longer near-homograph root would absorb the very
+         segment the negative rows leave uncovered.
+
+         Shape family: agglutinative morphology without phonological alternation; invented lexemes
+         only. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cL"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum
+        characterDefinitionTable="table1"
+        morphologicalRuleOrder="linear"
+        morphologicalRules="mrMa mrLu"
+      >
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrMa" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>ma</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subMa">
+                <MorphologicalInput><PhoneticSequence id="stemMa"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>ma</PhoneticShape></InsertSegments><CopyFromInput index="stemMa" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>MA</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrLu" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>lu</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subLu">
+                <MorphologicalInput><PhoneticSequence id="stemLu"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemLu" /><InsertSegments><PhoneticShape>lu</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>LU</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eTin" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aTin"><PhoneticShape>tin</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>TIN</MorphemeId>
+            <Gloss>root.tin</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eKesa" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aKesa"><PhoneticShape>kesa</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>KESA</MorphemeId>
+            <Gloss>root.kesa</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

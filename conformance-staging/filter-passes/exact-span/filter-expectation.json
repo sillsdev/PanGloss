@@ -1,0 +1,6 @@
+{
+  "pass_id": "local.exact_span.v1",
+  "min_fire_count": 4,
+  "status": "awaiting-pass",
+  "min_fire_count_reasoning": "Four one-segment perturbations of a derivable word whose pieces cannot tile the surface (\"matinolu\", \"matnlu\", \"matinlua\", \"makesaluu\"); one verified rejection each, covering both uncovered surface and overrun."
+}

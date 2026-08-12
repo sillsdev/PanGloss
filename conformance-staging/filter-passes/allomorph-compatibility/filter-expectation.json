@@ -1,0 +1,6 @@
+{
+  "pass_id": "local.allomorph.v1",
+  "min_fire_count": 4,
+  "status": "awaiting-pass",
+  "min_fire_count_reasoning": "Four words in which every alternative the restricted root offers is impossible (\"kapon\", \"kapita\", \"kap\", \"kapi\"); one verified rejection each, and each requires exhausting both alternatives rather than stopping at the first failure."
+}

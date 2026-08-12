@@ -1,0 +1,6 @@
+{
+  "pass_id": "symbolic.slot_order.v1",
+  "min_fire_count": 2,
+  "status": "awaiting-pass",
+  "min_fire_count_reasoning": "Two words carrying the two template slots in reversed order (\"mirakuchi\", \"solankuchi\"); one verified rejection each."
+}

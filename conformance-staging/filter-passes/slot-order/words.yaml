@@ -1,0 +1,81 @@
+# Candidate-filter per-pass fixture for symbolic.slot_order.v1 -- see STAGING.md and grammar.xml's
+# own header comment for the pathology and the isolation argument.
+#
+# Oracle: pangloss (`pg_parse::Morpher::parse_word`, driven directly rather than through the
+# `pg-cli batch` binary), NOT the C# founding oracle. Every signature below was captured from this
+# repo's own Rust engine and transcribed verbatim; nothing here was hand-derived. Machine
+# acceptance must re-verify against `SIL.Machine.Morphology.HermitCrab.Tool`, and any divergence
+# found there is itself a finding.
+
+language: Mirachu
+inspired_by: ["synthetic suffixing grammar with one fixed-order slot template (not modeling any real language)"]
+sources:
+  - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (ordering rules)"
+requires: []
+words:
+  - word: mira
+    note: Bare root, both slots empty. Plain control.
+    parses:
+      - signature: "MIRA|mira"
+        rules: []
+
+  - word: solan
+    note: Second bare root.
+    parses:
+      - signature: "SOLAN|solan"
+        rules: []
+
+  - word: mirachi
+    note: Slot 1 alone -- proves the causative is individually attachable, so the negative row
+      below cannot be blamed on the affix itself.
+    parses:
+      - signature: "MIRA+CAUS|mirachi"
+        rules: [mrChi]
+
+  - word: miraku
+    note: Slot 2 alone -- the same for the plural.
+    parses:
+      - signature: "MIRA+PL|miraku"
+        rules: [mrKu]
+
+  - word: mirachiku
+    note: Both slots in declared order -- the row the target pass must never disturb.
+    parses:
+      - signature: "MIRA+CAUS+PL|mirachiku"
+        rules: [mrChi, mrKu]
+
+  - word: solanchi
+    note: Slot 1 alone over the second root.
+    parses:
+      - signature: "SOLAN+CAUS|solanchi"
+        rules: [mrChi]
+
+  - word: solanku
+    note: Slot 2 alone over the second root.
+    parses:
+      - signature: "SOLAN+PL|solanku"
+        rules: [mrKu]
+
+  - word: solanchiku
+    note: Both slots in declared order over the second root.
+    parses:
+      - signature: "SOLAN+CAUS+PL|solanchiku"
+        rules: [mrChi, mrKu]
+
+  - word: mirakuchi
+    note: >-
+      THE distinguishing row: the same two morphemes as "mirachiku", in the other order. Both are
+      suffixes, so neither is on the wrong side of the root and the sidedness question the sibling
+      structural-transition fixture asks does not arise; both attach to the same category, so no
+      signature conflict arises; the spans tile the surface exactly; there is no co-occurrence rule
+      and no allomorph environment anywhere in this grammar. The slot sequence is the only thing
+      that separates this from the accepted row above.
+    provenance: "candidate-filter contract: ordering rules"
+    expect_fail: true
+    blocked_by: [mrChi, mrKu]
+
+  - word: solankuchi
+    note: The same reversal over the second root, so the pin does not rest on one entry.
+    provenance: "candidate-filter contract: ordering rules"
+    expect_fail: true
+    blocked_by: [mrChi, mrKu]

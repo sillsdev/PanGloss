@@ -1,0 +1,91 @@
+# Candidate-filter per-pass fixture for structural.ownership.v1 -- see STAGING.md and grammar.xml's
+# own header comment for the pathology and the isolation argument.
+#
+# Oracle: pangloss (`pg_parse::Morpher::parse_word`, driven directly rather than through the
+# `pg-cli batch` binary), NOT the C# founding oracle. Every signature below was captured from this
+# repo's own Rust engine and transcribed verbatim; nothing here was hand-derived. Machine
+# acceptance must re-verify against `SIL.Machine.Morphology.HermitCrab.Tool`, and any divergence
+# found there is itself a finding.
+
+language: Panorel
+inspired_by: ["synthetic prefixing grammar with a root/affix homophone (not modeling any real language)"]
+sources:
+  - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (impossible morpheme ownership)"
+requires: []
+words:
+  - word: kolo
+    note: Bare root, nothing to designate but the lexical entry itself. Plain control.
+    parses:
+      - signature: "KOLO|kolo"
+        rules: []
+
+  - word: nilo
+    note: Second bare root, so the positive rows do not rest on one entry.
+    parses:
+      - signature: "NILO|nilo"
+        rules: []
+
+  - word: pakolo
+    note: Prefix on a root that is not homophonous with any affix; ownership is unambiguous here.
+    parses:
+      - signature: "PA+KOLO|pakolo"
+        rules: [mrPa]
+
+  - word: takolo
+    note: The other prefix, same shape of derivation.
+    parses:
+      - signature: "TA+KOLO|takolo"
+        rules: [mrTa]
+
+  - word: panilo
+    note: Prefix on the second root.
+    parses:
+      - signature: "PA+NILO|panilo"
+        rules: [mrPa]
+
+  - word: pa
+    note: >-
+      The bare homophonous root. Its surface is identical to the shape mrPa inserts, so "is the
+      morpheme at this position owned by a lexical entry" is the only thing separating the one real
+      analysis from a candidate that names the affix instead.
+    parses:
+      - signature: "ROOTPA|pa"
+        rules: []
+
+  - word: papa
+    note: >-
+      THE row the target pass must not disturb, and the one carrying the invalid candidate it
+      should remove. The morpheme sequence is (PA, ROOTPA) and exactly one of the two positions is
+      owned by a lexical entry, so a proposer that enumerates root positions over the sequence can
+      designate index 0 -- an affix -- as the root. That candidate is impossible on ownership
+      alone: its spans still tile the surface exactly, its category chain is uniform, and no order,
+      slot, co-occurrence, or environment constraint is violated by it.
+    provenance: "candidate-filter contract: impossible morpheme ownership"
+    parses:
+      - signature: "PA+ROOTPA|papa"
+        rules: [mrPa]
+
+  - word: tapa
+    note: The non-homophonous prefix on the homophonous root, a second bearer of the same ambiguity.
+    parses:
+      - signature: "TA+ROOTPA|tapa"
+        rules: [mrTa]
+
+  - word: ta
+    note: >-
+      A bare affix surface with no lexical entry anywhere in it. Any candidate over this word names
+      only rule-owned morphemes, so no position it could designate as root is owned by a lexical
+      entry. Nothing else in the grammar rules it out -- the shape tiles exactly, one category, no
+      slots, no co-occurrence, no environments -- which makes it this fixture's cleanest ownership
+      negative.
+    provenance: "candidate-filter contract: impossible morpheme ownership"
+    expect_fail: true
+    blocked_by: [mrTa]
+
+  - word: pata
+    note: >-
+      Two affix shapes and no root: the same ownership defect as "ta" over a two-morpheme sequence,
+      so a pass that only handled the single-morpheme case would still have this row to answer for.
+    provenance: "candidate-filter contract: impossible morpheme ownership"
+    expect_fail: true
+    blocked_by: [mrPa, mrTa]

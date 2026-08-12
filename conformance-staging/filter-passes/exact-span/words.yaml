@@ -1,0 +1,101 @@
+# Candidate-filter per-pass fixture for local.exact_span.v1 -- see STAGING.md and grammar.xml's own
+# header comment for the pathology and the isolation argument.
+#
+# Oracle: pangloss (`pg_parse::Morpher::parse_word`, driven directly rather than through the
+# `pg-cli batch` binary), NOT the C# founding oracle. Every signature below was captured from this
+# repo's own Rust engine and transcribed verbatim; nothing here was hand-derived. Machine
+# acceptance must re-verify against `SIL.Machine.Morphology.HermitCrab.Tool`, and any divergence
+# found there is itself a finding.
+#
+# The Stratum is morphologicalRuleOrder="linear" on purpose. Under "unordered" this engine
+# recursively interleaves free-standing rules, and the prefix-then-suffix and suffix-then-prefix
+# derivations of "matinlu" serialize to the same text -- measured, giving a duplicated identical
+# signature for that row. The duplicate is faithful but unreadable, and nothing here needs free
+# ordering, so the stratum is linear and every word below has exactly one derivation.
+
+language: Matinlu
+inspired_by: ["synthetic agglutinative grammar with no phonological alternation (not modeling any real language)"]
+sources:
+  - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (impossible exact local surface span)"
+requires: []
+words:
+  - word: tin
+    note: Bare root, spanning the whole surface on its own. Plain control.
+    parses:
+      - signature: "TIN|tin"
+        rules: []
+
+  - word: kesa
+    note: Second bare root, a different length, so span arithmetic is not pinned to one size.
+    parses:
+      - signature: "KESA|kesa"
+        rules: []
+
+  - word: matin
+    note: Prefix plus root, tiling the surface exactly.
+    parses:
+      - signature: "MA+TIN|matin"
+        rules: [mrMa]
+
+  - word: tinlu
+    note: Root plus suffix, tiling the surface exactly.
+    parses:
+      - signature: "TIN+LU|tinlu"
+        rules: [mrLu]
+
+  - word: matinlu
+    note: >-
+      All three pieces, tiling the surface with nothing left over -- the row the target pass must
+      never disturb, and the one every negative row below is a one-segment perturbation of.
+    parses:
+      - signature: "MA+TIN+LU|matinlu"
+        rules: [mrMa, mrLu]
+
+  - word: makesa
+    note: Prefix plus the second root.
+    parses:
+      - signature: "MA+KESA|makesa"
+        rules: [mrMa]
+
+  - word: kesalu
+    note: The second root plus suffix.
+    parses:
+      - signature: "KESA+LU|kesalu"
+        rules: [mrLu]
+
+  - word: makesalu
+    note: All three pieces over the second root.
+    parses:
+      - signature: "MA+KESA+LU|makesalu"
+        rules: [mrMa, mrLu]
+
+  - word: matinolu
+    note: >-
+      THE distinguishing row: "matinlu" with one segment inserted between the root and the suffix.
+      Every morpheme the surface suggests is legal, in the right order, on the right side, in the
+      right category, and no grammar constraint of any other kind is violated -- the pieces simply
+      cannot cover the surface, since the grammar declares no phonological or metathesis rule that
+      could account for the extra segment.
+    provenance: "candidate-filter contract: impossible exact local surface span"
+    expect_fail: true
+    blocked_by: [mrMa, mrLu]
+
+  - word: matnlu
+    note: >-
+      The deletion counterpart: "matinlu" one segment short, so the proposed pieces overrun what is
+      there. A pass that only detected uncovered surface would leave this row alive.
+    provenance: "candidate-filter contract: impossible exact local surface span"
+    expect_fail: true
+    blocked_by: [mrMa, mrLu]
+
+  - word: matinlua
+    note: An extra segment past the end of the last morpheme rather than in the interior.
+    provenance: "candidate-filter contract: impossible exact local surface span"
+    expect_fail: true
+    blocked_by: [mrMa, mrLu]
+
+  - word: makesaluu
+    note: The same overrun over the second root, so the pin does not rest on one entry.
+    provenance: "candidate-filter contract: impossible exact local surface span"
+    expect_fail: true
+    blocked_by: [mrMa, mrLu]

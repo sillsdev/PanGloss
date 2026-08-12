@@ -1,0 +1,6 @@
+{
+  "pass_id": "structural.ownership.v1",
+  "min_fire_count": 2,
+  "status": "awaiting-pass",
+  "min_fire_count_reasoning": "Two words whose only candidates designate a rule-owned morpheme as the root (\"ta\", \"pata\"), plus the invalid root designation over \"papa\"'s (PA, ROOTPA) sequence; the floor counts only the two words that have no valid analysis at all."
+}

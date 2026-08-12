@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Panorel</Name>
+    <!-- Pathology: ROOT/AFFIX SURFACE HOMOPHONY. A derivational prefix and a free root share one
+         phonetic shape ("pa"), and a second prefix ("ta") is homophonous with nothing at all. A
+         proposer that enumerates root positions over a decoded morpheme sequence can therefore
+         designate an affix morpheme as the candidate's root: for "papa" the sequence is
+         (PA, ROOTPA) and only index 1 is owned by a lexical entry, and for the bare surface "ta"
+         the ONLY conceivable designation points at a morpheme owned by a MorphologicalRule.
+
+         This is the ownership question in isolation. Everything else in this grammar is
+         deliberately uniform so that no other filter pass has anything to say about the candidates
+         it produces: one part of speech, no AffixTemplates (so no slot order), no
+         MorphemeCoOccurrenceRules, no MorphologicalPhonologicalRuleFeatures, no PhonologicalRules,
+         one unconstrained allomorph per entry, and fixed-shape affixes that tile any surface they
+         occur in exactly.
+
+         Shape family: agglutinative prefixing morphology with a homophonous free root; invented
+         lexemes only. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <!-- No PhonologicalFeatureSystem and no PhonologicalRuleDefinitions at all, so requires: [] -
+         the same pure-morphotactics shape edge-cases/template-category-sharing uses. -->
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cL"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum
+        characterDefinitionTable="table1"
+        morphologicalRuleOrder="unordered"
+        morphologicalRules="mrPa mrTa"
+      >
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <!-- "pa-": the prefix homophonous with the free root ePa below. -->
+          <MorphologicalRule id="mrPa" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>pa</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subPa">
+                <MorphologicalInput><PhoneticSequence id="stemPa"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>pa</PhoneticShape></InsertSegments><CopyFromInput index="stemPa" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>PA</MorphemeId>
+          </MorphologicalRule>
+          <!-- "ta-": homophonous with NO lexical entry, which is what makes the bare surface "ta"
+               a pure ownership probe - its only conceivable candidate designates a rule-owned
+               morpheme as the root. -->
+          <MorphologicalRule id="mrTa" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>ta</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subTa">
+                <MorphologicalInput><PhoneticSequence id="stemTa"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>ta</PhoneticShape></InsertSegments><CopyFromInput index="stemTa" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>TA</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eKolo" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aKolo"><PhoneticShape>kolo</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>KOLO</MorphemeId>
+            <Gloss>root.kolo</Gloss>
+          </LexicalEntry>
+          <!-- THE construct: a free root whose surface is exactly the prefix mrPa's inserted
+               shape, so "papa" has a genuine two-morpheme sequence in which exactly one position
+               is owned by a lexical entry. -->
+          <LexicalEntry id="ePa" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aPa"><PhoneticShape>pa</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>ROOTPA</MorphemeId>
+            <Gloss>root.pa</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eNilo" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aNilo"><PhoneticShape>nilo</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>NILO</MorphemeId>
+            <Gloss>root.nilo</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

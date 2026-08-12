@@ -1,0 +1,81 @@
+# Candidate-filter per-pass fixture for symbolic.static_signature.v1 -- see STAGING.md and
+# grammar.xml's own header comment for the pathology and the isolation argument.
+#
+# Oracle: pangloss (`pg_parse::Morpher::parse_word`, driven directly rather than through the
+# `pg-cli batch` binary), NOT the C# founding oracle. Every signature below was captured from this
+# repo's own Rust engine and transcribed verbatim; nothing here was hand-derived. Machine
+# acceptance must re-verify against `SIL.Machine.Morphology.HermitCrab.Tool`, and any divergence
+# found there is itself a finding.
+
+language: Sanuvok
+inspired_by: ["synthetic suffixing grammar with category selection and a lexically marked irregular class (not modeling any real language)"]
+sources:
+  - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (static POS/MPR/signature conflict)"
+requires: []
+words:
+  - word: sanu
+    note: Bare regular root of the first category. Plain control.
+    parses:
+      - signature: "SANU|sanu"
+        rules: []
+
+  - word: vokad
+    note: >-
+      Bare root of the same category carrying the irregular rule feature -- proves the feature by
+      itself blocks nothing, so the negative row below is about the pairing, not the entry.
+    parses:
+      - signature: "VOKAD|vokad"
+        rules: []
+
+  - word: mino
+    note: Bare root of the second category.
+    parses:
+      - signature: "MINO|mino"
+        rules: []
+
+  - word: sanuan
+    note: >-
+      The category-selecting suffix on a stem of its own category that is not in the exception
+      class -- the row both halves of the target pass must never disturb.
+    parses:
+      - signature: "SANU+AN|sanuan"
+        rules: [mrAn]
+
+  - word: minoki
+    note: The other suffix on a stem of its own category.
+    parses:
+      - signature: "MINO+KI|minoki"
+        rules: [mrKi]
+
+  - word: vokadan
+    note: >-
+      THE rule-feature row: right category, wrong exception class. The morphotactics are identical
+      to the accepted "sanuan" -- same suffix, same side, same category, spans tiling exactly, no
+      slot template, no co-occurrence rule, one unconstrained allomorph on each entry -- so the
+      lexically declared rule feature is the only thing that separates them.
+    provenance: "candidate-filter contract: static POS/MPR/signature conflict"
+    expect_fail: true
+    blocked_by: [mrAn]
+
+  - word: minoan
+    note: >-
+      THE category row: a stem of the second category under the suffix that selects the first. A
+      pass that checked rule features but not category signatures would leave this alive.
+    provenance: "candidate-filter contract: static POS/MPR/signature conflict"
+    expect_fail: true
+    blocked_by: [mrAn]
+
+  - word: sanuki
+    note: The mirror-image category violation, so the pin covers both directions of selection.
+    provenance: "candidate-filter contract: static POS/MPR/signature conflict"
+    expect_fail: true
+    blocked_by: [mrKi]
+
+  - word: vokadki
+    note: >-
+      A stem that fails on category alone even though it also carries the irregular feature the
+      other suffix excludes -- a candidate with two independent signature defects, which must not
+      need both to be rejected.
+    provenance: "candidate-filter contract: static POS/MPR/signature conflict"
+    expect_fail: true
+    blocked_by: [mrKi]

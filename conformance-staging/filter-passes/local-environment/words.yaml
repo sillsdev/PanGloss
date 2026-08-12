@@ -1,0 +1,101 @@
+# Candidate-filter per-pass fixture for local.environment.v1 -- see STAGING.md and grammar.xml's own
+# header comment for the pathology and the isolation argument.
+#
+# Oracle: pangloss (`pg_parse::Morpher::parse_word`, driven directly rather than through the
+# `pg-cli batch` binary), NOT the C# founding oracle. Every signature below was captured from this
+# repo's own Rust engine and transcribed verbatim; nothing here was hand-derived. Machine
+# acceptance must re-verify against `SIL.Machine.Morphology.HermitCrab.Tool`, and any divergence
+# found there is itself a finding.
+#
+# The five vowels each carry a distinguishing high/back value. Without them all five share one
+# feature bundle, and this engine renders an indistinguishable segment as an ambiguity class --
+# measured: the first draft's signatures read "BALO|b[aeiou]l[aeiou]" rather than "BALO|balo",
+# which would have left the surface half-pinned.
+
+language: Membalo
+inspired_by: ["synthetic Austronesian-style nasal-substitution prefixation (not modeling any real language)"]
+sources:
+  - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (impossible certified local environment)"
+requires: [phonology]
+words:
+  - word: balo
+    note: Bare bilabial-initial root, no prefix and so no nasal to place. Plain control.
+    parses:
+      - signature: "BALO|balo"
+        rules: []
+
+  - word: paku
+    note: Second bilabial-initial root, voiceless.
+    parses:
+      - signature: "PAKU|paku"
+        rules: []
+
+  - word: tilo
+    note: Bare alveolar-initial root.
+    parses:
+      - signature: "TILO|tilo"
+        rules: []
+
+  - word: duka
+    note: Second alveolar-initial root, voiced.
+    parses:
+      - signature: "DUKA|duka"
+        rules: []
+
+  - word: membalo
+    note: >-
+      The nasal agreeing in place with the segment it precedes -- a row the target pass must never
+      disturb, and the exact minimal pair of the negative row below.
+    parses:
+      - signature: "AV+BALO|membalo"
+        rules: [mrNasalPfx]
+
+  - word: mempaku
+    note: The same agreement before a voiceless bilabial, so the rule is not pinned to one segment.
+    parses:
+      - signature: "AV+PAKU|mempaku"
+        rules: [mrNasalPfx]
+
+  - word: mentilo
+    note: The alveolar half of the alternation.
+    parses:
+      - signature: "AV+TILO|mentilo"
+        rules: [mrNasalPfx]
+
+  - word: menduka
+    note: The alveolar half before a voiced stop.
+    parses:
+      - signature: "AV+DUKA|menduka"
+        rules: [mrNasalPfx]
+
+  - word: menbalo
+    note: >-
+      THE distinguishing row: an alveolar nasal before a bilabial stop. It is the same length as
+      "membalo", built from the same morphemes in the same order on the same side of the root, with
+      the same category and the same single unconstrained allomorph per entry -- so span
+      arithmetic, ordering, ownership, signature, and co-occurrence all have nothing to say about
+      it. The one-segment conditioning window to the nasal's right is the only thing that
+      distinguishes an underivable surface from a derivable one.
+    provenance: "candidate-filter contract: impossible certified local environment"
+    expect_fail: true
+    blocked_by: [prNasalBilabial]
+
+  - word: menpaku
+    note: The same disagreement before the voiceless bilabial.
+    provenance: "candidate-filter contract: impossible certified local environment"
+    expect_fail: true
+    blocked_by: [prNasalBilabial]
+
+  - word: memtilo
+    note: >-
+      The mirror-image disagreement: a bilabial nasal before an alveolar stop. A pass that
+      certified only one of the two rewrite rules would leave this row alive.
+    provenance: "candidate-filter contract: impossible certified local environment"
+    expect_fail: true
+    blocked_by: [prNasalAlveolar]
+
+  - word: memduka
+    note: The same disagreement before the voiced alveolar.
+    provenance: "candidate-filter contract: impossible certified local environment"
+    expect_fail: true
+    blocked_by: [prNasalAlveolar]

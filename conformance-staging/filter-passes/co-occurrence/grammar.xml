@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Tanasil</Name>
+    <!-- Pathology: MUTUALLY EXCLUSIVE AND MUTUALLY DEPENDENT TENSE/EMPHASIS SUFFIXES. Three
+         suffixes attach to one category on one side of the root and combine freely as far as the
+         morphotactics are concerned; what constrains them is a pair of static
+         MorphemeCoOccurrenceRules - PAST excludes FUT anywhere in the word, and EMPH requires PAST
+         anywhere in the word.
+
+         That makes co-occurrence the only thing wrong with the negative rows here. Every suffix is
+         individually attachable to every root, all three are on the correct side, there is no
+         AffixTemplate so no slot order exists, one part of speech so no signature conflict is
+         expressible, no MorphologicalPhonologicalRuleFeatures, no PhonologicalRules, one
+         unconstrained allomorph per entry, and fixed-shape affixes that tile exactly.
+
+         Both rule types are exercised deliberately: an exclusion whose negative row carries the
+         forbidden pair, and a requirement whose negative row carries a morpheme whose partner is
+         absent. A pass that implemented only one of the two would leave half of this fixture's
+         invalid candidates alive.
+
+         Shape family: agglutinative suffixing morphology with epistemic/tense co-occurrence
+         constraints; invented lexemes only. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cL"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cR"><Representations><Representation>r</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum
+        characterDefinitionTable="table1"
+        morphologicalRuleOrder="unordered"
+        morphologicalRules="mrPast mrFut mrEmph"
+      >
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrPast" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>past</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subPast">
+                <MorphologicalInput><PhoneticSequence id="stemPast"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemPast" /><InsertSegments><PhoneticShape>si</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>PAST</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrFut" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>fut</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subFut">
+                <MorphologicalInput><PhoneticSequence id="stemFut"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemFut" /><InsertSegments><PhoneticShape>lu</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>FUT</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrEmph" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>emph</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subEmph">
+                <MorphologicalInput><PhoneticSequence id="stemEmph"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemEmph" /><InsertSegments><PhoneticShape>na</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>EMPH</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eTaro" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aTaro"><PhoneticShape>taro</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>TARO</MorphemeId>
+            <Gloss>root.taro</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eMinur" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aMinur"><PhoneticShape>minur</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>MINUR</MorphemeId>
+            <Gloss>root.minur</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+    <MorphemeCoOccurrenceRules>
+      <!-- Exclusion: no word may carry both tense markers. -->
+      <MorphemeCoOccurrenceRule isActive="yes" type="exclude" primaryMorpheme="mrPast" otherMorphemes="mrFut" adjacency="anywhere" />
+      <!-- Requirement: the emphatic is licensed only in a past-marked word. -->
+      <MorphemeCoOccurrenceRule isActive="yes" type="require" primaryMorpheme="mrEmph" otherMorphemes="mrPast" adjacency="anywhere" />
+    </MorphemeCoOccurrenceRules>
+  </Language>
+</HermitCrabInput>

@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Membalo</Name>
+    <!-- Pathology: NASAL PLACE ASSIMILATION ACROSS A PREFIX BOUNDARY. A prefix ends in an
+         underspecified nasal placeholder that is rewritten to a bilabial or an alveolar nasal
+         according to the single segment immediately to its right. The conditioning window is one
+         segment wide, adjacent, and on the surface, which is exactly the shape a local-environment
+         check can certify and reject on: a surface whose nasal disagrees in place with the segment
+         it precedes has no derivation, and establishing that needs nothing beyond those two
+         segments.
+
+         The negative rows are the two crossed pairings - an alveolar nasal before a bilabial stop
+         and a bilabial nasal before an alveolar stop - each of which is a well-formed sequence of
+         legal segments, morphotactically identical to its positive counterpart, and identical to
+         it in length. That is deliberate: it leaves the local environment as the only thing that
+         separates a derivable word from an underivable one, and it means a span-arithmetic check
+         cannot account for the difference.
+
+         Isolation: one part of speech, one prefix on the correct side of the root, no
+         AffixTemplate, no MorphemeCoOccurrenceRules, no MorphologicalPhonologicalRuleFeatures, one
+         unconstrained allomorph per entry, and no allomorph environments. The two rewrite rules
+         are the only constraints in the grammar that any negative row here violates.
+
+         Shape family: Austronesian-style nasal-substitution prefixation; invented lexemes only. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featCons"><Name>cons</Name><Symbols><Symbol id="fConsPlus">+</Symbol><Symbol id="fConsMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featVoc"><Name>voc</Name><Symbols><Symbol id="fVocPlus">+</Symbol><Symbol id="fVocMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols><Symbol id="fVoicePlus">+</Symbol><Symbol id="fVoiceMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featNasal"><Name>nasal</Name><Symbols><Symbol id="fNasalPlus">+</Symbol><Symbol id="fNasalMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featHigh"><Name>high</Name><Symbols><Symbol id="fHighHigh">high</Symbol><Symbol id="fHighMid">mid</Symbol><Symbol id="fHighLow">low</Symbol><Symbol id="fHighNA">na</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featBack"><Name>back</Name><Symbols><Symbol id="fBackFront">front</Symbol><Symbol id="fBackBack">back</Symbol><Symbol id="fBackNA">na</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featPlace">
+        <Name>place</Name>
+        <Symbols>
+          <Symbol id="fPlaceBilabial">bilabial</Symbol>
+          <Symbol id="fPlaceAlveolar">alveolar</Symbol>
+          <Symbol id="fPlaceVelar">velar</Symbol>
+          <Symbol id="fPlaceLateral">lateral</Symbol>
+          <Symbol id="fPlaceVocalic">vocalic</Symbol>
+          <Symbol id="fPlaceUnderspecified">underspecified</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsMinus" /><FeatureValue feature="featVoc" symbolValues="fVocPlus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceVocalic" />
+          <FeatureValue feature="featHigh" symbolValues="fHighLow" /><FeatureValue feature="featBack" symbolValues="fBackBack" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsMinus" /><FeatureValue feature="featVoc" symbolValues="fVocPlus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceVocalic" />
+          <FeatureValue feature="featHigh" symbolValues="fHighMid" /><FeatureValue feature="featBack" symbolValues="fBackFront" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsMinus" /><FeatureValue feature="featVoc" symbolValues="fVocPlus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceVocalic" />
+          <FeatureValue feature="featHigh" symbolValues="fHighHigh" /><FeatureValue feature="featBack" symbolValues="fBackFront" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsMinus" /><FeatureValue feature="featVoc" symbolValues="fVocPlus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceVocalic" />
+          <FeatureValue feature="featHigh" symbolValues="fHighMid" /><FeatureValue feature="featBack" symbolValues="fBackBack" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsMinus" /><FeatureValue feature="featVoc" symbolValues="fVocPlus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceVocalic" />
+          <FeatureValue feature="featHigh" symbolValues="fHighHigh" /><FeatureValue feature="featBack" symbolValues="fBackBack" />
+        </SegmentDefinition>
+        <!-- The underspecified nasal the two rules below resolve. -->
+        <SegmentDefinition id="cNph"><Representations><Representation>N</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoc" symbolValues="fVocMinus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalPlus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceUnderspecified" />
+          <FeatureValue feature="featHigh" symbolValues="fHighNA" /><FeatureValue feature="featBack" symbolValues="fBackNA" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoc" symbolValues="fVocMinus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalPlus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceBilabial" />
+          <FeatureValue feature="featHigh" symbolValues="fHighNA" /><FeatureValue feature="featBack" symbolValues="fBackNA" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoc" symbolValues="fVocMinus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalPlus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceAlveolar" />
+          <FeatureValue feature="featHigh" symbolValues="fHighNA" /><FeatureValue feature="featBack" symbolValues="fBackNA" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoc" symbolValues="fVocMinus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceBilabial" />
+          <FeatureValue feature="featHigh" symbolValues="fHighNA" /><FeatureValue feature="featBack" symbolValues="fBackNA" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoc" symbolValues="fVocMinus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoiceMinus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceBilabial" />
+          <FeatureValue feature="featHigh" symbolValues="fHighNA" /><FeatureValue feature="featBack" symbolValues="fBackNA" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoc" symbolValues="fVocMinus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoiceMinus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceAlveolar" />
+          <FeatureValue feature="featHigh" symbolValues="fHighNA" /><FeatureValue feature="featBack" symbolValues="fBackNA" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoc" symbolValues="fVocMinus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceAlveolar" />
+          <FeatureValue feature="featHigh" symbolValues="fHighNA" /><FeatureValue feature="featBack" symbolValues="fBackNA" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoc" symbolValues="fVocMinus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoiceMinus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceVelar" />
+          <FeatureValue feature="featHigh" symbolValues="fHighNA" /><FeatureValue feature="featBack" symbolValues="fBackNA" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cL"><Representations><Representation>l</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoc" symbolValues="fVocMinus" />
+          <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
+          <FeatureValue feature="featPlace" symbolValues="fPlaceLateral" />
+          <FeatureValue feature="featHigh" symbolValues="fHighNA" /><FeatureValue feature="featBack" symbolValues="fBackNA" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+      <SegmentNaturalClass id="ncNph"><Name>NasalPlaceholder</Name><Segment segment="cNph" /></SegmentNaturalClass>
+      <FeatureNaturalClass id="ncBilabial"><Name>Bilabial</Name>
+        <FeatureValue feature="featPlace" symbolValues="fPlaceBilabial" />
+      </FeatureNaturalClass>
+      <FeatureNaturalClass id="ncAlveolar"><Name>Alveolar</Name>
+        <FeatureValue feature="featPlace" symbolValues="fPlaceAlveolar" />
+      </FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prNasalBilabial">
+        <Name>nasalBilabial</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncNph" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="cM" /></PhoneticSequence></PhoneticOutput>
+            <Environment>
+              <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBilabial" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="prNasalAlveolar">
+        <Name>nasalAlveolar</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncNph" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="cN" /></PhoneticSequence></PhoneticOutput>
+            <Environment>
+              <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncAlveolar" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum
+        characterDefinitionTable="table1"
+        morphologicalRuleOrder="unordered"
+        morphologicalRules="mrNasalPfx"
+        phonologicalRules="prNasalBilabial prNasalAlveolar"
+      >
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrNasalPfx" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>nasalPfx</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subNasalPfx">
+                <MorphologicalInput><PhoneticSequence id="stemNasalPfx"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>meN</PhoneticShape></InsertSegments><CopyFromInput index="stemNasalPfx" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>AV</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eBalo" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aBalo"><PhoneticShape>balo</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>BALO</MorphemeId>
+            <Gloss>root.balo</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="ePaku" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aPaku"><PhoneticShape>paku</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>PAKU</MorphemeId>
+            <Gloss>root.paku</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eTilo" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aTilo"><PhoneticShape>tilo</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>TILO</MorphemeId>
+            <Gloss>root.tilo</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eDuka" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aDuka"><PhoneticShape>duka</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>DUKA</MorphemeId>
+            <Gloss>root.duka</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

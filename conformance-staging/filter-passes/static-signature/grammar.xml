@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Sanuvok</Name>
+    <!-- Pathology: CATEGORY SELECTION PLUS A LEXICALLY MARKED EXCEPTION CLASS. Two suffixes each
+         select a different part of speech, and one of them additionally refuses any stem carrying
+         an exception rule feature. Both constraints are static properties of the morphemes
+         involved - a category signature and an MPR signature - readable off the candidate without
+         looking at the surface at all.
+
+         Three negative rows, two constraint kinds: a stem in the wrong category for its suffix
+         (twice, once in each direction) and a stem in the right category but carrying the
+         exception feature the suffix excludes. A pass that checked only categories would leave the
+         exception row alive, and one that checked only rule features would leave both category
+         rows alive.
+
+         Isolation: both suffixes are on the same side of the root, so no sidedness transition is
+         violated; there is no AffixTemplate, so no slot order exists; there are no
+         MorphemeCoOccurrenceRules, since every negative row here involves exactly one affix; there
+         are no PhonologicalRules; each entry has one unconstrained allomorph; and affix shapes are
+         fixed so they tile exactly.
+
+         Shape family: suffixing morphology with category-selecting derivation and a lexically
+         marked irregular class; invented lexemes only. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="mprIrregular">Irregular</MorphologicalPhonologicalRuleFeature>
+    </MorphologicalPhonologicalRuleFeatures>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cV"><Representations><Representation>v</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum
+        characterDefinitionTable="table1"
+        morphologicalRuleOrder="unordered"
+        morphologicalRules="mrAn mrKi"
+      >
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <!-- Verb-selecting nominalizer, refused by any stem in the irregular class. -->
+          <MorphologicalRule id="mrAn" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>an</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subAn">
+                <MorphologicalInput excludedMPRFeatures="mprIrregular"><PhoneticSequence id="stemAn"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemAn" /><InsertSegments><PhoneticShape>an</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>AN</MorphemeId>
+          </MorphologicalRule>
+          <!-- Noun-selecting suffix, with no rule-feature restriction of its own. -->
+          <MorphologicalRule id="mrKi" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>ki</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subKi">
+                <MorphologicalInput><PhoneticSequence id="stemKi"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemKi" /><InsertSegments><PhoneticShape>ki</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>KI</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eSanu" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aSanu"><PhoneticShape>sanu</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>SANU</MorphemeId>
+            <Gloss>root.sanu</Gloss>
+          </LexicalEntry>
+          <!-- The exception class: same category as eSanu, refused by mrAn on rule features alone. -->
+          <LexicalEntry id="eVokad" partOfSpeech="posV" ruleFeatures="mprIrregular">
+            <Allomorphs><Allomorph id="aVokad"><PhoneticShape>vokad</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>VOKAD</MorphemeId>
+            <Gloss>root.vokad</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eMino" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aMino"><PhoneticShape>mino</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>MINO</MorphemeId>
+            <Gloss>root.mino</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

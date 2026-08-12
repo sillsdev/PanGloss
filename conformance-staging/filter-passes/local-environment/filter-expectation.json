@@ -1,0 +1,6 @@
+{
+  "pass_id": "local.environment.v1",
+  "min_fire_count": 4,
+  "status": "awaiting-pass",
+  "min_fire_count_reasoning": "Four surfaces whose nasal disagrees in place with the segment it precedes (\"menbalo\", \"menpaku\", \"memtilo\", \"memduka\"); one verified rejection each, two per rewrite rule."
+}

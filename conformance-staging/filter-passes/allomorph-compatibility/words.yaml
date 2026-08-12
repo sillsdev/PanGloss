@@ -1,0 +1,84 @@
+# Candidate-filter per-pass fixture for local.allomorph.v1 -- see STAGING.md and grammar.xml's own
+# header comment for the pathology and the isolation argument.
+#
+# Oracle: pangloss (`pg_parse::Morpher::parse_word`, driven directly rather than through the
+# `pg-cli batch` binary), NOT the C# founding oracle. Every signature below was captured from this
+# repo's own Rust engine and transcribed verbatim; nothing here was hand-derived. Machine
+# acceptance must re-verify against `SIL.Machine.Morphology.HermitCrab.Tool`, and any divergence
+# found there is itself a finding.
+
+language: Kapinor
+inspired_by: ["synthetic suffixing grammar with phonologically conditioned root suppletion and no elsewhere allomorph (not modeling any real language)"]
+sources:
+  - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (no compatible allomorph alternative)"
+requires: []
+words:
+  - word: noris
+    note: The contrast root bare -- one unconstrained allomorph, no environment to satisfy.
+    parses:
+      - signature: "NORIS|noris"
+        rules: []
+
+  - word: norista
+    note: >-
+      The contrast root before the obstruent-initial suffix. Proves that suffix imposes nothing by
+      itself, so the negative rows below belong to the root's allomorph set.
+    parses:
+      - signature: "NORIS+TA|norista"
+        rules: [mrTa]
+
+  - word: norison
+    note: The contrast root before the vowel-initial suffix -- the same for that suffix.
+    parses:
+      - signature: "NORIS+ON|norison"
+        rules: [mrOn]
+
+  - word: kapta
+    note: >-
+      The restricted root in the context its consonant-selecting allomorph demands -- one
+      alternative satisfied, one not, and the candidate survives. A pass that rejected on the first
+      failing alternative rather than on exhaustion would destroy this row.
+    parses:
+      - signature: "KAPA+TA|kapta"
+        rules: [mrTa]
+
+  - word: kapion
+    note: >-
+      The same root in the context its vowel-selecting allomorph demands -- the mirror row, so
+      neither alternative can be treated as the default.
+    parses:
+      - signature: "KAPA+ON|kapion"
+        rules: [mrOn]
+
+  - word: kapon
+    note: >-
+      THE distinguishing row: the consonant-selecting allomorph before a vowel-initial suffix,
+      where the vowel-selecting alternative does not fit the surface at all. Every alternative the
+      morpheme offers is impossible, and nothing else in the grammar objects -- one part of speech,
+      both suffixes on the correct side, no AffixTemplate, no co-occurrence rule, no rule features,
+      no phonological rules, and the proposed pieces tile the surface exactly.
+    provenance: "candidate-filter contract: no compatible allomorph alternative"
+    expect_fail: true
+    blocked_by: [aKap, aKapi]
+
+  - word: kapita
+    note: The mirror-image mismatch -- the vowel-selecting allomorph before an obstruent-initial
+      suffix.
+    provenance: "candidate-filter contract: no compatible allomorph alternative"
+    expect_fail: true
+    blocked_by: [aKap, aKapi]
+
+  - word: kap
+    note: >-
+      The restricted root bare, where there is no following segment for either environment to
+      match. Its counterpart "noris" parses, so this row isolates the missing elsewhere allomorph
+      rather than anything about bare roots.
+    provenance: "candidate-filter contract: no compatible allomorph alternative"
+    expect_fail: true
+    blocked_by: [aKap, aKapi]
+
+  - word: kapi
+    note: The other bare alternative, likewise with nothing to its right to satisfy.
+    provenance: "candidate-filter contract: no compatible allomorph alternative"
+    expect_fail: true
+    blocked_by: [aKap, aKapi]
