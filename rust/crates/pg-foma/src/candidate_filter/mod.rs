@@ -15,13 +15,15 @@ pub mod decision;
 pub mod model;
 pub mod passes;
 pub mod pipeline;
+mod proof;
 pub mod report;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
 pub use decision::{
-    DeferReason, PassDecision, ProofCategory, ProofVerificationError, ProofWitness, RejectionProof,
-    StablePassId, StableRuleId, TraceFactKind,
+    AdmissibleProof, DeferReason, IdentityDefect, PassDecision, ProofCategory, ProofClaim,
+    ProofVerificationError, ProofWitness, RejectionProof, SpanDefect, StablePassId, StableRuleId,
+    TraceFactKind,
 };
 pub use passes::CandidateFilterPass;
 pub use pipeline::{
@@ -29,8 +31,8 @@ pub use pipeline::{
     FilterStopReason,
 };
 pub use report::{
-    CandidateDeath, CountingTraceSink, FilterCounters, FilterTraceSink, PassCounters, PassEvent,
-    PassOutcome, RetainedCandidateSink, WitnessDeath,
+    BoundedDeathLedger, CandidateDeath, CountingTraceSink, FilterCounters, FilterTraceSink,
+    LedgerCaps, PassCounters, PassEvent, PassOutcome, RetainedCandidateSink, WitnessDeath,
 };
 
 pub use model::{

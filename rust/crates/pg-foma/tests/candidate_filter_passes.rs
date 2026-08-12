@@ -1,0 +1,1074 @@
+//! What the production rejection-proof verifier admits, and what it refuses.
+
+use pg_foma::candidate_filter::decision::{
+    AdmissibleProof, IdentityDefect, PassDecision, ProofCategory, ProofClaim,
+    ProofVerificationError, ProofWitness, RejectionProof, SpanDefect, StablePassId, StableRuleId,
+    TraceFactKind,
+};
+use pg_foma::candidate_filter::model::{
+    CandidateWitness, DeferredFactReason, DeferredFeatureId, FeatureSet, LexicalOrigin, LocalEvent,
+    NonEmpty, PartnerClassId, ProposalProducer, ProposalProvenance, ProposedCandidate, SurfaceSpan,
+    TraceFact, TraceRole, TraceSlotId, TraceStratumId, TraceUnit, WitnessId,
+};
+use pg_foma::candidate_filter::pipeline::{
+    CandidateFilter, FilterBudget, FilterContext, FilterMode,
+};
+use pg_foma::candidate_filter::report::{
+    BoundedDeathLedger, CandidateDeath, FilterCounters, PassEvent, PassOutcome,
+};
+use pg_foma::candidate_filter::test_support::{allow_list_filter, verified_filter, AllowedProof};
+use pg_foma::candidate_filter::CandidateFilterPass;
+use pg_foma::tags::Candidate;
+use pg_grammar::model::{AllomorphId, MorphemeId};
+
+const PASS: StablePassId = StablePassId("test.proof.v1");
+const OTHER_PASS: StablePassId = StablePassId("test.other.v1");
+const RULE: StableRuleId = StableRuleId {
+    family: "test.proof",
+    ordinal: 1,
+};
+const UNKNOWN_RULE: StableRuleId = StableRuleId {
+    family: "test.proof",
+    ordinal: 77,
+};
+const GRAMMAR_REVISION: u64 = 3;
+const LEXICON_REVISION: u64 = 7;
+const PARTNER: PartnerClassId = PartnerClassId(7);
+
+const ALL_CATEGORIES: [ProofCategory; 9] = [
+    ProofCategory::MalformedIdentity,
+    ProofCategory::ImpossibleOwnership,
+    ProofCategory::ForbiddenTransition,
+    ProofCategory::MissingRequiredPartner,
+    ProofCategory::StaticCoOccurrenceViolation,
+    ProofCategory::NoCompatibleAllomorph,
+    ProofCategory::StaticSignatureConflict,
+    ProofCategory::ImpossibleSurfaceSpan,
+    ProofCategory::ImpossibleLocalEnvironment,
+];
+
+struct ProofPass(RejectionProof);
+
+impl CandidateFilterPass for ProofPass {
+    fn id(&self) -> StablePassId {
+        PASS
+    }
+
+    fn admissible_proofs(&self) -> Vec<AdmissibleProof> {
+        ALL_CATEGORIES
+            .iter()
+            .map(|&category| AdmissibleProof {
+                rule_id: RULE,
+                category,
+            })
+            .collect()
+    }
+
+    fn evaluate(&self, _context: &FilterContext<'_>, _witness: &CandidateWitness) -> PassDecision {
+        PassDecision::Reject(self.0.clone())
+    }
+}
+
+struct Run {
+    retained: usize,
+    events: Vec<PassEvent>,
+    deaths: Vec<CandidateDeath>,
+    counters: FilterCounters,
+}
+
+fn run(proof: RejectionProof, witness: CandidateWitness) -> Run {
+    run_with(verified_filter(vec![Box::new(ProofPass(proof))]), witness)
+}
+
+/// The same run under a verifier that checks the envelope and the rule but never the claim.
+fn claim_blind_run(proof: RejectionProof, witness: CandidateWitness) -> Run {
+    let allowed = ALL_CATEGORIES
+        .iter()
+        .map(|&category| AllowedProof {
+            pass_id: PASS,
+            rule_id: RULE,
+            category,
+        })
+        .collect();
+    run_with(
+        allow_list_filter(vec![Box::new(ProofPass(proof))], allowed),
+        witness,
+    )
+}
+
+fn run_with(filter: CandidateFilter, witness: CandidateWitness) -> Run {
+    let proposal = ProposedCandidate::new(identity(), vec![witness]).expect("one witness");
+    let mut retained: Vec<ProposedCandidate> = Vec::new();
+    let mut ledger = BoundedDeathLedger::unlimited();
+    filter.filter_into(
+        FilterMode::Enforce,
+        vec![proposal],
+        &mut retained,
+        &mut ledger,
+        FilterBudget::unlimited(),
+    );
+    Run {
+        retained: retained.len(),
+        events: ledger.events().to_vec(),
+        deaths: ledger.candidate_deaths().to_vec(),
+        counters: ledger.counters().clone(),
+    }
+}
+
+fn refusal(run: &Run) -> ProofVerificationError {
+    match &run.events[0].outcome {
+        PassOutcome::ProofRejected(error) => *error,
+        other => panic!("expected a refused proof, got {other:?}"),
+    }
+}
+
+fn identity() -> Candidate {
+    Candidate {
+        morphemes: vec![MorphemeId(10), MorphemeId(20), MorphemeId(30)],
+        root_index: 5,
+    }
+}
+
+fn other_identity() -> Candidate {
+    Candidate {
+        morphemes: vec![MorphemeId(10)],
+        root_index: 0,
+    }
+}
+
+fn allomorphs(ids: &[u32]) -> NonEmpty<AllomorphId> {
+    NonEmpty::try_from_vec(ids.iter().copied().map(AllomorphId).collect())
+        .expect("at least one allomorph")
+}
+
+fn unit(
+    morpheme: u32,
+    role: TraceRole,
+    allomorph_ids: &[u32],
+    slot: u32,
+    span: (usize, usize),
+    events: Vec<LocalEvent>,
+) -> TraceUnit {
+    TraceUnit {
+        morpheme: MorphemeId(morpheme),
+        role: TraceFact::Known(role),
+        allomorphs: TraceFact::Known(allomorphs(allomorph_ids)),
+        slot: TraceFact::Known(Some(TraceSlotId(slot))),
+        stratum: TraceFact::Known(Some(TraceStratumId(0))),
+        surface_span: TraceFact::Known(Some(SurfaceSpan {
+            start: span.0,
+            end: span.1,
+        })),
+        local_events: TraceFact::Known(events),
+    }
+}
+
+fn base_units() -> Vec<TraceUnit> {
+    vec![
+        unit(
+            10,
+            TraceRole::Root,
+            &[101, 102],
+            0,
+            (0, 3),
+            vec![LocalEvent::PartnerOpen(PARTNER)],
+        ),
+        unit(
+            20,
+            TraceRole::Suffix,
+            &[201],
+            1,
+            (2, 5),
+            vec![LocalEvent::Neutral],
+        ),
+        unit(
+            30,
+            TraceRole::Suffix,
+            &[301, 302],
+            2,
+            (5, 7),
+            vec![LocalEvent::Neutral],
+        ),
+    ]
+}
+
+fn witness_with(units: Vec<TraceUnit>) -> CandidateWitness {
+    CandidateWitness {
+        witness_id: WitnessId(1),
+        lexical_origin: LexicalOrigin::StaticGrammar,
+        lexicon_revision: LEXICON_REVISION,
+        units,
+        deferred: FeatureSet::empty(),
+        provenance: ProposalProvenance {
+            producer: ProposalProducer::SyntheticFixture,
+            grammar_revision: GRAMMAR_REVISION,
+        },
+    }
+}
+
+fn base_witness() -> CandidateWitness {
+    witness_with(base_units())
+}
+
+fn opaque_witness() -> CandidateWitness {
+    let opaque = |morpheme: u32| TraceUnit {
+        morpheme: MorphemeId(morpheme),
+        role: TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit),
+        allomorphs: TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit),
+        slot: TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit),
+        stratum: TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit),
+        surface_span: TraceFact::Deferred(DeferredFactReason::AmbiguityNotExhaustible),
+        local_events: TraceFact::Deferred(DeferredFactReason::UnsupportedConstruct),
+    };
+    witness_with(vec![opaque(10), opaque(20), opaque(30)])
+}
+
+fn proof_of(category: ProofCategory) -> RejectionProof {
+    let (unit_indices, claim) = match category {
+        ProofCategory::MalformedIdentity => (
+            Vec::new(),
+            ProofClaim::MalformedIdentity(IdentityDefect::RootIndexOutOfRange {
+                root_index: 5,
+                morphemes: 3,
+            }),
+        ),
+        ProofCategory::ImpossibleOwnership => (
+            vec![0],
+            ProofClaim::ImpossibleOwnership {
+                unit_index: 0,
+                morpheme: MorphemeId(10),
+                role: TraceRole::Root,
+            },
+        ),
+        ProofCategory::ForbiddenTransition => (
+            vec![0, 1],
+            ProofClaim::ForbiddenTransition {
+                from_unit_index: 0,
+                to_unit_index: 1,
+                from_slot: TraceSlotId(0),
+                to_slot: TraceSlotId(1),
+                stratum: TraceStratumId(0),
+            },
+        ),
+        ProofCategory::MissingRequiredPartner => (
+            vec![0],
+            ProofClaim::MissingRequiredPartner {
+                opened_at: 0,
+                class: PARTNER,
+            },
+        ),
+        ProofCategory::StaticCoOccurrenceViolation => (
+            vec![0, 1],
+            ProofClaim::StaticCoOccurrenceViolation {
+                left_unit_index: 0,
+                right_unit_index: 1,
+                left_morpheme: MorphemeId(10),
+                right_morpheme: MorphemeId(20),
+                eliminated_pairs: vec![
+                    (AllomorphId(101), AllomorphId(201)),
+                    (AllomorphId(102), AllomorphId(201)),
+                ],
+            },
+        ),
+        ProofCategory::NoCompatibleAllomorph => (
+            vec![0],
+            ProofClaim::NoCompatibleAllomorph {
+                unit_index: 0,
+                morpheme: MorphemeId(10),
+                eliminated: vec![AllomorphId(101), AllomorphId(102)],
+            },
+        ),
+        ProofCategory::StaticSignatureConflict => (
+            vec![0, 2],
+            ProofClaim::StaticSignatureConflict {
+                unit_index: 0,
+                morpheme: MorphemeId(10),
+                eliminated: vec![AllomorphId(101), AllomorphId(102)],
+                conflicting_unit_index: 2,
+                conflicting_morpheme: MorphemeId(30),
+                conflicting_eliminated: vec![AllomorphId(301), AllomorphId(302)],
+            },
+        ),
+        ProofCategory::ImpossibleSurfaceSpan => (
+            vec![0, 1],
+            ProofClaim::ImpossibleSurfaceSpan {
+                unit_index: 0,
+                span: SurfaceSpan { start: 0, end: 3 },
+                defect: SpanDefect::OverlapsUnit {
+                    other_unit_index: 1,
+                },
+            },
+        ),
+        ProofCategory::ImpossibleLocalEnvironment => (
+            vec![0, 1],
+            ProofClaim::ImpossibleLocalEnvironment {
+                unit_index: 0,
+                events: vec![LocalEvent::PartnerOpen(PARTNER)],
+                neighbor_unit_index: 1,
+                neighbor_events: vec![LocalEvent::Neutral],
+            },
+        ),
+    };
+
+    RejectionProof {
+        pass_id: PASS,
+        rule_id: RULE,
+        category,
+        witness: ProofWitness {
+            candidate_identity: identity(),
+            witness_id: WitnessId(1),
+            grammar_revision: GRAMMAR_REVISION,
+            lexicon_revision: LEXICON_REVISION,
+            lexical_origin: LexicalOrigin::StaticGrammar,
+            unit_indices,
+            claim,
+        },
+    }
+}
+
+/// A proof carrying `claim`, citing `unit_indices`, and otherwise identical to the category's own.
+fn reclaimed(
+    category: ProofCategory,
+    unit_indices: Vec<usize>,
+    claim: ProofClaim,
+) -> RejectionProof {
+    let mut proof = proof_of(category);
+    proof.witness.unit_indices = unit_indices;
+    proof.witness.claim = claim;
+    proof
+}
+
+fn a_different_category(category: ProofCategory) -> ProofCategory {
+    if category == ProofCategory::MalformedIdentity {
+        ProofCategory::ImpossibleOwnership
+    } else {
+        ProofCategory::MalformedIdentity
+    }
+}
+
+/// The corruptions every category shares: envelope fields nothing about the claim can excuse.
+fn generic_forgeries(
+    category: ProofCategory,
+) -> Vec<(&'static str, RejectionProof, ProofVerificationError)> {
+    let mut out = Vec::new();
+
+    let mut forged = proof_of(category);
+    forged.pass_id = OTHER_PASS;
+    out.push((
+        "pass id",
+        forged,
+        ProofVerificationError::PassIdMismatch {
+            declared: PASS,
+            claimed: OTHER_PASS,
+        },
+    ));
+
+    let mut forged = proof_of(category);
+    forged.rule_id = UNKNOWN_RULE;
+    out.push((
+        "rule id",
+        forged,
+        ProofVerificationError::UnrecognizedRule(UNKNOWN_RULE),
+    ));
+
+    let mut forged = proof_of(category);
+    forged.witness.candidate_identity = other_identity();
+    out.push((
+        "candidate identity",
+        forged,
+        ProofVerificationError::CandidateIdentityMismatch,
+    ));
+
+    let mut forged = proof_of(category);
+    forged.witness.witness_id = WitnessId(4242);
+    out.push((
+        "witness id",
+        forged,
+        ProofVerificationError::WitnessIdMismatch,
+    ));
+
+    let mut forged = proof_of(category);
+    forged.witness.unit_indices.push(99);
+    out.push((
+        "unit index",
+        forged,
+        ProofVerificationError::UnitIndexOutOfRange {
+            index: 99,
+            units: 3,
+        },
+    ));
+
+    let mut forged = proof_of(category);
+    forged.witness.grammar_revision = GRAMMAR_REVISION + 1;
+    out.push((
+        "grammar revision",
+        forged,
+        ProofVerificationError::GrammarRevisionMismatch,
+    ));
+
+    let mut forged = proof_of(category);
+    forged.witness.lexicon_revision = LEXICON_REVISION + 1;
+    out.push((
+        "lexicon revision",
+        forged,
+        ProofVerificationError::LexiconRevisionMismatch,
+    ));
+
+    let mut forged = proof_of(category);
+    forged.witness.lexical_origin = LexicalOrigin::RuntimeOverlay { revision: 1 };
+    out.push((
+        "lexical origin",
+        forged,
+        ProofVerificationError::LexicalOriginMismatch,
+    ));
+
+    let mut forged = proof_of(category);
+    let declared = a_different_category(category);
+    forged.category = declared;
+    out.push((
+        "declared category",
+        forged,
+        ProofVerificationError::CategoryClaimMismatch {
+            declared,
+            claimed: category,
+        },
+    ));
+
+    out
+}
+
+/// The corruptions only this category's payload can express.
+fn payload_forgeries(
+    category: ProofCategory,
+) -> Vec<(&'static str, RejectionProof, ProofVerificationError)> {
+    match category {
+        ProofCategory::MalformedIdentity => vec![
+            (
+                "identity is not empty",
+                reclaimed(
+                    category,
+                    Vec::new(),
+                    ProofClaim::MalformedIdentity(IdentityDefect::EmptyMorphemeSequence),
+                ),
+                ProofVerificationError::IdentityDefectNotEstablished,
+            ),
+            (
+                "root index is in range",
+                reclaimed(
+                    category,
+                    Vec::new(),
+                    ProofClaim::MalformedIdentity(IdentityDefect::RootIndexOutOfRange {
+                        root_index: 1,
+                        morphemes: 3,
+                    }),
+                ),
+                ProofVerificationError::IdentityDefectNotEstablished,
+            ),
+        ],
+        ProofCategory::ImpossibleOwnership => vec![
+            (
+                "wrong morpheme",
+                reclaimed(
+                    category,
+                    vec![0],
+                    ProofClaim::ImpossibleOwnership {
+                        unit_index: 0,
+                        morpheme: MorphemeId(99),
+                        role: TraceRole::Root,
+                    },
+                ),
+                ProofVerificationError::MorphemeMismatch { unit_index: 0 },
+            ),
+            (
+                "wrong role",
+                reclaimed(
+                    category,
+                    vec![0],
+                    ProofClaim::ImpossibleOwnership {
+                        unit_index: 0,
+                        morpheme: MorphemeId(10),
+                        role: TraceRole::Prefix,
+                    },
+                ),
+                ProofVerificationError::FactMismatch {
+                    unit_index: 0,
+                    fact: TraceFactKind::Role,
+                },
+            ),
+            (
+                "stale ownership at another unit",
+                reclaimed(
+                    category,
+                    vec![2],
+                    ProofClaim::ImpossibleOwnership {
+                        unit_index: 2,
+                        morpheme: MorphemeId(30),
+                        role: TraceRole::Root,
+                    },
+                ),
+                ProofVerificationError::FactMismatch {
+                    unit_index: 2,
+                    fact: TraceFactKind::Role,
+                },
+            ),
+        ],
+        ProofCategory::ForbiddenTransition => vec![
+            (
+                "units are not adjacent",
+                reclaimed(
+                    category,
+                    vec![0, 2],
+                    ProofClaim::ForbiddenTransition {
+                        from_unit_index: 0,
+                        to_unit_index: 2,
+                        from_slot: TraceSlotId(0),
+                        to_slot: TraceSlotId(2),
+                        stratum: TraceStratumId(0),
+                    },
+                ),
+                ProofVerificationError::UnitsNotAdjacent { from: 0, to: 2 },
+            ),
+            (
+                "wrong slot",
+                reclaimed(
+                    category,
+                    vec![0, 1],
+                    ProofClaim::ForbiddenTransition {
+                        from_unit_index: 0,
+                        to_unit_index: 1,
+                        from_slot: TraceSlotId(9),
+                        to_slot: TraceSlotId(1),
+                        stratum: TraceStratumId(0),
+                    },
+                ),
+                ProofVerificationError::FactMismatch {
+                    unit_index: 0,
+                    fact: TraceFactKind::Slot,
+                },
+            ),
+            (
+                "wrong stratum",
+                reclaimed(
+                    category,
+                    vec![0, 1],
+                    ProofClaim::ForbiddenTransition {
+                        from_unit_index: 0,
+                        to_unit_index: 1,
+                        from_slot: TraceSlotId(0),
+                        to_slot: TraceSlotId(1),
+                        stratum: TraceStratumId(9),
+                    },
+                ),
+                ProofVerificationError::FactMismatch {
+                    unit_index: 0,
+                    fact: TraceFactKind::Stratum,
+                },
+            ),
+        ],
+        ProofCategory::MissingRequiredPartner => vec![
+            (
+                "class was never opened",
+                reclaimed(
+                    category,
+                    vec![0],
+                    ProofClaim::MissingRequiredPartner {
+                        opened_at: 0,
+                        class: PartnerClassId(8),
+                    },
+                ),
+                ProofVerificationError::FactMismatch {
+                    unit_index: 0,
+                    fact: TraceFactKind::LocalEvents,
+                },
+            ),
+            (
+                "wrong opening unit",
+                reclaimed(
+                    category,
+                    vec![1],
+                    ProofClaim::MissingRequiredPartner {
+                        opened_at: 1,
+                        class: PARTNER,
+                    },
+                ),
+                ProofVerificationError::FactMismatch {
+                    unit_index: 1,
+                    fact: TraceFactKind::LocalEvents,
+                },
+            ),
+        ],
+        ProofCategory::StaticCoOccurrenceViolation => vec![
+            (
+                "one pair left unexamined",
+                reclaimed(
+                    category,
+                    vec![0, 1],
+                    ProofClaim::StaticCoOccurrenceViolation {
+                        left_unit_index: 0,
+                        right_unit_index: 1,
+                        left_morpheme: MorphemeId(10),
+                        right_morpheme: MorphemeId(20),
+                        eliminated_pairs: vec![(AllomorphId(101), AllomorphId(201))],
+                    },
+                ),
+                ProofVerificationError::AlternativesNotExhausted { unit_index: 0 },
+            ),
+            (
+                "a pair nobody proposed",
+                reclaimed(
+                    category,
+                    vec![0, 1],
+                    ProofClaim::StaticCoOccurrenceViolation {
+                        left_unit_index: 0,
+                        right_unit_index: 1,
+                        left_morpheme: MorphemeId(10),
+                        right_morpheme: MorphemeId(20),
+                        eliminated_pairs: vec![
+                            (AllomorphId(101), AllomorphId(201)),
+                            (AllomorphId(102), AllomorphId(201)),
+                            (AllomorphId(999), AllomorphId(201)),
+                        ],
+                    },
+                ),
+                ProofVerificationError::AlternativesNotExhausted { unit_index: 0 },
+            ),
+            (
+                "wrong co-occurrence key",
+                reclaimed(
+                    category,
+                    vec![0, 1],
+                    ProofClaim::StaticCoOccurrenceViolation {
+                        left_unit_index: 0,
+                        right_unit_index: 1,
+                        left_morpheme: MorphemeId(10),
+                        right_morpheme: MorphemeId(99),
+                        eliminated_pairs: vec![
+                            (AllomorphId(101), AllomorphId(201)),
+                            (AllomorphId(102), AllomorphId(201)),
+                        ],
+                    },
+                ),
+                ProofVerificationError::MorphemeMismatch { unit_index: 1 },
+            ),
+        ],
+        ProofCategory::NoCompatibleAllomorph => vec![
+            (
+                "one alternative left standing",
+                reclaimed(
+                    category,
+                    vec![0],
+                    ProofClaim::NoCompatibleAllomorph {
+                        unit_index: 0,
+                        morpheme: MorphemeId(10),
+                        eliminated: vec![AllomorphId(101)],
+                    },
+                ),
+                ProofVerificationError::AlternativesNotExhausted { unit_index: 0 },
+            ),
+            (
+                "an alternative nobody proposed",
+                reclaimed(
+                    category,
+                    vec![0],
+                    ProofClaim::NoCompatibleAllomorph {
+                        unit_index: 0,
+                        morpheme: MorphemeId(10),
+                        eliminated: vec![AllomorphId(101), AllomorphId(102), AllomorphId(103)],
+                    },
+                ),
+                ProofVerificationError::AlternativesNotExhausted { unit_index: 0 },
+            ),
+            (
+                "wrong morpheme",
+                reclaimed(
+                    category,
+                    vec![0],
+                    ProofClaim::NoCompatibleAllomorph {
+                        unit_index: 0,
+                        morpheme: MorphemeId(99),
+                        eliminated: vec![AllomorphId(101), AllomorphId(102)],
+                    },
+                ),
+                ProofVerificationError::MorphemeMismatch { unit_index: 0 },
+            ),
+        ],
+        ProofCategory::StaticSignatureConflict => vec![
+            (
+                "signature holds for only one allomorph",
+                reclaimed(
+                    category,
+                    vec![0, 2],
+                    ProofClaim::StaticSignatureConflict {
+                        unit_index: 0,
+                        morpheme: MorphemeId(10),
+                        eliminated: vec![AllomorphId(101)],
+                        conflicting_unit_index: 2,
+                        conflicting_morpheme: MorphemeId(30),
+                        conflicting_eliminated: vec![AllomorphId(301), AllomorphId(302)],
+                    },
+                ),
+                ProofVerificationError::AlternativesNotExhausted { unit_index: 0 },
+            ),
+            (
+                "conflicting side not exhausted",
+                reclaimed(
+                    category,
+                    vec![0, 2],
+                    ProofClaim::StaticSignatureConflict {
+                        unit_index: 0,
+                        morpheme: MorphemeId(10),
+                        eliminated: vec![AllomorphId(101), AllomorphId(102)],
+                        conflicting_unit_index: 2,
+                        conflicting_morpheme: MorphemeId(30),
+                        conflicting_eliminated: vec![AllomorphId(301)],
+                    },
+                ),
+                ProofVerificationError::AlternativesNotExhausted { unit_index: 2 },
+            ),
+            (
+                "wrong conflicting morpheme",
+                reclaimed(
+                    category,
+                    vec![0, 2],
+                    ProofClaim::StaticSignatureConflict {
+                        unit_index: 0,
+                        morpheme: MorphemeId(10),
+                        eliminated: vec![AllomorphId(101), AllomorphId(102)],
+                        conflicting_unit_index: 2,
+                        conflicting_morpheme: MorphemeId(99),
+                        conflicting_eliminated: vec![AllomorphId(301), AllomorphId(302)],
+                    },
+                ),
+                ProofVerificationError::MorphemeMismatch { unit_index: 2 },
+            ),
+        ],
+        ProofCategory::ImpossibleSurfaceSpan => vec![
+            (
+                "span is not the one established",
+                reclaimed(
+                    category,
+                    vec![0, 1],
+                    ProofClaim::ImpossibleSurfaceSpan {
+                        unit_index: 0,
+                        span: SurfaceSpan { start: 0, end: 4 },
+                        defect: SpanDefect::OverlapsUnit {
+                            other_unit_index: 1,
+                        },
+                    },
+                ),
+                ProofVerificationError::FactMismatch {
+                    unit_index: 0,
+                    fact: TraceFactKind::SurfaceSpan,
+                },
+            ),
+            (
+                "cited units do not overlap",
+                reclaimed(
+                    category,
+                    vec![0, 2],
+                    ProofClaim::ImpossibleSurfaceSpan {
+                        unit_index: 0,
+                        span: SurfaceSpan { start: 0, end: 3 },
+                        defect: SpanDefect::OverlapsUnit {
+                            other_unit_index: 2,
+                        },
+                    },
+                ),
+                ProofVerificationError::SpanDefectNotEstablished { unit_index: 0 },
+            ),
+            (
+                "span is not reversed",
+                reclaimed(
+                    category,
+                    vec![0],
+                    ProofClaim::ImpossibleSurfaceSpan {
+                        unit_index: 0,
+                        span: SurfaceSpan { start: 0, end: 3 },
+                        defect: SpanDefect::EndBeforeStart,
+                    },
+                ),
+                ProofVerificationError::SpanDefectNotEstablished { unit_index: 0 },
+            ),
+        ],
+        ProofCategory::ImpossibleLocalEnvironment => vec![
+            (
+                "local environment mismatch",
+                reclaimed(
+                    category,
+                    vec![0, 1],
+                    ProofClaim::ImpossibleLocalEnvironment {
+                        unit_index: 0,
+                        events: vec![LocalEvent::Neutral],
+                        neighbor_unit_index: 1,
+                        neighbor_events: vec![LocalEvent::Neutral],
+                    },
+                ),
+                ProofVerificationError::FactMismatch {
+                    unit_index: 0,
+                    fact: TraceFactKind::LocalEvents,
+                },
+            ),
+            (
+                "neighbour environment mismatch",
+                reclaimed(
+                    category,
+                    vec![0, 1],
+                    ProofClaim::ImpossibleLocalEnvironment {
+                        unit_index: 0,
+                        events: vec![LocalEvent::PartnerOpen(PARTNER)],
+                        neighbor_unit_index: 1,
+                        neighbor_events: vec![LocalEvent::PartnerClose(PARTNER)],
+                    },
+                ),
+                ProofVerificationError::FactMismatch {
+                    unit_index: 1,
+                    fact: TraceFactKind::LocalEvents,
+                },
+            ),
+            (
+                "neighbour is not adjacent",
+                reclaimed(
+                    category,
+                    vec![0, 2],
+                    ProofClaim::ImpossibleLocalEnvironment {
+                        unit_index: 0,
+                        events: vec![LocalEvent::PartnerOpen(PARTNER)],
+                        neighbor_unit_index: 2,
+                        neighbor_events: vec![LocalEvent::Neutral],
+                    },
+                ),
+                ProofVerificationError::UnitsNotAdjacent { from: 0, to: 2 },
+            ),
+        ],
+    }
+}
+
+/// Which fact a category's proof rests on, and therefore may not be proved without.
+fn decisive_fact(category: ProofCategory) -> Option<(usize, TraceFactKind)> {
+    match category {
+        ProofCategory::MalformedIdentity => None,
+        ProofCategory::ImpossibleOwnership => Some((0, TraceFactKind::Role)),
+        ProofCategory::ForbiddenTransition => Some((0, TraceFactKind::Slot)),
+        ProofCategory::MissingRequiredPartner => Some((0, TraceFactKind::LocalEvents)),
+        ProofCategory::StaticCoOccurrenceViolation => Some((0, TraceFactKind::Allomorphs)),
+        ProofCategory::NoCompatibleAllomorph => Some((0, TraceFactKind::Allomorphs)),
+        ProofCategory::StaticSignatureConflict => Some((0, TraceFactKind::Allomorphs)),
+        ProofCategory::ImpossibleSurfaceSpan => Some((0, TraceFactKind::SurfaceSpan)),
+        ProofCategory::ImpossibleLocalEnvironment => Some((0, TraceFactKind::LocalEvents)),
+    }
+}
+
+/// Pairs every forgery test: a verifier that refused everything would pass those on its own.
+#[test]
+fn every_category_has_a_proof_that_verifies_and_kills_its_witness() {
+    let mut killed = 0;
+    for category in ALL_CATEGORIES {
+        let run = run(proof_of(category), base_witness());
+        assert_eq!(run.retained, 0, "{category} must remove the candidate");
+        assert_eq!(run.counters.witnesses_rejected, 1, "{category}");
+        assert_eq!(run.counters.proof_verification_failures, 0, "{category}");
+        assert!(
+            matches!(run.events[0].outcome, PassOutcome::Rejected(_)),
+            "{category} produced {:?}",
+            run.events[0].outcome
+        );
+        assert_eq!(run.deaths.len(), 1, "{category}");
+        assert_eq!(run.deaths[0].witness_deaths[0].category, category);
+        killed += 1;
+    }
+    assert_eq!(killed, ALL_CATEGORIES.len());
+}
+
+#[test]
+fn every_generic_forgery_is_refused_and_keeps_the_candidate() {
+    let mut checked = 0;
+    for category in ALL_CATEGORIES {
+        for (label, forged, expected) in generic_forgeries(category) {
+            let run = run(forged, base_witness());
+            assert_eq!(run.retained, 1, "{category}/{label} must retain");
+            assert_eq!(run.counters.witnesses_rejected, 0, "{category}/{label}");
+            assert_eq!(
+                run.counters.proof_verification_failures, 1,
+                "{category}/{label}"
+            );
+            assert_eq!(refusal(&run), expected, "{category}/{label}");
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 9 * ALL_CATEGORIES.len());
+}
+
+#[test]
+fn every_payload_forgery_is_refused_and_keeps_the_candidate() {
+    let mut checked = 0;
+    for category in ALL_CATEGORIES {
+        let forgeries = payload_forgeries(category);
+        assert!(!forgeries.is_empty(), "{category} needs payload forgeries");
+        for (label, forged, expected) in forgeries {
+            let run = run(forged, base_witness());
+            assert_eq!(run.retained, 1, "{category}/{label} must retain");
+            assert_eq!(run.counters.witnesses_rejected, 0, "{category}/{label}");
+            assert_eq!(refusal(&run), expected, "{category}/{label}");
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 25);
+}
+
+#[test]
+fn no_category_may_reject_on_a_fact_the_producer_never_established() {
+    let mut checked = 0;
+    for category in ALL_CATEGORIES {
+        let Some((unit_index, fact)) = decisive_fact(category) else {
+            continue;
+        };
+        let run = run(proof_of(category), opaque_witness());
+        assert_eq!(run.retained, 1, "{category} must retain");
+        assert_eq!(
+            refusal(&run),
+            ProofVerificationError::FactNotEstablished { unit_index, fact },
+            "{category}"
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, ALL_CATEGORIES.len() - 1);
+}
+
+/// Measures what re-deriving the claim buys: each forgery kills the candidate without it.
+#[test]
+fn every_payload_forgery_survives_a_verifier_that_skips_the_claim() {
+    let mut checked = 0;
+    for category in ALL_CATEGORIES {
+        for (label, forged, _) in payload_forgeries(category) {
+            assert_eq!(
+                claim_blind_run(forged.clone(), base_witness()).retained,
+                0,
+                "{category}/{label} was expected to pass a claim-blind verifier"
+            );
+            assert_eq!(
+                run(forged, base_witness()).retained,
+                1,
+                "{category}/{label}"
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 25);
+}
+
+#[test]
+fn a_deferred_fact_survives_a_verifier_that_skips_the_claim() {
+    let mut checked = 0;
+    for category in ALL_CATEGORIES {
+        if decisive_fact(category).is_none() {
+            continue;
+        }
+        assert_eq!(
+            claim_blind_run(proof_of(category), opaque_witness()).retained,
+            0,
+            "{category} was expected to pass a claim-blind verifier"
+        );
+        assert_eq!(run(proof_of(category), opaque_witness()).retained, 1);
+        checked += 1;
+    }
+    assert_eq!(checked, ALL_CATEGORIES.len() - 1);
+}
+
+#[test]
+fn a_known_absent_slot_is_not_a_slot_a_transition_may_cite() {
+    let mut units = base_units();
+    units[0].slot = TraceFact::Known(None);
+
+    let run = run(
+        proof_of(ProofCategory::ForbiddenTransition),
+        witness_with(units),
+    );
+
+    assert_eq!(run.retained, 1);
+    assert_eq!(
+        refusal(&run),
+        ProofVerificationError::FactMismatch {
+            unit_index: 0,
+            fact: TraceFactKind::Slot,
+        }
+    );
+}
+
+#[test]
+fn a_partner_that_is_closed_somewhere_is_not_missing() {
+    let mut units = base_units();
+    units[2].local_events = TraceFact::Known(vec![LocalEvent::PartnerClose(PARTNER)]);
+
+    let run = run(
+        proof_of(ProofCategory::MissingRequiredPartner),
+        witness_with(units),
+    );
+
+    assert_eq!(run.retained, 1);
+    assert_eq!(
+        refusal(&run),
+        ProofVerificationError::PartnerAlreadyClosed { unit_index: 2 }
+    );
+}
+
+#[test]
+fn a_partner_absence_cannot_be_proved_past_an_unreadable_unit() {
+    let mut units = base_units();
+    units[2].local_events = TraceFact::Deferred(DeferredFactReason::ProducerDoesNotEmit);
+
+    let run = run(
+        proof_of(ProofCategory::MissingRequiredPartner),
+        witness_with(units),
+    );
+
+    assert_eq!(run.retained, 1);
+    assert_eq!(
+        refusal(&run),
+        ProofVerificationError::FactNotEstablished {
+            unit_index: 2,
+            fact: TraceFactKind::LocalEvents,
+        }
+    );
+}
+
+#[test]
+fn a_signature_conflict_cannot_be_proved_while_a_feature_is_deferred() {
+    let mut witness = base_witness();
+    witness.deferred = FeatureSet::from_iter([DeferredFeatureId(1)]);
+
+    let run = run(proof_of(ProofCategory::StaticSignatureConflict), witness);
+
+    assert_eq!(run.retained, 1);
+    assert_eq!(
+        refusal(&run),
+        ProofVerificationError::DeferredFeaturesUnresolved
+    );
+}
+
+#[test]
+fn a_claim_may_only_rest_on_units_the_proof_cites() {
+    let mut forged = proof_of(ProofCategory::ImpossibleOwnership);
+    forged.witness.unit_indices = Vec::new();
+
+    let run = run(forged, base_witness());
+
+    assert_eq!(run.retained, 1);
+    assert_eq!(
+        refusal(&run),
+        ProofVerificationError::UnitNotCited { index: 0 }
+    );
+}
+
+#[test]
+fn a_rule_the_pass_never_declared_is_not_admissible() {
+    let mut forged = proof_of(ProofCategory::ImpossibleOwnership);
+    forged.rule_id = UNKNOWN_RULE;
+
+    let run = run(forged, base_witness());
+
+    assert_eq!(run.retained, 1);
+    assert_eq!(
+        refusal(&run),
+        ProofVerificationError::UnrecognizedRule(UNKNOWN_RULE)
+    );
+}

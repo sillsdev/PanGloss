@@ -178,3 +178,115 @@ impl FilterTraceSink for CountingTraceSink {
         self.counters.ordinal_overflow = true;
     }
 }
+
+/// How many detailed records of each kind a ledger will hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LedgerCaps {
+    pub max_events: usize,
+    pub max_candidate_deaths: usize,
+}
+
+impl LedgerCaps {
+    pub const fn unlimited() -> Self {
+        Self {
+            max_events: usize::MAX,
+            max_candidate_deaths: usize::MAX,
+        }
+    }
+}
+
+/// The opt-in detailed trace sink: individual pass events and candidate deaths, up to a cap.
+///
+/// The cap bounds memory for a run that dies at scale, and what it drops it counts, so a reader
+/// can tell a run that recorded everything from one that recorded a prefix. It is diagnostic only:
+/// the counters are maintained exactly as the compact sink maintains them, and a ledger of any
+/// capacity — including zero — retains exactly the same candidates as no ledger at all.
+///
+/// Detailed retention also stops when diagnostic ordinals saturate. Past that point events no
+/// longer carry distinct keys, and storing records that collide would be worse than storing none.
+#[derive(Clone, Debug)]
+pub struct BoundedDeathLedger {
+    caps: LedgerCaps,
+    counting: CountingTraceSink,
+    events: Vec<PassEvent>,
+    candidate_deaths: Vec<CandidateDeath>,
+    omitted_events: u64,
+    omitted_candidate_deaths: u64,
+    summary_only: bool,
+}
+
+impl BoundedDeathLedger {
+    pub fn new(caps: LedgerCaps) -> Self {
+        Self {
+            caps,
+            counting: CountingTraceSink::new(),
+            events: Vec::new(),
+            candidate_deaths: Vec::new(),
+            omitted_events: 0,
+            omitted_candidate_deaths: 0,
+            summary_only: false,
+        }
+    }
+
+    pub fn unlimited() -> Self {
+        Self::new(LedgerCaps::unlimited())
+    }
+
+    pub fn events(&self) -> &[PassEvent] {
+        &self.events
+    }
+
+    pub fn candidate_deaths(&self) -> &[CandidateDeath] {
+        &self.candidate_deaths
+    }
+
+    pub fn omitted_events(&self) -> u64 {
+        self.omitted_events
+    }
+
+    pub fn omitted_candidate_deaths(&self) -> u64 {
+        self.omitted_candidate_deaths
+    }
+
+    pub fn counters(&self) -> &FilterCounters {
+        self.counting.counters()
+    }
+
+    pub fn into_counters(self) -> FilterCounters {
+        self.counting.into_counters()
+    }
+
+    pub fn is_summary_only(&self) -> bool {
+        self.summary_only
+    }
+}
+
+impl FilterTraceSink for BoundedDeathLedger {
+    fn record_pass_event(&mut self, event: &PassEvent) {
+        self.counting.record_pass_event(event);
+        if self.summary_only || self.events.len() >= self.caps.max_events {
+            self.omitted_events = self.omitted_events.saturating_add(1);
+            return;
+        }
+        self.events.push(event.clone());
+    }
+
+    fn record_candidate_death(&mut self, death: &CandidateDeath) {
+        self.counting.record_candidate_death(death);
+        if self.summary_only || self.candidate_deaths.len() >= self.caps.max_candidate_deaths {
+            self.omitted_candidate_deaths = self.omitted_candidate_deaths.saturating_add(1);
+            return;
+        }
+        self.candidate_deaths.push(death.clone());
+    }
+
+    fn record_candidate_retained(&mut self, candidate_ordinal: u64, identity: &Candidate) {
+        self.counting
+            .record_candidate_retained(candidate_ordinal, identity);
+    }
+
+    fn record_ordinal_overflow(&mut self) {
+        self.counting.record_ordinal_overflow();
+        self.summary_only = true;
+    }
+}

@@ -21,6 +21,7 @@ use crate::candidate_filter::decision::{
 };
 use crate::candidate_filter::model::{CandidateWitness, ProposedCandidate};
 use crate::candidate_filter::passes::CandidateFilterPass;
+use crate::candidate_filter::proof::{admissible_catalog, RejectionProofVerifier};
 use crate::candidate_filter::report::{
     CandidateDeath, CountingTraceSink, FilterCounters, FilterTraceSink, PassEvent, PassOutcome,
     RetainedCandidateSink, WitnessDeath,
@@ -160,6 +161,16 @@ impl StepAllowance {
     }
 }
 
+/// Where a run's diagnostic ordinals start.
+///
+/// Crate-private because the only reason to start anywhere but zero is to reach the saturation
+/// behaviour without emitting `u64::MAX` events first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct OrdinalSeed {
+    pub next_event: u64,
+    pub next_candidate: u64,
+}
+
 /// Monotonic diagnostic ordinals; an overflow degrades reporting, never a filter decision.
 #[derive(Default)]
 struct Ordinals {
@@ -169,6 +180,14 @@ struct Ordinals {
 }
 
 impl Ordinals {
+    fn seeded(seed: OrdinalSeed) -> Self {
+        Self {
+            next_event: seed.next_event,
+            next_candidate: seed.next_candidate,
+            overflowed: false,
+        }
+    }
+
     fn take_event(&mut self, trace: &mut impl FilterTraceSink) -> u64 {
         let current = self.next_event;
         match self.next_event.checked_add(1) {
@@ -215,6 +234,15 @@ impl CandidateFilter {
         Self { passes, verifier }
     }
 
+    /// Builds a filter whose rejections are guarded by the production proof verifier.
+    ///
+    /// The verifier is not a parameter: it is derived from the passes themselves, so what a
+    /// rejection may claim is fixed by what those passes declared they decide.
+    pub(crate) fn verifying(passes: Vec<Box<dyn CandidateFilterPass>>) -> Self {
+        let catalog = admissible_catalog(&passes);
+        Self::new(passes, Box::new(RejectionProofVerifier::new(catalog)))
+    }
+
     /// The declared pass order, which is also the evaluation order for every witness.
     pub fn pass_ids(&self) -> Vec<StablePassId> {
         self.passes.iter().map(|pass| pass.id()).collect()
@@ -234,7 +262,24 @@ impl CandidateFilter {
         R: RetainedCandidateSink,
         T: FilterTraceSink,
     {
-        let mut ordinals = Ordinals::default();
+        self.filter_into_seeded(mode, input, retained, trace, budget, OrdinalSeed::default())
+    }
+
+    pub(crate) fn filter_into_seeded<I, R, T>(
+        &self,
+        mode: FilterMode,
+        input: I,
+        retained: &mut R,
+        trace: &mut T,
+        budget: FilterBudget,
+        seed: OrdinalSeed,
+    ) -> FilterCompletion
+    where
+        I: IntoIterator<Item = ProposedCandidate>,
+        R: RetainedCandidateSink,
+        T: FilterTraceSink,
+    {
+        let mut ordinals = Ordinals::seeded(seed);
         let mut allowance = StepAllowance::new(budget);
         let mut stop: Option<FilterStopReason> = None;
         let deciding = !matches!(mode, FilterMode::Off);

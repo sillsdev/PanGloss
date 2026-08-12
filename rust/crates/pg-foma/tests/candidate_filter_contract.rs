@@ -177,17 +177,20 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use pg_foma::candidate_filter::decision::{
-    DeferReason, PassDecision, ProofCategory, ProofWitness, RejectionProof, StablePassId,
-    StableRuleId, TraceFactKind,
+    DeferReason, PassDecision, ProofCategory, ProofClaim, ProofWitness, RejectionProof,
+    StablePassId, StableRuleId, TraceFactKind,
 };
 use pg_foma::candidate_filter::passes::CandidateFilterPass;
 use pg_foma::candidate_filter::pipeline::{
     CandidateFilter, FilterBudget, FilterCompletion, FilterContext, FilterMode, FilterStopReason,
 };
 use pg_foma::candidate_filter::report::{
-    CandidateDeath, FilterTraceSink, PassEvent, PassOutcome, RetainedCandidateSink,
+    BoundedDeathLedger, CandidateDeath, FilterTraceSink, LedgerCaps, PassEvent, PassOutcome,
+    RetainedCandidateSink,
 };
-use pg_foma::candidate_filter::test_support::{allow_list_filter, AllowedProof};
+use pg_foma::candidate_filter::test_support::{
+    allow_list_filter, filter_into_from_ordinals, AllowedProof,
+};
 
 const KEEP_ALL: StablePassId = StablePassId("test.keep_all.v1");
 const REJECT_ALL: StablePassId = StablePassId("test.reject_all.v1");
@@ -219,7 +222,13 @@ fn proof(
             witness_id,
             grammar_revision: 3,
             lexicon_revision: 7,
+            lexical_origin: LexicalOrigin::StaticGrammar,
             unit_indices: vec![0],
+            claim: ProofClaim::ImpossibleOwnership {
+                unit_index: 0,
+                morpheme: MorphemeId(10),
+                role: TraceRole::Root,
+            },
         },
     }
 }
@@ -740,4 +749,204 @@ fn a_candidate_death_links_every_witness_to_its_terminal_pass() {
         assert_eq!(witness_death.category, ProofCategory::ImpossibleOwnership);
     }
     assert!(matches!(trace.events[0].outcome, PassOutcome::Rejected(_)));
+}
+
+struct RejectWitness(StablePassId, WitnessId);
+
+impl CandidateFilterPass for RejectWitness {
+    fn id(&self) -> StablePassId {
+        self.0
+    }
+
+    fn evaluate(&self, context: &FilterContext<'_>, witness: &CandidateWitness) -> PassDecision {
+        if witness.witness_id == self.1 {
+            PassDecision::Reject(proof(self.0, RULE, context, witness.witness_id))
+        } else {
+            PassDecision::Keep
+        }
+    }
+}
+
+const FIRST_KILLER: StablePassId = StablePassId("test.kills_first.v1");
+const SECOND_KILLER: StablePassId = StablePassId("test.kills_second.v1");
+
+fn two_killer_filter() -> CandidateFilter {
+    allow_list_filter(
+        vec![
+            Box::new(RejectWitness(FIRST_KILLER, WitnessId(1))),
+            Box::new(RejectWitness(SECOND_KILLER, WitnessId(2))),
+        ],
+        vec![allowed(FIRST_KILLER), allowed(SECOND_KILLER)],
+    )
+}
+
+fn even_candidates_die_filter() -> CandidateFilter {
+    allow_list_filter(vec![Box::new(RejectEvenCandidates)], every_reject_allowed())
+}
+
+struct RejectEvenCandidates;
+
+impl CandidateFilterPass for RejectEvenCandidates {
+    fn id(&self) -> StablePassId {
+        REJECT_ALL
+    }
+
+    fn evaluate(&self, context: &FilterContext<'_>, witness: &CandidateWitness) -> PassDecision {
+        if context.candidate_ordinal() % 2 == 0 {
+            PassDecision::Reject(proof(REJECT_ALL, RULE, context, witness.witness_id))
+        } else {
+            PassDecision::Keep
+        }
+    }
+}
+
+fn retained_identities(filter: &CandidateFilter, ledger: &mut BoundedDeathLedger) -> Vec<u32> {
+    let mut retained: Vec<ProposedCandidate> = Vec::new();
+    filter.filter_into(
+        FilterMode::Enforce,
+        numbered_candidates(10),
+        &mut retained,
+        ledger,
+        FilterBudget::unlimited(),
+    );
+    retained
+        .iter()
+        .map(|candidate| candidate.identity.morphemes[0].0)
+        .collect()
+}
+
+#[test]
+fn a_bounded_ledger_counts_the_records_it_had_no_room_for() {
+    let mut ledger = BoundedDeathLedger::new(LedgerCaps {
+        max_events: 2,
+        max_candidate_deaths: 2,
+    });
+    let mut retained: Vec<ProposedCandidate> = Vec::new();
+
+    reject_all_filter().filter_into(
+        FilterMode::Enforce,
+        numbered_candidates(10),
+        &mut retained,
+        &mut ledger,
+        FilterBudget::unlimited(),
+    );
+
+    assert_eq!(retained.len(), 0);
+    assert_eq!(ledger.candidate_deaths().len(), 2);
+    assert_eq!(ledger.omitted_candidate_deaths(), 8);
+    assert_eq!(ledger.events().len(), 2);
+    assert_eq!(ledger.omitted_events(), 8);
+    assert_eq!(ledger.counters().candidates_rejected, 10);
+}
+
+#[test]
+fn a_ledger_cap_never_changes_which_candidates_are_retained() {
+    let filter = even_candidates_die_filter();
+    let mut capped = BoundedDeathLedger::new(LedgerCaps {
+        max_events: 0,
+        max_candidate_deaths: 0,
+    });
+    let mut unlimited = BoundedDeathLedger::unlimited();
+
+    let with_cap = retained_identities(&filter, &mut capped);
+    let without_cap = retained_identities(&filter, &mut unlimited);
+
+    assert_eq!(with_cap, vec![1, 3, 5, 7, 9]);
+    assert_eq!(with_cap, without_cap);
+    assert_eq!(capped.counters(), unlimited.counters());
+    assert_eq!(capped.events().len(), 0);
+    assert_eq!(capped.omitted_events(), unlimited.events().len() as u64);
+}
+
+#[test]
+fn a_death_record_names_the_pass_that_killed_each_witness() {
+    let mut retained: Vec<ProposedCandidate> = Vec::new();
+    let mut ledger = BoundedDeathLedger::unlimited();
+
+    two_killer_filter().filter_into(
+        FilterMode::Enforce,
+        one_candidate_with_witnesses(&[1, 2]),
+        &mut retained,
+        &mut ledger,
+        FilterBudget::unlimited(),
+    );
+
+    assert_eq!(retained.len(), 0);
+    let death = &ledger.candidate_deaths()[0];
+    assert_eq!(death.witness_deaths[0].pass_id, FIRST_KILLER);
+    assert_eq!(death.witness_deaths[1].pass_id, SECOND_KILLER);
+    assert_eq!(
+        death.witness_deaths[0].terminal_event_ordinal,
+        ledger.events()[0].event_ordinal
+    );
+}
+
+#[test]
+fn the_same_witness_id_in_two_candidates_has_distinct_ledger_keys() {
+    let mut retained: Vec<ProposedCandidate> = Vec::new();
+    let mut ledger = BoundedDeathLedger::unlimited();
+
+    reject_all_filter().filter_into(
+        FilterMode::Enforce,
+        numbered_candidates(2),
+        &mut retained,
+        &mut ledger,
+        FilterBudget::unlimited(),
+    );
+
+    let events = ledger.events();
+    assert_eq!(events[0].witness_id, events[1].witness_id);
+    assert_ne!(events[0].candidate_ordinal, events[1].candidate_ordinal);
+    assert_ne!(events[0].event_ordinal, events[1].event_ordinal);
+}
+
+fn keep_all_filter() -> CandidateFilter {
+    allow_list_filter(
+        vec![Box::new(KeepAll(KEEP_ALL, Arc::new(AtomicUsize::new(0))))],
+        Vec::new(),
+    )
+}
+
+fn run_seeded(next_event: u64, next_candidate: u64) -> (Vec<u32>, BoundedDeathLedger) {
+    let mut retained: Vec<ProposedCandidate> = Vec::new();
+    let mut ledger = BoundedDeathLedger::unlimited();
+    filter_into_from_ordinals(
+        &keep_all_filter(),
+        FilterMode::Enforce,
+        numbered_candidates(3),
+        &mut retained,
+        &mut ledger,
+        FilterBudget::unlimited(),
+        next_event,
+        next_candidate,
+    );
+    let identities = retained
+        .iter()
+        .map(|candidate| candidate.identity.morphemes[0].0)
+        .collect();
+    (identities, ledger)
+}
+
+#[test]
+fn an_event_ordinal_overflow_stops_detailed_records_without_colliding_keys() {
+    let (identities, ledger) = run_seeded(u64::MAX - 1, 0);
+
+    assert_eq!(identities, vec![0, 1, 2]);
+    assert!(ledger.counters().ordinal_overflow);
+    assert!(ledger.is_summary_only());
+    assert_eq!(ledger.events().len(), 1);
+    assert_eq!(ledger.events()[0].event_ordinal, u64::MAX - 1);
+    assert_eq!(ledger.omitted_events(), 2);
+    assert_eq!(ledger.counters().pass_evaluations, 3);
+    assert_eq!(ledger.counters().keeps, 3);
+}
+
+#[test]
+fn a_candidate_ordinal_overflow_leaves_filtering_correct() {
+    let (overflowed, ledger) = run_seeded(0, u64::MAX);
+    let (ordinary, _) = run_seeded(0, 0);
+
+    assert_eq!(overflowed, ordinary);
+    assert!(ledger.counters().ordinal_overflow);
+    assert_eq!(ledger.counters().candidates_retained, 3);
 }

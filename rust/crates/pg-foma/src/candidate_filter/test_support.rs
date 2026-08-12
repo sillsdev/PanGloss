@@ -13,9 +13,13 @@ use std::collections::BTreeSet;
 use crate::candidate_filter::decision::{
     ProofCategory, ProofVerificationError, RejectionProof, StablePassId, StableRuleId,
 };
-use crate::candidate_filter::model::CandidateWitness;
+use crate::candidate_filter::model::{CandidateWitness, ProposedCandidate};
 use crate::candidate_filter::passes::CandidateFilterPass;
-use crate::candidate_filter::pipeline::{CandidateFilter, FilterContext, ProofVerifier};
+use crate::candidate_filter::pipeline::{
+    CandidateFilter, FilterBudget, FilterCompletion, FilterContext, FilterMode, OrdinalSeed,
+    ProofVerifier,
+};
+use crate::candidate_filter::report::{FilterTraceSink, RetainedCandidateSink};
 
 /// One `(pass, rule, category)` triple an allow-list filter will admit rejections for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -77,4 +81,39 @@ pub fn allow_list_filter(
         .map(|entry| (entry.pass_id, entry.rule_id, entry.category))
         .collect();
     CandidateFilter::new(passes, Box::new(AllowListProofVerifier { admissible }))
+}
+
+/// Builds a filter guarded by the production proof verifier, exactly as a profile would.
+pub fn verified_filter(passes: Vec<Box<dyn CandidateFilterPass>>) -> CandidateFilter {
+    CandidateFilter::verifying(passes)
+}
+
+/// Runs a filter with its diagnostic ordinals already advanced, to reach saturation in one step.
+#[allow(clippy::too_many_arguments)]
+pub fn filter_into_from_ordinals<I, R, T>(
+    filter: &CandidateFilter,
+    mode: FilterMode,
+    input: I,
+    retained: &mut R,
+    trace: &mut T,
+    budget: FilterBudget,
+    next_event: u64,
+    next_candidate: u64,
+) -> FilterCompletion
+where
+    I: IntoIterator<Item = ProposedCandidate>,
+    R: RetainedCandidateSink,
+    T: FilterTraceSink,
+{
+    filter.filter_into_seeded(
+        mode,
+        input,
+        retained,
+        trace,
+        budget,
+        OrdinalSeed {
+            next_event,
+            next_candidate,
+        },
+    )
 }
