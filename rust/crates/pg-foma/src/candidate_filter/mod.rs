@@ -13,10 +13,12 @@
 
 pub mod decision;
 pub mod index;
+pub mod legacy;
 pub mod model;
 pub mod passes;
 pub mod pipeline;
 pub mod report;
+pub mod shadow;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
@@ -26,6 +28,7 @@ pub use decision::{
     TraceFactKind,
 };
 pub use index::{FilterIndex, RuleShape, SiteVerdict};
+pub use legacy::{witness_for, witnesses_for};
 pub use passes::structural::{OwnershipPass, StructuralTransitionPass};
 pub use passes::CandidateFilterPass;
 pub use pipeline::{
@@ -36,6 +39,7 @@ pub use report::{
     BoundedDeathLedger, CandidateDeath, CountingTraceSink, FilterCounters, FilterTraceSink,
     LedgerCaps, PassCounters, PassEvent, PassOutcome, RetainedCandidateSink, WitnessDeath,
 };
+pub use shadow::{CandidateFilterSettings, FilterShadowReport, ShadowCostAttribution};
 
 pub use model::{
     CandidateWitness, DeferredFactReason, DeferredFeatureId, FeatureSet, LexicalOrigin, LocalEvent,

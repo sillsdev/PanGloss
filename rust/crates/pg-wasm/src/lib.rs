@@ -105,6 +105,8 @@ struct FomaState {
     proposer: pg_foma::analyzer::FomaProposer,
     peeler: pg_foma::peel::ReduplicationPeeler,
     owners: Vec<Option<pg_foma::confirm::MorphemeOwner>>,
+    /// Carried across every checkout rather than rebuilt, so nothing silently resets it.
+    filter: pg_foma::candidate_filter::CandidateFilterSettings,
 }
 
 struct FomaCheckout<'slot, 'grammar> {
@@ -120,6 +122,7 @@ impl<'slot, 'grammar> FomaCheckout<'slot, 'grammar> {
                 state.proposer,
                 state.peeler,
                 state.owners,
+                state.filter,
             )
         });
         Self { slot, analyzer }
@@ -133,11 +136,12 @@ impl<'slot, 'grammar> FomaCheckout<'slot, 'grammar> {
 impl Drop for FomaCheckout<'_, '_> {
     fn drop(&mut self) {
         if let Some(analyzer) = self.analyzer.take() {
-            let (proposer, peeler, owners) = analyzer.into_parts();
+            let (proposer, peeler, owners, filter) = analyzer.into_parts();
             *self.slot = Some(FomaState {
                 proposer,
                 peeler,
                 owners,
+                filter,
             });
         }
     }
@@ -150,6 +154,7 @@ fn build_foma_state(grammar: &Grammar) -> Result<FomaState, String> {
         peeler: pg_foma::peel::ReduplicationPeeler::new(grammar),
         owners: pg_foma::confirm::build_morpheme_owners(grammar),
         proposer,
+        filter: pg_foma::candidate_filter::CandidateFilterSettings::off(),
     })
 }
 
@@ -1095,6 +1100,7 @@ mod tests {
             foma_state.proposer,
             foma_state.peeler,
             foma_state.owners,
+            foma_state.filter,
         );
         let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
         let opts = pg_parse::ParseOptions::default();

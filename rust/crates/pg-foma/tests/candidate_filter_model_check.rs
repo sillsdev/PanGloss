@@ -19,6 +19,9 @@ use pg_grammar::model::{Grammar, MorphemeId};
 #[path = "common/filter_fixture.rs"]
 mod fixture;
 
+#[path = "common/filter_sites.rs"]
+mod sites;
+
 const MAX_TRACE_LENGTH: usize = 3;
 const NO_ROOT: i32 = -1;
 
@@ -123,8 +126,8 @@ struct OwnershipSymbol {
 
 fn ownership_alphabet(g: &Grammar) -> Vec<OwnershipSymbol> {
     let morphemes = [
-        fixture::morpheme_of(g, "eRoot"),
-        fixture::morpheme_of(g, "mrP0"),
+        sites::morpheme_of(g, "eRoot"),
+        sites::morpheme_of(g, "mrP0"),
         fixture::unowned_morpheme(g),
     ];
     let roles = [
@@ -270,7 +273,7 @@ fn sites(g: &Grammar, index: &FilterIndex) -> Sites {
                 slots.push((id, template, slot));
             }
         }
-        let stratum = fixture::stratum_of_template(g, template);
+        let stratum = sites::stratum_of_template(g, template);
         if let Some(id) = index.stratum_id(stratum) {
             if !strata.iter().any(|&(_, s)| s == stratum) {
                 strata.push((id, stratum));
@@ -281,10 +284,7 @@ fn sites(g: &Grammar, index: &FilterIndex) -> Sites {
 }
 
 fn transition_alphabet(g: &Grammar, sites: &Sites) -> Vec<TransitionSymbol> {
-    let morphemes = [
-        fixture::morpheme_of(g, "mrP0"),
-        fixture::morpheme_of(g, "mrP1"),
-    ];
+    let morphemes = [sites::morpheme_of(g, "mrP0"), sites::morpheme_of(g, "mrP1")];
     let mut slot_facts: Vec<Option<Option<TraceSlotId>>> = sites
         .slots
         .iter()
@@ -322,10 +322,10 @@ fn reference_site_possible(g: &Grammar, sites: &Sites, symbol: &TransitionSymbol
     let Some(&(_, stratum)) = sites.strata.iter().find(|&&(id, _)| id == stratum) else {
         return true;
     };
-    if fixture::stratum_of_template(g, template) != stratum {
+    if sites::stratum_of_template(g, template) != stratum {
         return false;
     }
-    fixture::site_of(g, fixture::rule_of(g, symbol.morpheme)) == (template, slot)
+    sites::site_of(g, sites::rule_of(g, symbol.morpheme)) == (template, slot)
 }
 
 /// A step is only refutable when both its ends claim a site in one shared stratum.

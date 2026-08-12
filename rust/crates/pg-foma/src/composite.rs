@@ -11,6 +11,7 @@
 //! contribute zero matches); under-generation would be a recall bug in `propose`/`peel_candidates`
 //! themselves, already gated elsewhere.
 
+use std::borrow::Cow;
 use std::time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -20,12 +21,19 @@ use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, WordAnalysis};
 
 use crate::analyzer::{FomaError, FomaProposer, ProposalCounts, ProposalDiagnostics};
+use crate::candidate_filter::legacy;
+use crate::candidate_filter::model::ProposedCandidate;
+use crate::candidate_filter::report::{
+    BoundedDeathLedger, CandidateDeath, FilterTraceSink, PassEvent, RetainedCandidateSink,
+};
+use crate::candidate_filter::shadow::{self, CandidateFilterSettings, FilterShadowReport};
 use crate::compose_budget::{
     ApplyBudget, ApplyDimension, ApplyOutcome, ComposeBudget, ComposeError,
 };
 use crate::confirm::{self, MorphemeOwner};
 use crate::peel::ReduplicationPeeler;
 use crate::tags::Candidate;
+use crate::word_timer;
 
 /// Serialized proposal result detached from the mutable foma apply handle.
 pub struct ProposedWord {
@@ -34,6 +42,19 @@ pub struct ProposedWord {
     /// See `FomaOutcome::peel_chain_depth_error`'s own doc.
     peel_chain_depth_error: Option<ComposeError>,
     propose_elapsed: Duration,
+    /// Carried from the proposing analyzer, since detached confirmation has none in scope.
+    filter: CandidateFilterSettings,
+}
+
+impl ProposedWord {
+    /// The deduped candidates this word was proposed for, in the order confirmation will see them.
+    pub fn candidates(&self) -> &[Candidate] {
+        &self.candidates
+    }
+
+    pub fn candidate_filter(&self) -> &CandidateFilterSettings {
+        &self.filter
+    }
 }
 
 type ConfirmedBuckets = Vec<Vec<(WordAnalysis, String, String)>>;
@@ -121,32 +142,6 @@ pub mod test_confirmation_concurrency {
     }
 }
 
-/// Per-word timer; `Instant::now()` compiles but aborts at runtime on wasm32, so that arm reports `Duration::ZERO` instead of timing.
-#[cfg(not(target_arch = "wasm32"))]
-mod word_timer {
-    pub struct Timer(std::time::Instant);
-    pub fn start() -> Timer {
-        Timer(std::time::Instant::now())
-    }
-    impl Timer {
-        pub fn elapsed(&self) -> std::time::Duration {
-            self.0.elapsed()
-        }
-    }
-}
-#[cfg(target_arch = "wasm32")]
-mod word_timer {
-    pub struct Timer;
-    pub fn start() -> Timer {
-        Timer
-    }
-    impl Timer {
-        pub fn elapsed(&self) -> std::time::Duration {
-            std::time::Duration::ZERO
-        }
-    }
-}
-
 /// The outcome of `FomaAnalyzer::analyze_word` — the `pg_parse::ParseOutcome`-compatible shape
 /// (`analyses`/`structured`), plus diagnostics the propose/confirm gate's numbers come from:
 /// how many distinct candidates were proposed before confirm, how many survived confirm, and
@@ -204,6 +199,9 @@ pub struct FomaWordDiagnostics {
     pub raw_paths: usize,
     pub confirmed_analyses: usize,
     pub confirmation_elapsed: Duration,
+    /// What the candidate filter decided for this word, and what confirmation then spent on the
+    /// candidates it would have removed. Inert under `FilterMode::Off`, which is the default.
+    pub filter: FilterShadowReport,
 }
 
 /// A complete ordinary `FomaOutcome` paired with opt-in runtime diagnostics.
@@ -404,6 +402,185 @@ fn remaining_apply_budget(budget: &ApplyBudget, used: &ProposalDiagnostics) -> A
     )
 }
 
+/// Whether a confirmation call should account for its own topology.
+///
+/// Filtering forces the accounting on regardless: a shadow run exists to price the candidates it
+/// would have removed, and that price is only readable from the per-chunk record.
+pub(crate) enum ConfirmDetail {
+    Plain,
+    Diagnostic,
+}
+
+/// One word's confirmation, with whatever the filter established about it on the way in.
+pub(crate) struct ConfirmationRun {
+    pub(crate) buckets: ConfirmedBuckets,
+    pub(crate) confirm: confirm::ConfirmBatchDiagnostics,
+    pub(crate) filter: FilterShadowReport,
+}
+
+/// Discards retained proposals; retention is read off the trace, which carries the ordinals.
+struct DiscardRetained;
+
+impl RetainedCandidateSink for DiscardRetained {
+    fn accept(&mut self, _candidate: ProposedCandidate) {}
+}
+
+/// A ledger that also remembers which proposal ordinals survived, in emission order.
+struct ShadowSink {
+    ledger: BoundedDeathLedger,
+    retained: Vec<usize>,
+}
+
+impl FilterTraceSink for ShadowSink {
+    fn record_pass_event(&mut self, event: &PassEvent) {
+        self.ledger.record_pass_event(event);
+    }
+
+    fn record_candidate_death(&mut self, death: &CandidateDeath) {
+        self.ledger.record_candidate_death(death);
+    }
+
+    fn record_candidate_retained(&mut self, candidate_ordinal: u64, identity: &Candidate) {
+        self.ledger
+            .record_candidate_retained(candidate_ordinal, identity);
+        if let Ok(ordinal) = usize::try_from(candidate_ordinal) {
+            self.retained.push(ordinal);
+        }
+    }
+
+    fn record_ordinal_overflow(&mut self) {
+        self.ledger.record_ordinal_overflow();
+    }
+}
+
+/// The single seam between proposal and confirmation: evaluate the filter, project what survives
+/// onto the confirmer, and correlate the two afterwards.
+///
+/// Every confirmation path in this module goes through here so the three modes cannot diverge by
+/// entry point. Under `Off` the candidate slice reaches `confirm_batch` untouched and nothing else
+/// runs, so an ordinary analysis is exactly what it was before filtering existed.
+///
+/// The returned buckets are always in the caller's own candidate order and length, whatever the
+/// filter removed: a removed candidate gets an empty bucket, which is what a candidate the
+/// confirmer rejects would have produced anyway.
+pub(crate) fn filter_then_confirm(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher<'_>,
+    settings: &CandidateFilterSettings,
+    candidates: &[Candidate],
+    word: &str,
+    detail: ConfirmDetail,
+) -> ConfirmationRun {
+    let mut report = FilterShadowReport::inactive(settings.mode(), candidates.len());
+    let Some(filter) = settings.filter().filter(|_| settings.is_active()) else {
+        let (buckets, confirm) = match detail {
+            ConfirmDetail::Plain => (
+                confirm::confirm_batch(g, owners, morpher, candidates, word),
+                confirm::ConfirmBatchDiagnostics::default(),
+            ),
+            ConfirmDetail::Diagnostic => {
+                confirm::confirm_batch_with_diagnostics(g, owners, morpher, candidates, word)
+            }
+        };
+        return ConfirmationRun {
+            buckets,
+            confirm,
+            filter: report,
+        };
+    };
+
+    let proposals = legacy::witnesses_for(
+        candidates,
+        settings.grammar_revision(),
+        settings.lexicon_revision(),
+    );
+    report.candidate_witnesses = proposals
+        .iter()
+        .map(|proposal| proposal.witnesses.len())
+        .sum();
+
+    let mut sink = ShadowSink {
+        ledger: BoundedDeathLedger::new(settings.ledger_caps()),
+        retained: Vec::with_capacity(candidates.len()),
+    };
+    report.completion = filter.filter_into(
+        settings.mode(),
+        proposals,
+        &mut DiscardRetained,
+        &mut sink,
+        settings.budget(),
+    );
+
+    let counters = sink.ledger.counters();
+    report.filter_steps = counters.pass_evaluations;
+    report.filter_keeps = counters.keeps;
+    report.filter_defers = counters.defers;
+    report.filter_rejections = counters.witnesses_rejected;
+    report.filter_candidates_removed = counters.candidates_rejected;
+    report.filter_pass_panics = counters.panics;
+    report.per_pass = counters.per_pass.clone();
+    report.death_records_omitted = sink.ledger.omitted_candidate_deaths();
+
+    let presented = sink.retained;
+    let confirmed_slice: Cow<'_, [Candidate]> = if presented.len() == candidates.len()
+        && presented.iter().enumerate().all(|(at, &of)| at == of)
+    {
+        Cow::Borrowed(candidates)
+    } else {
+        Cow::Owned(
+            presented
+                .iter()
+                .filter_map(|&ordinal| candidates.get(ordinal).cloned())
+                .collect(),
+        )
+    };
+    report.hc_candidates_received = confirmed_slice.len();
+
+    let (confirmed, confirm, chunks) = confirm::confirm_batch_attributed_with_diagnostics(
+        g,
+        owners,
+        morpher,
+        &confirmed_slice,
+        word,
+    );
+
+    let mut buckets: ConfirmedBuckets = (0..candidates.len()).map(|_| Vec::new()).collect();
+    for (position, bucket) in confirmed.into_iter().enumerate() {
+        if let Some(&ordinal) = presented.get(position) {
+            if let Some(slot) = buckets.get_mut(ordinal) {
+                *slot = bucket;
+            }
+        }
+    }
+
+    let doomed: Vec<usize> = sink
+        .ledger
+        .candidate_deaths()
+        .iter()
+        .filter_map(|death| usize::try_from(death.candidate_ordinal).ok())
+        .collect();
+    for death in sink.ledger.candidate_deaths() {
+        let Ok(ordinal) = usize::try_from(death.candidate_ordinal) else {
+            continue;
+        };
+        if buckets
+            .get(ordinal)
+            .is_some_and(|bucket| !bucket.is_empty())
+        {
+            report.shadow_false_rejections = report.shadow_false_rejections.saturating_add(1);
+            report.false_rejection_deaths.push(death.clone());
+        }
+    }
+    report.attribution = shadow::attribute(&doomed, &presented, &chunks);
+
+    ConfirmationRun {
+        buckets,
+        confirm,
+        filter: report,
+    }
+}
+
 /// One grammar's compiled foma proposer, uncapped verify `Morpher`, prebuilt morpheme-owner map,
 /// and redup peeler, owned together — the propose→confirm composite. `'g` ties this to the
 /// same `&Grammar` borrow the verify `Morpher` itself needs.
@@ -415,6 +592,7 @@ pub struct FomaAnalyzer<'g> {
     owners: Vec<Option<MorphemeOwner>>,
     /// The budget `Self::propose_candidates` threads into every `peel_candidates` call; read once from `HC_COMPOSE_*` env vars here rather than per word, since `ComposeBudget` is `Copy`.
     peel_budget: ComposeBudget,
+    filter: CandidateFilterSettings,
     #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
     confirmation_concurrency_probe: Option<test_confirmation_concurrency::Probe>,
 }
@@ -440,6 +618,7 @@ impl<'g> FomaAnalyzer<'g> {
             morpher: Morpher::new(g, usize::MAX),
             owners: confirm::build_morpheme_owners(g),
             peel_budget: ComposeBudget::from_env(),
+            filter: CandidateFilterSettings::off(),
             #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
             confirmation_concurrency_probe: None,
         })
@@ -453,7 +632,22 @@ impl<'g> FomaAnalyzer<'g> {
             proposer,
             ReduplicationPeeler::new(g),
             confirm::build_morpheme_owners(g),
+            CandidateFilterSettings::off(),
         )
+    }
+
+    /// How this analyzer filters candidates before confirming them.
+    pub fn candidate_filter(&self) -> &CandidateFilterSettings {
+        &self.filter
+    }
+
+    pub fn set_candidate_filter(&mut self, settings: CandidateFilterSettings) {
+        self.filter = settings;
+    }
+
+    pub fn with_candidate_filter(mut self, settings: CandidateFilterSettings) -> Self {
+        self.filter = settings;
+        self
     }
 
     #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
@@ -483,8 +677,16 @@ impl<'g> FomaAnalyzer<'g> {
         let mut analyses = Vec::new();
         let mut structured = Vec::new();
         // Batched confirm: one union re-parse routes every outcome to its candidate's bucket, content-identical to per-candidate confirm_all at 1/N the re-parse cost.
-        for bucket in confirm::confirm_batch(self.g, &self.owners, &self.morpher, &candidates, word)
-        {
+        let run = filter_then_confirm(
+            self.g,
+            &self.owners,
+            &self.morpher,
+            &self.filter,
+            &candidates,
+            word,
+            ConfirmDetail::Plain,
+        );
+        for bucket in run.buckets {
             for (wa, join, surface) in bucket {
                 structured.push(wa);
                 analyses.push((join, surface));
@@ -534,8 +736,16 @@ impl<'g> FomaAnalyzer<'g> {
         let candidates_generated = candidates.len();
         let mut analyses = Vec::new();
         let mut structured = Vec::new();
-        for bucket in confirm::confirm_batch(self.g, &self.owners, &self.morpher, &candidates, word)
-        {
+        let run = filter_then_confirm(
+            self.g,
+            &self.owners,
+            &self.morpher,
+            &self.filter,
+            &candidates,
+            word,
+            ConfirmDetail::Plain,
+        );
+        for bucket in run.buckets {
             for (wa, join, surface) in bucket {
                 structured.push(wa);
                 analyses.push((join, surface));
@@ -705,17 +915,20 @@ impl<'g> FomaAnalyzer<'g> {
             };
 
         let confirmation_timer = word_timer::start();
-        let (buckets, confirmation) = confirm::confirm_batch_with_diagnostics(
+        let run = filter_then_confirm(
             self.g,
             &self.owners,
             &self.morpher,
+            &self.filter,
             &candidates,
             word,
+            ConfirmDetail::Diagnostic,
         );
         let confirmation_elapsed = confirmation_timer.elapsed();
+        let confirmation = run.confirm;
         let mut analyses = Vec::new();
         let mut structured = Vec::new();
-        for bucket in buckets {
+        for bucket in run.buckets {
             for (analysis, join, surface) in bucket {
                 structured.push(analysis);
                 analyses.push((join, surface));
@@ -739,6 +952,7 @@ impl<'g> FomaAnalyzer<'g> {
             confirmation_steps: confirmation.confirmation_steps,
             confirmed_analyses: outcome.confirmed,
             confirmation_elapsed,
+            filter: run.filter,
         };
         ProfiledFomaApplyOutcomeWithCandidates::Complete(ProfiledFomaOutcomeWithCandidates {
             outcome,
@@ -886,6 +1100,7 @@ impl<'g> FomaAnalyzer<'g> {
                     peel_used,
                     peel_chain_depth_error,
                     propose_elapsed: t0.elapsed(),
+                    filter: self.filter.clone(),
                 }
             })
             .collect()
@@ -927,8 +1142,16 @@ impl<'g> FomaAnalyzer<'g> {
         proposer: FomaProposer,
         peeler: ReduplicationPeeler,
         owners: Vec<Option<MorphemeOwner>>,
+        filter: CandidateFilterSettings,
     ) -> Self {
-        Self::from_cached_with_morpher(g, proposer, peeler, owners, Morpher::new(g, usize::MAX))
+        Self::from_cached_with_morpher(
+            g,
+            proposer,
+            peeler,
+            owners,
+            Morpher::new(g, usize::MAX),
+            filter,
+        )
     }
 
     /// `Self::from_cached` with the confirming `Morpher` supplied by the caller instead of built
@@ -956,6 +1179,7 @@ impl<'g> FomaAnalyzer<'g> {
         peeler: ReduplicationPeeler,
         owners: Vec<Option<MorphemeOwner>>,
         morpher: Morpher<'g>,
+        filter: CandidateFilterSettings,
     ) -> Self {
         FomaAnalyzer {
             g,
@@ -964,6 +1188,7 @@ impl<'g> FomaAnalyzer<'g> {
             morpher,
             owners,
             peel_budget: ComposeBudget::from_env(),
+            filter,
             #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
             confirmation_concurrency_probe: None,
         }
@@ -985,9 +1210,10 @@ impl<'g> FomaAnalyzer<'g> {
         FomaProposer,
         ReduplicationPeeler,
         Vec<Option<MorphemeOwner>>,
+        CandidateFilterSettings,
     ) {
-        let (proposer, peeler, owners, _morpher) = self.into_parts_with_morpher();
-        (proposer, peeler, owners)
+        let (proposer, peeler, owners, _morpher, filter) = self.into_parts_with_morpher();
+        (proposer, peeler, owners, filter)
     }
 
     /// `Self::into_parts` that also hands back the confirming `Morpher` instead of dropping it —
@@ -1000,8 +1226,15 @@ impl<'g> FomaAnalyzer<'g> {
         ReduplicationPeeler,
         Vec<Option<MorphemeOwner>>,
         Morpher<'g>,
+        CandidateFilterSettings,
     ) {
-        (self.proposer, self.peeler, self.owners, self.morpher)
+        (
+            self.proposer,
+            self.peeler,
+            self.owners,
+            self.morpher,
+            self.filter,
+        )
     }
 }
 
@@ -1039,9 +1272,16 @@ pub fn confirm_proposed_words(
             .zip(proposed.iter())
             .map(|(word, proposal)| {
                 let t0 = word_timer::start();
-                let buckets =
-                    confirm::confirm_batch(g, owners, &morpher, &proposal.candidates, word);
-                (buckets, t0.elapsed())
+                let run = filter_then_confirm(
+                    g,
+                    owners,
+                    &morpher,
+                    &proposal.filter,
+                    &proposal.candidates,
+                    word,
+                    ConfirmDetail::Plain,
+                );
+                (run.buckets, t0.elapsed())
             })
             .collect();
         finish_confirmed(proposed, buckets_per_word)
@@ -1069,9 +1309,16 @@ pub fn confirm_proposed_words_in_pool(
             .zip(proposed.par_iter())
             .map(|(word, proposal)| {
                 let t0 = word_timer::start();
-                let buckets =
-                    confirm::confirm_batch(g, owners, &morpher, &proposal.candidates, word);
-                (buckets, t0.elapsed())
+                let run = filter_then_confirm(
+                    g,
+                    owners,
+                    &morpher,
+                    &proposal.filter,
+                    &proposal.candidates,
+                    word,
+                    ConfirmDetail::Plain,
+                );
+                (run.buckets, t0.elapsed())
             })
             .collect()
     });
@@ -1127,9 +1374,16 @@ pub fn confirm_proposed_words_in_pool_with_probe(
             .map(|(word, proposal)| {
                 let _concurrency = probe.map(test_confirmation_concurrency::Guard::enter);
                 let t0 = word_timer::start();
-                let buckets =
-                    confirm::confirm_batch(g, owners, &morpher, &proposal.candidates, word);
-                (buckets, t0.elapsed())
+                let run = filter_then_confirm(
+                    g,
+                    owners,
+                    &morpher,
+                    &proposal.filter,
+                    &proposal.candidates,
+                    word,
+                    ConfirmDetail::Plain,
+                );
+                (run.buckets, t0.elapsed())
             })
             .collect()
     });

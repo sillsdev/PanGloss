@@ -1806,7 +1806,12 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                         )
                     });
                     let mut analyzer = FomaAnalyzer::from_cached_with_morpher(
-                        grammar, proposer, peeler, owners, morpher,
+                        grammar,
+                        proposer,
+                        peeler,
+                        owners,
+                        morpher,
+                        crate::candidate_filter::CandidateFilterSettings::off(),
                     );
                     let measured = if OBSERVE {
                         measure_and_certify_observed(
@@ -1834,7 +1839,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                         )
                     };
                     // Hand the grammar-static confirm pieces back for the next candidate: confirm never mutates them, so the next candidate gets objects indistinguishable from a fresh rebuild.
-                    let (_spent_proposer, peeler, owners, morpher) =
+                    let (_spent_proposer, peeler, owners, morpher, _filter) =
                         analyzer.into_parts_with_morpher();
                     confirm_pieces = Some((peeler, owners, morpher));
                     if let Some(reuse_key) = reuse_key {

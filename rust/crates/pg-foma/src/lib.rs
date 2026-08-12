@@ -330,6 +330,7 @@ pub(crate) mod unordered;
 /// from hand-written citations, this module's positive evidence is produced by running. The
 /// cannot-represent half necessarily stays declarative -- a run yields positive evidence only.
 pub mod witnessed_coverage;
+pub(crate) mod word_timer;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod worker;
 

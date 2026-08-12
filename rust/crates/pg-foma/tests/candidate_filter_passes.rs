@@ -3,6 +3,9 @@
 #[path = "common/filter_fixture.rs"]
 mod fixture;
 
+#[path = "common/filter_sites.rs"]
+mod sites;
+
 use pg_foma::candidate_filter::decision::{
     AdmissibleProof, IdentityDefect, PassDecision, ProofCategory, ProofClaim,
     ProofVerificationError, ProofWitness, RejectionProof, SpanDefect, StablePassId, StableRuleId,
@@ -1162,6 +1165,7 @@ mod structural {
     use pg_grammar::model::{AllomorphId, Grammar, MorphemeId};
 
     use crate::fixture;
+    use crate::sites;
 
     const NO_ROOT: i32 = -1;
 
@@ -1178,7 +1182,7 @@ mod structural {
 
     impl World {
         fn morpheme(&self, xml_key: &str) -> MorphemeId {
-            fixture::morpheme_of(&self.grammar, xml_key)
+            sites::morpheme_of(&self.grammar, xml_key)
         }
 
         fn unowned(&self) -> MorphemeId {
@@ -1187,17 +1191,17 @@ mod structural {
 
         /// The contract slot id of the site listing the rule that owns this element's morpheme.
         fn slot(&self, xml_key: &str) -> TraceSlotId {
-            let rule = fixture::rule_of(&self.grammar, self.morpheme(xml_key));
-            let (template, slot) = fixture::site_of(&self.grammar, rule);
+            let rule = sites::rule_of(&self.grammar, self.morpheme(xml_key));
+            let (template, slot) = sites::site_of(&self.grammar, rule);
             self.index
                 .slot_id(template, slot)
                 .expect("the fixture template slot is in the index")
         }
 
         fn stratum(&self, xml_key: &str) -> TraceStratumId {
-            let rule = fixture::rule_of(&self.grammar, self.morpheme(xml_key));
-            let (template, _) = fixture::site_of(&self.grammar, rule);
-            let stratum = fixture::stratum_of_template(&self.grammar, template);
+            let rule = sites::rule_of(&self.grammar, self.morpheme(xml_key));
+            let (template, _) = sites::site_of(&self.grammar, rule);
+            let stratum = sites::stratum_of_template(&self.grammar, template);
             self.index
                 .stratum_id(stratum)
                 .expect("the fixture stratum is in the index")

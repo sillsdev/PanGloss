@@ -15,6 +15,8 @@
 //! way afterward) is what keeps a matched analysis's numeric ids and display strings describing the
 //! same thing.
 
+use std::time::Duration;
+
 use rustc_hash::FxHashSet as HashSet;
 
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId};
@@ -50,6 +52,24 @@ pub(crate) struct ConfirmBatchDiagnostics {
     /// ticks), so measuring in it means the objective and the cap finally speak the same language.
     /// Deterministic, like the counts beside it -- no wall-clock anywhere.
     pub confirmation_steps: usize,
+}
+
+/// What one fused confirmation chunk cost, and which candidates shared that cost.
+///
+/// This is the finest granularity confirmation has: `confirm_batch` groups candidates and runs one
+/// restricted reparse per group, so the cost of a group is a single measurement no matter how many
+/// candidates are in it. A candidate absent from every chunk cost nothing at all — pin resolution
+/// turned it away before any parse — and a candidate that is a chunk's only member owns that
+/// chunk's whole figure. Anything in between is shared and not divisible by this record.
+///
+/// `steps` is `pg_parse::ParseOutcome::steps` and is deterministic; `elapsed` is an observation of
+/// the same call and is not.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ConfirmChunkCost {
+    /// Indices into the candidate slice that was confirmed, ascending.
+    pub members: Vec<usize>,
+    pub steps: usize,
+    pub elapsed: Duration,
 }
 
 /// Which grammar object owns a given `MorphemeId` — ported from `hc-hybrid/src/replay.rs`'s
@@ -280,7 +300,31 @@ pub fn confirm_batch(
     candidates: &[Candidate],
     word: &str,
 ) -> ConfirmedBuckets {
-    confirm_batch_impl(g, owners, morpher, candidates, word, None)
+    confirm_batch_impl(g, owners, morpher, candidates, word, None, None)
+}
+
+/// `confirm_batch`, plus a record of what each fused chunk cost and who was in it.
+///
+/// The buckets are byte-identical to `confirm_batch`'s; the second return value is pure
+/// instrumentation, and reading it changes nothing about what is confirmed.
+pub fn confirm_batch_attributed(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher,
+    candidates: &[Candidate],
+    word: &str,
+) -> (ConfirmedBuckets, Vec<ConfirmChunkCost>) {
+    let mut chunks = Vec::new();
+    let buckets = confirm_batch_impl(
+        g,
+        owners,
+        morpher,
+        candidates,
+        word,
+        None,
+        Some(&mut chunks),
+    );
+    (buckets, chunks)
 }
 
 pub(crate) fn confirm_batch_with_diagnostics(
@@ -291,8 +335,41 @@ pub(crate) fn confirm_batch_with_diagnostics(
     word: &str,
 ) -> (ConfirmedBuckets, ConfirmBatchDiagnostics) {
     let mut diagnostics = ConfirmBatchDiagnostics::default();
-    let buckets = confirm_batch_impl(g, owners, morpher, candidates, word, Some(&mut diagnostics));
+    let buckets = confirm_batch_impl(
+        g,
+        owners,
+        morpher,
+        candidates,
+        word,
+        Some(&mut diagnostics),
+        None,
+    );
     (buckets, diagnostics)
+}
+
+pub(crate) fn confirm_batch_attributed_with_diagnostics(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher,
+    candidates: &[Candidate],
+    word: &str,
+) -> (
+    ConfirmedBuckets,
+    ConfirmBatchDiagnostics,
+    Vec<ConfirmChunkCost>,
+) {
+    let mut diagnostics = ConfirmBatchDiagnostics::default();
+    let mut chunks = Vec::new();
+    let buckets = confirm_batch_impl(
+        g,
+        owners,
+        morpher,
+        candidates,
+        word,
+        Some(&mut diagnostics),
+        Some(&mut chunks),
+    );
+    (buckets, diagnostics, chunks)
 }
 
 fn confirm_batch_impl(
@@ -302,6 +379,7 @@ fn confirm_batch_impl(
     candidates: &[Candidate],
     word: &str,
     mut diagnostics: Option<&mut ConfirmBatchDiagnostics>,
+    mut costs: Option<&mut Vec<ConfirmChunkCost>>,
 ) -> ConfirmedBuckets {
     let mut buckets: ConfirmedBuckets = (0..candidates.len()).map(|_| Vec::new()).collect();
 
@@ -426,16 +504,27 @@ fn confirm_batch_impl(
         if let Some(diagnostics) = diagnostics.as_deref_mut() {
             diagnostics.confirmation_calls += 1;
         }
+        let timer = crate::word_timer::start();
         let outcome = morpher.parse_word_selected(
             word,
             &ParseOptions::default(),
             Some(&lex_entry_filter),
             Some(&rule_filter),
         );
+        let elapsed = timer.elapsed();
         // Read BEFORE the loop below consumes `outcome`.
         if let Some(diagnostics) = diagnostics.as_deref_mut() {
             diagnostics.confirmation_steps =
                 diagnostics.confirmation_steps.saturating_add(outcome.steps);
+        }
+        if let Some(costs) = costs.as_deref_mut() {
+            let mut members = members.clone();
+            members.sort_unstable();
+            costs.push(ConfirmChunkCost {
+                members,
+                steps: outcome.steps,
+                elapsed,
+            });
         }
 
         // `outcome.analyses[i]` and `outcome.structured[i]` describe the same analysis; zip so a routed match keeps both.
@@ -446,6 +535,10 @@ fn confirm_batch_impl(
                 buckets[i].push((wa, join, surface));
             }
         }
+    }
+    // Chunk order follows a hash map's iteration, so a report keyed on it would not be reproducible.
+    if let Some(costs) = costs.as_deref_mut() {
+        costs.sort_by(|left, right| left.members.cmp(&right.members));
     }
     buckets
 }

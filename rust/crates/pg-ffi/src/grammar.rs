@@ -44,6 +44,8 @@ struct FomaState {
     proposer: pg_foma::analyzer::FomaProposer,
     peeler: pg_foma::peel::ReduplicationPeeler,
     owners: Vec<Option<pg_foma::confirm::MorphemeOwner>>,
+    /// Carried across every analyzer round trip rather than rebuilt, so nothing silently resets it.
+    filter: pg_foma::candidate_filter::CandidateFilterSettings,
 }
 
 enum OfficialBackend {
@@ -57,6 +59,7 @@ impl FomaState {
             proposer: pg_foma::analyzer::FomaProposer::new(grammar).map_err(|e| e.to_string())?,
             peeler: pg_foma::peel::ReduplicationPeeler::new(grammar),
             owners: pg_foma::confirm::build_morpheme_owners(grammar),
+            filter: pg_foma::candidate_filter::CandidateFilterSettings::off(),
         })
     }
 }
@@ -194,9 +197,10 @@ impl GrammarHandle {
                 state.proposer,
                 state.peeler,
                 state.owners,
+                state.filter,
             );
             let outcome = analyzer.analyze_word(word);
-            let (proposer, peeler, owners) = analyzer.into_parts();
+            let (proposer, peeler, owners, filter) = analyzer.into_parts();
             (
                 pg_lexicon::OfficialOutcome {
                     analyses: outcome.analyses,
@@ -207,6 +211,7 @@ impl GrammarHandle {
                     proposer,
                     peeler,
                     owners,
+                    filter,
                 },
             )
         }));
@@ -282,18 +287,20 @@ impl GrammarHandle {
                         state.proposer,
                         state.peeler,
                         state.owners,
+                        state.filter,
                     );
                     let proposed = analyzer.propose_words(words);
-                    let (proposer, peeler, owners) = analyzer.into_parts();
-                    (proposed, proposer, peeler, owners)
+                    let (proposer, peeler, owners, filter) = analyzer.into_parts();
+                    (proposed, proposer, peeler, owners, filter)
                 }));
                 match attempted {
-                    Ok((proposed, proposer, peeler, owners)) => {
+                    Ok((proposed, proposer, peeler, owners, filter)) => {
                         let confirm_owners = owners.clone();
                         *backend = OfficialBackend::Foma(Box::new(FomaState {
                             proposer,
                             peeler,
                             owners,
+                            filter,
                         }));
                         drop(backend);
                         (proposed, confirm_owners)
@@ -371,18 +378,20 @@ impl GrammarHandle {
                         state.proposer,
                         state.peeler,
                         state.owners,
+                        state.filter,
                     );
                     let proposed = analyzer.propose_words(words);
-                    let (proposer, peeler, owners) = analyzer.into_parts();
-                    (proposed, proposer, peeler, owners)
+                    let (proposer, peeler, owners, filter) = analyzer.into_parts();
+                    (proposed, proposer, peeler, owners, filter)
                 }));
                 match attempted {
-                    Ok((proposed, proposer, peeler, owners)) => {
+                    Ok((proposed, proposer, peeler, owners, filter)) => {
                         let confirm_owners = owners.clone();
                         *backend = OfficialBackend::Foma(Box::new(FomaState {
                             proposer,
                             peeler,
                             owners,
+                            filter,
                         }));
                         drop(backend);
                         (proposed, confirm_owners)
@@ -464,19 +473,21 @@ impl GrammarHandle {
                         state.proposer,
                         state.peeler,
                         state.owners,
+                        state.filter,
                     );
                     let probe = analyzer.arm_confirmation_concurrency_probe();
                     let proposed = analyzer.propose_words(words);
-                    let (proposer, peeler, owners) = analyzer.into_parts();
-                    (proposed, proposer, peeler, owners, probe)
+                    let (proposer, peeler, owners, filter) = analyzer.into_parts();
+                    (proposed, proposer, peeler, owners, filter, probe)
                 }));
                 match attempted {
-                    Ok((proposed, proposer, peeler, owners, probe)) => {
+                    Ok((proposed, proposer, peeler, owners, filter, probe)) => {
                         let confirm_owners = owners.clone();
                         *backend = OfficialBackend::Foma(Box::new(FomaState {
                             proposer,
                             peeler,
                             owners,
+                            filter,
                         }));
                         drop(backend);
                         (proposed, confirm_owners, probe)
