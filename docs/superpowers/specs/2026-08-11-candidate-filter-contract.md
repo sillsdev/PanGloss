@@ -119,9 +119,43 @@ pub enum PassDecision {
 proved no contradiction in the facts it owns, while `Defer` means it lacked sufficient certified
 facts.
 
-A rejection proof contains a stable pass ID, rule ID, category, and machine-checkable witness. The
-pipeline calls the proof verifier before enforcement. An invalid or unverifiable proof becomes
-`Defer`; it is recorded as a proof-verification failure and never kills a witness.
+A rejection proof contains a stable pass ID, rule ID, category, and machine-checkable witness. An
+invalid or unverifiable proof becomes `Defer`; it is recorded as a proof-verification failure and
+never kills a witness.
+
+How much of that proof is checked is an explicit, orthogonal knob, because the two halves buy
+different things and cost different amounts:
+
+```rust
+pub enum ProofCheckDepth {
+    Envelope,
+    Full,
+}
+```
+
+`Envelope` re-checks the proof's identity, witness, grammar/lexicon revision, lexical origin, and
+that every unit a claim reads was cited. It is near-free, it catches mis-wiring — a proof paired
+with the wrong witness, a stale revision, an uncited unit — and it is the production default.
+
+`Full` additionally re-derives the claim against the witness's own trace. It is the default for
+tests and for `Shadow`.
+
+**`Full` is not a production safety mechanism, and the contract does not pretend otherwise.** Every
+pass is first-party compiled code in this crate; no untrusted party authors a proof, so there is no
+forgery threat model at runtime. Re-deriving a claim catches exactly one bug class — a pass whose
+written claim contradicts the trace it read — and it does *not* catch the dominant risk, a pass
+whose grammar reasoning is simply wrong, because such a pass emits a claim perfectly consistent
+with the trace. Paying that cost on every rejection would buy narrow protection against an
+adversary that does not exist.
+
+Independent re-derivation therefore lives where it is affordable, exhaustive, and genuinely
+independent: the model/property tests, which compare each pass against a separate reference
+predicate over completely enumerated small domains. That is a second implementation checking the
+first, which is what "verified" should mean here.
+
+What the proof carries in production is its *explanation* — the death ledger, shadow correlation,
+and the only diagnosis a user has under enforcement. Proofs are carried and recorded always;
+`Full` checking of them is a testing and shadow instrument.
 
 Initial proof categories are finite and versioned:
 
