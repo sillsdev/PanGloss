@@ -19,7 +19,7 @@ harness and refuse to certify anything when an input is absent.
 - **FST generator:** produces a recall-preserving set of candidate proposals and symbolic witnesses.
 - **Candidate filter:** applies one or more sound rejection passes to those witnesses.
 - **HC confirmer:** performs the authoritative full analysis and returns final analyses. “Confirmer”
-  is preferred over “verifier” because the filter has a separate rejection-proof verifier.
+  is preferred over “verifier” because rejection proofs have their own separate, test-only verifier.
 
 The pipeline is:
 
@@ -119,9 +119,8 @@ pub enum PassDecision {
 proved no contradiction in the facts it owns, while `Defer` means it lacked sufficient certified
 facts.
 
-A rejection proof contains a stable pass ID, rule ID, category, and machine-checkable witness. An
-invalid or unverifiable proof becomes `Defer`; it is recorded as a proof-verification failure and
-never kills a witness.
+A rejection proof contains a stable pass ID, rule ID, category, and machine-checkable witness. It
+is evidence about a decision, not a precondition for it.
 
 **The pipeline performs no verification.** A pass's `Reject` is acted on directly; the proof is
 constructed, carried, and recorded as evidence. There is no verifier in the filter, no check
@@ -166,9 +165,10 @@ and the only diagnosis a user has under enforcement. Proofs are carried and reco
 
 **Reproducibility is what replaces runtime checking, and it is therefore a requirement, not a
 convenience.** A recorded rejection names its pass, rule, category, candidate identity, and
-witness. That, plus the grammar, is enough to re-run the same word offline at `Full`, or with
-filtering off entirely, and re-derive exactly what happened. Paying to check every rejection is not
-needed in order to explain any rejection later. This holds only while filtering is deterministic,
+witness. That, plus the grammar, is enough to re-run the same word offline — with filtering off, or
+with post-hoc verification enabled — and re-derive exactly what happened. Paying to check every
+rejection is not needed in order to explain any rejection later. This holds only while filtering is
+deterministic,
 so determinism is pinned by test: the same passes, input, mode, and budget must produce identical
 retained sets, identical decisions, and an identical ledger, including event ordinals and pass
 order.
@@ -194,9 +194,9 @@ whose abstraction loses relevant information always defer to HC.
 
 The existing grammar model does not retain independent circumfix-half identities after it compiles
 the cross-product into one affix allomorph. Finite-partner passes can be built and unit-tested against
-the contract now, but they remain shadow-only until the future generator emits explicit, stable
-partner events whose provenance the proof verifier can validate. Unknown is never represented by a
-sentinel `AllomorphId`.
+the contract now, but they belong to no enforced profile until the future generator emits explicit,
+stable partner events whose provenance post-hoc verification can check. Unknown is never represented
+by a sentinel `AllomorphId`.
 
 ## Multiple passes and death traces
 
@@ -218,7 +218,6 @@ pub enum PassOutcome {
     Kept,
     Deferred(DeferReason),
     Rejected(RejectionProof),
-    ProofRejected(ProofVerificationError),
 }
 ```
 
@@ -257,8 +256,8 @@ pub enum FilterMode {
 ```
 
 - `Off` bypasses all passes.
-- `Shadow` computes and verifies death decisions but sends every candidate to HC.
-- `Enforce` removes only candidates whose every witness has a verified rejection proof.
+- `Shadow` computes and records death decisions but sends every candidate to HC.
+- `Enforce` removes only candidates every witness of which was rejected with a recorded proof.
 
 Public profiles are certified pass bundles, not arbitrary unsafe booleans:
 
