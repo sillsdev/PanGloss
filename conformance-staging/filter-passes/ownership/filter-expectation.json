@@ -1,6 +1,6 @@
 {
   "pass_id": "structural.ownership.v1",
-  "min_fire_count": 2,
-  "status": "awaiting-pass",
-  "min_fire_count_reasoning": "Two words whose only candidates designate a rule-owned morpheme as the root (\"ta\", \"pata\"), plus the invalid root designation over \"papa\"'s (PA, ROOTPA) sequence; the floor counts only the two words that have no valid analysis at all."
+  "min_fire_count": 0,
+  "status": "wired",
+  "min_fire_count_reasoning": "Measured 0, against an authored estimate of 2. The estimate counted candidates a proposer would emit; the harness proposes only what pg_parse::Morpher accepted, and the two rows it counted (\"ta\", \"pata\") are expect_fail rows with no accepted analysis, so the impossible candidates never reach the filter at all. All 8 witnesses that do reach it are pin-resolvable, and OwnershipPass answers Keep on that before reaching any rejection branch. A nonzero floor here needs a producer that enumerates candidates HC refuses, not a different grammar."
 }

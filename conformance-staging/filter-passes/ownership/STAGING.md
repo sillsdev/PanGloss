@@ -1,6 +1,6 @@
 # STAGING: filter-passes/ownership
 
-**Target pass:** `structural.ownership.v1` -- **status:** `awaiting-pass` -- **min_fire_count:** 2
+**Target pass:** `structural.ownership.v1` -- **status:** `wired` -- **min_fire_count:** 0 (measured; 2 estimated)
 (`filter-expectation.json` is the machine-readable form of that line)
 
 ## Why this fixture exists
@@ -41,14 +41,28 @@ independently of everything else.
 
 ## How min_fire_count was arrived at
 
-**2.** One verified rejection each for `ta` and `pata`, the two words with no valid
+**0, measured. 2 was the authored estimate**, and the paragraph below records how it was reasoned
+to; the measurement that replaced it follows.
+
+Measured over this fixture's words with the pass wired: 8 witnesses evaluated, 8 kept, 0 deferred,
+0 rejected. Every witness is pin-resolvable, so `OwnershipPass` answers `Keep` at its first branch
+and never reaches a rejection. The estimate was not wrong about the grammar -- it was wrong about
+what the harness proposes. `ta` and `pata` are `expect_fail` rows, the harness proposes only the
+analyses `pg_parse::Morpher` accepted, and a word with no accepted analysis contributes no
+candidate at all. The impossible candidates the estimate counted are exactly the ones nothing here
+emits. Raising this floor needs a producer that enumerates candidates HC refuses; no change to this
+grammar can do it.
+
+**The estimate, as authored: 2.** One verified rejection each for `ta` and `pata`, the two words with no valid
 analysis whose every candidate designates a rule-owned morpheme as root. Deliberately a floor rather
 than an estimate of the total: `papa`, `tapa`, and `pa` each additionally carry an invalid root
 designation over a sequence that also has a valid one, so the true count once a proposer emits those
 alternatives should be higher. Counting only the rows that cannot be right at all keeps the number
 defensible without knowing how many root positions the future generator enumerates.
 
-It is a floor for the run *after* the pass exists and a producer supplies the facts it needs, not a prediction about today. With the current legacy adapter every allomorph, role, slot, stratum, span, and local-event fact is `Deferred`, so most of these rows would defer rather than reject; that is why the fixture is `awaiting-pass` and the harness asserts no fire count for it yet.
+That number remains the floor to expect for the run *after* a producer supplies both the candidates
+and the facts the pass needs. Today the harness supplies neither, which is why the enforced floor is
+0 and this fixture's gate, while wired, asserts nothing yet.
 
 ## Oracle discipline
 

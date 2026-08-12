@@ -1,13 +1,15 @@
 //! Per-pass filter fixtures: every declared pass has a fixture, and enforcing keeps what Off keeps.
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use pg_conformance_fixtures::{assert_matches_oracle, FixtureRef, Root, WordsYaml};
 use pg_foma::candidate_filter::test_support::filter_of;
 use pg_foma::candidate_filter::{
     CandidateFilter, CandidateFilterPass, CandidateWitness, DeferredFactReason, FeatureSet,
-    FilterBudget, FilterMode, LexicalOrigin, ProposalProducer, ProposalProvenance,
-    ProposedCandidate, TraceFact, TraceUnit, WitnessId,
+    FilterBudget, FilterCounters, FilterIndex, FilterMode, LexicalOrigin, OwnershipPass,
+    PassCounters, ProposalProducer, ProposalProvenance, ProposedCandidate, StablePassId,
+    StructuralTransitionPass, TraceFact, TraceUnit, WitnessId,
 };
 use pg_foma::tags::Candidate;
 use pg_grammar::model::MorphemeId;
@@ -180,9 +182,34 @@ fn looks_like_a_pass_id(literal: &str) -> bool {
             .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'))
 }
 
-/// The pass list an enforced run uses, which is empty while no pass is built.
-fn production_passes() -> Vec<Box<dyn CandidateFilterPass>> {
-    Vec::new()
+/// The pass list an enforced run uses, in declared order, over one grammar's derived facts.
+fn production_passes(index: &Arc<FilterIndex>) -> Vec<Box<dyn CandidateFilterPass>> {
+    vec![
+        Box::new(OwnershipPass::new(Arc::clone(index))),
+        Box::new(StructuralTransitionPass::new(Arc::clone(index))),
+    ]
+}
+
+fn filter_for(grammar: &pg_grammar::model::Grammar) -> CandidateFilter {
+    let index = Arc::new(FilterIndex::build(grammar));
+    filter_of(production_passes(&index))
+}
+
+fn add(running: &mut PassCounters, counters: &PassCounters) {
+    running.keeps += counters.keeps;
+    running.defers += counters.defers;
+    running.rejections += counters.rejections;
+    running.panics += counters.panics;
+}
+
+fn accumulate(totals: &mut BTreeMap<StablePassId, PassCounters>, report: &FilterCounters) {
+    for (id, counters) in &report.per_pass {
+        add(totals.entry(*id).or_default(), counters);
+    }
+}
+
+fn evaluated(counters: &PassCounters) -> u64 {
+    counters.keeps + counters.defers + counters.rejections + counters.panics
 }
 
 fn adapt(index: usize, analysis: &WordAnalysis) -> ProposedCandidate {
@@ -223,7 +250,11 @@ fn adapt(index: usize, analysis: &WordAnalysis) -> ProposedCandidate {
     ProposedCandidate::new(identity, vec![witness]).expect("one witness forms a valid proposal")
 }
 
-fn survivors(filter: &CandidateFilter, mode: FilterMode, analyses: &[WordAnalysis]) -> Vec<usize> {
+fn survivors(
+    filter: &CandidateFilter,
+    mode: FilterMode,
+    analyses: &[WordAnalysis],
+) -> (Vec<usize>, FilterCounters) {
     let proposals: Vec<ProposedCandidate> = analyses
         .iter()
         .enumerate()
@@ -237,7 +268,7 @@ fn survivors(filter: &CandidateFilter, mode: FilterMode, analyses: &[WordAnalysi
         .map(|witness| witness.witness_id.0 as usize)
         .collect();
     indices.sort_unstable();
-    indices
+    (indices, outcome.report)
 }
 
 /// Multiset equality over full `WordAnalysis` values, removing one matched occurrence at a time.
@@ -343,8 +374,8 @@ fn every_fixture_matches_the_engine_it_was_transcribed_from() {
 /// Enforced filtering returns exactly what bypassing it returns, per word, in both authorities.
 #[test]
 fn enforced_filtering_keeps_every_analysis_off_keeps() {
-    let filter = filter_of(production_passes());
-    let pass_ids = filter.pass_ids();
+    let mut totals: BTreeMap<StablePassId, PassCounters> = BTreeMap::new();
+    let mut enforced_passes = 0usize;
     let mut total_analyses = 0usize;
     let mut total_words = 0usize;
     for fixture in discover_fixtures() {
@@ -355,14 +386,17 @@ fn enforced_filtering_keeps_every_analysis_off_keeps() {
         let words: WordsYaml = reference.load_words_yaml();
         let grammar = pg_grammar::load(&reference.load_grammar_xml())
             .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", reference.label()));
+        let filter = filter_for(&grammar);
+        enforced_passes = filter.pass_ids().len();
         let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
         for entry in &words.words {
             let outcome = morpher.parse_word(&entry.word);
             let analyses = &outcome.structured;
             let label = format!("{} word {:?}", reference.label(), entry.word);
 
-            let off = survivors(&filter, FilterMode::Off, analyses);
-            let enforce = survivors(&filter, FilterMode::Enforce, analyses);
+            let (off, _) = survivors(&filter, FilterMode::Off, analyses);
+            let (enforce, report) = survivors(&filter, FilterMode::Enforce, analyses);
+            accumulate(&mut totals, &report);
 
             let project = |indices: &[usize]| -> BTreeSet<AnalysisIdentity> {
                 indices
@@ -395,15 +429,25 @@ fn enforced_filtering_keeps_every_analysis_off_keeps() {
     );
     eprintln!(
         "candidate_filter_fixture_weight: {total_analyses} analyses over {total_words} words \
-         survived Off/Enforce comparison against {} enforced pass(es)",
-        pass_ids.len()
+         survived Off/Enforce comparison against {enforced_passes} enforced pass(es)"
     );
+    for (id, counters) in &totals {
+        eprintln!(
+            "candidate_filter_fixture_weight: {} evaluated {} witness(es): {} kept, {} deferred, \
+             {} rejected, {} panicked",
+            id.as_str(),
+            evaluated(counters),
+            counters.keeps,
+            counters.defers,
+            counters.rejections,
+            counters.panics
+        );
+    }
 }
 
 /// A wired fixture's pass must reject at least as often as that fixture claims.
 #[test]
 fn a_wired_fixture_reaches_its_declared_fire_count() {
-    let filter = filter_of(production_passes());
     let mut wired = 0usize;
     for fixture in discover_fixtures() {
         if fixture.expectation.status != WIRED {
@@ -414,8 +458,9 @@ fn a_wired_fixture_reaches_its_declared_fire_count() {
         let words: WordsYaml = reference.load_words_yaml();
         let grammar = pg_grammar::load(&reference.load_grammar_xml())
             .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", reference.label()));
+        let filter = filter_for(&grammar);
         let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
-        let mut rejections = 0u64;
+        let mut own = PassCounters::default();
         for entry in &words.words {
             let analyses = morpher.parse_word(&entry.word).structured;
             let proposals: Vec<ProposedCandidate> = analyses
@@ -424,14 +469,26 @@ fn a_wired_fixture_reaches_its_declared_fire_count() {
                 .map(|(index, analysis)| adapt(index, analysis))
                 .collect();
             let outcome = filter.filter(FilterMode::Enforce, proposals, FilterBudget::unlimited());
-            rejections += outcome
+            for (_, counters) in outcome
                 .report
                 .per_pass
                 .iter()
                 .filter(|(id, _)| id.as_str() == fixture.expectation.pass_id)
-                .map(|(_, counters)| counters.rejections)
-                .sum::<u64>();
+            {
+                add(&mut own, counters);
+            }
         }
+        let rejections = own.rejections;
+        eprintln!(
+            "candidate_filter_fixture_weight: {} pass {} evaluated {} witness(es): {} kept, {} \
+             deferred, {rejections} rejected, {} panicked",
+            fixture.name,
+            fixture.expectation.pass_id,
+            evaluated(&own),
+            own.keeps,
+            own.defers,
+            own.panics
+        );
         assert!(
             rejections >= fixture.expectation.min_fire_count,
             "{}: pass {} produced {rejections} verified rejections, below the declared floor of {}",

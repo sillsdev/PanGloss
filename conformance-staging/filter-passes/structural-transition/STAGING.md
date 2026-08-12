@@ -1,6 +1,6 @@
 # STAGING: filter-passes/structural-transition
 
-**Target pass:** `structural.transition.v1` -- **status:** `awaiting-pass` -- **min_fire_count:** 3
+**Target pass:** `structural.transition.v1` -- **status:** `wired` -- **min_fire_count:** 0 (measured; 3 estimated)
 (`filter-expectation.json` is the machine-readable form of that line)
 
 ## Why this fixture exists
@@ -39,11 +39,24 @@ is the sharpest separation the grammar model supports.
 
 ## How min_fire_count was arrived at
 
-**3.** One verified rejection each for `kolurta`, `rekata`, and `mukolur`, the three
+**0, measured. 3 was the authored estimate**, and the paragraph below records how it was reasoned
+to; the measurement that replaced it follows.
+
+Measured over this fixture's words with the pass wired: 7 witnesses evaluated, 2 kept, 5 deferred,
+0 rejected -- a 71% defer rate. The two keeps are the single-morpheme rows, which have no adjacent
+pair to judge and so are kept without a grammar fact being read. The other five defer on a missing
+slot fact. That is not a property of this grammar: `StructuralTransitionPass` reads slot and then
+stratum before consulting the index at all, the harness adapter marks both `Deferred`, and so the
+pass cannot reach a rejection through this adapter over *any* grammar. It is blocked twice over --
+the three provoking rows are `expect_fail` and yield no candidate to judge either.
+
+**The estimate, as authored: 3.** One verified rejection each for `kolurta`, `rekata`, and `mukolur`, the three
 words with no valid analysis. Each has exactly one plausible morpheme sequence, so one rejection per
 row is both the floor and the expected count.
 
-It is a floor for the run *after* the pass exists and a producer supplies the facts it needs, not a prediction about today. With the current legacy adapter every allomorph, role, slot, stratum, span, and local-event fact is `Deferred`, so most of these rows would defer rather than reject; that is why the fixture is `awaiting-pass` and the harness asserts no fire count for it yet.
+That number remains the floor to expect for the run *after* a producer supplies both the candidates
+and the slot and stratum facts the pass reads. Today the harness supplies neither, which is why the
+enforced floor is 0 and this fixture's gate, while wired, asserts nothing yet.
 
 ## Oracle discipline
 

@@ -40,8 +40,8 @@ fixture's words once it exists; each fixture's `STAGING.md` records how the numb
 
 | Fixture | Target pass | Status | `min_fire_count` | Provoking construct |
 |---|---|---|---|---|
-| `ownership` | `structural.ownership.v1` | awaiting-pass | 2 | Prefix homophonous with a free root, plus surfaces made only of affix material |
-| `structural-transition` | `structural.transition.v1` | awaiting-pass | 3 | Affix material on the wrong side of the root, both directions |
+| `ownership` | `structural.ownership.v1` | wired | 0 (estimated 2) | Prefix homophonous with a free root, plus surfaces made only of affix material |
+| `structural-transition` | `structural.transition.v1` | wired | 0 (estimated 3) | Affix material on the wrong side of the root, both directions |
 | `slot-order` | `symbolic.slot_order.v1` | awaiting-pass | 2 | One `AffixTemplate` with two ordered suffix slots, reversed |
 | `co-occurrence` | `symbolic.co_occurrence.v1` | awaiting-pass | 4 | `MorphemeCoOccurrenceRule` exclusion and requirement |
 | `static-signature` | `symbolic.static_signature.v1` | awaiting-pass | 4 | Category selection plus an `excludedMPRFeatures` exception class |
@@ -49,6 +49,17 @@ fixture's words once it exists; each fixture's `STAGING.md` records how the numb
 | `exact-span` | `local.exact_span.v1` | awaiting-pass | 4 | Phonology-free fixed-shape morphology, surfaces one segment off |
 | `local-environment` | `local.environment.v1` | awaiting-pass | 4 | Nasal place assimilation in a one-segment right window |
 | `partner-pairing` | `symbolic.partner.v1` | **not-yet-provokable** | 0 | None -- no authored grammar can emit partner events; see its `STAGING.md` |
+
+The two wired floors are **0, measured**, not the 2 and 3 their authors estimated, and the gap is a
+property of the harness rather than of either pass. The harness's proposal producer is
+`pg_parse::Morpher` itself, so the only candidates ever offered to the filter are analyses HC
+already accepted -- and a sound filter may never reject one of those. Every word each fixture wrote
+to provoke a rejection is an `expect_fail` row that yields no analysis at all, so the impossible
+candidate is never proposed. Separately, the harness adapter marks every trace fact `Deferred`,
+which alone is enough to stop `structural.transition.v1`: it reads slot and stratum first and
+defers before any grammar fact is consulted. Both floors stay 0, and stay honest, until a producer
+exists that proposes candidates HC refuses and carries the trace facts the passes read. The
+measured keep/defer/reject split per pass is printed by the harness under `--no-capture`.
 
 All eight authored grammars are synthetic, use invented lexemes, and name no language in any file,
 feature, or symbol; where one mimics a real language's pathology the pathology is named and the
