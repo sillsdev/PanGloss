@@ -379,6 +379,16 @@ fn morpheme_co_occurrence_ok(
     )
 }
 
+/// Whether `morphemes`, taken as one candidate's whole sequence, satisfies every morpheme's own
+/// `MorphemeCoOccurrenceRule`s against that same sequence. The only tape-derivable (no allomorph
+/// identity needed) member of `allomorphs_valid_impl`'s gate list, so a proposer-side filter can
+/// call it directly on a `MorphemeId` sequence rather than a built `Word`.
+pub fn candidate_morpheme_co_occurrence_ok(g: &Grammar, morphemes: &[MorphemeId]) -> bool {
+    morphemes
+        .iter()
+        .all(|&m| morpheme_co_occurrence_ok(g, m, morphemes))
+}
+
 /// Every rule in `rules` must pass against `key`; `key` is a parameter because the disjunctive re-check checks a candidate's own rules against the originally-used allomorph.
 fn allomorph_co_occurrence_ok(
     rules: &[AllomorphCoOccurrenceRuleDef],

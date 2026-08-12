@@ -8,7 +8,7 @@
 
 //! Usage: `pg.ps1 -Mode run -Example filter_ceiling_census -- <grammar> [--words N] [--word-timeout-ms M]`.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -29,8 +29,9 @@ use pg_foma::confirm::{self, MorphemeOwner};
 use pg_foma::emit;
 use pg_foma::peel::ReduplicationPeeler;
 use pg_foma::tags::{self, Candidate};
-use pg_grammar::model::Grammar;
+use pg_grammar::model::{AffixAllomorphDef, Grammar, MorphemeId, OutputAction};
 use pg_parse::Morpher;
+use pg_rules::validity::candidate_morpheme_co_occurrence_ok;
 
 /// A one-member removable chunk is a candidate a filter kills alone; a wide one needs every member killed together, so the ends of this histogram describe different filters.
 const MEMBER_BUCKETS: [(usize, usize); 8] = [
@@ -275,6 +276,263 @@ fn prune_doomed(candidates: &[Candidate], doomed: &[usize]) -> Vec<Candidate> {
         .collect()
 }
 
+// Reach classification: which of the two tape-derivable checks (a: co-occurrence, b: surface consistency) would catch a doomed candidate, and which whole chunks that coverage lets disappear.
+
+/// Whether a candidate's morphemes violate a `MorphemeCoOccurrenceRuleDef` (exact reuse of `pg_rules::validity`).
+fn co_occurrence_detects(g: &Grammar, candidate: &Candidate) -> bool {
+    !candidate_morpheme_co_occurrence_ok(g, &candidate.morphemes)
+}
+
+/// A literal character multiset, counted per Unicode scalar value.
+fn char_multiset(text: &str) -> BTreeMap<char, usize> {
+    let mut counts = BTreeMap::new();
+    for c in text.chars() {
+        *counts.entry(c).or_insert(0) += 1;
+    }
+    counts
+}
+
+/// Every reference grammar's `<BoundaryDefinition>` representations (`+`, `^0`, `*0`, `.`) are zero-width markers on a `PhoneticShape`, never a real grapheme; Spacing-Modifier-Letters and Superscripts-and-Subscripts hold this repo's archiphoneme/gemination notation (Indonesian `ⁿ`, Amharic `ː`), realized by phonology rather than spelled literally. A char failing this is excluded from a required set rather than counted, so this can only under-detect, never wrongly reject a real derivation.
+fn is_literal_surface_char(c: char) -> bool {
+    !matches!(c, '+' | '^' | '*' | '.' | '0')
+        && !('\u{02B0}'..='\u{02FF}').contains(&c)
+        && !('\u{2070}'..='\u{209F}').contains(&c)
+}
+
+/// `char_multiset`, filtered through `is_literal_surface_char` -- what a `PhoneticShape` string requires of the actual surface, once boundary and archiphoneme notation are excluded.
+fn required_multiset(text: &str) -> BTreeMap<char, usize> {
+    let mut counts = BTreeMap::new();
+    for c in text.chars().filter(|&c| is_literal_surface_char(c)) {
+        *counts.entry(c).or_insert(0) += 1;
+    }
+    counts
+}
+
+/// `a`'s own literal contribution: only its `InsertSegments` text; `Copy`/`Modify`/`InsertContext` count as free (permissive, so this can only under-detect).
+fn affix_literal_multiset(a: &AffixAllomorphDef) -> BTreeMap<char, usize> {
+    let mut counts = BTreeMap::new();
+    for action in &a.rhs {
+        if let OutputAction::InsertSegments { shape, .. } = action {
+            for (&c, &n) in &required_multiset(&shape.text) {
+                *counts.entry(c).or_insert(0) += n;
+            }
+        }
+    }
+    counts
+}
+
+/// Every literal-character option one morpheme could contribute; never empty (an unresolved owner gets one all-empty option, the permissive default that keeps `surface_consistency` sound).
+fn literal_char_options(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpheme: MorphemeId,
+) -> Vec<BTreeMap<char, usize>> {
+    match owners.get(morpheme.0 as usize).copied().flatten() {
+        Some(MorphemeOwner::LexEntry(le)) => g.entries[le.0 as usize]
+            .allomorphs
+            .iter()
+            .map(|a| required_multiset(&a.shape.text))
+            .collect(),
+        Some(MorphemeOwner::MRule(mid)) => match g.mrules[mid.0 as usize].affix_allomorphs() {
+            Some(allos) if !allos.is_empty() => allos.iter().map(affix_literal_multiset).collect(),
+            _ => vec![BTreeMap::new()],
+        },
+        None => vec![BTreeMap::new()],
+    }
+}
+
+fn fits(required: &BTreeMap<char, usize>, available: &BTreeMap<char, usize>) -> bool {
+    required
+        .iter()
+        .all(|(c, &n)| available.get(c).copied().unwrap_or(0) >= n)
+}
+
+/// Above this many per-morpheme choice combinations, the check declines rather than sampling (the contract's "unknown ⇒ keep" rule applied to the check's own cost).
+const MAX_SURFACE_COMBOS: usize = 20_000;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SurfaceVerdict {
+    Infeasible,
+    Feasible,
+    Undecidable,
+}
+
+/// Does some per-morpheme allomorph choice's literal character requirement fit the surface's own characters? Brute force over every combination; `Infeasible` is a safe rejection, `Feasible` proves nothing.
+fn surface_consistency(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    candidate: &Candidate,
+    surface_counts: &BTreeMap<char, usize>,
+) -> SurfaceVerdict {
+    let options: Vec<Vec<BTreeMap<char, usize>>> = candidate
+        .morphemes
+        .iter()
+        .map(|&m| literal_char_options(g, owners, m))
+        .collect();
+    let combo_count = options
+        .iter()
+        .try_fold(1usize, |acc, opts| acc.checked_mul(opts.len()))
+        .unwrap_or(usize::MAX);
+    if combo_count == 0 || combo_count > MAX_SURFACE_COMBOS {
+        return SurfaceVerdict::Undecidable;
+    }
+    let mut indices = vec![0usize; options.len()];
+    loop {
+        let mut total: BTreeMap<char, usize> = BTreeMap::new();
+        for (opts, &idx) in options.iter().zip(&indices) {
+            for (&c, &n) in &opts[idx] {
+                *total.entry(c).or_insert(0) += n;
+            }
+        }
+        if fits(&total, surface_counts) {
+            return SurfaceVerdict::Feasible;
+        }
+        let mut i = 0;
+        loop {
+            if i == indices.len() {
+                return SurfaceVerdict::Infeasible;
+            }
+            indices[i] += 1;
+            if indices[i] < options[i].len() {
+                break;
+            }
+            indices[i] = 0;
+            i += 1;
+        }
+    }
+}
+
+/// One candidate's classification by both checks; caught by either, both, or neither.
+#[derive(Clone, Copy, Debug, Default)]
+struct Detectability {
+    co_occurrence: bool,
+    surface_infeasible: bool,
+    surface_undecidable: bool,
+}
+
+fn classify_candidate(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    candidate: &Candidate,
+    surface_counts: &BTreeMap<char, usize>,
+) -> Detectability {
+    let verdict = surface_consistency(g, owners, candidate, surface_counts);
+    Detectability {
+        co_occurrence: co_occurrence_detects(g, candidate),
+        surface_infeasible: matches!(verdict, SurfaceVerdict::Infeasible),
+        surface_undecidable: matches!(verdict, SurfaceVerdict::Undecidable),
+    }
+}
+
+/// One word's reach tally: doomed candidates by class, and removable chunks/steps a class covers only when EVERY member is caught (a chunk that keeps one member still runs).
+#[derive(Clone, Copy, Debug, Default)]
+struct ReachRow {
+    doomed: usize,
+    doomed_a: usize,
+    doomed_b: usize,
+    doomed_a_or_b: usize,
+    doomed_b_undecidable: usize,
+    removable_chunks_a: usize,
+    removable_chunks_b: usize,
+    removable_chunks_a_or_b: usize,
+    removable_steps_a: usize,
+    removable_steps_b: usize,
+    removable_steps_a_or_b: usize,
+}
+
+impl ReachRow {
+    fn accumulate(&mut self, other: &ReachRow) {
+        self.doomed += other.doomed;
+        self.doomed_a += other.doomed_a;
+        self.doomed_b += other.doomed_b;
+        self.doomed_a_or_b += other.doomed_a_or_b;
+        self.doomed_b_undecidable += other.doomed_b_undecidable;
+        self.removable_chunks_a += other.removable_chunks_a;
+        self.removable_chunks_b += other.removable_chunks_b;
+        self.removable_chunks_a_or_b += other.removable_chunks_a_or_b;
+        self.removable_steps_a += other.removable_steps_a;
+        self.removable_steps_b += other.removable_steps_b;
+        self.removable_steps_a_or_b += other.removable_steps_a_or_b;
+    }
+}
+
+fn compute_reach(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    candidates: &[Candidate],
+    word: &str,
+    doomed: &[usize],
+    presented: &[usize],
+    chunks: &[confirm::ConfirmChunkCost],
+) -> ReachRow {
+    let surface_counts = char_multiset(&pg_grammar::nfd::nfd(word));
+    let mut detect: Vec<Option<Detectability>> = vec![None; candidates.len()];
+    for &i in doomed {
+        detect[i] = Some(classify_candidate(
+            g,
+            owners,
+            &candidates[i],
+            &surface_counts,
+        ));
+    }
+    if std::env::var("PANGLOSS_REACH_DEBUG").is_ok() {
+        for (i, c) in candidates.iter().enumerate() {
+            let verdict = surface_consistency(g, owners, c, &surface_counts);
+            eprintln!(
+                "[reach-debug] word={word} idx={i} doomed={} morphemes={:?} verdict={:?}",
+                doomed.contains(&i),
+                c.morphemes,
+                verdict
+            );
+        }
+    }
+
+    let mut row = ReachRow {
+        doomed: doomed.len(),
+        ..ReachRow::default()
+    };
+    for d in detect.iter().flatten() {
+        if d.co_occurrence {
+            row.doomed_a += 1;
+        }
+        if d.surface_infeasible {
+            row.doomed_b += 1;
+        }
+        if d.co_occurrence || d.surface_infeasible {
+            row.doomed_a_or_b += 1;
+        }
+        if d.surface_undecidable {
+            row.doomed_b_undecidable += 1;
+        }
+    }
+
+    for chunk in chunks {
+        if !shadow::chunk_is_removable(chunk, doomed, presented) {
+            continue;
+        }
+        let members: Vec<usize> = chunk
+            .members
+            .iter()
+            .filter_map(|&m| presented.get(m).copied())
+            .collect();
+        let covers =
+            |pick: fn(Detectability) -> bool| members.iter().all(|o| detect[*o].is_some_and(pick));
+        if covers(|d| d.co_occurrence) {
+            row.removable_chunks_a += 1;
+            row.removable_steps_a += chunk.steps;
+        }
+        if covers(|d| d.surface_infeasible) {
+            row.removable_chunks_b += 1;
+            row.removable_steps_b += chunk.steps;
+        }
+        if covers(|d| d.co_occurrence || d.surface_infeasible) {
+            row.removable_chunks_a_or_b += 1;
+            row.removable_steps_a_or_b += chunk.steps;
+        }
+    }
+    row
+}
+
 /// What one word contributed, or why it contributed nothing.
 enum WordOutcome {
     /// The proposer offered nothing, so there was no confirmation work to price either way.
@@ -311,6 +569,7 @@ struct WordRow {
     confirm_elapsed_warm_repeat: Duration,
     /// True when the two identical full runs disagreed on step count, which would make the metric nondeterministic.
     repeat_mismatch_steps: bool,
+    reach: ReachRow,
 }
 
 fn measure_word(
@@ -330,6 +589,15 @@ fn measure_word(
 
     let before = run_confirm(g, owners, morpher, candidates, word);
     let attribution = shadow::attribute(&before.doomed, &presented, &before.chunks);
+    let reach = compute_reach(
+        g,
+        owners,
+        candidates,
+        word,
+        &before.doomed,
+        &presented,
+        &before.chunks,
+    );
     let pruned_candidates = prune_doomed(candidates, &before.doomed);
     let after_measured = run_confirm(g, owners, morpher, &pruned_candidates, word);
     let warm_repeat = run_confirm(g, owners, morpher, candidates, word);
@@ -371,6 +639,7 @@ fn measure_word(
         confirm_elapsed_measured_after: after_measured.elapsed,
         confirm_elapsed_warm_repeat: warm_repeat.elapsed,
         repeat_mismatch_steps,
+        reach,
     };
     if before.timed_out || after_measured.timed_out || warm_repeat.timed_out {
         WordOutcome::TimedOut(row)
@@ -556,6 +825,7 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
     let mut repeat_mismatch_words = 0usize;
     // The warm repeat is identical work to the cold full run, so their gap is warmth alone.
     let mut full_ms_warm_repeat: Vec<f64> = Vec::new();
+    let mut reach_total = ReachRow::default();
 
     // Strictly sequential: fanning corpus words out concurrently is what has exhausted this machine's memory before.
     for word in &words {
@@ -582,6 +852,7 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
                 total_chunks += row.chunks_total;
                 total_removable_chunks += row.chunks_removable;
                 removable_steps += row.removable_steps;
+                reach_total.accumulate(&row.reach);
                 surviving_steps += row.surviving_chunk_steps;
                 removable_members.extend(&row.removable_members);
                 removable_chunk_steps.extend(&row.removable_chunk_steps);
@@ -655,6 +926,65 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
             chunk_elapsed.as_nanos() as usize
         )
     );
+
+    println!();
+    println!(
+        "## tape-derivable reach ({}): (a) morpheme co-occurrence, (b) surface consistency",
+        corpus.label
+    );
+    println!(
+        "doomed candidates={} (a)={} ({:.1}%) (b)={} ({:.1}%, of which undecidable={} ({:.1}%)) (a or b)={} ({:.1}%) neither={} ({:.1}%)",
+        reach_total.doomed,
+        reach_total.doomed_a,
+        percent(reach_total.doomed_a, reach_total.doomed),
+        reach_total.doomed_b,
+        percent(reach_total.doomed_b, reach_total.doomed),
+        reach_total.doomed_b_undecidable,
+        percent(reach_total.doomed_b_undecidable, reach_total.doomed),
+        reach_total.doomed_a_or_b,
+        percent(reach_total.doomed_a_or_b, reach_total.doomed),
+        reach_total.doomed.saturating_sub(reach_total.doomed_a_or_b),
+        percent(
+            reach_total.doomed.saturating_sub(reach_total.doomed_a_or_b),
+            reach_total.doomed
+        )
+    );
+    println!(
+        "removable chunks={} (every member doomed) (a)-covers-whole-chunk={} ({:.1}%) (b)-covers={} ({:.1}%) (a or b)-covers={} ({:.1}%) neither={} ({:.1}%)",
+        total_removable_chunks,
+        reach_total.removable_chunks_a,
+        percent(reach_total.removable_chunks_a, total_removable_chunks),
+        reach_total.removable_chunks_b,
+        percent(reach_total.removable_chunks_b, total_removable_chunks),
+        reach_total.removable_chunks_a_or_b,
+        percent(reach_total.removable_chunks_a_or_b, total_removable_chunks),
+        total_removable_chunks.saturating_sub(reach_total.removable_chunks_a_or_b),
+        percent(
+            total_removable_chunks.saturating_sub(reach_total.removable_chunks_a_or_b),
+            total_removable_chunks
+        )
+    );
+    println!(
+        "HEADLINE 2: removable WORK (steps) reachable -- removable_steps={} (a)={} ({:.1}%) (b)={} ({:.1}%) (a or b)={} ({:.1}%) neither={} ({:.1}%)",
+        removable_steps,
+        reach_total.removable_steps_a,
+        percent(reach_total.removable_steps_a, removable_steps),
+        reach_total.removable_steps_b,
+        percent(reach_total.removable_steps_b, removable_steps),
+        reach_total.removable_steps_a_or_b,
+        percent(reach_total.removable_steps_a_or_b, removable_steps),
+        removable_steps.saturating_sub(reach_total.removable_steps_a_or_b),
+        percent(
+            removable_steps.saturating_sub(reach_total.removable_steps_a_or_b),
+            removable_steps
+        )
+    );
+    println!(
+        "(b) is a sound under-approximation: literal InsertSegments/root-shape characters only, \
+         order-agnostic multiset containment, Copy/Modify/InsertContext treated as free. It can \
+         only miss a detection, never wrongly reject a real derivation."
+    );
+
     let steps_before = distribution(&mut steps_before);
     let steps_after = distribution(&mut steps_after);
     let confirm_before = distribution(&mut confirm_ms_before);
