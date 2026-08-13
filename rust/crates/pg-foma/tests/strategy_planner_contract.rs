@@ -102,6 +102,15 @@ fn automatic_planning_preserves_catalog_filter_and_hc_authority_without_cost_ref
         "automatic policy uses the existing viable-backend preference"
     );
     assert_eq!(
+        outcome.evaluated_adapters(),
+        &[
+            LoweringAdapter::TunedSurfaceEmit,
+            LoweringAdapter::TemplatedUnderlyingEmit,
+            LoweringAdapter::ControllablePlanCompose,
+        ],
+        "automatic policy evaluates the complete existing preference space once"
+    );
+    assert_eq!(
         outcome.candidate_filter_profile(),
         CandidateFilterProfile::StructuralV1
     );
@@ -141,6 +150,11 @@ fn refused_explicit_adapter_has_no_realization_and_does_not_fall_back() {
     assert!(!diagnostics.is_empty(), "refusal must remain attributable");
     assert_eq!(outcome.choice().physical_adapter(), None);
     assert_eq!(outcome.choice().plan_id(), None);
+    assert_eq!(
+        outcome.evaluated_adapters(),
+        &[LoweringAdapter::ControllablePlanCompose],
+        "an explicit request evaluates only the requested adapter and cannot hide a fallback"
+    );
     assert_eq!(outcome.hc_authority(), HcAuthority::HermitCrabConfirm);
     assert!(outcome.projected_cost().is_high());
 }
@@ -170,6 +184,10 @@ fn admitted_plan_composed_choice_carries_the_content_addressed_plan() {
         outcome.choice().physical_adapter(),
         Some(LoweringAdapter::ControllablePlanCompose)
     );
+    assert_eq!(
+        outcome.evaluated_adapters(),
+        &[LoweringAdapter::ControllablePlanCompose]
+    );
     assert!(
         outcome.choice().plan_id().is_some(),
         "an admitted plan-interpreting adapter must name the content-addressed plan it will build"
@@ -179,4 +197,11 @@ fn admitted_plan_composed_choice_carries_the_content_addressed_plan() {
         CandidateFilterProfile::Off
     );
     assert!(!outcome.projected_cost().is_high());
+}
+
+#[test]
+fn high_cost_classification_requires_the_estimate_to_cross_its_threshold() {
+    assert!(CostEnvelope::high("test-cost-model/v1", 100, 100).is_err());
+    assert!(CostEnvelope::high("test-cost-model/v1", 1, 100).is_err());
+    assert!(CostEnvelope::high("test-cost-model/v1", 101, 100).is_ok());
 }
