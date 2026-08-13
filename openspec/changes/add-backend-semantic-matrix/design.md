@@ -1,5 +1,13 @@
 ## Context
 
+> **Imported-seed correction (2026-08-13):** The design below came from `b1c02f8c`. Wherever it uses
+> `CharacteristicKind`, configuration partitions, interaction IDs, or ordering archetypes as the
+> denominator, implementation must instead join stable IDs from the pinned Machine atomic,
+> within-rule configuration, cross-rule interaction, and schedule ledgers. Existing PanGloss enums
+> are projections only. Backend admission and realization are read from the single
+> `PlanningOutcome`; the matrix must not retain `selection.rs`, `backend_selection.rs`, or health as
+> competing authorities.
+
 PanGloss has three emission backends and a propose-and-confirm correctness invariant: a compiled
 backend may over-propose, but it must not omit any analysis returned by the matched Rust HermitCrab
 runtime. Current evidence is split across several mechanisms:

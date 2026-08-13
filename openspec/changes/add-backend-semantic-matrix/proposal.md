@@ -1,5 +1,11 @@
 ## Why
 
+> **2026-08-13 architecture correction:** This imported planning seed is retained from
+> `backend-semantic-matrix` at `b1c02f8c`. Machine's generated atomic, within-rule configuration,
+> cross-rule interaction, and schedule ledgers—not `CharacteristicKind::ALL`—are now the authoritative
+> semantic denominator. The matrix consumes one planner-owned `PlanningOutcome`; it does not call or
+> preserve an independent backend decider.
+
 PanGloss can currently report that a backend compiled a fixture without proving that the backend
 proposed every analysis required by Rust HermitCrab. The strongest three-backend semantic gate covers
 only a small fixture slice, so query-encoding or emitter defects can yield zero candidates while the
@@ -21,10 +27,10 @@ row-level characteristic and compile-witness accounts remain green.
   observable semantic claim. Rust-only assertions cover backend selection, encoder dispatch,
   proposals, budgets, counters, caches, supervision, and coverage accounting without duplicating the
   grammar's semantic expectations.
-- Define a finite denominator: the per-characteristic/per-backend representation-status account is
-  the floor; configuration partitions, declared non-orthogonal interactions, load-bearing ordering
-  archetypes, and boundary cases are additional named obligations. This does not claim arbitrary
-  Cartesian-product or factorial-permutation coverage.
+- Define a finite denominator from the pinned Machine catalog's atomic, within-rule configuration,
+  cross-rule interaction, and schedule obligation IDs. PanGloss maps every applicable obligation to
+  planner disposition, proposer adapter, CandidateFilter profile, HC confirmation, and cardinality
+  fallback; it does not claim arbitrary Cartesian-product or factorial-permutation coverage.
 - Provide an on-demand C# verification lane through the existing Machine conformance adapter. It
   verifies or authors fixture expectations and provenance when invoked; ordinary Rust gates consume
   the checked-in results and never claim C# provenance that was not actually obtained.
@@ -37,10 +43,10 @@ row-level characteristic and compile-witness accounts remain green.
 - Primary code/test areas: `pg-foma` backend runtime/evidence support and integration tests,
   `pg-conformance-fixtures` case identity/provenance helpers, and small synthetic fixtures under
   `conformance-staging/` or the pinned Machine conformance tree.
-- Existing sources of truth remain authoritative: `CharacteristicKind::ALL`,
-  `strategy_coverage::{ALL_STRATEGIES, representation_of}`, selector diagnostics, fixture discovery,
-  and checked-in conformance expectations. The matrix consumes these instead of creating a second
-  representation-status ledger.
+- Machine catalog obligation IDs and statuses are authoritative. `CharacteristicKind::ALL` and
+  `strategy_coverage::{ALL_STRATEGIES, representation_of}` remain PanGloss projections/checks, while
+  planner diagnostics, fixture discovery, and checked-in conformance expectations provide executable
+  evidence. The matrix creates no second representation-status ledger.
 - Keep `RepresentsWithKnownGap` inside the represented, red denominator and repair every selected
   case to semantic parity. Only already-declared `CannotRepresent` cells are conceptual blanks;
   this change cannot downgrade a known gap into a refusal to make the matrix green.

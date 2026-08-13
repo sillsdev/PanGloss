@@ -1,73 +1,48 @@
-# Health signals scoped per recipe, with actionable grammar guidance
-
-Successor to `add-fst-compilation-health-audit` (archived 2026-08-06). That change built the
-machinery — preflight walker, evaluator, `pangloss fst-health`, `health.json`, the pack manifest's
-admission record — and left three loose ends. This change carries those, and changes what health is
-*for*.
+# Planner-owned pipeline health
 
 ## Why
 
-Today a health finding says a net is large or a compile was slow. That is a measurement, and a
-measurement is not advice. It tells a grammar author that something is wrong without telling them
-what to do, and it says nothing about the choice that actually determined the outcome — which
-compiler ran.
+The existing health work correctly measures compile and HC work, but its older design can independently
+derive a “best backend” and interpret capability. That would create a second selector beside the new
+Machine-obligation strategy planner and allow reporting code to disagree with compilation.
 
-Once a recipe is selected per grammar, health stops being a property of "the compilation" and becomes
-a property of **this grammar under this recipe**. The same grammar can be healthy under one recipe and
-pathological under another, and that difference is the single most useful thing we could tell someone.
+The useful work is retained on `codex/profiler-health` at `45abaffc`: evidence identities,
+deterministic/censored profiling, canonical health serialization, immutable acknowledgements, and
+verified attention joins. It must be ported behind the new planner boundary rather than merged whole.
 
-## What Changes
+## What changes
 
-**Health is scoped to a recipe, and to a sub-recipe where one applies.** A finding names the recipe it
-was measured under. An unscoped finding is not meaningful once more than one compiler can run.
+Health consumes one authoritative `StrategyChoice`, a separate projected/measured cost envelope,
+CandidateFilter evidence, and HC-authoritative confirmation/profile evidence. It reports requested and
+realized physical strategy, operational cost, filtering work, confirmation work, censorship, budgets,
+and incomplete outcomes.
 
-**The report says which recipe compiled this grammar, which did not, and why not.** A refusal or a
-non-selection is a fact the author needs. This is the same underlying data
-`visualize-subrecipe-selection` will render as a diagram — the diagram shows the decision, this shows
-what to do about it. **Both must read it from whatever the selector returns, never re-derive it.**
-Two consumers re-deriving one fact is how they come to disagree.
+Health does not select a backend, classify semantic support, maintain a completeness denominator,
+validate filter proofs, or turn cost severity into `Admit | ConfirmOnly | Refuse`. Attention and
+acknowledgements inherit the same boundary.
 
-**Findings become actionable text, not just a severity.** A finding carries free-form guidance,
-labelled with a warning level, addressed to an AI or a human who can change the grammar: what in this
-grammar drove the cost, and what change would make the FST smaller or faster. Naming the responsible
-rule or construct is the point; a finding that cannot be acted on is noise with a severity attached.
-
-**Findings may propose a different recipe, conditionally.** "This grammar could compile under recipe
-X, which would be faster/smaller, if these things were changed" — even when X is not the primary
-recipe. That is the most valuable form the advice can take, because it converts a refusal into a
-route.
-
-**Report the resulting size, per recipe, without gating on it.** States, arcs and on-disk bytes for
-what each recipe actually produced. Comparing recipes is comparing costs, so the numbers exist
-anyway; surfacing them is nearly free and it is the figure a project watches over time. Deliberately
-a **measurement, not a threshold** — `calibrate-fst-resource-envelopes` was closed 2026-08-06 because
-its thresholds were derived from a single language's net and would now be set against a compiler
-about to change. Thresholds are demoted, not abandoned: once several recipes have been measured on
-several grammars, a threshold can be proposed from that spread instead of from one point. Until then
-a reported size that a reader can compare beats a pass/fail line nobody can justify.
-
-**Carried from the archived change**, each verified as genuinely outstanding rather than trusted from
-its notes:
-
-- Remedies are never populated on the CLI's own findings. `Remedy` has a `rank` field and `health.rs`
-  fills it in two places, but every finding `fst_health.rs` constructs passes `remedies: Vec::new()`.
-  The ranking machinery exists and the command ranks nothing.
-- Nothing refuses a Critical package. The manifest records `fst_health` admission and `pack.rs`
-  prints it; no site rejects on it.
-- The change's own verification tasks (5.1–5.3) were never run.
-
-## Impact
-
-`pg-foma/src/health.rs`, `health_evaluator.rs`, `preflight.rs`; `pg-cli/src/fst_health.rs`;
-`pg-pack`'s manifest admission record. Shares the selector's output with
-`visualize-subrecipe-selection`.
-
-## Non-goals
-
-Re-measuring anything. The evaluator consumes existing compiler measurements and must keep doing so;
-the point is to scope, explain and act on them, not to add a second measurement path.
+Machine's atomic, within-rule configuration, cross-rule interaction, and schedule obligation IDs are
+the semantic identity source. PanGloss health may cite those IDs and their pinned catalog revision; it
+does not redefine or count them.
 
 ## Dependencies
 
-The recipe/sub-recipe scheme, and a selector that reports both its choice and its rejections with
-reasons. The three carried gaps above are actionable before that lands; everything else is not.
+1. Accepted circumfix/filter integration tip.
+2. Pinned Machine semantic catalog revision and imported obligation IDs.
+3. Deep StrategyPlanner interface and separate CostEnvelope.
+4. CandidateFilter observation contract.
+5. HC-authoritative semantic comparison.
+
+## Source-material policy
+
+Do not merge `codex/profiler-health` wholesale. Port the audited slices in the order recorded in
+`docs/superpowers/plans/2026-08-13-planner-owned-health-reintegration.md`. The branch remains an idea
+source; its health-owned selection logic is obsolete.
+
+## Non-goals
+
+- Choosing or recommending a semantic backend.
+- Certifying feature support or semantic completeness.
+- Making health severity a compiler admission decision.
+- Treating CandidateFilter savings as correctness evidence.
+- Recalibrating thresholds before multi-adapter measurements exist.

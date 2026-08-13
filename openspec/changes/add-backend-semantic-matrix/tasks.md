@@ -192,3 +192,14 @@
 - [ ] 8.5 Verify the Task 0.1 ownership contract did not drift: backend semantic parity remains here,
       while interaction/ordering reachability, exclusions, retirement, plan-node coverage, and the
       future reachable rule-pair census remain in their owning artifacts.
+
+## 9. Retire the imported decider/spec branch after integration
+
+- [ ] 9.1 After the Machine-obligation matrix and planner-owned `PlanningOutcome` are implemented and
+      the Task 8 gates pass, compare `backend-semantic-matrix` against the integrated tip and record
+      that every unique planning requirement is either implemented, retained here, or explicitly
+      retired with rationale.
+- [ ] 9.2 Verify `b1c02f8c` is reachable from the integrated history (or that these imported artifacts
+      contain its complete useful content), verify no worktree uses the branch, then delete the local
+      `backend-semantic-matrix` branch. Delete a remote branch only if one exists and its unique
+      content has the same verified disposition.
