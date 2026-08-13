@@ -37,6 +37,24 @@ const REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>PlannerContr
   </Strata>
 </Language></HermitCrabInput>"#;
 
+const PLAIN_XML: &str = r#"<HermitCrabInput><Language><Name>PlannerPlain</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+  <CharacterDefinitionTable id="t1"><Name>Main</Name>
+    <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+  </CharacterDefinitionTable>
+  <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+  <Strata>
+    <Stratum characterDefinitionTable="t1">
+      <Name>S</Name>
+      <LexicalEntries>
+        <LexicalEntry id="e1">
+          <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+        </LexicalEntry>
+      </LexicalEntries>
+    </Stratum>
+  </Strata>
+</Language></HermitCrabInput>"#;
+
 fn catalog() -> CatalogContext {
     fn id(value: &str) -> MachineObligationId {
         MachineObligationId::new(value).expect("nonblank opaque Machine obligation ID")
@@ -125,4 +143,40 @@ fn refused_explicit_adapter_has_no_realization_and_does_not_fall_back() {
     assert_eq!(outcome.choice().plan_id(), None);
     assert_eq!(outcome.hc_authority(), HcAuthority::HermitCrabConfirm);
     assert!(outcome.projected_cost().is_high());
+}
+
+#[test]
+fn admitted_plan_composed_choice_carries_the_content_addressed_plan() {
+    let grammar = pg_grammar::load(PLAIN_XML).expect("valid synthetic grammar");
+    let semantics = GrammarSemantics::derive(&grammar);
+    let requested = SelectionPolicy::Explicit(LoweringAdapter::ControllablePlanCompose);
+    let cost = CostEnvelope::bounded("test-cost-model/v1", 10)
+        .expect("valid bounded projected-cost evidence");
+
+    let outcome = plan_for_grammar(
+        &semantics,
+        requested,
+        catalog(),
+        CandidateFilterProfile::Off,
+        cost,
+    );
+
+    assert_eq!(outcome.requested_policy(), requested);
+    assert!(matches!(
+        outcome.choice().disposition(),
+        StrategyDisposition::Admit | StrategyDisposition::ConfirmOnly
+    ));
+    assert_eq!(
+        outcome.choice().physical_adapter(),
+        Some(LoweringAdapter::ControllablePlanCompose)
+    );
+    assert!(
+        outcome.choice().plan_id().is_some(),
+        "an admitted plan-interpreting adapter must name the content-addressed plan it will build"
+    );
+    assert_eq!(
+        outcome.candidate_filter_profile(),
+        CandidateFilterProfile::Off
+    );
+    assert!(!outcome.projected_cost().is_high());
 }
