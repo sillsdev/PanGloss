@@ -46,6 +46,21 @@ fn typed_keys_have_stable_wire_identity_ordering_and_hashing() {
     assert_eq!(observation.definition_version(), 1);
     assert_eq!(observation.aggregation(), "corpus_sum");
     assert_eq!(
+        serde_json::to_value(&observation).unwrap(),
+        serde_json::json!({
+            "construct": {
+                "namespace": "fieldworks",
+                "kind": "morphological_rule",
+                "id": "11111111-1111-1111-1111-111111111111",
+                "id_kind": "fieldworks_guid"
+            },
+            "operation": "apply",
+            "metric": "physical_rule_executions",
+            "definition_version": 1,
+            "aggregation": "corpus_sum"
+        })
+    );
+    assert_eq!(
         serde_json::from_value::<ObservationKey>(serde_json::to_value(&observation).unwrap())
             .unwrap(),
         observation
@@ -144,4 +159,59 @@ fn sparse_evidence_context_json_means_unknown_not_required_configuration() {
 
     let version_only: EvidenceContext = serde_json::from_str(r#"{"context_version":1}"#).unwrap();
     assert_eq!(version_only, EvidenceContext::default());
+}
+
+#[test]
+fn serde_rejects_invalid_identity_components_and_unknown_fields() {
+    assert!(serde_json::from_value::<ConstructKey>(serde_json::json!({
+        "namespace": " ",
+        "kind": "rule",
+        "id": "id",
+        "id_kind": "authored_id"
+    }))
+    .is_err());
+
+    let construct = serde_json::to_value(rule("rule-guid")).unwrap();
+    assert!(serde_json::from_value::<ObservationKey>(serde_json::json!({
+        "construct": construct,
+        "operation": " ",
+        "metric": "work",
+        "definition_version": 1,
+        "aggregation": "sum"
+    }))
+    .is_err());
+
+    let construct = serde_json::to_value(rule("rule-guid")).unwrap();
+    assert!(serde_json::from_value::<ObservationKey>(serde_json::json!({
+        "construct": construct,
+        "operation": "apply",
+        "metric": "work",
+        "definition_version": 0,
+        "aggregation": "sum"
+    }))
+    .is_err());
+
+    assert!(serde_json::from_value::<ConstructKey>(serde_json::json!({
+        "namespace": "fieldworks",
+        "kind": "rule",
+        "id": "id",
+        "id_kind": "authored_id",
+        "unknown": true
+    }))
+    .is_err());
+
+    let observation = serde_json::to_value(
+        ObservationKey::new(rule("rule-guid"), "apply", "work", 1, "sum").unwrap(),
+    )
+    .unwrap();
+    let mut observation = observation.as_object().unwrap().clone();
+    observation.insert("unknown".into(), serde_json::json!(true));
+    assert!(serde_json::from_value::<ObservationKey>(observation.into()).is_err());
+
+    assert!(
+        serde_json::from_value::<EvidenceContext>(serde_json::json!({
+            "unknown": true
+        }))
+        .is_err()
+    );
 }
