@@ -222,7 +222,89 @@ One backend has no evidence for anything it claims to support.
   which protects nobody — the same reasoning that retired the comment-hygiene ratchet applies here
   in the opposite direction, because that backlog was already at zero and this one is not.
 
+## Relayed: three gaps found against machine's semantic-conformance work
+
+Found 2026-08-14 by comparing this plan against `sillsdev/machine`, branch `docs/hc-semantic-catalog`
+(`docs/counterfactual-coverage-report.md`, `conformance/schema/words.schema.json`,
+`conformance/edge-cases/loader-isactive-breadth/words.yaml`), which has already built and run the
+counterfactual machinery this plan's "Three states" section only specifies the shape of.
+
+### 1. Verdicts must be per-phase, not per-pair
+
+The three senses of "ordering" table above (morphotactic / within-rule / between-rule) and the
+witnessed/unwitnessed states are all implicitly synthesis-shaped. But HC unapplies rules in
+**reverse** during analysis — a pair that *feeds* in the synthesis direction is *bleeding* in the
+analysis direction, and vice versa, because reversing application order inverts which member's
+output enables or blocks the other. A pair recorded merely "witnessed" with no phase attached
+silently assumes the relation holds symmetrically in both directions. It does not, and analysis is
+exactly the direction PanGloss's own proposer operates in — so an unrecorded analysis-direction
+witness is untested in the one direction this entire coverage effort exists to support.
+
+This plan already has what it needs to fix this at no new instrumentation cost: `pg_rules::trace::
+TraceSource` already carries `MorphRule(MRuleId)`/`PhonRule(PRuleId)` with a begin/end tree per rule,
+template and stratum (see "What IS already modeled" above). The verdict just needs to key on phase —
+`witnessed(synthesis)` and `witnessed(analysis)` as separate cells — rather than collapsing both into
+one `witnessed`.
+
+### 2. The "load-bearing" half of State 2's own definition has no mechanism
+
+State 2 is defined as "a real word where both fire **and order is load-bearing**." A trace shows
+that both rules fired, in some order — it never shows that a *different* order would have changed
+anything. Nothing in this plan proposes how to produce that counterfactual, so as written, "order is
+load-bearing" is an assertion the design has no way to back.
+
+`machine`'s own semantic-conformance work already builds the missing half. `GrammarMutator` produces
+a mutated copy of a fixture's grammar — for ordering specifically, an adjacent transposition in a
+rule list or affix-template slot list — and re-runs the corpus through it, comparing the mutated vs.
+unmutated parse outcome per word. Applied to ordering alone: 138 adjacent-pair items (one per
+adjacent pair across 29 ordered lists — adjacent transpositions generate the symmetric group, so
+pinning every adjacent swap pins the total order, which is why this is linear and not the `n!` full
+permutation space), 31 evidenced by an actual outcome delta, 13 proven structurally independent, and
+94 left as an honest, stated gap rather than an assumed pass. The structural-independence check was
+then falsified against its own output: one pair it certified `disjoint-domains` was shown, by the
+same counterfactual swap, to change a real word's parse — the check compared outputs against inputs
+and never read `Environment`/`LeftEnvironment`/`RightEnvironment`, so feeding *and* bleeding, the two
+classic reasons order matters, were invisible to the one check licensing "cannot interact." That
+whole DTD-surface sweep (ordering included) produced 194 verdict rows total (106 `Evidenced`, 77
+`RequiredToLoad`, 3 `EvidencedJointly`, 8 `Unobservable`, 0 `Timeout`) over 7017 mutant word parses.
+
+Two operational facts worth carrying over directly: mutants run in a **killable child process** — an
+abandoned/non-terminating mutant was measured to grow to 20GB working set / 37GB committed with
+nothing to stop it, so a kill-switch is not a hypothetical safety margin, it is a measured necessity;
+and the mutant run is made deterministic by pinning worker parallelism to 1 (`Parallel.ForEach`
+sized off `Environment.ProcessorCount` otherwise let a pathological mutant's failure mode flip
+between runs).
+
+Recommendation: adopt the same primitive — swap the pair, re-run, diff the output or trace — as the
+mechanism State 2 requires, rather than only reading whether a trace shows both rules fired.
+
+### 3. State 2 needs the credit-inheritance guard `neutralizes` exists to provide
+
+`machine`'s fixture format has a field, `neutralizes`, whose entire reason for existing (stated
+directly in `edge-cases/loader-isactive-breadth`'s own header) is a trap this plan's "witnessed"
+state is equally exposed to: "covering one \[construct\] says nothing about the others, and a coarse
+claim would let \[the untested ones\] inherit credit from the one that is tested." Concretely: a
+default/elsewhere rule, or an unrelated construct, can catch a test word while the *specific* pair
+nominally under test never actually both fired in the load-bearing way being claimed — the word
+still parses "correctly," so a naive success check credits the pair under test for an outcome some
+other mechanism actually produced.
+
+`machine`'s guard: neutralize the *specific* surface under test in a copy of the grammar and require
+the outcome to change; if it doesn't, the surface is graded `Unobservable`, not credited. Where a
+surface can only be evidenced jointly with a referencing partner (deactivating it alone would make
+the unmutated baseline itself fail to load), the `EvidencedJointly` verdict requires all three legs
+to hold — target alone changes nothing, partner alone changes nothing, both together change the
+result — specifically so a decoy that merely *looks* tested by association can't inherit credit for
+an outcome a different mechanism produced.
+
+Recommendation: a rule pair should only be credited "witnessed, order load-bearing" if neutralizing
+(or reordering) *that specific pair, and only that pair,* changes the outcome — not merely that the
+word parses as some other part of the design expected.
+
 ## Status
 
 Design agreed. Not built. The witness-retention section is the resolution of "how do we get the
-contrary word", and is recorded here as the answer rather than as an open question.
+contrary word", and is recorded here as the answer rather than as an open question. The three gaps
+above (phase-relative verdicts, the counterfactual mechanism for "load-bearing", and the
+credit-inheritance guard) are relayed findings against `machine`'s already-built semantic-conformance
+work and should be resolved before this plan moves from "design agreed" to "built."
