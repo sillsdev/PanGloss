@@ -1802,10 +1802,14 @@ function Remove-ManagedWorktree {
     & git -C $RepoRoot worktree prune 2>&1 | Out-Null
     $result.Pruned = ($LASTEXITCODE -eq 0)
 
-    $busy = if ($PSBoundParameters.ContainsKey('BusyProcesses')) { @($BusyProcesses) } else { @(Get-LiveBuildProcesses) }
-    $gc = Invoke-TargetGc -Classification $scoped -Apply -BusyProcesses $busy -Roots $Roots
-    $result.TargetsRemoved = @($gc.Deleted)
-    $result.TargetSkipReason = $gc.SkipReason
+    # $scoped is legitimately empty for a worktree that never built anything -- PowerShell's Mandatory
+    # binding rejects an empty array outright, so Invoke-TargetGc must not be called with one.
+    if ($scoped.Count -gt 0) {
+        $busy = if ($PSBoundParameters.ContainsKey('BusyProcesses')) { @($BusyProcesses) } else { @(Get-LiveBuildProcesses) }
+        $gc = Invoke-TargetGc -Classification $scoped -Apply -BusyProcesses $busy -Roots $Roots
+        $result.TargetsRemoved = @($gc.Deleted)
+        $result.TargetSkipReason = $gc.SkipReason
+    }
     $result.Ok = $true
     $result.Detail = "removed $full; reclaimed $($result.TargetsRemoved.Count) of $($scoped.Count) target dir(s)"
     return [PSCustomObject]$result
