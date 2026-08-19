@@ -714,7 +714,7 @@ mod tests {
             .check(FaithfulnessRequirement::NonVacuity)
             .expect_err("an empty collection must not pass");
         assert!(violations.iter().any(|v| v.contains("no fixture")));
-        assert!(violations.iter().any(|v| v.contains("never attempted")));
+        assert!(violations.iter().any(|v| v.contains("not-attempted")));
     }
 
     /// The strict requirement must reject exactly the failure inventory the lenient one tolerates.
