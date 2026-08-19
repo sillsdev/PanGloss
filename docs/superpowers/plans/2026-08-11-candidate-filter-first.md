@@ -159,6 +159,74 @@ Two grammars are still unmeasured: Mbugwe and Aweti yield zero candidates throug
 defect, not a grammar property). No decision to drop passes or shrink the backend set may rest on the
 three-grammar result while the two most differently-shaped grammars are absent.
 
+### Surface consistency is measured — 2026-08-19, all five grammars, `filter_ceiling_census`
+
+Extends the census with a tape-derivable reach classification: for each doomed candidate, does (a)
+morpheme co-occurrence or (b) surface consistency (literal-character feasibility against the target
+word, from only the candidate's morpheme-id sequence, root index, and the grammar's static allomorph
+tables) predict the rejection.
+
+**First measurement was wrong, and the error was large enough to change the conclusion.** An initial
+pass reported real-looking catches on Sena, Amharic, and Indonesian. Wiring the pass into
+`candidate_filter_fixture_weight.rs`'s conformance fixture (a synthetic nasal-place-assimilation
+grammar, `conformance-staging/filter-passes/surface-consistency/`) immediately caught the same defect
+on a DIFFERENT, pre-existing fixture (`filter-passes/local-environment`, word `membalo`): the check
+treated an underspecified nasal placeholder segment (`N` in `meN-`) as a required literal character,
+when a `PhonologicalRule` rewrites it to `m` or `n` before the surface is ever reached. That is exactly
+the false-positive shape the module's own boundary/archiphoneme exclusion already existed to prevent —
+this grammar's placeholder just wasn't in either excluded Unicode range. Fixed by resolving every
+`PhonRuleDef::Rewrite` rule's own input pattern against the grammar's character-definition tables and
+excluding every character any rule could match, in both the production `SurfaceConsistencyIndex` and
+this census's own duplicated copy (`volatile_chars` in both places). Over-excluding here is safe by
+construction — it can only make the check decline more, never wrongly reject — so the fix could not
+introduce a new false positive of its own, only remove real catches that were never real.
+
+Re-measured after the fix:
+
+| grammar | doomed candidates | (a) co-occurrence | (b) surface consistency | (b) of removable steps | filter cost mean/p99 |
+|---|---|---|---|---|---|
+| Sena | 3331 | 0 (0.0%) | 1029 (30.9%) | 2884/19331 (14.9%) | 0.030 / 0.163 ms |
+| Amharic | 56 | 0 (0.0%) | **0 (0.0%)** | **0/53 (0.0%)** | 0.005 / 0.019 ms |
+| Indonesian | 4 | 0 (0.0%) | 1 (25.0%) | **0/3 (0.0%)** | 0.001 / 0.008 ms |
+| Aweti | 0 | — | — | — | — |
+| Mbugwe | 0 | — | — | — | — |
+
+Sena is unchanged — none of its measured words exercised a rewrite rule's placeholder segment in a
+way the buggy version got wrong. **Amharic's entire prior result (94.6% of doomed candidates, "100% of
+removable work") was the false-positive bug and nothing else**; the corrected number is a flat zero.
+Indonesian still catches one candidate outright, but not a whole chunk, so its removable-work share is
+also zero once corrected. **The real, positive result is Sena alone.**
+
+**(a) never fires, on any grammar measured.** It duplicates `pg_rules::validity`'s existing
+co-occurrence check, which the production path already consults before proposing; there is nothing
+left for a filter to catch. Not pursued further under this plan.
+
+**(b) still clears the measurement gate above, on the corrected evidence, but on one grammar rather
+than three.** Every structural/symbolic pass built under Tasks 1-4 defers on every real candidate,
+because a sound pass must defer when every `TraceFact` arrives `Deferred` — the blocker named above,
+gated on a future generator that emits `Known` facts. Surface consistency needs no such fact, only the
+tape's own contents, so it fires today without waiting on that generator: real, sound (never rejects an
+HC-confirmed candidate, by construction — see the module's own doc, now including the rewrite-rule
+exclusion this bug added), and materially cheap on every grammar regardless of whether it catches
+anything. Whether one real catch (Sena) is enough evidence to authorize Tasks 5-11 more broadly, versus
+treating this as a single-grammar result pending Aweti/Mbugwe, is not this document's call to make
+silently — flagged for an explicit decision rather than assumed.
+
+**Aweti and Mbugwe remain unmeasured through this path** — both still report zero candidates via the
+legacy adapter this census exercises, the same pre-existing harness defect noted above, not a property
+of surface consistency and not something this measurement changes. Per this document's own rule, no
+broader claim rests on a result that is short two of the five grammars, and especially not now that the
+three-grammar result has already been shown to overclaim once.
+
+Implemented as `candidate_filter::passes::surface_consistency::SurfaceConsistencyPass`, threaded into
+`composite.rs`'s shadow-mode filter call (`filter_into_with_word`) alongside the existing structural
+passes — the first pass in this plan to reach a genuine `Reject` on a real grammar rather than a
+`Defer`. Its own conformance fixture (`conformance-staging/filter-passes/surface-consistency/`) is
+`producer-blocked`, not `wired`: `candidate_filter_fixture_weight.rs` only ever presents candidates
+`pg_parse::Morpher` already confirmed, which is by construction never surface-infeasible, so the fixture
+pins the floor a future over-generating producer's candidate would meet rather than a count this
+harness measures today — same shape as the pre-existing `structural.ownership.v1` fixture.
+
 ---
 
 ## Scope and sequencing
