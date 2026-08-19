@@ -732,6 +732,12 @@ function Use-Sccache {
     # Deliberately on the HDD root: a cache hit is one blob read, so capacity matters more than seek time here.
     if (-not $env:SCCACHE_DIR) { $env:SCCACHE_DIR = Join-Path $script:HddCacheRoot 'sccache' }
     New-Item -ItemType Directory -Force -Path $env:SCCACHE_DIR | Out-Null
+    if (-not $env:SCCACHE_CACHE_SIZE) {
+        # Proportional to free space, not sccache's flat 10GiB default -- many worktrees share one server.
+        $freeGB = Get-FreeSpaceGB $script:HddCacheRoot
+        $sizeGB = if ($null -ne $freeGB) { [Math]::Min(150, [Math]::Max(20, [Math]::Floor($freeGB / 10))) } else { 20 }
+        $env:SCCACHE_CACHE_SIZE = "${sizeGB}G"
+    }
     return $true
 }
 
@@ -886,6 +892,90 @@ function Get-BuildSlotHolders {
         } catch {}
     }
     return @($out | Sort-Object Slot)
+}
+
+# Signs of real work under a build-slot holder; procgov.exe is deliberately excluded -- an idle wrapper IS the stuck shape this checks for.
+$script:LiveBuildActivityNames = @('rustc.exe', 'cargo.exe', 'link.exe', 'cc1.exe', 'cc1plus.exe', 'sccache.exe', 'cargo-nextest.exe', 'pangloss.exe')
+
+function Get-ProcessDescendants {
+    <#
+      .DESCRIPTION
+      Every process transitively parented under $RootPid, PID-reuse-safe (a candidate child is only
+      accepted when created AFTER the parent it claims, same guard as Test-ParentAlive) -- a build
+      wrapper's job nests procgov one level deep, so a direct-children-only walk would miss the
+      compiler processes underneath it.
+    #>
+    param([Parameter(Mandatory)][int]$RootPid, [Parameter(Mandatory)]$Snapshot)
+    $byParent = @{}
+    foreach ($p in $Snapshot) {
+        $key = [string]$p.ParentProcessId
+        if (-not $byParent.ContainsKey($key)) { $byParent[$key] = @() }
+        $byParent[$key] += $p
+    }
+    $root = $Snapshot | Where-Object { $_.ProcessId -eq $RootPid } | Select-Object -First 1
+    $out = @()
+    $frontier = @([PSCustomObject]@{ ProcessId = $RootPid; CreationDate = $(if ($root) { $root.CreationDate } else { $null }) })
+    while ($frontier.Count -gt 0) {
+        $next = @()
+        foreach ($node in $frontier) {
+            foreach ($child in @($byParent[[string]$node.ProcessId])) {
+                if ($node.CreationDate -and $child.CreationDate -and $child.CreationDate -lt $node.CreationDate) { continue }
+                $out += $child
+                $next += $child
+            }
+        }
+        $frontier = $next
+    }
+    return $out
+}
+
+function Test-BuildSlotHolderStale {
+    <#
+      .DESCRIPTION
+      A held slot is stale when the holder is alive but doing nothing: past a generous minimum age
+      (a real `-Scope all` conformance run legitimately runs tens of minutes, so this must never fire
+      mid-build) AND no descendant process anywhere in its tree matches $script:LiveBuildActivityNames.
+      Root cause this exists for: `Invoke-ProcessInJobObject`'s wait is a bare `Wait-Process -Id
+      $psi.Id` with no timeout, so a procgov process that never exits after its own job empties out
+      is invisible to that function's own `finally` cleanup, which only runs once the wait returns.
+    #>
+    param(
+        $Holder, $Snapshot,
+        [int]$MinAgeMinutes = 20,
+        [datetime]$Now = (Get-Date)
+    )
+    if (-not $Holder.Alive) { return $false }
+    $proc = $Snapshot | Where-Object { $_.ProcessId -eq $Holder.Pid } | Select-Object -First 1
+    if (-not $proc -or -not $proc.CreationDate) { return $false }
+    if (($Now - $proc.CreationDate).TotalMinutes -lt $MinAgeMinutes) { return $false }
+    $descendants = Get-ProcessDescendants -RootPid $Holder.Pid -Snapshot $Snapshot
+    $alive = @($descendants | Where-Object { $_.Name -in $script:LiveBuildActivityNames })
+    return $alive.Count -eq 0
+}
+
+function Remove-StaleBuildSlotHolders {
+    <#
+      .DESCRIPTION
+      Reaps build-slot holders Test-BuildSlotHolderStale flags. Kills the ledger PID itself (not its
+      descendants directly) -- `taskkill /T` takes the whole tree, and once the ledger PID dies the
+      OS marks its build-slot mutex abandoned, which Enter-BuildSlot's existing AbandonedMutexException
+      path already hands to the next waiter automatically; this function only ever supplies the "the
+      holder dies" half that path was designed around, never a second way to free a slot.
+    #>
+    param([switch]$WhatIfOnly = $true, [int]$MinAgeMinutes = 20)
+    $snapshot = Get-ProcessSnapshot
+    $now = Get-Date
+    foreach ($h in @(Get-BuildSlotHolders)) {
+        if (-not (Test-BuildSlotHolderStale -Holder $h -Snapshot $snapshot -MinAgeMinutes $MinAgeMinutes -Now $now)) { continue }
+        $ageMin = [int](($now - ($snapshot | Where-Object { $_.ProcessId -eq $h.Pid } | Select-Object -First 1).CreationDate).TotalMinutes)
+        if ($WhatIfOnly) {
+            Write-Host "[gc] would kill stale build-slot holder PID $($h.Pid) (slot $($h.Slot), $($h.Mode) in $($h.Worktree), alive ${ageMin}min with no compiler activity)" -ForegroundColor Yellow
+        } else {
+            Write-Host "[gc] killing stale build-slot holder PID $($h.Pid) (slot $($h.Slot), $($h.Mode) in $($h.Worktree), ${ageMin}min idle)" -ForegroundColor Yellow
+            & taskkill /T /F /PID $h.Pid 2>$null | Out-Null
+            try { Clear-BuildSlotHolder -Slot $h.Slot } catch {}
+        }
+    }
 }
 
 function Invoke-ProcessInJobObject {
@@ -1936,9 +2026,13 @@ function Write-Preflight {
     $slotHolders = @(Get-BuildSlotHolders)
     if ($slotHolders.Count -gt 0) {
         Write-Host 'build slots in use:'
+        $slotSnapshot = Get-ProcessSnapshot
         foreach ($h in $slotHolders) {
-            $state = if ($h.Alive) { "alive since $($h.AcquiredAt)" } else { 'NOT ALIVE -- stale ledger entry; the kernel hands this slot to the next waiter' }
-            Write-Host "  slot $($h.Slot): pid $($h.Pid) ($($h.Mode) in $($h.Worktree)) -- $state" -ForegroundColor $(if ($h.Alive) { 'Gray' } else { 'Yellow' })
+            $stale = $h.Alive -and (Test-BuildSlotHolderStale -Holder $h -Snapshot $slotSnapshot)
+            $state = if (-not $h.Alive) { 'NOT ALIVE -- stale ledger entry; the kernel hands this slot to the next waiter' }
+                elseif ($stale) { "alive since $($h.AcquiredAt) -- STALE: no compiler activity for 20+ min; 'pg.ps1 -Mode gc -Apply' will reap it" }
+                else { "alive since $($h.AcquiredAt)" }
+            Write-Host "  slot $($h.Slot): pid $($h.Pid) ($($h.Mode) in $($h.Worktree)) -- $state" -ForegroundColor $(if (-not $h.Alive -or $stale) { 'Yellow' } else { 'Gray' })
         }
     }
     Write-Host "sccache: $($SccacheHealth.State) -- $($SccacheHealth.Detail)" -ForegroundColor $(if ($SccacheHealth.Ok -or $SccacheHealth.State -eq 'disabled') { 'Gray' } else { 'Red' })
