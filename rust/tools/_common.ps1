@@ -1802,8 +1802,7 @@ function Remove-ManagedWorktree {
     & git -C $RepoRoot worktree prune 2>&1 | Out-Null
     $result.Pruned = ($LASTEXITCODE -eq 0)
 
-    # $scoped is legitimately empty for a worktree that never built anything -- PowerShell's Mandatory
-    # binding rejects an empty array outright, so Invoke-TargetGc must not be called with one.
+    # Invoke-TargetGc's Mandatory array param rejects an empty $scoped outright, so skip the call.
     if ($scoped.Count -gt 0) {
         $busy = if ($PSBoundParameters.ContainsKey('BusyProcesses')) { @($BusyProcesses) } else { @(Get-LiveBuildProcesses) }
         $gc = Invoke-TargetGc -Classification $scoped -Apply -BusyProcesses $busy -Roots $Roots
