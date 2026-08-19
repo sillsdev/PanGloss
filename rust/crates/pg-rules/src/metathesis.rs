@@ -217,7 +217,7 @@ struct Candidate {
     right: (usize, usize),
 }
 
-/// Every distinct match of `pattern` over `segs`, with its `ENTIRE_MATCH`/`LEFT_GROUP`/`RIGHT_GROUP` capture offsets, sorted ascending and deduped.
+/// Every distinct match, direction-first ordered like `pg_rules::rewrite`'s own candidate list.
 /// See `docs/research/pg-rules-metathesis-design-notes.md`.
 fn match_candidates(pattern: &CompiledSwitchPattern, segs: &[Segment]) -> Vec<Candidate> {
     if segs.is_empty() {
@@ -245,6 +245,9 @@ fn match_candidates(pattern: &CompiledSwitchPattern, segs: &[Segment]) -> Vec<Ca
         .collect();
     out.sort_unstable();
     out.dedup();
+    if fst.direction() == Direction::RightToLeft {
+        out.reverse();
+    }
     out.into_iter()
         .map(|(es, ee, ls, le, rs, re)| Candidate {
             entire: (es, ee),
