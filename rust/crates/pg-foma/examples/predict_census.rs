@@ -1,62 +1,5 @@
-//! DEV-ONLY measurement for the prefix-constrained FST word-prediction idea
-//! (`docs/research/spellcheck/17-constrained-generation.md` is the PARKED, different approach;
-//! this one walks the compiled proposer network directly instead of predicting a tag bundle).
-//!
-//! Not a production surface: an `examples/` binary, run by hand, never invoked by `pangloss` or
-//! any shipped tooling. It reads and reports; it changes no gate, budget, or semantics.
-//!
-//! ## The idea being measured
-//! Start at the proposer FST's start state, consume the letters already typed along the SURFACE
-//! (`out`) side, then let the walk run free to accepting states to collect completions — WITHOUT
-//! running HermitCrab confirm on any of them. Rank the completions with signal that is already on
-//! the path (each path's own `<R:...>`/`<M:...>` tags decode to morphemes, so "which stem" and
-//! "how many morphemes" are free), and only then pay confirm, descending the ranked list until
-//! `--top-n` candidates have actually confirmed.
-//!
-//! ## Why the walk is possible at all
-//! `foma::types::Fsm::states` is a public `LineTable` in CSR form — `iter_blocks()` yields
-//! `(&StateBlock, &[CsrArc])` and `CsrArc` is `{ in, out, target }`. So the arc table of the
-//! compiled network is directly readable; no upstream change and no new engine is needed. The
-//! `out` side is the surface side (`analyzer.rs` sorts direction 2 for `apply_up`), the `in` side
-//! carries ONLY tag symbols (`crate::tags`'s module doc: the emitter never puts literal underlying
-//! text on the analysis tape), so one walk yields the candidate surface string and its morpheme
-//! decomposition at the same time.
-//!
-//! ## The three numbers this exists to produce
-//! 1. **Containment** — is the user's actual word among the completions at all? The propose
-//!    invariant (`CONTEXT.md:271,311`: the proposer over-approximates, only language-preserving
-//!    operations are permitted) says the FST's surface language is a SUPERSET of the real one, so
-//!    this should be 100% whenever the walk's budget did not truncate. Measuring it is a real
-//!    check on that invariant in the generation direction, not a formality.
-//! 2. **Confirm depth** — how far down the cheaply-ranked list confirm must go to fill `--top-n`.
-//!    This is the cost model of the whole idea, and it is the number nothing in the repo measures
-//!    today: over-approximation is free for analysis (confirm prunes, nobody sees it) and is
-//!    exactly the bill for prediction.
-//! 3. **Negative-cache yield** — a surface string the FST accepts but confirm rejects is a
-//!    permanent, grammar-deterministic fact, so it is cacheable forever. This reports how many
-//!    confirms that cache actually saves once warm.
-//!
-//! ## Ranking (deliberately cheap — no HC, no learned tag-bundle predictor)
-//! `score(surface) = logsumexp over that surface's paths of [ log P(stem) - lambda*(morphemes-1) ]`
-//! — the TOTAL stem probability for the surface, marginalized over every path that produced it,
-//! rather than the single best path's. `P(stem)` is add-alpha smoothed over root-morpheme counts
-//! taken from a TRAINING SPLIT of the corpus; evaluation runs only on the held-out split.
-//!
-//! Usage:
-//!   cargo run -p pg-foma --release --example predict_census -- [--grammars sena,indonesian]
-//!       [--max-words N] [--prefix-lens 2,4,6] [--top-n 3] [--max-completions N] [--max-steps N]
-//!       [--max-states N] [--max-sigma N] [--max-frontier-bytes N]
-//!
-//! ## Memory budgets (2026-07-30 incident: this binary committed 118GB and froze the host machine)
-//! `--max-steps`/`--max-completions` bound the walk's POP count and accepted-result count -- they
-//! never bounded its MEMORY, because every pop can PUSH one child per outgoing arc while the
-//! frontier itself had no size/byte cap and no visited-state dedup. A cyclic network with real
-//! branching (reduplication/compounding/optional-derivation loops) can make step-budget-worth of
-//! pops while the unpopped frontier balloons far past it. `--max-frontier-bytes`
-//! (`PREDICT_CENSUS_MAX_FRONTIER_BYTES`) is the new dimension that actually bounds this, and
-//! `--max-states`/`--max-sigma` (`PREDICT_CENSUS_MAX_STATES`/`PREDICT_CENSUS_MAX_SIGMA`) refuse
-//! up front, before `WalkNet::build` allocates anything, if the compiled network's own state/symbol
-//! numbering exceeds a safe size. See `WalkNet::build`'s and `complete`'s doc for the detail.
+//! DEV-ONLY census of the prefix-constrained FST word-completion idea over a compiled foma
+//! proposer network; see docs/research/predict-census-design-notes.md for detail and usage.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -74,9 +17,7 @@ use pg_parse::Morpher;
 
 // --- fixtures ------------------------------------------------------------------------------
 
-/// `(name, grammar file, wordlist file)`. Sena and Indonesian first deliberately: report 13
-/// measured 0.00% `timed_out` on both, where Amharic (9.81%) and Aweti (6.73%/40.87% step-capped)
-/// have known confirm pathologies that would dominate a timing run rather than inform it.
+/// `(name, grammar file, wordlist file)`; ordering rationale: docs/research/predict-census-design-notes.md.
 const GRAMMARS: &[(&str, &str, &str)] = &[
     ("sena", "sena-hc.xml", "sena-words.txt"),
     ("indonesian", "indonesian-hc.xml", "indonesian-words.txt"),
@@ -90,8 +31,7 @@ fn sample_path(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// Mirrors `pg-cli`'s `load_grammar` dispatch (and `examples/spellcheck_measure.rs`'s copy of it)
-/// for the two fixture shapes this census uses.
+/// Mirrors `pg-cli`'s `load_grammar` dispatch (and `examples/spellcheck_measure.rs`'s copy of it) for the two fixture shapes this census uses.
 fn load_grammar(path: &Path) -> Grammar {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     match ext {
@@ -109,43 +49,15 @@ fn load_grammar(path: &Path) -> Grammar {
     }
 }
 
-// --- memory budgets --------------------------------------------------------------------------
-//
-// The 2026-07-30 incident (this binary committed 118GB and froze the host machine, a Windows
-// Resource-Exhaustion-Detector event-log receipt) traced to two gaps, neither closed by the
-// step/completion budgets that already existed: (1) `WalkNet::build` allocated `Vec`s sized by the
-// compiled network's RAW state/symbol NUMBER, unchecked, before a single word was ever walked --
-// harmless if that numbering is dense (the common case) but unbounded if it is sparse; (2)
-// `complete`'s best-first search frontier had no size/byte cap and no visited-state dedup, so a
-// cyclic network with real branching could push far more frames than `max_steps` ever pops before
-// tripping -- raising `--max-steps` for a more thorough census scaled memory right along with it,
-// invisibly, because a step count is not a byte count. Every constant/helper below closes one of
-// those two gaps; `frame_bytes` and `WalkBudgetDimension::FrontierBytes` are the load-bearing new
-// dimension (2), `DEFAULT_MAX_STATES`/`DEFAULT_MAX_SIGMA` are the up-front refusal (1).
+// --- memory budgets: see docs/research/predict-census-design-notes.md for the two gaps this closes ---
 
-/// Ceiling on the compiled network's TRUE state count (`WalkNet::build`'s `state_count`, i.e. the
-/// number of DISTINCT `state_no`s that ever appear -- after the dense reindex documented on
-/// `WalkNet::build`, never the raw maximum state NUMBER, which is exactly the quantity the old code
-/// allocated against unchecked). Reuses `pg_foma::compose_budget::DEFAULT_STATE_BUDGET`'s own
-/// calibrated figure (2,000,000, ~56x above Aweti's measured 35,846-state compose ceiling) rather
-/// than inventing a fresh guess: it is the same underlying quantity (a compiled foma network's
-/// state count), just checked at a different call site.
+/// Ceiling on the compiled network's true state count; see docs/research/predict-census-design-notes.md.
 const DEFAULT_MAX_STATES: usize = 2_000_000;
 
-/// Ceiling on the sigma table's own maximum symbol NUMBER -- the array `WalkNet::build` actually
-/// allocates is `max_sym + 1` entries of `Option<String>`, so this guards that allocation directly
-/// rather than the (cheaper, but not what gets allocated) distinct-symbol count. Generous relative
-/// to any real grammar's alphabet+tag inventory (typically hundreds to low thousands of symbols)
-/// while still refusing before an adversarially sparse/huge symbol-number range would allocate
-/// unboundedly.
+/// Ceiling on the sigma table's own maximum symbol number; see docs/research/predict-census-design-notes.md.
 const DEFAULT_MAX_SIGMA: usize = 200_000;
 
-/// Ceiling on `complete`'s own best-first search frontier, in estimated live bytes (`frame_bytes`).
-/// A conservative RESEARCH ceiling, not a calibrated one (mirrors `compose_budget.rs`'s own honest
-/// "placeholder pending real-grammar measurement" framing for every uncalibrated cap in that
-/// module): comfortably below a 16GB developer machine's total memory. Every `complete` call is
-/// transient -- its frontier is dropped when the function returns -- so this bounds ONE call's
-/// peak, never a cumulative total across the many calls one `run_grammar` pass makes.
+/// Ceiling on `complete`'s search frontier, in estimated live bytes; see docs/research/predict-census-design-notes.md.
 const DEFAULT_MAX_FRONTIER_BYTES: usize = 1_073_741_824;
 
 fn env_usize(name: &str, default: usize) -> usize {
@@ -155,12 +67,7 @@ fn env_usize(name: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
-/// A hard pre-flight refusal, checked BEFORE `WalkNet::build` allocates anything sized by the
-/// compiled network's own state/symbol numbering -- this file's version of `compose_budget.rs`'s
-/// "check the search result before the expensive part" discipline (design doc §4), applied to this
-/// walk's up-front indexing rather than a compose/minimize call. Never a panic, never a silent
-/// truncation: a network this large is reported and the grammar is skipped, exactly like this
-/// file's pre-existing "SKIPPED (missing fixture...)" path for an absent sample file.
+/// A hard pre-flight refusal, checked before `WalkNet::build` allocates anything; never a panic or a silent truncation. See docs/research/predict-census-design-notes.md.
 #[derive(Debug)]
 enum CensusError {
     NetworkTooLarge {
@@ -191,9 +98,7 @@ impl std::fmt::Display for CensusError {
 }
 impl std::error::Error for CensusError {}
 
-/// Pure size-vs-budget check, shared by both refusals in [`WalkNet::build`] — pulled out on its own
-/// so it is testable directly with plain integers (this file's own test module), without needing a
-/// compiled network at all, mirroring `compose_budget.rs`'s own `check_size` shape.
+/// Pure size-vs-budget check shared by both `WalkNet::build` refusals, so it is testable with plain integers alone; see docs/research/predict-census-design-notes.md.
 fn check_network_size(
     dimension: &'static str,
     value: usize,
@@ -218,22 +123,18 @@ struct WalkNet {
     arcs: Vec<Vec<CsrArc>>,
     final_state: Vec<bool>,
     start: usize,
-    /// Symbol number -> its literal text. Index 0 is epsilon (empty). `None` marks a symbol this
-    /// walk cannot render (UNKNOWN/IDENTITY); their arcs are skipped and counted.
+    /// Symbol number -> its literal text; `None` marks an unrenderable symbol (UNKNOWN/IDENTITY), whose arcs are skipped and counted.
     sigma: Vec<Option<String>>,
 }
 
 impl WalkNet {
-    /// Builds the CSR walk view, refusing (via [`CensusError`]) before allocating anything sized by
-    /// the compiled network's own state/symbol numbering if that numbering exceeds `max_states`/
-    /// `max_sigma`. See this module's "memory budgets" section doc for why this exists.
+    /// Builds the CSR walk view, refusing before allocating anything sized by the compiled network's own numbering; see docs/research/predict-census-design-notes.md.
     fn build(g: &Grammar, max_states: usize, max_sigma: usize) -> Result<WalkNet, CensusError> {
         let emitted = pg_foma::emit::emit(g);
         let opts = FomaOptions::default();
         let mut net =
             fsm_lexc_parse_string(&opts, None, &emitted.lexc_source).expect("lexc compile failed");
-        // Same arc sort the production proposer does (analyzer.rs: direction 2 = "out"); harmless
-        // here, and keeps this walk reading the arcs in the same order `apply_up` would.
+        // Same arc sort the production proposer uses, so this walk reads arcs in the same order `apply_up` would.
         fsm_sort_arcs(&mut net, 2);
 
         // state_no is dense and ascending in a compiled net, but do not assume it: map explicitly.
@@ -247,21 +148,11 @@ impl WalkNet {
             e.2.extend_from_slice(arcs);
         }
 
-        // MEMORY budget #1 (checked BEFORE allocating anything sized by this count): `state_count`
-        // is the network's TRUE state count -- how many distinct `state_no`s ever appeared -- never
-        // the raw maximum `state_no` value the previous version of this function allocated against
-        // unconditionally.
+        // Memory budget #1, checked before allocating anything sized by this count; see docs/research/predict-census-design-notes.md.
         let state_count = by_state.len();
         check_network_size("compiled states", state_count, max_states)?;
 
-        // Dense reindex: the comment above ("do not assume it") was correct to distrust dense
-        // numbering, but the OLD code trusted it anyway by allocating `max_state + 1` slots and
-        // indexing by the raw `state_no` -- so a network with sparse numbering (numbering that skips
-        // values, e.g. after minimization/pruning) allocated proportional to the largest number that
-        // ever appears, not to the number of states that actually exist. Every walk-time use of a
-        // state only ever needs one of `by_state`'s own KEYS, never the raw numeric value, so
-        // remapping each key to a dense `0..state_count` index -- and rewriting every arc's `target`
-        // to match -- makes the allocated size track true content instead of raw numbering.
+        // Dense reindex so allocated size tracks true content, not raw (possibly sparse) numbering; see docs/research/predict-census-design-notes.md.
         let mut state_ids: Vec<i32> = by_state.keys().copied().collect();
         state_ids.sort_unstable();
         let dense: HashMap<i32, usize> =
@@ -275,10 +166,7 @@ impl WalkNet {
             arcs[i] = a
                 .into_iter()
                 .map(|arc| CsrArc {
-                    // Every arc target is itself a `state_no` that appeared via `iter_blocks`, so
-                    // it is always a `dense` key in a well-formed compiled net; the fallback to 0
-                    // is defensive only (never observed, never expected) rather than a panic on a
-                    // network this code otherwise has no reason to distrust.
+                    // Fallback to 0 is defensive only: a well-formed net's every arc target is a `dense` key.
                     target: *dense.get(&arc.target).unwrap_or(&0) as i32,
                     ..arc
                 })
@@ -289,16 +177,11 @@ impl WalkNet {
             }
         }
 
-        // MEMORY budget #2: the sigma table IS still indexed by the raw symbol number (arc `in`/
-        // `out` fields come straight off the compiled net, and remapping them risks disturbing
-        // foma's own reserved-slot/negative-number conventions -- see `sym()`'s doc), so the check
-        // here guards the array size actually about to be allocated (`max_sym + 1`), not merely the
-        // distinct-symbol count.
+        // Memory budget #2: guards the array size actually allocated (`max_sym + 1`); see docs/research/predict-census-design-notes.md.
         let max_sym = net.sigma.iter().map(|s| s.number).max().unwrap_or(0).max(2) as usize;
         check_network_size("sigma symbol numbers", max_sym, max_sigma)?;
         let mut sigma: Vec<Option<String>> = vec![None; max_sym + 1];
-        // 0/1/2 are foma's reserved EPSILON/UNKNOWN/IDENTITY slots — never take their text from
-        // the sigma list (it is the `@_..._@` placeholder spelling, not a renderable symbol).
+        // 0/1/2 are foma's reserved EPSILON/UNKNOWN/IDENTITY slots, never renderable symbol text.
         sigma[0] = Some(String::new());
         for s in &net.sigma {
             if s.number > 2 {
@@ -326,15 +209,9 @@ impl WalkNet {
 struct WalkCfg {
     max_completions: usize,
     max_steps: usize,
-    /// Cap on how far past the typed prefix a completion may run, in bytes. Bounds the free-tail
-    /// phase against the cycles a real grammar's network has (reduplication, compounding,
-    /// optional derivation levels) — the same "hard cap, checked before the expensive step"
-    /// discipline `compose_budget.rs` already uses on the compile side.
+    /// Cap on how far past the typed prefix a completion may run, in bytes; bounds the free-tail phase against a grammar's own cycles.
     max_extra_bytes: usize,
-    /// Cap on the search frontier's own estimated live bytes (`frame_bytes`) — the MEMORY dimension
-    /// `max_steps`/`max_completions` never provided (this module's "memory budgets" section doc).
-    /// `max_extra_bytes` only ever bounded `surface`; nothing bounded `analysis`'s growth or the
-    /// number of live-but-unpopped frames a branchy, cyclic network can accumulate.
+    /// Cap on the search frontier's estimated live bytes; the memory dimension `max_steps`/`max_completions` never provided. See docs/research/predict-census-design-notes.md.
     max_frontier_bytes: usize,
 }
 
@@ -343,12 +220,7 @@ struct Completion {
     morphemes: Vec<(bool, MorphemeId)>,
 }
 
-/// Which budget dimension stopped a walk early, and the observed value at the moment it tripped
-/// (checked one past the limit, mirroring `compose_budget.rs`'s own "value is always `limit + 1` by
-/// construction" convention). Kept as its own type — rather than folding a bare `bool` back into
-/// `WalkOutcome` — so a truncated run is always reported with WHICH cap fired and what it saw,
-/// never just "truncated": this file's own extension of the "typed, clearly-reported, never a
-/// silent truncation reported as complete" contract the caller of this program depends on.
+/// Which budget dimension stopped a walk early, and the value observed when it tripped. See docs/research/predict-census-design-notes.md.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WalkBudgetDimension {
     Steps,
@@ -366,10 +238,7 @@ impl WalkBudgetDimension {
     }
 }
 
-/// Per-dimension roll-up of every truncation seen across a whole prefix-length block: how often a
-/// budget tripped, the WORST value observed, and the limit it was measured against. The peak and
-/// limit are what make the report actionable -- a count alone cannot distinguish "raise the cap" from
-/// "the walk is diverging".
+/// Per-dimension roll-up of every truncation in a prefix-length block: trip count, worst value, and limit. See docs/research/predict-census-design-notes.md.
 #[derive(Clone, Copy, Debug)]
 struct TruncationTally {
     count: usize,
@@ -383,8 +252,7 @@ impl TruncationTally {
         if value > self.peak_value {
             self.peak_value = value;
         }
-        // Every trip of one dimension shares a limit within a block, so last-write is fine; carrying
-        // it here keeps the reporting site from having to reach back into the config.
+        // Every trip of one dimension shares a limit within a block, so last-write is fine here.
         self.limit = limit;
     }
 }
@@ -399,31 +267,20 @@ struct WalkTruncation {
 struct WalkOutcome {
     completions: Vec<Completion>,
     steps_used: usize,
-    /// `Some` when a budget stopped the walk — the containment number is only meaningful when this
-    /// is `None`, so it is reported separately rather than folded in.
+    /// `Some` when a budget stopped the walk; the containment number is only meaningful when this is `None`.
     truncated: Option<WalkTruncation>,
     unrenderable_arcs: usize,
 }
 
-/// Rough fixed overhead per live frontier frame: two `String` headers (24 bytes each on 64-bit:
-/// ptr + len + cap) plus `Frame`'s own scalar fields, rounded well up. Deliberately an
-/// OVER-estimate — real allocator bucket rounding tends to add more, not less — so
-/// [`WalkCfg::max_frontier_bytes`] is conservative rather than optimistic.
+/// Deliberately an over-estimate of fixed overhead per live frontier frame; see docs/research/predict-census-design-notes.md.
 const FRAME_FIXED_OVERHEAD_BYTES: usize = 128;
 
-/// Estimated live bytes one frontier frame holds: fixed overhead plus its two owned `String`s'
-/// lengths. Not `capacity()` — `len()` is deterministic and testable from a known-by-construction
-/// fixture, and the fixed overhead already pads generously for whatever the allocator actually
-/// rounds capacity up to.
+/// Estimated live bytes one frontier frame holds; uses `len()` rather than `capacity()` for determinism. See docs/research/predict-census-design-notes.md.
 fn frame_bytes(surface: &str, analysis: &str) -> usize {
     FRAME_FIXED_OVERHEAD_BYTES + surface.len() + analysis.len()
 }
 
-/// One search frame. `matched` is how many BYTES of the typed prefix have been consumed;
-/// `cost_milli` is the accumulated ranking cost in thousandths (integer so the frontier can be a
-/// plain `BinaryHeap` without a float-ordering wrapper). `bytes` is this frame's own
-/// [`frame_bytes`] estimate, cached at construction so `complete`'s running frontier-byte total can
-/// be updated by a plain subtraction when the frame is popped, without re-measuring it.
+/// One search frame; `bytes` caches its own `frame_bytes` estimate so the running frontier total needs no re-measuring on pop.
 struct Frame {
     cost_milli: i64,
     state: usize,
@@ -433,9 +290,7 @@ struct Frame {
     bytes: usize,
 }
 
-// The frontier is a min-heap on cost: `BinaryHeap` is a max-heap, so every comparison is
-// deliberately reversed. Ties break on shorter surface first — a longer partial has had more
-// chances to accumulate cost, so without this the heap drifts toward long, cheap-per-symbol paths.
+// Min-heap on cost, tie-broken on shorter surface; see docs/research/predict-census-design-notes.md.
 impl Ord for Frame {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         other
@@ -456,12 +311,7 @@ impl PartialEq for Frame {
 }
 impl Eq for Frame {}
 
-/// The incremental ranking cost of traversing one arc, from its ANALYSIS-side symbol alone.
-/// This is what turns the search order into the ranking: a root tag charges `-log P(stem)`, a
-/// non-root morpheme tag charges the parsimony penalty, and every surface character charges a
-/// small amount so shorter completions win ties. Because the cost is additive along the path and
-/// never negative, popping the cheapest frontier frame first yields completions in ranked order —
-/// so the completion cap truncates the TAIL of the ranking rather than an arbitrary DFS branch.
+/// Incremental ranking cost of traversing one arc, from its analysis-side symbol alone; see docs/research/predict-census-design-notes.md.
 fn arc_cost(in_sym: &str, out_sym: &str, model: &StemModel, lambda: f64) -> f64 {
     let mut c = 0.02 * out_sym.chars().count() as f64;
     if let Some(path) = tags::decode_path(in_sym) {
@@ -476,23 +326,8 @@ fn arc_cost(in_sym: &str, out_sym: &str, model: &StemModel, lambda: f64) -> f64 
     c
 }
 
-/// Walk the network from its start state, constrained by `typed` along the surface (`out`) side,
-/// then free to any accepting state. Best-first on accumulated ranking cost (see [`arc_cost`]),
-/// so completions come out in ranked order and the cap truncates the tail, not an arbitrary
-/// branch. Returns every completion found within budget.
-///
-/// ## Why this needs its own memory dimension (2026-07-30 incident)
-/// `max_steps` bounds POPS from `frontier`; `max_completions` bounds ACCEPTED results. Neither ever
-/// bounded the frontier's own live size: one pop can PUSH one child per outgoing arc (this network's
-/// branching factor), and there is no visited-state dedup, so a cyclic network (reduplication,
-/// compounding, optional-derivation loops — this file's own doc, "why the walk is possible at
-/// all") can accumulate far more live, unpopped frames than `max_steps` pops ever consume. Worse,
-/// `max_extra_bytes` only ever bounded `surface`'s growth — an `analysis` string can grow
-/// unboundedly per frame via epsilon-output (tag-only) arcs that never advance `surface` at all, so
-/// even a single frame's own footprint was uncapped. `cfg.max_frontier_bytes`, tracked via
-/// `frontier_bytes` below, is the dimension that closes both: it bounds the SUM of every live
-/// frame's estimated bytes, so it catches unbounded frontier fan-out and unbounded per-frame growth
-/// alike, regardless of how many steps that took to reach.
+/// Walks the network from its start state, best-first on ranking cost, constrained by `typed` then free to any accepting state.
+/// Needs its own frontier-bytes memory dimension beyond `max_steps`/`max_completions`; see docs/research/predict-census-design-notes.md.
 fn complete(
     net: &WalkNet,
     typed: &str,
@@ -565,8 +400,7 @@ fn complete(
                 } else if let Some(_) = remaining.strip_prefix(o) {
                     f.matched + o.len()
                 } else if o.starts_with(remaining) {
-                    // The typed prefix ends part-way through this multi-character symbol: the
-                    // whole symbol is consumed and the prefix is now fully matched.
+                    // Prefix ends mid-symbol: the whole symbol is consumed and the prefix counts as fully matched.
                     typed.len()
                 } else {
                     continue; // mismatch — prune this branch
@@ -587,10 +421,7 @@ fn complete(
                 matched: next_matched,
                 bytes,
             });
-            // Checked immediately after the push (`compose_budget.rs`'s own "checked one past the
-            // limit" convention) — the frame that tipped the total over stays in the heap (it is
-            // about to be dropped along with the rest of the frontier anyway), but the walk stops
-            // growing it further.
+            // Checked one past the limit; see docs/research/predict-census-design-notes.md.
             if frontier_bytes > cfg.max_frontier_bytes {
                 truncated = Some(WalkTruncation {
                     dimension: WalkBudgetDimension::FrontierBytes,
@@ -621,9 +452,7 @@ struct StemModel {
 }
 
 impl StemModel {
-    /// The model used for the TRAINING pass itself, before any counts exist: every stem equally
-    /// likely, so the training walk's search order is by surface length and parsimony alone and
-    /// nothing about the held-out split leaks into the counts.
+    /// Uniform model for the training pass, before any counts exist, so nothing from the held-out split leaks into the counts.
     fn uniform(vocab: usize) -> StemModel {
         StemModel {
             counts: HashMap::new(),
@@ -639,19 +468,14 @@ impl StemModel {
     }
 }
 
-/// Collapse completions to distinct surface strings, scoring each by the TOTAL (log-sum-exp)
-/// stem probability across every path that produced it, with a parsimony penalty per extra
-/// morpheme. Returns surfaces ranked best-first, each with its own paths.
+/// Collapses completions to distinct surface strings, ranked best-first; see docs/research/predict-census-design-notes.md.
 fn rank(
     completions: Vec<Completion>,
     model: &StemModel,
     lambda: f64,
     total_stem_probability: bool,
 ) -> Vec<(String, f64, Vec<Vec<(bool, MorphemeId)>>)> {
-    // Dedupe paths per surface by the CANDIDATE key production `propose_budgeted` dedupes on
-    // (`(morphemes, root_index)`). The walk reaches one candidate by many distinct arc paths, and
-    // without this the descent pays confirm repeatedly for an identical candidate — which is what
-    // made the first descent burn its whole budget inside surface #1.
+    // Dedupes on the same candidate key production `propose_budgeted` uses; see docs/research/predict-census-design-notes.md.
     let mut by_surface: HashMap<String, Vec<Vec<(bool, MorphemeId)>>> = HashMap::new();
     let mut seen_cand: HashSet<(String, Vec<u32>, i32)> = HashSet::new();
     for c in completions {
@@ -677,10 +501,7 @@ fn rank(
                 })
                 .collect();
             let max = terms.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            // `sum` is the TOTAL stem probability: marginalised over every path that reaches this
-            // surface. `max` is the single best path. They differ exactly on analysis-ambiguous
-            // surfaces, and the difference matters: marginalising rewards path MULTIPLICITY, so a
-            // junk surface reachable 50 ways outranks a real word reachable twice.
+            // `sum` marginalises over every path, rewarding multiplicity; `max` is the single best path. See docs/research/predict-census-design-notes.md.
             let score = if !max.is_finite() {
                 f64::NEG_INFINITY
             } else if total_stem_probability {
@@ -706,14 +527,11 @@ struct DescentStats {
     confirms_run: usize,
     cache_hits: usize,
     exhausted: bool,
-    /// Wall-clock spent strictly inside `confirm_all`, so per-confirm cost can be reported
-    /// independently of the ranking/bookkeeping around it.
+    /// Wall-clock spent strictly inside `confirm_all`, separate from ranking/bookkeeping cost.
     confirm_ms: f64,
 }
 
-/// Descend the ranked list paying confirm until `top_n` surfaces have actually confirmed.
-/// `neg_cache` holds surfaces already proven "FST yes, HC no" — a permanent, grammar-deterministic
-/// fact, so a hit skips confirm entirely.
+/// Descends the ranked list paying confirm until `top_n` surfaces confirm; `neg_cache` skips proven-refuted surfaces.
 #[allow(clippy::too_many_arguments)]
 fn descend(
     g: &Grammar,
@@ -756,8 +574,7 @@ fn descend(
                     confirm_ms,
                 };
             }
-            // Per-surface cap, so one analysis-ambiguous surface can never eat the whole budget
-            // and stall the descent at rank 1 (report 13 measured Sena's ambiguity at max 78).
+            // Per-surface cap, so one analysis-ambiguous surface can never eat the whole confirm budget; see docs/research/predict-census-design-notes.md.
             if spent_here >= max_paths_per_surface {
                 break;
             }
@@ -779,9 +596,7 @@ fn descend(
         if ok {
             accepted.push(surface.clone());
         } else if spent_here < max_paths_per_surface {
-            // Only cache a REFUTATION we actually proved: every candidate for this surface was
-            // tried and none confirmed. A surface abandoned at the per-surface cap is merely
-            // unproven, and caching it would turn a budget artifact into a permanent wrong answer.
+            // Only caches a proven refutation, never a surface merely abandoned at the cap; see docs/research/predict-census-design-notes.md.
             neg_cache.insert(surface.clone());
         }
     }
@@ -804,8 +619,7 @@ struct Cfg {
     max_completions: usize,
     max_steps: usize,
     max_extra_bytes: usize,
-    /// [`WalkCfg::max_frontier_bytes`] — the new memory dimension (this module's "memory budgets"
-    /// section doc).
+    /// [`WalkCfg::max_frontier_bytes`]; see this module's memory-budgets section.
     max_frontier_bytes: usize,
     /// [`WalkNet::build`]'s `max_states` refusal cap.
     max_states: usize,
@@ -814,8 +628,7 @@ struct Cfg {
     max_confirms: usize,
     max_paths_per_surface: usize,
     lambda: f64,
-    /// Score a surface by the SUM of stem probability over all its paths (true) or by its single
-    /// best path (false).
+    /// Score by the sum of stem probability over all paths (true) or by the single best path (false).
     total_stem_probability: bool,
 }
 
@@ -828,18 +641,14 @@ fn main() {
         max_completions: 200,
         max_steps: 200_000,
         max_extra_bytes: 24,
-        // Env-overridable, same convention `deadend_census.rs`/`prefilter_census.rs` already use
-        // for their own per-run numeric caps (`CENSUS_*_CAP`) — a CLI flag (below) always takes
-        // final precedence, matching every other flag in this match.
+        // Env-overridable, CLI flag takes final precedence; see docs/research/predict-census-design-notes.md.
         max_frontier_bytes: env_usize(
             "PREDICT_CENSUS_MAX_FRONTIER_BYTES",
             DEFAULT_MAX_FRONTIER_BYTES,
         ),
         max_states: env_usize("PREDICT_CENSUS_MAX_STATES", DEFAULT_MAX_STATES),
         max_sigma: env_usize("PREDICT_CENSUS_MAX_SIGMA", DEFAULT_MAX_SIGMA),
-        // Deliberately small: the sanity run measured ~20-50ms per confirm, so a keystroke-time
-        // budget (Keyman's 33ms, D8a) affords roughly ONE. 25 is a research ceiling that still
-        // shows the shape of the descent without letting one word run for 20 seconds.
+        // Deliberately small research ceiling; see docs/research/predict-census-design-notes.md.
         max_confirms: 25,
         max_paths_per_surface: 4,
         lambda: 0.5,
@@ -929,16 +738,14 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
         net.sigma.iter().filter(|s| s.is_some()).count()
     );
 
-    // Deterministic 80/20 split by position. Training words feed the stem model only; every
-    // measured prefix comes from the held-out fifth.
+    // Deterministic 80/20 split; training feeds the stem model only, measured prefixes come from the held-out fifth.
     let split = words.len() * 4 / 5;
     let (train, held) = words.split_at(split);
 
     let owners = build_morpheme_owners(&g);
     let morpher = Morpher::new(&g, usize::MAX);
 
-    // Stem counts from the TRAINING split, via the same walk + confirm the runtime would use:
-    // a word's confirmed analyses vote for their root morpheme.
+    // Stem counts from the training split: a word's confirmed analyses vote for their root morpheme.
     let t2 = Instant::now();
     let mut counts: HashMap<MorphemeId, f64> = HashMap::new();
     let mut trained = 0usize;
@@ -985,12 +792,7 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
         t2.elapsed().as_secs_f64()
     );
 
-    // --- instrument self-check --------------------------------------------------------------
-    // Before believing any number below, prove this harness's own candidate construction against
-    // the PRODUCTION propose path on the same words. If the walk's candidates confirm at a
-    // materially lower rate than `FomaProposer::propose`'s do for the identical word, the fault is
-    // in this harness (surface reconstruction, tag decoding, candidate splitting), not in the idea
-    // being measured -- and every downstream number would be measuring the bug.
+    // --- instrument self-check: see docs/research/predict-census-design-notes.md ------------
     {
         let mut proposer = pg_foma::analyzer::FomaProposer::new(&g).expect("proposer");
         let (mut prod_ok, mut walk_ok, mut n_check) = (0usize, 0usize, 0usize);
@@ -1031,13 +833,7 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
         );
     }
 
-    // --- the achievable denominator -----------------------------------------------------------
-    // The FST over-approximates the language the GRAMMAR can analyse — it cannot contain a word
-    // built on a stem the lexicon does not have. Report 13 measured Sena coverage at 49.20% and
-    // Amharic at 24.37%, so measuring containment against the raw corpus would charge this idea
-    // for every unknown stem, loan and typo in the corpus and report a ceiling that is really the
-    // grammar's lexical coverage. Everything below is therefore reported BOTH ways: over all
-    // held-out words, and over the subset production propose+confirm can analyse at all.
+    // --- the achievable denominator: see docs/research/predict-census-design-notes.md --------
     let mut confirmable: HashSet<String> = HashSet::new();
     {
         let mut proposer = pg_foma::analyzer::FomaProposer::new(&g).expect("proposer");
@@ -1067,10 +863,7 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
         let mut hit_at_n_achievable = 0usize;
         let mut contained = 0usize;
         let mut truncations = 0usize;
-        // Tally of WHICH budget dimension tripped (`WalkBudgetDimension::label()`), so a truncated
-        // run's report always names the cap that fired, not just a bare count -- the same "typed,
-        // clearly-reported, never a silent truncation reported as complete" contract this file's
-        // own doc for `WalkOutcome::truncated` asks for.
+        // Tally of which budget dimension tripped, so the report always names the cap that fired; see docs/research/predict-census-design-notes.md.
         let mut truncation_dims: HashMap<&'static str, TruncationTally> = HashMap::new();
         let mut completions_total = 0usize;
         let mut rank_of_true: Vec<usize> = Vec::new();
@@ -1231,13 +1024,7 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
             unrenderable_total
         );
         if !truncation_dims.is_empty() {
-            // Report the PEAK observed value and the limit beside the count, not just the count.
-            // "frontier memory bytes=3" says a budget tripped three times; it does not say whether
-            // the cap was missed by a hair or by an order of magnitude, which is the only thing that
-            // tells you whether to raise the cap or fix the walk. rustc caught this as
-            // `field 'value' is never read` -- the value WAS being captured at every trip site and
-            // then silently dropped here, so the dead-code warning was the honest signal that this
-            // diagnostic did not yet meet its own stated contract (name the budget AND the value).
+            // Reports the peak observed value beside the count, not just the count; see docs/research/predict-census-design-notes.md.
             let mut dims: Vec<(&str, TruncationTally)> = truncation_dims.into_iter().collect();
             dims.sort_by(|a, b| b.1.count.cmp(&a.1.count).then_with(|| a.0.cmp(b.0)));
             let breakdown = dims
@@ -1273,15 +1060,7 @@ fn summarize(v: &[f64]) -> String {
     )
 }
 
-// --- memory-budget regression tests (2026-07-30 incident) ----------------------------------
-//
-// `predict_census` is an `examples/` target -- `test = true` for it specifically is set in
-// `Cargo.toml` (Cargo's own auto-discovered example targets default `test = false`), so these run
-// under `pg.ps1 -Mode test -Package pg-foma` like any other in-crate test. Deliberately fast and
-// deterministic: no wall-clock reliance, no real grammar/FST compile -- every fixture here is a
-// known-by-construction size, mirroring `src/compose_budget.rs`'s own `tiny_net`-based test
-// convention but built even smaller, since this file's own budget checks operate on plain
-// integers (`check_network_size`) or a hand-built two-arc `WalkNet` (the frontier-bytes case).
+// --- memory-budget regression tests; `test = true` is set for this example in Cargo.toml. See docs/research/predict-census-design-notes.md. ---
 #[cfg(test)]
 mod memory_budget_tests {
     use super::*;
@@ -1321,11 +1100,7 @@ mod memory_budget_tests {
         ));
     }
 
-    /// A single non-final state with `branching` identical self-loop arcs, each consuming symbol 3
-    /// (`"a"`, one byte) on both tapes. Never final, so `complete` never accepts a completion and
-    /// the ONLY way the search loop can stop is a budget: this isolates the frontier-bytes
-    /// dimension from every other one (`max_completions` can never fire; `max_extra_bytes` is set
-    /// huge so `surface`'s growth alone never prunes a branch).
+    /// Never-final self-looping net that isolates the frontier-bytes budget from every other dimension; see docs/research/predict-census-design-notes.md.
     fn tiny_cyclic_net(branching: usize) -> WalkNet {
         WalkNet {
             arcs: vec![vec![
@@ -1348,11 +1123,7 @@ mod memory_budget_tests {
         let model = StemModel::uniform(1);
         let cfg = WalkCfg {
             max_completions: usize::MAX,
-            // Bounded, not `usize::MAX`: if the frontier-byte check below were reverted, this
-            // walk would otherwise never terminate at all (the net never reaches a final state).
-            // A finite `max_steps` guarantees this test FAILS cleanly (wrong dimension) rather
-            // than hanging forever when the fix under test is missing -- the "prove it's load-
-            // bearing" check this change's own verification requires.
+            // Bounded, not `usize::MAX`, so a missing fix fails this test cleanly rather than hanging; see docs/research/predict-census-design-notes.md.
             max_steps: 1_000,
             max_extra_bytes: 1_000_000,
             max_frontier_bytes: 2_000,
@@ -1376,8 +1147,7 @@ mod memory_budget_tests {
         let model = StemModel::uniform(1);
         let cfg = WalkCfg {
             max_completions: usize::MAX,
-            // Small and finite on purpose: this walk never reaches a final state, so SOME cap must
-            // stop it, and this test only cares that it isn't the frontier-bytes one.
+            // Small and finite: this walk never reaches a final state, so some cap must stop it, just not this one.
             max_steps: 50,
             max_extra_bytes: 1_000_000,
             max_frontier_bytes: usize::MAX,

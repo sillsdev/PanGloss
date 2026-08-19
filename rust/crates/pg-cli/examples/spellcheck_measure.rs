@@ -1,23 +1,5 @@
-//! DEV-ONLY measurement harness for `docs/research/spellcheck/13-first-measurements.md`.
-//!
-//! Not part of any production surface: an `examples/` binary, built and run manually, never
-//! invoked by `pangloss` itself or by any shipped tooling. It answers report 13's questions
-//! (analysis-ambiguity census, D1/D4 backoff-rung class cardinality, syn_fs/mpr population) by
-//! driving the existing `pg-fwdata` + `pg-grammar` + `pg-parse::Morpher`/`hc_parse_batch` surface
-//! against a real FieldWorks project's wordform inventory. It reads and reports; it does not
-//! change any production semantics, gate, or budget.
-//!
-//! Usage:
-//!   cargo run -p pg-cli --release --example spellcheck_measure -- <grammar> <wordforms.txt> [--threads N] [--step-cap N] [--word-timeout-ms N]
-//!
-//! `<grammar>` dispatches on extension exactly like `pg-cli`'s own `load_grammar` (src/main.rs):
-//! `.fwdata` -> `pg_fwdata::import_file` + `pg_grammar::compile_project`; `.json` -> a
-//! `pg_snapshot::Snapshot` + `pg_grammar::compile_project`; anything else (`.xml`) -> the legacy
-//! `pg_grammar::load`.
-//!
-//! `<wordforms.txt>` is one surface wordform per line (no analyses attached — this harness
-//! re-derives analyses itself via the named "Rust HermitCrab-only" pipeline, `pg_parse::Morpher`
-//! — see the report for why that pipeline was chosen over `--engine=foma`).
+//! DEV-ONLY measurement harness for `docs/research/spellcheck/13-first-measurements.md`; usage
+//! and design notes: docs/research/predict-census-design-notes.md.
 
 use std::collections::HashMap;
 use std::fs;
@@ -27,8 +9,7 @@ use pg_featstruct::FeatureValue;
 use pg_grammar::model::Grammar;
 use pg_parse::{hc_parse_batch, Morpher, WordAnalysis};
 
-/// Mirrors `pg-cli`'s `load_grammar` dispatch exactly (src/main.rs) so this harness accepts the
-/// same three grammar-path shapes the production CLI does.
+/// Mirrors `pg-cli`'s `load_grammar` dispatch exactly (`src/main.rs`) so this harness accepts the same three grammar-path shapes.
 fn load_grammar(path: &str) -> (Grammar, Vec<String>) {
     let ext = std::path::Path::new(path)
         .extension()
@@ -46,11 +27,7 @@ fn load_grammar(path: &str) -> (Grammar, Vec<String>) {
         "fwdata" => {
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .unwrap_or_else(|e| panic!("import {path}: {e}"));
-            // Mirrors `load_grammar`'s own seam in `src/main.rs`, and for its stated reason:
-            // `report.warnings`/`snapshot.validate()` are `pg_snapshot::Warning` (coded), while
-            // `pg_grammar::compile_project`'s warnings are still plain `String`. Flatten to prose
-            // at the one place the two meet. This harness only prints them, so nothing is lost —
-            // if it ever needs the codes, take `load_grammar_coded` instead of widening this.
+            // Flattens coded `pg_snapshot::Warning`s to prose alongside plain-`String` compile warnings; see docs/research/predict-census-design-notes.md.
             let mut warnings: Vec<String> =
                 report.warnings.into_iter().map(|w| w.to_string()).collect();
             warnings.extend(snapshot.validate().into_iter().map(|w| w.to_string()));
@@ -106,9 +83,7 @@ fn main() {
         grammar.mpr_names.len(),
     );
 
-    // Print the syn feature inventory once, up front -- this is D1's "exact syn_fs feature
-    // inventory actually populated" question's static half (what the grammar CAN carry); the
-    // dynamic half (what confirmed analyses actually DO carry) is measured below.
+    // Static half of syn_fs population (what the grammar CAN carry); the dynamic half is measured below.
     eprintln!(
         "\n--- syn_features declared ({}) ---",
         grammar.syn_features.features.len()
@@ -197,15 +172,7 @@ fn main() {
         HashMap::new();
     let mut feature_occurrence_count: HashMap<u16, u32> = HashMap::new();
 
-    // Open-class heuristic (documented in the report as [S], and NOT robust across grammars --
-    // see the report's explicit caveat on rung 6): match on the grammar's own declared POS
-    // *names*, since neither pg-grammar's Grammar nor pg-fwdata's Snapshot mark open/closed
-    // explicitly, and each reference grammar abbreviates its tagset differently. Sena/Amharic/
-    // Indonesian all mark verb subtypes with a LEADING v/V (Vaux, Vrel, v.pfv, v.conv...);
-    // Aweti instead marks them with a TRAILING V (STV, ACTV, INTV, TRV) -- both conventions are
-    // covered here, but a fifth grammar could use a convention this still misses. Exact-match a
-    // small canonical open set (N/V/Adj/Adv), plus treat any label starting OR ending with "v",
-    // or containing "irreg", as an open verbal subtype.
+    // Open-class heuristic, not robust across grammars; see docs/research/predict-census-design-notes.md.
     let open_exact = ["n", "v", "adj", "adv"];
     let is_open_pos = |name: &str| {
         let l = name.to_lowercase();
@@ -225,8 +192,7 @@ fn main() {
     };
 
     fn syn_fs_key(fs: &pg_featstruct::FeatureStruct) -> String {
-        // Deterministic string key: sorted entries already guaranteed by FeatureStruct's own
-        // invariant; format is (featid:value) pairs. Complex values recurse.
+        // Deterministic: sorted entries already guaranteed by FeatureStruct's own invariant.
         fn fmt(fs: &pg_featstruct::FeatureStruct) -> String {
             let mut parts = Vec::new();
             for (feat, val) in fs.entries() {
@@ -245,9 +211,7 @@ fn main() {
     }
 
     fn head_only_key(g: &pg_grammar::model::Grammar, fs: &pg_featstruct::FeatureStruct) -> String {
-        // Approximation of D4's rung 3 ("POS + a selected feature subset"): here, POS + the head
-        // complex feature only (excluding foot), since no per-grammar feature-subset selection
-        // has been made -- see report 13's explicit caveat about this being an approximation.
+        // Approximates a "POS + selected feature subset" rung as POS + head only; see docs/research/predict-census-design-notes.md.
         let mut parts = Vec::new();
         if let Some(pos_val) = fs.get(g.syn_features.pos) {
             if let FeatureValue::Symbolic(bits) = pos_val {
@@ -289,9 +253,7 @@ fn main() {
         }
     }
 
-    // Per-POS breakdown: (total analyses, analyses with syn_fs beyond bare POS) -- tests whether
-    // syn_fs richness is concentrated in particular POS categories (e.g. nominal agreement vs.
-    // bare verbal forms) rather than uniformly thin/rich across the whole tagset.
+    // Per-POS breakdown: whether syn_fs richness concentrates in particular POS categories; see docs/research/predict-census-design-notes.md.
     let mut per_pos: HashMap<Option<u32>, (u32, u32)> = HashMap::new();
 
     let mut per_word_rows: Vec<String> = Vec::with_capacity(words.len());
