@@ -61,8 +61,7 @@ fn load_grammar(path: &str) -> (Grammar, Vec<String>) {
         }
         _ => {
             let xml = fs::read_to_string(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
-            let grammar =
-                pg_grammar::load(&xml).unwrap_or_else(|e| panic!("load {path}: {e:?}"));
+            let grammar = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("load {path}: {e:?}"));
             (grammar, Vec::new())
         }
     }
@@ -110,11 +109,19 @@ fn main() {
     // Print the syn feature inventory once, up front -- this is D1's "exact syn_fs feature
     // inventory actually populated" question's static half (what the grammar CAN carry); the
     // dynamic half (what confirmed analyses actually DO carry) is measured below.
-    eprintln!("\n--- syn_features declared ({}) ---", grammar.syn_features.features.len());
+    eprintln!(
+        "\n--- syn_features declared ({}) ---",
+        grammar.syn_features.features.len()
+    );
     for (i, f) in grammar.syn_features.features.iter().enumerate() {
         match &f.kind {
             pg_grammar::model::SynFeatureKind::Symbolic { symbols, .. } => {
-                eprintln!("  [{i}] {} ({}) -- symbolic, {} symbols", f.name, f.xml_id, symbols.len());
+                eprintln!(
+                    "  [{i}] {} ({}) -- symbolic, {} symbols",
+                    f.name,
+                    f.xml_id,
+                    symbols.len()
+                );
             }
             pg_grammar::model::SynFeatureKind::Complex => {
                 eprintln!("  [{i}] {} ({}) -- complex", f.name, f.xml_id);
@@ -128,7 +135,11 @@ fn main() {
     if let Some(ft) = grammar.syn_features.foot {
         eprintln!("foot feature id = {}", ft.0);
     }
-    eprintln!("mpr_names ({}): {:?}", grammar.mpr_names.len(), grammar.mpr_names);
+    eprintln!(
+        "mpr_names ({}): {:?}",
+        grammar.mpr_names.len(),
+        grammar.mpr_names
+    );
     if let pg_grammar::model::SynFeatureKind::Symbolic { symbols, .. } =
         &grammar.syn_features.features[grammar.syn_features.pos.0 as usize].kind
     {
@@ -182,7 +193,8 @@ fn main() {
     let mut rung5_pos: HashMap<Option<u32>, u32> = HashMap::new(); // pos alone
     let mut rung6_openclosed: HashMap<&'static str, u32> = HashMap::new(); // open/closed
 
-    let mut feature_symbol_cardinality: HashMap<u16, std::collections::HashSet<u32>> = HashMap::new();
+    let mut feature_symbol_cardinality: HashMap<u16, std::collections::HashSet<u32>> =
+        HashMap::new();
     let mut feature_occurrence_count: HashMap<u16, u32> = HashMap::new();
 
     // Open-class heuristic (documented in the report as [S], and NOT robust across grammars --
@@ -219,8 +231,12 @@ fn main() {
             let mut parts = Vec::new();
             for (feat, val) in fs.entries() {
                 match val {
-                    FeatureValue::Symbolic(bits) => parts.push(format!("{}={:x}", feat.0, bits.raw())),
-                    FeatureValue::Complex(inner) => parts.push(format!("{}=({})", feat.0, fmt(inner))),
+                    FeatureValue::Symbolic(bits) => {
+                        parts.push(format!("{}={:x}", feat.0, bits.raw()))
+                    }
+                    FeatureValue::Complex(inner) => {
+                        parts.push(format!("{}=({})", feat.0, fmt(inner)))
+                    }
                 }
             }
             parts.join(",")
@@ -241,7 +257,9 @@ fn main() {
         if let Some(head_id) = g.syn_features.head {
             if let Some(head_val) = fs.get(head_id) {
                 match head_val {
-                    FeatureValue::Complex(inner) => parts.push(format!("head=({})", syn_fs_key(inner))),
+                    FeatureValue::Complex(inner) => {
+                        parts.push(format!("head=({})", syn_fs_key(inner)))
+                    }
                     FeatureValue::Symbolic(bits) => parts.push(format!("head={:x}", bits.raw())),
                 }
             }
@@ -330,7 +348,11 @@ fn main() {
                 analyses_with_nonempty_mpr += 1;
                 mpr_union |= mpr.0;
             }
-            record_feature_occurrences(syn_fs, &mut feature_symbol_cardinality, &mut feature_occurrence_count);
+            record_feature_occurrences(
+                syn_fs,
+                &mut feature_symbol_cardinality,
+                &mut feature_occurrence_count,
+            );
 
             // Rung 1: full morpheme decomposition + full syn_fs.
             let morph_key = morpheme_ids
@@ -422,7 +444,11 @@ fn main() {
             println!("  analyses={k}: {} words", hist[k]);
         }
         if keys.len() > 20 {
-            println!("  ... ({} more distinct analysis-counts up to {})", keys.len() - 20, max);
+            println!(
+                "  ... ({} more distinct analysis-counts up to {})",
+                keys.len() - 20,
+                max
+            );
         }
     } else {
         println!("(no words produced any analysis)");
@@ -458,7 +484,10 @@ fn main() {
             .map(|f| f.name.as_str())
             .unwrap_or("?");
         let occ = feature_occurrence_count.get(&fid).copied().unwrap_or(0);
-        let card = feature_symbol_cardinality.get(&fid).map(|s| s.len()).unwrap_or(0);
+        let card = feature_symbol_cardinality
+            .get(&fid)
+            .map(|s| s.len())
+            .unwrap_or(0);
         println!(
             "  [{fid}] {name}: occurs in {occ} analyses ({:.2}% of confirmed), {card} distinct symbol-values observed",
             pct(occ as usize, total_analyses)
@@ -467,12 +496,45 @@ fn main() {
     println!();
 
     println!("--- D1/D4 backoff-rung class cardinality (over {total_analyses} total confirmed analyses) ---");
-    report_rung("rung1_full_decomp+full_synfs", rung1_full_decomp_synfs.len(), &rung1_full_decomp_synfs.values().copied().collect::<Vec<_>>(), total_analyses);
-    report_rung("rung2_pos+full_synfs", rung2_pos_synfs.len(), &rung2_pos_synfs.values().copied().collect::<Vec<_>>(), total_analyses);
-    report_rung("rung3_pos+head_only(approx)", rung3_pos_head.len(), &rung3_pos_head.values().copied().collect::<Vec<_>>(), total_analyses);
-    report_rung("rung4_pos+mpr", rung4_pos_mpr.len(), &rung4_pos_mpr.values().copied().collect::<Vec<_>>(), total_analyses);
-    report_rung("rung5_pos_alone", rung5_pos.len(), &rung5_pos.values().copied().collect::<Vec<_>>(), total_analyses);
-    report_rung("rung6_open_closed", rung6_openclosed.len(), &rung6_openclosed.values().copied().collect::<Vec<_>>(), total_analyses);
+    report_rung(
+        "rung1_full_decomp+full_synfs",
+        rung1_full_decomp_synfs.len(),
+        &rung1_full_decomp_synfs
+            .values()
+            .copied()
+            .collect::<Vec<_>>(),
+        total_analyses,
+    );
+    report_rung(
+        "rung2_pos+full_synfs",
+        rung2_pos_synfs.len(),
+        &rung2_pos_synfs.values().copied().collect::<Vec<_>>(),
+        total_analyses,
+    );
+    report_rung(
+        "rung3_pos+head_only(approx)",
+        rung3_pos_head.len(),
+        &rung3_pos_head.values().copied().collect::<Vec<_>>(),
+        total_analyses,
+    );
+    report_rung(
+        "rung4_pos+mpr",
+        rung4_pos_mpr.len(),
+        &rung4_pos_mpr.values().copied().collect::<Vec<_>>(),
+        total_analyses,
+    );
+    report_rung(
+        "rung5_pos_alone",
+        rung5_pos.len(),
+        &rung5_pos.values().copied().collect::<Vec<_>>(),
+        total_analyses,
+    );
+    report_rung(
+        "rung6_open_closed",
+        rung6_openclosed.len(),
+        &rung6_openclosed.values().copied().collect::<Vec<_>>(),
+        total_analyses,
+    );
     println!();
     println!("rung6 buckets: {rung6_openclosed:?}");
     println!();

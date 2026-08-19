@@ -98,7 +98,9 @@ fn load_grammar(path: &Path) -> Grammar {
         "json" => {
             let json = std::fs::read_to_string(path).expect("read snapshot");
             let snapshot = pg_snapshot::Snapshot::from_json(&json).expect("parse snapshot");
-            pg_grammar::compile_project(&snapshot).expect("compile snapshot").0
+            pg_grammar::compile_project(&snapshot)
+                .expect("compile snapshot")
+                .0
         }
         _ => {
             let xml = std::fs::read_to_string(path).expect("read grammar xml");
@@ -192,9 +194,17 @@ impl std::error::Error for CensusError {}
 /// Pure size-vs-budget check, shared by both refusals in [`WalkNet::build`] — pulled out on its own
 /// so it is testable directly with plain integers (this file's own test module), without needing a
 /// compiled network at all, mirroring `compose_budget.rs`'s own `check_size` shape.
-fn check_network_size(dimension: &'static str, value: usize, limit: usize) -> Result<(), CensusError> {
+fn check_network_size(
+    dimension: &'static str,
+    value: usize,
+    limit: usize,
+) -> Result<(), CensusError> {
     if value > limit {
-        Err(CensusError::NetworkTooLarge { dimension, value, limit })
+        Err(CensusError::NetworkTooLarge {
+            dimension,
+            value,
+            limit,
+        })
     } else {
         Ok(())
     }
@@ -220,8 +230,8 @@ impl WalkNet {
     fn build(g: &Grammar, max_states: usize, max_sigma: usize) -> Result<WalkNet, CensusError> {
         let emitted = pg_foma::emit::emit(g);
         let opts = FomaOptions::default();
-        let mut net = fsm_lexc_parse_string(&opts, None, &emitted.lexc_source)
-            .expect("lexc compile failed");
+        let mut net =
+            fsm_lexc_parse_string(&opts, None, &emitted.lexc_source).expect("lexc compile failed");
         // Same arc sort the production proposer does (analyzer.rs: direction 2 = "out"); harmless
         // here, and keeps this walk reading the arcs in the same order `apply_up` would.
         fsm_sort_arcs(&mut net, 2);
@@ -229,9 +239,9 @@ impl WalkNet {
         // state_no is dense and ascending in a compiled net, but do not assume it: map explicitly.
         let mut by_state: HashMap<i32, (bool, bool, Vec<CsrArc>)> = HashMap::new();
         for (block, arcs) in net.states.iter_blocks() {
-            let e = by_state.entry(block.state_no).or_insert_with(|| {
-                (block.final_state != 0, block.start_state != 0, Vec::new())
-            });
+            let e = by_state
+                .entry(block.state_no)
+                .or_insert_with(|| (block.final_state != 0, block.start_state != 0, Vec::new()));
             e.0 |= block.final_state != 0;
             e.1 |= block.start_state != 0;
             e.2.extend_from_slice(arcs);
@@ -295,7 +305,12 @@ impl WalkNet {
                 sigma[s.number as usize] = Some(s.symbol.to_string());
             }
         }
-        Ok(WalkNet { arcs, final_state, start, sigma })
+        Ok(WalkNet {
+            arcs,
+            final_state,
+            start,
+            sigma,
+        })
     }
 
     fn sym(&self, n: i16) -> Option<&str> {
@@ -478,7 +493,13 @@ fn arc_cost(in_sym: &str, out_sym: &str, model: &StemModel, lambda: f64) -> f64 
 /// `frontier_bytes` below, is the dimension that closes both: it bounds the SUM of every live
 /// frame's estimated bytes, so it catches unbounded frontier fan-out and unbounded per-frame growth
 /// alike, regardless of how many steps that took to reach.
-fn complete(net: &WalkNet, typed: &str, cfg: &WalkCfg, model: &StemModel, lambda: f64) -> WalkOutcome {
+fn complete(
+    net: &WalkNet,
+    typed: &str,
+    cfg: &WalkCfg,
+    model: &StemModel,
+    lambda: f64,
+) -> WalkOutcome {
     let mut out = Vec::new();
     let mut steps = 0usize;
     let mut truncated: Option<WalkTruncation> = None;
@@ -508,9 +529,15 @@ fn complete(net: &WalkNet, typed: &str, cfg: &WalkCfg, model: &StemModel, lambda
             break;
         }
         let done_matching = f.matched == typed.len();
-        if done_matching && net.final_state[f.state] && seen.insert((f.surface.clone(), f.analysis.clone())) {
+        if done_matching
+            && net.final_state[f.state]
+            && seen.insert((f.surface.clone(), f.analysis.clone()))
+        {
             let morphemes = tags::decode_path(&f.analysis).unwrap_or_default();
-            out.push(Completion { surface: f.surface.clone(), morphemes });
+            out.push(Completion {
+                surface: f.surface.clone(),
+                morphemes,
+            });
             if out.len() >= cfg.max_completions {
                 truncated = Some(WalkTruncation {
                     dimension: WalkBudgetDimension::Completions,
@@ -575,7 +602,12 @@ fn complete(net: &WalkNet, typed: &str, cfg: &WalkCfg, model: &StemModel, lambda
         }
     }
 
-    WalkOutcome { completions: out, steps_used: steps, truncated, unrenderable_arcs: unrenderable }
+    WalkOutcome {
+        completions: out,
+        steps_used: steps,
+        truncated,
+        unrenderable_arcs: unrenderable,
+    }
 }
 
 // --- ranking --------------------------------------------------------------------------------
@@ -593,7 +625,12 @@ impl StemModel {
     /// likely, so the training walk's search order is by surface length and parsimony alone and
     /// nothing about the held-out split leaks into the counts.
     fn uniform(vocab: usize) -> StemModel {
-        StemModel { counts: HashMap::new(), total: 0.0, vocab: vocab.max(1) as f64, alpha: 0.5 }
+        StemModel {
+            counts: HashMap::new(),
+            total: 0.0,
+            vocab: vocab.max(1) as f64,
+            alpha: 0.5,
+        }
     }
 
     fn log_p(&self, m: MorphemeId) -> f64 {
@@ -633,7 +670,9 @@ fn rank(
                 .iter()
                 .map(|p| {
                     let stem = p.iter().find(|(is_root, _)| *is_root).map(|&(_, m)| m);
-                    let base = stem.map(|m| model.log_p(m)).unwrap_or_else(|| model.log_p(MorphemeId(u32::MAX)));
+                    let base = stem
+                        .map(|m| model.log_p(m))
+                        .unwrap_or_else(|| model.log_p(MorphemeId(u32::MAX)));
                     base - lambda * (p.len().saturating_sub(1) as f64)
                 })
                 .collect();
@@ -652,7 +691,11 @@ fn rank(
             (surface, score, paths)
         })
         .collect();
-    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.0.cmp(&b.0)));
+    scored.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
     scored
 }
 
@@ -689,7 +732,13 @@ fn descend(
 
     for (surface, _score, paths) in ranked {
         if accepted.len() >= top_n {
-            return DescentStats { accepted, confirms_run, cache_hits, exhausted: false, confirm_ms };
+            return DescentStats {
+                accepted,
+                confirms_run,
+                cache_hits,
+                exhausted: false,
+                confirm_ms,
+            };
         }
         if neg_cache.contains(surface) {
             cache_hits += 1;
@@ -699,7 +748,13 @@ fn descend(
         let mut spent_here = 0usize;
         for path in paths {
             if confirms_run >= max_confirms {
-                return DescentStats { accepted, confirms_run, cache_hits, exhausted: true, confirm_ms };
+                return DescentStats {
+                    accepted,
+                    confirms_run,
+                    cache_hits,
+                    exhausted: true,
+                    confirm_ms,
+                };
             }
             // Per-surface cap, so one analysis-ambiguous surface can never eat the whole budget
             // and stall the descent at rank 1 (report 13 measured Sena's ambiguity at max 78).
@@ -730,7 +785,13 @@ fn descend(
             neg_cache.insert(surface.clone());
         }
     }
-    DescentStats { accepted, confirms_run, cache_hits, exhausted: false, confirm_ms }
+    DescentStats {
+        accepted,
+        confirms_run,
+        cache_hits,
+        exhausted: false,
+        confirm_ms,
+    }
 }
 
 // --- driver ---------------------------------------------------------------------------------
@@ -770,7 +831,10 @@ fn main() {
         // Env-overridable, same convention `deadend_census.rs`/`prefilter_census.rs` already use
         // for their own per-run numeric caps (`CENSUS_*_CAP`) — a CLI flag (below) always takes
         // final precedence, matching every other flag in this match.
-        max_frontier_bytes: env_usize("PREDICT_CENSUS_MAX_FRONTIER_BYTES", DEFAULT_MAX_FRONTIER_BYTES),
+        max_frontier_bytes: env_usize(
+            "PREDICT_CENSUS_MAX_FRONTIER_BYTES",
+            DEFAULT_MAX_FRONTIER_BYTES,
+        ),
         max_states: env_usize("PREDICT_CENSUS_MAX_STATES", DEFAULT_MAX_STATES),
         max_sigma: env_usize("PREDICT_CENSUS_MAX_SIGMA", DEFAULT_MAX_SIGMA),
         // Deliberately small: the sanity run measured ~20-50ms per confirm, so a keystroke-time
@@ -785,10 +849,17 @@ fn main() {
     let mut it = args[1..].iter();
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--grammars" => cfg.grammars = it.next().unwrap().split(',').map(str::to_string).collect(),
+            "--grammars" => {
+                cfg.grammars = it.next().unwrap().split(',').map(str::to_string).collect()
+            }
             "--max-words" => cfg.max_words = it.next().unwrap().parse().unwrap(),
             "--prefix-lens" => {
-                cfg.prefix_lens = it.next().unwrap().split(',').map(|s| s.parse().unwrap()).collect()
+                cfg.prefix_lens = it
+                    .next()
+                    .unwrap()
+                    .split(',')
+                    .map(|s| s.parse().unwrap())
+                    .collect()
             }
             "--top-n" => cfg.top_n = it.next().unwrap().parse().unwrap(),
             "--max-completions" => cfg.max_completions = it.next().unwrap().parse().unwrap(),
@@ -837,7 +908,11 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
         .filter(|w| !w.is_empty())
         .map(|w| pg_grammar::nfd::nfd(w))
         .collect();
-    println!("grammar loaded in {:.1}s; {} wordforms", t0.elapsed().as_secs_f64(), words.len());
+    println!(
+        "grammar loaded in {:.1}s; {} wordforms",
+        t0.elapsed().as_secs_f64(),
+        words.len()
+    );
 
     let t1 = Instant::now();
     let net = match WalkNet::build(&g, cfg.max_states, cfg.max_sigma) {
@@ -869,12 +944,18 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
     let mut trained = 0usize;
     let uniform = StemModel::uniform(g.morphemes.len());
     for w in train.iter().take(cfg.max_words * 4) {
-        let outcome = complete(&net, w, &WalkCfg {
-            max_completions: cfg.max_completions,
-            max_steps: cfg.max_steps,
-            max_extra_bytes: 0,
-            max_frontier_bytes: cfg.max_frontier_bytes,
-        }, &uniform, cfg.lambda);
+        let outcome = complete(
+            &net,
+            w,
+            &WalkCfg {
+                max_completions: cfg.max_completions,
+                max_steps: cfg.max_steps,
+                max_extra_bytes: 0,
+                max_frontier_bytes: cfg.max_frontier_bytes,
+            },
+            &uniform,
+            cfg.lambda,
+        );
         for c in &outcome.completions {
             if c.surface != *w {
                 continue;
@@ -922,12 +1003,18 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
             {
                 prod_ok += 1;
             }
-            let outcome = complete(&net, w, &WalkCfg {
-                max_completions: cfg.max_completions,
-                max_steps: cfg.max_steps,
-                max_extra_bytes: 0,
-                max_frontier_bytes: cfg.max_frontier_bytes,
-            }, &model, cfg.lambda);
+            let outcome = complete(
+                &net,
+                w,
+                &WalkCfg {
+                    max_completions: cfg.max_completions,
+                    max_steps: cfg.max_steps,
+                    max_extra_bytes: 0,
+                    max_frontier_bytes: cfg.max_frontier_bytes,
+                },
+                &model,
+                cfg.lambda,
+            );
             let confirmed = outcome
                 .completions
                 .iter()
@@ -999,23 +1086,35 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
 
         for w in held.iter().take(cfg.max_words) {
             // Truncate on a char boundary; skip words too short to have a free tail.
-            let Some((byte_len, _)) = w.char_indices().nth(k) else { continue };
+            let Some((byte_len, _)) = w.char_indices().nth(k) else {
+                continue;
+            };
             let typed = &w[..byte_len];
             n += 1;
 
             let tw = Instant::now();
-            let outcome = complete(&net, typed, &WalkCfg {
-                max_completions: cfg.max_completions,
-                max_steps: cfg.max_steps,
-                max_extra_bytes: cfg.max_extra_bytes,
-                max_frontier_bytes: cfg.max_frontier_bytes,
-            }, &model, cfg.lambda);
+            let outcome = complete(
+                &net,
+                typed,
+                &WalkCfg {
+                    max_completions: cfg.max_completions,
+                    max_steps: cfg.max_steps,
+                    max_extra_bytes: cfg.max_extra_bytes,
+                    max_frontier_bytes: cfg.max_frontier_bytes,
+                },
+                &model,
+                cfg.lambda,
+            );
             walk_ms.push(tw.elapsed().as_secs_f64() * 1000.0);
             if let Some(t) = outcome.truncated {
                 truncations += 1;
                 truncation_dims
                     .entry(t.dimension.label())
-                    .or_insert(TruncationTally { count: 0, peak_value: 0, limit: t.limit })
+                    .or_insert(TruncationTally {
+                        count: 0,
+                        peak_value: 0,
+                        limit: t.limit,
+                    })
                     .record(t.value, t.limit);
             }
             steps_total += outcome.steps_used;
@@ -1032,13 +1131,27 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
                 }
             }
 
-            let ranked = rank(outcome.completions, &model, cfg.lambda, cfg.total_stem_probability);
+            let ranked = rank(
+                outcome.completions,
+                &model,
+                cfg.lambda,
+                cfg.total_stem_probability,
+            );
             if let Some(pos) = ranked.iter().position(|(s, _, _)| s == w) {
                 rank_of_true.push(pos + 1);
             }
 
             let td = Instant::now();
-            let stats = descend(&g, &owners, &morpher, &ranked, cfg.top_n, cfg.max_confirms, cfg.max_paths_per_surface, &mut neg_cache);
+            let stats = descend(
+                &g,
+                &owners,
+                &morpher,
+                &ranked,
+                cfg.top_n,
+                cfg.max_confirms,
+                cfg.max_paths_per_surface,
+                &mut neg_cache,
+            );
             descent_ms.push(td.elapsed().as_secs_f64() * 1000.0);
             confirms.push(stats.confirms_run);
             cache_hits_total += stats.cache_hits;
@@ -1063,15 +1176,51 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
         let pct = |x: usize| 100.0 * x as f64 / n as f64;
         println!("\n-- prefix length {k} ({n} held-out words) --");
         let pct_a = |x: usize| 100.0 * x as f64 / n_achievable.max(1) as f64;
-        println!("  containment, all held-out words:           {:.1}%  [walk truncated on {} of {}]", pct(contained), truncations, n);
-        println!("  CONTAINMENT, analysable words only:        {:.1}%  ({} of {})", pct_a(contained_achievable), contained_achievable, n_achievable);
-        println!("  ACCEPTED in top-{}, analysable words only:  {:.1}%  ({} of {})", cfg.top_n, pct_a(hit_at_n_achievable), hit_at_n_achievable, n_achievable);
-        println!("  mean completions per keystroke:            {:.0}", completions_total as f64 / n as f64);
-        println!("  rank of true word: {}", summarize(&rank_of_true.iter().map(|&r| r as f64).collect::<Vec<_>>()));
-        println!("  accepted in confirmed top-{}:              {:.1}%", cfg.top_n, pct(hit_at_n));
-        println!("  confirms paid per keystroke: {}", summarize(&confirms.iter().map(|&c| c as f64).collect::<Vec<_>>()));
-        println!("  negative-cache hits (confirms saved):      {} total, {:.1} per keystroke", cache_hits_total, cache_hits_total as f64 / n as f64);
-        println!("  negative cache size after this pass:       {}", neg_cache.len());
+        println!(
+            "  containment, all held-out words:           {:.1}%  [walk truncated on {} of {}]",
+            pct(contained),
+            truncations,
+            n
+        );
+        println!(
+            "  CONTAINMENT, analysable words only:        {:.1}%  ({} of {})",
+            pct_a(contained_achievable),
+            contained_achievable,
+            n_achievable
+        );
+        println!(
+            "  ACCEPTED in top-{}, analysable words only:  {:.1}%  ({} of {})",
+            cfg.top_n,
+            pct_a(hit_at_n_achievable),
+            hit_at_n_achievable,
+            n_achievable
+        );
+        println!(
+            "  mean completions per keystroke:            {:.0}",
+            completions_total as f64 / n as f64
+        );
+        println!(
+            "  rank of true word: {}",
+            summarize(&rank_of_true.iter().map(|&r| r as f64).collect::<Vec<_>>())
+        );
+        println!(
+            "  accepted in confirmed top-{}:              {:.1}%",
+            cfg.top_n,
+            pct(hit_at_n)
+        );
+        println!(
+            "  confirms paid per keystroke: {}",
+            summarize(&confirms.iter().map(|&c| c as f64).collect::<Vec<_>>())
+        );
+        println!(
+            "  negative-cache hits (confirms saved):      {} total, {:.1} per keystroke",
+            cache_hits_total,
+            cache_hits_total as f64 / n as f64
+        );
+        println!(
+            "  negative cache size after this pass:       {}",
+            neg_cache.len()
+        );
         println!("  walk ms: {}", summarize(&walk_ms));
         println!("  confirm-descent ms: {}", summarize(&descent_ms));
         println!("  PER-CONFIRM ms: {}", summarize(&per_confirm_ms));
@@ -1093,7 +1242,12 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
             dims.sort_by(|a, b| b.1.count.cmp(&a.1.count).then_with(|| a.0.cmp(b.0)));
             let breakdown = dims
                 .iter()
-                .map(|(d, t)| format!("{d}={} (peak {} vs limit {})", t.count, t.peak_value, t.limit))
+                .map(|(d, t)| {
+                    format!(
+                        "{d}={} (peak {} vs limit {})",
+                        t.count, t.peak_value, t.limit
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             println!("  truncation dimension breakdown: {breakdown}");
@@ -1109,7 +1263,14 @@ fn summarize(v: &[f64]) -> String {
     s.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let mean = s.iter().sum::<f64>() / s.len() as f64;
     let p = |q: f64| s[((s.len() as f64 - 1.0) * q).round() as usize];
-    format!("mean {:.1} / median {:.1} / p90 {:.1} / max {:.1} (n={})", mean, p(0.5), p(0.9), s[s.len() - 1], s.len())
+    format!(
+        "mean {:.1} / median {:.1} / p90 {:.1} / max {:.1} (n={})",
+        mean,
+        p(0.5),
+        p(0.9),
+        s[s.len() - 1],
+        s.len()
+    )
 }
 
 // --- memory-budget regression tests (2026-07-30 incident) ----------------------------------
@@ -1134,7 +1295,11 @@ mod memory_budget_tests {
     fn state_budget_check_trips_over_the_cap() {
         let err = check_network_size("compiled states", 5, 4).expect_err("5 > 4 must trip");
         match err {
-            CensusError::NetworkTooLarge { dimension, value, limit } => {
+            CensusError::NetworkTooLarge {
+                dimension,
+                value,
+                limit,
+            } => {
                 assert_eq!(dimension, "compiled states");
                 assert_eq!(value, 5);
                 assert_eq!(limit, 4);
@@ -1148,7 +1313,11 @@ mod memory_budget_tests {
             check_network_size("sigma symbol numbers", 200_001, 200_000).expect_err("must trip");
         assert!(matches!(
             err,
-            CensusError::NetworkTooLarge { dimension: "sigma symbol numbers", value: 200_001, limit: 200_000 }
+            CensusError::NetworkTooLarge {
+                dimension: "sigma symbol numbers",
+                value: 200_001,
+                limit: 200_000
+            }
         ));
     }
 
@@ -1159,7 +1328,14 @@ mod memory_budget_tests {
     /// huge so `surface`'s growth alone never prunes a branch).
     fn tiny_cyclic_net(branching: usize) -> WalkNet {
         WalkNet {
-            arcs: vec![vec![CsrArc { r#in: 3, out: 3, target: 0 }; branching]],
+            arcs: vec![vec![
+                CsrArc {
+                    r#in: 3,
+                    out: 3,
+                    target: 0
+                };
+                branching
+            ]],
             final_state: vec![false],
             start: 0,
             sigma: vec![Some(String::new()), None, None, Some("a".to_string())],
@@ -1183,7 +1359,11 @@ mod memory_budget_tests {
         };
         let outcome = complete(&net, "", &cfg, &model, 0.5);
         match outcome.truncated {
-            Some(WalkTruncation { dimension: WalkBudgetDimension::FrontierBytes, limit, .. }) => {
+            Some(WalkTruncation {
+                dimension: WalkBudgetDimension::FrontierBytes,
+                limit,
+                ..
+            }) => {
                 assert_eq!(limit, 2_000);
             }
             other => panic!("expected a FrontierBytes truncation, got {other:?}"),
@@ -1206,7 +1386,10 @@ mod memory_budget_tests {
         assert!(
             !matches!(
                 outcome.truncated,
-                Some(WalkTruncation { dimension: WalkBudgetDimension::FrontierBytes, .. })
+                Some(WalkTruncation {
+                    dimension: WalkBudgetDimension::FrontierBytes,
+                    ..
+                })
             ),
             "a usize::MAX frontier-byte cap must never be the dimension that trips, got {:?}",
             outcome.truncated
