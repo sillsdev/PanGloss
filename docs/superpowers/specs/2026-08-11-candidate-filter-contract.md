@@ -273,6 +273,10 @@ Finite-partner filtering is an internal shadow-only pass in this project. A futu
 never changes in place.
 
 An internal pass can exist in shadow mode before it belongs to a public enforced profile.
+`surface.consistency.v1` is exactly this: built and wired into shadow mode, evidenced as the first
+pass in this project to produce a real, nonzero, sound rejection on a real grammar, but not a member
+of `StructuralV1`, `SymbolicV1`, or `BoundaryLocalV1` — see `docs/fst-plan/candidate-filter-
+assessment.md` for the full evidence and certification-ladder status.
 
 ## Certification ladder
 
