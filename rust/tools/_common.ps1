@@ -350,6 +350,57 @@ function Get-JobCpuRatePercent {
     return $pct
 }
 
+function Ensure-ProcGovNative {
+    <#
+      .DESCRIPTION
+      JIT-defines the P/Invoke surface Terminate-ProcGovJob needs (OpenJobObject/TerminateJobObject/
+      CloseHandle). Split out so a caller that never hits the kill path never pays Add-Type's cost,
+      and so the type is defined at most once per process.
+    #>
+    if (-not ([System.Management.Automation.PSTypeName]'PanGlossProcGov.Native').Type) {
+        Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+namespace PanGlossProcGov {
+    public static class Native {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern IntPtr OpenJobObject(uint access, bool inheritHandle, string name);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool CloseHandle(IntPtr handle);
+    }
+}
+'@
+    }
+}
+
+function Terminate-ProcGovJob {
+    <#
+      .DESCRIPTION
+      Kills every process procgov's named job object still contains, by asking the KERNEL for job
+      membership rather than walking a PID tree. `taskkill /T` (Invoke-ProcessInJobObject's own
+      Ctrl+C cleanup) only sees processes still parented under the PID it started with; anything
+      re-parented after a crash or an early procgov exit is invisible to that walk but still a member
+      of the job object procgov created, which is exactly the gap a real job handle doesn't have.
+      Belt-and-braces, not a replacement: called in ADDITION to the existing taskkill, never instead
+      of it, since a job name procgov didn't actually create (or already tore down cleanly) just
+      means OpenJobObject returns a null handle here -- a harmless no-op, not an error.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$JobName,
+        [int]$ExitCode = 130
+    )
+    Ensure-ProcGovNative
+    $job = [PanGlossProcGov.Native]::OpenJobObject([uint32]0x0008, $false, $JobName)
+    if ($job -eq [IntPtr]::Zero) { return $false }
+    try {
+        return [PanGlossProcGov.Native]::TerminateJobObject($job, [uint32]$ExitCode)
+    } finally {
+        [void][PanGlossProcGov.Native]::CloseHandle($job)
+    }
+}
+
 function Get-ProcGovArgs {
     <#
       .DESCRIPTION
@@ -366,6 +417,8 @@ function Get-ProcGovArgs {
         [string]$Priority = '',
         [Nullable[int]]$CpuCores,
         [switch]$EfficiencyMode,
+        # Names the job so Terminate-ProcGovJob can find it later; omitted = procgov names it itself.
+        [string]$JobName = '',
         [Parameter(Mandatory)][string]$Exe,
         [string[]]$CmdArgs = @()
     )
@@ -379,6 +432,7 @@ function Get-ProcGovArgs {
     }
     if ($EfficiencyMode) { $a += '--efficiency-mode=on' }
     if ($Priority) { $a += "--priority=$Priority" }
+    if ($JobName) { $a += "--job-name=$JobName" }
     # -r is required: without it the limits apply to the launched process alone and every rustc/link.exe escapes the job.
     $a += '-r'
     $a += '--terminate-job-on-exit'
@@ -867,8 +921,10 @@ function Invoke-ProcessInJobObject {
     $procgov = Get-ProcGovPath
     $launchExe = $Exe
     $launchArgs = $CmdArgs
+    $jobName = $null
     if ($procgov) {
-        $launchArgs = Get-ProcGovArgs -JobMemoryGB $JobMemoryGB -CpuRatePercent $CpuRatePercent -Priority $Priority -Exe $Exe -CmdArgs $CmdArgs
+        $jobName = "PanGloss-$PID-$([guid]::NewGuid().ToString('N'))"
+        $launchArgs = Get-ProcGovArgs -JobMemoryGB $JobMemoryGB -CpuRatePercent $CpuRatePercent -Priority $Priority -JobName $jobName -Exe $Exe -CmdArgs $CmdArgs
         $launchExe = $procgov
         $capDesc = @()
         if ($null -ne $JobMemoryGB) { $capDesc += "${JobMemoryGB}GB committed memory" }
@@ -905,6 +961,10 @@ function Invoke-ProcessInJobObject {
     } finally {
         if (-not $psi.HasExited) {
             & taskkill /T /F /PID $psi.Id 2>$null | Out-Null
+        }
+        # Belt-and-braces: catches anything taskkill's PID-tree walk missed after a re-parent.
+        if ($jobName) {
+            [void](Terminate-ProcGovJob -JobName $jobName)
         }
     }
 }
