@@ -1548,11 +1548,16 @@ fn syn_feature(
     let rhs_vars = pattern_var_occurrences(&sr.rhs);
 
     let mut applied = false;
+    // A site rejected once stays rejected: one directional scan decides each site exactly once.
+    let mut rejected: HashSet<usize> = HashSet::default();
     loop {
         let (segs, node_of) = ms.segs(true);
         // First span in the target's own scan order whose nodes are all clean and whose environments hold; see `ordered_spans`.
         let mut acted = false;
         for (s, e) in ordered_spans(target, &segs) {
+            if rejected.contains(&s) {
+                continue;
+            }
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
             // Reject an over-wide Optional-skip artifact before the positional `rhs_pins[k]` index below, which would otherwise panic on a multi-node target abutting a boundary.
             if !width_matches(&target_nodes, rhs_pins.len()) {
@@ -1565,9 +1570,11 @@ fn syn_feature(
                 continue;
             }
             let Some(left_match) = left_env_match(left, &segs, s) else {
+                rejected.insert(s);
                 continue;
             };
             let Some(right_match) = right_env_match(right, &segs, e) else {
+                rejected.insert(s);
                 continue;
             };
             // Alpha-variable agreement over target + environments: the frozen FST over-approximated variable lanes, so reject any candidate that violates a binding.
@@ -1583,10 +1590,12 @@ fn syn_feature(
                 right,
                 &right_match,
             ) else {
+                rejected.insert(s);
                 continue;
             };
             // UseDefaults confirm: reject a candidate the FST only accepted because an LHS-pinned feature is unspecified on the node and its default wouldn't have satisfied the pin; see `pattern_defaults_ok`.
             if !pattern_defaults_ok(g, ms, &target_nodes, &lhs_lanes) {
+                rejected.insert(s);
                 continue;
             }
             // ApplyRhs: priority-union each RHS constraint onto the target node, then apply RHS alpha variables from the resolved bindings (C# `PriorityUnion` + `ReplaceVariables`).
@@ -1785,6 +1794,8 @@ fn ana_feature(
     };
 
     let mut applied = false;
+    // A site rejected once stays rejected: one directional scan decides each site exactly once.
+    let mut rejected: HashSet<usize> = HashSet::default();
     loop {
         let (segs, node_of) = ms.segs(false); // analysis filter: Segment|Anchor (no boundaries)
         let mut acted = false;
@@ -1807,16 +1818,21 @@ fn ana_feature(
         }
 
         for row_starts in candidates {
-            let target_nodes: Vec<usize> = row_starts.iter().map(|&pos| node_of[pos]).collect();
             let s = row_starts[0];
+            if rejected.contains(&s) {
+                continue;
+            }
+            let target_nodes: Vec<usize> = row_starts.iter().map(|&pos| node_of[pos]).collect();
             let e = row_starts[row_starts.len() - 1] + 1;
             if target_nodes.iter().any(|&n| ms.nodes[n].dirty) {
                 continue;
             }
             let Some(left_match) = left_env_match(left, &segs, s) else {
+                rejected.insert(s);
                 continue;
             };
             let Some(right_match) = right_env_match(right, &segs, e) else {
+                rejected.insert(s);
                 continue;
             };
             // Alpha-variable agreement (C# threads `match.VariableBindings` through the analysis matcher and env matchers exactly as synthesis does); reject violating candidates.
@@ -1834,10 +1850,12 @@ fn ana_feature(
             )
             .is_none()
             {
+                rejected.insert(s);
                 continue;
             }
             // UseDefaults confirm, same as `syn_feature`'s analogous call, but against the analysis target's combined `LHS ⊕ RHS` lanes; see `pattern_defaults_ok`.
             if !pattern_defaults_ok(g, ms, &target_nodes, &target_lanes) {
+                rejected.insert(s);
                 continue;
             }
             // IsUnapplicationNonvacuous (C# `FeatureAnalysisRewriteRuleSpec.cs`): nonvacuous iff some changed feature's current value does not already superset the bits being OR'd in — i.e. the OR would actually add bits, not merely "isn't already fully unconstrained".
@@ -1847,6 +1865,7 @@ fn ana_feature(
                     .any(|&(f, neg)| ms.nodes[node].lanes[f] & neg != neg)
             });
             if !nonvacuous {
+                rejected.insert(s);
                 continue;
             }
             for (k, &node) in target_nodes.iter().enumerate() {

@@ -227,7 +227,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
 
     // These two fixtures now confirm (previously `multiplicity-mismatch`); the flip is real and reproducible but its cause is unexplained, so assertions below require real proposals and a real hash, never an all-empty vacuous pass.
     for (fixture, words_expected) in [
-        ("languages/metathesis-phase-isolation", 19usize),
+        ("languages/metathesis-phase-isolation", 20usize),
         ("languages/polysynthetic-stratal-derivation-chain", 0usize),
     ] {
         let report = run_fixture(fixture, &root);
