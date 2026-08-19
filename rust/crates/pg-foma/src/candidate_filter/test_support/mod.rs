@@ -92,5 +92,6 @@ where
             next_event,
             next_candidate,
         },
+        None,
     )
 }

@@ -504,12 +504,13 @@ pub(crate) fn filter_then_confirm(
         ledger: BoundedDeathLedger::new(settings.ledger_caps()),
         retained: Vec::with_capacity(candidates.len()),
     };
-    report.completion = filter.filter_into(
+    report.completion = filter.filter_into_with_word(
         settings.mode(),
         proposals,
         &mut DiscardRetained,
         &mut sink,
         settings.budget(),
+        word,
     );
 
     let counters = sink.ledger.counters();

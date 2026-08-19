@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Sivenne</Name>
+    <!-- Pathology: LITERAL-CHARACTER INFEASIBILITY. One suffix rule inserts a fixed literal
+         segment ("z") that appears nowhere else in the lexicon. Applied to its own root it is a
+         real, confirmed word; morphotactically it is equally legal on the OTHER root, whose
+         surface contains no "z" at all. A proposer that enumerates rule x root combinations
+         without checking surface composition can therefore construct a candidate for the bare
+         surface "nilo" that names the suffix rule anyway; `surface.consistency.v1` rejects that
+         candidate outright, since no combination of the root's and suffix's own literal characters
+         can ever contain a "z" that surface does not have.
+
+         Everything else is deliberately uniform, matching the ownership fixture's own isolation
+         argument: one part of speech, no AffixTemplates, no MorphemeCoOccurrenceRules, no
+         MorphologicalPhonologicalRuleFeatures, no PhonologicalRules, one unconstrained allomorph
+         per entry, and a fixed-shape suffix that tiles the surface it occurs in exactly.
+
+         Shape family: agglutinative suffixing morphology with a root-inventory-unique affix
+         segment; invented lexemes only. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <!-- No PhonologicalFeatureSystem and no PhonologicalRuleDefinitions at all, so requires: [] -
+         the same pure-morphotactics shape the ownership fixture uses. -->
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cL"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cZ"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum
+        characterDefinitionTable="table1"
+        morphologicalRuleOrder="unordered"
+        morphologicalRules="mrZ"
+      >
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <!-- "-z": the suffix whose literal segment is unique to this rule. No lexical entry in
+               this grammar contains "z", which is what makes an over-generated (root=NILO, rule=mrZ)
+               candidate surface-infeasible rather than merely unconfirmed. -->
+          <MorphologicalRule id="mrZ" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>z</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subZ">
+                <MorphologicalInput><PhoneticSequence id="stemZ"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemZ" /><InsertSegments><PhoneticShape>z</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>Z</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eKolo" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aKolo"><PhoneticShape>kolo</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>KOLO</MorphemeId>
+            <Gloss>root.kolo</Gloss>
+          </LexicalEntry>
+          <!-- THE construct: a root whose surface contains no "z", so a candidate pairing it with
+               mrZ is surface-infeasible even though mrZ is morphotactically legal for its class. -->
+          <LexicalEntry id="eNilo" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aNilo"><PhoneticShape>nilo</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>NILO</MorphemeId>
+            <Gloss>root.nilo</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

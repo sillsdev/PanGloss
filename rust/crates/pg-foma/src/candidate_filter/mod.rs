@@ -30,6 +30,9 @@ pub use decision::{
 pub use index::{FilterIndex, RuleShape, SiteVerdict};
 pub use legacy::{witness_for, witnesses_for};
 pub use passes::structural::{OwnershipPass, StructuralTransitionPass};
+pub use passes::surface_consistency::{
+    SurfaceConsistencyIndex, SurfaceConsistencyPass, SurfaceVerdict,
+};
 pub use passes::CandidateFilterPass;
 pub use pipeline::{
     CandidateFilter, FilterBudget, FilterCompletion, FilterContext, FilterMode, FilterOutcome,

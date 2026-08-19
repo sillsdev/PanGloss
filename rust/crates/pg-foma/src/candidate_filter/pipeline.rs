@@ -87,11 +87,17 @@ pub enum FilterCompletion {
 }
 
 /// The immutable per-candidate view a pass decides against.
+///
+/// `word` defaults to absent (`None`) rather than `""`, because an empty string is itself a
+/// possible surface and would let a pass silently mistake "the producer never supplied one" for
+/// "the word actually was empty" -- the same distinction `TraceFact::Deferred` draws for every
+/// other producer-supplied fact. A pass that needs it and finds `None` must defer, never reject.
 #[derive(Clone, Copy, Debug)]
 pub struct FilterContext<'a> {
     identity: &'a Candidate,
     candidate_ordinal: u64,
     mode: FilterMode,
+    word: Option<&'a str>,
 }
 
 impl<'a> FilterContext<'a> {
@@ -100,7 +106,14 @@ impl<'a> FilterContext<'a> {
             identity,
             candidate_ordinal,
             mode,
+            word: None,
         }
+    }
+
+    /// Attaches the surface word this candidate was proposed for.
+    pub fn with_word(mut self, word: &'a str) -> Self {
+        self.word = Some(word);
+        self
     }
 
     pub fn identity(&self) -> &'a Candidate {
@@ -113,6 +126,11 @@ impl<'a> FilterContext<'a> {
 
     pub fn mode(&self) -> FilterMode {
         self.mode
+    }
+
+    /// The surface word, when the caller supplied one.
+    pub fn word(&self) -> Option<&'a str> {
+        self.word
     }
 }
 
@@ -253,7 +271,42 @@ impl CandidateFilter {
         R: RetainedCandidateSink,
         T: FilterTraceSink,
     {
-        self.filter_into_seeded(mode, input, retained, trace, budget, OrdinalSeed::default())
+        self.filter_into_seeded(
+            mode,
+            input,
+            retained,
+            trace,
+            budget,
+            OrdinalSeed::default(),
+            None,
+        )
+    }
+
+    /// `filter_into`, with the surface word every candidate in `input` was proposed for attached to
+    /// each one's [`FilterContext`] -- for a pass that needs the word itself, not just the tape.
+    pub fn filter_into_with_word<I, R, T>(
+        &self,
+        mode: FilterMode,
+        input: I,
+        retained: &mut R,
+        trace: &mut T,
+        budget: FilterBudget,
+        word: &str,
+    ) -> FilterCompletion
+    where
+        I: IntoIterator<Item = ProposedCandidate>,
+        R: RetainedCandidateSink,
+        T: FilterTraceSink,
+    {
+        self.filter_into_seeded(
+            mode,
+            input,
+            retained,
+            trace,
+            budget,
+            OrdinalSeed::default(),
+            Some(word),
+        )
     }
 
     pub(crate) fn filter_into_seeded<I, R, T>(
@@ -264,6 +317,7 @@ impl CandidateFilter {
         trace: &mut T,
         budget: FilterBudget,
         seed: OrdinalSeed,
+        word: Option<&str>,
     ) -> FilterCompletion
     where
         I: IntoIterator<Item = ProposedCandidate>,
@@ -289,6 +343,7 @@ impl CandidateFilter {
                 &mut ordinals,
                 &mut allowance,
                 trace,
+                word,
             );
             match verdict {
                 CandidateVerdict::Retain => {
@@ -328,6 +383,28 @@ impl CandidateFilter {
         }
     }
 
+    /// `filter`, with the surface word attached -- see [`Self::filter_into_with_word`].
+    pub fn filter_with_word<I>(
+        &self,
+        mode: FilterMode,
+        input: I,
+        budget: FilterBudget,
+        word: &str,
+    ) -> FilterOutcome
+    where
+        I: IntoIterator<Item = ProposedCandidate>,
+    {
+        let mut retained: Vec<ProposedCandidate> = Vec::new();
+        let mut trace = CountingTraceSink::new();
+        let status =
+            self.filter_into_with_word(mode, input, &mut retained, &mut trace, budget, word);
+        FilterOutcome {
+            retained,
+            report: trace.into_counters(),
+            status,
+        }
+    }
+
     fn emit<R: RetainedCandidateSink, T: FilterTraceSink>(
         retained: &mut R,
         trace: &mut T,
@@ -346,8 +423,12 @@ impl CandidateFilter {
         ordinals: &mut Ordinals,
         allowance: &mut StepAllowance,
         trace: &mut T,
+        word: Option<&str>,
     ) -> CandidateVerdict {
-        let context = FilterContext::new(&candidate.identity, candidate_ordinal, mode);
+        let mut context = FilterContext::new(&candidate.identity, candidate_ordinal, mode);
+        if let Some(word) = word {
+            context = context.with_word(word);
+        }
         let mut witness_deaths = Vec::new();
         let mut survivors = 0usize;
 

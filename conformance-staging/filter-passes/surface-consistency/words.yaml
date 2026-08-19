@@ -1,0 +1,42 @@
+# Candidate-filter per-pass fixture for surface.consistency.v1 -- see STAGING.md and grammar.xml's
+# own header comment for the pathology and the isolation argument.
+#
+# Oracle: pangloss (`pg_parse::Morpher::parse_word`, driven directly rather than through the
+# `pg-cli batch` binary), NOT the C# founding oracle. Every signature below was captured from this
+# repo's own Rust engine and transcribed verbatim; nothing here was hand-derived. Machine
+# acceptance must re-verify against `SIL.Machine.Morphology.HermitCrab.Tool`, and any divergence
+# found there is itself a finding.
+
+language: Sivenne
+inspired_by: ["synthetic suffixing grammar with a root-inventory-unique affix segment (not modeling any real language)"]
+sources:
+  - "rust/crates/pg-foma/src/candidate_filter/passes/surface_consistency.rs"
+requires: []
+words:
+  - word: kolo
+    note: Bare root that also carries the valid suffixed form below. Plain control.
+    parses:
+      - signature: "KOLO|kolo"
+        rules: []
+
+  - word: koloz
+    note: >-
+      Root plus suffix, confirmed. The row `surface.consistency.v1` must never disturb: mrZ's own
+      root gets its own literal "z" back.
+    parses:
+      - signature: "KOLO+Z|koloz"
+        rules: [mrZ]
+
+  - word: nilo
+    note: >-
+      THE construct. This root's surface contains no "z", so an over-generated candidate pairing it
+      with mrZ -- morphotactically legal, since mrZ requires only posN -- is surface-infeasible: no
+      combination of NILO's and Z's own literal characters can ever contain a "z" this surface does
+      not have. `pg_parse::Morpher` never proposes that candidate in the first place (it only
+      confirms), which is exactly why this fixture is `producer-blocked` rather than `wired`: the
+      floor is what a future over-generating producer's (root=NILO, rule=mrZ) candidate would meet,
+      not something this harness measures today.
+    provenance: "candidate_filter/passes/surface_consistency.rs module doc: impossible surface composition"
+    parses:
+      - signature: "NILO|nilo"
+        rules: []

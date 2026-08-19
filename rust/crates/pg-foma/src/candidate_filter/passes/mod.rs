@@ -10,6 +10,7 @@
 //! be filtered against at once; per-witness working state belongs in the method body.
 
 pub mod structural;
+pub mod surface_consistency;
 
 use crate::candidate_filter::decision::{AdmissibleProof, PassDecision, StablePassId};
 use crate::candidate_filter::model::CandidateWitness;

@@ -1,0 +1,7 @@
+{
+  "pass_id": "surface.consistency.v1",
+  "min_fire_count": 1,
+  "status": "producer-blocked",
+  "blocked_reasons": ["producer-emits-only-hc-confirmed-analyses"],
+  "min_fire_count_reasoning": "One, authored, and held as the floor to enforce once a producer exists: the over-generated (root=NILO, rule=mrZ) candidate over the bare surface \"nilo\" has no combination of its own literal characters that contains the \"z\" the surface lacks, so a sound surface-consistency check rejects it outright. Measured 0 today: the harness proposes only what pg_parse::Morpher confirmed, and a confirmed analysis is definitionally surface-feasible, so the pass never reaches a rejection branch through this producer."
+}

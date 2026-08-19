@@ -41,7 +41,7 @@ const GRAMMAR_REVISION: u64 = 3;
 const LEXICON_REVISION: u64 = 7;
 const PARTNER: PartnerClassId = PartnerClassId(7);
 
-const ALL_CATEGORIES: [ProofCategory; 9] = [
+const ALL_CATEGORIES: [ProofCategory; 10] = [
     ProofCategory::MalformedIdentity,
     ProofCategory::ImpossibleOwnership,
     ProofCategory::ForbiddenTransition,
@@ -51,6 +51,7 @@ const ALL_CATEGORIES: [ProofCategory; 9] = [
     ProofCategory::StaticSignatureConflict,
     ProofCategory::ImpossibleSurfaceSpan,
     ProofCategory::ImpossibleLocalEnvironment,
+    ProofCategory::ImpossibleSurfaceComposition,
 ];
 
 struct ProofPass(RejectionProof);
@@ -333,6 +334,9 @@ fn proof_of(category: ProofCategory) -> RejectionProof {
                 neighbor_events: vec![LocalEvent::Neutral],
             },
         ),
+        ProofCategory::ImpossibleSurfaceComposition => {
+            (Vec::new(), ProofClaim::ImpossibleSurfaceComposition)
+        }
     };
 
     RejectionProof {
@@ -865,6 +869,8 @@ fn payload_forgeries(
                 ProofVerificationError::UnitsNotAdjacent { from: 0, to: 2 },
             ),
         ],
+        // No payload to forge: the claim carries no fields, so `check_claim` is unconditional `Ok(())`.
+        ProofCategory::ImpossibleSurfaceComposition => vec![],
     }
 }
 
@@ -880,6 +886,7 @@ fn decisive_fact(category: ProofCategory) -> Option<(usize, TraceFactKind)> {
         ProofCategory::StaticSignatureConflict => Some((0, TraceFactKind::Allomorphs)),
         ProofCategory::ImpossibleSurfaceSpan => Some((0, TraceFactKind::SurfaceSpan)),
         ProofCategory::ImpossibleLocalEnvironment => Some((0, TraceFactKind::LocalEvents)),
+        ProofCategory::ImpossibleSurfaceComposition => None,
     }
 }
 
@@ -922,7 +929,10 @@ fn every_payload_forgery_is_caught_after_the_fact() {
     let mut checked = 0;
     for category in ALL_CATEGORIES {
         let forgeries = payload_forgeries(category);
-        assert!(!forgeries.is_empty(), "{category} needs payload forgeries");
+        // ImpossibleSurfaceComposition's claim carries no fields, so there is nothing to forge.
+        if category != ProofCategory::ImpossibleSurfaceComposition {
+            assert!(!forgeries.is_empty(), "{category} needs payload forgeries");
+        }
         for (label, forged, expected) in forgeries {
             let run = run(forged, base_witness());
             assert_eq!(refusal(&run), expected, "{category}/{label}");
@@ -947,7 +957,8 @@ fn no_category_may_prove_a_rejection_on_a_fact_the_producer_never_established() 
         );
         checked += 1;
     }
-    assert_eq!(checked, ALL_CATEGORIES.len() - 1);
+    // Same two no-decisive-fact categories as `a_deferred_fact_survives_a_check_that_skips_the_claim`.
+    assert_eq!(checked, ALL_CATEGORIES.len() - 2);
 }
 
 /// Measures what re-deriving the claim buys: an envelope check passes every one of these.
@@ -968,8 +979,10 @@ fn every_payload_forgery_survives_a_check_that_skips_the_claim() {
 #[test]
 fn a_deferred_fact_survives_a_check_that_skips_the_claim() {
     let mut checked = 0;
+    let mut without_decisive_fact = 0;
     for category in ALL_CATEGORIES {
         if decisive_fact(category).is_none() {
+            without_decisive_fact += 1;
             continue;
         }
         let run = run(proof_of(category), opaque_witness());
@@ -977,7 +990,9 @@ fn a_deferred_fact_survives_a_check_that_skips_the_claim() {
         assert!(run.verification.is_err(), "{category}");
         checked += 1;
     }
-    assert_eq!(checked, ALL_CATEGORIES.len() - 1);
+    // MalformedIdentity and ImpossibleSurfaceComposition have no `decisive_fact` entry.
+    assert_eq!(without_decisive_fact, 2);
+    assert_eq!(checked, ALL_CATEGORIES.len() - without_decisive_fact);
 }
 
 #[test]

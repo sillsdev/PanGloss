@@ -70,6 +70,12 @@ pub enum ProofCategory {
     StaticSignatureConflict,
     ImpossibleSurfaceSpan,
     ImpossibleLocalEnvironment,
+    /// No per-morpheme allomorph choice can assemble literal material consistent with the surface
+    /// word this candidate was proposed for. Grammar- and word-dependent, like a co-occurrence or
+    /// signature claim, so the generic verifier settles only the envelope; re-deriving the
+    /// impossibility itself needs the grammar-fact index and word, and lives in that pass's own
+    /// dedicated test rather than in `test_support::proof`.
+    ImpossibleSurfaceComposition,
 }
 
 impl ProofCategory {
@@ -84,6 +90,7 @@ impl ProofCategory {
             Self::StaticSignatureConflict => "static_signature_conflict",
             Self::ImpossibleSurfaceSpan => "impossible_surface_span",
             Self::ImpossibleLocalEnvironment => "impossible_local_environment",
+            Self::ImpossibleSurfaceComposition => "impossible_surface_composition",
         }
     }
 }
@@ -187,6 +194,9 @@ pub enum ProofClaim {
         neighbor_unit_index: usize,
         neighbor_events: Vec<LocalEvent>,
     },
+    /// Carries no payload: the claim rests on `ProofWitness::candidate_identity` (already carried
+    /// unconditionally) plus the grammar and the word, neither of which any trace fact holds.
+    ImpossibleSurfaceComposition,
 }
 
 impl ProofClaim {
@@ -202,13 +212,14 @@ impl ProofClaim {
             Self::StaticSignatureConflict { .. } => ProofCategory::StaticSignatureConflict,
             Self::ImpossibleSurfaceSpan { .. } => ProofCategory::ImpossibleSurfaceSpan,
             Self::ImpossibleLocalEnvironment { .. } => ProofCategory::ImpossibleLocalEnvironment,
+            Self::ImpossibleSurfaceComposition => ProofCategory::ImpossibleSurfaceComposition,
         }
     }
 
     /// Every trace unit this claim reads, each of which the proof must also cite.
     pub fn cited_units(&self) -> Vec<usize> {
         match self {
-            Self::MalformedIdentity(_) => Vec::new(),
+            Self::MalformedIdentity(_) | Self::ImpossibleSurfaceComposition => Vec::new(),
             Self::ImpossibleOwnership { unit_index, .. }
             | Self::NoCompatibleAllomorph { unit_index, .. } => vec![*unit_index],
             Self::MissingRequiredPartner { opened_at, .. } => vec![*opened_at],

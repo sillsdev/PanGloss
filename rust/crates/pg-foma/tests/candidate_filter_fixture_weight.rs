@@ -9,7 +9,8 @@ use pg_foma::candidate_filter::{
     CandidateFilter, CandidateFilterPass, CandidateWitness, DeferredFactReason, FeatureSet,
     FilterBudget, FilterCounters, FilterIndex, FilterMode, LexicalOrigin, OwnershipPass,
     PassCounters, ProposalProducer, ProposalProvenance, ProposedCandidate, StablePassId,
-    StructuralTransitionPass, TraceFact, TraceUnit, WitnessId,
+    StructuralTransitionPass, SurfaceConsistencyIndex, SurfaceConsistencyPass, TraceFact,
+    TraceUnit, WitnessId,
 };
 use pg_foma::tags::Candidate;
 use pg_grammar::model::MorphemeId;
@@ -27,6 +28,7 @@ const DECLARED_PASSES: &[&str] = &[
     "local.allomorph.v1",
     "local.exact_span.v1",
     "local.environment.v1",
+    "surface.consistency.v1",
 ];
 
 const AWAITING_PASS: &str = "awaiting-pass";
@@ -208,16 +210,21 @@ fn looks_like_a_pass_id(literal: &str) -> bool {
 }
 
 /// The pass list an enforced run uses, in declared order, over one grammar's derived facts.
-fn production_passes(index: &Arc<FilterIndex>) -> Vec<Box<dyn CandidateFilterPass>> {
+fn production_passes(
+    index: &Arc<FilterIndex>,
+    surface_index: &Arc<SurfaceConsistencyIndex>,
+) -> Vec<Box<dyn CandidateFilterPass>> {
     vec![
         Box::new(OwnershipPass::new(Arc::clone(index))),
         Box::new(StructuralTransitionPass::new(Arc::clone(index))),
+        Box::new(SurfaceConsistencyPass::new(Arc::clone(surface_index))),
     ]
 }
 
 fn filter_for(grammar: &pg_grammar::model::Grammar) -> CandidateFilter {
     let index = Arc::new(FilterIndex::build(grammar));
-    filter_of(production_passes(&index))
+    let surface_index = Arc::new(SurfaceConsistencyIndex::build(grammar));
+    filter_of(production_passes(&index, &surface_index))
 }
 
 fn add(running: &mut PassCounters, counters: &PassCounters) {
@@ -279,13 +286,14 @@ fn survivors(
     filter: &CandidateFilter,
     mode: FilterMode,
     analyses: &[WordAnalysis],
+    word: &str,
 ) -> (Vec<usize>, FilterCounters) {
     let proposals: Vec<ProposedCandidate> = analyses
         .iter()
         .enumerate()
         .map(|(index, analysis)| adapt(index, analysis))
         .collect();
-    let outcome = filter.filter(mode, proposals, FilterBudget::unlimited());
+    let outcome = filter.filter_with_word(mode, proposals, FilterBudget::unlimited(), word);
     let mut indices: Vec<usize> = outcome
         .retained
         .iter()
@@ -474,8 +482,8 @@ fn enforced_filtering_keeps_every_analysis_off_keeps() {
             let analyses = &outcome.structured;
             let label = format!("{} word {:?}", reference.label(), entry.word);
 
-            let (off, _) = survivors(&filter, FilterMode::Off, analyses);
-            let (enforce, report) = survivors(&filter, FilterMode::Enforce, analyses);
+            let (off, _) = survivors(&filter, FilterMode::Off, analyses, &entry.word);
+            let (enforce, report) = survivors(&filter, FilterMode::Enforce, analyses, &entry.word);
             accumulate(&mut totals, &report);
 
             let project = |indices: &[usize]| -> BTreeSet<AnalysisIdentity> {
@@ -541,7 +549,12 @@ fn measure_declared_pass(fixture: &Fixture) -> PassCounters {
             .enumerate()
             .map(|(index, analysis)| adapt(index, analysis))
             .collect();
-        let outcome = filter.filter(FilterMode::Enforce, proposals, FilterBudget::unlimited());
+        let outcome = filter.filter_with_word(
+            FilterMode::Enforce,
+            proposals,
+            FilterBudget::unlimited(),
+            &entry.word,
+        );
         for (_, counters) in outcome
             .report
             .per_pass

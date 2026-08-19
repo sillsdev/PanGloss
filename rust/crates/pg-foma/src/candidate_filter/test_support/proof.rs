@@ -276,6 +276,8 @@ fn check_claim(
             check_events(witness, *unit_index, events)?;
             check_events(witness, *neighbor_unit_index, neighbor_events)
         }
+        // Grammar/word-dependent like a co-occurrence claim; deeper re-derivation is that pass's own test.
+        ProofClaim::ImpossibleSurfaceComposition => Ok(()),
     }
 }
 

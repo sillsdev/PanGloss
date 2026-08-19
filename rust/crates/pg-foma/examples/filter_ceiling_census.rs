@@ -8,7 +8,7 @@
 
 //! Usage: `pg.ps1 -Mode run -Example filter_ceiling_census -- <grammar> [--words N] [--word-timeout-ms M]`.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -29,7 +29,11 @@ use pg_foma::confirm::{self, MorphemeOwner};
 use pg_foma::emit;
 use pg_foma::peel::ReduplicationPeeler;
 use pg_foma::tags::{self, Candidate};
-use pg_grammar::model::{AffixAllomorphDef, Grammar, MorphemeId, OutputAction};
+use pg_grammar::chardef::{CharDef, CharDefId};
+use pg_grammar::model::{
+    AffixAllomorphDef, Grammar, MorphemeId, NaturalClass, NaturalClassKind, OutputAction, Pattern,
+    PatternNode, PhonRuleDef,
+};
 use pg_parse::Morpher;
 use pg_rules::validity::candidate_morpheme_co_occurrence_ok;
 
@@ -299,21 +303,27 @@ fn is_literal_surface_char(c: char) -> bool {
         && !('\u{2070}'..='\u{209F}').contains(&c)
 }
 
-/// `char_multiset`, filtered through `is_literal_surface_char` -- what a `PhoneticShape` string requires of the actual surface, once boundary and archiphoneme notation are excluded.
-fn required_multiset(text: &str) -> BTreeMap<char, usize> {
+/// `char_multiset`, filtered through `is_literal_surface_char` and `volatile` -- what a `PhoneticShape` string requires of the actual surface, once boundary/archiphoneme notation and phonological-rule targets are excluded.
+fn required_multiset(text: &str, volatile: &BTreeSet<char>) -> BTreeMap<char, usize> {
     let mut counts = BTreeMap::new();
-    for c in text.chars().filter(|&c| is_literal_surface_char(c)) {
+    for c in text
+        .chars()
+        .filter(|&c| is_literal_surface_char(c) && !volatile.contains(&c))
+    {
         *counts.entry(c).or_insert(0) += 1;
     }
     counts
 }
 
 /// `a`'s own literal contribution: only its `InsertSegments` text; `Copy`/`Modify`/`InsertContext` count as free (permissive, so this can only under-detect).
-fn affix_literal_multiset(a: &AffixAllomorphDef) -> BTreeMap<char, usize> {
+fn affix_literal_multiset(
+    a: &AffixAllomorphDef,
+    volatile: &BTreeSet<char>,
+) -> BTreeMap<char, usize> {
     let mut counts = BTreeMap::new();
     for action in &a.rhs {
         if let OutputAction::InsertSegments { shape, .. } = action {
-            for (&c, &n) in &required_multiset(&shape.text) {
+            for (&c, &n) in &required_multiset(&shape.text, volatile) {
                 *counts.entry(c).or_insert(0) += n;
             }
         }
@@ -321,20 +331,101 @@ fn affix_literal_multiset(a: &AffixAllomorphDef) -> BTreeMap<char, usize> {
     counts
 }
 
+/// Every character any `PhonRuleDef::Rewrite` input pattern could match -- see the `surface_consistency` module doc.
+fn volatile_chars(g: &Grammar) -> BTreeSet<char> {
+    let mut classes = Vec::new();
+    let mut direct_ids = BTreeSet::new();
+    let mut direct_chars = BTreeSet::new();
+    for rule in &g.prules {
+        if let PhonRuleDef::Rewrite(rule) = rule {
+            collect_pattern_refs(
+                g,
+                &rule.lhs,
+                &mut classes,
+                &mut direct_ids,
+                &mut direct_chars,
+            );
+        }
+    }
+    let mut out = direct_chars;
+    for table in &g.char_tables {
+        for (id, cd) in table.iter() {
+            let matches =
+                direct_ids.contains(&id) || classes.iter().any(|nc| nat_class_matches(nc, id, cd));
+            if matches {
+                for rep in cd.representations() {
+                    out.extend(rep.chars());
+                }
+            }
+        }
+    }
+    out
+}
+
+fn collect_pattern_refs<'g>(
+    g: &'g Grammar,
+    pattern: &Pattern,
+    classes: &mut Vec<&'g NaturalClass>,
+    direct_ids: &mut BTreeSet<CharDefId>,
+    direct_chars: &mut BTreeSet<char>,
+) {
+    for node in &pattern.nodes {
+        collect_node_refs(g, node, classes, direct_ids, direct_chars);
+    }
+}
+
+fn collect_node_refs<'g>(
+    g: &'g Grammar,
+    node: &PatternNode,
+    classes: &mut Vec<&'g NaturalClass>,
+    direct_ids: &mut BTreeSet<CharDefId>,
+    direct_chars: &mut BTreeSet<char>,
+) {
+    match node {
+        PatternNode::Context(sc) => classes.push(&g.natural_classes[sc.nat_class.0 as usize]),
+        PatternNode::CharDef(id) => {
+            direct_ids.insert(*id);
+        }
+        // A literal shape pattern: every character it names is consumed by the match too.
+        PatternNode::Segments { shape, .. } => direct_chars.extend(shape.text.chars()),
+        PatternNode::Quantifier { children, .. } => {
+            for child in children {
+                collect_node_refs(g, child, classes, direct_ids, direct_chars);
+            }
+        }
+        PatternNode::Anchor(_) => {}
+    }
+}
+
+fn nat_class_matches(nc: &NaturalClass, id: CharDefId, cd: &CharDef) -> bool {
+    match &nc.kind {
+        NaturalClassKind::Segments(ids) => ids.contains(&id),
+        NaturalClassKind::Feature(pairs) => pairs.iter().all(|&(f, bits)| {
+            cd.feature_lanes()
+                .get(f.0 as usize)
+                .is_some_and(|&lane| lane & bits.0 != 0)
+        }),
+    }
+}
+
 /// Every literal-character option one morpheme could contribute; never empty (an unresolved owner gets one all-empty option, the permissive default that keeps `surface_consistency` sound).
 fn literal_char_options(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
     morpheme: MorphemeId,
+    volatile: &BTreeSet<char>,
 ) -> Vec<BTreeMap<char, usize>> {
     match owners.get(morpheme.0 as usize).copied().flatten() {
         Some(MorphemeOwner::LexEntry(le)) => g.entries[le.0 as usize]
             .allomorphs
             .iter()
-            .map(|a| required_multiset(&a.shape.text))
+            .map(|a| required_multiset(&a.shape.text, volatile))
             .collect(),
         Some(MorphemeOwner::MRule(mid)) => match g.mrules[mid.0 as usize].affix_allomorphs() {
-            Some(allos) if !allos.is_empty() => allos.iter().map(affix_literal_multiset).collect(),
+            Some(allos) if !allos.is_empty() => allos
+                .iter()
+                .map(|a| affix_literal_multiset(a, volatile))
+                .collect(),
             _ => vec![BTreeMap::new()],
         },
         None => vec![BTreeMap::new()],
@@ -363,11 +454,12 @@ fn surface_consistency(
     owners: &[Option<MorphemeOwner>],
     candidate: &Candidate,
     surface_counts: &BTreeMap<char, usize>,
+    volatile: &BTreeSet<char>,
 ) -> SurfaceVerdict {
     let options: Vec<Vec<BTreeMap<char, usize>>> = candidate
         .morphemes
         .iter()
-        .map(|&m| literal_char_options(g, owners, m))
+        .map(|&m| literal_char_options(g, owners, m, volatile))
         .collect();
     let combo_count = options
         .iter()
@@ -415,8 +507,9 @@ fn classify_candidate(
     owners: &[Option<MorphemeOwner>],
     candidate: &Candidate,
     surface_counts: &BTreeMap<char, usize>,
+    volatile: &BTreeSet<char>,
 ) -> Detectability {
-    let verdict = surface_consistency(g, owners, candidate, surface_counts);
+    let verdict = surface_consistency(g, owners, candidate, surface_counts, volatile);
     Detectability {
         co_occurrence: co_occurrence_detects(g, candidate),
         surface_infeasible: matches!(verdict, SurfaceVerdict::Infeasible),
@@ -464,6 +557,7 @@ fn compute_reach(
     doomed: &[usize],
     presented: &[usize],
     chunks: &[confirm::ConfirmChunkCost],
+    volatile: &BTreeSet<char>,
 ) -> ReachRow {
     let surface_counts = char_multiset(&pg_grammar::nfd::nfd(word));
     let mut detect: Vec<Option<Detectability>> = vec![None; candidates.len()];
@@ -473,11 +567,12 @@ fn compute_reach(
             owners,
             &candidates[i],
             &surface_counts,
+            volatile,
         ));
     }
     if std::env::var("PANGLOSS_REACH_DEBUG").is_ok() {
         for (i, c) in candidates.iter().enumerate() {
-            let verdict = surface_consistency(g, owners, c, &surface_counts);
+            let verdict = surface_consistency(g, owners, c, &surface_counts, volatile);
             eprintln!(
                 "[reach-debug] word={word} idx={i} doomed={} morphemes={:?} verdict={:?}",
                 doomed.contains(&i),
@@ -579,6 +674,7 @@ fn measure_word(
     word: &str,
     candidates: &[Candidate],
     pre: PreConfirmCost,
+    volatile: &BTreeSet<char>,
 ) -> WordOutcome {
     if candidates.is_empty() {
         return WordOutcome::NoCandidates;
@@ -597,6 +693,7 @@ fn measure_word(
         &before.doomed,
         &presented,
         &before.chunks,
+        volatile,
     );
     let pruned_candidates = prune_doomed(candidates, &before.doomed);
     let after_measured = run_confirm(g, owners, morpher, &pruned_candidates, word);
@@ -752,6 +849,7 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
     let compile_ms = ms(stage.elapsed());
     let peeler = ReduplicationPeeler::new(&g);
     let owners = confirm::build_morpheme_owners(&g);
+    let volatile = volatile_chars(&g);
     let morpher = Morpher::new(&g, usize::MAX).with_word_timeout(Some(word_timeout));
     let stage = Instant::now();
     let index = Arc::new(FilterIndex::build(&g));
@@ -833,7 +931,7 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
         let candidates = propose_and_peel(&net, &g, &peeler, word);
         let pre = measure_filter(&filter, &candidates, proposing.elapsed());
         filter_rejections += pre.candidates_rejected;
-        match measure_word(&g, &owners, &morpher, word, &candidates, pre) {
+        match measure_word(&g, &owners, &morpher, word, &candidates, pre, &volatile) {
             WordOutcome::NoCandidates => {
                 no_candidates += 1;
                 println!(
