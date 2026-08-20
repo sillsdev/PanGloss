@@ -1,0 +1,21 @@
+language: ComplexInsertedRedupLaterAllomorph
+inspired_by: ["Mbugwe-derived synthetic shape; no private language data"]
+sources:
+  - "rust/crates/pg-foma/tests/mbugwe_structural_regressions.rs (experimental worktree evidence)"
+requires: []
+words:
+  - word: p
+    note: Bare ordinary-root control.
+    parses:
+      - signature: "PROOT|p"
+        rules: []
+  - word: xp
+    note: The first, ordinary allomorph remains applicable to its disjoint root.
+    parses:
+      - signature: "MIXED+PROOT|xp"
+        rules: [mrMixed]
+  - word: cheefu
+    note: The later allomorph inserts ch and copies e twice before copying fu.
+    parses:
+      - signature: "MIXED+ROOT|cheefu"
+        rules: [mrMixed]

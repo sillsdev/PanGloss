@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>ComplexInsertedRedupLaterAllomorph</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1"><Name>Main</Name><SegmentDefinitions>
+      <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cf"><Representations><Representation>f</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cc"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="ch"><Representations><Representation>h</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions></CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncE"><Name>E</Name><Segment segment="ce" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncF"><Name>F</Name><Segment segment="cf" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncU"><Name>U</Name><Segment segment="cu" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncP"><Name>P</Name><Segment segment="cp" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata><Stratum characterDefinitionTable="t1" morphologicalRuleOrder="linear" morphologicalRules="mrMixed"><Name>Main</Name>
+      <MorphologicalRuleDefinitions><MorphologicalRule id="mrMixed" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>mixedRedup</Name><MorphologicalSubrules>
+        <MorphologicalSubrule id="subPrefix"><MorphologicalInput><PhoneticSequence id="qP"><SimpleContext naturalClass="ncP" /></PhoneticSequence></MorphologicalInput><MorphologicalOutput><InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments><CopyFromInput index="qP" /></MorphologicalOutput></MorphologicalSubrule>
+        <MorphologicalSubrule id="subComplexRedup"><MorphologicalInput><PhoneticSequence id="qA"><SimpleContext naturalClass="ncE" /></PhoneticSequence><PhoneticSequence id="qB"><SimpleContext naturalClass="ncF" /><SimpleContext naturalClass="ncU" /></PhoneticSequence></MorphologicalInput><MorphologicalOutput redupMorphType="suffix"><InsertSegments><PhoneticShape>ch</PhoneticShape></InsertSegments><CopyFromInput index="qA" /><CopyFromInput index="qA" /><CopyFromInput index="qB" /></MorphologicalOutput></MorphologicalSubrule>
+      </MorphologicalSubrules><MorphemeId>MIXED</MorphemeId></MorphologicalRule></MorphologicalRuleDefinitions>
+      <LexicalEntries>
+        <LexicalEntry id="eRoot" partOfSpeech="posV"><Allomorphs><Allomorph id="aRoot"><PhoneticShape>efu</PhoneticShape></Allomorph></Allomorphs><MorphemeId>ROOT</MorphemeId></LexicalEntry>
+        <LexicalEntry id="pRoot" partOfSpeech="posV"><Allomorphs><Allomorph id="pAllo"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs><MorphemeId>PROOT</MorphemeId></LexicalEntry>
+      </LexicalEntries>
+    </Stratum></Strata>
+  </Language>
+</HermitCrabInput>

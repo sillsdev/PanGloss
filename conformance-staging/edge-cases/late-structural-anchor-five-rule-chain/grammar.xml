@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput><Language><Name>LateStructuralAnchorFiveRuleChain</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+  <CharacterDefinitionTable id="t1"><Name>Main</Name><SegmentDefinitions>
+    <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cc"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cf"><Representations><Representation>f</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cg"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+  </SegmentDefinitions></CharacterDefinitionTable>
+  <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+  <Strata><Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mr1 mr2 mr3 mr4 mr5"><Name>Main</Name>
+    <MorphologicalRuleDefinitions>
+      <MorphologicalRule id="mr1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>one</Name><MorphologicalSubrules><MorphologicalSubrule id="s1"><MorphologicalInput><PhoneticSequence id="stem1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><InsertSegments><PhoneticShape>b</PhoneticShape></InsertSegments><CopyFromInput index="stem1" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>R1</MorphemeId></MorphologicalRule>
+      <MorphologicalRule id="mr2" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>two</Name><MorphologicalSubrules><MorphologicalSubrule id="s2"><MorphologicalInput><PhoneticSequence id="stem2"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><InsertSegments><PhoneticShape>c</PhoneticShape></InsertSegments><CopyFromInput index="stem2" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>R2</MorphemeId></MorphologicalRule>
+      <MorphologicalRule id="mr3" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>three</Name><MorphologicalSubrules><MorphologicalSubrule id="s3"><MorphologicalInput><PhoneticSequence id="stem3"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><InsertSegments><PhoneticShape>d</PhoneticShape></InsertSegments><CopyFromInput index="stem3" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>R3</MorphemeId></MorphologicalRule>
+      <MorphologicalRule id="mr4" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>four</Name><MorphologicalSubrules><MorphologicalSubrule id="s4"><MorphologicalInput><PhoneticSequence id="stem4"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><InsertSegments><PhoneticShape>e</PhoneticShape></InsertSegments><CopyFromInput index="stem4" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>R4</MorphemeId></MorphologicalRule>
+      <MorphologicalRule id="mr5" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>five</Name><MorphologicalSubrules><MorphologicalSubrule id="s5"><MorphologicalInput><PhoneticSequence id="stem5"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><InsertSegments><PhoneticShape>f</PhoneticShape></InsertSegments><CopyFromInput index="stem5" /><InsertSegments><PhoneticShape>g</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>R5</MorphemeId></MorphologicalRule>
+    </MorphologicalRuleDefinitions>
+    <LexicalEntries><LexicalEntry id="eRoot" partOfSpeech="posV"><Allomorphs><Allomorph id="aRoot"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs><MorphemeId>ROOT</MorphemeId></LexicalEntry></LexicalEntries>
+  </Stratum></Strata>
+</Language></HermitCrabInput>

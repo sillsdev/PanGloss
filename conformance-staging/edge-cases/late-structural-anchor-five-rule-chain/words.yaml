@@ -1,0 +1,16 @@
+language: LateStructuralAnchorFiveRuleChain
+inspired_by: ["Mbugwe-derived synthetic shape; no private language data"]
+sources:
+  - "rust/crates/pg-foma/tests/mbugwe_structural_regressions.rs (experimental worktree evidence)"
+requires: []
+words:
+  - word: a
+    note: Bare-root negative control.
+    parses:
+      - signature: "ROOT|a"
+        rules: []
+  - word: fedcbag
+    note: Requires all five unordered rules; the discontinuous fifth rule is encountered only after four ordinary prefixes.
+    parses:
+      - signature: "R5+R4+R3+R2+R1+ROOT|fedcbag"
+        rules: [mr5, mr4, mr3, mr2, mr1]
