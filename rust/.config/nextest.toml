@@ -30,3 +30,10 @@
 # signal is how you find out a test is drifting toward the ceiling before it hits it.
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 10 }
+
+# Opt-in profile for deliberately-long MEASUREMENT tests (pg-foma's `aweti_enum_census` family:
+# an uncapped Aweti composite-entry census legitimately runs ~8 minutes). Same kill-don't-hang
+# discipline as the default profile, just a higher ceiling; nothing selects this profile unless a
+# caller passes `--profile census` explicitly, so every ordinary run keeps the 10-minute bound.
+[profile.census]
+slow-timeout = { period = "60s", terminate-after = 30 }

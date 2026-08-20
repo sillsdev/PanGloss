@@ -914,7 +914,7 @@ function Get-ProcessDescendants {
     }
     $root = $Snapshot | Where-Object { $_.ProcessId -eq $RootPid } | Select-Object -First 1
     $out = @()
-    # Visited set: the snapshot is not a tree (PID reuse, self-parented/null-field system rows -- System Idle is pid 0 with parent 0), and a BFS without one loops forever; measured live 2026-08-20: preflight's staleness check spun a full core indefinitely walking a holder's tree.
+    # Visited set: the snapshot is not a tree (PID reuse, self-parented/null-field system rows -- System Idle is pid 0 with parent 0), and a BFS without one loops forever (measured live: preflight's staleness check spun a full core indefinitely walking a holder's tree).
     $visited = @{ ([string]$RootPid) = $true }
     $frontier = @([PSCustomObject]@{ ProcessId = $RootPid; CreationDate = $(if ($root) { $root.CreationDate } else { $null }) })
     while ($frontier.Count -gt 0) {

@@ -60,8 +60,9 @@ impl fmt::Display for FomaError {
                 limit,
             } => write!(
                 f,
-                "grammar exceeds the foma-engine's eager-enumeration budget: {measure} = {value} \
-                 (limit {limit}). This grammar's morphotactics produce more composite lexc material \
+                "grammar exceeds the foma-engine's eager-enumeration budget: {measure} = {value} when \
+                 enumeration aborted at the cap -- a floor, not a total (limit {limit}). This \
+                 grammar's morphotactics produce more composite lexc material \
                  than the eager Rust-side enumerator can safely expand into a literal lexc source \
                  without risking a multi-GB `.lexc` file and an out-of-memory crash in foma's own \
                  `apply_up`. Use the default (full) morphological-parser engine for this grammar \

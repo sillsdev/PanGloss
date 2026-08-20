@@ -2504,7 +2504,9 @@ fn emit_with_budget_profiled_with_strategy(
     // Both builders above check enum_budget cooperatively during their own recursion, but the grammar-level verdict is decided once, here, before any expensive derivation work runs.
     if let Some((measure, value, limit)) = enum_budget.trip_reason() {
         let reason = format!(
-            "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} (limit {limit}). \
+            "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} when \
+             enumeration aborted at the cap -- a floor, not a total (limit {limit}; Aweti's measured \
+             uncapped total is ~15x this cap). \
              This grammar's morphotactics produce more composite lexc material than the eager \
              Rust-side enumerator (`pg_foma::preexpand`/`pg_foma::emit::build_structural_composites`) \
              can safely expand into a literal lexc source without risking a multi-GB `.lexc` file and \
@@ -3354,7 +3356,7 @@ pub fn emit_underlying_templated(
     // Checked here for parity with emit_with_budget's own shape; defensive, not load-bearing, since nothing in this function's call graph increments it today.
     if let Some((measure, value, limit)) = enum_budget.trip_reason() {
         let reason = format!(
-            "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} (limit {limit}).",
+            "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} when enumeration aborted at the cap -- a floor, not a total (limit {limit}).",
             measure.label()
         );
         return EmitResult {
@@ -4732,5 +4734,221 @@ mod structural_and_pattern_tests {
           </Strata>
         </Language></HermitCrabInput>"#;
         assert_plan_topology_matches_real_seams(&load_xml(XML), (false, true));
+    }
+}
+
+#[cfg(test)]
+mod aweti_enum_census {
+    //! Measurement-only census of the Aweti enumeration-budget refusal: what the TRUE uncapped
+    //! composite-entry count is (the production refusal reports only the latch point, cap +
+    //! parallel overshoot, never the total), and where those entries come from (builder, chain
+    //! depth, rule, root). Both tests are `#[ignore]`d corpus measurements, run via
+    //! `pg.ps1 -Mode corpus-test -Package pg-foma -Filter aweti_enum_census`.
+
+    use super::*;
+    use crate::morphotactics::{
+        EnumerationBudget, ExploreMode, MorphotacticIndex, DEFAULT_ENTRY_BUDGET,
+        DEFAULT_PROBE_BUDGET,
+    };
+    use pg_conformance_fixtures::corpus;
+    use pg_grammar::model::Grammar;
+
+    /// Same 1 GiB dedicated stack `pg-cli`'s own `main()` uses; Aweti's compile-path recursion has overflowed default test-thread stacks before.
+    fn on_big_stack(f: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(1 << 30)
+            .spawn(f)
+            .expect("spawn census thread")
+            .join()
+            .expect("census thread panicked");
+    }
+
+    /// Resolves via `corpus::path` so `PANGLOSS_CORPUS_ROOT` is honored (unlike this crate's older gates, which hardcode the relative path).
+    fn load_aweti() -> Option<Grammar> {
+        let Some(path) = corpus::path("aweti.json") else {
+            assert!(
+                !corpus::required(),
+                "PANGLOSS_CORPUS_REQUIRED is set but aweti.json is not present in the corpus root"
+            );
+            eprintln!("skipping: aweti.json not present (set PANGLOSS_CORPUS_ROOT)");
+            return None;
+        };
+        let json = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let snapshot = pg_snapshot::Snapshot::from_json(&json)
+            .unwrap_or_else(|e| panic!("parse aweti.json snapshot: {e}"));
+        let (g, _warnings) = pg_grammar::compile_project(&snapshot)
+            .unwrap_or_else(|e| panic!("compile aweti project: {e}"));
+        Some(g)
+    }
+
+    /// Reproduces today's production refusal at the DEFAULT caps and prints the latch point the refusal message shows.
+    #[test]
+    #[ignore = "measurement-only: needs private corpus data (PANGLOSS_CORPUS_ROOT); run via -Mode corpus-test"]
+    fn aweti_enum_census_default_cap_trip_point() {
+        on_big_stack(|| {
+            let Some(g) = load_aweti() else { return };
+            let budget = EnumerationBudget::with_caps(DEFAULT_ENTRY_BUDGET, DEFAULT_PROBE_BUDGET);
+            let t0 = Instant::now();
+            let result = emit_with_budget(&g, PrecisionConfig::Strip, &budget);
+            println!("[census] default-cap emit returned in {:?}", t0.elapsed());
+            match budget.trip_reason() {
+                Some((measure, value, limit)) => println!(
+                    "[census] tripped: measure={} value={value} limit={limit} (overshoot {})",
+                    measure.label(),
+                    value.saturating_sub(limit)
+                ),
+                None => println!("[census] default caps did NOT trip"),
+            }
+            let c = &result.report.counts;
+            println!(
+                "[census] counts at refusal: fusion={} interdigitation={} structural={} pairs_probed={}",
+                c.composite_fusion_entries,
+                c.composite_interdigitation_entries,
+                c.composite_structural_entries,
+                c.composite_pairs_probed
+            );
+            corpus::record_cases("aweti-enum-census-default-cap", 1);
+        });
+    }
+
+    /// Runs both composite builders to completion unbounded (builders only -- no lexc/foma/apply_up hazards) and attributes the entry count.
+    #[test]
+    #[ignore = "measurement-only: needs private corpus data (PANGLOSS_CORPUS_ROOT); run via -Mode corpus-test"]
+    fn aweti_enum_census_uncapped_totals() {
+        on_big_stack(|| {
+            let Some(g) = load_aweti() else { return };
+            let width = tags::tag_width(g.morphemes.len());
+            let phon = PhonologyProbe::new(&g);
+            let mt = MorphotacticIndex::build(&g);
+            let budget = EnumerationBudget::unbounded();
+
+            let t0 = Instant::now();
+            let (recs, report) = crate::preexpand::build_composites_with_mode(
+                &g,
+                width,
+                phon.as_ref(),
+                &mt,
+                ExploreMode::Pruned,
+                None,
+                &budget,
+            );
+            println!(
+                "[census] preexpand done in {:?}: pairs_probed={} by_depth={:?} synth_successes={} interdigitation={} fusion={}",
+                t0.elapsed(),
+                report.pairs_probed,
+                report.pairs_probed_by_depth,
+                report.synth_successes,
+                report.interdigitation_entries,
+                report.fusion_entries
+            );
+
+            // Attribution: entries by chain length (extra rules beyond the root).
+            let mut by_len: std::collections::BTreeMap<usize, usize> =
+                std::collections::BTreeMap::new();
+            let mut by_root: rustc_hash::FxHashMap<u32, usize> = rustc_hash::FxHashMap::default();
+            let mut by_rule: rustc_hash::FxHashMap<u32, usize> = rustc_hash::FxHashMap::default();
+            let mut total_variants = 0usize;
+            let mut surface_tags: rustc_hash::FxHashMap<String, usize> =
+                rustc_hash::FxHashMap::default();
+            for r in &recs {
+                *by_len
+                    .entry(r.chain_morphemes.len().saturating_sub(1))
+                    .or_insert(0) += 1;
+                if let Some((_, root)) = r.chain_morphemes.first() {
+                    *by_root.entry(root.0).or_insert(0) += 1;
+                }
+                for (is_root, m) in &r.chain_morphemes {
+                    if !*is_root {
+                        *by_rule.entry(m.0).or_insert(0) += 1;
+                    }
+                }
+                total_variants += r.variants.len();
+                for v in &r.variants {
+                    *surface_tags.entry(v.clone()).or_insert(0) += 1;
+                }
+            }
+            println!("[census] fusion recs by extra-rule count: {by_len:?}");
+            println!(
+                "[census] total variant lines={} distinct surfaces={} roots contributing={}",
+                total_variants,
+                surface_tags.len(),
+                by_root.len()
+            );
+            let mut top_roots: Vec<_> = by_root.into_iter().collect();
+            top_roots.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+            println!(
+                "[census] top 10 roots by entry count: {:?}",
+                &top_roots[..top_roots.len().min(10)]
+            );
+            let mut top_rules: Vec<_> = by_rule.into_iter().collect();
+            top_rules.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+            println!(
+                "[census] top 15 rules by chain membership: {:?}",
+                &top_rules[..top_rules.len().min(15)]
+            );
+            let dup_surfaces = surface_tags.values().filter(|&&n| n > 1).count();
+            println!(
+                "[census] surfaces appearing under >1 (tag,surface) record: {dup_surfaces} (these carry DIFFERENT tag chains -- distinct analyses, not dedupable)"
+            );
+            drop(surface_tags);
+
+            let fusion_total = report.interdigitation_entries + report.fusion_entries;
+            println!(
+                "[census] preexpand fusion+interdigitation total = {fusion_total} = {:.1}x the {} default cap (structural measured by aweti_enum_census_uncapped_structural)",
+                fusion_total as f64 / DEFAULT_ENTRY_BUDGET as f64,
+                DEFAULT_ENTRY_BUDGET
+            );
+            corpus::record_cases("aweti-enum-census-uncapped", 1);
+        });
+    }
+
+    /// The structural half of the uncapped census, its own test so each half clears the workspace nextest hang ceiling with margin.
+    #[test]
+    #[ignore = "measurement-only: needs private corpus data (PANGLOSS_CORPUS_ROOT); run via -Mode corpus-test"]
+    fn aweti_enum_census_uncapped_structural() {
+        on_big_stack(|| {
+            let Some(g) = load_aweti() else { return };
+            let width = tags::tag_width(g.morphemes.len());
+            let mt = MorphotacticIndex::build(&g);
+            let budget = EnumerationBudget::unbounded();
+
+            let t1 = Instant::now();
+            let struct_rules = structural_candidate_rules(&g);
+            let cache = RuleCache::build(&g);
+            let morpher = Morpher::new(&g, usize::MAX);
+            let (srecs, _covered) = build_structural_composites(
+                &g,
+                width,
+                &struct_rules,
+                &cache,
+                &morpher,
+                &mt,
+                ExploreMode::Pruned,
+                None,
+                &budget,
+            );
+            let mut s_by_len: std::collections::BTreeMap<usize, usize> =
+                std::collections::BTreeMap::new();
+            for r in &srecs {
+                *s_by_len
+                    .entry(r.chain_morphemes.len().saturating_sub(1))
+                    .or_insert(0) += 1;
+            }
+            println!(
+                "[census] structural done in {:?}: candidates={} probe_would_refuse={} entries={} by extra-rule count {s_by_len:?}",
+                t1.elapsed(),
+                struct_rules.len(),
+                probe_would_refuse(&g),
+                srecs.len()
+            );
+            println!(
+                "[census] structural entries = {} = {:.2}x the {} default cap on their own",
+                srecs.len(),
+                srecs.len() as f64 / DEFAULT_ENTRY_BUDGET as f64,
+                DEFAULT_ENTRY_BUDGET
+            );
+            corpus::record_cases("aweti-enum-census-uncapped-structural", 1);
+        });
     }
 }
