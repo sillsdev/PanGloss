@@ -378,6 +378,16 @@ much they actually bought:
 `find`/`rg`/`grep`/`findstr` that have burned >60s CPU and lived >2min. Dry-run by default;
 `-Apply` to act.
 
+7. **A genuinely long single command needs the harness's background execution, not a longer
+   foreground wait.** A tool call blocks for at most ~10 minutes; a full-corpus oracle batch (e.g.
+   Sena's 7,121 words) legitimately exceeds that. Measured 2026-08-19: run foreground, it truncates
+   silently at whatever word the ceiling lands on (Sena: ~1,663/7,121, read as "the corpus" when it
+   was actually a fifth of it); launched instead as a background run, it completes and reports
+   normally with no code change needed. This is distinct from rule 2's self-spawned-poll trap: rule
+   2 says don't wait on your own background job by polling it; this says a command that will
+   genuinely run long should BE that background job (the harness notifies on completion), not a
+   foreground call hoping to finish inside the ceiling.
+
 ## What is scoped to the PC, and what is scoped to the worktree
 
 Several worktrees run here, sometimes with more than one agent inside a single worktree. Every
