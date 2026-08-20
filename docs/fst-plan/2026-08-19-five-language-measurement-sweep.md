@@ -16,7 +16,7 @@ Every sample size and timeout is stated; nothing here claims more coverage than 
 | Language | Oracle recall sample | Foma-path availability | Coverage run | Net states / arcs | Build time | Filter catch (surface-consistency, of removable steps) |
 |---|---|---|---|---|---|---|
 | Indonesian | 120/121 analyzed, 0 timeout | Works: 120/121, 0 timeout | 121/121 words (100%) | 1,251 / 4,191 | ~93ms (load+emit+compile) | 0% (0/68), fresh |
-| Sena | 963/1000 sample analyzed, 7 timeout (0.7%) | Works: **6,813/7,121 full corpus**, 0 timeout | oracle 1,000/7,121 (14.0%); foma 7,121/7,121 (100%) | 106,365 / 702,364 | ~11.1-11.4s | 10.7% (fresh, 100-word sample); 14.9% (carried over, different sample) |
+| Sena | **6,690/7,121 full corpus analyzed (93.9%), 308 SKIPPED (4.3%), 123 timeout (1.7% at 30s cap)** | Works: **6,813/7,121 full corpus**, 0 timeout | oracle 7,121/7,121 (100%, re-run via background execution -- see below); foma 7,121/7,121 (100%) | 106,365 / 702,364 | ~11.1-11.4s | 10.7% (fresh, 100-word sample); 14.9% (carried over, different sample) |
 | Amharic | 186/200 sample analyzed, 14 timeout (7%) | Works: 200/200 sample, 0 timeout | 200/669 real words (29.9%) | 6,376 / 68,693 | ~5.1s | 0% (0/92), matches carried-over |
 | Aweti | 135/196 non-skip analyzed (68.9%), 61 timeout (31%) | **Refuses**: eager-enumeration budget exceeded (~200,546 / 200,000 composite lexc entries) | oracle 208/208 (100%); foma 0% (refuses to compile) | N/A — never compiles | emit reaches ~24s before refusing | N/A (was "0, harness defect" — now a confirmed real refusal, see below) |
 | Mbugwe | 100/200 sample, 100 timeout (50%) | **Refuses twice over**: ADR 0001 capability gate (circumfix construct), AND (independently) the same enum-budget wall (~200,730 / 200,000) | oracle 200/1,638 (12.2%); foma 0% (refuses) | N/A — never compiles | emit reaches ~212s before refusing (bypassing the capability gate) | N/A (was "0, harness defect" — now a confirmed real refusal, see below) |
@@ -267,3 +267,22 @@ cleanly with the real reason.
   all scratch `.tsv`/`.json`/sample-word files created during this sweep were deleted before
   committing, per this repo's rule against copying or deriving committed fixtures from
   `samples/data/`.
+
+## Addendum: Sena's oracle sample closed to the full corpus
+
+The 1,000-word (14%) oracle sample above was a limit of the coordinating session's own tool-call
+ceiling (~10 minutes per synchronous call), not of the corpus or the engine. Re-run via the
+harness's background-execution mode (no such ceiling) over the complete 7,121-word list with a
+30-second per-word timeout: **6,690 ok (93.9%), 308 SKIPPED (4.3%), 123 TIMEOUT (1.7%)**.
+
+Two things worth flagging rather than silently accepting:
+- The manifest's own notes document ~73 hyphenated-reduplication entries plus "a handful" of other
+  non-word contamination as the expected SKIPPED set (roughly 80-90 words) -- the observed 308 is
+  noticeably higher. Not re-investigated here; worth a follow-up read of which additional words are
+  being marked SKIPPED and whether the manifest's contamination notes need updating.
+- 123 words (1.7%) at a 30s timeout is a previously undocumented slow-word tail for Sena --
+  smaller than Amharic/Aweti/Mbugwe's, but real. `corpus-manifest.json`'s Sena entry does not yet
+  carry a timeout-hazard note the way those three do; also worth a follow-up.
+
+Neither caveat changes the headline (Sena's foma path already had full, 0-timeout coverage before
+this addendum); both are left as open follow-ups rather than investigated further here.
