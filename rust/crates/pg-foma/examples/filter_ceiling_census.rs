@@ -841,8 +841,19 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
     let words = read_words(&corpus.words_file, word_count);
 
     let stage = Instant::now();
-    let emit::EmitResult { lexc_source, .. } = emit::emit(&g);
+    let emit::EmitResult {
+        lexc_source,
+        report,
+    } = emit::emit(&g);
     let emit_ms = ms(stage.elapsed());
+    // `Unsupported` means `lexc_source` is deliberately empty; compiling it anyway would silently report every word as `no-candidates` instead of the real reason.
+    if let emit::FomaTier::Unsupported { reason } = &report.tier {
+        eprintln!(
+            "# filter ceiling census: {} unsupported by the foma-composite emitter (emit {emit_ms:.1}ms) -- {reason}",
+            corpus.label
+        );
+        std::process::exit(3);
+    }
     let stage = Instant::now();
     let net = fsm_lexc_parse_string(&FomaOptions::default(), None, &lexc_source)
         .unwrap_or_else(|| panic!("foma failed to compile the emitted lexc source"));
@@ -866,7 +877,8 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
     );
     // Kept out of every per-word figure below: a compile is paid once per grammar, not per word.
     println!(
-        "grammar setup (one-off): load {load_ms:.1}ms, emit {emit_ms:.1}ms, foma compile {compile_ms:.1}ms, filter index {index_ms:.1}ms"
+        "grammar setup (one-off): load {load_ms:.1}ms, emit {emit_ms:.1}ms, foma compile {compile_ms:.1}ms, filter index {index_ms:.1}ms, net states={} arcs={}",
+        net.statecount, net.arccount
     );
     println!();
     println!(
