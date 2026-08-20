@@ -1141,9 +1141,21 @@ pub fn compile_and_compose_rules(
 }
 
 /// Compile the same ordered cascade for a propose-then-confirm caller, but preserve an identity
-/// alternative at every RTL rewrite. The RTL construction is deliberately a safe superset rather
-/// than an exact relation, so making that individual stage optional prevents an over-proposal from
-/// destroying an otherwise valid analysis before the confirm engine can reject false positives.
+/// alternative at EVERY rewrite, not only RTL ones. RTL's own construction is a known-approximate
+/// safe superset (the original reason this existed), but a `LeftToRight`/`Simultaneous` rule can
+/// lose recall the same way for a reason RTL doesn't have: `crate::lower::class_members`'s
+/// `Feature`-kind matching has no access to `UseDefaults`/`defaultSymbol` (that is a
+/// `pg_rules::rewrite`-confirm-only concept -- `pg_grammar::chardef`'s own `feature_lanes` default
+/// an unspecified lane to "matches anything", per `build_feature_lanes`'s doc), and a caller with
+/// gated subrules (`crate::gate::find_gated_subrules`) applies that gating per lexical-entry group
+/// before calling this file's OWN gated compiler -- this ungated cascade has no such group split at
+/// all, so every subrule here compiles as if it always licenses, regardless of the POS/MPR state
+/// the confirm engine would actually require. Both gaps have the identical shape RTL's own doc
+/// names: an obligatory FST rewrite whose LHS match is a superset of the truth removes the
+/// UNMUTATED candidate outright rather than merely adding a false one, which is a propose-stage
+/// recall loss a confirm-side check cannot recover from. Making every stage optional here defers
+/// the real decision to confirm exactly like RTL already does, and costs nothing more than RTL's
+/// own union already costs per rule.
 pub fn compile_and_compose_rules_recall_safe(
     opts: &FomaOptions,
     g: &Grammar,
@@ -1199,7 +1211,7 @@ fn compile_and_compose_rules_internal(
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
     budget: &ComposeBudget,
-    optional_rtl: bool,
+    optional_every_rule: bool,
 ) -> Result<Option<Fsm>, ComposeError> {
     let mut composed: Option<Fsm> = None;
     for pr in prules_in_order {
@@ -1229,13 +1241,13 @@ fn compile_and_compose_rules_internal(
         match compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true, budget)? {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
-                let net = if optional_rtl && rule.dir == Dir::RightToLeft {
+                let net = if optional_every_rule {
                     union_checked(
                         opts,
                         net,
                         fsm_universal(),
                         budget,
-                        "compile_and_compose_rules recall-safe RTL identity union",
+                        "compile_and_compose_rules recall-safe identity union",
                     )?
                 } else {
                     net

@@ -1,0 +1,55 @@
+# Synthetic construct-shaped mimic -- see STAGING.md and grammar.xml's own header comment. Oracle:
+# C# founding oracle (SIL.Machine.Morphology.HermitCrab.Tool / hc.dll, via
+# machine/conformance/adapters/hc-dotnet-wrapper.sh) AND pangloss (`pg_parse::Morpher`, driven
+# directly), cross-checked to agree -- see STAGING.md's "Verification" section for both runs.
+
+language: CrossStemMaterialDetermination
+inspired_by: ["synthetic cross-stem material-determination probe (not modeling any real language)"]
+sources:
+  - "cross-stem material-determination containment regression"
+requires: []
+words:
+  - word: tolu
+    note: ROOT bare, no prefix/suffix applied -- a plain control.
+    parses:
+      - signature: "ROOT|tolu"
+        rules: []
+
+  - word: patoluka
+    note: >-
+      Valid combination 1: mrPfxA ("pa-") assigns mprPfxA, then mrSfx's subSfxKa (requires
+      mprPfxA) realizes "-ka". The suffix's chosen FORM is determined by which prefix fired,
+      across the intervening root -- not merely whether the pairing is licensed.
+    provenance: "cross-stem material-determination containment regression"
+    parses:
+      - signature: "PFXA+ROOT+SFX|patoluka"
+        rules: [mrPfxA, mrSfx]
+
+  - word: butoluko
+    note: >-
+      Valid combination 2, the mirror branch: mrPfxB ("bu-") assigns mprPfxB, then mrSfx's
+      subSfxKo (requires mprPfxB) realizes "-ko".
+    provenance: "cross-stem material-determination containment regression"
+    parses:
+      - signature: "PFXB+ROOT+SFX|butoluko"
+        rules: [mrPfxB, mrSfx]
+
+  - word: patoluko
+    note: >-
+      INVALID cross-combination: mrPfxA fires (assigns mprPfxA only), but "-ko" can only be
+      realized by subSfxKo, which requires mprPfxB -- absent here. No valid derivation. A
+      proposer that factorizes the prefix and suffix chains independently and drops the
+      cross-stem material link would wrongly admit this if it "picked one variant" instead of
+      over-proposing both.
+    provenance: "cross-stem material-determination containment regression"
+    expect_fail: true
+    blocked_by: [mrSfx]
+
+  - word: butoluka
+    note: >-
+      INVALID cross-combination, the mirror case: mrPfxB fires (assigns mprPfxB only), but "-ka"
+      can only be realized by subSfxKa, which requires mprPfxA -- absent here. No valid
+      derivation.
+    provenance: "cross-stem material-determination containment regression"
+    expect_fail: true
+    blocked_by: [mrSfx]

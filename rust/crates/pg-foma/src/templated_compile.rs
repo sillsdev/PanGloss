@@ -13,7 +13,7 @@ use pg_grammar::chardef::CharDefKind;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 use crate::analyzer::{prepare_network_for_apply, FomaProposer};
-use crate::emit::emit_underlying_templated;
+use crate::emit::{emit_underlying_templated, surface_table};
 use crate::replace::{compile_and_compose_rules_recall_safe, SegAlphabet, TupleReport};
 
 /// Timings and sizes from each exact stage of the pipeline.
@@ -69,10 +69,8 @@ impl std::error::Error for TemplatedCompileError {}
 pub fn compile_templated_morphotactics(
     g: &Grammar,
 ) -> Result<TemplatedCompileOutput, TemplatedCompileError> {
-    let table = g
-        .char_tables
-        .first()
-        .ok_or(TemplatedCompileError::MissingCharacterTable)?;
+    // The LAST stratum's table, never `g.char_tables[0]` -- same convention every other caller of `surface_table` already follows.
+    let table = surface_table(g);
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
 

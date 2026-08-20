@@ -421,3 +421,14 @@ fn fst_proposes_root1_for_its_correctly_metathesized_surface() {
          corroborate this specific word today (module doc's own out-of-scope finding)"
     );
 }
+
+#[test]
+fn templated_backend_proposes_root1_in_the_final_query_token_space() {
+    let g = load();
+    let entry_root1 = entry_id_of(&g, "eRoot1");
+    let morpheme_root1 = g.entries[entry_root1.0 as usize].morpheme.0;
+    let mut output = pg_foma::templated_compile::compile_templated_morphotactics(&g)
+        .expect("templated-underlying-tokens compile must not fail");
+    let candidates = output.proposer.propose("xm");
+    assert!(candidates.iter().any(|candidate| candidate.morphemes.iter().any(|m| m.0 == morpheme_root1)), "templated-underlying-tokens must bridge ROOT1's origin-table tokens into the final query token space for \"xm\": {candidates:?}");
+}
