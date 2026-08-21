@@ -60,6 +60,8 @@
 #[cfg(test)]
 mod test_support;
 
+/// Versioned, structured backend advice keyed by compiler-observed grammar shapes.
+pub mod advice_catalog;
 pub mod analyzer;
 /// **The accuracy question, split off from the speed question.** Confirmation-free undergeneration
 /// detection by admission-key set containment against the run's already-shared oracle result — zero
