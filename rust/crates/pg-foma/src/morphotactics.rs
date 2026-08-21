@@ -290,11 +290,15 @@ impl EnumerationBudget {
 /// deliberately: this crate has no existing `smallvec` dependency, `mid` is empty or a handful of
 /// entries for every grammar this pruning targets (a chain is bounded by `MAX_EXTRA_RULES`/
 /// `STRUCT_MAX_EXTRA_RULES` = 3), and adding a new dependency for that shape is not worth it.
-#[derive(Debug, Clone, PartialEq)]
+/// `applications` is indexed by the grammar's stable rule ordinal so it can enforce authored
+/// bounds without conflating distinct rules that happen to share a site.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct ChainState {
     pub free: Option<u8>,
     pub mid: Vec<(u16, u8)>,
     pub template_entry_disabled: bool,
+    /// Applications by stable `Grammar::mrules` ordinal.
+    pub applications: Vec<u16>,
 }
 
 impl ChainState {
@@ -305,11 +309,12 @@ impl ChainState {
     /// once, for the chain's whole lifetime, not re-checked per step: C#'s own `root_is_partial`
     /// gate reads the SAME root morpheme's `IsPartial` at every `synth_apply_templates` call along
     /// a chain, so it can never flip mid-chain).
-    pub(crate) fn seed(_g: &Grammar, entry_stratum: u8, root_is_partial: bool) -> Self {
+    pub(crate) fn seed(g: &Grammar, entry_stratum: u8, root_is_partial: bool) -> Self {
         ChainState {
             free: Some(entry_stratum),
             mid: Vec::new(),
             template_entry_disabled: root_is_partial,
+            applications: vec![0; g.mrules.len()],
         }
     }
 }
@@ -379,6 +384,8 @@ pub(crate) struct MorphotacticIndex {
     /// The reverse of `rule_loose_sites`; kept for diagnostics/tests even though `next_state` only ever needs the per-rule direction.
     #[allow(dead_code)]
     loose_by_stratum: Vec<Vec<MRuleId>>,
+    /// Authored `multipleApplication`, using the model's default of one.
+    rule_application_bounds: Vec<u16>,
 }
 
 impl MorphotacticIndex {
@@ -449,6 +456,7 @@ impl MorphotacticIndex {
             rule_slot_sites,
             templates,
             loose_by_stratum,
+            rule_application_bounds: g.mrules.iter().map(MorphRuleDef::max_apps).collect(),
         }
     }
 
@@ -510,6 +518,13 @@ impl MorphotacticIndex {
         base_fs: &FeatureStruct,
         fs_interner: &Interner<FeatureStruct>,
     ) -> Option<ChainState> {
+        let rule_index = rule.0 as usize;
+        let current_applications = *state.applications.get(rule_index)?;
+        let bound = *self.rule_application_bounds.get(rule_index)?;
+        if current_applications >= bound {
+            return None;
+        }
+
         let mut free_grants: Vec<u8> = Vec::new();
         let mut mid_grants: Vec<(u16, u8)> = Vec::new();
 
@@ -561,10 +576,14 @@ impl MorphotacticIndex {
         mid_grants.sort_unstable();
         mid_grants.dedup();
 
+        let mut applications = state.applications.clone();
+        applications[rule_index] = current_applications + 1;
+
         Some(ChainState {
             free: free_grants.into_iter().min(),
             mid: mid_grants,
             template_entry_disabled: state.template_entry_disabled,
+            applications,
         })
     }
 }
@@ -863,6 +882,7 @@ mod tests {
             free: None,
             mid: vec![(0, 0)],
             template_entry_disabled: false,
+            applications: vec![0; g.mrules.len()],
         };
         // C lives in slot 2; slot 1 (mandatory, non-vacuous) sits strictly between and blocks it.
         let c = mrule_id_of(&g, "mrC");
@@ -881,6 +901,7 @@ mod tests {
             free: None,
             mid: vec![(0, 1)],
             template_entry_disabled: false,
+            applications: vec![0; g.mrules.len()],
         };
         // V lives in slot 3; slot 2 (optional) sits strictly between and must be jumpable.
         let v = mrule_id_of(&g, "mrV");
@@ -903,6 +924,7 @@ mod tests {
             free: None,
             mid: vec![(0, 2)],
             template_entry_disabled: false,
+            applications: vec![0; g.mrules.len()],
         };
         // D lives in slot 4; slot 3 is mandatory but vacuous (bare CopyFromInput) and must be jumpable.
         let d = mrule_id_of(&g, "mrD");
@@ -921,6 +943,7 @@ mod tests {
             free: None,
             mid: vec![(0, 2)],
             template_entry_disabled: false,
+            applications: vec![0; g.mrules.len()],
         };
         let d = mrule_id_of(&g, "mrD");
         let next = mt.next_state(&after_c, d, fs, &g.fs_interner).unwrap();
@@ -955,6 +978,46 @@ mod tests {
     }
 
     #[test]
+    fn default_application_bound_allows_one_use() {
+        let g = load(FIXTURE_STRATA);
+        let mt = MorphotacticIndex::build(&g);
+        let fs = entry_fs(&g, "eK");
+        let rule = mrule_id_of(&g, "mrL0");
+        let seed = ChainState::seed(&g, 0, false);
+
+        let once = mt
+            .next_state(&seed, rule, fs, &g.fs_interner)
+            .expect("default multipleApplication=1 permits the first use");
+        assert_eq!(once.applications[rule.0 as usize], 1);
+        assert!(
+            mt.next_state(&once, rule, fs, &g.fs_interner).is_none(),
+            "default multipleApplication=1 must reject a second use"
+        );
+    }
+
+    #[test]
+    fn authored_application_bound_allows_exact_count() {
+        let xml = FIXTURE_STRATA.replacen(
+            r#"<MorphologicalRule id="mrL0""#,
+            r#"<MorphologicalRule id="mrL0" multipleApplication="2""#,
+            1,
+        );
+        let g = load(&xml);
+        let mt = MorphotacticIndex::build(&g);
+        let fs = entry_fs(&g, "eK");
+        let rule = mrule_id_of(&g, "mrL0");
+        let seed = ChainState::seed(&g, 0, false);
+
+        let once = mt.next_state(&seed, rule, fs, &g.fs_interner).unwrap();
+        let twice = mt.next_state(&once, rule, fs, &g.fs_interner).unwrap();
+        assert_eq!(twice.applications[rule.0 as usize], 2);
+        assert!(
+            mt.next_state(&twice, rule, fs, &g.fs_interner).is_none(),
+            "multipleApplication=2 must reject a third use"
+        );
+    }
+
+    #[test]
     fn partial_root_never_enters_template() {
         let g = load(FIXTURE_STRATA);
         let mt = MorphotacticIndex::build(&g);
@@ -985,6 +1048,7 @@ mod tests {
             free: Some(1),
             mid: Vec::new(),
             template_entry_disabled: false,
+            applications: vec![0; g.mrules.len()],
         };
         assert!(
             mt.next_state(&at_stratum1, gr, fs, &g.fs_interner)
@@ -1006,6 +1070,7 @@ mod tests {
             free: None,
             mid: vec![(0, 1)],
             template_entry_disabled: false,
+            applications: vec![0; g.mrules.len()],
         };
         assert!(mt
             .next_state(&mid_state, orphan, fs, &g.fs_interner)
@@ -1021,6 +1086,7 @@ mod tests {
             free: None,
             mid: vec![(0, 1)],
             template_entry_disabled: false,
+            applications: vec![0; g.mrules.len()],
         };
         // X sits in both slot 2 and slot 4's rule lists, both reachable from slot 1; one firing must merge both into a single, sorted/deduped `mid`.
         let x = mrule_id_of(&g, "mrX");
