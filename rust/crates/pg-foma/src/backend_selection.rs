@@ -28,6 +28,7 @@ use crate::capability::{
 use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
+use crate::advice_catalog::RemedyEffort;
 use crate::health::{HealthFinding, Metric, MetricValue, Severity, ValueProvenance};
 use crate::junctions::PhonologyProbe;
 use crate::replace::SegAlphabet;
@@ -79,6 +80,71 @@ pub struct CostEvidence {
     pub provenance: ValueProvenance,
 }
 
+/// A typed link from a backend finding to one cataloged remedy for one observed shape.
+///
+/// Effort belongs to the pair, not the remedy key: a shared remedy can be easy for one shape and
+/// hard for another. Equality and ordering include all three fields so stable de-duplication never
+/// erases that distinction.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AdviceReference {
+    pub shape_key: String,
+    pub remedy_key: String,
+    pub effort: RemedyEffort,
+}
+
+impl AdviceReference {
+    pub fn new(
+        shape_key: impl Into<String>,
+        remedy_key: impl Into<String>,
+        effort: RemedyEffort,
+    ) -> Self {
+        Self {
+            shape_key: shape_key.into(),
+            remedy_key: remedy_key.into(),
+            effort,
+        }
+    }
+}
+
+fn dedup_advice_references(mut references: Vec<AdviceReference>) -> Vec<AdviceReference> {
+    references.sort();
+    references.dedup();
+    references
+}
+
+fn remedy_set_key(set: &[AdviceReference]) -> (usize, usize, usize, Vec<AdviceReference>) {
+    let set = dedup_advice_references(set.to_vec());
+    let mut hard = 0;
+    let mut medium = 0;
+    let mut easy = 0;
+    for reference in &set {
+        match reference.effort {
+            RemedyEffort::Hard => hard += 1,
+            RemedyEffort::Medium => medium += 1,
+            RemedyEffort::Easy => easy += 1,
+        }
+    }
+    (hard, medium, easy, set)
+}
+
+/// Deterministically orders alternative blocking remedy sets by hard, medium, and easy effort.
+///
+/// Correctness admission is decided before this ordering is consulted. This function only helps
+/// explain which cataloged remedy set would be least work for a backend that is currently blocked.
+pub fn sort_blocking_remedy_sets(
+    sets: Vec<Vec<AdviceReference>>,
+) -> Vec<Vec<AdviceReference>> {
+    let mut keyed: Vec<_> = sets.into_iter().map(|set| remedy_set_key(&set)).collect();
+    keyed.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.3.cmp(&right.3))
+    });
+    keyed.into_iter().map(|(_, _, _, set)| set).collect()
+}
+
 /// One backend's place in the selection: its own compatibility report, plus whether that report
 /// admits it as a path for this grammar.
 #[derive(Debug, Clone, PartialEq)]
@@ -90,7 +156,7 @@ pub struct BackendReport {
     failed_predicates: Vec<String>,
     shapes: Vec<String>,
     cost_evidence: Vec<CostEvidence>,
-    advice_references: Vec<String>,
+    advice_references: Vec<AdviceReference>,
     status_detail: Option<String>,
 }
 
@@ -128,7 +194,7 @@ impl BackendReport {
         &self.cost_evidence
     }
 
-    pub fn advice_references(&self) -> &[String] {
+    pub fn advice_references(&self) -> &[AdviceReference] {
         &self.advice_references
     }
 
@@ -196,10 +262,13 @@ impl BackendReport {
         strategy: EmissionStrategy,
         decision: CompileDecision,
         findings: Vec<HealthFinding>,
-    ) -> Self {
+    ) -> Result<Self, &'static str> {
+        if matches!(decision, CompileDecision::Refuse(_)) {
+            return Err("an accepted backend report cannot carry a refusal");
+        }
         let mut report = Self::base(strategy, decision, BackendStatus::Accepted);
         report.findings = findings;
-        report
+        Ok(report)
     }
 
     pub fn refused(strategy: EmissionStrategy, decision: CompileDecision) -> Self {
@@ -233,12 +302,12 @@ impl BackendReport {
         failed_predicates: Vec<String>,
         shapes: Vec<String>,
         cost_evidence: Vec<CostEvidence>,
-        advice_references: Vec<String>,
+        advice_references: Vec<AdviceReference>,
     ) -> Self {
         self.failed_predicates = failed_predicates;
         self.shapes = shapes;
         self.cost_evidence = cost_evidence;
-        self.advice_references = advice_references;
+        self.advice_references = dedup_advice_references(advice_references);
         self
     }
 
@@ -308,6 +377,7 @@ impl BackendSelection {
                             BackendReport::refused(strategy, decision.clone())
                         } else {
                             BackendReport::accepted(strategy, decision.clone(), Vec::new())
+                                .expect("non-refusing decision must be accepted")
                         }
                     })
             })
@@ -591,12 +661,14 @@ mod tests {
                     crate::health::Severity::Warning,
                     crate::health::FindingCode::PayloadSizeBand,
                 )],
-            ),
+            )
+            .unwrap(),
             BackendReport::accepted(
                 EmissionStrategy::TemplatedUnderlyingTokens,
                 CompileDecision::Admit,
                 vec![],
-            ),
+            )
+            .unwrap(),
             BackendReport::refused(
                 EmissionStrategy::PlanComposed,
                 CompileDecision::Refuse(vec![diagnostic("unsupported")]),
@@ -636,7 +708,8 @@ mod tests {
                     crate::health::Severity::Error,
                     crate::health::FindingCode::PayloadSizeBand,
                 )],
-            ),
+            )
+            .unwrap(),
             BackendReport::accepted(
                 EmissionStrategy::TemplatedUnderlyingTokens,
                 CompileDecision::Admit,
@@ -644,7 +717,8 @@ mod tests {
                     crate::health::Severity::Critical,
                     crate::health::FindingCode::UnknownUnboundedConstruct,
                 )],
-            ),
+            )
+            .unwrap(),
         ];
         let selection = BackendSelection::from_reports(reports);
 
@@ -684,6 +758,7 @@ mod tests {
                         vec![]
                     },
                 )
+                .unwrap()
             })
             .collect();
         let selection = BackendSelection::from_reports(reports);

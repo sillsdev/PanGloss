@@ -1,5 +1,7 @@
+use pg_foma::advice_catalog::RemedyEffort;
 use pg_foma::backend_selection::{
-    BackendReport, BackendSelection, BackendStatus, BACKEND_PREFERENCE,
+    sort_blocking_remedy_sets, AdviceReference, BackendReport, BackendSelection, BackendStatus,
+    BACKEND_PREFERENCE,
 };
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::enumerate::EmissionStrategy;
@@ -34,6 +36,10 @@ fn refused(strategy: EmissionStrategy) -> BackendReport {
     )
 }
 
+fn advice(shape: &str, remedy: &str, effort: RemedyEffort) -> AdviceReference {
+    AdviceReference::new(shape, remedy, effort)
+}
+
 #[test]
 fn reports_retain_every_backend_and_rank_only_normal_candidates() {
     let selection = BackendSelection::from_reports(vec![
@@ -41,12 +47,14 @@ fn reports_retain_every_backend_and_rank_only_normal_candidates() {
             EmissionStrategy::TunedSurfaceProbed,
             CompileDecision::Admit,
             vec![finding(Severity::Warning, FindingCode::PayloadSizeBand)],
-        ),
+        )
+        .unwrap(),
         BackendReport::accepted(
             EmissionStrategy::TemplatedUnderlyingTokens,
             CompileDecision::Admit,
             vec![],
-        ),
+        )
+        .unwrap(),
         refused(EmissionStrategy::PlanComposed),
     ]);
 
@@ -85,7 +93,8 @@ fn error_and_critical_reports_are_retained_but_not_selected() {
             EmissionStrategy::TunedSurfaceProbed,
             CompileDecision::Admit,
             vec![finding(Severity::Error, FindingCode::PayloadSizeBand)],
-        ),
+        )
+        .unwrap(),
         BackendReport::accepted(
             EmissionStrategy::TemplatedUnderlyingTokens,
             CompileDecision::Admit,
@@ -93,7 +102,8 @@ fn error_and_critical_reports_are_retained_but_not_selected() {
                 Severity::Critical,
                 FindingCode::UnknownUnboundedConstruct,
             )],
-        ),
+        )
+        .unwrap(),
     ]);
 
     assert!(selection.selected().is_empty());
@@ -130,6 +140,7 @@ fn selected_candidates_can_be_limited_to_two() {
                         vec![]
                     },
                 )
+                .unwrap()
             })
             .collect(),
     );
@@ -140,4 +151,78 @@ fn selected_candidates_can_be_limited_to_two() {
         EmissionStrategy::TemplatedUnderlyingTokens
     );
     assert_eq!(selection.select_up_to(2)[1], EmissionStrategy::PlanComposed);
+}
+
+#[test]
+fn blocking_remedy_sets_sort_hard_then_medium_then_easy_and_deduplicate() {
+    let ordered = sort_blocking_remedy_sets(vec![
+        vec![advice("shape-hard", "shared", RemedyEffort::Hard)],
+        vec![advice("shape-medium", "shared", RemedyEffort::Medium)],
+        vec![
+            advice("shape-easy", "shared", RemedyEffort::Easy),
+            advice("shape-easy", "shared", RemedyEffort::Easy),
+        ],
+        vec![
+            advice("shape-medium-easy", "shared", RemedyEffort::Medium),
+            advice("shape-medium-easy", "other", RemedyEffort::Easy),
+        ],
+    ]);
+
+    assert_eq!(
+        ordered,
+        vec![
+            vec![advice("shape-easy", "shared", RemedyEffort::Easy)],
+            vec![
+                advice("shape-medium-easy", "other", RemedyEffort::Easy),
+                advice("shape-medium-easy", "shared", RemedyEffort::Medium),
+            ],
+            vec![advice("shape-medium", "shared", RemedyEffort::Medium)],
+            vec![advice("shape-hard", "shared", RemedyEffort::Hard)],
+        ]
+    );
+}
+
+#[test]
+fn shared_remedies_keep_shape_specific_effort_and_report_refs_are_stable() {
+    let report = BackendReport::accepted(
+        EmissionStrategy::TunedSurfaceProbed,
+        CompileDecision::Admit,
+        vec![],
+    )
+    .unwrap()
+    .with_diagnostics(
+        vec![
+            advice("shape-b", "shared-order", RemedyEffort::Hard),
+            advice("shape-a", "shared-order", RemedyEffort::Easy),
+            advice("shape-a", "shared-order", RemedyEffort::Easy),
+        ],
+        vec![],
+        vec![],
+        vec![],
+    );
+
+    assert_eq!(
+        report.advice_references(),
+        &[
+            advice("shape-a", "shared-order", RemedyEffort::Easy),
+            advice("shape-b", "shared-order", RemedyEffort::Hard),
+        ]
+    );
+    assert!(
+        report.is_selected(),
+        "remedy effort must not override correctness/health"
+    );
+}
+
+#[test]
+fn accepted_constructor_rejects_refusal() {
+    let result = BackendReport::accepted(
+        EmissionStrategy::TunedSurfaceProbed,
+        CompileDecision::Refuse(Vec::new()),
+        vec![],
+    );
+    assert_eq!(
+        result,
+        Err("an accepted backend report cannot carry a refusal")
+    );
 }
