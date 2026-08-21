@@ -753,9 +753,10 @@ mod tests {
             Err(CatalogError::UnsupportedSchemaVersion(2))
         ));
         catalog.schema_version = 1;
+        let template = catalog.entries[0].clone();
         catalog.entries.push(AdviceEntry {
             shape_key: "0-shape".to_string(),
-            ..catalog.entries[0].clone()
+            ..template
         });
         assert!(matches!(
             validate_catalog(&catalog),
