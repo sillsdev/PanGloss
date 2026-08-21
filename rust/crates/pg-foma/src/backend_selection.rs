@@ -10,20 +10,14 @@
 //! the envelope into a choice, so callers reached for the join and inherited that ambiguity.
 //!
 //! # Correctness selects; cost does not
-//! A backend is selected iff its own report is not `crate::capability::CompileDecision::Refuse` —
-//! the binary correctness axis, and the only axis consulted here. `Admit` and `ConfirmOnly` are
-//! both selected: `ConfirmOnly` is a recall-preserving mode, not a defect, and demoting it would
-//! quietly turn a graded property into a rejection.
+//! A backend is a normal-generation candidate only when its own report is correctness-admitted and
+//! its worst health severity is at most `Warning`. `Admit` and `ConfirmOnly` are both
+//! correctness-admitted: `ConfirmOnly` is a recall-preserving mode, not a defect. Error/Critical
+//! reports and every refusal remain in the report but are never silently selected.
 //!
-//! No cost model is consulted at all. This layer computes no size, no build time and no growth
-//! rate, so cost cannot exclude a backend here even by accident — which is exactly the property
-//! docs/adr/0001-honest-capability-boundary.md asks for.
-//!
-//! # The one policy choice, stated plainly
-//! When several backends are viable, `BackendSelection::preferred` returns the first in
-//! `BACKEND_PREFERENCE` order. That order is a fixed, hand-written list, not a measurement: this
-//! module has no cost data to rank with, and inventing one would be inventing selection policy.
-//! A caller that wants a different order reads `BackendSelection::selected` and ranks it itself.
+//! Candidate ranking is deterministic and deliberately modest: clean reports first, then worst
+//! severity, then finding count, with `BACKEND_PREFERENCE` only as the final tie-break. Cost
+//! evidence is retained for callers and explanations; it never overrides correctness.
 
 use pg_grammar::model::Grammar;
 
@@ -34,6 +28,7 @@ use crate::capability::{
 use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
+use crate::health::{HealthFinding, Metric, MetricValue, Severity, ValueProvenance};
 use crate::junctions::PhonologyProbe;
 use crate::replace::SegAlphabet;
 
@@ -53,12 +48,50 @@ pub const BACKEND_PREFERENCE: &[EmissionStrategy] = &[
     EmissionStrategy::PlanComposed,
 ];
 
+fn preference_index(strategy: EmissionStrategy) -> usize {
+    BACKEND_PREFERENCE
+        .iter()
+        .position(|candidate| *candidate == strategy)
+        .unwrap_or(usize::MAX)
+}
+
+/// Why a backend report exists even when no artifact can be produced from it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendStatus {
+    /// Capability admission succeeded and the backend is eligible for normal generation, subject
+    /// to its health severity.
+    Accepted,
+    /// Capability admission refused this grammar. The refusal and its diagnostics remain in the
+    /// report for explanation and advice.
+    Refused,
+    /// The backend was requested but was not available in this run.
+    Missing,
+    /// The backend was admitted, but its construction attempt failed.
+    Failed,
+}
+
+/// One measured or predicted cost datum carried beside a backend's stable findings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CostEvidence {
+    pub metric: Metric,
+    pub value: MetricValue,
+    pub threshold: Option<MetricValue>,
+    pub provenance: ValueProvenance,
+}
+
 /// One backend's place in the selection: its own compatibility report, plus whether that report
 /// admits it as a path for this grammar.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BackendReport {
     strategy: EmissionStrategy,
     decision: CompileDecision,
+    status: BackendStatus,
+    findings: Vec<HealthFinding>,
+    failed_predicates: Vec<String>,
+    shapes: Vec<String>,
+    cost_evidence: Vec<CostEvidence>,
+    advice_references: Vec<String>,
+    status_detail: Option<String>,
 }
 
 impl BackendReport {
@@ -73,10 +106,146 @@ impl BackendReport {
         &self.decision
     }
 
-    /// Whether this backend is a path for the grammar: true for `Admit` and `ConfirmOnly`, false
-    /// only for a refusal. Pinned by `a_refusing_backend_is_never_selected`.
+    /// Lifecycle status for this backend. Unlike `decision`, this distinguishes refusal, absence,
+    /// and a failed construction attempt, all of which must remain visible in a full report.
+    pub fn status(&self) -> BackendStatus {
+        self.status
+    }
+
+    pub fn findings(&self) -> &[HealthFinding] {
+        &self.findings
+    }
+
+    pub fn failed_predicates(&self) -> &[String] {
+        &self.failed_predicates
+    }
+
+    pub fn shapes(&self) -> &[String] {
+        &self.shapes
+    }
+
+    pub fn cost_evidence(&self) -> &[CostEvidence] {
+        &self.cost_evidence
+    }
+
+    pub fn advice_references(&self) -> &[String] {
+        &self.advice_references
+    }
+
+    pub fn status_detail(&self) -> Option<&str> {
+        self.status_detail.as_deref()
+    }
+
+    /// The worst health finding for this backend. Overrides are intentionally retained in this
+    /// aggregate: an explicit development override does not silently turn an Error/Critical
+    /// backend into a normal-generation candidate.
+    pub fn worst_severity(&self) -> Severity {
+        self.findings
+            .iter()
+            .map(|finding| finding.severity)
+            .max()
+            .unwrap_or(Severity::Ideal)
+    }
+
+    /// A backend is a normal-generation candidate only when both correctness and health admit it.
+    pub fn is_normal_candidate(&self) -> bool {
+        self.status == BackendStatus::Accepted
+            && !matches!(self.decision, CompileDecision::Refuse(_))
+            && self.worst_severity() <= Severity::Warning
+    }
+
+    fn rank_key(&self) -> (bool, Severity, usize) {
+        (
+            // `false` sorts before `true`: a zero-finding report wins before severity is consulted.
+            !self.findings.is_empty(),
+            self.worst_severity(),
+            self.findings.len(),
+        )
+    }
+
+    fn base(strategy: EmissionStrategy, decision: CompileDecision, status: BackendStatus) -> Self {
+        Self {
+            strategy,
+            decision,
+            status,
+            findings: Vec::new(),
+            failed_predicates: Vec::new(),
+            shapes: Vec::new(),
+            cost_evidence: Vec::new(),
+            advice_references: Vec::new(),
+            status_detail: None,
+        }
+    }
+
+    fn predicates_from_decision(decision: &CompileDecision) -> Vec<String> {
+        match decision {
+            CompileDecision::Refuse(diagnostics) => diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.predicate.to_string())
+                .fold(Vec::new(), |mut predicates, predicate| {
+                    if !predicates.contains(&predicate) {
+                        predicates.push(predicate);
+                    }
+                    predicates
+                }),
+            CompileDecision::Admit | CompileDecision::ConfirmOnly => Vec::new(),
+        }
+    }
+
+    pub fn accepted(
+        strategy: EmissionStrategy,
+        decision: CompileDecision,
+        findings: Vec<HealthFinding>,
+    ) -> Self {
+        let mut report = Self::base(strategy, decision, BackendStatus::Accepted);
+        report.findings = findings;
+        report
+    }
+
+    pub fn refused(strategy: EmissionStrategy, decision: CompileDecision) -> Self {
+        let mut report = Self::base(strategy, decision, BackendStatus::Refused);
+        report.failed_predicates = Self::predicates_from_decision(&report.decision);
+        report
+    }
+
+    pub fn missing(strategy: EmissionStrategy, detail: impl Into<String>) -> Self {
+        let mut report = Self::base(
+            strategy,
+            CompileDecision::Refuse(Vec::new()),
+            BackendStatus::Missing,
+        );
+        report.status_detail = Some(detail.into());
+        report
+    }
+
+    pub fn failed(strategy: EmissionStrategy, detail: impl Into<String>) -> Self {
+        let mut report = Self::base(
+            strategy,
+            CompileDecision::Refuse(Vec::new()),
+            BackendStatus::Failed,
+        );
+        report.status_detail = Some(detail.into());
+        report
+    }
+
+    pub fn with_diagnostics(
+        mut self,
+        failed_predicates: Vec<String>,
+        shapes: Vec<String>,
+        cost_evidence: Vec<CostEvidence>,
+        advice_references: Vec<String>,
+    ) -> Self {
+        self.failed_predicates = failed_predicates;
+        self.shapes = shapes;
+        self.cost_evidence = cost_evidence;
+        self.advice_references = advice_references;
+        self
+    }
+
+    /// Whether this backend is a normal-generation path for the grammar. Refused, missing,
+    /// failed, Error, and Critical reports are retained but not selected.
     pub fn is_selected(&self) -> bool {
-        !matches!(self.decision, CompileDecision::Refuse(_))
+        self.is_normal_candidate()
     }
 
     /// Why this backend was not selected: the diagnostics naming the construct it declined on, or
@@ -96,12 +265,33 @@ impl BackendReport {
 /// an empty, one-element or many-element list respectively, and `reports` still carries every
 /// declining backend's named construct in the empty case, which is the case a caller most needs to
 /// explain.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BackendSelection {
     reports: Vec<BackendReport>,
 }
 
 impl BackendSelection {
+    /// Normalizes a caller-supplied set into one report for every committed backend. Missing
+    /// entries become explicit `Missing` reports rather than disappearing from the explanation.
+    pub fn from_reports(reports: Vec<BackendReport>) -> Self {
+        let mut reports = reports;
+        let normalized = BACKEND_PREFERENCE
+            .iter()
+            .map(|&strategy| {
+                reports
+                    .iter()
+                    .position(|report| report.strategy == strategy)
+                    .map(|index| reports.remove(index))
+                    .unwrap_or_else(|| {
+                        BackendReport::missing(strategy, "backend was not available")
+                    })
+            })
+            .collect();
+        Self {
+            reports: normalized,
+        }
+    }
+
     /// Reads an already-composed `crate::capability::StrategyEnvelope` rather than composing one,
     /// so a caller that already holds the envelope pays for no second plan walk.
     ///
@@ -113,13 +303,16 @@ impl BackendSelection {
             .filter_map(|&strategy| {
                 envelope
                     .decision_for(strategy)
-                    .map(|decision| BackendReport {
-                        strategy,
-                        decision: decision.clone(),
+                    .map(|decision| {
+                        if matches!(decision, CompileDecision::Refuse(_)) {
+                            BackendReport::refused(strategy, decision.clone())
+                        } else {
+                            BackendReport::accepted(strategy, decision.clone(), Vec::new())
+                        }
                     })
             })
             .collect();
-        Self { reports }
+        Self::from_reports(reports)
     }
 
     /// Every backend's report, in `BACKEND_PREFERENCE` order — selected and excluded alike, since
@@ -133,23 +326,39 @@ impl BackendSelection {
         self.reports.iter().find(|r| r.strategy == strategy)
     }
 
-    /// The backends that can compile this grammar, in `BACKEND_PREFERENCE` order. Empty is the
-    /// "no path" answer.
+    /// Normal-generation candidates, ranked by report quality. Empty is the "no path" answer.
     pub fn selected(&self) -> Vec<EmissionStrategy> {
-        self.reports
-            .iter()
-            .filter(|r| r.is_selected())
+        self.ranked_candidates()
+            .into_iter()
             .map(|r| r.strategy)
             .collect()
     }
 
-    /// The single backend a caller should run when it can only run one: the first selected in
-    /// `BACKEND_PREFERENCE` order, or `None` when no backend can compile the grammar.
+    /// The single highest-ranked normal-generation backend, or `None` when no backend is
+    /// correctness- and health-admitted.
     pub fn preferred(&self) -> Option<EmissionStrategy> {
-        self.reports
-            .iter()
-            .find(|r| r.is_selected())
+        self.ranked_candidates().first().map(|r| r.strategy)
+    }
+
+    /// Returns at most the requested number of normally admissible candidates. The caller may
+    /// request two for a measured comparison; no Error/Critical/refused backend can enter this
+    /// list. Ranking is clean report, severity, finding count, then committed preference.
+    pub fn select_up_to(&self, limit: usize) -> Vec<EmissionStrategy> {
+        self.ranked_candidates()
+            .into_iter()
+            .take(limit.min(2))
             .map(|r| r.strategy)
+            .collect()
+    }
+
+    fn ranked_candidates(&self) -> Vec<&BackendReport> {
+        let mut candidates: Vec<_> = self.reports.iter().filter(|r| r.is_selected()).collect();
+        candidates.sort_by(|a, b| {
+            a.rank_key()
+                .cmp(&b.rank_key())
+                .then_with(|| preference_index(a.strategy).cmp(&preference_index(b.strategy)))
+        });
+        candidates
     }
 
     /// Every backend that declined, with the constructs it declined on — the per-backend
@@ -203,6 +412,25 @@ mod tests {
         }
     }
 
+    fn finding(
+        severity: crate::health::Severity,
+        code: crate::health::FindingCode,
+    ) -> crate::health::HealthFinding {
+        crate::health::HealthFinding {
+            code,
+            severity,
+            phase: crate::health::Phase::Compile,
+            affected: vec!["synthetic-rule".to_string()],
+            metric: crate::health::Metric::EmittedLineCount,
+            value: crate::health::MetricValue::Count(1),
+            provenance: crate::health::ValueProvenance::Observed,
+            threshold: None,
+            explanation: "synthetic finding".to_string(),
+            remedies: Vec::new(),
+            override_record: None,
+        }
+    }
+
     fn envelope_of(rows: &[(EmissionStrategy, CompileDecision)]) -> BackendSelection {
         BackendSelection {
             reports: BACKEND_PREFERENCE
@@ -213,6 +441,17 @@ mod tests {
                         .map(|(_, decision)| BackendReport {
                             strategy,
                             decision: decision.clone(),
+                            status: if matches!(decision, CompileDecision::Refuse(_)) {
+                                BackendStatus::Refused
+                            } else {
+                                BackendStatus::Accepted
+                            },
+                            findings: Vec::new(),
+                            failed_predicates: Vec::new(),
+                            shapes: Vec::new(),
+                            cost_evidence: Vec::new(),
+                            advice_references: Vec::new(),
+                            status_detail: None,
                         })
                 })
                 .collect(),
@@ -340,5 +579,120 @@ mod tests {
             selection.preferred(),
             Some(EmissionStrategy::TunedSurfaceProbed)
         );
+    }
+
+    #[test]
+    fn reports_retain_every_backend_and_rank_only_normal_candidates() {
+        let reports = vec![
+            BackendReport::accepted(
+                EmissionStrategy::TunedSurfaceProbed,
+                CompileDecision::Admit,
+                vec![finding(
+                    crate::health::Severity::Warning,
+                    crate::health::FindingCode::PayloadSizeBand,
+                )],
+            ),
+            BackendReport::accepted(
+                EmissionStrategy::TemplatedUnderlyingTokens,
+                CompileDecision::Admit,
+                vec![],
+            ),
+            BackendReport::refused(
+                EmissionStrategy::PlanComposed,
+                CompileDecision::Refuse(vec![diagnostic("unsupported")]),
+            ),
+        ];
+        let selection = BackendSelection::from_reports(reports);
+
+        assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
+        assert_eq!(
+            selection.selected(),
+            vec![
+                EmissionStrategy::TemplatedUnderlyingTokens,
+                EmissionStrategy::TunedSurfaceProbed,
+            ],
+            "clean reports rank ahead of warning reports; refused reports remain retained but are not candidates"
+        );
+        assert_eq!(
+            selection.preferred(),
+            Some(EmissionStrategy::TemplatedUnderlyingTokens)
+        );
+        assert_eq!(
+            selection
+                .report_for(EmissionStrategy::PlanComposed)
+                .expect("refused backend remains reportable")
+                .status(),
+            BackendStatus::Refused
+        );
+    }
+
+    #[test]
+    fn error_and_critical_reports_are_retained_but_not_selected() {
+        let reports = vec![
+            BackendReport::accepted(
+                EmissionStrategy::TunedSurfaceProbed,
+                CompileDecision::Admit,
+                vec![finding(
+                    crate::health::Severity::Error,
+                    crate::health::FindingCode::PayloadSizeBand,
+                )],
+            ),
+            BackendReport::accepted(
+                EmissionStrategy::TemplatedUnderlyingTokens,
+                CompileDecision::Admit,
+                vec![finding(
+                    crate::health::Severity::Critical,
+                    crate::health::FindingCode::UnknownUnboundedConstruct,
+                )],
+            ),
+        ];
+        let selection = BackendSelection::from_reports(reports);
+
+        assert!(selection.selected().is_empty());
+        assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
+        assert_eq!(
+            selection
+                .report_for(EmissionStrategy::TunedSurfaceProbed)
+                .expect("error report remains retained")
+                .worst_severity(),
+            crate::health::Severity::Error
+        );
+        assert_eq!(
+            selection
+                .report_for(EmissionStrategy::PlanComposed)
+                .expect("missing backend remains retained")
+                .status(),
+            BackendStatus::Missing
+        );
+    }
+
+    #[test]
+    fn selected_candidates_can_be_limited_to_two_without_admitting_bad_reports() {
+        let reports = BACKEND_PREFERENCE
+            .iter()
+            .enumerate()
+            .map(|(index, &strategy)| {
+                BackendReport::accepted(
+                    strategy,
+                    CompileDecision::Admit,
+                    if index == 0 {
+                        vec![finding(
+                            crate::health::Severity::Info,
+                            crate::health::FindingCode::PayloadSizeBand,
+                        )]
+                    } else {
+                        vec![]
+                    },
+                )
+            })
+            .collect();
+        let selection = BackendSelection::from_reports(reports);
+
+        assert_eq!(selection.select_up_to(2).len(), 2);
+        assert_eq!(
+            selection.select_up_to(2)[0],
+            EmissionStrategy::TemplatedUnderlyingTokens
+        );
+        assert_eq!(selection.select_up_to(2)[1], EmissionStrategy::PlanComposed);
     }
 }
