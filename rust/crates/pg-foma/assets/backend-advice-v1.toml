@@ -1,0 +1,203 @@
+# Generic compiler evidence only.  Entries and remedies are sorted by their stable keys/ranks.
+schema_version = 1
+
+[[entry]]
+shape_key = "late-structural-reachability"
+backend_id = "foma"
+route = "surface-enumeration"
+failed_predicate = "structural operation remains reachable after ordinary rule application"
+evidence_refs = ["backend:foma", "route:surface-enumeration", "rule:structural-operation", "metric:reachable-state-count"]
+equivalence_caveat = "Any grammar reordering requires a language-owner equivalence review."
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "order-rules"
+description = "Order the ordinary and structural rules when the language licenses that order."
+effort = "medium"
+prerequisites = ["a proven linguistic ordering"]
+contraindications = ["the grammar permits both orders"]
+equivalence_caveat = "The compiler cannot establish linguistic equivalence for a changed order."
+
+[[entry.remedy]]
+rank = 20
+remedy_key = "constrain-structural-reachability"
+description = "Constrain the structural operation to the categories that are proven reachable."
+effort = "hard"
+prerequisites = ["a finite reachable-category certificate"]
+contraindications = ["the operation is intended for every reachable category"]
+equivalence_caveat = "A reachability constraint can remove analyses unless equivalence is established."
+
+[[entry]]
+shape_key = "nonregular-process-morphology"
+backend_id = "foma"
+route = "surface-enumeration"
+failed_predicate = "process morphology is not represented by a finite-state relation"
+evidence_refs = ["backend:foma", "route:surface-enumeration", "predicate:finite-state-relation", "witness:process-operation"]
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "finite-structural-operation"
+description = "Use a supported finite structural operation with a proven bounded relation."
+effort = "hard"
+prerequisites = ["a finite relation certificate"]
+contraindications = ["the process is genuinely unbounded or nonregular"]
+equivalence_caveat = "The finite reformulation must be checked against the intended analysis."
+
+[[entry.remedy]]
+rank = 20
+remedy_key = "regularize-phonology"
+description = "Re-express the regular portion of the process as a phonological rewrite cascade."
+effort = "medium"
+prerequisites = ["the affected portion is regular"]
+contraindications = ["the rewrite changes a structural dependency"]
+equivalence_caveat = "A rewrite reformulation may alter the analysis if the dependency is structural."
+
+[[entry]]
+shape_key = "null-cycle"
+backend_id = "foma"
+route = "tag-continuation"
+failed_predicate = "zero-surface continuation can repeat without consuming input"
+evidence_refs = ["backend:foma", "route:tag-continuation", "cycle:zero-surface", "metric:application-count"]
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "remove-null-cycle"
+description = "Remove the zero-surface cycle when the repeated application is not meaningful."
+effort = "easy"
+prerequisites = ["the cycle is not semantically required"]
+contraindications = ["absence and null realization are distinct analyses"]
+equivalence_caveat = "Removing a cycle can remove valid analyses."
+
+[[entry.remedy]]
+rank = 20
+remedy_key = "bound-null-application"
+description = "Give the null realization a finite application bound when the bound is linguistic."
+effort = "medium"
+prerequisites = ["a proven finite application bound"]
+contraindications = ["the language licenses unbounded repetition"]
+equivalence_caveat = "A finite bound changes the grammar if repetition is genuinely unbounded."
+
+[[entry]]
+shape_key = "optional-slot-branching"
+backend_id = "foma"
+route = "slot-continuation"
+failed_predicate = "independent apply-or-skip choices multiply reachable slot states"
+evidence_refs = ["backend:foma", "route:slot-continuation", "slot:optional-slot", "metric:reachable-state-count"]
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "combine-exclusive-options"
+description = "Combine mutually exclusive choices in one slot when they share an obligation."
+effort = "medium"
+prerequisites = ["mutual exclusivity is proven"]
+contraindications = ["the choices may co-occur"]
+equivalence_caveat = "Combining choices can change co-occurrence behavior."
+
+[[entry.remedy]]
+rank = 20
+remedy_key = "use-obligation-templates"
+description = "Use separate templates for distinct obligation patterns."
+effort = "hard"
+prerequisites = ["template obligations are independently specified"]
+contraindications = ["the templates intentionally share optional paths"]
+equivalence_caveat = "Template separation requires checking the complete analysis set."
+
+[[entry]]
+shape_key = "repeated-application"
+backend_id = "foma"
+route = "rule-application-counter"
+failed_predicate = "the route cannot prove a finite application count"
+evidence_refs = ["backend:foma", "route:rule-application-counter", "rule:repeated-rule", "metric:application-count"]
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "finite-application-counter"
+description = "Set the smallest correct multiple-application bound."
+effort = "medium"
+prerequisites = ["a finite application bound is linguistically correct"]
+contraindications = ["the rule is intended to apply without a finite bound"]
+equivalence_caveat = "An application bound can exclude intended repeated analyses."
+
+[[entry.remedy]]
+rank = 20
+remedy_key = "separate-rule-reuse"
+description = "Separate independent reusable rules into finite, explicitly reachable paths."
+effort = "hard"
+prerequisites = ["the reused paths are independently bounded"]
+contraindications = ["the rule identity itself carries semantic meaning"]
+equivalence_caveat = "Path separation requires an equivalence check for repeated analyses."
+
+[[entry]]
+shape_key = "structural-deletion-or-truncation"
+backend_id = "foma"
+route = "surface-enumeration"
+failed_predicate = "literal structural deletion cannot reconstruct removed material"
+evidence_refs = ["backend:foma", "route:surface-enumeration", "rule:deletion", "witness:truncated-form"]
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "regularize-phonology"
+description = "Express a regular surface alternation as a phonological rule."
+effort = "medium"
+prerequisites = ["the deletion is a regular surface alternation"]
+contraindications = ["the deletion is a structural dependency"]
+equivalence_caveat = "Moving a structural operation into phonology may change its analysis."
+
+[[entry.remedy]]
+rank = 20
+remedy_key = "slot-localize-structural-operation"
+description = "Make the operation slot-local when that is linguistically equivalent."
+effort = "hard"
+prerequisites = ["slot locality is proven equivalent"]
+contraindications = ["the operation crosses slot boundaries"]
+equivalence_caveat = "Slot localization can change cross-slot interactions."
+
+[[entry]]
+shape_key = "unordered-interactions"
+backend_id = "foma"
+route = "rule-ordering"
+failed_predicate = "interacting rules have no proven finite application order"
+evidence_refs = ["backend:foma", "route:rule-ordering", "rule:interacting-rules", "metric:permutation-count"]
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "order-rules"
+description = "Order the interacting rules if the language licenses a fixed order."
+effort = "easy"
+prerequisites = ["a fixed linguistic order is proven"]
+contraindications = ["the interactions are intentionally unordered"]
+equivalence_caveat = "Ordering rules can change the set of analyses."
+
+[[entry.remedy]]
+rank = 20
+remedy_key = "split-rule-strata"
+description = "Split independent interacting rule groups into separate strata."
+effort = "medium"
+prerequisites = ["the rule groups are independent"]
+contraindications = ["a rule depends on the other group's output"]
+equivalence_caveat = "Stratification changes reachability unless independence is established."
+
+[[entry]]
+shape_key = "wide-phonology"
+backend_id = "foma"
+route = "surface-probing"
+failed_predicate = "broad phonological interaction expands surface probing beyond the route budget"
+evidence_refs = ["backend:foma", "route:surface-probing", "rule:phonological-interaction", "metric:probe-count"]
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "order-rules"
+description = "Separate independent phonological rule groups when the language licenses that order."
+effort = "medium"
+prerequisites = ["the rule-group order is proven"]
+contraindications = ["the interaction is order-sensitive"]
+equivalence_caveat = "Separating groups can alter order-sensitive surface forms."
+
+[[entry.remedy]]
+rank = 20
+remedy_key = "narrow-phonology-environments"
+description = "Narrow phonological environments to the contexts proven to be reachable."
+effort = "hard"
+prerequisites = ["reachable contexts are exhaustively identified"]
+contraindications = ["the broad environment is linguistically intentional"]
+equivalence_caveat = "Narrowing an environment may remove valid surface forms."
