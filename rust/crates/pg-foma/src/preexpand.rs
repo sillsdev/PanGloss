@@ -194,6 +194,9 @@ pub struct CompositeReport {
     /// ownership handoff, `candidate_rules`'s own doc) -- `emit.rs` clears ITS uncovered entry from
     /// `crate::emit::build_structural_composites`'s own covered-rules set instead.
     pub covered_infix_rules: std::collections::BTreeSet<u32>,
+    /// Legal synthesized successors found beyond the temporary fixed-depth implementation.
+    /// Any nonzero value means this construction is incomplete and must not ship an artifact.
+    pub pending_successors: usize,
 }
 
 /// Whether this grammar can possibly need either mechanism at all -- `false` short-circuits
@@ -441,9 +444,6 @@ fn extend(
     state: &ChainState,
     acc: &mut Acc,
 ) {
-    if depth >= MAX_EXTRA_RULES {
-        return;
-    }
     // Checked once at the top of every call, same shape as the depth guard above: docs/research/pg-foma-preexpand-design-notes.md.
     if ctx.enum_budget.is_tripped() {
         return;
@@ -469,7 +469,9 @@ fn extend(
             continue;
         }
         acc.report.pairs_probed += 1;
-        acc.report.pairs_probed_by_depth[depth] += 1;
+        if let Some(at_depth) = acc.report.pairs_probed_by_depth.get_mut(depth) {
+            *at_depth += 1;
+        }
         if let Some(budget) = &ctx.probe_budget {
             budget.tick();
         }
@@ -478,6 +480,10 @@ fn extend(
         let synth_out = synthesize_cached(ctx.g, mid, base_word, rule, ctx.cache);
         if !synth_out.is_empty() {
             acc.report.synth_successes += 1;
+        }
+        if depth >= MAX_EXTRA_RULES {
+            acc.report.pending_successors += synth_out.len();
+            continue;
         }
         for w in synth_out {
             let Some(segs) = surface_probe::probe_synthesize(ctx.g, &w.shape, ctx.cache) else {
@@ -838,6 +844,7 @@ pub(crate) fn build_composites_with_mode(
         report.synth_successes += rep.synth_successes;
         report.interdigitation_entries += rep.interdigitation_entries;
         report.fusion_entries += rep.fusion_entries;
+        report.pending_successors += rep.pending_successors;
         report.covered_infix_rules.extend(rep.covered_infix_rules);
     }
 

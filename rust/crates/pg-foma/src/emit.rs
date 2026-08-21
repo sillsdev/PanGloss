@@ -2023,19 +2023,18 @@ pub(crate) fn probe_would_refuse(g: &Grammar) -> bool {
     })
 }
 
-/// Candidate rules for `build_structural_composites`: always `is_structural_rule`'s set;
-/// ADDITIONALLY every ordinary `Prefix`/`Suffix`/`Infix` rule when `probe_would_refuse` (module
-/// doc, item 2) — in that case `crate::preexpand` cannot represent them correctly either (its own
-/// probe refuses for every candidate in the affected stratum), so this mechanism is their only
-/// remaining path to a phonology-resolved surface. Excludes `CompoundingRule` (never a candidate
-/// anywhere in this emitter's rule-application mechanisms).
+/// Candidate rules for `build_structural_composites`: always `is_structural_rule`'s set. It also
+/// includes ordinary affix rules when probing can refuse or a structural rule exists. The latter
+/// keeps chains that reach a structural rule through ordinary rules inside one closure.
 ///
 /// `pub(crate)`: `crate::enumerate::enumerate_default` calls this directly to decide the
 /// structural-composite route's presence, the other half of the seam `probe_would_refuse`
 /// documents; `plan_topology_decisions` then makes `emit_with_budget_profiled`'s own gate match it
 /// by construction rather than by two independently-written call sites happening to agree.
 pub(crate) fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
-    let broad = probe_would_refuse(g);
+    let has_structural =
+        (0..g.mrules.len() as u32).any(|index| is_structural_rule(g, MRuleId(index)));
+    let broad = probe_would_refuse(g) || has_structural;
     (0..g.mrules.len() as u32)
         .map(MRuleId)
         .filter(|&mid| {
@@ -2208,6 +2207,8 @@ struct StructAcc {
     seen: rustc_hash::FxHashSet<(String, String)>,
     /// `g.mrules` indices with at least one composite entry here, so `emit` can drop their now-stale `uncovered` items.
     covered_rules: BTreeSet<u32>,
+    /// Legal synthesized successors beyond the temporary fixed-depth implementation.
+    pending_successors: usize,
 }
 
 /// Extends `base_word` with every remaining candidate rule, recursing up to `STRUCT_MAX_EXTRA_RULES`; mirrors `crate::preexpand::extend` but always emits, since every candidate here is one the ordinary path cannot represent at all.
@@ -2222,9 +2223,6 @@ fn struct_extend(
     state: &ChainState,
     acc: &mut StructAcc,
 ) {
-    if depth >= STRUCT_MAX_EXTRA_RULES {
-        return;
-    }
     // Same check-once-at-the-top budget guard as `crate::preexpand::extend`'s own.
     if ctx.enum_budget.is_tripped() {
         return;
@@ -2257,12 +2255,34 @@ fn struct_extend(
         }
         ctx.enum_budget.tick_probe();
 
+        let synthesized = pg_rules::morph::synthesize(ctx.g, base_word, rule);
+        if depth >= STRUCT_MAX_EXTRA_RULES {
+            acc.pending_successors += synthesized.len();
+            continue;
+        }
+
         let mut next_rule_chain = rule_chain.to_vec();
         next_rule_chain.push(mid);
 
-        for w in pg_rules::morph::synthesize(ctx.g, base_word, rule) {
+        for w in synthesized {
             let mut next_chain = chain.to_vec();
             next_chain.push((rule_morpheme, tags::morph_tag_lexc(rule_morpheme, width)));
+            let contains_structural = next_rule_chain
+                .iter()
+                .any(|&candidate| is_structural_rule(ctx.g, candidate));
+            if !contains_structural {
+                struct_extend(
+                    ctx,
+                    &w,
+                    &next_chain,
+                    &next_rule_chain,
+                    depth + 1,
+                    width,
+                    &next_state,
+                    acc,
+                );
+                continue;
+            }
             let Some(tag_lexc) = struct_morph_order_tags(&w, &next_chain) else {
                 struct_extend(
                     ctx,
@@ -2341,14 +2361,15 @@ fn build_structural_composites(
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
     enum_budget: &EnumerationBudget,
-) -> (Vec<crate::preexpand::CompositeRec>, BTreeSet<u32>) {
+) -> (Vec<crate::preexpand::CompositeRec>, BTreeSet<u32>, usize) {
     if rules.is_empty() {
-        return (Vec::new(), BTreeSet::new());
+        return (Vec::new(), BTreeSet::new(), 0);
     }
     let mut acc = StructAcc {
         recs: Vec::new(),
         seen: rustc_hash::FxHashSet::default(),
         covered_rules: BTreeSet::new(),
+        pending_successors: 0,
     };
     // Every stratum shares one surface table in the reference grammars, so computing this once is safe.
     let bnd_reps = boundary_reps(surface_table(g));
@@ -2396,7 +2417,7 @@ fn build_structural_composites(
             }
         }
     }
-    (acc.recs, acc.covered_rules)
+    (acc.recs, acc.covered_rules, acc.pending_successors)
 }
 
 // --- Top-level emit ---------------------------------------------------------------------------
@@ -2673,11 +2694,12 @@ fn emit_with_budget_profiled_with_strategy(
 
     // plan_wants_structural_composite is the same plan-derived decision that gated the Morpher build above, so this stays zero-cost for a grammar with no structural rule.
     let mut struct_covered_rules: BTreeSet<u32> = BTreeSet::new();
+    let mut structural_pending_successors = 0;
     if plan_wants_structural_composite {
         let m = morpher
             .as_ref()
             .expect("morpher is built whenever plan_wants_structural_composite is true");
-        let (struct_composites, covered) = build_structural_composites(
+        let (struct_composites, covered, pending_successors) = build_structural_composites(
             g,
             width,
             &struct_rules,
@@ -2691,6 +2713,7 @@ fn emit_with_budget_profiled_with_strategy(
         counts.composite_structural_entries = struct_composites.len();
         composites.extend(struct_composites);
         struct_covered_rules = covered;
+        structural_pending_successors = pending_successors;
     }
     // Pushed unconditionally; the elapsed time itself is near-zero when the block above was skipped.
     if let Some(p) = profile.as_deref_mut() {
@@ -2728,6 +2751,25 @@ fn emit_with_budget_profiled_with_strategy(
                     value,
                     limit,
                 }),
+            },
+        };
+    }
+
+    let pending_successors = composite_report.pending_successors + structural_pending_successors;
+    if pending_successors != 0 {
+        let reason = format!(
+            "FST construction stopped at a temporary fixed-depth boundary with \
+             {pending_successors} live successor(s) still reachable; the emitted subset is \
+             incomplete. Use the full morphological-parser engine until finite closure is \
+             implemented for this route."
+        );
+        return EmitResult {
+            lexc_source: String::new(),
+            report: EmitReport {
+                uncovered,
+                counts,
+                tier: FomaTier::Unsupported { reason },
+                enum_budget_exceeded: None,
             },
         };
     }
@@ -5139,7 +5181,7 @@ mod aweti_enum_census {
             let struct_rules = structural_candidate_rules(&g);
             let cache = RuleCache::build(&g);
             let morpher = Morpher::new(&g, usize::MAX);
-            let (srecs, _covered) = build_structural_composites(
+            let (srecs, _covered, _pending_successors) = build_structural_composites(
                 &g,
                 width,
                 &struct_rules,
