@@ -57,6 +57,35 @@ fn construct(work_cap: usize, depth_cap: usize) -> EmitResult {
     )
 }
 
+fn bounded_branching_xml(rule_count: usize) -> String {
+    let rule_ids = (0..rule_count)
+        .map(|index| format!("mr{index}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let rules = (0..rule_count)
+        .map(|index| {
+            format!(
+                r#"<MorphologicalRule id="mr{index}" multipleApplication="1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>branch-{index}</Name>
+        <MorphologicalSubrules><MorphologicalSubrule id="s{index}"><MorphologicalInput><PhoneticSequence id="stem{index}"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+        <MorphologicalOutput><InsertSegments><PhoneticShape>f</PhoneticShape></InsertSegments><CopyFromInput index="stem{index}" /><InsertSegments><PhoneticShape>g</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>R{index}</MorphemeId></MorphologicalRule>"#
+            )
+        })
+        .collect::<String>();
+    let mut xml = FINITE_CHAIN_XML.replace(
+        "morphologicalRules=\"mr1\"",
+        &format!("morphologicalRules=\"{rule_ids}\""),
+    );
+    let definitions_start = xml
+        .find("<MorphologicalRuleDefinitions>")
+        .expect("fixture has morphology definitions");
+    let rules_start = definitions_start + "<MorphologicalRuleDefinitions>".len();
+    let rules_end = xml
+        .find("</MorphologicalRuleDefinitions>")
+        .expect("fixture closes morphology definitions");
+    xml.replace_range(rules_start..rules_end, &rules);
+    xml
+}
+
 #[test]
 fn work_boundary_is_total_and_characterization_matches_production() {
     let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
@@ -167,10 +196,7 @@ fn only_a_terminal_failure_can_authorize_a_linked_retry() {
     );
     assert!(complete.retry_authorization().is_none());
 
-    let expensive_xml = FINITE_CHAIN_XML.replace(
-        "multipleApplication=\"9\"",
-        "multipleApplication=\"3500\"",
-    );
+    let expensive_xml = bounded_branching_xml(10);
     let expensive = pg_grammar::load(&expensive_xml).expect("bounded retry fixture must load");
     let first_request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
         .expect("managed request must be constructible");
