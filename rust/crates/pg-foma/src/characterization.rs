@@ -133,8 +133,14 @@ pub enum ClosureTerminal {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClosureTestLimits {
+    #[cfg(feature = "test-support")]
     pub work_cap: usize,
+    #[cfg(feature = "test-support")]
     pub depth_cap: usize,
+    #[cfg(not(feature = "test-support"))]
+    pub(crate) work_cap: usize,
+    #[cfg(not(feature = "test-support"))]
+    pub(crate) depth_cap: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -173,6 +179,8 @@ struct TraceState {
 /// artifact and characterization retain identical terminal evidence.
 pub(crate) struct ClosureTrace {
     limits: ClosureTestLimits,
+    compound_pair_cap: usize,
+    compound_chain_depth_cap: usize,
     envelope_id: ResourceEnvelopeId,
     envelope_digest: String,
     state: Mutex<TraceState>,
@@ -182,6 +190,8 @@ impl ClosureTrace {
     pub(crate) fn new(envelope: &ResourceEnvelope, limits: ClosureTestLimits) -> Self {
         Self {
             limits,
+            compound_pair_cap: envelope.compose().compound_pair_cap,
+            compound_chain_depth_cap: envelope.backend().tuned_surface_compound_chain_depth_cap,
             envelope_id: envelope.id(),
             envelope_digest: envelope.digest(),
             state: Mutex::new(TraceState {
@@ -199,6 +209,14 @@ impl ClosureTrace {
 
     pub(crate) fn depth_cap(&self) -> usize {
         self.limits.depth_cap
+    }
+
+    pub(crate) fn compound_pair_cap(&self) -> usize {
+        self.compound_pair_cap
+    }
+
+    pub(crate) fn compound_chain_depth_cap(&self) -> usize {
+        self.compound_chain_depth_cap
     }
 
     /// Records one legal production transition before synthesis. A false result tells the
@@ -291,6 +309,7 @@ impl ClosureTrace {
 
 /// Characterization is deliberately the production emitter's own traversal with its output
 /// discarded. This keeps the reported transition order and terminal semantics exact.
+#[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub fn characterize_tuned_surface_closure_for_test(
     grammar: &Grammar,

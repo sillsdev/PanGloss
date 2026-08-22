@@ -89,6 +89,7 @@ pub struct EnumerationEnvelope {
 pub struct BackendEnvelope {
     pub tuned_surface_closure_work_cap: usize,
     pub tuned_surface_closure_depth_cap: usize,
+    pub tuned_surface_compound_chain_depth_cap: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -218,6 +219,7 @@ impl ResourceEnvelope {
                     ResourceEnvelopeId::TunedSurfaceWork10kV1 => 10_000,
                 },
                 tuned_surface_closure_depth_cap: 64,
+                tuned_surface_compound_chain_depth_cap: 200,
             },
         }
     }
