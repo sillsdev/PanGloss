@@ -28,8 +28,9 @@ const PUA_B_LAST: u32 = 0x10FFFD;
 const MARKER_PAIRS_PER_RANGE: u64 = ((PUA_A_LAST - PUA_A_BASE + 1) / 2) as u64;
 
 // Bounds semantic probing; this path does not construct production FSTs.
-const RELATION_PROBE_WORK_CAP: usize = 10_000;
+const RELATION_PROBE_WORK_CAP: usize = 1_000_000;
 const RELATION_PROBE_OUTPUT_CAP: usize = 10_000;
+const RELATION_PROBE_OUTPUT_BYTES_CAP: usize = 1_000_000;
 
 fn is_technical_marker(ch: char) -> bool {
     let code = ch as u32;
@@ -336,6 +337,7 @@ struct ProbeBudgetReached {
 struct ProbeBudget {
     work: usize,
     outputs: usize,
+    output_bytes: usize,
 }
 
 impl ProbeBudget {
@@ -343,6 +345,7 @@ impl ProbeBudget {
         Self {
             work: 0,
             outputs: 0,
+            output_bytes: 0,
         }
     }
 
@@ -373,6 +376,20 @@ impl ProbeBudget {
             });
         }
         self.outputs += 1;
+        Ok(())
+    }
+
+    fn charge_output_bytes(&mut self, units: usize) -> Result<(), ProbeBudgetReached> {
+        let units = units.max(1);
+        if units > RELATION_PROBE_OUTPUT_BYTES_CAP.saturating_sub(self.output_bytes) {
+            self.output_bytes = RELATION_PROBE_OUTPUT_BYTES_CAP;
+            return Err(ProbeBudgetReached {
+                reason_id: "probe-output-bytes",
+                work: self.work,
+                outputs: self.outputs,
+            });
+        }
+        self.output_bytes += units;
         Ok(())
     }
 }
@@ -596,10 +613,11 @@ impl CompiledMorphologyRelation {
 
     /// Probe the semantic relation without constructing a Foma network.
     ///
-    /// This method uses a closed, nonconfigurable 10,000-work/10,000-output probe budget;
-    /// callers cannot supply raw limits. If that budget is reached, `ResourceRejected` reports
-    /// the observed counters and no partial output or recipe fire is returned. A resource
-    /// refusal has `consumed_markers: 0` because recipe application did not commit.
+    /// This method uses closed, nonconfigurable 1,000,000-work/10,000-output and 1,000,000-byte
+    /// probe budgets; callers cannot supply raw limits. If a budget is reached,
+    /// `ResourceRejected` reports the observed counters and no partial output or recipe fire is
+    /// returned. A resource refusal has `consumed_markers: 0` because recipe application did not
+    /// commit.
     pub fn apply(&self, input: &str) -> MorphologyRelationResult {
         let mut budget = ProbeBudget::new();
         let mut marker_symbols = Vec::new();
@@ -619,9 +637,12 @@ impl CompiledMorphologyRelation {
             }
         }
         match marker_symbols.as_slice() {
-            [] => MorphologyRelationResult::Identity {
-                outputs: BTreeSet::from([input.to_owned()]),
-                consumed_markers: 0,
+            [] => match budget.charge_output_bytes(input.len()) {
+                Ok(()) => MorphologyRelationResult::Identity {
+                    outputs: BTreeSet::from([input.to_owned()]),
+                    consumed_markers: 0,
+                },
+                Err(reached) => resource_rejected(reached),
             },
             [symbol] => {
                 let mut recipe = None;
@@ -710,7 +731,8 @@ fn apply_recipe(
                 }
                 let prefix = &input[..input.len() - member.len()];
                 for literal in recipe.recipe.literal_runs.first().into_iter().flatten() {
-                    insert_probe_output(&mut outputs, format!("{prefix}{literal}"), budget)?;
+                    let output = build_probe_text(&[prefix, literal], budget)?;
+                    insert_probe_output(&mut outputs, output, budget)?;
                 }
             }
         }
@@ -723,7 +745,8 @@ fn apply_recipe(
                 if member.is_empty() || !input.starts_with(member) || input.len() == member.len() {
                     continue;
                 }
-                insert_probe_output(&mut outputs, input[member.len()..].to_owned(), budget)?;
+                let output = build_probe_text(&[&input[member.len()..]], budget)?;
+                insert_probe_output(&mut outputs, output, budget)?;
             }
         }
         "AmharicInitialVowelReplacement" => {
@@ -737,7 +760,8 @@ fn apply_recipe(
                 }
                 let remainder = &input[member.len()..];
                 for literal in recipe.recipe.literal_runs.first().into_iter().flatten() {
-                    insert_probe_output(&mut outputs, format!("{literal}{remainder}"), budget)?;
+                    let output = build_probe_text(&[literal, remainder], budget)?;
+                    insert_probe_output(&mut outputs, output, budget)?;
                 }
             }
         }
@@ -756,11 +780,8 @@ fn apply_recipe(
                     let prefix = &input[..start];
                     let suffix = &input[end..];
                     for replacement in &recipe.recipe.output_segments {
-                        insert_probe_output(
-                            &mut outputs,
-                            format!("{prefix}{replacement}{suffix}"),
-                            budget,
-                        )?;
+                        let output = build_probe_text(&[prefix, replacement, suffix], budget)?;
+                        insert_probe_output(&mut outputs, output, budget)?;
                     }
                 }
             }
@@ -776,8 +797,9 @@ fn apply_recipe(
                     &mut |parts, budget| {
                         let mut variants = vec![String::new()];
                         for (position, part) in parts.iter().enumerate() {
-                            let joined = join_tokens(part);
+                            let joined = join_tokens_bounded(part, budget)?;
                             for variant in &mut variants {
+                                budget.charge_output_bytes(joined.len())?;
                                 variant.push_str(&joined);
                             }
                             if let Some(run) = recipe.recipe.literal_runs.get(position) {
@@ -786,7 +808,10 @@ fn apply_recipe(
                                     for variant in &variants {
                                         for literal in run {
                                             budget.work()?;
-                                            next.push(format!("{variant}{literal}"));
+                                            next.push(build_probe_text(
+                                                &[variant, literal],
+                                                budget,
+                                            )?);
                                         }
                                     }
                                     variants = next;
@@ -811,6 +836,8 @@ fn insert_probe_output(
     output: String,
     budget: &mut ProbeBudget,
 ) -> Result<(), ProbeBudgetReached> {
+    let lookup_cost = ceil_log2(outputs.len().saturating_add(1));
+    budget.charge_work(lookup_cost)?;
     if outputs.contains(&output) {
         budget.work()?;
     } else {
@@ -820,8 +847,39 @@ fn insert_probe_output(
     Ok(())
 }
 
-fn join_tokens(tokens: &[String]) -> String {
-    tokens.concat()
+fn ceil_log2(value: usize) -> usize {
+    let value = value.max(2);
+    (usize::BITS - (value - 1).leading_zeros()) as usize
+}
+
+fn build_probe_text(
+    parts: &[&str],
+    budget: &mut ProbeBudget,
+) -> Result<String, ProbeBudgetReached> {
+    let byte_len = parts
+        .iter()
+        .fold(0usize, |total, part| total.saturating_add(part.len()));
+    budget.charge_output_bytes(byte_len)?;
+    let mut output = String::with_capacity(byte_len);
+    for part in parts {
+        output.push_str(part);
+    }
+    Ok(output)
+}
+
+fn join_tokens_bounded(
+    tokens: &[String],
+    budget: &mut ProbeBudget,
+) -> Result<String, ProbeBudgetReached> {
+    let byte_len = tokens
+        .iter()
+        .fold(0usize, |total, token| total.saturating_add(token.len()));
+    budget.charge_output_bytes(byte_len)?;
+    let mut output = String::with_capacity(byte_len);
+    for token in tokens {
+        output.push_str(token);
+    }
+    Ok(output)
 }
 
 // Enumerate scalar fallback and member paths under the closed probe budget.
@@ -836,12 +894,18 @@ where
 {
     let mut all_members = Vec::new();
     for member in member_sets.iter().flat_map(|members| members.iter()) {
+        budget.charge_work(member.len().max(1))?;
         if !member.is_empty() {
-            budget.charge_work(member.len().max(1))?;
             all_members.push(member.clone());
         }
     }
     budget.charge_work(all_members.len().max(1))?;
+    let sort_cost = all_members
+        .len()
+        .saturating_mul(ceil_log2(all_members.len()))
+        .saturating_add(all_members.len())
+        .max(1);
+    budget.charge_work(sort_cost)?;
     all_members.sort();
     all_members.dedup();
 
@@ -878,6 +942,7 @@ where
         if let Some(ch) = input[offset..].chars().next() {
             let end = offset + ch.len_utf8();
             let scalar = &input[offset..end];
+            budget.charge_work(scalar.len().max(1))?;
             current.push(scalar.to_owned());
             visit(input, end, members, current, budget, callback)?;
             current.pop();
@@ -914,6 +979,7 @@ where
     {
         budget.work()?;
         if parts_left == 1 {
+            charge_token_slice_copy(&tokens[offset..], budget)?;
             current.push(tokens[offset..].to_vec());
             callback(current, budget)?;
             current.pop();
@@ -921,6 +987,7 @@ where
         }
         let max_end = tokens.len() - (parts_left - 1);
         for end in (offset + 1)..=max_end {
+            charge_token_slice_copy(&tokens[offset..end], budget)?;
             current.push(tokens[offset..end].to_vec());
             visit(tokens, parts_left - 1, end, current, budget, callback)?;
             current.pop();
@@ -929,6 +996,16 @@ where
     }
 
     visit(tokens, parts, 0, current, budget, callback)
+}
+
+fn charge_token_slice_copy(
+    tokens: &[String],
+    budget: &mut ProbeBudget,
+) -> Result<(), ProbeBudgetReached> {
+    let bytes = tokens
+        .iter()
+        .fold(0usize, |total, token| total.saturating_add(token.len()));
+    budget.charge_work(tokens.len().saturating_add(bytes).max(1))
 }
 
 pub struct MorphologyRewriteClassifier;
@@ -2630,7 +2707,7 @@ mod relation_tests {
         assert!(matches!(
             relation.apply(&input),
             MorphologyRelationResult::ResourceRejected {
-                reason_id: "probe-work-budget",
+                reason_id: "probe-work-budget" | "probe-output-bytes",
                 consumed_markers: 0,
                 work,
                 ..
@@ -2715,6 +2792,157 @@ mod relation_tests {
         ));
         assert_eq!(
             relation.fired_recipe_count_for(AllomorphId(21), MarkerZone::Suffix),
+            0
+        );
+    }
+
+    #[test]
+    fn member_sort_is_refused_before_sorting_when_its_bound_exceeds_budget() {
+        let member_sets = vec![vec!["a".to_owned(), "b".to_owned()]];
+        let mut budget = ProbeBudget {
+            work: RELATION_PROBE_WORK_CAP - 4,
+            outputs: 0,
+            output_bytes: 0,
+        };
+        let mut callbacks = 0;
+        let result = visit_segmentations("", &member_sets, &mut budget, &mut |_, _| {
+            callbacks += 1;
+            Ok(())
+        });
+        assert!(matches!(
+            result,
+            Err(ProbeBudgetReached {
+                reason_id: "probe-work-budget",
+                ..
+            })
+        ));
+        assert_eq!(callbacks, 0);
+    }
+
+    #[test]
+    fn empty_member_entries_are_charged_before_segmentation() {
+        let member_sets = vec![vec![String::new(), String::new()]];
+        let mut budget = ProbeBudget {
+            work: RELATION_PROBE_WORK_CAP - 2,
+            outputs: 0,
+            output_bytes: 0,
+        };
+        let mut callbacks = 0;
+        let result = visit_segmentations("", &member_sets, &mut budget, &mut |_, _| {
+            callbacks += 1;
+            Ok(())
+        });
+        assert!(matches!(
+            result,
+            Err(ProbeBudgetReached {
+                reason_id: "probe-work-budget",
+                ..
+            })
+        ));
+        assert_eq!(callbacks, 0);
+    }
+
+    #[test]
+    fn partition_clone_is_refused_before_slice_copy() {
+        let tokens = vec!["a".to_owned(), "b".to_owned()];
+        let mut budget = ProbeBudget {
+            work: RELATION_PROBE_WORK_CAP - 2,
+            outputs: 0,
+            output_bytes: 0,
+        };
+        let mut current = Vec::new();
+        let mut callbacks = 0;
+        let result = visit_partitions(&tokens, 1, &mut budget, &mut current, &mut |_, _| {
+            callbacks += 1;
+            Ok(())
+        });
+        assert!(matches!(
+            result,
+            Err(ProbeBudgetReached {
+                reason_id: "probe-work-budget",
+                ..
+            })
+        ));
+        assert_eq!(callbacks, 0);
+        assert!(current.is_empty());
+    }
+
+    #[test]
+    fn duplicate_output_lookup_is_budgeted_before_contains() {
+        let outputs = (0..1024)
+            .map(|index| format!("output-{index}"))
+            .collect::<BTreeSet<_>>();
+        let mut budget = ProbeBudget {
+            work: RELATION_PROBE_WORK_CAP - 1,
+            outputs: 0,
+            output_bytes: 0,
+        };
+        let mut outputs = outputs;
+        let result = insert_probe_output(&mut outputs, "output-0".to_owned(), &mut budget);
+        assert!(matches!(
+            result,
+            Err(ProbeBudgetReached {
+                reason_id: "probe-work-budget",
+                ..
+            })
+        ));
+        assert_eq!(outputs.len(), 1024);
+    }
+
+    #[test]
+    fn giant_direct_output_is_refused_before_formatting() {
+        let mut replacement = marked(
+            22,
+            "AmharicTerminalModify",
+            vec![vec!["a"], vec!["a"]],
+            vec![],
+            vec!["x"],
+            MarkerZone::Suffix,
+        );
+        if let MorphologyRewrite::MarkedStructural { recipe, .. } = &mut replacement.0 {
+            recipe.output_segments = vec!["x".repeat(RELATION_PROBE_OUTPUT_BYTES_CAP + 1)];
+        }
+        let relation = CompiledMorphologyRelation::from_classified([replacement]).unwrap();
+        let input = relation.marked_input(AllomorphId(22), "a").unwrap();
+        assert!(matches!(
+            relation.apply(&input),
+            MorphologyRelationResult::ResourceRejected {
+                reason_id: "probe-output-bytes",
+                consumed_markers: 0,
+                ..
+            }
+        ));
+        assert_eq!(
+            relation.fired_recipe_count_for(AllomorphId(22), MarkerZone::Suffix),
+            0
+        );
+    }
+
+    #[test]
+    fn giant_direct_literal_is_refused_before_formatting() {
+        let mut literal = marked(
+            23,
+            "AdjacentTerminalDrop",
+            vec![vec!["a"], vec!["b"]],
+            vec![vec!["x"]],
+            vec![],
+            MarkerZone::Suffix,
+        );
+        if let MorphologyRewrite::MarkedStructural { recipe, .. } = &mut literal.0 {
+            recipe.literal_runs[0] = vec!["x".repeat(RELATION_PROBE_OUTPUT_BYTES_CAP + 1)];
+        }
+        let relation = CompiledMorphologyRelation::from_classified([literal]).unwrap();
+        let input = relation.marked_input(AllomorphId(23), "ab").unwrap();
+        assert!(matches!(
+            relation.apply(&input),
+            MorphologyRelationResult::ResourceRejected {
+                reason_id: "probe-output-bytes",
+                consumed_markers: 0,
+                ..
+            }
+        ));
+        assert_eq!(
+            relation.fired_recipe_count_for(AllomorphId(23), MarkerZone::Suffix),
             0
         );
     }
