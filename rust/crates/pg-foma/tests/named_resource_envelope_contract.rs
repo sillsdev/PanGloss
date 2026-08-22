@@ -96,7 +96,8 @@ fn named_requests_have_private_distinct_attempt_identity() {
     assert_eq!(first.retry_of(), None);
     assert_eq!(first.prior_closure(), None);
     assert_ne!(
-        first.attempt_id(), independent.attempt_id(),
+        first.attempt_id(),
+        independent.attempt_id(),
         "independent attempts need distinct immutable identities"
     );
 }

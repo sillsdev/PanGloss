@@ -6,9 +6,7 @@ use pg_foma::emit::{
     emit_tuned_surface_for_envelope, emit_tuned_surface_for_request,
     emit_tuned_surface_with_closure_limits_for_test, EmitResult, FomaTier,
 };
-use pg_foma::resource_envelope::{
-    CompileEnvelopeRequest, ResourceEnvelope, ResourceEnvelopeId,
-};
+use pg_foma::resource_envelope::{CompileEnvelopeRequest, ResourceEnvelope, ResourceEnvelopeId};
 
 const FINITE_CHAIN_XML: &str = r#"<HermitCrabInput><Language><Name>TotalClosureContract</Name>
   <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
@@ -226,8 +224,9 @@ fn only_a_terminal_failure_can_authorize_a_linked_retry() {
     let authorization = first
         .retry_authorization()
         .expect("terminal failure alone authorizes retry");
-    assert!(CompileEnvelopeRequest::retry_from(authorization, ResourceEnvelopeId::ManagedV1)
-        .is_err());
+    assert!(
+        CompileEnvelopeRequest::retry_from(authorization, ResourceEnvelopeId::ManagedV1).is_err()
+    );
 
     let retry = CompileEnvelopeRequest::retry_from(
         authorization,
@@ -252,7 +251,10 @@ fn only_a_terminal_failure_can_authorize_a_linked_retry() {
         second_terminal.evidence.envelope_id,
         first_terminal.evidence.envelope_id
     );
-    assert_ne!(second_terminal.evidence.envelope_digest, first_terminal.evidence.envelope_digest);
+    assert_ne!(
+        second_terminal.evidence.envelope_digest,
+        first_terminal.evidence.envelope_digest
+    );
     assert_eq!(second_terminal.terminal, ClosureTerminal::Complete);
     assert!(second_terminal.evidence.worklist_empty);
     assert_eq!(second_terminal.evidence.pending_successor_count, 0);
