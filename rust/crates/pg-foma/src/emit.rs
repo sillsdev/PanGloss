@@ -3562,6 +3562,7 @@ fn emit_with_budget_profiled_with_strategy(
 /// Runs the production TunedSurface emitter with a focused closure trace. This is test-support
 /// only: the numeric limits are supplied by the acceptance test, while product callers select a
 /// closed [`ResourceEnvelope`] instead.
+#[doc(hidden)]
 pub fn emit_tuned_surface_with_closure_limits_for_test(
     g: &Grammar,
     envelope: &crate::resource_envelope::ResourceEnvelope,
@@ -4108,7 +4109,13 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         compound_extra_levels = match compound_chain_depth_and_budget_check(g, &uncovered, &counts)
         {
             Ok(levels) => levels,
-            Err(early_return) => return early_return,
+            Err(mut early_return) => {
+                if let Some(trace) = closure_trace {
+                    trace.stop(crate::characterization::ClosureStopReason::ResourceBudgetReached);
+                    early_return.report.closure_evidence = Some(trace.result());
+                }
+                return early_return;
+            }
         };
     }
 
