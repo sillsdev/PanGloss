@@ -3,10 +3,12 @@ use pg_foma::characterization::{
     CharacterizationResult, ClosureStopReason, ClosureTerminal, ClosureTestLimits,
 };
 use pg_foma::emit::{
-    emit_tuned_surface_for_envelope, emit_tuned_surface_with_closure_limits_for_test, EmitResult,
-    FomaTier,
+    emit_tuned_surface_for_envelope, emit_tuned_surface_for_request,
+    emit_tuned_surface_with_closure_limits_for_test, EmitResult, FomaTier,
 };
-use pg_foma::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
+use pg_foma::resource_envelope::{
+    CompileEnvelopeRequest, ResourceEnvelope, ResourceEnvelopeId,
+};
 
 const FINITE_CHAIN_XML: &str = r#"<HermitCrabInput><Language><Name>TotalClosureContract</Name>
   <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
@@ -146,4 +148,64 @@ fn unsupported_construction_is_a_typed_refusal_not_false_completion() {
         characterize_tuned_surface_closure(&grammar, &envelope),
         evidence
     );
+}
+
+#[test]
+fn only_a_terminal_failure_can_authorize_a_linked_retry() {
+    let ordinary = pg_grammar::load(FINITE_CHAIN_XML).expect("finite closure fixture must load");
+    let complete_request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
+        .expect("managed request must be constructible");
+    let complete = emit_tuned_surface_for_request(&ordinary, &complete_request);
+    assert_eq!(
+        complete
+            .report
+            .closure_evidence
+            .as_ref()
+            .expect("named attempt retains closure evidence")
+            .terminal,
+        ClosureTerminal::Complete
+    );
+    assert!(complete.retry_authorization().is_none());
+
+    let expensive_xml = FINITE_CHAIN_XML.replace(
+        "multipleApplication=\"9\"",
+        "multipleApplication=\"3500\"",
+    );
+    let expensive = pg_grammar::load(&expensive_xml).expect("bounded retry fixture must load");
+    let first_request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
+        .expect("managed request must be constructible");
+    let first = emit_tuned_surface_for_request(&expensive, &first_request);
+    let first_terminal = first
+        .report
+        .closure_evidence
+        .as_ref()
+        .expect("failed named attempt retains closure evidence");
+    assert!(matches!(
+        first_terminal.terminal,
+        ClosureTerminal::Incomplete(_) | ClosureTerminal::Refused(_)
+    ));
+    let authorization = first
+        .retry_authorization()
+        .expect("terminal failure alone authorizes retry");
+    assert!(CompileEnvelopeRequest::retry_from(authorization, ResourceEnvelopeId::ManagedV1)
+        .is_err());
+
+    let retry = CompileEnvelopeRequest::retry_from(
+        authorization,
+        ResourceEnvelopeId::TunedSurfaceWork10kV1,
+    )
+    .expect("caller may explicitly retry under a different named envelope");
+    assert_ne!(retry.attempt_id(), first_request.attempt_id());
+    assert_eq!(retry.retry_of(), Some(first_request.attempt_id()));
+    assert_eq!(retry.prior_closure(), Some(first_terminal));
+
+    let second = emit_tuned_surface_for_request(&expensive, &retry);
+    let second_terminal = second
+        .report
+        .closure_evidence
+        .as_ref()
+        .expect("retry retains its own fresh closure evidence");
+    assert_ne!(second_terminal.evidence.envelope_digest, first_terminal.evidence.envelope_digest);
+    assert_eq!(second_terminal.terminal, ClosureTerminal::Complete);
+    assert!(second.retry_authorization().is_none());
 }
