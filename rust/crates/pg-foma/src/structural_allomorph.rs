@@ -108,20 +108,25 @@ fn unsupported_text<T>(shape: &'static str, reason: &'static str) -> Result<T, (
 fn classify_rewrite(
     g: &Grammar,
     a: &AffixAllomorphDef,
-    table: TableId,
+    active_table: TableId,
 ) -> Result<MorphologyRewrite, (&'static str, &'static str)> {
     if a.lhs.is_empty() {
         return unsupported("UnlistedTopology", "missing-input-copy");
+    }
+    if a.lhs.iter().any(|part| part.nodes.is_empty()) {
+        return unsupported("UnlistedTopology", "empty-input-part");
     }
     if a.rhs.iter().any(|action| matches!(action, OutputAction::InsertContext(_))) {
         return unsupported("InsertContext", "insert-context");
     }
 
     // Literal-only output is the ordinary path.  It is admitted only when every output action is
-    // finite and translated from the same active table; this avoids silently treating foreign
-    // table char-def ids as local text.
-    if a.rhs.iter().all(|action| matches!(action, OutputAction::InsertSegments { .. })) {
-        let variants = literal_variants(g, table, &a.rhs)?;
+    // finite and translated into the active table.  A Copy/Modify action must never fall through
+    // to this branch, even when its role happens to look ordinary.
+    if a.rhs.is_empty()
+        || a.rhs.iter().all(|action| matches!(action, OutputAction::InsertSegments { .. }))
+    {
+        let variants = literal_variants(g, active_table, &a.rhs)?;
         return Ok(MorphologyRewrite::OrdinaryLiteral { variants });
     }
 
@@ -148,54 +153,54 @@ fn classify_rewrite(
     sorted.sort_unstable();
     sorted.dedup();
     if sorted.len() != refs.len() {
-        let shape = if refs.len() == a.lhs.len() { "UnlistedTopology" } else { "InvalidReferences" };
-        return unsupported(shape, "repeated-input-reference");
+        return unsupported("UnlistedTopology", "repeated-input-reference");
     }
     if refs.windows(2).any(|pair| pair[0] > pair[1]) {
-        // A copy-only allomorph that has already been authored as an unlisted topology is a
-        // distinct, stable refusal.  Mutations of the known interior recipe (the conformance
-        // gate's malformed-reference witness) retain its registry identity and are reported as
-        // invalid references; normal production allomorph ids are never assigned by this value.
-        let shape = if a.id.0 == 3 { "InvalidReferences" } else { "UnlistedTopology" };
-        return unsupported(shape, "reordered-input-reference");
+        return unsupported("UnlistedTopology", "reordered-input-reference");
     }
 
-    // Modify is admitted only for a final, exactly-one-segment input part and a finite nonempty
-    // active-table output class.  Quantifiers and multi-node parts are never approximated.
+    // Modification is admitted only for exactly C(0)..C(n-2), followed by one final
+    // Modify(Input(n-1), Q).  Checking the complete RHS matters: finding one Modify anywhere
+    // would otherwise admit extra copies, literals, or a second modification.
     if a.rhs.iter().any(|action| matches!(action, OutputAction::Modify(PartRef::Head(_) | PartRef::NonHead(_), _))) {
         return unsupported("InvalidReferences", "invalid-part-reference-kind");
     }
-    if let Some((modify_index, context)) = a.rhs.iter().find_map(|action| match action {
-        OutputAction::Modify(PartRef::Input(index), context) => Some((*index, context)),
-        _ => None,
-    }) {
-        if modify_index == u16::MAX {
-            return unsupported("InvalidReferences", "invalid-part-reference-kind");
-        }
-        if modify_index as usize != a.lhs.len() - 1 {
+    if a.rhs.iter().any(|action| matches!(action, OutputAction::Modify(..))) {
+        let n = a.lhs.len();
+        let Some(OutputAction::Modify(PartRef::Input(modify_index), context)) = a.rhs.last() else {
             return unsupported("ModifyFromInput", "modify-nonterminal");
+        };
+        if *modify_index as usize != n.saturating_sub(1) {
+            return unsupported("ModifyFromInput", "modify-nonterminal");
+        }
+        if n < 2 || a.rhs.len() != n {
+            return unsupported("ModifyFromInput", "unlisted-topology");
+        }
+        if !a.rhs[..n - 1].iter().enumerate().all(|(index, action)| {
+            matches!(action, OutputAction::Copy(PartRef::Input(reference)) if *reference as usize == index)
+        }) {
+            return unsupported("ModifyFromInput", "unlisted-topology");
         }
         if !context.vars.is_empty() {
             return unsupported("ModifyFromInput", "terminal-modify-variable");
         }
-        if !is_exactly_one_segment(a.lhs.get(modify_index as usize)) {
-            let reason = if is_quantified(a.lhs.get(modify_index as usize)) {
+        if !is_exactly_one_segment(a.lhs.get(n - 1)) {
+            let reason = if is_quantified(a.lhs.get(n - 1)) {
                 "terminal-modify-quantified"
             } else {
                 "terminal-modify-multi-segment"
             };
             return unsupported("ModifyFromInput", reason);
         }
-        let outputs = class_members(g, table, &PatternNode::Context(context.clone()))
+        let outputs = class_members(g, active_table, &PatternNode::Context(context.clone()))
             .ok_or(("ModifyFromInput", "terminal-modify-empty-output"))?;
-        let output_segments = representations_for_ids(g, table, &outputs)
+        let output_segments = translated_ids(g, active_table, active_table, &outputs)
             .ok_or(("ModifyFromInput", "untranslatable-output-table"))?;
         if output_segments.is_empty() {
             return unsupported("ModifyFromInput", "terminal-modify-empty-output");
         }
-        let shape_id = "AmharicTerminalModify";
         return Ok(MorphologyRewrite::MarkedStructural {
-            shape_id,
+            shape_id: "AmharicTerminalModify",
             recipe: MorphologyRecipe {
                 refs,
                 literal_runs: Vec::new(),
@@ -206,59 +211,66 @@ fn classify_rewrite(
     }
 
     let copy_refs = refs.clone();
-    let insert_runs = insertion_runs(g, table, &a.rhs)?;
-    // Direct whole-root wrappers bypass markers: one complete copy with nonempty literal text on
-    // both sides, and no other actions.
-    if a.lhs.len() == 1 && copy_refs == [0] && !insert_runs.0.is_empty() && !insert_runs.1.is_empty() {
-        return Ok(MorphologyRewrite::DirectWholeRootWrapper {
-            prefix_variants: insert_runs.0,
-            suffix_variants: insert_runs.1,
-        });
+
+    // Whole-root wrappers are marker-free and preserve all parts.  Parse the complete action
+    // sequence so an interior literal cannot be silently discarded.
+    if copy_refs == (0..a.lhs.len() as u16).collect::<Vec<_>>() {
+        if let Some((prefix, suffix)) = wrapper_runs(g, active_table, &a.rhs, a.lhs.len())? {
+            return Ok(MorphologyRewrite::DirectWholeRootWrapper {
+                prefix_variants: prefix,
+                suffix_variants: suffix,
+            });
+        }
     }
 
-    // A one-sided literal affix is already represented by the ordinary templated chain.  It is
-    // not a structural marker recipe, but it must remain selectable and must not be mistaken for
-    // an unlisted circumfix merely because its RHS contains a Copy action.
-    if a.lhs.len() == 1
-        && copy_refs == [0]
-        && (insert_runs.0.is_empty() != insert_runs.1.is_empty())
+    // Interior insertion preserves all parts and places one or more literal runs strictly
+    // between adjacent copies.  n == 2 is the smallest valid insertion topology.
+    if a.lhs.len() >= 2
+        && copy_refs == (0..a.lhs.len() as u16).collect::<Vec<_>>()
     {
-        let variants = if insert_runs.0.is_empty() {
-            insert_runs.1
-        } else {
-            insert_runs.0
-        };
-        return Ok(MorphologyRewrite::OrdinaryLiteral { variants });
+        if let Some(runs) = interior_runs(g, active_table, &a.rhs, a.lhs.len())? {
+            return marked(g, a, "AmharicInteriorInsertion", copy_refs, runs);
+        }
     }
 
     // Initial fixed-atom replacement: one fixed CharDef is replaced by finite text, while the
     // remainder is copied unchanged.  A broad class or a quantified first part is denied.
     if a.lhs.len() == 2
-        && copy_refs == [1]
+        && a.rhs.len() >= 2
+        && a.rhs.last() == Some(&OutputAction::Copy(PartRef::Input(1)))
         && is_fixed_atom(a.lhs.first())
-        && !insert_runs.0.is_empty()
-        && insert_runs.1.is_empty()
     {
-        return marked(g, a, "AmharicInitialVowelReplacement", copy_refs, vec![insert_runs.0]);
-    }
-
-    // Interior insertion: all input parts are copied exactly once in order; insertion runs are
-    // only between adjacent copies (trailing/leading insertion is a different shape).
-    if a.lhs.len() >= 3
-        && copy_refs == (0..a.lhs.len() as u16).collect::<Vec<_>>()
-    {
-        let runs = insertion_runs_between(g, table, &a.rhs, a.lhs.len())?;
-        if runs.iter().any(|run| !run.is_empty()) {
-            return marked(g, a, "AmharicInteriorInsertion", copy_refs, runs);
+        let literal_actions = &a.rhs[..a.rhs.len() - 1];
+        if literal_actions.iter().all(|action| matches!(action, OutputAction::InsertSegments { .. })) {
+            let variants = literal_variants(g, active_table, literal_actions)?;
+            if variants != vec![String::new()] {
+                return marked(g, a, "AmharicInitialVowelReplacement", vec![1], vec![variants]);
+            }
         }
     }
 
     // Adjacent bounded drops: exactly two input parts and one edge part omitted.  Literal output
-    // is permitted after the retained copy for terminal drops, but never before an initial drop.
-    if a.lhs.len() == 2 && copy_refs == [0] && insert_runs.0.is_empty() && !insert_runs.1.is_empty() {
-        return marked(g, a, "AdjacentTerminalDrop", copy_refs, vec![insert_runs.1]);
+    // is permitted after the retained copy for terminal drops, including the zero-literal form.
+    if a.lhs.len() == 2
+        && copy_refs == [0]
+        && a.rhs.first() == Some(&OutputAction::Copy(PartRef::Input(0)))
+        && a.rhs[1..].iter().all(|action| matches!(action, OutputAction::InsertSegments { .. }))
+        && lowerable_atom(g, active_table, a.lhs.get(1))
+    {
+        let variants = literal_variants(g, active_table, &a.rhs[1..])?;
+        return marked(
+            g,
+            a,
+            "AdjacentTerminalDrop",
+            copy_refs,
+            vec![if variants == vec![String::new()] { Vec::new() } else { variants }],
+        );
     }
-    if a.lhs.len() == 2 && copy_refs == [1] && insert_runs.0.is_empty() && insert_runs.1.is_empty() {
+    if a.lhs.len() == 2
+        && copy_refs == [1]
+        && a.rhs == [OutputAction::Copy(PartRef::Input(1))]
+        && lowerable_atom(g, active_table, a.lhs.first())
+    {
         return marked(g, a, "AdjacentInitialDrop", copy_refs, Vec::new());
     }
 
@@ -302,31 +314,66 @@ fn is_segment_node(node: &PatternNode) -> bool {
     matches!(node, PatternNode::CharDef(_) | PatternNode::Context(_))
 }
 
-fn representations_for_ids(g: &Grammar, table: TableId, ids: &[CharDefId]) -> Option<Vec<String>> {
-    let table_ref = g.char_tables.get(table.0 as usize)?;
+fn lowerable_atom(g: &Grammar, table: TableId, pattern: Option<&Pattern>) -> bool {
+    let Some(pattern) = pattern else {
+        return false;
+    };
+    let [node] = pattern.nodes.as_slice() else {
+        return false;
+    };
+    class_members(g, table, node).is_some()
+}
+
+/// Translate source-table char-defs into active-table representation variants.  Shape IDs are
+/// local to their owning table; using them as offsets in the active table is a subtle cross-table
+/// corruption, so translation always goes through the source representation text.
+fn translated_ids(
+    g: &Grammar,
+    source_table: TableId,
+    active_table: TableId,
+    ids: &[CharDefId],
+) -> Option<Vec<String>> {
+    let source = g.char_tables.get(source_table.0 as usize)?;
+    let active = g.char_tables.get(active_table.0 as usize)?;
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for id in ids {
-        for representation in table_ref.get(*id).representations_nfd() {
-            if seen.insert(representation.clone()) {
-                out.push(representation.clone());
+        let source_def = source.iter().find_map(|(candidate, definition)| {
+            (candidate == *id).then_some(definition)
+        })?;
+        let mut mapped = false;
+        for representation in source_def.representations_nfd() {
+            let active_id = active.lookup_nfd(representation)?;
+            for active_representation in active.get(active_id).representations_nfd() {
+                mapped = true;
+                if seen.insert(active_representation.clone()) {
+                    out.push(active_representation.clone());
+                }
             }
         }
+        if !mapped {
+            return None;
+        }
     }
-    Some(out)
+    (!out.is_empty()).then_some(out)
 }
 
-fn literal_variants(g: &Grammar, table: TableId, actions: &[OutputAction]) -> Result<Vec<String>, (&'static str, &'static str)> {
+fn literal_variants(
+    g: &Grammar,
+    active_table: TableId,
+    actions: &[OutputAction],
+) -> Result<Vec<String>, (&'static str, &'static str)> {
     let mut variants = vec![String::new()];
     for action in actions {
         let OutputAction::InsertSegments { table: action_table, shape } = action else {
             return unsupported_text("OrdinaryLiteral", "nonliteral-output-action");
         };
-        if *action_table != table {
-            return unsupported_text("OrdinaryLiteral", "untranslatable-output-table");
-        }
-        let ids = shape.shape.interior().map(|(_, _, id, _)| CharDefId(id)).collect::<Vec<_>>();
-        let pieces = representations_for_ids(g, *action_table, &ids)
+        let ids = shape
+            .shape
+            .interior()
+            .map(|(_, _, id, _)| CharDefId(id))
+            .collect::<Vec<_>>();
+        let pieces = translated_shape_variants(g, *action_table, active_table, &ids)
             .ok_or(("OrdinaryLiteral", "untranslatable-output-table"))?;
         let mut next = Vec::new();
         for prefix in &variants {
@@ -342,46 +389,103 @@ fn literal_variants(g: &Grammar, table: TableId, actions: &[OutputAction]) -> Re
     Ok(variants)
 }
 
-fn insertion_runs(
+fn translated_shape_variants(
     g: &Grammar,
-    table: TableId,
-    actions: &[OutputAction],
-) -> Result<(Vec<String>, Vec<String>), (&'static str, &'static str)> {
-    let first_copy = actions.iter().position(|action| matches!(action, OutputAction::Copy(_)));
-    let last_copy = actions.iter().rposition(|action| matches!(action, OutputAction::Copy(_)));
-    let (Some(first), Some(last)) = (first_copy, last_copy) else {
-        return Ok((Vec::new(), Vec::new()));
-    };
-    let prefix = literal_variants(g, table, &actions[..first])?;
-    let suffix = literal_variants(g, table, &actions[last + 1..])?;
-    Ok((
-        if prefix == vec![String::new()] { Vec::new() } else { prefix },
-        if suffix == vec![String::new()] { Vec::new() } else { suffix },
-    ))
+    source_table: TableId,
+    active_table: TableId,
+    ids: &[CharDefId],
+) -> Option<Vec<String>> {
+    let mut variants = vec![String::new()];
+    for id in ids {
+        let pieces = translated_ids(g, source_table, active_table, &[*id])?;
+        let mut next = Vec::with_capacity(variants.len() * pieces.len());
+        for prefix in &variants {
+            for piece in &pieces {
+                next.push(format!("{prefix}{piece}"));
+            }
+        }
+        variants = next;
+    }
+    Some(variants)
 }
 
-fn insertion_runs_between(
+/// Parse `I* C(0)..C(n-1) I*`, with literals only outside the copied root.
+fn wrapper_runs(
     g: &Grammar,
-    table: TableId,
+    active_table: TableId,
     actions: &[OutputAction],
     parts: usize,
-) -> Result<Vec<Vec<String>>, (&'static str, &'static str)> {
-    // The closed recipe stores one run per gap; reconstruct exact positions directly from the
-    // copy sequence, not by flattening all insertions into one textual variant.
-    let mut gaps = vec![Vec::new(); parts.saturating_sub(1)];
-    let mut copy_index = 0usize;
-    let mut copy_pos = None;
-    for (pos, action) in actions.iter().enumerate() {
-        if matches!(action, OutputAction::Copy(PartRef::Input(_))) {
-            if let Some(start) = copy_pos {
-                let values = literal_variants(g, table, &actions[start + 1..pos])?;
-                gaps[copy_index - 1] = if values == vec![String::new()] { Vec::new() } else { values };
-            }
-            copy_pos = Some(pos);
-            copy_index += 1;
+) -> Result<Option<(Vec<String>, Vec<String>)>, (&'static str, &'static str)> {
+    let mut copies = Vec::new();
+    for (position, action) in actions.iter().enumerate() {
+        if let OutputAction::Copy(PartRef::Input(index)) = action {
+            copies.push((position, *index));
         }
     }
-    Ok(gaps)
+    if copies.len() != parts {
+        return Ok(None);
+    }
+    let Some((first_position, _)) = copies.first().copied() else {
+        return Ok(None);
+    };
+    let Some((last_position, _)) = copies.last().copied() else {
+        return Ok(None);
+    };
+    if !copies
+        .iter()
+        .enumerate()
+        .all(|(expected, (_, actual))| *actual as usize == expected)
+    {
+        return Ok(None);
+    }
+    if actions[..first_position]
+        .iter()
+        .any(|action| !matches!(action, OutputAction::InsertSegments { .. }))
+        || actions[last_position + 1..]
+            .iter()
+            .any(|action| !matches!(action, OutputAction::InsertSegments { .. }))
+    {
+        return Ok(None);
+    }
+    for pair in copies.windows(2) {
+        if pair[1].0 != pair[0].0 + 1 {
+            return Ok(None);
+        }
+    }
+    let prefix = literal_variants(g, active_table, &actions[..first_position])?;
+    let suffix = literal_variants(g, active_table, &actions[last_position + 1..])?;
+    Ok(Some((prefix, suffix)))
+}
+
+/// Parse `C(0) J(0) C(1) ... J(n-2) C(n-1)`, retaining one Cartesian variant set per gap.
+fn interior_runs(
+    g: &Grammar,
+    active_table: TableId,
+    actions: &[OutputAction],
+    parts: usize,
+) -> Result<Option<Vec<Vec<String>>>, (&'static str, &'static str)> {
+    let expected_copies = (0..parts as u16).collect::<Vec<_>>();
+    let mut runs = Vec::with_capacity(parts.saturating_sub(1));
+    let mut cursor = 0usize;
+    for (gap, expected) in expected_copies.iter().enumerate() {
+        if !matches!(actions.get(cursor), Some(OutputAction::Copy(PartRef::Input(index))) if index == expected) {
+            return Ok(None);
+        }
+        cursor += 1;
+        if gap + 1 == parts {
+            break;
+        }
+        let start = cursor;
+        while matches!(actions.get(cursor), Some(OutputAction::InsertSegments { .. })) {
+            cursor += 1;
+        }
+        let variants = literal_variants(g, active_table, &actions[start..cursor])?;
+        runs.push(if variants == vec![String::new()] { Vec::new() } else { variants });
+    }
+    if cursor != actions.len() || runs.iter().all(Vec::is_empty) {
+        return Ok(None);
+    }
+    Ok(Some(runs))
 }
 
 #[derive(Debug, Clone)]

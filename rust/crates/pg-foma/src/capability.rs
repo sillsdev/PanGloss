@@ -3517,11 +3517,12 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
         let Some(allomorphs) = rule.affix_allomorphs() else {
             continue;
         };
+        let rule_id = MRuleId(rule_index as u32);
         let table = semantics
             .grammar()
             .strata
             .iter()
-            .find(|stratum| stratum.mrules.iter().any(|id| id.0 as usize == rule_index))
+            .find(|stratum| stratum.mrules.contains(&rule_id))
             .map(|stratum| stratum.table)
             .unwrap_or(pg_grammar::model::TableId(0));
         for (allomorph_index, allomorph) in allomorphs.iter().enumerate() {

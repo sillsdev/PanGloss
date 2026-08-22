@@ -335,7 +335,7 @@ fn templated_underlying_tokens(kind: CharacteristicKind) -> (StrategyRepresentat
              emitter filters on any of these",
         ),
         ProcessMorphology => (
-            CannotRepresent,
+            RepresentsWithKnownGap,
             "structural_allomorph::MorphologyRewriteClassifier admits only the five bounded \
              templated recipes; unsupported Process topologies remain outside the proposer and \
              are refused by the per-allomorph capability floor before emission",
