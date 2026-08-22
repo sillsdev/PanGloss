@@ -6,7 +6,8 @@
 use std::fmt;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -84,16 +85,80 @@ pub struct BackendEnvelope {
     pub tuned_surface_closure_work_cap: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ResourceEnvelope {
-    pub schema_version: u32,
-    pub id: ResourceEnvelopeId,
-    pub worker_protocol_version: u32,
-    pub watchdog: WatchdogEnvelope,
-    pub communication: CommunicationEnvelope,
-    pub compose: ComposeEnvelope,
-    pub enumeration: EnumerationEnvelope,
-    pub backend: BackendEnvelope,
+    schema_version: u32,
+    id: ResourceEnvelopeId,
+    worker_protocol_version: u32,
+    watchdog: WatchdogEnvelope,
+    communication: CommunicationEnvelope,
+    compose: ComposeEnvelope,
+    enumeration: EnumerationEnvelope,
+    backend: BackendEnvelope,
+}
+
+impl ResourceEnvelope {
+    pub const fn id(&self) -> ResourceEnvelopeId {
+        self.id
+    }
+    pub const fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+    pub const fn worker_protocol_version(&self) -> u32 {
+        self.worker_protocol_version
+    }
+    pub const fn watchdog(&self) -> WatchdogEnvelope {
+        self.watchdog
+    }
+    pub const fn communication(&self) -> CommunicationEnvelope {
+        self.communication
+    }
+    pub const fn compose(&self) -> ComposeEnvelope {
+        self.compose
+    }
+    pub const fn enumeration(&self) -> EnumerationEnvelope {
+        self.enumeration
+    }
+    pub const fn backend(&self) -> BackendEnvelope {
+        self.backend
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResourceEnvelopeWire {
+    schema_version: u32,
+    id: ResourceEnvelopeId,
+    worker_protocol_version: u32,
+    watchdog: WatchdogEnvelope,
+    communication: CommunicationEnvelope,
+    compose: ComposeEnvelope,
+    enumeration: EnumerationEnvelope,
+    backend: BackendEnvelope,
+}
+
+impl<'de> Deserialize<'de> for ResourceEnvelope {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = ResourceEnvelopeWire::deserialize(deserializer)?;
+        let expected = Self::for_id(wire.id);
+        let actual = Self {
+            schema_version: wire.schema_version,
+            id: wire.id,
+            worker_protocol_version: wire.worker_protocol_version,
+            watchdog: wire.watchdog,
+            communication: wire.communication,
+            compose: wire.compose,
+            enumeration: wire.enumeration,
+            backend: wire.backend,
+        };
+        if actual != expected {
+            return Err(D::Error::custom("resource envelope is not an exact shipped profile"));
+        }
+        Ok(actual)
+    }
 }
 
 impl ResourceEnvelope {
@@ -113,16 +178,19 @@ impl ResourceEnvelope {
         Self {
             schema_version: 1,
             id,
-            worker_protocol_version: 1,
-            watchdog: WatchdogEnvelope {
-                wall_timeout_ms: 120_000,
-                rss_limit_mb: 4_096,
-                rss_sample_interval_ms: 200,
+            worker_protocol_version: crate::worker::WORKER_PROTOCOL_VERSION,
+            watchdog: {
+                let w = crate::worker::WatchdogEnvelope::default_envelope();
+                WatchdogEnvelope {
+                    wall_timeout_ms: w.wall_timeout.as_millis() as u64,
+                    rss_limit_mb: w.rss_limit_mb,
+                    rss_sample_interval_ms: w.rss_sample_interval.as_millis() as u64,
+                }
             },
             communication: CommunicationEnvelope {
-                max_request_bytes: 4 * 1024 * 1024,
-                max_result_bytes: 16 * 1024 * 1024,
-                max_captured_stderr_bytes: 4 * 1024 * 1024,
+                max_request_bytes: crate::worker::V1_WORKER_LIMITS.max_request_bytes,
+                max_result_bytes: crate::worker::V1_WORKER_LIMITS.max_result_bytes,
+                max_captured_stderr_bytes: crate::worker::V1_WORKER_LIMITS.max_captured_stderr_bytes,
             },
             compose,
             enumeration: EnumerationEnvelope {
@@ -147,8 +215,18 @@ impl ResourceEnvelope {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct AttemptId(String);
+
+impl<'de> Deserialize<'de> for AttemptId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(D::Error::custom)
+    }
+}
 
 impl AttemptId {
     pub fn new(value: impl Into<String>) -> Result<Self, String> {
@@ -188,7 +266,4 @@ impl CompileEnvelopeRequest {
         }
     }
 
-    pub fn attempt_count(&self) -> usize {
-        1
-    }
 }

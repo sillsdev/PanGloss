@@ -633,6 +633,7 @@ struct ExtendCtx<'a> {
     probe_budget: Option<ProbeBudget<'a>>,
     /// Default-on fail-fast enumeration budget, always live and never panics; `extend` checks it before every recursive step.
     enum_budget: &'a EnumerationBudget,
+    closure_trace: Option<&'a crate::characterization::ClosureTrace>,
 }
 
 /// `extend`'s output accumulator: composite records, a `(tag_lexc, spelling)` dedup set (a hash set rather than an `O(n^2)` scan, since chains visit thousands of candidates), and the counts report.
@@ -678,6 +679,11 @@ fn extend(
         if !req_fs.is_empty() && !is_unifiable(req_fs, &base_fs) {
             continue;
         }
+        if let Some(trace) = ctx.closure_trace {
+            if !trace.begin_pair(depth, mid.0) {
+                return;
+            }
+        }
         acc.report.pairs_probed += 1;
         if acc.report.pairs_probed_by_depth.len() <= depth {
             acc.report.pairs_probed_by_depth.resize(depth + 1, 0);
@@ -692,10 +698,18 @@ fn extend(
         }
 
         let synth_out = synthesize_cached(ctx.g, mid, base_word, rule, ctx.cache);
+        if let Some(trace) = ctx.closure_trace {
+            if !trace.record_successors(depth, mid.0, synth_out.len()) {
+                return;
+            }
+        }
         if !synth_out.is_empty() {
             acc.report.synth_successes += 1;
         }
-        if depth >= DEFAULT_CLOSURE_DEPTH_BUDGET {
+        let depth_limit = ctx
+            .closure_trace
+            .map_or(DEFAULT_CLOSURE_DEPTH_BUDGET, |trace| trace.depth_cap());
+        if depth >= depth_limit {
             if !synth_out.is_empty() {
                 acc.report.pending_rule_ordinals.insert(mid.0);
             }
@@ -846,6 +860,7 @@ fn process_root_work(
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
     enum_budget: &EnumerationBudget,
+    closure_trace: Option<&crate::characterization::ClosureTrace>,
     work: &RootWork,
 ) -> (Vec<CompositeRec>, CompositeReport) {
     let mut acc = Acc {
@@ -901,6 +916,7 @@ fn process_root_work(
             mode,
             probe_budget,
             enum_budget,
+            closure_trace,
         };
         // Seeds the chain's automaton state at the root's own stratum, disabling template entry forever if the root is partial.
         let seed_state = ChainState::seed(g, root_stratum.0, entry.partial);
@@ -990,6 +1006,28 @@ pub(crate) fn build_composites_with_mode(
     probe_budget: Option<ProbeBudget<'_>>,
     enum_budget: &EnumerationBudget,
 ) -> (Vec<CompositeRec>, CompositeReport) {
+    build_composites_with_mode_and_trace(
+        g,
+        width,
+        phon,
+        mt,
+        mode,
+        probe_budget,
+        enum_budget,
+        None,
+    )
+}
+
+pub(crate) fn build_composites_with_mode_and_trace(
+    g: &Grammar,
+    width: usize,
+    phon: Option<&PhonologyProbe>,
+    mt: &MorphotacticIndex,
+    mode: ExploreMode,
+    probe_budget: Option<ProbeBudget<'_>>,
+    enum_budget: &EnumerationBudget,
+    closure_trace: Option<&crate::characterization::ClosureTrace>,
+) -> (Vec<CompositeRec>, CompositeReport) {
     if !should_run(g, phon) {
         return (Vec::new(), CompositeReport::default());
     }
@@ -1035,6 +1073,7 @@ pub(crate) fn build_composites_with_mode(
                 mode,
                 probe_budget,
                 enum_budget,
+                closure_trace,
                 w,
             )
         })
@@ -1053,6 +1092,7 @@ pub(crate) fn build_composites_with_mode(
                     mode,
                     probe_budget,
                     enum_budget,
+                    closure_trace,
                     w,
                 )
             })
