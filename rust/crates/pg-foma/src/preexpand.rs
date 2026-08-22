@@ -1079,8 +1079,11 @@ pub(crate) fn build_composites_with_mode_and_trace(
         })
         .collect();
     #[cfg(not(target_arch = "wasm32"))]
-    let per_entry: Vec<(Vec<CompositeRec>, CompositeReport)> = pool.install(|| {
-        work.par_iter()
+    let per_entry: Vec<(Vec<CompositeRec>, CompositeReport)> = if closure_trace.is_some() {
+        // A traced envelope is an auditable diagnostic snapshot: preserve root/rule traversal
+        // order so work/depth terminals cannot depend on rayon scheduling. Untraced production
+        // retains the existing parallel root fan-out below.
+        work.iter()
             .map(|w| {
                 process_root_work(
                     g,
@@ -1097,7 +1100,27 @@ pub(crate) fn build_composites_with_mode_and_trace(
                 )
             })
             .collect()
-    });
+    } else {
+        pool.install(|| {
+            work.par_iter()
+                .map(|w| {
+                    process_root_work(
+                        g,
+                        width,
+                        &rules,
+                        &cache,
+                        &rule_variants_by_table,
+                        mt,
+                        mode,
+                        probe_budget,
+                        enum_budget,
+                        closure_trace,
+                        w,
+                    )
+                })
+                .collect()
+        })
+    };
 
     let mut recs = Vec::new();
     let mut report = CompositeReport::default();
