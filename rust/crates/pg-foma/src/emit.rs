@@ -3582,7 +3582,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     g: &Grammar,
     precision: PrecisionConfig,
     enum_budget: &crate::morphotactics::EnumerationBudget,
-    mut profile: Option<&mut CompileProfileBuilder>,
+    profile: Option<&mut CompileProfileBuilder>,
     strategy: SurfaceEmitStrategy,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
 ) -> EmitResult {

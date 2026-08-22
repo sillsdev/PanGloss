@@ -379,7 +379,7 @@ pub fn tuned_surface_resource_finding_for_envelope(
 ) -> Option<HealthFinding> {
     tuned_surface_resource_finding_with_limit(
         grammar,
-        envelope.backend.tuned_surface_closure_work_cap,
+        envelope.backend().tuned_surface_closure_work_cap,
     )
 }
 
