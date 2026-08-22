@@ -3796,7 +3796,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     // Both builders above check enum_budget cooperatively during their own recursion, but the grammar-level verdict is decided once, here, before any expensive derivation work runs.
     if let Some((measure, value, limit)) = enum_budget.trip_reason() {
         if let Some(trace) = closure_trace {
-            trace.stop(crate::characterization::ClosureStopReason::UnsupportedTransition);
+            trace.stop(crate::characterization::ClosureStopReason::EnumerationBudgetReached);
         }
         let reason = format!(
             "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} when \
@@ -3855,6 +3855,9 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
 
     let pending_successors = composite_report.pending_successors + structural_pending_successors;
     if pending_successors != 0 {
+        if let Some(trace) = closure_trace {
+            trace.stop(crate::characterization::ClosureStopReason::DepthBudgetReached);
+        }
         let mut affected_rule_ordinals = composite_report.pending_rule_ordinals;
         affected_rule_ordinals.extend(structural_pending_rules);
         let reason = format!(
@@ -4072,6 +4075,9 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         let cross = all_roots.len().saturating_mul(non_head_count);
         let limit = crate::compose_budget::compound_pair_budget_from_env();
         if cross > limit {
+            if let Some(trace) = closure_trace {
+                trace.stop(crate::characterization::ClosureStopReason::ResourceBudgetReached);
+            }
             let reason = format!(
                 "compound head x non-head root-pair cross product ({cross} = {} heads x {non_head_count} \
                  licensed non-heads) exceeds HC_COMPOUND_PAIR_BUDGET (limit {limit}). This grammar's \
