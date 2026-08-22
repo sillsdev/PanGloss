@@ -204,6 +204,9 @@ fn classify_rewrite(
             };
             return unsupported("ModifyFromInput", reason);
         }
+        if !lowerable_atom(g, source_table, a.lhs.get(n - 1)) {
+            return unsupported("ModifyFromInput", "terminal-modify-source-atom");
+        }
         let outputs = class_members(g, source_table, &PatternNode::Context(context.clone()))
             .ok_or(("ModifyFromInput", "terminal-modify-empty-output"))?;
         let output_segments = translated_ids(g, source_table, active_table, &outputs)
@@ -256,6 +259,7 @@ fn classify_rewrite(
         && a.rhs.len() >= 2
         && a.rhs.last() == Some(&OutputAction::Copy(PartRef::Input(1)))
         && is_fixed_atom(a.lhs.first())
+        && lowerable_atom(g, source_table, a.lhs.first())
     {
         let literal_actions = &a.rhs[..a.rhs.len() - 1];
         if literal_actions.iter().all(|action| matches!(action, OutputAction::InsertSegments { .. })) {
@@ -354,7 +358,13 @@ fn lowerable_atom(g: &Grammar, table: TableId, pattern: Option<&Pattern>) -> boo
     let [node] = pattern.nodes.as_slice() else {
         return false;
     };
-    class_members(g, table, node).is_some()
+    let Some(members) = class_members(g, table, node) else {
+        return false;
+    };
+    let Some(table_ref) = g.char_tables.get(table.0 as usize) else {
+        return false;
+    };
+    members.iter().all(|id| table_ref.iter().any(|(candidate, _)| candidate == id))
 }
 
 /// Translate source-table IDs through representation text into active-table variants.

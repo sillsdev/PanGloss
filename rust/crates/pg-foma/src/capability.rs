@@ -3548,13 +3548,24 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
             }
             continue;
         };
+        let Some(active_table) = semantics.grammar().strata.last().map(|stratum| stratum.table)
+        else {
+            for (allomorph_index, _) in allomorphs.iter().enumerate() {
+                diagnostics.push(CapabilityDiagnostic {
+                    predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
+                    construct: format!("mrule {} allomorph #{} (UnlistedTopology)", rule_index, allomorph_index),
+                    witness: "no faithful templated emission path: missing-active-table".to_string(),
+                });
+            }
+            continue;
+        };
         for (allomorph_index, allomorph) in allomorphs.iter().enumerate() {
             let MorphologyRewrite::Unsupported { shape_id, reason_id } =
                 MorphologyRewriteClassifier::classify_with_tables(
                     semantics.grammar(),
                     allomorph,
                     source_table,
-                    source_table,
+                    active_table,
                 )
             else {
                 continue;
