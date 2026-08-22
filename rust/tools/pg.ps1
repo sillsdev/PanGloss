@@ -318,6 +318,35 @@ if ($targetDir) { $env:CARGO_TARGET_DIR = $targetDir }
 
 $repoId = Get-RepoIdentity -RepoRoot $repoRoot
 
+function Test-BackendCardRegenerationScope {
+    param(
+        [string]$BuildMode,
+        [string]$BuildPackage
+    )
+    return ($BuildMode -in @('build', 'release')) -and
+        ([string]::IsNullOrWhiteSpace($BuildPackage) -or $BuildPackage -eq 'pg-foma')
+}
+
+function Invoke-BackendCardRegeneration {
+    param(
+        [string]$RustRoot,
+        [bool]$ReleaseBuild,
+        [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$BuildPriority,
+        [int]$BuildMaxConcurrent
+    )
+    $generatorArgs = @('run', '-p', 'pg-foma', '--example', 'regenerate_backend_cards')
+    if ($ReleaseBuild) { $generatorArgs += '--release' }
+    Write-Host "[pg] regenerating backend capability cards ($($generatorArgs -join ' '))" -ForegroundColor Cyan
+    $generatorCode = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $generatorArgs `
+        -WorkingDirectory $RustRoot -Priority $BuildPriority -JobMaxConcurrent $BuildMaxConcurrent
+    if ($generatorCode -ne 0) {
+        Write-Host "[pg] backend capability card regeneration failed with exit code $generatorCode" -ForegroundColor Red
+        return $generatorCode
+    }
+    Write-Host 'backend capability cards regenerated' -ForegroundColor Green
+    return 0
+}
+
 if ($targetDir) {
     $ownership = Write-TargetOwnership -TargetDir $targetDir -RepositoryId $repoId -WorktreePath $repoRoot
     if (-not $ownership.Ok) {
@@ -732,6 +761,11 @@ try {
         $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
         Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
         $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -Priority $Priority -JobMaxConcurrent $MaxConcurrent
+        if ($code -eq 0 -and (Test-BackendCardRegenerationScope -BuildMode $Mode -BuildPackage $Package)) {
+            $releaseBuild = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile))
+            $code = Invoke-BackendCardRegeneration -RustRoot $rustRoot -ReleaseBuild:$releaseBuild `
+                -BuildPriority $Priority -BuildMaxConcurrent $MaxConcurrent
+        }
     }
 } finally {
     Exit-BuildSlot -Semaphore $sem
