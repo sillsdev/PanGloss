@@ -364,7 +364,7 @@ fn lowerable_atom(g: &Grammar, table: TableId, pattern: Option<&Pattern>) -> boo
     let Some(table_ref) = g.char_tables.get(table.0 as usize) else {
         return false;
     };
-    members.iter().all(|id| table_ref.iter().any(|(candidate, _)| candidate == id))
+    members.iter().all(|id| table_ref.iter().any(|(candidate, _)| candidate == *id))
 }
 
 /// Translate source-table IDs through representation text into active-table variants.
