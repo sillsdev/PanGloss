@@ -183,9 +183,6 @@ pub fn trace_tuned_surface_closure_for_test(
 }
 
 fn trace_closure_kernel(grammar: &Grammar, limits: ClosureTestLimits) -> CharacterizationResult {
-    // The closure kernel must account for every authored transition, including structural/zero
-    // morph rules that the ordinary composite candidate filter intentionally leaves to `emit`.
-    // Compounding has a separate bounded emitter and is not part of this walk.
     let mut rules = candidate_rules(grammar);
     if rules.is_empty() {
         rules = grammar
