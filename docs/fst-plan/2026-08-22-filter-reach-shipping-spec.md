@@ -11,6 +11,17 @@ This specification is a delivery contract, not evidence that any of these langua
 trusted shipped FST. A language is accepted only after its selected route has a complete payload,
 certificate, and the required runtime evidence.
 
+| Language | Code path | Bounded corpus evidence | Certified artifact | Trusted shipped FST |
+|---|---|---|---|---|
+| Indonesian | Foma propose→confirm and replace-rule prototype paths exist; current construction is not identity-bound. | Historical 121/121 F3, separate 114-case P6, and separate 97/97 non-redup P6 scopes; denominators are not interchangeable without an exact case mapping. | None | None |
+| Amharic | Templated/replace prototype code paths exist. | Bounded comparison: 622 cases, 51 engine-timeout exclusions, 0 mismatches; not timeout-free. | None | None |
+| Aweti | Templated-underlying prototype code path exists, including the 18-rule composition path. | 100/106 oracle-bearing words, with six gaps. | None | None |
+
+Plain-English reading: a code path is an exercised implementation route; bounded evidence is a
+scoped measurement; a certified artifact has a valid completeness certificate; and a trusted shipped
+FST is a certified artifact accepted for delivery. None of the three current languages reaches the
+last two columns.
+
 ## Terminology
 
 In this work, a **computationally awkward FieldWorks grammar** may be described informally as a
