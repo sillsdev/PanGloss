@@ -184,9 +184,11 @@ and a final zero-marker assertion.  Terminal modification additionally has a one
 witness and multi-segment and quantified-span negative witnesses, proving that one replacement
 cannot stand in for HermitCrab's modification of every segment in a captured span.  A wrapper
 witness with at least two prefix variants and two suffix variants proves all four pairs are emitted,
-so a zip or first-variant implementation fails.  Mechanism evidence is deterministic: classifier counts,
-marker allocations/consumptions, relation fires, unsupported/uncovered items, skipped rules, and
-missing subtrees are reported as counters, not inferred from timing.
+so a zip or first-variant implementation fails.  Mechanism evidence is deterministic: classifier
+counts, marker allocations/consumptions, unsupported/uncovered items, skipped rules, and missing
+subtrees are compile evidence. Relation-fire counts are observation evidence and increment only
+when named witnesses actually traverse the compiled relation; an immutable compile profile never
+claims a runtime fire before application. None of these facts is inferred from timing.
 
 The actual-language gates run the selector and the realized compiler in one invocation and assert:
 

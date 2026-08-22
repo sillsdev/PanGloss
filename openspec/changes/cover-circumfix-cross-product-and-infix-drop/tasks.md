@@ -25,7 +25,7 @@
 
 ## 4. Fail-closed templated construction
 
-- [ ] 4.1 Extend `TemplatedCompileProfile` with supported/compiled/fired recipe counts, per-shape counts, marker allocation/consumption/leak counts, unsupported/uncovered counts, missing subtree count, and existing skipped phonological rules.
+- [ ] 4.1 Extend `TemplatedCompileProfile` with supported/compiled recipe counts, per-shape counts, marker allocation/consumption/leak counts, unsupported/uncovered counts, missing subtree count, and existing skipped phonological rules. Keep actual recipe-fire counters on relation/assessment observations so an immutable compile profile cannot claim runtime execution before a witness is applied.
 - [ ] 4.2 Make `compile_templated_morphotactics` return a typed error—not `Ok`—for any unsupported/uncovered allomorph, skipped rule, missing marker subtree, allocation/compilation mismatch, foreign/multiple marker state, or final marker leak; an empty phonological rule list remains a valid identity cascade.
 - [ ] 4.3 Add/extend focused tests proving all declared phonological rules compile, morphology output feeds RTL and simultaneous replacement in authored order, and the finalized proposer carries no technical marker or partial-success profile.
 - [ ] 4.4 Pin tag-codec safety across every FST consumer, including the historical literal-`0`/`fsm_intersect` failure class: source-level encoding/decoding must round-trip, emitted tags must contain no unsafe literal-zero symbol, and the recall harness must not rely on `apply_up` alone.

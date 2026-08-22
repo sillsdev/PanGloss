@@ -121,6 +121,7 @@ trait MorphologyRelationProbe {
     fn marker_binding_for(&self, allomorph: AllomorphId) -> Option<MarkerBinding>;
     fn marked_input(&self, allomorph: AllomorphId, base_tokens: &str) -> String;
     fn apply(&self, input: &str) -> MorphologyRelationResult;
+    fn fired_recipe_count(&self) -> usize;
 }
 
 impl MorphologyRelationProbe for pg_foma::structural_allomorph::CompiledMorphologyRelation {
@@ -134,6 +135,10 @@ impl MorphologyRelationProbe for pg_foma::structural_allomorph::CompiledMorpholo
 
     fn apply(&self, input: &str) -> MorphologyRelationResult {
         self.apply(input)
+    }
+
+    fn fired_recipe_count(&self) -> usize {
+        self.fired_recipe_count()
     }
 }
 
@@ -153,10 +158,6 @@ fn assert_profile_is_complete(profile: &pg_foma::templated_compile::TemplatedCom
     assert!(
         profile.compiled_recipe_count > 0,
         "at least one recipe must be compiled"
-    );
-    assert!(
-        profile.fired_recipe_count > 0,
-        "the real relation must fire on the witness"
     );
     assert_eq!(
         profile.marker_allocations, 2,
@@ -223,6 +224,11 @@ fn compiled_marker_union_is_total_and_composed_before_phonology() {
         &marked_b,
         "AmharicInitialVowelReplacement",
         &["pb"],
+    );
+    assert_eq!(
+        relation.fired_recipe_count(),
+        2,
+        "both named witnesses must fire the real relation"
     );
     let foreign = marked_a.replacen(binding_a.symbol, technical_marker(AllomorphId(0x7fff)), 1);
     assert_rejected(relation, &foreign, "foreign-marker");
