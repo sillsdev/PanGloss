@@ -4,6 +4,8 @@ use pg_foma::backend_cards::{
 };
 use pg_foma::strategy_coverage::ALL_STRATEGIES;
 use std::collections::BTreeSet;
+use std::fs;
+use std::path::PathBuf;
 
 const CONDITIONAL_BENEFIT: &str = "would make this backend work for your language";
 
@@ -41,6 +43,20 @@ fn catalog_covers_exactly_the_executable_backends_with_complete_static_envelopes
             assert!(!envelope.big_o.time.is_empty());
             assert!(!envelope.big_o.space.is_empty());
             assert!(!envelope.big_o.variables.is_empty());
+            assert!(
+                envelope.big_o.time.contains('F'),
+                "{} must include the feature/unification cost axis F",
+                envelope.id
+            );
+            assert!(
+                envelope
+                    .big_o
+                    .variables
+                    .iter()
+                    .any(|variable| variable.starts_with("F:")),
+                "{} must define F",
+                envelope.id
+            );
             assert!(!envelope.contributors.is_empty());
             assert!(!envelope.remedy_ids.is_empty());
             assert!(!envelope.source_refs.is_empty());
@@ -67,6 +83,7 @@ fn rendered_cards_are_deterministic_and_static() {
         assert!(first.contains("Static backend contract"));
         assert!(first.contains(CONDITIONAL_BENEFIT));
         assert!(first.contains(GRAMMAR_SAFETY_WARNING));
+        assert!(first.lines().count() < 100, "{} card is too long", card.backend_id);
         for language_name in ["Mbugwe", "Aweti", "Sena", "Indonesian", "Warlpiri"] {
             assert!(!first.contains(language_name));
         }
@@ -75,4 +92,32 @@ fn rendered_cards_are_deterministic_and_static() {
         assert!(relative.starts_with("docs/fst-plan/backend-cards/"));
         assert!(relative.ends_with(".md"));
     }
+}
+
+#[test]
+fn tuned_surface_card_names_the_closed_compile_request_envelopes() {
+    let card = catalog()
+        .iter()
+        .find(|card| card.backend_id == "tuned-surface-probed")
+        .expect("tuned surface card");
+    let rendered = render_markdown(card);
+
+    assert!(rendered.contains("CompileRequest.resource_envelope"));
+    assert!(rendered.contains("managed-v1"));
+    assert!(rendered.contains("tuned-surface-work-10k-v1"));
+    assert!(!rendered.contains("PG_FOMA_TUNED_SURFACE_CLOSURE_BUDGET"));
+}
+
+#[test]
+fn managed_build_wrapper_regenerates_the_checked_in_cards_after_success() {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let wrapper = manifest_dir
+        .parent()
+        .and_then(|path| path.parent())
+        .expect("crate remains below rust/crates")
+        .join("tools/pg.ps1");
+    let source = fs::read_to_string(wrapper).expect("read managed build wrapper");
+
+    assert!(source.contains("regenerate_backend_cards"));
+    assert!(source.contains("backend capability cards regenerated"));
 }
