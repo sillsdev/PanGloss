@@ -1569,9 +1569,14 @@ fn compound_chain_depth_and_budget_check(
     uncovered: &[UncoveredItem],
     counts: &EmitCounts,
     chain_depth_cap: Option<usize>,
+    selected_compose: Option<crate::resource_envelope::ComposeEnvelope>,
 ) -> Result<usize, EmitResult> {
     let compound_depth_bound = compound_depth_bound(g);
-    let (depth, limit) = match compound_extra_levels_checked_with_cap(g, chain_depth_cap) {
+    let (depth, limit) = match compound_extra_levels_checked_with_cap(
+        g,
+        chain_depth_cap,
+        selected_compose,
+    ) {
         Ok(levels) => return Ok(levels),
         Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) => (depth, limit),
         Err(other) => unreachable!(
@@ -1627,24 +1632,41 @@ fn compound_depth_bound(g: &Grammar) -> usize {
 /// emitters need -- the same "one construction, two presentations" split
 /// `build_compound_chain`'s own doc uses.
 pub(crate) fn compound_extra_levels_checked(g: &Grammar) -> Result<usize, ComposeError> {
-    compound_extra_levels_checked_with_cap(g, None)
+    compound_extra_levels_checked_with_cap(g, None, None)
 }
 
 fn compound_extra_levels_checked_with_cap(
     g: &Grammar,
     chain_depth_cap: Option<usize>,
+    selected_compose: Option<crate::resource_envelope::ComposeEnvelope>,
 ) -> Result<usize, ComposeError> {
     let compound_extra_levels = compound_depth_bound(g).saturating_sub(1).max(1);
     let budget = match chain_depth_cap {
-        Some(cap) => ComposeBudget::with_caps(
-            usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            None,
-        )
-        .with_chain_depth_cap(cap),
+        Some(cap) => {
+            let mut budget = selected_compose.map_or_else(
+                ComposeBudget::from_env,
+                |compose| {
+                    // Before Foma network construction, this emitter only checks the compound
+                    // pair and chain dimensions. The remaining dimensions are carried in this
+                    // complete budget for the downstream Foma composer; unnamed callers retain
+                    // their historical env-driven behavior above.
+                    let mut budget = ComposeBudget::with_caps(
+                        compose.state_cap,
+                        compose.arc_cap,
+                        compose.tuple_cap,
+                        compose.group_cap,
+                        compose.line_cap,
+                        None,
+                    );
+                    if let Some(ordering_cap) = compose.ordering_multiplicity_cap {
+                        budget = budget.with_ordering_multiplicity_cap(ordering_cap);
+                    }
+                    budget
+                },
+            );
+            budget = budget.with_chain_depth_cap(cap);
+            budget
+        }
         None => ComposeBudget::from_env().with_chain_depth_cap(compound_chain_depth_budget()),
     };
     budget
@@ -3586,6 +3608,7 @@ fn emit_with_budget_profiled_with_strategy(
         strategy,
         None,
         true,
+        None,
     )
 }
 
@@ -3609,6 +3632,7 @@ pub fn emit_tuned_surface_with_closure_limits_for_test(
         SurfaceEmitStrategy::default(),
         Some(&trace),
         false,
+        Some(envelope.compose()),
     )
 }
 
@@ -3647,6 +3671,7 @@ fn emit_tuned_surface_for_envelope_with_trace_policy(
         SurfaceEmitStrategy::default(),
         Some(&trace),
         allow_env_trace,
+        Some(envelope.compose()),
     )
 }
 
@@ -3676,6 +3701,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     strategy: SurfaceEmitStrategy,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
     allow_env_trace: bool,
+    selected_compose: Option<crate::resource_envelope::ComposeEnvelope>,
 ) -> EmitResult {
     let mut stage_start = Instant::now();
     let width = tags::tag_width(g.morphemes.len());
@@ -4162,7 +4188,10 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
         let cross = all_roots.len().saturating_mul(non_head_count);
         let limit = closure_trace.map_or_else(
-            crate::compose_budget::compound_pair_budget_from_env,
+            || selected_compose.map_or_else(
+                crate::compose_budget::compound_pair_budget_from_env,
+                |compose| compose.compound_pair_cap,
+            ),
             crate::characterization::ClosureTrace::compound_pair_cap,
         );
         if cross > limit {
@@ -4202,6 +4231,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             &uncovered,
             &counts,
             closure_trace.map(crate::characterization::ClosureTrace::compound_chain_depth_cap),
+            selected_compose,
         ) {
             Ok(levels) => levels,
             Err(mut early_return) => {
@@ -5055,6 +5085,7 @@ pub fn emit_underlying_templated(
             g,
             &uncovered,
             &counts,
+            None,
             None,
         ) {
             Ok(levels) => levels,
