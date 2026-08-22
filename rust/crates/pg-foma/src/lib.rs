@@ -301,6 +301,7 @@ pub mod readiness_policy;
 pub mod readiness_verdict;
 /// Closed, versioned compile-attempt resource profiles and retry linkage.
 pub mod resource_envelope;
+pub(crate) mod worker_contract;
 /// Replace-calculus rule compilation + underlying-form lexc -- the relational encoding of a
 /// rewrite rule, used by `build` and `gate`.
 pub mod replace;
