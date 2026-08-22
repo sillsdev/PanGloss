@@ -6,7 +6,7 @@ use pg_foma::structural_allomorph::{
     MarkerZone, MorphologyRewrite, MorphologyRewriteClassifier, ZoneRequirement,
 };
 use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::{Grammar, MorphRuleDef, OutputAction, PartRef, TableId};
+use pg_grammar::model::{Grammar, MorphRuleDef, OutputAction, PartRef, PatternNode, TableId};
 
 const CLASSIFIER_XML: &str = r#"
 <HermitCrabInput><Language><Name>synthetic-templated-closed-grammar</Name>
@@ -31,7 +31,6 @@ const CLASSIFIER_XML: &str = r#"
     <SegmentDefinition id="cf5"><Representations><Representation>^</Representation><Representation>x</Representation></Representations></SegmentDefinition>
     <SegmentDefinition id="cf6"><Representations><Representation>&amp;</Representation></Representations></SegmentDefinition>
     <SegmentDefinition id="cf7"><Representations><Representation>*</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cf8"><Representations><Representation>+</Representation></Representations></SegmentDefinition>
   </SegmentDefinitions></CharacterDefinitionTable>
   <NaturalClasses>
     <SegmentNaturalClass id="ncAny"><Name>Any</Name>
@@ -429,5 +428,24 @@ fn classifier_has_no_role_based_fallback_for_nonliteral_ordinary_actions() {
     assert!(
         !matches!(result.unwrap(), MorphologyRewrite::OrdinaryLiteral { .. }),
         "a Copy action must never be accepted as ordinary literal text"
+    );
+}
+
+#[test]
+fn bounded_drop_atoms_are_resolved_in_the_owning_source_table() {
+    let mut g = load();
+    if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+        rule.allomorphs[8].lhs[0].nodes[0] = PatternNode::CharDef(CharDefId(8));
+    }
+
+    let result = MorphologyRewriteClassifier::classify_with_tables(
+        &g,
+        allomorph(&g, 8),
+        TableId(1),
+        TableId(0),
+    );
+    assert!(
+        matches!(result, MorphologyRewrite::Unsupported { .. }),
+        "source-table char-def 8 is absent even though active-table char-def 8 exists"
     );
 }
