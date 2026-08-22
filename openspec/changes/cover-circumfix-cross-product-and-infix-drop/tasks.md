@@ -44,6 +44,6 @@
 
 ## 7. Merged-tip verification and documentation
 
-- [ ] 7.1 Run the classifier, marker, templated compile, local conformance, strategy coverage, backend selection, trusted selected-build, and five-language report targets once on the merged integration tip through `rust/tools/pg.ps1`, retaining full output.
+- [ ] 7.1 Run the classifier, marker, templated compile, local conformance, strategy coverage, backend selection, trusted selected-build, and current three-language report targets once on the merged integration tip through `rust/tools/pg.ps1`, retaining full output. The former five-language report target is historical only; do not treat it as a current gate or add a Mbugwe result.
 - [ ] 7.2 Run the authoritative pg-foma package gate and the two private corpus targets on the same final commit; any final commit after the last compile/test phase is unverified and must be rerun.
 - [ ] 7.3 Update the three-language acceptance document with selected/realized routes, exact semantic results, zero-gap evidence, FST measurements, and explicit evidence availability; do not add or imply a Mbugwe result.

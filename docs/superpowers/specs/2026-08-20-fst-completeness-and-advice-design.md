@@ -265,7 +265,11 @@ caveat = "A finite bound changes the grammar if repetition is genuinely unbounde
 
 Wording and remedies may evolve without changing the stable key. Adding optional evidence is backwards-compatible; changing the meaning of a key requires a new key.
 
-## Deferred Mbugwe contract (future reference)
+## Deferred Mbugwe contract (future reference only; not current acceptance)
+
+The following is retained to preserve the origin of a historical stress case. It is not a delivery
+requirement for the current Indonesian/Amharic/Aweti slice, and no current report or artifact may
+claim Mbugwe support from it.
 
 The Mbugwe-derived five-rule late-anchor case is treated as plausible finite morphology, not as pathological depth.
 
@@ -283,7 +287,7 @@ rust/crates/pg-foma/tests/fixtures/pangloss/fst-completeness/
 
 The suite includes:
 
-1. a finite five-rule late structural anchor whose worklist exhausts and whose FST matches the full-HC oracle;
+1. a finite late structural-anchor fixture whose worklist exhausts and whose FST matches the full-HC oracle;
 2. a later-allomorph structural/reduplication case proving every allomorph participates in classification and closure;
 3. a repeated-application case proving counters, rather than rule-ID deduplication, bound closure;
 4. a tiny injected resource budget that leaves pending work, returns Error, and writes no artifact;
@@ -303,7 +307,7 @@ These fixtures are permanently PanGloss-specific and are never promoted to Machi
 - Make Critical refuse normal production compilation; preserve only the explicit unproven development capability override.
 - Add the PanGloss-only red/green refusal fixtures.
 
-This slice makes the current product honest even before it supports Mbugwe.
+This slice makes the current product honest while Mbugwe remains deferred.
 
 ### 2. Grammar-specific finite closure
 
@@ -311,7 +315,8 @@ This slice makes the current product honest even before it supports Mbugwe.
 - Derive finite bounds from reachable strata, templates, slots, features, and application caps.
 - Replace fixed-depth recursion with a deterministic worklist that runs to exhaustion.
 - Emit the completeness certificate and closure counters.
-- Green the five-rule Mbugwe-derived fixture.
+- Keep any historical five-rule fixture out of the current delivery gate; if future Mbugwe work
+  reuses it, require the same closure and certificate evidence as any other grammar.
 
 ### 3. Cost diagnostics and catalog
 
@@ -339,7 +344,6 @@ This slice makes the current product honest even before it supports Mbugwe.
 - Error emits no proven artifact. A clean retry with a changed resource envelope may succeed normally; the separate development capability override may produce only an unproven artifact.
 - Critical emits no proven artifact; an explicit development capability override can produce only an indelibly unproven artifact with degraded runtime trust.
 - Apply-time execution containment cannot be overridden.
-- The Mbugwe-derived five-rule fixture either produces an oracle-equivalent certified FST or a typed Error/Critical; it can never silently produce a partial FST.
 - PanGloss-only completeness fixtures cannot enter the Machine promotion workflow.
 
 ## Explicitly rejected alternatives

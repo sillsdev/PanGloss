@@ -6,6 +6,24 @@ Basis: reports/01–09 (analysis + adversarial audits), plus three fresh recon p
 (workspace wiring map; foma upstream docs/source grilling, every claim URL-cited;
 propose→verify contract spec, every claim file:line-cited). Key citations inline below.
 
+## Current three-language evidence boundary
+
+The entries below are historical prototype/code-path and bounded-corpus evidence. They are not
+certificates and do not mean that a trusted language FST has shipped. In particular, Indonesian's
+121/121, 114, and 97/97 figures come from different historical scopes; their denominators are not
+interchangeable because an exact case mapping has not been established.
+
+| Language | Code path | Bounded corpus evidence | Certified artifact | Trusted shipped FST |
+|---|---|---|---|---|
+| Indonesian | Foma propose→confirm and replace-rule prototype paths exist; the current construction is not identity-bound. | Historical 121/121 F3 scope; separate 114-case P6 scope; separate 97/97 non-redup P6 scope. | None | None |
+| Amharic | Templated/replace prototype code paths exist. | Bounded comparison: 622 cases, 51 engine-timeout exclusions, 0 mismatches; not timeout-free. | None | None |
+| Aweti | Templated-underlying prototype code path exists, including the 18-rule composition path. | 100/106 oracle-bearing words, with six gaps. | None | None |
+
+Here “code path” means an exercised implementation route, “bounded corpus evidence” means a
+scoped measurement, “certified artifact” means a payload with a valid completeness certificate,
+and “trusted shipped FST” means a certified artifact accepted for delivery. None of the three
+languages currently reaches the last two columns.
+
 ## 0. Goal and non-goals
 
 **Goal:** Replace the custom-spun FST proposer layer (`hc-hybrid`, 12,332 lines) with a
@@ -187,7 +205,8 @@ Order of attack (easiest recall first): **Sena** (0 prules, lexc-only, but 1,369
 24 templates) → **Indonesian** (5 prules via pre-probed variants + junctions, 7 redup
 words via peel) → **Amharic** (7 prules, 417 segments).
 
-Stage outcomes (2026-07-15): Sena 326/326 tier Full; Indonesian 97/97 non-redup, Partial{6}
+Historical prototype stage outcomes (2026-07-15; code-path evidence only, not a trusted language
+artifact): Sena 326/326 tier Full; Indonesian 97/97 non-redup, Partial{6}
 (3 circumfix rules + 3 redup rules); Amharic 4/36 (~11%) — misses fully classified as
 (a) interdigitating infix rules (-pfv-/-conv-, 24/32) and (b) Ge'ez glyph coalescence at
 morph boundaries (8/32).
@@ -349,7 +368,8 @@ cost on zero-analysis words — new finding, candidate for P6 profiling).
 3c targets met (or explicit signed-off exceptions recorded here); no test regressions
 workspace-wide (`cargo test`).
 
-**Gate F3 verdict (2026-07-16): MET.** All recall gaps found by the initial P3 report
+**Historical Gate F3 verdict (2026-07-16): MET for that bounded prototype run, not a current
+certificate or trusted shipped artifact.** All recall gaps found by the initial P3 report
 (below) are now closed, nothing laundered:
 - **3a parity — 100% on all three grammars** (`pg-foma/tests/f3_parity.rs`, release, empty
   known-failures ledger): Indonesian 121/121; Sena sample-300 0 mismatches (`musandilesera`
@@ -493,7 +513,7 @@ items, costed in the report §6 — headline ones:
   a replace rule's own `||` context; `fsm_compose` doesn't treat flags as epsilon-transparent by
   default; a Kleene-star flag-gated workaround built to route around the first finding was itself
   order-fragile) — three surprises deep on one technique was treated as the signal to stop, not
-  keep debugging blind. The shipped fix is a **static, flag-free partition**: lexical entries are
+  keep debugging blind. The prototype code-path fix is a **static, flag-free partition**: lexical entries are
   grouped by which gated subrules they satisfy (computed by calling `pg_rules::rewrite::
   subrule_applicable` — the real engine's own predicate, now `pub` — directly, so the two paths
   cannot disagree), one lexc+rule-cascade network is compiled PER GROUP with each group's
@@ -505,8 +525,8 @@ items, costed in the report §6 — headline ones:
   module doc and `p6-prototype-report.md` §7. Regression-verified: Indonesian 97/97 unchanged,
   Amharic's 82-state/1,110,358-arc composed cascade byte-identical through the untouched
   (unedited) `compile_and_compose_rules` entry point.
-- **Templated morphotactics in the underlying-form emitter — SHIPPED (2026-07-20, main
-  dfb5025):** `emit.rs` refitted with a `TextMode` leaf-text switch (SurfaceProbed = existing
+- **Templated morphotactics in the underlying-form emitter — prototype code path (2026-07-20,
+  main dfb5025; not a trusted shipped language artifact):** `emit.rs` refitted with a `TextMode` leaf-text switch (SurfaceProbed = existing
   path, regression-verified byte-identical: lib 64/64, Sena/Indonesian/parity gates all green)
   plus the new `emit_underlying_templated` entry point. Aweti — the grammar the enumeration
   path OOMs on at 691MB/8.8GB — now emits, foma-compiles, and composes with its 18-rule cascade
