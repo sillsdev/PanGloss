@@ -108,7 +108,7 @@ use crate::health::{
 };
 use crate::morphotactics::{ChainState, MorphotacticIndex};
 use crate::preexpand::{candidate_rules, rule_fs_and_morpheme};
-use crate::resource_envelope::ResourceEnvelope;
+use crate::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 
 /// Default logical-work envelope for TunedSurface composite closure. This counts reachable
 /// root/chain-state x rule applications, never affix depth. A caller may request a larger named
@@ -404,7 +404,21 @@ pub fn tuned_surface_resource_finding_with_limit(
 
 /// TunedSurface resource characterization under the shipping envelope.
 pub fn tuned_surface_resource_finding(grammar: &Grammar) -> Option<HealthFinding> {
-    tuned_surface_resource_finding_with_limit(grammar, DEFAULT_TUNED_CLOSURE_WORK_LIMIT)
+    tuned_surface_resource_finding_for_envelope(
+        grammar,
+        &ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1),
+    )
+}
+
+/// Characterize Tuned Surface under one selected, immutable product envelope snapshot.
+pub fn tuned_surface_resource_finding_for_envelope(
+    grammar: &Grammar,
+    envelope: &ResourceEnvelope,
+) -> Option<HealthFinding> {
+    tuned_surface_resource_finding_with_limit(
+        grammar,
+        envelope.backend.tuned_surface_closure_work_cap,
+    )
 }
 
 /// A conservative, uncalibrated placeholder (see this module's doc, "Bounded products"); never used to reject a compile, `Predicted`/`Warning` evidence only.

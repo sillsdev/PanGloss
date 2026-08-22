@@ -113,7 +113,9 @@ impl ResourceEnvelope {
         Self {
             schema_version: 1,
             id,
-            worker_protocol_version: crate::worker::WORKER_PROTOCOL_VERSION,
+            // Protocol v1 is part of the envelope schema and remains available to wasm builds,
+            // where the native worker module is intentionally absent.
+            worker_protocol_version: 1,
             watchdog: WatchdogEnvelope {
                 wall_timeout_ms: 120_000,
                 rss_limit_mb: 4_096,
@@ -192,4 +194,3 @@ impl CompileEnvelopeRequest {
         1
     }
 }
-
