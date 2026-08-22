@@ -7,7 +7,7 @@
 
 ## 2. Shared closed classifier
 
-- [ ] 2.1 Introduce the pure `MorphologyRewriteClassifier` in `structural_allomorph.rs` with `OrdinaryLiteral`, `DirectWholeRootWrapper`, `MarkedStructural`, and `Unsupported` results; include zone, validated action topology, translated variant sets/output classes, marker identity, source IDs, and stable shape/reason IDs.
+- [ ] 2.1 Introduce the pure `MorphologyRewriteClassifier` in `structural_allomorph.rs` with `OrdinaryLiteral`, `DirectWholeRootWrapper`, `MarkedStructural`, and `Unsupported` results; include intrinsic-or-caller zone requirements, validated action topology, translated source/active-table variant sets and output classes, marker identity, source IDs, and stable shape/reason IDs. Ordinary literal placement remains caller-supplied, and a direct wrapper's two halves are already zoned.
 - [ ] 2.2 Make `OrdinaryLiteral` accept only empty/null RHS or a one-zone RHS made entirely of translatable `InsertSegments`; route every RHS containing `Copy`, `ModifyFromInput`, or `InsertContext` through the closed structural classifier and refuse when no listed recipe matches.
 - [ ] 2.3 Classify whole-root wrappers when all non-empty input parts are copied exactly once in increasing order with literals only outside; return independently deduplicated prefix/suffix sets and emit their complete Cartesian product without lowering internal LHS predicates.
 - [ ] 2.4 Classify interior insertion as ordered copies separated by possibly empty insertion runs with at least one non-empty run; classify initial fixed-segment replacement and the existing bounded adjacent drop; validate references/tables while deliberately erasing LHS predicates only where the design proves a recall superset.
@@ -16,10 +16,10 @@
 
 ## 3. Emission, capability, and morphology relation
 
-- [ ] 3.1 Route every allomorph independently from the shared classifier in `emit.rs`; remove first-allomorph/`Role` inference for these shapes, place direct wrapper halves in their authored zones, and emit exactly one unique technical marker for each marked structural alternative.
+- [ ] 3.1 Route every allomorph independently from the shared classifier plus the caller's current chain zone in `emit.rs`; remove first-allomorph/`Role` inference for these shapes, place direct wrapper halves in their two explicit zones, require intrinsic edge recipes to agree with the caller, and emit exactly one unique technical marker for each `(allomorph, zone)` marked structural alternative.
 - [ ] 3.2 Replace the Templated `ProcessMorphology = CannotRepresent` and affected circumfix registry rows in `strategy_coverage.rs` with predicate-backed known gaps; make `capability.rs` return `ConfirmOnly` only when every relevant allomorph has a listed classifier recipe and preserve `Refuse` with the exact unsupported witness otherwise.
 - [ ] 3.3 Compile the interior-insertion regular superset: preserve all segment tokens and propose each authored literal run at possible segment boundaries in order; do not constrain to an invented LHS partition, and exclude tags, boundaries, and technical symbols from segment positions.
-- [ ] 3.4 Compile the initial replacement and one-segment terminal-modification supersets, including every finite permitted output segment, while keeping their markers allomorph/zone-specific and leaving exact LHS/context checks to HermitCrab.
+- [ ] 3.4 Compile the initial replacement and one-segment terminal-modification supersets, including every finite permitted output segment translated from the owning source table into the active pipeline table, while keeping their markers `(allomorph, zone)`-specific and leaving exact LHS/context checks to HermitCrab.
 - [ ] 3.5 Compile one total unioned morphology relation with marker-free identity only, exact known-marker branches, foreign/multiple-marker rejection, unique consumption, and no universal identity path that can carry a marker through.
 - [ ] 3.6 Compose morphology after underlying lexc and before the existing ordered phonological cascade; make the marker target green and verify focused RTL/simultaneous interaction targets through `rust/tools/pg.ps1`.
 
