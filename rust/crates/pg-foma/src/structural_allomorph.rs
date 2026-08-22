@@ -1,15 +1,8 @@
-//! Bounded local structural-allomorph lowering for the templated proposer.
+//! Bounded structural-allomorph classification and legacy lowering for templated morphology.
 //!
-//! Covers one affine, adjacent suffix shape without enumerating roots: `lhs = [variable prefix,
-//! one tail atom]`, `rhs = [Copy(Input(0)), InsertSegments...]`. The templated lexc emitter writes
-//! an allomorph-owned marker alternative; this module compiles the local deletion relation and the
-//! caller composes it after lexc and before phonology. Unsupported shapes receive no marker and
-//! remain on the existing literal fallback path.
-//!
-//! The two-sided (circumfix) shape (`lhs = [one whole-root part]`, `rhs = [InsertSegments...,
-//! Copy(Input(0)), InsertSegments...]`) needs no marker or rewrite composition at all: both halves'
-//! text is already known statically, so `circumfix_texts` just hands the caller the two encoded
-//! strings, and `crate::emit` writes each directly at its own real chain position.
+//! The classifier proves source ownership, finite input members, and supported rewrite shapes.
+//! Caller-zoned recipes retain their typed binding input; only the legacy staged marker path
+//! allocates a marker here. Circumfix text remains a direct, marker-free lowering.
 
 use foma::constructions::{fsm_compose, fsm_union, fsm_universal};
 use foma::options::FomaOptions;
@@ -17,8 +10,8 @@ use foma::regex::fsm_parse_regex;
 use foma::types::Fsm;
 use pg_grammar::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
-    AffixAllomorphDef, AllomorphId, Grammar, MorphRuleDef, NaturalClassKind, OutputAction, PartRef,
-    Pattern, PatternNode, PhonRuleDef, SimpleContext, TableId,
+    AffixAllomorphDef, AllomorphId, AllomorphOwner, Grammar, MorphRuleDef, NaturalClassKind,
+    OutputAction, PartRef, Pattern, PatternNode, PhonRuleDef, SimpleContext, TableId,
 };
 use pg_shape::{NodeKind, Shape};
 use std::collections::HashSet;
@@ -49,6 +42,13 @@ pub struct MarkerKey {
 pub struct MarkerBinding {
     pub key: MarkerKey,
     pub symbol: char,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RewriteProvenance {
+    pub allomorph: AllomorphId,
+    pub source_table: TableId,
+    pub active_table: TableId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,15 +95,18 @@ pub fn marker_binding_for(
 pub enum MorphologyRewrite {
     OrdinaryLiteral {
         variants: Vec<String>,
+        provenance: RewriteProvenance,
     },
     DirectWholeRootWrapper {
         prefix_variants: Vec<String>,
         suffix_variants: Vec<String>,
+        provenance: RewriteProvenance,
     },
     MarkedStructural {
         shape_id: &'static str,
         recipe: MorphologyRecipe,
         zone_requirement: ZoneRequirement,
+        provenance: RewriteProvenance,
     },
     Unsupported {
         shape_id: &'static str,
@@ -119,6 +122,7 @@ pub struct MorphologyRecipe {
     refs: Vec<u16>,
     literal_runs: Vec<Vec<String>>,
     output_segments: Vec<String>,
+    translated_input_members: Vec<Vec<String>>,
 }
 
 impl MorphologyRecipe {
@@ -133,6 +137,10 @@ impl MorphologyRecipe {
     pub fn output_segments(&self) -> Vec<String> {
         self.output_segments.clone()
     }
+
+    pub fn translated_input_members(&self) -> Vec<Vec<String>> {
+        self.translated_input_members.clone()
+    }
 }
 
 pub struct MorphologyRewriteClassifier;
@@ -143,7 +151,16 @@ impl MorphologyRewriteClassifier {
         allomorph: &AffixAllomorphDef,
         active_table: TableId,
     ) -> MorphologyRewrite {
-        Self::classify_with_tables(grammar, allomorph, active_table, active_table)
+        let Some(source_table) = owning_source_table(grammar, allomorph).ok() else {
+            return MorphologyRewrite::Unsupported {
+                shape_id: "InvalidReferences",
+                reason_id: "invalid-allomorph-owner",
+                allomorph: allomorph.id,
+                source_table: active_table,
+                active_table,
+            };
+        };
+        Self::classify_with_tables(grammar, allomorph, source_table, active_table)
     }
 
     pub fn classify_with_tables(
@@ -152,6 +169,27 @@ impl MorphologyRewriteClassifier {
         source_table: TableId,
         active_table: TableId,
     ) -> MorphologyRewrite {
+        let owner_source = match owning_source_table(grammar, allomorph) {
+            Ok(table) => table,
+            Err(reason_id) => {
+                return MorphologyRewrite::Unsupported {
+                    shape_id: "InvalidReferences",
+                    reason_id,
+                    allomorph: allomorph.id,
+                    source_table,
+                    active_table,
+                }
+            }
+        };
+        if owner_source != source_table {
+            return MorphologyRewrite::Unsupported {
+                shape_id: "InvalidReferences",
+                reason_id: "source-table-mismatch",
+                allomorph: allomorph.id,
+                source_table,
+                active_table,
+            };
+        }
         match classify_rewrite(grammar, allomorph, source_table, active_table) {
             Ok(result) => result,
             Err((shape_id, reason_id)) => MorphologyRewrite::Unsupported {
@@ -163,6 +201,39 @@ impl MorphologyRewriteClassifier {
             },
         }
     }
+}
+
+fn owning_source_table(
+    g: &Grammar,
+    allomorph: &AffixAllomorphDef,
+) -> Result<TableId, &'static str> {
+    let Some(AllomorphOwner::Affix(mrule, index)) = g.allomorph_owners.get(allomorph.id.0 as usize)
+    else {
+        return Err("invalid-allomorph-owner");
+    };
+    let Some(rule) = g.mrules.get(mrule.0 as usize) else {
+        return Err("invalid-allomorph-owner");
+    };
+    let Some(candidate) = rule
+        .affix_allomorphs()
+        .and_then(|allomorphs| allomorphs.get(*index as usize))
+    else {
+        return Err("invalid-allomorph-owner");
+    };
+    if candidate.id != allomorph.id || !std::ptr::eq(candidate, allomorph) {
+        return Err("invalid-allomorph-owner");
+    }
+    let morpheme = match rule {
+        MorphRuleDef::AffixProcess(def) => def.morpheme,
+        MorphRuleDef::Realizational(def) => def.morpheme,
+        MorphRuleDef::Compounding(_) => return Err("invalid-allomorph-owner"),
+    };
+    let stratum = g
+        .morphemes
+        .get(morpheme.0 as usize)
+        .and_then(|info| g.strata.get(info.stratum.0 as usize))
+        .ok_or("invalid-allomorph-owner")?;
+    Ok(stratum.table)
 }
 
 type ClassifierResult<T> = Result<T, (&'static str, &'static str)>;
@@ -194,6 +265,18 @@ fn classify_rewrite(
     {
         return Err(("InsertContext", "insert-context"));
     }
+    for action in &a.rhs {
+        if let OutputAction::Modify(_, context) = action {
+            validate_context_features(g, context)
+                .map_err(|reason| ("InvalidReferences", reason))?;
+        }
+    }
+
+    let provenance = RewriteProvenance {
+        allomorph: a.id,
+        source_table,
+        active_table,
+    };
 
     if a.rhs.is_empty()
         || a.rhs
@@ -202,7 +285,10 @@ fn classify_rewrite(
     {
         let variants = translated_literal_variants(g, &a.rhs, active_table)
             .map_err(|reason| ("OrdinaryLiteral", reason))?;
-        return Ok(MorphologyRewrite::OrdinaryLiteral { variants });
+        return Ok(MorphologyRewrite::OrdinaryLiteral {
+            variants,
+            provenance,
+        });
     }
 
     let refs = referenced_inputs(&a.rhs).map_err(|reason| ("InvalidReferences", reason))?;
@@ -214,6 +300,19 @@ fn classify_rewrite(
     }
     if refs.windows(2).any(|pair| pair[0] > pair[1]) {
         return Err(("UnlistedTopology", "reordered-input-reference"));
+    }
+
+    for index in &refs {
+        let part = a
+            .lhs
+            .get(*index as usize)
+            .ok_or(("InvalidReferences", "invalid-input-reference"))?;
+        if minimum_consumed_segments(g, source_table, part)
+            .map_err(|reason| ("InvalidReferences", reason))?
+            == 0
+        {
+            return Err((shape_for_action(a, &refs), "non-consuming-input-part"));
+        }
     }
 
     if a.rhs
@@ -231,6 +330,7 @@ fn classify_rewrite(
             return Ok(MorphologyRewrite::DirectWholeRootWrapper {
                 prefix_variants: prefix,
                 suffix_variants: suffix,
+                provenance,
             });
         }
         if a.lhs.len() >= 2 {
@@ -248,7 +348,10 @@ fn classify_rewrite(
                     refs,
                     runs,
                     Vec::new(),
+                    input_members(g, source_table, active_table, &a.lhs)
+                        .map_err(|reason| ("AmharicInteriorInsertion", reason))?,
                     ZoneRequirement::Caller,
+                    provenance,
                 ));
             }
         }
@@ -273,7 +376,10 @@ fn classify_rewrite(
                 vec![1],
                 vec![variants],
                 Vec::new(),
+                input_members(g, source_table, active_table, &a.lhs)
+                    .map_err(|reason| ("AmharicInitialVowelReplacement", reason))?,
                 ZoneRequirement::Intrinsic(MarkerZone::Prefix),
+                provenance,
             ));
         }
     }
@@ -295,19 +401,25 @@ fn classify_rewrite(
             vec![0],
             vec![variants],
             Vec::new(),
+            input_members(g, source_table, active_table, &a.lhs)
+                .map_err(|reason| ("AdjacentTerminalDrop", reason))?,
             ZoneRequirement::Intrinsic(MarkerZone::Suffix),
+            provenance,
         ));
     }
     if a.lhs.len() == 2 && refs == [1] && a.rhs == [OutputAction::Copy(PartRef::Input(1))] {
         if !is_segment_only_atom(g, source_table, a.lhs.first()) {
-            return Err(("AdjacentTerminalDrop", "non-segment-input-atom"));
+            return Err(("AdjacentInitialDrop", "non-segment-input-atom"));
         }
         return Ok(marked(
             "AdjacentInitialDrop",
             vec![1],
             Vec::new(),
             Vec::new(),
+            input_members(g, source_table, active_table, &a.lhs)
+                .map_err(|reason| ("AdjacentInitialDrop", reason))?,
             ZoneRequirement::Intrinsic(MarkerZone::Prefix),
+            provenance,
         ));
     }
 
@@ -322,7 +434,9 @@ fn marked(
     refs: Vec<u16>,
     literal_runs: Vec<Vec<String>>,
     output_segments: Vec<String>,
+    translated_input_members: Vec<Vec<String>>,
     zone_requirement: ZoneRequirement,
+    provenance: RewriteProvenance,
 ) -> MorphologyRewrite {
     MorphologyRewrite::MarkedStructural {
         shape_id,
@@ -330,8 +444,27 @@ fn marked(
             refs,
             literal_runs,
             output_segments,
+            translated_input_members,
         },
         zone_requirement,
+        provenance,
+    }
+}
+
+fn shape_for_action(a: &AffixAllomorphDef, refs: &[u16]) -> &'static str {
+    if a.rhs
+        .iter()
+        .any(|action| matches!(action, OutputAction::Modify(..)))
+    {
+        "ModifyFromInput"
+    } else if a.lhs.len() == 2 && refs == [1] {
+        "AdjacentInitialDrop"
+    } else if a.lhs.len() == 2 && refs == [0] {
+        "AdjacentTerminalDrop"
+    } else if refs.len() == a.lhs.len() && a.lhs.len() >= 2 {
+        "AmharicInteriorInsertion"
+    } else {
+        "UnlistedTopology"
     }
 }
 
@@ -373,6 +506,7 @@ fn validate_node(g: &Grammar, table: TableId, node: &PatternNode) -> Result<(), 
             };
         }
         PatternNode::Context(context) => {
+            validate_context_features(g, context)?;
             if !context_members(g, table, context).is_some_and(|members| !members.is_empty()) {
                 return Err("invalid-source-context");
             }
@@ -394,6 +528,156 @@ fn validate_node(g: &Grammar, table: TableId, node: &PatternNode) -> Result<(), 
                 else {
                     return Err("invalid-source-char-def");
                 };
+            }
+        }
+        PatternNode::Anchor(_) => {}
+    }
+    Ok(())
+}
+
+fn validate_context_features(g: &Grammar, context: &SimpleContext) -> Result<(), &'static str> {
+    let Some(class) = g.natural_classes.get(context.nat_class.0 as usize) else {
+        return Err("invalid-source-context");
+    };
+    if let NaturalClassKind::Feature(pairs) = &class.kind {
+        if pairs
+            .iter()
+            .any(|(feature, _)| feature.0 as usize >= g.phon_features.len())
+        {
+            return Err("invalid-source-feature-reference");
+        }
+    }
+    Ok(())
+}
+
+fn minimum_consumed_segments(
+    g: &Grammar,
+    table: TableId,
+    pattern: &Pattern,
+) -> Result<usize, &'static str> {
+    pattern.nodes.iter().try_fold(0usize, |total, node| {
+        Ok(total + minimum_consumed_node(g, table, node)?)
+    })
+}
+
+fn minimum_consumed_node(
+    g: &Grammar,
+    table: TableId,
+    node: &PatternNode,
+) -> Result<usize, &'static str> {
+    Ok(match node {
+        PatternNode::CharDef(id) => usize::from(
+            lookup_char_def(
+                g.char_tables
+                    .get(table.0 as usize)
+                    .ok_or("invalid-table-reference")?,
+                *id,
+            )
+            .is_some_and(|def| def.kind() == CharDefKind::Segment),
+        ),
+        PatternNode::Context(context) => {
+            validate_context_features(g, context)?;
+            usize::from(
+                context_members(g, table, context).is_some_and(|members| !members.is_empty()),
+            )
+        }
+        PatternNode::Quantifier { min, children, .. } => {
+            if *min == 0 {
+                0
+            } else {
+                children.iter().try_fold(0usize, |total, child| {
+                    Ok(total + minimum_consumed_node(g, table, child)?)
+                })?
+            }
+        }
+        PatternNode::Segments {
+            table: node_table,
+            shape,
+        } => {
+            if *node_table != table {
+                return Err("invalid-source-table");
+            }
+            shape
+                .shape
+                .interior()
+                .try_fold(0usize, |count, (_, kind, id, _)| {
+                    let def = lookup_char_def(
+                        g.char_tables
+                            .get(table.0 as usize)
+                            .ok_or("invalid-table-reference")?,
+                        CharDefId(id),
+                    )
+                    .ok_or("invalid-source-char-def")?;
+                    if kind == NodeKind::Segment && def.kind() != CharDefKind::Segment {
+                        return Err("invalid-source-char-def");
+                    }
+                    Ok(count + usize::from(kind == NodeKind::Segment))
+                })?
+        }
+        PatternNode::Anchor(_) => 0,
+    })
+}
+
+fn input_members(
+    g: &Grammar,
+    source_table: TableId,
+    active_table: TableId,
+    parts: &[Pattern],
+) -> Result<Vec<Vec<String>>, &'static str> {
+    parts
+        .iter()
+        .map(|part| {
+            let ids = pattern_members(g, source_table, part)?;
+            if ids.is_empty() {
+                return Ok(Vec::new());
+            }
+            translated_ids(g, source_table, active_table, &ids).ok_or("untranslatable-input-table")
+        })
+        .collect()
+}
+
+fn pattern_members(
+    g: &Grammar,
+    table: TableId,
+    pattern: &Pattern,
+) -> Result<Vec<CharDefId>, &'static str> {
+    let mut ids = Vec::new();
+    for node in &pattern.nodes {
+        collect_node_members(g, table, node, &mut ids)?;
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids)
+}
+
+fn collect_node_members(
+    g: &Grammar,
+    table: TableId,
+    node: &PatternNode,
+    out: &mut Vec<CharDefId>,
+) -> Result<(), &'static str> {
+    match node {
+        PatternNode::CharDef(id) => out.push(*id),
+        PatternNode::Context(context) => {
+            validate_context_features(g, context)?;
+            out.extend(context_members(g, table, context).ok_or("invalid-source-context")?);
+        }
+        PatternNode::Quantifier { children, .. } => {
+            for child in children {
+                collect_node_members(g, table, child, out)?;
+            }
+        }
+        PatternNode::Segments {
+            table: node_table,
+            shape,
+        } => {
+            if *node_table != table {
+                return Err("invalid-source-table");
+            }
+            for (_, kind, id, _) in shape.shape.interior() {
+                if kind == NodeKind::Segment {
+                    out.push(CharDefId(id));
+                }
             }
         }
         PatternNode::Anchor(_) => {}
@@ -433,7 +717,9 @@ fn context_members(g: &Grammar, table: TableId, context: &SimpleContext) -> Opti
             .filter(|(_, def)| def.kind() == CharDefKind::Segment)
             .filter(|(_, def)| {
                 pairs.iter().all(|(feature, values)| {
-                    def.feature_lanes()[feature.0 as usize] & values.0 != 0
+                    def.feature_lanes()
+                        .get(feature.0 as usize)
+                        .is_some_and(|lane| lane & values.0 != 0)
                 })
             })
             .map(|(id, _)| id)
@@ -465,6 +751,19 @@ fn is_segment_only_atom(g: &Grammar, table: TableId, pattern: Option<&Pattern>) 
             .is_some_and(|def| def.kind() == CharDefKind::Segment),
         PatternNode::Context(context) => {
             context_members(g, table, context).is_some_and(|m| !m.is_empty())
+        }
+        PatternNode::Segments {
+            table: node_table,
+            shape,
+        } if *node_table == table => {
+            let mut ids = shape.shape.interior();
+            let Some((_, kind, id, _)) = ids.next() else {
+                return false;
+            };
+            kind == NodeKind::Segment
+                && ids.next().is_none()
+                && lookup_char_def(&g.char_tables[table.0 as usize], CharDefId(id))
+                    .is_some_and(|def| def.kind() == CharDefKind::Segment)
         }
         _ => false,
     }
@@ -592,9 +891,6 @@ fn wrapper_runs(
     }
     let prefix = translated_literal_variants(g, &actions[..first_copy], active_table)?;
     let suffix = translated_literal_variants(g, &actions[cursor..], active_table)?;
-    if prefix == vec![String::new()] || suffix == vec![String::new()] {
-        return Ok(None);
-    }
     Ok(Some((prefix, suffix)))
 }
 
@@ -673,7 +969,10 @@ fn classify_terminal_modify(
     if matches!(node, PatternNode::Quantifier { .. }) {
         return Err(("ModifyFromInput", "terminal-modify-quantified"));
     }
-    if !matches!(node, PatternNode::CharDef(_) | PatternNode::Context(_)) {
+    if !matches!(
+        node,
+        PatternNode::CharDef(_) | PatternNode::Context(_) | PatternNode::Segments { .. }
+    ) {
         return Err(("ModifyFromInput", "terminal-modify-multi-segment"));
     }
     if !is_segment_only_atom(g, source_table, Some(last)) {
@@ -685,16 +984,24 @@ fn classify_terminal_modify(
         return Err(("ModifyFromInput", "terminal-modify-empty-output"));
     }
     let output_segments = translated_ids(g, source_table, active_table, &members)
-        .ok_or(("ModifyFromInput", "untranslatable-output-table"))?;
+        .ok_or(("AmharicTerminalModify", "untranslatable-output-table"))?;
     if output_segments.is_empty() {
         return Err(("ModifyFromInput", "terminal-modify-empty-output"));
     }
+    let translated_input_members = input_members(g, source_table, active_table, &a.lhs)
+        .map_err(|reason| ("AmharicTerminalModify", reason))?;
     Ok(marked(
         "AmharicTerminalModify",
         refs.to_vec(),
         Vec::new(),
         output_segments,
+        translated_input_members,
         ZoneRequirement::Caller,
+        RewriteProvenance {
+            allomorph: a.id,
+            source_table,
+            active_table,
+        },
     ))
 }
 
@@ -713,23 +1020,21 @@ fn translated_ids(
         if source_def.kind() != CharDefKind::Segment {
             return None;
         }
-        let mut mapped = false;
         for rep in source_def.representations_nfd() {
-            let active_id = active.lookup_nfd(rep)?;
+            let Some(active_id) = active.lookup_nfd(rep) else {
+                continue;
+            };
             let active_def = lookup_char_def(active, active_id)?;
             if active_def.kind() != CharDefKind::Segment {
                 return None;
             }
-            mapped = true;
             for active_rep in active_def.representations_nfd() {
                 if seen.insert(active_rep.clone()) {
                     out.push(active_rep.clone());
                 }
             }
         }
-        if !mapped {
-            return None;
-        }
+        // Unmapped source representations are skipped; at least one aggregate mapping is required.
     }
     (!out.is_empty()).then_some(out)
 }
@@ -741,10 +1046,6 @@ struct LocalRecipe {
     tail_members: Vec<CharDefId>,
     inserted: String,
     leading: bool,
-}
-
-pub(crate) fn marker_for(allomorph: AllomorphId) -> Option<char> {
-    char::from_u32(MARKER_BASE.checked_add(allomorph.0)?)
 }
 
 fn encode_insert_actions(
@@ -961,7 +1262,22 @@ pub(crate) fn structural_marker_for_zone(
 ) -> Option<char> {
     recipe_for(g, allomorph, table_hint)
         .filter(|_| !prefix_zone)
-        .and_then(|recipe| marker_for(recipe.allomorph))
+        .and_then(|recipe| {
+            let zone = if recipe.leading {
+                MarkerZone::Prefix
+            } else {
+                MarkerZone::Suffix
+            };
+            marker_binding_for(
+                MarkerKey {
+                    allomorph: recipe.allomorph,
+                    zone,
+                },
+                ZoneRequirement::Intrinsic(zone),
+            )
+            .ok()
+            .map(|binding| binding.symbol)
+        })
 }
 
 fn atom(tokens: &[char]) -> String {
@@ -1081,7 +1397,20 @@ pub fn compile_layer(
             if recipe.table != pipeline_table {
                 continue;
             }
-            let marker = marker_for(recipe.allomorph)?;
+            let zone = if recipe.leading {
+                MarkerZone::Prefix
+            } else {
+                MarkerZone::Suffix
+            };
+            let marker = marker_binding_for(
+                MarkerKey {
+                    allomorph: recipe.allomorph,
+                    zone,
+                },
+                ZoneRequirement::Intrinsic(zone),
+            )
+            .ok()?
+            .symbol;
             let tails: Vec<char> = recipe
                 .tail_members
                 .iter()
