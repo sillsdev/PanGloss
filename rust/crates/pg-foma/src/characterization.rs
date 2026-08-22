@@ -94,7 +94,7 @@
 
 use std::collections::VecDeque;
 
-use pg_grammar::model::Grammar;
+use pg_grammar::model::{Grammar, MRuleId, MorphRuleDef};
 use pg_rules::cache::RuleCache;
 use pg_rules::morph::synthesize_cached;
 use pg_rules::word::{MorphRecord, Word};
@@ -183,7 +183,21 @@ pub fn trace_tuned_surface_closure_for_test(
 }
 
 fn trace_closure_kernel(grammar: &Grammar, limits: ClosureTestLimits) -> CharacterizationResult {
-    let rules = candidate_rules(grammar);
+    // The closure kernel must account for every authored transition, including structural/zero
+    // morph rules that the ordinary composite candidate filter intentionally leaves to `emit`.
+    // Compounding has a separate bounded emitter and is not part of this walk.
+    let mut rules = candidate_rules(grammar);
+    if rules.is_empty() {
+        rules = grammar
+            .mrules
+            .iter()
+            .enumerate()
+            .filter_map(|(index, rule)| {
+                (!matches!(rule, MorphRuleDef::Compounding(_)))
+                    .then_some((MRuleId(index as u32), crate::emit::rule_role(grammar, MRuleId(index as u32))))
+            })
+            .collect();
+    }
     let morphotactics = MorphotacticIndex::build(grammar);
     let cache = RuleCache::build(grammar);
     let mut worklist = VecDeque::new();
