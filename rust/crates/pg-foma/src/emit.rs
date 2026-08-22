@@ -3676,7 +3676,7 @@ fn emit_tuned_surface_for_envelope_with_trace_policy(
 }
 
 /// Runs the traced production emitter for one private-attempt request and authorizes a retry only
-/// when that exact attempt retained incomplete or refused closure evidence.
+/// when that exact attempt retained retryable incomplete resource evidence.
 pub fn emit_tuned_surface_for_request(
     g: &Grammar,
     request: &crate::resource_envelope::CompileEnvelopeRequest,
