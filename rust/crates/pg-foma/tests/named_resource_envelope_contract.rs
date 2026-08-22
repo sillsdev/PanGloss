@@ -1,8 +1,6 @@
 use std::str::FromStr;
 
-use pg_foma::resource_envelope::{
-    AttemptId, CompileEnvelopeRequest, ResourceEnvelope, ResourceEnvelopeId,
-};
+use pg_foma::resource_envelope::{CompileEnvelopeRequest, ResourceEnvelope, ResourceEnvelopeId};
 use sha2::{Digest, Sha256};
 
 #[test]
@@ -51,7 +49,10 @@ fn shipped_resource_envelopes_are_closed_complete_and_canonical() {
     assert_eq!(managed.enumeration().pair_probe_cap, 3_000_000);
     assert_eq!(managed.backend().tuned_surface_closure_work_cap, 3_000);
     assert_eq!(managed.backend().tuned_surface_closure_depth_cap, 64);
-    assert_eq!(managed.backend().tuned_surface_compound_chain_depth_cap, 200);
+    assert_eq!(
+        managed.backend().tuned_surface_compound_chain_depth_cap,
+        200
+    );
 
     let retry = ResourceEnvelope::for_id(ResourceEnvelopeId::TunedSurfaceWork10kV1);
     assert_eq!(retry.backend().tuned_surface_closure_work_cap, 10_000);
@@ -88,14 +89,21 @@ fn shipped_resource_envelopes_are_closed_complete_and_canonical() {
 #[test]
 fn default_is_one_managed_attempt_and_retry_is_explicitly_linked() {
     let first = CompileEnvelopeRequest::default();
+    let independent = CompileEnvelopeRequest::default();
     assert_eq!(first.envelope_id, ResourceEnvelopeId::ManagedV1);
     assert_eq!(first.retry_of, None);
-
-    let prior = AttemptId::new("attempt-0001").expect("stable non-empty attempt id");
-    let retry = CompileEnvelopeRequest::explicit_retry(
-        prior.clone(),
-        ResourceEnvelopeId::TunedSurfaceWork10kV1,
+    assert_ne!(
+        first.attempt_id, independent.attempt_id,
+        "independent attempts need distinct immutable identities"
     );
+
+    assert!(CompileEnvelopeRequest::retry_from(&first, ResourceEnvelopeId::ManagedV1).is_err());
+    let retry = CompileEnvelopeRequest::retry_from(
+        &first,
+        ResourceEnvelopeId::TunedSurfaceWork10kV1,
+    )
+    .expect("an explicit retry selects a different named envelope");
+    assert_ne!(retry.attempt_id, first.attempt_id);
     assert_eq!(retry.envelope_id, ResourceEnvelopeId::TunedSurfaceWork10kV1);
-    assert_eq!(retry.retry_of, Some(prior));
+    assert_eq!(retry.retry_of, Some(first.attempt_id));
 }
