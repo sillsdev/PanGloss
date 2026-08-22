@@ -95,6 +95,7 @@
 use std::sync::Mutex;
 
 use pg_grammar::model::Grammar;
+use serde::{Deserialize, Serialize};
 
 use crate::capability::{CharacteristicsProfile, CompileDecision, ObservationDetail};
 use crate::capability_entry::best_case_across_backends;
@@ -111,17 +112,19 @@ use crate::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 pub const DEFAULT_TUNED_CLOSURE_WORK_LIMIT: usize = 3_000;
 
 /// Why a closure walk did not reach an exhausted worklist.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClosureStopReason {
     WorkBudgetReached,
     DepthBudgetReached,
+    EnumerationBudgetReached,
+    ResourceBudgetReached,
     UnboundedTransition,
     UnsupportedTransition,
     InternalConstructionFault,
 }
 
 /// The total terminal state of a closure characterization or production trace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClosureTerminal {
     Complete,
     Incomplete(ClosureStopReason),
@@ -134,8 +137,9 @@ pub struct ClosureTestLimits {
     pub depth_cap: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClosureEvidence {
+    pub envelope_id: ResourceEnvelopeId,
     pub envelope_digest: String,
     pub rule_pairs_visited: usize,
     pub synthesized_successors: usize,
@@ -146,7 +150,7 @@ pub struct ClosureEvidence {
     pub worklist_empty: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CharacterizationResult {
     pub terminal: ClosureTerminal,
     pub evidence: ClosureEvidence,
@@ -164,11 +168,12 @@ struct TraceState {
     terminal: Option<ClosureTerminal>,
 }
 
-/// Mutable evidence sink shared by the production emitter and the characterization wrapper.
-/// The trace is only installed by the focused test-support entry points; normal emission passes
-/// `None` and retains its existing traversal and parallelism.
+/// Mutable evidence sink shared by the production emitter and characterization APIs. Normal
+/// legacy emission passes `None`; named-envelope production installs this trace so the returned
+/// artifact and characterization retain identical terminal evidence.
 pub(crate) struct ClosureTrace {
     limits: ClosureTestLimits,
+    envelope_id: ResourceEnvelopeId,
     envelope_digest: String,
     state: Mutex<TraceState>,
 }
@@ -177,6 +182,7 @@ impl ClosureTrace {
     pub(crate) fn new(envelope: &ResourceEnvelope, limits: ClosureTestLimits) -> Self {
         Self {
             limits,
+            envelope_id: envelope.id(),
             envelope_digest: envelope.digest(),
             state: Mutex::new(TraceState {
                 rule_pairs_visited: 0,
@@ -255,6 +261,7 @@ impl ClosureTrace {
         CharacterizationResult {
             terminal,
             evidence: ClosureEvidence {
+                envelope_id: self.envelope_id,
                 envelope_digest: self.envelope_digest.clone(),
                 rule_pairs_visited: state.rule_pairs_visited,
                 synthesized_successors: state.synthesized_successors,
@@ -411,43 +418,63 @@ pub fn tuned_surface_resource_finding_for_envelope(
     envelope: &ResourceEnvelope,
 ) -> Option<HealthFinding> {
     let result = characterize_tuned_surface_closure(grammar, envelope);
-    if matches!(result.terminal, ClosureTerminal::Complete) {
+    let terminal = result.terminal;
+    if matches!(terminal, ClosureTerminal::Complete) {
         return None;
     }
-    tuned_surface_resource_finding_with_limit(
-        grammar,
-        envelope.backend().tuned_surface_closure_work_cap,
-    )
-    .or_else(|| {
-        let terminal = result.terminal;
-        let evidence = result.evidence;
-        Some(HealthFinding {
-            code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::Error,
-            phase: Phase::Characterization,
-            affected: evidence
-                .pending_rule_ordinals
-                .iter()
-                .map(|ordinal| format!("morphological rule ordinal {ordinal}"))
-                .collect(),
-            metric: Metric::CompositeRulePairCount,
-            value: MetricValue::Count(evidence.rule_pairs_visited as u64),
-            provenance: ValueProvenance::ProvenBound,
-            threshold: Some(MetricValue::Count(
-                envelope.backend().tuned_surface_closure_work_cap as u64,
-            )),
-            explanation: format!(
-                "TunedSurface closure did not reach an empty worklist under the selected resource envelope: {:?}.",
-                terminal
-            ),
-            remedies: vec![Remedy {
-                rank: 1,
-                description: "Retry TunedSurface with a larger named resource envelope or use the full morphological-parser engine.".to_string(),
-                requires_linguistic_equivalence: false,
-                caveat: None,
-            }],
-            override_record: None,
-        })
+    let evidence = result.evidence;
+    let (code, severity, provenance, remedy) = match terminal {
+        ClosureTerminal::Refused(ClosureStopReason::UnboundedTransition)
+        | ClosureTerminal::Refused(ClosureStopReason::UnsupportedTransition) => (
+            FindingCode::BackendCoverageIncomplete,
+            Severity::Critical,
+            ValueProvenance::Observed,
+            "Use the full morphological-parser engine or a backend that represents this construct with a finite/looping mechanism.",
+        ),
+        ClosureTerminal::Refused(_) => (
+            FindingCode::BackendCompilationFailed,
+            Severity::Error,
+            ValueProvenance::Observed,
+            "Use the full morphological-parser engine and inspect the typed closure refusal.",
+        ),
+        ClosureTerminal::Incomplete(_) => (
+            FindingCode::ResourceBudgetReached,
+            Severity::Error,
+            ValueProvenance::Observed,
+            "Retry TunedSurface with a larger named resource envelope or use the full morphological-parser engine.",
+        ),
+        ClosureTerminal::Complete => unreachable!(),
+    };
+    let metric = Metric::CompositeRulePairCount;
+    let threshold = Some(MetricValue::Count(
+        envelope.backend().tuned_surface_closure_work_cap as u64,
+    ));
+    let affected = evidence
+        .pending_rule_ordinals
+        .iter()
+        .map(|ordinal| format!("morphological rule ordinal {ordinal}"))
+        .collect();
+    let _ = grammar;
+    Some(HealthFinding {
+        code,
+        severity,
+        phase: Phase::Characterization,
+        affected,
+        metric,
+        value: MetricValue::Count(evidence.rule_pairs_visited as u64),
+        provenance,
+        threshold,
+        explanation: format!(
+            "TunedSurface closure terminal under envelope {}: {:?}.",
+            evidence.envelope_id, terminal
+        ),
+        remedies: vec![Remedy {
+            rank: 1,
+            description: remedy.to_string(),
+            requires_linguistic_equivalence: false,
+            caveat: None,
+        }],
+        override_record: None,
     })
 }
 
