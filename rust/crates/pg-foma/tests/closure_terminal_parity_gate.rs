@@ -123,3 +123,27 @@ fn normal_product_entrypoints_use_the_selected_envelope_and_same_production_trac
     assert_eq!(produced.report.closure_evidence.as_ref(), Some(&observed));
     assert!(!produced.lexc_source.is_empty());
 }
+
+#[test]
+fn unsupported_construction_is_a_typed_refusal_not_false_completion() {
+    let mut grammar = pg_grammar::load(FINITE_CHAIN_XML).expect("finite closure fixture must load");
+    for stratum in &mut grammar.strata {
+        stratum.entries.clear();
+    }
+    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
+
+    let produced = emit_tuned_surface_for_envelope(&grammar, &envelope);
+    assert!(produced.lexc_source.is_empty());
+    let evidence = produced
+        .report
+        .closure_evidence
+        .expect("unsupported named-envelope construction must retain terminal evidence");
+    assert_eq!(
+        evidence.terminal,
+        ClosureTerminal::Refused(ClosureStopReason::UnsupportedTransition)
+    );
+    assert_eq!(
+        characterize_tuned_surface_closure(&grammar, &envelope),
+        evidence
+    );
+}
