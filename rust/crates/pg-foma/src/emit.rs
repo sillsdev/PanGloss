@@ -213,8 +213,8 @@ use crate::profile::{CompileProfileBuilder, CompileStage};
 use crate::replace::SegAlphabet;
 use crate::tags;
 
-fn trace_emit_stage(stage: CompileStage, elapsed: std::time::Duration) {
-    if std::env::var_os("PANGLOSS_TRACE_EMIT_STAGES").is_some() {
+fn trace_emit_stage(stage: CompileStage, elapsed: std::time::Duration, allow_env_trace: bool) {
+    if allow_env_trace && std::env::var_os("PANGLOSS_TRACE_EMIT_STAGES").is_some() {
         eprintln!("pangloss emit stage {}: {elapsed:?}", stage.label());
     }
 }
@@ -399,6 +399,15 @@ pub struct EmitReport {
 pub struct EmitResult {
     pub lexc_source: String,
     pub report: EmitReport,
+    retry_authorization: Option<crate::resource_envelope::RetryAuthorization>,
+}
+
+impl EmitResult {
+    pub fn retry_authorization(
+        &self,
+    ) -> Option<&crate::resource_envelope::RetryAuthorization> {
+        self.retry_authorization.as_ref()
+    }
 }
 
 // --- Affix role classification (ported from hc-hybrid/src/token.rs, no dependency) --------------
@@ -1593,6 +1602,7 @@ fn compound_chain_depth_and_budget_check(
                 closure_refusal: None,
                 closure_evidence: None,
             },
+            retry_authorization: None,
         });
     }
 }
@@ -3575,6 +3585,7 @@ fn emit_with_budget_profiled_with_strategy(
         profile,
         strategy,
         None,
+        true,
     )
 }
 
@@ -3597,6 +3608,7 @@ pub fn emit_tuned_surface_with_closure_limits_for_test(
         None,
         SurfaceEmitStrategy::default(),
         Some(&trace),
+        false,
     )
 }
 
@@ -3605,6 +3617,14 @@ pub fn emit_tuned_surface_with_closure_limits_for_test(
 pub fn emit_tuned_surface_for_envelope(
     g: &Grammar,
     envelope: &crate::resource_envelope::ResourceEnvelope,
+) -> EmitResult {
+    emit_tuned_surface_for_envelope_with_trace_policy(g, envelope, false)
+}
+
+fn emit_tuned_surface_for_envelope_with_trace_policy(
+    g: &Grammar,
+    envelope: &crate::resource_envelope::ResourceEnvelope,
+    allow_env_trace: bool,
 ) -> EmitResult {
     let backend = envelope.backend();
     let trace = crate::characterization::ClosureTrace::new(
@@ -3626,7 +3646,26 @@ pub fn emit_tuned_surface_for_envelope(
         None,
         SurfaceEmitStrategy::default(),
         Some(&trace),
+        allow_env_trace,
     )
+}
+
+/// Runs the traced production emitter for one private-attempt request and authorizes a retry only
+/// when that exact attempt retained incomplete or refused closure evidence.
+pub fn emit_tuned_surface_for_request(
+    g: &Grammar,
+    request: &crate::resource_envelope::CompileEnvelopeRequest,
+) -> EmitResult {
+    let envelope = crate::resource_envelope::ResourceEnvelope::for_id(request.envelope_id());
+    let mut result = emit_tuned_surface_for_envelope_with_trace_policy(g, &envelope, false);
+    result.retry_authorization = result
+        .report
+        .closure_evidence
+        .as_ref()
+        .and_then(|closure| {
+            crate::resource_envelope::RetryAuthorization::from_terminal_failure(request, closure)
+        });
+    result
 }
 
 fn emit_with_budget_profiled_with_strategy_and_trace(
@@ -3636,6 +3675,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     mut profile: Option<&mut CompileProfileBuilder>,
     strategy: SurfaceEmitStrategy,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
+    allow_env_trace: bool,
 ) -> EmitResult {
     let mut stage_start = Instant::now();
     let width = tags::tag_width(g.morphemes.len());
@@ -3710,6 +3750,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 }),
                 closure_evidence: closure_trace.map(|trace| trace.result()),
             },
+            retry_authorization: None,
         };
     }
     let rule_cache = RuleCache::build(g);
@@ -3721,7 +3762,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::SurfaceSetup, stage_start.elapsed());
     }
-    trace_emit_stage(CompileStage::SurfaceSetup, stage_start.elapsed());
+    trace_emit_stage(CompileStage::SurfaceSetup, stage_start.elapsed(), allow_env_trace);
     stage_start = Instant::now();
 
     let allowed_entries = match strategy.root_scope {
@@ -3740,7 +3781,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::RootCollection, stage_start.elapsed());
     }
-    trace_emit_stage(CompileStage::RootCollection, stage_start.elapsed());
+    trace_emit_stage(CompileStage::RootCollection, stage_start.elapsed(), allow_env_trace);
     stage_start = Instant::now();
 
     // Built once and shared by both composite builders below, so they prune against the identical automaton instead of each reading the env vars for their own.
@@ -3786,7 +3827,11 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::PreexpandComposites, stage_start.elapsed());
     }
-    trace_emit_stage(CompileStage::PreexpandComposites, stage_start.elapsed());
+    trace_emit_stage(
+        CompileStage::PreexpandComposites,
+        stage_start.elapsed(),
+        allow_env_trace,
+    );
     stage_start = Instant::now();
 
     // plan_wants_structural_composite is the same plan-derived decision that gated the Morpher build above, so this stays zero-cost for a grammar with no structural rule.
@@ -3822,7 +3867,11 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::StructuralComposites, stage_start.elapsed());
     }
-    trace_emit_stage(CompileStage::StructuralComposites, stage_start.elapsed());
+    trace_emit_stage(
+        CompileStage::StructuralComposites,
+        stage_start.elapsed(),
+        allow_env_trace,
+    );
     stage_start = Instant::now();
 
     // Both builders above check enum_budget cooperatively during their own recursion, but the grammar-level verdict is decided once, here, before any expensive derivation work runs.
@@ -3861,6 +3910,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 closure_refusal: None,
                 closure_evidence: closure_trace.map(|trace| trace.result()),
             },
+            retry_authorization: None,
         };
     }
 
@@ -3881,6 +3931,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                     closure_refusal: None,
                     closure_evidence: Some(evidence),
                 },
+                retry_authorization: None,
             };
         }
     }
@@ -3915,6 +3966,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 }),
                 closure_evidence: closure_trace.map(|trace| trace.result()),
             },
+            retry_authorization: None,
         };
     }
 
@@ -4008,6 +4060,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         return EmitResult {
             lexc_source: String::new(),
             report,
+            retry_authorization: None,
         };
     }
 
@@ -4139,6 +4192,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                     closure_refusal: None,
                     closure_evidence: closure_trace.map(|trace| trace.result()),
                 },
+                retry_authorization: None,
             };
         }
 
@@ -4598,6 +4652,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             closure_refusal: None,
             closure_evidence: closure_trace.map(|trace| trace.result()),
         },
+        retry_authorization: None,
     }
 }
 
@@ -4625,6 +4680,7 @@ fn emit_line_budget_breach(
             closure_refusal: None,
             closure_evidence: None,
         },
+        retry_authorization: None,
     }
 }
 
@@ -4797,6 +4853,7 @@ pub fn emit_underlying_templated(
                 closure_refusal: None,
                 closure_evidence: None,
             },
+            retry_authorization: None,
         };
     }
 
@@ -4814,6 +4871,7 @@ pub fn emit_underlying_templated(
                 closure_refusal: None,
                 closure_evidence: None,
             },
+            retry_authorization: None,
         };
     }
 
@@ -4984,6 +5042,7 @@ pub fn emit_underlying_templated(
                     closure_refusal: None,
                     closure_evidence: None,
                 },
+                retry_authorization: None,
             };
         }
     }
@@ -5395,6 +5454,7 @@ pub fn emit_underlying_templated(
             closure_refusal: None,
             closure_evidence: None,
         },
+        retry_authorization: None,
     }
 }
 

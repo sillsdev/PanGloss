@@ -6,6 +6,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use crate::characterization::{CharacterizationResult, ClosureTerminal};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
@@ -247,7 +248,7 @@ impl<'de> Deserialize<'de> for AttemptId {
 }
 
 impl AttemptId {
-    pub fn new(value: impl Into<String>) -> Result<Self, String> {
+    pub(crate) fn new(value: impl Into<String>) -> Result<Self, String> {
         let value = value.into();
         if value.trim().is_empty() {
             Err("attempt id must not be empty".to_string())
@@ -261,26 +262,93 @@ impl AttemptId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileEnvelopeRequest {
-    pub envelope_id: ResourceEnvelopeId,
-    pub retry_of: Option<AttemptId>,
+    envelope_id: ResourceEnvelopeId,
+    attempt_id: AttemptId,
+    retry_of: Option<AttemptId>,
+    prior_closure: Option<CharacterizationResult>,
 }
 
-impl Default for CompileEnvelopeRequest {
-    fn default() -> Self {
-        Self {
-            envelope_id: ResourceEnvelopeId::ManagedV1,
-            retry_of: None,
-        }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetryAuthorization {
+    attempt_id: AttemptId,
+    envelope_id: ResourceEnvelopeId,
+    prior_closure: CharacterizationResult,
+}
+
+fn fresh_attempt_id() -> Result<AttemptId, String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|error| format!("could not create attempt id: {error}"))?;
+    let mut encoded = String::with_capacity("attempt-".len() + bytes.len() * 2);
+    encoded.push_str("attempt-");
+    for byte in bytes {
+        encoded.push_str(&format!("{byte:02x}"));
     }
+    AttemptId::new(encoded)
 }
 
 impl CompileEnvelopeRequest {
-    pub fn explicit_retry(prior: AttemptId, envelope_id: ResourceEnvelopeId) -> Self {
-        Self {
+    pub fn try_new(envelope_id: ResourceEnvelopeId) -> Result<Self, String> {
+        Ok(Self {
             envelope_id,
-            retry_of: Some(prior),
+            attempt_id: fresh_attempt_id()?,
+            retry_of: None,
+            prior_closure: None,
+        })
+    }
+
+    pub fn retry_from(
+        authorization: &RetryAuthorization,
+        envelope_id: ResourceEnvelopeId,
+    ) -> Result<Self, String> {
+        if authorization.envelope_id == envelope_id {
+            return Err("a retry must select a different resource envelope".to_string());
+        }
+        if matches!(authorization.prior_closure.terminal, ClosureTerminal::Complete) {
+            return Err("a complete attempt cannot authorize a retry".to_string());
+        }
+        Ok(Self {
+            envelope_id,
+            attempt_id: fresh_attempt_id()?,
+            retry_of: Some(authorization.attempt_id.clone()),
+            prior_closure: Some(authorization.prior_closure.clone()),
+        })
+    }
+
+    pub const fn envelope_id(&self) -> ResourceEnvelopeId {
+        self.envelope_id
+    }
+
+    pub fn attempt_id(&self) -> &AttemptId {
+        &self.attempt_id
+    }
+
+    pub fn retry_of(&self) -> Option<&AttemptId> {
+        self.retry_of.as_ref()
+    }
+
+    pub fn prior_closure(&self) -> Option<&CharacterizationResult> {
+        self.prior_closure.as_ref()
+    }
+}
+
+impl RetryAuthorization {
+    pub(crate) fn from_terminal_failure(
+        request: &CompileEnvelopeRequest,
+        closure: &CharacterizationResult,
+    ) -> Option<Self> {
+        if matches!(
+            closure.terminal,
+            ClosureTerminal::Incomplete(_) | ClosureTerminal::Refused(_)
+        ) {
+            Some(Self {
+                attempt_id: request.attempt_id.clone(),
+                envelope_id: request.envelope_id,
+                prior_closure: closure.clone(),
+            })
+        } else {
+            None
         }
     }
 
