@@ -27,8 +27,7 @@ const PUA_B_BASE: u32 = 0x100000;
 const PUA_B_LAST: u32 = 0x10FFFD;
 const MARKER_PAIRS_PER_RANGE: u64 = ((PUA_A_LAST - PUA_A_BASE + 1) / 2) as u64;
 
-/// The semantic relation probe is not production FST execution.  Its closed budget prevents
-/// the recall-preserving interior enumeration from becoming an unbounded public operation.
+// Bounds semantic probing; this path does not construct production FSTs.
 const RELATION_PROBE_WORK_CAP: usize = 10_000;
 const RELATION_PROBE_OUTPUT_CAP: usize = 10_000;
 
@@ -347,16 +346,22 @@ impl ProbeBudget {
         }
     }
 
-    fn work(&mut self) -> Result<(), ProbeBudgetReached> {
-        if self.work >= RELATION_PROBE_WORK_CAP {
+    fn charge_work(&mut self, units: usize) -> Result<(), ProbeBudgetReached> {
+        let units = units.max(1);
+        if units > RELATION_PROBE_WORK_CAP.saturating_sub(self.work) {
+            self.work = RELATION_PROBE_WORK_CAP;
             return Err(ProbeBudgetReached {
                 reason_id: "probe-work-budget",
                 work: self.work,
                 outputs: self.outputs,
             });
         }
-        self.work += 1;
+        self.work += units;
         Ok(())
+    }
+
+    fn work(&mut self) -> Result<(), ProbeBudgetReached> {
+        self.charge_work(1)
     }
 
     fn output(&mut self) -> Result<(), ProbeBudgetReached> {
@@ -369,6 +374,15 @@ impl ProbeBudget {
         }
         self.outputs += 1;
         Ok(())
+    }
+}
+
+fn resource_rejected(reached: ProbeBudgetReached) -> MorphologyRelationResult {
+    MorphologyRelationResult::ResourceRejected {
+        reason_id: reached.reason_id,
+        consumed_markers: 0,
+        work: reached.work,
+        outputs: reached.outputs,
     }
 }
 
@@ -432,8 +446,7 @@ impl CompiledMorphologyRelation {
                 provenance,
             } = rewrite
             else {
-                // Ordinary literals and direct wrappers are deliberately marker-free.  They are
-                // represented by the single identity branch and need no relation subtree.
+                // Keep ordinary literals and direct wrappers on the marker-free identity branch.
                 if matches!(rewrite, MorphologyRewrite::Unsupported { .. }) {
                     if let MorphologyRewrite::Unsupported {
                         shape_id,
@@ -588,10 +601,21 @@ impl CompiledMorphologyRelation {
     /// the observed counters and no partial output or recipe fire is returned. A resource
     /// refusal has `consumed_markers: 0` because recipe application did not commit.
     pub fn apply(&self, input: &str) -> MorphologyRelationResult {
+        let mut budget = ProbeBudget::new();
         let mut marker_symbols = Vec::new();
-        for ch in input.chars() {
+        let mut marker_positions = Vec::new();
+        let mut base = String::new();
+        let mut input_char_count = 0;
+        for (position, ch) in input.chars().enumerate() {
+            input_char_count = position + 1;
+            if let Err(reached) = budget.charge_work(ch.len_utf8()) {
+                return resource_rejected(reached);
+            }
             if is_technical_marker(ch) {
                 marker_symbols.push(ch);
+                marker_positions.push(position);
+            } else {
+                base.push(ch);
             }
         }
         match marker_symbols.as_slice() {
@@ -600,23 +624,26 @@ impl CompiledMorphologyRelation {
                 consumed_markers: 0,
             },
             [symbol] => {
-                let Some(recipe) = self
-                    .recipes
-                    .iter()
-                    .find(|recipe| recipe.binding.symbol == *symbol)
-                else {
+                let mut recipe = None;
+                for candidate in &self.recipes {
+                    if let Err(reached) = budget.work() {
+                        return resource_rejected(reached);
+                    }
+                    if candidate.binding.symbol == *symbol {
+                        recipe = Some(candidate);
+                        break;
+                    }
+                }
+                let Some(recipe) = recipe else {
                     return MorphologyRelationResult::Rejected {
                         reason_id: "foreign-marker",
                         consumed_markers: 0,
                     };
                 };
-                let marker_position = input
-                    .chars()
-                    .position(|ch| ch == *symbol)
-                    .expect("marker was collected from input");
+                let marker_position = marker_positions[0];
                 let expected_position = match recipe.binding.zone {
                     MarkerZone::Prefix => 0,
-                    MarkerZone::Suffix => input.chars().count().saturating_sub(1),
+                    MarkerZone::Suffix => input_char_count.saturating_sub(1),
                 };
                 if marker_position != expected_position {
                     return MorphologyRelationResult::Rejected {
@@ -624,11 +651,7 @@ impl CompiledMorphologyRelation {
                         consumed_markers: 0,
                     };
                 }
-                let base = input
-                    .chars()
-                    .filter(|ch| *ch != *symbol)
-                    .collect::<String>();
-                let outputs = match apply_recipe(recipe, &base) {
+                let outputs = match apply_recipe(recipe, &base, &mut budget) {
                     Ok(outputs) if !outputs.is_empty() => outputs,
                     Ok(_) => {
                         return MorphologyRelationResult::Rejected {
@@ -637,12 +660,7 @@ impl CompiledMorphologyRelation {
                         };
                     }
                     Err(reached) => {
-                        return MorphologyRelationResult::ResourceRejected {
-                            reason_id: reached.reason_id,
-                            consumed_markers: 0,
-                            work: reached.work,
-                            outputs: reached.outputs,
-                        };
+                        return resource_rejected(reached);
                     }
                 };
                 recipe.fired.fetch_add(1, Ordering::Relaxed);
@@ -676,9 +694,9 @@ impl CompiledMorphologyRelation {
 fn apply_recipe(
     recipe: &RelationRecipe,
     input: &str,
+    budget: &mut ProbeBudget,
 ) -> Result<BTreeSet<String>, ProbeBudgetReached> {
     let mut outputs = BTreeSet::new();
-    let mut budget = ProbeBudget::new();
     let member_sets = &recipe.recipe.translated_input_members;
     match recipe.shape_id {
         "AdjacentTerminalDrop" => {
@@ -686,13 +704,13 @@ fn apply_recipe(
                 return Ok(outputs);
             };
             for member in final_members {
+                budget.charge_work(member.len().max(1))?;
                 if member.is_empty() || !input.ends_with(member) || input.len() == member.len() {
                     continue;
                 }
-                budget.work()?;
                 let prefix = &input[..input.len() - member.len()];
                 for literal in recipe.recipe.literal_runs.first().into_iter().flatten() {
-                    insert_probe_output(&mut outputs, format!("{prefix}{literal}"), &mut budget)?;
+                    insert_probe_output(&mut outputs, format!("{prefix}{literal}"), budget)?;
                 }
             }
         }
@@ -701,11 +719,11 @@ fn apply_recipe(
                 return Ok(outputs);
             };
             for member in initial_members {
+                budget.charge_work(member.len().max(1))?;
                 if member.is_empty() || !input.starts_with(member) || input.len() == member.len() {
                     continue;
                 }
-                budget.work()?;
-                insert_probe_output(&mut outputs, input[member.len()..].to_owned(), &mut budget)?;
+                insert_probe_output(&mut outputs, input[member.len()..].to_owned(), budget)?;
             }
         }
         "AmharicInitialVowelReplacement" => {
@@ -713,17 +731,13 @@ fn apply_recipe(
                 return Ok(outputs);
             };
             for member in initial_members {
+                budget.charge_work(member.len().max(1))?;
                 if member.is_empty() || !input.starts_with(member) || input.len() == member.len() {
                     continue;
                 }
-                budget.work()?;
                 let remainder = &input[member.len()..];
                 for literal in recipe.recipe.literal_runs.first().into_iter().flatten() {
-                    insert_probe_output(
-                        &mut outputs,
-                        format!("{literal}{remainder}"),
-                        &mut budget,
-                    )?;
+                    insert_probe_output(&mut outputs, format!("{literal}{remainder}"), budget)?;
                 }
             }
         }
@@ -732,11 +746,12 @@ fn apply_recipe(
                 return Ok(outputs);
             };
             for (start, _) in input.char_indices() {
+                budget.work()?;
                 for member in final_members {
+                    budget.charge_work(member.len().max(1))?;
                     if member.is_empty() || !input[start..].starts_with(member) {
                         continue;
                     }
-                    budget.work()?;
                     let end = start + member.len();
                     let prefix = &input[..start];
                     let suffix = &input[end..];
@@ -744,7 +759,7 @@ fn apply_recipe(
                         insert_probe_output(
                             &mut outputs,
                             format!("{prefix}{replacement}{suffix}"),
-                            &mut budget,
+                            budget,
                         )?;
                     }
                 }
@@ -752,7 +767,7 @@ fn apply_recipe(
         }
         "AmharicInteriorInsertion" => {
             let refs = recipe.recipe.refs.len();
-            visit_segmentations(input, member_sets, &mut budget, &mut |tokens, budget| {
+            visit_segmentations(input, member_sets, budget, &mut |tokens, budget| {
                 visit_partitions(
                     tokens,
                     refs,
@@ -796,8 +811,12 @@ fn insert_probe_output(
     output: String,
     budget: &mut ProbeBudget,
 ) -> Result<(), ProbeBudgetReached> {
-    budget.output()?;
-    outputs.insert(output);
+    if outputs.contains(&output) {
+        budget.work()?;
+    } else {
+        budget.output()?;
+        outputs.insert(output);
+    }
     Ok(())
 }
 
@@ -805,11 +824,7 @@ fn join_tokens(tokens: &[String]) -> String {
     tokens.concat()
 }
 
-/// Stream every admitted active-table tokenization, retaining a scalar fallback for portions
-/// that are not represented by any translated member. The fallback is deliberately additive:
-/// when a multi-codepoint member and its scalar prefixes are both valid, both tokenizations are
-/// retained so a longer member is never lost to greedy matching. The closed probe budget is
-/// charged before each state, so refusal never returns a partial output set.
+// Enumerate scalar fallback and member paths under the closed probe budget.
 fn visit_segmentations<F>(
     input: &str,
     member_sets: &[Vec<String>],
@@ -819,12 +834,14 @@ fn visit_segmentations<F>(
 where
     F: FnMut(&[String], &mut ProbeBudget) -> Result<(), ProbeBudgetReached>,
 {
-    let mut all_members = member_sets
-        .iter()
-        .flat_map(|members| members.iter())
-        .filter(|member| !member.is_empty())
-        .cloned()
-        .collect::<Vec<_>>();
+    let mut all_members = Vec::new();
+    for member in member_sets.iter().flat_map(|members| members.iter()) {
+        if !member.is_empty() {
+            budget.charge_work(member.len().max(1))?;
+            all_members.push(member.clone());
+        }
+    }
+    budget.charge_work(all_members.len().max(1))?;
     all_members.sort();
     all_members.dedup();
 
@@ -844,6 +861,7 @@ where
             return callback(current, budget);
         }
         for member in members {
+            budget.charge_work(member.len().max(1))?;
             if input[offset..].starts_with(member) {
                 current.push(member.clone());
                 visit(
@@ -860,11 +878,9 @@ where
         if let Some(ch) = input[offset..].chars().next() {
             let end = offset + ch.len_utf8();
             let scalar = &input[offset..end];
-            if !members.iter().any(|member| member == scalar) {
-                current.push(scalar.to_owned());
-                visit(input, end, members, current, budget, callback)?;
-                current.pop();
-            }
+            current.push(scalar.to_owned());
+            visit(input, end, members, current, budget, callback)?;
+            current.pop();
         }
         Ok(())
     }
@@ -2580,6 +2596,24 @@ mod relation_tests {
     }
 
     #[test]
+    fn interior_recall_keeps_scalar_partition_with_overlapping_members() {
+        let relation = CompiledMorphologyRelation::from_classified([marked(
+            19,
+            "AmharicInteriorInsertion",
+            vec![vec!["a", "aa"], vec!["b"], vec!["c"]],
+            vec![vec!["x"], vec!["y"]],
+            vec![],
+            MarkerZone::Suffix,
+        )])
+        .unwrap();
+        let input = relation.marked_input(AllomorphId(19), "aab").unwrap();
+        let MorphologyRelationResult::Recipe { outputs, .. } = relation.apply(&input) else {
+            panic!("overlapping members must retain scalar fallback recall");
+        };
+        assert!(outputs.contains("axayb"));
+    }
+
+    #[test]
     fn overlapping_interior_probe_rejects_before_unbounded_enumeration() {
         let relation = CompiledMorphologyRelation::from_classified([marked(
             17,
@@ -2604,6 +2638,83 @@ mod relation_tests {
         ));
         assert_eq!(
             relation.fired_recipe_count_for(AllomorphId(17), MarkerZone::Suffix),
+            0
+        );
+    }
+
+    #[test]
+    fn oversized_no_match_input_is_resource_rejected_without_fire() {
+        let relation = CompiledMorphologyRelation::from_classified([marked(
+            20,
+            "AmharicTerminalModify",
+            vec![vec!["a"], vec!["needle"]],
+            vec![],
+            vec!["x"],
+            MarkerZone::Suffix,
+        )])
+        .unwrap();
+        let input = relation
+            .marked_input(AllomorphId(20), &"z".repeat(RELATION_PROBE_WORK_CAP + 1))
+            .unwrap();
+        assert!(matches!(
+            relation.apply(&input),
+            MorphologyRelationResult::ResourceRejected {
+                reason_id: "probe-work-budget",
+                consumed_markers: 0,
+                ..
+            }
+        ));
+        assert_eq!(
+            relation.fired_recipe_count_for(AllomorphId(20), MarkerZone::Suffix),
+            0
+        );
+    }
+
+    #[test]
+    fn oversized_no_match_member_table_is_resource_rejected_without_fire() {
+        let (
+            MorphologyRewrite::MarkedStructural {
+                shape_id,
+                mut recipe,
+                zone_requirement,
+                provenance,
+            },
+            zone,
+        ) = marked(
+            21,
+            "AmharicTerminalModify",
+            vec![vec!["a"], vec!["needle"]],
+            vec![],
+            vec!["x"],
+            MarkerZone::Suffix,
+        )
+        else {
+            unreachable!();
+        };
+        recipe.translated_input_members[1] = (0..=RELATION_PROBE_WORK_CAP)
+            .map(|index| format!("member-{index}"))
+            .collect();
+        let relation = CompiledMorphologyRelation::from_classified([(
+            MorphologyRewrite::MarkedStructural {
+                shape_id,
+                recipe,
+                zone_requirement,
+                provenance,
+            },
+            zone,
+        )])
+        .unwrap();
+        let input = relation.marked_input(AllomorphId(21), "z").unwrap();
+        assert!(matches!(
+            relation.apply(&input),
+            MorphologyRelationResult::ResourceRejected {
+                reason_id: "probe-work-budget",
+                consumed_markers: 0,
+                ..
+            }
+        ));
+        assert_eq!(
+            relation.fired_recipe_count_for(AllomorphId(21), MarkerZone::Suffix),
             0
         );
     }
