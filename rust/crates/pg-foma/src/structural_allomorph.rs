@@ -11,16 +11,24 @@ use foma::types::Fsm;
 use pg_grammar::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, AllomorphOwner, Grammar, MorphRuleDef, NaturalClassKind,
-    OutputAction, PartRef, Pattern, PatternNode, PhonRuleDef, SimpleContext, TableId,
+    OutputAction, PartRef, Pattern, PatternNode, PhonRuleDef, SegmentedText, SimpleContext,
+    TableId,
 };
 use pg_shape::{NodeKind, Shape};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fmt;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use crate::replace::SegAlphabet;
 
 const MARKER_BASE: u32 = 0xF0000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+fn is_technical_marker(ch: char) -> bool {
+    (MARKER_BASE..=0x10FFFF).contains(&(ch as u32))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MarkerZone {
     Prefix,
     Suffix,
@@ -42,6 +50,9 @@ pub struct MarkerKey {
 pub struct MarkerBinding {
     pub key: MarkerKey,
     pub symbol: char,
+    /// The placement is exposed directly for callers which do not need to unpack `key`.
+    /// `key` remains the identity of a binding; this is deliberately not a second namespace.
+    pub zone: MarkerZone,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,7 +99,11 @@ pub fn marker_binding_for(
         .and_then(|value| value.checked_add(zone_offset))
         .ok_or(MarkerBindingError::InvalidScalar)?;
     let symbol = char::from_u32(code).ok_or(MarkerBindingError::InvalidScalar)?;
-    Ok(MarkerBinding { key, symbol })
+    Ok(MarkerBinding {
+        key,
+        symbol,
+        zone: key.zone,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,6 +156,600 @@ impl MorphologyRecipe {
     pub fn translated_input_members(&self) -> Vec<Vec<String>> {
         self.translated_input_members.clone()
     }
+}
+
+/// The result of probing the classifier-owned morphology relation.
+///
+/// This is intentionally a small, deterministic relation model.  It is used while the
+/// morphology relation is being assembled and tested; it does not claim that a later Foma
+/// network has been emitted.  In particular, marker-free input has one explicit identity branch,
+/// while every marked input must select exactly one known recipe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MorphologyRelationResult {
+    Identity {
+        outputs: BTreeSet<String>,
+        consumed_markers: usize,
+    },
+    Recipe {
+        allomorph: AllomorphId,
+        zone: MarkerZone,
+        shape_id: &'static str,
+        outputs: BTreeSet<String>,
+        consumed_markers: usize,
+    },
+    Rejected {
+        reason_id: &'static str,
+        consumed_markers: usize,
+    },
+}
+
+/// A classifier result together with the chain zone chosen by the caller.
+///
+/// The tuple form `(MorphologyRewrite, MarkerZone)` is accepted by the construction API as
+/// well.  Keeping this value separate from `MorphologyRewrite` makes it impossible for the
+/// relation to infer a zone from a role or from the first allomorph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassifiedMorphologyInput {
+    pub rewrite: MorphologyRewrite,
+    pub zone: MarkerZone,
+}
+
+pub trait IntoClassifiedMorphologyInput {
+    fn into_classified_morphology_input(self) -> ClassifiedMorphologyInput;
+}
+
+impl IntoClassifiedMorphologyInput for ClassifiedMorphologyInput {
+    fn into_classified_morphology_input(self) -> ClassifiedMorphologyInput {
+        self
+    }
+}
+
+impl IntoClassifiedMorphologyInput for (MorphologyRewrite, MarkerZone) {
+    fn into_classified_morphology_input(self) -> ClassifiedMorphologyInput {
+        ClassifiedMorphologyInput {
+            rewrite: self.0,
+            zone: self.1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MorphologyRelationError {
+    UnsupportedRewrite {
+        allomorph: AllomorphId,
+        shape_id: &'static str,
+        reason_id: &'static str,
+    },
+    ZoneMismatch {
+        allomorph: AllomorphId,
+        required: MarkerZone,
+        actual: MarkerZone,
+    },
+    DuplicateBinding {
+        allomorph: AllomorphId,
+        zone: MarkerZone,
+    },
+    InvalidMarker(MarkerBindingError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MarkerInputError {
+    MissingBinding {
+        allomorph: AllomorphId,
+    },
+    AmbiguousBinding {
+        allomorph: AllomorphId,
+    },
+    MissingZoneBinding {
+        allomorph: AllomorphId,
+        zone: MarkerZone,
+    },
+}
+
+impl fmt::Display for MarkerInputError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingBinding { allomorph } => {
+                write!(f, "no marker binding for {allomorph:?}")
+            }
+            Self::AmbiguousBinding { allomorph } => {
+                write!(f, "ambiguous marker binding for {allomorph:?}")
+            }
+            Self::MissingZoneBinding { allomorph, zone } => {
+                write!(f, "no marker binding for {allomorph:?}/{zone:?}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for MarkerInputError {}
+
+impl fmt::Display for MorphologyRelationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedRewrite {
+                allomorph,
+                shape_id,
+                reason_id,
+            } => write!(
+                f,
+                "unsupported morphology rewrite for {allomorph:?}: {shape_id}/{reason_id}"
+            ),
+            Self::ZoneMismatch {
+                allomorph,
+                required,
+                actual,
+            } => write!(
+                f,
+                "morphology marker zone mismatch for {allomorph:?}: required {required:?}, got {actual:?}"
+            ),
+            Self::DuplicateBinding { allomorph, zone } => write!(
+                f,
+                "duplicate morphology marker binding for {allomorph:?}/{zone:?}"
+            ),
+            Self::InvalidMarker(error) => write!(f, "invalid morphology marker: {error:?}"),
+        }
+    }
+}
+
+impl std::error::Error for MorphologyRelationError {}
+
+#[derive(Debug)]
+struct RelationRecipe {
+    binding: MarkerBinding,
+    shape_id: &'static str,
+    recipe: MorphologyRecipe,
+    fired: Arc<AtomicUsize>,
+}
+
+impl RelationRecipe {
+    fn clone_for_relation(&self) -> Self {
+        Self {
+            binding: self.binding,
+            shape_id: self.shape_id,
+            recipe: self.recipe.clone(),
+            fired: Arc::clone(&self.fired),
+        }
+    }
+}
+
+/// The classifier-owned, marker-dispatched morphology relation.
+///
+/// Construction consumes already-classified allomorphs and their caller-selected zones.  It
+/// allocates one checked technical marker per unique `(AllomorphId, MarkerZone)` pair and refuses
+/// duplicate allocation.  No Foma objects are created here: this relation is the semantic
+/// foundation and deterministic probe used by the later compiler integration.
+#[derive(Debug)]
+pub struct CompiledMorphologyRelation {
+    recipes: Vec<RelationRecipe>,
+    by_binding: HashMap<(AllomorphId, MarkerZone), usize>,
+    by_allomorph: HashMap<AllomorphId, Vec<usize>>,
+}
+
+impl Clone for CompiledMorphologyRelation {
+    fn clone(&self) -> Self {
+        let recipes = self
+            .recipes
+            .iter()
+            .map(RelationRecipe::clone_for_relation)
+            .collect();
+        Self {
+            recipes,
+            by_binding: self.by_binding.clone(),
+            by_allomorph: self.by_allomorph.clone(),
+        }
+    }
+}
+
+impl CompiledMorphologyRelation {
+    pub fn from_classified<I, T>(inputs: I) -> Result<Self, MorphologyRelationError>
+    where
+        I: IntoIterator<Item = T>,
+        T: IntoClassifiedMorphologyInput,
+    {
+        let mut relation = Self {
+            recipes: Vec::new(),
+            by_binding: HashMap::new(),
+            by_allomorph: HashMap::new(),
+        };
+        for input in inputs {
+            let ClassifiedMorphologyInput { rewrite, zone } =
+                input.into_classified_morphology_input();
+            let MorphologyRewrite::MarkedStructural {
+                shape_id,
+                recipe,
+                zone_requirement,
+                provenance,
+            } = rewrite
+            else {
+                // Ordinary literals and direct wrappers are deliberately marker-free.  They are
+                // represented by the single identity branch and need no relation subtree.
+                if matches!(rewrite, MorphologyRewrite::Unsupported { .. }) {
+                    if let MorphologyRewrite::Unsupported {
+                        shape_id,
+                        reason_id,
+                        allomorph,
+                        ..
+                    } = rewrite
+                    {
+                        return Err(MorphologyRelationError::UnsupportedRewrite {
+                            allomorph,
+                            shape_id,
+                            reason_id,
+                        });
+                    }
+                }
+                continue;
+            };
+            let required = match zone_requirement {
+                ZoneRequirement::Caller => None,
+                ZoneRequirement::Intrinsic(required) => Some(required),
+            };
+            if let Some(required) = required {
+                if required != zone {
+                    return Err(MorphologyRelationError::ZoneMismatch {
+                        allomorph: provenance.allomorph,
+                        required,
+                        actual: zone,
+                    });
+                }
+            }
+            let key = (provenance.allomorph, zone);
+            if relation.by_binding.contains_key(&key) {
+                return Err(MorphologyRelationError::DuplicateBinding {
+                    allomorph: provenance.allomorph,
+                    zone,
+                });
+            }
+            let binding = marker_binding_for(
+                MarkerKey {
+                    allomorph: provenance.allomorph,
+                    zone,
+                },
+                zone_requirement,
+            )
+            .map_err(MorphologyRelationError::InvalidMarker)?;
+            let index = relation.recipes.len();
+            relation.recipes.push(RelationRecipe {
+                binding,
+                shape_id,
+                recipe,
+                fired: Arc::new(AtomicUsize::new(0)),
+            });
+            relation.by_binding.insert(key, index);
+            relation
+                .by_allomorph
+                .entry(provenance.allomorph)
+                .or_default()
+                .push(index);
+        }
+        Ok(relation)
+    }
+
+    pub fn new<I, T>(inputs: I) -> Result<Self, MorphologyRelationError>
+    where
+        I: IntoIterator<Item = T>,
+        T: IntoClassifiedMorphologyInput,
+    {
+        Self::from_classified(inputs)
+    }
+
+    pub fn from_classified_rewrites<I, T>(inputs: I) -> Result<Self, MorphologyRelationError>
+    where
+        I: IntoIterator<Item = T>,
+        T: IntoClassifiedMorphologyInput,
+    {
+        Self::from_classified(inputs)
+    }
+
+    pub fn marker_binding_for(&self, allomorph: AllomorphId) -> Option<MarkerBinding> {
+        let indices = self.by_allomorph.get(&allomorph)?;
+        if indices.len() != 1 {
+            return None;
+        }
+        self.recipes.get(indices[0]).map(|recipe| recipe.binding)
+    }
+
+    pub fn marker_binding_for_zone(
+        &self,
+        allomorph: AllomorphId,
+        zone: MarkerZone,
+    ) -> Option<MarkerBinding> {
+        self.by_binding
+            .get(&(allomorph, zone))
+            .and_then(|index| self.recipes.get(*index))
+            .map(|recipe| recipe.binding)
+    }
+
+    pub fn marked_input(
+        &self,
+        allomorph: AllomorphId,
+        base_tokens: &str,
+    ) -> Result<String, MarkerInputError> {
+        let Some(indices) = self.by_allomorph.get(&allomorph) else {
+            return Err(MarkerInputError::MissingBinding { allomorph });
+        };
+        if indices.len() != 1 {
+            return Err(MarkerInputError::AmbiguousBinding { allomorph });
+        }
+        Ok(self.marked_input_with_binding(self.recipes[indices[0]].binding, base_tokens))
+    }
+
+    pub fn marked_input_for_zone(
+        &self,
+        allomorph: AllomorphId,
+        zone: MarkerZone,
+        base_tokens: &str,
+    ) -> Result<String, MarkerInputError> {
+        let Some(binding) = self.marker_binding_for_zone(allomorph, zone) else {
+            return Err(MarkerInputError::MissingZoneBinding { allomorph, zone });
+        };
+        Ok(self.marked_input_with_binding(binding, base_tokens))
+    }
+
+    fn marked_input_with_binding(&self, binding: MarkerBinding, base_tokens: &str) -> String {
+        match binding.zone {
+            MarkerZone::Prefix => format!("{}{}", binding.symbol, base_tokens),
+            MarkerZone::Suffix => format!("{}{}", base_tokens, binding.symbol),
+        }
+    }
+
+    pub fn fired_recipe_count(&self) -> usize {
+        self.recipes
+            .iter()
+            .map(|recipe| recipe.fired.load(Ordering::Relaxed))
+            .sum()
+    }
+
+    pub fn fired_recipe_count_for(&self, allomorph: AllomorphId, zone: MarkerZone) -> usize {
+        self.marker_binding_for_zone(allomorph, zone)
+            .and_then(|binding| {
+                self.by_binding
+                    .get(&(binding.key.allomorph, binding.key.zone))
+                    .and_then(|index| self.recipes.get(*index))
+            })
+            .map_or(0, |recipe| recipe.fired.load(Ordering::Relaxed))
+    }
+
+    pub fn apply(&self, input: &str) -> MorphologyRelationResult {
+        let mut marker_symbols = Vec::new();
+        for ch in input.chars() {
+            if is_technical_marker(ch) {
+                marker_symbols.push(ch);
+            }
+        }
+        match marker_symbols.as_slice() {
+            [] => MorphologyRelationResult::Identity {
+                outputs: BTreeSet::from([input.to_owned()]),
+                consumed_markers: 0,
+            },
+            [symbol] => {
+                let Some(recipe) = self
+                    .recipes
+                    .iter()
+                    .find(|recipe| recipe.binding.symbol == *symbol)
+                else {
+                    return MorphologyRelationResult::Rejected {
+                        reason_id: "foreign-marker",
+                        consumed_markers: 0,
+                    };
+                };
+                let marker_position = input
+                    .chars()
+                    .position(|ch| ch == *symbol)
+                    .expect("marker was collected from input");
+                let expected_position = match recipe.binding.zone {
+                    MarkerZone::Prefix => 0,
+                    MarkerZone::Suffix => input.chars().count().saturating_sub(1),
+                };
+                if marker_position != expected_position {
+                    return MorphologyRelationResult::Rejected {
+                        reason_id: "zone-mismatch",
+                        consumed_markers: 0,
+                    };
+                }
+                let base = input
+                    .chars()
+                    .filter(|ch| *ch != *symbol)
+                    .collect::<String>();
+                let outputs = apply_recipe(recipe, &base);
+                if outputs.is_empty() {
+                    return MorphologyRelationResult::Rejected {
+                        reason_id: "recipe-input-mismatch",
+                        consumed_markers: 0,
+                    };
+                }
+                recipe.fired.fetch_add(1, Ordering::Relaxed);
+                MorphologyRelationResult::Recipe {
+                    allomorph: recipe.binding.key.allomorph,
+                    zone: recipe.binding.zone,
+                    shape_id: recipe.shape_id,
+                    outputs,
+                    consumed_markers: 1,
+                }
+            }
+            symbols
+                if {
+                    let mut seen = HashSet::new();
+                    symbols.iter().any(|symbol| !seen.insert(*symbol))
+                } =>
+            {
+                MorphologyRelationResult::Rejected {
+                    reason_id: "duplicate-marker",
+                    consumed_markers: 0,
+                }
+            }
+            _ => MorphologyRelationResult::Rejected {
+                reason_id: "multiple-markers",
+                consumed_markers: 0,
+            },
+        }
+    }
+}
+
+fn apply_recipe(recipe: &RelationRecipe, input: &str) -> BTreeSet<String> {
+    let mut outputs = BTreeSet::new();
+    let member_sets = &recipe.recipe.translated_input_members;
+    let segmentations = enumerate_input_segmentations(input, member_sets);
+    match recipe.shape_id {
+        "AdjacentTerminalDrop" => {
+            for tokens in &segmentations {
+                if tokens.len() < 2 || !matches_member(&tokens[tokens.len() - 1], &member_sets[1]) {
+                    continue;
+                }
+                let prefix = join_tokens(&tokens[..tokens.len() - 1]);
+                for literal in recipe.recipe.literal_runs.first().into_iter().flatten() {
+                    outputs.insert(format!("{prefix}{literal}"));
+                }
+            }
+        }
+        "AdjacentInitialDrop" => {
+            for tokens in &segmentations {
+                if tokens.len() >= 2 && matches_member(&tokens[0], &member_sets[0]) {
+                    outputs.insert(join_tokens(&tokens[1..]));
+                }
+            }
+        }
+        "AmharicInitialVowelReplacement" => {
+            for tokens in &segmentations {
+                if tokens.len() < 2 || !matches_member(&tokens[0], &member_sets[0]) {
+                    continue;
+                }
+                let remainder = join_tokens(&tokens[1..]);
+                for literal in recipe.recipe.literal_runs.first().into_iter().flatten() {
+                    outputs.insert(format!("{literal}{remainder}"));
+                }
+            }
+        }
+        "AmharicTerminalModify" => {
+            let Some(final_members) = member_sets.last() else {
+                return outputs;
+            };
+            for tokens in &segmentations {
+                for position in 0..tokens.len() {
+                    if !matches_member(&tokens[position], final_members) {
+                        continue;
+                    }
+                    let prefix = join_tokens(&tokens[..position]);
+                    let suffix = join_tokens(&tokens[position + 1..]);
+                    for replacement in &recipe.recipe.output_segments {
+                        outputs.insert(format!("{prefix}{replacement}{suffix}"));
+                    }
+                }
+            }
+        }
+        "AmharicInteriorInsertion" => {
+            let refs = recipe.recipe.refs.len();
+            for tokens in &segmentations {
+                for parts in nonempty_partitions(tokens, refs) {
+                    let mut variants = vec![String::new()];
+                    for (position, part) in parts.iter().enumerate() {
+                        for variant in &mut variants {
+                            variant.push_str(&join_tokens(part));
+                        }
+                        if let Some(run) = recipe.recipe.literal_runs.get(position) {
+                            if !run.is_empty() {
+                                let mut next = Vec::new();
+                                for variant in &variants {
+                                    for literal in run {
+                                        next.push(format!("{variant}{literal}"));
+                                    }
+                                }
+                                variants = next;
+                            }
+                        }
+                    }
+                    outputs.extend(variants);
+                }
+            }
+        }
+        _ => {}
+    }
+    outputs
+}
+
+fn matches_member(token: &str, members: &[String]) -> bool {
+    members.iter().any(|member| member == token)
+}
+
+fn join_tokens(tokens: &[String]) -> String {
+    tokens.concat()
+}
+
+/// Enumerate every admitted active-table tokenization, retaining a scalar fallback for portions
+/// that are not represented by any translated member. The fallback is deliberately additive:
+/// when a multi-codepoint member and its scalar prefixes are both valid, both tokenizations are
+/// retained so a longer member is never lost to greedy matching.
+fn enumerate_input_segmentations(input: &str, member_sets: &[Vec<String>]) -> Vec<Vec<String>> {
+    let mut all_members = member_sets
+        .iter()
+        .flat_map(|members| members.iter())
+        .filter(|member| !member.is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    all_members.sort();
+    all_members.dedup();
+
+    fn visit(
+        input: &str,
+        offset: usize,
+        members: &[String],
+        current: &mut Vec<String>,
+        output: &mut Vec<Vec<String>>,
+    ) {
+        if offset == input.len() {
+            output.push(current.clone());
+            return;
+        }
+        for member in members {
+            if input[offset..].starts_with(member) {
+                current.push(member.clone());
+                visit(input, offset + member.len(), members, current, output);
+                current.pop();
+            }
+        }
+        if let Some(ch) = input[offset..].chars().next() {
+            let end = offset + ch.len_utf8();
+            current.push(input[offset..end].to_owned());
+            visit(input, end, members, current, output);
+            current.pop();
+        }
+    }
+
+    let mut output = Vec::new();
+    visit(input, 0, &all_members, &mut Vec::new(), &mut output);
+    output.sort();
+    output.dedup();
+    output
+}
+
+fn nonempty_partitions(tokens: &[String], parts: usize) -> Vec<Vec<Vec<String>>> {
+    if parts == 0 || tokens.len() < parts {
+        return Vec::new();
+    }
+    fn visit(
+        tokens: &[String],
+        parts_left: usize,
+        offset: usize,
+        current: &mut Vec<Vec<String>>,
+        output: &mut Vec<Vec<Vec<String>>>,
+    ) {
+        if parts_left == 1 {
+            current.push(tokens[offset..].to_vec());
+            output.push(current.clone());
+            current.pop();
+            return;
+        }
+        let max_end = tokens.len() - (parts_left - 1);
+        for end in (offset + 1)..=max_end {
+            current.push(tokens[offset..end].to_vec());
+            visit(tokens, parts_left - 1, end, current, output);
+            current.pop();
+        }
+    }
+    let mut output = Vec::new();
+    visit(tokens, parts, 0, &mut Vec::new(), &mut output);
+    output
 }
 
 pub struct MorphologyRewriteClassifier;
@@ -523,7 +1132,10 @@ fn validate_node(g: &Grammar, table: TableId, node: &PatternNode) -> Result<(), 
             if *node_table != table {
                 return Err("invalid-source-table");
             }
-            for (_, _, id, _) in shape.shape.interior() {
+            for (_, kind, id, _) in shape.shape.interior() {
+                if kind != NodeKind::Segment {
+                    return Err("invalid-source-segment-node");
+                }
                 let Some(_def) = lookup_char_def(&g.char_tables[table.0 as usize], CharDefId(id))
                 else {
                     return Err("invalid-source-char-def");
@@ -540,11 +1152,13 @@ fn validate_context_features(g: &Grammar, context: &SimpleContext) -> Result<(),
         return Err("invalid-source-context");
     };
     if let NaturalClassKind::Feature(pairs) = &class.kind {
-        if pairs
-            .iter()
-            .any(|(feature, _)| feature.0 as usize >= g.phon_features.len())
-        {
-            return Err("invalid-source-feature-reference");
+        for (feature, values) in pairs {
+            if feature.0 as usize >= g.phon_features.len() {
+                return Err("invalid-source-feature-reference");
+            }
+            if values.0 & !g.phon_features.mask(*feature) != 0 {
+                return Err("invalid-source-feature-mask");
+            }
         }
     }
     Ok(())
@@ -675,9 +1289,10 @@ fn collect_node_members(
                 return Err("invalid-source-table");
             }
             for (_, kind, id, _) in shape.shape.interior() {
-                if kind == NodeKind::Segment {
-                    out.push(CharDefId(id));
+                if kind != NodeKind::Segment {
+                    return Err("invalid-source-segment-node");
                 }
+                out.push(CharDefId(id));
             }
         }
         PatternNode::Anchor(_) => {}
@@ -708,6 +1323,7 @@ fn pattern_has_boundary_node(g: &Grammar, table: TableId, node: &PatternNode) ->
 }
 
 fn context_members(g: &Grammar, table: TableId, context: &SimpleContext) -> Option<Vec<CharDefId>> {
+    validate_context_features(g, context).ok()?;
     let class = g.natural_classes.get(context.nat_class.0 as usize)?;
     let table_ref = g.char_tables.get(table.0 as usize)?;
     let members = match &class.kind {
@@ -1117,6 +1733,9 @@ pub(crate) fn circumfix_texts(
 #[cfg(test)]
 mod circumfix_text_tests {
     use super::*;
+    use pg_featstruct::SymbolBits;
+    use pg_grammar::featsys::FlatIndex;
+    use pg_grammar::model::NatClassId;
 
     const XML: &str = r#"<HermitCrabInput><Language><Name>CrossTableCircumfix</Name>
       <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
@@ -1160,6 +1779,40 @@ mod circumfix_text_tests {
             )]
         );
     }
+
+    #[test]
+    fn feature_context_rejects_values_outside_feature_mask() {
+        let mut g = pg_grammar::load(XML).expect("fixture must load");
+        g.natural_classes[0].kind =
+            NaturalClassKind::Feature(vec![(FlatIndex(0), SymbolBits(1u64 << 63))]);
+        let context = SimpleContext {
+            nat_class: NatClassId(0),
+            vars: Vec::new(),
+        };
+        assert_eq!(
+            validate_context_features(&g, &context),
+            Err("invalid-source-feature-mask")
+        );
+    }
+
+    #[test]
+    fn shape_member_extraction_rejects_non_segment_nodes() {
+        let g = pg_grammar::load(XML).expect("fixture must load");
+        let mut builder = pg_shape::ShapeBuilder::new();
+        builder.push_boundary(0);
+        let node = PatternNode::Segments {
+            table: TableId(0),
+            shape: SegmentedText {
+                text: "x".into(),
+                shape: builder.finish(),
+            },
+        };
+        let mut members = Vec::new();
+        assert_eq!(
+            collect_node_members(&g, TableId(0), &node, &mut members),
+            Err("invalid-source-segment-node")
+        );
+    }
 }
 
 fn class_members(g: &Grammar, table: TableId, node: &PatternNode) -> Option<Vec<CharDefId>> {
@@ -1167,6 +1820,7 @@ fn class_members(g: &Grammar, table: TableId, node: &PatternNode) -> Option<Vec<
     let mut members = match node {
         PatternNode::CharDef(id) => vec![*id],
         PatternNode::Context(context) if context.vars.is_empty() => {
+            validate_context_features(g, context).ok()?;
             match &g.natural_classes.get(context.nat_class.0 as usize)?.kind {
                 NaturalClassKind::Segments(ids) => ids.clone(),
                 NaturalClassKind::Feature(pairs) => table_ref
@@ -1453,4 +2107,369 @@ pub fn compile_layer(
         }
     }
     net
+}
+
+#[cfg(test)]
+mod relation_tests {
+    use super::*;
+
+    fn marked(
+        id: u32,
+        shape_id: &'static str,
+        members: Vec<Vec<&str>>,
+        runs: Vec<Vec<&str>>,
+        output_segments: Vec<&str>,
+        zone: MarkerZone,
+    ) -> (MorphologyRewrite, MarkerZone) {
+        (
+            MorphologyRewrite::MarkedStructural {
+                shape_id,
+                recipe: MorphologyRecipe {
+                    refs: match shape_id {
+                        "AmharicInteriorInsertion" => vec![0, 1, 2],
+                        "AmharicInitialVowelReplacement" | "AdjacentInitialDrop" => vec![1],
+                        "AdjacentTerminalDrop" => vec![0],
+                        "AmharicTerminalModify" => vec![0, 1],
+                        _ => vec![],
+                    },
+                    literal_runs: runs
+                        .into_iter()
+                        .map(|run| run.into_iter().map(str::to_owned).collect())
+                        .collect(),
+                    output_segments: output_segments.into_iter().map(str::to_owned).collect(),
+                    translated_input_members: members
+                        .into_iter()
+                        .map(|part| part.into_iter().map(str::to_owned).collect())
+                        .collect(),
+                },
+                zone_requirement: ZoneRequirement::Caller,
+                provenance: RewriteProvenance {
+                    allomorph: AllomorphId(id),
+                    source_table: TableId(0),
+                    active_table: TableId(0),
+                },
+            },
+            zone,
+        )
+    }
+
+    #[test]
+    fn technical_marker_predicate_accepts_high_plane_and_rejects_foreign_inputs() {
+        let relation = CompiledMorphologyRelation::from_classified([marked(
+            0x8000,
+            "AdjacentInitialDrop",
+            vec![vec!["a"], vec!["b"]],
+            vec![],
+            vec![],
+            MarkerZone::Prefix,
+        )])
+        .unwrap();
+        let known = relation.marked_input(AllomorphId(0x8000), "ab").unwrap();
+        assert!(matches!(
+            relation.apply(&known),
+            MorphologyRelationResult::Recipe { .. }
+        ));
+        let foreign = format!("a{}", char::from_u32(0x100001).unwrap());
+        assert!(matches!(
+            relation.apply(&foreign),
+            MorphologyRelationResult::Rejected {
+                reason_id: "foreign-marker",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn probe_shapes_preserve_arbitrary_multi_segment_sequences() {
+        let cases = [
+            (
+                1,
+                marked(
+                    1,
+                    "AdjacentTerminalDrop",
+                    vec![vec!["a"], vec!["b"]],
+                    vec![vec!["x"]],
+                    vec![],
+                    MarkerZone::Suffix,
+                ),
+                "acb",
+                "acx",
+                MarkerZone::Suffix,
+            ),
+            (
+                2,
+                marked(
+                    2,
+                    "AdjacentInitialDrop",
+                    vec![vec!["a"], vec!["b"]],
+                    vec![],
+                    vec![],
+                    MarkerZone::Prefix,
+                ),
+                "abc",
+                "bc",
+                MarkerZone::Prefix,
+            ),
+            (
+                3,
+                marked(
+                    3,
+                    "AmharicInitialVowelReplacement",
+                    vec![vec!["a"], vec!["b"]],
+                    vec![vec!["p"]],
+                    vec![],
+                    MarkerZone::Prefix,
+                ),
+                "abc",
+                "pbc",
+                MarkerZone::Prefix,
+            ),
+            (
+                4,
+                marked(
+                    4,
+                    "AmharicTerminalModify",
+                    vec![vec!["a"], vec!["c"]],
+                    vec![],
+                    vec!["x", "y"],
+                    MarkerZone::Suffix,
+                ),
+                "abc",
+                "abx",
+                MarkerZone::Suffix,
+            ),
+        ];
+        for (id, input, base, expected, zone) in cases {
+            let relation = CompiledMorphologyRelation::from_classified([input]).unwrap();
+            let marked = relation
+                .marked_input_for_zone(AllomorphId(id), zone, base)
+                .unwrap();
+            let result = relation.apply(&marked);
+            let outputs = match result {
+                MorphologyRelationResult::Recipe { outputs, .. } => outputs,
+                other => panic!("expected recipe result, got {other:?}"),
+            };
+            assert!(outputs.contains(expected));
+        }
+    }
+
+    #[test]
+    fn relation_enumerates_multicodepoint_active_members() {
+        let cases = [
+            (
+                12,
+                marked(
+                    12,
+                    "AdjacentInitialDrop",
+                    vec![vec!["sy"], vec!["a"]],
+                    vec![],
+                    vec![],
+                    MarkerZone::Prefix,
+                ),
+                "sya",
+                BTreeSet::from(["a".to_owned()]),
+            ),
+            (
+                13,
+                marked(
+                    13,
+                    "AdjacentTerminalDrop",
+                    vec![vec!["a"], vec!["sy"]],
+                    vec![vec!["x"]],
+                    vec![],
+                    MarkerZone::Suffix,
+                ),
+                "asy",
+                BTreeSet::from(["ax".to_owned()]),
+            ),
+            (
+                14,
+                marked(
+                    14,
+                    "AmharicInitialVowelReplacement",
+                    vec![vec!["sy"], vec!["a"]],
+                    vec![vec!["p"]],
+                    vec![],
+                    MarkerZone::Prefix,
+                ),
+                "sya",
+                BTreeSet::from(["pa".to_owned()]),
+            ),
+            (
+                15,
+                marked(
+                    15,
+                    "AmharicTerminalModify",
+                    vec![vec!["a"], vec!["sy"]],
+                    vec![],
+                    vec!["x"],
+                    MarkerZone::Suffix,
+                ),
+                "asyb",
+                BTreeSet::from(["axb".to_owned()]),
+            ),
+        ];
+        for (id, classified, base, expected) in cases {
+            let relation = CompiledMorphologyRelation::from_classified([classified]).unwrap();
+            let input = relation
+                .marked_input_for_zone(AllomorphId(id), MarkerZone::Prefix, base)
+                .or_else(|_| {
+                    relation.marked_input_for_zone(AllomorphId(id), MarkerZone::Suffix, base)
+                })
+                .unwrap();
+            let MorphologyRelationResult::Recipe { outputs, .. } = relation.apply(&input) else {
+                panic!("multi-codepoint member must produce a recipe");
+            };
+            assert_eq!(outputs, expected);
+        }
+    }
+
+    #[test]
+    fn interior_relation_partitions_multicodepoint_members_as_tokens() {
+        let relation = CompiledMorphologyRelation::from_classified([marked(
+            16,
+            "AmharicInteriorInsertion",
+            vec![vec!["a"], vec!["sy"], vec!["b"]],
+            vec![vec!["x"], vec!["y"]],
+            vec![],
+            MarkerZone::Suffix,
+        )])
+        .unwrap();
+        let input = relation.marked_input(AllomorphId(16), "asyb").unwrap();
+        let MorphologyRelationResult::Recipe { outputs, .. } = relation.apply(&input) else {
+            panic!("multi-codepoint interior member must produce a recipe");
+        };
+        assert!(outputs.contains("axsyyb"));
+    }
+
+    #[test]
+    fn interior_probe_inserts_runs_across_arbitrary_partitions() {
+        let relation = CompiledMorphologyRelation::from_classified([marked(
+            5,
+            "AmharicInteriorInsertion",
+            vec![vec!["a"], vec!["b"], vec!["c"]],
+            vec![vec!["x"], vec!["y"]],
+            vec![],
+            MarkerZone::Suffix,
+        )])
+        .unwrap();
+        let input = relation.marked_input(AllomorphId(5), "abcd").unwrap();
+        let outputs = match relation.apply(&input) {
+            MorphologyRelationResult::Recipe { outputs, .. } => outputs,
+            other => panic!("expected recipe result, got {other:?}"),
+        };
+        assert!(outputs.contains("axbycd"));
+    }
+
+    #[test]
+    fn terminal_modify_replaces_a_matching_middle_position_and_preserves_suffix() {
+        let relation = CompiledMorphologyRelation::from_classified([marked(
+            6,
+            "AmharicTerminalModify",
+            vec![vec!["a"], vec!["b"]],
+            vec![],
+            vec!["x", "y"],
+            MarkerZone::Suffix,
+        )])
+        .unwrap();
+        let input = relation.marked_input(AllomorphId(6), "abc").unwrap();
+        let outputs = match relation.apply(&input) {
+            MorphologyRelationResult::Recipe { outputs, .. } => outputs,
+            other => panic!("expected recipe result, got {other:?}"),
+        };
+        assert_eq!(
+            outputs,
+            BTreeSet::from(["axc".to_owned(), "ayc".to_owned()])
+        );
+    }
+
+    #[test]
+    fn misplaced_markers_are_rejected_by_zone() {
+        let prefix = CompiledMorphologyRelation::from_classified([marked(
+            7,
+            "AdjacentInitialDrop",
+            vec![vec!["a"], vec!["b"]],
+            vec![],
+            vec![],
+            MarkerZone::Prefix,
+        )])
+        .unwrap();
+        let suffix = CompiledMorphologyRelation::from_classified([marked(
+            8,
+            "AdjacentTerminalDrop",
+            vec![vec!["a"], vec!["b"]],
+            vec![vec!["x"]],
+            vec![],
+            MarkerZone::Suffix,
+        )])
+        .unwrap();
+        let prefix_marker = prefix.marker_binding_for(AllomorphId(7)).unwrap().symbol;
+        let suffix_marker = suffix.marker_binding_for(AllomorphId(8)).unwrap().symbol;
+        assert!(matches!(
+            prefix.apply(&format!("a{}b", prefix_marker)),
+            MorphologyRelationResult::Rejected {
+                reason_id: "zone-mismatch",
+                ..
+            }
+        ));
+        assert!(matches!(
+            suffix.apply(&format!("{}ab", suffix_marker)),
+            MorphologyRelationResult::Rejected {
+                reason_id: "zone-mismatch",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn cloned_relations_share_recipe_fire_observations() {
+        let relation = CompiledMorphologyRelation::from_classified([marked(
+            11,
+            "AdjacentInitialDrop",
+            vec![vec!["a"], vec!["b"]],
+            vec![],
+            vec![],
+            MarkerZone::Prefix,
+        )])
+        .unwrap();
+        let clone = relation.clone();
+        let input = clone.marked_input(AllomorphId(11), "ab").unwrap();
+        assert!(matches!(
+            clone.apply(&input),
+            MorphologyRelationResult::Recipe { .. }
+        ));
+        assert_eq!(relation.fired_recipe_count(), 1);
+    }
+
+    #[test]
+    fn duplicate_binding_is_rejected_by_relation_construction() {
+        let first = marked(
+            9,
+            "AdjacentTerminalDrop",
+            vec![vec!["a"], vec!["b"]],
+            vec![vec!["x"]],
+            vec![],
+            MarkerZone::Suffix,
+        );
+        let second = marked(
+            10,
+            "AdjacentInitialDrop",
+            vec![vec!["a"], vec!["b"]],
+            vec![],
+            vec![],
+            MarkerZone::Prefix,
+        );
+        let duplicate = marked(
+            9,
+            "AdjacentTerminalDrop",
+            vec![vec!["a"], vec!["b"]],
+            vec![vec!["x"]],
+            vec![],
+            MarkerZone::Suffix,
+        );
+        assert!(matches!(
+            CompiledMorphologyRelation::from_classified([first, second, duplicate]),
+            Err(MorphologyRelationError::DuplicateBinding { .. })
+        ));
+    }
 }
