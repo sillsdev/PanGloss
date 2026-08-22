@@ -1559,9 +1559,10 @@ fn compound_chain_depth_and_budget_check(
     g: &Grammar,
     uncovered: &[UncoveredItem],
     counts: &EmitCounts,
+    chain_depth_cap: Option<usize>,
 ) -> Result<usize, EmitResult> {
     let compound_depth_bound = compound_depth_bound(g);
-    let (depth, limit) = match compound_extra_levels_checked(g) {
+    let (depth, limit) = match compound_extra_levels_checked_with_cap(g, chain_depth_cap) {
         Ok(levels) => return Ok(levels),
         Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) => (depth, limit),
         Err(other) => unreachable!(
@@ -1616,9 +1617,27 @@ fn compound_depth_bound(g: &Grammar) -> usize {
 /// emitters need -- the same "one construction, two presentations" split
 /// `build_compound_chain`'s own doc uses.
 pub(crate) fn compound_extra_levels_checked(g: &Grammar) -> Result<usize, ComposeError> {
+    compound_extra_levels_checked_with_cap(g, None)
+}
+
+fn compound_extra_levels_checked_with_cap(
+    g: &Grammar,
+    chain_depth_cap: Option<usize>,
+) -> Result<usize, ComposeError> {
     let compound_extra_levels = compound_depth_bound(g).saturating_sub(1).max(1);
-    ComposeBudget::from_env()
-        .with_chain_depth_cap(compound_chain_depth_budget())
+    let budget = match chain_depth_cap {
+        Some(cap) => ComposeBudget::with_caps(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            None,
+        )
+        .with_chain_depth_cap(cap),
+        None => ComposeBudget::from_env().with_chain_depth_cap(compound_chain_depth_budget()),
+    };
+    budget
         .check_chain_depth(
             compound_extra_levels,
             "compound loop (extra non-head root levels)",
@@ -3562,6 +3581,7 @@ fn emit_with_budget_profiled_with_strategy(
 /// Runs the production TunedSurface emitter with a focused closure trace. This is test-support
 /// only: the numeric limits are supplied by the acceptance test, while product callers select a
 /// closed [`ResourceEnvelope`] instead.
+#[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub fn emit_tuned_surface_with_closure_limits_for_test(
     g: &Grammar,
@@ -3725,8 +3745,19 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
 
     // Built once and shared by both composite builders below, so they prune against the identical automaton instead of each reading the env vars for their own.
     let morphotactic_index = crate::morphotactics::MorphotacticIndex::build(g);
-    let explore_mode = crate::morphotactics::explore_mode_from_env();
-    let probe_cap = crate::morphotactics::probe_cap_from_env();
+    // Named-envelope attempts use only the selected snapshot.  The measurement-only flat and
+    // probe switches remain available to legacy untraced callers, but must not affect a closed
+    // production attempt.
+    let explore_mode = if closure_trace.is_some() {
+        crate::morphotactics::ExploreMode::Pruned
+    } else {
+        crate::morphotactics::explore_mode_from_env()
+    };
+    let probe_cap = if closure_trace.is_some() {
+        None
+    } else {
+        crate::morphotactics::probe_cap_from_env()
+    };
     let probe_counter = std::sync::atomic::AtomicUsize::new(0);
     let probe_budget = probe_cap.map(|cap| crate::morphotactics::ProbeBudget {
         cap,
@@ -3960,6 +3991,9 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         .collect();
 
     if roots.is_empty() {
+        if let Some(trace) = closure_trace {
+            trace.refuse(crate::characterization::ClosureStopReason::UnsupportedTransition);
+        }
         let report = EmitReport {
             uncovered,
             counts,
@@ -4074,7 +4108,10 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         let non_head_count =
             filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
         let cross = all_roots.len().saturating_mul(non_head_count);
-        let limit = crate::compose_budget::compound_pair_budget_from_env();
+        let limit = closure_trace.map_or_else(
+            crate::compose_budget::compound_pair_budget_from_env,
+            crate::characterization::ClosureTrace::compound_pair_cap,
+        );
         if cross > limit {
             if let Some(trace) = closure_trace {
                 trace.stop(crate::characterization::ClosureStopReason::ResourceBudgetReached);
@@ -4106,8 +4143,12 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         }
 
         // Shared with emit_underlying_templated via compound_chain_depth_and_budget_check.
-        compound_extra_levels = match compound_chain_depth_and_budget_check(g, &uncovered, &counts)
-        {
+        compound_extra_levels = match compound_chain_depth_and_budget_check(
+            g,
+            &uncovered,
+            &counts,
+            closure_trace.map(crate::characterization::ClosureTrace::compound_chain_depth_cap),
+        ) {
             Ok(levels) => levels,
             Err(mut early_return) => {
                 if let Some(trace) = closure_trace {
@@ -4951,8 +4992,12 @@ pub fn emit_underlying_templated(
     let mut compound_extra_levels: usize = 1;
     if compound_license.is_some() {
         // Shares compound_chain_depth_and_budget_check with emit_with_budget_profiled.
-        compound_extra_levels = match compound_chain_depth_and_budget_check(g, &uncovered, &counts)
-        {
+        compound_extra_levels = match compound_chain_depth_and_budget_check(
+            g,
+            &uncovered,
+            &counts,
+            None,
+        ) {
             Ok(levels) => levels,
             Err(early_return) => return early_return,
         };
