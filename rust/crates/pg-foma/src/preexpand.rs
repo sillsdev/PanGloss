@@ -226,7 +226,7 @@ pub(crate) fn candidate_rule_count(g: &Grammar) -> usize {
     candidate_rules(g).len()
 }
 
-fn candidate_rules(g: &Grammar) -> Vec<(MRuleId, Role)> {
+pub(crate) fn candidate_rules(g: &Grammar) -> Vec<(MRuleId, Role)> {
     let mut out = Vec::new();
     for (i, r) in g.mrules.iter().enumerate() {
         if matches!(r, MorphRuleDef::Compounding(_)) {
@@ -455,7 +455,7 @@ pub(crate) fn loose_rule_is_active(g: &Grammar, mid: MRuleId) -> bool {
 }
 
 /// `(required_syn_fs, out_syn_fs, owning morpheme)` for the two rule kinds that carry allomorphs; `candidate_rules` filters `Compounding` out before this is ever reached.
-fn rule_fs_and_morpheme(rule: &MorphRuleDef) -> (FsId, MorphemeId) {
+pub(crate) fn rule_fs_and_morpheme(rule: &MorphRuleDef) -> (FsId, MorphemeId) {
     match rule {
         MorphRuleDef::AffixProcess(def) => (def.required_syn_fs, def.morpheme),
         MorphRuleDef::Realizational(def) => (def.required_syn_fs, def.morpheme),
