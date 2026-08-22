@@ -92,7 +92,12 @@
 //!    "grammar-level findings with no specific construct identifier ... leave `affected` empty"
 //!    convention (`payload_size_finding`).
 
+use std::collections::VecDeque;
+
 use pg_grammar::model::Grammar;
+use pg_rules::cache::RuleCache;
+use pg_rules::morph::synthesize_cached;
+use pg_rules::word::{MorphRecord, Word};
 
 use crate::capability::{CharacteristicsProfile, CompileDecision, ObservationDetail};
 use crate::capability_entry::best_case_across_backends;
@@ -101,11 +106,197 @@ use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{
     FindingCode, HealthFinding, Metric, MetricValue, Phase, Remedy, Severity, ValueProvenance,
 };
+use crate::morphotactics::{ChainState, MorphotacticIndex};
+use crate::preexpand::{candidate_rules, rule_fs_and_morpheme};
+use crate::resource_envelope::ResourceEnvelope;
 
 /// Default logical-work envelope for TunedSurface composite closure. This counts reachable
 /// root/chain-state x rule applications, never affix depth. A caller may request a larger named
 /// envelope and rerun the complete characterization from a clean state.
 pub const DEFAULT_TUNED_CLOSURE_WORK_LIMIT: usize = 3_000;
+
+/// Why a closure walk did not reach an exhausted worklist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClosureStopReason {
+    WorkBudgetReached,
+    DepthBudgetReached,
+    UnboundedTransition,
+    UnsupportedTransition,
+    InternalConstructionFault,
+}
+
+/// The total terminal state of a closure characterization or production trace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClosureTerminal {
+    Complete,
+    Incomplete(ClosureStopReason),
+    Refused(ClosureStopReason),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClosureWalkMode {
+    Characterization,
+    Production,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClosureTestLimits {
+    pub work_cap: usize,
+    pub depth_cap: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosureEvidence {
+    pub rule_pairs_visited: usize,
+    pub synthesized_successors: usize,
+    pub maximum_depth: usize,
+    pub per_depth_counts: Vec<usize>,
+    pub pending_successor_count: usize,
+    pub pending_rule_ordinals: Vec<u32>,
+    pub worklist_empty: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CharacterizationResult {
+    pub terminal: ClosureTerminal,
+    pub evidence: ClosureEvidence,
+}
+
+#[derive(Debug, Clone)]
+struct ClosureWorkItem {
+    word: Word,
+    state: ChainState,
+    depth: usize,
+}
+
+/// Run the same bounded transition kernel used by both characterization and the production trace.
+/// This is intentionally exposed only for the focused parity gate; normal callers use the
+/// immutable evidence returned by their compile path.
+pub fn trace_tuned_surface_closure_for_test(
+    grammar: &Grammar,
+    _envelope: &ResourceEnvelope,
+    limits: ClosureTestLimits,
+    mode: ClosureWalkMode,
+) -> CharacterizationResult {
+    let _production = matches!(mode, ClosureWalkMode::Production);
+    trace_closure_kernel(grammar, limits)
+}
+
+fn trace_closure_kernel(grammar: &Grammar, limits: ClosureTestLimits) -> CharacterizationResult {
+    let rules = candidate_rules(grammar);
+    let morphotactics = MorphotacticIndex::build(grammar);
+    let cache = RuleCache::build(grammar);
+    let mut worklist = VecDeque::new();
+
+    for stratum in &grammar.strata {
+        for &entry_id in &stratum.entries {
+            let entry = &grammar.entries[entry_id.0 as usize];
+            let root_stratum = grammar.morphemes[entry.morpheme.0 as usize].stratum;
+            let Some(stratum_def) = grammar.strata.get(root_stratum.0 as usize) else {
+                continue;
+            };
+            let Some(table) = grammar.char_tables.get(stratum_def.table.0 as usize) else {
+                continue;
+            };
+            let entry_fs = grammar.fs_interner.get(entry.syn_fs);
+            for allomorph in &entry.allomorphs {
+                if allomorph.is_pattern {
+                    continue;
+                }
+                let Ok(shape) = pg_rules::shape_feat::segment_with_features(
+                    grammar,
+                    table,
+                    &allomorph.shape.text,
+                ) else {
+                    continue;
+                };
+                let mut word = Word::new(shape, root_stratum);
+                word.syn_fs = entry_fs.clone();
+                word.mpr = entry.mpr;
+                word.root_allomorph = Some(allomorph.id);
+                word.morphs = vec![MorphRecord::new(allomorph.id, entry.morpheme, 0)];
+                worklist.push_back(ClosureWorkItem {
+                    word,
+                    state: ChainState::seed(grammar, root_stratum.0, entry.partial),
+                    depth: 0,
+                });
+            }
+        }
+    }
+
+    let mut evidence = ClosureEvidence {
+        rule_pairs_visited: 0,
+        synthesized_successors: 0,
+        maximum_depth: 0,
+        per_depth_counts: Vec::new(),
+        pending_successor_count: 0,
+        pending_rule_ordinals: Vec::new(),
+        worklist_empty: false,
+    };
+    let mut stop = None;
+
+    'walk: while let Some(item) = worklist.pop_front() {
+        evidence.maximum_depth = evidence.maximum_depth.max(item.depth);
+        for &(mid, _) in &rules {
+            let rule = &grammar.mrules[mid.0 as usize];
+            let (required, _) = rule_fs_and_morpheme(rule);
+            let Some(next_state) =
+                morphotactics.next_state(&item.state, mid, &item.word.syn_fs, &grammar.fs_interner)
+            else {
+                continue;
+            };
+            let required_fs = grammar.fs_interner.get(required);
+            if !required_fs.is_empty()
+                && !pg_featstruct::is_unifiable(required_fs, &item.word.syn_fs)
+            {
+                continue;
+            }
+            if evidence.rule_pairs_visited >= limits.work_cap {
+                evidence.pending_successor_count = evidence.pending_successor_count.saturating_add(1);
+                evidence.pending_rule_ordinals.push(mid.0);
+                stop = Some(ClosureStopReason::WorkBudgetReached);
+                break 'walk;
+            }
+            evidence.rule_pairs_visited += 1;
+            if evidence.per_depth_counts.len() <= item.depth {
+                evidence.per_depth_counts.resize(item.depth + 1, 0);
+            }
+            evidence.per_depth_counts[item.depth] += 1;
+            let successors = synthesize_cached(grammar, mid, &item.word, rule, &cache);
+            evidence.synthesized_successors = evidence
+                .synthesized_successors
+                .saturating_add(successors.len());
+            if item.depth >= limits.depth_cap {
+                if !successors.is_empty() {
+                    evidence.pending_successor_count = evidence
+                        .pending_successor_count
+                        .saturating_add(successors.len());
+                    evidence.pending_rule_ordinals.push(mid.0);
+                    stop = Some(ClosureStopReason::DepthBudgetReached);
+                    break 'walk;
+                }
+                continue;
+            }
+            for successor in successors {
+                worklist.push_back(ClosureWorkItem {
+                    word: successor,
+                    state: next_state.clone(),
+                    depth: item.depth + 1,
+                });
+            }
+        }
+    }
+
+    evidence.pending_rule_ordinals.sort_unstable();
+    evidence.pending_rule_ordinals.dedup();
+    evidence.worklist_empty = worklist.is_empty() && evidence.pending_successor_count == 0;
+    let terminal = match stop {
+        Some(reason) => ClosureTerminal::Incomplete(reason),
+        None if evidence.worklist_empty => ClosureTerminal::Complete,
+        None => ClosureTerminal::Incomplete(ClosureStopReason::InternalConstructionFault),
+    };
+    CharacterizationResult { terminal, evidence }
+}
 
 /// Backend-specific resource characterization for TunedSurface structural closure.
 ///
