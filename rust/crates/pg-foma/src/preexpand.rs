@@ -1080,9 +1080,7 @@ pub(crate) fn build_composites_with_mode_and_trace(
         .collect();
     #[cfg(not(target_arch = "wasm32"))]
     let per_entry: Vec<(Vec<CompositeRec>, CompositeReport)> = if closure_trace.is_some() {
-        // A traced envelope is an auditable diagnostic snapshot: preserve root/rule traversal
-        // order so work/depth terminals cannot depend on rayon scheduling. Untraced production
-        // retains the existing parallel root fan-out below.
+        // Stable root/rule order keeps traced terminal evidence independent of rayon scheduling.
         work.iter()
             .map(|w| {
                 process_root_work(
