@@ -95,6 +95,24 @@ const CLASSIFIER_XML: &str = r#"
 </Language></HermitCrabInput>
 "#;
 
+const REALIZATIONAL_OWNER_XML: &str = r#"
+<HermitCrabInput><Language><Name>realizational-classifier-owner</Name>
+  <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+  <CharacterDefinitionTable id="t"><Name>Main</Name><SegmentDefinitions>
+    <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+  </SegmentDefinitions></CharacterDefinitionTable>
+  <NaturalClasses><SegmentNaturalClass id="ncAny"><Name>Any</Name><Segment segment="ca"/></SegmentNaturalClass></NaturalClasses>
+  <Strata><Stratum characterDefinitionTable="t" morphologicalRules="rr">
+    <Name>S</Name><MorphologicalRuleDefinitions><RealizationalRule id="rr">
+      <Name>R</Name><MorphologicalSubrules><MorphologicalSubrule id="ra">
+        <MorphologicalInput><PhoneticSequence id="r0"><SimpleContext naturalClass="ncAny"/></PhoneticSequence></MorphologicalInput>
+        <MorphologicalOutput><CopyFromInput index="r0"/></MorphologicalOutput>
+      </MorphologicalSubrule></MorphologicalSubrules>
+    </RealizationalRule></MorphologicalRuleDefinitions>
+  </Stratum></Strata>
+</Language></HermitCrabInput>
+"#;
+
 fn load() -> Grammar {
     pg_grammar::load(CLASSIFIER_XML).unwrap_or_else(|e| panic!("synthetic fixture failed: {e}"))
 }
@@ -778,4 +796,28 @@ fn malformed_feature_reference_is_a_stable_refusal_not_a_panic() {
         "InvalidReferences",
         "invalid-source-feature-reference",
     );
+}
+
+#[test]
+fn owner_resolution_accepts_realizational_affix_allomorphs() {
+    let g = pg_grammar::load(REALIZATIONAL_OWNER_XML)
+        .unwrap_or_else(|e| panic!("realizational owner fixture failed: {e}"));
+    let candidate = match &g.mrules[0] {
+        MorphRuleDef::Realizational(rule) => &rule.allomorphs[0],
+        other => panic!("fixture must contain a realizational rule, got {other:?}"),
+    };
+    match MorphologyRewriteClassifier::classify(&g, candidate, TableId(0)) {
+        MorphologyRewrite::DirectWholeRootWrapper {
+            prefix_variants,
+            suffix_variants,
+            provenance,
+        } => {
+            assert_eq!(prefix_variants, vec![""]);
+            assert_eq!(suffix_variants, vec![""]);
+            assert_eq!(provenance.allomorph, candidate.id);
+            assert_eq!(provenance.source_table, TableId(0));
+            assert_eq!(provenance.active_table, TableId(0));
+        }
+        other => panic!("realizational affix allomorph must have a real owner, got {other:?}"),
+    }
 }
