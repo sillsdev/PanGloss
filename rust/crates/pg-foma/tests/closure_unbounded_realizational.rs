@@ -3,8 +3,10 @@
 use std::path::PathBuf;
 
 use pg_foma::analyzer::{FomaError, FomaProposer};
+use pg_foma::characterization::{ClosureStopReason, ClosureTerminal};
 use pg_foma::emit::{self, ClosureFallbackBackend, ClosureRefusalCode, FomaTier};
 use pg_foma::replace::SegAlphabet;
+use pg_foma::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 use pg_parse::{Morpher, ParseOptions};
 
 const CONCATENATIVE_REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>LoopableRealizational</Name>
@@ -164,6 +166,19 @@ fn unbounded_realizational_composite_route_returns_no_artifact() {
         FomaProposer::new(&grammar),
         Err(FomaError::Unsupported(_))
     ));
+
+    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
+    let traced = emit::emit_tuned_surface_for_envelope(&grammar, &envelope);
+    assert!(traced.lexc_source.is_empty());
+    let evidence = traced
+        .report
+        .closure_evidence
+        .expect("the product envelope path must retain terminal evidence");
+    assert_eq!(
+        evidence.terminal,
+        ClosureTerminal::Refused(ClosureStopReason::UnboundedTransition)
+    );
+    assert_eq!(evidence.evidence.envelope_digest, envelope.digest());
 }
 
 #[test]
@@ -244,4 +259,18 @@ fn excessive_bounded_chain_returns_no_partial_artifact() {
     assert!(refusal
         .pending_successors
         .is_some_and(|pending| pending > 0));
+
+    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
+    let traced = emit::emit_tuned_surface_for_envelope(&grammar, &envelope);
+    assert!(traced.lexc_source.is_empty());
+    let evidence = traced
+        .report
+        .closure_evidence
+        .expect("the product envelope path must retain terminal evidence");
+    assert_eq!(
+        evidence.terminal,
+        ClosureTerminal::Incomplete(ClosureStopReason::DepthBudgetReached)
+    );
+    assert!(evidence.evidence.pending_successor_count > 0);
+    assert_eq!(evidence.evidence.envelope_digest, envelope.digest());
 }
