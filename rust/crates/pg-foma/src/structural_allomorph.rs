@@ -21,10 +21,20 @@ use std::sync::Arc;
 
 use crate::replace::SegAlphabet;
 
-const MARKER_BASE: u32 = 0xF0000;
+const PUA_A_BASE: u32 = 0xF0000;
+const PUA_A_LAST: u32 = 0xFFFFD;
+const PUA_B_BASE: u32 = 0x100000;
+const PUA_B_LAST: u32 = 0x10FFFD;
+const MARKER_PAIRS_PER_RANGE: u64 = ((PUA_A_LAST - PUA_A_BASE + 1) / 2) as u64;
+
+/// The semantic relation probe is not production FST execution.  Its closed budget prevents
+/// the recall-preserving interior enumeration from becoming an unbounded public operation.
+const RELATION_PROBE_WORK_CAP: usize = 10_000;
+const RELATION_PROBE_OUTPUT_CAP: usize = 10_000;
 
 fn is_technical_marker(ch: char) -> bool {
-    (MARKER_BASE..=0x10FFFF).contains(&(ch as u32))
+    let code = ch as u32;
+    (PUA_A_BASE..=PUA_A_LAST).contains(&code) || (PUA_B_BASE..=PUA_B_LAST).contains(&code)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -70,8 +80,9 @@ pub enum MarkerBindingError {
     InvalidScalar,
 }
 
-/// Allocate a marker only after checked arithmetic has proved that the result is a Unicode
-/// scalar.  Prefix and suffix bindings intentionally occupy different slots for one allomorph.
+/// Allocate a marker only inside the two closed supplementary PUA ranges. Prefix and suffix
+/// bindings intentionally occupy different slots for one allomorph; the Unicode noncharacter
+/// gaps at the end of each range are never allocated.
 pub fn marker_binding_for(
     key: MarkerKey,
     requirement: ZoneRequirement,
@@ -84,20 +95,28 @@ pub fn marker_binding_for(
             });
         }
     }
+    let pair = key.allomorph.0 as u64;
+    let (base, pair) = if pair < MARKER_PAIRS_PER_RANGE {
+        (PUA_A_BASE as u64, pair)
+    } else if pair < MARKER_PAIRS_PER_RANGE * 2 {
+        (PUA_B_BASE as u64, pair - MARKER_PAIRS_PER_RANGE)
+    } else {
+        return Err(MarkerBindingError::InvalidScalar);
+    };
     let zone_offset = match key.zone {
         MarkerZone::Prefix => 0,
         MarkerZone::Suffix => 1,
     };
-    let code = MARKER_BASE
+    let code = base
         .checked_add(
-            key.allomorph
-                .0
-                .checked_mul(2)
+            pair.checked_mul(2)
                 .ok_or(MarkerBindingError::InvalidScalar)?,
         )
         .and_then(|value| value.checked_add(zone_offset))
         .ok_or(MarkerBindingError::InvalidScalar)?;
-    let symbol = char::from_u32(code).ok_or(MarkerBindingError::InvalidScalar)?;
+    let symbol =
+        char::from_u32(u32::try_from(code).map_err(|_| MarkerBindingError::InvalidScalar)?)
+            .ok_or(MarkerBindingError::InvalidScalar)?;
     Ok(MarkerBinding {
         key,
         symbol,
@@ -179,6 +198,12 @@ pub enum MorphologyRelationResult {
     Rejected {
         reason_id: &'static str,
         consumed_markers: usize,
+    },
+    ResourceRejected {
+        reason_id: &'static str,
+        consumed_markers: usize,
+        work: usize,
+        outputs: usize,
     },
 }
 
@@ -299,6 +324,52 @@ struct RelationRecipe {
     shape_id: &'static str,
     recipe: MorphologyRecipe,
     fired: Arc<AtomicUsize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProbeBudgetReached {
+    reason_id: &'static str,
+    work: usize,
+    outputs: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProbeBudget {
+    work: usize,
+    outputs: usize,
+}
+
+impl ProbeBudget {
+    fn new() -> Self {
+        Self {
+            work: 0,
+            outputs: 0,
+        }
+    }
+
+    fn work(&mut self) -> Result<(), ProbeBudgetReached> {
+        if self.work >= RELATION_PROBE_WORK_CAP {
+            return Err(ProbeBudgetReached {
+                reason_id: "probe-work-budget",
+                work: self.work,
+                outputs: self.outputs,
+            });
+        }
+        self.work += 1;
+        Ok(())
+    }
+
+    fn output(&mut self) -> Result<(), ProbeBudgetReached> {
+        if self.outputs >= RELATION_PROBE_OUTPUT_CAP {
+            return Err(ProbeBudgetReached {
+                reason_id: "probe-output-budget",
+                work: self.work,
+                outputs: self.outputs,
+            });
+        }
+        self.outputs += 1;
+        Ok(())
+    }
 }
 
 impl RelationRecipe {
@@ -510,6 +581,12 @@ impl CompiledMorphologyRelation {
             .map_or(0, |recipe| recipe.fired.load(Ordering::Relaxed))
     }
 
+    /// Probe the semantic relation without constructing a Foma network.
+    ///
+    /// This method uses a closed, nonconfigurable 10,000-work/10,000-output probe budget;
+    /// callers cannot supply raw limits. If that budget is reached, `ResourceRejected` reports
+    /// the observed counters and no partial output or recipe fire is returned. A resource
+    /// refusal has `consumed_markers: 0` because recipe application did not commit.
     pub fn apply(&self, input: &str) -> MorphologyRelationResult {
         let mut marker_symbols = Vec::new();
         for ch in input.chars() {
@@ -551,13 +628,23 @@ impl CompiledMorphologyRelation {
                     .chars()
                     .filter(|ch| *ch != *symbol)
                     .collect::<String>();
-                let outputs = apply_recipe(recipe, &base);
-                if outputs.is_empty() {
-                    return MorphologyRelationResult::Rejected {
-                        reason_id: "recipe-input-mismatch",
-                        consumed_markers: 0,
-                    };
-                }
+                let outputs = match apply_recipe(recipe, &base) {
+                    Ok(outputs) if !outputs.is_empty() => outputs,
+                    Ok(_) => {
+                        return MorphologyRelationResult::Rejected {
+                            reason_id: "recipe-input-mismatch",
+                            consumed_markers: 0,
+                        };
+                    }
+                    Err(reached) => {
+                        return MorphologyRelationResult::ResourceRejected {
+                            reason_id: reached.reason_id,
+                            consumed_markers: 0,
+                            work: reached.work,
+                            outputs: reached.outputs,
+                        };
+                    }
+                };
                 recipe.fired.fetch_add(1, Ordering::Relaxed);
                 MorphologyRelationResult::Recipe {
                     allomorph: recipe.binding.key.allomorph,
@@ -586,100 +673,152 @@ impl CompiledMorphologyRelation {
     }
 }
 
-fn apply_recipe(recipe: &RelationRecipe, input: &str) -> BTreeSet<String> {
+fn apply_recipe(
+    recipe: &RelationRecipe,
+    input: &str,
+) -> Result<BTreeSet<String>, ProbeBudgetReached> {
     let mut outputs = BTreeSet::new();
+    let mut budget = ProbeBudget::new();
     let member_sets = &recipe.recipe.translated_input_members;
-    let segmentations = enumerate_input_segmentations(input, member_sets);
     match recipe.shape_id {
         "AdjacentTerminalDrop" => {
-            for tokens in &segmentations {
-                if tokens.len() < 2 || !matches_member(&tokens[tokens.len() - 1], &member_sets[1]) {
+            let Some(final_members) = member_sets.get(1) else {
+                return Ok(outputs);
+            };
+            for member in final_members {
+                if member.is_empty() || !input.ends_with(member) || input.len() == member.len() {
                     continue;
                 }
-                let prefix = join_tokens(&tokens[..tokens.len() - 1]);
+                budget.work()?;
+                let prefix = &input[..input.len() - member.len()];
                 for literal in recipe.recipe.literal_runs.first().into_iter().flatten() {
-                    outputs.insert(format!("{prefix}{literal}"));
+                    insert_probe_output(&mut outputs, format!("{prefix}{literal}"), &mut budget)?;
                 }
             }
         }
         "AdjacentInitialDrop" => {
-            for tokens in &segmentations {
-                if tokens.len() >= 2 && matches_member(&tokens[0], &member_sets[0]) {
-                    outputs.insert(join_tokens(&tokens[1..]));
+            let Some(initial_members) = member_sets.first() else {
+                return Ok(outputs);
+            };
+            for member in initial_members {
+                if member.is_empty() || !input.starts_with(member) || input.len() == member.len() {
+                    continue;
                 }
+                budget.work()?;
+                insert_probe_output(&mut outputs, input[member.len()..].to_owned(), &mut budget)?;
             }
         }
         "AmharicInitialVowelReplacement" => {
-            for tokens in &segmentations {
-                if tokens.len() < 2 || !matches_member(&tokens[0], &member_sets[0]) {
+            let Some(initial_members) = member_sets.first() else {
+                return Ok(outputs);
+            };
+            for member in initial_members {
+                if member.is_empty() || !input.starts_with(member) || input.len() == member.len() {
                     continue;
                 }
-                let remainder = join_tokens(&tokens[1..]);
+                budget.work()?;
+                let remainder = &input[member.len()..];
                 for literal in recipe.recipe.literal_runs.first().into_iter().flatten() {
-                    outputs.insert(format!("{literal}{remainder}"));
+                    insert_probe_output(
+                        &mut outputs,
+                        format!("{literal}{remainder}"),
+                        &mut budget,
+                    )?;
                 }
             }
         }
         "AmharicTerminalModify" => {
             let Some(final_members) = member_sets.last() else {
-                return outputs;
+                return Ok(outputs);
             };
-            for tokens in &segmentations {
-                for position in 0..tokens.len() {
-                    if !matches_member(&tokens[position], final_members) {
+            for (start, _) in input.char_indices() {
+                for member in final_members {
+                    if member.is_empty() || !input[start..].starts_with(member) {
                         continue;
                     }
-                    let prefix = join_tokens(&tokens[..position]);
-                    let suffix = join_tokens(&tokens[position + 1..]);
+                    budget.work()?;
+                    let end = start + member.len();
+                    let prefix = &input[..start];
+                    let suffix = &input[end..];
                     for replacement in &recipe.recipe.output_segments {
-                        outputs.insert(format!("{prefix}{replacement}{suffix}"));
+                        insert_probe_output(
+                            &mut outputs,
+                            format!("{prefix}{replacement}{suffix}"),
+                            &mut budget,
+                        )?;
                     }
                 }
             }
         }
         "AmharicInteriorInsertion" => {
             let refs = recipe.recipe.refs.len();
-            for tokens in &segmentations {
-                for parts in nonempty_partitions(tokens, refs) {
-                    let mut variants = vec![String::new()];
-                    for (position, part) in parts.iter().enumerate() {
-                        for variant in &mut variants {
-                            variant.push_str(&join_tokens(part));
-                        }
-                        if let Some(run) = recipe.recipe.literal_runs.get(position) {
-                            if !run.is_empty() {
-                                let mut next = Vec::new();
-                                for variant in &variants {
-                                    for literal in run {
-                                        next.push(format!("{variant}{literal}"));
+            visit_segmentations(input, member_sets, &mut budget, &mut |tokens, budget| {
+                visit_partitions(
+                    tokens,
+                    refs,
+                    budget,
+                    &mut Vec::new(),
+                    &mut |parts, budget| {
+                        let mut variants = vec![String::new()];
+                        for (position, part) in parts.iter().enumerate() {
+                            let joined = join_tokens(part);
+                            for variant in &mut variants {
+                                variant.push_str(&joined);
+                            }
+                            if let Some(run) = recipe.recipe.literal_runs.get(position) {
+                                if !run.is_empty() {
+                                    let mut next = Vec::new();
+                                    for variant in &variants {
+                                        for literal in run {
+                                            budget.work()?;
+                                            next.push(format!("{variant}{literal}"));
+                                        }
                                     }
+                                    variants = next;
                                 }
-                                variants = next;
                             }
                         }
-                    }
-                    outputs.extend(variants);
-                }
-            }
+                        for variant in variants {
+                            insert_probe_output(&mut outputs, variant, budget)?;
+                        }
+                        Ok(())
+                    },
+                )
+            })?;
         }
         _ => {}
     }
-    outputs
+    Ok(outputs)
 }
 
-fn matches_member(token: &str, members: &[String]) -> bool {
-    members.iter().any(|member| member == token)
+fn insert_probe_output(
+    outputs: &mut BTreeSet<String>,
+    output: String,
+    budget: &mut ProbeBudget,
+) -> Result<(), ProbeBudgetReached> {
+    budget.output()?;
+    outputs.insert(output);
+    Ok(())
 }
 
 fn join_tokens(tokens: &[String]) -> String {
     tokens.concat()
 }
 
-/// Enumerate every admitted active-table tokenization, retaining a scalar fallback for portions
+/// Stream every admitted active-table tokenization, retaining a scalar fallback for portions
 /// that are not represented by any translated member. The fallback is deliberately additive:
 /// when a multi-codepoint member and its scalar prefixes are both valid, both tokenizations are
-/// retained so a longer member is never lost to greedy matching.
-fn enumerate_input_segmentations(input: &str, member_sets: &[Vec<String>]) -> Vec<Vec<String>> {
+/// retained so a longer member is never lost to greedy matching. The closed probe budget is
+/// charged before each state, so refusal never returns a partial output set.
+fn visit_segmentations<F>(
+    input: &str,
+    member_sets: &[Vec<String>],
+    budget: &mut ProbeBudget,
+    callback: &mut F,
+) -> Result<(), ProbeBudgetReached>
+where
+    F: FnMut(&[String], &mut ProbeBudget) -> Result<(), ProbeBudgetReached>,
+{
     let mut all_members = member_sets
         .iter()
         .flat_map(|members| members.iter())
@@ -689,66 +828,91 @@ fn enumerate_input_segmentations(input: &str, member_sets: &[Vec<String>]) -> Ve
     all_members.sort();
     all_members.dedup();
 
-    fn visit(
+    fn visit<F>(
         input: &str,
         offset: usize,
         members: &[String],
         current: &mut Vec<String>,
-        output: &mut Vec<Vec<String>>,
-    ) {
+        budget: &mut ProbeBudget,
+        callback: &mut F,
+    ) -> Result<(), ProbeBudgetReached>
+    where
+        F: FnMut(&[String], &mut ProbeBudget) -> Result<(), ProbeBudgetReached>,
+    {
+        budget.work()?;
         if offset == input.len() {
-            output.push(current.clone());
-            return;
+            return callback(current, budget);
         }
         for member in members {
             if input[offset..].starts_with(member) {
                 current.push(member.clone());
-                visit(input, offset + member.len(), members, current, output);
+                visit(
+                    input,
+                    offset + member.len(),
+                    members,
+                    current,
+                    budget,
+                    callback,
+                )?;
                 current.pop();
             }
         }
         if let Some(ch) = input[offset..].chars().next() {
             let end = offset + ch.len_utf8();
-            current.push(input[offset..end].to_owned());
-            visit(input, end, members, current, output);
-            current.pop();
+            let scalar = &input[offset..end];
+            if !members.iter().any(|member| member == scalar) {
+                current.push(scalar.to_owned());
+                visit(input, end, members, current, budget, callback)?;
+                current.pop();
+            }
         }
+        Ok(())
     }
 
-    let mut output = Vec::new();
-    visit(input, 0, &all_members, &mut Vec::new(), &mut output);
-    output.sort();
-    output.dedup();
-    output
+    visit(input, 0, &all_members, &mut Vec::new(), budget, callback)
 }
 
-fn nonempty_partitions(tokens: &[String], parts: usize) -> Vec<Vec<Vec<String>>> {
+fn visit_partitions<F>(
+    tokens: &[String],
+    parts: usize,
+    budget: &mut ProbeBudget,
+    current: &mut Vec<Vec<String>>,
+    callback: &mut F,
+) -> Result<(), ProbeBudgetReached>
+where
+    F: FnMut(&[Vec<String>], &mut ProbeBudget) -> Result<(), ProbeBudgetReached>,
+{
     if parts == 0 || tokens.len() < parts {
-        return Vec::new();
+        return Ok(());
     }
-    fn visit(
+    fn visit<F>(
         tokens: &[String],
         parts_left: usize,
         offset: usize,
         current: &mut Vec<Vec<String>>,
-        output: &mut Vec<Vec<Vec<String>>>,
-    ) {
+        budget: &mut ProbeBudget,
+        callback: &mut F,
+    ) -> Result<(), ProbeBudgetReached>
+    where
+        F: FnMut(&[Vec<String>], &mut ProbeBudget) -> Result<(), ProbeBudgetReached>,
+    {
+        budget.work()?;
         if parts_left == 1 {
             current.push(tokens[offset..].to_vec());
-            output.push(current.clone());
+            callback(current, budget)?;
             current.pop();
-            return;
+            return Ok(());
         }
         let max_end = tokens.len() - (parts_left - 1);
         for end in (offset + 1)..=max_end {
             current.push(tokens[offset..end].to_vec());
-            visit(tokens, parts_left - 1, end, current, output);
+            visit(tokens, parts_left - 1, end, current, budget, callback)?;
             current.pop();
         }
+        Ok(())
     }
-    let mut output = Vec::new();
-    visit(tokens, parts, 0, &mut Vec::new(), &mut output);
-    output
+
+    visit(tokens, parts, 0, current, budget, callback)
 }
 
 pub struct MorphologyRewriteClassifier;
@@ -2179,6 +2343,61 @@ mod relation_tests {
     }
 
     #[test]
+    fn marker_namespace_boundaries_are_closed_and_overflow_is_typed() {
+        let first_a = marker_binding_for(
+            MarkerKey {
+                allomorph: AllomorphId(0),
+                zone: MarkerZone::Prefix,
+            },
+            ZoneRequirement::Caller,
+        )
+        .unwrap();
+        let last_a = marker_binding_for(
+            MarkerKey {
+                allomorph: AllomorphId(0x7FFE),
+                zone: MarkerZone::Suffix,
+            },
+            ZoneRequirement::Caller,
+        )
+        .unwrap();
+        let first_b = marker_binding_for(
+            MarkerKey {
+                allomorph: AllomorphId(0x7FFF),
+                zone: MarkerZone::Prefix,
+            },
+            ZoneRequirement::Caller,
+        )
+        .unwrap();
+        let last_b = marker_binding_for(
+            MarkerKey {
+                allomorph: AllomorphId(0xFFFD),
+                zone: MarkerZone::Suffix,
+            },
+            ZoneRequirement::Caller,
+        )
+        .unwrap();
+
+        assert_eq!(first_a.symbol as u32, 0xF0000);
+        assert_eq!(last_a.symbol as u32, 0xFFFFD);
+        assert_eq!(first_b.symbol as u32, 0x100000);
+        assert_eq!(last_b.symbol as u32, 0x10FFFD);
+        assert!(!is_technical_marker(char::from_u32(0xFFFFE).unwrap()));
+        assert!(!is_technical_marker(char::from_u32(0xFFFFF).unwrap()));
+        assert!(!is_technical_marker(char::from_u32(0x10FFFE).unwrap()));
+        assert!(!is_technical_marker(char::from_u32(0x10FFFF).unwrap()));
+        assert!(matches!(
+            marker_binding_for(
+                MarkerKey {
+                    allomorph: AllomorphId(0xFFFE),
+                    zone: MarkerZone::Prefix,
+                },
+                ZoneRequirement::Caller,
+            ),
+            Err(MarkerBindingError::InvalidScalar)
+        ));
+    }
+
+    #[test]
     fn probe_shapes_preserve_arbitrary_multi_segment_sequences() {
         let cases = [
             (
@@ -2358,6 +2577,85 @@ mod relation_tests {
             other => panic!("expected recipe result, got {other:?}"),
         };
         assert!(outputs.contains("axbycd"));
+    }
+
+    #[test]
+    fn overlapping_interior_probe_rejects_before_unbounded_enumeration() {
+        let relation = CompiledMorphologyRelation::from_classified([marked(
+            17,
+            "AmharicInteriorInsertion",
+            vec![vec!["a", "aa"], vec!["a", "aa"], vec!["a", "aa"]],
+            vec![vec!["x"], vec!["y"]],
+            vec![],
+            MarkerZone::Suffix,
+        )])
+        .unwrap();
+        let input = relation
+            .marked_input(AllomorphId(17), &"a".repeat(64))
+            .unwrap();
+        assert!(matches!(
+            relation.apply(&input),
+            MorphologyRelationResult::ResourceRejected {
+                reason_id: "probe-work-budget",
+                consumed_markers: 0,
+                work,
+                ..
+            } if work > 0
+        ));
+        assert_eq!(
+            relation.fired_recipe_count_for(AllomorphId(17), MarkerZone::Suffix),
+            0
+        );
+    }
+
+    #[test]
+    fn output_budget_rejects_unique_direct_outputs_without_partial_fire() {
+        let (
+            MorphologyRewrite::MarkedStructural {
+                shape_id,
+                mut recipe,
+                zone_requirement,
+                provenance,
+            },
+            zone,
+        ) = marked(
+            18,
+            "AmharicTerminalModify",
+            vec![vec!["a"], vec!["a"]],
+            vec![],
+            vec!["placeholder"],
+            MarkerZone::Suffix,
+        )
+        else {
+            unreachable!();
+        };
+        recipe.output_segments = (0..=RELATION_PROBE_OUTPUT_CAP)
+            .map(|index| format!("output-{index}"))
+            .collect();
+        let relation = CompiledMorphologyRelation::from_classified([(
+            MorphologyRewrite::MarkedStructural {
+                shape_id,
+                recipe,
+                zone_requirement,
+                provenance,
+            },
+            zone,
+        )])
+        .unwrap();
+        let input = relation.marked_input(AllomorphId(18), "a").unwrap();
+        assert!(matches!(
+            relation.apply(&input),
+            MorphologyRelationResult::ResourceRejected {
+                reason_id: "probe-output-budget",
+                consumed_markers: 0,
+                work,
+                outputs,
+            } if work < RELATION_PROBE_WORK_CAP && outputs == RELATION_PROBE_OUTPUT_CAP
+        ));
+        assert_eq!(
+            relation.fired_recipe_count_for(AllomorphId(18), MarkerZone::Suffix),
+            0
+        );
     }
 
     #[test]
