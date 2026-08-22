@@ -78,6 +78,14 @@ pub mod backend_registry;
 /// Schema-versioned machine and human views over backend-optimization runs.
 pub mod backend_report;
 pub mod backend_runtime;
+/// Static, machine-independent capability cards for the executable backends.
+mod backend_cards_data;
+pub mod backend_cards {
+    pub use super::backend_cards_data::{
+        catalog, checked_in_relative_path, render_markdown, BackendCard, BigO, Envelope,
+        EnvelopeControl, CARD_SCHEMA_VERSION,
+    };
+}
 /// The selector: `backend_selection::select_backends` turns
 /// `capability::StrategyEnvelope`'s per-backend compatibility reports into a choice — which
 /// backend(s) can compile a grammar, and the named construct each excluded one declined on. No
