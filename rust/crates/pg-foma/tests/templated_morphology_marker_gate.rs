@@ -1,8 +1,4 @@
-//! RED acceptance gate for the compiled templated morphology relation.
-//!
-//! Unlike a classifier-only test, this gate drives the real templated compiler and its finished
-//! proposer network.  The marker assertions therefore cover relation construction, composition,
-//! and cleanup together.  The fixture is one invented construct witness, not actual language data.
+//! Pins the compiled templated morphology relation with invented construct witnesses.
 
 use pg_foma::analyzer::apply_up_against;
 use pg_foma::structural_allomorph::{MarkerBinding, MarkerZone, MorphologyRelationResult};
@@ -120,8 +116,7 @@ fn assert_rejected(relation: &impl MorphologyRelationProbe, input: &str, reason:
     }
 }
 
-/// API-first seam trait: production implements this on the exact intermediate relation retained
-/// by `TemplatedCompileOutput`; the gate never rebuilds or approximates the relation separately.
+/// Probes the exact intermediate relation retained by the production compile.
 trait MorphologyRelationProbe {
     fn marker_binding_for(&self, allomorph: AllomorphId) -> Option<MarkerBinding>;
     fn marked_input(&self, allomorph: AllomorphId, base_tokens: &str) -> String;
@@ -218,8 +213,7 @@ fn compiled_marker_union_is_total_and_composed_before_phonology() {
         "A/B recipes need isolated unique markers"
     );
 
-    // This is the total union seam itself, before lexc/phonology/cleanup.  Marker-free input may
-    // use identity only; exactly one known marker selects its own recipe and consumes one marker.
+    // Probe the union before later stages can hide an unsafe identity branch.
     assert_identity(relation, "ab", &["ab"]);
     let marked_a = relation.marked_input(ids[1], "ab");
     let marked_b = relation.marked_input(ids[2], "ab");
@@ -232,8 +226,7 @@ fn compiled_marker_union_is_total_and_composed_before_phonology() {
     );
     let foreign = marked_a.replacen(binding_a.symbol, technical_marker(AllomorphId(0x7fff)), 1);
     assert_rejected(relation, &foreign, "foreign-marker");
-    // Ask the retained relation to place each marker in its production-owned zone.  Nesting the
-    // operation creates invalid multi-marker inputs without assuming either marker is appended.
+    // Nest production-owned placement to create invalid multi-marker inputs without assuming a zone.
     let multiple = relation.marked_input(ids[1], &marked_b);
     let duplicate = relation.marked_input(ids[1], &marked_a);
     assert_rejected(relation, &multiple, "multiple-markers");
@@ -254,8 +247,7 @@ fn compiled_marker_union_is_total_and_composed_before_phonology() {
         "direct whole-root wrapper must bypass structural markers"
     );
 
-    // Composition ordering: x is introduced by morphology and becomes z only in the declared
-    // phonological cascade.
+    // Morphology introduces x before phonology maps it to z.
     let realized = compiled.proposer.propose("az");
     assert!(
         !realized.is_empty(),
@@ -266,8 +258,7 @@ fn compiled_marker_union_is_total_and_composed_before_phonology() {
         "pre-phonology x must not be exposed as final surface"
     );
 
-    // The same finished network, rather than a helper relation or a separately rebuilt net, must
-    // carry no marker in either decoded proposals or raw apply_up output.
+    // The finalized network must not leak markers through decoded or raw outputs.
     for marker_id in ids {
         let Some(binding) = relation.marker_binding_for(marker_id) else {
             continue;
@@ -317,8 +308,7 @@ fn foreign_unknown_and_multiple_markers_fail_closed_without_identity_fallback() 
         1,
     );
 
-    // Unknown/foreign markers and duplicate markers are tested directly at M, before any
-    // lexc/alphabet/cleanup could accidentally hide an unsafe identity fallback.
+    // Probe invalid markers before later alphabet or cleanup stages can reject them for another reason.
     assert_rejected(relation, &foreign, "foreign-marker");
     assert_rejected(
         relation,
@@ -331,8 +321,7 @@ fn foreign_unknown_and_multiple_markers_fail_closed_without_identity_fallback() 
         "duplicate-marker",
     );
 
-    // Duplicate allocation is a construction error, not a second accepted recipe.  This mutation
-    // is intentionally after loading so it tests the compiled relation seam's allocation check.
+    // Duplicate allocation is a construction error, so mutate IDs only after loading.
     let mut malformed = load();
     if let MorphRuleDef::AffixProcess(rule) = &mut malformed.mrules[0] {
         let first_marked = rule.allomorphs[1].id;
@@ -371,8 +360,7 @@ fn marker_consumption_is_exactly_once_and_never_cross_fires_between_allomorphs()
         "each structural allomorph needs a unique marker"
     );
 
-    // Runtime observations carry the branch/shape identity, so an aggregate compile counter
-    // cannot hide a relation that fires the wrong recipe or cross-fires A/B.
+    // Branch-tagged observations prevent aggregate counters from hiding A/B cross-fire.
     assert_recipe(
         relation,
         &relation.marked_input(ids[1], "ab"),
@@ -392,8 +380,7 @@ fn marker_consumption_is_exactly_once_and_never_cross_fires_between_allomorphs()
     assert_eq!(compiled.profile.marker_leaks, 0);
 }
 
-// Keep model action vocabulary visible in this gate: the production implementation must inspect
-// the actual emitted Copy/Insert topology, not infer marker behavior from a role label.
+// Keep the model action vocabulary visible in this compile-time gate.
 #[allow(dead_code)]
 fn action_shape_is_not_a_role_label(
     action: OutputAction,
