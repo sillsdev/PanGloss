@@ -301,6 +301,7 @@ fn malformed_copy_references_are_stable_fail_closed_results_without_panics() {
     let cases = [
         (
             vec![OutputAction::Copy(PartRef::Input(99))],
+            "InvalidReferences",
             "invalid-input-reference",
         ),
         (
@@ -308,6 +309,7 @@ fn malformed_copy_references_are_stable_fail_closed_results_without_panics() {
                 OutputAction::Copy(PartRef::Input(0)),
                 OutputAction::Copy(PartRef::Input(0)),
             ],
+            "UnlistedTopology",
             "repeated-input-reference",
         ),
         (
@@ -316,23 +318,26 @@ fn malformed_copy_references_are_stable_fail_closed_results_without_panics() {
                 OutputAction::Copy(PartRef::Input(1)),
                 OutputAction::Copy(PartRef::Input(0)),
             ],
+            "UnlistedTopology",
             "reordered-input-reference",
         ),
         (
             vec![OutputAction::Copy(PartRef::Head(0))],
+            "InvalidReferences",
             "invalid-part-reference-kind",
         ),
         (
             vec![OutputAction::Copy(PartRef::NonHead(0))],
+            "InvalidReferences",
             "invalid-part-reference-kind",
         ),
     ];
 
-    for (rhs, reason) in cases {
+    for (rhs, shape_id, reason) in cases {
         if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
             rule.allomorphs[3].rhs = rhs;
         }
-        assert_unsupported(&g, 3, "InvalidReferences", reason);
+        assert_unsupported(&g, 3, shape_id, reason);
     }
     if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
         rule.allomorphs[3].rhs = original;

@@ -475,12 +475,12 @@ fn templated_selector_refuses_each_known_unsupported_shape_with_per_allomorph_di
     }
 }
 
-/// Dynamic refusals do not widen static unrepresentable kinds.
+/// Process morphology is predicate-backed: the closed classifier decides each shape.
 #[test]
-fn templated_static_unrepresentable_kinds_remains_process_morphology_only() {
-    assert_eq!(
-        unrepresentable_kinds(EmissionStrategy::TemplatedUnderlyingTokens),
-        vec![CharacteristicKind::ProcessMorphology]
+fn templated_has_no_unconditional_process_morphology_hole() {
+    assert!(
+        unrepresentable_kinds(EmissionStrategy::TemplatedUnderlyingTokens).is_empty(),
+        "listed process recipes are confirm-only; unsupported shapes refuse through the classifier"
     );
 }
 
