@@ -2572,6 +2572,49 @@ mod relation_tests {
         assert!(is_technical_marker(char::from_u32(0x10FFFE).unwrap()));
         assert!(is_technical_marker(char::from_u32(0x10FFFF).unwrap()));
 
+        for (id, expected_prefix, expected_suffix) in [
+            (0_u32, 0xF0000_u32, 0xF0001_u32),
+            (1, 0xF0002, 0xF0003),
+            (0x7FFE, 0xFFFFC, 0xFFFFD),
+            (0x7FFF, 0x100000, 0x100001),
+            (0xFFFD, 0x10FFFC, 0x10FFFD),
+        ] {
+            assert_eq!(
+                marker_binding_for(
+                    MarkerKey {
+                        allomorph: AllomorphId(id),
+                        zone: MarkerZone::Prefix,
+                    },
+                    ZoneRequirement::Caller,
+                )
+                .unwrap()
+                .symbol as u32,
+                expected_prefix
+            );
+            assert_eq!(
+                marker_binding_for(
+                    MarkerKey {
+                        allomorph: AllomorphId(id),
+                        zone: MarkerZone::Suffix,
+                    },
+                    ZoneRequirement::Caller,
+                )
+                .unwrap()
+                .symbol as u32,
+                expected_suffix
+            );
+        }
+        assert_eq!(
+            marker_binding_for(
+                MarkerKey {
+                    allomorph: AllomorphId(0x10000),
+                    zone: MarkerZone::Prefix,
+                },
+                ZoneRequirement::Caller,
+            ),
+            Err(MarkerBindingError::InvalidScalar)
+        );
+
         let mut symbols = HashSet::new();
         for id in 0..=u16::MAX {
             for zone in [MarkerZone::Prefix, MarkerZone::Suffix] {
@@ -2621,16 +2664,26 @@ mod relation_tests {
                 );
 
                 let rewrite_input = match zone {
-                    MarkerZone::Prefix => format!("{marker} a -> b"),
-                    MarkerZone::Suffix => format!("a {marker} -> b"),
+                    MarkerZone::Prefix => format!("{marker} a -> {marker} b"),
+                    MarkerZone::Suffix => format!("a {marker} -> b {marker}"),
                 };
                 let rewrite = fsm_parse_regex(&opts, &rewrite_input, None, None)
                     .expect("both-side terminal marker rewrite must parse");
-                let composed = fsm_compose(&opts, rewrite, delete);
                 let input = match zone {
                     MarkerZone::Prefix => format!("{marker}a"),
                     MarkerZone::Suffix => format!("a{marker}"),
                 };
+                let direct_output = match zone {
+                    MarkerZone::Prefix => format!("{marker}b"),
+                    MarkerZone::Suffix => format!("b{marker}"),
+                };
+                let mut direct_handle = apply_init(&rewrite);
+                assert_eq!(
+                    apply_down(&mut direct_handle, Some(&input)),
+                    Some(direct_output),
+                    "direct rewrite must preserve terminal marker {id:#X}/{zone:?}"
+                );
+                let composed = fsm_compose(&opts, rewrite, delete);
                 let mut composed_handle = apply_init(&composed);
                 assert_eq!(
                     apply_down(&mut composed_handle, Some(&input)),
