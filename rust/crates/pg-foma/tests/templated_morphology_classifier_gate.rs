@@ -449,3 +449,25 @@ fn bounded_drop_atoms_are_resolved_in_the_owning_source_table() {
         "source-table char-def 8 is absent even though active-table char-def 8 exists"
     );
 }
+
+#[test]
+fn replacement_and_modify_atoms_exist_in_the_owning_source_table() {
+    let mut g = load();
+    if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+        rule.allomorphs[5].lhs[1].nodes[0] = PatternNode::CharDef(CharDefId(8));
+        rule.allomorphs[6].lhs[0].nodes[0] = PatternNode::CharDef(CharDefId(8));
+    }
+
+    for index in [5, 6] {
+        let result = MorphologyRewriteClassifier::classify_with_tables(
+            &g,
+            allomorph(&g, index),
+            TableId(1),
+            TableId(0),
+        );
+        assert!(
+            matches!(result, MorphologyRewrite::Unsupported { .. }),
+            "allomorph {index} cannot use source-table char-def 8 because only the active table contains it"
+        );
+    }
+}

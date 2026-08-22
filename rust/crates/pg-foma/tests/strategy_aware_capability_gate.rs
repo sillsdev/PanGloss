@@ -27,6 +27,29 @@ use pg_grammar::model::{Grammar, MorphRuleDef};
 
 const TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE: &str = "strategy-coverage.templated-unsupported-shape";
 
+const CROSS_TABLE_UNTRANSLATABLE_XML: &str = r#"<HermitCrabInput><Language><Name>cross-table-untranslatable</Name>
+  <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+  <CharacterDefinitionTable id="source"><Name>Source</Name><SegmentDefinitions>
+    <SegmentDefinition id="sa"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="sb"><Representations><Representation>!</Representation></Representations></SegmentDefinition>
+  </SegmentDefinitions></CharacterDefinitionTable>
+  <CharacterDefinitionTable id="active"><Name>Active</Name><SegmentDefinitions>
+    <SegmentDefinition id="aa"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+  </SegmentDefinitions></CharacterDefinitionTable>
+  <NaturalClasses><SegmentNaturalClass id="ncSource"><Name>Source A</Name><Segment segment="sa"/></SegmentNaturalClass></NaturalClasses>
+  <Strata>
+    <Stratum characterDefinitionTable="source" morphologicalRules="mr"><Name>source</Name>
+      <MorphologicalRuleDefinitions><MorphologicalRule id="mr" requiredPartsOfSpeech="p" outputPartOfSpeech="p"><Name>bad output</Name>
+        <MorphologicalSubrules><MorphologicalSubrule id="sub"><MorphologicalInput><PhoneticSequence id="stem"><SimpleContext naturalClass="ncSource"/></PhoneticSequence></MorphologicalInput>
+          <MorphologicalOutput><InsertSegments><PhoneticShape>!</PhoneticShape></InsertSegments></MorphologicalOutput>
+        </MorphologicalSubrule></MorphologicalSubrules><MorphemeId>BAD</MorphemeId>
+      </MorphologicalRule></MorphologicalRuleDefinitions>
+      <LexicalEntries><LexicalEntry id="e" partOfSpeech="p"><Allomorphs><Allomorph id="ea"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries>
+    </Stratum>
+    <Stratum characterDefinitionTable="active"><Name>active</Name></Stratum>
+  </Strata>
+</Language></HermitCrabInput>"#;
+
 fn conformance_fixture(root: Root, category: &str, name: &str) -> FixtureRef {
     discover_scoped(ConformanceScope::All)
         .into_iter()
@@ -482,6 +505,20 @@ fn templated_has_no_unconditional_process_morphology_hole() {
         unrepresentable_kinds(EmissionStrategy::TemplatedUnderlyingTokens).is_empty(),
         "listed process recipes are confirm-only; unsupported shapes refuse through the classifier"
     );
+}
+
+#[test]
+fn templated_capability_translates_from_owner_to_final_active_table() {
+    let grammar = load(CROSS_TABLE_UNTRANSLATABLE_XML);
+    let selection = select_backends_for_grammar(&grammar);
+    let templated = selection
+        .report_for(EmissionStrategy::TemplatedUnderlyingTokens)
+        .expect("templated backend must be reported");
+    assert!(!templated.is_selected());
+    assert!(templated.declined_on().iter().any(|diagnostic| {
+        diagnostic.predicate == TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE
+            && diagnostic.witness.contains("untranslatable-output-table")
+    }));
 }
 
 /// Refuses unordered loose-rule and self-opaquing epenthesis shapes for Templated.
