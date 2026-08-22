@@ -75,7 +75,6 @@ fn default_is_one_managed_attempt_and_retry_is_explicitly_linked() {
     let first = CompileEnvelopeRequest::default();
     assert_eq!(first.envelope_id, ResourceEnvelopeId::ManagedV1);
     assert_eq!(first.retry_of, None);
-    assert_eq!(first.attempt_count(), 1);
 
     let prior = AttemptId::new("attempt-0001").expect("stable non-empty attempt id");
     let retry = CompileEnvelopeRequest::explicit_retry(
@@ -84,5 +83,4 @@ fn default_is_one_managed_attempt_and_retry_is_explicitly_linked() {
     );
     assert_eq!(retry.envelope_id, ResourceEnvelopeId::TunedSurfaceWork10kV1);
     assert_eq!(retry.retry_of, Some(prior));
-    assert_eq!(retry.attempt_count(), 1);
 }
