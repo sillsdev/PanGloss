@@ -759,6 +759,7 @@ mod budget_tests {
                 limit: 100,
             }),
             closure_refusal: None,
+            closure_evidence: None,
         };
         let error = FomaError::EnumerationBudgetExceeded {
             measure: "synthetic composite work",
