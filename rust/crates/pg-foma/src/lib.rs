@@ -109,6 +109,16 @@ pub mod capability;
 /// verdict a real compile is licensed by; see that module's own doc for the distinction and
 /// `backend_selection` for the entry point that decides.
 pub mod capability_entry;
+/// The
+/// cheap, pre-compile health pass -- `characterization::characterization_findings` turns
+/// `capability::characterize`'s already-computed `capability::CharacteristicsProfile` and
+/// `capability_entry::best_case_across_backends`'s already-resolved, advisory-only
+/// `capability::CompileDecision` into `health::HealthFinding`s BEFORE any foma compile is
+/// attempted -- semantic uncertainty
+/// (`Refuse`), cost uncertainty (`ConfirmOnly`/unbounded quantifiers), and bounded-product findings
+/// (`Unordered`-stratum rule counts, a grammar-wide mrule x prule product). See that module's own
+/// doc for the full design and judgment calls.
+pub mod characterization;
 /// Composition-path budget guards:
 /// `morphotactics::EnumerationBudget`'s sibling for the composition path (`replace`,
 /// `gate`, `uflexc`) -- size/count caps plus an opt-in wall-clock deadline for every
@@ -163,7 +173,7 @@ pub mod faithfulness_coverage;
 pub mod gate;
 /// [`grammar_semantics::
 /// GrammarSemantics`], the ONE immutable typed owner of this crate's grammar-derived semantic
-/// facts. Capability (`capability`/`capability_entry`/`preflight`/`selection`), registry
+/// facts. Capability (`capability`/`capability_entry`/`characterization`/`selection`), registry
 /// applicability (`backend_registry::Applicability`), backend-space accounting
 /// (`backend_space::GrammarFacts`) and the phonology existence gate (`junctions::PhonologyProbe`)
 /// are projections over it rather than four independent grammar walks. See that module's own
@@ -256,16 +266,6 @@ pub mod plan_diagram;
 pub mod plan_interaction_coverage;
 pub mod precision;
 pub(crate) mod preexpand;
-/// The
-/// cheap, pre-compile health pass -- `preflight::preflight_findings` turns
-/// `capability::characterize`'s already-computed `capability::CharacteristicsProfile` and
-/// `capability_entry::best_case_across_backends`'s already-resolved, advisory-only
-/// `capability::CompileDecision` into `health::HealthFinding`s BEFORE any foma compile is
-/// attempted -- semantic uncertainty
-/// (`Refuse`), cost uncertainty (`ConfirmOnly`/unbounded quantifiers), and bounded-product findings
-/// (`Unordered`-stratum rule counts, a grammar-wide mrule x prule product). See that module's own
-/// doc for the full design and judgment calls.
-pub mod preflight;
 /// The compile-time
 /// **profile** type -- `profile::CompileProfile`/`profile::CompileStage`/[`profile::
 /// GroupLineCount`]/`profile::ProfileLabel` -- collected from the PRODUCTION

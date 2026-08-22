@@ -63,6 +63,7 @@ fn main() {
                 measure,
                 value,
                 limit,
+                ..
             }) => {
                 let product = entries * rules;
                 println!(

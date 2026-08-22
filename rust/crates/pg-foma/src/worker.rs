@@ -110,7 +110,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::analyzer::FomaError;
-use crate::compose_budget::{ComposeBudget, ComposeError};
+use crate::compose_budget::ComposeBudget;
 use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
@@ -342,12 +342,13 @@ pub enum CompileWorkerOutcome {
         uncovered_count: usize,
         health: HealthReport,
     },
-    /// A deterministic `ComposeBudget`/enumeration budget tripped before or during compilation; `detail` is the originating error's `Display` text, and `health` is empty for `FomaError::EnumerationBudgetExceeded` since that variant does not expose its `EmitReport`.
+    /// A deterministic `ComposeBudget`/enumeration budget tripped before or during compilation;
+    /// `detail` is the originating error's `Display` text and `health` retains its findings.
     BudgetTripped {
         detail: String,
         health: HealthReport,
     },
-    /// The emitted lexc source itself failed to compile (`crate::analyzer::FomaError::LexcCompileFailed`) -- a grammar-content/emitter gap, not a resource budget.
+    /// Emission was unsupported/incomplete, or its lexc source failed to compile; never a usable artifact.
     CompileFailed {
         detail: String,
         health: HealthReport,
@@ -407,22 +408,27 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
     let (result, profile) = match compiled {
         Ok(pair) => pair,
         Err(_) => {
+            let detail = "the compile call panicked inside the worker process (caught here by \
+                catch_unwind; this does not protect against stack overflow or allocator OOM, \
+                which abort the process outright -- the supervisor's wall-timeout/exit-status \
+                checks are what catch those, reported as WorkerOutcome::ChildCrashed)"
+                .to_string();
             return CompileWorkerOutcome::CompileFailed {
-                detail: "the compile call panicked inside the worker process (caught here by \
-                    catch_unwind; this does not protect against stack overflow or allocator OOM, \
-                    which abort the process outright -- the supervisor's wall-timeout/exit-status \
-                    checks are what catch those, reported as WorkerOutcome::ChildCrashed)"
-                    .to_string(),
-                health: HealthReport::new(Vec::new()),
+                health: build_process_failure_health(detail.clone()),
+                detail,
             };
         }
     };
 
     match result {
         Ok(proposer) => {
+            let report = proposer
+                .report
+                .as_ref()
+                .expect("FomaProposer::new always runs the tuned emitter and supplies its report");
             let health = crate::health_evaluator::evaluate_health(
                 None,
-                Some(&proposer.report),
+                Some(report),
                 &[],
                 &[],
                 Some(&profile),
@@ -430,46 +436,30 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
             CompileWorkerOutcome::Success {
                 final_state_count: profile.final_state_count,
                 final_arc_count: profile.final_arc_count,
-                uncovered_count: proposer.report.uncovered.len(),
+                uncovered_count: report.uncovered.len(),
                 health,
             }
         }
-        Err(FomaError::UnorderedOrderingMultiplicityExceeded { rule_count, limit }) => {
-            let compose_error = ComposeError::OrderingMultiplicityExceeded {
-                rule_count,
-                limit,
-                site: "worker-child compile (unordered-stratum cardinality gate)",
-            };
-            let health = crate::health_evaluator::evaluate_health(
-                None,
-                None,
-                std::slice::from_ref(&compose_error),
-                &[],
-                Some(&profile),
-            );
+        Err(err @ FomaError::UnorderedOrderingMultiplicityExceeded { .. }) => {
+            let health = crate::health_evaluator::evaluate_foma_error(&err, Some(&profile));
             CompileWorkerOutcome::BudgetTripped {
-                detail: compose_error.to_string(),
+                detail: err.to_string(),
                 health,
             }
         }
         Err(err @ FomaError::EnumerationBudgetExceeded { .. }) => {
-            // `FomaError::EnumerationBudgetExceeded` does not expose its `EmitReport`, so no real `HealthReport` can be built here without recomputing the compile; `detail` still carries the full message.
+            let health = crate::health_evaluator::evaluate_foma_error(&err, Some(&profile));
             CompileWorkerOutcome::BudgetTripped {
                 detail: err.to_string(),
-                health: HealthReport::new(Vec::new()),
+                health,
             }
         }
-        Err(err @ FomaError::LexcCompileFailed(_)) => {
-            let health = match &err {
-                FomaError::LexcCompileFailed(report) => crate::health_evaluator::evaluate_health(
-                    None,
-                    Some(report),
-                    &[],
-                    &[],
-                    Some(&profile),
-                ),
-                _ => unreachable!(),
-            };
+        Err(
+            err @ (FomaError::LexcCompileFailed(_)
+            | FomaError::Unsupported(_)
+            | FomaError::Incomplete(_)),
+        ) => {
+            let health = crate::health_evaluator::evaluate_foma_error(&err, Some(&profile));
             CompileWorkerOutcome::CompileFailed {
                 detail: err.to_string(),
                 health,
@@ -644,7 +634,7 @@ impl WorkerOutcome {
     /// throughout.
     ///
     /// **Judgment call** (flagged, mirroring this crate's own "Judgment calls" convention in
-    /// `health_evaluator.rs`): `FindingCode`'s ten registered codes are all compile/apply-work-
+    /// `health_evaluator.rs`): `FindingCode`'s registered codes are compile/apply/build-work-
     /// shaped; none names "the parent's own wall-clock kill" or "a flooded output pipe" specifically.
     /// `FindingCode::ResourceBudgetReached` is the closest existing code -- every one of these
     /// outcomes IS a compilation attempt reaching an enforced boundary and stopping, exactly what
@@ -658,10 +648,17 @@ impl WorkerOutcome {
         match self {
             WorkerOutcome::Completed(outcome) => match outcome {
                 CompileWorkerOutcome::Success { health, .. }
-                | CompileWorkerOutcome::BudgetTripped { health, .. }
-                | CompileWorkerOutcome::CompileFailed { health, .. } => health.clone(),
-                CompileWorkerOutcome::GrammarLoadFailed { .. }
-                | CompileWorkerOutcome::ProtocolViolation { .. } => HealthReport::new(Vec::new()),
+                | CompileWorkerOutcome::BudgetTripped { health, .. } => health.clone(),
+                CompileWorkerOutcome::CompileFailed { health, .. }
+                    if !health.findings.is_empty() =>
+                {
+                    health.clone()
+                }
+                CompileWorkerOutcome::CompileFailed { detail, .. }
+                | CompileWorkerOutcome::GrammarLoadFailed { detail }
+                | CompileWorkerOutcome::ProtocolViolation { detail } => {
+                    build_process_failure_health(detail.clone())
+                }
             },
             WorkerOutcome::WallTimeoutKilled { elapsed, limit } => {
                 HealthReport::new(vec![HealthFinding {
@@ -759,6 +756,22 @@ impl WorkerOutcome {
             }
         }
     }
+}
+
+fn build_process_failure_health(detail: String) -> HealthReport {
+    HealthReport::new(vec![HealthFinding {
+        code: FindingCode::BuildProcessFailed,
+        severity: Severity::Critical,
+        phase: Phase::Compile,
+        affected: Vec::new(),
+        metric: Metric::UnknownUnboundedWork,
+        value: MetricValue::Unbounded,
+        provenance: ValueProvenance::Observed,
+        threshold: None,
+        explanation: detail,
+        remedies: Vec::new(),
+        override_record: None,
+    }])
 }
 
 /// Reads `reader` to EOF on a dedicated thread, accumulating into `buf` up to `cap` and setting `overflow` (never unset) once exceeded, then keeps draining so a flooding child cannot deadlock on a full pipe.
@@ -1016,6 +1029,32 @@ pub fn run_compile_worker(
 mod tests {
     use super::*;
 
+    #[test]
+    fn completed_worker_failures_never_become_empty_or_admissible() {
+        let cases = vec![
+            CompileWorkerOutcome::GrammarLoadFailed {
+                detail: "synthetic load failure".to_string(),
+            },
+            CompileWorkerOutcome::ProtocolViolation {
+                detail: "synthetic protocol failure".to_string(),
+            },
+            CompileWorkerOutcome::CompileFailed {
+                detail: "synthetic caught panic".to_string(),
+                health: HealthReport::new(Vec::new()),
+            },
+        ];
+
+        for outcome in cases {
+            let health = WorkerOutcome::Completed(outcome).health_report();
+            assert!(!health.findings.is_empty());
+            assert_eq!(health.admission(), Severity::Critical);
+            assert!(health
+                .findings
+                .iter()
+                .any(|finding| finding.code == FindingCode::BuildProcessFailed));
+        }
+    }
+
     // Framing: bounded, validate-before-allocate, mirroring `pg_pack::format`'s own test shapes.
 
     #[test]
@@ -1209,7 +1248,7 @@ mod tests {
         match result.outcome {
             CompileWorkerOutcome::BudgetTripped { detail, health } => {
                 assert!(detail.contains("ordering-multiplicity"), "detail: {detail}");
-                assert_eq!(health.admission(), Severity::Critical);
+                assert_eq!(health.admission(), Severity::Error);
                 assert!(health
                     .findings
                     .iter()

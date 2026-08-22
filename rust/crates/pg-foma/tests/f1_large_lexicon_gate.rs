@@ -1,6 +1,6 @@
 //! Large-lexicon proposer-recall gate against the real Sena grammar, with the full engine (`pg_parse::Morpher`) as the recall oracle: every true engine analysis must appear among the proposer's candidates, since under-generation is a silently lost analysis while over-generation is harmless (confirm prunes it). Corpus-blocked (needs gitignored `samples/data/sena-*`), so every test here is `#[ignore]`d unconditionally with a self-skip guard; run with `--include-ignored`.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use pg_foma::analyzer::FomaProposer;
@@ -9,8 +9,8 @@ use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
 fn sample_path(name: &str) -> PathBuf {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.join("../../../samples/data").join(name)
+    pg_conformance_fixtures::corpus::path(name)
+        .unwrap_or_else(|| pg_conformance_fixtures::corpus::corpus_root().join(name))
 }
 
 /// Self-skip guard: returns early rather than panicking when the gitignored corpus fixture is absent, so `--include-ignored` runs stay green without it.
@@ -190,6 +190,7 @@ fn b_recall_first_120_words() {
             println!("MISS {m}");
         }
     }
+    pg_conformance_fixtures::corpus::record_cases("sena_recall_first_120_words", words.len());
     assert_eq!(
         n_covered,
         n_total,

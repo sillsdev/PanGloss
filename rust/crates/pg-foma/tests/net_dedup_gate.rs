@@ -14,7 +14,7 @@ use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 /// The fixture the fire-count is pinned on. Named, not searched for, so a test cannot pass vacuously by scanning for "some fixture where dedup fires" -- see `docs/research/pg-foma-net-dedup-sizing-census.md` for why this one was chosen and what happened when the wrong one was tried first.
-const FIRING_FIXTURE: &str = "backend-ordered-generic";
+const FIRING_FIXTURE: &str = "guesser-pattern-root-fallback";
 
 fn surface_table(grammar: &Grammar) -> &pg_grammar::chardef::CharDefTable {
     let surface_stratum = grammar

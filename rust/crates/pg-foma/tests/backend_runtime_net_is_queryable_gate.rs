@@ -6,20 +6,26 @@ use pg_foma::backend_optimizer::Certification;
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::build::unbuildable_markers;
+use pg_foma::capability::{compose_envelope_across_strategies, default_registry};
+use pg_foma::emit;
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::enumerate::CandidateRole;
+use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::replace::SegAlphabet;
+use std::time::Instant;
 
 /// Returns each candidate's evaluation paired with the strategy that produced it and its declared `CandidateRole`; the baseline is identified by `LoweredCandidate::role`, never by position.
 fn materialize_and_evaluate(
     grammar: &pg_grammar::model::Grammar,
     words: &[String],
+    budget: RuntimeBudget,
 ) -> Vec<(
     pg_foma::enumerate::EmissionStrategy,
     CandidateRole,
     pg_foma::backend_runtime::RuntimeEvaluation,
 )> {
+    let started = Instant::now();
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
@@ -29,22 +35,174 @@ fn materialize_and_evaluate(
         .collect::<Vec<_>>();
     let phonology = PhonologyProbe::new(grammar);
     let baseline = enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
+    eprintln!(
+        "runtime-net phase: enumerated baseline in {:?}",
+        started.elapsed()
+    );
+    let materialize_started = Instant::now();
     let candidates = Registry::seeded()
         .materialize_distinct(&MaterializerContext {
             grammar,
             baseline: &baseline,
         })
         .expect("materialization must succeed");
+    eprintln!(
+        "runtime-net phase: materialized {} candidate(s) in {:?}",
+        candidates.len(),
+        materialize_started.elapsed()
+    );
     let plans: Vec<_> = candidates.into_iter().map(|(_, p)| p).collect();
     assert!(!plans.is_empty(), "must materialize at least one candidate");
     let declared: Vec<_> = plans.iter().map(|p| (p.strategy(), p.role)).collect();
-    let evaluations = evaluate_plans(grammar, &plans, words, RuntimeBudget::default())
+    eprintln!(
+        "runtime-net phase: evaluating {declared:?} over {} word(s)",
+        words.len()
+    );
+    let evaluate_started = Instant::now();
+    let evaluations = evaluate_plans(grammar, &plans, words, budget)
         .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
+    eprintln!(
+        "runtime-net phase: evaluated candidates in {:?}",
+        evaluate_started.elapsed()
+    );
     declared
         .into_iter()
         .zip(evaluations)
         .map(|((strategy, role), evaluation)| (strategy, role, evaluation))
         .collect()
+}
+
+/// Distinguishes candidate construction from per-word work on a diagnostic-sized corpus slice.
+#[test]
+#[ignore = "needs the private corpus at samples/data/indonesian-hc.xml; run with --include-ignored"]
+fn corpus_indonesian_first_word_runtime_phases_complete() {
+    let grammar_path = corpus::require("indonesian-hc.xml");
+    let words_path = corpus::require("indonesian-words.txt");
+    let grammar = pg_grammar::load(&std::fs::read_to_string(&grammar_path).expect("read grammar"))
+        .expect("indonesian grammar must load");
+    let words = std::fs::read_to_string(words_path)
+        .expect("read words")
+        .lines()
+        .map(str::trim)
+        .find(|word| !word.is_empty())
+        .map(|word| vec![word.to_owned()])
+        .expect("Indonesian corpus has a word");
+
+    let evaluations = materialize_and_evaluate(
+        &grammar,
+        &words,
+        RuntimeBudget {
+            build: Some(10_000_000_000),
+            ..RuntimeBudget::default()
+        },
+    );
+    assert!(!evaluations.is_empty());
+    corpus::record_cases("corpus_indonesian_first_word_runtime_phases_complete", 1);
+}
+
+/// Names Indonesian registry candidates without constructing their networks.
+#[test]
+#[ignore = "needs the private corpus at samples/data/indonesian-hc.xml; run with --include-ignored"]
+fn corpus_indonesian_registry_candidates_are_named_before_build() {
+    let grammar_path = corpus::require("indonesian-hc.xml");
+    let grammar = pg_grammar::load(&std::fs::read_to_string(&grammar_path).expect("read grammar"))
+        .expect("indonesian grammar must load");
+    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
+    let prules = grammar
+        .strata
+        .iter()
+        .flat_map(|s| &s.prules)
+        .map(|id| &grammar.prules[id.0 as usize])
+        .collect::<Vec<_>>();
+    let phonology = PhonologyProbe::new(&grammar);
+    let baseline = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+    let semantics = GrammarSemantics::derive(&grammar);
+    let envelope = compose_envelope_across_strategies(&semantics, &baseline, &default_registry());
+    for verdict in envelope.verdicts() {
+        eprintln!(
+            "capability strategy={:?} decision={:?}",
+            verdict.strategy, verdict.decision
+        );
+    }
+    let candidates = Registry::seeded()
+        .materialize_distinct(&MaterializerContext {
+            grammar: &grammar,
+            baseline: &baseline,
+        })
+        .expect("materialization must succeed");
+
+    let (composite, composite_rules, roots) = emit::composite_scale_hint(&grammar);
+    let structural_rules = emit::composite_candidate_rules(&grammar)
+        .structural_candidates
+        .len();
+    eprintln!(
+        "scale composite={composite} composite_rules={composite_rules} structural_rules={structural_rules} roots={roots}"
+    );
+
+    for (ordinal, (instance, candidate)) in candidates.iter().enumerate() {
+        eprintln!(
+            "candidate[{ordinal}] family={} parameters={:?} label={} adapter={:?} role={:?}",
+            instance.family_id,
+            instance.parameters,
+            candidate.label,
+            candidate.adapter,
+            candidate.role
+        );
+    }
+    assert!(!candidates.is_empty());
+    corpus::record_cases(
+        "corpus_indonesian_registry_candidates_are_named_before_build",
+        candidates.len(),
+    );
+}
+
+/// Exercises the one plan-composed route production retains for Indonesian.
+#[test]
+#[ignore = "needs the private corpus at samples/data/indonesian-hc.xml; run with --include-ignored"]
+fn corpus_indonesian_plan_composed_baseline_completes() {
+    let grammar_path = corpus::require("indonesian-hc.xml");
+    let words_path = corpus::require("indonesian-words.txt");
+    let grammar = pg_grammar::load(&std::fs::read_to_string(&grammar_path).expect("read grammar"))
+        .expect("indonesian grammar must load");
+    let word = std::fs::read_to_string(words_path)
+        .expect("read words")
+        .lines()
+        .map(str::trim)
+        .find(|word| !word.is_empty())
+        .expect("Indonesian corpus has a word")
+        .to_owned();
+    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
+    let prules = grammar
+        .strata
+        .iter()
+        .flat_map(|s| &s.prules)
+        .map(|id| &grammar.prules[id.0 as usize])
+        .collect::<Vec<_>>();
+    let phonology = PhonologyProbe::new(&grammar);
+    let baseline = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+    let candidates = Registry::seeded()
+        .materialize_distinct(&MaterializerContext {
+            grammar: &grammar,
+            baseline: &baseline,
+        })
+        .expect("materialization must succeed");
+    let plan = candidates
+        .into_iter()
+        .map(|(_, candidate)| candidate)
+        .find(|candidate| candidate.is_baseline())
+        .expect("registry must retain the plan-composed baseline");
+    let evaluations = evaluate_plans(
+        &grammar,
+        &[plan],
+        &[word],
+        RuntimeBudget {
+            build: Some(10_000_000_000),
+            ..RuntimeBudget::default()
+        },
+    )
+    .expect("the oracle liveness net / memory ceiling must not trip");
+    assert_eq!(evaluations.len(), 1);
+    corpus::record_cases("corpus_indonesian_plan_composed_baseline_completes", 1);
 }
 
 /// The pin for the finish-step defect. Fail-closed on a missing corpus: silently returning success while testing nothing is exactly the false-success path this guards against.
@@ -66,7 +224,7 @@ fn corpus_indonesian_confirms_after_the_finish_step() {
         .collect();
     assert!(!words.is_empty());
 
-    let evaluations: Vec<_> = materialize_and_evaluate(&grammar, &words)
+    let evaluations: Vec<_> = materialize_and_evaluate(&grammar, &words, RuntimeBudget::default())
         .into_iter()
         .map(|(_, _, e)| e)
         .collect();
@@ -115,7 +273,7 @@ fn the_evaluator_confirms_a_wholly_in_scope_grammar() {
         .iter()
         .map(|w| w.word.clone())
         .collect();
-    let evaluations: Vec<_> = materialize_and_evaluate(&grammar, &words)
+    let evaluations: Vec<_> = materialize_and_evaluate(&grammar, &words, RuntimeBudget::default())
         .into_iter()
         .map(|(_, _, e)| e)
         .collect();
@@ -137,7 +295,7 @@ fn the_evaluator_confirms_a_wholly_in_scope_grammar() {
     }
 }
 
-/// A candidate that full HC refused, whose plan needed subtrees `build_controllable` cannot build, must be reported as that limitation, not as a word-level mismatch that sends a reader hunting a phantom grammar bug.
+/// A plan that advertises subtrees its compiler cannot build is refused before measurement.
 #[test]
 fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
     let fixtures = discover();
@@ -169,7 +327,9 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
         if words.is_empty() {
             continue;
         }
-        for (strategy, role, e) in materialize_and_evaluate(&grammar, &words) {
+        for (strategy, _role, e) in
+            materialize_and_evaluate(&grammar, &words, RuntimeBudget::default())
+        {
             // Checked before the marker-attribution assertion: a whole-grammar strategy's own compiler builds the marker material rather than skipping it, so there is no compiler limitation to attribute here.
             if strategy.is_whole_grammar() {
                 assert!(
@@ -181,26 +341,10 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
                 );
                 continue;
             }
-            if role.is_baseline() {
-                // The baseline is routed to the tuned emit path, which can build those subtrees, so any failure here is a real result about a genuine network -- it must not be relabelled `Unsupported`.
-                assert!(
-                    !matches!(e.certification, Certification::Unsupported { .. }),
-                    "{}: the baseline took the tuned emit path, so its verdict must be the real \
-                     measurement rather than an `Unsupported` limitation notice, got {:?}",
-                    fixture.label(),
-                    e.certification
-                );
-                continue;
-            }
-            // Confirming is legitimate for a permutation too: the controllable builder does honour gate/union permutations.
-            if e.certification.selectable() {
-                continue;
-            }
-            // A permutation that failed here, whose plan needs subtrees the builder cannot construct, must be attributed rather than reported as a word-level grammar fault.
             assert!(
                 matches!(e.certification, Certification::Unsupported { .. }),
-                "{}: a non-baseline candidate that failed and whose plan required {markers:?} must be \
-                 attributed as unhonourable, got {:?}",
+                "{}: a PlanComposed candidate whose plan requires {markers:?} must be refused before \
+                 build_controllable can silently omit those subtrees, got {:?}",
                 fixture.label(),
                 e.certification
             );

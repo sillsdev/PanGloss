@@ -79,7 +79,12 @@ fn run() -> ExitCode {
         profile.phonological_rule_count,
         profile.skipped_rules.len(),
         profile.tuple_reports.len(),
-        proposer.report.counts.lexc_lines,
+        proposer
+            .report
+            .as_ref()
+            .expect("the tuned Foma proposer always carries its emit report")
+            .counts
+            .lexc_lines,
     );
     for (stage, elapsed) in [
         ("templated_emit", profile.templated_emit_elapsed),

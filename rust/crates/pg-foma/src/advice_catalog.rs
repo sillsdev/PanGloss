@@ -18,6 +18,14 @@ pub const ADVICE_CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const GRAMMAR_SAFETY_WARNING: &str =
     "Don't make any change that would make your language invalid!";
 
+pub const BACKEND_BUILD_UNAVAILABLE_SHAPE_KEY: &str = "backend-build-unavailable";
+
+/// Stable shape key for required plan subtrees the PlanComposed materializer cannot build.
+pub const PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY: &str = "plan-composed-missing-subtrees";
+
+/// Stable shape key for the TunedSurface structural-closure resource characterization.
+pub const TUNED_SURFACE_RESOURCE_SHAPE_KEY: &str = "tuned-surface-resource-envelope";
+
 /// A complete validated catalog.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdviceCatalog {
@@ -135,17 +143,28 @@ pub type RemedyAdvice = Remedy;
 /// Errors returned when a catalog cannot be parsed or validated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CatalogError {
-    Parse { line: usize, detail: String },
-    MissingField { context: String, field: String },
+    Parse {
+        line: usize,
+        detail: String,
+    },
+    MissingField {
+        context: String,
+        field: String,
+    },
     DuplicateShapeKey(String),
-    DuplicateRemedyShapePair { shape_key: String, remedy_key: String },
+    DuplicateRemedyShapePair {
+        shape_key: String,
+        remedy_key: String,
+    },
     UnsupportedSchemaVersion(u32),
     InvalidValue {
         field: String,
         value: String,
         detail: String,
     },
-    NondeterministicOrder { context: String },
+    NondeterministicOrder {
+        context: String,
+    },
 }
 
 impl fmt::Display for CatalogError {
@@ -164,7 +183,10 @@ impl fmt::Display for CatalogError {
                 "duplicate remedy {remedy_key:?} for shape {shape_key:?}"
             ),
             Self::UnsupportedSchemaVersion(version) => {
-                write!(formatter, "unsupported advice catalog schema version {version}")
+                write!(
+                    formatter,
+                    "unsupported advice catalog schema version {version}"
+                )
             }
             Self::InvalidValue {
                 field,
@@ -294,12 +316,21 @@ impl AdviceCatalog {
     pub fn validate(&self) -> Result<(), CatalogError> {
         validate_catalog(self)
     }
+
+    /// Look up one stable compiler-observed shape in the validated catalog.
+    pub fn entry_for(&self, shape_key: &str) -> Option<&AdviceEntry> {
+        self.entries
+            .iter()
+            .find(|entry| entry.shape_key == shape_key)
+    }
 }
 
 /// Validate schema version, required fields, uniqueness, and canonical ordering.
 pub fn validate_catalog(catalog: &AdviceCatalog) -> Result<(), CatalogError> {
     if catalog.schema_version != ADVICE_CATALOG_SCHEMA_VERSION {
-        return Err(CatalogError::UnsupportedSchemaVersion(catalog.schema_version));
+        return Err(CatalogError::UnsupportedSchemaVersion(
+            catalog.schema_version,
+        ));
     }
     let mut shape_keys = BTreeSet::new();
     for (index, entry) in catalog.entries.iter().enumerate() {

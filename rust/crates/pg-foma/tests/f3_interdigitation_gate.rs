@@ -1,6 +1,6 @@
 //! Recall gate for interdigitation (infix) and Ge'ez boundary-fusion composites (`crate::preexpand`) against the real Amharic grammar, with `pg_parse::Morpher` as the recall oracle; corpus-blocked, `#[ignore]`d unconditionally, and no synthetic replacement exists for this grammar's pathology.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use pg_foma::analyzer::FomaProposer;
@@ -20,8 +20,8 @@ const WORD_CAP: usize = 100;
 const ENGINE_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn sample_path(name: &str) -> PathBuf {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.join("../../../samples/data").join(name)
+    pg_conformance_fixtures::corpus::path(name)
+        .unwrap_or_else(|| pg_conformance_fixtures::corpus::corpus_root().join(name))
 }
 
 /// Self-skip guard: gitignored real-corpus fixtures aren't present in a fresh clone or CI.
@@ -302,6 +302,10 @@ fn b_recall_first_100_words_is_100_percent_impl() {
             println!("MISS {m}");
         }
     }
+    pg_conformance_fixtures::corpus::record_cases(
+        "amharic_recall_first_100_words",
+        n_words_analyzed,
+    );
     assert!(
         n_total > 0,
         "recall gate must exercise at least one engine analysis"

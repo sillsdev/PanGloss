@@ -1,20 +1,13 @@
 //! Containment + order-independence tests for circumfix composite-mechanism precedence (C1/C2/C3).
 //! See `docs/research/circumfix-composite-precedence-census.md`.
 
-mod common;
-
 use std::path::PathBuf;
 
-use foma::lexcread::fsm_lexc_parse_string;
-use foma::options::FomaOptions;
-
+use pg_foma::analyzer::FomaProposer;
 use pg_foma::emit;
 use pg_foma::peel::ReduplicationPeeler;
-use pg_foma::tags;
-use pg_grammar::model::{Grammar, MorphemeId};
+use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
-
-use common::gate_template::recall_reachable;
 
 /// Repo root, from this crate's own `CARGO_MANIFEST_DIR` -- never a path relative to the process CWD.
 fn repo_root() -> PathBuf {
@@ -36,54 +29,28 @@ fn load(xml: &str) -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// Re-derives the real tag sequence(s) for `surface` by re-parsing it against `morpher`'s own grammar, never a hand-derived guess.
-fn tag_sequences_for(g: &Grammar, morpher: &Morpher, surface: &str) -> Vec<Vec<String>> {
-    let popts = ParseOptions::default();
-    let outcome = morpher.parse_word_opts(surface, &popts);
-    let width = tags::tag_width(g.morphemes.len());
-    outcome
-        .structured
-        .iter()
-        .map(|a| {
-            a.morpheme_ids
-                .iter()
-                .enumerate()
-                .map(|(i, &m)| {
-                    let mid = MorphemeId(m);
-                    if i as i32 == a.root_morpheme_index {
-                        tags::root_tag_text(mid, width)
-                    } else {
-                        tags::morph_tag_text(mid, width)
-                    }
-                })
-                .collect()
-        })
-        .collect()
-}
-
-/// The standard containment shape: `emit::emit`'s compiled net must fully cover every analysis the real confirm engine finds for `surface`.
+/// Requires development proposals to retain an oracle analysis while production remains fail-closed.
 fn assert_full_containment(g: &Grammar, surface: &str) {
-    let emit_result = emit::emit(g);
-    assert!(
-        emit_result.report.uncovered.is_empty(),
-        "{surface:?}: grammar must be fully covered by the enumeration path: {:?}",
-        emit_result.report.uncovered
-    );
-    let opts = FomaOptions::default();
-    let net = fsm_lexc_parse_string(&opts, None, &emit_result.lexc_source)
-        .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
-
+    let (proposer, _) = FomaProposer::new_unproven_with_profile(g);
+    let mut proposer = proposer.expect("development-only proposer must compile");
     let morpher = Morpher::new(g, 20_000);
-    let tag_sequences = tag_sequences_for(g, &morpher, surface);
+    let oracle = morpher.parse_word_opts(surface, &ParseOptions::default());
     assert!(
-        !tag_sequences.is_empty(),
+        !oracle.structured.is_empty(),
         "oracle word {surface:?} must parse against its own grammar -- oracle/parser \
          inconsistency, not a recall question"
     );
-    let normalized = pg_grammar::nfd::nfd(surface);
-    let any_reachable = tag_sequences
-        .iter()
-        .any(|tags| recall_reachable(&net, &normalized, tags));
+    let proposals = proposer.propose(surface);
+    let any_reachable = oracle.structured.iter().any(|analysis| {
+        proposals.iter().any(|candidate| {
+            candidate
+                .morphemes
+                .iter()
+                .map(|morpheme| morpheme.0)
+                .eq(analysis.morpheme_ids.iter().copied())
+                && candidate.root_index == analysis.root_morpheme_index
+        })
+    });
     assert!(
         any_reachable,
         "{surface:?} must be reachable with its own real tag sequence -- the census gap this \

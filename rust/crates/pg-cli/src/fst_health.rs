@@ -1,14 +1,14 @@
-//! `pangloss fst-health <grammar> [<words.txt>] [<out.json>]` composes three sets of findings (preflight, a standalone profiled compile, and — only when `<words.txt>` is given — apply-side measurement) into one `HealthReport`, deduplicating `FomaOutcome::structured` by `WordAnalysis`'s structured identity rather than `result_signature`'s rendered-string equality, and computing rejection share as `(proposed - confirmed) / proposed` via `saturating_sub` to stay in `[0.0, 1.0]`.
+//! `pangloss fst-health <grammar> [<words.txt>] [<out.json>]` composes three sets of findings (characterization, a standalone profiled compile, and — only when `<words.txt>` is given — apply-side measurement) into one `HealthReport`, deduplicating `FomaOutcome::structured` by `WordAnalysis`'s structured identity rather than `result_signature`'s rendered-string equality, and computing rejection share as `(proposed - confirmed) / proposed` via `saturating_sub` to stay in `[0.0, 1.0]`.
 
 use std::fs;
 
-use pg_foma::analyzer::{FomaError, FomaProposer};
+use pg_foma::analyzer::FomaProposer;
+use pg_foma::characterization::characterization_findings;
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
-use pg_foma::health_evaluator::evaluate_health;
-use pg_foma::preflight::preflight_findings;
+use pg_foma::health_evaluator::{evaluate_foma_error, evaluate_health};
 use pg_grammar::model::Grammar;
 use pg_parse::WordAnalysis;
 
@@ -167,25 +167,22 @@ fn compile_time_findings(grammar: &Grammar) -> Vec<HealthFinding> {
     let report = match &proposer_result {
         Ok(proposer) => evaluate_health(
             None,
-            Some(&proposer.report),
+            proposer.report.as_ref(),
             &[],
             &[],
             Some(&compile_profile),
         ),
-        Err(FomaError::LexcCompileFailed(report)) => {
-            evaluate_health(None, Some(report), &[], &[], Some(&compile_profile))
-        }
-        Err(_) => evaluate_health(None, None, &[], &[], Some(&compile_profile)),
+        Err(error) => evaluate_foma_error(error, Some(&compile_profile)),
     };
     report.findings
 }
 
-/// Composes preflight + compile-time findings, plus apply-side findings only when `words` is `Some`; factored out from `run_fst_health` so the honest no-words contract is directly unit-testable without file I/O.
+/// Composes characterization + compile-time findings, plus apply-side findings only when `words` is `Some`; factored out from `run_fst_health` so the honest no-words contract is directly unit-testable without file I/O.
 fn build_health_report(
     grammar: &Grammar,
     words: Option<&[String]>,
 ) -> Result<HealthReport, String> {
-    let mut findings = preflight_findings(grammar);
+    let mut findings = characterization_findings(grammar);
     findings.extend(compile_time_findings(grammar));
     if let Some(words) = words {
         findings.extend(measure_apply_side(grammar, words)?);
@@ -238,7 +235,7 @@ pub fn run_fst_health(args: &[String]) -> Result<(), String> {
             String::new()
         } else {
             " No <words.txt> given: apply-side proposal/confirmation/duplicate-analysis findings \
-              were NOT measured (preflight + compile-time findings only)."
+              were NOT measured (characterization + compile-time findings only)."
                 .to_string()
         }
     );

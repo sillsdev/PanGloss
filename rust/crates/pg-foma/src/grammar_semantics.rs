@@ -3,7 +3,7 @@
 //!
 //! # The problem this replaces
 //! Four consumer areas -- the capability gate (`crate::capability`/`crate::capability_entry`/
-//! `crate::preflight`), registry applicability (`crate::backend_registry::Applicability`),
+//! `crate::characterization`), registry applicability (`crate::backend_registry::Applicability`),
 //! backend-space accounting (`crate::backend_space::GrammarFacts`) and the phonology/morphotactics
 //! existence gates -- each independently re-walked `Grammar` for the SAME handful of facts. Nothing
 //! memoized anything: `crate::capability::compose_envelope` recomputed
@@ -12,7 +12,7 @@
 //! grammar walk, including the real `foma::types::Fsm` construction `characterize`'s
 //! `lower_subrule_span` performs for every `Simultaneous`-mode subrule. `pangloss make-report`
 //! re-derived the whole capability verdict three times in one process; `pangloss fst-health` twice
-//! -- duplication `crate::preflight`'s own module doc called "an acceptable duplication" and this
+//! -- duplication `crate::characterization`'s own module doc called "an acceptable duplication" and this
 //! type now removes by memoizing the derivation once.
 //!
 //! # What this owns, and what it deliberately does not

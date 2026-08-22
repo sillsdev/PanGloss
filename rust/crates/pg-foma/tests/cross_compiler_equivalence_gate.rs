@@ -261,7 +261,8 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
         ordinary_cache.emission_report_calls(),
         observed_cache.emission_report_calls()
     );
-    assert_eq!(ordinary_cache.emission_report_calls(), 1);
+    // Candidate realization owns diagnostics; the runtime cache must not run another emitter.
+    assert_eq!(ordinary_cache.emission_report_calls(), 0);
 
     let mut oracle: Option<Vec<(String, Vec<pg_parse::WordAnalysis>)>> = None;
     let mut actual_by_strategy: Vec<(

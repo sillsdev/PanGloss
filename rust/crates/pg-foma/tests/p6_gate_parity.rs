@@ -243,6 +243,7 @@ fn indonesian_mpr_exclusion_matches_oracle() {
             "gated network must match the oracle exactly for {word:?}"
         );
     }
+    pg_conformance_fixtures::corpus::record_cases("indonesian_mpr_exclusion_matches_oracle", 4);
 }
 
 /// Demonstrates the recall gap: the ungated cascade must miss `mentabur`'s real analysis, proving the gate above is not vacuous.
@@ -451,6 +452,15 @@ fn indonesian_full_corpus_parity_unregressed() {
         }
     }
 
+    let compared_words = words
+        .iter()
+        .filter(|word| !REDUP_EXCLUDED.contains(word))
+        .count();
+    pg_conformance_fixtures::corpus::record_cases(
+        "indonesian_full_corpus_parity_unregressed",
+        compared_words,
+    );
+
     assert_eq!(
         n_covered, n_total,
         "gated compile path must preserve 100% recall on the Indonesian corpus (misses: {misses:?})"
@@ -541,6 +551,10 @@ fn amharic_gated_subrules_and_tuple_counts_unregressed() {
             assert_eq!(
                 composed.arccount, 1_110_358,
                 "Amharic composed net arc count must be unchanged"
+            );
+            pg_conformance_fixtures::corpus::record_cases(
+                "amharic_gated_subrules_and_tuple_counts_unregressed",
+                gated.len(),
             );
         })
         .expect("spawn large-stack worker thread");

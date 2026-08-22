@@ -24,18 +24,12 @@
 //! them, not size alone.
 //!
 //! # Override policy
-//! Both `Severity::Error` and `Severity::Critical` are overridable via the same capability
-//! override: `Severity::overridable` returns `true` for both. The trust axis is binary and the
-//! only non-overridable floor is apply-time execution containment — that floor is a runtime
-//! containment outcome, never a predicted health verdict, so no `Severity` value represents it.
+//! Both `Severity::Error` and `Severity::Critical` require an explicit recorded development
+//! override. Apply-time execution containment remains non-overridable.
 //!
 //! # Worst non-overridden severity ("FST admission result")
-//! `HealthReport::admission` is the worst severity among findings that do **not** carry an
-//! `OverrideRecord`. An overridden Critical finding is permanently recorded (the
-//! `OverrideRecord` itself, forever attached to that finding) but does **not** dominate a lower,
-//! non-overridden severity elsewhere in the same report — the loud safety signal for an override
-//! is the separate capability degraded-trust broadcast (pack-level `unproven` + per-result flag),
-//! not this report's admission severity.
+//! `HealthReport::admission` is the worst severity among findings that do not carry an override
+//! record. The raw severity remains available through `admission_without_overrides`.
 //!
 //! # Cost uncertainty is not itself Critical
 //! `ValueProvenance` and `MetricValue::Unbounded` encode that unknown cost is not itself
@@ -73,9 +67,9 @@
 //!   and apply-time work) without inventing per-construct codes no instrumentation exists to emit
 //!   yet. Growing this list is additive (new codes only ever append; no code is ever renumbered
 //!   or removed).
-//! - `Phase` has three values (`Preflight`, `Compile`, `Apply`) rather than a simpler
-//!   "preflight/observed" split: `Compile` and `Apply` are the two production phases (compile-time
-//!   construction vs. per-word application), and `Preflight` is the characteristics-profile-style
+//! - `Phase` has three values (`Characterization`, `Compile`, `Apply`) rather than a simpler
+//!   "characterization/observed" split: `Compile` and `Apply` are the two production phases (compile-time
+//!   construction vs. per-word application), and `Characterization` is the characteristics-profile-style
 //!   prediction stage that runs before either. "Observed" is not a `Phase` value here — it is
 //!   `ValueProvenance::Observed`, the axis distinguishing predicted/proven-bound/measured values
 //!   *within* a phase.
@@ -86,7 +80,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// This schema's own version, written into every `HealthReport`. Bump only on a
 /// wire-incompatible change to this module's types.
-pub const HEALTH_SCHEMA_VERSION: u32 = 1;
+pub const HEALTH_SCHEMA_VERSION: u32 = 2;
 
 // Severity + size bands
 
@@ -104,17 +98,17 @@ pub enum Severity {
     Warning,
     /// Requires an explicit, recorded `OverrideRecord` before the artifact may publish.
     Error,
-    /// The worst band; still overridable like `Severity::Error`. Apply-time execution containment is the only non-overridable floor, and it is not a `Severity` value at all.
+    /// The worst band; explicitly overridable for development builds unless the finding is a
+    /// worker/apply containment outcome.
     Critical,
 }
 
 impl Severity {
-    /// Both `Severity::Error` and `Severity::Critical` are overridable via the capability
-    /// override; `Severity::Warning` and below never need one. No catch-all arm.
+    /// Whether an explicit development override may admit this severity.
     pub const fn overridable(self) -> bool {
         match self {
-            Severity::Ideal | Severity::Info | Severity::Warning => false,
             Severity::Error | Severity::Critical => true,
+            Severity::Ideal | Severity::Info | Severity::Warning => false,
         }
     }
 }
@@ -169,12 +163,12 @@ pub const fn severity_for_size_bytes(bytes: u64) -> Severity {
 
 /// Which production stage a `HealthFinding` was produced in or predicted for. See this module's
 /// doc "Design notes" section for why this has three values rather than a simpler
-/// "preflight/observed" pair.
+/// "characterization/observed" pair.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
     /// Predicted before any construction begins (characteristics-profile-style projection).
-    Preflight,
+    Characterization,
     /// During or immediately after compile-time FST construction.
     Compile,
     /// During or immediately after per-word application (propose + HermitCrab confirm, or HermitCrab-only analysis).
@@ -224,6 +218,11 @@ pub enum Metric {
     SampledCompileRssBytes,
     /// The compound HEAD x NON-HEAD root-allomorph cross product a grammar's `CompoundingRuleDef`s license.
     CompoundRootPairCount,
+    /// Reachable root/chain-state x morphological-rule applications that a composite-emitting
+    /// backend must synthesize while proving finite closure.
+    CompositeRulePairCount,
+    /// Required grammar constructs or plan subtrees the named backend cannot represent completely.
+    BackendCoverageGapCount,
 }
 
 /// Whether a `HealthFinding`'s `MetricValue` is a heuristic estimate, a trustworthy proof, or
@@ -285,6 +284,12 @@ pub enum FindingCode {
     ProvenBoundExceedsBudget,
     /// Per-word apply-time work (chain depth, allocation, elapsed time) is elevated.
     ApplicationTimeWork,
+    /// A backend failed while compiling its emitted representation and produced no usable artifact.
+    BackendCompilationFailed,
+    /// Invalid build input, worker protocol failure, or a worker-process failure prevented a build.
+    BuildProcessFailed,
+    /// A backend is known to omit or reject one or more required grammar constructs.
+    BackendCoverageIncomplete,
 }
 
 impl FindingCode {
@@ -301,6 +306,9 @@ impl FindingCode {
         FindingCode::ResourceBudgetReached,
         FindingCode::ProvenBoundExceedsBudget,
         FindingCode::ApplicationTimeWork,
+        FindingCode::BackendCompilationFailed,
+        FindingCode::BuildProcessFailed,
+        FindingCode::BackendCoverageIncomplete,
     ];
 
     /// The immutable `PGFdddd` wire code. Exhaustive match, no catch-all arm — adding a variant
@@ -317,6 +325,9 @@ impl FindingCode {
             FindingCode::ResourceBudgetReached => "PGF0008",
             FindingCode::ProvenBoundExceedsBudget => "PGF0009",
             FindingCode::ApplicationTimeWork => "PGF0010",
+            FindingCode::BackendCompilationFailed => "PGF0011",
+            FindingCode::BuildProcessFailed => "PGF0012",
+            FindingCode::BackendCoverageIncomplete => "PGF0013",
         }
     }
 
@@ -359,6 +370,16 @@ impl FindingCode {
             }
             FindingCode::ApplicationTimeWork => {
                 "Per-word apply-time work (chain depth, allocation, elapsed time) is elevated."
+            }
+            FindingCode::BackendCompilationFailed => {
+                "A backend failed to compile its emitted representation into a usable artifact."
+            }
+            FindingCode::BuildProcessFailed => {
+                "Invalid build input or a worker-process failure prevented any usable artifact."
+            }
+            FindingCode::BackendCoverageIncomplete => {
+                "A backend is known to omit or reject required grammar constructs and therefore \
+                 cannot produce a complete artifact."
             }
         }
     }
@@ -464,6 +485,14 @@ pub struct HealthFinding {
     pub override_record: Option<OverrideRecord>,
 }
 
+impl HealthFinding {
+    /// Whether this finding may be overridden by an explicit development override. Apply-time
+    /// findings remain a hard containment boundary even when their severity is Error/Critical.
+    pub const fn override_allowed(&self) -> bool {
+        !matches!(self.phase, Phase::Apply) && self.severity.overridable()
+    }
+}
+
 /// The aggregated report for one grammar compilation. See `HealthReport::admission` for the
 /// aggregation rule and this module's doc for why an overridden Critical does not dominate a
 /// lower non-overridden severity elsewhere in the same report.
@@ -486,15 +515,22 @@ impl HealthReport {
         }
     }
 
-    /// The worst severity among findings that do **not** carry an `OverrideRecord` (the "FST
-    /// admission result"). An empty report, or a report whose only findings are all overridden,
-    /// admits at `Severity::Ideal` — the override itself remains permanently attached to its
-    /// finding (and, at the pack level, surfaces via the separate capability degraded-trust
-    /// signal), but it never inflates this aggregation.
+    /// The worst severity among findings that do not carry an override record.
     pub fn admission(&self) -> Severity {
         self.findings
             .iter()
             .filter(|finding| finding.override_record.is_none())
+            .map(|finding| finding.severity)
+            .max()
+            .unwrap_or(Severity::Ideal)
+    }
+
+    /// The worst severity in the report, including findings that already carry an override
+    /// record. Callers use this before deciding whether an explicit development override is
+    /// allowed; `admission` remains the post-override result.
+    pub fn admission_without_overrides(&self) -> Severity {
+        self.findings
+            .iter()
             .map(|finding| finding.severity)
             .max()
             .unwrap_or(Severity::Ideal)
@@ -598,11 +634,10 @@ mod tests {
         assert_eq!(severity_for_size_bytes(u64::MAX), Severity::Critical);
     }
 
-    // fst_health_override_policy: Error/Critical overridability + worst-non-overridden aggregation.
+    // fst_health_override_policy: Error/Critical are overrideable; Apply containment is not.
 
     #[test]
     fn fst_health_override_policy_error_and_critical_are_overridable() {
-        // NOT "Critical = no override" — see this module's doc "Override policy" section.
         assert!(Severity::Error.overridable());
         assert!(Severity::Critical.overridable());
     }
@@ -650,8 +685,7 @@ mod tests {
         assert_eq!(
             report.admission(),
             Severity::Warning,
-            "an overridden Critical finding must not dominate a non-overridden Warning finding \
-             in the same report"
+            "an overridden Critical finding must not dominate a non-overridden Warning finding"
         );
     }
 
@@ -689,6 +723,23 @@ mod tests {
         assert_eq!(report.admission(), Severity::Error);
     }
 
+    #[test]
+    fn fst_health_override_policy_raw_admission_keeps_overridden_severity_visible() {
+        let report = HealthReport::new(vec![synthetic_finding(
+            Severity::Critical,
+            Some(synthetic_override()),
+        )]);
+        assert_eq!(report.admission(), Severity::Ideal);
+        assert_eq!(report.admission_without_overrides(), Severity::Critical);
+    }
+
+    #[test]
+    fn fst_health_override_policy_apply_findings_are_not_overridable() {
+        let mut finding = synthetic_finding(Severity::Critical, None);
+        finding.phase = Phase::Apply;
+        assert!(!finding.override_allowed());
+    }
+
     // fst_health_schema: code registry, golden JSON, round trip, closed-enum exhaustiveness.
 
     #[test]
@@ -721,6 +772,19 @@ mod tests {
     #[test]
     fn fst_health_schema_from_code_rejects_unknown_code() {
         assert_eq!(FindingCode::from_code("PGF9999"), None);
+    }
+
+    #[test]
+    fn characterization_phase_has_product_vocabulary_on_the_wire() {
+        assert_eq!(
+            serde_json::to_string(&Phase::Characterization).unwrap(),
+            "\"characterization\""
+        );
+    }
+
+    #[test]
+    fn characterization_wire_rename_bumps_health_schema_version() {
+        assert_eq!(HEALTH_SCHEMA_VERSION, 2);
     }
 
     /// An exhaustive `match` with no catch-all arm over every `Severity` variant, so adding a variant stops this from compiling until every exhaustive match in this file is updated.
@@ -800,7 +864,7 @@ mod tests {
     }
 
     const GOLDEN_JSON: &str = r#"{
-  "schema_version": 1,
+  "schema_version": 2,
   "findings": [
     {
       "code": "PGF0002",

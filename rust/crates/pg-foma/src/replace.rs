@@ -228,7 +228,7 @@
 //! `resolve_alpha_tuples`'s own `surviving` tuple count, exactly the same two-independent-axes
 //! shape [`ComposeBudget::tuple_cap`](crate::compose_budget::ComposeBudget::tuple_cap)'s own V3
 //! check already guards on the alpha axis; the quantifier axis gets its OWN eager, cheaper-than-any-
-//! `Fsm` preflight (`MAX_QUANTIFIER_BOUND`, checked in `pattern_slots` before any regex is even
+//! `Fsm` characterization (`MAX_QUANTIFIER_BOUND`, checked in `pattern_slots` before any regex is even
 //! rendered, let alone parsed — the same "check the search result before the expensive part"
 //! principle [`ComposeBudget::tuple_cap`](crate::compose_budget::ComposeBudget::tuple_cap) already
 //! uses for alpha tuples),

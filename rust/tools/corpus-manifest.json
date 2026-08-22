@@ -43,7 +43,8 @@
       "requiring_tests": [
         "pg-foma --test p6_gate_parity indonesian_full_corpus_parity_unregressed",
         "pg-foma --test p6_gate_parity indonesian_mpr_exclusion_matches_oracle",
-        "pg-foma --test backend_runtime_net_is_queryable_gate corpus_indonesian_confirms_after_the_finish_step"
+        "pg-foma --test backend_runtime_net_is_queryable_gate corpus_indonesian_confirms_after_the_finish_step",
+        "pg-foma --test five_language_backend_reports_gate indonesian_backend_reports_are_complete"
       ]
     },
     {
@@ -64,7 +65,8 @@
         { "path": "sena-worst-words.txt", "role": "pinned-worst-case", "required": false }
       ],
       "requiring_tests": [
-        "pg-foma --test f1_large_lexicon_gate"
+        "pg-foma --test f1_large_lexicon_gate",
+        "pg-foma --test five_language_backend_reports_gate sena_backend_reports_are_complete"
       ]
     },
     {
@@ -87,7 +89,8 @@
       ],
       "requiring_tests": [
         "pg-foma --test f3_interdigitation_gate",
-        "pg-foma --test p6_gate_parity amharic_gated_subrules_and_tuple_counts_unregressed"
+        "pg-foma --test p6_gate_parity amharic_gated_subrules_and_tuple_counts_unregressed",
+        "pg-foma --test five_language_backend_reports_gate amharic_backend_reports_are_complete"
       ]
     },
     {
@@ -102,18 +105,19 @@
           "word_list": {
             "line_ending": "CRLF",
             "skip_leading_lines": 0,
-            "notes": "No header, but the phonology's phonemes/boundaryMarkers (samples/data/aweti.json) define no hyphen or space, so lines containing either (e.g. 'itywytu-put', 'waráju-puza', 'kaminuʼat-puza', 'ị- tyᴾ', 'awytyza ʼytoto') are guaranteed batch status SKIPPED. Line 147 is a stray 'µ' (micro sign) with no linguistic content; line 175 'wejmopáb' ends in a bare 'b', a phoneme this inventory does not define outside its ejective-marked forms. Separately and more importantly: the slow-word tail here is NOT a short named list -- a full-corpus oracle sample (208 words, mixed 5-15s per-word cap across the run) timed out on 61 of 196 non-skipped words (31%), not just the previously-named 'tomoʼatu'. Sampling MUST pass both --word-timeout-ms and --threads=1 to `pangloss batch`; the default --threads=20 multiplies several such words' memory blowups concurrently and can exhaust host memory, which is an operational hazard to the whole machine, not just this run. Separately, `--engine=foma` refuses this grammar outright at default settings (eager-enumeration budget: ~200,600 composite lexc entries against a 200,000 limit), so it cannot be sampled via the foma path at all without raising HC_ENUM_ENTRY_BUDGET, which risks the exact multi-GB `apply_up` blowup this budget exists to prevent."
+            "notes": "No header, but the phonology's phonemes/boundaryMarkers (samples/data/aweti.json) define no hyphen or space, so lines containing either (e.g. 'itywytu-put', 'waráju-puza', 'kaminuʼat-puza', 'ị- tyᴾ', 'awytyza ʼytoto') are guaranteed batch status SKIPPED. Line 147 is a stray 'µ' (micro sign) with no linguistic content; line 175 'wejmopáb' ends in a bare 'b', a phoneme this inventory does not define outside its ejective-marked forms. The slow-word tail is broad: a full-corpus oracle sample timed out on 61 of 196 non-skipped words. Sampling MUST pass both --word-timeout-ms and --threads=1. TunedSurface exceeds the current default closure-work envelope and the other two backends have typed coverage gaps, so normal selection has no path and writes no trusted FST. The legacy eager construction measured 3,093,412 composites; that scale evidence must not be mistaken for a safe retry recommendation."
           }
         },
         { "path": "aweti.fwdata", "role": "grammar-fwdata", "required": false }
       ],
       "requiring_tests": [
-        "pg-foma --test p6_templated_morphotactics_gate"
+        "pg-foma --test p6_templated_morphotactics_gate",
+        "pg-foma --test five_language_backend_reports_gate aweti_backend_reports_are_complete"
       ]
     },
     {
       "logical_name": "mbugwe",
-      "purpose": "Real-language fwdata import (no HC XML source), imported via LibLCM. The fifth reference grammar for the FST-propose+confirm recall/perf sweep; previously undeclared here even though the census example and grammar files already existed on disk.",
+      "purpose": "Real-language fwdata import through LibLCM and the fifth reference grammar for fail-closed backend selection, full-engine smoke coverage, and FST-propose feasibility evidence.",
       "files": [
         { "path": "mbugwe.fwdata", "role": "grammar-fwdata", "required": true },
         {
@@ -123,12 +127,13 @@
           "word_list": {
             "line_ending": "CRLF",
             "skip_leading_lines": 0,
-            "notes": "No header found: a full-file sweep for digits, spaces, hyphens, and uppercase ASCII letters (the contamination markers documented for the other four corpora) found none across all 1638 lines. Not a claim that every line is a well-formed surface word, only that the specific hazards already catalogued elsewhere for indonesian/sena/amharic/aweti were checked and not found here. Separately and more importantly: this grammar is SLOW in the full engine across a large minority of words, not just a pinned worst-case tail -- a 60-word sample against a 10s/word cap timed out on 22 of them (37%), and a 200-word sample against a 5s/word cap timed out on 100 of them (50%); several of the 'ok' words still took 5-9s even at the looser cap. Sampling MUST pass --word-timeout-ms to `pangloss batch`; an uncapped call (e.g. a raw `Morpher` with no `with_word_timeout`) can run long enough to attempt a multi-gigabyte allocation and abort the process outright, not just hang. Separately, `--engine=foma` cannot analyze this grammar at all at default settings: `batch` refuses at the ADR 0001 capability gate (an unfaithful circumfix construct), and even bypassing that gate (as `pangloss fst-health` does) the same eager-enumeration budget refusal aweti hits also fires here (~200,700 composite lexc entries against the 200,000 limit) -- two independent refusals, not one."
+            "notes": "No header found: a full-file sweep for digits, spaces, hyphens, and uppercase ASCII letters found none across all 1638 lines. This is not a claim that every line is a well-formed surface word. The grammar is slow in the full engine across a large minority of words: a 60-word sample at 10s/word timed out on 22, and a 200-word sample at 5s/word timed out on 100. Sampling MUST pass --word-timeout-ms. TunedSurface exceeds the current default closure-work envelope, TemplatedUnderlyingTokens has a nonregular-process coverage gap, and PlanComposed would omit required marker subtrees; normal selection therefore has no path and writes no trusted FST. The legacy eager run that stopped around 200,700 composites used an obsolete 200,000-entry envelope and is historical scale evidence, not the current refusal threshold."
           }
         }
       ],
       "requiring_tests": [
-        "pg-foma --test mbugwe_corpus_smoke_gate mbugwe_grammar_compiles_and_oracle_parses_a_sample"
+        "pg-foma --test mbugwe_corpus_smoke_gate mbugwe_grammar_compiles_and_oracle_parses_a_sample",
+        "pg-foma --test five_language_backend_reports_gate mbugwe_backend_reports_are_complete"
       ]
     }
   ]

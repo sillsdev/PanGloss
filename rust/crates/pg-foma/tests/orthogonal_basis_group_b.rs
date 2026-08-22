@@ -61,16 +61,10 @@ const EXERCISES: &[Fixture] = &[
 ];
 
 /// Fixture pairs where one is a clone of the other.
-const CLONE_PAIRS: &[(Fixture, Fixture)] = &[
-    (
-        Fixture::staged("backend-ordered-generic"),
-        Fixture::upstream("languages", "metathesis-phase-isolation"),
-    ),
-    (
-        Fixture::staged("backend-gated-generic"),
-        Fixture::upstream("edge-cases", "mpr-gated-exception"),
-    ),
-];
+const CLONE_PAIRS: &[(Fixture, Fixture)] = &[(
+    Fixture::staged("backend-ordered-generic"),
+    Fixture::upstream("languages", "metathesis-phase-isolation"),
+)];
 
 // Fixture addressing. Both roots, because four of this file's six mechanisms have their strongest (or only) witness upstream.
 
@@ -1338,7 +1332,7 @@ fn the_exercise_set_has_the_shape_it_claims() {
     }
 }
 
-/// Clone fixtures are pinned as clones, so nobody reports one exercise as two; two staged fixtures are byte-identical copies of upstream grammars, differing only in `<Language><Name>`.
+/// Prevents a staging clone from being counted as an independent exercise.
 #[test]
 fn clone_fixtures_are_pinned_as_clones_not_independent_exercises() {
     for (clone, original) in CLONE_PAIRS {

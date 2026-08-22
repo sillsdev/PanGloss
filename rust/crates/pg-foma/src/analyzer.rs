@@ -21,7 +21,7 @@ use pg_grammar::chardef::{CharDefKind, CharDefTable};
 use pg_grammar::model::Grammar;
 
 use crate::compose_budget::{ApplyBudget, ApplyDimension, ApplyOutcome, ComposeBudget};
-use crate::emit::{self, EmitReport};
+use crate::emit::{self, EmitReport, FomaTier};
 use crate::profile::{CompileProfile, CompileProfileBuilder, CompileStage};
 use crate::tags::{self, Candidate};
 
@@ -32,6 +32,12 @@ use crate::tags::{self, Candidate};
 pub enum FomaError {
     /// `fsm_lexc_parse_string` returned `None`; carries the emitter's own report for diagnosis.
     LexcCompileFailed(EmitReport),
+    /// The emitter proved that no complete Foma artifact can be built for this grammar.
+    Unsupported(EmitReport),
+    /// The emitter produced lexc material but also identified constructs which can contribute
+    /// analyses that material does not propose. Confirmation cannot restore omitted candidates,
+    /// so normal construction must refuse this report before compiling the partial network.
+    Incomplete(EmitReport),
     /// `emit::emit`'s enumeration budget tripped before a usable lexc source could be built: an honest, compiler-gap error, never a panic or a silent OOM.
     EnumerationBudgetExceeded {
         /// Which measure tripped (`crate::morphotactics::EnumMeasure::label`'s text).
@@ -40,6 +46,9 @@ pub enum FomaError {
         value: usize,
         /// The threshold that was exceeded (the default, or an env-var override).
         limit: usize,
+        /// The complete emitter report, retained so every caller can produce the same typed
+        /// health findings without recompiling or treating this refusal as a clean result.
+        report: EmitReport,
     },
     /// `check_unordered_strata_bound` found an `Unordered` stratum's loose-rule count exceeding the ordering-multiplicity budget, checked before `emit::emit_with_budget` builds anything.
     UnorderedOrderingMultiplicityExceeded { rule_count: usize, limit: usize },
@@ -54,10 +63,23 @@ impl fmt::Display for FomaError {
                 report.uncovered.len(),
                 report.tier
             ),
+            FomaError::Unsupported(report) => write!(
+                f,
+                "foma backend unsupported for this grammar (emit report: {} uncovered constructs, tier {:?})",
+                report.uncovered.len(),
+                report.tier
+            ),
+            FomaError::Incomplete(report) => write!(
+                f,
+                "foma emission is incomplete and cannot be used as a trusted proposer (emit report: {} uncovered constructs, tier {:?})",
+                report.uncovered.len(),
+                report.tier
+            ),
             FomaError::EnumerationBudgetExceeded {
                 measure,
                 value,
                 limit,
+                ..
             } => write!(
                 f,
                 "grammar exceeds the foma-engine's eager-enumeration budget: {measure} = {value} when \
@@ -85,9 +107,26 @@ impl fmt::Display for FomaError {
     }
 }
 
+impl FomaError {
+    /// The emitter evidence carried by compile and enumeration failures.
+    pub fn emit_report(&self) -> Option<&EmitReport> {
+        match self {
+            FomaError::LexcCompileFailed(report)
+            | FomaError::Unsupported(report)
+            | FomaError::Incomplete(report)
+            | FomaError::EnumerationBudgetExceeded { report, .. } => Some(report),
+            FomaError::UnorderedOrderingMultiplicityExceeded { .. } => None,
+        }
+    }
+}
+
 impl std::error::Error for FomaError {}
 
 pub type Result<T> = std::result::Result<T, FomaError>;
+
+fn tier_requires_unproven_build(tier: &FomaTier) -> bool {
+    matches!(tier, FomaTier::Partial { .. })
+}
 
 /// Opt-in per-word proposal measurements. These counters describe only paths actually pulled from
 /// foma before completion or a cooperative `ApplyBudget` trip.
@@ -133,7 +172,10 @@ pub(crate) fn prepare_network_for_apply(net: &mut Fsm) {
 pub struct FomaProposer {
     // Fully owned/`'static` (a clone of the compiled `Fsm`), not a borrow this struct would also need to store.
     handle: Box<ApplyHandle>,
-    pub report: EmitReport,
+    /// Diagnostics from the compiler that built this proposer, when that compiler produces an
+    /// `EmitReport`. Plan-composed networks deliberately carry `None`: asking the tuned-surface
+    /// emitter to manufacture diagnostics for a different backend can itself be unbounded work.
+    pub report: Option<EmitReport>,
     query_encoder: Option<SegmentQueryEncoder>,
 }
 
@@ -215,7 +257,18 @@ impl FomaProposer {
         FomaProposer {
             handle: apply_init(net),
             query_encoder: None,
-            report,
+            report: Some(report),
+        }
+    }
+
+    /// Build around a network produced by a compiler whose diagnostics are not an `EmitReport`.
+    /// The caller must publish that compiler's own backend report separately; this constructor
+    /// never runs another compiler merely to fill an unrelated diagnostics field.
+    pub(crate) fn from_precompiled_network_without_emit_report(net: &foma::types::Fsm) -> Self {
+        FomaProposer {
+            handle: apply_init(net),
+            query_encoder: None,
+            report: None,
         }
     }
 
@@ -233,10 +286,8 @@ impl FomaProposer {
     }
 
     /// Emit `g`'s lexc source, compile it, and build the (word-independent) `ApplyHandle` once.
-    /// `Err` iff `FomaError::LexcCompileFailed` (a bug in this crate's emitter, not a
-    /// grammar-content problem — the emitter's own `uncovered` list is how grammar CONTENT gaps
-    /// are reported, always alongside `Ok`) OR iff Fix 1's default-on enumeration budget
-    /// (`FomaError::EnumerationBudgetExceeded`) trips.
+    /// Returns a typed error for invalid lexc, unsupported/incomplete emission, or a logical-work
+    /// budget breach; no unsupported emitter result is compiled into a proposer.
     ///
     /// Thin, env-driven wrapper over `Self::new_with_budget` -- same convention
     /// `crate::emit::emit_with_precision` uses for the same reason (its own doc): reads
@@ -260,6 +311,16 @@ impl FomaProposer {
         let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let compose_budget = ComposeBudget::from_env();
         Self::new_with_budget_and_profile(g, &enum_budget, &compose_budget)
+    }
+
+    /// Development-only counterpart to [`Self::new_with_profile`]. It may compile an emitter
+    /// result that is explicitly marked [`FomaTier::Partial`] so callers can inspect it, but the
+    /// caller must persist an unproven/degraded trust record. It never admits `Unsupported` or a
+    /// resource-aborted result, because those paths intentionally contain no usable lexc source.
+    pub fn new_unproven_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
+        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
+        let compose_budget = ComposeBudget::from_env();
+        Self::new_with_budget_and_profile_policy(g, &enum_budget, &compose_budget, true)
     }
 
     /// `Self::new`'s core, with the fail-fast enumeration budget AND
@@ -296,6 +357,15 @@ impl FomaProposer {
         enum_budget: &crate::morphotactics::EnumerationBudget,
         compose_budget: &ComposeBudget,
     ) -> (Result<Self>, CompileProfile) {
+        Self::new_with_budget_and_profile_policy(g, enum_budget, compose_budget, false)
+    }
+
+    fn new_with_budget_and_profile_policy(
+        g: &Grammar,
+        enum_budget: &crate::morphotactics::EnumerationBudget,
+        compose_budget: &ComposeBudget,
+        allow_incomplete: bool,
+    ) -> (Result<Self>, CompileProfile) {
         let mut profile = CompileProfileBuilder::production();
 
         // Checked before `emit::emit_with_budget_profiled` runs, so an unbounded ordering multiplicity never pays for building a large `build_deriv_chain` network only to refuse it.
@@ -319,13 +389,26 @@ impl FomaProposer {
             Some(&mut profile),
         );
         // Checked before ever handing `result.lexc_source` to `fsm_lexc_parse_string`: when this is `Some`, `emit_with_budget_profiled` already bailed out early, so `lexc_source` is deliberately empty and must never be compiled.
-        if let Some(exceeded) = result.report.enum_budget_exceeded {
+        if let Some(exceeded) = result.report.enum_budget_exceeded.as_ref() {
             let err = FomaError::EnumerationBudgetExceeded {
                 measure: exceeded.measure,
                 value: exceeded.value,
                 limit: exceeded.limit,
+                report: result.report,
             };
             return (Err(err), profile.finish(None, None));
+        }
+        if matches!(result.report.tier, FomaTier::Unsupported { .. }) {
+            return (
+                Err(FomaError::Unsupported(result.report)),
+                profile.finish(None, None),
+            );
+        }
+        if tier_requires_unproven_build(&result.report.tier) && !allow_incomplete {
+            return (
+                Err(FomaError::Incomplete(result.report)),
+                profile.finish(None, None),
+            );
         }
         let opts = FomaOptions::default();
         let lexc_parse_start = Instant::now();
@@ -340,7 +423,7 @@ impl FomaProposer {
                 let final_arc_count = net.arccount;
                 let proposer = FomaProposer {
                     handle: apply_init(&net),
-                    report: result.report,
+                    report: Some(result.report),
                     query_encoder: None,
                 };
                 (
@@ -651,6 +734,46 @@ mod budget_tests {
     use super::*;
     use crate::morphotactics::EnumerationBudget;
 
+    #[test]
+    fn partial_emission_requires_the_explicit_unproven_constructor() {
+        assert!(tier_requires_unproven_build(&FomaTier::Partial {
+            uncovered: 1
+        }));
+        assert!(!tier_requires_unproven_build(&FomaTier::Full));
+        assert!(!tier_requires_unproven_build(&FomaTier::Unsupported {
+            reason: "synthetic refusal".to_string()
+        }));
+    }
+
+    #[test]
+    fn enumeration_error_preserves_emit_report_for_health_consumers() {
+        let report = EmitReport {
+            uncovered: Vec::new(),
+            counts: crate::emit::EmitCounts::default(),
+            tier: FomaTier::Unsupported {
+                reason: "synthetic enumeration refusal".to_string(),
+            },
+            enum_budget_exceeded: Some(crate::emit::EnumBudgetExceeded {
+                measure: "synthetic composite work",
+                value: 101,
+                limit: 100,
+            }),
+            closure_refusal: None,
+        };
+        let error = FomaError::EnumerationBudgetExceeded {
+            measure: "synthetic composite work",
+            value: 101,
+            limit: 100,
+            report,
+        };
+
+        let preserved = error
+            .emit_report()
+            .expect("an enumeration refusal must retain its complete emit report");
+        assert_eq!(preserved.enum_budget_exceeded.as_ref().unwrap().value, 101);
+        assert!(matches!(preserved.tier, FomaTier::Unsupported { .. }));
+    }
+
     /// Loads the real Aweti grammar if present on disk; gitignored, so copy it from the main checkout's `samples/data/` if missing.
     fn load_aweti() -> Option<Grammar> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -687,6 +810,7 @@ mod budget_tests {
                 measure,
                 value,
                 limit,
+                report,
             }) => {
                 assert_eq!(limit, 10, "limit must echo back the injected cap");
                 eprintln!("aweti tiny-entry-budget tripped at value={value} limit={limit}");
@@ -697,6 +821,11 @@ mod budget_tests {
                 assert_eq!(
                     measure, "composite lexc entries (fusion + interdigitation + structural)",
                     "a tiny entry cap (probe cap unbounded) must trip on the ENTRY measure"
+                );
+                assert_eq!(
+                    report.enum_budget_exceeded.as_ref().map(|trip| trip.value),
+                    Some(value),
+                    "the retained report must describe the same trip as the error fields"
                 );
                 // Asserted as overshoot rather than wall-clock: a check that stops running incrementally would report Aweti's entire enumeration, not a handful of entries past the cap, and overshoot is deterministic where wall-clock is hostage to whoever else is compiling.
                 assert!(
@@ -733,11 +862,17 @@ mod budget_tests {
                 measure,
                 value,
                 limit,
+                report,
             }) => {
                 assert_eq!(limit, 5);
                 assert!(value > limit);
                 eprintln!("aweti tiny-probe-budget tripped at value={value} limit={limit}");
                 assert_eq!(measure, "(root, rule) pairs probed");
+                assert_eq!(
+                    report.enum_budget_exceeded.as_ref().map(|trip| trip.value),
+                    Some(value),
+                    "the retained report must describe the same trip as the error fields"
+                );
                 // Same fail-fast property, same reasoning as the entry-measure test above.
                 assert!(
                     value <= limit.saturating_mul(OVERSHOOT_FACTOR),
@@ -978,7 +1113,10 @@ mod apply_budget_tests {
     fn from_precompiled_network_matches_normal_candidates_and_diagnostics() {
         let mut normal = proposer();
         let net = normal.network().clone();
-        let report = normal.report.clone();
+        let report = normal
+            .report
+            .clone()
+            .expect("the tuned emitter supplies its own report");
         let expected = normal.propose("ka");
 
         let mut precompiled = FomaProposer::from_precompiled_network(&net, report);

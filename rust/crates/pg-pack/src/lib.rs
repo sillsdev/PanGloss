@@ -60,6 +60,9 @@ pub use format::{
     VersionLimits, CONTAINER_VERSION, MAGIC,
 };
 pub use license::{LicenseClass, LicenseDeclaration};
-pub use manifest::{PackManifest, MANIFEST_FORMAT_TAG, MANIFEST_SCHEMA_VERSION};
+pub use manifest::{
+    BackendAdviceReference, BackendAssessment, BackendCostEvidence, FstCompletenessCertificate,
+    PackManifest, MANIFEST_FORMAT_TAG, MANIFEST_SCHEMA_VERSION,
+};
 pub use signature::{sign, verify, SignatureBlock, SignatureState};
 pub use trust::{CapabilityOverrideRecord, CapabilityTrust, OverriddenConfig};

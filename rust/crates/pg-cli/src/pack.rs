@@ -3,14 +3,21 @@
 use std::fs;
 
 use pg_foma::analyzer::FomaProposer;
-use pg_foma::backend_selection::select_backends;
+use pg_foma::backend_selection::{select_backends, BackendReport, BackendSelection, BackendStatus};
 use pg_foma::capability::CompileDecision;
+use pg_foma::emit::{EmitReport, FomaTier};
+use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::grammar_semantics::GrammarSemantics;
-use pg_foma::health_evaluator::evaluate_health;
+use pg_foma::health::{
+    FindingCode, HealthFinding, HealthReport, Metric, MetricValue, OverrideRecord, Phase, Severity,
+    ValueProvenance,
+};
+use pg_foma::health_evaluator::{evaluate_foma_error, evaluate_health};
 use pg_foma::peel::{ReduplicationPeeler, RUNTIME_FEATURE_REDUPLICATION_PEEL};
 use pg_grammar::model::Grammar;
 use pg_pack::{
-    CapabilityOverrideRecord, CapabilityTrust, OverriddenConfig, PackManifest,
+    BackendAdviceReference, BackendAssessment, BackendCostEvidence, CapabilityOverrideRecord,
+    CapabilityTrust, FstCompletenessCertificate, OverriddenConfig, PackManifest,
     RequiredRuntimeFeatures, MANIFEST_FORMAT_TAG, MANIFEST_SCHEMA_VERSION,
 };
 
@@ -53,6 +60,202 @@ fn now_string() -> String {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     format!("unix:{secs}")
+}
+
+fn decision_label(decision: &CompileDecision) -> &'static str {
+    match decision {
+        CompileDecision::Admit => "admit",
+        CompileDecision::ConfirmOnly => "confirm_only",
+        CompileDecision::Refuse(_) => "refuse",
+    }
+}
+
+fn backend_status_label(status: BackendStatus) -> &'static str {
+    match status {
+        BackendStatus::Accepted => "accepted",
+        BackendStatus::Refused => "refused",
+        BackendStatus::Missing => "missing",
+        BackendStatus::Failed => "failed",
+    }
+}
+
+fn assessment_from_report(report: &BackendReport) -> BackendAssessment {
+    BackendAssessment {
+        backend: report.strategy().label().to_string(),
+        decision: decision_label(report.decision()).to_string(),
+        status: backend_status_label(report.status()).to_string(),
+        findings: report.findings().to_vec(),
+        failed_predicates: report.failed_predicates().to_vec(),
+        shapes: report.shapes().to_vec(),
+        cost_evidence: report
+            .cost_evidence()
+            .iter()
+            .map(|evidence| BackendCostEvidence {
+                metric: evidence.metric,
+                value: evidence.value,
+                threshold: evidence.threshold,
+                provenance: evidence.provenance,
+            })
+            .collect(),
+        advice_references: report
+            .advice_references()
+            .iter()
+            .map(|reference| BackendAdviceReference {
+                shape_key: reference.shape_key.clone(),
+                remedy_key: reference.remedy_key.clone(),
+                effort: reference.effort,
+            })
+            .collect(),
+        status_detail: report.status_detail().map(str::to_string),
+    }
+}
+
+/// Preserves every backend report while attaching compile findings only to the selected backend.
+fn backend_assessments(
+    selection: &BackendSelection,
+    gated_backend: EmissionStrategy,
+    gated_compile_findings: &[HealthFinding],
+    gated_compile_error: Option<&str>,
+    health: &HealthReport,
+) -> Vec<BackendAssessment> {
+    selection
+        .reports()
+        .iter()
+        .map(|report| {
+            let mut assessment = assessment_from_report(report);
+            if report.strategy() == gated_backend {
+                assessment
+                    .findings
+                    .extend(gated_compile_findings.iter().cloned());
+                if let Some(error) = gated_compile_error {
+                    assessment.status = "failed".to_string();
+                    assessment.status_detail = Some(error.to_string());
+                }
+                assessment
+                    .cost_evidence
+                    .extend(
+                        gated_compile_findings
+                            .iter()
+                            .map(|finding| BackendCostEvidence {
+                                metric: finding.metric,
+                                value: finding.value,
+                                threshold: finding.threshold,
+                                provenance: finding.provenance,
+                            }),
+                    );
+            }
+            for finding in &mut assessment.findings {
+                if let Some(source) = health.findings.iter().find(|source| {
+                    source.code == finding.code
+                        && source.phase == finding.phase
+                        && source.affected == finding.affected
+                        && source.metric == finding.metric
+                        && source.value == finding.value
+                        && source.explanation == finding.explanation
+                }) {
+                    finding.override_record = source.override_record.clone();
+                }
+            }
+            assessment
+        })
+        .collect()
+}
+
+/// Certifies only full payloads with no uncovered construct, pending successor, or budget trip.
+fn completeness_certificate(
+    backend: EmissionStrategy,
+    report: Option<&EmitReport>,
+    compiled_payload_present: bool,
+) -> Option<FstCompletenessCertificate> {
+    let report = report?;
+    let pending_successors = report
+        .closure_refusal
+        .as_ref()
+        .and_then(|refusal| refusal.pending_successors)
+        .unwrap_or(0);
+    let complete = compiled_payload_present
+        && matches!(report.tier, FomaTier::Full)
+        && report.uncovered.is_empty()
+        && pending_successors == 0
+        && report.enum_budget_exceeded.is_none()
+        && report.closure_refusal.is_none();
+    complete.then_some(FstCompletenessCertificate {
+        backend: backend.label().to_string(),
+        uncovered_constructs: report.uncovered.len(),
+        pending_successors,
+        enumeration_budget_exceeded: report.enum_budget_exceeded.is_some(),
+        compiled_payload_present,
+    })
+}
+
+/// Applies the publication gate, recording health overrides without changing capability trust.
+fn apply_health_override(
+    report: &mut HealthReport,
+    allow_unproven: bool,
+    authorized_by: Option<&str>,
+    reason: Option<&str>,
+    worker_containment: bool,
+) -> Result<bool, String> {
+    let admission = report.admission_without_overrides();
+    if admission < Severity::Error {
+        return Ok(false);
+    }
+    if worker_containment {
+        return Err(
+            "FST health is a worker containment failure; it cannot be overridden and no .pgpack was written"
+                .to_string(),
+        );
+    }
+    if report
+        .findings
+        .iter()
+        .any(|finding| finding.severity >= Severity::Error && !finding.override_allowed())
+    {
+        return Err(
+            "FST health is an apply containment failure; it cannot be overridden and no .pgpack was written"
+                .to_string(),
+        );
+    }
+    if !allow_unproven {
+        return Err(format!(
+            "FST health is {admission:?}; no .pgpack was written. Pass --allow-unproven only for an explicitly authorized development build"
+        ));
+    }
+
+    let record = OverrideRecord {
+        authorized_by: authorized_by.unwrap_or("unspecified").to_string(),
+        reason: reason
+            .unwrap_or("--allow-unproven development build")
+            .to_string(),
+        recorded_at: now_string(),
+    };
+    for finding in &mut report.findings {
+        if finding.override_allowed() && finding.override_record.is_none() {
+            finding.override_record = Some(record.clone());
+        }
+    }
+    Ok(true)
+}
+
+/// Records a missing serialized Foma network as an overrideable development-only error.
+fn record_foma_payload_availability(report: &mut HealthReport, payload_is_real: bool) {
+    if payload_is_real {
+        return;
+    }
+
+    report.findings.push(HealthFinding {
+        code: FindingCode::BackendCompilationFailed,
+        severity: Severity::Error,
+        phase: Phase::Compile,
+        affected: vec!["foma-payload".to_string()],
+        metric: Metric::UnknownUnboundedWork,
+        value: MetricValue::Unbounded,
+        provenance: ValueProvenance::Observed,
+        threshold: None,
+        explanation: "no compiled Foma payload is available for this pack; a successful watchdog health check does not transport the compiled network, so production publication must stop instead of silently substituting a placeholder".to_string(),
+        remedies: Vec::new(),
+        override_record: None,
+    });
 }
 
 /// `pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--watchdog]`; `--watchdog` runs the FST-health compile in a killable child process instead of in-process.
@@ -152,7 +355,12 @@ pub(crate) fn build_pack(
 ) -> Result<BuiltPack, String> {
     // ---- ADR 0001/0005: the capability-trust stamp ---------------------------------------------
     let backend = crate::GATED_BACKEND.label();
-    let decision = crate::gated_backend_decision(&select_backends(semantics));
+    let selection = select_backends(semantics);
+    let decision = crate::gated_backend_decision(&selection);
+    let gated_backend_findings: Vec<HealthFinding> = selection
+        .report_for(crate::GATED_BACKEND)
+        .map(|report| report.findings().to_vec())
+        .unwrap_or_default();
     let capability_trust = match &decision {
         CompileDecision::Admit => {
             eprintln!(
@@ -235,37 +443,89 @@ pub(crate) fn build_pack(
     };
 
     // ---- FST health, plus the real foma payload when this same compile succeeds ----------------
-    let (fst_health, real_foma_payload): (pg_foma::health::HealthReport, Option<Vec<u8>>) =
-        if watchdog {
-            (run_fst_health_under_watchdog(grammar_path)?, None)
+    let (
+        mut fst_health,
+        real_foma_payload,
+        gated_compile_findings,
+        gated_compile_error,
+        gated_emit_report,
+    ): (
+        HealthReport,
+        Option<Vec<u8>>,
+        Vec<HealthFinding>,
+        Option<String>,
+        Option<EmitReport>,
+    ) = if watchdog {
+        let health = run_fst_health_under_watchdog(grammar_path)?;
+        (
+            health.clone(),
+            None,
+            health.findings,
+            Some("watchdog compilation did not return a serializable FST payload".to_string()),
+            None,
+        )
+    } else {
+        let (proposer_result, compile_profile) = if allow_unproven {
+            FomaProposer::new_unproven_with_profile(grammar)
         } else {
-            let (proposer_result, compile_profile) = FomaProposer::new_with_profile(grammar);
-            match &proposer_result {
-                Ok(proposer) => {
-                    let health = evaluate_health(
-                        None,
-                        Some(&proposer.report),
-                        &[],
-                        &[],
-                        Some(&compile_profile),
-                    );
-                    let foma_bytes = proposer.foma_binary_payload().map_err(|e| {
-                        format!(
+            FomaProposer::new_with_profile(grammar)
+        };
+        match &proposer_result {
+            Ok(proposer) => {
+                let health = evaluate_health(
+                    None,
+                    proposer.report.as_ref(),
+                    &[],
+                    &[],
+                    Some(&compile_profile),
+                );
+                let foma_bytes = proposer.foma_binary_payload().map_err(|e| {
+                    format!(
                         "serializing the compiled foma network to its binary-memory payload: {e}"
                     )
-                    })?;
-                    (health, Some(foma_bytes))
-                }
-                Err(pg_foma::analyzer::FomaError::LexcCompileFailed(report)) => (
-                    evaluate_health(None, Some(report), &[], &[], Some(&compile_profile)),
+                })?;
+                (
+                    health.clone(),
+                    Some(foma_bytes),
+                    health.findings,
                     None,
-                ),
-                Err(_) => (
-                    evaluate_health(None, None, &[], &[], Some(&compile_profile)),
-                    None,
-                ),
+                    proposer.report.clone(),
+                )
             }
-        };
+            Err(error) => {
+                let health = evaluate_foma_error(error, Some(&compile_profile));
+                (
+                    health.clone(),
+                    None,
+                    health.findings,
+                    Some(error.to_string()),
+                    error.emit_report().cloned(),
+                )
+            }
+        }
+    };
+    // Static backend findings remain part of admission even when this compile finishes.
+    fst_health.findings.extend(gated_backend_findings);
+    record_foma_payload_availability(&mut fst_health, real_foma_payload.is_some());
+    let _health_overridden = apply_health_override(
+        &mut fst_health,
+        allow_unproven,
+        authorized_by,
+        reason,
+        watchdog,
+    )?;
+    let backend_assessments = backend_assessments(
+        &selection,
+        crate::GATED_BACKEND,
+        &gated_compile_findings,
+        gated_compile_error.as_deref(),
+        &fst_health,
+    );
+    let fst_completeness = completeness_certificate(
+        crate::GATED_BACKEND,
+        gated_emit_report.as_ref(),
+        real_foma_payload.is_some(),
+    );
     // `None` iff `--watchdog` was used or this compile did not succeed; falls back to the placeholder.
     let foma_payload: &[u8] = real_foma_payload
         .as_deref()
@@ -290,6 +550,8 @@ pub(crate) fn build_pack(
         required_runtime_features,
         capability_trust,
         fst_health,
+        backend_assessments,
+        fst_completeness,
         license: None,
         created_by: format!("pangloss pack {}", env!("CARGO_PKG_VERSION")),
         created_at: now_string(),
@@ -343,6 +605,154 @@ fn run_fst_health_under_watchdog(
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn synthetic_health(severity: Severity) -> HealthReport {
+        HealthReport::new(vec![HealthFinding {
+            code: FindingCode::ResourceBudgetReached,
+            severity,
+            phase: Phase::Compile,
+            affected: vec!["synthetic composite route".to_string()],
+            metric: Metric::UnknownUnboundedWork,
+            value: MetricValue::Count(101),
+            provenance: ValueProvenance::Observed,
+            threshold: Some(MetricValue::Count(100)),
+            explanation: "synthetic health gate".to_string(),
+            remedies: Vec::new(),
+            override_record: None,
+        }])
+    }
+
+    #[test]
+    fn health_warning_publishes_without_override() {
+        let mut report = synthetic_health(Severity::Warning);
+        assert!(!apply_health_override(&mut report, false, None, None, false).unwrap());
+        assert_eq!(report.admission(), Severity::Warning);
+        assert!(report.findings[0].override_record.is_none());
+    }
+
+    #[test]
+    fn health_error_refuses_publication_without_override() {
+        let mut report = synthetic_health(Severity::Error);
+        let error = apply_health_override(&mut report, false, None, None, false).unwrap_err();
+        assert!(error.contains("no .pgpack was written"));
+        assert_eq!(report.admission(), Severity::Error);
+        assert!(report.findings[0].override_record.is_none());
+    }
+
+    #[test]
+    fn health_critical_refuses_publication_without_override() {
+        let mut report = synthetic_health(Severity::Critical);
+        let error = apply_health_override(&mut report, false, None, None, false).unwrap_err();
+        assert!(error.contains("no .pgpack was written"));
+        assert_eq!(report.admission(), Severity::Critical);
+    }
+
+    #[test]
+    fn health_error_development_override_is_recorded_and_admitted() {
+        let mut report = synthetic_health(Severity::Error);
+        assert!(apply_health_override(
+            &mut report,
+            true,
+            Some("test operator"),
+            Some("exercise the fallback"),
+            false,
+        )
+        .unwrap());
+        assert_eq!(report.admission(), Severity::Ideal);
+        let record = report.findings[0].override_record.as_ref().unwrap();
+        assert_eq!(record.authorized_by, "test operator");
+        assert_eq!(record.reason, "exercise the fallback");
+    }
+
+    #[test]
+    fn health_critical_development_override_is_recorded_and_admitted() {
+        let mut report = synthetic_health(Severity::Critical);
+        assert!(apply_health_override(
+            &mut report,
+            true,
+            Some("test operator"),
+            Some("exercise the critical fallback"),
+            false,
+        )
+        .unwrap());
+        assert_eq!(report.admission(), Severity::Ideal);
+        assert!(report.findings[0].override_record.is_some());
+    }
+
+    #[test]
+    fn health_apply_containment_cannot_be_overridden() {
+        let mut report = synthetic_health(Severity::Critical);
+        report.findings[0].phase = Phase::Apply;
+        let error = apply_health_override(&mut report, true, None, None, false).unwrap_err();
+        assert!(error.contains("apply containment"));
+        assert!(report.findings[0].override_record.is_none());
+    }
+
+    #[test]
+    fn missing_foma_payload_is_an_error_before_publication() {
+        let mut report = HealthReport::new(Vec::new());
+        record_foma_payload_availability(&mut report, false);
+
+        assert_eq!(report.admission(), Severity::Error);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(
+            report.findings[0].code,
+            FindingCode::BackendCompilationFailed
+        );
+        assert_eq!(report.findings[0].affected, vec!["foma-payload"]);
+        assert_eq!(report.findings[0].value, MetricValue::Unbounded);
+        assert!(report.findings[0]
+            .explanation
+            .contains("no compiled Foma payload"));
+        assert!(apply_health_override(&mut report, false, None, None, false).is_err());
+    }
+
+    #[test]
+    fn missing_foma_payload_requires_and_records_development_override() {
+        let mut report = HealthReport::new(Vec::new());
+        record_foma_payload_availability(&mut report, false);
+
+        assert!(apply_health_override(
+            &mut report,
+            true,
+            Some("test operator"),
+            Some("exercise the watchdog placeholder path"),
+            false,
+        )
+        .unwrap());
+        assert_eq!(report.admission(), Severity::Ideal);
+        assert!(report.findings[0].override_record.is_some());
+    }
+
+    #[test]
+    fn real_foma_payload_adds_no_availability_finding() {
+        let mut report = HealthReport::new(Vec::new());
+        record_foma_payload_availability(&mut report, true);
+
+        assert!(report.findings.is_empty());
+        assert_eq!(report.admission(), Severity::Ideal);
+    }
+
+    #[test]
+    fn missing_foma_payload_cannot_downgrade_or_override_critical_worker_failure() {
+        let mut report = synthetic_health(Severity::Critical);
+        record_foma_payload_availability(&mut report, false);
+
+        let error = apply_health_override(
+            &mut report,
+            true,
+            Some("test operator"),
+            Some("must not bypass a worker failure"),
+            true,
+        )
+        .unwrap_err();
+        assert!(error.contains("cannot be overridden"));
+        assert_eq!(report.admission(), Severity::Critical);
+        assert!(report
+            .findings
+            .iter()
+            .all(|finding| finding.override_record.is_none()));
+    }
 
     /// A fresh, collision-free scratch directory per test.
     fn scratch_dir(tag: &str) -> std::path::PathBuf {
@@ -468,6 +878,22 @@ mod tests {
                 .is_empty(),
             "a non-reduplicating grammar must declare no runtime operations"
         );
+        assert_eq!(read.manifest.backend_assessments.len(), 3);
+        assert!(read
+            .manifest
+            .backend_assessments
+            .iter()
+            .all(|assessment| assessment.status == "accepted"));
+        let completeness = read
+            .manifest
+            .fst_completeness
+            .as_ref()
+            .expect("a real full FST payload must carry a completeness certificate");
+        assert_eq!(completeness.backend, "tuned-surface-probed");
+        assert_eq!(completeness.uncovered_constructs, 0);
+        assert_eq!(completeness.pending_successors, 0);
+        assert!(!completeness.enumeration_budget_exceeded);
+        assert!(completeness.compiled_payload_present);
     }
 
     /// A `Refuse`-verdict grammar with no `--allow-unproven`: pack must fail and write no file.
@@ -521,6 +947,28 @@ mod tests {
             }
             other => panic!("expected Overridden, got {other:?}"),
         }
+        assert_eq!(read.manifest.backend_assessments.len(), 3);
+        let tuned = read
+            .manifest
+            .backend_assessments
+            .iter()
+            .find(|assessment| assessment.backend == "tuned-surface-probed")
+            .expect("the gated backend must have an assessment");
+        assert_eq!(tuned.status, "refused");
+        assert!(!tuned.failed_predicates.is_empty());
+        assert!(tuned
+            .findings
+            .iter()
+            .any(|finding| finding.override_record.is_some()));
+        assert!(read
+            .manifest
+            .backend_assessments
+            .iter()
+            .any(|assessment| assessment.status == "refused"));
+        assert!(
+            read.manifest.fst_completeness.is_none(),
+            "an overridden partial backend must not receive a completeness certificate"
+        );
     }
 
     /// ADR 0005's indelibility invariant: an overridden pack's stamp survives write -> read and can never read back as `Proven`.

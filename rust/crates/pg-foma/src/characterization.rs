@@ -1,10 +1,10 @@
-//! The cheap, pre-compile health pass: reports constructs, quantifier/alternative products, alpha
+//! The cheap characterization pass: reports constructs, quantifier/alternative products, alpha
 //! tuples, templates/slots, predicted emitted work, peeled/confirm-only expansion, and
 //! unknown/unbounded work without invoking foma. Unknown cost is not itself Critical when
 //! construction is recall-preserving; any uncertainty that could omit an analysis fails closed.
 //!
 //! # Consume, never remeasure (same discipline as `crate::health_evaluator`)
-//! `preflight_findings` takes a `&Grammar`, derives ONE
+//! `characterization_findings` takes a `&Grammar`, derives ONE
 //! `crate::grammar_semantics::GrammarSemantics` from it, and reads exactly two existing, already-
 //! tested, pure-Rust (no foma, no I/O) facts off it — never re-derives their logic itself:
 //! - `crate::grammar_semantics::GrammarSemantics::characteristics` — this crate's own one-time,
@@ -35,7 +35,7 @@
 //! # Two distinct axes this module keeps separate
 //! - **Semantic uncertainty** (`semantic_uncertainty_finding`): [`crate::capability::CompileDecision::
 //!   Refuse`] — at least one construct has no predicate-proven recall-preserving compilation path at
-//!   all. This preflight walk cannot guarantee every HermitCrab analysis survives, so it reports a
+//!   all. This characterization walk cannot guarantee every HermitCrab analysis survives, so it reports a
 //!   `Critical` finding naming every `crate::capability::CapabilityDiagnostic` the gate collected.
 //!   This finding never itself blocks the actual compiler pass (it is evidence, not a second gate —
 //!   `pg-cli`'s own `run_capability_gate`/`pangloss pack` are the real enforcement points a caller
@@ -78,13 +78,11 @@
 //! `Predicted`/`Warning` only, never something that can reject a compile on its own.
 //!
 //! # Design notes
-//! 1. **Every uncertainty finding reuses `crate::health::FindingCode::UnknownUnboundedConstruct`**,
-//!    at different severities (`Critical` for `Refuse`, `Warning` for `ConfirmOnly`/unbounded
-//!    quantifiers/the rule-interaction product) — the SAME "same code, severity carries the
-//!    distinction" pattern `crate::health_evaluator`'s own `unsupported_tier_finding`/
-//!    `partial_tier_finding` already established for `FomaTier::Unsupported` vs. `FomaTier::Partial`,
-//!    deliberately diverging from that code's general "not itself Critical" framing. No new
-//!    `FindingCode` is minted for this.
+//! 1. **Semantic and cost uncertainty use different stable codes.** A `Refuse` verdict is a known
+//!    coverage gap and uses `crate::health::FindingCode::BackendCoverageIncomplete` with
+//!    `crate::health::Metric::BackendCoverageGapCount`. Recall-preserving `ConfirmOnly`, unbounded
+//!    quantifiers, and the rule-interaction proxy remain cost uncertainty and use
+//!    `crate::health::FindingCode::UnknownUnboundedConstruct`.
 //! 2. **`semantic_uncertainty_finding`'s `affected` names each [`crate::capability::
 //!    CapabilityDiagnostic::construct`] string verbatim** (the same field `pg-cli`'s own
 //!    `run_capability_gate`/`pangloss pack` already print to stderr) — never a re-derived
@@ -101,23 +99,125 @@ use crate::capability_entry::best_case_across_backends;
 use crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET;
 use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{
-    FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
+    FindingCode, HealthFinding, Metric, MetricValue, Phase, Remedy, Severity, ValueProvenance,
 };
+
+/// Default logical-work envelope for TunedSurface composite closure. This counts reachable
+/// root/chain-state x rule applications, never affix depth. A caller may request a larger named
+/// envelope and rerun the complete characterization from a clean state.
+pub const DEFAULT_TUNED_CLOSURE_WORK_LIMIT: usize = 3_000;
+
+/// Backend-specific resource characterization for TunedSurface structural closure.
+///
+/// A returned finding is a proven lower bound above `limit`, so it is an operational `Error`: a
+/// complete finite strategy remains known, but this envelope declines to start the expensive
+/// surface-emission pass. `None` means only that this particular proven bound did not exceed the
+/// envelope; it is not a completeness certificate or a prediction that construction will finish.
+pub fn tuned_surface_resource_finding_with_limit(
+    grammar: &Grammar,
+    limit: usize,
+) -> Option<HealthFinding> {
+    let preexpand = crate::preexpand::characterize_preexpand_closure(grammar, limit);
+    let remaining = limit.saturating_sub(preexpand.rule_pairs_visited);
+    let structural = (!preexpand.exceeded)
+        .then(|| crate::emit::characterize_structural_closure(grammar, remaining));
+    if !preexpand.exceeded && structural.as_ref().is_none_or(|work| !work.exceeded) {
+        return None;
+    }
+
+    let mut contributors = preexpand
+        .dominant_rule_ordinals
+        .iter()
+        .map(|&(ordinal, count)| (ordinal, count, "surface pre-expansion"))
+        .collect::<Vec<_>>();
+    if let Some(work) = &structural {
+        contributors.extend(
+            work.dominant_rule_ordinals
+                .iter()
+                .map(|&(ordinal, count)| (ordinal, count, "structural closure")),
+        );
+    }
+    contributors.sort_by_key(|&(ordinal, count, phase)| (std::cmp::Reverse(count), ordinal, phase));
+    contributors.truncate(5);
+    let affected = contributors
+        .into_iter()
+        .map(|(ordinal, count, phase)| {
+            format!("morphological rule ordinal {ordinal} ({count} successors in {phase})")
+        })
+        .collect::<Vec<_>>();
+    let structural_pairs = structural
+        .as_ref()
+        .map_or(0, |work| work.rule_pairs_visited);
+    let visited = preexpand
+        .rule_pairs_visited
+        .saturating_add(structural_pairs);
+    let structural_roots = structural.as_ref().map_or(0, |work| work.root_allomorphs);
+    let structural_rules = structural.as_ref().map_or(0, |work| work.candidate_rules);
+    let safety = "Don't make any change that would make your language invalid!".to_string();
+    Some(HealthFinding {
+        code: FindingCode::ProvenBoundExceedsBudget,
+        severity: Severity::Error,
+        phase: Phase::Characterization,
+        affected,
+        metric: Metric::CompositeRulePairCount,
+        value: MetricValue::Count(visited as u64),
+        provenance: ValueProvenance::ProvenBound,
+        threshold: Some(MetricValue::Count(limit as u64)),
+        explanation: format!(
+            "TunedSurface must visit more than {limit} reachable root/chain-state x rule pairs to \
+             prove complete surface pre-expansion and structural closure. The characterization \
+             stopped after {visited} visits; surface pre-expansion saw {} root allomorphs and {} \
+             candidate rules, while structural closure saw {structural_roots} root allomorphs and \
+             {structural_rules} candidate rules. This is not an affix-depth complaint: the current \
+             TunedSurface operational envelope is too small, so this backend will not start \
+             construction or write a partial FST.",
+            preexpand.root_allomorphs, preexpand.candidate_rules,
+        ),
+        remedies: vec![
+            Remedy {
+                rank: 1,
+                description: "Retry TunedSurface from a clean state with a larger named closure-work envelope; success still requires the complete worklist to empty.".to_string(),
+                requires_linguistic_equivalence: false,
+                caveat: None,
+            },
+            Remedy {
+                rank: 2,
+                description: "Use a backend that represents the reachable ordinary affix sequence with loops or finite counter states; this would make that backend work for your language when its capability report admits every affected rule.".to_string(),
+                requires_linguistic_equivalence: false,
+                caveat: None,
+            },
+            Remedy {
+                rank: 3,
+                description: "If your language permits it, ordering the affected rules or placing mutually exclusive choices in affix slots may reduce the reachable rule-pair product and would make this backend work for your language when the new characterization fits its envelope.".to_string(),
+                requires_linguistic_equivalence: true,
+                caveat: Some(safety),
+            },
+        ],
+        override_record: None,
+    })
+}
+
+/// TunedSurface resource characterization under the shipping envelope.
+pub fn tuned_surface_resource_finding(grammar: &Grammar) -> Option<HealthFinding> {
+    tuned_surface_resource_finding_with_limit(grammar, DEFAULT_TUNED_CLOSURE_WORK_LIMIT)
+}
 
 /// A conservative, uncalibrated placeholder (see this module's doc, "Bounded products"); never used to reject a compile, `Predicted`/`Warning` evidence only.
 const RULE_PRODUCT_WARNING_THRESHOLD: u64 = 64;
 
-/// The preflight walker: every `crate::health::HealthFinding` this crate can derive BEFORE any
+/// The characterization walker: every `crate::health::HealthFinding` this crate can derive BEFORE any
 /// foma compile is attempted, from `g` alone. See this module's own doc for the
 /// semantic-vs-cost-uncertainty split and the bounded-product findings.
-pub fn preflight_findings(g: &Grammar) -> Vec<HealthFinding> {
-    preflight_findings_with_semantics(&GrammarSemantics::derive(g))
+pub fn characterization_findings(g: &Grammar) -> Vec<HealthFinding> {
+    characterization_findings_with_semantics(&GrammarSemantics::derive(g))
 }
 
-/// `preflight_findings` over an already-derived `GrammarSemantics` -- so a caller running
-/// preflight alongside its own capability gate (`pangloss fst-health` is exactly such a caller)
+/// `characterization_findings` over an already-derived `GrammarSemantics` -- so a caller running
+/// characterization alongside its own capability gate (`pangloss fst-health` is exactly such a caller)
 /// characterizes once in total, not once per call site.
-pub fn preflight_findings_with_semantics(semantics: &GrammarSemantics<'_>) -> Vec<HealthFinding> {
+pub fn characterization_findings_with_semantics(
+    semantics: &GrammarSemantics<'_>,
+) -> Vec<HealthFinding> {
     // One derivation, shared, rather than a second characterize walk inside the join.
     let profile = semantics.characteristics();
     let decision = best_case_across_backends(semantics);
@@ -147,17 +247,17 @@ fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFind
         })
         .collect();
     Some(HealthFinding {
-        code: FindingCode::UnknownUnboundedConstruct,
+        code: FindingCode::BackendCoverageIncomplete,
         severity: Severity::Critical,
-        phase: Phase::Preflight,
+        phase: Phase::Characterization,
         affected,
-        metric: Metric::UnknownUnboundedWork,
+        metric: Metric::BackendCoverageGapCount,
         value: MetricValue::Count(diags.len() as u64),
         provenance: ValueProvenance::Observed,
         threshold: None,
         explanation: format!(
             "This grammar's ADR 0001 capability gate resolves to Refuse: {} construct(s) have no \
-             predicate-proven recall-preserving compilation path ({}), so this preflight walk cannot \
+             predicate-proven recall-preserving compilation path ({}), so this characterization walk cannot \
              guarantee every HermitCrab analysis would be retained. R6: any uncertainty that could \
              omit an analysis fails closed. An explicit ADR 0005 capability override can force \
              compilation anyway.",
@@ -169,7 +269,7 @@ fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFind
     })
 }
 
-/// `CompileDecision::ConfirmOnly`: recall-preserving, but this preflight stage has no proven cost bound for the construct(s) that landed here. Always `Warning`/`Predicted`; `None` for `Admit`/`Refuse`.
+/// `CompileDecision::ConfirmOnly`: recall-preserving, but this characterization stage has no proven cost bound for the construct(s) that landed here. Always `Warning`/`Predicted`; `None` for `Admit`/`Refuse`.
 fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding> {
     if !matches!(decision, CompileDecision::ConfirmOnly) {
         return None;
@@ -177,7 +277,7 @@ fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding>
     Some(HealthFinding {
         code: FindingCode::UnknownUnboundedConstruct,
         severity: Severity::Warning,
-        phase: Phase::Preflight,
+        phase: Phase::Characterization,
         affected: Vec::new(),
         metric: Metric::UnknownUnboundedWork,
         value: MetricValue::Unbounded,
@@ -185,7 +285,7 @@ fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding>
         threshold: None,
         explanation: "This grammar's ADR 0001 capability gate resolves to ConfirmOnly: at least \
              one construct rests at a config-predicate-resolved recall-preserving disposition \
-             (propose the superset, HermitCrab confirm prunes false positives), but this preflight \
+             (propose the superset, HermitCrab confirm prunes false positives), but this characterization \
              stage has no proven bound on the FST-compile cost it adds. Not itself Critical (R6: \
              unknown cost in a recall-preserving construction); a recall-preserving compilation \
              attempt is permitted under the shared resource envelope."
@@ -204,7 +304,7 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
             ObservationDetail::QuantifierPattern(d) if !d.all_bounded => Some(HealthFinding {
                 code: FindingCode::UnknownUnboundedConstruct,
                 severity: Severity::Warning,
-                phase: Phase::Preflight,
+                phase: Phase::Characterization,
                 affected: vec![format!("{:?}", d.rule)],
                 metric: Metric::UnknownUnboundedWork,
                 value: MetricValue::Unbounded,
@@ -212,7 +312,7 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
                 threshold: None,
                 explanation: format!(
                     "Rule {:?} has at least one quantifier occurrence with no concrete max bound \
-                     (the DTD's max=\"-1\" Kleene sentinel); this preflight stage cannot bound the \
+                     (the DTD's max=\"-1\" Kleene sentinel); this characterization stage cannot bound the \
                      FST-compile cost this rule adds ahead of time. Not itself Critical (R6): a \
                      recall-preserving compilation attempt is permitted under the shared resource \
                      envelope.",
@@ -234,7 +334,7 @@ fn unordered_stratum_findings(profile: &CharacteristicsProfile) -> Vec<HealthFin
         .map(|d| HealthFinding {
             code: FindingCode::ProvenBoundExceedsBudget,
             severity: Severity::Critical,
-            phase: Phase::Preflight,
+            phase: Phase::Characterization,
             affected: vec![format!("{:?}", d.stratum)],
             metric: Metric::OrderingRuleCount,
             value: MetricValue::Count(d.rule_count as u64),
@@ -263,7 +363,7 @@ fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<
     Some(HealthFinding {
         code: FindingCode::UnknownUnboundedConstruct,
         severity: Severity::Warning,
-        phase: Phase::Preflight,
+        phase: Phase::Characterization,
         affected: Vec::new(),
         metric: Metric::UnknownUnboundedWork,
         value: MetricValue::Count(product),
@@ -271,7 +371,7 @@ fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<
         threshold: Some(MetricValue::Count(RULE_PRODUCT_WARNING_THRESHOLD)),
         explanation: format!(
             "This grammar has {mrule_count} morphological rule(s) and {prule_count} phonological \
-             rule(s) ({mrule_count} x {prule_count} = {product}), above this preflight stage's \
+             rule(s) ({mrule_count} x {prule_count} = {product}), above this characterization stage's \
              conservative {RULE_PRODUCT_WARNING_THRESHOLD}-product warning band. This is a cheap, \
              generic proxy for morphological x phonological rule-interaction surface, not an exact \
              compile-work count; consider whether constraining or decomposing one of the two rule \
@@ -287,7 +387,17 @@ mod tests {
     use super::*;
     use crate::capability_entry::best_case_across_backends;
 
-    /// A synthetic `Unordered` stratum with more loose rules than `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, to check `preflight_findings` raises `ProvenBoundExceedsBudget`/`OrderingRuleCount` before any foma compile.
+    fn load_machine_fixture(path: &str) -> Grammar {
+        let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../machine/conformance")
+            .join(path);
+        let xml = std::fs::read_to_string(&full)
+            .unwrap_or_else(|error| panic!("{}: {error}", full.display()));
+        pg_grammar::load(&xml)
+            .unwrap_or_else(|error| panic!("{} failed to load: {error}", full.display()))
+    }
+
+    /// A synthetic `Unordered` stratum with more loose rules than `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, to check `characterization_findings` raises `ProvenBoundExceedsBudget`/`OrderingRuleCount` before any foma compile.
     fn unordered_overflow_grammar_xml(rule_count: u32) -> String {
         let mut rules = String::new();
         let mut segs = String::new();
@@ -310,7 +420,7 @@ mod tests {
         }
         let rule_ids: Vec<String> = (0..rule_count).map(|i| format!("mr{i}")).collect();
         format!(
-            r#"<HermitCrabInput><Language><Name>PreflightUnorderedFixture</Name>
+            r#"<HermitCrabInput><Language><Name>CharacterizationUnorderedFixture</Name>
               <PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
               <CharacterDefinitionTable id="t1"><Name>Main</Name>
                 <SegmentDefinitions>
@@ -337,21 +447,21 @@ mod tests {
     }
 
     #[test]
-    fn preflight_raises_ordering_rule_count_finding_on_shaped_unordered_grammar() {
+    fn characterization_raises_ordering_rule_count_finding_on_shaped_unordered_grammar() {
         let rule_count = DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1;
         let xml = unordered_overflow_grammar_xml(rule_count);
         let grammar = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture load failed: {e}"));
-        let findings = preflight_findings(&grammar);
+        let findings = characterization_findings(&grammar);
 
         let finding = findings
             .iter()
             .find(|f| f.code == FindingCode::ProvenBoundExceedsBudget)
             .unwrap_or_else(|| {
-                panic!("expected a ProvenBoundExceedsBudget preflight finding, got {findings:?}")
+                panic!("expected a ProvenBoundExceedsBudget characterization finding, got {findings:?}")
             });
         assert_eq!(finding.metric, Metric::OrderingRuleCount);
         assert_eq!(finding.severity, Severity::Critical);
-        assert_eq!(finding.phase, Phase::Preflight);
+        assert_eq!(finding.phase, Phase::Characterization);
         assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
         assert_eq!(finding.value, MetricValue::Count(rule_count as u64));
         assert_eq!(
@@ -377,10 +487,10 @@ mod tests {
 
     /// A comfortably-within-budget unordered stratum must raise no `OrderingRuleCount` finding, proving the check above is real gating.
     #[test]
-    fn preflight_raises_no_ordering_finding_when_within_budget() {
+    fn characterization_raises_no_ordering_finding_when_within_budget() {
         let xml = unordered_overflow_grammar_xml(3);
         let grammar = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture load failed: {e}"));
-        let findings = preflight_findings(&grammar);
+        let findings = characterization_findings(&grammar);
         assert!(
             !findings
                 .iter()
@@ -390,10 +500,65 @@ mod tests {
         );
     }
 
-    /// A clean grammar (no Refuse/ConfirmOnly construct, no unbounded quantifier, small rule-interaction product) must raise no preflight finding at all.
     #[test]
-    fn preflight_raises_nothing_for_a_clean_small_grammar() {
-        const CLEAN_XML: &str = r#"<HermitCrabInput><Language><Name>PreflightCleanFixture</Name>
+    fn tuned_surface_resource_finding_is_error_with_proven_pair_work() {
+        let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
+        let finding = tuned_surface_resource_finding_with_limit(&grammar, 1)
+            .expect("a one-pair envelope must reject this finite structural closure");
+
+        assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
+        assert_eq!(finding.severity, Severity::Error);
+        assert_eq!(finding.phase, Phase::Characterization);
+        assert_eq!(finding.metric, Metric::CompositeRulePairCount);
+        assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
+        assert_eq!(finding.threshold, Some(MetricValue::Count(1)));
+        assert!(matches!(finding.value, MetricValue::Count(value) if value > 1));
+        assert!(
+            !finding.affected.is_empty(),
+            "the dominant contributing rules must be named"
+        );
+        assert!(
+            finding.remedies.iter().any(|remedy| remedy
+                .caveat
+                .as_deref()
+                .is_some_and(|caveat| caveat
+                    .contains("Don't make any change that would make your language invalid!"))),
+            "grammar-editing advice must carry the exact language-validity warning: {finding:?}"
+        );
+    }
+
+    #[test]
+    fn named_larger_tuned_surface_envelope_is_a_clean_resource_retry() {
+        let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
+        assert!(
+            tuned_surface_resource_finding_with_limit(&grammar, usize::MAX).is_none(),
+            "raising the named work envelope must rerun the complete characterization rather than \
+             preserving the earlier refusal"
+        );
+    }
+
+    #[test]
+    fn tuned_surface_resource_finding_includes_preexpand_rule_pairs() {
+        let grammar =
+            load_machine_fixture("languages/suffixing-extension-slot-ordering/grammar.xml");
+        let structural_only = crate::emit::characterize_structural_closure(&grammar, 1);
+        assert!(
+            !structural_only.exceeded,
+            "this control must isolate ordinary surface pre-expansion from structural closure: \
+             {structural_only:?}"
+        );
+
+        let finding = tuned_surface_resource_finding_with_limit(&grammar, 1)
+            .expect("ordinary phonology-sensitive rule pairs must consume the same tuned envelope");
+        assert_eq!(finding.metric, Metric::CompositeRulePairCount);
+        assert_eq!(finding.severity, Severity::Error);
+        assert!(matches!(finding.value, MetricValue::Count(value) if value > 1));
+    }
+
+    /// A clean grammar (no Refuse/ConfirmOnly construct, no unbounded quantifier, small rule-interaction product) must raise no characterization finding at all.
+    #[test]
+    fn characterization_raises_nothing_for_a_clean_small_grammar() {
+        const CLEAN_XML: &str = r#"<HermitCrabInput><Language><Name>CharacterizationCleanFixture</Name>
           <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
@@ -421,17 +586,17 @@ mod tests {
             best_case_across_backends(&GrammarSemantics::derive(&grammar)),
             CompileDecision::Admit
         );
-        let findings = preflight_findings(&grammar);
+        let findings = characterization_findings(&grammar);
         assert!(
             findings.is_empty(),
-            "a clean, tiny grammar must raise no preflight finding: {findings:?}"
+            "a clean, tiny grammar must raise no characterization finding: {findings:?}"
         );
     }
 
     /// A `Refuse` verdict must produce a `Critical` finding naming the construct; the fixture reduplicates on a `RealizationalRule` because only a construct EVERY compiler declines reaches the JOIN.
     /// See docs/research/pg-foma-capability-design-notes.md.
     #[test]
-    fn preflight_raises_critical_finding_for_refuse_verdict() {
+    fn characterization_raises_critical_finding_for_refuse_verdict() {
         const REFUSE_XML: &str = r#"<HermitCrabInput><Language><Name>RedupRealizational</Name>
           <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
@@ -467,14 +632,21 @@ mod tests {
             best_case_across_backends(&GrammarSemantics::derive(&grammar)),
             CompileDecision::Refuse(_)
         ));
-        let findings = preflight_findings(&grammar);
+        let findings = characterization_findings(&grammar);
 
         let finding = findings
             .iter()
             .find(|f| f.severity == Severity::Critical)
-            .unwrap_or_else(|| panic!("expected a Critical preflight finding, got {findings:?}"));
-        assert_eq!(finding.code, FindingCode::UnknownUnboundedConstruct);
-        assert_eq!(finding.phase, Phase::Preflight);
+            .unwrap_or_else(|| {
+                panic!("expected a Critical characterization finding, got {findings:?}")
+            });
+        assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
+        assert_eq!(finding.metric, Metric::BackendCoverageGapCount);
+        assert_eq!(
+            finding.value,
+            MetricValue::Count(finding.affected.len() as u64)
+        );
+        assert_eq!(finding.phase, Phase::Characterization);
         assert_eq!(finding.provenance, ValueProvenance::Observed);
         assert!(
             finding
@@ -495,7 +667,7 @@ mod tests {
             .unwrap_or_else(|| panic!("expected a rule-interaction-product finding"));
         assert_eq!(finding.severity, Severity::Warning);
         assert_eq!(finding.provenance, ValueProvenance::Predicted);
-        assert_eq!(finding.phase, Phase::Preflight);
+        assert_eq!(finding.phase, Phase::Characterization);
         assert_eq!(finding.value, MetricValue::Count(81));
         assert!(finding.affected.is_empty());
 

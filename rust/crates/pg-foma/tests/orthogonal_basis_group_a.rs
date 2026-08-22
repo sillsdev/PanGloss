@@ -227,7 +227,7 @@ fn fixture_of(exercise: &Exercise) -> FixtureRef {
                 "missing conformance fixture {}:{}/{}. If it is an upstream (machine:) fixture, \
                  this worktree's `machine` submodule is not initialized -- run \
                  `rust/tools/conformance.ps1` (pg.ps1 -Mode test/-Mode corpus-test both do it in \
-                 preflight). Panicking rather than skipping on purpose: a fixture this file could \
+                 characterization). Panicking rather than skipping on purpose: a fixture this file could \
                  not LOOK at must never read as a fixture that passed.",
                 exercise.root.label(),
                 exercise.category,

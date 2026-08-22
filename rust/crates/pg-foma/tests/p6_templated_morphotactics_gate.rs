@@ -120,6 +120,9 @@ const BASELINE_MISSES: &[&str] = &[
 const CURRENT_EXPECTED_MISSES: &[&str] = &[];
 
 fn sample_path(name: &str) -> PathBuf {
+    if let Some(root) = std::env::var_os("PANGLOSS_CORPUS_ROOT") {
+        return PathBuf::from(root).join(name);
+    }
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.join("../../../samples/data").join(name)
 }
@@ -161,7 +164,11 @@ fn run_emit_compile_compose() {
     let g = load_grammar();
     let compiled =
         compile_templated_morphotactics(&g).expect("Aweti templated compile pipeline must succeed");
-    let report = &compiled.proposer.report;
+    let report = compiled
+        .proposer
+        .report
+        .as_ref()
+        .expect("the templated emitter supplies its own report");
     let profile = &compiled.profile;
     println!(
         "aweti templated emit: {:?}; tier={:?}; uncovered={}",
@@ -359,6 +366,10 @@ fn run_full_corpus_recall() {
     expected_misses.sort_unstable();
     let mut actual_misses: Vec<&str> = missed_words.iter().map(String::as_str).collect();
     actual_misses.sort_unstable();
+    pg_conformance_fixtures::corpus::record_cases(
+        "aweti_full_corpus_recall_via_compose",
+        n_with_oracle,
+    );
     assert_eq!(
         (n_recalled, n_with_oracle, actual_misses),
         (106, 106, expected_misses),

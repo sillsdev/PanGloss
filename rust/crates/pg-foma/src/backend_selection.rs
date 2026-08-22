@@ -21,16 +21,22 @@
 
 use pg_grammar::model::Grammar;
 
+use crate::advice_catalog::{
+    builtin_catalog, RemedyEffort, BACKEND_BUILD_UNAVAILABLE_SHAPE_KEY,
+    PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY, TUNED_SURFACE_RESOURCE_SHAPE_KEY,
+};
 use crate::capability::{
-    compose_envelope_across_strategies, default_registry, CapabilityDiagnostic, CompileDecision,
-    StrategyEnvelope,
+    compose_envelope_across_strategies, default_registry, meet, CapabilityDiagnostic,
+    CompileDecision, StrategyEnvelope,
 };
 use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
-use crate::advice_catalog::RemedyEffort;
-use crate::health::{HealthFinding, Metric, MetricValue, Severity, ValueProvenance};
+use crate::health::{
+    FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
+};
 use crate::junctions::PhonologyProbe;
+use crate::plan::FragmentSpec;
 use crate::replace::SegAlphabet;
 
 /// The order `BackendSelection::preferred` breaks a tie between viable backends in.
@@ -131,9 +137,7 @@ fn remedy_set_key(set: &[AdviceReference]) -> (usize, usize, usize, Vec<AdviceRe
 ///
 /// Correctness admission is decided before this ordering is consulted. This function only helps
 /// explain which cataloged remedy set would be least work for a backend that is currently blocked.
-pub fn sort_blocking_remedy_sets(
-    sets: Vec<Vec<AdviceReference>>,
-) -> Vec<Vec<AdviceReference>> {
+pub fn sort_blocking_remedy_sets(sets: Vec<Vec<AdviceReference>>) -> Vec<Vec<AdviceReference>> {
     let mut keyed: Vec<_> = sets.into_iter().map(|set| remedy_set_key(&set)).collect();
     keyed.sort_by(|left, right| {
         left.0
@@ -274,6 +278,7 @@ impl BackendReport {
     pub fn refused(strategy: EmissionStrategy, decision: CompileDecision) -> Self {
         let mut report = Self::base(strategy, decision, BackendStatus::Refused);
         report.failed_predicates = Self::predicates_from_decision(&report.decision);
+        attach_capability_refusal(&mut report);
         report
     }
 
@@ -284,6 +289,7 @@ impl BackendReport {
             BackendStatus::Missing,
         );
         report.status_detail = Some(detail.into());
+        attach_operational_failure(&mut report, FindingCode::BackendCompilationFailed);
         report
     }
 
@@ -294,6 +300,7 @@ impl BackendReport {
             BackendStatus::Failed,
         );
         report.status_detail = Some(detail.into());
+        attach_operational_failure(&mut report, FindingCode::BuildProcessFailed);
         report
     }
 
@@ -326,6 +333,198 @@ impl BackendReport {
             CompileDecision::Admit | CompileDecision::ConfirmOnly => &[],
         }
     }
+}
+
+fn capability_shape_key(diagnostic: &CapabilityDiagnostic) -> &'static str {
+    match diagnostic.predicate {
+        "strategy-materializer.marker-subtree-not-buildable" => {
+            PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY
+        }
+        "circumfix-output-action.faithful-structural-composite" => "late-structural-reachability",
+        "reduplication.peel-eligible-rule-kind" => "nonregular-process-morphology",
+        "compounding.non-recursive" | "quantifier.bounded-expansion" => "repeated-application",
+        "unordered-application.chain-depth-bounded" => "unordered-interactions",
+        "multi-table.faithful-table-threading"
+        | "right-to-left-rewrite.faithful-reversal-construction"
+        | "metathesis.faithful-swap-construction"
+        | "simultaneous.subrule-overlap"
+        | "epenthesis.structural-composite-route" => "wide-phonology",
+        _ if diagnostic
+            .construct
+            .to_ascii_lowercase()
+            .contains("truncat")
+            || diagnostic.construct.to_ascii_lowercase().contains("delet") =>
+        {
+            "structural-deletion-or-truncation"
+        }
+        _ if diagnostic.construct.to_ascii_lowercase().contains("slot") => {
+            "optional-slot-branching"
+        }
+        _ if diagnostic.construct.to_ascii_lowercase().contains("null")
+            || diagnostic
+                .construct
+                .to_ascii_lowercase()
+                .contains("zero-surface") =>
+        {
+            "null-cycle"
+        }
+        _ => "nonregular-process-morphology",
+    }
+}
+
+fn attach_capability_refusal(report: &mut BackendReport) {
+    let CompileDecision::Refuse(diagnostics) = &report.decision else {
+        return;
+    };
+    let explanation = diagnostics
+        .iter()
+        .map(|diagnostic| {
+            format!(
+                "predicate={} construct={} witness={}",
+                diagnostic.predicate, diagnostic.construct, diagnostic.witness
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    report.findings.push(HealthFinding {
+        code: FindingCode::BackendCoverageIncomplete,
+        severity: Severity::Critical,
+        phase: Phase::Characterization,
+        affected: diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.construct.clone())
+            .collect(),
+        metric: Metric::BackendCoverageGapCount,
+        value: MetricValue::Count(diagnostics.len() as u64),
+        provenance: ValueProvenance::Observed,
+        threshold: None,
+        explanation: format!(
+            "{:?} cannot prove a complete FST relation for {} characterized construct(s): \
+             {explanation}",
+            report.strategy,
+            diagnostics.len()
+        ),
+        remedies: Vec::new(),
+        override_record: None,
+    });
+
+    let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
+    for diagnostic in diagnostics {
+        let shape_key = capability_shape_key(diagnostic);
+        let entry = catalog
+            .entry_for(shape_key)
+            .expect("every capability-refusal shape must exist in the advice catalog");
+        if !report.shapes.contains(&entry.shape_key) {
+            report.shapes.push(entry.shape_key.clone());
+        }
+        report
+            .advice_references
+            .extend(entry.remedies.iter().map(|remedy| {
+                AdviceReference::new(
+                    entry.shape_key.clone(),
+                    remedy.remedy_key.clone(),
+                    remedy.effort,
+                )
+            }));
+    }
+    report.advice_references =
+        dedup_advice_references(std::mem::take(&mut report.advice_references));
+}
+
+fn attach_operational_failure(report: &mut BackendReport, code: FindingCode) {
+    let detail = report
+        .status_detail
+        .as_deref()
+        .unwrap_or("backend construction did not complete");
+    report.findings.push(HealthFinding {
+        code,
+        severity: Severity::Error,
+        phase: Phase::Compile,
+        affected: vec![format!("{:?}", report.strategy)],
+        metric: Metric::UnknownUnboundedWork,
+        value: MetricValue::Count(1),
+        provenance: ValueProvenance::Observed,
+        threshold: None,
+        explanation: format!("{:?} is not buildable: {detail}", report.strategy),
+        remedies: Vec::new(),
+        override_record: None,
+    });
+
+    let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
+    let entry = catalog
+        .entry_for(BACKEND_BUILD_UNAVAILABLE_SHAPE_KEY)
+        .expect("backend build failures must have a catalog entry");
+    report.shapes.push(entry.shape_key.clone());
+    report
+        .advice_references
+        .extend(entry.remedies.iter().map(|remedy| {
+            AdviceReference::new(
+                entry.shape_key.clone(),
+                remedy.remedy_key.clone(),
+                remedy.effort,
+            )
+        }));
+    report.advice_references =
+        dedup_advice_references(std::mem::take(&mut report.advice_references));
+}
+
+/// Attaches the backend-native TunedSurface resource finding and its catalogued advice.
+fn attach_tuned_surface_resource_finding(report: &mut BackendReport, finding: HealthFinding) {
+    let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
+    let entry = catalog
+        .entry_for(TUNED_SURFACE_RESOURCE_SHAPE_KEY)
+        .expect("the TunedSurface resource finding must have a catalog entry");
+
+    report.findings.push(finding.clone());
+    if !report
+        .failed_predicates
+        .iter()
+        .any(|predicate| predicate == &entry.failed_predicate)
+    {
+        report
+            .failed_predicates
+            .push(entry.failed_predicate.clone());
+    }
+    if !report.shapes.iter().any(|shape| shape == &entry.shape_key) {
+        report.shapes.push(entry.shape_key.clone());
+    }
+    report.cost_evidence.push(CostEvidence {
+        metric: finding.metric,
+        value: finding.value,
+        threshold: finding.threshold,
+        provenance: finding.provenance,
+    });
+    report
+        .advice_references
+        .extend(entry.remedies.iter().map(|remedy| {
+            AdviceReference::new(
+                entry.shape_key.clone(),
+                remedy.remedy_key.clone(),
+                remedy.effort,
+            )
+        }));
+    report.advice_references =
+        dedup_advice_references(std::mem::take(&mut report.advice_references));
+}
+
+fn plan_composed_marker_refusal(markers: &[FragmentSpec]) -> CompileDecision {
+    CompileDecision::Refuse(
+        markers
+            .iter()
+            .map(|marker| {
+                let marker = format!("{marker:?}");
+                CapabilityDiagnostic {
+                    predicate: "strategy-materializer.marker-subtree-not-buildable",
+                    construct: marker.clone(),
+                    witness: format!(
+                        "EmissionStrategy::PlanComposed uses build_controllable, which skips the \
+                         required {marker} subtree; selecting PlanComposed would silently omit its \
+                         material"
+                    ),
+                }
+            })
+            .collect(),
+    )
 }
 
 /// The selector's answer for one grammar: every backend's report, in `BACKEND_PREFERENCE` order.
@@ -367,19 +566,51 @@ impl BackendSelection {
     /// A backend named by `BACKEND_PREFERENCE` but absent from `envelope` is simply omitted; the
     /// envelope, not this list, decides which backends were composed at all.
     pub fn from_envelope(envelope: &StrategyEnvelope) -> Self {
+        Self::from_envelope_with_backend_findings(envelope, None, &[])
+    }
+
+    /// Builds reports from an envelope and optionally attaches the backend-native TunedSurface
+    /// resource characterization.  Every committed backend still receives exactly one report,
+    /// including when TunedSurface is refused by capability admission.
+    pub fn from_envelope_with_tuned_surface_resource_finding(
+        envelope: &StrategyEnvelope,
+        finding: Option<HealthFinding>,
+    ) -> Self {
+        Self::from_envelope_with_backend_findings(envelope, finding, &[])
+    }
+
+    fn from_envelope_with_backend_findings(
+        envelope: &StrategyEnvelope,
+        tuned_surface_finding: Option<HealthFinding>,
+        plan_composed_markers: &[FragmentSpec],
+    ) -> Self {
         let reports = BACKEND_PREFERENCE
             .iter()
             .filter_map(|&strategy| {
-                envelope
-                    .decision_for(strategy)
-                    .map(|decision| {
-                        if matches!(decision, CompileDecision::Refuse(_)) {
-                            BackendReport::refused(strategy, decision.clone())
-                        } else {
-                            BackendReport::accepted(strategy, decision.clone(), Vec::new())
-                                .expect("non-refusing decision must be accepted")
+                envelope.decision_for(strategy).map(|decision| {
+                    let decision = if strategy == EmissionStrategy::PlanComposed
+                        && !plan_composed_markers.is_empty()
+                    {
+                        meet(
+                            decision.clone(),
+                            plan_composed_marker_refusal(plan_composed_markers),
+                        )
+                    } else {
+                        decision.clone()
+                    };
+                    let mut report = if matches!(decision, CompileDecision::Refuse(_)) {
+                        BackendReport::refused(strategy, decision)
+                    } else {
+                        BackendReport::accepted(strategy, decision, Vec::new())
+                            .expect("non-refusing decision must be accepted")
+                    };
+                    if strategy == EmissionStrategy::TunedSurfaceProbed {
+                        if let Some(finding) = tuned_surface_finding.clone() {
+                            attach_tuned_surface_resource_finding(&mut report, finding);
                         }
-                    })
+                    }
+                    report
+                })
             })
             .collect();
         Self::from_reports(reports)
@@ -452,18 +683,52 @@ impl BackendSelection {
 /// since deriving one runs the whole `crate::capability::characterize` walk and a caller that
 /// already holds a semantics should never pay for a second.
 pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
+    select_backends_with_tuned_closure_work_limit(
+        semantics,
+        crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT,
+    )
+}
+
+/// Selects backends under an explicitly named TunedSurface closure-work envelope.
+///
+/// Increasing this limit is a clean resource retry, not a correctness override: characterization
+/// starts again from the grammar, and TunedSurface remains excluded unless the complete measured
+/// floor fits the named envelope.
+pub fn select_backends_with_tuned_closure_work_limit(
+    semantics: &GrammarSemantics<'_>,
+    tuned_closure_work_limit: usize,
+) -> BackendSelection {
     let g = semantics.grammar();
     let alphabet = SegAlphabet::new(surface_table(g));
     let phon = PhonologyProbe::new_with_semantics(semantics);
     let plan = enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref());
     let envelope = compose_envelope_across_strategies(semantics, &plan, &default_registry());
-    BackendSelection::from_envelope(&envelope)
+    let plan_composed_markers = crate::build::unbuildable_markers(&plan);
+    BackendSelection::from_envelope_with_backend_findings(
+        &envelope,
+        crate::characterization::tuned_surface_resource_finding_with_limit(
+            g,
+            tuned_closure_work_limit,
+        ),
+        &plan_composed_markers,
+    )
 }
 
 /// `select_backends` from a bare `&Grammar`, deriving the semantics itself. **Check-only**: nothing
 /// here builds a `foma::types::Fsm`, runs foma, or alters any compile path.
 pub fn select_backends_for_grammar(g: &Grammar) -> BackendSelection {
     select_backends(&GrammarSemantics::derive(g))
+}
+
+/// Bare-grammar form of [`select_backends_with_tuned_closure_work_limit`].
+pub fn select_backends_for_grammar_with_tuned_closure_work_limit(
+    g: &Grammar,
+    tuned_closure_work_limit: usize,
+) -> BackendSelection {
+    select_backends_with_tuned_closure_work_limit(
+        &GrammarSemantics::derive(g),
+        tuned_closure_work_limit,
+    )
 }
 
 #[cfg(test)]
@@ -502,30 +767,24 @@ mod tests {
     }
 
     fn envelope_of(rows: &[(EmissionStrategy, CompileDecision)]) -> BackendSelection {
-        BackendSelection {
-            reports: BACKEND_PREFERENCE
+        BackendSelection::from_reports(
+            BACKEND_PREFERENCE
                 .iter()
                 .filter_map(|&strategy| {
                     rows.iter()
                         .find(|(s, _)| *s == strategy)
-                        .map(|(_, decision)| BackendReport {
-                            strategy,
-                            decision: decision.clone(),
-                            status: if matches!(decision, CompileDecision::Refuse(_)) {
-                                BackendStatus::Refused
-                            } else {
-                                BackendStatus::Accepted
-                            },
-                            findings: Vec::new(),
-                            failed_predicates: Vec::new(),
-                            shapes: Vec::new(),
-                            cost_evidence: Vec::new(),
-                            advice_references: Vec::new(),
-                            status_detail: None,
+                        .map(|(_, decision)| match decision {
+                            CompileDecision::Refuse(_) => {
+                                BackendReport::refused(strategy, decision.clone())
+                            }
+                            CompileDecision::Admit | CompileDecision::ConfirmOnly => {
+                                BackendReport::accepted(strategy, decision.clone(), Vec::new())
+                                    .expect("a non-refusing decision is accepted")
+                            }
                         })
                 })
                 .collect(),
-        }
+        )
     }
 
     /// A refusing backend is excluded and carries its diagnostics; a `ConfirmOnly` one is selected, since `ConfirmOnly` is recall-preserving rather than a defect.
@@ -559,6 +818,15 @@ mod tests {
         assert_eq!(excluded.len(), 1);
         assert_eq!(excluded[0].0, EmissionStrategy::TunedSurfaceProbed);
         assert_eq!(excluded[0].1[0].construct, "stratum 0 (Unordered)");
+        let report = selection
+            .report_for(EmissionStrategy::TunedSurfaceProbed)
+            .expect("the refusal remains reportable");
+        assert_eq!(report.worst_severity(), Severity::Critical);
+        assert_eq!(
+            report.findings()[0].code,
+            FindingCode::BackendCoverageIncomplete
+        );
+        assert!(!report.advice_references().is_empty());
         assert!(!selection.is_no_path());
     }
 

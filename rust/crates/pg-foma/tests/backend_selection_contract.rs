@@ -172,11 +172,11 @@ fn blocking_remedy_sets_sort_hard_then_medium_then_easy_and_deduplicate() {
         ordered,
         vec![
             vec![advice("shape-easy", "shared", RemedyEffort::Easy)],
+            vec![advice("shape-medium", "shared", RemedyEffort::Medium)],
             vec![
                 advice("shape-medium-easy", "other", RemedyEffort::Easy),
                 advice("shape-medium-easy", "shared", RemedyEffort::Medium),
             ],
-            vec![advice("shape-medium", "shared", RemedyEffort::Medium)],
             vec![advice("shape-hard", "shared", RemedyEffort::Hard)],
         ]
     );
@@ -191,14 +191,14 @@ fn shared_remedies_keep_shape_specific_effort_and_report_refs_are_stable() {
     )
     .unwrap()
     .with_diagnostics(
+        vec![],
+        vec![],
+        vec![],
         vec![
             advice("shape-b", "shared-order", RemedyEffort::Hard),
             advice("shape-a", "shared-order", RemedyEffort::Easy),
             advice("shape-a", "shared-order", RemedyEffort::Easy),
         ],
-        vec![],
-        vec![],
-        vec![],
     );
 
     assert_eq!(
@@ -225,4 +225,159 @@ fn accepted_constructor_rejects_refusal() {
         result,
         Err("an accepted backend report cannot carry a refusal")
     );
+}
+
+#[test]
+fn capability_refusal_is_a_typed_critical_with_actionable_advice() {
+    let report = refused(EmissionStrategy::TunedSurfaceProbed);
+    assert_eq!(report.status(), BackendStatus::Refused);
+    assert_eq!(report.worst_severity(), Severity::Critical);
+    assert_eq!(report.findings().len(), 1);
+    assert_eq!(
+        report.findings()[0].code,
+        FindingCode::BackendCoverageIncomplete
+    );
+    assert!(!report.failed_predicates().is_empty());
+    assert!(!report.shapes().is_empty());
+    assert!(!report.advice_references().is_empty());
+}
+
+#[test]
+fn missing_and_failed_backends_are_typed_errors_with_shared_advice() {
+    for report in [
+        BackendReport::missing(
+            EmissionStrategy::TemplatedUnderlyingTokens,
+            "backend executable is unavailable",
+        ),
+        BackendReport::failed(
+            EmissionStrategy::PlanComposed,
+            "compiler process exited unsuccessfully",
+        ),
+    ] {
+        assert_eq!(report.worst_severity(), Severity::Error);
+        assert_eq!(report.findings().len(), 1);
+        assert!(matches!(
+            report.findings()[0].code,
+            FindingCode::BackendCompilationFailed | FindingCode::BuildProcessFailed
+        ));
+        assert_eq!(report.shapes(), &["backend-build-unavailable".to_string()]);
+        assert!(!report.advice_references().is_empty());
+    }
+}
+
+#[test]
+fn tuned_surface_resource_finding_is_reported_and_error_is_not_selected() {
+    let grammar_xml = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../machine/conformance/edge-cases/truncate-morphotactic/grammar.xml"
+    ));
+    let grammar = pg_grammar::load(grammar_xml).expect("resource fixture must load");
+    let selection =
+        pg_foma::backend_selection::select_backends_for_grammar_with_tuned_closure_work_limit(
+            &grammar, 1,
+        );
+    let tuned = selection
+        .report_for(EmissionStrategy::TunedSurfaceProbed)
+        .expect("TunedSurface must always have one report");
+
+    assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
+    assert_eq!(tuned.worst_severity(), Severity::Error);
+    assert_eq!(tuned.findings().len(), 1);
+    assert_eq!(
+        tuned.findings()[0].code,
+        FindingCode::ProvenBoundExceedsBudget
+    );
+    assert_eq!(tuned.findings()[0].metric, Metric::CompositeRulePairCount);
+    assert_eq!(
+        tuned.shapes(),
+        &["tuned-surface-resource-envelope".to_string()]
+    );
+    assert!(tuned
+        .cost_evidence()
+        .iter()
+        .any(|evidence| evidence.metric == Metric::CompositeRulePairCount));
+    assert!(!tuned.advice_references().is_empty());
+    assert!(
+        !selection
+            .selected()
+            .contains(&EmissionStrategy::TunedSurfaceProbed),
+        "a proven resource Error remains reportable but cannot receive an implicit override"
+    );
+    assert!(
+        selection.is_no_path(),
+        "the fixture has no complete route: TunedSurface exceeds the named envelope, Templated \
+         refuses its unordered rules, and PlanComposed cannot build its required structural \
+         subtree: {selection:?}"
+    );
+
+    let retried =
+        pg_foma::backend_selection::select_backends_for_grammar_with_tuned_closure_work_limit(
+            &grammar,
+            usize::MAX,
+        );
+    assert_ne!(
+        retried
+            .report_for(EmissionStrategy::TunedSurfaceProbed)
+            .expect("the retry must retain the TunedSurface report")
+            .worst_severity(),
+        Severity::Error,
+        "a larger named envelope must rerun characterization instead of preserving the Error"
+    );
+}
+
+#[test]
+fn plan_composed_required_subtrees_are_a_typed_critical_refusal() {
+    let grammar_xml = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../machine/conformance/edge-cases/truncate-morphotactic/grammar.xml"
+    ));
+    let grammar = pg_grammar::load(grammar_xml).expect("marker fixture must load");
+    let selection = pg_foma::backend_selection::select_backends_for_grammar(&grammar);
+    let composed = selection
+        .report_for(EmissionStrategy::PlanComposed)
+        .expect("PlanComposed must always have one report");
+
+    assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
+    assert_eq!(composed.status(), BackendStatus::Refused);
+    assert_eq!(composed.worst_severity(), Severity::Critical);
+    assert!(composed.findings().iter().any(|finding| {
+        finding.code == FindingCode::BackendCoverageIncomplete
+            && finding
+                .affected
+                .iter()
+                .any(|affected| affected.contains("Composite") && affected.contains("Marker"))
+    }));
+    assert!(composed
+        .shapes()
+        .contains(&"plan-composed-missing-subtrees".to_string()));
+    assert!(composed.declined_on().iter().any(|diagnostic| {
+        diagnostic.predicate == "strategy-materializer.marker-subtree-not-buildable"
+            && diagnostic.witness.contains("build_controllable")
+    }));
+    assert!(!composed.failed_predicates().is_empty());
+    assert!(!composed.advice_references().is_empty());
+    assert!(
+        !selection
+            .selected()
+            .contains(&EmissionStrategy::PlanComposed),
+        "the selector must not advertise a net that runtime already knows is incomplete"
+    );
+}
+
+#[test]
+fn marker_free_plan_composed_remains_selectable() {
+    let grammar_xml = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../machine/conformance/edge-cases/loader-isactive/grammar.xml"
+    ));
+    let grammar = pg_grammar::load(grammar_xml).expect("marker-free fixture must load");
+    let selection = pg_foma::backend_selection::select_backends_for_grammar(&grammar);
+    let composed = selection
+        .report_for(EmissionStrategy::PlanComposed)
+        .expect("PlanComposed must always have one report");
+
+    assert_eq!(composed.status(), BackendStatus::Accepted);
+    assert!(composed.is_selected());
+    assert!(composed.findings().is_empty());
+    assert!(composed.shapes().is_empty());
 }

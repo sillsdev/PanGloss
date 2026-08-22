@@ -467,8 +467,7 @@ mod tests {
         let m = load_manifest().expect("committed manifest must parse");
         let problems = validate_manifest(&m);
         assert!(problems.is_empty(), "manifest problems: {problems:?}");
-        // The four real grammars this repo's perf and recall tracks depend on.
-        for expected in ["indonesian", "sena", "amharic", "aweti"] {
+        for expected in ["indonesian", "sena", "amharic", "aweti", "mbugwe"] {
             assert!(
                 m.corpora.iter().any(|c| c.logical_name == expected),
                 "manifest must declare the {expected} corpus"
@@ -486,7 +485,7 @@ mod tests {
         );
         // A manifest that declared no gates at all would pass the loop above vacuously.
         let declared: usize = m.corpora.iter().map(|c| c.requiring_tests.len()).sum();
-        assert!(declared >= 4, "only {declared} requiring_tests resolved");
+        assert!(declared >= 5, "only {declared} requiring_tests resolved");
     }
 
     /// Falsification: a synthetic tree, so the check cannot pass by accident of the real crates.

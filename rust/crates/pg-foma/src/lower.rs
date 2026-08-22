@@ -139,7 +139,7 @@ fn slots_contain_alpha(slots: &[Slot]) -> bool {
     })
 }
 
-/// Preflight ceiling on a `Quantifier`'s own finite `max` bound, checked before any xre text is rendered; a finite `max` above this ceiling is honestly reported unsupported, never silently clamped (which would round an honest refusal toward false acceptance). Never applied to a genuinely unbounded quantifier — `max: None` is a different, always-native-size construction, not a bound above this ceiling.
+/// Characterization ceiling on a `Quantifier`'s own finite `max` bound, checked before any xre text is rendered; a finite `max` above this ceiling is honestly reported unsupported, never silently clamped (which would round an honest refusal toward false acceptance). Never applied to a genuinely unbounded quantifier — `max: None` is a different, always-native-size construction, not a bound above this ceiling.
 const MAX_QUANTIFIER_BOUND: u32 = 512;
 
 /// Walk `pattern`'s nodes into `Slot`s, numbering each `Alpha` occurrence sequentially from

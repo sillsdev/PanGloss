@@ -66,11 +66,14 @@ that way.
 this gate is stated as "dedup ON versus dedup OFF", so each test genuinely fails if the mechanism
 is reverted or neutered — a same-path-twice comparison would pass whatever the mechanism did.
 
-## Why `recipe-ordered-generic` is the named firing fixture
+## Why `guesser-pattern-root-fallback` is the named firing fixture
 
-Chosen FROM the sizing census above, not by guessing, because these gates refuse to run
-vacuously and so only a fixture that genuinely produces a duplicate network can exercise them:
-`recipe-ordered-generic` is plans=7 digested=5 DISTINCT=4 duplicates=1.
+The original `backend-ordered-generic` census fixture later acquired a
+`CompositeEmissionMarker`. The PlanComposed compiler now correctly refuses those marker-bearing
+plans instead of producing a potentially incomplete network, so that fixture no longer reaches
+the dedup boundary. `guesser-pattern-root-fallback` has no structural marker or phonological
+rewrite, while its distinct partition plans minimize to the same finished network. It therefore
+exercises completed-network reuse without weakening the honest marker refusal.
 
 It was `recipe-gated-generic`, which the same census reports as plans=5 digested=3 DISTINCT=3
 **duplicates=0** — so all four fire-count-guarded gates failed on `nets_deduped() > 0`, exactly as
@@ -78,8 +81,8 @@ their own assertion message predicted. The guard earned its place: without it th
 have passed VACUOUSLY, since dedup-on and dedup-off are trivially identical on a fixture where
 dedup can never fire.
 
-If this fixture ever stops producing a duplicate, re-read the census and pick another rather than
-relaxing the guard.
+If this fixture ever stops producing a duplicate, re-run the census and pick another completed-net
+witness rather than relaxing the guard or bypassing a capability refusal.
 
 ## `grammar_identity` hashes a non-canonical projection (known RED test)
 

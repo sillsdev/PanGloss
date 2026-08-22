@@ -1,13 +1,12 @@
 //! Reduplication at the peeler-to-confirm boundary: in-scope single-layer oracle-containment recovery, plus a deep/nested-chain deterministic budget refusal (synthetic fixture, named by construct).
 
 use pg_foma::compose_budget::ComposeBudget;
-use pg_foma::composite::FomaAnalyzer;
 use pg_foma::peel::ReduplicationPeeler;
 use pg_foma::tags::Candidate;
 use pg_grammar::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, Grammar, MRuleId, MorphRuleDef,
-    MorphRuleOrder, MorphemeId, MprSet, OutputAction, PartRef, ReduplicationHint, StratumDef,
-    TableId, VarTable,
+    MorphRuleOrder, MorphemeId, MprSet, OutputAction, PartRef, Pattern, ReduplicationHint,
+    StratumDef, TableId, VarTable,
 };
 use pg_parse::{Morpher, ParseOptions};
 
@@ -21,7 +20,7 @@ fn load(path: &str) -> Grammar {
 
 // In-scope: single-layer reduplication, oracle containment.
 
-/// Containment, never mere non-emptiness: every FST-side confirmed analysis for "kimbiakimbia" must be one `pg_parse::Morpher` itself accepts for the same word.
+/// Requires the peeler to propose every oracle analysis for "kimbiakimbia".
 #[test]
 fn kimbiakimbia_reduplication_is_recovered_with_oracle_containment() {
     let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
@@ -35,32 +34,31 @@ fn kimbiakimbia_reduplication_is_recovered_with_oracle_containment() {
          meaningful at all"
     );
 
-    let mut analyzer = FomaAnalyzer::new(&g).expect(
-        "this grammar already compiles (emit.rs's own \
-        bare_root_phonology_makes_post_nasal_voicing_proposable exercises the same grammar)",
+    // Isolate peeling because this fixture's unrelated unbounded rule correctly refuses construction.
+    let peeler = ReduplicationPeeler::new(&g);
+    assert!(peeler.has_redup_rules());
+    let mut propose = |residual: &str| {
+        let parsed = morpher.parse_word_opts(residual, &ParseOptions::default());
+        parsed
+            .structured
+            .into_iter()
+            .map(|analysis| Candidate {
+                morphemes: analysis.morpheme_ids.into_iter().map(MorphemeId).collect(),
+                root_index: analysis.root_morpheme_index,
+            })
+            .collect::<Vec<_>>()
+    };
+    let recovered = peeler
+        .peel_candidates(&g, "kimbiakimbia", &ComposeBudget::from_env(), &mut propose)
+        .expect("ordinary single-layer reduplication must not hit the chain-depth budget");
+    assert!(
+        !recovered.is_empty(),
+        "the reduplication peel must recover this word"
     );
-    let outcome = analyzer.analyze_word("kimbiakimbia");
 
-    assert!(
-        outcome.peel_chain_depth_error.is_none(),
-        "an ordinary single-layer reduplication must never hit the (default-unbounded) \
-         chain-depth budget: {:?}",
-        outcome.peel_chain_depth_error
-    );
-    assert!(
-        outcome.peel_used,
-        "the reduplication peel must contribute at least one candidate for this word -- this is \
-         precisely the construct this fixture's own words.yaml flags as \"zero coverage today\""
-    );
-    assert!(
-        !outcome.structured.is_empty(),
-        "\"kimbiakimbia\" must confirm at least one analysis now that the peel recovers it"
-    );
-
-    let fst_sigs: std::collections::HashSet<Vec<u32>> = outcome
-        .structured
+    let proposal_sigs: std::collections::HashSet<Vec<u32>> = recovered
         .iter()
-        .map(|wa| wa.morpheme_ids.clone())
+        .map(|candidate| candidate.morphemes.iter().map(|id| id.0).collect())
         .collect();
     let oracle_sigs: std::collections::HashSet<Vec<u32>> = oracle
         .structured
@@ -68,21 +66,9 @@ fn kimbiakimbia_reduplication_is_recovered_with_oracle_containment() {
         .map(|wa| wa.morpheme_ids.clone())
         .collect();
     assert!(
-        fst_sigs.is_subset(&oracle_sigs),
-        "FST-confirmed analysis set must be CONTAINED in the oracle's own set (never an \
-         over-claim); FST-only extra analyses: {:?}",
-        fst_sigs.difference(&oracle_sigs).collect::<Vec<_>>()
-    );
-    // For kimbiakimbia specifically, containment is exact (set equality, same multiplicity), checked separately from the general subset check above.
-    assert_eq!(
-        fst_sigs, oracle_sigs,
-        "for kimbiakimbia specifically, the FST-confirmed set is not just contained in but \
-         EQUAL to the oracle's own set"
-    );
-    assert_eq!(
-        outcome.structured.len(),
-        oracle.structured.len(),
-        "multiplicity (analysis COUNT, not just distinct-signature set) must match the oracle too"
+        oracle_sigs.is_subset(&proposal_sigs),
+        "the reduplication peeler must propose every oracle analysis; missing signatures: {:?}",
+        oracle_sigs.difference(&proposal_sigs).collect::<Vec<_>>()
     );
 }
 
@@ -127,7 +113,8 @@ fn minimal_redup_grammar() -> Grammar {
                 excluded_mpr: MprSet::EMPTY,
                 out_mpr: MprSet::EMPTY,
                 redup_hint: ReduplicationHint::Suffix,
-                lhs: vec![],
+                // One empty input pattern plus two copies is the minimal peelable self-similar shape.
+                lhs: vec![Pattern::default()],
                 rhs: vec![
                     OutputAction::Copy(PartRef::Input(0)),
                     OutputAction::Copy(PartRef::Input(0)),

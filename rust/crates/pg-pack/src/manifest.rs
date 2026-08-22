@@ -15,7 +15,8 @@ use crate::compat::RequiredRuntimeFeatures;
 use crate::license::LicenseDeclaration;
 use crate::signature::SignatureBlock;
 use crate::trust::CapabilityTrust;
-use pg_foma::health::HealthReport;
+use pg_foma::advice_catalog::RemedyEffort;
+use pg_foma::health::{HealthFinding, HealthReport, Metric, MetricValue, ValueProvenance};
 
 /// The `"format"` tag every pack manifest carries (mirrors `pg_snapshot::FORMAT_TAG`'s own
 /// envelope-tag convention).
@@ -24,7 +25,48 @@ pub const MANIFEST_FORMAT_TAG: &str = "pangloss-pack-manifest";
 /// `PackManifest`'s shape — independent of `crate::format::CONTAINER_VERSION` (the container
 /// framing) and of `crate::compat::RequiredRuntimeFeatures::payload_format_version` (the
 /// runtime-payload format), which each version separately.
-pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
+pub const MANIFEST_SCHEMA_VERSION: u32 = 2;
+
+/// One catalog remedy linked to the grammar shape it addresses for one backend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackendAdviceReference {
+    pub shape_key: String,
+    pub remedy_key: String,
+    pub effort: RemedyEffort,
+}
+
+/// One observed or predicted cost contributing to a backend's report.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BackendCostEvidence {
+    pub metric: Metric,
+    pub value: MetricValue,
+    pub threshold: Option<MetricValue>,
+    pub provenance: ValueProvenance,
+}
+
+/// The complete diagnostic record for one backend, including failed backends.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BackendAssessment {
+    pub backend: String,
+    pub decision: String,
+    pub status: String,
+    pub findings: Vec<HealthFinding>,
+    pub failed_predicates: Vec<String>,
+    pub shapes: Vec<String>,
+    pub cost_evidence: Vec<BackendCostEvidence>,
+    pub advice_references: Vec<BackendAdviceReference>,
+    pub status_detail: Option<String>,
+}
+
+/// Evidence required before a compiled FST payload may be called complete.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FstCompletenessCertificate {
+    pub backend: String,
+    pub uncovered_constructs: usize,
+    pub pending_successors: usize,
+    pub enumeration_budget_exceeded: bool,
+    pub compiled_payload_present: bool,
+}
 
 /// The `.pgpack` pack manifest: canonical JSON, embedded length-prefixed in the container by
 /// `crate::format::write_pack`. Every field this module's own doc names has a slot
@@ -54,6 +96,12 @@ pub struct PackManifest {
     /// `pg_foma::health::HealthReport`/`Severity`/`HealthReport::admission` verbatim --
     /// never redefined here).
     pub fst_health: HealthReport,
+    /// Findings and advice for every considered backend, successful or failed.
+    #[serde(default)]
+    pub backend_assessments: Vec<BackendAssessment>,
+    /// Present only when construction exhausted its worklist and produced a real payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fst_completeness: Option<FstCompletenessCertificate>,
     /// Optional license declaration: declaration/provenance only; never gates analysis.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license: Option<LicenseDeclaration>,
@@ -122,6 +170,14 @@ mod tests {
             },
             capability_trust: CapabilityTrust::Proven,
             fst_health: HealthReport::new(vec![]),
+            backend_assessments: vec![],
+            fst_completeness: Some(FstCompletenessCertificate {
+                backend: "tuned-surface-probed".to_string(),
+                uncovered_constructs: 0,
+                pending_successors: 0,
+                enumeration_budget_exceeded: false,
+                compiled_payload_present: true,
+            }),
             license: None,
             created_by: "synthetic-test-builder".to_string(),
             created_at: "2026-07-24T00:00:00Z".to_string(),

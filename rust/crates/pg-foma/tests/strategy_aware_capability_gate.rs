@@ -386,7 +386,7 @@ fn templated_selector_keeps_ordinary_affixes_and_simple_circumfix_selectable() {
     }
 }
 
-/// Refuses each unsupported allomorph shape while retaining Tuned as a viable path.
+/// Refuses each unsupported allomorph shape without attributing that capability gap to Tuned.
 #[test]
 fn templated_selector_refuses_each_known_unsupported_shape_with_per_allomorph_diagnostics() {
     let fixtures = [
@@ -465,12 +465,12 @@ fn templated_selector_refuses_each_known_unsupported_shape_with_per_allomorph_di
             }),
             "{root:?}:{category}/{name} ({surface}) must retain a precise mrule/allomorph refusal: {diagnostics:?}"
         );
+        let tuned = selection
+            .report_for(EmissionStrategy::TunedSurfaceProbed)
+            .expect("tuned backend must be reported");
         assert!(
-            selection
-                .report_for(EmissionStrategy::TunedSurfaceProbed)
-                .expect("tuned backend must be reported")
-                .is_selected(),
-            "{root:?}:{category}/{name} ({surface}) must keep the tuned backend selectable"
+            !matches!(tuned.decision(), CompileDecision::Refuse(_)),
+            "{root:?}:{category}/{name} ({surface}) must remain within Tuned's capability envelope; resource findings may still exclude it from normal selection: {tuned:?}"
         );
     }
 }

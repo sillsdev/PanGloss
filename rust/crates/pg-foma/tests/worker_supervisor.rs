@@ -183,7 +183,8 @@ fn budget_trip_is_reported_as_budget_tripped_through_the_full_supervisor_round_t
     match outcome {
         WorkerOutcome::Completed(CompileWorkerOutcome::BudgetTripped { detail, health }) => {
             assert!(detail.contains("ordering-multiplicity"), "detail: {detail}");
-            assert_eq!(health.admission(), pg_foma::health::Severity::Critical);
+            // Resource excess is Error; both Error and Critical require a development override.
+            assert_eq!(health.admission(), pg_foma::health::Severity::Error);
         }
         other => panic!("expected Completed(BudgetTripped), got {other:?}"),
     }

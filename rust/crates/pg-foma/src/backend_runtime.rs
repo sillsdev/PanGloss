@@ -286,8 +286,6 @@ pub struct NetDedupSavings {
 #[derive(Debug)]
 pub struct RunEvaluationCache {
     corpus: PreparedCorpus,
-    emission_report: Option<crate::emit::EmitReport>,
-    emission_report_calls: usize,
     divergence: IdentityDivergence,
     /// Measurements indexed by net_reuse_key; `None` disables net-level dedup for this cache (see `Self::without_net_dedup`), enabling a negative-control gate.
     net_measurements: Option<std::collections::HashMap<String, EvaluatedPlan>>,
@@ -302,8 +300,6 @@ impl RunEvaluationCache {
     ) -> Result<Self, OraclePreparationFault> {
         Ok(Self {
             corpus: PreparedCorpus::prepare(grammar, words, budget)?,
-            emission_report: None,
-            emission_report_calls: 0,
             divergence: IdentityDivergence::default(),
             net_measurements: Some(std::collections::HashMap::new()),
             savings: NetDedupSavings::default(),
@@ -451,22 +447,11 @@ impl RunEvaluationCache {
     }
 
     pub fn emission_report_calls(&self) -> usize {
-        self.emission_report_calls
+        0
     }
 
     fn select(&self, words: &[String]) -> PreparedSelection {
         self.corpus.select(words)
-    }
-
-    fn emission_report(&mut self, grammar: &Grammar) -> crate::emit::EmitReport {
-        if self.emission_report.is_none() {
-            self.emission_report_calls += 1;
-            self.emission_report = Some(crate::emit::emit(grammar).report);
-        }
-        self.emission_report
-            .as_ref()
-            .expect("emission report was initialized")
-            .clone()
     }
 }
 
@@ -1075,6 +1060,9 @@ pub struct RuntimeBudget {
     pub apply: Option<u64>,
     pub proposals: Option<u64>,
     pub confirmation: Option<u64>,
+    /// TunedSurface composite-closure logical work. `None` uses the shipping envelope;
+    /// `Some(usize::MAX)` is an explicit clean resource retry without this characterization cap.
+    pub tuned_closure_work_limit: Option<usize>,
     /// Ground-truth oracle step cap. UNLIKE every field above, `None` here does NOT mean
     /// "unbounded" — it means "caller did not override the default", because unbounded is exactly
     /// the defect this field exists to close (an unbounded oracle `Morpher` call is what hung the
@@ -1105,6 +1093,11 @@ pub struct RuntimeBudget {
 }
 
 impl RuntimeBudget {
+    pub fn resolved_tuned_closure_work_limit(&self) -> usize {
+        self.tuned_closure_work_limit
+            .unwrap_or(crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT)
+    }
+
     /// The per-word apply-path envelope this budget puts in force, resolved.
     ///
     /// `Some(usize::MAX)` on either field is honoured as `None` on the `ApplyBudget` — i.e. genuinely
@@ -1440,6 +1433,17 @@ fn build_failed_evaluated(
     )
 }
 
+fn tuned_surface_resource_refusal(grammar: &Grammar, limit: usize) -> Option<String> {
+    crate::characterization::tuned_surface_resource_finding_with_limit(grammar, limit).map(
+        |finding| {
+            format!(
+                "resource characterization refused TunedSurface: {}",
+                finding.explanation
+            )
+        },
+    )
+}
+
 /// `EmissionStrategy::TunedSurfaceProbed`: the default compilation of this grammar, through `FomaProposer::new` (emit -> lexc -> foma compile) rather than `build_controllable`.
 fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     grammar: &Grammar,
@@ -1447,6 +1451,16 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     expected: &[(String, Vec<WordAnalysis>)],
     budget: RuntimeBudget,
 ) -> EvaluatedPlan {
+    if let Some(reason) =
+        tuned_surface_resource_refusal(grammar, budget.resolved_tuned_closure_work_limit())
+    {
+        return failed_evaluated_over(
+            EmissionStrategy::TunedSurfaceProbed,
+            Certification::StaticRejected { reason },
+            0,
+            expected.len() as u64,
+        );
+    }
     let t = Instant::now();
     let proposer = match FomaProposer::new(grammar) {
         Ok(p) => p,
@@ -1559,7 +1573,15 @@ pub fn evaluate_plans(
     words: &[String],
     budget: RuntimeBudget,
 ) -> Result<Vec<RuntimeEvaluation>, OraclePreparationFault> {
+    eprintln!(
+        "runtime-evaluate: preparing oracle for {} word(s)",
+        words.len()
+    );
     let mut cache = RunEvaluationCache::prepare(grammar, words, budget)?;
+    eprintln!(
+        "runtime-evaluate: oracle prepared; evaluating {} candidate(s)",
+        plans.len()
+    );
     Ok(evaluate_plans_with_cache(
         grammar, plans, words, budget, &mut cache,
     ))
@@ -1616,6 +1638,21 @@ enum RealizedPlanComposed {
     },
 }
 
+fn unbuildable_marker_reason(candidate: &LoweredCandidate) -> Option<String> {
+    let markers = crate::build::unbuildable_markers(&candidate.plan);
+    (!markers.is_empty()).then(|| {
+        format!(
+            "plan structure cannot be honoured by the plan-composed compiler: its plan requires \
+             subtrees build_controllable does not build ({}); use a whole-grammar backend",
+            markers
+                .iter()
+                .map(|marker| format!("{marker:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })
+}
+
 /// Builds one plan-composed candidate's network and turns it into a proposer, kept as its own function so the confirmation-free accuracy path and the certification path always propose from the SAME compiled network; returns an owned proposer because `from_precompiled_network`'s `apply_init` deep-clones the `Fsm`, matching `FomaProposer::new`'s own documented drop-after-`apply_init` lifetime.
 fn realize_plan_composed(
     candidate: &LoweredCandidate,
@@ -1624,7 +1661,6 @@ fn realize_plan_composed(
     alphabet: &SegAlphabet<'_>,
     prules: &[&PhonRuleDef],
     compose: &ComposeBudget,
-    report: crate::emit::EmitReport,
 ) -> RealizedPlanComposed {
     let t = Instant::now();
     let built = build_candidate(candidate, opts, grammar, alphabet, prules, compose);
@@ -1671,7 +1707,7 @@ fn realize_plan_composed(
     // Digested here, after every mutation the net will ever receive (including the arc sort above) and before from_precompiled_network deep-clones it away; digesting earlier would key on a net that isn't the one queried.
     let net_digest = finished_net_digest(&net);
     RealizedPlanComposed::Ready {
-        proposer: FomaProposer::from_precompiled_network(&net, report)
+        proposer: FomaProposer::from_precompiled_network_without_emit_report(&net)
             .with_segment_query_encoder(surface_table(grammar)),
         states,
         arcs,
@@ -1707,7 +1743,6 @@ pub fn finished_net_digests(
             .filter(|limit| *limit != u64::MAX)
             .map(std::time::Duration::from_nanos),
     );
-    let mut report: Option<crate::emit::EmitReport> = None;
     plans
         .iter()
         .map(|candidate| {
@@ -1717,12 +1752,10 @@ pub fn finished_net_digests(
                     candidate.adapter
                 ));
             }
-            let report = report
-                .get_or_insert_with(|| crate::emit::emit(grammar).report)
-                .clone();
-            match realize_plan_composed(
-                candidate, grammar, &opts, &alphabet, &prules, &compose, report,
-            ) {
+            if let Some(reason) = unbuildable_marker_reason(candidate) {
+                return Err(reason);
+            }
+            match realize_plan_composed(candidate, grammar, &opts, &alphabet, &prules, &compose) {
                 RealizedPlanComposed::Ready { net_digest, .. } => Ok(net_digest),
                 RealizedPlanComposed::Failed { certification, .. } => {
                     Err(format!("{certification:?}"))
@@ -1794,6 +1827,16 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
     let evaluated: Vec<EvaluatedPlan> = plans
         .iter()
         .map(|candidate| {
+            if candidate.adapter.interprets_plan() {
+                if let Some(reason) = unbuildable_marker_reason(candidate) {
+                    return failed_evaluated_over(
+                        EmissionStrategy::PlanComposed,
+                        Certification::Unsupported { reason },
+                        0,
+                        expected.len() as u64,
+                    );
+                }
+            }
             // Adapter dispatch comes first: the two whole-grammar adapters never touch build_controllable, so routing them through the composed path below would attribute the wrong compiler's network to the candidate.
             match candidate.adapter {
                 LoweringAdapter::ControllablePlanCompose => {}
@@ -1812,16 +1855,8 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                     }
                 }
             }
-            // Only the plan-composed strategy consumes this report, so whole-grammar candidates don't pay for a duplicate emission.
-            let report = cache.emission_report(grammar);
             let (proposer, score0, build, net_digest) = match realize_plan_composed(
-                candidate,
-                grammar,
-                &opts,
-                &alphabet,
-                &prules,
-                &compose,
-                report,
+                candidate, grammar, &opts, &alphabet, &prules, &compose,
             ) {
                 RealizedPlanComposed::Ready {
                     proposer,
@@ -1920,53 +1955,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                     measured
                 }
             };
-            let certification = measured.evaluation.certification.clone();
-            // Evidence first, fallback second, and only on a real failure: marker presence means the controllable path MIGHT be inadequate, not that it is, so a candidate that confirmed here is done — its verdict came from a network honouring its own plan, strictly better evidence than the tuned fallback (which cannot express a permutation at all) can give.
-            if certification.selectable() {
-                return measured;
-            }
-            let markers = crate::build::unbuildable_markers(&candidate.plan);
-            if markers.is_empty() {
-                // Failed on a network that fully represents its own plan: a real result, reported as is.
-                return measured;
-            }
-            // Failed and the plan needed subtrees build_controllable cannot build: on a templated grammar those subtrees hold nearly all of the productive morphology, so the failure is probably the builder's, not the grammar's.
-            if candidate.is_baseline() {
-                // The tuned path can build them, and for the baseline its network is the default compilation, the right answer.
-                return if OBSERVE {
-                    evaluate_via_tuned_emit_mode::<true>(grammar, words, &expected, budget)
-                } else {
-                    evaluate_via_tuned_emit_mode::<false>(grammar, words, &expected, budget)
-                };
-            }
-            // A permutation cannot be rescued: the tuned path derives topology from its own plan, so putting a permutation through it would measure the baseline network and report it as this permutation. Refuse, naming why.
-            let EvaluatedPlan {
-                evaluation,
-                words,
-                divergence,
-            } = measured;
-            EvaluatedPlan {
-                divergence,
-                evaluation: RuntimeEvaluation {
-                    realized_strategy: EmissionStrategy::PlanComposed,
-                    certification: Certification::Unsupported {
-                        reason: format!(
-                            "plan structure cannot be honoured: it failed on the controllable-only network \
-                             ({certification:?}) and requires subtrees build_controllable cannot build \
-                             ({}); the tuned emit path that can build them derives topology from its own \
-                             plan, so evaluating this permutation there would measure the baseline network \
-                             and report it as this permutation",
-                            markers
-                                .iter()
-                                .map(|m| format!("{m:?}"))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
-                    },
-                    score: evaluation.score,
-                },
-                words,
-            }
+            measured
         })
         .collect();
     // Folded here, after the closure's mutable borrow of `cache` ends, so every path out of this function contributes its divergence exactly once.
@@ -2066,6 +2055,7 @@ pub fn assess_accuracy_with_cache(
                 &alphabet,
                 &prules,
                 &compose,
+                budget.resolved_tuned_closure_work_limit(),
                 cache,
             );
             let (realized_strategy, proposer) = match realized {
@@ -2079,7 +2069,7 @@ pub fn assess_accuracy_with_cache(
                     }
                 }
             };
-            let assessed = assess_one(
+            assess_one(
                 candidate.strategy(),
                 realized_strategy,
                 grammar,
@@ -2088,74 +2078,7 @@ pub fn assess_accuracy_with_cache(
                 &peel_budget,
                 &apply_budget,
                 &selection,
-            );
-            // Evidence first, fallback second, and only on a real failure — mirroring evaluate_plans_with_cache_mode's fallback structure step for step: checking unbuildable_markers before proposing would route a candidate that would have succeeded to a different compiler, since marker presence means the controllable path MIGHT be inadequate, not that it is.
-            if assessed.verdict.is_no_loss() {
-                return assessed;
-            }
-            if realized_strategy != EmissionStrategy::PlanComposed {
-                // A whole-grammar compiler's result is its own answer; there is nothing to fall back to.
-                return assessed;
-            }
-            let markers = crate::build::unbuildable_markers(&candidate.plan);
-            if markers.is_empty() {
-                // Assessed on a network that fully represents its own plan: a real result, as is.
-                return assessed;
-            }
-            // Assessed as lossy and the plan needed subtrees build_controllable cannot build: on a templated grammar those subtrees hold nearly all of the productive morphology, so the loss is probably the builder's, not the grammar's.
-            if !candidate.is_baseline() {
-                // A permutation cannot be rescued: assessing it via the tuned path would measure the baseline network and report it as this permutation. Refuse, naming why, and keep the counters since the check did run.
-                return CandidateAccuracy {
-                    requested_strategy: candidate.strategy(),
-                    realized_strategy: EmissionStrategy::PlanComposed,
-                    verdict: AccuracyVerdict::NotDetermined {
-                        reason: format!(
-                            "plan structure cannot be honoured: it lost analyses on the \
-                             controllable-only network ({:?}) and requires subtrees \
-                             build_controllable cannot build ({}); the tuned emit path that can \
-                             build them derives topology from its own plan, so assessing this \
-                             permutation there would measure the baseline network and report it as \
-                             this permutation",
-                            assessed.verdict,
-                            markers
-                                .iter()
-                                .map(|marker| format!("{marker:?}"))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
-                    },
-                    counters: assessed.counters,
-                };
-            }
-            // The tuned path can build them, and for the baseline its network is the default compilation, the right answer.
-            match FomaProposer::new(grammar) {
-                Ok(tuned) => assess_one(
-                    candidate.strategy(),
-                    EmissionStrategy::TunedSurfaceProbed,
-                    grammar,
-                    tuned,
-                    &peeler,
-                    &peel_budget,
-                    &apply_budget,
-                    &selection,
-                ),
-                Err(e) => CandidateAccuracy {
-                    requested_strategy: candidate.strategy(),
-                    realized_strategy: EmissionStrategy::TunedSurfaceProbed,
-                    verdict: AccuracyVerdict::NotDetermined {
-                        reason: format!(
-                            "plan needs subtrees build_controllable cannot build ({}) and the tuned \
-                             emit path that can build them failed: {e}",
-                            markers
-                                .iter()
-                                .map(|marker| format!("{marker:?}"))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
-                    },
-                    counters: assessed.counters,
-                },
-            }
+            )
         })
         .collect()
 }
@@ -2169,17 +2092,29 @@ fn realize_accuracy_proposer(
     alphabet: &SegAlphabet<'_>,
     prules: &[&PhonRuleDef],
     compose: &ComposeBudget,
-    cache: &mut RunEvaluationCache,
+    tuned_closure_work_limit: usize,
+    _cache: &mut RunEvaluationCache,
 ) -> Result<(EmissionStrategy, FomaProposer), (EmissionStrategy, String)> {
+    if candidate.adapter.interprets_plan() {
+        if let Some(reason) = unbuildable_marker_reason(candidate) {
+            return Err((EmissionStrategy::PlanComposed, reason));
+        }
+    }
     match candidate.adapter {
-        LoweringAdapter::TunedSurfaceEmit => FomaProposer::new(grammar)
-            .map(|proposer| (EmissionStrategy::TunedSurfaceProbed, proposer))
-            .map_err(|e| {
-                (
-                    EmissionStrategy::TunedSurfaceProbed,
-                    format!("tuned emit path failed to build: {e}"),
-                )
-            }),
+        LoweringAdapter::TunedSurfaceEmit => {
+            if let Some(reason) = tuned_surface_resource_refusal(grammar, tuned_closure_work_limit)
+            {
+                return Err((EmissionStrategy::TunedSurfaceProbed, reason));
+            }
+            FomaProposer::new(grammar)
+                .map(|proposer| (EmissionStrategy::TunedSurfaceProbed, proposer))
+                .map_err(|e| {
+                    (
+                        EmissionStrategy::TunedSurfaceProbed,
+                        format!("tuned emit path failed to build: {e}"),
+                    )
+                })
+        }
         LoweringAdapter::TemplatedUnderlyingEmit => {
             crate::templated_compile::compile_templated_morphotactics(grammar)
                 .map(|output| (EmissionStrategy::TemplatedUnderlyingTokens, output.proposer))
@@ -2191,9 +2126,7 @@ fn realize_accuracy_proposer(
                 })
         }
         LoweringAdapter::ControllablePlanCompose => {
-            let report = cache.emission_report(grammar);
-            match realize_plan_composed(candidate, grammar, opts, alphabet, prules, compose, report)
-            {
+            match realize_plan_composed(candidate, grammar, opts, alphabet, prules, compose) {
                 RealizedPlanComposed::Ready { proposer, .. } => {
                     Ok((EmissionStrategy::PlanComposed, proposer))
                 }
@@ -2297,6 +2230,64 @@ mod tests {
 
     fn fixture() -> Grammar {
         parity_fixture_grammar()
+    }
+
+    fn load_machine_fixture(path: &str) -> Grammar {
+        let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../machine/conformance")
+            .join(path);
+        let xml = std::fs::read_to_string(&full)
+            .unwrap_or_else(|error| panic!("{}: {error}", full.display()));
+        pg_grammar::load(&xml)
+            .unwrap_or_else(|error| panic!("{} failed to load: {error}", full.display()))
+    }
+
+    #[test]
+    fn tuned_resource_refusal_happens_before_any_foma_build() {
+        let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
+        let evaluated = evaluate_via_tuned_emit_mode::<false>(
+            &grammar,
+            &[],
+            &[],
+            RuntimeBudget {
+                tuned_closure_work_limit: Some(0),
+                ..RuntimeBudget::default()
+            },
+        );
+
+        assert!(matches!(
+            evaluated.evaluation.certification,
+            Certification::StaticRejected { .. }
+        ));
+        assert_eq!(
+            evaluated.evaluation.score.build, 0,
+            "a characterization refusal must return before FomaProposer::new"
+        );
+    }
+
+    #[test]
+    fn tuned_resource_refusal_also_guards_accuracy_realization() {
+        let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
+        let budget = RuntimeBudget {
+            tuned_closure_work_limit: Some(0),
+            ..RuntimeBudget::default()
+        };
+        let mut cache = RunEvaluationCache::prepare(&grammar, &[], budget)
+            .expect("an empty accuracy corpus needs no oracle work");
+        let candidate = LoweredCandidate {
+            label: "tuned-resource-accuracy-control",
+            plan: crate::plan::Plan::new(),
+            adapter: LoweringAdapter::TunedSurfaceEmit,
+            role: crate::enumerate::CandidateRole::Alternative,
+        };
+
+        let assessed = assess_accuracy_with_cache(&grammar, &[candidate], &[], budget, &mut cache);
+        assert!(matches!(
+            &assessed[0].verdict,
+            AccuracyVerdict::NotDetermined { reason }
+                if reason.contains("resource characterization refused TunedSurface")
+        ));
+        assert_eq!(assessed[0].counters, AccuracyCounters::default());
     }
 
     #[test]

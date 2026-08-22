@@ -1,4 +1,4 @@
-//! Diagnostic that must never call `pg_foma::emit::emit()` or `preexpand::build_composites` directly (both OOM on large grammars); prints `composite_scale_hint`'s cheap pre-flight numbers plus a structural rule-chain count instead, to size template-slot pruning's payoff without paying that cost.
+//! Reports cheap composite characterization counts without constructing the large surface network.
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -19,7 +19,7 @@ fn default_aweti_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/data/aweti.json")
 }
 
-/// Dispatches on file extension: `.json` loads via `pg_grammar::compile_project`; `.xml` uses the legacy `pg_grammar::load` path.
+/// Loads project snapshots or legacy grammar XML according to the file extension.
 fn load_grammar(path: &Path) -> Grammar {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     if ext.eq_ignore_ascii_case("xml") {
@@ -27,10 +27,16 @@ fn load_grammar(path: &Path) -> Grammar {
             .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
         pg_grammar::load(&xml).unwrap_or_else(|e| panic!("load {}: {e}", path.display()))
     } else {
-        let json = std::fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let snapshot = pg_snapshot::Snapshot::from_json(&json)
-            .unwrap_or_else(|e| panic!("parse snapshot {}: {e}", path.display()));
+        let snapshot = if ext.eq_ignore_ascii_case("fwdata") {
+            pg_fwdata::import_file(path)
+                .map(|(snapshot, _)| snapshot)
+                .unwrap_or_else(|e| panic!("import {}: {e}", path.display()))
+        } else {
+            let json = std::fs::read_to_string(path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            pg_snapshot::Snapshot::from_json(&json)
+                .unwrap_or_else(|e| panic!("parse snapshot {}: {e}", path.display()))
+        };
         let (grammar, warnings) = pg_grammar::compile_project(&snapshot)
             .unwrap_or_else(|e| panic!("compile_project {}: {e}", path.display()));
         if !warnings.is_empty() {
@@ -556,6 +562,12 @@ fn main() {
     } else if struct_flat_total > 1_000_000 {
         step("  >>> probe_would_refuse=false (no widening triggered), but the structural FLAT total above is still large -- a real secondary cost floor, even without widening.");
     }
+    let structural_started = Instant::now();
+    let structural = pg_foma::emit::characterize_structural_closure(g, 3_000_000);
+    step(&format!(
+        "structural proven-work floor ({:.1}ms): {structural:?}",
+        structural_started.elapsed().as_secs_f64() * 1000.0
+    ));
 
     step(&format!(
         "TOTAL: {:.1}ms",

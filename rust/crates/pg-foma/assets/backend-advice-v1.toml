@@ -2,6 +2,32 @@
 schema_version = 1
 
 [[entry]]
+shape_key = "backend-build-unavailable"
+backend_id = "compiler-runtime"
+route = "backend-construction"
+failed_predicate = "the backend is unavailable or its compiler process failed"
+evidence_refs = ["route:backend-construction", "predicate:backend-available", "metric:build-process-result"]
+equivalence_caveat = "Don't make any change that would make your language invalid!"
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "retry-backend-build"
+description = "Retrying the backend from a clean build state would make this backend work for your language if the failure was transient."
+effort = "easy"
+prerequisites = ["the backend and its dependencies are installed"]
+contraindications = ["the backend capability report already refuses the grammar"]
+equivalence_caveat = "A clean retry changes build state, not the grammar's linguistic analysis."
+
+[[entry.remedy]]
+rank = 20
+remedy_key = "use-an-admitted-backend"
+description = "Using another admitted backend would make that backend work for your language if it proves complete coverage for every affected construct."
+effort = "medium"
+prerequisites = ["another backend is capability-admitted"]
+contraindications = ["every backend is refused or unavailable"]
+equivalence_caveat = "Backend choice must preserve the complete analysis set."
+
+[[entry]]
 shape_key = "late-structural-reachability"
 backend_id = "foma"
 route = "surface-enumeration"
@@ -103,6 +129,32 @@ contraindications = ["the templates intentionally share optional paths"]
 equivalence_caveat = "Template separation requires checking the complete analysis set."
 
 [[entry]]
+shape_key = "plan-composed-missing-subtrees"
+backend_id = "plan-composed"
+route = "plan-composed-materialization"
+failed_predicate = "the PlanComposed materializer does not build a required plan subtree"
+evidence_refs = ["backend:plan-composed", "route:plan-composed-materialization", "predicate:required-subtree-built", "witness:required-subtree-marker"]
+equivalence_caveat = "Don't make any change that would make your language invalid!"
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "use-whole-grammar-backend"
+description = "Using an admitted whole-grammar backend would provide a complete route for your language without silently omitting the required subtree."
+effort = "easy"
+prerequisites = ["a whole-grammar backend admits every affected construct"]
+contraindications = ["every whole-grammar backend is refused or exceeds its resource envelope"]
+equivalence_caveat = "Backend choice must preserve the complete analysis set."
+
+[[entry.remedy]]
+rank = 20
+remedy_key = "implement-required-plan-subtrees"
+description = "Implementing every named required subtree in PlanComposed would make this backend work for your language once full-grammar equivalence is proven."
+effort = "hard"
+prerequisites = ["the missing subtree semantics are specified and implementable"]
+contraindications = ["the backend architecture cannot express the required relation"]
+equivalence_caveat = "A partial subtree implementation is not a valid fallback."
+
+[[entry]]
 shape_key = "repeated-application"
 backend_id = "foma"
 route = "rule-application-counter"
@@ -151,6 +203,41 @@ effort = "hard"
 prerequisites = ["slot locality is proven equivalent"]
 contraindications = ["the operation crosses slot boundaries"]
 equivalence_caveat = "Slot localization can change cross-slot interactions."
+
+[[entry]]
+shape_key = "tuned-surface-resource-envelope"
+backend_id = "foma"
+route = "surface-composite-closure"
+failed_predicate = "TunedSurface composite closure exceeds the current named resource envelope"
+evidence_refs = ["backend:foma", "route:surface-composite-closure", "predicate:complete-closure", "metric:composite-rule-pair-count"]
+equivalence_caveat = "Don't make any change that would make your language invalid!"
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "retry-larger-closure-envelope"
+description = "Retrying TunedSurface from a clean state with a larger named closure-work envelope would make this backend work for your language if complete closure fits and finishes."
+effort = "easy"
+prerequisites = ["the larger envelope is explicitly named"]
+contraindications = ["the available resource envelope cannot be increased"]
+equivalence_caveat = "A retry changes resources, not the grammar's linguistic analysis."
+
+[[entry.remedy]]
+rank = 20
+remedy_key = "use-loop-capable-backend"
+description = "Using a backend that represents the reachable ordinary affix sequence with loops or finite counter states would make that backend work for your language if it admits every affected rule."
+effort = "medium"
+prerequisites = ["the alternate backend admits every affected rule"]
+contraindications = ["the alternate backend cannot prove complete closure"]
+equivalence_caveat = "Backend choice must preserve the complete analysis set."
+
+[[entry.remedy]]
+rank = 30
+remedy_key = "order-or-slot-localize-rules"
+description = "Ordering the affected rules or placing mutually exclusive choices in affix slots would make this backend work for your language if that structure is valid for the language."
+effort = "hard"
+prerequisites = ["the ordering or slot locality is linguistically proven"]
+contraindications = ["the grammar intentionally permits the other order or cross-slot interaction"]
+equivalence_caveat = "Don't make any change that would make your language invalid!"
 
 [[entry]]
 shape_key = "unordered-interactions"

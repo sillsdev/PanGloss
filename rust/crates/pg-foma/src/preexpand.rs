@@ -69,7 +69,7 @@
 //! implementation still missed "ሄደ" outright). Worse, a fusion can follow a byte-CLEAN step:
 //! "ሌባዎቹ" is `root ሌባ + def.m (clean: "ሌባው") + pl (ው+o fuse: "ሌባዎች") + poss.3m (ች+u fuse:
 //! "ሌባዎቹ")` — caught by the gate at 31/32. `extend` therefore recurses on EVERY successful rule
-//! application (dirty or clean), bounded by `MAX_EXTRA_RULES`, EMITTING a composite (all of the
+//! application (dirty or clean), bounded by the grammar's application counts, EMITTING a composite (all of the
 //! chain's tags, engine morph order) only for dirty steps: a clean step is already realized by the
 //! ordinary per-rule lexc entries, so emitting it would only duplicate paths, but its output word
 //! must still be explored for deeper fusions. Dirtiness at every depth is judged by the SAME
@@ -143,7 +143,7 @@ use crate::morphotactics::{
 use crate::tags;
 
 /// One rule-application/fusion composite: an extra "root-like" lexc entry whose upper tape carries
-/// MULTIPLE tag symbols (root + 1..=`MAX_EXTRA_RULES` rules) instead of one, in the engine's own morph order
+/// MULTIPLE tag symbols (root plus one or more rules) instead of one, in the engine's own morph order
 /// (`morph_order_tags`). Wired by `emit.rs` into one shared `Composites` lexicon reachable from
 /// every roots-lexicon emission site (bare `Root`, `TLRoots`, each `G{gi}Roots`) and continuing
 /// into `CompositeExit` (the union of every post-root continuation), so an interdigitated/fused
@@ -177,7 +177,7 @@ pub struct CompositeReport {
     /// Same count, broken down by recursion depth (0-indexed) -- morphotactic-pruning-plan doc
     /// "Instrumentation": the dynamic tree is the real unknown pruning must be measured against,
     /// and a flat total alone can't show WHERE the cost concentrates.
-    pub pairs_probed_by_depth: [usize; MAX_EXTRA_RULES],
+    pub pairs_probed_by_depth: Vec<usize>,
     /// Number of probed pairs where `synthesize_cached` returned at least one word (morphotactic-
     /// pruning-plan doc "Instrumentation") -- the dynamic-filter yield counterpart to `pairs_probed`.
     pub synth_successes: usize,
@@ -194,9 +194,11 @@ pub struct CompositeReport {
     /// ownership handoff, `candidate_rules`'s own doc) -- `emit.rs` clears ITS uncovered entry from
     /// `crate::emit::build_structural_composites`'s own covered-rules set instead.
     pub covered_infix_rules: std::collections::BTreeSet<u32>,
-    /// Legal synthesized successors found beyond the temporary fixed-depth implementation.
-    /// Any nonzero value means this construction is incomplete and must not ship an artifact.
+    /// Legal synthesized successors found beyond the configured closure-depth resource envelope.
+    /// Any nonzero value proves this construction incomplete and prevents artifact creation.
     pub pending_successors: usize,
+    /// Stable grammar ordinals of rules that produced pending successors.
+    pub pending_rule_ordinals: std::collections::BTreeSet<u32>,
 }
 
 /// Whether this grammar can possibly need either mechanism at all -- `false` short-circuits
@@ -212,11 +214,11 @@ fn any_infix_rule(g: &Grammar) -> bool {
 
 /// Every rule id whose PRIMARY allomorph classifies `Infix`/`Prefix`/`Suffix` (mirrors `emit.rs`'s
 /// own `rule_role` convention for "how this rule is treated" everywhere else in the emitter), MINUS
-/// any `Infix` rule `crate::emit::is_structural_rule` now claims (census C4's ownership handoff —
-/// an `Infix` allomorph that drops LHS material is `build_structural_composites`'s job, not this
-/// module's). `Reduplication` (peel's job, D6), `CircumfixPrefix`/`CircumfixSuffix` (P1d item 3, not
-/// exercised by any reference-grammar corpus fixture at this stage), `Process`, and `None` are out
-/// of this stage's scope.
+/// every rule `crate::emit::is_structural_rule` claims. Structural synthesis owns the whole rule,
+/// including ordinary first allomorphs whose later alternatives require that route; keeping one in
+/// both candidate sets would duplicate closure work and blur which mechanism guarantees recall.
+/// Primary `Reduplication` (the peel's job when structurally invertible),
+/// `CircumfixPrefix`/`CircumfixSuffix`, `Process`, and `None` are out of this stage's scope.
 /// Diagnostic-only: `candidate_rules(g).len()` without exposing the `Role` classification itself
 /// outside the crate (`crate::emit`'s `composite_scale_hint` is the one external caller — see that
 /// function's doc for why this exists).
@@ -233,14 +235,223 @@ fn candidate_rules(g: &Grammar) -> Vec<(MRuleId, Role)> {
         let mid = MRuleId(i as u32);
         let role = rule_role(g, mid);
         if matches!(role, Role::Prefix | Role::Suffix | Role::Infix) {
-            // Ownership handoff (census C4): relinquish an Infix rule the instant it drops LHS material and so qualifies for build_structural_composites instead.
-            if role == Role::Infix && is_structural_rule(g, mid) {
+            if is_structural_rule(g, mid) {
                 continue;
             }
             out.push((mid, role));
         }
     }
     out
+}
+
+/// Whether a realizational rule lacks both an authored bound and the engine's feature-presence
+/// block. A non-empty realizational feature structure is written into the word's syntactic
+/// features and makes the same rule inapplicable on the next step; only an empty one can repeat
+/// without a semantic bound.
+pub(crate) fn realizational_rule_is_semantically_unbounded(g: &Grammar, mid: MRuleId) -> bool {
+    match &g.mrules[mid.0 as usize] {
+        MorphRuleDef::Realizational(rule) => g.fs_interner.get(rule.real_fs).is_empty(),
+        MorphRuleDef::AffixProcess(_) | MorphRuleDef::Compounding(_) => false,
+    }
+}
+
+/// Semantically unbounded realizational candidates whose stable ordinals let the caller refuse
+/// eager closure before it mistakes `u16::MAX` for a finite proof.
+pub(crate) fn unbounded_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
+    candidate_rules(g)
+        .into_iter()
+        .map(|(mid, _)| mid)
+        .filter(|&mid| loose_rule_is_active(g, mid))
+        .filter(|&mid| realizational_rule_is_semantically_unbounded(g, mid))
+        .collect()
+}
+
+/// Pure-Rust count of reachable rule-pair work in TunedSurface pre-expansion. This follows the
+/// production morphotactic transitions, feature checks, application counters, and morphology
+/// synthesizer, but never probes phonology or emits lexc.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PreexpandClosureCharacterization {
+    pub candidate_rules: usize,
+    pub root_allomorphs: usize,
+    pub rule_pairs_visited: usize,
+    pub synthesized_successors: usize,
+    pub limit: usize,
+    pub exceeded: bool,
+    pub dominant_rule_ordinals: Vec<(u32, usize)>,
+}
+
+struct PreexpandCharacterizationContext<'a> {
+    grammar: &'a Grammar,
+    rules: &'a [(MRuleId, Role)],
+    morphotactics: &'a MorphotacticIndex,
+    cache: &'a RuleCache,
+    limit: usize,
+}
+
+fn characterize_preexpand_chain(
+    context: &PreexpandCharacterizationContext<'_>,
+    root_table: &CharDefTable,
+    word: &Word,
+    state: &ChainState,
+    depth: usize,
+    result: &mut PreexpandClosureCharacterization,
+    per_rule: &mut [usize],
+) {
+    if result.exceeded {
+        return;
+    }
+    let base_fs = word.syn_fs.clone();
+    for &(mid, _) in context.rules {
+        let rule = &context.grammar.mrules[mid.0 as usize];
+        let (required, _) = rule_fs_and_morpheme(rule);
+        let Some(next_state) =
+            context
+                .morphotactics
+                .next_state(state, mid, &base_fs, &context.grammar.fs_interner)
+        else {
+            continue;
+        };
+        let required_fs = context.grammar.fs_interner.get(required);
+        if !required_fs.is_empty() && !is_unifiable(required_fs, &base_fs) {
+            continue;
+        }
+
+        result.rule_pairs_visited = result.rule_pairs_visited.saturating_add(1);
+        per_rule[mid.0 as usize] = per_rule[mid.0 as usize].saturating_add(1);
+        if result.rule_pairs_visited > context.limit {
+            result.exceeded = true;
+            return;
+        }
+
+        let synthesized = synthesize_cached(context.grammar, mid, word, rule, context.cache);
+        result.synthesized_successors = result
+            .synthesized_successors
+            .saturating_add(synthesized.len());
+        if depth >= DEFAULT_CLOSURE_DEPTH_BUDGET {
+            continue;
+        }
+        for successor in synthesized {
+            let Some(segments) =
+                surface_probe::probe_synthesize(context.grammar, &successor.shape, context.cache)
+            else {
+                continue;
+            };
+            if !render_all_variants(root_table, &segments)
+                .iter()
+                .any(|surface| !surface.is_empty())
+            {
+                continue;
+            }
+            characterize_preexpand_chain(
+                context,
+                root_table,
+                &successor,
+                &next_state,
+                depth + 1,
+                result,
+                per_rule,
+            );
+            if result.exceeded {
+                return;
+            }
+        }
+    }
+}
+
+pub(crate) fn characterize_preexpand_closure(
+    grammar: &Grammar,
+    limit: usize,
+) -> PreexpandClosureCharacterization {
+    let runs = grammar
+        .strata
+        .iter()
+        .any(|stratum| !stratum.prules.is_empty())
+        || any_infix_rule(grammar);
+    let rules = if runs {
+        candidate_rules(grammar)
+    } else {
+        Vec::new()
+    };
+    let morphotactics = MorphotacticIndex::build(grammar);
+    let cache = RuleCache::build(grammar);
+    let context = PreexpandCharacterizationContext {
+        grammar,
+        rules: &rules,
+        morphotactics: &morphotactics,
+        cache: &cache,
+        limit,
+    };
+    let mut result = PreexpandClosureCharacterization {
+        candidate_rules: rules.len(),
+        root_allomorphs: 0,
+        rule_pairs_visited: 0,
+        synthesized_successors: 0,
+        limit,
+        exceeded: false,
+        dominant_rule_ordinals: Vec::new(),
+    };
+    let mut per_rule = vec![0usize; grammar.mrules.len()];
+
+    for stratum in &grammar.strata {
+        for &entry_id in &stratum.entries {
+            let entry = &grammar.entries[entry_id.0 as usize];
+            let root_stratum = grammar.morphemes[entry.morpheme.0 as usize].stratum;
+            let table =
+                &grammar.char_tables[grammar.strata[root_stratum.0 as usize].table.0 as usize];
+            let entry_fs = grammar.fs_interner.get(entry.syn_fs);
+            for allomorph in &entry.allomorphs {
+                if allomorph.is_pattern {
+                    continue;
+                }
+                let Ok(shape) = pg_rules::shape_feat::segment_with_features(
+                    grammar,
+                    table,
+                    &allomorph.shape.text,
+                ) else {
+                    continue;
+                };
+                result.root_allomorphs = result.root_allomorphs.saturating_add(1);
+                let mut word = Word::new(shape, root_stratum);
+                word.syn_fs = entry_fs.clone();
+                word.mpr = entry.mpr;
+                word.root_allomorph = Some(allomorph.id);
+                word.morphs = vec![MorphRecord::new(allomorph.id, entry.morpheme, 0)];
+                let state = ChainState::seed(grammar, root_stratum.0, entry.partial);
+                characterize_preexpand_chain(
+                    &context,
+                    table,
+                    &word,
+                    &state,
+                    0,
+                    &mut result,
+                    &mut per_rule,
+                );
+                if result.exceeded {
+                    break;
+                }
+            }
+            if result.exceeded {
+                break;
+            }
+        }
+        if result.exceeded {
+            break;
+        }
+    }
+
+    let mut dominant: Vec<(u32, usize)> = per_rule
+        .into_iter()
+        .enumerate()
+        .filter_map(|(ordinal, count)| (count != 0).then_some((ordinal as u32, count)))
+        .collect();
+    dominant.sort_by_key(|&(ordinal, count)| (std::cmp::Reverse(count), ordinal));
+    dominant.truncate(5);
+    result.dominant_rule_ordinals = dominant;
+    result
+}
+
+pub(crate) fn loose_rule_is_active(g: &Grammar, mid: MRuleId) -> bool {
+    g.strata.iter().any(|stratum| stratum.mrules.contains(&mid))
 }
 
 /// `(required_syn_fs, out_syn_fs, owning morpheme)` for the two rule kinds that carry allomorphs; `candidate_rules` filters `Compounding` out before this is ever reached.
@@ -276,7 +487,7 @@ fn morph_order_tags(w: &Word, known: &[(MorphemeId, String)]) -> Option<String> 
 }
 
 /// One rule-allomorph's precomputed ordinary-surface strings, hoisted out of `reachable_via_ordinary_emission`'s hot path; see `build_allomorph_variants`.
-struct AllomorphVariants {
+pub(crate) struct AllomorphVariants {
     /// `surface_variants(text) ∪ phon.variants(text)` for one allomorph's `InsertSegments` text.
     ordinary: Vec<String>,
     /// `phon.deletion_junctions(text)`, prefix-side only, mirroring `emit.rs`'s `{roots}Stripped` convention.
@@ -284,7 +495,7 @@ struct AllomorphVariants {
 }
 
 /// Precomputes `reachable_via_ordinary_emission`'s per-allomorph input once per candidate rule rather than per probe; why this precompute matters at Amharic's probe volume: docs/research/pg-foma-preexpand-design-notes.md.
-fn build_allomorph_variants(
+pub(crate) fn build_allomorph_variants(
     table: &CharDefTable,
     phon: Option<&PhonologyProbe>,
     rule: &MorphRuleDef,
@@ -314,7 +525,7 @@ fn build_allomorph_variants(
 }
 
 /// Whether the ordinary two-entry emission already reaches `fused` through some combination, avoiding a redundant composite entry; the routing rules mirrored from `emit.rs`: docs/research/pg-foma-preexpand-design-notes.md.
-fn reachable_via_ordinary_emission(
+pub(crate) fn reachable_via_ordinary_emission(
     root_variants: &[String],
     root_stripped: &[String],
     allo_variants: &[AllomorphVariants],
@@ -404,8 +615,8 @@ fn render_all_variants(table: &CharDefTable, segs: &[ProbeSeg]) -> Vec<String> {
     variants
 }
 
-/// Bound on total composite chain length beyond the root; why 3, and the Amharic case that set it: docs/research/pg-foma-preexpand-design-notes.md.
-const MAX_EXTRA_RULES: usize = 3;
+/// A live successor at this resource boundary refuses the artifact instead of truncating it.
+pub(crate) const DEFAULT_CLOSURE_DEPTH_BUDGET: usize = 64;
 
 /// One in-progress composite chain step's context, threaded through `extend`'s recursion.
 struct ExtendCtx<'a> {
@@ -431,7 +642,7 @@ struct Acc {
     report: CompositeReport,
 }
 
-/// Tries extending `base_word` with every remaining candidate rule, recursing up to `MAX_EXTRA_RULES`; why `reachable_via_ordinary_emission` is checked uniformly at every depth rather than skipped by a `pre == post` shortcut: docs/research/pg-foma-preexpand-design-notes.md.
+/// Explores authored applications within the closure-depth resource envelope.
 #[allow(clippy::too_many_arguments)]
 fn extend(
     ctx: &ExtendCtx,
@@ -450,15 +661,14 @@ fn extend(
     }
     let base_fs = base_word.syn_fs.clone();
     for (ridx, &(mid, role)) in ctx.rules.iter().enumerate() {
+        if ctx.enum_budget.is_tripped() {
+            return;
+        }
         let rule = &ctx.g.mrules[mid.0 as usize];
         let (req, rule_morpheme) = rule_fs_and_morpheme(rule);
-        // A rule already in this chain does not apply again in the same composite; a cheap guard against re-exploring the same step, not a correctness requirement `synthesize` enforces on its own.
-        if chain.iter().any(|(m, _)| *m == rule_morpheme) {
-            continue;
-        }
         // Restricts recursion to a rule adjacency the stratum/template machinery can actually produce; `Flat` is an A/B-measurement escape hatch, production always runs `Pruned`. A pure subset restriction: it can only skip a candidate the flat version would also have tried.
         let Some(next_state) = (match ctx.mode {
-            ExploreMode::Flat => Some(state.clone()),
+            ExploreMode::Flat => ctx.mt.next_state_unpruned(state, mid),
             ExploreMode::Pruned => ctx.mt.next_state(state, mid, &base_fs, &ctx.g.fs_interner),
         }) else {
             continue;
@@ -469,23 +679,33 @@ fn extend(
             continue;
         }
         acc.report.pairs_probed += 1;
-        if let Some(at_depth) = acc.report.pairs_probed_by_depth.get_mut(depth) {
-            *at_depth += 1;
+        if acc.report.pairs_probed_by_depth.len() <= depth {
+            acc.report.pairs_probed_by_depth.resize(depth + 1, 0);
         }
+        acc.report.pairs_probed_by_depth[depth] += 1;
         if let Some(budget) = &ctx.probe_budget {
             budget.tick();
         }
         ctx.enum_budget.tick_probe();
+        if ctx.enum_budget.is_tripped() {
+            return;
+        }
 
         let synth_out = synthesize_cached(ctx.g, mid, base_word, rule, ctx.cache);
         if !synth_out.is_empty() {
             acc.report.synth_successes += 1;
         }
-        if depth >= MAX_EXTRA_RULES {
+        if depth >= DEFAULT_CLOSURE_DEPTH_BUDGET {
+            if !synth_out.is_empty() {
+                acc.report.pending_rule_ordinals.insert(mid.0);
+            }
             acc.report.pending_successors += synth_out.len();
             continue;
         }
         for w in synth_out {
+            if ctx.enum_budget.is_tripped() {
+                return;
+            }
             let Some(segs) = surface_probe::probe_synthesize(ctx.g, &w.shape, ctx.cache) else {
                 continue;
             };
@@ -545,6 +765,9 @@ fn extend(
                     }
                     // The "composite entries" measure: the one that actually predicts an Aweti-scale blow-up.
                     ctx.enum_budget.add_entries(1);
+                    if ctx.enum_budget.is_tripped() {
+                        return;
+                    }
                 }
                 if is_infix {
                     acc.report.covered_infix_rules.insert(mid.0);
@@ -577,6 +800,9 @@ fn extend(
                 &next_state,
                 acc,
             );
+            if ctx.enum_budget.is_tripped() {
+                return;
+            }
         }
     }
 }
@@ -748,7 +974,7 @@ pub(crate) fn build_composites(
 /// byte-for-byte identical to the old sequential loop's. `rayon::iter::ParallelExtend`/`sum` are
 /// deliberately NOT used for the report counters: a plain ordered fold keeps the merge trivially
 /// auditable against the sequential version, and the counts are cheap `usize` adds regardless.
-/// Recursion inside `extend` itself (depth ≤ `MAX_EXTRA_RULES`) stays entirely sequential, as
+/// Recursion inside `extend` itself stays entirely sequential and grammar-bounded, as
 /// before -- only this OUTERMOST per-root level is parallelized. `RuleCache` is built once here and
 /// shared read-only (its own module doc: "thereafter read-only... shares one `&RuleCache` across
 /// every worker with zero contention"); `PhonologyProbe`'s two per-text caches are `Mutex`-backed
@@ -838,13 +1064,21 @@ pub(crate) fn build_composites_with_mode(
     for (r, rep) in per_entry {
         recs.extend(r);
         report.pairs_probed += rep.pairs_probed;
-        for d in 0..MAX_EXTRA_RULES {
-            report.pairs_probed_by_depth[d] += rep.pairs_probed_by_depth[d];
+        if report.pairs_probed_by_depth.len() < rep.pairs_probed_by_depth.len() {
+            report
+                .pairs_probed_by_depth
+                .resize(rep.pairs_probed_by_depth.len(), 0);
+        }
+        for (depth, count) in rep.pairs_probed_by_depth.into_iter().enumerate() {
+            report.pairs_probed_by_depth[depth] += count;
         }
         report.synth_successes += rep.synth_successes;
         report.interdigitation_entries += rep.interdigitation_entries;
         report.fusion_entries += rep.fusion_entries;
         report.pending_successors += rep.pending_successors;
+        report
+            .pending_rule_ordinals
+            .extend(rep.pending_rule_ordinals);
         report.covered_infix_rules.extend(rep.covered_infix_rules);
     }
 
@@ -1041,6 +1275,48 @@ mod pruning_tests {
         assert_eq!(
             report.pairs_probed_by_depth[0], 1,
             "build_composites must default to Pruned mode (mrB blocked at depth 0)"
+        );
+    }
+
+    #[test]
+    fn ordinary_preexpand_exhausts_a_four_rule_chain() {
+        let phonology = r#"
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="pr1">
+        <Name>identity</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+  <Strata>"#;
+        let xml = include_str!(
+            "../tests/fixtures/pangloss/fst-completeness/late-structural-anchor-five-rule-chain/grammar.xml"
+        )
+        .replacen("<Strata>", phonology, 1)
+        .replacen(
+            "<Stratum characterDefinitionTable=\"t1\"",
+            "<Stratum characterDefinitionTable=\"t1\" phonologicalRules=\"pr1\"",
+            1,
+        );
+        let g = load(&xml);
+        let width = tags::tag_width(g.morphemes.len());
+        let phon = PhonologyProbe::new(&g);
+        let mt = MorphotacticIndex::build(&g);
+
+        let (_, report) = build_composites_with_mode(
+            &g,
+            width,
+            phon.as_ref(),
+            &mt,
+            ExploreMode::Pruned,
+            None,
+            &EnumerationBudget::unbounded(),
+        );
+
+        assert_eq!(report.pending_successors, 0);
+        assert!(
+            report.pairs_probed_by_depth.get(3).copied().unwrap_or(0) > 0,
+            "the fourth ordinary rule must be explored rather than hidden behind a depth boundary"
         );
     }
 

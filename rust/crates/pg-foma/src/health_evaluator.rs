@@ -73,22 +73,14 @@
 //!    edit this evaluator makes: an appended variant, with no renumbering, no removal, no change to
 //!    any existing golden JSON.
 //! 3. **`crate::emit::FomaTier::Partial`'s `uncovered` count maps to
-//!    `FindingCode::UnknownUnboundedConstruct` at `Severity::Warning`**, not
-//!    `Severity::Critical`: `FomaTier::Partial`'s own doc is explicit that this is "still safe to
-//!    use — those constructs simply cannot contribute candidates; nothing was emitted incorrectly"
-//!    — the same shape cost uncertainty gets elsewhere in this schema ("not itself Critical"), even
-//!    though cost uncertainty proper describes *unknown* cost under a
-//!    recall-preserving disposition, and an uncovered construct is instead a *confirmed*, exactly-
-//!    counted zero-candidate gap for those specific occurrences. `FindingCode::UnknownUnboundedConstruct`
-//!    is nonetheless the closest of this schema's ten registered codes for a per-construct coverage
-//!    fact today; a dedicated coverage-gap code is a candidate follow-on if this reuse proves
-//!    confusing in practice. `ValueProvenance::Observed` (not `Predicted`) is used throughout
+//!    `FindingCode::BackendCoverageIncomplete` at `Severity::Critical`**. This is observed semantic
+//!    under-proposal, not uncertain cost: confirmation cannot manufacture a candidate that the
+//!    proposer omitted. `ValueProvenance::Observed` (not `Predicted`) is used throughout
 //!    this module's `FomaTier`-derived findings because the uncovered count is an exact, already-
 //!    counted value, never a heuristic guess.
-//! 4. **`crate::emit::FomaTier::Unsupported` maps to the SAME `FindingCode::UnknownUnboundedConstruct`
-//!    but at `Severity::Critical`**, deliberately diverging from that code's general "not itself
-//!    Critical" framing: `Unsupported` means this compile path produced no usable network at all —
-//!    "any uncertainty that could omit an analysis fails closed" taken to its maximal case
+//! 4. **`crate::emit::FomaTier::Unsupported` maps to `FindingCode::UnknownUnboundedConstruct`
+//!    at `Severity::Error`**: this backend produced no usable network, while another backend may
+//!    succeed. This is "any uncertainty that could omit an analysis fails closed" for one route,
 //!    (total, not partial, coverage loss), not the ordinary bounded-cost-uncertainty shape the code
 //!    otherwise names. `MetricValue::Unbounded` is used here (this compile's residual
 //!    coverage is definitionally unknown, not a countable partial gap).
@@ -134,11 +126,12 @@
 //!     never even needs to check this itself; `profile_findings` is the one and only place this
 //!     gate is enforced.
 
+use crate::analyzer::FomaError;
 use crate::compose_budget::{
     ApplyDimension, ComposeError, NetSizeMeasure, DEFAULT_ARC_BUDGET, DEFAULT_LINE_BUDGET,
     DEFAULT_STATE_BUDGET,
 };
-use crate::emit::{EmitReport, EnumBudgetExceeded, FomaTier};
+use crate::emit::{ClosureRefusalCode, EmitReport, EnumBudgetExceeded, FomaTier};
 use crate::health::{
     severity_for_size_bytes, FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase,
     Remedy, Severity, ValueProvenance,
@@ -318,7 +311,7 @@ fn payload_size_finding(bytes: u64) -> Option<HealthFinding> {
     })
 }
 
-/// `crate::emit::FomaTier::Partial`'s `uncovered` construct occurrences, reported at `Severity::Warning`.
+/// `crate::emit::FomaTier::Partial`'s observed coverage gaps, which refuse normal generation.
 fn partial_tier_finding(report: &EmitReport, uncovered_count: usize) -> HealthFinding {
     let affected: Vec<String> = report
         .uncovered
@@ -326,40 +319,70 @@ fn partial_tier_finding(report: &EmitReport, uncovered_count: usize) -> HealthFi
         .map(|item| item.id.clone())
         .collect();
     HealthFinding {
-        code: FindingCode::UnknownUnboundedConstruct,
-        severity: Severity::Warning,
+        code: FindingCode::BackendCoverageIncomplete,
+        severity: Severity::Critical,
         phase: Phase::Compile,
         affected,
-        metric: Metric::UnknownUnboundedWork,
+        metric: Metric::BackendCoverageGapCount,
         value: MetricValue::Count(uncovered_count as u64),
         provenance: ValueProvenance::Observed,
         threshold: None,
         explanation: format!(
             "{uncovered_count} construct occurrence(s) could not be represented in this \
-             FST-propose network and contribute no candidates for it; this build emitted no \
-             incorrect entries, but recall for analyses that depend on these occurrences relies on \
-             this grammar's other analysis path(s)."
+             FST-propose network and contribute no candidates for it. Confirmation cannot restore \
+             omitted candidates, so normal generation fails closed."
         ),
         remedies: Vec::new(),
         override_record: None,
     }
 }
 
-/// `crate::emit::FomaTier::Unsupported`, deliberately reported at `Severity::Critical` rather than the usual "not itself Critical" framing.
-fn unsupported_tier_finding(reason: &str) -> HealthFinding {
+/// A backend-local unsupported result: no artifact for this route, but not a whole-build invariant failure.
+fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding {
+    let affected = report
+        .closure_refusal
+        .as_ref()
+        .map(|refusal| {
+            refusal
+                .affected_rule_ordinals
+                .iter()
+                .map(|ordinal| format!("mrule{ordinal}"))
+                .collect()
+        })
+        .unwrap_or_default();
+    let value = report
+        .closure_refusal
+        .as_ref()
+        .and_then(|refusal| refusal.pending_successors)
+        .map(|pending| MetricValue::Count(pending as u64))
+        .unwrap_or(MetricValue::Unbounded);
+    let closure_detail = report
+        .closure_refusal
+        .as_ref()
+        .map(|refusal| match refusal.code {
+            ClosureRefusalCode::UnboundedRuleApplication => {
+                " The affected rules have no authored finite application bound.".to_string()
+            }
+            ClosureRefusalCode::DepthBudgetExceeded => format!(
+                " The closure-depth limit was {} and {} legal successor(s) remained.",
+                refusal.depth_limit.unwrap_or_default(),
+                refusal.pending_successors.unwrap_or_default()
+            ),
+        })
+        .unwrap_or_default();
     HealthFinding {
         code: FindingCode::UnknownUnboundedConstruct,
-        severity: Severity::Critical,
+        severity: Severity::Error,
         phase: Phase::Compile,
-        affected: Vec::new(),
+        affected,
         metric: Metric::UnknownUnboundedWork,
-        value: MetricValue::Unbounded,
+        value,
         provenance: ValueProvenance::Observed,
         threshold: None,
         explanation: format!(
             "This grammar's FST-propose path produced no usable network at all ({reason}); this \
              compile path's coverage is entirely unknown, the maximal case of R6's \"any \
-             uncertainty that could omit an analysis fails closed\"."
+             uncertainty that could omit an analysis fails closed\".{closure_detail}"
         ),
         remedies: vec![retry_full_engine_remedy()],
         override_record: None,
@@ -370,7 +393,7 @@ fn unsupported_tier_finding(reason: &str) -> HealthFinding {
 fn enum_budget_finding(exceeded: &EnumBudgetExceeded) -> HealthFinding {
     HealthFinding {
         code: FindingCode::ResourceBudgetReached,
-        severity: Severity::Critical,
+        severity: Severity::Error,
         phase: Phase::Compile,
         affected: Vec::new(),
         metric: Metric::UnknownUnboundedWork,
@@ -389,6 +412,22 @@ fn enum_budget_finding(exceeded: &EnumBudgetExceeded) -> HealthFinding {
     }
 }
 
+fn backend_compilation_failed_finding(detail: String) -> HealthFinding {
+    HealthFinding {
+        code: FindingCode::BackendCompilationFailed,
+        severity: Severity::Error,
+        phase: Phase::Compile,
+        affected: Vec::new(),
+        metric: Metric::UnknownUnboundedWork,
+        value: MetricValue::Unbounded,
+        provenance: ValueProvenance::Observed,
+        threshold: None,
+        explanation: detail,
+        remedies: vec![retry_full_engine_remedy()],
+        override_record: None,
+    }
+}
+
 /// Every `crate::emit::EmitReport`-sourced finding: the tier disposition plus the enumeration-budget finding when present.
 fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
     let mut findings = Vec::new();
@@ -398,7 +437,7 @@ fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
             findings.push(partial_tier_finding(report, *uncovered));
         }
         FomaTier::Unsupported { reason } => {
-            findings.push(unsupported_tier_finding(reason));
+            findings.push(unsupported_tier_finding(report, reason));
         }
     }
     if let Some(exceeded) = &report.enum_budget_exceeded {
@@ -417,7 +456,7 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
             site,
         } => HealthFinding {
             code: FindingCode::ResourceBudgetReached,
-            severity: Severity::Critical,
+            severity: Severity::Error,
             phase: Phase::Compile,
             affected: vec![(*site).to_string()],
             metric: match measure {
@@ -441,7 +480,7 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
             rule_xml_id,
         } => HealthFinding {
             code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::Critical,
+            severity: Severity::Error,
             phase: Phase::Compile,
             affected: vec![rule_xml_id.clone()],
             metric: Metric::AlphaTupleCount,
@@ -462,7 +501,7 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
             gated_subrules,
         } => HealthFinding {
             code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::Critical,
+            severity: Severity::Error,
             phase: Phase::Compile,
             affected: Vec::new(),
             metric: Metric::GateGroupCount,
@@ -479,7 +518,7 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
         },
         ComposeError::EmitLineBudgetExceeded { lines, limit } => HealthFinding {
             code: FindingCode::ResourceBudgetReached,
-            severity: Severity::Critical,
+            severity: Severity::Error,
             phase: Phase::Compile,
             affected: Vec::new(),
             metric: Metric::EmittedLineCount,
@@ -499,7 +538,7 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
             site,
         } => HealthFinding {
             code: FindingCode::ResourceBudgetReached,
-            severity: Severity::Critical,
+            severity: Severity::Error,
             phase: Phase::Compile,
             affected: vec![(*site).to_string()],
             metric: Metric::ElapsedMillis,
@@ -516,7 +555,7 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
         },
         ComposeError::ChainDepthExceeded { depth, limit, site } => HealthFinding {
             code: FindingCode::ResourceBudgetReached,
-            severity: Severity::Critical,
+            severity: Severity::Error,
             phase: Phase::Apply,
             affected: vec![(*site).to_string()],
             metric: Metric::ApplyChainDepth,
@@ -537,7 +576,7 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
             site,
         } => HealthFinding {
             code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::Critical,
+            severity: Severity::Error,
             phase: Phase::Compile,
             affected: vec![(*site).to_string()],
             metric: Metric::OrderingRuleCount,
@@ -559,7 +598,7 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
             limit,
         } => HealthFinding {
             code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::Critical,
+            severity: Severity::Error,
             phase: Phase::Compile,
             affected: Vec::new(),
             metric: Metric::CompoundRootPairCount,
@@ -586,7 +625,7 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
     };
     HealthFinding {
         code: FindingCode::ResourceBudgetReached,
-        severity: Severity::Critical,
+        severity: Severity::Error,
         phase: Phase::Apply,
         affected: trip.word.iter().cloned().collect(),
         metric,
@@ -663,11 +702,178 @@ pub fn evaluate_health(
     HealthReport::new(findings)
 }
 
+/// Converts every typed Foma construction failure into nonempty backend-local health evidence.
+pub fn evaluate_foma_error(
+    error: &FomaError,
+    compile_profile: Option<&CompileProfile>,
+) -> HealthReport {
+    match error {
+        FomaError::LexcCompileFailed(report) => {
+            let mut health = evaluate_health(None, Some(report), &[], &[], compile_profile);
+            health
+                .findings
+                .push(backend_compilation_failed_finding(format!(
+                "The Foma backend could not compile the emitted lexc representation; no usable \
+                 network was produced. Compiler detail: {error}"
+            )));
+            HealthReport::new(health.findings)
+        }
+        FomaError::Unsupported(report)
+        | FomaError::Incomplete(report)
+        | FomaError::EnumerationBudgetExceeded { report, .. } => {
+            let mut health = evaluate_health(None, Some(report), &[], &[], compile_profile);
+            if health.findings.is_empty() {
+                health
+                    .findings
+                    .push(backend_compilation_failed_finding(error.to_string()));
+            }
+            HealthReport::new(health.findings)
+        }
+        FomaError::UnorderedOrderingMultiplicityExceeded { rule_count, limit } => {
+            let compose_error = ComposeError::OrderingMultiplicityExceeded {
+                rule_count: *rule_count,
+                limit: *limit,
+                site: "foma backend unordered-stratum characterization",
+            };
+            evaluate_health(
+                None,
+                None,
+                std::slice::from_ref(&compose_error),
+                &[],
+                compile_profile,
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::emit::{EmitCounts, UncoveredItem};
+    use crate::emit::{
+        ClosureFallbackBackend, ClosureRefusal, ClosureRefusalCode, EmitCounts, UncoveredItem,
+    };
     use std::time::Duration;
+
+    fn synthetic_full_emit_report() -> EmitReport {
+        EmitReport {
+            uncovered: Vec::new(),
+            counts: EmitCounts::default(),
+            tier: FomaTier::Full,
+            enum_budget_exceeded: None,
+            closure_refusal: None,
+        }
+    }
+
+    #[test]
+    fn fst_health_evaluator_every_foma_error_is_nonempty_backend_error() {
+        let enum_report = EmitReport {
+            tier: FomaTier::Unsupported {
+                reason: "synthetic enumeration refusal".to_string(),
+            },
+            enum_budget_exceeded: Some(EnumBudgetExceeded {
+                measure: "synthetic composite work",
+                value: 101,
+                limit: 100,
+            }),
+            ..synthetic_full_emit_report()
+        };
+        let cases = vec![
+            FomaError::LexcCompileFailed(synthetic_full_emit_report()),
+            FomaError::Unsupported(EmitReport {
+                tier: FomaTier::Unsupported {
+                    reason: "synthetic unsupported route".to_string(),
+                },
+                ..synthetic_full_emit_report()
+            }),
+            FomaError::EnumerationBudgetExceeded {
+                measure: "synthetic composite work",
+                value: 101,
+                limit: 100,
+                report: enum_report,
+            },
+            FomaError::UnorderedOrderingMultiplicityExceeded {
+                rule_count: 11,
+                limit: 10,
+            },
+        ];
+
+        for error in cases {
+            let health = evaluate_foma_error(&error, None);
+            assert!(!health.findings.is_empty(), "empty health for {error}");
+            assert_eq!(health.admission(), Severity::Error, "health for {error}");
+        }
+    }
+
+    #[test]
+    fn fst_health_evaluator_lexc_failure_is_explicit_even_with_full_emit_report() {
+        let health = evaluate_foma_error(
+            &FomaError::LexcCompileFailed(synthetic_full_emit_report()),
+            None,
+        );
+        assert!(health
+            .findings
+            .iter()
+            .any(|finding| finding.code == FindingCode::BackendCompilationFailed));
+    }
+
+    #[test]
+    fn fst_health_evaluator_backend_local_budget_failures_are_errors() {
+        let compose_errors = vec![
+            ComposeError::NetSizeExceeded {
+                measure: NetSizeMeasure::States,
+                value: 2,
+                limit: 1,
+                site: "net",
+            },
+            ComposeError::AlphaTupleBudgetExceeded {
+                surviving: 2,
+                limit: 1,
+                rule_xml_id: "mr1".to_string(),
+            },
+            ComposeError::GroupBudgetExceeded {
+                groups: 2,
+                limit: 1,
+                gated_subrules: 1,
+            },
+            ComposeError::EmitLineBudgetExceeded { lines: 2, limit: 1 },
+            ComposeError::ComposeStepTimedOut {
+                elapsed: Duration::from_millis(2),
+                limit: Duration::from_millis(1),
+                site: "compose",
+            },
+            ComposeError::ChainDepthExceeded {
+                depth: 2,
+                limit: 1,
+                site: "apply",
+            },
+            ComposeError::OrderingMultiplicityExceeded {
+                rule_count: 2,
+                limit: 1,
+                site: "ordering",
+            },
+            ComposeError::CompoundPairBudgetExceeded {
+                heads: 1,
+                non_heads: 2,
+                pairs: 2,
+                limit: 1,
+            },
+        ];
+        for error in compose_errors {
+            let health = evaluate_health(None, None, &[error], &[], None);
+            assert_eq!(health.admission(), Severity::Error);
+        }
+
+        let trip = ApplyBudgetTrip {
+            dimension: ApplyDimension::Candidates,
+            value: 2,
+            limit: 1,
+            word: Some("word".to_string()),
+        };
+        assert_eq!(
+            evaluate_health(None, None, &[], &[trip], None).admission(),
+            Severity::Error
+        );
+    }
 
     // fst_health_evaluator_size_bands: payload-size-only inputs, every severity band.
 
@@ -715,7 +921,7 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_evaluator_critical_payload_is_critical_and_overridable() {
+    fn fst_health_evaluator_critical_payload_is_explicitly_overridable() {
         let report = evaluate_health(
             Some(crate::health::ERROR_MAX_BYTES + 1),
             None,
@@ -737,6 +943,7 @@ mod tests {
             counts: EmitCounts::default(),
             tier: FomaTier::Full,
             enum_budget_exceeded: None,
+            closure_refusal: None,
         };
         let health = evaluate_health(None, Some(&report), &[], &[], None);
         assert!(health.findings.is_empty());
@@ -744,7 +951,7 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_evaluator_partial_tier_is_warning_not_critical() {
+    fn fst_health_evaluator_partial_tier_is_critical_coverage_gap() {
         let uncovered = vec![
             UncoveredItem {
                 kind: "infix".to_string(),
@@ -762,18 +969,20 @@ mod tests {
             counts: EmitCounts::default(),
             tier: FomaTier::Partial { uncovered: 2 },
             enum_budget_exceeded: None,
+            closure_refusal: None,
         };
         let health = evaluate_health(None, Some(&report), &[], &[], None);
         assert_eq!(health.findings.len(), 1);
         let finding = &health.findings[0];
-        assert_eq!(finding.code, FindingCode::UnknownUnboundedConstruct);
-        assert_eq!(finding.severity, Severity::Warning);
+        assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
+        assert_eq!(finding.severity, Severity::Critical);
+        assert_eq!(finding.metric, Metric::BackendCoverageGapCount);
         assert_eq!(finding.value, MetricValue::Count(2));
         assert_eq!(
             finding.affected,
             vec!["mrule12#allo0".to_string(), "mrule13#allo0".to_string()]
         );
-        assert_eq!(health.admission(), Severity::Warning);
+        assert_eq!(health.admission(), Severity::Critical);
     }
 
     #[test]
@@ -785,14 +994,39 @@ mod tests {
                 reason: "zero root allomorphs survived synthetic pre-filtering".to_string(),
             },
             enum_budget_exceeded: None,
+            closure_refusal: None,
         };
         let health = evaluate_health(None, Some(&report), &[], &[], None);
         assert_eq!(health.findings.len(), 1);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::UnknownUnboundedConstruct);
-        assert_eq!(finding.severity, Severity::Critical);
+        assert_eq!(finding.severity, Severity::Error);
         assert_eq!(finding.value, MetricValue::Unbounded);
-        assert_eq!(health.admission(), Severity::Critical);
+        assert_eq!(health.admission(), Severity::Error);
+    }
+
+    #[test]
+    fn fst_health_evaluator_preserves_closure_refusal_cause() {
+        let report = EmitReport {
+            uncovered: Vec::new(),
+            counts: EmitCounts::default(),
+            tier: FomaTier::Unsupported {
+                reason: "synthetic incomplete closure".to_string(),
+            },
+            enum_budget_exceeded: None,
+            closure_refusal: Some(ClosureRefusal {
+                code: ClosureRefusalCode::DepthBudgetExceeded,
+                affected_rule_ordinals: vec![3, 7],
+                depth_limit: Some(64),
+                pending_successors: Some(11),
+                remedy_backend: ClosureFallbackBackend::FullMorphologicalParser,
+            }),
+        };
+        let health = evaluate_health(None, Some(&report), &[], &[], None);
+        let finding = &health.findings[0];
+        assert_eq!(finding.affected, vec!["mrule3", "mrule7"]);
+        assert_eq!(finding.value, MetricValue::Count(11));
+        assert!(finding.explanation.contains("closure-depth limit was 64"));
     }
 
     #[test]
@@ -808,6 +1042,7 @@ mod tests {
                 value: 5_001,
                 limit: 5_000,
             }),
+            closure_refusal: None,
         };
         let health = evaluate_health(None, Some(&report), &[], &[], None);
         // One finding for the Unsupported tier, one for the specific tripped budget.
@@ -817,10 +1052,10 @@ mod tests {
             .iter()
             .find(|f| f.code == FindingCode::ResourceBudgetReached)
             .expect("enum budget finding present");
-        assert_eq!(budget_finding.severity, Severity::Critical);
+        assert_eq!(budget_finding.severity, Severity::Error);
         assert_eq!(budget_finding.value, MetricValue::Count(5_001));
         assert_eq!(budget_finding.threshold, Some(MetricValue::Count(5_000)));
-        assert_eq!(health.admission(), Severity::Critical);
+        assert_eq!(health.admission(), Severity::Error);
     }
 
     // fst_health_evaluator_compose_errors: every ComposeError variant maps to a finding.
@@ -841,7 +1076,7 @@ mod tests {
         assert_eq!(finding.value, MetricValue::Count(3_000_000));
         assert_eq!(finding.threshold, Some(MetricValue::Count(2_000_000)));
         assert_eq!(finding.affected, vec!["synthetic-test-site".to_string()]);
-        assert_eq!(health.admission(), Severity::Critical);
+        assert_eq!(health.admission(), Severity::Error);
     }
 
     #[test]
@@ -1093,6 +1328,7 @@ mod tests {
             counts: EmitCounts::default(),
             tier: FomaTier::Partial { uncovered: 1 },
             enum_budget_exceeded: None,
+            closure_refusal: None,
         };
         let compose_error = ComposeError::NetSizeExceeded {
             measure: NetSizeMeasure::Arcs,
@@ -1104,7 +1340,7 @@ mod tests {
     }
 
     const GOLDEN_JSON: &str = r#"{
-  "schema_version": 1,
+  "schema_version": 2,
   "findings": [
     {
       "code": "PGF0001",
@@ -1125,24 +1361,24 @@ mod tests {
       "remedies": []
     },
     {
-      "code": "PGF0007",
-      "severity": "warning",
+      "code": "PGF0013",
+      "severity": "critical",
       "phase": "compile",
       "affected": [
         "mrule0007#allo0"
       ],
-      "metric": "unknown_unbounded_work",
+      "metric": "backend_coverage_gap_count",
       "value": {
         "kind": "count",
         "value": 1
       },
       "provenance": "observed",
-      "explanation": "1 construct occurrence(s) could not be represented in this FST-propose network and contribute no candidates for it; this build emitted no incorrect entries, but recall for analyses that depend on these occurrences relies on this grammar's other analysis path(s).",
+      "explanation": "1 construct occurrence(s) could not be represented in this FST-propose network and contribute no candidates for it. Confirmation cannot restore omitted candidates, so normal generation fails closed.",
       "remedies": []
     },
     {
       "code": "PGF0008",
-      "severity": "critical",
+      "severity": "error",
       "phase": "compile",
       "affected": [
         "synthetic-gate-union-fold"
@@ -1196,7 +1432,7 @@ mod tests {
             &[],
             None,
         );
-        // Two Warning findings + one Critical (non-overridden) -> admission is Critical.
+        // An uncovered construct is Critical even when resource findings have lower severity.
         assert_eq!(health.admission(), Severity::Critical);
     }
 

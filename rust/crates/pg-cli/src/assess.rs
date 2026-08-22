@@ -468,9 +468,9 @@ fn run_cases(
                         code: EXIT_CONTAINED,
                         message,
                     },
-                    pg_foma::analyzer::FomaError::LexcCompileFailed(_) => {
-                        CliError::unsupported(message)
-                    }
+                    pg_foma::analyzer::FomaError::LexcCompileFailed(_)
+                    | pg_foma::analyzer::FomaError::Unsupported(_)
+                    | pg_foma::analyzer::FomaError::Incomplete(_) => CliError::unsupported(message),
                 }
             })?;
             cases

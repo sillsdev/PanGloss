@@ -13,7 +13,7 @@
 //! cited evidence) or `Calibration::Placeholder` (explicitly un-calibrated, with a rationale for
 //! why the chosen number is not arbitrary even though it is not yet evidence-backed). This is the
 //! same discipline `compose_budget.rs`'s "conservative placeholder pending real-grammar
-//! measurement" / `preflight.rs`'s provisional-bound comments already use: provisional values
+//! measurement" / `characterization.rs`'s provisional-bound comments already use: provisional values
 //! must never be presented as release policy without being flagged as such —
 //! made machine-readable here so a report can never silently launder a placeholder
 //! into a value that merely *looks* measured. Never invent a number that looks authoritative: every

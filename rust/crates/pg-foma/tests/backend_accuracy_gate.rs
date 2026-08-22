@@ -232,8 +232,9 @@ fn a_removed_proposal_is_reported_as_the_exact_lost_analysis() {
     let plans = vec![LoweredCandidate {
         label: "accuracy-negative-control",
         plan: baseline_plan(&grammar),
-        adapter: LoweringAdapter::ControllablePlanCompose,
-        role: CandidateRole::Baseline,
+        // Whole-grammar emission isolates missing-analysis accuracy from the marker capability gate.
+        adapter: LoweringAdapter::TunedSurfaceEmit,
+        role: CandidateRole::Alternative,
     }];
     let assessed = assess_accuracy_with_cache(
         &grammar,

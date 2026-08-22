@@ -2,7 +2,7 @@
 //! `docs/research/pg-foma-f3-parity.md` for the denominators, ledger discipline, and timing policy.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use pg_foma::composite::FomaAnalyzer;
@@ -10,8 +10,8 @@ use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions, WordAnalysis};
 
 fn sample_path(name: &str) -> PathBuf {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.join("../../../samples/data").join(name)
+    pg_conformance_fixtures::corpus::path(name)
+        .unwrap_or_else(|| pg_conformance_fixtures::corpus::corpus_root().join(name))
 }
 
 /// Self-skip guard: gitignored real-corpus fixtures aren't present in a fresh clone or CI.
@@ -229,7 +229,7 @@ fn indonesian_121_corpus_words_multiset_parity() {
     assert_eq!(
         words.len(),
         121,
-        "plan §P3 3a requires exactly the 121-word Indonesian corpus"
+        "the reference corpus must contain exactly 121 Indonesian words"
     );
 
     let mut stats = ParityStats::new();
@@ -237,6 +237,10 @@ fn indonesian_121_corpus_words_multiset_parity() {
         let _ = compare_word(&g, &mut analyzer, &morpher, &opts, word, &mut stats);
     }
     stats.report("indonesian (121/121)");
+    pg_conformance_fixtures::corpus::record_cases(
+        "indonesian_121_corpus_words_multiset_parity",
+        words.len(),
+    );
 
     assert_eq!(
         stats.n_excluded, 0,
@@ -268,7 +272,7 @@ fn sena_sample_300_multiset_parity() {
     assert_eq!(
         words.len(),
         300,
-        "plan §P3 3a requires a 300-word Sena sample"
+        "the reference parity sample must contain 300 Sena words"
     );
 
     let mut stats = ParityStats::new();
@@ -276,6 +280,7 @@ fn sena_sample_300_multiset_parity() {
         let _ = compare_word(&g, &mut analyzer, &morpher, &opts, word, &mut stats);
     }
     stats.report("sena (sample-300)");
+    pg_conformance_fixtures::corpus::record_cases("sena_sample_300_multiset_parity", words.len());
 
     assert_eq!(
         stats.n_excluded, 0,
@@ -320,6 +325,10 @@ fn amharic_corpus_words_multiset_parity_impl() {
         }
     }
     stats.report("amharic (full corpus)");
+    pg_conformance_fixtures::corpus::record_cases(
+        "amharic_corpus_words_multiset_parity",
+        words.len(),
+    );
     println!(
         "amharic: {n_zero_analysis_words} compared words had zero engine analyses (both sides \
          empty -- a legitimate non-parse, not a mismatch)"
@@ -335,7 +344,7 @@ fn amharic_corpus_words_multiset_parity_impl() {
         println!(
             "NOTE: {} Amharic corpus word(s) excluded from parity because the full engine itself \
              timed out ({AMHARIC_ENGINE_TIMEOUT:?}/word) -- a timed-out full search cannot be a \
-             parity baseline (plan D7); see tests/f3_interdigitation_gate.rs for the same policy applied \
+             parity baseline; see tests/f3_interdigitation_gate.rs for the same policy applied \
              to the recall gate.",
             stats.n_excluded
         );

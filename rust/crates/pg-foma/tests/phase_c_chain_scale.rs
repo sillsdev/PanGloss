@@ -5,6 +5,9 @@ mod common;
 use std::time::{Duration, Instant};
 
 use pg_foma::analyzer::FomaProposer;
+use pg_foma::emit::FomaTier;
+use pg_foma::health::Severity;
+use pg_foma::health_evaluator::evaluate_health;
 use pg_grammar_gen::oracle::{sweep, OracleOpts};
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
 use pg_parse::{Morpher, ParseOptions};
@@ -24,6 +27,40 @@ fn recipe(n: usize) -> Recipe {
             chain_rule_count: n,
             ..Default::default()
         },
+    }
+}
+
+#[test]
+fn ordinary_affix_depth_five_and_ten_are_not_health_violations() {
+    for depth in [5, 10] {
+        let rendered = pg_grammar_gen::render_indexed(&recipe(depth));
+        let grammar = pg_grammar::load(&rendered.xml).unwrap_or_else(|error| {
+            panic!("generated depth-{depth} chain XML failed to load: {error}")
+        });
+
+        let emitted = pg_foma::emit::emit(&grammar);
+        assert!(
+            matches!(emitted.report.tier, FomaTier::Full),
+            "ordinary depth {depth} must stay fully represented: {:?}",
+            emitted.report.tier
+        );
+        assert!(
+            emitted.report.uncovered.is_empty(),
+            "ordinary depth {depth} must not leave uncovered constructs: {:?}",
+            emitted.report.uncovered
+        );
+        assert!(
+            pg_foma::characterization::tuned_surface_resource_finding(&grammar).is_none(),
+            "ordinary depth {depth} alone must not cross the TunedSurface work envelope"
+        );
+
+        let health = evaluate_health(None, Some(&emitted.report), &[], &[], None);
+        assert_eq!(
+            health.admission(),
+            Severity::Ideal,
+            "ordinary depth {depth} alone must produce no health complaint: {:?}",
+            health.findings
+        );
     }
 }
 

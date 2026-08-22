@@ -1,0 +1,234 @@
+//! Pins complete static backend reports for the five private reference grammars.
+
+use std::time::Instant;
+
+use pg_conformance_fixtures::corpus;
+use pg_foma::backend_selection::{
+    select_backends_for_grammar, select_backends_for_grammar_with_tuned_closure_work_limit,
+    BackendSelection, BackendStatus, BACKEND_PREFERENCE,
+};
+use pg_foma::enumerate::EmissionStrategy;
+use pg_foma::health::{FindingCode, Severity};
+use pg_grammar::model::Grammar;
+
+const INDONESIAN_CLOSURE_WORK_10K_V1: usize = 10_000;
+
+fn load_xml(name: &str) -> Grammar {
+    let path = corpus::require(name);
+    let xml = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+    pg_grammar::load(&xml).unwrap_or_else(|error| panic!("load {}: {error}", path.display()))
+}
+
+fn load_snapshot(name: &str) -> Grammar {
+    let path = corpus::require(name);
+    let json = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+    let snapshot = pg_snapshot::Snapshot::from_json(&json)
+        .unwrap_or_else(|error| panic!("parse {}: {error}", path.display()));
+    pg_grammar::compile_project(&snapshot)
+        .map(|(grammar, _)| grammar)
+        .unwrap_or_else(|error| panic!("compile {}: {error:?}", path.display()))
+}
+
+fn load_fwdata(name: &str) -> Grammar {
+    let path = corpus::require(name);
+    let (snapshot, _) = pg_fwdata::import_file(&path)
+        .unwrap_or_else(|error| panic!("import {}: {error}", path.display()));
+    pg_grammar::compile_project(&snapshot)
+        .map(|(grammar, _)| grammar)
+        .unwrap_or_else(|error| panic!("compile {}: {error:?}", path.display()))
+}
+
+fn characterize(name: &str, grammar: &Grammar) -> BackendSelection {
+    let started = Instant::now();
+    let selection = select_backends_for_grammar(grammar);
+    assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
+    for report in selection.reports() {
+        eprintln!(
+            "{name}: backend={:?} status={:?} severity={:?} findings={:?} predicates={} shapes={:?} advice={} selected={}",
+            report.strategy(),
+            report.status(),
+            report.worst_severity(),
+            report
+                .findings()
+                .iter()
+                .map(|finding| finding.code)
+                .collect::<Vec<_>>(),
+            report.failed_predicates().len(),
+            report.shapes(),
+            report.advice_references().len(),
+            report.is_selected(),
+        );
+        if !report.is_selected() {
+            assert!(
+                report.worst_severity() >= Severity::Error,
+                "{name} {:?} was excluded without Error/Critical evidence: {report:?}",
+                report.strategy()
+            );
+            assert!(
+                !report.advice_references().is_empty(),
+                "{name} {:?} was excluded without actionable advice: {report:?}",
+                report.strategy()
+            );
+        }
+    }
+    eprintln!(
+        "{name}: preferred={:?} candidates={:?} elapsed={:?}",
+        selection.preferred(),
+        selection.selected(),
+        started.elapsed()
+    );
+    corpus::record_cases(&format!("{name}_backend_reports"), 1);
+    selection
+}
+
+fn assert_backend(
+    selection: &BackendSelection,
+    strategy: EmissionStrategy,
+    status: BackendStatus,
+    severity: Severity,
+    finding: Option<FindingCode>,
+    shape: Option<&str>,
+) {
+    let report = selection
+        .report_for(strategy)
+        .unwrap_or_else(|| panic!("missing {strategy:?} report"));
+    assert_eq!(report.status(), status, "{strategy:?} status: {report:?}");
+    assert_eq!(
+        report.worst_severity(),
+        severity,
+        "{strategy:?} severity: {report:?}"
+    );
+    assert_eq!(
+        report.findings().first().map(|item| item.code),
+        finding,
+        "{strategy:?} finding: {report:?}"
+    );
+    assert_eq!(
+        report.shapes().first().map(String::as_str),
+        shape,
+        "{strategy:?} shape: {report:?}"
+    );
+}
+
+fn assert_default_resource_no_path(selection: &BackendSelection) {
+    assert!(
+        selection.is_no_path(),
+        "expected no default path: {selection:?}"
+    );
+    assert_eq!(selection.preferred(), None);
+    assert!(selection.selected().is_empty());
+    assert_backend(
+        selection,
+        EmissionStrategy::TunedSurfaceProbed,
+        BackendStatus::Accepted,
+        Severity::Error,
+        Some(FindingCode::ProvenBoundExceedsBudget),
+        Some("tuned-surface-resource-envelope"),
+    );
+    assert_backend(
+        selection,
+        EmissionStrategy::TemplatedUnderlyingTokens,
+        BackendStatus::Refused,
+        Severity::Critical,
+        Some(FindingCode::BackendCoverageIncomplete),
+        Some("nonregular-process-morphology"),
+    );
+    assert_backend(
+        selection,
+        EmissionStrategy::PlanComposed,
+        BackendStatus::Refused,
+        Severity::Critical,
+        Some(FindingCode::BackendCoverageIncomplete),
+        Some("plan-composed-missing-subtrees"),
+    );
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn indonesian_backend_reports_are_complete() {
+    let grammar = load_xml("indonesian-hc.xml");
+    let selection = characterize("indonesian", &grammar);
+    assert_default_resource_no_path(&selection);
+
+    let retry = select_backends_for_grammar_with_tuned_closure_work_limit(
+        &grammar,
+        INDONESIAN_CLOSURE_WORK_10K_V1,
+    );
+    assert_eq!(
+        retry.preferred(),
+        Some(EmissionStrategy::TunedSurfaceProbed),
+        "the explicit 10k-v1 retry must admit Indonesian TunedSurface: {retry:?}"
+    );
+    assert_backend(
+        &retry,
+        EmissionStrategy::TunedSurfaceProbed,
+        BackendStatus::Accepted,
+        Severity::Ideal,
+        None,
+        None,
+    );
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn sena_backend_reports_are_complete() {
+    let selection = characterize("sena", &load_xml("sena-hc.xml"));
+    assert_eq!(
+        selection.preferred(),
+        Some(EmissionStrategy::TunedSurfaceProbed)
+    );
+    assert_eq!(
+        selection.selected(),
+        vec![
+            EmissionStrategy::TunedSurfaceProbed,
+            EmissionStrategy::PlanComposed,
+        ]
+    );
+    assert_backend(
+        &selection,
+        EmissionStrategy::TunedSurfaceProbed,
+        BackendStatus::Accepted,
+        Severity::Ideal,
+        None,
+        None,
+    );
+    assert_backend(
+        &selection,
+        EmissionStrategy::TemplatedUnderlyingTokens,
+        BackendStatus::Refused,
+        Severity::Critical,
+        Some(FindingCode::BackendCoverageIncomplete),
+        Some("nonregular-process-morphology"),
+    );
+    assert_backend(
+        &selection,
+        EmissionStrategy::PlanComposed,
+        BackendStatus::Accepted,
+        Severity::Ideal,
+        None,
+        None,
+    );
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn amharic_backend_reports_are_complete() {
+    let selection = characterize("amharic", &load_xml("amharic-hc.xml"));
+    assert_default_resource_no_path(&selection);
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn aweti_backend_reports_are_complete() {
+    let selection = characterize("aweti", &load_snapshot("aweti.json"));
+    assert_default_resource_no_path(&selection);
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn mbugwe_backend_reports_are_complete() {
+    let selection = characterize("mbugwe", &load_fwdata("mbugwe.fwdata"));
+    assert_default_resource_no_path(&selection);
+}

@@ -68,11 +68,10 @@
 //!
 //! ## The recall proof — precisely what is proven vs. left open
 //! Status, stated precisely rather than rounded up:
-//! - **Proven**: single-layer (depth-1) reduplication is oracle-CONTAINED, and for the one real,
-//!   previously-zero-coverage in-repo construct available to check against
+//! - **Proven**: for the one real, previously-zero-coverage in-repo construct available to check
 //!   (`machine/conformance/languages/suffixing-extension-slot-ordering`'s `mrRedup`,
-//!   "kimbiakimbia") the result is stronger than containment — EXACT set equality AND matching
-//!   multiplicity against `pg_parse::Morpher`
+//!   "kimbiakimbia"), the depth-1 peeler proposes every analysis accepted by `pg_parse::Morpher`.
+//!   The peeler may safely over-propose because the confirm pass rejects spurious candidates
 //!   (`tests/f6_reduplication_peel_chain_depth.rs::kimbiakimbia_reduplication_is_recovered_with_oracle_containment`).
 //!   This is one word/one grammar, not an exhaustive proof over every possible single-layer shape
 //!   the four scan kinds (prefix/suffix/separator+tail/separator+suffix-peel) can produce.
@@ -99,11 +98,13 @@
 //!   distinct reduplication-derived analyses is not separately witnessed.
 
 use pg_grammar::chardef::{CharDefId, CharDefTable};
-use pg_grammar::model::{Grammar, MRuleId, MorphRuleDef, OutputAction};
+use pg_grammar::model::{Grammar, MRuleId, OutputAction};
 use pg_shape::{NodeKind, Shape};
 
 use crate::compose_budget::{ComposeBudget, ComposeError};
-use crate::emit::{classify_affix, owning_morpheme, surface_table, Role};
+use crate::emit::{
+    classify_affix, owning_morpheme, reduplication_rule_is_peelable, surface_table, Role,
+};
 use crate::tags::Candidate;
 
 /// The required-runtime-feature identifier
@@ -126,14 +127,8 @@ pub const RUNTIME_FEATURE_REDUPLICATION_PEEL: &str = "reduplication.peel";
 const CHAIN_DEPTH_SITE: &str = "peel::ReduplicationPeeler::propose_for_residual";
 
 /// C# `ReduplicationProposer.IsReduplication` port (`.any()` over every allomorph, unlike `crate::emit::rule_role`'s first-allomorph-only): only `AffixProcessRule` is checked, never `RealizationalAffixProcessRule`; an allomorph `classify_affix` resolves to `CircumfixPrefix` over `Reduplication` correctly drops out of this scan too, since this module's one-sided surface match could never recall a circumfix-plus-reduplication surface anyway.
-fn is_reduplication_rule(def: &MorphRuleDef) -> bool {
-    match def {
-        MorphRuleDef::AffixProcess(d) => d
-            .allomorphs
-            .iter()
-            .any(|a| classify_affix(&a.rhs) == Role::Reduplication),
-        _ => false,
-    }
+fn is_reduplication_rule(g: &Grammar, mid: MRuleId) -> bool {
+    reduplication_rule_is_peelable(g, mid)
 }
 
 /// C# `ReduplicationProposer.RenderSurfaceOnly`: renders only the Segment-kind nodes of `shape` through `table`'s first representation, `None` the instant any Segment node has none.
@@ -171,7 +166,7 @@ impl ReduplicationPeeler {
         for stratum in &g.strata {
             for &mrule_id in &stratum.mrules {
                 let def = &g.mrules[mrule_id.0 as usize];
-                if is_reduplication_rule(def) {
+                if is_reduplication_rule(g, mrule_id) {
                     redup_rules.push(mrule_id);
                     continue;
                 }
@@ -469,7 +464,8 @@ mod tests {
     fn minimal_redup_grammar() -> Grammar {
         use pg_grammar::model::{
             AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, MRuleId as ModelMRuleId,
-            MorphRuleDef, MorphRuleOrder, MorphemeId, PartRef, StratumDef, TableId, VarTable,
+            MorphRuleDef, MorphRuleOrder, MorphemeId, PartRef, Pattern, StratumDef, TableId,
+            VarTable,
         };
         const MINIMAL_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -508,7 +504,7 @@ mod tests {
                     excluded_mpr: pg_grammar::model::MprSet::EMPTY,
                     out_mpr: pg_grammar::model::MprSet::EMPTY,
                     redup_hint: pg_grammar::model::ReduplicationHint::Suffix,
-                    lhs: vec![],
+                    lhs: vec![Pattern::default()],
                     // Copy(Input(0)) twice, no other actions: classify_affix's exact Role::Reduplication trigger.
                     rhs: vec![
                         OutputAction::Copy(PartRef::Input(0)),
@@ -538,6 +534,8 @@ mod tests {
     #[test]
     fn deep_self_similar_chain_is_refused_deterministically_under_a_small_cap() {
         let g = minimal_redup_grammar();
+        assert!(reduplication_rule_is_peelable(&g, MRuleId(0)));
+        assert!(!crate::emit::is_structural_rule(&g, MRuleId(0)));
         let peeler = ReduplicationPeeler::new(&g);
         assert!(peeler.has_redup_rules());
         let mut propose = |_: &str| Vec::new();

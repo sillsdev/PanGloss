@@ -52,7 +52,7 @@
 //! (`pg_foma::analyzer::FomaProposer::propose_budgeted`) — never a watchdog, which is compile-only.
 //!
 //! ## `fst-health` (see `fst_health.rs`'s own doc for the full contract)
-//! `fst-health <grammar> [<words.txt>] [<out.json>]` runs `pg_foma::preflight::preflight_findings`
+//! `fst-health <grammar> [<words.txt>] [<out.json>]` runs `pg_foma::characterization::characterization_findings`
 //! (a cheap, pre-compile pass) plus `pg_foma::health_evaluator::evaluate_health` (a standalone
 //! profiled compile), and — only when `<words.txt>` is given — a caller-supplied word set's
 //! proposal/confirmation counts, rejection share, and pre-dedup duplicate-analysis evidence, into

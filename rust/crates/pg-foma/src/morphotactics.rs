@@ -288,8 +288,8 @@ impl EnumerationBudget {
 /// versus a `u32`, cheap to justify since the whole point of a subset-construction state is to stay
 /// small and `Clone`-cheap across a deep recursion. A `Vec` (not e.g. a `SmallVec`) is used
 /// deliberately: this crate has no existing `smallvec` dependency, `mid` is empty or a handful of
-/// entries for every grammar this pruning targets (a chain is bounded by `MAX_EXTRA_RULES`/
-/// `STRUCT_MAX_EXTRA_RULES` = 3), and adding a new dependency for that shape is not worth it.
+/// entries for every grammar this pruning targets (normally one counter per authored rule), and
+/// adding a new dependency for that shape is not worth it.
 /// `applications` is indexed by the grammar's stable rule ordinal so it can enforce authored
 /// bounds without conflating distinct rules that happen to share a site.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -389,6 +389,34 @@ pub(crate) struct MorphotacticIndex {
 }
 
 impl MorphotacticIndex {
+    fn next_applications(&self, state: &ChainState, rule: MRuleId) -> Option<Vec<u16>> {
+        let rule_index = rule.0 as usize;
+        let current = *state.applications.get(rule_index)?;
+        let bound = *self.rule_application_bounds.get(rule_index)?;
+        if current >= bound {
+            return None;
+        }
+        let mut applications = state.applications.clone();
+        applications[rule_index] = current + 1;
+        Some(applications)
+    }
+
+    /// Advances only the authored application counter. The diagnostic flat explorer deliberately
+    /// ignores stratum/template sites, but it must still terminate at the grammar's real bounds.
+    pub(crate) fn next_state_unpruned(
+        &self,
+        state: &ChainState,
+        rule: MRuleId,
+    ) -> Option<ChainState> {
+        let applications = self.next_applications(state, rule)?;
+        Some(ChainState {
+            free: state.free,
+            mid: state.mid.clone(),
+            template_entry_disabled: state.template_entry_disabled,
+            applications,
+        })
+    }
+
     pub(crate) fn build(g: &Grammar) -> Self {
         debug_assert!(
             g.templates.len() <= u16::MAX as usize,
@@ -518,12 +546,31 @@ impl MorphotacticIndex {
         base_fs: &FeatureStruct,
         fs_interner: &Interner<FeatureStruct>,
     ) -> Option<ChainState> {
-        let rule_index = rule.0 as usize;
-        let current_applications = *state.applications.get(rule_index)?;
-        let bound = *self.rule_application_bounds.get(rule_index)?;
-        if current_applications >= bound {
-            return None;
-        }
+        self.next_state_impl(state, rule, Some((base_fs, fs_interner)))
+    }
+
+    /// Site-aware transition used by finite-state reachability analysis.
+    ///
+    /// This retains the engine's loose-stratum/template-slot relation and authored application
+    /// bounds, but deliberately ignores feature-structure compatibility. Reachability uses this
+    /// conservative projection because it asks whether a dirty rule might be reachable from a
+    /// clean ordinary successor; applying an FS filter here could incorrectly prove that the tail
+    /// is clean when a later state has a compatible feature structure.
+    pub(crate) fn next_state_fs_insensitive(
+        &self,
+        state: &ChainState,
+        rule: MRuleId,
+    ) -> Option<ChainState> {
+        self.next_state_impl(state, rule, None)
+    }
+
+    fn next_state_impl(
+        &self,
+        state: &ChainState,
+        rule: MRuleId,
+        fs: Option<(&FeatureStruct, &Interner<FeatureStruct>)>,
+    ) -> Option<ChainState> {
+        let applications = self.next_applications(state, rule)?;
 
         let mut free_grants: Vec<u8> = Vec::new();
         let mut mid_grants: Vec<(u16, u8)> = Vec::new();
@@ -546,8 +593,11 @@ impl MorphotacticIndex {
                 if !state.template_entry_disabled {
                     if let Some(f) = state.free {
                         if tmpl.owning_stratum >= f && tmpl.first_reachable.contains(&k) {
-                            let req = fs_interner.get(tmpl.required_syn_fs);
-                            if req.is_empty() || is_unifiable(base_fs, req) {
+                            let feature_compatible = fs.is_none_or(|(base_fs, fs_interner)| {
+                                let req = fs_interner.get(tmpl.required_syn_fs);
+                                req.is_empty() || is_unifiable(base_fs, req)
+                            });
+                            if feature_compatible {
                                 mid_grants.push((t, k));
                                 if tmpl.completable[k as usize] {
                                     free_grants.push(tmpl.owning_stratum);
@@ -575,9 +625,6 @@ impl MorphotacticIndex {
 
         mid_grants.sort_unstable();
         mid_grants.dedup();
-
-        let mut applications = state.applications.clone();
-        applications[rule_index] = current_applications + 1;
 
         Some(ChainState {
             free: free_grants.into_iter().min(),
@@ -874,6 +921,47 @@ mod tests {
     }
 
     #[test]
+    fn fs_insensitive_transition_keeps_template_site_order() {
+        let g = load(FIXTURE_SLOTS);
+        let mt = MorphotacticIndex::build(&g);
+        let seed = ChainState::seed(&g, 0, false);
+        let b = mrule_id_of(&g, "mrB");
+        assert!(
+            mt.next_state_fs_insensitive(&seed, b).is_none(),
+            "the reachability projection may ignore FS compatibility, but not mandatory slots"
+        );
+
+        let a = mrule_id_of(&g, "mrA");
+        let after_a = mt
+            .next_state_fs_insensitive(&seed, a)
+            .expect("the first slot remains reachable in the FS-insensitive projection");
+        assert_eq!(after_a.mid, vec![(0, 0)]);
+    }
+
+    #[test]
+    fn shared_sibling_rule_still_obeys_its_application_bound() {
+        let g = load(FIXTURE_SLOTS);
+        let mt = MorphotacticIndex::build(&g);
+        let x = mrule_id_of(&g, "mrX");
+        let seed = ChainState::seed(&g, 0, false);
+        let a = mrule_id_of(&g, "mrA");
+        let b = mrule_id_of(&g, "mrB");
+        let after_a = mt
+            .next_state_fs_insensitive(&seed, a)
+            .expect("the first mandatory slot is reachable");
+        let after_b = mt
+            .next_state_fs_insensitive(&after_a, b)
+            .expect("the second mandatory slot is reachable");
+        let once = mt
+            .next_state_fs_insensitive(&after_b, x)
+            .expect("the sibling rule has at least one site reachable from the seed");
+        assert!(
+            mt.next_state_fs_insensitive(&once, x).is_none(),
+            "a rule listed in sibling slots must not become an unbounded epsilon loop"
+        );
+    }
+
+    #[test]
     fn mandatory_non_vacuous_slot_blocks_jump() {
         let g = load(FIXTURE_SLOTS);
         let mt = MorphotacticIndex::build(&g);
@@ -1014,6 +1102,20 @@ mod tests {
         assert!(
             mt.next_state(&twice, rule, fs, &g.fs_interner).is_none(),
             "multipleApplication=2 must reject a third use"
+        );
+    }
+
+    #[test]
+    fn unpruned_transition_still_enforces_application_bound() {
+        let g = load(FIXTURE_STRATA);
+        let mt = MorphotacticIndex::build(&g);
+        let rule = mrule_id_of(&g, "mrL0");
+        let seed = ChainState::seed(&g, 0, false);
+
+        let once = mt.next_state_unpruned(&seed, rule).unwrap();
+        assert!(
+            mt.next_state_unpruned(&once, rule).is_none(),
+            "flat diagnostic exploration must not bypass authored application bounds"
         );
     }
 

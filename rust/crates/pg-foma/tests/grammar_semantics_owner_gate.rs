@@ -8,11 +8,11 @@ use pg_foma::backend_registry::Applicability;
 use pg_foma::capability::{
     characterize_call_count, default_registry, reset_characterize_call_count,
 };
+use pg_foma::characterization::characterization_findings;
 use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::enumerate::enumerate_candidates;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::preflight::preflight_findings;
 use pg_foma::replace::SegAlphabet;
 use pg_foma::selection::select_plan;
 
@@ -162,26 +162,26 @@ fn select_plan_characterizes_the_grammar_once_not_once_per_candidate() {
     );
 }
 
-/// `preflight_findings` characterizes once, not twice; falsified by restoring two independent `characterize` walks.
+/// `characterization_findings` characterizes once, not twice; falsified by restoring two independent `characterize` walks.
 #[test]
-fn preflight_findings_characterizes_once_not_twice() {
+fn characterization_findings_characterizes_once_not_twice() {
     let g = load(GATED_TWO_GROUP_XML);
 
     reset_characterize_call_count();
-    let findings = preflight_findings(&g);
-    let preflight_calls = characterize_call_count();
+    let findings = characterization_findings(&g);
+    let characterization_calls = characterize_call_count();
 
     assert!(
-        preflight_calls > 0,
-        "the counter must actually have observed preflight_findings"
+        characterization_calls > 0,
+        "the counter must actually have observed characterization_findings"
     );
     assert_eq!(
-        preflight_calls, 1,
-        "preflight_findings must characterize once -- it took the profile AND the capability \
+        characterization_calls, 1,
+        "characterization_findings must characterize once -- it took the profile AND the capability \
          verdict from two independent walks before task 7.11, which its own module doc called \
          'an acceptable duplication ... while waiting on 7.11'"
     );
-    // Sanity check that preflight actually ran rather than short-circuited: this grammar has real cardinality to look at.
+    // Sanity check that characterization actually ran rather than short-circuited: this grammar has real cardinality to look at.
     let _ = findings;
 }
 

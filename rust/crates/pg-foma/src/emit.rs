@@ -183,17 +183,18 @@
 //! - Text that fails to re-segment against the surface table (defensive; the loader already
 //!   accepted it once).
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 use foma::utf8::is_combining;
-use pg_featstruct::{is_unifiable, FeatureStruct, FsId};
+use pg_featstruct::{is_unifiable, priority_union, unify, FeatureStruct, FsId};
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef,
-    MorphemeId, OutputAction, PartRef, PhonRuleDef, SlotDef,
+    MorphemeId, OutputAction, PartRef, PhonRuleDef, SlotDef, TableId,
 };
 use pg_parse::{GenMorpheme, Morpher};
 use pg_rules::cache::RuleCache;
@@ -211,6 +212,12 @@ use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
 use crate::profile::{CompileProfileBuilder, CompileStage};
 use crate::replace::SegAlphabet;
 use crate::tags;
+
+fn trace_emit_stage(stage: CompileStage, elapsed: std::time::Duration) {
+    if std::env::var_os("PANGLOSS_TRACE_EMIT_STAGES").is_some() {
+        eprintln!("pangloss emit stage {}: {elapsed:?}", stage.label());
+    }
+}
 
 /// Mode switch for every LEAF text-producing site this module threads it through
 /// (`collect_roots`, `insert_action_texts`/`emit_rule_allomorphs`) and the purely-structural
@@ -312,6 +319,9 @@ pub struct EmitCounts {
     /// LINES (one per surface variant), not distinct roots, matching `lexc_lines`'/`allomorphs_
     /// emitted`'s own convention; zero for any grammar with no bound single-allomorph root entries.
     pub bare_root_arcs_pruned: usize,
+    /// `(root allomorph, ordinary edge rule)` pairs omitted from exact structural closure after
+    /// feature-state reachability proved no non-edge structural anchor reachable from that root.
+    pub structural_candidate_pairs_pruned: usize,
 }
 
 /// Overall verdict for this grammar's foma path.
@@ -319,7 +329,8 @@ pub struct EmitCounts {
 pub enum FomaTier {
     /// Every construct the grammar uses was representable (no `uncovered` entries).
     Full,
-    /// Emitted successfully with some `uncovered` constructs — still safe to use, they just cannot contribute candidates.
+    /// Emitted lexc material with known uncovered constructs. This is development evidence, not a
+    /// trusted proposer: confirmation cannot restore candidates that the emission omitted.
     Partial { uncovered: usize },
     /// Could not emit a usable network at all; caller should fall back to the full engine for this grammar.
     Unsupported { reason: String },
@@ -345,6 +356,31 @@ pub struct EnumBudgetExceeded {
     pub limit: usize,
 }
 
+/// Machine-readable cause for refusing an incomplete eager-composite construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClosureRefusalCode {
+    /// At least one participating rule has no authored finite application bound.
+    UnboundedRuleApplication,
+    /// A legal successor remained after the configured closure-depth limit.
+    DepthBudgetExceeded,
+}
+
+/// Backend that can consume the grammar without relying on this eager FST closure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClosureFallbackBackend {
+    FullMorphologicalParser,
+}
+
+/// Structured evidence retained alongside the human-readable unsupported reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosureRefusal {
+    pub code: ClosureRefusalCode,
+    pub affected_rule_ordinals: Vec<u32>,
+    pub depth_limit: Option<usize>,
+    pub pending_successors: Option<usize>,
+    pub remedy_backend: ClosureFallbackBackend,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmitReport {
     pub uncovered: Vec<UncoveredItem>,
@@ -354,6 +390,8 @@ pub struct EmitReport {
     /// with `tier: FomaTier::Unsupported { .. }` when set. `None` for every ordinary
     /// `Full`/`Partial`/`Unsupported`-for-some-other-reason report.
     pub enum_budget_exceeded: Option<EnumBudgetExceeded>,
+    /// Typed closure-refusal evidence; `None` for successful emission and unrelated failures.
+    pub closure_refusal: Option<ClosureRefusal>,
 }
 
 pub struct EmitResult {
@@ -718,6 +756,64 @@ fn surface_variants_concat(table: &CharDefTable, texts: &[&str]) -> Option<(Vec<
     Some((variants, overflowed))
 }
 
+/// Surface spellings for one literal-only action slice, preserving each action's source table.
+fn surface_insert_action_variants(g: &Grammar, actions: &[OutputAction]) -> Option<Vec<String>> {
+    if actions.is_empty() {
+        return None;
+    }
+    let mut variants = vec![String::new()];
+    for action in actions {
+        let OutputAction::InsertSegments { table, shape } = action else {
+            return None;
+        };
+        let (pieces, overflowed) =
+            surface_variants(g.char_tables.get(table.0 as usize)?, &shape.text)?;
+        if overflowed || pieces.is_empty() {
+            return None;
+        }
+        let mut next = Vec::with_capacity(variants.len().saturating_mul(pieces.len()));
+        for prefix in &variants {
+            for piece in &pieces {
+                if next.len() >= REP_VARIANT_CAP {
+                    return None;
+                }
+                next.push(format!("{prefix}{piece}"));
+            }
+        }
+        variants = next;
+    }
+    variants.sort_unstable();
+    variants.dedup();
+    Some(variants)
+}
+
+/// Surface-spelled halves of a one-copy literal circumfix.
+fn circumfix_surface_texts(
+    g: &Grammar,
+    allomorph: &AffixAllomorphDef,
+) -> Option<Vec<(String, String)>> {
+    if allomorph.lhs.len() != 1 {
+        return None;
+    }
+    let rhs = allomorph.rhs.as_slice();
+    let mut copies = rhs.iter().enumerate().filter_map(|(index, action)| {
+        matches!(action, OutputAction::Copy(PartRef::Input(0))).then_some(index)
+    });
+    let copy = copies.next()?;
+    if copies.next().is_some() || copy == 0 || copy == rhs.len() - 1 {
+        return None;
+    }
+    let prefixes = surface_insert_action_variants(g, &rhs[..copy])?;
+    let suffixes = surface_insert_action_variants(g, &rhs[copy + 1..])?;
+    let mut pairs = Vec::with_capacity(prefixes.len().saturating_mul(suffixes.len()));
+    for prefix in prefixes {
+        for suffix in &suffixes {
+            pairs.push((prefix.clone(), suffix.clone()));
+        }
+    }
+    Some(pairs)
+}
+
 /// Every accepted spelling of `text` with its OWN FIRST SEGMENT removed (module doc, "Junction-
 /// aware affix/root emission"): re-run `surface_variants`'s greedy segmentation, skip past any
 /// leading `Boundary`-kind matches (structural, already dropped from ordinary output — a root
@@ -994,8 +1090,15 @@ fn write_tag_entry(
     counts.lexc_lines += 1;
 }
 
-/// A tag-free literal entry: `text` on both tapes, no morpheme tag -- for a circumfix's non-tag-bearing half (`crate::structural_allomorph::circumfix_texts`'s own doc), so its rule's tag is never double-counted across both chain positions.
+/// A surface-only entry for a circumfix's non-tag-bearing half.
 fn write_untagged_entry(out: &mut String, text: &str, continuation: &str, counts: &mut EmitCounts) {
+    if text.is_empty() {
+        out.push_str(continuation);
+        out.push_str(" ;\n");
+        counts.lexc_lines += 1;
+        return;
+    }
+    out.push_str("0:");
     out.push_str(&escape_lexc_text(text));
     out.push(' ');
     out.push_str(continuation);
@@ -1484,6 +1587,7 @@ fn compound_chain_depth_and_budget_check(
                     value: depth,
                     limit,
                 }),
+                closure_refusal: None,
             },
         });
     }
@@ -1521,7 +1625,7 @@ pub(crate) fn compound_extra_levels_checked(g: &Grammar) -> Result<usize, Compos
 
 // --- Affix entry emission (shared by slot chains and derivation layers) ---------------------------
 
-/// Emits every emittable allomorph of `mid` as one tagged entry into `next`, requiring role `zone_role` (or `None`, a zero morph legal in either zone); when `phon` is `Some`, also unions in `PhonologyProbe::variants`' spellings, and `junction_target` (if given) reroutes deletion-junction hits to a separate lexicon at the root-adjacent final derivation level.
+/// Emits every emittable allomorph of `mid` as one tagged entry into `next`, requiring role `zone_role` (or `None`, a zero morph legal in either zone). A consuming ordinary Realizational prefix/suffix may target `repeat_target` so the FST represents its intentionally unbounded application count as a regular loop. Empty and structural spellings never loop. When `phon` is `Some`, also unions in `PhonologyProbe::variants`' spellings, and `junction_target` (if given) reroutes deletion-junction hits to a separate lexicon at the root-adjacent final derivation level.
 #[allow(clippy::too_many_arguments)]
 fn emit_rule_allomorphs(
     out: &mut String,
@@ -1531,6 +1635,7 @@ fn emit_rule_allomorphs(
     zone_role: Role,
     width: usize,
     next: &str,
+    repeat_target: Option<&str>,
     uncovered: &mut Vec<UncoveredItem>,
     counts: &mut EmitCounts,
     phon: Option<&PhonologyProbe>,
@@ -1555,36 +1660,38 @@ fn emit_rule_allomorphs(
         if role != zone_role && role != Role::None {
             // Only the Prefix-zone occurrence carries the tag (the oracle always orders a circumfix's morpheme before the root); the Suffix-zone occurrence is untagged literal text, or the morpheme would be double-counted.
             if role == Role::CircumfixPrefix {
-                if let TextMode::UnderlyingTokens(alphabet) = mode {
-                    if let Some(texts) =
+                let texts = match mode {
+                    TextMode::SurfaceProbed => circumfix_surface_texts(g, allo),
+                    TextMode::UnderlyingTokens(alphabet) => {
                         crate::structural_allomorph::circumfix_texts(g, alphabet, allo)
-                    {
-                        let emitted = texts.len();
-                        match zone_role {
-                            Role::Prefix => {
-                                for (prefix, _) in texts {
-                                    write_tag_entry(
-                                        out,
-                                        &tag_lexc,
-                                        &prefix,
-                                        next,
-                                        counts,
-                                        pk,
-                                        Some(allo.id),
-                                    );
-                                }
-                                counts.allomorphs_emitted += emitted;
-                                continue;
+                    }
+                };
+                if let Some(texts) = texts {
+                    let emitted = texts.len();
+                    match zone_role {
+                        Role::Prefix => {
+                            for (prefix, _) in texts {
+                                write_tag_entry(
+                                    out,
+                                    &tag_lexc,
+                                    &prefix,
+                                    next,
+                                    counts,
+                                    pk,
+                                    Some(allo.id),
+                                );
                             }
-                            Role::Suffix => {
-                                for (_, suffix) in texts {
-                                    write_untagged_entry(out, &suffix, next, counts);
-                                }
-                                counts.allomorphs_emitted += emitted;
-                                continue;
-                            }
-                            _ => {}
+                            counts.allomorphs_emitted += emitted;
+                            continue;
                         }
+                        Role::Suffix => {
+                            for (_, suffix) in texts {
+                                write_untagged_entry(out, &suffix, next, counts);
+                            }
+                            counts.allomorphs_emitted += emitted;
+                            continue;
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -1599,6 +1706,18 @@ fn emit_rule_allomorphs(
             continue;
         }
         let owner = Some(allo.id);
+        let can_repeat = repeat_target.is_some()
+            && matches!(g.mrules[mid.0 as usize], MorphRuleDef::Realizational(_))
+            && matches!(role, Role::Prefix | Role::Suffix)
+            && role == zone_role
+            && !rhs_drops_lhs_material(allo);
+        let target_for = |spelling: &str| {
+            if can_repeat && !spelling.is_empty() {
+                repeat_target.unwrap_or(next)
+            } else {
+                next
+            }
+        };
         match insert_action_texts(&allo.rhs) {
             InsertText::None => {
                 write_tag_entry(out, &tag_lexc, "", next, counts, pk, owner);
@@ -1624,12 +1743,16 @@ fn emit_rule_allomorphs(
                 counts.allomorphs_emitted += 1;
             }
             // `TextMode::UnderlyingTokens`: concatenates every action's token string via `encode_shape`, in document order — no surface-variant product, no phonology consultation; keeps Boundary nodes since the rule cascade's environments need them.
-            InsertText::Text { shapes, .. } if matches!(mode, TextMode::UnderlyingTokens(_)) => {
+            InsertText::Text { shapes, texts } if matches!(mode, TextMode::UnderlyingTokens(_)) => {
                 let TextMode::UnderlyingTokens(alphabet) = mode else {
                     unreachable!()
                 };
                 let origin_table = origin_table_for_mrule(g, mid, table);
                 let variants = underlying_shape_concat_variants(alphabet, origin_table, &shapes);
+                let survives_boundary_cleanup = surface_variants_concat(origin_table, &texts)
+                    .is_some_and(|(variants, _)| {
+                        variants.iter().any(|surface| !surface.is_empty())
+                    });
                 if variants.is_empty() {
                     uncovered.push(UncoveredItem {
                         kind: "unsegmentable-affix".to_string(),
@@ -1640,7 +1763,12 @@ fn emit_rule_allomorphs(
                     continue;
                 }
                 for underlying in variants {
-                    write_tag_entry(out, &tag_lexc, &underlying, next, counts, pk, owner);
+                    let target = if survives_boundary_cleanup {
+                        target_for(&underlying)
+                    } else {
+                        next
+                    };
+                    write_tag_entry(out, &tag_lexc, &underlying, target, counts, pk, owner);
                 }
                 if let Some(marker) = crate::structural_allomorph::structural_marker_for_zone(
                     g,
@@ -1666,7 +1794,15 @@ fn emit_rule_allomorphs(
                             });
                         }
                         for surface in &variants {
-                            write_tag_entry(out, &tag_lexc, surface, next, counts, pk, owner);
+                            write_tag_entry(
+                                out,
+                                &tag_lexc,
+                                surface,
+                                target_for(surface),
+                                counts,
+                                pk,
+                                owner,
+                            );
                         }
                         emitted_any = true;
                     }
@@ -1683,12 +1819,20 @@ fn emit_rule_allomorphs(
                 // Unions in every probe-derived surface spelling, and where the caller says this level is root-adjacent, routes deletion-junction spellings to the stripped-roots continuation instead; pieces are joined in document order first since the probe takes one literal string.
                 if let Some(probe) = phon {
                     let joined: String = texts.concat();
+                    let deletion_junctions = junction_target
+                        .map(|_| probe.deletion_junctions(&joined))
+                        .unwrap_or_default();
                     for surface in probe.variants(&joined) {
-                        write_tag_entry(out, &tag_lexc, &surface, next, counts, pk, owner);
+                        let target = if deletion_junctions.contains(&surface) {
+                            next
+                        } else {
+                            target_for(&surface)
+                        };
+                        write_tag_entry(out, &tag_lexc, &surface, target, counts, pk, owner);
                         emitted_any = true;
                     }
                     if let Some(target) = junction_target {
-                        for surface in probe.deletion_junctions(&joined) {
+                        for surface in deletion_junctions {
                             write_tag_entry(out, &tag_lexc, &surface, target, counts, pk, owner);
                             emitted_any = true;
                         }
@@ -1787,6 +1931,7 @@ fn build_deriv_chain(
                         zone_role,
                         width,
                         &next,
+                        Some(&name),
                         uncovered,
                         counts,
                         phon,
@@ -1807,6 +1952,7 @@ fn build_deriv_chain(
                         zone_role,
                         width,
                         &next,
+                        Some(&name),
                         uncovered,
                         counts,
                         phon,
@@ -1923,8 +2069,8 @@ fn build_slot_chain(
                 }
             }
             emit_rule_allomorphs(
-                out, g, table, mid, zone_role, width, &next, uncovered, counts, phon, None, pk,
-                mode,
+                out, g, table, mid, zone_role, width, &next, None, uncovered, counts, phon, None,
+                pk, mode,
             );
         }
     }
@@ -1933,8 +2079,9 @@ fn build_slot_chain(
 
 // Structural composites replay `pg_rules::morph::synthesize` for rules `crate::preexpand` cannot represent (truncation, and probe-refused rules), reusing its `Composites`/`CompositeExit` wiring.
 
-/// Bound on a structural composite chain's length beyond the root, same rationale as `crate::preexpand::MAX_EXTRA_RULES`.
-const STRUCT_MAX_EXTRA_RULES: usize = 3;
+/// A live successor at this resource boundary refuses the artifact instead of truncating it.
+const DEFAULT_STRUCTURAL_CLOSURE_DEPTH_BUDGET: usize =
+    crate::preexpand::DEFAULT_CLOSURE_DEPTH_BUDGET;
 
 /// True if some LHS part of `a` is never copied into the RHS, i.e. the rule drops root material.
 fn rhs_drops_lhs_material(a: &AffixAllomorphDef) -> bool {
@@ -1952,6 +2099,132 @@ fn rhs_drops_lhs_material(a: &AffixAllomorphDef) -> bool {
     (0..a.lhs.len() as u16).any(|i| !copied.contains(&i))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PeelAtom {
+    Copy(PartRef),
+    Separator,
+}
+
+/// Exact scalar width shared by every safely enumerable surface representation, or `None`.
+fn inserted_surface_width(g: &Grammar, table: TableId, text: &str) -> Option<usize> {
+    let table = g.char_tables.get(table.0 as usize)?;
+    let (variants, overflowed) = surface_variants(table, text)?;
+    if overflowed || variants.is_empty() {
+        return None;
+    }
+    let width = variants[0].chars().count();
+    variants
+        .iter()
+        .all(|variant| variant.chars().count() == width)
+        .then_some(width)
+}
+
+/// Proves one of the generic scanner's prefix, suffix, or single-separator inverse shapes.
+fn reduplication_allomorph_is_peelable(g: &Grammar, allomorph: &AffixAllomorphDef) -> bool {
+    if classify_affix(&allomorph.rhs) != Role::Reduplication || allomorph.lhs.is_empty() {
+        return false;
+    }
+    let mut atoms = Vec::with_capacity(allomorph.rhs.len());
+    for action in &allomorph.rhs {
+        match action {
+            OutputAction::Copy(part) => atoms.push(PeelAtom::Copy(*part)),
+            OutputAction::InsertSegments { table, shape } => {
+                match inserted_surface_width(g, *table, &shape.text) {
+                    Some(0) => {}
+                    Some(1) => atoms.push(PeelAtom::Separator),
+                    _ => return false,
+                }
+            }
+            OutputAction::Modify(..) | OutputAction::InsertContext(..) => return false,
+        }
+    }
+
+    let base: Vec<PartRef> = (0..allomorph.lhs.len() as u16)
+        .map(PartRef::Input)
+        .collect();
+    if atoms.iter().all(|atom| matches!(atom, PeelAtom::Copy(_))) {
+        let refs: Vec<PartRef> = atoms
+            .iter()
+            .map(|atom| match atom {
+                PeelAtom::Copy(part) => *part,
+                PeelAtom::Separator => unreachable!(),
+            })
+            .collect();
+        let prefix_copy = (1..=base.len()).any(|copied| {
+            refs.len() == copied + base.len()
+                && refs[..copied] == base[..copied]
+                && refs[copied..] == base
+        });
+        let suffix_copy = (0..base.len()).any(|start| {
+            refs.len() == base.len() + (base.len() - start)
+                && refs[..base.len()] == base
+                && refs[base.len()..] == base[start..]
+        });
+        return prefix_copy || suffix_copy;
+    }
+
+    let separators: Vec<usize> = atoms
+        .iter()
+        .enumerate()
+        .filter_map(|(index, atom)| (*atom == PeelAtom::Separator).then_some(index))
+        .collect();
+    if separators.len() != 1 {
+        return false;
+    }
+    let separator = separators[0];
+    let copies = |slice: &[PeelAtom]| -> Option<Vec<PartRef>> {
+        slice
+            .iter()
+            .map(|atom| match atom {
+                PeelAtom::Copy(part) => Some(*part),
+                PeelAtom::Separator => None,
+            })
+            .collect()
+    };
+    let Some(before) = copies(&atoms[..separator]) else {
+        return false;
+    };
+    let Some(after) = copies(&atoms[separator + 1..]) else {
+        return false;
+    };
+    before == base
+        && !after.is_empty()
+        && after.len() <= base.len()
+        && after == base[base.len() - after.len()..]
+}
+
+/// Whether structural synthesis must own this true-reduplicating allomorph because the generic
+/// peeler cannot prove that it can invert the authored action shape.
+pub(crate) fn reduplication_requires_structural(
+    g: &Grammar,
+    allomorph: &AffixAllomorphDef,
+) -> bool {
+    classify_affix(&allomorph.rhs) == Role::Reduplication
+        && !reduplication_allomorph_is_peelable(g, allomorph)
+}
+
+/// Whether the generic surface peeler owns this whole rule.
+///
+/// Ownership is deliberately rule-wide. A mixed rule whose one reduplicating allomorph needs
+/// structural synthesis must move as a unit so its ordinary alternatives are neither lost nor
+/// proposed by two independent mechanisms.
+pub(crate) fn reduplication_rule_is_peelable(g: &Grammar, mid: MRuleId) -> bool {
+    let MorphRuleDef::AffixProcess(def) = &g.mrules[mid.0 as usize] else {
+        return false;
+    };
+    let mut saw_reduplication = false;
+    for allomorph in &def.allomorphs {
+        if classify_affix(&allomorph.rhs) != Role::Reduplication {
+            continue;
+        }
+        saw_reduplication = true;
+        if reduplication_requires_structural(g, allomorph) {
+            return false;
+        }
+    }
+    saw_reduplication
+}
+
 /// True if any allomorph of `mid` classifies `Role::CircumfixPrefix`, unlike `rule_role` (allomorph 0 only).
 fn any_allomorph_is_circumfix_prefix(g: &Grammar, mid: MRuleId) -> bool {
     allomorphs_of(g, mid)
@@ -1962,9 +2235,11 @@ fn any_allomorph_is_circumfix_prefix(g: &Grammar, mid: MRuleId) -> bool {
 /// True for a rule `crate::preexpand`'s ordinary composite mechanism cannot represent: any
 /// allomorph -- not just the first -- that drops real LHS material (`rhs_drops_lhs_material`)
 /// while ITSELF classifying `None`/`Prefix`/`Suffix`/`Infix`, any `CircumfixPrefix` allomorph, or
-/// any `Process` allomorph. `Reduplication` alone is not structural — it stays `uncovered`'s job
-/// (see `crate::peel::ReduplicationPeeler` for the non-dropping case this emitter never attempts),
-/// and per census C5 that exclusion is checked per allomorph, not per rule: a rule with a dropping
+/// any `Process` allomorph, or a `Reduplication` allomorph outside the peeler's statically proven
+/// prefix-copy, suffix-copy, and one-separator layouts. Proven shapes stay
+/// `crate::peel::ReduplicationPeeler`'s job; every other shape is synthesized structurally.
+/// Per census C5, the separate dropping-material exclusion is checked per allomorph, not per rule:
+/// a rule with a dropping
 /// `Reduplication`-classified allomorph and a separate, non-dropping allomorph of some OTHER role
 /// stays excluded on the strength of the `Reduplication` one alone (the copy-count semantics
 /// genuinely differ, so that shape never earns admission by itself), while a dropping
@@ -1991,6 +2266,9 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
         || allomorphs_of(g, mid)
             .iter()
             .any(|a| has_unemittable_action(&a.rhs))
+        || allomorphs_of(g, mid)
+            .iter()
+            .any(|a| reduplication_requires_structural(g, a))
     {
         return true;
     }
@@ -2002,6 +2280,122 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
                 Role::None | Role::Prefix | Role::Suffix | Role::Infix
             )
     })
+}
+
+/// Whether ordinary edge emission is a recall-preserving superset for every allomorph here.
+fn structural_rule_is_edge_decomposable(g: &Grammar, mid: MRuleId) -> bool {
+    if g.mrules[mid.0 as usize].max_apps() != 1 {
+        return false;
+    }
+    let allomorphs = allomorphs_of(g, mid);
+    if allomorphs.is_empty() {
+        return false;
+    }
+    let primary = rule_role(g, mid);
+    let has_circumfix = any_allomorph_is_circumfix_prefix(g, mid);
+    let prefix_zone =
+        has_circumfix || matches!(primary, Role::Prefix | Role::None | Role::CircumfixPrefix);
+    let suffix_zone = has_circumfix || matches!(primary, Role::Suffix | Role::None);
+    let alphabet = SegAlphabet::new(surface_table(g));
+
+    allomorphs.iter().all(|allomorph| {
+        if has_unemittable_action(&allomorph.rhs) || rhs_drops_lhs_material(allomorph) {
+            return false;
+        }
+        match classify_affix(&allomorph.rhs) {
+            Role::Prefix => prefix_zone,
+            Role::Suffix => suffix_zone,
+            Role::None => prefix_zone || suffix_zone,
+            Role::CircumfixPrefix => {
+                circumfix_surface_texts(g, allomorph).is_some()
+                    && crate::structural_allomorph::circumfix_texts(g, &alphabet, allomorph)
+                        .is_some()
+            }
+            Role::Infix | Role::Reduplication | Role::CircumfixSuffix | Role::Process => false,
+        }
+    })
+}
+
+const STRUCTURAL_FS_REACHABILITY_STATE_CAP: usize = 4096;
+
+/// Overapproximates synthesis by applying only its syntactic-feature transition.
+fn abstract_syn_transition(
+    g: &Grammar,
+    rule: &MorphRuleDef,
+    input: &FeatureStruct,
+) -> Option<FeatureStruct> {
+    let (required, output) = match rule {
+        MorphRuleDef::AffixProcess(def) => (def.required_syn_fs, def.out_syn_fs),
+        MorphRuleDef::Realizational(def) => (def.required_syn_fs, def.real_fs),
+        MorphRuleDef::Compounding(def) => (def.head_required_syn_fs, def.out_syn_fs),
+    };
+    let unified = unify(g.fs_interner.get(required), input)?;
+    Some(priority_union(&unified, g.fs_interner.get(output)))
+}
+
+fn root_can_reach_nondecomposable_structural_anchor(g: &Grammar, root_fs: &FeatureStruct) -> bool {
+    let anchors: Vec<MRuleId> = (0..g.mrules.len() as u32)
+        .map(MRuleId)
+        .filter(|&mid| is_structural_rule(g, mid) && !structural_rule_is_edge_decomposable(g, mid))
+        .collect();
+    if anchors.is_empty() {
+        return false;
+    }
+
+    let mut seen = HashSet::new();
+    let mut pending = VecDeque::new();
+    seen.insert(root_fs.clone());
+    pending.push_back(root_fs.clone());
+
+    while let Some(state) = pending.pop_front() {
+        if anchors.iter().any(|mid| {
+            let required = match &g.mrules[mid.0 as usize] {
+                MorphRuleDef::AffixProcess(def) => def.required_syn_fs,
+                MorphRuleDef::Realizational(def) => def.required_syn_fs,
+                MorphRuleDef::Compounding(def) => def.head_required_syn_fs,
+            };
+            is_unifiable(g.fs_interner.get(required), &state)
+        }) {
+            return true;
+        }
+
+        for rule in &g.mrules {
+            let Some(next) = abstract_syn_transition(g, rule, &state) else {
+                continue;
+            };
+            if seen.contains(&next) {
+                continue;
+            }
+            if seen.len() >= STRUCTURAL_FS_REACHABILITY_STATE_CAP {
+                return true;
+            }
+            seen.insert(next.clone());
+            pending.push_back(next);
+        }
+    }
+    false
+}
+
+fn structural_candidate_rules_for_root(
+    g: &Grammar,
+    grammar_rules: &[MRuleId],
+    root_fs: &FeatureStruct,
+) -> (Vec<MRuleId>, usize) {
+    if probe_would_refuse(g) {
+        return (grammar_rules.to_vec(), 0);
+    }
+    if root_can_reach_nondecomposable_structural_anchor(g, root_fs) {
+        return (grammar_rules.to_vec(), 0);
+    }
+    let rules: Vec<MRuleId> = grammar_rules
+        .iter()
+        .copied()
+        .filter(|&mid| {
+            is_structural_rule(g, mid) || !matches!(rule_role(g, mid), Role::Prefix | Role::Suffix)
+        })
+        .collect();
+    let pruned = grammar_rules.len().saturating_sub(rules.len());
+    (rules, pruned)
 }
 
 /// Whether `pg_rules::surface_probe::probe_synthesize` would REFUSE for ANY word synthesized in
@@ -2023,26 +2417,40 @@ pub(crate) fn probe_would_refuse(g: &Grammar) -> bool {
     })
 }
 
-/// Candidate rules for `build_structural_composites`: always `is_structural_rule`'s set. It also
-/// includes ordinary affix rules when probing can refuse or a structural rule exists. The latter
-/// keeps chains that reach a structural rule through ordinary rules inside one closure.
+/// Candidate rules for `build_structural_composites`: always `is_structural_rule`'s set. When a
+/// structural anchor exists, every bounded non-Compounding morphology rule is included so an
+/// anchor reached through a `Role::None` or peel-owned reduplication predecessor cannot be missed.
+/// With no structural anchor, probing refusal still widens only to ordinary affix roles.
 ///
 /// `pub(crate)`: `crate::enumerate::enumerate_default` calls this directly to decide the
 /// structural-composite route's presence, the other half of the seam `probe_would_refuse`
 /// documents; `plan_topology_decisions` then makes `emit_with_budget_profiled`'s own gate match it
 /// by construction rather than by two independently-written call sites happening to agree.
 pub(crate) fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
+    let probe_refuses = probe_would_refuse(g);
     let has_structural =
         (0..g.mrules.len() as u32).any(|index| is_structural_rule(g, MRuleId(index)));
-    let broad = probe_would_refuse(g) || has_structural;
+    let every_structural_anchor_is_edge_decomposable = has_structural
+        && (0..g.mrules.len() as u32)
+            .map(MRuleId)
+            .filter(|&mid| is_structural_rule(g, mid))
+            .all(|mid| structural_rule_is_edge_decomposable(g, mid));
     (0..g.mrules.len() as u32)
         .map(MRuleId)
         .filter(|&mid| {
             if matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_)) {
                 return false;
             }
-            is_structural_rule(g, mid)
-                || (broad && matches!(rule_role(g, mid), Role::Prefix | Role::Suffix | Role::Infix))
+            if is_structural_rule(g, mid) {
+                true
+            } else if probe_refuses {
+                matches!(rule_role(g, mid), Role::Prefix | Role::Suffix | Role::Infix)
+            } else if has_structural {
+                !(every_structural_anchor_is_edge_decomposable
+                    && matches!(rule_role(g, mid), Role::Prefix | Role::Suffix))
+            } else {
+                false
+            }
         })
         .collect()
 }
@@ -2102,6 +2510,16 @@ pub(crate) fn plan_topology_decisions(g: &Grammar, phon: Option<&PhonologyProbe>
 pub(crate) const PROBE_STACK_BYTES: usize = 64 * 1024 * 1024;
 
 /// `shape`'s real surface via the build-time probe, run on a large stack since a stack overflow in the uncontrolled pg_rules recursion would abort the process; None when the probe declines or renders empty.
+fn probe_surface_on_current_stack(
+    g: &Grammar,
+    table: &CharDefTable,
+    shape: &Shape,
+    cache: &RuleCache,
+) -> Option<String> {
+    let segs = pg_rules::surface_probe::probe_synthesize(g, shape, cache)?;
+    pg_rules::surface_probe::render_nodes(table, &segs).filter(|s| !s.is_empty())
+}
+
 fn probe_surface(
     g: &Grammar,
     table: &CharDefTable,
@@ -2111,16 +2529,14 @@ fn probe_surface(
     // wasm32 has no thread support, so run inline instead of on the dedicated stack below.
     #[cfg(target_arch = "wasm32")]
     {
-        let segs = pg_rules::surface_probe::probe_synthesize(g, shape, cache)?;
-        return pg_rules::surface_probe::render_nodes(table, &segs).filter(|s| !s.is_empty());
+        return probe_surface_on_current_stack(g, table, shape, cache);
     }
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(PROBE_STACK_BYTES)
             .spawn_scoped(scope, || {
-                let segs = pg_rules::surface_probe::probe_synthesize(g, shape, cache)?;
-                pg_rules::surface_probe::render_nodes(table, &segs).filter(|s| !s.is_empty())
+                probe_surface_on_current_stack(g, table, shape, cache)
             })
             .expect("spawning the probe thread")
             .join()
@@ -2189,6 +2605,7 @@ struct StructCtx<'a> {
     root_table: &'a CharDefTable,
     root_entry: LexEntryId,
     rules: &'a [MRuleId],
+    rule_variants: &'a [Vec<crate::preexpand::AllomorphVariants>],
     cache: &'a RuleCache,
     morpher: &'a Morpher<'a>,
     /// For `with_boundary_insertions` on `generate_words`-fallback surfaces; empty if the grammar defines no boundaries.
@@ -2199,6 +2616,8 @@ struct StructCtx<'a> {
     probe_budget: Option<ProbeBudget<'a>>,
     /// Default-on fail-fast enumeration budget, re-derived rather than shared for the same reason `struct_morph_order_tags` is.
     enum_budget: &'a EnumerationBudget,
+    /// Memoized conservative reachability over authored sites and application bounds.
+    dirty_reach: &'a RefCell<HashMap<ChainState, bool>>,
 }
 
 /// `struct_extend`'s output accumulator: composite records plus a `(tag_lexc, spelling)` dedup set — mirrors `crate::preexpand::Acc`.
@@ -2207,11 +2626,146 @@ struct StructAcc {
     seen: rustc_hash::FxHashSet<(String, String)>,
     /// `g.mrules` indices with at least one composite entry here, so `emit` can drop their now-stale `uncovered` items.
     covered_rules: BTreeSet<u32>,
-    /// Legal synthesized successors beyond the temporary fixed-depth implementation.
+    /// Legal synthesized successors beyond the configured closure-depth resource envelope.
     pending_successors: usize,
+    pending_rule_ordinals: BTreeSet<u32>,
 }
 
-/// Extends `base_word` with every remaining candidate rule, recursing up to `STRUCT_MAX_EXTRA_RULES`; mirrors `crate::preexpand::extend` but always emits, since every candidate here is one the ordinary path cannot represent at all.
+/// Whether structural synthesis must own this rule regardless of its current surface.
+fn candidate_requires_structural_route(g: &Grammar, mid: MRuleId) -> bool {
+    probe_would_refuse(g)
+        || is_structural_rule(g, mid)
+        || !matches!(rule_role(g, mid), Role::Prefix | Role::Suffix)
+}
+
+/// Whether this successor needs a composite rather than the ordinary prefix/suffix route.
+fn structural_successor_is_dirty(
+    g: &Grammar,
+    mid: MRuleId,
+    anchored: bool,
+    ordinary_base: Option<(&[String], &[String])>,
+    rule_variants: &[crate::preexpand::AllomorphVariants],
+    surface: &str,
+) -> bool {
+    if candidate_requires_structural_route(g, mid) {
+        return true;
+    }
+    if !anchored {
+        return false;
+    }
+    let role = rule_role(g, mid);
+    let Some((root_variants, root_stripped)) = ordinary_base else {
+        return true;
+    };
+    !crate::preexpand::reachable_via_ordinary_emission(
+        root_variants,
+        root_stripped,
+        rule_variants,
+        role == Role::Prefix,
+        surface,
+    )
+}
+
+/// Conservatively tests transitive dirty-rule reachability over the finite morphotactic state graph.
+fn can_reach_dirty_candidate(ctx: &StructCtx<'_>, start: &ChainState) -> bool {
+    if ctx.enum_budget.is_tripped() {
+        return true;
+    }
+    if let Some(&cached) = ctx.dirty_reach.borrow().get(start) {
+        return cached;
+    }
+
+    let mut stack = vec![(start.clone(), false)];
+    let mut visiting: HashSet<ChainState> = HashSet::new();
+    while let Some((state, expanded)) = stack.pop() {
+        if ctx.enum_budget.is_tripped() {
+            return true;
+        }
+        if ctx.dirty_reach.borrow().contains_key(&state) {
+            continue;
+        }
+        if !expanded {
+            if !visiting.insert(state.clone()) {
+                continue;
+            }
+            let mut children = Vec::new();
+            let mut keep_tail = false;
+            for &mid in ctx.rules {
+                ctx.enum_budget.tick_probe();
+                if ctx.enum_budget.is_tripped() {
+                    return true;
+                }
+                let Some(next) = ctx.mt.next_state_fs_insensitive(&state, mid) else {
+                    continue;
+                };
+                if candidate_requires_structural_route(ctx.g, mid) {
+                    keep_tail = true;
+                    break;
+                }
+                if next == state || visiting.contains(&next) {
+                    // Uncertain cycles retain the recursive path.
+                    keep_tail = true;
+                    break;
+                }
+                if ctx
+                    .dirty_reach
+                    .borrow()
+                    .get(&next)
+                    .copied()
+                    .unwrap_or(false)
+                {
+                    keep_tail = true;
+                    break;
+                }
+                children.push(next);
+            }
+            if keep_tail {
+                ctx.dirty_reach.borrow_mut().insert(state.clone(), true);
+                visiting.remove(&state);
+                continue;
+            }
+            stack.push((state.clone(), true));
+            for child in children.into_iter().rev() {
+                if !ctx.dirty_reach.borrow().contains_key(&child) {
+                    stack.push((child, false));
+                }
+            }
+            continue;
+        }
+
+        let mut keep_tail = false;
+        for &mid in ctx.rules {
+            ctx.enum_budget.tick_probe();
+            if ctx.enum_budget.is_tripped() {
+                return true;
+            }
+            let Some(next) = ctx.mt.next_state_fs_insensitive(&state, mid) else {
+                continue;
+            };
+            if candidate_requires_structural_route(ctx.g, mid)
+                || next == state
+                || visiting.contains(&next)
+                || ctx
+                    .dirty_reach
+                    .borrow()
+                    .get(&next)
+                    .copied()
+                    .unwrap_or(false)
+            {
+                keep_tail = true;
+                break;
+            }
+        }
+        ctx.dirty_reach
+            .borrow_mut()
+            .insert(state.clone(), keep_tail);
+        visiting.remove(&state);
+    }
+
+    ctx.dirty_reach.borrow().get(start).copied().unwrap_or(true)
+}
+
+/// Explores authored applications within the closure envelope, emitting only structural chains.
 #[allow(clippy::too_many_arguments)]
 fn struct_extend(
     ctx: &StructCtx,
@@ -2221,6 +2775,7 @@ fn struct_extend(
     depth: usize,
     width: usize,
     state: &ChainState,
+    anchored: bool,
     acc: &mut StructAcc,
 ) {
     // Same check-once-at-the-top budget guard as `crate::preexpand::extend`'s own.
@@ -2228,20 +2783,33 @@ fn struct_extend(
         return;
     }
     let base_fs = base_word.syn_fs.clone();
-    for &mid in ctx.rules {
+    // Failure to prove an anchored surface ordinarily reachable keeps it on the structural path.
+    let ordinary_base = if anchored {
+        probe_surface_on_current_stack(ctx.g, ctx.root_table, &base_word.shape, ctx.cache).and_then(
+            |surface| {
+                let variants = surface_variants(ctx.root_table, &surface)?.0;
+                let stripped = stripped_variants(ctx.root_table, &surface)
+                    .map(|(variants, _)| variants)
+                    .unwrap_or_default();
+                Some((variants, stripped))
+            },
+        )
+    } else {
+        None
+    };
+    for (ridx, &mid) in ctx.rules.iter().enumerate() {
+        if ctx.enum_budget.is_tripped() {
+            return;
+        }
         let rule = &ctx.g.mrules[mid.0 as usize];
         let (req, rule_morpheme) = match rule {
             MorphRuleDef::AffixProcess(def) => (def.required_syn_fs, def.morpheme),
             MorphRuleDef::Realizational(def) => (def.required_syn_fs, def.morpheme),
             MorphRuleDef::Compounding(_) => continue,
         };
-        // A rule already in this chain cannot apply again in the same composite (multipleApplication = 1).
-        if chain.iter().any(|(m, _)| *m == rule_morpheme) {
-            continue;
-        }
         // Morphotactic pruning before the FS pre-filter below, mirroring `crate::preexpand::extend`'s insertion point.
         let Some(next_state) = (match ctx.mode {
-            ExploreMode::Flat => Some(state.clone()),
+            ExploreMode::Flat => ctx.mt.next_state_unpruned(state, mid),
             ExploreMode::Pruned => ctx.mt.next_state(state, mid, &base_fs, &ctx.g.fs_interner),
         }) else {
             continue;
@@ -2254,9 +2822,15 @@ fn struct_extend(
             budget.tick();
         }
         ctx.enum_budget.tick_probe();
+        if ctx.enum_budget.is_tripped() {
+            return;
+        }
 
         let synthesized = pg_rules::morph::synthesize(ctx.g, base_word, rule);
-        if depth >= STRUCT_MAX_EXTRA_RULES {
+        if depth >= DEFAULT_STRUCTURAL_CLOSURE_DEPTH_BUDGET {
+            if !synthesized.is_empty() {
+                acc.pending_rule_ordinals.insert(mid.0);
+            }
             acc.pending_successors += synthesized.len();
             continue;
         }
@@ -2265,12 +2839,13 @@ fn struct_extend(
         next_rule_chain.push(mid);
 
         for w in synthesized {
+            if ctx.enum_budget.is_tripped() {
+                return;
+            }
             let mut next_chain = chain.to_vec();
             next_chain.push((rule_morpheme, tags::morph_tag_lexc(rule_morpheme, width)));
-            let contains_structural = next_rule_chain
-                .iter()
-                .any(|&candidate| is_structural_rule(ctx.g, candidate));
-            if !contains_structural {
+            let next_anchored = anchored || candidate_requires_structural_route(ctx.g, mid);
+            if !next_anchored {
                 struct_extend(
                     ctx,
                     &w,
@@ -2279,26 +2854,25 @@ fn struct_extend(
                     depth + 1,
                     width,
                     &next_state,
+                    false,
                     acc,
                 );
                 continue;
             }
-            let Some(tag_lexc) = struct_morph_order_tags(&w, &next_chain) else {
-                struct_extend(
-                    ctx,
-                    &w,
-                    &next_chain,
-                    &next_rule_chain,
-                    depth + 1,
-                    width,
-                    &next_state,
-                    acc,
-                );
-                continue;
-            };
 
+            if ctx.enum_budget.is_tripped() {
+                return;
+            }
+            let shape_has_boundary = w
+                .shape
+                .interior()
+                .any(|(_, kind, _, _)| kind == pg_shape::NodeKind::Boundary);
             let surfaces: Vec<String> =
-                match probe_surface(ctx.g, ctx.root_table, &w.shape, ctx.cache) {
+                match probe_surface_on_current_stack(ctx.g, ctx.root_table, &w.shape, ctx.cache) {
+                    // A rendered-away boundary needs speculative positions for confirmation.
+                    Some(s) if shape_has_boundary => {
+                        with_boundary_insertions(&s, ctx.boundary_reps)
+                    }
                     Some(s) => vec![s],
                     None => {
                         // Probe refused: fall back to real generation for the whole chain so far, which can return more than one surface when the LHS match is genuinely ambiguous.
@@ -2314,10 +2888,28 @@ fn struct_extend(
                     }
                 };
 
+            let tag_lexc = struct_morph_order_tags(&w, &next_chain);
             for s in &surfaces {
                 if s.is_empty() {
                     continue;
                 }
+                // Only an ordinary Prefix/Suffix after an anchor may use the exact clean proof.
+                let dirty = structural_successor_is_dirty(
+                    ctx.g,
+                    mid,
+                    anchored,
+                    ordinary_base
+                        .as_ref()
+                        .map(|(variants, stripped)| (variants.as_slice(), stripped.as_slice())),
+                    &ctx.rule_variants[ridx],
+                    s,
+                );
+                if !dirty {
+                    continue;
+                }
+                let Some(tag_lexc) = tag_lexc.as_ref() else {
+                    continue;
+                };
                 acc.covered_rules.insert(mid.0);
                 if acc.seen.insert((tag_lexc.clone(), s.clone())) {
                     acc.recs.push(crate::preexpand::CompositeRec {
@@ -2332,26 +2924,35 @@ fn struct_extend(
                     });
                     // Same enumeration-budget measure `crate::preexpand::extend`'s entries feed.
                     ctx.enum_budget.add_entries(1);
+                    if ctx.enum_budget.is_tripped() {
+                        return;
+                    }
                 }
             }
 
-            struct_extend(
-                ctx,
-                &w,
-                &next_chain,
-                &next_rule_chain,
-                depth + 1,
-                width,
-                &next_state,
-                acc,
-            );
+            if !next_anchored || can_reach_dirty_candidate(ctx, &next_state) {
+                struct_extend(
+                    ctx,
+                    &w,
+                    &next_chain,
+                    &next_rule_chain,
+                    depth + 1,
+                    width,
+                    &next_state,
+                    next_anchored,
+                    acc,
+                );
+                if ctx.enum_budget.is_tripped() {
+                    return;
+                }
+            }
         }
     }
 }
 
 /// Builds every structural composite for `g`; a no-op when `rules` is empty. Also returns every rule id that produced an entry, so `emit` can drop its now-stale `uncovered` items.
 #[allow(clippy::too_many_arguments)]
-fn build_structural_composites(
+fn build_structural_composites_on_current_stack(
     g: &Grammar,
     width: usize,
     rules: &[MRuleId],
@@ -2360,19 +2961,30 @@ fn build_structural_composites(
     mt: &MorphotacticIndex,
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
+    phon: Option<&PhonologyProbe>,
     enum_budget: &EnumerationBudget,
-) -> (Vec<crate::preexpand::CompositeRec>, BTreeSet<u32>, usize) {
+) -> (
+    Vec<crate::preexpand::CompositeRec>,
+    BTreeSet<u32>,
+    usize,
+    BTreeSet<u32>,
+    usize,
+) {
     if rules.is_empty() {
-        return (Vec::new(), BTreeSet::new(), 0);
+        return (Vec::new(), BTreeSet::new(), 0, BTreeSet::new(), 0);
     }
     let mut acc = StructAcc {
         recs: Vec::new(),
         seen: rustc_hash::FxHashSet::default(),
         covered_rules: BTreeSet::new(),
         pending_successors: 0,
+        pending_rule_ordinals: BTreeSet::new(),
     };
     // Every stratum shares one surface table in the reference grammars, so computing this once is safe.
     let bnd_reps = boundary_reps(surface_table(g));
+    let mut candidate_pairs_pruned = 0usize;
+    let mut dirty_reach_by_rule_set: HashMap<Vec<MRuleId>, RefCell<HashMap<ChainState, bool>>> =
+        HashMap::new();
 
     for sd in &g.strata {
         for &entry_id in &sd.entries {
@@ -2380,6 +2992,11 @@ fn build_structural_composites(
             let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
             let root_table = &g.char_tables[g.strata[root_stratum.0 as usize].table.0 as usize];
             let entry_fs = g.fs_interner.get(entry.syn_fs);
+            let (root_rules, pruned_per_allomorph) =
+                structural_candidate_rules_for_root(g, rules, entry_fs);
+            let dirty_reach = dirty_reach_by_rule_set
+                .entry(root_rules.clone())
+                .or_default();
 
             for allo in &entry.allomorphs {
                 if allo.is_pattern {
@@ -2395,14 +3012,27 @@ fn build_structural_composites(
                 word.mpr = entry.mpr;
                 word.root_allomorph = Some(allo.id);
                 word.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
+                candidate_pairs_pruned =
+                    candidate_pairs_pruned.saturating_add(pruned_per_allomorph);
 
                 let root_tag = tags::root_tag_lexc(entry.morpheme, width);
                 let chain0 = vec![(entry.morpheme, root_tag)];
+                let rule_variants: Vec<Vec<crate::preexpand::AllomorphVariants>> = root_rules
+                    .iter()
+                    .map(|&mid| {
+                        crate::preexpand::build_allomorph_variants(
+                            root_table,
+                            phon,
+                            &g.mrules[mid.0 as usize],
+                        )
+                    })
+                    .collect();
                 let ctx = StructCtx {
                     g,
                     root_table,
                     root_entry: entry_id,
-                    rules,
+                    rules: &root_rules,
+                    rule_variants: &rule_variants,
                     cache,
                     morpher,
                     boundary_reps: &bnd_reps,
@@ -2410,14 +3040,89 @@ fn build_structural_composites(
                     mode,
                     probe_budget,
                     enum_budget,
+                    dirty_reach,
                 };
                 // Seeded the same way `crate::preexpand::process_root_work` seeds pruning.
                 let seed_state = ChainState::seed(g, root_stratum.0, entry.partial);
-                struct_extend(&ctx, &word, &chain0, &[], 0, width, &seed_state, &mut acc);
+                struct_extend(
+                    &ctx,
+                    &word,
+                    &chain0,
+                    &[],
+                    0,
+                    width,
+                    &seed_state,
+                    false,
+                    &mut acc,
+                );
             }
         }
     }
-    (acc.recs, acc.covered_rules, acc.pending_successors)
+    (
+        acc.recs,
+        acc.covered_rules,
+        acc.pending_successors,
+        acc.pending_rule_ordinals,
+        candidate_pairs_pruned,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_structural_composites(
+    g: &Grammar,
+    width: usize,
+    rules: &[MRuleId],
+    cache: &RuleCache,
+    morpher: &Morpher,
+    mt: &MorphotacticIndex,
+    mode: ExploreMode,
+    probe_budget: Option<ProbeBudget<'_>>,
+    phon: Option<&PhonologyProbe>,
+    enum_budget: &EnumerationBudget,
+) -> (
+    Vec<crate::preexpand::CompositeRec>,
+    BTreeSet<u32>,
+    usize,
+    BTreeSet<u32>,
+    usize,
+) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        return build_structural_composites_on_current_stack(
+            g,
+            width,
+            rules,
+            cache,
+            morpher,
+            mt,
+            mode,
+            probe_budget,
+            phon,
+            enum_budget,
+        );
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(PROBE_STACK_BYTES)
+            .spawn_scoped(scope, move || {
+                build_structural_composites_on_current_stack(
+                    g,
+                    width,
+                    rules,
+                    cache,
+                    morpher,
+                    mt,
+                    mode,
+                    probe_budget,
+                    phon,
+                    enum_budget,
+                )
+            })
+            .expect("spawning the structural-composite worker")
+            .join()
+            .expect("structural-composite worker panicked")
+    })
 }
 
 // --- Top-level emit ---------------------------------------------------------------------------
@@ -2450,10 +3155,11 @@ pub fn composite_scale_hint(g: &Grammar) -> (bool, usize, usize) {
 /// surface must not touch `preexpand.rs`).
 ///
 /// `structural_probe_would_refuse`/`structural_candidate_count`/`structural_candidates`:
-/// `probe_would_refuse`'s verdict and `structural_candidate_rules`'s own flat depth-3 candidate set
+/// `probe_would_refuse`'s verdict and `structural_candidate_rules`'s candidate set
 /// for `build_structural_composites` — that set widens dramatically (every ordinary
 /// Prefix/Suffix/Infix rule joins it, on top of the always-on structural/circumfix rules) exactly
-/// when `structural_probe_would_refuse` is true. `structural_candidates` carries the exact rule ids
+/// when `structural_probe_would_refuse` is true; when a structural anchor exists it also carries
+/// every bounded non-Compounding predecessor rule. `structural_candidates` carries the exact rule ids
 /// (`structural_candidate_count` is simply its length) so a caller can assert set MEMBERSHIP, not
 /// only cardinality — the census C4 handoff test needs this to prove a rule reaches this set
 /// specifically, rather than merely inferring it from a count that could shift for an unrelated
@@ -2474,8 +3180,8 @@ pub fn composite_candidate_rules(g: &Grammar) -> CompositeCandidateDiagnostics {
             }
             let mid = MRuleId(i);
             match rule_role(g, mid) {
-                // Census C4 handoff: an Infix rule that reaches build_structural_composites (some allomorph drops LHS material) relinquishes its crate::preexpand claim.
-                Role::Infix if is_structural_rule(g, mid) => None,
+                // Structural synthesis owns the whole rule, including ordinary first allomorphs.
+                Role::Prefix | Role::Suffix | Role::Infix if is_structural_rule(g, mid) => None,
                 Role::Infix => Some((i, "Infix")),
                 Role::Prefix => Some((i, "Prefix")),
                 Role::Suffix => Some((i, "Suffix")),
@@ -2491,6 +3197,188 @@ pub fn composite_candidate_rules(g: &Grammar) -> CompositeCandidateDiagnostics {
         structural_candidate_count: structural_candidates.len(),
         structural_candidates,
     }
+}
+
+/// Pure-Rust characterization of structural-closure work that the tuned surface emitter must
+/// perform before it can prove a complete artifact. The walk uses the production morphotactic
+/// index, feature checks, application counters, and morphology synthesizer, but never probes
+/// phonology, emits lexc, or calls foma.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructuralClosureCharacterization {
+    pub candidate_rules: usize,
+    pub root_allomorphs: usize,
+    pub rule_pairs_visited: usize,
+    pub synthesized_successors: usize,
+    pub deepest_successor: usize,
+    pub limit: usize,
+    pub exceeded: bool,
+    pub dominant_rule_ordinals: Vec<(u32, usize)>,
+}
+
+#[derive(Clone, Copy)]
+struct StructuralCharacterizationContext<'a> {
+    grammar: &'a Grammar,
+    rules: &'a [MRuleId],
+    morphotactics: &'a MorphotacticIndex,
+    probe_refuses: bool,
+    limit: usize,
+}
+
+fn characterize_structural_chain(
+    context: &StructuralCharacterizationContext<'_>,
+    word: &Word,
+    state: &ChainState,
+    depth: usize,
+    anchored: bool,
+    result: &mut StructuralClosureCharacterization,
+    per_rule: &mut [usize],
+) {
+    if result.exceeded {
+        return;
+    }
+    let base_fs = word.syn_fs.clone();
+    for &mid in context.rules {
+        let rule = &context.grammar.mrules[mid.0 as usize];
+        let required = match rule {
+            MorphRuleDef::AffixProcess(def) => def.required_syn_fs,
+            MorphRuleDef::Realizational(def) => def.required_syn_fs,
+            MorphRuleDef::Compounding(_) => continue,
+        };
+        let Some(next_state) =
+            context
+                .morphotactics
+                .next_state(state, mid, &base_fs, &context.grammar.fs_interner)
+        else {
+            continue;
+        };
+        let required_fs = context.grammar.fs_interner.get(required);
+        if !required_fs.is_empty() && !is_unifiable(required_fs, &base_fs) {
+            continue;
+        }
+        result.rule_pairs_visited = result.rule_pairs_visited.saturating_add(1);
+        if result.rule_pairs_visited > context.limit {
+            result.exceeded = true;
+            return;
+        }
+
+        let synthesized = pg_rules::morph::synthesize(context.grammar, word, rule);
+        for successor in synthesized {
+            result.synthesized_successors = result.synthesized_successors.saturating_add(1);
+            per_rule[mid.0 as usize] = per_rule[mid.0 as usize].saturating_add(1);
+            result.deepest_successor = result.deepest_successor.max(depth + 1);
+            if depth >= DEFAULT_STRUCTURAL_CLOSURE_DEPTH_BUDGET {
+                continue;
+            }
+            let next_anchored =
+                anchored || candidate_requires_structural_route(context.grammar, mid);
+            if !next_anchored || context.probe_refuses {
+                characterize_structural_chain(
+                    context,
+                    &successor,
+                    &next_state,
+                    depth + 1,
+                    next_anchored,
+                    result,
+                    per_rule,
+                );
+                if result.exceeded {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/// Measures a proven floor on tuned structural-closure work, stopping once `limit` rule-pair
+/// visits have been observed. Post-anchor tails are counted only when phonological probing is
+/// known to refuse, so a large result is evidence of work the production builder must perform,
+/// not a roots-by-rules upper bound.
+pub fn characterize_structural_closure(
+    grammar: &Grammar,
+    limit: usize,
+) -> StructuralClosureCharacterization {
+    let rules = structural_candidate_rules(grammar);
+    let morphotactics = MorphotacticIndex::build(grammar);
+    let context = StructuralCharacterizationContext {
+        grammar,
+        rules: &rules,
+        morphotactics: &morphotactics,
+        probe_refuses: probe_would_refuse(grammar),
+        limit,
+    };
+    let mut result = StructuralClosureCharacterization {
+        candidate_rules: rules.len(),
+        root_allomorphs: 0,
+        rule_pairs_visited: 0,
+        synthesized_successors: 0,
+        deepest_successor: 0,
+        limit,
+        exceeded: false,
+        dominant_rule_ordinals: Vec::new(),
+    };
+    let mut per_rule = vec![0usize; grammar.mrules.len()];
+
+    for stratum in &grammar.strata {
+        for &entry_id in &stratum.entries {
+            let entry = &grammar.entries[entry_id.0 as usize];
+            let root_stratum = grammar.morphemes[entry.morpheme.0 as usize].stratum;
+            let table =
+                &grammar.char_tables[grammar.strata[root_stratum.0 as usize].table.0 as usize];
+            let entry_fs = grammar.fs_interner.get(entry.syn_fs);
+            let (root_rules, _) = structural_candidate_rules_for_root(grammar, &rules, entry_fs);
+            let root_context = StructuralCharacterizationContext {
+                rules: &root_rules,
+                ..context
+            };
+            for allomorph in &entry.allomorphs {
+                if allomorph.is_pattern {
+                    continue;
+                }
+                let Ok(shape) = pg_rules::shape_feat::segment_with_features(
+                    grammar,
+                    table,
+                    &allomorph.shape.text,
+                ) else {
+                    continue;
+                };
+                result.root_allomorphs = result.root_allomorphs.saturating_add(1);
+                let mut word = Word::new(shape, root_stratum);
+                word.syn_fs = entry_fs.clone();
+                word.mpr = entry.mpr;
+                word.root_allomorph = Some(allomorph.id);
+                word.morphs = vec![MorphRecord::new(allomorph.id, entry.morpheme, 0)];
+                let state = ChainState::seed(grammar, root_stratum.0, entry.partial);
+                characterize_structural_chain(
+                    &root_context,
+                    &word,
+                    &state,
+                    0,
+                    false,
+                    &mut result,
+                    &mut per_rule,
+                );
+                if result.exceeded {
+                    break;
+                }
+            }
+            if result.exceeded {
+                break;
+            }
+        }
+        if result.exceeded {
+            break;
+        }
+    }
+
+    let mut dominant: Vec<(u32, usize)> = per_rule
+        .into_iter()
+        .enumerate()
+        .filter_map(|(ordinal, count)| (count != 0).then_some((ordinal as u32, count)))
+        .collect();
+    dominant.sort_by_key(|&(ordinal, count)| (std::cmp::Reverse(count), ordinal));
+    dominant.truncate(5);
+    result.dominant_rule_ordinals = dominant;
+    result
 }
 
 /// `emit_with_precision(g, PrecisionConfig::Strip)` — v1's original, unconditional behavior.
@@ -2630,6 +3518,51 @@ fn emit_with_budget_profiled_with_strategy(
 
     // A Plan leaf is an opaque marker with no rule content, so the candidate rule list is still computed directly; plan_wants_structural_composite, not !struct_rules.is_empty(), is what gates the heavier Morpher/RuleCache machinery below.
     let struct_rules = structural_candidate_rules(g);
+    let mut unbounded_closure_rules = BTreeSet::new();
+    if plan_wants_composite_emission {
+        unbounded_closure_rules.extend(
+            crate::preexpand::unbounded_candidate_rules(g)
+                .into_iter()
+                .map(|mid| mid.0),
+        );
+    }
+    if plan_wants_structural_composite {
+        unbounded_closure_rules.extend(struct_rules.iter().filter_map(|mid| {
+            (crate::preexpand::loose_rule_is_active(g, *mid)
+                && crate::preexpand::realizational_rule_is_semantically_unbounded(g, *mid))
+            .then_some(mid.0)
+        }));
+    }
+    if !unbounded_closure_rules.is_empty() {
+        let rules = unbounded_closure_rules
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let reason = format!(
+            "the eager Foma composite route cannot prove finite closure because RealizationalRule \
+             grammar ordinal(s) [{rules}] have no authored application bound. No partial FST was \
+             generated. Use the full morphological-parser engine, or re-express the construction \
+             with language-valid ordered/slot-bounded affix rules; do not make any change that \
+             would make your language invalid."
+        );
+        return EmitResult {
+            lexc_source: String::new(),
+            report: EmitReport {
+                uncovered,
+                counts,
+                tier: FomaTier::Unsupported { reason },
+                enum_budget_exceeded: None,
+                closure_refusal: Some(ClosureRefusal {
+                    code: ClosureRefusalCode::UnboundedRuleApplication,
+                    affected_rule_ordinals: unbounded_closure_rules.into_iter().collect(),
+                    depth_limit: None,
+                    pending_successors: None,
+                    remedy_backend: ClosureFallbackBackend::FullMorphologicalParser,
+                }),
+            },
+        };
+    }
     let rule_cache = RuleCache::build(g);
     let morpher = if phon.is_some() || plan_wants_structural_composite {
         Some(Morpher::new(g, usize::MAX))
@@ -2639,6 +3572,7 @@ fn emit_with_budget_profiled_with_strategy(
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::SurfaceSetup, stage_start.elapsed());
     }
+    trace_emit_stage(CompileStage::SurfaceSetup, stage_start.elapsed());
     stage_start = Instant::now();
 
     let allowed_entries = match strategy.root_scope {
@@ -2657,6 +3591,7 @@ fn emit_with_budget_profiled_with_strategy(
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::RootCollection, stage_start.elapsed());
     }
+    trace_emit_stage(CompileStage::RootCollection, stage_start.elapsed());
     stage_start = Instant::now();
 
     // Built once and shared by both composite builders below, so they prune against the identical automaton instead of each reading the env vars for their own.
@@ -2690,35 +3625,42 @@ fn emit_with_budget_profiled_with_strategy(
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::PreexpandComposites, stage_start.elapsed());
     }
+    trace_emit_stage(CompileStage::PreexpandComposites, stage_start.elapsed());
     stage_start = Instant::now();
 
     // plan_wants_structural_composite is the same plan-derived decision that gated the Morpher build above, so this stays zero-cost for a grammar with no structural rule.
     let mut struct_covered_rules: BTreeSet<u32> = BTreeSet::new();
     let mut structural_pending_successors = 0;
+    let mut structural_pending_rules = BTreeSet::new();
     if plan_wants_structural_composite {
         let m = morpher
             .as_ref()
             .expect("morpher is built whenever plan_wants_structural_composite is true");
-        let (struct_composites, covered, pending_successors) = build_structural_composites(
-            g,
-            width,
-            &struct_rules,
-            &rule_cache,
-            m,
-            &morphotactic_index,
-            explore_mode,
-            probe_budget,
-            enum_budget,
-        );
+        let (struct_composites, covered, pending_successors, pending_rules, candidate_pairs_pruned) =
+            build_structural_composites(
+                g,
+                width,
+                &struct_rules,
+                &rule_cache,
+                m,
+                &morphotactic_index,
+                explore_mode,
+                probe_budget,
+                phon.as_ref(),
+                enum_budget,
+            );
         counts.composite_structural_entries = struct_composites.len();
         composites.extend(struct_composites);
         struct_covered_rules = covered;
         structural_pending_successors = pending_successors;
+        structural_pending_rules = pending_rules;
+        counts.structural_candidate_pairs_pruned = candidate_pairs_pruned;
     }
     // Pushed unconditionally; the elapsed time itself is near-zero when the block above was skipped.
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::StructuralComposites, stage_start.elapsed());
     }
+    trace_emit_stage(CompileStage::StructuralComposites, stage_start.elapsed());
     stage_start = Instant::now();
 
     // Both builders above check enum_budget cooperatively during their own recursion, but the grammar-level verdict is decided once, here, before any expensive derivation work runs.
@@ -2751,17 +3693,21 @@ fn emit_with_budget_profiled_with_strategy(
                     value,
                     limit,
                 }),
+                closure_refusal: None,
             },
         };
     }
 
     let pending_successors = composite_report.pending_successors + structural_pending_successors;
     if pending_successors != 0 {
+        let mut affected_rule_ordinals = composite_report.pending_rule_ordinals;
+        affected_rule_ordinals.extend(structural_pending_rules);
         let reason = format!(
-            "FST construction stopped at a temporary fixed-depth boundary with \
-             {pending_successors} live successor(s) still reachable; the emitted subset is \
-             incomplete. Use the full morphological-parser engine until finite closure is \
-             implemented for this route."
+            "FST construction exceeded the eager Foma closure-depth resource envelope with \
+             {pending_successors} live successor(s) still reachable; the emitted subset would be \
+             incomplete, so no artifact was generated. Use the full morphological-parser engine, \
+             or consider language-valid rule ordering or affix slots that would make this backend \
+             tractable; do not make any change that would make your language invalid."
         );
         return EmitResult {
             lexc_source: String::new(),
@@ -2770,6 +3716,13 @@ fn emit_with_budget_profiled_with_strategy(
                 counts,
                 tier: FomaTier::Unsupported { reason },
                 enum_budget_exceeded: None,
+                closure_refusal: Some(ClosureRefusal {
+                    code: ClosureRefusalCode::DepthBudgetExceeded,
+                    affected_rule_ordinals: affected_rule_ordinals.into_iter().collect(),
+                    depth_limit: Some(DEFAULT_STRUCTURAL_CLOSURE_DEPTH_BUDGET),
+                    pending_successors: Some(pending_successors),
+                    remedy_backend: ClosureFallbackBackend::FullMorphologicalParser,
+                }),
             },
         };
     }
@@ -2800,6 +3753,7 @@ fn emit_with_budget_profiled_with_strategy(
                     deriv_prefix.push(mid);
                     deriv_suffix.push(mid);
                 }
+                Role::CircumfixPrefix => {}
                 other => uncovered.push(UncoveredItem {
                     kind: other.label().to_string(),
                     id: format!("mrule{}", mid.0),
@@ -2807,6 +3761,14 @@ fn emit_with_budget_profiled_with_strategy(
                         "standalone rule's primary allomorph classifies as {other:?}; not representable (v1)"
                     ),
                 }),
+            }
+            if any_allomorph_is_circumfix_prefix(g, mid) {
+                if !deriv_prefix.contains(&mid) {
+                    deriv_prefix.push(mid);
+                }
+                if !deriv_suffix.contains(&mid) {
+                    deriv_suffix.push(mid);
+                }
             }
         }
     }
@@ -2846,6 +3808,7 @@ fn emit_with_budget_profiled_with_strategy(
                     .to_string(),
             },
             enum_budget_exceeded: None,
+            closure_refusal: None,
         };
         return EmitResult {
             lexc_source: String::new(),
@@ -2972,6 +3935,7 @@ fn emit_with_budget_profiled_with_strategy(
                         value: cross,
                         limit,
                     }),
+                    closure_refusal: None,
                 },
             };
         }
@@ -3419,6 +4383,7 @@ fn emit_with_budget_profiled_with_strategy(
             counts,
             tier,
             enum_budget_exceeded: None,
+            closure_refusal: None,
         },
     }
 }
@@ -3444,6 +4409,7 @@ fn emit_line_budget_breach(
             counts,
             tier: FomaTier::Unsupported { reason },
             enum_budget_exceeded: None,
+            closure_refusal: None,
         },
     }
 }
@@ -3614,6 +4580,7 @@ pub fn emit_underlying_templated(
                     value,
                     limit,
                 }),
+                closure_refusal: None,
             },
         };
     }
@@ -3629,6 +4596,7 @@ pub fn emit_underlying_templated(
                         .to_string(),
                 },
                 enum_budget_exceeded: None,
+                closure_refusal: None,
             },
         };
     }
@@ -3797,6 +4765,7 @@ pub fn emit_underlying_templated(
                         value: cross,
                         limit,
                     }),
+                    closure_refusal: None,
                 },
             };
         }
@@ -4202,6 +5171,7 @@ pub fn emit_underlying_templated(
             counts,
             tier,
             enum_budget_exceeded: None,
+            closure_refusal: None,
         },
     }
 }
@@ -4216,6 +5186,27 @@ mod structural_and_pattern_tests {
             .join(path);
         let xml =
             std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("{}: {e}", full.display()));
+        pg_grammar::load(&xml).unwrap()
+    }
+
+    fn load_without_realizational_rules(path: &str) -> Grammar {
+        let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../machine/conformance")
+            .join(path);
+        let mut xml =
+            std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("{}: {e}", full.display()));
+        for id in ["rrPast", "rrRRealTest"] {
+            xml = xml.replace(&format!(" {id}"), "");
+            let start_marker = format!("<RealizationalRule id=\"{id}\">");
+            let start = xml
+                .find(&start_marker)
+                .unwrap_or_else(|| panic!("fixture must contain {start_marker}"));
+            let relative_end = xml[start..]
+                .find("</RealizationalRule>")
+                .unwrap_or_else(|| panic!("fixture must close {start_marker}"));
+            let end = start + relative_end + "</RealizationalRule>".len();
+            xml.replace_range(start..end, "");
+        }
         pg_grammar::load(&xml).unwrap()
     }
 
@@ -4313,8 +5304,12 @@ mod structural_and_pattern_tests {
     /// A bare root whose surface exists only via an obligatory phonological rule, no morphological rule involved, must become proposable via collect_roots' bare-root phonology enrichment.
     #[test]
     fn bare_root_phonology_makes_post_nasal_voicing_proposable() {
-        let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
-        let mut proposer = crate::analyzer::FomaProposer::new(&g).expect("compiles");
+        let g = load_without_realizational_rules(
+            "languages/suffixing-extension-slot-ordering/grammar.xml",
+        );
+        // This checks a proposal path, not completeness of the broader fixture.
+        let (proposer, _) = crate::analyzer::FomaProposer::new_unproven_with_profile(&g);
+        let mut proposer = proposer.expect("development-only partial proposer compiles");
         assert!(
             !proposer.propose("mba").is_empty(),
             "\"mba\" must be proposable"
@@ -4337,7 +5332,9 @@ mod structural_and_pattern_tests {
             Some("bubu".to_string())
         );
 
-        let mut proposer = crate::analyzer::FomaProposer::new(&g).expect("compiles");
+        // This checks a proposal path despite the fixture's unrelated representation overflow.
+        let (proposer, _) = crate::analyzer::FomaProposer::new_unproven_with_profile(&g);
+        let mut proposer = proposer.expect("development-only partial proposer compiles");
         assert!(
             !proposer.propose("buuubuuu").is_empty(),
             "\"buuubuuu\" must be proposable despite the probe's own wrong answer"
@@ -4348,6 +5345,26 @@ mod structural_and_pattern_tests {
     #[test]
     fn suffixing_vowel_harmony_full_cascade_words_are_proposable() {
         let g = load("languages/suffixing-vowel-harmony/grammar.xml");
+        let past = (0..g.mrules.len() as u32)
+            .map(MRuleId)
+            .find(|&mid| g.morphemes[owning_morpheme(&g, mid).0 as usize].xml_key == "mrPast")
+            .expect("fixture contains mrPast");
+        assert!(candidate_requires_structural_route(&g, past));
+        let generated = Morpher::new(&g, usize::MAX).generate_words(
+            entry_id_of(&g, "eKutak"),
+            &[GenMorpheme::Rule(past)],
+            FeatureStruct::EMPTY,
+        );
+        assert!(
+            generated.iter().any(|surface| surface == "kutagida"),
+            "full-engine fallback returned {generated:?}"
+        );
+        let emitted = emit(&g);
+        assert!(
+            emitted.lexc_source.contains("kutagida"),
+            "kutagida missing before foma compilation: {:?}",
+            emitted.report.counts
+        );
         let mut proposer = crate::analyzer::FomaProposer::new(&g).expect("compiles");
         for word in [
             "kutagida",
@@ -4371,22 +5388,87 @@ mod structural_and_pattern_tests {
     /// Every proposed candidate must survive confirm end-to-end via the real conformance path.
     fn assert_confirms(fixture: &str, words: &[&str]) {
         let g = load(&format!("{fixture}/grammar.xml"));
-        let mut analyzer = crate::composite::FomaAnalyzer::new(&g)
-            .unwrap_or_else(|e| panic!("{fixture} compiles: {e}"));
+        // These broad fixtures provide proposal-path evidence, not artifact certification.
+        let (proposer, _) = crate::analyzer::FomaProposer::new_unproven_with_profile(&g);
+        let proposer =
+            proposer.unwrap_or_else(|e| panic!("{fixture} compiles for development: {e}"));
+        let mut analyzer = crate::composite::FomaAnalyzer::from_precompiled_proposer(&g, proposer);
         for &word in words {
             let outcome = analyzer.analyze_word(word);
             assert!(
                 outcome.confirmed >= 1,
-                "{fixture}/{word:?}: expected >= 1 confirmed analysis, got {}",
-                outcome.confirmed
+                "{fixture}/{word:?}: expected >= 1 confirmed analysis, got {}; candidates={}",
+                outcome.confirmed,
+                outcome.candidates_generated
             );
         }
     }
 
     /// A prefix on the compound head span needs the extra-root slot wired through a prefix-derivation chain; a bare extra-root slot cannot place a prefix between the two roots.
     #[test]
-    fn compound_head_prefix_confirms() {
+    fn compound_head_prefix_confirms_fusional_realizational_fixture() {
         assert_confirms("languages/fusional-realizational-morphology", &["lexbedom"]);
+    }
+
+    /// A POS-disjoint structural rule must not widen unrelated roots' closure.
+    #[test]
+    fn fusional_nonedge_anchor_reachability_is_root_specific() {
+        let g = load("languages/fusional-realizational-morphology/grammar.xml");
+        let ordinary = &g.entries[entry_id_of(&g, "eDomV").0 as usize];
+        let ablaut = &g.entries[entry_id_of(&g, "eSing").0 as usize];
+
+        assert!(
+            !root_can_reach_nondecomposable_structural_anchor(
+                &g,
+                g.fs_interner.get(ordinary.syn_fs),
+            ),
+            "posV2 must remain separated from the posAblautV-only ablaut rule"
+        );
+        assert!(
+            root_can_reach_nondecomposable_structural_anchor(&g, g.fs_interner.get(ablaut.syn_fs),),
+            "the posAblautV root must retain the exact structural closure"
+        );
+    }
+
+    /// Emission records deterministic evidence that root-specific pruning ran.
+    #[test]
+    fn fusional_emission_reports_root_specific_candidate_pruning() {
+        let g = load("languages/fusional-realizational-morphology/grammar.xml");
+        let result = emit(&g);
+
+        assert!(
+            result.report.counts.structural_candidate_pairs_pruned > 0,
+            "the mixed circumfix/ablaut grammar must exercise root-specific pruning"
+        );
+    }
+
+    /// Probe refusal makes ordinary affixes the structural route's payload, so retain them.
+    #[test]
+    fn metathesis_probe_refusal_keeps_affix_candidates_per_root() {
+        let g = load("languages/metathesis-phase-isolation/grammar.xml");
+        assert!(probe_would_refuse(&g));
+        let grammar_rules = structural_candidate_rules(&g);
+        assert!(!grammar_rules.is_empty());
+        let suffix = grammar_rules
+            .iter()
+            .copied()
+            .find(|&mid| g.morphemes[owning_morpheme(&g, mid).0 as usize].xml_key == "mrUSuffix")
+            .expect("fixture contains mrUSuffix");
+        assert!(candidate_requires_structural_route(&g, suffix));
+        let entry = &g.entries[entry_id_of(&g, "eMi").0 as usize];
+
+        let (root_rules, pruned) = structural_candidate_rules_for_root(
+            &g,
+            &grammar_rules,
+            g.fs_interner.get(entry.syn_fs),
+        );
+
+        assert_eq!(root_rules, grammar_rules);
+        assert_eq!(pruned, 0);
+    }
+
+    #[test]
+    fn compound_head_prefix_confirms_polysynthetic_fixture() {
         assert_confirms(
             "languages/polysynthetic-stratal-derivation-chain",
             &["silamanuk"],
@@ -5181,17 +6263,19 @@ mod aweti_enum_census {
             let struct_rules = structural_candidate_rules(&g);
             let cache = RuleCache::build(&g);
             let morpher = Morpher::new(&g, usize::MAX);
-            let (srecs, _covered, _pending_successors) = build_structural_composites(
-                &g,
-                width,
-                &struct_rules,
-                &cache,
-                &morpher,
-                &mt,
-                ExploreMode::Pruned,
-                None,
-                &budget,
-            );
+            let (srecs, _covered, _pending_successors, _pending_rules, _candidate_pairs_pruned) =
+                build_structural_composites(
+                    &g,
+                    width,
+                    &struct_rules,
+                    &cache,
+                    &morpher,
+                    &mt,
+                    ExploreMode::Pruned,
+                    None,
+                    None,
+                    &budget,
+                );
             let mut s_by_len: std::collections::BTreeMap<usize, usize> =
                 std::collections::BTreeMap::new();
             for r in &srecs {

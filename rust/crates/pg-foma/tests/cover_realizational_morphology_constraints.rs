@@ -207,6 +207,13 @@ fn realizational_rule_presence_blocking_over_propose_confirm_prune() {
          confirm's real_fs/IsBlocked check to have anything to prune -- candidates_generated=0 \
          would mean the proposer itself silently dropped this shape, not that confirm pruned it"
     );
+
+    let repeated = assert_confirm_matches_oracle(&mut analyzer, &morpher, "kibididididid", false);
+    assert_eq!(repeated.confirmed, 0);
+    assert!(
+        repeated.candidates_generated > 0,
+        "the regular FST loop must propose the five-repeat candidate so confirmation can reject it"
+    );
 }
 
 #[test]

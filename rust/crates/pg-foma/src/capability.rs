@@ -137,9 +137,9 @@ pub enum CharacteristicKind {
     /// `Copy`/`Modify` actions >= 2 times (model.rs:679's `ReduplicationHint`). NOT raised for
     /// every allomorph carrying a `ReduplicationHint` value (see `rhs_has_true_reduplication`'s
     /// doc — `Implicit` is the DTD default for every non-reduplicating affix too). Discharged by
-    /// `ReduplicationPeelSupportedPredicate`: peeled, never compiled into the FST itself,
-    /// retaining the established division between compiled template morphology and peeled
-    /// reduplication.
+    /// `ReduplicationPeelSupportedPredicate`: statically proven prefix-copy, suffix-copy, and
+    /// one-separator layouts are peeled; every other true-reduplication shape uses structural
+    /// synthesis instead.
     Reduplication,
     /// A `MorphemeCoOccurrenceRuleDef`/`AllomorphCoOccurrenceRuleDef` occurrence (model.rs:508's
     /// `CoOccurrenceAdjacency`, each variant folded into this one characteristic).
@@ -253,7 +253,7 @@ impl CharacteristicKind {
             CharacteristicKind::Epenthesis => Disposition::ConfigPredicate,
             CharacteristicKind::SubruleGating => Disposition::Proven,
             CharacteristicKind::CircumfixOutputAction => Disposition::ConfigPredicate,
-            // `ReduplicationPeeler` faithfully peels but is unproven; see `ReduplicationPeelSupportedPredicate`'s own doc for the peel-eligible/`RealizationalRule` split.
+            // Faithfully proposed by either the shared peeler or structural synthesis, but unproven; see `ReduplicationPeelSupportedPredicate`.
             CharacteristicKind::Reduplication => Disposition::ConfigPredicate,
             CharacteristicKind::CoOccurrenceConstraint => Disposition::ConfirmOnly,
             CharacteristicKind::NaturalClassDefinition => Disposition::Proven,
@@ -470,8 +470,8 @@ pub struct QuantifierPatternDetail {
     /// unbounded quantifier compiles via the SAME `crate::replace::Slot::Repeat` construction a
     /// bounded one does, `compile_attempted` below is the only fact that matters for disposition
     /// now) — `all_bounded` is retained purely as structural evidence for OTHER consumers,
-    /// specifically `crate::preflight`'s own per-rule cost-uncertainty health finding (an unbounded
-    /// quantifier's own FST-compile cost is not preflight-boundable ahead of time, a `Warning`-level
+    /// specifically `crate::characterization`'s own per-rule cost-uncertainty health finding (an unbounded
+    /// quantifier's own FST-compile cost is not characterization-boundable ahead of time, a `Warning`-level
     /// observation independent of whether the grammar's capability gate admits the rule).
     pub all_bounded: bool,
     /// `true` iff `rtl_reversal_construction_attempted` accepts this rule's WHOLE pattern shape
@@ -531,17 +531,10 @@ pub struct CircumfixOutputActionDetail {
     pub structural_composite_attempted: bool,
 }
 
-/// `ObservationDetail::Reduplication`'s payload: the one structural fact
-/// `ReduplicationPeelSupportedPredicate` needs about an `AffixAllomorphDef` whose RHS truly
-/// reduplicates (`rhs_has_true_reduplication`'s own trigger) — whether the OWNING rule is one
-/// `crate::peel::ReduplicationPeeler::new`'s own `is_reduplication_rule` would ever classify at
-/// all. That function's own doc names a real, faithfully-preserved C# quirk: **only** an
-/// `AffixProcessRule` is ever checked for reduplication classification — a `RealizationalRule`
-/// carrying the identical true-redup RHS shape is never peel-eligible, "even if one of its
-/// allomorphs would classify as `Role::Reduplication`". This detail is the SAME fact, computed
-/// independently here (this module has no dependency edge onto `crate::peel`'s private
-/// `is_reduplication_rule`, only re-derives the SAME "owning rule is `MorphRuleDef::AffixProcess`"
-/// test over the SAME frozen `model.rs` shape crate::peel itself matches on).
+/// `ObservationDetail::Reduplication`'s payload: the actual proposal-route facts for an
+/// `AffixAllomorphDef` whose RHS truly reduplicates. The informational rule-kind bit preserves the
+/// original model distinction, while the two dispositive route bits are read from the same shared
+/// predicates used by the runtime peeler and structural emitter.
 #[derive(Debug, Clone, Copy)]
 pub struct ReduplicationDetail {
     pub rule: MRuleId,
@@ -552,6 +545,12 @@ pub struct ReduplicationDetail {
     /// (a documented, intentional C#-faithful non-support, not a bug to fix — see this struct's
     /// own doc and `crate::peel::is_reduplication_rule`'s doc for the citation).
     pub peel_eligible_rule_kind: bool,
+    /// `true` iff the runtime peeler actually owns the whole rule. This is stricter than the XML
+    /// rule-kind check: one structurally routed reduplicating alternative makes the peeler
+    /// relinquish every alternative in that mixed rule.
+    pub peel_attempted: bool,
+    /// `true` iff structural synthesis owns the whole rule and replays the full morphology engine.
+    pub structural_composite_attempted: bool,
 }
 
 /// `ObservationDetail::Compounding`'s payload: the one structural fact
@@ -1123,6 +1122,8 @@ fn characterize_allomorph(
         // Re-derives `ReduplicationPeeler::is_reduplication_rule`'s own peel-eligibility test.
         let peel_eligible_rule_kind =
             matches!(g.mrules[rule.0 as usize], MorphRuleDef::AffixProcess(_));
+        let peel_attempted = crate::emit::reduplication_rule_is_peelable(g, rule);
+        let structural_composite_attempted = crate::emit::is_structural_rule(g, rule);
         observations.push(CharacteristicObservation::new(
             CharacteristicKind::Reduplication,
             ModelLocation::AffixAllomorph {
@@ -1133,6 +1134,8 @@ fn characterize_allomorph(
                 rule,
                 allomorph_index,
                 peel_eligible_rule_kind,
+                peel_attempted,
+                structural_composite_attempted,
             }),
         ));
     }
@@ -2450,60 +2453,34 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 
 // ---- Reduplication: the config-predicate `cover-template-truncation-reduplication` registers ----
 
-/// The capability predicate for `Reduplication`: a truly reduplicating `AffixAllomorphDef` is
-/// faithfully PROPOSABLE via `crate::peel::ReduplicationPeeler` -- deliberately NOT via FST
-/// compilation at all (retaining the established division between compiled template morphology
-/// and peeled reduplication); the FST proposer + this peel together over-generate candidates for
-/// `crate::confirm`'s own restricted reparse to prune, the standard confirm-only-by-default shape
-/// every other `ConfigPredicate` characteristic in this registry already uses.
+/// The capability predicate for `Reduplication`: every truly reduplicating allomorph must have an
+/// actual proposal route. Statically proven prefix-copy, suffix-copy, and one-separator shapes use
+/// `crate::peel::ReduplicationPeeler`; other layouts use the structural composite route, which
+/// replays `pg_rules::morph::synthesize`. Both remain
+/// confirm-only proposers whose candidates are checked by the full morphological engine.
 ///
 /// # Disposition
 /// - **Not observed at all** (no allomorph truly reduplicates anywhere in the grammar): vacuously
 ///   `Admit` — nothing for this predicate to say (mirrors every other `*Predicate` in this
 ///   registry's own "not applicable here" convention).
-/// - **Every observed occurrence is peel-eligible** (`peel_eligible_rule_kind == true` for every
-///   `ReduplicationDetail` — i.e. every true-reduplicating allomorph belongs to an
-///   `AffixProcessRule`, never a `RealizationalRule`): `PredicateVerdict::ConfirmOnly` — the peel
-///   construction is a proven safe, faithful proposer for the SUPPORTED case
+/// - **Every observed occurrence has either a peel or structural route**:
+///   `PredicateVerdict::ConfirmOnly` — the selected construction is a faithful proposer
 ///   (`tests/f6_reduplication_peel_chain_depth.rs`'s own containment fixture proves oracle-exact
 ///   CONTAINMENT against `pg_parse::Morpher` for a real, previously-zero-coverage full-stem
 ///   reduplication construct — `machine/conformance/languages/
 ///   suffixing-extension-slot-ordering`'s `mrRedup`, "kimbiakimbia"), but no PROVEN
 ///   no-false-negative admission-filter argument exists — confirm-only-by-default, the same
 ///   landing spot every other `ConfigPredicate` characteristic in this registry already uses.
-/// - **At least one observed occurrence is NOT peel-eligible** (a true-reduplicating allomorph
-///   belonging to a `RealizationalRule`): `PredicateVerdict::Refuse` — `crate::peel::
-///   ReduplicationPeeler::new`'s own `is_reduplication_rule` never classifies it (a real,
-///   faithfully-preserved C# quirk, that function's own doc), so the peel never proposes it at
-///   all; a grammar depending on it must be refused rather than silently missing recall,
-///   overridable via the capability override.
+/// - **At least one observed occurrence has neither route**: `PredicateVerdict::Refuse`. A simple
+///   true-reduplicating `RealizationalRule` is the principal example: the peeler intentionally only
+///   owns `AffixProcessRule`, while this shape does not trigger structural synthesis. The grammar
+///   must be refused rather than silently missing recall.
 ///
-/// # Interaction with `peel_eligible_rule_kind` (checked, deliberately left unchanged)
-/// `peel_eligible_rule_kind` (`characterize_allomorph`'s own computation site,
-/// `matches!(g.mrules[rule.0 as usize], MorphRuleDef::AffixProcess(_))`) is a RULE-KIND check only —
-/// it mirrors `crate::peel::is_reduplication_rule`'s OWN `AffixProcess`-vs-`Realizational` split,
-/// not that function's full `classify_affix`-based per-allomorph test. An allomorph can have
-/// `rhs_has_true_reduplication == true` (this predicate's own trigger, which only counts repeated
-/// `Copy`/`Modify` occurrences and does not consult `Role` at all) while `crate::emit::classify_affix`
-/// classifies it `CircumfixPrefix` rather than `Reduplication` — i.e. an `AffixProcess` allomorph
-/// that is simultaneously circumfix-and-reduplication-shaped. For exactly that allomorph,
-/// `peel_eligible_rule_kind` stays `true` even though `crate::peel::is_reduplication_rule`'s own
-/// `.any()` scan (which DOES call `classify_affix`) no longer picks this specific allomorph up —
-/// the peel is not, in fact, the mechanism that covers it. This is deliberately left as `true`
-/// rather than "fixed" to track `classify_affix`'s Role exactly, because doing so would make this
-/// predicate `Refuse` a configuration that IS genuinely coverable, just by a different mechanism:
-/// whenever `rhs_has_true_reduplication` holds for an allomorph AND `classify_affix` returns
-/// `CircumfixPrefix` for that SAME allomorph, `crate::emit::is_structural_rule` is UNCONDITIONALLY
-/// `true` for its owning rule (`any_allomorph_is_circumfix_prefix` scans the very allomorph being
-/// characterized here), so `build_structural_composites` — a real, oracle-backed construction, not a
-/// hand-wave — is guaranteed to attempt it. The `ConfirmOnly` verdict this predicate reports therefore
-/// stays TRUE in outcome for this shape; only the predicate's own CITATION of "the peel covers it" is
-/// imprecise for this one combined case, and `CircumfixStructuralCompositePredicate`'s own doc (its
-/// paragraph on the circumfix-plus-reduplication interaction) is where the actually-operative
-/// construction and its containment proof are recorded. `rhs_has_true_reduplication == true`
-/// limits `crate::emit::classify_affix`'s result to exactly `CircumfixPrefix` or `Reduplication`
-/// (`classify_affix`'s own structure checks `is_reduplicating` only once, immediately after the
-/// circumfix test), so this is an exhaustive two-way split, not a partial account.
+/// # Route ownership
+/// `peel_attempted` is computed from the same shared rule-wide predicate the runtime peeler uses.
+/// `structural_composite_attempted` is computed from `crate::emit::is_structural_rule`, the same
+/// predicate the compiler uses. A mixed rule is therefore owned as a unit: if one reduplicating
+/// alternative needs structural synthesis, the peeler relinquishes all of the rule's alternatives.
 ///
 /// # Deep/nested reduplication chains stay a SEPARATE, cost (not capability), concern
 /// `crate::peel::ReduplicationPeeler`'s nested-reduplication recursion (its own module doc, "Chain
@@ -2517,10 +2494,8 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 /// chains happen to run.
 ///
 /// # Provenance
-/// `EvidenceProvenance::Structural`: `peel_eligible_rule_kind` reads directly-inspectable
-/// `model.rs` data (which `MorphRuleDef` variant owns the rule — the SAME structural fact `crate::
-/// peel::ReduplicationPeeler::new`'s own `is_reduplication_rule` branches on to decide whether to
-/// peel a rule at all), no oracle witnesses needed to derive the VERDICT itself — the SUPPORTED
+/// `EvidenceProvenance::Structural`: both route facts read the same structural predicates used by
+/// the real proposal paths, with no inferred surface heuristic in this evaluator. The SUPPORTED
 /// case's own safe-recall argument (oracle-exact containment, not merely a safe superset) was
 /// separately, empirically verified against `pg_parse::Morpher`
 /// (`tests/f6_reduplication_peel_chain_depth.rs`), the same "oracle verified the construction, the
@@ -2555,18 +2530,16 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
         let mut any_observed = false;
         for detail in profile.reduplication_details() {
             any_observed = true;
-            if !detail.peel_eligible_rule_kind {
+            if !detail.peel_attempted && !detail.structural_composite_attempted {
                 return PredicateVerdict::Refuse(CapabilityDiagnostic {
                     predicate: self.id(),
                     construct: format!(
-                        "mrule {} allomorph #{} (true reduplication on a RealizationalRule)",
+                        "mrule {} allomorph #{} (true reduplication has no proposal route)",
                         detail.rule.0, detail.allomorph_index
                     ),
-                    witness: "crate::peel::ReduplicationPeeler::new's own is_reduplication_rule \
-                              only ever classifies an AffixProcessRule -- a RealizationalRule \
-                              allomorph carrying the identical true-reduplicating RHS shape is \
-                              never peel-eligible (a real, faithfully-preserved C# quirk), so the \
-                              peel never proposes it at all"
+                    witness: "the shared rule-wide peel predicate declined this rule and \
+                              emit::is_structural_rule did not route it through full-engine \
+                              structural synthesis; accepting it would silently lose analyses"
                         .to_string(),
                 });
             }
@@ -2956,7 +2929,7 @@ impl CapabilityPredicate for MprGroupOverwritePredicate {
 /// subset` actually attempts (`QuantifierPatternDetail::compile_attempted`) — `all_bounded` is no
 /// longer, by itself, a disposition-driving fact (see "Disposition" below); it stays on
 /// `QuantifierPatternDetail` purely as informational structural evidence (consumed by
-/// `crate::preflight`'s own cost-uncertainty health finding for an unbounded rule, NOT by this
+/// `crate::characterization`'s own cost-uncertainty health finding for an unbounded rule, NOT by this
 /// predicate).
 ///
 /// # Disposition
@@ -3117,8 +3090,8 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 ///
 /// # Out of scope (documented, not silently ignored)
 /// Like `MetathesisDetail::swap_construction_attempted`'s own disclaimer, this predicate does not
-/// model a runtime-resource dimension: `crate::emit::build_structural_composites`'s own bounded
-/// recursion (`crate::emit::STRUCT_MAX_EXTRA_RULES`) and the shared
+/// model a runtime-resource dimension: `crate::emit::build_structural_composites`'s closure-depth
+/// resource envelope and the shared
 /// `crate::morphotactics::EnumerationBudget` are calibrated resource limits the profile does
 /// not represent, not a structural fact about any one epenthesis rule — the same "a runtime
 /// resource concern the profile does not model, not a structural fact about the rule itself"
@@ -5411,7 +5384,7 @@ mod tests {
       </Strata>
     </Language></HermitCrabInput>"#;
 
-    /// A 2-part LHS whose RHS copies `qA` twice (reduplicating) and never copies `qB` (dropping it): `classify_affix` reads `Role::Reduplication` (it beats `Infix`), which `is_structural_rule` still excludes -- the remaining fail-closed boundary census C4 leaves in place.
+    /// A 2-part LHS whose reduplicating RHS copies `qA` twice and drops `qB`.
     const CIRCUMFIX_REDUPLICATION_DROP_XML: &str = r#"<HermitCrabInput><Language><Name>CircRedupDrop</Name>
       <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
@@ -5741,17 +5714,17 @@ mod tests {
         );
     }
 
-    /// The remaining negative boundary: an `Role::Reduplication` allomorph that drops LHS material still lands on `evaluate`'s `Refuse` branch -- `is_structural_rule` never widened for this role.
+    /// An unpeelable dropping reduplication is covered by structural synthesis.
     #[test]
-    fn circumfix_output_action_predicate_refuses_reduplication_role_drop() {
+    fn circumfix_output_action_predicate_accepts_structural_reduplication_role_drop() {
         let g = load(CIRCUMFIX_REDUPLICATION_DROP_XML);
         assert_eq!(
             crate::emit::rule_role(&g, MRuleId(0)),
             crate::emit::Role::Reduplication
         );
         assert!(
-            !crate::emit::is_structural_rule(&g, MRuleId(0)),
-            "a Reduplication rule must stay outside build_structural_composites"
+            crate::emit::is_structural_rule(&g, MRuleId(0)),
+            "an unpeelable Reduplication rule must reach build_structural_composites"
         );
 
         let profile = characterize(&g);
@@ -5759,21 +5732,13 @@ mod tests {
             .circumfix_output_action_details()
             .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 0)
             .expect("a Reduplication allomorph dropping qB still observes CircumfixOutputAction");
-        assert!(!detail.structural_composite_attempted);
+        assert!(detail.structural_composite_attempted);
 
         let predicate = CircumfixStructuralCompositePredicate;
-        match predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))) {
-            PredicateVerdict::Refuse(diag) => {
-                assert_eq!(
-                    diag.predicate,
-                    "circumfix-output-action.faithful-structural-composite"
-                );
-                assert!(diag.construct.contains("mrule 0 allomorph #0"));
-            }
-            other => {
-                panic!("expected Refuse for the Role::Reduplication drop shape, got {other:?}")
-            }
-        }
+        assert_eq!(
+            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            PredicateVerdict::ConfirmOnly
+        );
     }
 
     /// Allomorph 1 must be admitted on its own dropping `Role::Prefix` shape regardless of allomorph 0's `Role::Reduplication`.
@@ -5927,6 +5892,8 @@ mod tests {
             detail.peel_eligible_rule_kind,
             "an AffixProcessRule owner must be peel-eligible"
         );
+        assert!(detail.peel_attempted);
+        assert!(!detail.structural_composite_attempted);
     }
 
     /// The out-of-scope `RealizationalRule` shape still observes `Reduplication`, but reports `peel_eligible_rule_kind == false`.
@@ -5952,6 +5919,64 @@ mod tests {
             !detail.peel_eligible_rule_kind,
             "a RealizationalRule owner must never be reported peel-eligible"
         );
+        assert!(!detail.peel_attempted);
+        assert!(!detail.structural_composite_attempted);
+    }
+
+    #[test]
+    fn reduplication_predicate_accepts_structurally_owned_edge_insertion() {
+        let xml = REDUP_AFFIX_PROCESS_XML.replacen(
+            "<CopyFromInput index=\"qA\" />",
+            "<InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>\n                     <CopyFromInput index=\"qA\" />",
+            1,
+        );
+        let g = load(&xml);
+        let profile = characterize(&g);
+        let detail = profile
+            .reduplication_details()
+            .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 0)
+            .expect("edge-inserted reduplication must be characterized");
+        assert!(detail.peel_eligible_rule_kind);
+        assert!(!detail.peel_attempted);
+        assert!(detail.structural_composite_attempted);
+        assert_eq!(
+            ReduplicationPeelSupportedPredicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            PredicateVerdict::ConfirmOnly
+        );
+    }
+
+    #[test]
+    fn structurally_owned_realizational_reduplication_passes_capability_then_refuses_unbounded_closure(
+    ) {
+        let xml = REDUP_REALIZATIONAL_XML.replacen(
+            "<CopyFromInput index=\"qA\" />",
+            "<InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>\n                     <CopyFromInput index=\"qA\" />",
+            1,
+        );
+        let g = load(&xml);
+        let profile = characterize(&g);
+        let detail = profile
+            .reduplication_details()
+            .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 0)
+            .expect("edge-inserted realizational reduplication must be characterized");
+        assert!(!detail.peel_eligible_rule_kind);
+        assert!(!detail.peel_attempted);
+        assert!(detail.structural_composite_attempted);
+        assert_eq!(
+            ReduplicationPeelSupportedPredicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            PredicateVerdict::ConfirmOnly
+        );
+
+        let emitted = crate::emit::emit(&g);
+        assert!(matches!(
+            emitted.report.tier,
+            crate::emit::FomaTier::Unsupported { .. }
+        ));
+        assert_eq!(
+            emitted.report.closure_refusal.as_ref().map(|r| r.code),
+            Some(crate::emit::ClosureRefusalCode::UnboundedRuleApplication)
+        );
+        assert!(emitted.lexc_source.is_empty());
     }
 
     /// Positive witness: the predicate returns `ConfirmOnly`, never `Admit`, for the in-scope shape.

@@ -104,7 +104,7 @@ fn cached_and_uncached_scores_and_winner_are_invariant() {
 }
 
 #[test]
-fn prepared_oracle_is_shared_and_emission_report_is_strategy_lazy() {
+fn prepared_oracle_is_shared_and_composed_backends_do_not_emit_another_backend() {
     let (grammar, words) = fixture();
     let all_plans = plans(&grammar);
     let (whole, composed): (Vec<_>, Vec<_>) = all_plans
@@ -147,7 +147,11 @@ fn prepared_oracle_is_shared_and_emission_report_is_strategy_lazy() {
         &mut composed_cache,
     );
     assert_eq!(composed_cache.oracle_calls(), words.len());
-    assert_eq!(composed_cache.emission_report_calls(), 1);
+    assert_eq!(
+        composed_cache.emission_report_calls(),
+        0,
+        "a plan-composed candidate already has its own built network; evaluating it must not invoke the tuned-surface emitter merely to populate unrelated diagnostics"
+    );
 }
 
 #[test]

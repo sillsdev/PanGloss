@@ -42,7 +42,7 @@ fn fixture_loads_replays_and_exercises_required_grammar_facts() {
 }
 
 #[test]
-fn every_applicable_distinct_backend_builds_and_full_hc_matches_each_word() {
+fn every_distinct_plan_fully_confirms_or_refuses_markers_explicitly() {
     let f = fixture();
     let g = pg_grammar::load(&f.load_grammar_xml()).expect("fixture grammar must load");
     let yaml = f.load_words_yaml();
@@ -71,7 +71,7 @@ fn every_applicable_distinct_backend_builds_and_full_hc_matches_each_word() {
         // This candidate carries the grammar's own default plan.
         role: pg_foma::enumerate::CandidateRole::Baseline,
     });
-    // Scoped to `PlanComposed`: this asserts `build_controllable` honours rewritten assembly trees, not that every compiler this crate owns is equivalent (a different, false claim — `EmissionStrategy::TemplatedUnderlyingTokens`'s own coverage lives in `backend_emission_strategy_gate.rs`).
+    // PlanComposed must refuse marker-bearing plans rather than emit an incomplete network.
     let considered = candidates.len();
     plans.extend(
         candidates
@@ -81,24 +81,32 @@ fn every_applicable_distinct_backend_builds_and_full_hc_matches_each_word() {
     );
     assert!(
         plans.len() > 1,
-        "the registry offered {considered} distinct candidate(s) but none of them was plan-composed, \
-         so this test would assert nothing about plan rewrites at all"
+        "the registry offered {considered} distinct candidate(s) but none of them was \
+         plan-composed, so this test has no plan rewrite to exercise"
     );
     let words = yaml
         .words
         .iter()
         .map(|w| w.word.clone())
         .collect::<Vec<_>>();
+    let mut marker_refusals = 0;
     for result in evaluate_plans(&g, &plans, &words, RuntimeBudget::default())
         .expect("the oracle liveness net / memory ceiling must not trip on this fixture")
     {
-        assert!(
-            matches!(
-                result.certification,
-                pg_foma::backend_optimizer::Certification::FullHcConfirmed { .. }
-            ),
-            "non-certifying evidence must remain explicit: {:?}",
-            result.certification
-        );
+        match result.certification {
+            pg_foma::backend_optimizer::Certification::FullHcConfirmed { .. } => {}
+            pg_foma::backend_optimizer::Certification::Unsupported { ref reason } => {
+                assert!(
+                    reason.contains("CompositeEmissionMarker"),
+                    "the only honest refusal expected here is the plan-composed marker boundary: {reason}"
+                );
+                marker_refusals += 1;
+            }
+            ref other => panic!("non-certifying evidence must remain explicit: {other:?}"),
+        }
     }
+    assert!(
+        marker_refusals > 0,
+        "the composite-emission marker refusal must engage on this fixture"
+    );
 }
