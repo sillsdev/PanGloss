@@ -796,6 +796,18 @@ fn malformed_feature_reference_is_a_stable_refusal_not_a_panic() {
         "InvalidReferences",
         "invalid-source-feature-reference",
     );
+
+    if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+        if let OutputAction::Modify(_, context) = &mut rule.allomorphs[5].rhs[1] {
+            context.nat_class = malformed;
+        }
+    }
+    assert_unsupported(
+        &g,
+        5,
+        "InvalidReferences",
+        "invalid-source-feature-reference",
+    );
 }
 
 #[test]
@@ -820,4 +832,54 @@ fn owner_resolution_accepts_realizational_affix_allomorphs() {
         }
         other => panic!("realizational affix allomorph must have a real owner, got {other:?}"),
     }
+}
+
+#[test]
+fn owner_resolution_accepts_template_slot_only_rules() {
+    let g = pg_grammar::load(include_str!(
+        "../../../../conformance-staging/edge-cases/circumfix-in-template-slot/grammar.xml"
+    ))
+    .unwrap_or_else(|e| panic!("template-only owner fixture failed: {e}"));
+    let candidate = match &g.mrules[0] {
+        MorphRuleDef::AffixProcess(rule) => &rule.allomorphs[0],
+        other => panic!("mrCircum must be an affix-process rule, got {other:?}"),
+    };
+    assert!(matches!(
+        MorphologyRewriteClassifier::classify(&g, candidate, TableId(0)),
+        MorphologyRewrite::DirectWholeRootWrapper { .. }
+    ));
+}
+
+#[test]
+fn caller_cannot_borrow_a_registry_id_for_an_unowned_allomorph_object() {
+    let owner = load();
+    let mut foreign = load();
+    if let MorphRuleDef::AffixProcess(rule) = &mut foreign.mrules[0] {
+        rule.allomorphs[2].rhs.clear();
+    }
+    match MorphologyRewriteClassifier::classify(&owner, allomorph(&foreign, 2), TableId(0)) {
+        MorphologyRewrite::Unsupported {
+            shape_id,
+            reason_id,
+            ..
+        } => {
+            assert_eq!(shape_id, "InvalidReferences");
+            assert_eq!(reason_id, "invalid-allomorph-owner");
+        }
+        other => panic!("a foreign object with a borrowed registry id must refuse, got {other:?}"),
+    }
+}
+
+#[test]
+fn malformed_initial_drop_reports_the_initial_shape() {
+    let mut g = load();
+    if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+        rule.allomorphs[8].lhs[0].nodes = vec![PatternNode::CharDef(CharDefId(9))];
+    }
+    assert_unsupported(
+        &g,
+        8,
+        "AdjacentInitialDrop",
+        "non-segment-input-atom",
+    );
 }
