@@ -315,9 +315,7 @@ fn templated_underlying_tokens(kind: CharacteristicKind) -> (StrategyRepresentat
             "emit_underlying_templated takes crate::gate's allowed_entries with uflexc's own \
              convention (that function's own doc)",
         ),
-        // The closed classifier admits only five bounded structural recipes; every other
-        // Process/Circumfix topology remains a known gap and is refused by the per-allomorph
-        // capability floor before emission.
+        // The classifier admits five bounded recipes and refuses other topologies.
         CircumfixOutputAction => (
             RepresentsWithKnownGap,
             "structural_allomorph::MorphologyRewriteClassifier admits only the five bounded \

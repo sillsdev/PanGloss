@@ -3522,7 +3522,21 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
             .grammar()
             .strata
             .iter()
-            .find(|stratum| stratum.mrules.contains(&rule_id))
+            .find(|stratum| {
+                stratum.mrules.contains(&rule_id)
+                    || stratum.templates.iter().any(|template_id| {
+                        semantics
+                            .grammar()
+                            .templates
+                            .get(template_id.0 as usize)
+                            .is_some_and(|template| {
+                                template
+                                    .slots
+                                    .iter()
+                                    .any(|slot| slot.rules.contains(&rule_id))
+                            })
+                    })
+            })
             .map(|stratum| stratum.table)
         else {
             for (allomorph_index, _) in allomorphs.iter().enumerate() {

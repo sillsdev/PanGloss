@@ -3745,9 +3745,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
 
     // Built once and shared by both composite builders below, so they prune against the identical automaton instead of each reading the env vars for their own.
     let morphotactic_index = crate::morphotactics::MorphotacticIndex::build(g);
-    // Named-envelope attempts use only the selected snapshot.  The measurement-only flat and
-    // probe switches remain available to legacy untraced callers, but must not affect a closed
-    // production attempt.
+    // Named attempts use the selected snapshot; legacy probes cannot alter it.
     let explore_mode = if closure_trace.is_some() {
         crate::morphotactics::ExploreMode::Pruned
     } else {

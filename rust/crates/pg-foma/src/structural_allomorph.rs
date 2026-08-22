@@ -133,9 +133,7 @@ fn classify_rewrite(
         return unsupported("InsertContext", "insert-context");
     }
 
-    // Literal-only output is the ordinary path.  It is admitted only when every output action is
-    // finite and translated into the active table.  A Copy/Modify action must never fall through
-    // to this branch, even when its role happens to look ordinary.
+    // Ordinary output contains only finite InsertSegments translated into the active table.
     if a.rhs.is_empty()
         || a.rhs.iter().all(|action| matches!(action, OutputAction::InsertSegments { .. }))
     {
@@ -143,8 +141,7 @@ fn classify_rewrite(
         return Ok(MorphologyRewrite::OrdinaryLiteral { variants });
     }
 
-    // Every Copy must be a valid, unique, in-order Input reference.  Classify malformed topology
-    // before shape-specific matching so its reason remains stable under later recipe additions.
+    // Validate every Input reference before matching a structural recipe.
     let refs = a
         .rhs
         .iter()
@@ -176,9 +173,7 @@ fn classify_rewrite(
         return unsupported("UnlistedTopology", "reordered-input-reference");
     }
 
-    // Modification is admitted only for exactly C(0)..C(n-2), followed by one final
-    // Modify(Input(n-1), Q).  Checking the complete RHS matters: finding one Modify anywhere
-    // would otherwise admit extra copies, literals, or a second modification.
+    // Modification requires exactly C(0)..C(n-2), then one final Modify(Input(n-1), Q).
     if a.rhs.iter().any(|action| matches!(action, OutputAction::Modify(PartRef::Head(_) | PartRef::NonHead(_), _))) {
         return unsupported("InvalidReferences", "invalid-part-reference-kind");
     }
@@ -230,8 +225,7 @@ fn classify_rewrite(
 
     let copy_refs = refs.clone();
 
-    // Whole-root wrappers are marker-free and preserve all parts.  Parse the complete action
-    // sequence so an interior literal cannot be silently discarded.
+    // Whole-root wrappers preserve all parts and reject interior literals.
     if copy_refs == (0..a.lhs.len() as u16).collect::<Vec<_>>() {
         if let Some((prefix, suffix)) = wrapper_runs(g, active_table, &a.rhs, a.lhs.len())? {
             return Ok(MorphologyRewrite::DirectWholeRootWrapper {
@@ -241,8 +235,7 @@ fn classify_rewrite(
         }
     }
 
-    // Interior insertion preserves all parts and places one or more literal runs strictly
-    // between adjacent copies.  n == 2 is the smallest valid insertion topology.
+    // Interior insertion preserves parts and places literals between adjacent copies.
     if a.lhs.len() >= 2
         && copy_refs == (0..a.lhs.len() as u16).collect::<Vec<_>>()
     {
@@ -258,8 +251,7 @@ fn classify_rewrite(
         }
     }
 
-    // Initial fixed-atom replacement: one fixed CharDef is replaced by finite text, while the
-    // remainder is copied unchanged.  A broad class or a quantified first part is denied.
+    // Initial replacement consumes one fixed CharDef and copies the remainder.
     if a.lhs.len() == 2
         && a.rhs.len() >= 2
         && a.rhs.last() == Some(&OutputAction::Copy(PartRef::Input(1)))
@@ -281,13 +273,12 @@ fn classify_rewrite(
         }
     }
 
-    // Adjacent bounded drops: exactly two input parts and one edge part omitted.  Literal output
-    // is permitted after the retained copy for terminal drops, including the zero-literal form.
+    // Bounded drops omit exactly one lowerable edge part.
     if a.lhs.len() == 2
         && copy_refs == [0]
         && a.rhs.first() == Some(&OutputAction::Copy(PartRef::Input(0)))
         && a.rhs[1..].iter().all(|action| matches!(action, OutputAction::InsertSegments { .. }))
-        && lowerable_atom(g, active_table, a.lhs.get(1))
+        && lowerable_atom(g, source_table, a.lhs.get(1))
     {
         let variants = literal_variants(g, active_table, &a.rhs[1..])?;
         return marked(
@@ -302,7 +293,7 @@ fn classify_rewrite(
     if a.lhs.len() == 2
         && copy_refs == [1]
         && a.rhs == [OutputAction::Copy(PartRef::Input(1))]
-        && lowerable_atom(g, active_table, a.lhs.first())
+        && lowerable_atom(g, source_table, a.lhs.first())
     {
         return marked(
             g,
@@ -366,9 +357,7 @@ fn lowerable_atom(g: &Grammar, table: TableId, pattern: Option<&Pattern>) -> boo
     class_members(g, table, node).is_some()
 }
 
-/// Translate source-table char-defs into active-table representation variants.  Shape IDs are
-/// local to their owning table; using them as offsets in the active table is a subtle cross-table
-/// corruption, so translation always goes through the source representation text.
+/// Translate source-table IDs through representation text into active-table variants.
 fn translated_ids(
     g: &Grammar,
     source_table: TableId,
