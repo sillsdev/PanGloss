@@ -758,6 +758,7 @@ name = "pg-foma"
 version = "0.1.0"
 dependencies = [
  "foma",
+ "getrandom 0.3.4",
  "pg-conformance-fixtures",
  "pg-featstruct",
  "pg-foma",
