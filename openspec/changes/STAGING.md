@@ -8,6 +8,11 @@ changes. Change artifacts define behavior; this file defines dispatch and merge 
 The Indonesian, Amharic, and Aweti route work is staged as two changes with three serialized
 implementation phases. Mbugwe is explicitly outside this sequence.
 
+The historical change names `surface-fst-complete-build-envelope` and
+`cover-amharic-aweti-structural-morphology` are aliases for the registered changes
+`surface-compile-profile-and-templated-routing` and
+`cover-circumfix-cross-product-and-infix-drop`, respectively.
+
 1. **`surface-compile-profile-and-templated-routing`, phase A — closure certification and named
    resource envelopes.** Owns `characterization.rs`, the shared closure traversal kernels and
    production-trace/characterization regions of `preexpand.rs` and `emit.rs`, and the
@@ -59,7 +64,7 @@ through `build(plan)` (task 1.3) and capability-safe plan selection (2.x).
 simultaneous-overlap automaton intersection. OPEN: migrating `replace.rs`'s own rewrite compilation
 onto the seam.
 
-**Stage 2 — ALL 11 CONSTRUCTS LANDED.** Every construct moved from unconditional fail-closed to an
+**Stage 2 — ALL 11 CONSTRUCTS LANDED (code-path availability only).** Every construct moved from unconditional fail-closed to an
 honest predicate, with proposer-to-confirm containment where the oracle supports it: multi-table
 (owning-table threading), RTL (reversal + recall-safe union), simultaneous (admitted non-overlap),
 bounded quantifiers (`^{min,max}`), metathesis (swap relation), circumfix/null-output (fixed a real
@@ -68,6 +73,10 @@ incl. nested), realizational + constraints (already faithful; constraints are ar
 confirm-only), compounding (license-gated head×non-head cross product, budget-bounded; recursive
 fail-closed), unordered (existing derivation-chain superset + bounded/unbounded split), MPR groups
 (Append non-tracking baseline; Overwrite permanently fail-closed).
+
+“Landed” here means that a compiler code path and its predicate boundary exist. It does not mean
+that Indonesian, Amharic, or Aweti has a complete, identity-bound, trusted FST; current
+three-language certification still requires the active changes' artifact and semantic gates.
 
 **Downstream — PARTIAL.** Landed: `.pgpack` container + pack manifest (`pg-pack`: ADR 0004 feature
 set, ADR 0005 trust stamp, health admission, non-gating Ed25519, validate-before-allocate); WASM

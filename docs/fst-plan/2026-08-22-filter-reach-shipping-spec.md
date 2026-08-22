@@ -11,6 +11,11 @@ This specification is a delivery contract, not evidence that any of these langua
 trusted shipped FST. A language is accepted only after its selected route has a complete payload,
 certificate, and the required runtime evidence.
 
+The registered OpenSpec changes are `surface-compile-profile-and-templated-routing` and
+`cover-circumfix-cross-product-and-infix-drop`. Historical references to
+`surface-fst-complete-build-envelope` and `cover-amharic-aweti-structural-morphology` mean those
+registered changes, respectively.
+
 | Language | Code path | Bounded corpus evidence | Certified artifact | Trusted shipped FST |
 |---|---|---|---|---|
 | Indonesian | Foma propose→confirm and replace-rule prototype paths exist; current construction is not identity-bound. | Historical 121/121 F3, separate 114-case P6, and separate 97/97 non-redup P6 scopes; denominators are not interchangeable without an exact case mapping. | None | None |
