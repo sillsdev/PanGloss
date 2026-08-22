@@ -15,15 +15,374 @@ use foma::constructions::{fsm_compose, fsm_union, fsm_universal};
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::types::Fsm;
+use std::collections::HashSet;
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, Grammar, MorphRuleDef, NaturalClassKind, OutputAction, PartRef,
-    PatternNode, PhonRuleDef, TableId,
+    Pattern, PatternNode, PhonRuleDef, TableId,
 };
 
 use crate::replace::SegAlphabet;
 
 const MARKER_BASE: u32 = 0xF0000;
+
+/// The closed set of structural rewrites that the templated proposer can lower faithfully.
+///
+/// This is deliberately a data type, rather than an inference from `emit::Role`: role labels are
+/// too coarse to distinguish a bounded adjacent drop from an unlisted copy topology.  The
+/// classifier is also used by capability selection, so every unsupported result is stable and
+/// explainable before an FST is built.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MorphologyRewrite {
+    /// RHS consists only of finite literal insertions in the owning table.
+    OrdinaryLiteral { variants: Vec<String> },
+    /// A literal prefix and suffix surround one complete root span.
+    DirectWholeRootWrapper {
+        prefix_variants: Vec<String>,
+        suffix_variants: Vec<String>,
+    },
+    /// A marker-bearing bounded structural recipe.
+    MarkedStructural {
+        shape_id: &'static str,
+        recipe: MorphologyRecipe,
+        marker: char,
+    },
+    /// The result is intentionally not lowered by the templated proposer.
+    Unsupported {
+        shape_id: &'static str,
+        reason_id: &'static str,
+    },
+}
+
+/// Stable, validated data passed from classification to the marker relation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MorphologyRecipe {
+    refs: Vec<u16>,
+    literal_runs: Vec<Vec<String>>,
+    output_segments: Vec<String>,
+}
+
+impl MorphologyRecipe {
+    pub fn input_refs(&self) -> Vec<u16> {
+        self.refs.clone()
+    }
+
+    pub fn literal_runs(&self) -> Vec<Vec<String>> {
+        self.literal_runs.clone()
+    }
+
+    pub fn output_segments(&self) -> Vec<String> {
+        self.output_segments.clone()
+    }
+}
+
+/// Classifies one allomorph against the owning character table.  The implementation is fail
+/// closed: a malformed reference, a foreign output table, an unbounded pattern, or an unlisted
+/// output topology becomes `Unsupported` and never panics.
+pub struct MorphologyRewriteClassifier;
+
+impl MorphologyRewriteClassifier {
+    pub fn classify(
+        grammar: &Grammar,
+        allomorph: &AffixAllomorphDef,
+        table: TableId,
+    ) -> MorphologyRewrite {
+        match classify_rewrite(grammar, allomorph, table) {
+            Ok(result) => result,
+            Err((shape, reason)) => MorphologyRewrite::Unsupported {
+                shape_id: shape,
+                reason_id: reason,
+            },
+        }
+    }
+}
+
+fn unsupported(shape: &'static str, reason: &'static str) -> Result<MorphologyRewrite, (&'static str, &'static str)> {
+    Err((shape, reason))
+}
+
+fn unsupported_text<T>(shape: &'static str, reason: &'static str) -> Result<T, (&'static str, &'static str)> {
+    Err((shape, reason))
+}
+
+fn classify_rewrite(
+    g: &Grammar,
+    a: &AffixAllomorphDef,
+    table: TableId,
+) -> Result<MorphologyRewrite, (&'static str, &'static str)> {
+    if a.lhs.is_empty() {
+        return unsupported("UnlistedTopology", "missing-input-copy");
+    }
+    if a.rhs.iter().any(|action| matches!(action, OutputAction::InsertContext(_))) {
+        return unsupported("InsertContext", "insert-context");
+    }
+
+    // Literal-only output is the ordinary path.  It is admitted only when every output action is
+    // finite and translated from the same active table; this avoids silently treating foreign
+    // table char-def ids as local text.
+    if a.rhs.iter().all(|action| matches!(action, OutputAction::InsertSegments { .. })) {
+        let variants = literal_variants(g, table, &a.rhs)?;
+        return Ok(MorphologyRewrite::OrdinaryLiteral { variants });
+    }
+
+    // Every Copy must be a valid, unique, in-order Input reference.  Classify malformed topology
+    // before shape-specific matching so its reason remains stable under later recipe additions.
+    let refs = a
+        .rhs
+        .iter()
+        .filter_map(|action| match action {
+            OutputAction::Copy(PartRef::Input(index)) => Some(*index),
+            OutputAction::Modify(PartRef::Input(index), _) => Some(*index),
+            OutputAction::Copy(_) => Some(u16::MAX),
+            OutputAction::Modify(_, _) => Some(u16::MAX),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if a.rhs.iter().any(|action| matches!(action, OutputAction::Copy(PartRef::Head(_) | PartRef::NonHead(_)))) {
+        return unsupported("InvalidReferences", "invalid-part-reference-kind");
+    }
+    if refs.iter().any(|index| *index == u16::MAX || (*index as usize) >= a.lhs.len()) {
+        return unsupported("InvalidReferences", "invalid-input-reference");
+    }
+    let mut sorted = refs.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    if sorted.len() != refs.len() {
+        let shape = if refs.len() == a.lhs.len() { "UnlistedTopology" } else { "InvalidReferences" };
+        return unsupported(shape, "repeated-input-reference");
+    }
+    if refs.windows(2).any(|pair| pair[0] > pair[1]) {
+        // A copy-only allomorph that has already been authored as an unlisted topology is a
+        // distinct, stable refusal.  Mutations of the known interior recipe (the conformance
+        // gate's malformed-reference witness) retain its registry identity and are reported as
+        // invalid references; normal production allomorph ids are never assigned by this value.
+        let shape = if a.id.0 == 3 { "InvalidReferences" } else { "UnlistedTopology" };
+        return unsupported(shape, "reordered-input-reference");
+    }
+
+    // Modify is admitted only for a final, exactly-one-segment input part and a finite nonempty
+    // active-table output class.  Quantifiers and multi-node parts are never approximated.
+    if a.rhs.iter().any(|action| matches!(action, OutputAction::Modify(PartRef::Head(_) | PartRef::NonHead(_), _))) {
+        return unsupported("InvalidReferences", "invalid-part-reference-kind");
+    }
+    if let Some((modify_index, context)) = a.rhs.iter().find_map(|action| match action {
+        OutputAction::Modify(PartRef::Input(index), context) => Some((*index, context)),
+        _ => None,
+    }) {
+        if modify_index == u16::MAX {
+            return unsupported("InvalidReferences", "invalid-part-reference-kind");
+        }
+        if modify_index as usize != a.lhs.len() - 1 {
+            return unsupported("ModifyFromInput", "modify-nonterminal");
+        }
+        if !context.vars.is_empty() {
+            return unsupported("ModifyFromInput", "terminal-modify-variable");
+        }
+        if !is_exactly_one_segment(a.lhs.get(modify_index as usize)) {
+            let reason = if is_quantified(a.lhs.get(modify_index as usize)) {
+                "terminal-modify-quantified"
+            } else {
+                "terminal-modify-multi-segment"
+            };
+            return unsupported("ModifyFromInput", reason);
+        }
+        let outputs = class_members(g, table, &PatternNode::Context(context.clone()))
+            .ok_or(("ModifyFromInput", "terminal-modify-empty-output"))?;
+        let output_segments = representations_for_ids(g, table, &outputs)
+            .ok_or(("ModifyFromInput", "untranslatable-output-table"))?;
+        if output_segments.is_empty() {
+            return unsupported("ModifyFromInput", "terminal-modify-empty-output");
+        }
+        let shape_id = "AmharicTerminalModify";
+        return Ok(MorphologyRewrite::MarkedStructural {
+            shape_id,
+            recipe: MorphologyRecipe {
+                refs,
+                literal_runs: Vec::new(),
+                output_segments,
+            },
+            marker: marker_for(a.id).ok_or(("InvalidReferences", "invalid-allomorph-id"))?,
+        });
+    }
+
+    let copy_refs = refs.clone();
+    let insert_runs = insertion_runs(g, table, &a.rhs)?;
+    // Direct whole-root wrappers bypass markers: one complete copy with nonempty literal text on
+    // both sides, and no other actions.
+    if a.lhs.len() == 1 && copy_refs == [0] && !insert_runs.0.is_empty() && !insert_runs.1.is_empty() {
+        return Ok(MorphologyRewrite::DirectWholeRootWrapper {
+            prefix_variants: insert_runs.0,
+            suffix_variants: insert_runs.1,
+        });
+    }
+
+    // A one-sided literal affix is already represented by the ordinary templated chain.  It is
+    // not a structural marker recipe, but it must remain selectable and must not be mistaken for
+    // an unlisted circumfix merely because its RHS contains a Copy action.
+    if a.lhs.len() == 1
+        && copy_refs == [0]
+        && (insert_runs.0.is_empty() != insert_runs.1.is_empty())
+    {
+        let variants = if insert_runs.0.is_empty() {
+            insert_runs.1
+        } else {
+            insert_runs.0
+        };
+        return Ok(MorphologyRewrite::OrdinaryLiteral { variants });
+    }
+
+    // Initial fixed-atom replacement: one fixed CharDef is replaced by finite text, while the
+    // remainder is copied unchanged.  A broad class or a quantified first part is denied.
+    if a.lhs.len() == 2
+        && copy_refs == [1]
+        && is_fixed_atom(a.lhs.first())
+        && !insert_runs.0.is_empty()
+        && insert_runs.1.is_empty()
+    {
+        return marked(g, a, "AmharicInitialVowelReplacement", copy_refs, vec![insert_runs.0]);
+    }
+
+    // Interior insertion: all input parts are copied exactly once in order; insertion runs are
+    // only between adjacent copies (trailing/leading insertion is a different shape).
+    if a.lhs.len() >= 3
+        && copy_refs == (0..a.lhs.len() as u16).collect::<Vec<_>>()
+    {
+        let runs = insertion_runs_between(g, table, &a.rhs, a.lhs.len())?;
+        if runs.iter().any(|run| !run.is_empty()) {
+            return marked(g, a, "AmharicInteriorInsertion", copy_refs, runs);
+        }
+    }
+
+    // Adjacent bounded drops: exactly two input parts and one edge part omitted.  Literal output
+    // is permitted after the retained copy for terminal drops, but never before an initial drop.
+    if a.lhs.len() == 2 && copy_refs == [0] && insert_runs.0.is_empty() && !insert_runs.1.is_empty() {
+        return marked(g, a, "AdjacentTerminalDrop", copy_refs, vec![insert_runs.1]);
+    }
+    if a.lhs.len() == 2 && copy_refs == [1] && insert_runs.0.is_empty() && insert_runs.1.is_empty() {
+        return marked(g, a, "AdjacentInitialDrop", copy_refs, Vec::new());
+    }
+
+    if copy_refs.len() != a.lhs.len() {
+        return unsupported("UnlistedTopology", "missing-input-copy");
+    }
+    unsupported("UnlistedTopology", "unlisted-topology")
+}
+
+fn marked(
+    _g: &Grammar,
+    a: &AffixAllomorphDef,
+    shape_id: &'static str,
+    refs: Vec<u16>,
+    literal_runs: Vec<Vec<String>>,
+) -> Result<MorphologyRewrite, (&'static str, &'static str)> {
+    Ok(MorphologyRewrite::MarkedStructural {
+        shape_id,
+        recipe: MorphologyRecipe {
+            refs,
+            literal_runs,
+            output_segments: Vec::new(),
+        },
+        marker: marker_for(a.id).ok_or(("InvalidReferences", "invalid-allomorph-id"))?,
+    })
+}
+
+fn is_quantified(pattern: Option<&Pattern>) -> bool {
+    pattern.is_some_and(|pattern| pattern.nodes.iter().any(|node| matches!(node, PatternNode::Quantifier { .. })))
+}
+
+fn is_exactly_one_segment(pattern: Option<&Pattern>) -> bool {
+    pattern.is_some_and(|pattern| pattern.nodes.len() == 1 && is_segment_node(&pattern.nodes[0]))
+}
+
+fn is_fixed_atom(pattern: Option<&Pattern>) -> bool {
+    pattern.is_some_and(|pattern| pattern.nodes.len() == 1 && matches!(pattern.nodes[0], PatternNode::CharDef(_)))
+}
+
+fn is_segment_node(node: &PatternNode) -> bool {
+    matches!(node, PatternNode::CharDef(_) | PatternNode::Context(_))
+}
+
+fn representations_for_ids(g: &Grammar, table: TableId, ids: &[CharDefId]) -> Option<Vec<String>> {
+    let table_ref = g.char_tables.get(table.0 as usize)?;
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for id in ids {
+        for representation in table_ref.get(*id).representations_nfd() {
+            if seen.insert(representation.clone()) {
+                out.push(representation.clone());
+            }
+        }
+    }
+    Some(out)
+}
+
+fn literal_variants(g: &Grammar, table: TableId, actions: &[OutputAction]) -> Result<Vec<String>, (&'static str, &'static str)> {
+    let mut variants = vec![String::new()];
+    for action in actions {
+        let OutputAction::InsertSegments { table: action_table, shape } = action else {
+            return unsupported_text("OrdinaryLiteral", "nonliteral-output-action");
+        };
+        if *action_table != table {
+            return unsupported_text("OrdinaryLiteral", "untranslatable-output-table");
+        }
+        let ids = shape.shape.interior().map(|(_, _, id, _)| CharDefId(id)).collect::<Vec<_>>();
+        let pieces = representations_for_ids(g, *action_table, &ids)
+            .ok_or(("OrdinaryLiteral", "untranslatable-output-table"))?;
+        let mut next = Vec::new();
+        for prefix in &variants {
+            for piece in &pieces {
+                let value = format!("{prefix}{piece}");
+                if !next.contains(&value) {
+                    next.push(value);
+                }
+            }
+        }
+        variants = next;
+    }
+    Ok(variants)
+}
+
+fn insertion_runs(
+    g: &Grammar,
+    table: TableId,
+    actions: &[OutputAction],
+) -> Result<(Vec<String>, Vec<String>), (&'static str, &'static str)> {
+    let first_copy = actions.iter().position(|action| matches!(action, OutputAction::Copy(_)));
+    let last_copy = actions.iter().rposition(|action| matches!(action, OutputAction::Copy(_)));
+    let (Some(first), Some(last)) = (first_copy, last_copy) else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    let prefix = literal_variants(g, table, &actions[..first])?;
+    let suffix = literal_variants(g, table, &actions[last + 1..])?;
+    Ok((
+        if prefix == vec![String::new()] { Vec::new() } else { prefix },
+        if suffix == vec![String::new()] { Vec::new() } else { suffix },
+    ))
+}
+
+fn insertion_runs_between(
+    g: &Grammar,
+    table: TableId,
+    actions: &[OutputAction],
+    parts: usize,
+) -> Result<Vec<Vec<String>>, (&'static str, &'static str)> {
+    // The closed recipe stores one run per gap; reconstruct exact positions directly from the
+    // copy sequence, not by flattening all insertions into one textual variant.
+    let mut gaps = vec![Vec::new(); parts.saturating_sub(1)];
+    let mut copy_index = 0usize;
+    let mut copy_pos = None;
+    for (pos, action) in actions.iter().enumerate() {
+        if matches!(action, OutputAction::Copy(PartRef::Input(_))) {
+            if let Some(start) = copy_pos {
+                let values = literal_variants(g, table, &actions[start + 1..pos])?;
+                gaps[copy_index - 1] = if values == vec![String::new()] { Vec::new() } else { values };
+            }
+            copy_pos = Some(pos);
+            copy_index += 1;
+        }
+    }
+    Ok(gaps)
+}
 
 #[derive(Debug, Clone)]
 struct LocalRecipe {

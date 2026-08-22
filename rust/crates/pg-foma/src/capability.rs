@@ -63,6 +63,7 @@ use crate::enumerate::EmissionStrategy;
 use crate::grammar_semantics::GrammarSemantics;
 use crate::plan::{FragmentSpec, NodeId, Plan, PlanNodeKind};
 use crate::strategy_coverage::ALL_STRATEGIES;
+use crate::structural_allomorph::{MorphologyRewrite, MorphologyRewriteClassifier};
 
 // ---- Disposition + CharacteristicKind + the characterizer ----
 
@@ -3516,31 +3517,26 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
         let Some(allomorphs) = rule.affix_allomorphs() else {
             continue;
         };
+        let table = semantics
+            .grammar()
+            .strata
+            .iter()
+            .find(|stratum| stratum.mrules.iter().any(|id| id.0 as usize == rule_index))
+            .map(|stratum| stratum.table)
+            .unwrap_or(pg_grammar::model::TableId(0));
         for (allomorph_index, allomorph) in allomorphs.iter().enumerate() {
-            let role = crate::emit::classify_affix(&allomorph.rhs);
-            let reason = match role {
-                crate::emit::Role::Infix => Some(
-                    "Role::Infix is handled only by the emitter's uncovered-role branch; the \
-                     templated proposer has no Copy-Insert-Copy/infix entry",
-                ),
-                crate::emit::Role::CircumfixPrefix => {
-                    unsupported_templated_circumfix_reason(allomorph)
-                }
-                _ => None,
-            };
-            let Some(reason) = reason else {
+            let MorphologyRewrite::Unsupported { shape_id, reason_id } =
+                MorphologyRewriteClassifier::classify(semantics.grammar(), allomorph, table)
+            else {
                 continue;
             };
             diagnostics.push(CapabilityDiagnostic {
                 predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
-                construct: format!(
-                    "mrule {} allomorph #{} ({role:?})",
-                    rule_index, allomorph_index
-                ),
+                construct: format!("mrule {} allomorph #{} ({shape_id})", rule_index, allomorph_index),
                 witness: format!(
-                    "no faithful templated emission path: {reason}; \
-                     emit_underlying_templated skips structural composite lowering, so this \
-                     allomorph emits no faithful candidate"
+                    "no faithful templated emission path: shape={shape_id}, reason={reason_id}; \
+                     the closed structural recipe classifier refuses this allomorph before \
+                     emit_underlying_templated can produce a candidate"
                 ),
             });
         }
@@ -3609,42 +3605,6 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
     } else {
         CompileDecision::Refuse(diagnostics)
     }
-}
-
-fn unsupported_templated_circumfix_reason(allomorph: &AffixAllomorphDef) -> Option<&'static str> {
-    if allomorph.lhs.len() != 1 {
-        return Some("the circumfix has a multi-part LHS, which requires root-internal splitting");
-    }
-
-    let copies: Vec<(usize, &PartRef)> = allomorph
-        .rhs
-        .iter()
-        .enumerate()
-        .filter_map(|(position, action)| match action {
-            OutputAction::Copy(part) => Some((position, part)),
-            _ => None,
-        })
-        .collect();
-    if copies.len() != 1 {
-        return Some("the circumfix repeats or omits its root copy, which requires duplication");
-    }
-
-    let (copy_position, part) = copies[0];
-    if !matches!(part, PartRef::Input(0)) {
-        return Some("the circumfix copy is not the whole root input");
-    }
-    if copy_position == 0 || copy_position + 1 == allomorph.rhs.len() {
-        return Some("the circumfix does not wrap a root copy on both sides");
-    }
-    if allomorph.rhs[..copy_position]
-        .iter()
-        .chain(allomorph.rhs[copy_position + 1..].iter())
-        .any(|action| !matches!(action, OutputAction::InsertSegments { .. }))
-    {
-        return Some("the circumfix has a non-insert action around its root copy");
-    }
-
-    None
 }
 
 /// One compiler's verdict for one grammar+plan: the primary unit of capability judgement.

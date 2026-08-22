@@ -315,13 +315,14 @@ fn templated_underlying_tokens(kind: CharacteristicKind) -> (StrategyRepresentat
             "emit_underlying_templated takes crate::gate's allowed_entries with uflexc's own \
              convention (that function's own doc)",
         ),
-        // Runs no composite pipeline, so a single-sided-truncation allomorph is emitted with its literal text and no drop applied -- material IS emitted, so this is a documented partial, not a refusal.
+        // The closed classifier admits only five bounded structural recipes; every other
+        // Process/Circumfix topology remains a known gap and is refused by the per-allomorph
+        // capability floor before emission.
         CircumfixOutputAction => (
             RepresentsWithKnownGap,
-            "emit::emit_underlying_templated's own doc: \"No composite pipeline at all\" -- \
-             build_structural_composites is skipped, so a single-sided-truncation allomorph is \
-             emitted with its literal InsertSegments text and no drop applied, and can miss the \
-             correct underlying form",
+            "structural_allomorph::MorphologyRewriteClassifier admits only the five bounded \
+             templated recipes; unsupported Process/Circumfix topologies remain a known gap and \
+             are refused by the per-allomorph capability floor before emission",
         ),
         Reduplication => (
             Represents,
@@ -335,7 +336,9 @@ fn templated_underlying_tokens(kind: CharacteristicKind) -> (StrategyRepresentat
         ),
         ProcessMorphology => (
             CannotRepresent,
-            "emit::emit_underlying_templated's own doc: \"No composite pipeline at all\" -- with no \n             composite route there is nothing to realize an in-place mutation with",
+            "structural_allomorph::MorphologyRewriteClassifier admits only the five bounded \
+             templated recipes; unsupported Process topologies remain outside the proposer and \
+             are refused by the per-allomorph capability floor before emission",
         ),
         MultiTable => (
             Represents,
