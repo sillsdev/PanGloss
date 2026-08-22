@@ -1,7 +1,8 @@
 use pg_foma::characterization::{
-    trace_tuned_surface_closure_for_test, ClosureStopReason, ClosureTerminal, ClosureTestLimits,
-    ClosureWalkMode,
+    characterize_tuned_surface_closure_for_test, CharacterizationResult, ClosureStopReason,
+    ClosureTerminal, ClosureTestLimits,
 };
+use pg_foma::emit::{emit_tuned_surface_with_closure_limits_for_test, EmitResult, FomaTier};
 use pg_foma::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 
 const FINITE_CHAIN_XML: &str = r#"<HermitCrabInput><Language><Name>TotalClosureContract</Name>
@@ -25,47 +26,61 @@ const FINITE_CHAIN_XML: &str = r#"<HermitCrabInput><Language><Name>TotalClosureC
   </Stratum></Strata>
 </Language></HermitCrabInput>"#;
 
-fn trace(
-    mode: ClosureWalkMode,
-    work_cap: usize,
-    depth_cap: usize,
-) -> pg_foma::characterization::CharacterizationResult {
+fn observe(work_cap: usize, depth_cap: usize) -> CharacterizationResult {
     let grammar = pg_grammar::load(FINITE_CHAIN_XML).expect("finite closure fixture must load");
     let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
-    trace_tuned_surface_closure_for_test(
+    characterize_tuned_surface_closure_for_test(
         &grammar,
         &envelope,
         ClosureTestLimits {
             work_cap,
             depth_cap,
         },
-        mode,
+    )
+}
+
+fn construct(work_cap: usize, depth_cap: usize) -> EmitResult {
+    let grammar = pg_grammar::load(FINITE_CHAIN_XML).expect("finite closure fixture must load");
+    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
+    emit_tuned_surface_with_closure_limits_for_test(
+        &grammar,
+        &envelope,
+        ClosureTestLimits {
+            work_cap,
+            depth_cap,
+        },
     )
 }
 
 #[test]
 fn work_boundary_is_total_and_characterization_matches_production() {
-    let generous = trace(ClosureWalkMode::Characterization, 10_000, 64);
+    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
+    let generous = observe(10_000, 64);
     assert_eq!(generous.terminal, ClosureTerminal::Complete);
     assert!(generous.evidence.worklist_empty);
     assert_eq!(generous.evidence.pending_successor_count, 0);
+    assert_eq!(generous.evidence.envelope_digest, envelope.digest());
     let required = generous.evidence.rule_pairs_visited;
     assert!(required > 0);
 
-    let below = trace(ClosureWalkMode::Characterization, required - 1, 64);
+    let below = observe(required - 1, 64);
     assert_eq!(
         below.terminal,
         ClosureTerminal::Incomplete(ClosureStopReason::WorkBudgetReached)
     );
     assert!(!below.evidence.worklist_empty);
     assert!(below.evidence.pending_successor_count > 0);
+    let refused = construct(required - 1, 64);
+    assert!(refused.lexc_source.is_empty());
+    assert!(matches!(refused.report.tier, FomaTier::Unsupported { .. }));
+    assert_eq!(refused.report.closure_evidence.as_ref(), Some(&below));
 
     for work_cap in [required, required + 1] {
-        let observed = trace(ClosureWalkMode::Characterization, work_cap, 64);
-        let produced = trace(ClosureWalkMode::Production, work_cap, 64);
+        let observed = observe(work_cap, 64);
+        let produced = construct(work_cap, 64);
         assert_eq!(observed.terminal, ClosureTerminal::Complete);
-        assert_eq!(produced.terminal, ClosureTerminal::Complete);
-        assert_eq!(observed.evidence, produced.evidence);
+        assert_eq!(produced.report.closure_evidence.as_ref(), Some(&observed));
+        assert!(!produced.lexc_source.is_empty());
         assert!(observed.evidence.worklist_empty);
         assert_eq!(observed.evidence.pending_successor_count, 0);
     }
@@ -73,19 +88,19 @@ fn work_boundary_is_total_and_characterization_matches_production() {
 
 #[test]
 fn live_successor_at_depth_boundary_is_reported_not_silently_dropped() {
-    for mode in [
-        ClosureWalkMode::Characterization,
-        ClosureWalkMode::Production,
-    ] {
-        let result = trace(mode, 10_000, 4);
-        assert_eq!(
-            result.terminal,
-            ClosureTerminal::Incomplete(ClosureStopReason::DepthBudgetReached)
-        );
-        assert!(!result.evidence.worklist_empty);
-        assert!(result.evidence.pending_successor_count > 0);
-        assert_eq!(result.evidence.pending_rule_ordinals, vec![0]);
-        assert_eq!(result.evidence.maximum_depth, 4);
-        assert_eq!(result.evidence.per_depth_counts.len(), 5);
-    }
+    let result = observe(10_000, 4);
+    assert_eq!(
+        result.terminal,
+        ClosureTerminal::Incomplete(ClosureStopReason::DepthBudgetReached)
+    );
+    assert!(!result.evidence.worklist_empty);
+    assert!(result.evidence.pending_successor_count > 0);
+    assert_eq!(result.evidence.pending_rule_ordinals, vec![0]);
+    assert_eq!(result.evidence.maximum_depth, 4);
+    assert_eq!(result.evidence.per_depth_counts.len(), 5);
+
+    let refused = construct(10_000, 4);
+    assert!(refused.lexc_source.is_empty());
+    assert!(matches!(refused.report.tier, FomaTier::Unsupported { .. }));
+    assert_eq!(refused.report.closure_evidence.as_ref(), Some(&result));
 }
