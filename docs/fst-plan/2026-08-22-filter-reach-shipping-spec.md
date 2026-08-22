@@ -92,60 +92,75 @@ they are historical context, not current shipping claims.
 
 Each item below turns historical evidence into a current invariant. The cited OpenSpec task/gate
 is the consumer; these are not new test results or claims that a trusted artifact already exists.
+The current cross-change authorities are
+[`surface-compile-profile-and-templated-routing`](../../openspec/changes/surface-compile-profile-and-templated-routing/tasks.md)
+for complete Indonesian construction and artifact binding, and
+[`cover-circumfix-cross-product-and-infix-drop`](../../openspec/changes/cover-circumfix-cross-product-and-infix-drop/tasks.md)
+for Amharic/Aweti morphology coverage and route certification.
 
 - **No single old builder solved all three languages.** The P6 rule compiler reached Indonesian
   parity and Amharic alpha-tuple scale, while the underlying emitter was still template-less and
   Aweti needed a different route. Retain per-grammar capability selection; reject one universal
-  builder or language-specific shortcut. Consumed by tasks 2.1–4.3 and 6.1.
+  builder or language-specific shortcut. Consumed by the sibling change's tasks 5.3 and 6.1; the
+  morphology change's route gates remain specific to Amharic/Aweti.
 - **`hc-hybrid` retirement is intentional.** Commit `9a89a32c` removed the old proposer after the
   propose→confirm architecture was gated. Retain Foma proposal plus real-engine confirmation and
-  fail closed; reject reviving a hidden full-engine/FST fallback. Consumed by tasks 7.1–7.2.
+  fail closed; reject reviving a hidden full-engine/FST fallback. Consumed by the sibling change's
+  tasks 5.3, 6.1, and 6.2.
 - **Indonesian bridges were useful but not proof.** Junction probing, static MPR/POS partitioning,
   and real-engine confirmation supplied upward candidates and bounded parity (121/121, 114, and
   97/97 are distinct scopes). Retain upward-only proposals and HC set confirmation; reject treating
   corpus parity, candidate identity, or a partial closure as a certified artifact. Consumed by
-  tasks 3.1–3.6, 6.4, and 7.3.
+  the sibling change's Indonesian tasks 3.1–3.3 and artifact gate 4.1–5.4, 6.1.
 - **Indonesian needs complete closure and exact artifact binding.** `8997cdac` made incomplete
-  composite closure refuse, and `87320bff` recorded the fail-closed artifact boundary, while the 114-case retry was only static admission. Retain empty
-  worklists, completeness certificates, corpus/grammar identity, envelope, and network fingerprint;
-  reject depth-based success or static admission standing in for a built artifact. Consumed by
-  tasks 4.2–4.3, 6.4, and 7.1.
+  composite closure refuse, and `87320bff` recorded the fail-closed artifact boundary, while the
+  114-case retry was only static admission. Retain empty worklists, completeness certificates,
+  corpus/grammar identity, envelope, and network fingerprint; reject depth-based success or static
+  admission standing in for a built artifact. Consumed by the sibling change's closure tasks
+  2.1–2.4, Indonesian tasks 3.1–3.3, and artifact tasks 4.1–5.4, 6.1.
 - **Amharic successes remain bounded.** Interdigitation and 20-variable alpha tuples (312
   survivors), plus static partitioning, establish code-path evidence; the 622-case comparison
   excluded 51 engine timeouts. Retain those mechanisms and exact analysis-set comparison; reject
-  timeout-free or grammar-wide claims. Consumed by tasks 3.3–3.6, 6.2, and 6.4.
+  timeout-free or grammar-wide claims. Consumed by the morphology change's tasks 3.3–3.6, 6.2,
+  and 6.4.
 - **Aweti's scale result selects architecture, not a pass.** The census measured 3,093,412 eager
   composites (the budget latch is only a floor); `dfb5025f`/`f892cfd0` show the underlying route
   compiles all 18 rules but recalls 100/106. Retain templated-underlying composition and bounded
-  counters; reject eager budget inflation, unsound filtering, and depth caps. Consumed by tasks
-  4.1–4.3 and 6.3–6.4.
+  counters; reject eager budget inflation, unsound filtering, and depth caps. Consumed by the
+  morphology change's tasks 4.1–4.3 and 6.3–6.4.
 - **The Aweti truncation hypothesis was false.** `fa81ec82` found 0/16 gain: the apparent drops were
   floating-segment realization, and post-hoc boundary deletion regressed `apply_up`. Retain only
   explicit classified structural recipes with cleanup after phonology; reject `rhs_drops_lhs_material`
-  as a deletion proxy and post-hoc boundary deletion. Consumed by tasks 2.4, 3.6, and 4.2.
+  as a deletion proxy and post-hoc boundary deletion. Consumed by the morphology change's tasks
+  2.4, 3.6, and 4.2.
 - **Fixed-depth and truncated closure are never success.** Historical chain work reduced ambiguity,
   but incomplete worklists still refuse and the remaining Aweti misses remain open. Retain native
   loops, finite closure, or typed refusal; reject fixed-depth returns, early stopping, and partial
-  artifacts. Consumed by tasks 4.2–4.3 and 7.1.
+  artifacts. Indonesian consumption is the sibling change's tasks 2.1–2.4 and 3.1–3.3; the
+  Amharic/Aweti route consumption is the morphology change's tasks 4.2–4.3 and 7.1.
 - **Identity and marker handling must be closed under every consumer.** The Aweti marker experiments
   require one known marker consumed exactly once; the historical Foma-rs literal-`0` tag bug showed
   that `fsm_intersect` can fail even when `apply_up` appears correct. Retain source-level tag
   encoding, marker isolation/leak counters, and consumer regression gates; reject unsafe identity
-  fallback, marker leakage, and trusting one API's view. Consumed by tasks 3.5–3.6, 4.1–4.4, and 6.4.
+  fallback, marker leakage, and trusting one API's view. Consumed by the morphology change's tasks
+  3.5–3.6, 4.1–4.4, and 6.4, plus the sibling artifact tasks 4.1–5.4 and 6.1.
 - **Selected and realized routes must be the same artifact.** Keep-old-paths and the Aweti cascade
   experiment showed that a smaller network can still lose recall. Retain `preferred == selected ==
   realized`, immutable envelope metadata, and a fingerprint for the measured network; reject
-  language-ID switches, stale profiles, and un-fingerprinted substitutions. Consumed by tasks 6.1,
-  6.4, and 7.1.
+  language-ID switches, stale profiles, and un-fingerprinted substitutions. Consumed by the sibling
+  artifact tasks 4.1–5.4 and 6.1; the morphology route check remains in its tasks 6.1 and 7.1.
 - **Semantic equality and deterministic counters outrank elapsed time.** Historical gates exposed
   losses hidden by reachability, containment, or timing; Aweti diagnostics require exact canonical
   analysis sets and reproducible recipe/state/arc/timeout counters. Retain exact set equality and
   deterministic evidence; reject elapsed-time success, first-analysis agreement, or containment
-  as recall proof. Consumed by tasks 6.2–6.4 and 7.2.
+  as recall proof. Indonesian construction/identity is consumed by the sibling change's tasks
+  3.1–3.3, 4.1–4.3, and 6.1; Amharic/Aweti exact-set gates are the morphology change's tasks
+  6.2–6.4 and 7.2.
 - **Construct coverage must be explicit.** The cascade experiment lost 6/25 on process-morphology
   shapes despite smaller networks, and P6 left RTL, simultaneous, quantifier, and metathesis
   boundaries. Retain synthetic positive/negative witnesses and honest skips/refusals; reject
-  generalizing from the three reference grammars. Consumed by tasks 2.1–2.6 and 5.2–5.3.
+  generalizing from the three reference grammars. Consumed by the morphology change's tasks
+  2.1–2.6 and 5.2–5.3.
 
 ## Verification and delivery
 
