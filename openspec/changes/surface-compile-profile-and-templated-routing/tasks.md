@@ -1,8 +1,8 @@
 ## 1. Phase A acceptance tests
 
-- [ ] 1.1 Primary agent adds `named_resource_envelope_contract.rs` pinning the closed full-profile IDs, every effective dimension/digest input, managed default, explicit retry linkage, rejection of arbitrary product limits, and single-attempt default; verify the new target fails for the missing API with `& rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget named_resource_envelope_contract`.
-- [ ] 1.2 Primary agent adds `closure_terminal_parity_gate.rs` with below/at/over-work and live-successor-at-depth-boundary witnesses; require a total terminal result, pending ordinals/counts, empty-worklist completeness, and equal characterization/production traces; verify the new target fails for the missing total/parity behavior with `& rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget closure_terminal_parity_gate`.
-- [ ] 1.3 Record for each new test the expected pre-change failure and reject any assertion that passes on the current implementation; the primary, not an implementation agent, owns these acceptance files through Phase A.
+- [x] 1.1 Primary agent adds `named_resource_envelope_contract.rs` pinning the closed full-profile IDs, every effective dimension/digest input, managed default, explicit retry linkage, rejection of arbitrary product limits, and single-attempt default; verify the new target fails for the missing API with `& rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget named_resource_envelope_contract`.
+- [x] 1.2 Primary agent adds `closure_terminal_parity_gate.rs` with below/at/over-work and live-successor-at-depth-boundary witnesses; require a total terminal result, pending ordinals/counts, empty-worklist completeness, and equal characterization/production traces; verify the new target fails for the missing total/parity behavior with `& rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget closure_terminal_parity_gate`.
+- [x] 1.3 Record for each new test the expected pre-change failure and reject any assertion that passes on the current implementation; the primary, not an implementation agent, owns these acceptance files through Phase A.
 
 ## 2. Phase A envelope and closure implementation
 
