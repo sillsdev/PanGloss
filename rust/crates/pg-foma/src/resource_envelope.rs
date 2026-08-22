@@ -338,10 +338,16 @@ impl RetryAuthorization {
         request: &CompileEnvelopeRequest,
         closure: &CharacterizationResult,
     ) -> Option<Self> {
-        if matches!(
+        let retryable = matches!(
             closure.terminal,
-            ClosureTerminal::Incomplete(_) | ClosureTerminal::Refused(_)
-        ) {
+            ClosureTerminal::Incomplete(
+                crate::characterization::ClosureStopReason::WorkBudgetReached
+                    | crate::characterization::ClosureStopReason::DepthBudgetReached
+                    | crate::characterization::ClosureStopReason::EnumerationBudgetReached
+                    | crate::characterization::ClosureStopReason::ResourceBudgetReached
+            )
+        );
+        if retryable {
             Some(Self {
                 attempt_id: request.attempt_id.clone(),
                 envelope_id: request.envelope_id,

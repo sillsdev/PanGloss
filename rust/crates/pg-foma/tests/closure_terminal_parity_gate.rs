@@ -214,8 +214,15 @@ fn only_a_terminal_failure_can_authorize_a_linked_retry() {
         first_terminal.terminal,
         ClosureTerminal::Incomplete(ClosureStopReason::WorkBudgetReached)
     );
+    assert_eq!(
+        first_terminal.evidence.envelope_id,
+        ResourceEnvelopeId::ManagedV1
+    );
+    assert_eq!(first_terminal.evidence.rule_pairs_visited, 3_000);
     assert!(!first_terminal.evidence.worklist_empty);
     assert!(first_terminal.evidence.pending_successor_count > 0);
+    assert!(first.lexc_source.is_empty());
+    assert!(matches!(first.report.tier, FomaTier::Unsupported { .. }));
     let authorization = first
         .retry_authorization()
         .expect("terminal failure alone authorizes retry");
@@ -237,10 +244,42 @@ fn only_a_terminal_failure_can_authorize_a_linked_retry() {
         .closure_evidence
         .as_ref()
         .expect("retry retains its own fresh closure evidence");
+    assert_eq!(
+        second_terminal.evidence.envelope_id,
+        ResourceEnvelopeId::TunedSurfaceWork10kV1
+    );
+    assert_ne!(
+        second_terminal.evidence.envelope_id,
+        first_terminal.evidence.envelope_id
+    );
     assert_ne!(second_terminal.evidence.envelope_digest, first_terminal.evidence.envelope_digest);
     assert_eq!(second_terminal.terminal, ClosureTerminal::Complete);
     assert!(second_terminal.evidence.worklist_empty);
     assert_eq!(second_terminal.evidence.pending_successor_count, 0);
     assert!(second_terminal.evidence.maximum_depth < 64);
+    assert!(!second.lexc_source.is_empty());
+    assert_eq!(second.report.tier, FomaTier::Full);
     assert!(second.retry_authorization().is_none());
+}
+
+#[test]
+fn unsupported_empty_roots_do_not_authorize_resource_retry() {
+    let mut grammar = pg_grammar::load(FINITE_CHAIN_XML).expect("fixture must load");
+    for stratum in &mut grammar.strata {
+        stratum.entries.clear();
+    }
+    let request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
+        .expect("managed request must be constructible");
+    let result = emit_tuned_surface_for_request(&grammar, &request);
+    let evidence = result
+        .report
+        .closure_evidence
+        .as_ref()
+        .expect("unsupported named attempt retains terminal evidence");
+    assert_eq!(
+        evidence.terminal,
+        ClosureTerminal::Refused(ClosureStopReason::UnsupportedTransition)
+    );
+    assert!(result.lexc_source.is_empty());
+    assert!(result.retry_authorization().is_none());
 }
