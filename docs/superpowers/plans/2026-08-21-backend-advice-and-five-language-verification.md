@@ -2,6 +2,12 @@
 
 > Execute after completeness certificates exist. Advice describes compiler evidence; it never authorizes a linguistically invalid grammar edit.
 
+> **Historical/superseded plan.** The active deliverable is now the Indonesian/Amharic/Aweti
+> three-language slice defined by [`2026-08-22-filter-reach-shipping-spec.md`](../../fst-plan/2026-08-22-filter-reach-shipping-spec.md).
+> This plan's five-language matrix and measurements remain historical reference; Mbugwe is deferred
+> and is not a current acceptance blocker. The tasks below are not being marked complete by this
+> notice.
+
 **Goal:** Produce stable findings and shared remedies for every backend, select only proven candidates, and publish authoritative Indonesian/Sena/Amharic/Aweti/Mbugwe results.
 
 ## Task 1: Add the versioned advice catalog
