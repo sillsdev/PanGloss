@@ -51,10 +51,12 @@ fn shipped_resource_envelopes_are_closed_complete_and_canonical() {
     assert_eq!(managed.enumeration().pair_probe_cap, 3_000_000);
     assert_eq!(managed.backend().tuned_surface_closure_work_cap, 3_000);
     assert_eq!(managed.backend().tuned_surface_closure_depth_cap, 64);
+    assert_eq!(managed.backend().tuned_surface_compound_chain_depth_cap, 200);
 
     let retry = ResourceEnvelope::for_id(ResourceEnvelopeId::TunedSurfaceWork10kV1);
     assert_eq!(retry.backend().tuned_surface_closure_work_cap, 10_000);
     assert_eq!(retry.backend().tuned_surface_closure_depth_cap, 64);
+    assert_eq!(retry.backend().tuned_surface_compound_chain_depth_cap, 200);
     assert_eq!(retry.watchdog(), managed.watchdog());
     assert_eq!(retry.communication(), managed.communication());
     assert_eq!(retry.compose(), managed.compose());
