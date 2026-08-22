@@ -3087,6 +3087,7 @@ fn build_structural_composites_on_current_stack(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 fn build_structural_composites(
     g: &Grammar,
     width: usize,
