@@ -1,15 +1,20 @@
 //! Pins the closed templated-morphology classifier grammar with invented construct witnesses.
 
+use std::collections::HashSet;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+use pg_featstruct::SymbolBits;
 use pg_foma::structural_allomorph::{
     marker_binding_for, MarkerBindingError, MarkerKey, MarkerZone, MorphologyRewrite,
-    MorphologyRewriteClassifier, ZoneRequirement,
+    MorphologyRewriteClassifier, RewriteProvenance, ZoneRequirement,
 };
 use pg_grammar::chardef::CharDefId;
+use pg_grammar::featsys::FlatIndex;
 use pg_grammar::model::{
-    AllomorphId, Grammar, MorphRuleDef, OutputAction, PartRef, PatternNode, TableId,
+    AllomorphId, AnchorSide, Grammar, MorphRuleDef, NatClassId, NaturalClass, NaturalClassKind,
+    OutputAction, PartRef, PatternNode, SegmentedText, SimpleContext, TableId,
 };
+use pg_shape::ShapeBuilder;
 
 const CLASSIFIER_XML: &str = r#"
 <HermitCrabInput><Language><Name>synthetic-templated-closed-grammar</Name>
@@ -106,13 +111,12 @@ fn classify(g: &Grammar, index: usize) -> MorphologyRewrite {
 }
 
 fn assert_ordinary(g: &Grammar, index: usize) {
-    assert!(
-        matches!(
-            classify(g, index),
-            MorphologyRewrite::OrdinaryLiteral { .. }
-        ),
-        "allomorph {index} must be ordinary literal"
-    );
+    match classify(g, index) {
+        MorphologyRewrite::OrdinaryLiteral { provenance, .. } => {
+            assert_eq!(provenance, expected_provenance(g, index, TableId(0)));
+        }
+        other => panic!("allomorph {index} must be ordinary literal, got {other:?}"),
+    }
 }
 
 fn active_representations(g: &Grammar, char_def: CharDefId) -> Vec<String> {
@@ -120,6 +124,14 @@ fn active_representations(g: &Grammar, char_def: CharDefId) -> Vec<String> {
         .get(char_def)
         .representations_nfd()
         .to_vec()
+}
+
+fn expected_provenance(g: &Grammar, index: usize, active_table: TableId) -> RewriteProvenance {
+    RewriteProvenance {
+        allomorph: allomorph(g, index).id,
+        source_table: g.strata[0].table,
+        active_table,
+    }
 }
 
 fn assert_marked_recipe(
@@ -136,6 +148,7 @@ fn assert_marked_recipe(
             shape_id,
             recipe,
             zone_requirement,
+            provenance,
         } => {
             assert_eq!(
                 shape_id, expected_shape,
@@ -162,6 +175,11 @@ fn assert_marked_recipe(
                 zone_requirement, expected_zone_requirement,
                 "zone requirement for {expected_shape}"
             );
+            assert_eq!(
+                provenance,
+                expected_provenance(g, index, TableId(0)),
+                "owner-derived provenance for {expected_shape}"
+            );
         }
         other => panic!("allomorph {index} must be {expected_shape}, got {other:?}"),
     }
@@ -174,7 +192,9 @@ fn assert_unsupported(g: &Grammar, index: usize, expected_shape: &str, expected_
         MorphologyRewrite::Unsupported {
             shape_id,
             reason_id,
-            ..
+            allomorph: result_allomorph,
+            source_table,
+            active_table,
         } => {
             assert_eq!(
                 shape_id, expected_shape,
@@ -184,6 +204,9 @@ fn assert_unsupported(g: &Grammar, index: usize, expected_shape: &str, expected_
                 reason_id, expected_reason,
                 "stable reason id for allomorph {index}"
             );
+            assert_eq!(result_allomorph, allomorph(g, index).id);
+            assert_eq!(source_table, g.strata[0].table);
+            assert_eq!(active_table, TableId(0));
         }
         other => panic!("allomorph {index} must fail closed, got {other:?}"),
     }
@@ -199,13 +222,14 @@ fn closed_classifier_accepts_the_five_listed_families_and_ordinary_literals() {
         MorphologyRewrite::DirectWholeRootWrapper {
             prefix_variants,
             suffix_variants,
-            ..
+            provenance,
         } => {
             // Expected variants come from active-table character definitions rather than this assertion.
             assert_eq!(prefix_variants, active_representations(&g, CharDefId(7)));
             assert_eq!(suffix_variants, active_representations(&g, CharDefId(8)));
             assert_eq!(prefix_variants.len(), 2);
             assert_eq!(suffix_variants.len(), 2);
+            assert_eq!(provenance, expected_provenance(&g, 2, TableId(0)));
         }
         other => panic!("wrapper must be direct and marker-free, got {other:?}"),
     }
@@ -285,7 +309,7 @@ fn closed_classifier_default_denies_every_unlisted_action_or_shape() {
         }
     }
     match classify(&g, 14) {
-        MorphologyRewrite::OrdinaryLiteral { variants } => assert_eq!(variants, vec!["x"]),
+        MorphologyRewrite::OrdinaryLiteral { variants, .. } => assert_eq!(variants, vec!["x"]),
         other => panic!("later shared spelling must translate, got {other:?}"),
     }
 
@@ -362,6 +386,46 @@ fn marker_binding_identity_is_allomorph_and_zone_and_intrinsic_mismatch_refuses(
             required: MarkerZone::Suffix,
             actual: MarkerZone::Prefix,
         })
+    );
+
+    let mut symbols = HashSet::new();
+    for id in [0, 1, 7, 65_535] {
+        for zone in [MarkerZone::Prefix, MarkerZone::Suffix] {
+            let binding = marker_binding_for(
+                MarkerKey {
+                    allomorph: AllomorphId(id),
+                    zone,
+                },
+                ZoneRequirement::Caller,
+            )
+            .expect("every in-range allomorph/zone pair has a marker");
+            assert!(
+                symbols.insert(binding.symbol),
+                "marker collision for {id:?}/{zone:?}"
+            );
+        }
+    }
+    assert_eq!(
+        marker_binding_for(
+            MarkerKey {
+                allomorph: AllomorphId(65_535),
+                zone: MarkerZone::Suffix,
+            },
+            ZoneRequirement::Caller,
+        )
+        .expect("maximum marker")
+        .symbol,
+        char::from_u32(0x10_FFFF).unwrap()
+    );
+    assert_eq!(
+        marker_binding_for(
+            MarkerKey {
+                allomorph: AllomorphId(65_536),
+                zone: MarkerZone::Prefix,
+            },
+            ZoneRequirement::Caller,
+        ),
+        Err(MarkerBindingError::InvalidScalar)
     );
 }
 
@@ -511,4 +575,207 @@ fn replacement_and_modify_atoms_exist_in_the_owning_source_table() {
             "allomorph {index} cannot use source-table char-def 8 because only the active table contains it"
         );
     }
+}
+
+#[test]
+fn wrapper_classifier_accepts_empty_runs_on_either_side() {
+    let original = match &load().mrules[0] {
+        MorphRuleDef::AffixProcess(rule) => rule.allomorphs[2].rhs.clone(),
+        _ => unreachable!(),
+    };
+    let cases = [
+        (
+            vec![original[0].clone(), original[1].clone()],
+            active_representations(&load(), CharDefId(7)),
+            vec![String::new()],
+        ),
+        (
+            vec![original[1].clone(), original[2].clone()],
+            vec![String::new()],
+            active_representations(&load(), CharDefId(8)),
+        ),
+        (
+            vec![original[1].clone()],
+            vec![String::new()],
+            vec![String::new()],
+        ),
+    ];
+
+    for (rhs, expected_prefixes, expected_suffixes) in cases {
+        let mut g = load();
+        if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+            rule.allomorphs[2].rhs = rhs;
+        }
+        match classify(&g, 2) {
+            MorphologyRewrite::DirectWholeRootWrapper {
+                prefix_variants,
+                suffix_variants,
+                provenance,
+            } => {
+                assert_eq!(prefix_variants, expected_prefixes);
+                assert_eq!(suffix_variants, expected_suffixes);
+                assert_eq!(provenance, expected_provenance(&g, 2, TableId(0)));
+            }
+            other => panic!("one-sided or pure-copy wrapper must classify, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn every_referenced_lhs_part_must_consume_at_least_one_segment() {
+    let mut empty_builder = ShapeBuilder::new();
+    let cases = [
+        PatternNode::Anchor(AnchorSide::Left),
+        PatternNode::Segments {
+            table: TableId(0),
+            shape: SegmentedText {
+                text: String::new(),
+                shape: empty_builder.finish(),
+            },
+        },
+        PatternNode::Quantifier {
+            min: 0,
+            max: Some(1),
+            children: vec![PatternNode::CharDef(CharDefId(0))],
+        },
+    ];
+
+    for node in cases {
+        let mut g = load();
+        if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+            rule.allomorphs[3].lhs[0].nodes = vec![node];
+        }
+        assert_unsupported(
+            &g,
+            3,
+            "AmharicInteriorInsertion",
+            "non-consuming-input-part",
+        );
+    }
+}
+
+#[test]
+fn one_segment_group_is_a_proven_terminal_modify_atom() {
+    let mut builder = ShapeBuilder::new();
+    builder.push_segment(0);
+    let mut g = load();
+    if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+        rule.allomorphs[5].lhs[1].nodes = vec![PatternNode::Segments {
+            table: TableId(0),
+            shape: SegmentedText {
+                text: "a".into(),
+                shape: builder.finish(),
+            },
+        }];
+    }
+
+    match classify(&g, 5) {
+        MorphologyRewrite::MarkedStructural {
+            shape_id,
+            recipe,
+            provenance,
+            ..
+        } => {
+            assert_eq!(shape_id, "AmharicTerminalModify");
+            assert_eq!(recipe.input_refs(), vec![0, 1]);
+            assert_eq!(recipe.translated_input_members()[1], vec!["a"]);
+            assert_eq!(provenance, expected_provenance(&g, 5, TableId(0)));
+        }
+        other => panic!("one-segment Segments node must classify, got {other:?}"),
+    }
+}
+
+#[test]
+fn admitted_drop_recipe_retains_the_dropped_input_members() {
+    let g = load();
+    match classify(&g, 7) {
+        MorphologyRewrite::MarkedStructural {
+            recipe, provenance, ..
+        } => {
+            let members = recipe.translated_input_members();
+            assert_eq!(
+                members.len(),
+                2,
+                "one finite member set per authored LHS part"
+            );
+            assert!(members[1].contains(&"a".to_string()));
+            assert!(members[1].contains(&"b".to_string()));
+            assert_eq!(provenance, expected_provenance(&g, 7, TableId(0)));
+        }
+        other => panic!("terminal drop must retain its dropped atom, got {other:?}"),
+    }
+}
+
+#[test]
+fn terminal_modify_uses_owner_table_and_skips_only_unmapped_representations() {
+    let mut g = load();
+    g.strata[0].table = TableId(1);
+    let mixed = NatClassId(g.natural_classes.len() as u32);
+    g.natural_classes.push(NaturalClass {
+        xml_id: "ncForeignMixed".into(),
+        name: None,
+        kind: NaturalClassKind::Segments(vec![CharDefId(5), CharDefId(7)]),
+    });
+    if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+        let candidate = &mut rule.allomorphs[5];
+        candidate.lhs[0].nodes = vec![PatternNode::CharDef(CharDefId(5))];
+        candidate.lhs[1].nodes = vec![PatternNode::CharDef(CharDefId(5))];
+        if let OutputAction::Modify(_, context) = &mut candidate.rhs[1] {
+            context.nat_class = mixed;
+        }
+    }
+
+    match classify(&g, 5) {
+        MorphologyRewrite::MarkedStructural {
+            recipe, provenance, ..
+        } => {
+            assert_eq!(recipe.output_segments(), vec!["x"]);
+            assert_eq!(
+                recipe.translated_input_members(),
+                vec![vec!["x"], vec!["x"]]
+            );
+            assert_eq!(provenance, expected_provenance(&g, 5, TableId(0)));
+        }
+        other => panic!("later shared representation must translate, got {other:?}"),
+    }
+
+    if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+        if let OutputAction::Modify(_, context) = &mut rule.allomorphs[5].rhs[1] {
+            context.nat_class = NatClassId(mixed.0 + 1);
+        }
+    }
+    g.natural_classes.push(NaturalClass {
+        xml_id: "ncForeignUnmapped".into(),
+        name: None,
+        kind: NaturalClassKind::Segments(vec![CharDefId(7)]),
+    });
+    assert_unsupported(
+        &g,
+        5,
+        "AmharicTerminalModify",
+        "untranslatable-output-table",
+    );
+}
+
+#[test]
+fn malformed_feature_reference_is_a_stable_refusal_not_a_panic() {
+    let mut g = load();
+    let malformed = NatClassId(g.natural_classes.len() as u32);
+    g.natural_classes.push(NaturalClass {
+        xml_id: "ncMalformedFeature".into(),
+        name: None,
+        kind: NaturalClassKind::Feature(vec![(FlatIndex(u32::MAX), SymbolBits(1))]),
+    });
+    if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+        rule.allomorphs[7].lhs[1].nodes = vec![PatternNode::Context(SimpleContext {
+            nat_class: malformed,
+            vars: vec![],
+        })];
+    }
+    assert_unsupported(
+        &g,
+        7,
+        "InvalidReferences",
+        "invalid-source-feature-reference",
+    );
 }
