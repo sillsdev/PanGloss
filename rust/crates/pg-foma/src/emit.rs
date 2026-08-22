@@ -392,6 +392,8 @@ pub struct EmitReport {
     pub enum_budget_exceeded: Option<EnumBudgetExceeded>,
     /// Typed closure-refusal evidence; `None` for successful emission and unrelated failures.
     pub closure_refusal: Option<ClosureRefusal>,
+    /// Exact transition evidence retained when the test-support emitter is traced.
+    pub closure_evidence: Option<crate::characterization::CharacterizationResult>,
 }
 
 pub struct EmitResult {
@@ -1588,6 +1590,7 @@ fn compound_chain_depth_and_budget_check(
                     limit,
                 }),
                 closure_refusal: None,
+                closure_evidence: None,
             },
         });
     }
@@ -2618,6 +2621,7 @@ struct StructCtx<'a> {
     enum_budget: &'a EnumerationBudget,
     /// Memoized conservative reachability over authored sites and application bounds.
     dirty_reach: &'a RefCell<HashMap<ChainState, bool>>,
+    closure_trace: Option<&'a crate::characterization::ClosureTrace>,
 }
 
 /// `struct_extend`'s output accumulator: composite records plus a `(tag_lexc, spelling)` dedup set — mirrors `crate::preexpand::Acc`.
@@ -2818,6 +2822,11 @@ fn struct_extend(
         if !req_fs.is_empty() && !is_unifiable(req_fs, &base_fs) {
             continue;
         }
+        if let Some(trace) = ctx.closure_trace {
+            if !trace.begin_pair(depth, mid.0) {
+                return;
+            }
+        }
         if let Some(budget) = &ctx.probe_budget {
             budget.tick();
         }
@@ -2827,7 +2836,15 @@ fn struct_extend(
         }
 
         let synthesized = pg_rules::morph::synthesize(ctx.g, base_word, rule);
-        if depth >= DEFAULT_STRUCTURAL_CLOSURE_DEPTH_BUDGET {
+        if let Some(trace) = ctx.closure_trace {
+            if !trace.record_successors(depth, mid.0, synthesized.len()) {
+                return;
+            }
+        }
+        let depth_limit = ctx
+            .closure_trace
+            .map_or(DEFAULT_STRUCTURAL_CLOSURE_DEPTH_BUDGET, |trace| trace.depth_cap());
+        if depth >= depth_limit {
             if !synthesized.is_empty() {
                 acc.pending_rule_ordinals.insert(mid.0);
             }
@@ -2963,6 +2980,7 @@ fn build_structural_composites_on_current_stack(
     probe_budget: Option<ProbeBudget<'_>>,
     phon: Option<&PhonologyProbe>,
     enum_budget: &EnumerationBudget,
+    closure_trace: Option<&crate::characterization::ClosureTrace>,
 ) -> (
     Vec<crate::preexpand::CompositeRec>,
     BTreeSet<u32>,
@@ -3041,6 +3059,7 @@ fn build_structural_composites_on_current_stack(
                     probe_budget,
                     enum_budget,
                     dirty_reach,
+                    closure_trace,
                 };
                 // Seeded the same way `crate::preexpand::process_root_work` seeds pruning.
                 let seed_state = ChainState::seed(g, root_stratum.0, entry.partial);
@@ -3086,6 +3105,41 @@ fn build_structural_composites(
     BTreeSet<u32>,
     usize,
 ) {
+    build_structural_composites_with_trace(
+        g,
+        width,
+        rules,
+        cache,
+        morpher,
+        mt,
+        mode,
+        probe_budget,
+        phon,
+        enum_budget,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_structural_composites_with_trace(
+    g: &Grammar,
+    width: usize,
+    rules: &[MRuleId],
+    cache: &RuleCache,
+    morpher: &Morpher,
+    mt: &MorphotacticIndex,
+    mode: ExploreMode,
+    probe_budget: Option<ProbeBudget<'_>>,
+    phon: Option<&PhonologyProbe>,
+    enum_budget: &EnumerationBudget,
+    closure_trace: Option<&crate::characterization::ClosureTrace>,
+) -> (
+    Vec<crate::preexpand::CompositeRec>,
+    BTreeSet<u32>,
+    usize,
+    BTreeSet<u32>,
+    usize,
+) {
     #[cfg(target_arch = "wasm32")]
     {
         return build_structural_composites_on_current_stack(
@@ -3099,6 +3153,7 @@ fn build_structural_composites(
             probe_budget,
             phon,
             enum_budget,
+            closure_trace,
         );
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -3117,6 +3172,7 @@ fn build_structural_composites(
                     probe_budget,
                     phon,
                     enum_budget,
+                    closure_trace,
                 )
             })
             .expect("spawning the structural-composite worker")
@@ -3492,6 +3548,44 @@ fn emit_with_budget_profiled_with_strategy(
     mut profile: Option<&mut CompileProfileBuilder>,
     strategy: SurfaceEmitStrategy,
 ) -> EmitResult {
+    emit_with_budget_profiled_with_strategy_and_trace(
+        g,
+        precision,
+        enum_budget,
+        profile,
+        strategy,
+        None,
+    )
+}
+
+/// Runs the production TunedSurface emitter with a focused closure trace. This is test-support
+/// only: the numeric limits are supplied by the acceptance test, while product callers select a
+/// closed [`ResourceEnvelope`] instead.
+pub fn emit_tuned_surface_with_closure_limits_for_test(
+    g: &Grammar,
+    envelope: &crate::resource_envelope::ResourceEnvelope,
+    limits: crate::characterization::ClosureTestLimits,
+) -> EmitResult {
+    let trace = crate::characterization::ClosureTrace::new(envelope, limits);
+    let enum_budget = crate::morphotactics::EnumerationBudget::with_caps(usize::MAX, usize::MAX);
+    emit_with_budget_profiled_with_strategy_and_trace(
+        g,
+        PrecisionConfig::Strip,
+        &enum_budget,
+        None,
+        SurfaceEmitStrategy::default(),
+        Some(&trace),
+    )
+}
+
+fn emit_with_budget_profiled_with_strategy_and_trace(
+    g: &Grammar,
+    precision: PrecisionConfig,
+    enum_budget: &crate::morphotactics::EnumerationBudget,
+    mut profile: Option<&mut CompileProfileBuilder>,
+    strategy: SurfaceEmitStrategy,
+    closure_trace: Option<&crate::characterization::ClosureTrace>,
+) -> EmitResult {
     let mut stage_start = Instant::now();
     let width = tags::tag_width(g.morphemes.len());
     let table = surface_table(g);
@@ -3560,6 +3654,7 @@ fn emit_with_budget_profiled_with_strategy(
                     pending_successors: None,
                     remedy_backend: ClosureFallbackBackend::FullMorphologicalParser,
                 }),
+                closure_evidence: closure_trace.map(|trace| trace.result()),
             },
         };
     }
@@ -3607,7 +3702,7 @@ fn emit_with_budget_profiled_with_strategy(
 
     // plan_wants_composite_emission decides whether this rule-application pre-expansion + boundary-fusion probing runs at all; skipping it entirely (rather than calling in and relying on should_run) still yields the identical zero pairs/zero composites.
     let (mut composites, composite_report) = if plan_wants_composite_emission {
-        crate::preexpand::build_composites_with_mode(
+        crate::preexpand::build_composites_with_mode_and_trace(
             g,
             width,
             phon.as_ref(),
@@ -3615,6 +3710,7 @@ fn emit_with_budget_profiled_with_strategy(
             explore_mode,
             probe_budget,
             enum_budget,
+            closure_trace,
         )
     } else {
         (Vec::new(), crate::preexpand::CompositeReport::default())
@@ -3637,7 +3733,7 @@ fn emit_with_budget_profiled_with_strategy(
             .as_ref()
             .expect("morpher is built whenever plan_wants_structural_composite is true");
         let (struct_composites, covered, pending_successors, pending_rules, candidate_pairs_pruned) =
-            build_structural_composites(
+            build_structural_composites_with_trace(
                 g,
                 width,
                 &struct_rules,
@@ -3648,6 +3744,7 @@ fn emit_with_budget_profiled_with_strategy(
                 probe_budget,
                 phon.as_ref(),
                 enum_budget,
+                closure_trace,
             );
         counts.composite_structural_entries = struct_composites.len();
         composites.extend(struct_composites);
@@ -3694,8 +3791,30 @@ fn emit_with_budget_profiled_with_strategy(
                     limit,
                 }),
                 closure_refusal: None,
+                closure_evidence: closure_trace.map(|trace| trace.result()),
             },
         };
+    }
+
+    if let Some(trace) = closure_trace {
+        let evidence = trace.result();
+        if !matches!(evidence.terminal, crate::characterization::ClosureTerminal::Complete) {
+            let reason = format!(
+                "tuned surface closure is incomplete at the requested resource boundary: {:?}",
+                evidence.terminal
+            );
+            return EmitResult {
+                lexc_source: String::new(),
+                report: EmitReport {
+                    uncovered,
+                    counts,
+                    tier: FomaTier::Unsupported { reason },
+                    enum_budget_exceeded: None,
+                    closure_refusal: None,
+                    closure_evidence: Some(evidence),
+                },
+            };
+        }
     }
 
     let pending_successors = composite_report.pending_successors + structural_pending_successors;
@@ -3723,6 +3842,7 @@ fn emit_with_budget_profiled_with_strategy(
                     pending_successors: Some(pending_successors),
                     remedy_backend: ClosureFallbackBackend::FullMorphologicalParser,
                 }),
+                closure_evidence: closure_trace.map(|trace| trace.result()),
             },
         };
     }
@@ -3809,6 +3929,7 @@ fn emit_with_budget_profiled_with_strategy(
             },
             enum_budget_exceeded: None,
             closure_refusal: None,
+            closure_evidence: closure_trace.map(|trace| trace.result()),
         };
         return EmitResult {
             lexc_source: String::new(),
@@ -3936,6 +4057,7 @@ fn emit_with_budget_profiled_with_strategy(
                         limit,
                     }),
                     closure_refusal: None,
+                    closure_evidence: closure_trace.map(|trace| trace.result()),
                 },
             };
         }
@@ -4384,6 +4506,7 @@ fn emit_with_budget_profiled_with_strategy(
             tier,
             enum_budget_exceeded: None,
             closure_refusal: None,
+            closure_evidence: closure_trace.map(|trace| trace.result()),
         },
     }
 }
@@ -4410,6 +4533,7 @@ fn emit_line_budget_breach(
             tier: FomaTier::Unsupported { reason },
             enum_budget_exceeded: None,
             closure_refusal: None,
+            closure_evidence: None,
         },
     }
 }
@@ -4581,6 +4705,7 @@ pub fn emit_underlying_templated(
                     limit,
                 }),
                 closure_refusal: None,
+                closure_evidence: None,
             },
         };
     }
@@ -4597,6 +4722,7 @@ pub fn emit_underlying_templated(
                 },
                 enum_budget_exceeded: None,
                 closure_refusal: None,
+                closure_evidence: None,
             },
         };
     }
@@ -4766,6 +4892,7 @@ pub fn emit_underlying_templated(
                         limit,
                     }),
                     closure_refusal: None,
+                    closure_evidence: None,
                 },
             };
         }
@@ -5172,6 +5299,7 @@ pub fn emit_underlying_templated(
             tier,
             enum_budget_exceeded: None,
             closure_refusal: None,
+            closure_evidence: None,
         },
     }
 }
