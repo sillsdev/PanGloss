@@ -7,7 +7,11 @@ use std::path::Path;
 use pg_foma::analyzer::FomaProposer;
 use pg_foma::capability::CompileDecision;
 use pg_foma::capability_entry::best_case_across_backends_for_grammar;
+use pg_foma::characterization::{
+    characterize_tuned_surface_closure, ClosureStopReason, ClosureTerminal,
+};
 use pg_foma::emit;
+use pg_foma::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
@@ -399,5 +403,22 @@ fn compound_chain_depth_budget_trips_before_any_lexc_emitted() {
         "reported value {} must exceed the limit {} it tripped",
         exceeded.value,
         exceeded.limit
+    );
+
+    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
+    let traced = emit::emit_tuned_surface_for_envelope(&g, &envelope);
+    assert!(traced.lexc_source.is_empty());
+    let evidence = traced
+        .report
+        .closure_evidence
+        .expect("every named-envelope refusal must retain terminal evidence");
+    assert_eq!(
+        evidence.terminal,
+        ClosureTerminal::Incomplete(ClosureStopReason::ResourceBudgetReached)
+    );
+    assert_eq!(
+        characterize_tuned_surface_closure(&g, &envelope),
+        evidence,
+        "normal characterization must return the same retained production evidence"
     );
 }
