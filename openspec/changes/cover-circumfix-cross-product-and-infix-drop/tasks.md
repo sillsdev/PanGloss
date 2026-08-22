@@ -28,6 +28,7 @@
 - [ ] 4.1 Extend `TemplatedCompileProfile` with supported/compiled/fired recipe counts, per-shape counts, marker allocation/consumption/leak counts, unsupported/uncovered counts, missing subtree count, and existing skipped phonological rules.
 - [ ] 4.2 Make `compile_templated_morphotactics` return a typed error—not `Ok`—for any unsupported/uncovered allomorph, skipped rule, missing marker subtree, allocation/compilation mismatch, foreign/multiple marker state, or final marker leak; an empty phonological rule list remains a valid identity cascade.
 - [ ] 4.3 Add/extend focused tests proving all declared phonological rules compile, morphology output feeds RTL and simultaneous replacement in authored order, and the finalized proposer carries no technical marker or partial-success profile.
+- [ ] 4.4 Pin tag-codec safety across every FST consumer, including the historical literal-`0`/`fsm_intersect` failure class: source-level encoding/decoding must round-trip, emitted tags must contain no unsafe literal-zero symbol, and the recall harness must not rely on `apply_up` alone.
 
 ## 5. PanGloss-only conformance grammars
 
@@ -41,6 +42,7 @@
 - [ ] 6.2 Run the Amharic assessment over exactly 200 declared cases and require equality of the complete canonical structured analysis set for every case (`200/200`), not word reachability, first-analysis agreement, or containment alone.
 - [ ] 6.3 Run the Aweti assessment over exactly 106 declared alphabet-encodable cases and require equality of the complete canonical structured analysis set for every case (`106/106`), zero residual words, and all 18 phonological rules compiled.
 - [ ] 6.4 Capture deterministic FST states/arcs, classifier/recipe fires, proposal/confirmation counts, and backend report findings for both languages; report unavailable private data as `not_run` and never replace it with a synthetic pass.
+- [ ] 6.5 Preserve historical denominator and timeout provenance in the final report: distinguish Indonesian's 121/121, 114, and 97/97 scopes, Amharic's timeout-excluded cases, and Aweti's six residual misses; elapsed time or a budget latch is never a semantic pass.
 
 ## 7. Merged-tip verification and documentation
 

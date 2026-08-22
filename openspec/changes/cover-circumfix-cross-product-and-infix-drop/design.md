@@ -199,6 +199,17 @@ root position, and POS/category); output order, duplicate discovery, traces, glo
 timing, and serialization are not substituted for semantic equality. The gates do not include
 Mbugwe.
 
+### 4.1 Historical implementation constraints carried forward
+
+The Indonesian/Amharic/Aweti history adds four non-optional guards to this design. The old
+enumeration bridges remain bounded evidence only; the selected route must be the realized,
+fingerprinted route. Underlying templated composition is the Aweti scale successor, but its six
+remaining misses and the cascade's process-morphology boundary remain refusals until the exact
+semantic gates pass. Historical `fsm_intersect` failures from literal-zero tag symbols also require
+source-level codec coverage across every consumer, not an `apply_up`-only check. Finally, budget
+latches, elapsed time, or a fixed depth may explain cost but cannot establish recall or certificate;
+recipe/marker/closure counters and exact sets are the evidence contract.
+
 ## Risks / Trade-offs
 
 - **The grammar boundary may be too broad.** Keep the action classifier closed, state the
