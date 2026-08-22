@@ -37,7 +37,8 @@ related reports.
 
 ### 1. Closed classifier grammar: action topology with explicit LHS erasure
 
-The classifier operates on one `AffixAllomorphDef`.  Let `P[i]` be the i-th non-empty LHS
+The topology classifier operates on one `AffixAllomorphDef`; final prefix/suffix placement also
+receives the emission caller's current chain zone.  Let `P[i]` be the i-th non-empty LHS
 `Pattern`, `I` be one `InsertSegments` action whose text is representable in the active table, and
 `C(i)` be `Copy(PartRef::Input(i))`.  Every RHS input reference must resolve to exactly one real
 `P[i]`, and all output literals/classes must translate to the active table.  The classifier
@@ -100,8 +101,8 @@ non-empty insertion run.  Each action is re-encoded from its owning table into t
 table before classification succeeds.  Ordinary prefix, suffix, or zero-morph text that has no
 structural topology remains ordinary templated literal emission and receives no structural marker.
 Precisely, `OrdinaryLiteral` accepts only an empty RHS (null) or a non-empty RHS in which every
-action is a translatable `InsertSegments` and the authored rule resolves to one prefix or suffix
-zone.  A RHS containing any `Copy`, `ModifyFromInput`, or `InsertContext` is never ordinary: it must
+action is a translatable `InsertSegments`; the emission caller supplies its current chain zone.
+A RHS containing any `Copy`, `ModifyFromInput`, or `InsertContext` is never ordinary: it must
 match one of the five structural forms above or return `Unsupported`.
 The classifier rejects `InsertContext`, any `Modify` outside the terminal form,
 repeated/missing/reordered `Copy` references, copied `Head`/`NonHead` references, multiple
@@ -113,19 +114,22 @@ modification output set, unknown output actions, and any shape not listed above.
 `MorphologyRewriteClassifier::classify(g, allomorph, active_table)` returns either:
 
 - `OrdinaryLiteral` (no marker, ordinary zone routing); or
-- `DirectWholeRootWrapper { prefix_variants, suffix_variants, zone }` (no marker; direct literal
-  wrapper with the full Cartesian product); or
-- `MarkedStructural { shape_id, recipe, zone, marker }`; or
+- `DirectWholeRootWrapper { prefix_variants, suffix_variants }` (no marker; its two halves already
+  identify their zones and form the full Cartesian product); or
+- `MarkedStructural { shape_id, recipe, zone_requirement, marker }`, where the requirement is an
+  intrinsic edge (`Prefix`/`Suffix`) or `Caller` for a root-internal recipe; or
 - `Unsupported { shape_id, reason, source_rule, allomorph }`.
 
 The `DirectWholeRootWrapper` result carries two independently deduplicated translated variant sets;
 emission offers every `prefix_variants × suffix_variants` pair and never zips or selects one pair.
-The `MarkedStructural`
-result contains the closed action-topology ID, ordered literal/output-class material, validated
-input references, source/active-table translation, and exactly one allomorph-owned marker; it does
+The `MarkedStructural` result contains the closed action-topology ID, ordered literal/output-class
+material, validated input references, source/active-table translation, an intrinsic-or-caller zone
+requirement, and exactly one allomorph-owned marker; it does
 not carry a falsely exact LHS matcher.  `emit.rs` calls the classifier to decide whether to write ordinary
 text, direct wrapper text, a marker alternative, or an uncovered diagnostic, and to place
-prefix/suffix halves in the correct zone.  This is per-allomorph and per-zone; it never uses
+prefix/suffix halves in the correct zone.  Intrinsic edge recipes must agree with the caller's zone;
+interior insertion and terminal modification use the caller's zone.  This is per-allomorph and
+per-zone; it never uses
 `rule_role` or the first allomorph as a proxy for later alternatives.  `capability.rs` consumes the
 same result and refuses the grammar if any relevant allomorph is `Unsupported`.
 `templated_compile.rs` compiles exactly the recall-preserving marked proposal recipes emitted by
@@ -161,8 +165,9 @@ invariants, checked in synthetic tests and in the compile profile:
 - **Consume, do not leak:** the matching relation consumes its one marker exactly once.  Markers
   never appear in a RHS output, in boundary cleanup, in a proposer tape, or in structured analysis
   identity.  The final technical-marker count must be zero.
-- **Union isolation:** `R(marker_i)` cannot fire for `marker_j`; each marker is unique to one
-  allomorph and its declared zone.  Missing marker subtrees, duplicate marker allocation, and
+- **Union isolation:** `R(marker_i)` cannot fire for `marker_j`; each marker binding is unique to
+  one `(allomorph, zone)` route.  A convenience lookup by allomorph is valid only when exactly one
+  zone was emitted.  Missing marker subtrees, duplicate marker allocation, and
   marker-count disagreement between emission and compilation are hard failures.
 
 The relation is composed after underlying lexc and before phonology.  The existing ordered
