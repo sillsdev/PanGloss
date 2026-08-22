@@ -92,12 +92,9 @@
 //!    "grammar-level findings with no specific construct identifier ... leave `affected` empty"
 //!    convention (`payload_size_finding`).
 
-use std::collections::VecDeque;
+use std::sync::Mutex;
 
-use pg_grammar::model::{Grammar, MRuleId, MorphRuleDef};
-use pg_rules::cache::RuleCache;
-use pg_rules::morph::synthesize_cached;
-use pg_rules::word::{MorphRecord, Word};
+use pg_grammar::model::Grammar;
 
 use crate::capability::{CharacteristicsProfile, CompileDecision, ObservationDetail};
 use crate::capability_entry::best_case_across_backends;
@@ -106,8 +103,6 @@ use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{
     FindingCode, HealthFinding, Metric, MetricValue, Phase, Remedy, Severity, ValueProvenance,
 };
-use crate::morphotactics::{ChainState, MorphotacticIndex};
-use crate::preexpand::{candidate_rules, rule_fs_and_morpheme};
 use crate::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 
 /// Default logical-work envelope for TunedSurface composite closure. This counts reachable
@@ -134,12 +129,6 @@ pub enum ClosureTerminal {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClosureWalkMode {
-    Characterization,
-    Production,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClosureTestLimits {
     pub work_cap: usize,
     pub depth_cap: usize,
@@ -147,6 +136,7 @@ pub struct ClosureTestLimits {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClosureEvidence {
+    pub envelope_digest: String,
     pub rule_pairs_visited: usize,
     pub synthesized_successors: usize,
     pub maximum_depth: usize,
@@ -163,150 +153,125 @@ pub struct CharacterizationResult {
 }
 
 #[derive(Debug, Clone)]
-struct ClosureWorkItem {
-    word: Word,
-    state: ChainState,
-    depth: usize,
+struct TraceState {
+    rule_pairs_visited: usize,
+    synthesized_successors: usize,
+    maximum_depth: usize,
+    per_depth_counts: Vec<usize>,
+    pending_successor_count: usize,
+    pending_rule_ordinals: Vec<u32>,
+    stop: Option<ClosureStopReason>,
 }
 
-/// Run the same bounded transition kernel used by both characterization and the production trace.
-/// This is intentionally exposed only for the focused parity gate; normal callers use the
-/// immutable evidence returned by their compile path.
-pub fn trace_tuned_surface_closure_for_test(
-    grammar: &Grammar,
-    _envelope: &ResourceEnvelope,
+/// Mutable evidence sink shared by the production emitter and the characterization wrapper.
+/// The trace is only installed by the focused test-support entry points; normal emission passes
+/// `None` and retains its existing traversal and parallelism.
+pub(crate) struct ClosureTrace {
     limits: ClosureTestLimits,
-    mode: ClosureWalkMode,
-) -> CharacterizationResult {
-    let _production = matches!(mode, ClosureWalkMode::Production);
-    trace_closure_kernel(grammar, limits)
+    envelope_digest: String,
+    state: Mutex<TraceState>,
 }
 
-fn trace_closure_kernel(grammar: &Grammar, limits: ClosureTestLimits) -> CharacterizationResult {
-    let mut rules = candidate_rules(grammar);
-    if rules.is_empty() {
-        rules = grammar
-            .mrules
-            .iter()
-            .enumerate()
-            .filter_map(|(index, rule)| {
-                (!matches!(rule, MorphRuleDef::Compounding(_)))
-                    .then_some((MRuleId(index as u32), crate::emit::rule_role(grammar, MRuleId(index as u32))))
-            })
-            .collect();
-    }
-    let morphotactics = MorphotacticIndex::build(grammar);
-    let cache = RuleCache::build(grammar);
-    let mut worklist = VecDeque::new();
-
-    for stratum in &grammar.strata {
-        for &entry_id in &stratum.entries {
-            let entry = &grammar.entries[entry_id.0 as usize];
-            let root_stratum = grammar.morphemes[entry.morpheme.0 as usize].stratum;
-            let Some(stratum_def) = grammar.strata.get(root_stratum.0 as usize) else {
-                continue;
-            };
-            let Some(table) = grammar.char_tables.get(stratum_def.table.0 as usize) else {
-                continue;
-            };
-            let entry_fs = grammar.fs_interner.get(entry.syn_fs);
-            for allomorph in &entry.allomorphs {
-                if allomorph.is_pattern {
-                    continue;
-                }
-                let Ok(shape) = pg_rules::shape_feat::segment_with_features(
-                    grammar,
-                    table,
-                    &allomorph.shape.text,
-                ) else {
-                    continue;
-                };
-                let mut word = Word::new(shape, root_stratum);
-                word.syn_fs = entry_fs.clone();
-                word.mpr = entry.mpr;
-                word.root_allomorph = Some(allomorph.id);
-                word.morphs = vec![MorphRecord::new(allomorph.id, entry.morpheme, 0)];
-                worklist.push_back(ClosureWorkItem {
-                    word,
-                    state: ChainState::seed(grammar, root_stratum.0, entry.partial),
-                    depth: 0,
-                });
-            }
+impl ClosureTrace {
+    pub(crate) fn new(envelope: &ResourceEnvelope, limits: ClosureTestLimits) -> Self {
+        Self {
+            limits,
+            envelope_digest: envelope.digest(),
+            state: Mutex::new(TraceState {
+                rule_pairs_visited: 0,
+                synthesized_successors: 0,
+                maximum_depth: 0,
+                per_depth_counts: Vec::new(),
+                pending_successor_count: 0,
+                pending_rule_ordinals: Vec::new(),
+                stop: None,
+            }),
         }
     }
 
-    let mut evidence = ClosureEvidence {
-        rule_pairs_visited: 0,
-        synthesized_successors: 0,
-        maximum_depth: 0,
-        per_depth_counts: Vec::new(),
-        pending_successor_count: 0,
-        pending_rule_ordinals: Vec::new(),
-        worklist_empty: false,
-    };
-    let mut stop = None;
-
-    'walk: while let Some(item) = worklist.pop_front() {
-        evidence.maximum_depth = evidence.maximum_depth.max(item.depth);
-        for &(mid, _) in &rules {
-            let rule = &grammar.mrules[mid.0 as usize];
-            let (required, _) = rule_fs_and_morpheme(rule);
-            let Some(next_state) =
-                morphotactics.next_state(&item.state, mid, &item.word.syn_fs, &grammar.fs_interner)
-            else {
-                continue;
-            };
-            let required_fs = grammar.fs_interner.get(required);
-            if !required_fs.is_empty()
-                && !pg_featstruct::is_unifiable(required_fs, &item.word.syn_fs)
-            {
-                continue;
-            }
-            if evidence.rule_pairs_visited >= limits.work_cap {
-                evidence.pending_successor_count = evidence.pending_successor_count.saturating_add(1);
-                evidence.pending_rule_ordinals.push(mid.0);
-                stop = Some(ClosureStopReason::WorkBudgetReached);
-                break 'walk;
-            }
-            evidence.rule_pairs_visited += 1;
-            if evidence.per_depth_counts.len() <= item.depth {
-                evidence.per_depth_counts.resize(item.depth + 1, 0);
-            }
-            evidence.per_depth_counts[item.depth] += 1;
-            let successors = synthesize_cached(grammar, mid, &item.word, rule, &cache);
-            evidence.synthesized_successors = evidence
-                .synthesized_successors
-                .saturating_add(successors.len());
-            if item.depth >= limits.depth_cap {
-                if !successors.is_empty() {
-                    evidence.pending_successor_count = evidence
-                        .pending_successor_count
-                        .saturating_add(successors.len());
-                    evidence.pending_rule_ordinals.push(mid.0);
-                    stop = Some(ClosureStopReason::DepthBudgetReached);
-                    break 'walk;
-                }
-                continue;
-            }
-            for successor in successors {
-                worklist.push_back(ClosureWorkItem {
-                    word: successor,
-                    state: next_state.clone(),
-                    depth: item.depth + 1,
-                });
-            }
-        }
+    pub(crate) fn depth_cap(&self) -> usize {
+        self.limits.depth_cap
     }
 
-    evidence.pending_rule_ordinals.sort_unstable();
-    evidence.pending_rule_ordinals.dedup();
-    evidence.worklist_empty = worklist.is_empty() && evidence.pending_successor_count == 0;
-    let terminal = match stop {
-        Some(reason) => ClosureTerminal::Incomplete(reason),
-        None if evidence.worklist_empty => ClosureTerminal::Complete,
-        None => ClosureTerminal::Incomplete(ClosureStopReason::InternalConstructionFault),
-    };
-    CharacterizationResult { terminal, evidence }
+    /// Records one legal production transition before synthesis. A false result tells the
+    /// caller to stop without dropping the live transition at the work boundary.
+    pub(crate) fn begin_pair(&self, depth: usize, ordinal: u32) -> bool {
+        let mut state = self.state.lock().expect("closure trace mutex poisoned");
+        if state.stop.is_some() {
+            return false;
+        }
+        state.maximum_depth = state.maximum_depth.max(depth);
+        if state.rule_pairs_visited >= self.limits.work_cap {
+            state.pending_successor_count = state.pending_successor_count.saturating_add(1);
+            state.pending_rule_ordinals.push(ordinal);
+            state.stop = Some(ClosureStopReason::WorkBudgetReached);
+            return false;
+        }
+        state.rule_pairs_visited += 1;
+        if state.per_depth_counts.len() <= depth {
+            state.per_depth_counts.resize(depth + 1, 0);
+        }
+        state.per_depth_counts[depth] += 1;
+        true
+    }
+
+    pub(crate) fn record_successors(
+        &self,
+        depth: usize,
+        ordinal: u32,
+        successors: usize,
+    ) -> bool {
+        let mut state = self.state.lock().expect("closure trace mutex poisoned");
+        if state.stop.is_some() {
+            return false;
+        }
+        state.synthesized_successors = state.synthesized_successors.saturating_add(successors);
+        if depth >= self.limits.depth_cap && successors != 0 {
+            state.pending_successor_count = state.pending_successor_count.saturating_add(successors);
+            state.pending_rule_ordinals.push(ordinal);
+            state.stop = Some(ClosureStopReason::DepthBudgetReached);
+            return false;
+        }
+        true
+    }
+
+    pub(crate) fn result(&self) -> CharacterizationResult {
+        let mut state = self.state.lock().expect("closure trace mutex poisoned");
+        state.pending_rule_ordinals.sort_unstable();
+        state.pending_rule_ordinals.dedup();
+        let worklist_empty = state.stop.is_none() && state.pending_successor_count == 0;
+        let terminal = match state.stop {
+            Some(reason) => ClosureTerminal::Incomplete(reason),
+            None if worklist_empty => ClosureTerminal::Complete,
+            None => ClosureTerminal::Incomplete(ClosureStopReason::InternalConstructionFault),
+        };
+        CharacterizationResult {
+            terminal,
+            evidence: ClosureEvidence {
+                envelope_digest: self.envelope_digest.clone(),
+                rule_pairs_visited: state.rule_pairs_visited,
+                synthesized_successors: state.synthesized_successors,
+                maximum_depth: state.maximum_depth,
+                per_depth_counts: state.per_depth_counts.clone(),
+                pending_successor_count: state.pending_successor_count,
+                pending_rule_ordinals: state.pending_rule_ordinals.clone(),
+                worklist_empty,
+            },
+        }
+    }
+}
+
+/// Characterization is deliberately the production emitter's own traversal with its output
+/// discarded. This keeps the reported transition order and terminal semantics exact.
+pub fn characterize_tuned_surface_closure_for_test(
+    grammar: &Grammar,
+    envelope: &ResourceEnvelope,
+    limits: ClosureTestLimits,
+) -> CharacterizationResult {
+    crate::emit::emit_tuned_surface_with_closure_limits_for_test(grammar, envelope, limits)
+        .report
+        .closure_evidence
+        .expect("traced emitter must retain closure evidence")
 }
 
 /// Backend-specific resource characterization for TunedSurface structural closure.
