@@ -761,6 +761,7 @@ mod tests {
             tier: FomaTier::Full,
             enum_budget_exceeded: None,
             closure_refusal: None,
+            closure_evidence: None,
         }
     }
 
@@ -944,6 +945,7 @@ mod tests {
             tier: FomaTier::Full,
             enum_budget_exceeded: None,
             closure_refusal: None,
+            closure_evidence: None,
         };
         let health = evaluate_health(None, Some(&report), &[], &[], None);
         assert!(health.findings.is_empty());
@@ -970,6 +972,7 @@ mod tests {
             tier: FomaTier::Partial { uncovered: 2 },
             enum_budget_exceeded: None,
             closure_refusal: None,
+            closure_evidence: None,
         };
         let health = evaluate_health(None, Some(&report), &[], &[], None);
         assert_eq!(health.findings.len(), 1);
@@ -995,6 +998,7 @@ mod tests {
             },
             enum_budget_exceeded: None,
             closure_refusal: None,
+            closure_evidence: None,
         };
         let health = evaluate_health(None, Some(&report), &[], &[], None);
         assert_eq!(health.findings.len(), 1);
@@ -1021,6 +1025,7 @@ mod tests {
                 pending_successors: Some(11),
                 remedy_backend: ClosureFallbackBackend::FullMorphologicalParser,
             }),
+            closure_evidence: None,
         };
         let health = evaluate_health(None, Some(&report), &[], &[], None);
         let finding = &health.findings[0];
@@ -1043,6 +1048,7 @@ mod tests {
                 limit: 5_000,
             }),
             closure_refusal: None,
+            closure_evidence: None,
         };
         let health = evaluate_health(None, Some(&report), &[], &[], None);
         // One finding for the Unsupported tier, one for the specific tripped budget.
@@ -1329,6 +1335,7 @@ mod tests {
             tier: FomaTier::Partial { uncovered: 1 },
             enum_budget_exceeded: None,
             closure_refusal: None,
+            closure_evidence: None,
         };
         let compose_error = ComposeError::NetSizeExceeded {
             measure: NetSizeMeasure::Arcs,
