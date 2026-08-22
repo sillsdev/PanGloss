@@ -11,8 +11,7 @@ use foma::types::Fsm;
 use pg_grammar::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, AllomorphOwner, Grammar, MorphRuleDef, NaturalClassKind,
-    OutputAction, PartRef, Pattern, PatternNode, PhonRuleDef, SegmentedText, SimpleContext,
-    TableId,
+    OutputAction, PartRef, Pattern, PatternNode, PhonRuleDef, SimpleContext, TableId,
 };
 use pg_shape::{NodeKind, Shape};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -1735,7 +1734,7 @@ mod circumfix_text_tests {
     use super::*;
     use pg_featstruct::SymbolBits;
     use pg_grammar::featsys::FlatIndex;
-    use pg_grammar::model::NatClassId;
+    use pg_grammar::model::{NatClassId, SegmentedText};
 
     const XML: &str = r#"<HermitCrabInput><Language><Name>CrossTableCircumfix</Name>
       <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
