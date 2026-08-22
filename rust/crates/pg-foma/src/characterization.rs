@@ -109,7 +109,7 @@ use crate::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 /// Default logical-work envelope for TunedSurface composite closure. This counts reachable
 /// root/chain-state x rule applications, never affix depth. A caller may request a larger named
 /// envelope and rerun the complete characterization from a clean state.
-pub const DEFAULT_TUNED_CLOSURE_WORK_LIMIT: usize = 3_000;
+pub(crate) const DEFAULT_TUNED_CLOSURE_WORK_LIMIT: usize = 3_000;
 
 /// Why a closure walk did not reach an exhausted worklist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -291,6 +291,7 @@ impl ClosureTrace {
 
 /// Characterization is deliberately the production emitter's own traversal with its output
 /// discarded. This keeps the reported transition order and terminal semantics exact.
+#[doc(hidden)]
 pub fn characterize_tuned_surface_closure_for_test(
     grammar: &Grammar,
     envelope: &ResourceEnvelope,
@@ -320,7 +321,7 @@ pub fn characterize_tuned_surface_closure(
 /// complete finite strategy remains known, but this envelope declines to start the expensive
 /// surface-emission pass. `None` means only that this particular proven bound did not exceed the
 /// envelope; it is not a completeness certificate or a prediction that construction will finish.
-pub fn tuned_surface_resource_finding_with_limit(
+pub(crate) fn tuned_surface_resource_finding_with_limit(
     grammar: &Grammar,
     limit: usize,
 ) -> Option<HealthFinding> {
