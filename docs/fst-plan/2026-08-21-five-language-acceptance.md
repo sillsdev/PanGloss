@@ -1,5 +1,11 @@
 # Five-language backend characterization and acceptance boundary
 
+> **Historical pre-route baseline (2026-08-21).** This document records the measured static
+> five-language matrix from before the current route work. It is retained as historical evidence;
+> it is not the current shipping acceptance document, and none of its rows claims a trusted shipped
+> FST. The active acceptance slice is Indonesian, Amharic, and Aweti; Mbugwe is deferred and does
+> not block that slice. Historical measurements below are intentionally unchanged.
+
 ## Decision
 
 PanGloss now makes an exact, fail-closed static backend decision for all five reference grammars. The

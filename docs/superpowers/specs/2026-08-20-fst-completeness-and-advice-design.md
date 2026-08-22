@@ -2,6 +2,10 @@
 
 **Status:** Proposed implementation contract; architectural direction approved, pending document review.
 
+> **Mbugwe boundary (deferred):** The Mbugwe-specific contract below is future reference only. It
+> is explicitly excluded from the current Indonesian/Amharic/Aweti acceptance slice and must not be
+> treated as an acceptance blocker or as evidence that Mbugwe has a trusted FST.
+
 ## Objective
 
 PanGloss emits an FST only when it can establish that the selected backend preserves every analysis in the grammar's supported language. A large but complete construction may warn. A construction that stops before completeness produces no artifact.
@@ -261,7 +265,7 @@ caveat = "A finite bound changes the grammar if repetition is genuinely unbounde
 
 Wording and remedies may evolve without changing the stable key. Adding optional evidence is backwards-compatible; changing the meaning of a key requires a new key.
 
-## Mbugwe contract
+## Deferred Mbugwe contract (future reference)
 
 The Mbugwe-derived five-rule late-anchor case is treated as plausible finite morphology, not as pathological depth.
 
