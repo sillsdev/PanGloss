@@ -31,23 +31,29 @@ grammars are how we test the cross product *before* those arrive.
 
 From `pg-grammar/src/model.rs` (the closed world):
 
+The status labels in this legacy plan describe compiler code paths and bounded fixture/prototype
+evidence only. `PROVEN` below does not mean a certified artifact or a trusted shipped language FST;
+the current Indonesian/Amharic/Aweti slice has neither. The current Aweti result is 100/106 with
+six gaps, Amharic evidence is bounded with 51 timeouts, and Indonesian construction is not
+identity-bound.
+
 | Construct | Status on FST path | Synthetic grammar needed? |
 |---|---|---|
-| RewriteRuleDef, plain literal/feature-class | PROVEN (Indonesian/Amharic/Aweti, report §3–5) | Scale variants only |
-| α-variables (tuple expansion) | PROVEN to Amharic scale (20 vars, 312 survivors) + GATED recall-parity + `AlphaTupleBudgetExceeded` overbudget (`phase_c_alpha_scale`) | Push var count × class size to the cliff (Phase D) |
-| MPR/POS subrule gating | CLOSED via static partition (report §7) + GATED recall-parity + `GroupBudgetExceeded` overbudget (`phase_c_partition_k`) | Partition-count blowup (see §3, V6) is Phase D |
-| AffixTemplate morphotactics | PROVEN on the real Aweti templated path: all 18 phonological rules compile and the fresh gate recalls 100/106 oracle-bearing words | YES — depth/slot/optionality scaling remains a Phase D vector |
+| RewriteRuleDef, plain literal/feature-class | CODE PATH + bounded evidence (Indonesian/Amharic/Aweti, report §3–5) | Scale variants only |
+| α-variables (tuple expansion) | CODE PATH + bounded Amharic evidence (20 vars, 312 survivors) + gated recall-parity + `AlphaTupleBudgetExceeded` overbudget (`phase_c_alpha_scale`) | Push var count × class size to the cliff (Phase D) |
+| MPR/POS subrule gating | CODE PATH closed via static partition (report §7) + bounded gated evidence + `GroupBudgetExceeded` overbudget (`phase_c_partition_k`) | Partition-count blowup (see §3, V6) is Phase D |
+| AffixTemplate morphotactics | CODE PATH prototype on Aweti: all 18 phonological rules compile; bounded gate recalls 100/106 oracle-bearing words, with six gaps | YES — depth/slot/optionality scaling remains a Phase D vector |
 | One-sided truncation mrules | SPECIAL-MECHANISM PREMISE REFUTED: Aweti's 41 cases do not require a separate truncation cascade; the templated path reaches the current 100/106 result without it | No dedicated recipe unless a future grammar demonstrates an actual loss |
-| Circumfix / null-morph roles | PROVEN recall parity by `phase_c_circumfix`; the tag codec preserves one morpheme identity across the paired surface pieces | Scale and interaction variants only |
+| Circumfix / null-morph roles | CODE PATH + bounded `phase_c_circumfix` evidence; the tag codec preserves one morpheme identity across paired surface pieces | Scale and interaction variants only |
 | Multi CharacterDefinitionTable | FIXED: table ownership is threaded through lowering/tuple resolution and shared representations are handled without the former wrong-root rewrite; `phase_c_multi_table` is parity evidence, not a detect-wrong sentinel | Table-count and shared-representation scaling remain Phase D vectors |
 | RewriteMode::Simultaneous | REAL compiler for the admitted non-overlapping case; overlapping/self-opaquing cases remain explicitly refused rather than silently mis-mapped (`phase_c_simultaneous`) | Scale admitted non-overlapping rule sets; refused overlap remains an honest boundary |
 | Dir::RightToLeft | REAL reversal-based compilation for supported pattern shapes (`phase_c_right_to_left`); remaining exclusions are per-shape, reported skips rather than a blanket direction skip | Scale supported shapes and retain per-shape residual gates |
 | Quantifier / OptionalSegmentSequence | REAL compilation for finite bounded and eligible alpha-free unbounded quantifiers; unsupported/unsafe shapes remain reported residual skips (`phase_c_quantifier`) | Bound-size and interaction scaling, plus residual-skip gates |
 | MetathesisRuleDef | REAL swap compilation, including RightToLeft; `Anchor`-dependent shapes remain the documented residual skip (`phase_c_metathesis`) | Scale compiled shapes; keep Anchor as an explicit boundary |
-| CompoundingRuleDef | PROVEN recall parity, typed line-budget failure, and bounded recursive compounding (`phase_c_compounding` and recursive-depth gates) | Two-root products and bounded recursion remain scale vector V4 |
+| CompoundingRuleDef | CODE PATH + bounded recall-parity, typed line-budget failure, and bounded recursive-compounding evidence (`phase_c_compounding` and recursive-depth gates) | Two-root products and bounded recursion remain scale vector V4 |
 | AffixProcessRuleDef w/ CopyFromInput (reduplication) | OUT of the network by design — `peel::ReduplicationPeeler` pre-peels | YES, but tests the *peeler contract*, not the FST |
 | Realizational / co-occurrence rules | Constraint-side (ConstraintCatalog), not spelling | Covered by existing pk1/pk2 gates; extend if census says otherwise |
-| Strata (multi-stratum cascades) | 3 strata proven (Aweti rules half) + GATED recall-parity (`phase_c_strata_depth`, extra strata cascading over table 0) | Stratum count × per-stratum table scaling is Phase D |
+| Strata (multi-stratum cascades) | 3-stratum code path + bounded Aweti-half/gated recall-parity evidence (`phase_c_strata_depth`, extra strata cascading over table 0) | Stratum count × per-stratum table scaling is Phase D |
 
 ## 3. Blowup-vector catalog (the "what could possibly explode" list)
 

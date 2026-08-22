@@ -1,4 +1,4 @@
-# Backend Advice and Five-Language Verification Plan
+# Backend Advice and Historical Five-Language Verification Plan
 
 > Execute after completeness certificates exist. Advice describes compiler evidence; it never authorizes a linguistically invalid grammar edit.
 
@@ -8,7 +8,7 @@
 > and is not a current acceptance blocker. The tasks below are not being marked complete by this
 > notice.
 
-**Goal:** Produce stable findings and shared remedies for every backend, select only proven candidates, and publish authoritative Indonesian/Sena/Amharic/Aweti/Mbugwe results.
+**Historical goal:** Produce stable findings and shared remedies for every backend, select only proven candidates, and publish an authority matrix for the five reference grammars. This goal is superseded for delivery: the current slice is Indonesian/Amharic/Aweti, and no language in that slice has a trusted shipped FST yet.
 
 ## Task 1: Add the versioned advice catalog
 
@@ -54,7 +54,11 @@
 3. Show detailed findings inline only when no backend is clean; presentation polish beyond this compiler-like contract remains out of scope.
 4. Run `pg.ps1 -Mode test -Package pg-cli` and commit: `feat(cli): save backend compatibility reports`.
 
-## Task 4: Run the five-language authority matrix
+## Task 4: Historical five-language authority matrix (not a current shipping gate)
+
+This task records the former five-language target for traceability only. It is not a current
+acceptance obligation and must not be used to claim a trusted artifact. The active replacement is
+the three-language evidence/status document linked above; Mbugwe is deferred.
 
 **Files:**
 
@@ -65,7 +69,7 @@
 2. Indonesian: run `p6_gate_parity` and record exhaustive oracle/FST parity or an explicit bounded-evidence limitation.
 3. Sena: reconcile 308 skipped words, record the 123-word HC timeout tail, and run a full FST recall gate rather than the first 120 only.
 4. Amharic: run `f3_interdigitation_gate`, migrate hardcoded paths to the corpus helper, and record broader timeout-aware parity.
-5. Aweti and Mbugwe: import only their separately measured scale results; do not infer them from miniature fixtures.
+5. For the historical matrix, import only separately measured scale results; do not infer them from miniature fixtures. Do not run or add a Mbugwe result for the current three-language slice.
 6. For every language record grammar/corpus identity, selected backend, every backend report, certificate/refusal, recall, skipped, timeout, states/arcs, elapsed time, and exact command.
 7. Run package suites:
 
