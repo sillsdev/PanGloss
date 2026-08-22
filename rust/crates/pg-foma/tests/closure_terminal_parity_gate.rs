@@ -1,8 +1,11 @@
 use pg_foma::characterization::{
-    characterize_tuned_surface_closure_for_test, CharacterizationResult, ClosureStopReason,
-    ClosureTerminal, ClosureTestLimits,
+    characterize_tuned_surface_closure, characterize_tuned_surface_closure_for_test,
+    CharacterizationResult, ClosureStopReason, ClosureTerminal, ClosureTestLimits,
 };
-use pg_foma::emit::{emit_tuned_surface_with_closure_limits_for_test, EmitResult, FomaTier};
+use pg_foma::emit::{
+    emit_tuned_surface_for_envelope, emit_tuned_surface_with_closure_limits_for_test, EmitResult,
+    FomaTier,
+};
 use pg_foma::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 
 const FINITE_CHAIN_XML: &str = r#"<HermitCrabInput><Language><Name>TotalClosureContract</Name>
@@ -103,4 +106,20 @@ fn live_successor_at_depth_boundary_is_reported_not_silently_dropped() {
     assert!(refused.lexc_source.is_empty());
     assert!(matches!(refused.report.tier, FomaTier::Unsupported { .. }));
     assert_eq!(refused.report.closure_evidence.as_ref(), Some(&result));
+}
+
+#[test]
+fn normal_product_entrypoints_use_the_selected_envelope_and_same_production_trace() {
+    let grammar = pg_grammar::load(FINITE_CHAIN_XML).expect("finite closure fixture must load");
+    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
+
+    let observed = characterize_tuned_surface_closure(&grammar, &envelope);
+    let produced = emit_tuned_surface_for_envelope(&grammar, &envelope);
+
+    assert_eq!(observed.terminal, ClosureTerminal::Complete);
+    assert_eq!(observed.evidence.envelope_digest, envelope.digest());
+    assert!(observed.evidence.worklist_empty);
+    assert_eq!(observed.evidence.pending_successor_count, 0);
+    assert_eq!(produced.report.closure_evidence.as_ref(), Some(&observed));
+    assert!(!produced.lexc_source.is_empty());
 }
