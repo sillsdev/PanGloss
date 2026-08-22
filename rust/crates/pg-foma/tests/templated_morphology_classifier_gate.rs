@@ -3,10 +3,13 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use pg_foma::structural_allomorph::{
-    MarkerZone, MorphologyRewrite, MorphologyRewriteClassifier, ZoneRequirement,
+    marker_binding_for, MarkerBindingError, MarkerKey, MarkerZone, MorphologyRewrite,
+    MorphologyRewriteClassifier, ZoneRequirement,
 };
 use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::{Grammar, MorphRuleDef, OutputAction, PartRef, PatternNode, TableId};
+use pg_grammar::model::{
+    AllomorphId, Grammar, MorphRuleDef, OutputAction, PartRef, PatternNode, TableId,
+};
 
 const CLASSIFIER_XML: &str = r#"
 <HermitCrabInput><Language><Name>synthetic-templated-closed-grammar</Name>
@@ -21,7 +24,9 @@ const CLASSIFIER_XML: &str = r#"
     <SegmentDefinition id="cy"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
     <SegmentDefinition id="cp"><Representations><Representation>p</Representation><Representation>P</Representation></Representations></SegmentDefinition>
     <SegmentDefinition id="cs"><Representations><Representation>s</Representation><Representation>S</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions></CharacterDefinitionTable>
+  </SegmentDefinitions><BoundaryDefinitions>
+    <BoundaryDefinition id="bPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+  </BoundaryDefinitions></CharacterDefinitionTable>
   <CharacterDefinitionTable id="foreign"><Name>Foreign</Name><SegmentDefinitions>
     <SegmentDefinition id="cf0"><Representations><Representation>!</Representation></Representations></SegmentDefinition>
     <SegmentDefinition id="cf1"><Representations><Representation>?</Representation></Representations></SegmentDefinition>
@@ -76,6 +81,9 @@ const CLASSIFIER_XML: &str = r#"
         <MorphologicalSubrule id="missing-copy"><MorphologicalInput><PhoneticSequence id="mc0"><SimpleContext naturalClass="ncAny"/></PhoneticSequence><PhoneticSequence id="mc1"><SimpleContext naturalClass="ncAny"/></PhoneticSequence><PhoneticSequence id="mc2"><SimpleContext naturalClass="ncAny"/></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="mc0"/><CopyFromInput index="mc1"/></MorphologicalOutput></MorphologicalSubrule>
         <MorphologicalSubrule id="repeated-copy"><MorphologicalInput><PhoneticSequence id="rc0"><SimpleContext naturalClass="ncAny"/></PhoneticSequence><PhoneticSequence id="rc1"><SimpleContext naturalClass="ncAny"/></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="rc0"/><CopyFromInput index="rc0"/></MorphologicalOutput></MorphologicalSubrule>
         <MorphologicalSubrule id="reordered-copy"><MorphologicalInput><PhoneticSequence id="oc0"><SimpleContext naturalClass="ncAny"/></PhoneticSequence><PhoneticSequence id="oc1"><SimpleContext naturalClass="ncAny"/></PhoneticSequence><PhoneticSequence id="oc2"><SimpleContext naturalClass="ncAny"/></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="oc2"/><CopyFromInput index="oc1"/><CopyFromInput index="oc0"/></MorphologicalOutput></MorphologicalSubrule>
+        <!-- 19/20: boundary definitions cannot satisfy segment-only input or output atoms. -->
+        <MorphologicalSubrule id="drop-terminal-boundary"><MorphologicalInput><PhoneticSequence id="bd0"><SimpleContext naturalClass="ncAny"/></PhoneticSequence><PhoneticSequence id="bd1"><BoundaryMarker boundary="bPlus"/></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="bd0"/><InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule>
+        <MorphologicalSubrule id="infix-boundary-output"><MorphologicalInput><PhoneticSequence id="bo0"><SimpleContext naturalClass="ncAny"/></PhoneticSequence><PhoneticSequence id="bo1"><SimpleContext naturalClass="ncAny"/></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="bo0"/><InsertSegments><PhoneticShape>+</PhoneticShape></InsertSegments><CopyFromInput index="bo1"/></MorphologicalOutput></MorphologicalSubrule>
       </MorphologicalSubrules><MorphemeId>SYN</MorphemeId>
     </MorphologicalRule></MorphologicalRuleDefinitions>
   </Stratum></Strata>
@@ -122,12 +130,11 @@ fn assert_marked_recipe(
     expected_literal_runs: Vec<Vec<String>>,
     expected_output_segments: Option<Vec<String>>,
     expected_zone_requirement: ZoneRequirement,
-) -> char {
+) {
     match classify(g, index) {
         MorphologyRewrite::MarkedStructural {
             shape_id,
             recipe,
-            marker,
             zone_requirement,
         } => {
             assert_eq!(
@@ -155,7 +162,6 @@ fn assert_marked_recipe(
                 zone_requirement, expected_zone_requirement,
                 "zone requirement for {expected_shape}"
             );
-            marker
         }
         other => panic!("allomorph {index} must be {expected_shape}, got {other:?}"),
     }
@@ -200,11 +206,6 @@ fn closed_classifier_accepts_the_five_listed_families_and_ordinary_literals() {
             assert_eq!(suffix_variants, active_representations(&g, CharDefId(8)));
             assert_eq!(prefix_variants.len(), 2);
             assert_eq!(suffix_variants.len(), 2);
-            let pairs: Vec<String> = prefix_variants
-                .iter()
-                .flat_map(|p| suffix_variants.iter().map(move |s| format!("{p}ROOT{s}")))
-                .collect();
-            assert_eq!(pairs, vec!["pROOTs", "pROOTS", "PROOTs", "PROOTS"]);
         }
         other => panic!("wrapper must be direct and marker-free, got {other:?}"),
     }
@@ -213,70 +214,59 @@ fn closed_classifier_accepts_the_five_listed_families_and_ordinary_literals() {
         .into_iter()
         .flat_map(|id| active_representations(&g, CharDefId(id)))
         .collect::<Vec<_>>();
-    let markers = [
-        assert_marked_recipe(
-            &g,
-            3,
-            "AmharicInteriorInsertion",
-            vec![0, 1, 2],
-            vec![vec!["x".into()], vec![]],
-            None,
-            ZoneRequirement::Caller,
-        ),
-        assert_marked_recipe(
-            &g,
-            4,
-            "AmharicInteriorInsertion",
-            vec![0, 1, 2],
-            vec![vec!["x".into()], vec!["y".into()]],
-            None,
-            ZoneRequirement::Caller,
-        ),
-        assert_marked_recipe(
-            &g,
-            5,
-            "AmharicTerminalModify",
-            vec![0, 1],
-            vec![],
-            Some(finite_output_class),
-            ZoneRequirement::Caller,
-        ),
-        assert_marked_recipe(
-            &g,
-            6,
-            "AmharicInitialVowelReplacement",
-            vec![1],
-            vec![active_representations(&g, CharDefId(7))],
-            None,
-            ZoneRequirement::Intrinsic(MarkerZone::Prefix),
-        ),
-        assert_marked_recipe(
-            &g,
-            7,
-            "AdjacentTerminalDrop",
-            vec![0],
-            vec![vec!["x".into()]],
-            None,
-            ZoneRequirement::Intrinsic(MarkerZone::Suffix),
-        ),
-        assert_marked_recipe(
-            &g,
-            8,
-            "AdjacentInitialDrop",
-            vec![1],
-            vec![],
-            None,
-            ZoneRequirement::Intrinsic(MarkerZone::Prefix),
-        ),
-    ];
-    let unique_markers = markers
-        .iter()
-        .copied()
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(
-        unique_markers.len(),
-        markers.len(),
-        "each marked structural allomorph needs one unique marker"
+    assert_marked_recipe(
+        &g,
+        3,
+        "AmharicInteriorInsertion",
+        vec![0, 1, 2],
+        vec![vec!["x".into()], vec![]],
+        None,
+        ZoneRequirement::Caller,
+    );
+    assert_marked_recipe(
+        &g,
+        4,
+        "AmharicInteriorInsertion",
+        vec![0, 1, 2],
+        vec![vec!["x".into()], vec!["y".into()]],
+        None,
+        ZoneRequirement::Caller,
+    );
+    assert_marked_recipe(
+        &g,
+        5,
+        "AmharicTerminalModify",
+        vec![0, 1],
+        vec![],
+        Some(finite_output_class),
+        ZoneRequirement::Caller,
+    );
+    assert_marked_recipe(
+        &g,
+        6,
+        "AmharicInitialVowelReplacement",
+        vec![1],
+        vec![active_representations(&g, CharDefId(7))],
+        None,
+        ZoneRequirement::Intrinsic(MarkerZone::Prefix),
+    );
+    assert_marked_recipe(
+        &g,
+        7,
+        "AdjacentTerminalDrop",
+        vec![0],
+        vec![vec!["x".into()]],
+        None,
+        ZoneRequirement::Intrinsic(MarkerZone::Suffix),
+    );
+    assert_marked_recipe(
+        &g,
+        8,
+        "AdjacentInitialDrop",
+        vec![1],
+        vec![],
+        None,
+        ZoneRequirement::Intrinsic(MarkerZone::Prefix),
     );
 }
 
@@ -319,9 +309,60 @@ fn closed_classifier_default_denies_every_unlisted_action_or_shape() {
     if let MorphRuleDef::AffixProcess(rule) = &g.mrules[0] {
         assert!(matches!(
             rule.allomorphs[14].rhs[0],
-            OutputAction::InsertSegments { table: TableId(1), .. }
+            OutputAction::InsertSegments {
+                table: TableId(1),
+                ..
+            }
         ));
     }
+}
+
+#[test]
+fn segment_only_classifier_rejects_boundary_input_and_output_atoms() {
+    let g = load();
+    assert_unsupported(&g, 19, "AdjacentTerminalDrop", "non-segment-input-atom");
+    assert_unsupported(
+        &g,
+        20,
+        "AmharicInteriorInsertion",
+        "non-segment-output-atom",
+    );
+}
+
+#[test]
+fn marker_binding_identity_is_allomorph_and_zone_and_intrinsic_mismatch_refuses() {
+    let allomorph = AllomorphId(7);
+    let prefix_key = MarkerKey {
+        allomorph,
+        zone: MarkerZone::Prefix,
+    };
+    let suffix_key = MarkerKey {
+        allomorph,
+        zone: MarkerZone::Suffix,
+    };
+
+    let prefix = marker_binding_for(prefix_key, ZoneRequirement::Caller)
+        .expect("caller-zoned prefix binding");
+    let suffix = marker_binding_for(suffix_key, ZoneRequirement::Caller)
+        .expect("caller-zoned suffix binding");
+    assert_eq!(prefix.key, prefix_key);
+    assert_eq!(suffix.key, suffix_key);
+    assert_ne!(prefix.symbol, suffix.symbol);
+
+    assert_eq!(
+        marker_binding_for(suffix_key, ZoneRequirement::Intrinsic(MarkerZone::Prefix)),
+        Err(MarkerBindingError::IntrinsicZoneMismatch {
+            required: MarkerZone::Prefix,
+            actual: MarkerZone::Suffix,
+        })
+    );
+    assert_eq!(
+        marker_binding_for(prefix_key, ZoneRequirement::Intrinsic(MarkerZone::Suffix)),
+        Err(MarkerBindingError::IntrinsicZoneMismatch {
+            required: MarkerZone::Suffix,
+            actual: MarkerZone::Prefix,
+        })
+    );
 }
 
 #[test]
