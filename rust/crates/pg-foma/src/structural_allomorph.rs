@@ -26,28 +26,32 @@ use crate::replace::SegAlphabet;
 
 const MARKER_BASE: u32 = 0xF0000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkerZone {
+    Prefix,
+    Suffix,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZoneRequirement {
+    Caller,
+    Intrinsic(MarkerZone),
+}
+
 /// The closed set of structural rewrites that the templated proposer can lower faithfully.
-///
-/// This is deliberately a data type, rather than an inference from `emit::Role`: role labels are
-/// too coarse to distinguish a bounded adjacent drop from an unlisted copy topology.  The
-/// classifier is also used by capability selection, so every unsupported result is stable and
-/// explainable before an FST is built.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MorphologyRewrite {
-    /// RHS consists only of finite literal insertions in the owning table.
     OrdinaryLiteral { variants: Vec<String> },
-    /// A literal prefix and suffix surround one complete root span.
     DirectWholeRootWrapper {
         prefix_variants: Vec<String>,
         suffix_variants: Vec<String>,
     },
-    /// A marker-bearing bounded structural recipe.
     MarkedStructural {
         shape_id: &'static str,
         recipe: MorphologyRecipe,
         marker: char,
+        zone_requirement: ZoneRequirement,
     },
-    /// The result is intentionally not lowered by the templated proposer.
     Unsupported {
         shape_id: &'static str,
         reason_id: &'static str,
@@ -76,18 +80,26 @@ impl MorphologyRecipe {
     }
 }
 
-/// Classifies one allomorph against the owning character table.  The implementation is fail
-/// closed: a malformed reference, a foreign output table, an unbounded pattern, or an unlisted
-/// output topology becomes `Unsupported` and never panics.
+/// Classifies one allomorph against its source and active pipeline tables.
 pub struct MorphologyRewriteClassifier;
 
 impl MorphologyRewriteClassifier {
+    /// Compatibility entrypoint for grammars whose source and active tables are the same.
     pub fn classify(
         grammar: &Grammar,
         allomorph: &AffixAllomorphDef,
-        table: TableId,
+        active_table: TableId,
     ) -> MorphologyRewrite {
-        match classify_rewrite(grammar, allomorph, table) {
+        Self::classify_with_tables(grammar, allomorph, active_table, active_table)
+    }
+
+    pub fn classify_with_tables(
+        grammar: &Grammar,
+        allomorph: &AffixAllomorphDef,
+        source_table: TableId,
+        active_table: TableId,
+    ) -> MorphologyRewrite {
+        match classify_rewrite(grammar, allomorph, source_table, active_table) {
             Ok(result) => result,
             Err((shape, reason)) => MorphologyRewrite::Unsupported {
                 shape_id: shape,
@@ -108,6 +120,7 @@ fn unsupported_text<T>(shape: &'static str, reason: &'static str) -> Result<T, (
 fn classify_rewrite(
     g: &Grammar,
     a: &AffixAllomorphDef,
+    source_table: TableId,
     active_table: TableId,
 ) -> Result<MorphologyRewrite, (&'static str, &'static str)> {
     if a.lhs.is_empty() {
@@ -143,7 +156,11 @@ fn classify_rewrite(
             _ => None,
         })
         .collect::<Vec<_>>();
-    if a.rhs.iter().any(|action| matches!(action, OutputAction::Copy(PartRef::Head(_) | PartRef::NonHead(_)))) {
+    if a.rhs.iter().any(|action| matches!(
+        action,
+        OutputAction::Copy(PartRef::Head(_) | PartRef::NonHead(_))
+            | OutputAction::Modify(PartRef::Head(_) | PartRef::NonHead(_), _)
+    )) {
         return unsupported("InvalidReferences", "invalid-part-reference-kind");
     }
     if refs.iter().any(|index| *index == u16::MAX || (*index as usize) >= a.lhs.len()) {
@@ -192,9 +209,9 @@ fn classify_rewrite(
             };
             return unsupported("ModifyFromInput", reason);
         }
-        let outputs = class_members(g, active_table, &PatternNode::Context(context.clone()))
+        let outputs = class_members(g, source_table, &PatternNode::Context(context.clone()))
             .ok_or(("ModifyFromInput", "terminal-modify-empty-output"))?;
-        let output_segments = translated_ids(g, active_table, active_table, &outputs)
+        let output_segments = translated_ids(g, source_table, active_table, &outputs)
             .ok_or(("ModifyFromInput", "untranslatable-output-table"))?;
         if output_segments.is_empty() {
             return unsupported("ModifyFromInput", "terminal-modify-empty-output");
@@ -207,6 +224,7 @@ fn classify_rewrite(
                 output_segments,
             },
             marker: marker_for(a.id).ok_or(("InvalidReferences", "invalid-allomorph-id"))?,
+            zone_requirement: ZoneRequirement::Caller,
         });
     }
 
@@ -229,7 +247,14 @@ fn classify_rewrite(
         && copy_refs == (0..a.lhs.len() as u16).collect::<Vec<_>>()
     {
         if let Some(runs) = interior_runs(g, active_table, &a.rhs, a.lhs.len())? {
-            return marked(g, a, "AmharicInteriorInsertion", copy_refs, runs);
+            return marked(
+                g,
+                a,
+                "AmharicInteriorInsertion",
+                copy_refs,
+                runs,
+                ZoneRequirement::Caller,
+            );
         }
     }
 
@@ -244,7 +269,14 @@ fn classify_rewrite(
         if literal_actions.iter().all(|action| matches!(action, OutputAction::InsertSegments { .. })) {
             let variants = literal_variants(g, active_table, literal_actions)?;
             if variants != vec![String::new()] {
-                return marked(g, a, "AmharicInitialVowelReplacement", vec![1], vec![variants]);
+                return marked(
+                    g,
+                    a,
+                    "AmharicInitialVowelReplacement",
+                    vec![1],
+                    vec![variants],
+                    ZoneRequirement::Intrinsic(MarkerZone::Prefix),
+                );
             }
         }
     }
@@ -264,6 +296,7 @@ fn classify_rewrite(
             "AdjacentTerminalDrop",
             copy_refs,
             vec![if variants == vec![String::new()] { Vec::new() } else { variants }],
+            ZoneRequirement::Intrinsic(MarkerZone::Suffix),
         );
     }
     if a.lhs.len() == 2
@@ -271,7 +304,14 @@ fn classify_rewrite(
         && a.rhs == [OutputAction::Copy(PartRef::Input(1))]
         && lowerable_atom(g, active_table, a.lhs.first())
     {
-        return marked(g, a, "AdjacentInitialDrop", copy_refs, Vec::new());
+        return marked(
+            g,
+            a,
+            "AdjacentInitialDrop",
+            copy_refs,
+            Vec::new(),
+            ZoneRequirement::Intrinsic(MarkerZone::Prefix),
+        );
     }
 
     if copy_refs.len() != a.lhs.len() {
@@ -286,6 +326,7 @@ fn marked(
     shape_id: &'static str,
     refs: Vec<u16>,
     literal_runs: Vec<Vec<String>>,
+    zone_requirement: ZoneRequirement,
 ) -> Result<MorphologyRewrite, (&'static str, &'static str)> {
     Ok(MorphologyRewrite::MarkedStructural {
         shape_id,
@@ -295,6 +336,7 @@ fn marked(
             output_segments: Vec::new(),
         },
         marker: marker_for(a.id).ok_or(("InvalidReferences", "invalid-allomorph-id"))?,
+        zone_requirement,
     })
 }
 
@@ -343,7 +385,9 @@ fn translated_ids(
         })?;
         let mut mapped = false;
         for representation in source_def.representations_nfd() {
-            let active_id = active.lookup_nfd(representation)?;
+            let Some(active_id) = active.lookup_nfd(representation) else {
+                continue;
+            };
             for active_representation in active.get(active_id).representations_nfd() {
                 mapped = true;
                 if seen.insert(active_representation.clone()) {

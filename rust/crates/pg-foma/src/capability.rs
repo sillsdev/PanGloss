@@ -3518,16 +3518,30 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
             continue;
         };
         let rule_id = MRuleId(rule_index as u32);
-        let table = semantics
+        let Some(source_table) = semantics
             .grammar()
             .strata
             .iter()
             .find(|stratum| stratum.mrules.contains(&rule_id))
             .map(|stratum| stratum.table)
-            .unwrap_or(pg_grammar::model::TableId(0));
+        else {
+            for (allomorph_index, _) in allomorphs.iter().enumerate() {
+                diagnostics.push(CapabilityDiagnostic {
+                    predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
+                    construct: format!("mrule {} allomorph #{} (UnlistedTopology)", rule_index, allomorph_index),
+                    witness: "no faithful templated emission path: missing-owning-table".to_string(),
+                });
+            }
+            continue;
+        };
         for (allomorph_index, allomorph) in allomorphs.iter().enumerate() {
             let MorphologyRewrite::Unsupported { shape_id, reason_id } =
-                MorphologyRewriteClassifier::classify(semantics.grammar(), allomorph, table)
+                MorphologyRewriteClassifier::classify_with_tables(
+                    semantics.grammar(),
+                    allomorph,
+                    source_table,
+                    source_table,
+                )
             else {
                 continue;
             };
