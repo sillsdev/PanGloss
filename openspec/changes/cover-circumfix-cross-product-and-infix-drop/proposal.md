@@ -40,6 +40,10 @@ that can be lowered and checked exactly; every other shape remains an honest ref
   right-to-left and simultaneous semantics.  A skipped rule, uncovered action, missing marker
   subtree, or leftover technical marker makes the Templated candidate incomplete and unavailable;
   it is never converted into a partial successful artifact.
+- Preserve the proven token and composition algebra from the older P6 work: rendered PUA tokens
+  are always separated before Foma parsing, and mutually exclusive alpha-tuple branches are
+  sequentially composed in authored order rather than unioned.  A narrowly justified safety union
+  for a complete RTL branch does not authorize tuple-rule union or rule reordering.
 - Replace the coarse Templated `ProcessMorphology = CannotRepresent` registry row with a
   predicate-backed known-gap disposition.  Its evidence points to the closed classifier: admitted
   terminal modification becomes `ConfirmOnly`, while every other process shape still refuses with
@@ -83,3 +87,5 @@ that can be lowered and checked exactly; every other shape remains an honest ref
 - Tests must pin every admitted and rejected topology, marker isolation/cleanup, selected-versus-
   realized backend identity, and exact structured semantic equality.  Actual Amharic/Aweti data
   remains external/private evidence; synthetic fixtures are construct-shaped and invented.
+- Historical baselines remain route- and denominator-qualified; a broad recall floor, timeout-
+  excluded subset, or rule-only cascade is never promoted to an end-to-end language pass.
