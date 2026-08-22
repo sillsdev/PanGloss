@@ -2,7 +2,9 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use pg_foma::structural_allomorph::{MorphologyRewrite, MorphologyRewriteClassifier};
+use pg_foma::structural_allomorph::{
+    MarkerZone, MorphologyRewrite, MorphologyRewriteClassifier, ZoneRequirement,
+};
 use pg_grammar::chardef::CharDefId;
 use pg_grammar::model::{Grammar, MorphRuleDef, OutputAction, PartRef, TableId};
 
@@ -21,7 +23,15 @@ const CLASSIFIER_XML: &str = r#"
     <SegmentDefinition id="cs"><Representations><Representation>s</Representation><Representation>S</Representation></Representations></SegmentDefinition>
   </SegmentDefinitions></CharacterDefinitionTable>
   <CharacterDefinitionTable id="foreign"><Name>Foreign</Name><SegmentDefinitions>
-    <SegmentDefinition id="cf"><Representations><Representation>!</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cf0"><Representations><Representation>!</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cf1"><Representations><Representation>?</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cf2"><Representations><Representation>#</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cf3"><Representations><Representation>$</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cf4"><Representations><Representation>%</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cf5"><Representations><Representation>^</Representation><Representation>x</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cf6"><Representations><Representation>&amp;</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cf7"><Representations><Representation>*</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cf8"><Representations><Representation>+</Representation></Representations></SegmentDefinition>
   </SegmentDefinitions></CharacterDefinitionTable>
   <NaturalClasses>
     <SegmentNaturalClass id="ncAny"><Name>Any</Name>
@@ -112,13 +122,14 @@ fn assert_marked_recipe(
     expected_refs: Vec<u16>,
     expected_literal_runs: Vec<Vec<String>>,
     expected_output_segments: Option<Vec<String>>,
+    expected_zone_requirement: ZoneRequirement,
 ) -> char {
     match classify(g, index) {
         MorphologyRewrite::MarkedStructural {
             shape_id,
             recipe,
             marker,
-            ..
+            zone_requirement,
         } => {
             assert_eq!(
                 shape_id, expected_shape,
@@ -141,6 +152,10 @@ fn assert_marked_recipe(
                     "finite translated output class for {expected_shape}"
                 );
             }
+            assert_eq!(
+                zone_requirement, expected_zone_requirement,
+                "zone requirement for {expected_shape}"
+            );
             marker
         }
         other => panic!("allomorph {index} must be {expected_shape}, got {other:?}"),
@@ -207,6 +222,7 @@ fn closed_classifier_accepts_the_five_listed_families_and_ordinary_literals() {
             vec![0, 1, 2],
             vec![vec!["x".into()], vec![]],
             None,
+            ZoneRequirement::Caller,
         ),
         assert_marked_recipe(
             &g,
@@ -215,6 +231,7 @@ fn closed_classifier_accepts_the_five_listed_families_and_ordinary_literals() {
             vec![0, 1, 2],
             vec![vec!["x".into()], vec!["y".into()]],
             None,
+            ZoneRequirement::Caller,
         ),
         assert_marked_recipe(
             &g,
@@ -223,6 +240,7 @@ fn closed_classifier_accepts_the_five_listed_families_and_ordinary_literals() {
             vec![0, 1],
             vec![],
             Some(finite_output_class),
+            ZoneRequirement::Caller,
         ),
         assert_marked_recipe(
             &g,
@@ -231,6 +249,7 @@ fn closed_classifier_accepts_the_five_listed_families_and_ordinary_literals() {
             vec![1],
             vec![active_representations(&g, CharDefId(7))],
             None,
+            ZoneRequirement::Intrinsic(MarkerZone::Prefix),
         ),
         assert_marked_recipe(
             &g,
@@ -239,8 +258,17 @@ fn closed_classifier_accepts_the_five_listed_families_and_ordinary_literals() {
             vec![0],
             vec![vec!["x".into()]],
             None,
+            ZoneRequirement::Intrinsic(MarkerZone::Suffix),
         ),
-        assert_marked_recipe(&g, 8, "AdjacentInitialDrop", vec![1], vec![], None),
+        assert_marked_recipe(
+            &g,
+            8,
+            "AdjacentInitialDrop",
+            vec![1],
+            vec![],
+            None,
+            ZoneRequirement::Intrinsic(MarkerZone::Prefix),
+        ),
     ];
     let unique_markers = markers
         .iter()
@@ -261,8 +289,24 @@ fn closed_classifier_default_denies_every_unlisted_action_or_shape() {
     assert_unsupported(&g, 11, "ModifyFromInput", "terminal-modify-multi-segment");
     assert_unsupported(&g, 12, "ModifyFromInput", "terminal-modify-quantified");
     assert_unsupported(&g, 13, "ModifyFromInput", "terminal-modify-empty-output");
-    // Rebinding active-table shape IDs to the foreign table creates an untranslatable valid model.
+    // Foreign char-def 5 has an unmapped spelling before a later spelling shared with the active table.
     if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+        if let OutputAction::InsertSegments { table, .. } = &mut rule.allomorphs[14].rhs[0] {
+            *table = TableId(1);
+        }
+    }
+    match classify(&g, 14) {
+        MorphologyRewrite::OrdinaryLiteral { variants } => assert_eq!(variants, vec!["x"]),
+        other => panic!("later shared spelling must translate, got {other:?}"),
+    }
+
+    // Reinterpret active char-def 7 against foreign char-def 7, whose spelling has no active peer.
+    let untranslatable = match &g.mrules[0] {
+        MorphRuleDef::AffixProcess(rule) => rule.allomorphs[2].rhs[0].clone(),
+        _ => unreachable!(),
+    };
+    if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
+        rule.allomorphs[14].rhs = vec![untranslatable];
         if let OutputAction::InsertSegments { table, .. } = &mut rule.allomorphs[14].rhs[0] {
             *table = TableId(1);
         }
@@ -274,19 +318,10 @@ fn closed_classifier_default_denies_every_unlisted_action_or_shape() {
     assert_unsupported(&g, 18, "UnlistedTopology", "reordered-input-reference");
 
     if let MorphRuleDef::AffixProcess(rule) = &g.mrules[0] {
-        if let OutputAction::InsertSegments { table, shape } = &rule.allomorphs[14].rhs[0] {
-            assert_eq!(*table, TableId(1));
-            let foreign_len = g.char_tables[1].iter().count();
-            let source_ids = shape
-                .shape
-                .interior()
-                .map(|(_, _, raw_cd, _)| raw_cd as usize)
-                .collect::<Vec<_>>();
-            assert!(
-                source_ids.iter().any(|raw_cd| *raw_cd >= foreign_len),
-                "foreign-table mutation must retain active-table source ids absent from foreign table"
-            );
-        }
+        assert!(matches!(
+            rule.allomorphs[14].rhs[0],
+            OutputAction::InsertSegments { table: TableId(1), .. }
+        ));
     }
 }
 
@@ -295,6 +330,13 @@ fn malformed_copy_references_are_stable_fail_closed_results_without_panics() {
     let mut g = load();
     let original = match &g.mrules[0] {
         MorphRuleDef::AffixProcess(rule) => rule.allomorphs[3].rhs.clone(),
+        _ => unreachable!(),
+    };
+    let modify_context = match &g.mrules[0] {
+        MorphRuleDef::AffixProcess(rule) => match &rule.allomorphs[5].rhs[1] {
+            OutputAction::Modify(_, context) => context.clone(),
+            _ => unreachable!(),
+        },
         _ => unreachable!(),
     };
 
@@ -328,6 +370,19 @@ fn malformed_copy_references_are_stable_fail_closed_results_without_panics() {
         ),
         (
             vec![OutputAction::Copy(PartRef::NonHead(0))],
+            "InvalidReferences",
+            "invalid-part-reference-kind",
+        ),
+        (
+            vec![OutputAction::Modify(
+                PartRef::Head(0),
+                modify_context.clone(),
+            )],
+            "InvalidReferences",
+            "invalid-part-reference-kind",
+        ),
+        (
+            vec![OutputAction::Modify(PartRef::NonHead(0), modify_context)],
             "InvalidReferences",
             "invalid-part-reference-kind",
         ),
