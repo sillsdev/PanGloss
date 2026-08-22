@@ -8,6 +8,12 @@ admission is not the same thing as a trusted production build. A characterizatio
 have a total terminal result; a depth guard must never turn live successors into an apparently
 complete result.
 
+The historical Indonesian P6 result used the separate `uflexc + replace` prototype and reached
+97/97 only inside its declared non-reduplication scope.  The production hand-spun emitter was not
+retired; it is today's `TunedSurfaceProbed` backend.  This change therefore certifies the capacity,
+completion, and artifact identity of that still-live production route.  It does not treat the P6
+prototype result as evidence that a Tuned Surface artifact was built or selected.
+
 Templated routing has the complementary problem. A capability report can say that a backend is
 admissible while the selected candidate is later skipped, marked, or built by a different emitter.
 That cannot produce a trusted route. Selection must be coupled to the backend actually realized by
@@ -45,6 +51,8 @@ the production compiler, with every omission and construction failure visible an
   capability proof.
 - Add focused Indonesian resource/retry, characterization terminal/parity, realized-routing, and
   card-control gates. The gates must distinguish static evidence from actual construction evidence.
+- Preserve backend provenance in every historical and current result: `uflexc + replace` prototype
+  evidence cannot certify `emit` / `TunedSurfaceProbed`, even when both accept the same words.
 
 ## Capabilities
 

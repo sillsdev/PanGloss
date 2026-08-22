@@ -103,6 +103,11 @@ for Amharic/Aweti morphology coverage and route certification.
   Aweti needed a different route. Retain per-grammar capability selection; reject one universal
   builder or language-specific shortcut. Consumed by the sibling change's tasks 5.3 and 6.1; the
   morphology change's route gates remain specific to Amharic/Aweti.
+- **The production hand-spun builder was renamed, not lost.** `emit` remains the
+  `TunedSurfaceProbed` production backend. Indonesian's July P6 97/97 result came from the separate
+  `uflexc + replace` prototype and cannot certify the Tuned artifact. Retain exact route provenance;
+  reject treating prototype success as evidence that production construction completed. Consumed
+  by the sibling change's tasks 3.1–3.4 and 5.1–5.3.
 - **`hc-hybrid` retirement is intentional.** Commit `9a89a32c` removed the old proposer after the
   propose→confirm architecture was gated. Retain Foma proposal plus real-engine confirmation and
   fail closed; reject reviving a hidden full-engine/FST fallback. Consumed by the sibling change's
@@ -128,6 +133,11 @@ for Amharic/Aweti morphology coverage and route certification.
   compiles all 18 rules but recalls 100/106. Retain templated-underlying composition and bounded
   counters; reject eager budget inflation, unsound filtering, and depth caps. Consumed by the
   morphology change's tasks 4.1–4.3 and 6.3–6.4.
+- **Aweti never had a complete hand-spun FST to recover.** The direct `emit` path reached roughly
+  4.9 GB RSS on 855 entries and 135 morphotactic rules without completing construction. The later
+  18-rule P6 artifact was a rule-only cascade with no Aweti lexc/emission result. Retain Templated
+  Underlying Tokens as the scale successor; reject describing current work as restoration of a
+  previously complete Aweti builder. Consumed by the morphology change's tasks 3.1–4.3 and 6.1–6.4.
 - **The Aweti truncation hypothesis was false.** `fa81ec82` found 0/16 gain: the apparent drops were
   floating-segment realization, and post-hoc boundary deletion regressed `apply_up`. Retain only
   explicit classified structural recipes with cleanup after phonology; reject `rhs_drops_lhs_material`
@@ -144,6 +154,15 @@ for Amharic/Aweti morphology coverage and route certification.
   encoding, marker isolation/leak counters, and consumer regression gates; reject unsafe identity
   fallback, marker leakage, and trusting one API's view. Consumed by the morphology change's tasks
   3.5–3.6, 4.1–4.4, and 6.4, plus the sibling artifact tasks 4.1–5.4 and 6.1.
+- **Foma token framing is semantic.** Adjacent non-ASCII PUA tokens historically reduced the
+  Indonesian P6 result from 97/97 to 72/97; separating rendered tokens restored the intended
+  alphabet. Retain explicit token separation and round-trip witnesses; reject source text whose
+  code-point adjacency changes tokenization. Consumed by the morphology change's task 4.5.
+- **Composition algebra is not interchangeable.** Unioning mutually exclusive alpha-tuple branches
+  created spurious paths and a 392,311-state/6,892,003-arc network; sequential composition produced
+  38 states/401 arcs and correct paths. Retain authored stratum/rule order and narrowly prove any
+  safety union; reject generic tuple-rule union or reordering for compactness. Consumed by the
+  morphology change's tasks 3.6 and 4.6.
 - **Selected and realized routes must be the same artifact.** Keep-old-paths and the Aweti cascade
   experiment showed that a smaller network can still lose recall. Retain `preferred == selected ==
   realized`, immutable envelope metadata, and a fingerprint for the measured network; reject
@@ -158,9 +177,10 @@ for Amharic/Aweti morphology coverage and route certification.
   6.2–6.4 and 7.2.
 - **Construct coverage must be explicit.** The cascade experiment lost 6/25 on process-morphology
   shapes despite smaller networks, and P6 left RTL, simultaneous, quantifier, and metathesis
-  boundaries. Retain synthetic positive/negative witnesses and honest skips/refusals; reject
+  boundaries. Historical P6 also did not prove POS/MPR gating or multi-table behavior. Retain
+  synthetic positive/negative witnesses and honest fail-closed/`ConfirmOnly` findings; reject
   generalizing from the three reference grammars. Consumed by the morphology change's tasks
-  2.1–2.6 and 5.2–5.3.
+  2.1–4.6 and 5.2–6.4.
 
 ## Verification and delivery
 

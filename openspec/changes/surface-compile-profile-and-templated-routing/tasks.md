@@ -16,6 +16,7 @@
 - [ ] 3.1 Add a corpus-optional Indonesian gate that first proves the managed envelope terminates incomplete, then explicitly retries under `tuned-surface-work-10k-v1` and performs the real Tuned Surface construction with complete/equal transition evidence and no pending, uncovered, skipped, or technical-marker material.
 - [ ] 3.2 Record the actual completed FST measurements and mechanism counters; if the private suite is available, write a separate canonical assessment linked by build-attempt/model fingerprint and prove full-HC semantic analysis-set containment/equality, otherwise record assessment evidence as `not_run` without weakening construction acceptance.
 - [ ] 3.3 Verify the Indonesian and all-backend report targets through the managed wrapper; use `-Mode corpus-test` only for the private corpus target and retain full unfiltered output as the evidence artifact.
+- [ ] 3.4 Preserve route provenance in the Indonesian evidence: label the historical 97/97 non-reduplication result as the separate `uflexc + replace` prototype, identify `emit` / `TunedSurfaceProbed` as the still-live production route, and refuse any attempt to use one route's corpus result to certify another route's build.
 
 ## 4. Phase B trusted-build acceptance tests
 
