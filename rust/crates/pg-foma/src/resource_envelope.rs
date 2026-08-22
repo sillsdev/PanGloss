@@ -49,6 +49,7 @@ impl FromStr for ResourceEnvelopeId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WatchdogEnvelope {
     pub wall_timeout_ms: u64,
     pub rss_limit_mb: u64,
@@ -56,6 +57,7 @@ pub struct WatchdogEnvelope {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommunicationEnvelope {
     pub max_request_bytes: u64,
     pub max_result_bytes: u64,
@@ -63,6 +65,7 @@ pub struct CommunicationEnvelope {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ComposeEnvelope {
     pub state_cap: usize,
     pub arc_cap: usize,
@@ -75,12 +78,14 @@ pub struct ComposeEnvelope {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EnumerationEnvelope {
     pub composite_entry_cap: usize,
     pub pair_probe_cap: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BackendEnvelope {
     pub tuned_surface_closure_work_cap: usize,
 }
@@ -122,6 +127,53 @@ impl ResourceEnvelope {
     pub const fn backend(&self) -> BackendEnvelope {
         self.backend
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn shipped_watchdog() -> WatchdogEnvelope {
+    let w = crate::worker::WatchdogEnvelope::default_envelope();
+    WatchdogEnvelope {
+        wall_timeout_ms: w.wall_timeout.as_millis() as u64,
+        rss_limit_mb: w.rss_limit_mb,
+        rss_sample_interval_ms: w.rss_sample_interval.as_millis() as u64,
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn shipped_watchdog() -> WatchdogEnvelope {
+    WatchdogEnvelope {
+        wall_timeout_ms: 120_000,
+        rss_limit_mb: 4_096,
+        rss_sample_interval_ms: 200,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn shipped_communication() -> CommunicationEnvelope {
+    CommunicationEnvelope {
+        max_request_bytes: crate::worker::V1_WORKER_LIMITS.max_request_bytes,
+        max_result_bytes: crate::worker::V1_WORKER_LIMITS.max_result_bytes,
+        max_captured_stderr_bytes: crate::worker::V1_WORKER_LIMITS.max_captured_stderr_bytes,
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn shipped_communication() -> CommunicationEnvelope {
+    CommunicationEnvelope {
+        max_request_bytes: 4 * 1024 * 1024,
+        max_result_bytes: 16 * 1024 * 1024,
+        max_captured_stderr_bytes: 4 * 1024 * 1024,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const fn shipped_worker_protocol_version() -> u32 {
+    crate::worker::WORKER_PROTOCOL_VERSION
+}
+
+#[cfg(target_arch = "wasm32")]
+const fn shipped_worker_protocol_version() -> u32 {
+    1
 }
 
 #[derive(Deserialize)]
@@ -178,20 +230,9 @@ impl ResourceEnvelope {
         Self {
             schema_version: 1,
             id,
-            worker_protocol_version: crate::worker::WORKER_PROTOCOL_VERSION,
-            watchdog: {
-                let w = crate::worker::WatchdogEnvelope::default_envelope();
-                WatchdogEnvelope {
-                    wall_timeout_ms: w.wall_timeout.as_millis() as u64,
-                    rss_limit_mb: w.rss_limit_mb,
-                    rss_sample_interval_ms: w.rss_sample_interval.as_millis() as u64,
-                }
-            },
-            communication: CommunicationEnvelope {
-                max_request_bytes: crate::worker::V1_WORKER_LIMITS.max_request_bytes,
-                max_result_bytes: crate::worker::V1_WORKER_LIMITS.max_result_bytes,
-                max_captured_stderr_bytes: crate::worker::V1_WORKER_LIMITS.max_captured_stderr_bytes,
-            },
+            worker_protocol_version: shipped_worker_protocol_version(),
+            watchdog: shipped_watchdog(),
+            communication: shipped_communication(),
             compose,
             enumeration: EnumerationEnvelope {
                 composite_entry_cap: crate::morphotactics::DEFAULT_ENTRY_BUDGET,
