@@ -6,6 +6,13 @@ Surface walk is just beyond the managed logical-work setting, while a larger tes
 finite closure. That observation is not, by itself, a trusted build or a product resource-envelope
 contract.
 
+Historical route names must remain explicit.  The July P6 Indonesian prototype was the Path-B
+`uflexc + replace` construction; its 97/97 result excluded reduplication and did not run the
+production emitter.  The hand-spun `emit` construction still exists as `TunedSurfaceProbed` and is
+the production route being bounded and certified here.  A prototype compile, a corpus result from
+another route, or a successful selector check cannot stand in for construction evidence from that
+exact realized backend.
+
 The repository definition of a resource envelope is the named, versioned combination of parent
 worker limits, sampled resource guardrails, bounded communication, and deterministic logical work
 budgets under which a pipeline is accepted. A Tuned Surface closure count is one field in that

@@ -208,14 +208,36 @@ Mbugwe.
 
 ### 4.1 Historical implementation constraints carried forward
 
-The Indonesian/Amharic/Aweti history adds four non-optional guards to this design. The old
-enumeration bridges remain bounded evidence only; the selected route must be the realized,
-fingerprinted route. Underlying templated composition is the Aweti scale successor, but its six
-remaining misses and the cascade's process-morphology boundary remain refusals until the exact
-semantic gates pass. Historical `fsm_intersect` failures from literal-zero tag symbols also require
-source-level codec coverage across every consumer, not an `apply_up`-only check. Finally, budget
-latches, elapsed time, or a fixed depth may explain cost but cannot establish recall or certificate;
-recipe/marker/closure counters and exact sets are the evidence contract.
+The Indonesian/Amharic/Aweti history adds non-optional guards to this design. The old enumeration
+bridges remain bounded evidence only; the selected route must be the realized, fingerprinted route.
+Underlying templated composition is the Aweti scale successor, but its six remaining misses and the
+cascade's process-morphology boundary remain refusals until the exact semantic gates pass.
+The direct hand-spun `emit` path never completed Aweti construction: 855 entries and 135
+morphotactic rules reached roughly 4.9 GB RSS. The later artifact that compiled all 18 phonological
+rules had no Aweti lexc/emission result, so it was a rule-only cascade rather than an FST for the
+language. Templated construction is therefore a scale successor, not restoration of a previously
+complete Aweti builder.
+
+Older P6 experiments also established two low-level correctness rules.  Every rendered PUA token
+must be separated before Foma parses the source; adjacent PUA code points silently changed token
+boundaries and reduced Indonesian recall from 97/97 to 72/97.  Mutually exclusive alpha-tuple
+branches must be sequentially composed in authored order; union created spurious paths and a
+392,311-state/6,892,003-arc network where composition produced 38 states/401 arcs.  A safety union
+is permitted only for a separately proven complete branch, such as the narrowly scoped RTL case;
+it never licenses tuple-rule union, stratum reordering, or phonological-rule reordering.
+
+Historical `fsm_intersect` failures from literal-zero tag symbols require source-level codec
+coverage across every consumer, not an `apply_up`-only check. Budget latches, broad recall floors,
+elapsed time, or a fixed depth may explain cost but cannot establish recall or certificate;
+recipe/marker/closure counters and exact sets are the evidence contract.  Route and denominator
+provenance remains explicit: Indonesian's P6 97/97 was 96 analyzed words within a 121-word corpus
+with seven reduplication words excluded; Amharic's older 31/31 result covered 29 post-timeout words
+with six timeouts and one uncovered word, while later 622-case evidence excluded 51 engine
+timeouts; Aweti's 100/106 had six genuine residual misses while all 18 rules compiled.
+Historical P6 also did not prove POS or MPR gating, multi-table behavior, overlapping
+simultaneous-versus-iterative semantics, RTL, quantifier, or metathesis semantics. Each remains a
+named fail-closed or `ConfirmOnly` boundary until focused witnesses and the exact current semantic
+gates prove it for the realized artifact.
 
 ## Risks / Trade-offs
 
