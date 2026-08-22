@@ -161,6 +161,7 @@ struct TraceState {
     pending_successor_count: usize,
     pending_rule_ordinals: Vec<u32>,
     stop: Option<ClosureStopReason>,
+    terminal: Option<ClosureTerminal>,
 }
 
 /// Mutable evidence sink shared by the production emitter and the characterization wrapper.
@@ -185,6 +186,7 @@ impl ClosureTrace {
                 pending_successor_count: 0,
                 pending_rule_ordinals: Vec::new(),
                 stop: None,
+                terminal: None,
             }),
         }
     }
@@ -197,7 +199,7 @@ impl ClosureTrace {
     /// caller to stop without dropping the live transition at the work boundary.
     pub(crate) fn begin_pair(&self, depth: usize, ordinal: u32) -> bool {
         let mut state = self.state.lock().expect("closure trace mutex poisoned");
-        if state.stop.is_some() {
+        if state.terminal.is_some() || state.stop.is_some() {
             return false;
         }
         state.maximum_depth = state.maximum_depth.max(depth);
@@ -222,7 +224,7 @@ impl ClosureTrace {
         successors: usize,
     ) -> bool {
         let mut state = self.state.lock().expect("closure trace mutex poisoned");
-        if state.stop.is_some() {
+        if state.terminal.is_some() || state.stop.is_some() {
             return false;
         }
         state.synthesized_successors = state.synthesized_successors.saturating_add(successors);
@@ -239,11 +241,16 @@ impl ClosureTrace {
         let mut state = self.state.lock().expect("closure trace mutex poisoned");
         state.pending_rule_ordinals.sort_unstable();
         state.pending_rule_ordinals.dedup();
-        let worklist_empty = state.stop.is_none() && state.pending_successor_count == 0;
-        let terminal = match state.stop {
+        let worklist_empty = state.terminal.is_none()
+            && state.stop.is_none()
+            && state.pending_successor_count == 0;
+        let terminal = match state.terminal {
+            Some(terminal) => terminal,
+            None => match state.stop {
             Some(reason) => ClosureTerminal::Incomplete(reason),
             None if worklist_empty => ClosureTerminal::Complete,
             None => ClosureTerminal::Incomplete(ClosureStopReason::InternalConstructionFault),
+            },
         };
         CharacterizationResult {
             terminal,
@@ -259,6 +266,20 @@ impl ClosureTrace {
             },
         }
     }
+
+    pub(crate) fn refuse(&self, reason: ClosureStopReason) {
+        let mut state = self.state.lock().expect("closure trace mutex poisoned");
+        if state.terminal.is_none() {
+            state.terminal = Some(ClosureTerminal::Refused(reason));
+        }
+    }
+
+    pub(crate) fn stop(&self, reason: ClosureStopReason) {
+        let mut state = self.state.lock().expect("closure trace mutex poisoned");
+        if state.terminal.is_none() {
+            state.terminal = Some(ClosureTerminal::Incomplete(reason));
+        }
+    }
 }
 
 /// Characterization is deliberately the production emitter's own traversal with its output
@@ -272,6 +293,18 @@ pub fn characterize_tuned_surface_closure_for_test(
         .report
         .closure_evidence
         .expect("traced emitter must retain closure evidence")
+}
+
+/// Characterizes the selected closed product envelope by running the production emitter's
+/// traversal and retaining its exact terminal evidence.
+pub fn characterize_tuned_surface_closure(
+    grammar: &Grammar,
+    envelope: &ResourceEnvelope,
+) -> CharacterizationResult {
+    crate::emit::emit_tuned_surface_for_envelope(grammar, envelope)
+        .report
+        .closure_evidence
+        .expect("envelope emitter must retain closure evidence")
 }
 
 /// Backend-specific resource characterization for TunedSurface structural closure.
@@ -377,10 +410,45 @@ pub fn tuned_surface_resource_finding_for_envelope(
     grammar: &Grammar,
     envelope: &ResourceEnvelope,
 ) -> Option<HealthFinding> {
+    let result = characterize_tuned_surface_closure(grammar, envelope);
+    if matches!(result.terminal, ClosureTerminal::Complete) {
+        return None;
+    }
     tuned_surface_resource_finding_with_limit(
         grammar,
         envelope.backend().tuned_surface_closure_work_cap,
     )
+    .or_else(|| {
+        let terminal = result.terminal;
+        let evidence = result.evidence;
+        Some(HealthFinding {
+            code: FindingCode::ProvenBoundExceedsBudget,
+            severity: Severity::Error,
+            phase: Phase::Characterization,
+            affected: evidence
+                .pending_rule_ordinals
+                .iter()
+                .map(|ordinal| format!("morphological rule ordinal {ordinal}"))
+                .collect(),
+            metric: Metric::CompositeRulePairCount,
+            value: MetricValue::Count(evidence.rule_pairs_visited as u64),
+            provenance: ValueProvenance::ProvenBound,
+            threshold: Some(MetricValue::Count(
+                envelope.backend().tuned_surface_closure_work_cap as u64,
+            )),
+            explanation: format!(
+                "TunedSurface closure did not reach an empty worklist under the selected resource envelope: {:?}.",
+                terminal
+            ),
+            remedies: vec![Remedy {
+                rank: 1,
+                description: "Retry TunedSurface with a larger named resource envelope or use the full morphological-parser engine.".to_string(),
+                requires_linguistic_equivalence: false,
+                caveat: None,
+            }],
+            override_record: None,
+        })
+    })
 }
 
 /// A conservative, uncalibrated placeholder (see this module's doc, "Bounded products"); never used to reject a compile, `Predicted`/`Warning` evidence only.

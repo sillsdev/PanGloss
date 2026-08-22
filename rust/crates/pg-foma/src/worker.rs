@@ -121,7 +121,7 @@ use crate::health::{
 /// `CompileWorkerResult` (the platform-parity contract's "ONE versioned request/result
 /// protocol"). Bump only on a
 /// wire-incompatible change to either type.
-pub const WORKER_PROTOCOL_VERSION: u32 = 1;
+pub const WORKER_PROTOCOL_VERSION: u32 = crate::worker_contract::PROTOCOL_VERSION;
 
 /// Versioned, hard-coded ceilings for this protocol (design discipline shared with
 /// `pg_pack::format::VersionLimits`: every configurable dimension has a hard-coded, versioned,
@@ -153,12 +153,12 @@ pub struct WorkerLimits {
 /// framing itself against a hostile/malformed peer, not the compile work the framed message
 /// describes (that is `ComposeBudget`'s job, checked separately, inside the child).
 pub const V1_WORKER_LIMITS: WorkerLimits = WorkerLimits {
-    max_request_bytes: 4 * 1024 * 1024,         // 4 MiB
-    max_result_bytes: 16 * 1024 * 1024,         // 16 MiB
-    max_captured_stderr_bytes: 4 * 1024 * 1024, // 4 MiB
-    max_wall_timeout_ms: 24 * 60 * 60 * 1000,   // 24h emergency ceiling
-    max_rss_limit_mb: 256 * 1024,               // 256 GiB emergency ceiling
-    min_rss_sample_interval_ms: 10,
+    max_request_bytes: crate::worker_contract::V1_LIMITS.max_request_bytes,
+    max_result_bytes: crate::worker_contract::V1_LIMITS.max_result_bytes,
+    max_captured_stderr_bytes: crate::worker_contract::V1_LIMITS.max_captured_stderr_bytes,
+    max_wall_timeout_ms: crate::worker_contract::V1_LIMITS.max_wall_timeout_ms,
+    max_rss_limit_mb: crate::worker_contract::V1_LIMITS.max_rss_limit_mb,
+    min_rss_sample_interval_ms: crate::worker_contract::V1_LIMITS.min_rss_sample_interval_ms,
 };
 
 /// Looks up the versioned limits for a protocol version. `None` for any version this build
@@ -582,7 +582,11 @@ impl WatchdogEnvelope {
     /// own "provisional, explicit, revisited by `calibrate-fst-resource-envelopes`" convention) --
     /// this is a deliberately conservative, documented placeholder, not a final number.
     pub fn default_envelope() -> Self {
-        Self::clamped(Duration::from_secs(120), 4096, Duration::from_millis(200))
+        Self::clamped(
+            Duration::from_millis(crate::worker_contract::DEFAULT_WALL_TIMEOUT_MS),
+            crate::worker_contract::DEFAULT_RSS_LIMIT_MB,
+            Duration::from_millis(crate::worker_contract::DEFAULT_RSS_SAMPLE_INTERVAL_MS),
+        )
     }
 }
 
