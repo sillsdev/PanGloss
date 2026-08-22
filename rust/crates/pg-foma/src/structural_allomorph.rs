@@ -26,6 +26,8 @@ const PUA_A_LAST: u32 = 0xFFFFD;
 const PUA_B_BASE: u32 = 0x100000;
 const PUA_B_LAST: u32 = 0x10FFFD;
 const MARKER_PAIRS_PER_RANGE: u64 = ((PUA_A_LAST - PUA_A_BASE + 1) / 2) as u64;
+const TERMINAL_MARKER_A_BASE: u32 = 0xFFFFE;
+const TERMINAL_MARKER_B_BASE: u32 = 0x10FFFE;
 
 // Bounds semantic probing; this path does not construct production FSTs.
 const RELATION_PROBE_WORK_CAP: usize = 1_000_000;
@@ -35,7 +37,10 @@ const RELATION_PROBE_DEPTH_CAP: usize = 256;
 
 fn is_technical_marker(ch: char) -> bool {
     let code = ch as u32;
-    (PUA_A_BASE..=PUA_A_LAST).contains(&code) || (PUA_B_BASE..=PUA_B_LAST).contains(&code)
+    (PUA_A_BASE..=PUA_A_LAST).contains(&code)
+        || (PUA_B_BASE..=PUA_B_LAST).contains(&code)
+        || (TERMINAL_MARKER_A_BASE..=TERMINAL_MARKER_A_BASE + 1).contains(&code)
+        || (TERMINAL_MARKER_B_BASE..=TERMINAL_MARKER_B_BASE + 1).contains(&code)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -81,9 +86,9 @@ pub enum MarkerBindingError {
     InvalidScalar,
 }
 
-/// Allocate a marker only inside the two closed supplementary PUA ranges. Prefix and suffix
-/// bindings intentionally occupy different slots for one allomorph; the Unicode noncharacter
-/// gaps at the end of each range are never allocated.
+/// Allocate markers in the two closed supplementary PUA ranges, then use their four terminal
+/// noncharacters for the final two `u16` allomorph IDs. Prefix and suffix bindings intentionally
+/// occupy different slots for one allomorph; no other supplementary scalar is allocated.
 pub fn marker_binding_for(
     key: MarkerKey,
     requirement: ZoneRequirement,
@@ -101,6 +106,10 @@ pub fn marker_binding_for(
         (PUA_A_BASE as u64, pair)
     } else if pair < MARKER_PAIRS_PER_RANGE * 2 {
         (PUA_B_BASE as u64, pair - MARKER_PAIRS_PER_RANGE)
+    } else if pair == MARKER_PAIRS_PER_RANGE * 2 {
+        (TERMINAL_MARKER_A_BASE as u64, 0)
+    } else if pair == MARKER_PAIRS_PER_RANGE * 2 + 1 {
+        (TERMINAL_MARKER_B_BASE as u64, 0)
     } else {
         return Err(MarkerBindingError::InvalidScalar);
     };
@@ -2415,6 +2424,7 @@ pub fn compile_layer(
 #[cfg(test)]
 mod relation_tests {
     use super::*;
+    use foma::apply::{apply_down, apply_init};
 
     fn marked(
         id: u32,
@@ -2483,11 +2493,43 @@ mod relation_tests {
     }
 
     #[test]
-    fn marker_namespace_boundaries_are_closed_and_overflow_is_typed() {
+    fn marker_namespace_boundaries_are_closed_and_all_u16_bindings_are_injective() {
         let first_a = marker_binding_for(
             MarkerKey {
                 allomorph: AllomorphId(0),
                 zone: MarkerZone::Prefix,
+            },
+            ZoneRequirement::Caller,
+        )
+        .unwrap();
+        let final_a = marker_binding_for(
+            MarkerKey {
+                allomorph: AllomorphId(0xFFFE),
+                zone: MarkerZone::Prefix,
+            },
+            ZoneRequirement::Caller,
+        )
+        .unwrap();
+        let final_a_suffix = marker_binding_for(
+            MarkerKey {
+                allomorph: AllomorphId(0xFFFE),
+                zone: MarkerZone::Suffix,
+            },
+            ZoneRequirement::Caller,
+        )
+        .unwrap();
+        let final_b = marker_binding_for(
+            MarkerKey {
+                allomorph: AllomorphId(0xFFFF),
+                zone: MarkerZone::Prefix,
+            },
+            ZoneRequirement::Caller,
+        )
+        .unwrap();
+        let final_b_suffix = marker_binding_for(
+            MarkerKey {
+                allomorph: AllomorphId(0xFFFF),
+                zone: MarkerZone::Suffix,
             },
             ZoneRequirement::Caller,
         )
@@ -2521,19 +2563,154 @@ mod relation_tests {
         assert_eq!(last_a.symbol as u32, 0xFFFFD);
         assert_eq!(first_b.symbol as u32, 0x100000);
         assert_eq!(last_b.symbol as u32, 0x10FFFD);
-        assert!(!is_technical_marker(char::from_u32(0xFFFFE).unwrap()));
-        assert!(!is_technical_marker(char::from_u32(0xFFFFF).unwrap()));
-        assert!(!is_technical_marker(char::from_u32(0x10FFFE).unwrap()));
-        assert!(!is_technical_marker(char::from_u32(0x10FFFF).unwrap()));
+        assert_eq!(final_a.symbol as u32, 0xFFFFE);
+        assert_eq!(final_a_suffix.symbol as u32, 0xFFFFF);
+        assert_eq!(final_b.symbol as u32, 0x10FFFE);
+        assert_eq!(final_b_suffix.symbol as u32, 0x10FFFF);
+        assert!(is_technical_marker(char::from_u32(0xFFFFE).unwrap()));
+        assert!(is_technical_marker(char::from_u32(0xFFFFF).unwrap()));
+        assert!(is_technical_marker(char::from_u32(0x10FFFE).unwrap()));
+        assert!(is_technical_marker(char::from_u32(0x10FFFF).unwrap()));
+
+        let mut symbols = HashSet::new();
+        for id in 0..=u16::MAX {
+            for zone in [MarkerZone::Prefix, MarkerZone::Suffix] {
+                let binding = marker_binding_for(
+                    MarkerKey {
+                        allomorph: AllomorphId(id as u32),
+                        zone,
+                    },
+                    ZoneRequirement::Caller,
+                )
+                .unwrap();
+                assert!(symbols.insert(binding.symbol));
+            }
+        }
+        assert_eq!(symbols.len(), (u16::MAX as usize + 1) * 2);
+    }
+
+    #[test]
+    fn seg_alphabet_bmp_tokens_are_not_relation_markers() {
+        for code in 0xE000..=0xE003 {
+            assert!(!is_technical_marker(char::from_u32(code).unwrap()));
+        }
+    }
+
+    #[test]
+    fn terminal_markers_parse_delete_and_compose_on_both_sides() {
+        let opts = FomaOptions::default();
+        for id in [0xFFFE_u32, 0xFFFF_u32] {
+            for zone in [MarkerZone::Prefix, MarkerZone::Suffix] {
+                let marker = marker_binding_for(
+                    MarkerKey {
+                        allomorph: AllomorphId(id),
+                        zone,
+                    },
+                    ZoneRequirement::Caller,
+                )
+                .unwrap()
+                .symbol;
+                let marker_text = marker.to_string();
+                let delete = fsm_parse_regex(&opts, &format!("{marker} -> 0"), None, None)
+                    .expect("terminal marker must be accepted as UTF-8 Foma input");
+                let mut delete_handle = apply_init(&delete);
+                assert_eq!(
+                    apply_down(&mut delete_handle, Some(&marker_text)),
+                    Some(String::new()),
+                    "marker deletion must consume terminal marker {id:#X}/{zone:?}"
+                );
+
+                let rewrite_input = match zone {
+                    MarkerZone::Prefix => format!("{marker} a -> b"),
+                    MarkerZone::Suffix => format!("a {marker} -> b"),
+                };
+                let rewrite = fsm_parse_regex(&opts, &rewrite_input, None, None)
+                    .expect("both-side terminal marker rewrite must parse");
+                let composed = fsm_compose(&opts, rewrite, delete);
+                let input = match zone {
+                    MarkerZone::Prefix => format!("{marker}a"),
+                    MarkerZone::Suffix => format!("a{marker}"),
+                };
+                let mut composed_handle = apply_init(&composed);
+                assert_eq!(
+                    apply_down(&mut composed_handle, Some(&input)),
+                    Some("b".to_owned()),
+                    "composed terminal marker rewrite must realize {id:#X}/{zone:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn terminal_markers_drive_marker_free_semantic_recipes() {
+        for id in [0xFFFE_u32, 0xFFFF_u32] {
+            let relation = CompiledMorphologyRelation::from_classified([marked(
+                id,
+                "AdjacentTerminalDrop",
+                vec![vec!["a"], vec!["b"]],
+                vec![vec!["x"]],
+                vec![],
+                MarkerZone::Suffix,
+            )])
+            .unwrap();
+            let input = relation.marked_input(AllomorphId(id), "ab").unwrap();
+            let MorphologyRelationResult::Recipe {
+                outputs,
+                consumed_markers,
+                ..
+            } = relation.apply(&input)
+            else {
+                panic!("terminal marker {id:#X} must select its recipe");
+            };
+            assert_eq!(outputs, BTreeSet::from(["ax".to_owned()]));
+            assert_eq!(consumed_markers, 1);
+            assert_eq!(
+                relation.fired_recipe_count_for(AllomorphId(id), MarkerZone::Suffix),
+                1
+            );
+            assert!(outputs.iter().all(|output| {
+                output
+                    .chars()
+                    .all(|character| !is_technical_marker(character))
+            }));
+        }
+    }
+
+    #[test]
+    fn terminal_marker_relation_rejects_foreign_and_multiple_markers() {
+        let relation = CompiledMorphologyRelation::from_classified([marked(
+            0xFFFE,
+            "AdjacentTerminalDrop",
+            vec![vec!["a"], vec!["b"]],
+            vec![vec!["x"]],
+            vec![],
+            MarkerZone::Suffix,
+        )])
+        .unwrap();
+        let marker = relation
+            .marker_binding_for_zone(AllomorphId(0xFFFE), MarkerZone::Suffix)
+            .unwrap()
+            .symbol;
         assert!(matches!(
-            marker_binding_for(
-                MarkerKey {
-                    allomorph: AllomorphId(0xFFFE),
-                    zone: MarkerZone::Prefix,
-                },
-                ZoneRequirement::Caller,
-            ),
-            Err(MarkerBindingError::InvalidScalar)
+            relation.apply(&format!("ab{marker}{marker}")),
+            MorphologyRelationResult::Rejected {
+                reason_id: "duplicate-marker",
+                ..
+            }
+        ));
+        assert!(matches!(
+            relation.apply(&format!("ab{marker}{}", char::from_u32(0x100001).unwrap())),
+            MorphologyRelationResult::Rejected {
+                reason_id: "multiple-markers",
+                ..
+            }
+        ));
+        assert!(matches!(
+            relation.apply(&format!("ab{}", char::from_u32(0x100001).unwrap())),
+            MorphologyRelationResult::Rejected {
+                reason_id: "foreign-marker",
+                ..
+            }
         ));
     }
 
