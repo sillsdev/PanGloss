@@ -27,6 +27,7 @@ test-support = []
 # 0.4.2 by the same minimal repro; that fix is a workaround in this crate (`verify_tags_reachable`
 # itself), not something this version bump resolves.
 foma = "=0.4.2"
+getrandom = { version = "0.3", features = ["wasm_js"] }
 pg-grammar.workspace = true
 pg-featstruct.workspace = true
 # P1 stage 2 (docs/fst-plan/foma-fst-plan.md, Indonesian): the junction-aware emitter
