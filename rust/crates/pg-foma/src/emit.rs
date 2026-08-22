@@ -3579,6 +3579,35 @@ pub fn emit_tuned_surface_with_closure_limits_for_test(
     )
 }
 
+/// Runs the TunedSurface production emitter under one selected closed resource envelope.
+/// Closure and enumeration limits are taken exclusively from that snapshot.
+pub fn emit_tuned_surface_for_envelope(
+    g: &Grammar,
+    envelope: &crate::resource_envelope::ResourceEnvelope,
+) -> EmitResult {
+    let backend = envelope.backend();
+    let trace = crate::characterization::ClosureTrace::new(
+        envelope,
+        crate::characterization::ClosureTestLimits {
+            work_cap: backend.tuned_surface_closure_work_cap,
+            depth_cap: backend.tuned_surface_closure_depth_cap,
+        },
+    );
+    let enumeration = envelope.enumeration();
+    let enum_budget = crate::morphotactics::EnumerationBudget::with_caps(
+        enumeration.composite_entry_cap,
+        enumeration.pair_probe_cap,
+    );
+    emit_with_budget_profiled_with_strategy_and_trace(
+        g,
+        PrecisionConfig::Strip,
+        &enum_budget,
+        None,
+        SurfaceEmitStrategy::default(),
+        Some(&trace),
+    )
+}
+
 fn emit_with_budget_profiled_with_strategy_and_trace(
     g: &Grammar,
     precision: PrecisionConfig,
@@ -3629,6 +3658,9 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         }));
     }
     if !unbounded_closure_rules.is_empty() {
+        if let Some(trace) = closure_trace {
+            trace.refuse(crate::characterization::ClosureStopReason::UnboundedTransition);
+        }
         let rules = unbounded_closure_rules
             .iter()
             .map(u32::to_string)
@@ -3763,6 +3795,9 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
 
     // Both builders above check enum_budget cooperatively during their own recursion, but the grammar-level verdict is decided once, here, before any expensive derivation work runs.
     if let Some((measure, value, limit)) = enum_budget.trip_reason() {
+        if let Some(trace) = closure_trace {
+            trace.stop(crate::characterization::ClosureStopReason::UnsupportedTransition);
+        }
         let reason = format!(
             "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} when \
              enumeration aborted at the cap -- a floor, not a total (limit {limit}; Aweti's measured \
