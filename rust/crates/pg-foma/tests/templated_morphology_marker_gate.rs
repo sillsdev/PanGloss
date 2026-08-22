@@ -1,7 +1,9 @@
 //! Pins the compiled templated morphology relation with invented construct witnesses.
 
 use pg_foma::analyzer::apply_up_against;
-use pg_foma::structural_allomorph::{MarkerBinding, MarkerZone, MorphologyRelationResult};
+use pg_foma::structural_allomorph::{
+    MarkerBinding, MarkerZone, MorphologyRelationResult,
+};
 use pg_foma::templated_compile::compile_templated_morphotactics;
 use pg_grammar::model::{AllomorphId, Grammar, MorphRuleDef, OutputAction, TableId};
 use std::collections::BTreeSet;
@@ -14,8 +16,8 @@ const MARKER_XML: &str = r#"
     <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
     <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
     <SegmentDefinition id="cz"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cs"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cp"><Representations><Representation>p</Representation><Representation>P</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cs"><Representations><Representation>s</Representation><Representation>S</Representation></Representations></SegmentDefinition>
   </SegmentDefinitions></CharacterDefinitionTable>
   <NaturalClasses>
     <SegmentNaturalClass id="ncAny"><Name>Any</Name><Segment segment="ca"/><Segment segment="cb"/><Segment segment="cx"/><Segment segment="cz"/><Segment segment="cp"/><Segment segment="cs"/></SegmentNaturalClass>
@@ -32,7 +34,7 @@ const MARKER_XML: &str = r#"
     <MorphologicalRuleDefinitions><MorphologicalRule id="mr" requiredPartsOfSpeech="p" outputPartOfSpeech="p">
       <Name>marker-seam</Name><MorphologicalSubrules>
         <!-- Direct whole-root wrapper: this bypasses the marker union entirely. -->
-        <MorphologicalSubrule id="wrapper"><MorphologicalInput><PhoneticSequence id="whole"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny"/></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments><CopyFromInput index="whole"/><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule>
+        <MorphologicalSubrule id="wrapper"><MorphologicalInput><PhoneticSequence id="whole0"><SimpleContext naturalClass="ncAny"/></PhoneticSequence><PhoneticSequence id="whole1"><SimpleContext naturalClass="ncAny"/></PhoneticSequence></MorphologicalInput><MorphologicalOutput><InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments><CopyFromInput index="whole0"/><CopyFromInput index="whole1"/><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule>
         <!-- Structural adjacent terminal drop: underlying ab -> ax, then phonology ax -> az. -->
         <MorphologicalSubrule id="drop"><MorphologicalInput><PhoneticSequence id="head"><SimpleContext naturalClass="ncAny"/></PhoneticSequence><PhoneticSequence id="tail"><SimpleContext naturalClass="ncB"/></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="head"/><InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule>
         <!-- A second marked recipe is required for marker A/B isolation: initial fixed-atom replacement. -->
@@ -247,11 +249,12 @@ fn compiled_marker_union_is_total_and_composed_before_phonology() {
         !bare.is_empty(),
         "marker-free root identity must remain reachable"
     );
-    let wrapped = compiled.proposer.propose("pabs");
-    assert!(
-        !wrapped.is_empty(),
-        "direct whole-root wrapper must bypass structural markers"
-    );
+    for surface in ["pabs", "pabS", "Pabs", "PabS"] {
+        assert!(
+            !compiled.proposer.propose(surface).is_empty(),
+            "{surface} must be reachable through the emitted wrapper Cartesian product"
+        );
+    }
 
     // Morphology introduces x before phonology maps it to z.
     let realized = compiled.proposer.propose("az");
