@@ -8,17 +8,19 @@
 ## Capability envelopes
 
 ### `tuned-surface-closure` — Surface-probed composite closure
-- Control: switch-controlled by `PG_FOMA_TUNED_SURFACE_CLOSURE_BUDGET`; default: `managed default`.
-- Time: `O(E x J x P + N)`
-- Space: `O(E + J + N)`
-- Variables: E: emitted entries, J: junction variants, P: ordered rule count, N: composite states.
+- Control: switch-controlled by `CompileRequest.resource_envelope`; default: `managed-v1`.
+- Time: `O(E x J x P x F + N)`
+- Space: `O(E + J + N x F)`
+- Variables: E: emitted entries, J: junction variants, P: ordered rule count, F: feature/unification cost, N: composite states.
 - Contributors:
   - E = emitted lexical entries
   - J = surface/deletion junction variants
   - P = ordered phonological rules
+  - F = feature/unification cost and fan-out
   - N = reachable composite states
   - Rule ordering changes probe reuse and the number of distinct junctions
   - Null realizations and deletion increase reachable zero-width and truncated branches
+  - Closed envelopes: managed-v1 (default) or tuned-surface-work-10k-v1 (explicit retry)
 - Remedies:
   - `retry-larger-closure-envelope`
   - `use-loop-capable-backend`

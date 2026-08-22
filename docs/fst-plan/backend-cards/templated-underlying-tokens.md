@@ -9,13 +9,14 @@
 
 ### `templated-underlying-rewrite` — Underlying-token rewrite cascade
 - Control: inherent; always part of this backend's contract.
-- Time: `O(E x P x T)`
-- Space: `O(E + P x T)`
-- Variables: E: emitted entries, P: ordered rewrite rules, T: template/token lanes.
+- Time: `O(E x P x T x F)`
+- Space: `O(E + P x T x F)`
+- Variables: E: emitted entries, P: ordered rewrite rules, T: template/token lanes, F: feature/unification cost.
 - Contributors:
   - E = emitted lexical entries
   - P = ordered rewrite rules and their environment composition
   - T = template obligations and token lanes
+  - F = feature/unification cost and fan-out
   - Rule ordering affects cascade depth and intermediate alphabets
   - Null and deletion rules add epsilon/truncation branches to the relation
 - Remedies:

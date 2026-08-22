@@ -9,13 +9,14 @@
 
 ### `plan-composed-materialization` — Controllable plan materialization
 - Control: inherent; always part of this backend's contract.
-- Time: `O(G x R + Q)`
-- Space: `O(G + R + Q)`
-- Variables: G: gate groups, R: rewrite rules, Q: required plan subtrees.
+- Time: `O(G x R x F + Q)`
+- Space: `O(G + R x F + Q)`
+- Variables: G: gate groups, R: rewrite rules, Q: required plan subtrees, F: feature/unification cost.
 - Contributors:
   - G = reachable gate groups
   - R = rewrite rules in authored order
   - Q = required plan subtrees
+  - F = feature/unification cost and fan-out
   - Rule ordering changes the content-addressed replacement cascade
   - Null, deletion, and structural marker leaves can require unsupported subtrees
   - Branching multiplies gate-group and replacement combinations

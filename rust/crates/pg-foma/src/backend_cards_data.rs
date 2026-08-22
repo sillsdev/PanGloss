@@ -45,9 +45,11 @@ const TUNED_CONTRIBUTORS: &[&str] = &[
     "E = emitted lexical entries",
     "J = surface/deletion junction variants",
     "P = ordered phonological rules",
+    "F = feature/unification cost and fan-out",
     "N = reachable composite states",
     "Rule ordering changes probe reuse and the number of distinct junctions",
     "Null realizations and deletion increase reachable zero-width and truncated branches",
+    "Closed envelopes: managed-v1 (default) or tuned-surface-work-10k-v1 (explicit retry)",
 ];
 const TUNED_REMEDIES: &[&str] = &[
     "retry-larger-closure-envelope",
@@ -59,16 +61,17 @@ const TUNED_ENVELOPES: &[Envelope] = &[Envelope {
     id: "tuned-surface-closure",
     name: "Surface-probed composite closure",
     control: EnvelopeControl::SwitchControlled {
-        switch_id: "PG_FOMA_TUNED_SURFACE_CLOSURE_BUDGET",
-        default: "managed default",
+        switch_id: "CompileRequest.resource_envelope",
+        default: "managed-v1",
     },
     big_o: BigO {
-        time: "O(E x J x P + N)",
-        space: "O(E + J + N)",
+        time: "O(E x J x P x F + N)",
+        space: "O(E + J + N x F)",
         variables: &[
             "E: emitted entries",
             "J: junction variants",
             "P: ordered rule count",
+            "F: feature/unification cost",
             "N: composite states",
         ],
     },
@@ -81,6 +84,7 @@ const TEMPLATED_CONTRIBUTORS: &[&str] = &[
     "E = emitted lexical entries",
     "P = ordered rewrite rules and their environment composition",
     "T = template obligations and token lanes",
+    "F = feature/unification cost and fan-out",
     "Rule ordering affects cascade depth and intermediate alphabets",
     "Null and deletion rules add epsilon/truncation branches to the relation",
 ];
@@ -95,12 +99,13 @@ const TEMPLATED_ENVELOPES: &[Envelope] = &[Envelope {
     name: "Underlying-token rewrite cascade",
     control: EnvelopeControl::Inherent,
     big_o: BigO {
-        time: "O(E x P x T)",
-        space: "O(E + P x T)",
+        time: "O(E x P x T x F)",
+        space: "O(E + P x T x F)",
         variables: &[
             "E: emitted entries",
             "P: ordered rewrite rules",
             "T: template/token lanes",
+            "F: feature/unification cost",
         ],
     },
     contributors: TEMPLATED_CONTRIBUTORS,
@@ -112,6 +117,7 @@ const PLAN_CONTRIBUTORS: &[&str] = &[
     "G = reachable gate groups",
     "R = rewrite rules in authored order",
     "Q = required plan subtrees",
+    "F = feature/unification cost and fan-out",
     "Rule ordering changes the content-addressed replacement cascade",
     "Null, deletion, and structural marker leaves can require unsupported subtrees",
     "Branching multiplies gate-group and replacement combinations",
@@ -127,12 +133,13 @@ const PLAN_ENVELOPES: &[Envelope] = &[Envelope {
     name: "Controllable plan materialization",
     control: EnvelopeControl::Inherent,
     big_o: BigO {
-        time: "O(G x R + Q)",
-        space: "O(G + R + Q)",
+        time: "O(G x R x F + Q)",
+        space: "O(G + R x F + Q)",
         variables: &[
             "G: gate groups",
             "R: rewrite rules",
             "Q: required plan subtrees",
+            "F: feature/unification cost",
         ],
     },
     contributors: PLAN_CONTRIBUTORS,
