@@ -1,6 +1,12 @@
 # Aweti Templated-Backend Implementation Plan
 
-> Execute after the Mbugwe correctness foundation. All Rust commands use `rust/tools/pg.ps1`.
+> Execute as part of the current three-language slice; it has no dependency on Mbugwe. All Rust
+> commands use `rust/tools/pg.ps1`.
+
+> **Authority:** The current OpenSpec change
+> [`cover-circumfix-cross-product-and-infix-drop`](../../../openspec/changes/cover-circumfix-cross-product-and-infix-drop/proposal.md)
+> and its task/design artifacts are authoritative for the active coverage work. This dated plan
+> preserves the historical Aweti evidence and sequencing only.
 
 **Goal:** Route Aweti away from the 3,093,412-entry eager enumeration path, close the six known templated recall gaps, and prove the selected route against the real corpus.
 

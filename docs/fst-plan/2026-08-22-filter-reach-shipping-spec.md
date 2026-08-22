@@ -2,9 +2,14 @@
 
 ## Outcome
 
-Ship the five-language/backend-characterization work without permitting an incomplete FST to look
-successful. The branch is complete only after the required tests pass, temporary diagnostics are
-removed, and the reviewed changes are committed and pushed.
+Ship the three-language backend-characterization work for Indonesian, Amharic, and Aweti without
+permitting an incomplete FST to look successful. Mbugwe is explicitly deferred and is not an
+acceptance blocker for this deliverable. The branch is complete only after the required tests pass,
+temporary diagnostics are removed, and the reviewed changes are committed and pushed.
+
+This specification is a delivery contract, not evidence that any of these languages already has a
+trusted shipped FST. A language is accepted only after its selected route has a complete payload,
+certificate, and the required runtime evidence.
 
 ## Terminology
 
@@ -26,9 +31,9 @@ would make your language invalid!”
    Full, no constructs were uncovered, no successors remained, and no enumeration budget tripped.
 4. The selector reports warnings and errors for every backend and chooses only a backend with no
    Error or Critical finding. Ranking prefers fewer/lower findings before backend preference.
-5. Mbugwe may cleanly produce no trusted FST. TunedSurface currently reports a resource Error;
-   TemplatedUnderlyingTokens and PlanComposed report correctness Critical findings. The full
-   morphological parser remains an analysis path, not proof of FST completeness.
+5. Mbugwe is deferred from the current three-language acceptance slice and is not an acceptance
+   blocker. Its existing reports and full morphological parser remain future reference only; the
+   parser is an analysis path, not proof of FST completeness.
 6. The two regression grammars under
    `rust/crates/pg-foma/tests/fixtures/pangloss/fst-completeness/` remain PanGloss-internal and are
    never promoted to Machine.
@@ -54,13 +59,31 @@ Each card is generated from a single versioned capability catalog and contains:
 The explicit generator produces deterministic output for the checked-in cards. Ordinary builds do
 not validate or rewrite these human- and AI-readable artifacts; the static catalog remains the
 source of truth, and the generated cards may be refreshed deliberately when that catalog changes.
+Card presence or metadata is not evidence that a language has a trusted build.
+
+## Historical lessons for the three-language slice
+
+These observations explain why the current work adds capability envelopes and artifact evidence;
+they are historical context, not current shipping claims.
+
+- **Indonesian:** the older construction had strong corpus evidence, including 121/121 parity, but
+  that result did not by itself bind an exact envelope to a reproducible, complete artifact. See
+  [`foma-fst-plan.md`](foma-fst-plan.md), the historical F3 verdict, and commit `87320bff`.
+- **Amharic:** the older mainline result compared 622 cases with 51 engine-timeout exclusions and
+  zero mismatches. That is useful bounded evidence, not timeout-free grammar-wide certification.
+  See [`foma-fst-plan.md`](foma-fst-plan.md) and commit `87320bff`.
+- **Aweti:** the templated prototype compiled all 18 rules and recalled 100/106 oracle-bearing
+  words; six real morphology/rule gaps remain. See [`synthetic-stress-grammar-plan.md`](synthetic-stress-grammar-plan.md),
+  [`2026-08-20-aweti-enum-budget-census.md`](2026-08-20-aweti-enum-budget-census.md), and commit
+  `9b06b102`.
 
 ## Verification and delivery
 
 - Resolve every failure from the 1,066-test `pg-foma` run without weakening normal fail-closed
   construction.
-- Re-run focused regression targets, the two PanGloss-only completeness targets, five-language
-  backend reports, Mbugwe corpus smoke, package tests, CLI/pack tests, and repository hygiene.
+- Re-run focused regression targets, the two PanGloss-only completeness targets, Indonesian/
+  Amharic/Aweti backend reports, package tests, CLI/pack tests, and repository hygiene. Mbugwe
+  corpus smoke is deferred with the language, not a release gate for this slice.
 - Run the authoritative package/full-suite checks after focused tests are green.
 - Remove diagnostic output hooks and exclude `.tmp/`, the transcript, and the intentional dirty
   `machine` pointer from the commit.
