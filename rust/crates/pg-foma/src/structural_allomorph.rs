@@ -30,7 +30,8 @@ const MARKER_PAIRS_PER_RANGE: u64 = ((PUA_A_LAST - PUA_A_BASE + 1) / 2) as u64;
 // Bounds semantic probing; this path does not construct production FSTs.
 const RELATION_PROBE_WORK_CAP: usize = 1_000_000;
 const RELATION_PROBE_OUTPUT_CAP: usize = 10_000;
-const RELATION_PROBE_OUTPUT_BYTES_CAP: usize = 1_000_000;
+const RELATION_PROBE_ALLOCATION_BYTES_CAP: usize = 1_000_000;
+const RELATION_PROBE_DEPTH_CAP: usize = 256;
 
 fn is_technical_marker(ch: char) -> bool {
     let code = ch as u32;
@@ -204,6 +205,8 @@ pub enum MorphologyRelationResult {
         consumed_markers: usize,
         work: usize,
         outputs: usize,
+        allocation_bytes: usize,
+        depth: usize,
     },
 }
 
@@ -331,13 +334,16 @@ struct ProbeBudgetReached {
     reason_id: &'static str,
     work: usize,
     outputs: usize,
+    allocation_bytes: usize,
+    depth: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct ProbeBudget {
     work: usize,
     outputs: usize,
-    output_bytes: usize,
+    allocation_bytes: usize,
+    depth: usize,
 }
 
 impl ProbeBudget {
@@ -345,7 +351,8 @@ impl ProbeBudget {
         Self {
             work: 0,
             outputs: 0,
-            output_bytes: 0,
+            allocation_bytes: 0,
+            depth: 0,
         }
     }
 
@@ -357,6 +364,8 @@ impl ProbeBudget {
                 reason_id: "probe-work-budget",
                 work: self.work,
                 outputs: self.outputs,
+                allocation_bytes: self.allocation_bytes,
+                depth: self.depth,
             });
         }
         self.work += units;
@@ -373,24 +382,47 @@ impl ProbeBudget {
                 reason_id: "probe-output-budget",
                 work: self.work,
                 outputs: self.outputs,
+                allocation_bytes: self.allocation_bytes,
+                depth: self.depth,
             });
         }
         self.outputs += 1;
         Ok(())
     }
 
-    fn charge_output_bytes(&mut self, units: usize) -> Result<(), ProbeBudgetReached> {
+    fn charge_allocation_bytes(&mut self, units: usize) -> Result<(), ProbeBudgetReached> {
         let units = units.max(1);
-        if units > RELATION_PROBE_OUTPUT_BYTES_CAP.saturating_sub(self.output_bytes) {
-            self.output_bytes = RELATION_PROBE_OUTPUT_BYTES_CAP;
+        if units > RELATION_PROBE_ALLOCATION_BYTES_CAP.saturating_sub(self.allocation_bytes) {
+            self.allocation_bytes = RELATION_PROBE_ALLOCATION_BYTES_CAP;
             return Err(ProbeBudgetReached {
-                reason_id: "probe-output-bytes",
+                reason_id: "probe-allocation-bytes",
                 work: self.work,
                 outputs: self.outputs,
+                allocation_bytes: self.allocation_bytes,
+                depth: self.depth,
             });
         }
-        self.output_bytes += units;
+        self.allocation_bytes += units;
         Ok(())
+    }
+
+    fn enter_depth(&mut self) -> Result<(), ProbeBudgetReached> {
+        if self.depth >= RELATION_PROBE_DEPTH_CAP {
+            self.depth = RELATION_PROBE_DEPTH_CAP;
+            return Err(ProbeBudgetReached {
+                reason_id: "probe-depth-budget",
+                work: self.work,
+                outputs: self.outputs,
+                allocation_bytes: self.allocation_bytes,
+                depth: self.depth,
+            });
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
+    fn leave_depth(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
     }
 }
 
@@ -400,6 +432,8 @@ fn resource_rejected(reached: ProbeBudgetReached) -> MorphologyRelationResult {
         consumed_markers: 0,
         work: reached.work,
         outputs: reached.outputs,
+        allocation_bytes: reached.allocation_bytes,
+        depth: reached.depth,
     }
 }
 
@@ -613,11 +647,12 @@ impl CompiledMorphologyRelation {
 
     /// Probe the semantic relation without constructing a Foma network.
     ///
-    /// This method uses closed, nonconfigurable 1,000,000-work/10,000-output and 1,000,000-byte
-    /// probe budgets; callers cannot supply raw limits. If a budget is reached,
-    /// `ResourceRejected` reports the observed counters and no partial output or recipe fire is
-    /// returned. A resource refusal has `consumed_markers: 0` because recipe application did not
-    /// commit.
+    /// This method uses closed, nonconfigurable 1,000,000-work/10,000-output, 1,000,000-byte,
+    /// and depth-256 probe budgets; callers cannot supply raw limits. The reported work,
+    /// unique-output, and cumulative-allocation-byte metrics are conservative accounting units,
+    /// not exact CPU or final-set measurements. If a budget is reached, `ResourceRejected`
+    /// reports the counters and no partial output or recipe fire is returned. A resource refusal
+    /// has `consumed_markers: 0` because recipe application did not commit.
     pub fn apply(&self, input: &str) -> MorphologyRelationResult {
         let mut budget = ProbeBudget::new();
         let mut marker_symbols = Vec::new();
@@ -637,7 +672,7 @@ impl CompiledMorphologyRelation {
             }
         }
         match marker_symbols.as_slice() {
-            [] => match budget.charge_output_bytes(input.len()) {
+            [] => match budget.charge_allocation_bytes(input.len()) {
                 Ok(()) => MorphologyRelationResult::Identity {
                     outputs: BTreeSet::from([input.to_owned()]),
                     consumed_markers: 0,
@@ -799,7 +834,7 @@ fn apply_recipe(
                         for (position, part) in parts.iter().enumerate() {
                             let joined = join_tokens_bounded(part, budget)?;
                             for variant in &mut variants {
-                                budget.charge_output_bytes(joined.len())?;
+                                budget.charge_allocation_bytes(joined.len())?;
                                 variant.push_str(&joined);
                             }
                             if let Some(run) = recipe.recipe.literal_runs.get(position) {
@@ -859,7 +894,7 @@ fn build_probe_text(
     let byte_len = parts
         .iter()
         .fold(0usize, |total, part| total.saturating_add(part.len()));
-    budget.charge_output_bytes(byte_len)?;
+    budget.charge_allocation_bytes(byte_len)?;
     let mut output = String::with_capacity(byte_len);
     for part in parts {
         output.push_str(part);
@@ -871,10 +906,11 @@ fn join_tokens_bounded(
     tokens: &[String],
     budget: &mut ProbeBudget,
 ) -> Result<String, ProbeBudgetReached> {
+    budget.charge_work(tokens.len().max(1))?;
     let byte_len = tokens
         .iter()
         .fold(0usize, |total, token| total.saturating_add(token.len()));
-    budget.charge_output_bytes(byte_len)?;
+    budget.charge_allocation_bytes(byte_len)?;
     let mut output = String::with_capacity(byte_len);
     for token in tokens {
         output.push_str(token);
@@ -903,10 +939,10 @@ where
     let sort_cost = all_members
         .len()
         .saturating_mul(ceil_log2(all_members.len()))
-        .saturating_add(all_members.len())
         .max(1);
     budget.charge_work(sort_cost)?;
     all_members.sort();
+    budget.charge_work(all_members.len().max(1))?;
     all_members.dedup();
 
     fn visit<F>(
@@ -920,34 +956,39 @@ where
     where
         F: FnMut(&[String], &mut ProbeBudget) -> Result<(), ProbeBudgetReached>,
     {
-        budget.work()?;
-        if offset == input.len() {
-            return callback(current, budget);
-        }
-        for member in members {
-            budget.charge_work(member.len().max(1))?;
-            if input[offset..].starts_with(member) {
-                current.push(member.clone());
-                visit(
-                    input,
-                    offset + member.len(),
-                    members,
-                    current,
-                    budget,
-                    callback,
-                )?;
+        budget.enter_depth()?;
+        let result = (|| {
+            budget.work()?;
+            if offset == input.len() {
+                return callback(current, budget);
+            }
+            for member in members {
+                budget.charge_work(member.len().max(1))?;
+                if input[offset..].starts_with(member) {
+                    current.push(member.clone());
+                    visit(
+                        input,
+                        offset + member.len(),
+                        members,
+                        current,
+                        budget,
+                        callback,
+                    )?;
+                    current.pop();
+                }
+            }
+            if let Some(ch) = input[offset..].chars().next() {
+                let end = offset + ch.len_utf8();
+                let scalar = &input[offset..end];
+                budget.charge_work(scalar.len().max(1))?;
+                current.push(scalar.to_owned());
+                visit(input, end, members, current, budget, callback)?;
                 current.pop();
             }
-        }
-        if let Some(ch) = input[offset..].chars().next() {
-            let end = offset + ch.len_utf8();
-            let scalar = &input[offset..end];
-            budget.charge_work(scalar.len().max(1))?;
-            current.push(scalar.to_owned());
-            visit(input, end, members, current, budget, callback)?;
-            current.pop();
-        }
-        Ok(())
+            Ok(())
+        })();
+        budget.leave_depth();
+        result
     }
 
     visit(input, 0, &all_members, &mut Vec::new(), budget, callback)
@@ -977,22 +1018,27 @@ where
     where
         F: FnMut(&[Vec<String>], &mut ProbeBudget) -> Result<(), ProbeBudgetReached>,
     {
-        budget.work()?;
-        if parts_left == 1 {
-            charge_token_slice_copy(&tokens[offset..], budget)?;
-            current.push(tokens[offset..].to_vec());
-            callback(current, budget)?;
-            current.pop();
-            return Ok(());
-        }
-        let max_end = tokens.len() - (parts_left - 1);
-        for end in (offset + 1)..=max_end {
-            charge_token_slice_copy(&tokens[offset..end], budget)?;
-            current.push(tokens[offset..end].to_vec());
-            visit(tokens, parts_left - 1, end, current, budget, callback)?;
-            current.pop();
-        }
-        Ok(())
+        budget.enter_depth()?;
+        let result = (|| {
+            budget.work()?;
+            if parts_left == 1 {
+                charge_token_slice_copy(&tokens[offset..], budget)?;
+                current.push(tokens[offset..].to_vec());
+                callback(current, budget)?;
+                current.pop();
+                return Ok(());
+            }
+            let max_end = tokens.len() - (parts_left - 1);
+            for end in (offset + 1)..=max_end {
+                charge_token_slice_copy(&tokens[offset..end], budget)?;
+                current.push(tokens[offset..end].to_vec());
+                visit(tokens, parts_left - 1, end, current, budget, callback)?;
+                current.pop();
+            }
+            Ok(())
+        })();
+        budget.leave_depth();
+        result
     }
 
     visit(tokens, parts, 0, current, budget, callback)
@@ -1002,6 +1048,7 @@ fn charge_token_slice_copy(
     tokens: &[String],
     budget: &mut ProbeBudget,
 ) -> Result<(), ProbeBudgetReached> {
+    budget.charge_work(tokens.len().max(1))?;
     let bytes = tokens
         .iter()
         .fold(0usize, |total, token| total.saturating_add(token.len()));
@@ -2707,7 +2754,7 @@ mod relation_tests {
         assert!(matches!(
             relation.apply(&input),
             MorphologyRelationResult::ResourceRejected {
-                reason_id: "probe-work-budget" | "probe-output-bytes",
+                reason_id: "probe-work-budget" | "probe-allocation-bytes",
                 consumed_markers: 0,
                 work,
                 ..
@@ -2715,6 +2762,35 @@ mod relation_tests {
         ));
         assert_eq!(
             relation.fired_recipe_count_for(AllomorphId(17), MarkerZone::Suffix),
+            0
+        );
+    }
+
+    #[test]
+    fn deep_scalar_segmentation_is_refused_before_stack_growth() {
+        let relation = CompiledMorphologyRelation::from_classified([marked(
+            24,
+            "AmharicInteriorInsertion",
+            vec![vec!["needle"], vec!["needle"], vec!["needle"]],
+            vec![vec!["x"], vec!["y"]],
+            vec![],
+            MarkerZone::Suffix,
+        )])
+        .unwrap();
+        let input = relation
+            .marked_input(AllomorphId(24), &"a".repeat(RELATION_PROBE_DEPTH_CAP + 8))
+            .unwrap();
+        assert!(matches!(
+            relation.apply(&input),
+            MorphologyRelationResult::ResourceRejected {
+                reason_id: "probe-depth-budget",
+                consumed_markers: 0,
+                depth,
+                ..
+            } if depth == RELATION_PROBE_DEPTH_CAP
+        ));
+        assert_eq!(
+            relation.fired_recipe_count_for(AllomorphId(24), MarkerZone::Suffix),
             0
         );
     }
@@ -2802,7 +2878,8 @@ mod relation_tests {
         let mut budget = ProbeBudget {
             work: RELATION_PROBE_WORK_CAP - 4,
             outputs: 0,
-            output_bytes: 0,
+            allocation_bytes: 0,
+            depth: 0,
         };
         let mut callbacks = 0;
         let result = visit_segmentations("", &member_sets, &mut budget, &mut |_, _| {
@@ -2825,7 +2902,8 @@ mod relation_tests {
         let mut budget = ProbeBudget {
             work: RELATION_PROBE_WORK_CAP - 2,
             outputs: 0,
-            output_bytes: 0,
+            allocation_bytes: 0,
+            depth: 0,
         };
         let mut callbacks = 0;
         let result = visit_segmentations("", &member_sets, &mut budget, &mut |_, _| {
@@ -2848,7 +2926,8 @@ mod relation_tests {
         let mut budget = ProbeBudget {
             work: RELATION_PROBE_WORK_CAP - 2,
             outputs: 0,
-            output_bytes: 0,
+            allocation_bytes: 0,
+            depth: 0,
         };
         let mut current = Vec::new();
         let mut callbacks = 0;
@@ -2875,7 +2954,8 @@ mod relation_tests {
         let mut budget = ProbeBudget {
             work: RELATION_PROBE_WORK_CAP - 1,
             outputs: 0,
-            output_bytes: 0,
+            allocation_bytes: 0,
+            depth: 0,
         };
         let mut outputs = outputs;
         let result = insert_probe_output(&mut outputs, "output-0".to_owned(), &mut budget);
@@ -2900,17 +2980,18 @@ mod relation_tests {
             MarkerZone::Suffix,
         );
         if let MorphologyRewrite::MarkedStructural { recipe, .. } = &mut replacement.0 {
-            recipe.output_segments = vec!["x".repeat(RELATION_PROBE_OUTPUT_BYTES_CAP + 1)];
+            recipe.output_segments = vec!["x".repeat(RELATION_PROBE_ALLOCATION_BYTES_CAP + 1)];
         }
         let relation = CompiledMorphologyRelation::from_classified([replacement]).unwrap();
         let input = relation.marked_input(AllomorphId(22), "a").unwrap();
         assert!(matches!(
             relation.apply(&input),
             MorphologyRelationResult::ResourceRejected {
-                reason_id: "probe-output-bytes",
+                reason_id: "probe-allocation-bytes",
                 consumed_markers: 0,
+                allocation_bytes,
                 ..
-            }
+            } if allocation_bytes == RELATION_PROBE_ALLOCATION_BYTES_CAP
         ));
         assert_eq!(
             relation.fired_recipe_count_for(AllomorphId(22), MarkerZone::Suffix),
@@ -2929,17 +3010,18 @@ mod relation_tests {
             MarkerZone::Suffix,
         );
         if let MorphologyRewrite::MarkedStructural { recipe, .. } = &mut literal.0 {
-            recipe.literal_runs[0] = vec!["x".repeat(RELATION_PROBE_OUTPUT_BYTES_CAP + 1)];
+            recipe.literal_runs[0] = vec!["x".repeat(RELATION_PROBE_ALLOCATION_BYTES_CAP + 1)];
         }
         let relation = CompiledMorphologyRelation::from_classified([literal]).unwrap();
         let input = relation.marked_input(AllomorphId(23), "ab").unwrap();
         assert!(matches!(
             relation.apply(&input),
             MorphologyRelationResult::ResourceRejected {
-                reason_id: "probe-output-bytes",
+                reason_id: "probe-allocation-bytes",
                 consumed_markers: 0,
+                allocation_bytes,
                 ..
-            }
+            } if allocation_bytes == RELATION_PROBE_ALLOCATION_BYTES_CAP
         ));
         assert_eq!(
             relation.fired_recipe_count_for(AllomorphId(23), MarkerZone::Suffix),
@@ -2989,6 +3071,7 @@ mod relation_tests {
                 consumed_markers: 0,
                 work,
                 outputs,
+                ..
             } if work < RELATION_PROBE_WORK_CAP && outputs == RELATION_PROBE_OUTPUT_CAP
         ));
         assert_eq!(
