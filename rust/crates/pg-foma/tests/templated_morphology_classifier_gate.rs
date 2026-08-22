@@ -876,10 +876,5 @@ fn malformed_initial_drop_reports_the_initial_shape() {
     if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
         rule.allomorphs[8].lhs[0].nodes = vec![PatternNode::CharDef(CharDefId(9))];
     }
-    assert_unsupported(
-        &g,
-        8,
-        "AdjacentInitialDrop",
-        "non-segment-input-atom",
-    );
+    assert_unsupported(&g, 8, "AdjacentInitialDrop", "non-segment-input-atom");
 }
