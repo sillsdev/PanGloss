@@ -83,6 +83,10 @@ fn bounded_branching_xml(rule_count: usize) -> String {
         .find("</MorphologicalRuleDefinitions>")
         .expect("fixture closes morphology definitions");
     xml.replace_range(rules_start..rules_end, &rules);
+    xml = xml.replace(
+        "</LexicalEntries>",
+        r#"<LexicalEntry id="e2" partOfSpeech="posV"><Allomorphs><Allomorph id="a2"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs><MorphemeId>ROOT2</MorphemeId></LexicalEntry></LexicalEntries>"#,
+    );
     xml
 }
 
@@ -196,7 +200,7 @@ fn only_a_terminal_failure_can_authorize_a_linked_retry() {
     );
     assert!(complete.retry_authorization().is_none());
 
-    let expensive_xml = bounded_branching_xml(10);
+    let expensive_xml = bounded_branching_xml(6);
     let expensive = pg_grammar::load(&expensive_xml).expect("bounded retry fixture must load");
     let first_request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
         .expect("managed request must be constructible");
@@ -206,10 +210,12 @@ fn only_a_terminal_failure_can_authorize_a_linked_retry() {
         .closure_evidence
         .as_ref()
         .expect("failed named attempt retains closure evidence");
-    assert!(matches!(
+    assert_eq!(
         first_terminal.terminal,
-        ClosureTerminal::Incomplete(_) | ClosureTerminal::Refused(_)
-    ));
+        ClosureTerminal::Incomplete(ClosureStopReason::WorkBudgetReached)
+    );
+    assert!(!first_terminal.evidence.worklist_empty);
+    assert!(first_terminal.evidence.pending_successor_count > 0);
     let authorization = first
         .retry_authorization()
         .expect("terminal failure alone authorizes retry");
@@ -233,5 +239,8 @@ fn only_a_terminal_failure_can_authorize_a_linked_retry() {
         .expect("retry retains its own fresh closure evidence");
     assert_ne!(second_terminal.evidence.envelope_digest, first_terminal.evidence.envelope_digest);
     assert_eq!(second_terminal.terminal, ClosureTerminal::Complete);
+    assert!(second_terminal.evidence.worklist_empty);
+    assert_eq!(second_terminal.evidence.pending_successor_count, 0);
+    assert!(second_terminal.evidence.maximum_depth < 64);
     assert!(second.retry_authorization().is_none());
 }
