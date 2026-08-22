@@ -1,9 +1,4 @@
-//! RED acceptance gate for the closed templated-morphology classifier grammar.
-//!
-//! This is deliberately an API-first test.  The current branch has several independent
-//! role/probe decisions and no `MorphologyRewriteClassifier`; the wished-for API below is the
-//! contract the production lowering must implement.  The fixture is invented and construct
-//! shaped; it is not language data and must never be promoted to `machine/conformance`.
+//! Pins the closed templated-morphology classifier grammar with invented construct witnesses.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -186,9 +181,7 @@ fn closed_classifier_accepts_the_five_listed_families_and_ordinary_literals() {
             suffix_variants,
             ..
         } => {
-            // This is not a locally invented product: these are the two representations the
-            // loader put on active-table char defs cp/cs, and the classifier must return the
-            // same translated sets before the test forms the four pairs.
+            // Expected variants come from active-table character definitions rather than this assertion.
             assert_eq!(prefix_variants, active_representations(&g, CharDefId(7)));
             assert_eq!(suffix_variants, active_representations(&g, CharDefId(8)));
             assert_eq!(prefix_variants.len(), 2);
@@ -268,9 +261,7 @@ fn closed_classifier_default_denies_every_unlisted_action_or_shape() {
     assert_unsupported(&g, 11, "ModifyFromInput", "terminal-modify-multi-segment");
     assert_unsupported(&g, 12, "ModifyFromInput", "terminal-modify-quantified");
     assert_unsupported(&g, 13, "ModifyFromInput", "terminal-modify-empty-output");
-    // The loader assigns ordinary output to the stratum's active table.  Rebinding the same
-    // shape to the foreign table is the narrowest way to exercise the classifier's translation
-    // check without making the fixture itself unloadable.
+    // Rebinding active-table shape IDs to the foreign table creates an untranslatable valid model.
     if let MorphRuleDef::AffixProcess(rule) = &mut g.mrules[0] {
         if let OutputAction::InsertSegments { table, .. } = &mut rule.allomorphs[14].rhs[0] {
             *table = TableId(1);
