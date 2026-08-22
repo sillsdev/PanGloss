@@ -48,16 +48,16 @@ Each card is generated from a single versioned capability catalog and contains:
 - stable backend and envelope IDs plus human names;
 - whether each envelope is inherent or controlled by a named switch, including its default;
 - Big-O notation, named variables, and which ordering, null, deletion, or other features contribute;
-- linked remedy IDs and plain-English remedy text; and
+- linked remedy IDs and a reference to the authoritative shared advice catalog; and
 - the mandatory language-validity safety statement on potentially meaning-changing remedies.
 
-Build integration generates deterministic output and verifies it against the checked-in cards.
-The remaining implementation choice is whether a normal build only fails with an explicit
-regeneration command on drift (recommended), or rewrites the tracked cards automatically.
+The explicit generator produces deterministic output for the checked-in cards. Ordinary builds do
+not validate or rewrite these human- and AI-readable artifacts; the static catalog remains the
+source of truth, and the generated cards may be refreshed deliberately when that catalog changes.
 
 ## Verification and delivery
 
-- Resolve every failure from the 1,067-test `pg-foma` run without weakening normal fail-closed
+- Resolve every failure from the 1,066-test `pg-foma` run without weakening normal fail-closed
   construction.
 - Re-run focused regression targets, the two PanGloss-only completeness targets, five-language
   backend reports, Mbugwe corpus smoke, package tests, CLI/pack tests, and repository hygiene.
