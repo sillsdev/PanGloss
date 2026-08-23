@@ -351,6 +351,13 @@ pub enum CompletedBuildError {
     UnsupportedStrategy(EmissionStrategy),
     Compiler(String),
     IncompleteEvidence(String),
+    IncompleteClosure {
+        terminal: ClosureTerminal,
+        rule_pairs_visited: usize,
+        pending_successor_count: usize,
+        pending_rule_ordinals: Vec<u32>,
+        worklist_empty: bool,
+    },
     PayloadEmpty,
     PayloadRead(String),
     PayloadDigestMismatch {
@@ -395,6 +402,20 @@ impl fmt::Display for CompletedBuildError {
             Self::IncompleteEvidence(reason) => {
                 write!(f, "completed-build evidence is incomplete: {reason}")
             }
+            Self::IncompleteClosure {
+                terminal,
+                rule_pairs_visited,
+                pending_successor_count,
+                pending_rule_ordinals,
+                worklist_empty,
+            } => write!(
+                f,
+                "completed-build closure is incomplete: terminal={terminal:?}, \
+                 rule_pairs_visited={rule_pairs_visited}, \
+                 pending_successor_count={pending_successor_count}, \
+                 pending_rule_ordinals={pending_rule_ordinals:?}, \
+                 worklist_empty={worklist_empty}"
+            ),
             Self::PayloadEmpty => f.write_str("completed-build payload is empty"),
             Self::PayloadRead(error) => write!(f, "completed-build payload is unreadable: {error}"),
             Self::PayloadDigestMismatch { expected, actual } => write!(
@@ -632,9 +653,13 @@ fn validate_closure(
         || closure.evidence.pending_successor_count != 0
         || !closure.evidence.worklist_empty
     {
-        return Err(CompletedBuildError::IncompleteEvidence(
-            "closure certificate is not complete".to_string(),
-        ));
+        return Err(CompletedBuildError::IncompleteClosure {
+            terminal: closure.terminal,
+            rule_pairs_visited: closure.evidence.rule_pairs_visited,
+            pending_successor_count: closure.evidence.pending_successor_count,
+            pending_rule_ordinals: closure.evidence.pending_rule_ordinals.clone(),
+            worklist_empty: closure.evidence.worklist_empty,
+        });
     }
     Ok(())
 }
@@ -701,4 +726,49 @@ fn build_from_proposer(
 
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::characterization::{CharacterizationResult, ClosureEvidence};
+
+    #[test]
+    fn incomplete_closure_error_preserves_frontier_evidence() {
+        let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::TunedSurfaceWork10kV1);
+        let closure = CharacterizationResult {
+            terminal: ClosureTerminal::Incomplete(
+                crate::characterization::ClosureStopReason::WorkBudgetReached,
+            ),
+            evidence: ClosureEvidence {
+                envelope_id: envelope.id(),
+                envelope_digest: envelope.digest(),
+                rule_pairs_visited: 10_000,
+                synthesized_successors: 10_001,
+                maximum_depth: 42,
+                per_depth_counts: vec![1, 9_999],
+                pending_successor_count: 3,
+                pending_rule_ordinals: vec![7, 19],
+                worklist_empty: false,
+            },
+        };
+
+        let error = validate_closure(&closure, &envelope).expect_err("closure must be rejected");
+        assert_eq!(
+            error,
+            CompletedBuildError::IncompleteClosure {
+                terminal: closure.terminal,
+                rule_pairs_visited: 10_000,
+                pending_successor_count: 3,
+                pending_rule_ordinals: vec![7, 19],
+                worklist_empty: false,
+            }
+        );
+        let rendered = error.to_string();
+        assert!(rendered.contains("WorkBudgetReached"));
+        assert!(rendered.contains("rule_pairs_visited=10000"));
+        assert!(rendered.contains("pending_successor_count=3"));
+        assert!(rendered.contains("pending_rule_ordinals=[7, 19]"));
+        assert!(rendered.contains("worklist_empty=false"));
+    }
 }
