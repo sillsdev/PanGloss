@@ -636,14 +636,6 @@ pub enum RepeatEligibility {
     Unbounded,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DerivationRepeatPolicy {
-    /// Realizational rules have no grammar-level application cap.
-    RealizationalLoop,
-    /// Ordinary derivational affix rules retain their authored `max_apps` bound.
-    Bounded { max_apps: u16 },
-}
-
 /// One derivational rule/zone projection independent of any physical template slot.
 ///
 /// A slot projection owns coupled template choices; this projection records the separate
@@ -651,17 +643,12 @@ pub enum DerivationRepeatPolicy {
 #[derive(Debug, Clone)]
 pub struct DerivationProjection {
     key: DerivationProjectionKey,
-    repeat_policy: DerivationRepeatPolicy,
     alternatives: Vec<SlotProjectionAlternative>,
 }
 
 impl DerivationProjection {
     pub fn key(&self) -> DerivationProjectionKey {
         self.key
-    }
-
-    pub fn repeat_policy(&self) -> DerivationRepeatPolicy {
-        self.repeat_policy
     }
 
     pub fn alternatives(&self) -> &[SlotProjectionAlternative] {
@@ -795,25 +782,25 @@ impl MorphologyRelationPlan {
         for (stratum_index, stratum) in grammar.strata.iter().enumerate() {
             for (site, &rule) in stratum.mrules.iter().enumerate() {
                 let Some(rule_definition) = grammar.mrules.get(rule.0 as usize) else {
-                    continue;
+                    return Err(MorphologyRelationError::UnsupportedRewrite {
+                        allomorph: AllomorphId(0),
+                        shape_id: "InvalidReferences",
+                        reason_id: "invalid-derivation-rule-reference",
+                    });
                 };
-                let (allomorphs, repeat_policy, repeat_eligibility) = match rule_definition {
+                let (allomorphs, repeat_eligibility) = match rule_definition {
                     MorphRuleDef::AffixProcess(definition) => (
                         definition.allomorphs.as_slice(),
-                        DerivationRepeatPolicy::Bounded {
-                            max_apps: definition.max_apps,
-                        },
-                        if definition.max_apps > 1 {
+                        if definition.max_apps == 1 {
+                            RepeatEligibility::Once
+                        } else {
                             RepeatEligibility::Bounded {
                                 max_apps: definition.max_apps,
                             }
-                        } else {
-                            RepeatEligibility::Once
                         },
                     ),
                     MorphRuleDef::Realizational(definition) => (
                         definition.allomorphs.as_slice(),
-                        DerivationRepeatPolicy::RealizationalLoop,
                         RepeatEligibility::Unbounded,
                     ),
                     _ => continue,
@@ -831,7 +818,7 @@ impl MorphologyRelationPlan {
                         continue;
                     }
                     if let MorphologyRewrite::MarkedStructural { shape_id, .. } = decision {
-                        if !matches!(repeat_eligibility, RepeatEligibility::Once) {
+                        if matches!(repeat_eligibility, RepeatEligibility::Unbounded) {
                             return Err(MorphologyRelationError::UnsupportedRewrite {
                                 allomorph: allomorph.id,
                                 shape_id,
@@ -863,7 +850,6 @@ impl MorphologyRelationPlan {
                         } else {
                             derivation_projections.push(DerivationProjection {
                                 key,
-                                repeat_policy,
                                 alternatives: vec![alternative],
                             });
                         }
