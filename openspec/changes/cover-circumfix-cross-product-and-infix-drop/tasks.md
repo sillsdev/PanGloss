@@ -1,3 +1,20 @@
+## Ordered delivery tranche after scope reset
+
+This is the short execution order for the current slice; the existing task IDs remain the source
+of detail and none are advanced by this summary.
+
+1. Freeze real Indonesian, Amharic, and Aweti case IDs, source bindings, denominators, and timeout
+   status before more framework work (`6.2–6.6`; Indonesian route tasks are in the sibling change).
+2. Make the selected backend payload, route, runtime stages, envelope, and evidence one bound
+   artifact (`4.1–4.3`, `6.1`, `6.4`). Bare-FST and complete-pipeline claims must stay distinct.
+3. Fix only failures reproduced by those frozen cases, including the slot carrier and declared
+   structural recipes (`1.5`, `2.3`, `2.3a`, `2.6`, `3.1–3.6`).
+4. Run exact semantic certification for all three languages; expected constants are not evidence
+   (`6.1–6.6`).
+5. Verify the merged tip and update the acceptance document/cards without widening scope
+   (`7.1–7.3`). Mbugwe, generic peeler/advice expansion, and PlanComposed implementation remain
+   deferred; do not add generic work without a frozen red case.
+
 ## 1. Primary-authored red acceptance tests
 
 - [x] 1.1 Primary agent adds `templated_morphology_classifier_gate.rs` defining the wished-for shared classifier API and pinning `OrdinaryLiteral`, whole-root wrapper, interior insertion, one-segment terminal modification, initial-vowel replacement, existing adjacent drop, and stable `Unsupported` shape/reason outcomes; verify RED with `& rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget templated_morphology_classifier_gate`.
