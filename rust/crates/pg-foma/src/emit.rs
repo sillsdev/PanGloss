@@ -1121,13 +1121,14 @@ fn write_untagged_entry(out: &mut String, text: &str, continuation: &str, counts
 #[derive(Clone)]
 struct AtomicCarrier {
     template_index: usize,
-    slot_index: usize,
     choices: Vec<AtomicCarrierChoice>,
 }
 
 #[derive(Clone)]
 struct AtomicCarrierChoice {
     alternative: Option<crate::structural_allomorph::SlotProjectionAlternative>,
+    prefix_variants: Vec<String>,
+    suffix_variants: Vec<String>,
     prefix_name: String,
     roots_name: String,
     post_name: String,
@@ -1155,13 +1156,12 @@ fn atomic_carrier_refusal(
     }
 }
 
-/// Find the one mixed physical slot and retain every authored lane in its projection order.
 fn atomic_template_carriers(
     g: &Grammar,
-    pipeline_table: &CharDefTable,
+    alphabet: &SegAlphabet<'_>,
     counts: EmitCounts,
     uncovered: Vec<UncoveredItem>,
-) -> Result<HashMap<(usize, usize), Vec<AtomicCarrier>>, EmitResult> {
+) -> Result<HashMap<(usize, usize), AtomicCarrier>, EmitResult> {
     let candidate = g.templates.iter().any(|template| {
         template.slots.iter().any(|slot| {
             let mut has_prefix = false;
@@ -1186,7 +1186,7 @@ fn atomic_template_carriers(
     let Some(table_index) = g
         .char_tables
         .iter()
-        .position(|table| std::ptr::eq(table, pipeline_table))
+        .position(|table| std::ptr::eq(table, alphabet.table()))
     else {
         return Err(atomic_carrier_refusal(
             uncovered,
@@ -1199,7 +1199,7 @@ fn atomic_template_carriers(
         TableId(table_index as u16),
     )
     .map_err(|error| atomic_carrier_refusal(uncovered.clone(), counts.clone(), &error.to_string()))?;
-    let mut carriers: HashMap<(usize, usize), Vec<AtomicCarrier>> = HashMap::new();
+    let mut carriers: HashMap<(usize, usize), AtomicCarrier> = HashMap::new();
     let mut mixed_templates: HashMap<usize, usize> = HashMap::new();
     for projection in plan.slot_projections() {
         let has_coupled = projection.alternatives().iter().any(|alternative| {
@@ -1231,6 +1231,17 @@ fn atomic_template_carriers(
                 ));
             }
         }
+        if g.templates[key.template_index].slots[key.slot_index]
+            .rules
+            .iter()
+            .any(|rule| g.strata.iter().any(|stratum| stratum.mrules.contains(rule)))
+        {
+            return Err(atomic_carrier_refusal(
+                uncovered.clone(),
+                counts.clone(),
+                "atomic template carrier does not support a mixed-slot rule also authored at a derivation site",
+            ));
+        }
         if projection.alternatives().is_empty() && !projection.optional() {
             return Err(atomic_carrier_refusal(
                 uncovered.clone(),
@@ -1253,8 +1264,36 @@ fn atomic_template_carriers(
                     "atomic carrier requires finite prefix and suffix variants for each coupled lane",
                 ));
             }
+            let encode_variants = |variants: &[String]| {
+                variants
+                    .iter()
+                    .map(|variant| {
+                        if variant.is_empty() {
+                            Some(String::new())
+                        } else {
+                            alphabet.encode_query(variant)
+                        }
+                    })
+                    .collect::<Option<Vec<_>>>()
+            };
+            let Some(prefix_variants) = encode_variants(alternative.prefix_variants()) else {
+                return Err(atomic_carrier_refusal(
+                    uncovered.clone(),
+                    counts.clone(),
+                    "atomic carrier variant cannot be encoded by the active segmentation alphabet",
+                ));
+            };
+            let Some(suffix_variants) = encode_variants(alternative.suffix_variants()) else {
+                return Err(atomic_carrier_refusal(
+                    uncovered.clone(),
+                    counts.clone(),
+                    "atomic carrier variant cannot be encoded by the active segmentation alphabet",
+                ));
+            };
             choices.push(AtomicCarrierChoice {
                 alternative: Some(alternative.clone()),
+                prefix_variants,
+                suffix_variants,
                 prefix_name: format!(
                     "AtomicT{}S{}A{}Pfx",
                     key.template_index, key.slot_index, alternative_index
@@ -1276,6 +1315,8 @@ fn atomic_template_carriers(
         if projection.optional() {
             choices.push(AtomicCarrierChoice {
                 alternative: None,
+                prefix_variants: Vec::new(),
+                suffix_variants: Vec::new(),
                 prefix_name: format!(
                     "AtomicT{}S{}ASkipPfx",
                     key.template_index, key.slot_index
@@ -1296,11 +1337,10 @@ fn atomic_template_carriers(
         }
         carriers.insert(
             (key.template_index, key.slot_index),
-            vec![AtomicCarrier {
+            AtomicCarrier {
                 template_index: key.template_index,
-                slot_index: key.slot_index,
                 choices,
-            }],
+            },
         );
     }
     Ok(carriers)
@@ -1311,6 +1351,8 @@ fn emit_atomic_projection_alternative(
     g: &Grammar,
     alternative: &crate::structural_allomorph::SlotProjectionAlternative,
     zone: MarkerZone,
+    prefix_variants: &[String],
+    suffix_variants: &[String],
     continuation: &str,
     width: usize,
     counts: &mut EmitCounts,
@@ -1318,15 +1360,19 @@ fn emit_atomic_projection_alternative(
 ) {
     let tag = tags::morph_tag_lexc(owning_morpheme(g, alternative.rule()), width);
     match alternative.decision() {
-        crate::structural_allomorph::MorphologyRewrite::OrdinaryLiteral { variants, .. } => {
+        crate::structural_allomorph::MorphologyRewrite::OrdinaryLiteral { .. } => {
+            let variants = match zone {
+                MarkerZone::Prefix => prefix_variants,
+                MarkerZone::Suffix => suffix_variants,
+            };
             for variant in variants {
                 write_tag_entry(out, &tag, variant, continuation, counts, pk, Some(alternative.allomorph()));
             }
         }
         crate::structural_allomorph::MorphologyRewrite::DirectWholeRootWrapper { .. } => {
             let variants = match zone {
-                MarkerZone::Prefix => alternative.prefix_variants(),
-                MarkerZone::Suffix => alternative.suffix_variants(),
+                MarkerZone::Prefix => prefix_variants,
+                MarkerZone::Suffix => suffix_variants,
             };
             for variant in variants {
                 write_tag_entry(out, &tag, variant, continuation, counts, pk, Some(alternative.allomorph()));
@@ -1376,6 +1422,8 @@ fn emit_atomic_choice_prefix(
                 g,
                 alternative,
                 MarkerZone::Prefix,
+                &choice.prefix_variants,
+                &choice.suffix_variants,
                 continuation,
                 width,
                 counts,
@@ -1413,6 +1461,8 @@ fn emit_atomic_choice_suffix(
                 g,
                 alternative,
                 MarkerZone::Suffix,
+                &choice.prefix_variants,
+                &choice.suffix_variants,
                 exit,
                 width,
                 counts,
@@ -1421,7 +1471,7 @@ fn emit_atomic_choice_suffix(
             counts.allomorphs_emitted += 1;
         }
         crate::structural_allomorph::SlotAlternativeRoute::Coupled => {
-            for variant in alternative.suffix_variants() {
+            for variant in &choice.suffix_variants {
                 write_untagged_entry(out, variant, exit, counts);
             }
         }
@@ -5376,9 +5426,7 @@ pub fn emit_underlying_templated(
         }
     }
 
-    // Mixed template slots use reviewed alternatives as finite lanes; templates may retain
-    // ordinary slots, but a second mixed physical slot is refused before lexc emission.
-    let atomic_carriers = match atomic_template_carriers(g, table, counts.clone(), uncovered.clone())
+    let atomic_carriers = match atomic_template_carriers(g, alphabet, counts.clone(), uncovered.clone())
     {
         Ok(carriers) => carriers,
         Err(refusal) => return refusal,
@@ -5573,7 +5621,10 @@ pub fn emit_underlying_templated(
         for (gi, tis) in group_templates.iter().enumerate() {
             for &ti in tis {
                 let (prefix_slots, _) = classify_template(g, &g.templates[ti], &mut Vec::new());
-                if prefix_slots.is_empty() {
+                let has_mixed = atomic_carriers
+                    .keys()
+                    .any(|&(template_index, _)| template_index == ti);
+                if prefix_slots.is_empty() && !has_mixed {
                     dispatch_lines.insert(format!("G{gi}PfxD0"));
                 } else {
                     dispatch_lines.insert(format!("T{ti}P0"));
@@ -5724,8 +5775,8 @@ pub fn emit_underlying_templated(
             let (_, suffix_slots) = classify_template(g, template, &mut uncovered);
             let mixed_slot = atomic_carriers
                 .iter()
-                .find_map(|(&(template_index, slot_index), carriers)| {
-                    (template_index == ti).then_some((slot_index, carriers.first()?))
+                .find_map(|(&(template_index, slot_index), carrier)| {
+                    (template_index == ti).then_some((slot_index, carrier))
                 });
             let suffix_slots: Vec<&SlotDef> = suffix_slots
                 .into_iter()
@@ -5869,8 +5920,8 @@ pub fn emit_underlying_templated(
             let template = &g.templates[ti];
             let mixed = atomic_carriers
                 .iter()
-                .find_map(|(&(template_index, slot_index), carriers)| {
-                    (template_index == ti).then_some((slot_index, carriers.first()?))
+                .find_map(|(&(template_index, slot_index), carrier)| {
+                    (template_index == ti).then_some((slot_index, carrier))
                 });
             let (prefix_slots, suffix_slots) = classify_template(g, template, &mut Vec::new());
             if let Some((mixed_slot_index, carrier)) = mixed {
