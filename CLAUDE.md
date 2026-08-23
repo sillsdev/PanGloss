@@ -1,5 +1,13 @@
 # Repo instructions
 
+## Classify FST evidence before changing limits
+
+Before changing an FST threshold, refusal, retry, or containment mechanism, state whether the
+evidence concerns **correctness/representability**, **production readiness**, or **resource
+containment**. Do not use a readiness Error to avoid a contained stress attempt, and never use a
+larger limit to excuse incomplete or unproven output. Follow
+`docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`.
+
 ## Managed build commands (required for agent workflows)
 
 All PanGloss Rust builds and tests in agent workflows MUST go through the managed entry point

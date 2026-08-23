@@ -5,6 +5,16 @@ at a763189). Every structural claim below carries a file:line citation and is ma
 (read in this worktree) or INFERRED (a conclusion drawn from verified facts). Paths are relative
 to the worktree root `.claude/worktrees/cleanup-and-recipe-parity/`.
 
+> **SUPERSEDED for current product policy (2026-08-23).** This planning survey predates the
+> current route work and is retained for its measurements and design questions only. Do not infer
+> a production flag surface from its hypothetical switches. Production uses named closed resource
+> envelopes and fail-closed capability/readiness decisions. `--allow-unproven` and
+> `--remove-size-limits` are developer-build-only, absent and rejected in production;
+> `--allow-unproven` may lose valid parses and never certifies or publishes, while
+> `--remove-size-limits` removes internal caps only under exact-completion and mandatory external
+> containment. `Error` can be complete/accurate stress evidence but is production-unready;
+> `Critical` is a correctness gap. The legacy `--no-enforce-capability` escape is developer-only.
+
 ## 0. The decision, framed honestly
 
 `pg_foma::backend_selection` selects backends by correctness alone: a backend is selected iff its

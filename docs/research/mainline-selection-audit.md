@@ -1,5 +1,11 @@
 # Mainline selection audit — what the shipped compiler already chooses, and whether recipes can grow out of it
 
+> **Current policy overlay (2026-08-23):** This read-only audit records code behavior at the time.
+> References below to public `--no-enforce-capability` or `--allow-unproven` paths are observations,
+> not current product policy. Correctness, production readiness, and containment are separate;
+> experimental overrides are developer-build-only. See
+> `docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`.
+
 Read-only research. No code was edited, no builds run, no git commands run. Builds on
 `per-language-fst-synthesis.md`, `recipe-machinery-audit.md`, `handspun-technique-audit.md`; their
 established findings are taken as given and not re-proved. Every claim below is cited to a

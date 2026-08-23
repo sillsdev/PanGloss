@@ -6,6 +6,14 @@
 > FST. The active acceptance slice is Indonesian, Amharic, and Aweti; Mbugwe is deferred and does
 > not block that slice. Historical measurements below are intentionally unchanged.
 
+> **Current policy note (2026-08-23).** `--allow-unproven`, `--remove-size-limits`, and the legacy
+> `--no-enforce-capability` escape are developer-build-only and must be hidden/rejected in
+> production. The first may lose valid parses and never certifies or publishes; the second removes
+> internal caps only, while exact completion and mandatory external watchdog/RSS containment,
+> bounded I/O, and the absolute ceiling remain active. `Error` can be complete/accurate stress
+> evidence but is production-unready; `Critical` is a correctness gap. Historical rows below are
+> unchanged.
+
 ## Decision
 
 PanGloss now makes an exact, fail-closed static backend decision for all five reference grammars. The

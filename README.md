@@ -21,6 +21,16 @@ PanGloss is delivered in several capability profiles:
   pinned C# Machine HermitCrab oracle for HC XML. It supports conformance investigation but is not
   distributed in the Runtime or SDK.
 
+> **Developer-only stress controls (current policy).** `--allow-unproven` and
+> `--remove-size-limits` are developer-build/test controls, not production CLI capabilities; a
+> production build must hide and reject both. `--allow-unproven` may omit valid parses, so its
+> output is never certified or published. `--remove-size-limits` disables only internal
+> deterministic size/work caps for deliberately bad-grammar stress runs; exact completion,
+> external watchdog/RSS containment, bounded I/O, and the non-disableable absolute ceiling still
+> apply. A complete/accurate stress result may carry `Error` health evidence, but `Error` remains
+> production-unready and `Critical` denotes a correctness gap. The legacy `--no-enforce-capability`
+> escape is developer-only as well.
+
 WASM contains no grammar or FST compiler. It consumes artifacts produced by native tooling. C#
 HermitCrab is an explicit build-time authority check, never a runtime fallback. PanGloss emits
 structured reports and FieldWorks investigation handoffs; consuming applications own history,

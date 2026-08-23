@@ -132,6 +132,26 @@ fact, a corrected hypothesis, or a successful escalation, and adjust the thresho
 class. High-stakes work may justify persistence, but it should still expose its expected
 evidence payoff and dependency state.
 
+## PanGloss case lesson: classify the axis before changing the architecture
+
+The five-grammar FST effort exposed a concrete conceptual-churn pattern. Error-level production
+readiness findings on deliberately stressful grammars were treated as reasons not to attempt the
+grammars. Work then expanded into envelope thresholds, override architecture, and backend refusal
+policy even though the immediate acceptance question was whether a complete construction could run
+inside external containment. Real completeness defects were present, but the axis confusion caused
+unnecessary work around them.
+
+For PanGloss FST work, every handoff and reassessment must therefore classify the evidence as one of:
+
+1. **correctness/representability** — may a valid HermitCrab analysis be omitted?;
+2. **production readiness** — is a complete result suitable to ship?; or
+3. **resource containment** — did this attempt remain inside its safety boundary?
+
+A production-readiness Error is still eligible for a contained developer stress attempt. A
+correctness Critical is not made accurate by more resources. A containment stop never licenses
+partial output. If a proposed change cannot name which one of these axes it advances, that is an
+immediate reassessment trigger rather than another implementation attempt.
+
 ## Limitations
 
 - Debugging studies are small, observational, or controlled experiments; they do not model

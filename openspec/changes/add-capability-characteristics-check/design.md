@@ -136,11 +136,13 @@ converts "proving a set of constructs orthogonal retires whole swaths of the com
 
 - **Default-deny characterizer** (task 2): exhaustive over `model.rs`, no catch-all; first act marks
   `Compounding`, `Unordered`, `MprGroup`, and every unproven config fail-closed.
-- **Capability override** (ADR 0005, task 4): an explicit override force-compiles a refused grammar,
-  writing an indelible unproven/recall-unsafe stamp into the **pack manifest** override record
-  (who/when/why/which configs) and broadcasting a pack-level `unproven` load signal + per-analysis
-  degraded-trust flag. An overridden artifact never passes conformance; only genuine proof + clean
-  recompile clears it.
+- **Capability override** (ADR 0005, task 4): a hidden developer-build-only override force-compiles
+  a refused grammar for grounding, writing an indelible unproven/recall-unsafe stamp into the
+  **pack manifest** override record (who/when/why/which configs) and broadcasting a pack-level
+  `unproven` load signal + per-analysis degraded-trust flag. It may omit valid parses, is rejected
+  in production/publication/certification, and never passes conformance; only genuine proof + clean
+  recompile clears it. It does not remove resource limits and is distinct from developer-only
+  stress execution that removes internal size/work caps while preserving external containment.
 - **Conformance-coverage CI gate** (task 5): CI cross-checks the **capability registry** (the
   source-controlled supported/unsupported contract) against `machine/conformance/` coverage
   (`constructs.txt` / per-word `exercises:` / `rules.csv`); marking anything supported without a

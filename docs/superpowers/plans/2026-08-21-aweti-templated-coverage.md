@@ -8,6 +8,15 @@
 > and its task/design artifacts are authoritative for the active coverage work. This dated plan
 > preserves the historical Aweti evidence and sequencing only.
 
+> **Current policy note (2026-08-23).** This plan's route acceptance remains a production
+> criterion: only complete, correctly represented routes with no correctness gap are selectable.
+> `--allow-unproven` and `--remove-size-limits` are developer-build-only and must be absent and
+> rejected in production. The former may lose valid parses and never certifies or publishes; the
+> latter disables internal size/work caps only while exact completion, external watchdog/RSS
+> containment, bounded I/O, and the absolute ceiling remain mandatory. A complete/accurate stress
+> result may be retained as `Error` evidence, but `Error` is production-unready and `Critical` is
+> a correctness gap. `--no-enforce-capability` is legacy developer-only.
+
 **Goal:** Route Aweti away from the 3,093,412-entry eager enumeration path, close the six known templated recall gaps, and prove the selected route against the real corpus.
 
 ## Task 1: Reconcile the current 100/106 versus 106/106 evidence

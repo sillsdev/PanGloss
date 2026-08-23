@@ -23,6 +23,15 @@ Where a document disagrees with another document, or with the code, it is listed
 [Contradictions](#contradictions-and-stale-claims) rather than silently ranked. **Trust code over
 prose.**
 
+> **Current FST policy (2026-08-23).** The research index may link historical override behavior,
+> but the product contract is now three-axis: capability correctness, resource/size containment,
+> and readiness health. `--allow-unproven` and `--remove-size-limits` are developer-build-only,
+> absent and rejected in production. The former may lose valid parses and never certifies or
+> publishes; the latter removes internal caps only, while exact completion, external
+> watchdog/RSS containment, bounded I/O, and the absolute ceiling remain mandatory. `Error` can be
+> complete/accurate stress evidence but is production-unready; `Critical` is a correctness gap.
+> The legacy `--no-enforce-capability` escape is developer-only.
+
 ## The one orientation fact
 
 There are **two non-interoperating FST-construction pipelines**, and only one of them runs when you
@@ -76,7 +85,7 @@ and builds no FST at all (`pg-cli-main-design-notes.md`).
 | [`grammar-feature-space.md`](grammar-feature-space.md) | "What is the space of grammars we must handle, and which properties should change the construction?" 22 `CharacteristicKind`s, seven kept axes, ~7-8 clusters. | MIXED |
 | [`mainline-selection-audit.md`](mainline-selection-audit.md) §C5 | "Is the capability layer judging the compiler that actually ran?" Often not: 4 of the 7 predicates that can return `Refuse` reason about the prototype. | VERIFIED |
 | [`../adr/0001-honest-capability-boundary.md`](../adr/0001-honest-capability-boundary.md) | "Why does PanGloss refuse rather than silently under-generate?" | VERIFIED |
-| [`../adr/0005-capability-override-unproven-grammars.md`](../adr/0005-capability-override-unproven-grammars.md) | "I need to run anyway — what does `--allow-unproven` cost me?" (Deliberate, documented tension with ADR 0001.) | VERIFIED |
+| [`../adr/0005-capability-override-unproven-grammars.md`](../adr/0005-capability-override-unproven-grammars.md) | "I need to run anyway — what does developer-only `--allow-unproven` cost me?" Historical override decision; superseded for production publication by the current policy above. | VERIFIED, policy-superseded |
 | [`../fst-plan/mpr-overwrite-encoding-research.md`](../fst-plan/mpr-overwrite-encoding-research.md) | "Can the MPR `Overwrite` carve-out be narrowed?" Four constructions; Construction 2 (a reachability pass) is buildable and unbuilt. | MIXED, research-only |
 | [`../conformance/needs-decision-resolutions.md`](../conformance/needs-decision-resolutions.md) | "Do the two undecided constructs become carve-outs?" No — both resolve to provable, build them. | VERIFIED → PROPOSED |
 | [`../conformance/circumfix-structural-composite-census.md`](../conformance/circumfix-structural-composite-census.md) | "Which circumfix-shaped allomorphs miss the structural-composite route?" Every gap fails in the over-refusal direction. | VERIFIED |

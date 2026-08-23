@@ -16,9 +16,11 @@ ledger, not a load-bearing compile-time refusal. See `docs/adr/0001` and `docs/a
   an oracle-verified proof obligation that may over-refuse but never under-refuse.
 - **Default-deny characterizer** exhaustive over the frozen `model.rs` with no catch-all: adding a
   variant breaks the build until it is characterized.
-- Add the **capability override + unproven-trust runtime signal** (ADR 0005): a refused grammar may
-  force-compile, load, and run behind an indelible degraded-trust signal; the override is recorded and
-  never passes conformance.
+- Add the **developer-only capability override + unproven-trust runtime signal** (ADR 0005): a
+  refused grammar may be force-compiled for grounding behind an indelible degraded-trust signal.
+  It may omit valid parses, is hidden/rejected in production, and never publishes, certifies, or
+  passes conformance. This correctness override is distinct from developer stress execution with
+  internal size/work caps removed; neither mode permits partial output to count as accurate.
 - Add the **conformance-coverage CI gate**: a construct/config may be marked supported only when a
   passing synthetic `machine/conformance/` fixture exercises it, else CI breaks.
 - First act: mark `Compounding`, `MorphRuleOrder::Unordered`, `MprGroup`, and all unproven configs

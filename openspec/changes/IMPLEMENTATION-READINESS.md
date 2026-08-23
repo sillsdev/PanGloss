@@ -95,12 +95,17 @@ package builder consume the same canonical report. No Python package, notebook, 
 UI is added to this core repository for these warnings.
 
 FST payload size uses decimal bytes: Ideal `<=10_000_000`; Info `>10_000_000..=20_000_000`;
-Warning `>20_000_000..=100_000_000`; Error `>100_000_000..=500_000_000` with explicit recorded
-override; Critical `>500_000_000`. Both Error and Critical are overridable via the ADR 0005
-capability override (force-compile behind an indelible degraded-trust runtime signal, permanently
-recorded); the trust axis is binary and the only non-overridable floor is ADR 0003 apply-time
-execution containment, not any predicted size verdict. Size is one dimension; compile work,
-intermediate nets, candidates, paths, time, and unknown/unbounded constructs may raise severity.
+Warning `>20_000_000..=100_000_000`; Error `>100_000_000..=500_000_000`; and values beyond
+that remain a high-severity readiness finding, not a correctness/capability Critical by size alone.
+These bands describe production readiness under the managed envelope. A complete exact,
+parity-verified Error result may be attempted in developer stress mode but remains
+production-unready. Hidden developer-only `--allow-unproven` is the ADR 0005 correctness override;
+it may omit valid parses, is rejected in production/publication/certification, and never removes
+limits. Hidden developer-only `--remove-size-limits` disables only internal deterministic
+size/work caps; worker isolation, bounded I/O, external watchdog/RSS/absolute ceilings,
+capability checks, completion, finalized payload, and parity remain. `--no-enforce-capability` is
+legacy developer-only/non-production. Size is one dimension; compile work, intermediate nets,
+candidates, paths, time, and unknown/unbounded constructs may raise health severity.
 Unknown cost is not itself Critical when construction is recall-preserving: compilation proceeds
 under the shared resource envelope and its observed outcome controls admission. Any uncertainty
 that could omit an analysis fails closed.

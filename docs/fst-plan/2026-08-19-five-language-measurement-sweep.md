@@ -4,6 +4,15 @@
 > earlier route work. Sena and Mbugwe are outside the current Indonesian/Amharic/Aweti acceptance
 > slice, and no row below certifies a trusted shipped FST.
 
+> **Current policy note (2026-08-23).** Historical flag references below describe the run's
+> context, not a production interface. `--allow-unproven`, `--remove-size-limits`, and the legacy
+> `--no-enforce-capability` escape are developer-build-only and must be hidden/rejected in
+> production. The first may lose valid parses and never certifies or publishes; the second removes
+> internal caps only, with exact completion and mandatory external watchdog/RSS containment,
+> bounded I/O, and the absolute ceiling still in force. `Error` may be complete/accurate stress
+> evidence but is production-unready; `Critical` is a correctness gap. Measurements and
+> conclusions below are intentionally unchanged.
+
 Measures whether the FST-propose + HC-confirm path (`--engine=foma`) reaches full recall against
 the oracle (`--engine=default`) for all five private-corpus reference grammars — indonesian, sena,
 amharic, aweti, mbugwe — and what it costs (FST size, build time, propose/confirm speed). Companion

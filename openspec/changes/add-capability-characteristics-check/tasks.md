@@ -12,9 +12,9 @@
 ## 3. Hard-fail gate
 - [x] 3.1 Profile↔envelope match → typed compile-time refusal diagnostic — `CompileDecision::Refuse(diagnostics)`, now surfaced by `pg_foma::capability_entry::evaluate_capability` (Step 2 wraps `characterize`+`enumerate_default`+`compose_envelope` for callers)
 - [x] 3.2 Configuration-predicate granularity; over-refuse-never-under-refuse discipline — `CapabilityPredicate`/`PredicateVerdict`; `default_registry()` now ships **11 real predicates** (multi-table, RTL, simultaneous, quantifier, metathesis, circumfix, reduplication, compounding, unordered, MPR-append, MPR-overwrite), not just the one `SimultaneousSubruleOverlapPredicate` noted here previously — only `epenthesis.placeholder` remains a `FailClosedPlaceholder`
-- [x] 3.3 Wire the gate into the production compile path (the flip: block/stamp a real compile) — DONE for the CLI path: `pg-cli/src/main.rs`'s `capability_gate`/`run_capability_gate` call `evaluate_capability` and are wired to `--enforce-capability`/`--no-enforce-capability` (default-enforcing on `--engine=foma`) and `--allow-unproven`; genuinely blocks `batch`/`parse` on an unenforced `Refuse`. NOTE: this is the CLI entry point, not `emit.rs`/`gate.rs`/`replace.rs` themselves refusing internally — the compile functions still run unconditionally once the CLI-level gate lets a grammar through
+- [x] 3.3 Wire the gate into the production compile path (the flip: block/stamp a real compile) — DONE for the CLI path: `pg-cli/src/main.rs`'s `capability_gate`/`run_capability_gate` call `evaluate_capability` and default-enforce on `--engine=foma`. **Policy follow-up remains:** hide and reject `--allow-unproven` and legacy `--no-enforce-capability` in production builds; both are currently reachable there. NOTE: this is the CLI entry point, not `emit.rs`/`gate.rs`/`replace.rs` themselves refusing internally — the compile functions still run unconditionally once the CLI-level gate lets a grammar through.
 
-## 4. Capability override + trust signal (ADR 0005)
+## 4. Developer-only capability override + trust signal (ADR 0005)
 - [ ] 4.1 Explicit override that force-compiles; indelible unproven/recall-unsafe stamp in pack manifest
       (force-compile via `--allow-unproven` is done and tested in `pg-cli/main.rs`, but the CLI's own
       code comment is explicit: "No `.pgpack` packaging exists yet to carry ADR 0005's persistent,
@@ -27,6 +27,9 @@
       (the record type exists — `pg-pack/src/trust.rs::CapabilityOverrideRecord`
       (`authorized_by`/`reason`/`recorded_at`/`overridden_configs`) — but nothing populates it from the
       CLI's `--allow-unproven` path yet; that path only emits a stderr marker, per 4.1)
+- [ ] 4.4 Compile the override parsing/help/API out of production builds and reject the spelling;
+      prove it remains developer-only, may omit valid parses, never publishes/certifies, does not
+      remove resource containment, and is distinct from `--remove-size-limits` stress execution.
 
 ## 5. Conformance-coverage CI gate
 - [ ] 5.1 Cross-check capability registry against `machine/conformance/` coverage; break build on gap

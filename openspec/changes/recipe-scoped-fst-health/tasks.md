@@ -34,12 +34,14 @@ outstanding rather than trusted from its notes.
       because it is the guard that stops health drifting into judging the analysis
 - [ ] 3.4 Run the focused commands from the archived change's `design.md` (its 4.1, never run)
 
-## 4. The size bands warn for a real reason; the exact edges are provisional
+## 4. The size bands report production readiness; the exact edges are provisional
 
-**Thresholds stay.** A gigabyte-scale compiled grammar is not shippable and its author has to be
-told, so these are warnings rather than a bare reported number. Only the exact edges are open.
-Raised 10x to 100MB / 200MB / 1GB / 5GB, which puts anything past a gigabyte into Error — an
-explicit, recorded override before it can publish.
+**Thresholds stay as managed-envelope readiness findings.** A gigabyte-scale compiled grammar is
+not production-ready and its author has to be told, but health does not decide representability.
+An Error may be attempted in developer stress mode with hidden `--remove-size-limits`; a complete
+exact/parity-verified result remains Error and cannot publish. Hidden `--allow-unproven` is a
+separate correctness override that may omit valid parses and is never production/publication/
+certification authority. `--no-enforce-capability` remains legacy developer-only/non-production.
 
 - [ ] 4.1 Recalibrate `*_MAX_BYTES` from the spread across several backends and several grammars.
       The reasoning behind the current edges is a judgment, not a measurement: a grammar is on the
@@ -49,14 +51,17 @@ explicit, recorded override before it can publish.
 - [ ] 4.2 Keep the provenance loud at every point of use meanwhile, so a crossed band reads as
       "this backend did not combine this grammar well" and never as a proven resource limit
 
-## 5. Nothing acts on a Critical package
+## 5. Correctness Critical and health Error remain distinct
 
-- [ ] 5.1 Decide whether a Critical admission should refuse. Today `HealthReport::admission` is
-      printed by `fst_health.rs` and stamped into the pack manifest by `pack.rs`, and no site
-      rejects on it — so `Severity`'s own doc ("requires an explicit, recorded `OverrideRecord`
-      before the artifact may publish") describes an intent nothing enforces. Under the two-axis
-      rule cost alone is never a rejection, so the honest resolution may be to soften the doc rather
-      than add a gate
+- [ ] 5.1 Wire production publication/selection to refuse a correctness/capability Critical or
+      any incomplete, truncated, skipped, or parity-unverified result. A health Error remains a
+      production-readiness refusal under the managed envelope, but may be attempted by explicit
+      developer stress control and never becomes a trusted production result merely because it
+      completed.
+- [ ] 5.2 Test the two hidden developer-only switches independently: `--allow-unproven` may omit
+      valid parses and never publishes/certifies; `--remove-size-limits` removes only internal
+      deterministic size/work caps and retains host safety, capability, completion, payload, and
+      parity checks.
 
 ## 6. Verification
 
