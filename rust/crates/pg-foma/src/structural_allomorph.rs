@@ -703,13 +703,14 @@ impl MorphologyRelationPlan {
                 continue;
             };
             for allomorph in allomorphs {
-                let source_table = owning_source_table(grammar, allomorph).map_err(|reason_id| {
-                    MorphologyRelationError::UnsupportedRewrite {
-                        allomorph: allomorph.id,
-                        shape_id: "InvalidReferences",
-                        reason_id,
-                    }
-                })?;
+                let source_table =
+                    owning_source_table(grammar, allomorph).map_err(|reason_id| {
+                        MorphologyRelationError::UnsupportedRewrite {
+                            allomorph: allomorph.id,
+                            shape_id: "InvalidReferences",
+                            reason_id,
+                        }
+                    })?;
                 let rewrite = MorphologyRewriteClassifier::classify_with_tables(
                     grammar,
                     allomorph,
@@ -744,12 +745,8 @@ impl MorphologyRelationPlan {
                     template_index,
                     slot_index,
                 };
-                let allomorphs = slot_allomorphs(
-                    grammar,
-                    slot.rules.as_slice(),
-                    template_index,
-                    slot_index,
-                )?;
+                let allomorphs =
+                    slot_allomorphs(grammar, slot.rules.as_slice(), template_index, slot_index)?;
                 let ownership = SlotOwnership::from(slot.zone);
                 let mut alternatives = Vec::new();
                 for (rule, allomorph) in allomorphs.iter().copied() {
@@ -760,13 +757,8 @@ impl MorphologyRelationPlan {
                             reason_id: "slot-allomorph-not-classified",
                         });
                     };
-                    let route = projection_route(
-                        decision,
-                        allomorph,
-                        ownership,
-                        &allomorphs,
-                        &decisions,
-                    )?;
+                    let route =
+                        projection_route(decision, allomorph, ownership, &allomorphs, &decisions)?;
                     let zones = route_zones(route);
                     let alternative = make_projection_alternative(
                         rule,
@@ -926,7 +918,9 @@ impl MorphologyRelationPlan {
     }
 
     pub fn slot_projection(&self, key: SlotProjectionKey) -> Option<&SlotProjection> {
-        self.slot_projections.iter().find(|projection| projection.key == key)
+        self.slot_projections
+            .iter()
+            .find(|projection| projection.key == key)
     }
 
     pub fn derivation_projections(&self) -> &[DerivationProjection] {
@@ -946,10 +940,7 @@ impl MorphologyRelationPlan {
         &self.relation
     }
 
-    pub fn direct_wrapper_for(
-        &self,
-        allomorph: AllomorphId,
-    ) -> Option<(&[String], &[String])> {
+    pub fn direct_wrapper_for(&self, allomorph: AllomorphId) -> Option<(&[String], &[String])> {
         self.slot_projections
             .iter()
             .flat_map(|projection| projection.alternatives())
@@ -957,11 +948,11 @@ impl MorphologyRelationPlan {
                 if alternative.allomorph != allomorph {
                     return None;
                 }
-                matches!(&alternative.decision, MorphologyRewrite::DirectWholeRootWrapper { .. })
-                    .then_some((
-                        alternative.prefix_variants(),
-                        alternative.suffix_variants(),
-                    ))
+                matches!(
+                    &alternative.decision,
+                    MorphologyRewrite::DirectWholeRootWrapper { .. }
+                )
+                .then_some((alternative.prefix_variants(), alternative.suffix_variants()))
             })
     }
 }
@@ -974,14 +965,13 @@ fn slot_allomorphs<'a>(
 ) -> Result<Vec<(MRuleId, &'a AffixAllomorphDef)>, MorphologyRelationError> {
     let mut allomorphs = Vec::new();
     for &rule_id in rules {
-        let rule = grammar
-            .mrules
-            .get(rule_id.0 as usize)
-            .ok_or(MorphologyRelationError::InvalidSlotRule {
+        let rule = grammar.mrules.get(rule_id.0 as usize).ok_or(
+            MorphologyRelationError::InvalidSlotRule {
                 template_index,
                 slot_index,
                 rule: rule_id,
-            })?;
+            },
+        )?;
         let Some(affix_allomorphs) = rule.affix_allomorphs() else {
             return Err(MorphologyRelationError::NonAffixSlotRule {
                 template_index,
@@ -1094,9 +1084,7 @@ fn route_zones(route: SlotAlternativeRoute) -> Vec<MarkerZone> {
 
 fn edge_route(role: crate::emit::Role) -> Option<MarkerZone> {
     match role {
-        crate::emit::Role::Prefix | crate::emit::Role::CircumfixPrefix => {
-            Some(MarkerZone::Prefix)
-        }
+        crate::emit::Role::Prefix | crate::emit::Role::CircumfixPrefix => Some(MarkerZone::Prefix),
         crate::emit::Role::Suffix => Some(MarkerZone::Suffix),
         _ => None,
     }

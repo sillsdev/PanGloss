@@ -3,8 +3,7 @@ use pg_foma::structural_allomorph::{
     RepeatEligibility, SlotAlternativeRoute, SlotOwnership, SlotProjectionKey,
 };
 use pg_grammar::model::{
-    AllomorphId, Grammar, MRuleId, MorphRuleDef, OutputAction, PartRef, StratumId,
-    TemplateSlotZone,
+    AllomorphId, Grammar, MRuleId, MorphRuleDef, OutputAction, PartRef, StratumId, TemplateSlotZone,
 };
 
 const PLAN_XML: &str = r#"
@@ -78,27 +77,18 @@ fn load_with_unique_suffix_caller() -> Grammar {
 fn load_with_realizational_structural_rule() -> Grammar {
     let realizational = r#"<RealizationalRule id="rr"><Name>realizational</Name><MorphologicalSubrules><MorphologicalSubrule id="rinitial"><MorphologicalInput><PhoneticSequence id="v0"><Segment segment="ca"/></PhoneticSequence><PhoneticSequence id="v1"><SimpleContext naturalClass="ncAny"/></PhoneticSequence></MorphologicalInput><MorphologicalOutput><InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments><CopyFromInput index="v1"/></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules></RealizationalRule>"#;
     let xml = PLAN_XML
-        .replacen(
-            "morphologicalRules=\"\"",
-            "morphologicalRules=\"rr\"",
-            1,
-        )
+        .replacen("morphologicalRules=\"\"", "morphologicalRules=\"rr\"", 1)
         .replace(
             "</MorphologicalRuleDefinitions>",
             &format!("{realizational}</MorphologicalRuleDefinitions>"),
         );
-    pg_grammar::load(&xml)
-        .unwrap_or_else(|error| panic!("realizational fixture failed: {error}"))
+    pg_grammar::load(&xml).unwrap_or_else(|error| panic!("realizational fixture failed: {error}"))
 }
 
 fn load_with_realizational_prefix_rule() -> Grammar {
     let realizational = r#"<RealizationalRule id="rr"><Name>realizational</Name><MorphologicalSubrules><MorphologicalSubrule id="rprefix"><MorphologicalInput><PhoneticSequence id="r0"><SimpleContext naturalClass="ncAny"/></PhoneticSequence></MorphologicalInput><MorphologicalOutput><InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments><CopyFromInput index="r0"/></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules></RealizationalRule>"#;
     let xml = PLAN_XML
-        .replacen(
-            "morphologicalRules=\"\"",
-            "morphologicalRules=\"rr\"",
-            1,
-        )
+        .replacen("morphologicalRules=\"\"", "morphologicalRules=\"rr\"", 1)
         .replace(
             "</MorphologicalRuleDefinitions>",
             &format!("{realizational}</MorphologicalRuleDefinitions>"),
@@ -132,15 +122,16 @@ fn load_without_template() -> Grammar {
         "morphologicalRules=\"mr\"",
         1,
     );
-    pg_grammar::load(&xml)
-        .unwrap_or_else(|error| panic!("template-less fixture failed: {error}"))
+    pg_grammar::load(&xml).unwrap_or_else(|error| panic!("template-less fixture failed: {error}"))
 }
 
 fn allomorph_ids(grammar: &Grammar) -> Vec<AllomorphId> {
     match &grammar.mrules[0] {
-        pg_grammar::model::MorphRuleDef::AffixProcess(rule) => {
-            rule.allomorphs.iter().map(|allomorph| allomorph.id).collect()
-        }
+        pg_grammar::model::MorphRuleDef::AffixProcess(rule) => rule
+            .allomorphs
+            .iter()
+            .map(|allomorph| allomorph.id)
+            .collect(),
         other => panic!("expected affix process, got {other:?}"),
     }
 }
@@ -180,7 +171,10 @@ fn one_physical_slot_owns_coupled_wrapper_drop_and_initial_choices() {
         .expect("drop alternative");
     assert!(drop.prefix_binding().is_none());
     assert_eq!(drop.route(), SlotAlternativeRoute::Suffix);
-    assert_eq!(drop.suffix_binding().map(|binding| binding.zone), Some(MarkerZone::Suffix));
+    assert_eq!(
+        drop.suffix_binding().map(|binding| binding.zone),
+        Some(MarkerZone::Suffix)
+    );
 
     let initial = projection
         .alternatives()
@@ -188,7 +182,10 @@ fn one_physical_slot_owns_coupled_wrapper_drop_and_initial_choices() {
         .find(|alternative| alternative.allomorph() == ids[2])
         .expect("initial alternative");
     assert_eq!(initial.route(), SlotAlternativeRoute::Prefix);
-    assert_eq!(initial.prefix_binding().map(|binding| binding.zone), Some(MarkerZone::Prefix));
+    assert_eq!(
+        initial.prefix_binding().map(|binding| binding.zone),
+        Some(MarkerZone::Prefix)
+    );
     assert!(initial.suffix_binding().is_none());
 
     assert_eq!(
@@ -236,7 +233,10 @@ fn one_sided_wrapper_is_an_edge_route_not_a_coupled_choice() {
         .expect("prefix wrapper alternative");
 
     assert_eq!(alternative.route(), SlotAlternativeRoute::Prefix);
-    assert!(alternative.prefix_variants().iter().any(|value| !value.is_empty()));
+    assert!(alternative
+        .prefix_variants()
+        .iter()
+        .any(|value| !value.is_empty()));
     assert!(alternative.suffix_variants().iter().all(String::is_empty));
 }
 
@@ -325,7 +325,10 @@ fn ordinary_realizational_derivation_is_an_unbounded_edge_alternative() {
     let alternative = &projection.alternatives()[0];
     assert_eq!(alternative.rule(), MRuleId(1));
     assert_eq!(alternative.route(), SlotAlternativeRoute::Prefix);
-    assert_eq!(alternative.repeat_eligibility(), RepeatEligibility::Unbounded);
+    assert_eq!(
+        alternative.repeat_eligibility(),
+        RepeatEligibility::Unbounded
+    );
 }
 
 #[test]
