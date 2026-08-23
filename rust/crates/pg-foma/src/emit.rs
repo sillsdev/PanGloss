@@ -4663,8 +4663,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         for (gi, tis) in group_templates.iter().enumerate() {
             for &ti in tis {
                 let (prefix_slots, _) = classify_template(g, &g.templates[ti], &mut Vec::new());
-                let has_mixed = atomic_carriers.keys().any(|&(template_index, _)| template_index == ti);
-                if prefix_slots.is_empty() && !has_mixed {
+                if prefix_slots.is_empty() {
                     dispatch_lines.insert(format!("G{gi}PfxD0"));
                 } else {
                     dispatch_lines.insert(format!("T{ti}P0"));
