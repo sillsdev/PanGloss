@@ -2,6 +2,10 @@
 
 Snapshot: 2026-08-01 18:51 America/New_York
 
+> **Historical/superseded handoff.** This snapshot's four-language recipe-parity objective is
+> retained for provenance. The current shipping slice is Indonesian, Amharic, and Aweti; do not use
+> this handoff's four-language certification bar as the current acceptance gate.
+
 ## Objective and completion bar
 
 Continue the user’s standing objective: complete three cleanup rounds and reach verified recipe parity for Indonesian, Sena, Amharic, and Aweti. Use Luna implementation/research agents as the normal path and independently review every delegated diff. Do not call the objective complete until the cleanup rounds, full four-language certification, final review gates, merge/push to `main`, and owned-worktree alignment are all proven.

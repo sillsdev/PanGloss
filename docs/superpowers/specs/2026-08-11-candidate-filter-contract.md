@@ -320,7 +320,8 @@ The later FST-generator plan must satisfy these acceptance conditions:
   runtime fallback;
 - support revisioned runtime stem origins without compiling root-by-complete-chain entries;
 - expose explicit incomplete results rather than silently truncating candidates;
-- pass the same five-language oracle-containment gate before replacing the legacy proposer.
+- pass the current Indonesian/Amharic/Aweti oracle-containment gate before replacing the legacy
+  proposer; any future language expansion requires its own declared gate.
 
 ## Out of scope
 

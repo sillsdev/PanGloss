@@ -1,5 +1,8 @@
 # Recipe parity plan — revised 2026-07-30
 
+> **Historical optimizer investigation.** This four-corpus scoreboard is retained as provenance and
+> is not the current Indonesian/Amharic/Aweti shipping gate. Sena remains historical context here.
+
 Goal: the recipe optimizer reaches or beats the hand-spun (`emit::emit`, SurfaceProbed) compiler
 on the four language corpora. "The four languages" in this document always means the real corpora
 (Indonesian, Amharic, Sena, Aweti), never the four synthetic promoted fixtures of

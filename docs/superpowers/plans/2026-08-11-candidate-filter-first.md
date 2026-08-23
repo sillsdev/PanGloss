@@ -10,6 +10,11 @@
 
 **Governing contract:** `docs/superpowers/specs/2026-08-11-candidate-filter-contract.md`
 
+> **Historical/superseded release scope.** The five-language oracle tasks in this plan are retained
+> as implementation provenance. The current shipping acceptance slice is Indonesian, Amharic, and
+> Aweti; Sena and Mbugwe are not current acceptance blockers, and these historical tasks do not
+> certify a trusted shipped FST.
+
 ---
 
 ## Revision note — read before implementing any task
@@ -1317,7 +1322,7 @@ the candidate-filter branch.
 git diff --check
 ```
 
-Expected: all focused targets pass, the corpus gate covers all five declared languages without
+Expected: all focused targets pass, the corpus gate covers the declared historical languages without
 committing their data, zero oracle-positive analyses die, at least one certified filter fires, and
 the enforced path reduces deterministic pre-HC work on named evidence.
 

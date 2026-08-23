@@ -1,4 +1,4 @@
-# Five-language backend characterization and acceptance boundary
+# Historical five-language backend characterization (not current acceptance)
 
 > **Historical pre-route baseline (2026-08-21).** This document records the measured static
 > five-language matrix from before the current route work. It is retained as historical evidence;

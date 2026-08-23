@@ -5,6 +5,9 @@
 > xhigh, and fresh Sol/xhigh review for the architecture gates. The primary agent reviews every
 > diff and owns integration.
 
+> **Historical/superseded acceptance scope.** This four-language recipe-parity plan is retained as
+> provenance. The current shipping slice is Indonesian, Amharic, and Aweti.
+
 **Goal:** Establish one maintainable grammar-compilation architecture, then implement explainable,
 optimizable subrecipes and certify recipe parity for Indonesian, Sena, Amharic, and Aweti without
 language-name routing or incomplete-corpus claims.
