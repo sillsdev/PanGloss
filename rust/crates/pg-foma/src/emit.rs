@@ -1356,12 +1356,13 @@ fn emit_atomic_choice_prefix(
     g: &Grammar,
     choice: &AtomicCarrierChoice,
     category: FsId,
+    continuation: &str,
     width: usize,
     counts: &mut EmitCounts,
     pk: &mut PrecisionEmit,
 ) {
     let Some(alternative) = choice.alternative.as_ref() else {
-        write_bare(out, &format!("{}0", choice.prefix_name), counts);
+        write_bare(out, continuation, counts);
         return;
     };
     if !atomic_category_allowed(g, category, alternative) {
@@ -1375,7 +1376,7 @@ fn emit_atomic_choice_prefix(
                 g,
                 alternative,
                 MarkerZone::Prefix,
-                &format!("{}0", choice.prefix_name),
+                continuation,
                 width,
                 counts,
                 pk,
@@ -1383,7 +1384,7 @@ fn emit_atomic_choice_prefix(
             counts.allomorphs_emitted += 1;
         }
         crate::structural_allomorph::SlotAlternativeRoute::Suffix => {
-            write_bare(out, &format!("{}0", choice.prefix_name), counts);
+            write_bare(out, continuation, counts);
         }
     }
 }
@@ -1454,7 +1455,38 @@ fn build_atomic_prefix_chain(
         write_bare(out, exit, counts);
         return entry_name;
     }
-    for (si, slot) in slots.iter().enumerate() {
+    let Some(mixed_position) = slots
+        .iter()
+        .position(|slot| slot_index_matches(g, *slot, mixed_slot_index, carrier.template_index))
+    else {
+        write_lexicon_header(out, &entry_name);
+        write_bare(out, exit, counts);
+        return entry_name;
+    };
+
+    for choice in &carrier.choices {
+        let inner_slots = &slots[mixed_position + 1..];
+        if !inner_slots.is_empty() {
+            build_slot_chain(
+                out,
+                g,
+                table,
+                &format!("{}Inner", choice.prefix_name),
+                inner_slots,
+                Role::Prefix,
+                category,
+                width,
+                &format!("{}0", choice.prefix_name),
+                uncovered,
+                counts,
+                phon,
+                pk,
+                mode,
+            );
+        }
+    }
+
+    for (si, slot) in slots[..=mixed_position].iter().enumerate() {
         let name = format!("{prefix}{si}");
         let next = if si + 1 == slots.len() {
             exit.to_string()
@@ -1462,9 +1494,23 @@ fn build_atomic_prefix_chain(
             format!("{prefix}{}", si + 1)
         };
         write_lexicon_header(out, &name);
-        if slot_index_matches(g, *slot, mixed_slot_index, carrier.template_index) {
+        if si == mixed_position {
             for choice in &carrier.choices {
-                emit_atomic_choice_prefix(out, g, choice, category, width, counts, pk);
+                let continuation = if slots.len() == mixed_position + 1 {
+                    format!("{}0", choice.prefix_name)
+                } else {
+                    format!("{}Inner0", choice.prefix_name)
+                };
+                emit_atomic_choice_prefix(
+                    out,
+                    g,
+                    choice,
+                    category,
+                    &continuation,
+                    width,
+                    counts,
+                    pk,
+                );
             }
             continue;
         }
