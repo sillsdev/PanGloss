@@ -1,7 +1,7 @@
 //! Focused templated conformance proposal pins.
 
 use pg_conformance_fixtures::{assert_matches_oracle, discover, FixtureRef, Root, WordEntry};
-use pg_foma::templated_compile::compile_templated_morphotactics;
+use pg_foma::templated_compile::{compile_templated_morphotactics, TemplatedCompileError};
 use pg_grammar::model::{Grammar, MorphemeId};
 use pg_parse::{Morpher, ParseOptions};
 
@@ -123,12 +123,39 @@ fn subrule_morphosyntactic_gating_proposes_bare_and_derived_identities() {
 }
 
 #[test]
-fn polysynthetic_stratal_derivation_chain_proposes_ms_identity_only_for_raised_surface() {
-    let (label, grammar, words) = open(
+fn polysynthetic_stratal_derivation_chain_rejects_pattern_but_proposes_raised_surface() {
+    let (label, mut grammar, words) = open(
         Root::Machine,
         "languages",
         "polysynthetic-stratal-derivation-chain",
     );
+
+    match compile_templated_morphotactics(&grammar) {
+        Err(TemplatedCompileError::Unsupported(report)) => assert!(
+            report
+                .uncovered
+                .iter()
+                .any(|item| item.kind == "pattern-allomorph" && item.id.contains("eGuessPat")),
+            "{label}: Unsupported report must identify the eGuessPat pattern-allomorph gap; got {:?}",
+            report.uncovered
+        ),
+        Err(other) => panic!(
+            "{label}: expected typed Unsupported for eGuessPat pattern root, got {other:?}"
+        ),
+        Ok(_) => panic!(
+            "{label}: production templated compilation must remain fail-closed for eGuessPat"
+        ),
+    }
+
+    let guessed_entry = grammar
+        .entries
+        .iter()
+        .position(|entry| entry.authored_id == "eGuessPat")
+        .map(|index| pg_grammar::model::LexEntryId(index as u32))
+        .unwrap_or_else(|| panic!("{label}: missing eGuessPat entry"));
+    for stratum in &mut grammar.strata {
+        stratum.entries.retain(|entry| *entry != guessed_entry);
+    }
 
     assert!(
         word(&words, "kuiikuii").expect_fail,
