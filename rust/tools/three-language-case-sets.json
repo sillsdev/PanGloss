@@ -1,0 +1,1749 @@
+{
+  "schema": "pangloss.private-case-set-lock",
+  "schemaVersion": 1,
+  "languages": [
+    {
+      "language": "indonesian",
+      "caseSetId": "indonesian-valid-120-v1",
+      "source": "indonesian-words.txt",
+      "sourceSha256": "sha256:004d6aa362b8c4fbbed863ac5ac580c4a8609bf3a2017b95732233668c19ba73",
+      "grammarSource": "indonesian-hc.xml",
+      "grammarSha256": "sha256:e450110eac48a80d802b46d8162b3e832e4acbb615395fd34cf6eab3ba8c9cd3",
+      "selectedBackend": "tuned-surface-probed",
+      "selectionPolicy": "all alphabet-valid source lines; line 100 is a complete empty semantic set; line 119 is reported separately as invalid shape",
+      "declaredCount": 120,
+      "cases": [
+        {
+          "caseId": "indonesian-line-0001",
+          "sourceLine": 1
+        },
+        {
+          "caseId": "indonesian-line-0002",
+          "sourceLine": 2
+        },
+        {
+          "caseId": "indonesian-line-0003",
+          "sourceLine": 3
+        },
+        {
+          "caseId": "indonesian-line-0004",
+          "sourceLine": 4
+        },
+        {
+          "caseId": "indonesian-line-0005",
+          "sourceLine": 5
+        },
+        {
+          "caseId": "indonesian-line-0006",
+          "sourceLine": 6
+        },
+        {
+          "caseId": "indonesian-line-0007",
+          "sourceLine": 7
+        },
+        {
+          "caseId": "indonesian-line-0008",
+          "sourceLine": 8
+        },
+        {
+          "caseId": "indonesian-line-0009",
+          "sourceLine": 9
+        },
+        {
+          "caseId": "indonesian-line-0010",
+          "sourceLine": 10
+        },
+        {
+          "caseId": "indonesian-line-0011",
+          "sourceLine": 11
+        },
+        {
+          "caseId": "indonesian-line-0012",
+          "sourceLine": 12
+        },
+        {
+          "caseId": "indonesian-line-0013",
+          "sourceLine": 13
+        },
+        {
+          "caseId": "indonesian-line-0014",
+          "sourceLine": 14
+        },
+        {
+          "caseId": "indonesian-line-0015",
+          "sourceLine": 15
+        },
+        {
+          "caseId": "indonesian-line-0016",
+          "sourceLine": 16
+        },
+        {
+          "caseId": "indonesian-line-0017",
+          "sourceLine": 17
+        },
+        {
+          "caseId": "indonesian-line-0018",
+          "sourceLine": 18
+        },
+        {
+          "caseId": "indonesian-line-0019",
+          "sourceLine": 19
+        },
+        {
+          "caseId": "indonesian-line-0020",
+          "sourceLine": 20
+        },
+        {
+          "caseId": "indonesian-line-0021",
+          "sourceLine": 21
+        },
+        {
+          "caseId": "indonesian-line-0022",
+          "sourceLine": 22
+        },
+        {
+          "caseId": "indonesian-line-0023",
+          "sourceLine": 23
+        },
+        {
+          "caseId": "indonesian-line-0024",
+          "sourceLine": 24
+        },
+        {
+          "caseId": "indonesian-line-0025",
+          "sourceLine": 25
+        },
+        {
+          "caseId": "indonesian-line-0026",
+          "sourceLine": 26
+        },
+        {
+          "caseId": "indonesian-line-0027",
+          "sourceLine": 27
+        },
+        {
+          "caseId": "indonesian-line-0028",
+          "sourceLine": 28
+        },
+        {
+          "caseId": "indonesian-line-0029",
+          "sourceLine": 29
+        },
+        {
+          "caseId": "indonesian-line-0030",
+          "sourceLine": 30
+        },
+        {
+          "caseId": "indonesian-line-0031",
+          "sourceLine": 31
+        },
+        {
+          "caseId": "indonesian-line-0032",
+          "sourceLine": 32
+        },
+        {
+          "caseId": "indonesian-line-0033",
+          "sourceLine": 33
+        },
+        {
+          "caseId": "indonesian-line-0034",
+          "sourceLine": 34
+        },
+        {
+          "caseId": "indonesian-line-0035",
+          "sourceLine": 35
+        },
+        {
+          "caseId": "indonesian-line-0036",
+          "sourceLine": 36
+        },
+        {
+          "caseId": "indonesian-line-0037",
+          "sourceLine": 37
+        },
+        {
+          "caseId": "indonesian-line-0038",
+          "sourceLine": 38
+        },
+        {
+          "caseId": "indonesian-line-0039",
+          "sourceLine": 39
+        },
+        {
+          "caseId": "indonesian-line-0040",
+          "sourceLine": 40
+        },
+        {
+          "caseId": "indonesian-line-0041",
+          "sourceLine": 41
+        },
+        {
+          "caseId": "indonesian-line-0042",
+          "sourceLine": 42
+        },
+        {
+          "caseId": "indonesian-line-0043",
+          "sourceLine": 43
+        },
+        {
+          "caseId": "indonesian-line-0044",
+          "sourceLine": 44
+        },
+        {
+          "caseId": "indonesian-line-0045",
+          "sourceLine": 45
+        },
+        {
+          "caseId": "indonesian-line-0046",
+          "sourceLine": 46
+        },
+        {
+          "caseId": "indonesian-line-0047",
+          "sourceLine": 47
+        },
+        {
+          "caseId": "indonesian-line-0048",
+          "sourceLine": 48
+        },
+        {
+          "caseId": "indonesian-line-0049",
+          "sourceLine": 49
+        },
+        {
+          "caseId": "indonesian-line-0050",
+          "sourceLine": 50
+        },
+        {
+          "caseId": "indonesian-line-0051",
+          "sourceLine": 51
+        },
+        {
+          "caseId": "indonesian-line-0052",
+          "sourceLine": 52
+        },
+        {
+          "caseId": "indonesian-line-0053",
+          "sourceLine": 53
+        },
+        {
+          "caseId": "indonesian-line-0054",
+          "sourceLine": 54
+        },
+        {
+          "caseId": "indonesian-line-0055",
+          "sourceLine": 55
+        },
+        {
+          "caseId": "indonesian-line-0056",
+          "sourceLine": 56
+        },
+        {
+          "caseId": "indonesian-line-0057",
+          "sourceLine": 57
+        },
+        {
+          "caseId": "indonesian-line-0058",
+          "sourceLine": 58
+        },
+        {
+          "caseId": "indonesian-line-0059",
+          "sourceLine": 59
+        },
+        {
+          "caseId": "indonesian-line-0060",
+          "sourceLine": 60
+        },
+        {
+          "caseId": "indonesian-line-0061",
+          "sourceLine": 61
+        },
+        {
+          "caseId": "indonesian-line-0062",
+          "sourceLine": 62
+        },
+        {
+          "caseId": "indonesian-line-0063",
+          "sourceLine": 63
+        },
+        {
+          "caseId": "indonesian-line-0064",
+          "sourceLine": 64
+        },
+        {
+          "caseId": "indonesian-line-0065",
+          "sourceLine": 65
+        },
+        {
+          "caseId": "indonesian-line-0066",
+          "sourceLine": 66
+        },
+        {
+          "caseId": "indonesian-line-0067",
+          "sourceLine": 67
+        },
+        {
+          "caseId": "indonesian-line-0068",
+          "sourceLine": 68
+        },
+        {
+          "caseId": "indonesian-line-0069",
+          "sourceLine": 69
+        },
+        {
+          "caseId": "indonesian-line-0070",
+          "sourceLine": 70
+        },
+        {
+          "caseId": "indonesian-line-0071",
+          "sourceLine": 71
+        },
+        {
+          "caseId": "indonesian-line-0072",
+          "sourceLine": 72
+        },
+        {
+          "caseId": "indonesian-line-0073",
+          "sourceLine": 73
+        },
+        {
+          "caseId": "indonesian-line-0074",
+          "sourceLine": 74
+        },
+        {
+          "caseId": "indonesian-line-0075",
+          "sourceLine": 75
+        },
+        {
+          "caseId": "indonesian-line-0076",
+          "sourceLine": 76
+        },
+        {
+          "caseId": "indonesian-line-0077",
+          "sourceLine": 77
+        },
+        {
+          "caseId": "indonesian-line-0078",
+          "sourceLine": 78
+        },
+        {
+          "caseId": "indonesian-line-0079",
+          "sourceLine": 79
+        },
+        {
+          "caseId": "indonesian-line-0080",
+          "sourceLine": 80
+        },
+        {
+          "caseId": "indonesian-line-0081",
+          "sourceLine": 81
+        },
+        {
+          "caseId": "indonesian-line-0082",
+          "sourceLine": 82
+        },
+        {
+          "caseId": "indonesian-line-0083",
+          "sourceLine": 83
+        },
+        {
+          "caseId": "indonesian-line-0084",
+          "sourceLine": 84
+        },
+        {
+          "caseId": "indonesian-line-0085",
+          "sourceLine": 85
+        },
+        {
+          "caseId": "indonesian-line-0086",
+          "sourceLine": 86
+        },
+        {
+          "caseId": "indonesian-line-0087",
+          "sourceLine": 87
+        },
+        {
+          "caseId": "indonesian-line-0088",
+          "sourceLine": 88
+        },
+        {
+          "caseId": "indonesian-line-0089",
+          "sourceLine": 89
+        },
+        {
+          "caseId": "indonesian-line-0090",
+          "sourceLine": 90
+        },
+        {
+          "caseId": "indonesian-line-0091",
+          "sourceLine": 91
+        },
+        {
+          "caseId": "indonesian-line-0092",
+          "sourceLine": 92
+        },
+        {
+          "caseId": "indonesian-line-0093",
+          "sourceLine": 93
+        },
+        {
+          "caseId": "indonesian-line-0094",
+          "sourceLine": 94
+        },
+        {
+          "caseId": "indonesian-line-0095",
+          "sourceLine": 95
+        },
+        {
+          "caseId": "indonesian-line-0096",
+          "sourceLine": 96
+        },
+        {
+          "caseId": "indonesian-line-0097",
+          "sourceLine": 97
+        },
+        {
+          "caseId": "indonesian-line-0098",
+          "sourceLine": 98
+        },
+        {
+          "caseId": "indonesian-line-0099",
+          "sourceLine": 99
+        },
+        {
+          "caseId": "indonesian-line-0100",
+          "sourceLine": 100
+        },
+        {
+          "caseId": "indonesian-line-0101",
+          "sourceLine": 101
+        },
+        {
+          "caseId": "indonesian-line-0102",
+          "sourceLine": 102
+        },
+        {
+          "caseId": "indonesian-line-0103",
+          "sourceLine": 103
+        },
+        {
+          "caseId": "indonesian-line-0104",
+          "sourceLine": 104
+        },
+        {
+          "caseId": "indonesian-line-0105",
+          "sourceLine": 105
+        },
+        {
+          "caseId": "indonesian-line-0106",
+          "sourceLine": 106
+        },
+        {
+          "caseId": "indonesian-line-0107",
+          "sourceLine": 107
+        },
+        {
+          "caseId": "indonesian-line-0108",
+          "sourceLine": 108
+        },
+        {
+          "caseId": "indonesian-line-0109",
+          "sourceLine": 109
+        },
+        {
+          "caseId": "indonesian-line-0110",
+          "sourceLine": 110
+        },
+        {
+          "caseId": "indonesian-line-0111",
+          "sourceLine": 111
+        },
+        {
+          "caseId": "indonesian-line-0112",
+          "sourceLine": 112
+        },
+        {
+          "caseId": "indonesian-line-0113",
+          "sourceLine": 113
+        },
+        {
+          "caseId": "indonesian-line-0114",
+          "sourceLine": 114
+        },
+        {
+          "caseId": "indonesian-line-0115",
+          "sourceLine": 115
+        },
+        {
+          "caseId": "indonesian-line-0116",
+          "sourceLine": 116
+        },
+        {
+          "caseId": "indonesian-line-0117",
+          "sourceLine": 117
+        },
+        {
+          "caseId": "indonesian-line-0118",
+          "sourceLine": 118
+        },
+        {
+          "caseId": "indonesian-line-0120",
+          "sourceLine": 120
+        },
+        {
+          "caseId": "indonesian-line-0121",
+          "sourceLine": 121
+        }
+      ]
+    },
+    {
+      "language": "amharic",
+      "caseSetId": "amharic-200-v1",
+      "source": "amharic-words.txt",
+      "sourceSha256": "sha256:33124870ea1ef148759220c3dbf513042682934e94131443bb4b4e53db6ee57e",
+      "grammarSource": "amharic-hc.xml",
+      "grammarSha256": "sha256:d5156ea82c6c92c169fd6cabcab1ebfb19ec5d95e9d8dea21938ff421f5fff70",
+      "selectedBackend": "templated-underlying-tokens",
+      "selectionPolicy": "first 200 alphabet-encodable source lines after the four-line header",
+      "declaredCount": 200,
+      "cases": [
+        {
+          "caseId": "amharic-line-0005",
+          "sourceLine": 5
+        },
+        {
+          "caseId": "amharic-line-0006",
+          "sourceLine": 6
+        },
+        {
+          "caseId": "amharic-line-0007",
+          "sourceLine": 7
+        },
+        {
+          "caseId": "amharic-line-0008",
+          "sourceLine": 8
+        },
+        {
+          "caseId": "amharic-line-0009",
+          "sourceLine": 9
+        },
+        {
+          "caseId": "amharic-line-0010",
+          "sourceLine": 10
+        },
+        {
+          "caseId": "amharic-line-0011",
+          "sourceLine": 11
+        },
+        {
+          "caseId": "amharic-line-0012",
+          "sourceLine": 12
+        },
+        {
+          "caseId": "amharic-line-0013",
+          "sourceLine": 13
+        },
+        {
+          "caseId": "amharic-line-0014",
+          "sourceLine": 14
+        },
+        {
+          "caseId": "amharic-line-0015",
+          "sourceLine": 15
+        },
+        {
+          "caseId": "amharic-line-0016",
+          "sourceLine": 16
+        },
+        {
+          "caseId": "amharic-line-0017",
+          "sourceLine": 17
+        },
+        {
+          "caseId": "amharic-line-0018",
+          "sourceLine": 18
+        },
+        {
+          "caseId": "amharic-line-0019",
+          "sourceLine": 19
+        },
+        {
+          "caseId": "amharic-line-0020",
+          "sourceLine": 20
+        },
+        {
+          "caseId": "amharic-line-0021",
+          "sourceLine": 21
+        },
+        {
+          "caseId": "amharic-line-0022",
+          "sourceLine": 22
+        },
+        {
+          "caseId": "amharic-line-0023",
+          "sourceLine": 23
+        },
+        {
+          "caseId": "amharic-line-0024",
+          "sourceLine": 24
+        },
+        {
+          "caseId": "amharic-line-0025",
+          "sourceLine": 25
+        },
+        {
+          "caseId": "amharic-line-0026",
+          "sourceLine": 26
+        },
+        {
+          "caseId": "amharic-line-0027",
+          "sourceLine": 27
+        },
+        {
+          "caseId": "amharic-line-0028",
+          "sourceLine": 28
+        },
+        {
+          "caseId": "amharic-line-0029",
+          "sourceLine": 29
+        },
+        {
+          "caseId": "amharic-line-0030",
+          "sourceLine": 30
+        },
+        {
+          "caseId": "amharic-line-0031",
+          "sourceLine": 31
+        },
+        {
+          "caseId": "amharic-line-0032",
+          "sourceLine": 32
+        },
+        {
+          "caseId": "amharic-line-0033",
+          "sourceLine": 33
+        },
+        {
+          "caseId": "amharic-line-0034",
+          "sourceLine": 34
+        },
+        {
+          "caseId": "amharic-line-0035",
+          "sourceLine": 35
+        },
+        {
+          "caseId": "amharic-line-0036",
+          "sourceLine": 36
+        },
+        {
+          "caseId": "amharic-line-0037",
+          "sourceLine": 37
+        },
+        {
+          "caseId": "amharic-line-0038",
+          "sourceLine": 38
+        },
+        {
+          "caseId": "amharic-line-0039",
+          "sourceLine": 39
+        },
+        {
+          "caseId": "amharic-line-0040",
+          "sourceLine": 40
+        },
+        {
+          "caseId": "amharic-line-0041",
+          "sourceLine": 41
+        },
+        {
+          "caseId": "amharic-line-0042",
+          "sourceLine": 42
+        },
+        {
+          "caseId": "amharic-line-0043",
+          "sourceLine": 43
+        },
+        {
+          "caseId": "amharic-line-0044",
+          "sourceLine": 44
+        },
+        {
+          "caseId": "amharic-line-0045",
+          "sourceLine": 45
+        },
+        {
+          "caseId": "amharic-line-0046",
+          "sourceLine": 46
+        },
+        {
+          "caseId": "amharic-line-0047",
+          "sourceLine": 47
+        },
+        {
+          "caseId": "amharic-line-0048",
+          "sourceLine": 48
+        },
+        {
+          "caseId": "amharic-line-0049",
+          "sourceLine": 49
+        },
+        {
+          "caseId": "amharic-line-0050",
+          "sourceLine": 50
+        },
+        {
+          "caseId": "amharic-line-0051",
+          "sourceLine": 51
+        },
+        {
+          "caseId": "amharic-line-0052",
+          "sourceLine": 52
+        },
+        {
+          "caseId": "amharic-line-0053",
+          "sourceLine": 53
+        },
+        {
+          "caseId": "amharic-line-0054",
+          "sourceLine": 54
+        },
+        {
+          "caseId": "amharic-line-0055",
+          "sourceLine": 55
+        },
+        {
+          "caseId": "amharic-line-0056",
+          "sourceLine": 56
+        },
+        {
+          "caseId": "amharic-line-0057",
+          "sourceLine": 57
+        },
+        {
+          "caseId": "amharic-line-0058",
+          "sourceLine": 58
+        },
+        {
+          "caseId": "amharic-line-0059",
+          "sourceLine": 59
+        },
+        {
+          "caseId": "amharic-line-0060",
+          "sourceLine": 60
+        },
+        {
+          "caseId": "amharic-line-0061",
+          "sourceLine": 61
+        },
+        {
+          "caseId": "amharic-line-0062",
+          "sourceLine": 62
+        },
+        {
+          "caseId": "amharic-line-0066",
+          "sourceLine": 66
+        },
+        {
+          "caseId": "amharic-line-0067",
+          "sourceLine": 67
+        },
+        {
+          "caseId": "amharic-line-0068",
+          "sourceLine": 68
+        },
+        {
+          "caseId": "amharic-line-0069",
+          "sourceLine": 69
+        },
+        {
+          "caseId": "amharic-line-0070",
+          "sourceLine": 70
+        },
+        {
+          "caseId": "amharic-line-0076",
+          "sourceLine": 76
+        },
+        {
+          "caseId": "amharic-line-0077",
+          "sourceLine": 77
+        },
+        {
+          "caseId": "amharic-line-0078",
+          "sourceLine": 78
+        },
+        {
+          "caseId": "amharic-line-0079",
+          "sourceLine": 79
+        },
+        {
+          "caseId": "amharic-line-0080",
+          "sourceLine": 80
+        },
+        {
+          "caseId": "amharic-line-0081",
+          "sourceLine": 81
+        },
+        {
+          "caseId": "amharic-line-0082",
+          "sourceLine": 82
+        },
+        {
+          "caseId": "amharic-line-0083",
+          "sourceLine": 83
+        },
+        {
+          "caseId": "amharic-line-0084",
+          "sourceLine": 84
+        },
+        {
+          "caseId": "amharic-line-0085",
+          "sourceLine": 85
+        },
+        {
+          "caseId": "amharic-line-0086",
+          "sourceLine": 86
+        },
+        {
+          "caseId": "amharic-line-0087",
+          "sourceLine": 87
+        },
+        {
+          "caseId": "amharic-line-0088",
+          "sourceLine": 88
+        },
+        {
+          "caseId": "amharic-line-0089",
+          "sourceLine": 89
+        },
+        {
+          "caseId": "amharic-line-0090",
+          "sourceLine": 90
+        },
+        {
+          "caseId": "amharic-line-0092",
+          "sourceLine": 92
+        },
+        {
+          "caseId": "amharic-line-0093",
+          "sourceLine": 93
+        },
+        {
+          "caseId": "amharic-line-0094",
+          "sourceLine": 94
+        },
+        {
+          "caseId": "amharic-line-0095",
+          "sourceLine": 95
+        },
+        {
+          "caseId": "amharic-line-0096",
+          "sourceLine": 96
+        },
+        {
+          "caseId": "amharic-line-0097",
+          "sourceLine": 97
+        },
+        {
+          "caseId": "amharic-line-0098",
+          "sourceLine": 98
+        },
+        {
+          "caseId": "amharic-line-0099",
+          "sourceLine": 99
+        },
+        {
+          "caseId": "amharic-line-0100",
+          "sourceLine": 100
+        },
+        {
+          "caseId": "amharic-line-0101",
+          "sourceLine": 101
+        },
+        {
+          "caseId": "amharic-line-0102",
+          "sourceLine": 102
+        },
+        {
+          "caseId": "amharic-line-0103",
+          "sourceLine": 103
+        },
+        {
+          "caseId": "amharic-line-0104",
+          "sourceLine": 104
+        },
+        {
+          "caseId": "amharic-line-0106",
+          "sourceLine": 106
+        },
+        {
+          "caseId": "amharic-line-0107",
+          "sourceLine": 107
+        },
+        {
+          "caseId": "amharic-line-0108",
+          "sourceLine": 108
+        },
+        {
+          "caseId": "amharic-line-0109",
+          "sourceLine": 109
+        },
+        {
+          "caseId": "amharic-line-0110",
+          "sourceLine": 110
+        },
+        {
+          "caseId": "amharic-line-0111",
+          "sourceLine": 111
+        },
+        {
+          "caseId": "amharic-line-0112",
+          "sourceLine": 112
+        },
+        {
+          "caseId": "amharic-line-0113",
+          "sourceLine": 113
+        },
+        {
+          "caseId": "amharic-line-0114",
+          "sourceLine": 114
+        },
+        {
+          "caseId": "amharic-line-0115",
+          "sourceLine": 115
+        },
+        {
+          "caseId": "amharic-line-0116",
+          "sourceLine": 116
+        },
+        {
+          "caseId": "amharic-line-0117",
+          "sourceLine": 117
+        },
+        {
+          "caseId": "amharic-line-0118",
+          "sourceLine": 118
+        },
+        {
+          "caseId": "amharic-line-0119",
+          "sourceLine": 119
+        },
+        {
+          "caseId": "amharic-line-0120",
+          "sourceLine": 120
+        },
+        {
+          "caseId": "amharic-line-0121",
+          "sourceLine": 121
+        },
+        {
+          "caseId": "amharic-line-0122",
+          "sourceLine": 122
+        },
+        {
+          "caseId": "amharic-line-0123",
+          "sourceLine": 123
+        },
+        {
+          "caseId": "amharic-line-0124",
+          "sourceLine": 124
+        },
+        {
+          "caseId": "amharic-line-0125",
+          "sourceLine": 125
+        },
+        {
+          "caseId": "amharic-line-0126",
+          "sourceLine": 126
+        },
+        {
+          "caseId": "amharic-line-0127",
+          "sourceLine": 127
+        },
+        {
+          "caseId": "amharic-line-0128",
+          "sourceLine": 128
+        },
+        {
+          "caseId": "amharic-line-0129",
+          "sourceLine": 129
+        },
+        {
+          "caseId": "amharic-line-0130",
+          "sourceLine": 130
+        },
+        {
+          "caseId": "amharic-line-0131",
+          "sourceLine": 131
+        },
+        {
+          "caseId": "amharic-line-0132",
+          "sourceLine": 132
+        },
+        {
+          "caseId": "amharic-line-0133",
+          "sourceLine": 133
+        },
+        {
+          "caseId": "amharic-line-0134",
+          "sourceLine": 134
+        },
+        {
+          "caseId": "amharic-line-0135",
+          "sourceLine": 135
+        },
+        {
+          "caseId": "amharic-line-0136",
+          "sourceLine": 136
+        },
+        {
+          "caseId": "amharic-line-0137",
+          "sourceLine": 137
+        },
+        {
+          "caseId": "amharic-line-0138",
+          "sourceLine": 138
+        },
+        {
+          "caseId": "amharic-line-0139",
+          "sourceLine": 139
+        },
+        {
+          "caseId": "amharic-line-0140",
+          "sourceLine": 140
+        },
+        {
+          "caseId": "amharic-line-0141",
+          "sourceLine": 141
+        },
+        {
+          "caseId": "amharic-line-0142",
+          "sourceLine": 142
+        },
+        {
+          "caseId": "amharic-line-0143",
+          "sourceLine": 143
+        },
+        {
+          "caseId": "amharic-line-0144",
+          "sourceLine": 144
+        },
+        {
+          "caseId": "amharic-line-0145",
+          "sourceLine": 145
+        },
+        {
+          "caseId": "amharic-line-0146",
+          "sourceLine": 146
+        },
+        {
+          "caseId": "amharic-line-0147",
+          "sourceLine": 147
+        },
+        {
+          "caseId": "amharic-line-0148",
+          "sourceLine": 148
+        },
+        {
+          "caseId": "amharic-line-0149",
+          "sourceLine": 149
+        },
+        {
+          "caseId": "amharic-line-0150",
+          "sourceLine": 150
+        },
+        {
+          "caseId": "amharic-line-0151",
+          "sourceLine": 151
+        },
+        {
+          "caseId": "amharic-line-0152",
+          "sourceLine": 152
+        },
+        {
+          "caseId": "amharic-line-0153",
+          "sourceLine": 153
+        },
+        {
+          "caseId": "amharic-line-0154",
+          "sourceLine": 154
+        },
+        {
+          "caseId": "amharic-line-0155",
+          "sourceLine": 155
+        },
+        {
+          "caseId": "amharic-line-0156",
+          "sourceLine": 156
+        },
+        {
+          "caseId": "amharic-line-0157",
+          "sourceLine": 157
+        },
+        {
+          "caseId": "amharic-line-0158",
+          "sourceLine": 158
+        },
+        {
+          "caseId": "amharic-line-0159",
+          "sourceLine": 159
+        },
+        {
+          "caseId": "amharic-line-0160",
+          "sourceLine": 160
+        },
+        {
+          "caseId": "amharic-line-0161",
+          "sourceLine": 161
+        },
+        {
+          "caseId": "amharic-line-0162",
+          "sourceLine": 162
+        },
+        {
+          "caseId": "amharic-line-0163",
+          "sourceLine": 163
+        },
+        {
+          "caseId": "amharic-line-0164",
+          "sourceLine": 164
+        },
+        {
+          "caseId": "amharic-line-0165",
+          "sourceLine": 165
+        },
+        {
+          "caseId": "amharic-line-0166",
+          "sourceLine": 166
+        },
+        {
+          "caseId": "amharic-line-0167",
+          "sourceLine": 167
+        },
+        {
+          "caseId": "amharic-line-0168",
+          "sourceLine": 168
+        },
+        {
+          "caseId": "amharic-line-0169",
+          "sourceLine": 169
+        },
+        {
+          "caseId": "amharic-line-0170",
+          "sourceLine": 170
+        },
+        {
+          "caseId": "amharic-line-0171",
+          "sourceLine": 171
+        },
+        {
+          "caseId": "amharic-line-0172",
+          "sourceLine": 172
+        },
+        {
+          "caseId": "amharic-line-0173",
+          "sourceLine": 173
+        },
+        {
+          "caseId": "amharic-line-0174",
+          "sourceLine": 174
+        },
+        {
+          "caseId": "amharic-line-0175",
+          "sourceLine": 175
+        },
+        {
+          "caseId": "amharic-line-0176",
+          "sourceLine": 176
+        },
+        {
+          "caseId": "amharic-line-0177",
+          "sourceLine": 177
+        },
+        {
+          "caseId": "amharic-line-0178",
+          "sourceLine": 178
+        },
+        {
+          "caseId": "amharic-line-0179",
+          "sourceLine": 179
+        },
+        {
+          "caseId": "amharic-line-0180",
+          "sourceLine": 180
+        },
+        {
+          "caseId": "amharic-line-0181",
+          "sourceLine": 181
+        },
+        {
+          "caseId": "amharic-line-0182",
+          "sourceLine": 182
+        },
+        {
+          "caseId": "amharic-line-0183",
+          "sourceLine": 183
+        },
+        {
+          "caseId": "amharic-line-0184",
+          "sourceLine": 184
+        },
+        {
+          "caseId": "amharic-line-0185",
+          "sourceLine": 185
+        },
+        {
+          "caseId": "amharic-line-0186",
+          "sourceLine": 186
+        },
+        {
+          "caseId": "amharic-line-0187",
+          "sourceLine": 187
+        },
+        {
+          "caseId": "amharic-line-0188",
+          "sourceLine": 188
+        },
+        {
+          "caseId": "amharic-line-0189",
+          "sourceLine": 189
+        },
+        {
+          "caseId": "amharic-line-0190",
+          "sourceLine": 190
+        },
+        {
+          "caseId": "amharic-line-0191",
+          "sourceLine": 191
+        },
+        {
+          "caseId": "amharic-line-0192",
+          "sourceLine": 192
+        },
+        {
+          "caseId": "amharic-line-0193",
+          "sourceLine": 193
+        },
+        {
+          "caseId": "amharic-line-0194",
+          "sourceLine": 194
+        },
+        {
+          "caseId": "amharic-line-0195",
+          "sourceLine": 195
+        },
+        {
+          "caseId": "amharic-line-0196",
+          "sourceLine": 196
+        },
+        {
+          "caseId": "amharic-line-0197",
+          "sourceLine": 197
+        },
+        {
+          "caseId": "amharic-line-0198",
+          "sourceLine": 198
+        },
+        {
+          "caseId": "amharic-line-0199",
+          "sourceLine": 199
+        },
+        {
+          "caseId": "amharic-line-0200",
+          "sourceLine": 200
+        },
+        {
+          "caseId": "amharic-line-0201",
+          "sourceLine": 201
+        },
+        {
+          "caseId": "amharic-line-0202",
+          "sourceLine": 202
+        },
+        {
+          "caseId": "amharic-line-0203",
+          "sourceLine": 203
+        },
+        {
+          "caseId": "amharic-line-0204",
+          "sourceLine": 204
+        },
+        {
+          "caseId": "amharic-line-0205",
+          "sourceLine": 205
+        },
+        {
+          "caseId": "amharic-line-0206",
+          "sourceLine": 206
+        },
+        {
+          "caseId": "amharic-line-0207",
+          "sourceLine": 207
+        },
+        {
+          "caseId": "amharic-line-0208",
+          "sourceLine": 208
+        },
+        {
+          "caseId": "amharic-line-0209",
+          "sourceLine": 209
+        },
+        {
+          "caseId": "amharic-line-0210",
+          "sourceLine": 210
+        },
+        {
+          "caseId": "amharic-line-0211",
+          "sourceLine": 211
+        },
+        {
+          "caseId": "amharic-line-0212",
+          "sourceLine": 212
+        },
+        {
+          "caseId": "amharic-line-0213",
+          "sourceLine": 213
+        },
+        {
+          "caseId": "amharic-line-0214",
+          "sourceLine": 214
+        }
+      ]
+    },
+    {
+      "language": "aweti",
+      "caseSetId": "aweti-oracle-bearing-106-v1",
+      "source": "aweti-words.txt",
+      "sourceSha256": "sha256:e888ce23f92638ddd5a3d5a21e5f88f645d51ccf1d27ad6cf2e42e21dc58b4ec",
+      "grammarSource": "aweti.json",
+      "grammarSha256": "sha256:f4d5426f177b8c296f5ba78068d0591a72a9f081e330df81dedc8c0455cc31f6",
+      "selectedBackend": "templated-underlying-tokens",
+      "selectionPolicy": "historical 106 oracle-bearing source lines; current exact complete analysis sets remain required",
+      "declaredCount": 106,
+      "cases": [
+        {
+          "caseId": "aweti-line-0001",
+          "sourceLine": 1
+        },
+        {
+          "caseId": "aweti-line-0002",
+          "sourceLine": 2
+        },
+        {
+          "caseId": "aweti-line-0003",
+          "sourceLine": 3
+        },
+        {
+          "caseId": "aweti-line-0005",
+          "sourceLine": 5
+        },
+        {
+          "caseId": "aweti-line-0006",
+          "sourceLine": 6
+        },
+        {
+          "caseId": "aweti-line-0007",
+          "sourceLine": 7
+        },
+        {
+          "caseId": "aweti-line-0008",
+          "sourceLine": 8
+        },
+        {
+          "caseId": "aweti-line-0009",
+          "sourceLine": 9
+        },
+        {
+          "caseId": "aweti-line-0010",
+          "sourceLine": 10
+        },
+        {
+          "caseId": "aweti-line-0012",
+          "sourceLine": 12
+        },
+        {
+          "caseId": "aweti-line-0015",
+          "sourceLine": 15
+        },
+        {
+          "caseId": "aweti-line-0018",
+          "sourceLine": 18
+        },
+        {
+          "caseId": "aweti-line-0019",
+          "sourceLine": 19
+        },
+        {
+          "caseId": "aweti-line-0022",
+          "sourceLine": 22
+        },
+        {
+          "caseId": "aweti-line-0023",
+          "sourceLine": 23
+        },
+        {
+          "caseId": "aweti-line-0024",
+          "sourceLine": 24
+        },
+        {
+          "caseId": "aweti-line-0030",
+          "sourceLine": 30
+        },
+        {
+          "caseId": "aweti-line-0031",
+          "sourceLine": 31
+        },
+        {
+          "caseId": "aweti-line-0032",
+          "sourceLine": 32
+        },
+        {
+          "caseId": "aweti-line-0033",
+          "sourceLine": 33
+        },
+        {
+          "caseId": "aweti-line-0035",
+          "sourceLine": 35
+        },
+        {
+          "caseId": "aweti-line-0041",
+          "sourceLine": 41
+        },
+        {
+          "caseId": "aweti-line-0045",
+          "sourceLine": 45
+        },
+        {
+          "caseId": "aweti-line-0048",
+          "sourceLine": 48
+        },
+        {
+          "caseId": "aweti-line-0049",
+          "sourceLine": 49
+        },
+        {
+          "caseId": "aweti-line-0050",
+          "sourceLine": 50
+        },
+        {
+          "caseId": "aweti-line-0053",
+          "sourceLine": 53
+        },
+        {
+          "caseId": "aweti-line-0055",
+          "sourceLine": 55
+        },
+        {
+          "caseId": "aweti-line-0058",
+          "sourceLine": 58
+        },
+        {
+          "caseId": "aweti-line-0059",
+          "sourceLine": 59
+        },
+        {
+          "caseId": "aweti-line-0062",
+          "sourceLine": 62
+        },
+        {
+          "caseId": "aweti-line-0064",
+          "sourceLine": 64
+        },
+        {
+          "caseId": "aweti-line-0065",
+          "sourceLine": 65
+        },
+        {
+          "caseId": "aweti-line-0066",
+          "sourceLine": 66
+        },
+        {
+          "caseId": "aweti-line-0067",
+          "sourceLine": 67
+        },
+        {
+          "caseId": "aweti-line-0069",
+          "sourceLine": 69
+        },
+        {
+          "caseId": "aweti-line-0075",
+          "sourceLine": 75
+        },
+        {
+          "caseId": "aweti-line-0076",
+          "sourceLine": 76
+        },
+        {
+          "caseId": "aweti-line-0078",
+          "sourceLine": 78
+        },
+        {
+          "caseId": "aweti-line-0079",
+          "sourceLine": 79
+        },
+        {
+          "caseId": "aweti-line-0080",
+          "sourceLine": 80
+        },
+        {
+          "caseId": "aweti-line-0082",
+          "sourceLine": 82
+        },
+        {
+          "caseId": "aweti-line-0087",
+          "sourceLine": 87
+        },
+        {
+          "caseId": "aweti-line-0088",
+          "sourceLine": 88
+        },
+        {
+          "caseId": "aweti-line-0090",
+          "sourceLine": 90
+        },
+        {
+          "caseId": "aweti-line-0092",
+          "sourceLine": 92
+        },
+        {
+          "caseId": "aweti-line-0093",
+          "sourceLine": 93
+        },
+        {
+          "caseId": "aweti-line-0099",
+          "sourceLine": 99
+        },
+        {
+          "caseId": "aweti-line-0100",
+          "sourceLine": 100
+        },
+        {
+          "caseId": "aweti-line-0103",
+          "sourceLine": 103
+        },
+        {
+          "caseId": "aweti-line-0104",
+          "sourceLine": 104
+        },
+        {
+          "caseId": "aweti-line-0106",
+          "sourceLine": 106
+        },
+        {
+          "caseId": "aweti-line-0109",
+          "sourceLine": 109
+        },
+        {
+          "caseId": "aweti-line-0111",
+          "sourceLine": 111
+        },
+        {
+          "caseId": "aweti-line-0113",
+          "sourceLine": 113
+        },
+        {
+          "caseId": "aweti-line-0114",
+          "sourceLine": 114
+        },
+        {
+          "caseId": "aweti-line-0115",
+          "sourceLine": 115
+        },
+        {
+          "caseId": "aweti-line-0116",
+          "sourceLine": 116
+        },
+        {
+          "caseId": "aweti-line-0117",
+          "sourceLine": 117
+        },
+        {
+          "caseId": "aweti-line-0118",
+          "sourceLine": 118
+        },
+        {
+          "caseId": "aweti-line-0119",
+          "sourceLine": 119
+        },
+        {
+          "caseId": "aweti-line-0122",
+          "sourceLine": 122
+        },
+        {
+          "caseId": "aweti-line-0124",
+          "sourceLine": 124
+        },
+        {
+          "caseId": "aweti-line-0126",
+          "sourceLine": 126
+        },
+        {
+          "caseId": "aweti-line-0133",
+          "sourceLine": 133
+        },
+        {
+          "caseId": "aweti-line-0135",
+          "sourceLine": 135
+        },
+        {
+          "caseId": "aweti-line-0137",
+          "sourceLine": 137
+        },
+        {
+          "caseId": "aweti-line-0139",
+          "sourceLine": 139
+        },
+        {
+          "caseId": "aweti-line-0140",
+          "sourceLine": 140
+        },
+        {
+          "caseId": "aweti-line-0144",
+          "sourceLine": 144
+        },
+        {
+          "caseId": "aweti-line-0145",
+          "sourceLine": 145
+        },
+        {
+          "caseId": "aweti-line-0146",
+          "sourceLine": 146
+        },
+        {
+          "caseId": "aweti-line-0148",
+          "sourceLine": 148
+        },
+        {
+          "caseId": "aweti-line-0150",
+          "sourceLine": 150
+        },
+        {
+          "caseId": "aweti-line-0151",
+          "sourceLine": 151
+        },
+        {
+          "caseId": "aweti-line-0157",
+          "sourceLine": 157
+        },
+        {
+          "caseId": "aweti-line-0158",
+          "sourceLine": 158
+        },
+        {
+          "caseId": "aweti-line-0159",
+          "sourceLine": 159
+        },
+        {
+          "caseId": "aweti-line-0160",
+          "sourceLine": 160
+        },
+        {
+          "caseId": "aweti-line-0163",
+          "sourceLine": 163
+        },
+        {
+          "caseId": "aweti-line-0164",
+          "sourceLine": 164
+        },
+        {
+          "caseId": "aweti-line-0165",
+          "sourceLine": 165
+        },
+        {
+          "caseId": "aweti-line-0166",
+          "sourceLine": 166
+        },
+        {
+          "caseId": "aweti-line-0167",
+          "sourceLine": 167
+        },
+        {
+          "caseId": "aweti-line-0168",
+          "sourceLine": 168
+        },
+        {
+          "caseId": "aweti-line-0169",
+          "sourceLine": 169
+        },
+        {
+          "caseId": "aweti-line-0170",
+          "sourceLine": 170
+        },
+        {
+          "caseId": "aweti-line-0177",
+          "sourceLine": 177
+        },
+        {
+          "caseId": "aweti-line-0178",
+          "sourceLine": 178
+        },
+        {
+          "caseId": "aweti-line-0182",
+          "sourceLine": 182
+        },
+        {
+          "caseId": "aweti-line-0183",
+          "sourceLine": 183
+        },
+        {
+          "caseId": "aweti-line-0184",
+          "sourceLine": 184
+        },
+        {
+          "caseId": "aweti-line-0185",
+          "sourceLine": 185
+        },
+        {
+          "caseId": "aweti-line-0186",
+          "sourceLine": 186
+        },
+        {
+          "caseId": "aweti-line-0187",
+          "sourceLine": 187
+        },
+        {
+          "caseId": "aweti-line-0188",
+          "sourceLine": 188
+        },
+        {
+          "caseId": "aweti-line-0191",
+          "sourceLine": 191
+        },
+        {
+          "caseId": "aweti-line-0192",
+          "sourceLine": 192
+        },
+        {
+          "caseId": "aweti-line-0197",
+          "sourceLine": 197
+        },
+        {
+          "caseId": "aweti-line-0198",
+          "sourceLine": 198
+        },
+        {
+          "caseId": "aweti-line-0203",
+          "sourceLine": 203
+        },
+        {
+          "caseId": "aweti-line-0204",
+          "sourceLine": 204
+        },
+        {
+          "caseId": "aweti-line-0205",
+          "sourceLine": 205
+        },
+        {
+          "caseId": "aweti-line-0206",
+          "sourceLine": 206
+        },
+        {
+          "caseId": "aweti-line-0207",
+          "sourceLine": 207
+        },
+        {
+          "caseId": "aweti-line-0208",
+          "sourceLine": 208
+        }
+      ]
+    }
+  ]
+}
