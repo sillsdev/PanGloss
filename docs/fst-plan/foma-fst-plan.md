@@ -24,6 +24,13 @@ scoped measurement, “certified artifact” means a payload with a valid comple
 and “trusted shipped FST” means a certified artifact accepted for delivery. None of the three
 languages currently reaches the last two columns.
 
+Current-tip note: `fst/selector-relation-floor` includes the atomic template-slot carrier and
+fail-closed validation against the grammar's final active pipeline table. The carrier is relevant
+to Aweti's mixed-slot route correlation; it is not Amharic-dependent. Indonesian, Amharic, and
+Aweti certification is `not_run`/pending marker-relation production wiring on this tip, even though
+the private corpora are available through `PANGLOSS_CORPUS_ROOT`; the historical denominators above
+remain bounded, non-certifying evidence.
+
 ## 0. Goal and non-goals
 
 **Goal:** Replace the custom-spun FST proposer layer (`hc-hybrid`, 12,332 lines) with a
