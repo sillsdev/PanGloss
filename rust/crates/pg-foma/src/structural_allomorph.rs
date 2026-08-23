@@ -12,7 +12,7 @@ use pg_grammar::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef,
     NaturalClassKind, OutputAction, PartRef, Pattern, PatternNode, PhonRuleDef, SimpleContext,
-    TableId,
+    TableId, TemplateSlotZone,
 };
 use pg_shape::{NodeKind, Shape};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -48,6 +48,29 @@ fn is_technical_marker(ch: char) -> bool {
 pub enum MarkerZone {
     Prefix,
     Suffix,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SlotOwnership {
+    Fixed(MarkerZone),
+    LegacyChoice,
+}
+
+impl From<TemplateSlotZone> for SlotOwnership {
+    fn from(zone: TemplateSlotZone) -> Self {
+        match zone {
+            TemplateSlotZone::Prefix => Self::Fixed(MarkerZone::Prefix),
+            TemplateSlotZone::Suffix => Self::Fixed(MarkerZone::Suffix),
+            TemplateSlotZone::LegacyUnspecified => Self::LegacyChoice,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SlotAlternativeRoute {
+    Prefix,
+    Suffix,
+    Coupled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -526,6 +549,7 @@ pub struct SlotProjectionAlternative {
     rule: MRuleId,
     allomorph: AllomorphId,
     decision: MorphologyRewrite,
+    route: SlotAlternativeRoute,
     prefix_variants: Vec<String>,
     suffix_variants: Vec<String>,
     prefix_binding: Option<MarkerBinding>,
@@ -543,6 +567,10 @@ impl SlotProjectionAlternative {
 
     pub fn decision(&self) -> &MorphologyRewrite {
         &self.decision
+    }
+
+    pub fn route(&self) -> SlotAlternativeRoute {
+        self.route
     }
 
     pub fn prefix_variants(&self) -> &[String] {
@@ -566,6 +594,7 @@ impl SlotProjectionAlternative {
 pub struct SlotProjection {
     key: SlotProjectionKey,
     optional: bool,
+    ownership: SlotOwnership,
     alternatives: Vec<SlotProjectionAlternative>,
 }
 
@@ -576,6 +605,10 @@ impl SlotProjection {
 
     pub fn optional(&self) -> bool {
         self.optional
+    }
+
+    pub fn ownership(&self) -> SlotOwnership {
+        self.ownership
     }
 
     pub fn alternatives(&self) -> &[SlotProjectionAlternative] {
@@ -701,20 +734,9 @@ impl MorphologyRelationPlan {
                     template_index,
                     slot_index,
                 )?;
-                let has_prefix = allomorphs.iter().any(|(_, allomorph)| {
-                    matches!(
-                        crate::emit::classify_affix(&allomorph.rhs),
-                        crate::emit::Role::Prefix | crate::emit::Role::CircumfixPrefix
-                    )
-                });
-                let has_suffix = allomorphs.iter().any(|(_, allomorph)| {
-                    matches!(
-                        crate::emit::classify_affix(&allomorph.rhs),
-                        crate::emit::Role::Suffix
-                    )
-                });
+                let ownership = SlotOwnership::from(slot.zone);
                 let mut alternatives = Vec::new();
-                for (rule, allomorph) in allomorphs {
+                for (rule, allomorph) in allomorphs.iter().copied() {
                     let Some(decision) = decisions.get(&allomorph.id) else {
                         return Err(MorphologyRelationError::UnsupportedRewrite {
                             allomorph: allomorph.id,
@@ -722,14 +744,21 @@ impl MorphologyRelationPlan {
                             reason_id: "slot-allomorph-not-classified",
                         });
                     };
-                    let zones = projection_zones(
+                    let route = projection_route(
                         decision,
                         allomorph,
-                        has_prefix,
-                        has_suffix,
+                        ownership,
+                        &allomorphs,
+                        &decisions,
                     )?;
-                    let alternative =
-                        make_projection_alternative(rule, allomorph, decision, &zones)?;
+                    let zones = route_zones(route);
+                    let alternative = make_projection_alternative(
+                        rule,
+                        allomorph,
+                        decision,
+                        &zones,
+                        route,
+                    )?;
                     alternatives.push(alternative);
                 }
                 if !slot.optional && alternatives.is_empty() {
@@ -741,6 +770,7 @@ impl MorphologyRelationPlan {
                 slot_projections.push(SlotProjection {
                     key,
                     optional: slot.optional,
+                    ownership,
                     alternatives,
                 });
             }
@@ -775,8 +805,15 @@ impl MorphologyRelationPlan {
                     continue;
                 }
                 for zone in zones {
+                    let route = route_for_zone(zone);
                     let alternative =
-                        make_projection_alternative(rule, allomorph, decision, &[zone])?;
+                        make_projection_alternative(
+                            rule,
+                            allomorph,
+                            decision,
+                            &[zone],
+                            route,
+                        )?;
                     let key = DerivationProjectionKey { rule, zone };
                     if let Some(projection) = derivation_projections
                         .iter_mut()
@@ -924,11 +961,13 @@ fn make_projection_alternative(
     allomorph: &AffixAllomorphDef,
     decision: &MorphologyRewrite,
     zones: &[MarkerZone],
+    route: SlotAlternativeRoute,
 ) -> Result<SlotProjectionAlternative, MorphologyRelationError> {
     let mut alternative = SlotProjectionAlternative {
         rule,
         allomorph: allomorph.id,
         decision: decision.clone(),
+        route,
         prefix_variants: Vec::new(),
         suffix_variants: Vec::new(),
         prefix_binding: None,
@@ -994,6 +1033,160 @@ fn make_projection_alternative(
     Ok(alternative)
 }
 
+fn route_for_zone(zone: MarkerZone) -> SlotAlternativeRoute {
+    match zone {
+        MarkerZone::Prefix => SlotAlternativeRoute::Prefix,
+        MarkerZone::Suffix => SlotAlternativeRoute::Suffix,
+    }
+}
+
+fn route_zones(route: SlotAlternativeRoute) -> Vec<MarkerZone> {
+    match route {
+        SlotAlternativeRoute::Prefix => vec![MarkerZone::Prefix],
+        SlotAlternativeRoute::Suffix => vec![MarkerZone::Suffix],
+        SlotAlternativeRoute::Coupled => vec![MarkerZone::Prefix, MarkerZone::Suffix],
+    }
+}
+
+fn edge_route(role: crate::emit::Role) -> Option<MarkerZone> {
+    match role {
+        crate::emit::Role::Prefix | crate::emit::Role::CircumfixPrefix => {
+            Some(MarkerZone::Prefix)
+        }
+        crate::emit::Role::Suffix => Some(MarkerZone::Suffix),
+        _ => None,
+    }
+}
+
+fn sibling_edge_route(
+    allomorph: &AffixAllomorphDef,
+    siblings: &[(MRuleId, &AffixAllomorphDef)],
+    decisions: &HashMap<AllomorphId, MorphologyRewrite>,
+) -> Option<MarkerZone> {
+    let mut route = None;
+    for (_, sibling) in siblings {
+        if sibling.id == allomorph.id {
+            continue;
+        }
+        let sibling_route = match decisions.get(&sibling.id) {
+            Some(MorphologyRewrite::DirectWholeRootWrapper { .. }) => continue,
+            Some(MorphologyRewrite::MarkedStructural {
+                zone_requirement: ZoneRequirement::Intrinsic(zone),
+                ..
+            }) => Some(*zone),
+            _ => edge_route(crate::emit::classify_affix(&sibling.rhs)),
+        };
+        let Some(sibling_route) = sibling_route else {
+            continue;
+        };
+        if route.is_some_and(|existing| existing != sibling_route) {
+            return None;
+        }
+        route = Some(sibling_route);
+    }
+    route
+}
+
+fn unresolved_slot_zone(
+    allomorph: &AffixAllomorphDef,
+    shape_id: &'static str,
+) -> MorphologyRelationError {
+    MorphologyRelationError::UnsupportedRewrite {
+        allomorph: allomorph.id,
+        shape_id,
+        reason_id: "unresolved-template-slot-zone",
+    }
+}
+
+fn projection_route(
+    decision: &MorphologyRewrite,
+    allomorph: &AffixAllomorphDef,
+    ownership: SlotOwnership,
+    siblings: &[(MRuleId, &AffixAllomorphDef)],
+    decisions: &HashMap<AllomorphId, MorphologyRewrite>,
+) -> Result<SlotAlternativeRoute, MorphologyRelationError> {
+    match decision {
+        MorphologyRewrite::DirectWholeRootWrapper { .. } => Ok(SlotAlternativeRoute::Coupled),
+        MorphologyRewrite::MarkedStructural {
+            zone_requirement, ..
+        } => match (ownership, zone_requirement) {
+            (SlotOwnership::Fixed(actual), ZoneRequirement::Intrinsic(required)) => {
+                if *required != actual {
+                    return Err(MorphologyRelationError::ZoneMismatch {
+                        allomorph: allomorph.id,
+                        required: *required,
+                        actual,
+                    });
+                }
+                Ok(route_for_zone(actual))
+            }
+            (SlotOwnership::Fixed(actual), ZoneRequirement::Caller) => Ok(route_for_zone(actual)),
+            (SlotOwnership::LegacyChoice, ZoneRequirement::Intrinsic(required)) => {
+                Ok(route_for_zone(*required))
+            }
+            (SlotOwnership::LegacyChoice, ZoneRequirement::Caller) => {
+                let Some(route) = sibling_edge_route(allomorph, siblings, decisions) else {
+                    return Err(unresolved_slot_zone(allomorph, "CallerZonedStructural"));
+                };
+                Ok(route_for_zone(route))
+            }
+        },
+        MorphologyRewrite::OrdinaryLiteral { .. } => {
+            let role = crate::emit::classify_affix(&allomorph.rhs);
+            match ownership {
+                SlotOwnership::Fixed(actual) => {
+                    if let Some(required) = edge_route(role) {
+                        if required != actual {
+                            return Err(MorphologyRelationError::ZoneMismatch {
+                                allomorph: allomorph.id,
+                                required,
+                                actual,
+                            });
+                        }
+                    } else if !matches!(role, crate::emit::Role::None) {
+                        return Err(MorphologyRelationError::UnsupportedRewrite {
+                            allomorph: allomorph.id,
+                            shape_id: "OrdinaryLiteral",
+                            reason_id: role_reason(role),
+                        });
+                    }
+                    Ok(route_for_zone(actual))
+                }
+                SlotOwnership::LegacyChoice => {
+                    if let Some(required) = edge_route(role) {
+                        return Ok(route_for_zone(required));
+                    }
+                    if !matches!(role, crate::emit::Role::None) {
+                        return Err(MorphologyRelationError::UnsupportedRewrite {
+                            allomorph: allomorph.id,
+                            shape_id: "OrdinaryLiteral",
+                            reason_id: role_reason(role),
+                        });
+                    }
+                    let Some(route) = sibling_edge_route(allomorph, siblings, decisions) else {
+                        return Err(MorphologyRelationError::UnsupportedRewrite {
+                            allomorph: allomorph.id,
+                            shape_id: "OrdinaryLiteral",
+                            reason_id: "ambiguous-slot-zone",
+                        });
+                    };
+                    Ok(route_for_zone(route))
+                }
+            }
+        }
+        MorphologyRewrite::Unsupported {
+            allomorph,
+            shape_id,
+            reason_id,
+            ..
+        } => Err(MorphologyRelationError::UnsupportedRewrite {
+            allomorph: *allomorph,
+            shape_id,
+            reason_id,
+        }),
+    }
+}
+
 fn derivation_zones(
     decision: &MorphologyRewrite,
     allomorph: &AffixAllomorphDef,
@@ -1045,65 +1238,6 @@ fn derivation_zones(
                 }),
             }
         }
-        MorphologyRewrite::Unsupported {
-            allomorph,
-            shape_id,
-            reason_id,
-            ..
-        } => Err(MorphologyRelationError::UnsupportedRewrite {
-            allomorph: *allomorph,
-            shape_id,
-            reason_id,
-        }),
-    }
-}
-
-fn projection_zones(
-    decision: &MorphologyRewrite,
-    allomorph: &AffixAllomorphDef,
-    has_prefix: bool,
-    has_suffix: bool,
-) -> Result<Vec<MarkerZone>, MorphologyRelationError> {
-    match decision {
-        MorphologyRewrite::DirectWholeRootWrapper { .. } => {
-            Ok(vec![MarkerZone::Prefix, MarkerZone::Suffix])
-        }
-        MorphologyRewrite::MarkedStructural {
-            zone_requirement, ..
-        } => match zone_requirement {
-            ZoneRequirement::Intrinsic(zone) => Ok(vec![*zone]),
-            ZoneRequirement::Caller => match crate::emit::classify_affix(&allomorph.rhs) {
-                crate::emit::Role::Prefix | crate::emit::Role::CircumfixPrefix => {
-                    Ok(vec![MarkerZone::Prefix])
-                }
-                crate::emit::Role::Suffix => Ok(vec![MarkerZone::Suffix]),
-                role => Err(MorphologyRelationError::UnsupportedRewrite {
-                    allomorph: allomorph.id,
-                    shape_id: "CallerZonedStructural",
-                    reason_id: role_reason(role),
-                }),
-            },
-        },
-        MorphologyRewrite::OrdinaryLiteral { .. } => match crate::emit::classify_affix(&allomorph.rhs) {
-            crate::emit::Role::Prefix | crate::emit::Role::CircumfixPrefix => {
-                Ok(vec![MarkerZone::Prefix])
-            }
-            crate::emit::Role::Suffix => Ok(vec![MarkerZone::Suffix]),
-            crate::emit::Role::None => match (has_prefix, has_suffix) {
-                (true, false) => Ok(vec![MarkerZone::Prefix]),
-                (false, true) => Ok(vec![MarkerZone::Suffix]),
-                _ => Err(MorphologyRelationError::UnsupportedRewrite {
-                    allomorph: allomorph.id,
-                    shape_id: "OrdinaryLiteral",
-                    reason_id: "ambiguous-slot-zone",
-                }),
-            },
-            role => Err(MorphologyRelationError::UnsupportedRewrite {
-                allomorph: allomorph.id,
-                shape_id: "OrdinaryLiteral",
-                reason_id: role_reason(role),
-            }),
-        },
         MorphologyRewrite::Unsupported {
             allomorph,
             shape_id,
