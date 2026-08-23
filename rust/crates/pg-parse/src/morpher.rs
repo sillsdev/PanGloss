@@ -331,6 +331,23 @@ impl<'g> Morpher<'g> {
         (outcome, stats.rows(), calib)
     }
 
+    /// `Self::parse_word_with_stats_and_calibration`'s sibling for the finer
+    /// `pg_rules::stats::AnalysisPhase` self-time breakdown; empty unless built with `stats-calibrate`.
+    pub fn parse_word_with_stats_and_phases(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+    ) -> (
+        ParseOutcome,
+        HashMap<pg_rules::stats::AnalysisPhase, pg_rules::stats_calibrate::KindTotals>,
+    ) {
+        let stats = pg_rules::stats::StatsCollector::new(self.g);
+        let sink = NoopSink;
+        let outcome = self.parse_word_core_selected(word, opts, &sink, None, None, Some(&stats));
+        let phases = stats.phase_totals();
+        (outcome, phases)
+    }
+
     /// Shared body behind `Self::parse_word_opts`/`Self::parse_word_traced`; every trace call here must be guarded by `trace.is_tracing()`, since `NoopSink` panics otherwise.
     fn parse_word_core(
         &self,

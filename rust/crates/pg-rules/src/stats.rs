@@ -36,6 +36,22 @@ impl Direction {
     }
 }
 
+/// Finer-grained self-time phase inside the ANALYSIS rule-body invocation `ObjectKind::MorphRule`
+/// already times; orthogonal to `ObjectKind` and never a counted `StatsRow` -- a `pangloss
+/// calibrate`-style diagnostic dimension only, read via `StatsCollector::phase_totals`. `Other` is
+/// entered as the outermost region around the whole invocation, so its self-time (after every
+/// phase below is subtracted out as a nested region) is exactly the unattributed remainder.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum AnalysisPhase {
+    Other,
+    AnaSynFs,
+    SegsOf,
+    AnaAffixAllomorph,
+    FstTraversal,
+    AnaRealizational,
+    AnaCompound,
+}
+
 /// Which grammar object a fact row is attributed to.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ObjectKind {
@@ -162,6 +178,8 @@ pub struct StatsCollector {
     sparse: RefCell<HashMap<SparseKey, Counters>>,
     /// `pangloss calibrate`'s self-time accumulator; a no-op unless built with `stats-calibrate`.
     calib: crate::stats_calibrate::SelfTimeAccumulator<ObjectKind>,
+    /// The finer `AnalysisPhase` breakdown; independent accumulator, same no-op-off-feature contract as `calib`.
+    phase_calib: crate::stats_calibrate::SelfTimeAccumulator<AnalysisPhase>,
 }
 
 impl StatsCollector {
@@ -171,6 +189,7 @@ impl StatsCollector {
             phon: DenseTable::new(g.strata.len(), g.prules.len()),
             sparse: RefCell::new(HashMap::default()),
             calib: crate::stats_calibrate::SelfTimeAccumulator::new(),
+            phase_calib: crate::stats_calibrate::SelfTimeAccumulator::new(),
         }
     }
 
@@ -187,6 +206,22 @@ impl StatsCollector {
     /// This collector's accumulated calibration totals; empty unless built with `stats-calibrate`.
     pub fn calibration_totals(&self) -> HashMap<ObjectKind, crate::stats_calibrate::KindTotals> {
         self.calib.totals()
+    }
+
+    /// Enter an `AnalysisPhase` self-time region; same no-op-unless-`stats-calibrate` contract as
+    /// `Self::calibrate_enter`, on the independent phase accumulator.
+    pub fn phase_enter(
+        &self,
+        phase: AnalysisPhase,
+        work: u64,
+    ) -> crate::stats_calibrate::RegionGuard<'_, AnalysisPhase> {
+        self.phase_calib.enter(phase, work)
+    }
+
+    /// This collector's accumulated `AnalysisPhase` totals; empty unless built with
+    /// `stats-calibrate`.
+    pub fn phase_totals(&self) -> HashMap<AnalysisPhase, crate::stats_calibrate::KindTotals> {
+        self.phase_calib.totals()
     }
 
     fn sparse_with_row(&self, key: SparseKey, f: impl FnOnce(&mut Counters)) {

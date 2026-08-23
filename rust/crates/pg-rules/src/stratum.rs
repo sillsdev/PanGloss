@@ -606,6 +606,10 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         let _calib = self.stats.map(|stats| {
             stats.calibrate_enter(crate::stats::ObjectKind::MorphRule, w.shape.len() as u64)
         });
+        // The `AnalysisPhase` breakdown's outermost region: whatever the nested phase regions inside `morph::analyze*` don't claim is this region's own self time.
+        let _phase = self.stats.map(|stats| {
+            stats.phase_enter(crate::stats::AnalysisPhase::Other, w.shape.len() as u64)
+        });
         let mut outs = match (rule, self.non_head_root_filter) {
             (MorphRuleDef::Compounding(_), Some(filter)) => match self.cache {
                 Some(cache) => morph::analyze_cached_with_root_filter_traced(
@@ -636,6 +640,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             },
         };
         drop(_calib);
+        drop(_phase);
         for o in &mut outs {
             // Analysis always records the known rule; the null case only arises from generation seeding a bare non-head directly.
             o.mrule_apps.push(Some(id));

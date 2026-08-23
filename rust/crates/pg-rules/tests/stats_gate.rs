@@ -238,6 +238,44 @@ fn max_apps_rejection_contributes_no_attempt() {
     );
 }
 
+/// `StatsCollector::phase_totals` must stay empty in an ordinary build, over a real analyzer run.
+#[cfg(not(feature = "stats-calibrate"))]
+#[test]
+fn phase_totals_are_empty_without_the_stats_calibrate_feature() {
+    let mut g = load_alpha_grammar();
+    let r = self_matching_suffix_rule(&g, 290, "p", 5);
+    let rid = push_mrule(&mut g, r);
+    let cfg = AnalyzerConfig::default();
+    let budget = StepBudget::new(usize::MAX);
+    let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
+    let stats = StatsCollector::new(&g);
+
+    let out = analyze_stratum_scoped_filtered_ruled_traced(
+        &g,
+        s,
+        word(&g, "appp", s),
+        &cfg,
+        None,
+        None,
+        None,
+        None,
+        &budget,
+        Some(&stats),
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(!out.capped, "gate must terminate without the step cap");
+    assert!(
+        !stats.rows().is_empty(),
+        "sanity: the rule must actually have been reached, or this test proves nothing"
+    );
+
+    assert!(
+        stats.phase_totals().is_empty(),
+        "AnalysisPhase totals must be empty when this crate is built without stats-calibrate"
+    );
+}
+
 /// An attempted rule whose body matches nothing must record `not_applied` with zero outputs.
 #[test]
 fn not_applied_fires_when_an_attempted_rule_matches_nothing() {

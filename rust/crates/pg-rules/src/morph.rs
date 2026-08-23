@@ -36,7 +36,7 @@ use pg_grammar::model::{
 use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 
 use crate::bridge::{BridgeError, PatternBridge};
-use crate::stats::MRuleStatsCtx;
+use crate::stats::{AnalysisPhase, MRuleStatsCtx};
 use crate::stratum::NonHeadRootFilter;
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
@@ -374,8 +374,9 @@ fn ana_affix_cached_traced(
             continue;
         };
         let before = output.len();
-        for mut w in ana_affix_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn)
-        {
+        for mut w in ana_affix_allomorph(
+            g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn, mstats,
+        ) {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
@@ -426,9 +427,9 @@ fn ana_realizational_cached_traced(
             continue;
         };
         let before = output.len();
-        for mut w in
-            ana_realizational_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs)
-        {
+        for mut w in ana_realizational_allomorph(
+            g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs, mstats,
+        ) {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
@@ -2250,7 +2251,7 @@ fn ana_affix(
         };
         let before = output.len();
         output.extend(ana_affix_allomorph(
-            g, table, word, allo, &lhs, &fst, &segs, &node_of, &new_syn,
+            g, table, word, allo, &lhs, &fst, &segs, &node_of, &new_syn, mstats,
         ));
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -2259,7 +2260,7 @@ fn ana_affix(
     output
 }
 
-/// `crate::cache::RuleCache`-aware sibling of `ana_affix`.
+/// `crate::cache::RuleCache`-aware sibling of `ana_affix`, also driving the `AnalysisPhase` breakdown.
 fn ana_affix_cached(
     g: &Grammar,
     word: &Word,
@@ -2267,12 +2268,16 @@ fn ana_affix_cached(
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
+    let _synfs_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::AnaSynFs, 1));
     let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
+    drop(_synfs_phase);
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
+    let _segs_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::SegsOf, 1));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    drop(_segs_phase);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
@@ -2280,9 +2285,11 @@ fn ana_affix_cached(
             continue;
         };
         let before = output.len();
+        let _allo_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::AnaAffixAllomorph, 1));
         output.extend(ana_affix_allomorph(
-            g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn,
+            g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn, mstats,
         ));
+        drop(_allo_phase);
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
@@ -2290,7 +2297,7 @@ fn ana_affix_cached(
     output
 }
 
-/// One allomorph's analysis-side match, `GenerateShape`, and dedup; `carry` writes whichever feature structure the rule kind propagates, and the dedup scope resets per allomorph, never shared across the rule.
+/// One allomorph's analysis-side match, `GenerateShape`, and dedup; `carry` writes whichever feature structure the rule kind propagates, and the dedup scope resets per allomorph, never shared across the rule. `mstats` times the FST search itself (`all_matches`, `AnalysisPhase::FstTraversal`) apart from the `generate_shape`/dedup remainder, which is charged to whichever phase the caller already entered.
 #[allow(clippy::too_many_arguments)]
 fn ana_allomorph_matches(
     g: &Grammar,
@@ -2301,6 +2308,7 @@ fn ana_allomorph_matches(
     fst: &Fst,
     segs: &[Segment],
     node_of: &[usize],
+    mstats: Option<MRuleStatsCtx>,
     carry: impl Fn(&mut Word),
 ) -> Vec<Word> {
     let parts: Vec<(String, &Pattern)> = allo
@@ -2310,10 +2318,13 @@ fn ana_allomorph_matches(
         .map(|(i, p)| (format!("p{i}"), p))
         .collect();
     let mut allo_out: Vec<Word> = Vec::new();
-    for result in Transduce::new(fst, segs.to_vec())
-        .anchored(true, true)
-        .all_matches()
-    {
+    let matches = {
+        let _fst_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::FstTraversal, 1));
+        Transduce::new(fst, segs.to_vec())
+            .anchored(true, true)
+            .all_matches()
+    };
+    for result in matches {
         let out = generate_shape(g, table, &parts, lhs, fst, &result, node_of, &word.shape);
         let mut w = word.clone();
         w.shape = freeze_out(g, &out);
@@ -2334,8 +2345,9 @@ fn ana_affix_allomorph(
     segs: &[Segment],
     node_of: &[usize],
     new_syn: &FeatureStruct,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
-    ana_allomorph_matches(g, table, word, allo, lhs, fst, segs, node_of, |w| {
+    ana_allomorph_matches(g, table, word, allo, lhs, fst, segs, node_of, mstats, |w| {
         w.syn_fs = new_syn.clone()
     })
 }
@@ -2364,7 +2376,7 @@ fn ana_realizational(
         };
         let before = output.len();
         output.extend(ana_realizational_allomorph(
-            g, table, word, allo, &lhs, &fst, &segs, &node_of, &real_fs,
+            g, table, word, allo, &lhs, &fst, &segs, &node_of, &real_fs, mstats,
         ));
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -2373,7 +2385,7 @@ fn ana_realizational(
     output
 }
 
-/// `crate::cache::RuleCache`-aware sibling of `ana_realizational`.
+/// `crate::cache::RuleCache`-aware sibling of `ana_realizational`, also driving the `AnalysisPhase` breakdown.
 fn ana_realizational_cached(
     g: &Grammar,
     word: &Word,
@@ -2381,12 +2393,16 @@ fn ana_realizational_cached(
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
+    let _synfs_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::AnaSynFs, 1));
     let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
+    drop(_synfs_phase);
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
+    let _segs_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::SegsOf, 1));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    drop(_segs_phase);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
@@ -2394,9 +2410,11 @@ fn ana_realizational_cached(
             continue;
         };
         let before = output.len();
+        let _allo_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::AnaRealizational, 1));
         output.extend(ana_realizational_allomorph(
-            g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs,
+            g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs, mstats,
         ));
+        drop(_allo_phase);
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
@@ -2416,8 +2434,9 @@ fn ana_realizational_allomorph(
     segs: &[Segment],
     node_of: &[usize],
     real_fs: &FeatureStruct,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
-    ana_allomorph_matches(g, table, word, allo, lhs, fst, segs, node_of, |w| {
+    ana_allomorph_matches(g, table, word, allo, lhs, fst, segs, node_of, mstats, |w| {
         w.real_fs = real_fs.clone()
     })
 }
@@ -2873,7 +2892,7 @@ fn ana_compound(
     output
 }
 
-/// `crate::cache::RuleCache`-aware sibling of `ana_compound`.
+/// `crate::cache::RuleCache`-aware sibling of `ana_compound`, also driving the `AnalysisPhase` breakdown.
 #[allow(clippy::too_many_arguments)]
 fn ana_compound_cached(
     g: &Grammar,
@@ -2884,12 +2903,16 @@ fn ana_compound_cached(
     root_filter: Option<NonHeadRootFilter>,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
+    let _synfs_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::AnaSynFs, 1));
     let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
+    drop(_synfs_phase);
     let table = crate::cache::owning_table_for_mrule(g, mrid).unwrap_or(TableId(0));
+    let _segs_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::SegsOf, 1));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    drop(_segs_phase);
     let cc = cache.compound(mrid);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
@@ -2898,6 +2921,7 @@ fn ana_compound_cached(
             continue;
         };
         let before = output.len();
+        let _sr_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::AnaCompound, 1));
         output.extend(ana_compound_subrule(
             g,
             table,
@@ -2911,6 +2935,7 @@ fn ana_compound_cached(
             &new_syn,
             root_filter,
         ));
+        drop(_sr_phase);
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
