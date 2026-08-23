@@ -55,6 +55,17 @@ would make your language invalid!”
    never promoted to Machine.
 7. Capability cards are static and machine-independent. Language, corpus, timing, and machine
    measurements belong only in per-build compatibility/build reports.
+8. A physical template slot is one authored choice. Classification remains per allomorph: each
+   true two-sided allomorph returns `DirectWholeRootWrapper { prefix_variants, suffix_variants }`
+   and must emit its full internal Cartesian product. A `SlotProjectionAlternative` whose
+   `route()` is `SlotAlternativeRoute::Coupled` keeps different allomorph alternatives correlated
+   across the root: for `Coupled(p,s)` plus `Suffix-only(t)`,
+   accept `pROOTs` or `ROOTt`, never invented `pROOTt`. Carry that route-specific state through the
+   root/continuation topology (duplicated topology is acceptable) or a verified carrier relation.
+   If neither is available, fail closed before lexc parsing. The independent
+   `classify_template`/`build_slot_chain` prefix/suffix lists, flags, candidate filtering, and
+   partial FSTs cannot satisfy this gate. One-sided wrappers remain ordinary edge routes;
+   template-only rules are not standalone derivations, and explicit stratum sites remain distinct.
 
 ## Capability-card contract
 

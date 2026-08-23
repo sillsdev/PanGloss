@@ -22,6 +22,18 @@ that can be lowered and checked exactly; every other shape remains an honest ref
   replacement, and the existing bounded adjacent terminal-drop recipe.  Ordinary literal
   prefix/suffix allomorphs continue through ordinary templated emission and are not structural
   recipes.
+- Treat a physical template slot as one authored choice.  Classification remains per allomorph:
+  each true two-sided allomorph returns `DirectWholeRootWrapper { prefix_variants, suffix_variants }`
+  and gets its full internal prefix × suffix product.  A `SlotProjectionAlternative` whose
+  `route()` is `SlotAlternativeRoute::Coupled` preserves that result's authored choice across the
+  root; a one-sided wrapper remains an
+  ordinary edge route.  Different allomorph/slot alternatives must stay correlated across the root
+  (for example, accept
+  `pROOTs` or `ROOTt` for `Coupled(p,s)` and `Suffix-only(t)`, never invented `pROOTt`).  Carry
+  route-specific state through the root/continuation topology or a verified carrier relation; if
+  neither exists, fail closed before lexc parsing.  Flags, candidate filtering, and partial FSTs
+  are not substitutes.  Template-only rules do not become standalone derivations, and explicit
+  stratum sites remain distinct.
 - Keep action admission closed while deliberately overapproximating LHS predicates.  A recipe is
   accepted only when every RHS input reference resolves to a real, non-empty LHS part and the RHS
   matches one listed topology exactly.  The proposer does not pretend to enforce natural-class,
@@ -30,9 +42,8 @@ that can be lowered and checked exactly; every other shape remains an honest ref
   matching to HermitCrab confirmation.  Malformed references, table-untranslatable output text,
   and every unlisted action topology remain refused.
 - Emit a technical marker only for an admitted root-internal structural allomorph.  The Aweti
-  whole-root wrapper is the complete direct marker-free prefix-variant × suffix-variant Cartesian
-  product because every LHS part is copied once in order; it traverses only the relation's identity
-  branch and is never mistaken for an interior rewrite.  Compile one unioned allomorph relation for the remaining recipes, with total
+  whole-root wrapper traverses only the relation's identity branch and is never mistaken for an
+  interior rewrite.  Compile one unioned allomorph relation for the remaining recipes, with total
   marker-union invariants: marker-free input has only identity behavior; a structural branch has
   exactly one known marker; foreign or multiple markers are rejected; the known marker is consumed
   exactly once; and no marker can reach the final proposer or structured analysis identity.
@@ -84,8 +95,12 @@ that can be lowered and checked exactly; every other shape remains an honest ref
 
 - Primary modules: `rust/crates/pg-foma/src/structural_allomorph.rs`, `emit.rs`, `capability.rs`,
   `strategy_coverage.rs`, and `templated_compile.rs`, plus narrowly scoped relation/profile helpers if needed.
-- Tests must pin every admitted and rejected topology, marker isolation/cleanup, selected-versus-
-  realized backend identity, and exact structured semantic equality.  Actual Amharic/Aweti data
+- Tests must pin every admitted and rejected topology, the full Cartesian product within one
+  `Coupled` wrapper and the absence of cross-slot-alternative/allomorph products, marker isolation/cleanup,
+  selected-versus-realized backend identity, and exact structured semantic equality.  Actual
+  Amharic/Aweti data
   remains external/private evidence; synthetic fixtures are construct-shaped and invented.
 - Historical baselines remain route- and denominator-qualified; a broad recall floor, timeout-
   excluded subset, or rule-only cascade is never promoted to an end-to-end language pass.
+- The certification objective is Indonesian, Amharic, and Aweti.  Mbugwe remains explicitly out
+  of scope for this change.
