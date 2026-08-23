@@ -8,6 +8,7 @@ const MIXED_SLOT_XML: &str = r#"
     <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
     <SegmentDefinition id="cs"><Representations><Representation>s</Representation><Representation>S</Representation></Representations></SegmentDefinition>
     <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+    <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
   </SegmentDefinitions></CharacterDefinitionTable>
   <NaturalClasses><FeatureNaturalClass id="any"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
   <Strata><Stratum characterDefinitionTable="table" morphologicalRuleOrder="linear" morphologicalRules="">
@@ -22,6 +23,10 @@ const MIXED_SLOT_XML: &str = r#"
           <MorphologicalSubrule id="suffix">
             <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
             <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>t</PhoneticShape></InsertSegments></MorphologicalOutput>
+          </MorphologicalSubrule>
+          <MorphologicalSubrule id="prefix">
+            <MorphologicalInput><PhoneticSequence id="base"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+            <MorphologicalOutput><InsertSegments><PhoneticShape>u</PhoneticShape></InsertSegments><CopyFromInput index="base" /></MorphologicalOutput>
           </MorphologicalSubrule>
         </MorphologicalSubrules><MorphemeId>MIXED</MorphemeId>
       </MorphologicalRule>
@@ -43,17 +48,61 @@ fn one_slot_choice_stays_atomic_across_the_root() {
         .expect("the atomic carrier must compile before any lexc artifact is accepted");
     let mut proposer = compiled.proposer;
 
-    for surface in ["pqs", "pqS", "Pqs", "PqS", "qt", "q"] {
+    for surface in ["pqs", "pqS", "Pqs", "PqS", "qt", "uq", "q"] {
         assert!(
             !proposer.propose(surface).is_empty(),
             "authored template path {surface:?} must remain reachable"
         );
     }
 
-    for surface in ["pqt", "Pqt", "pq", "Pq", "qs", "qS"] {
+    for surface in [
+        "pqt", "Pqt", "uqt", "uqs", "uqS", "pq", "Pq", "qs", "qS",
+    ] {
         assert!(
             proposer.propose(surface).is_empty(),
             "unmatched or crossed slot path {surface:?} must not be manufactured"
+        );
+    }
+}
+
+#[test]
+fn carrier_preserves_other_template_slots() {
+    let xml = MIXED_SLOT_XML
+        .replace(
+            "</SegmentDefinitions>",
+            r#"<SegmentDefinition id="ch"><Representations><Representation>h</Representation></Representations></SegmentDefinition></SegmentDefinitions>"#,
+        )
+        .replace(
+            "</MorphologicalRuleDefinitions>",
+            r#"<MorphologicalRule id="tail" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
+              <Name>tail</Name><MorphologicalSubrules><MorphologicalSubrule id="tail-subrule">
+                <MorphologicalInput><PhoneticSequence id="tail-stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="tail-stem" /><InsertSegments><PhoneticShape>h</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule></MorphologicalSubrules><MorphemeId>TAIL</MorphemeId>
+            </MorphologicalRule></MorphologicalRuleDefinitions>"#,
+        )
+        .replace(
+            "</AffixTemplate></AffixTemplates>",
+            r#"<Slot optional="false" morphologicalRules="tail"><Name>tail</Name></Slot></AffixTemplate></AffixTemplates>"#,
+        );
+    let grammar = pg_grammar::load(&xml).expect("multi-slot carrier fixture must load");
+    let compiled = compile_templated_morphotactics(&grammar)
+        .expect("one mixed slot among ordinary template slots must compile");
+    let mut proposer = compiled.proposer;
+
+    for surface in ["pqsh", "pqSh", "Pqsh", "PqSh", "qth", "uqh", "qh"] {
+        assert!(
+            !proposer.propose(surface).is_empty(),
+            "authored multi-slot path {surface:?} must remain reachable"
+        );
+    }
+
+    for surface in [
+        "pqth", "Pqth", "uqth", "uqsh", "uqSh", "pqh", "Pqh", "qsh", "qSh",
+    ] {
+        assert!(
+            proposer.propose(surface).is_empty(),
+            "crossed or unmatched multi-slot path {surface:?} must not be manufactured"
         );
     }
 }
