@@ -256,6 +256,7 @@ pub enum CompletedBuildError {
         requested: EmissionStrategy,
         realized: EmissionStrategy,
     },
+    PreferredBuildMissing(EmissionStrategy),
     NoMatchingCompletedBuild,
 }
 
@@ -301,6 +302,9 @@ impl fmt::Display for CompletedBuildError {
                 f,
                 "backend strategy mismatch: requested {requested:?}, realized {realized:?}"
             ),
+            Self::PreferredBuildMissing(strategy) => {
+                write!(f, "preferred completed backend build is missing for {strategy:?}")
+            }
             Self::NoMatchingCompletedBuild => f.write_str("no matching completed backend build"),
         }
     }
@@ -398,18 +402,17 @@ where
     I: IntoIterator<Item = CompletedBackendBuild>,
 {
     let builds: Vec<_> = completed_builds.into_iter().collect();
-    for strategy in selection.selected() {
-        if let Some(build) = builds
-            .iter()
-            .find(|build| build.evidence.realized_strategy == strategy)
-        {
-            validate_selected_build(build, request, expected_grammar_identity)?;
-            return Ok(SelectedBackendBuild {
-                build: build.clone(),
-            });
-        }
-    }
-    Err(CompletedBuildError::NoMatchingCompletedBuild)
+    let Some(preferred) = selection.preferred() else {
+        return Err(CompletedBuildError::NoMatchingCompletedBuild);
+    };
+    let build = builds
+        .iter()
+        .find(|build| build.evidence.realized_strategy == preferred)
+        .ok_or(CompletedBuildError::PreferredBuildMissing(preferred))?;
+    validate_selected_build(build, request, expected_grammar_identity)?;
+    Ok(SelectedBackendBuild {
+        build: build.clone(),
+    })
 }
 
 fn validate_selected_build(
