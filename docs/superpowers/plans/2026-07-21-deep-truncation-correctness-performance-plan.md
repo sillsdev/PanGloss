@@ -8,6 +8,10 @@
 > that never existed would trade one inaccuracy for a worse one. New evidence should go to a
 > construct-named directory and stay out of git if it contains real-language data.
 
+> **Historical/superseded acceptance scope.** The four-language matrix and commands below are
+> retained as provenance from the completed investigation. They are not the current
+> Indonesian/Amharic/Aweti shipping gate.
+
 > Execute this plan with fresh Luna agents. Each behavior-changing task follows
 > red-green-refactor and receives separate specification and code-quality
 > reviews before the next task begins.

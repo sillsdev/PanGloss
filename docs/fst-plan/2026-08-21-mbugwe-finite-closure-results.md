@@ -1,8 +1,8 @@
-# Mbugwe finite-closure result
+# Mbugwe finite-closure result (deferred)
 
 ## Outcome
 
-Mbugwe is accepted as an honest no-path grammar for the current FST backends. PanGloss imports the
+Mbugwe is recorded as an honest no-path result for the current FST backends. PanGloss imports the
 fwdata project and the full Rust HermitCrab engine can analyze a bounded sample, but no backend can
 currently produce a grammar-wide, trusted FST under the default envelope. The build must therefore
 stop without an FST artifact.

@@ -3,6 +3,9 @@
 Date: 2026-07-20  
 Status: Approved for implementation
 
+> **Historical/superseded acceptance scope.** The four-language performance design and its release
+> gates are retained as provenance; they are not the current Indonesian/Amharic/Aweti shipping gate.
+
 ## Objective
 
 Finish the planned Aweti work, measure current results for Sena, Indonesian,

@@ -1,5 +1,9 @@
 # Five-language FST measurement sweep — 2026-08-19
 
+> **Historical measurement only.** This five-language sweep is retained as provenance from the
+> earlier route work. Sena and Mbugwe are outside the current Indonesian/Amharic/Aweti acceptance
+> slice, and no row below certifies a trusted shipped FST.
+
 Measures whether the FST-propose + HC-confirm path (`--engine=foma`) reaches full recall against
 the oracle (`--engine=default`) for all five private-corpus reference grammars — indonesian, sena,
 amharic, aweti, mbugwe — and what it costs (FST size, build time, propose/confirm speed). Companion

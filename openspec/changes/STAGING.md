@@ -437,7 +437,7 @@ CI gate. Actual-language data (Sena/Amharic/Indonesian/Aweti) is **not** migrate
 coverage is expanded only with synthetic fixtures named by construct/composition (see the hard rule
 above).
 
-## Stage 5 — language readiness: make the compiler's answer visible and formal *(NET-NEW 2026-07-26)*
+## Stage 5 — language readiness: make the compiler's answer visible and formal *(historical roadmap; superseded for current shipping by the active three-language section above)*
 
 Requested directly. Four deliverables that turn "the compiler works" into "this language will work on a
 device, and here is the evidence". Two changes, because visualization is genuinely useful alone while
