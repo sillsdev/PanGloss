@@ -78,6 +78,8 @@ pub mod backend_registry;
 /// Schema-versioned machine and human views over backend-optimization runs.
 pub mod backend_report;
 pub mod backend_runtime;
+/// Opaque trusted compiler output and selector-owned runtime handoff.
+pub mod completed_build;
 /// Static, machine-independent capability cards for the executable backends.
 mod backend_cards_data;
 pub mod backend_cards {
