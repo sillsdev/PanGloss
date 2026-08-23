@@ -1,4 +1,6 @@
-use pg_foma::templated_compile::compile_templated_morphotactics;
+use pg_foma::templated_compile::{
+    compile_templated_morphotactics, TemplatedCompileError,
+};
 
 const MIXED_SLOT_XML: &str = r#"
 <HermitCrabInput><Language><Name>atomic-template-slot</Name>
@@ -105,4 +107,42 @@ fn carrier_preserves_other_template_slots() {
             "crossed or unmatched multi-slot path {surface:?} must not be manufactured"
         );
     }
+}
+
+fn assert_typed_unsupported(xml: &str, context: &str) {
+    let grammar = pg_grammar::load(xml).unwrap_or_else(|error| panic!("{context}: {error}"));
+    match compile_templated_morphotactics(&grammar) {
+        Err(TemplatedCompileError::Unsupported(_)) => {}
+        Err(other) => panic!("{context}: expected typed Unsupported, got {other}"),
+        Ok(_) => panic!("{context}: unsupported carrier topology compiled"),
+    }
+}
+
+#[test]
+fn two_cross_root_slots_fail_closed() {
+    let xml = MIXED_SLOT_XML.replace(
+        "</AffixTemplate></AffixTemplates>",
+        r#"<Slot optional="true" morphologicalRules="mixed"><Name>second mixed</Name></Slot></AffixTemplate></AffixTemplates>"#,
+    );
+    assert_typed_unsupported(&xml, "two cross-root slots");
+}
+
+#[test]
+fn cross_root_slot_with_compounding_fails_closed() {
+    let xml = MIXED_SLOT_XML
+        .replace(
+            "morphologicalRuleOrder=\"linear\" morphologicalRules=\"\"",
+            "morphologicalRuleOrder=\"linear\" morphologicalRules=\"compound\"",
+        )
+        .replace(
+            "</MorphologicalRuleDefinitions>",
+            r#"<CompoundingRule id="compound" nonHeadPartsOfSpeech="pos">
+              <Name>compound</Name><CompoundingSubrules><CompoundingSubrule>
+                <HeadMorphologicalInput><PhoneticSequence id="head"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></HeadMorphologicalInput>
+                <NonHeadMorphologicalInput><PhoneticSequence id="nonhead"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></NonHeadMorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="head" /><CopyFromInput index="nonhead" /></MorphologicalOutput>
+              </CompoundingSubrule></CompoundingSubrules>
+            </CompoundingRule></MorphologicalRuleDefinitions>"#,
+        );
+    assert_typed_unsupported(&xml, "cross-root slot with compounding");
 }
