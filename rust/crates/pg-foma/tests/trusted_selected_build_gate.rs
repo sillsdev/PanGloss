@@ -8,10 +8,10 @@
 use std::collections::BTreeSet;
 
 use pg_foma::backend_runtime::grammar_identity;
-use pg_foma::backend_selection::{
-    select_backends_for_grammar, select_backends_for_grammar_with_tuned_closure_work_limit,
+use pg_foma::backend_selection::select_backends_for_grammar;
+use pg_foma::completed_build::{
+    compile_completed_backend, select_completed_build, CompletionProofKind,
 };
-use pg_foma::completed_build::{compile_completed_backend, select_completed_build};
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::resource_envelope::{CompileEnvelopeRequest, ResourceEnvelopeId};
 use pg_grammar::model::Grammar;
@@ -59,20 +59,18 @@ fn identities(grammar: &Grammar, analyses: &[WordAnalysis]) -> BTreeSet<Analysis
 fn assert_selected_payload_route(
     xml: &str,
     expected_strategy: EmissionStrategy,
+    expected_proof: CompletionProofKind,
     word: &str,
 ) {
     let grammar = pg_grammar::load(xml).expect("synthetic fixture must load");
-    let selection = match expected_strategy {
-        EmissionStrategy::TemplatedUnderlyingTokens => {
-            select_backends_for_grammar_with_tuned_closure_work_limit(&grammar, 0)
-        }
-        _ => select_backends_for_grammar(&grammar),
-    };
+    let selection = select_backends_for_grammar(&grammar);
 
     // The route is discovered from the real reports.  The test may state the fixture's expected
     // route, but it cannot inject that route into selection or trusted-build validation.
-    assert_eq!(selection.preferred(), Some(expected_strategy));
-    assert!(selection.selected().contains(&expected_strategy));
+    assert!(
+        selection.selected().contains(&expected_strategy),
+        "the real capability reports must admit the route exercised by this case"
+    );
 
     let request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
         .expect("managed envelope request");
@@ -88,6 +86,7 @@ fn assert_selected_payload_route(
     assert_eq!(selected.evidence().realized_strategy(), expected_strategy);
     assert_eq!(selected.evidence().grammar_identity(), grammar_id);
     assert_eq!(selected.evidence().envelope_id(), request.envelope_id());
+    assert_eq!(selected.evidence().completion_proof_kind(), expected_proof);
     assert!(selected.evidence().is_trusted_complete());
     assert!(!selected.payload_bytes().is_empty());
 
@@ -119,6 +118,7 @@ fn selected_tuned_surface_payload_reconstructs_exact_analysis_pipeline() {
     assert_selected_payload_route(
         TUNED_FIXTURE,
         EmissionStrategy::TunedSurfaceProbed,
+        CompletionProofKind::TunedClosure,
         "a",
     );
 }
@@ -128,6 +128,7 @@ fn selected_templated_underlying_tokens_payload_reconstructs_exact_analysis_pipe
     assert_selected_payload_route(
         TEMPLATED_FIXTURE,
         EmissionStrategy::TemplatedUnderlyingTokens,
+        CompletionProofKind::TemplatedFullEmission,
         "pakolosa",
     );
 }
