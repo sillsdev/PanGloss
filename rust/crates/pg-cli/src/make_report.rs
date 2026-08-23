@@ -22,9 +22,19 @@ use pg_foma::readiness_verdict::{
 use pg_grammar::model::Grammar;
 use sha2::{Digest, Sha256};
 
-const USAGE: &str = "usage: make-report <grammar> <out.md> [--pack=<path>] [--words=<path>] \
-[--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>] [--allow-unproven] \
-[--authorized-by=<name>] [--reason=<text>] [--repeats=N]";
+#[cfg(feature = "developer-tools")]
+const REFUSED_REPORT_REMEDIATION: &str =
+    "pass --allow-unproven to force-compile and measure anyway";
+#[cfg(not(feature = "developer-tools"))]
+const REFUSED_REPORT_REMEDIATION: &str =
+    "the grammar is outside the production capability policy; consult the saved capability/readiness report or use a developer-tools build for an explicitly authorized override workflow";
+
+#[cfg(feature = "developer-tools")]
+const REFUSED_PACK_REMEDIATION: &str =
+    "no --allow-unproven override was given, so no pack was built";
+#[cfg(not(feature = "developer-tools"))]
+const REFUSED_PACK_REMEDIATION: &str =
+    "the grammar is outside the production capability policy, so no pack was built; consult the saved capability/readiness report or use a developer-tools build for an explicitly authorized override workflow";
 
 // Small, self-contained helpers: hashing, git introspection, trust projection, timing.
 
@@ -495,6 +505,8 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
     let mut attested_on: Option<String> = None;
     let mut policy_path: Option<String> = None;
     let mut allow_unproven = false;
+    #[cfg(feature = "developer-tools")]
+    let mut remove_size_limits = false;
     let mut authorized_by: Option<String> = None;
     let mut reason: Option<String> = None;
     let mut repeats: u32 = 7;
@@ -526,7 +538,17 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--policy=") => {
                 policy_path = Some(s["--policy=".len()..].to_string())
             }
-            "--allow-unproven" => allow_unproven = true,
+            "--allow-unproven" => {
+                crate::accept_developer_flag(a)?;
+                allow_unproven = true;
+            }
+            "--remove-size-limits" => {
+                crate::accept_developer_flag(a)?;
+                #[cfg(feature = "developer-tools")]
+                {
+                    remove_size_limits = true;
+                }
+            }
             "--authorized-by" => {
                 authorized_by = Some(it.next().ok_or("--authorized-by requires a value")?.clone())
             }
@@ -543,14 +565,24 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                 let v = &s["--repeats=".len()..];
                 repeats = v.parse().map_err(|_| format!("invalid --repeats: {v}"))?;
             }
-            s => positional.push(s),
+            s => {
+                crate::reject_unknown_option(s)?;
+                positional.push(s);
+            }
         }
     }
+    #[cfg(feature = "developer-tools")]
+    let _ = remove_size_limits;
     if repeats == 0 {
         return Err("--repeats must be >= 1".to_string());
     }
     let [grammar_path, out_path] = positional[..] else {
-        return Err(USAGE.to_string());
+        return Err(format!(
+            "usage: make-report <grammar> <out.md> [--pack=<path>] [--words=<path>] \
+             [--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>]{} \
+             [--authorized-by=<name>] [--reason=<text>] [--repeats=N]",
+            crate::REPORT_DEVELOPER_HELP
+        ));
     };
 
     let coverage_flags =
@@ -622,24 +654,19 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
     let coverage_attestation_line: String;
 
     if !attempt_compile {
-        not_tested.push(
+        not_tested.push(format!(
             "build time, artifact size, lexicon scale, latency, and coverage: NONE of these were \
-             measured -- the capability gate refuses this grammar and --allow-unproven was not \
-             given, so no compiled artifact exists to measure at all (this is the expected, \
-             headline outcome for a permanently-refused construct, per docs/benchmark-matrix.md)."
-                .to_string(),
-        );
+             measured -- the capability gate refuses this grammar; {REFUSED_REPORT_REMEDIATION}, \
+             so no compiled artifact exists to measure at all (this is the expected, headline \
+             outcome for a permanently-refused construct, per docs/benchmark-matrix.md)."
+        ));
         trust = TrustStatus::Proven; // no override was exercised; there is simply no artifact.
         measurements = None;
-        build_time_line = "not measured -- the grammar was refused and no compiled artifact was \
-             ever built (pass --allow-unproven to force-compile and measure anyway; the resulting \
+        build_time_line = format!("not measured -- the grammar was refused and no compiled artifact was \
+             ever built ({REFUSED_REPORT_REMEDIATION}; the resulting \
              report will still never certify -- trust=unproven never certifies, under any \
-             configuration)."
-            .to_string();
-        pack_pin =
-            "none -- the grammar was refused and no --allow-unproven override was given, so \
-             no pack was built."
-                .to_string();
+             configuration).");
+        pack_pin = format!("none -- the grammar was refused and {REFUSED_PACK_REMEDIATION}.");
         latency_methodology_line = "not measured -- see \"build time\" above.".to_string();
         coverage_attestation_line =
             "not assessed -- no compiled artifact exists to run a corpus against (independent of \
@@ -1048,6 +1075,7 @@ mod tests {
     }
 
     /// `--allow-unproven` on the refused grammar: the report shows `NotSupported`, every check `BLOCKED` never `PASS`, and names the override as the reason.
+    #[cfg(feature = "developer-tools")]
     #[test]
     fn allow_unproven_override_report_blocks_every_check_and_never_certifies() {
         let (result, out_path) = run_make_report_raw(
@@ -1073,6 +1101,7 @@ mod tests {
     }
 
     /// A caller-supplied `--pack` file's real trust stamp is what this report certifies against, never a value this command invents.
+    #[cfg(feature = "developer-tools")]
     #[test]
     fn supplied_pack_trust_stamp_is_read_from_the_real_artifact() {
         let dir = scratch_dir("supplied-pack");

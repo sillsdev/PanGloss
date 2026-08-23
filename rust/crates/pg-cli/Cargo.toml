@@ -9,6 +9,9 @@ license.workspace = true
 name = "pangloss"
 path = "src/main.rs"
 
+[features]
+developer-tools = ["pg-foma/developer-tools"]
+
 [dependencies]
 pg-parse.workspace = true
 pg-grammar.workspace = true
