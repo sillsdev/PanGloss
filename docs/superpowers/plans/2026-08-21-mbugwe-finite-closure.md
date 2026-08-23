@@ -5,6 +5,14 @@
 > **Deferred future work.** This plan is not part of the current Indonesian/Amharic/Aweti release
 > slice and its Mbugwe scale-acceptance task is not a current shipping gate.
 
+> **Current policy note (2026-08-23).** The closure work must preserve exact completion and the
+> certificate boundary. `--allow-unproven` and `--remove-size-limits` are developer-build-only,
+> absent and rejected in production. The former may lose valid parses and never certifies or
+> publishes; the latter removes internal deterministic size/work caps only, while external
+> watchdog/RSS containment, bounded I/O, the absolute ceiling, and exact completion remain
+> mandatory. `Error` can describe complete/accurate stress evidence but is production-unready;
+> `Critical` is a correctness gap. `--no-enforce-capability` is legacy developer-only.
+
 **Goal:** Replace the unsound three-extra-rule structural enumeration limit with deterministic, grammar-bounded closure, refuse incomplete construction, and certify every trusted Foma artifact.
 
 **Boundary:** The committed `late-structural-anchor-five-rule-chain` and `complex-inserted-redup-later-allomorph` grammars are small PanGloss-only semantic fixtures. They prove compiler behavior, not Mbugwe corpus-scale coverage. Scale acceptance is a separate final task.
@@ -104,7 +112,7 @@ Expected: the existing success assertion fails because the construction is now e
 1. Define `FstCompletenessCertificate` with schema version, grammar/backend/route identity, component classifications, authored bounds, cycle classification, zero-surface-cycle evidence, closure counters, resource measurements, over-approximations, and pending worklist count.
 2. Make `is_valid()` require a matching identity, only certified component classifications, and `pending_states == 0`.
 3. Attach the certificate to successful `EmitResult`; incomplete/unsupported emission returns a typed error and no trusted artifact.
-4. Require the certificate in `FomaProposer::new`, readiness certification, workers, and pack trust. Development override may retain an unproven artifact, but never a valid certificate.
+4. Require the certificate in `FomaProposer::new`, readiness certification, workers, and pack trust. The developer-only `--allow-unproven` override may retain an unproven artifact, but never a valid certificate or production-publishable pack.
 5. Add RED/GREEN tests proving that empty `uncovered` without a certificate is insufficient and that a nonempty worklist cannot be overridden into a proven pack.
 6. Run:
 
@@ -129,7 +137,9 @@ Expected: the existing success assertion fails because the construction is now e
 
 1. Add tests showing `RepresentsWithKnownGap` cannot become `ConfirmOnly` when the gap can omit analyses.
 2. Map those rows to typed refusal unless the route supplies an explicit proposer-superset proof.
-3. Report incomplete construction as Error and unsupported/unknown completeness as Critical. Neither may be normally selected.
+3. Report a correctness-admitted construction stopped by its resource envelope as Error; report an
+   unsupported representation or inability to prove eventual completeness as Critical. Neither may
+   be normally selected.
 4. Run both test targets through `pg.ps1` and commit: `fix(foma): reject known underproposal routes`.
 
 ## Task 6: Mbugwe semantic and scale acceptance
@@ -147,5 +157,8 @@ Expected: the existing success assertion fails because the construction is now e
 ```
 
 3. Run the named real-corpus batch command derived from the manifest with one thread and a 5,000 ms word timeout. Record build outcome, certificate, states/arcs, elapsed time, full recall/timeout/skipped counts, and every backend report.
-4. Acceptance is either: a certified complete FST with measured corpus results; or a typed Error/Critical refusal with no trusted artifact and actionable backend-specific evidence. A miniature fixture pass is never scale acceptance.
+4. Acceptance is either: a production-certified complete FST with measured corpus results; a
+   complete, exact developer stress artifact that retains Error and is explicitly production-
+   unready; or a typed incomplete Error / correctness Critical with no trusted artifact and
+   actionable backend-specific evidence. A miniature fixture pass is never scale acceptance.
 5. Commit: `test(foma): record Mbugwe closure evidence`

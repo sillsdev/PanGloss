@@ -38,6 +38,10 @@ completeness or capability admission.
 - Make characterization total and fail closed on every incomplete or depth-bounded path.
 - Prove parity between characterization transitions and production construction transitions.
 - Require actual construction under the selected envelope before normal backend selection.
+- Permit an explicit developer stress attempt beyond internal deterministic size/work caps while
+  retaining host safety and exact completion/payload/parity requirements.
+- Keep hidden `--allow-unproven` as a separate developer-only correctness override that may omit
+  valid parses; neither switch is a production or publication control.
 - Refuse backend skips, gaps, technical markers, closure refusals, and requested/realized mismatch.
 - Make capability cards name only controls exposed by the caller API.
 
@@ -77,6 +81,14 @@ uses one it must record its effective value in the immutable evidence rather tha
 The 10,000 value therefore means the Tuned Surface member of a complete profile has a 10,000
 logical-work cap. It does not create a closure-only `TunedClosureEnvelope`, and it does not waive
 the worker, communication, compose, enumeration, or build-completeness controls.
+
+Production uses the selected managed profile. A hidden developer-only `--remove-size-limits` may
+disable only internal deterministic size/work caps for a stress attempt; worker isolation, bounded
+I/O, external watchdog/RSS/absolute ceilings, capability checks, empty-worklist completion,
+finalized payload, and parity remain mandatory. Hidden developer-only `--allow-unproven` is a
+separate correctness override, may omit valid parses, and is rejected for production,
+publication, and certification. `--no-enforce-capability` is legacy developer-only and
+non-production.
 
 Tests: the envelope contract pins IDs, schema version, canonical digest, every field, and the fact
 that changing a non-closure field changes the digest. It rejects arbitrary numeric product limits and
@@ -188,9 +200,11 @@ is a typed incomplete resource outcome.  A worker result containing only state/a
 health evidence but is not a successful trusted build and cannot be selected.  This change does not
 invent a second FST format: it uses foma's existing binary-memory encoding and existing reader.
 
-An Error resource finding keeps the prior evidence and emits no trusted artifact. A clean retry may
-produce one only after the conditions above hold. A development capability override, if already
-available, remains visibly unproven and cannot enter normal selection.
+An Error resource finding keeps the prior evidence and emits no production artifact under the
+managed envelope. A clean retry may produce one only after the conditions above hold. A stress
+attempt with `--remove-size-limits` may produce a complete, exact, parity-verified payload, but it
+retains Error and is production-unready. `--allow-unproven` is correctness-only and any result it
+exposes remains visibly unproven and cannot enter normal selection.
 
 ### 5. Selection is coupled to the actually realized trusted build
 
@@ -199,6 +213,8 @@ diagnostic characterization from normal selection:
 
 - a report made from capability/envelope characterization alone explains possible routes but has no
   selectable normal candidate;
+- a developer stress report may identify a complete Error result for diagnosis, but it is not a
+  normal production candidate;
 - a normal candidate additionally requires a successful `CompletedBackendBuild` for the same
   requested backend, grammar fingerprint, envelope digest, complete certificate, and realized
   network/payload fingerprint;
@@ -216,6 +232,9 @@ preserving every reason.
 Tests: a successful named Tuned build selects Tuned with matching completed-build fields; a static-admitted
 candidate with a different realized strategy, marker, skip, gap, or closure refusal is not selected.
 The test also proves no fallback build is attributed to the candidate that requested another backend.
+Tests also prove that the stress switch removes only internal deterministic caps, that both
+developer-only switches are rejected by production/publication paths, and that partial or
+truncated output is never selected.
 
 ### 6. Cards name only real controls
 
@@ -228,6 +247,8 @@ it uses `SwitchControlled` only when its switch ID resolves to an actual public 
 Cards stay static, language-free, and corpus-free. They describe contributors, asymptotic shape,
 source references, and cataloged remedies; they do not claim that a corpus pass proves capability or
 that a named profile guarantees a build for every grammar.
+Developer-only stress/correctness switches are provenance in build reports, not public card
+controls.
 
 Tests: card rendering checks every switch ID against the public-control registry, lists both closed
 profile IDs, links valid advice entries, and rejects the removed environment-variable spelling.

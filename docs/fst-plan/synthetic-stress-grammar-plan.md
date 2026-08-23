@@ -4,6 +4,15 @@ Status: REVISED 2026-07-28. Companion to `foma-fst-plan.md` (P6 section) and
 `p6-prototype-report.md` (§6 costed items). Motivating question: after Aweti, are we just
 playing whack-a-mole with each new language, and can we get ahead of it systematically?
 
+> **Current policy note (2026-08-23).** The stress corpus is developer/test evidence, not a
+> production acceptance path. `--allow-unproven` is a developer-build-only capability override
+> that may lose valid parses; it never certifies or publishes an artifact. The distinct
+> `--remove-size-limits` developer control removes internal deterministic size/work caps only:
+> exact completion remains required, and the external watchdog/RSS guard, bounded I/O, and
+> non-disableable absolute ceiling remain mandatory. A complete and accurate stress build may
+> report `Error` health evidence, but `Error` is production-unready; `Critical` is a correctness
+> gap. The legacy `--no-enforce-capability` escape is developer-only.
+
 ## 1. Why this is not (entirely) whack-a-mole
 
 There are exactly two ways a new grammar can break the FST path, and they have different
@@ -116,7 +125,10 @@ self-skip-guarded, non-vacuous gate style:
 2. **Resource envelope:** compile time, peak RSS proxy (network states/arcs), and per-word
    apply p99 under declared budgets.
 3. **Honest failure:** the deliberately-over-budget variant of the same recipe must return
-   the typed budget error, never OOM, never panic — this is the machine-safety assertion.
+   the typed budget error, never OOM, never panic — this is the machine-safety assertion for a
+   normal named envelope. A developer stress run using `--remove-size-limits` may cross those
+   internal caps, but it still requires external watchdog/RSS containment and the absolute
+   ceiling; a containment stop is incomplete evidence, never a trusted artifact.
 
 ## 5. Phasing
 

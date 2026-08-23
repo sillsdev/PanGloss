@@ -6,6 +6,15 @@ artifact size, latency percentiles, the compilation-plan mermaid diagram, and th
 verdict. It reimplements none of those; it measures what feeds them and states plainly what it did
 not test.
 
+> **Current product policy (2026-08-23).** `make-report` may expose unsafe overrides only in a
+> developer/test build; production must hide and reject `--allow-unproven` and
+> `--remove-size-limits`. `--allow-unproven` may lose valid parses and never certifies or
+> publishes. `--remove-size-limits` removes internal deterministic size/work caps only; exact
+> completion, external watchdog/RSS containment, bounded I/O, and the absolute ceiling remain
+> mandatory. A complete/accurate stress result may retain `Error` evidence, but `Error` is
+> production-unready and `Critical` is a correctness gap. The legacy `--no-enforce-capability`
+> escape is developer-only.
+
 ## What this module measures itself, versus what it only composes
 
 The readiness types define the *shape* of a certification, but nothing populated a real
@@ -49,7 +58,11 @@ Exactly like `run_batch`/`run_parse`/`pangloss pack`: a capability `Refuse` verd
 `NotAssessed` and the tier is `NotSupported`, citing the real refusal. `--allow-unproven` on
 `make-report` requires the same flag be passed to `pangloss pack` too; a caller cannot point
 `--pack` at a pre-built overridden artifact and have this command quietly measure against it
-without acknowledging the override at the report layer as well.
+without acknowledging the override at the report layer as well. This is a developer-only
+diagnostic route: because it may omit valid parses, its report cannot certify or publish the
+artifact. A separate developer stress run with `--remove-size-limits` may cross internal caps,
+but it still requires exact completion and outer containment; an Error report can be useful stress
+evidence without becoming production-ready.
 
 ## Latency methodology
 

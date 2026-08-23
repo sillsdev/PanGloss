@@ -3,6 +3,13 @@
 Opened 2026-08-04. **Running tab, not a one-off audit.** Add to it whenever a doc comment is found
 disagreeing with what the code actually does; strike entries as they are fixed.
 
+> **Current policy note (2026-08-23).** References to `allow_unproven` below document code
+> reachability, not a public production escape. `--allow-unproven`, `--remove-size-limits`, and
+> legacy `--no-enforce-capability` are developer-build-only and production must hide/reject them.
+> The first may lose valid parses and never certifies or publishes; the second removes internal
+> caps only under exact completion and mandatory outer containment. `Error` may be complete/accurate
+> stress evidence but is production-unready; `Critical` is a correctness gap.
+
 ## Why this file exists
 
 The recurring defect in this tree is not wrong code and not missing docs. It is a **module that says
@@ -68,7 +75,7 @@ The original counts included doc links, which inflated every row. Re-measured ag
 |---|---:|---|
 | `pg-foma/health.rs` | 10 (`health_evaluator`, `preflight`) | **Promoted to Tier 1 — fixed** |
 | `pg-foma/health_evaluator.rs` | 5 (`worker.rs:469/489/514`) | **Accurate → Tier 3.** Its doc correctly describes itself as the evaluator that health.rs deferred |
-| `pg-foma/capability_entry.rs` | 6 (`preflight`, `readiness_verdict`) | **CONFIRMED STALE — the check was run.** `preflight` only *reports* (turns the decision into `HealthFinding`s, `preflight.rs:120-128`), so that caller alone would have left the claim standing. But `pg-cli/pack.rs::build_pack` (`:267-296`) **gates** on it: `Refuse` + `!allow_unproven` returns `Err` and writes no `.pgpack`. "Check-only, non-blocking; nothing alters what gets compiled" is false |
+| `pg-foma/capability_entry.rs` | 6 (`preflight`, `readiness_verdict`) | **CONFIRMED STALE — the check was run.** `preflight` only *reports* (turns the decision into `HealthFinding`s, `preflight.rs:120-128`), so that caller alone would have left the claim standing. But `pg-cli/pack.rs::build_pack` (`:267-296`) **gates** on it: `Refuse` + `!allow_unproven` returns `Err` and writes no `.pgpack`; the developer-only override is not a production-publishable route. "Check-only, non-blocking; nothing alters what gets compiled" is false |
 | `pg-foma/readiness_policy.rs` | 5 (`readiness_verdict`) | **Accurate → Tier 3.** "Data-only" still holds; it is a threshold schema |
 | `pg-foma/profile.rs` | 16 (`analyzer.rs`) | **Mis-filed by this ledger.** `:122` documents an ENUM VARIANT (the Phase B experimental-cascade label), not module reachability. Not a Tier 2 item |
 
@@ -282,7 +289,7 @@ launders unverified findings reproduces the defect it exists to document.
 | `pg-grammar-gen/build/strata.rs` claimed a *"still-open multi-table threading gap"* in `pg_foma::replace`; `build/tables.rs` said the same sites *"were fixed"* | **`tables.rs` is right; `strata.rs` was stale.** `owning_table`/`owning_table_id` do per-rule resolution with two tests pinning it. Swept the whole crate: the only production `char_tables[0]` left is `capability.rs:1252`, which is the `len() == 1` branch — the genuinely multi-table case refuses explicitly with a diagnostic. Every other hit is a `cfg(test)` single-table fixture |
 | **Corrected agent claim** — that `selection.rs` proves `CompileDecision` gates a real compile path | **The evidence was wrong, though the conclusion held via a different route.** `select_plan` has **zero** production callers repo-wide: its own `cfg(test)` block plus `grammar_semantics_owner_gate.rs` and `strategy_aware_capability_gate.rs`. That is not a defect — it matches Tier 3's declared constraint for `selection.rs`. What actually gates production is `pack.rs::build_pack`, per the Tier 2 row above |
 | **Corrected agent claim** — that `pg-grammar/compile`'s "Phase B" labels marked a live gap | **Recast, not fixed-as-bug.** "Phase B" named a plan the reader cannot see; the underlying facts (metathesis, reduplication, circumfix cross-products, custom `<Strata>` are unimplemented and warn) are true and were kept, restated as "not implemented" (`ba3101c`). One genuinely false claim was removed: a section header calling clitics "Phase B" sat above a test asserting clitics *are* implemented |
-| `health.rs`: `Severity::overridable` returns `true` for `Critical`, while a spec says Critical `SHALL not publish` | **NO ACTION — there is no contradiction, and this one should not be re-opened.** The two statements are about different things: `spec.md:59` governs *publishing*, `overridable()` governs *the capability override*. Every override-side source agrees with the code (`design.md:13` "Error and Critical are BOTH overridable"; `IMPLEMENTATION-READINESS.md:99`; `spec.md:35` has an explicit force-compile-a-Critical scenario; `tasks.md 2.3` is checked off). `health.rs:110-113` already draws the distinction correctly — the only non-overridable floor is apply-time execution containment, which is not a `Severity` at all |
+| `health.rs`: `Severity::overridable` returns `true` for `Critical`, and CLI code exposes capability bypasses in production help/paths | **OPEN — superseded policy, 2026-08-23.** The earlier “NO ACTION” decision conflated readiness, correctness, and containment. Current policy reserves Error for production readiness and Critical/capability refusal for correctness. Hidden developer-only `--allow-unproven` may inspect a correctness gap but may omit parses and can never publish/certify; hidden `--remove-size-limits` affects only internal work caps and never changes trust. Production must expose neither switch, and the legacy unstamped `--no-enforce-capability` path must be removed or restricted to developer builds. See `docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`. |
 
 ## Defect in the checker itself, found 2026-08-04 — **FIXED** (`dfa0ca2` on the branch, `eb9f5ac` on `main`)
 

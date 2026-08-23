@@ -7,6 +7,11 @@ permitting an incomplete FST to look successful. Mbugwe is explicitly deferred a
 acceptance blocker for this deliverable. The branch is complete only after the required tests pass,
 temporary diagnostics are removed, and the reviewed changes are committed and pushed.
 
+That production slice now runs alongside a five-grammar developer stress loop covering Indonesian,
+Amharic, Aweti, Sena, and Mbugwe. The stress loop must attempt correctness-admitted Error routes
+under external containment, preserve exact completeness, and report backend pain/remedies. Mbugwe
+is deferred from production certification, not from stress construction and regression work.
+
 This specification is a delivery contract, not evidence that any of these languages already has a
 trusted shipped FST. A language is accepted only after its selected route has a complete payload,
 certificate, and the required runtime evidence.
@@ -23,9 +28,11 @@ then run exact semantic certification. Bare-FST claims and complete-pipeline cla
 distinct: a pipeline using a proposer, peeler, confirmation engine, or filter is acceptable only
 when every required stage is explicitly bound and covered by the certificate.
 
-Stop Amharic TunedSurface exploration at the observed >3-million-pair boundary. Its production
-route is the Templated route with the required runtime stages. Do not add generic capability,
-peeler, advice, or PlanComposed work without a frozen failing case. Mbugwe remains deferred.
+Stop Amharic TunedSurface exploration as a production-route candidate at the observed
+>3-million-pair boundary. Its production route is the Templated route with the required runtime
+stages. TunedSurface may still be measured in contained developer stress mode. Do not add generic
+capability, peeler, advice, or PlanComposed work without a frozen failing case. Mbugwe remains
+deferred from this production slice and active in the separate stress loop.
 
 The registered OpenSpec changes are `surface-compile-profile-and-templated-routing` and
 `cover-circumfix-cross-product-and-infix-drop`. Historical references to
@@ -63,16 +70,26 @@ would make your language invalid!”
 
 1. Every executable backend produces a compatibility report, including backends that refuse or
    fail. Reports retain findings, predicates, shapes, cost evidence, advice references, and status.
-2. Correctness/completeness failures are Critical. Resource-envelope excess is Error. Normal builds
-   fail closed on either. An explicit development override may produce an indelibly unproven
-   artifact; worker/apply execution containment remains non-overrideable.
+2. Semantic/representability gaps, including inability to prove that a construction can be
+   complete, are Critical. An otherwise complete strategy stopped by the selected resource
+   envelope is an Error-level incomplete attempt. Normal production builds fail closed on either.
+   A developer stress attempt may use hidden
+   `--remove-size-limits` to disable only internal deterministic size/work caps, while retaining
+   worker isolation, bounded I/O, external watchdog/RSS/absolute ceilings, capability checks,
+   complete closure, finalized payload, and parity. Hidden developer-only `--allow-unproven` is a
+   separate correctness override that may omit valid parses, is rejected in production, and never
+   produces a publishable or certifiable result. Partial/truncated/skipped output is never success.
 3. A completeness certificate exists only when a real FST payload was built, the emitter reported
    Full, no constructs were uncovered, no successors remained, and no enumeration budget tripped.
-4. The selector reports warnings and errors for every backend and chooses only a backend with no
-   Error or Critical finding. Ranking prefers fewer/lower findings before backend preference.
-5. Mbugwe is deferred from the current three-language acceptance slice and is not an acceptance
-   blocker. Its existing reports and full morphological parser remain future reference only; the
-   parser is an analysis path, not proof of FST completeness.
+4. The selector reports warnings and errors for every backend. Normal production selection chooses
+   only a correctness-admitted backend with health at most Warning; an explicit stress selection
+   may attempt a complete Error candidate, but keeps it production-unready. Critical correctness
+   candidates remain refused unless a developer explicitly uses `--allow-unproven`; ranking and
+   fallback never silently change these dispositions.
+5. Mbugwe is deferred from the current three-language production-acceptance slice and is not its
+   acceptance blocker. It is included in the five-grammar developer stress loop. Its existing
+   reports and full morphological parser are evidence inputs; the parser is an analysis path, not
+   proof of FST completeness.
 6. The two regression grammars under
    `rust/crates/pg-foma/tests/fixtures/pangloss/fst-completeness/` remain PanGloss-internal and are
    never promoted to Machine.

@@ -9,6 +9,14 @@ Numbers come from `pangloss batch`'s own per-word `elapsed_ms` column (column 3 
 parity TSV) — the same measurement the parity path already takes, so this adds no instrumentation
 and does not touch a parity-sensitive format.
 
+> **Current policy note (2026-08-23).** This matrix is historical diagnostic evidence. The
+> developer-build-only `--allow-unproven` override may lose valid parses and never certifies or
+> publishes; `--remove-size-limits` is a separate developer stress control that removes internal
+> caps only, while exact completion, external watchdog/RSS containment, bounded I/O, and the
+> absolute ceiling remain mandatory. `Error` may be complete/accurate stress evidence but is
+> production-unready; `Critical` is a correctness gap. Production must hide/reject both flags and
+> the legacy `--no-enforce-capability` escape.
+
 **Resolution floor is real and is reported as such.** `elapsed_ms` is integer milliseconds, so a word
 completing in under 1 ms lands in the 0 bucket; those are shown as `<1`, never as `0`.
 
@@ -107,15 +115,16 @@ propose-and-confirm path exists, and why the worst-word pinning in
 ## Optimized engine (`--engine=foma`) — one force-compiled data point
 
 Since the gate refuses all three, the only way to measure the optimized path on a reference corpus
-today is `--allow-unproven` (ADR 0005), which force-compiles and stamps the result
-`trust=unproven`. **Reported as force-compiled; not a certified configuration.**
+today is developer-only `--allow-unproven` (ADR 0005), which force-compiles and stamps the result
+`trust=unproven`. **Reported as force-compiled; not a certified or production-publishable
+configuration.**
 
 Indonesian, same corpus, same binary, same run conditions:
 
 | Engine | words | ok | p50 | p95 | p99 | max | total |
 |---|---|---|---|---|---|---|---|
 | default (oracle) | 121 | 120 | `<1` ms | 5 ms | 16 ms | 42 ms | 0.23 s |
-| foma (`--allow-unproven`) | 121 | 120 | `<1` ms | **1 ms** | **1 ms** | **8 ms** | **0.02 s** |
+| foma (`--allow-unproven`, developer-only) | 121 | 120 | `<1` ms | **1 ms** | **1 ms** | **8 ms** | **0.02 s** |
 
 **~11× faster end-to-end, 5× better p95, 5× better worst case — with byte-identical signatures for
 every one of the 121 words** (diffed on the `(word, signature)` projection; zero differences). So
@@ -164,4 +173,5 @@ TSV must filter those out or every count doubles.
 3. A finished Sena default run (~75+ min) for final rather than indicative percentiles.
 4. A build-time column, once the CLI reports its existing `compile_ms`/`morpher_build_ms` measurements.
 5. Amharic and Sena foma-path numbers are gated on the ADR 0005 override by design and should be
-   published only alongside the `trust=unproven` stamp, if at all.
+   retained only as developer diagnostics, never certified or published as production. If shared,
+   it must remain explicitly labeled with the `trust=unproven` stamp.

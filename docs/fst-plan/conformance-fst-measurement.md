@@ -1,5 +1,11 @@
 # Conformance corpus: derivation vs. shipped construction
 
+> **Historical measurement policy:** Commands using `--no-enforce-capability` below record the
+> developer investigation available at the time. That switch is not a production control. Current
+> policy separates correctness, production readiness, and containment and keeps experimental
+> overrides developer-build-only; see
+> `docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`.
+
 Scope and method (mid-task redirect, honored below): this exercise started as a build-and-measure
 task (compile all 45 conformance fixtures, tabulate states/arcs/candidates/confirmed/recall). The
 project owner redirected it, correctly, before most builds ran: these fixtures are minimal

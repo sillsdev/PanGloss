@@ -37,14 +37,16 @@ X, which would be faster/smaller, if these things were changed" — even when X 
 recipe. That is the most valuable form the advice can take, because it converts a refusal into a
 route.
 
-**Report the resulting size, per recipe, without gating on it.** States, arcs and on-disk bytes for
-what each recipe actually produced. Comparing recipes is comparing costs, so the numbers exist
-anyway; surfacing them is nearly free and it is the figure a project watches over time. Deliberately
-a **measurement, not a threshold** — `calibrate-fst-resource-envelopes` was closed 2026-08-06 because
-its thresholds were derived from a single language's net and would now be set against a compiler
-about to change. Thresholds are demoted, not abandoned: once several recipes have been measured on
-several grammars, a threshold can be proposed from that spread instead of from one point. Until then
-a reported size that a reader can compare beats a pass/fail line nobody can justify.
+**Report the resulting size, per recipe, as readiness evidence.** States, arcs and on-disk bytes
+for what each recipe actually produced remain measurements, and the health bands describe
+production readiness under the managed envelope. `Error` means not production-ready; it does not
+change correctness or forbid an explicit developer stress attempt. A complete exact,
+parity-verified stress result may be accurate evidence while retaining Error. Hidden
+`--remove-size-limits` disables only internal deterministic size/work caps and retains worker
+isolation, bounded I/O, external watchdog/RSS/absolute ceilings, capability checks, completion,
+finalized payload, and parity. Hidden `--allow-unproven` is a separate developer-only correctness
+override that may omit valid parses, is rejected in production/publication/certification, and does
+not remove limits. `--no-enforce-capability` is legacy developer-only/non-production.
 
 **Carried from the archived change**, each verified as genuinely outstanding rather than trusted from
 its notes:
@@ -52,8 +54,8 @@ its notes:
 - Remedies are never populated on the CLI's own findings. `Remedy` has a `rank` field and `health.rs`
   fills it in two places, but every finding `fst_health.rs` constructs passes `remedies: Vec::new()`.
   The ranking machinery exists and the command ranks nothing.
-- Nothing refuses a Critical package. The manifest records `fst_health` admission and `pack.rs`
-  prints it; no site rejects on it.
+- Correctness/capability Critical remains a refusal for trusted production output. Health Error is
+  a readiness finding, not a correctness override; implementation must preserve both dispositions.
 - The change's own verification tasks (5.1–5.3) were never run.
 
 ## Impact

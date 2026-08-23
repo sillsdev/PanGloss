@@ -3,10 +3,28 @@
 This is the authoritative dependency and worktree-ownership map for the active grammar-coverage
 changes. Change artifacts define behavior; this file defines dispatch and merge order.
 
+**Current policy overlay (2026-08-23):** Correctness/representability is binary; production
+readiness is graded; containment is operational. Production requires a correctness-admitted,
+complete, finalized, parity-verified result at health no worse than Warning under its managed
+envelope. A complete exact Error result may be attempted as developer stress evidence but remains
+production-unready. Hidden developer-only `--allow-unproven` is a correctness override that may
+omit valid parses and is rejected for production/publication/certification. Hidden
+`--remove-size-limits` disables only internal deterministic size/work caps and retains worker
+isolation, bounded I/O, external watchdog/RSS/absolute ceilings, capability checks, completion,
+payload, and parity. `--no-enforce-capability` is legacy developer-only/non-production. Neither
+switch makes partial, truncated, skipped, or parity-unverified output accurate.
+
+The three-language sequence below remains the production-certification slice. In parallel, the
+current developer stress loop covers Indonesian, Amharic, Aweti, Sena, and Mbugwe to establish
+representability, identify backend pain, and fix regressions. An Error-level stress result may be
+complete and accurate without joining the production slice; Mbugwe is deferred only from production
+certification, not from this stress work.
+
 ## Active three-language backend expansion (2026-08-22)
 
-The Indonesian, Amharic, and Aweti route work is staged as two changes with three serialized
-implementation phases. Mbugwe is explicitly outside this sequence.
+The Indonesian, Amharic, and Aweti production-route work is staged as two changes with three
+serialized implementation phases. Mbugwe is outside that production sequence but remains in the
+separate five-grammar developer stress loop described above.
 
 The historical change names `surface-fst-complete-build-envelope` and
 `cover-amharic-aweti-structural-morphology` are aliases for the registered changes
@@ -47,8 +65,10 @@ granular record; this is the spine-level view.
 
 **Stage 0 — LANDED.** Characteristics profile + exhaustive default-deny characterizer + predicate
 registry + envelope composition (`pg-foma/src/capability.rs`, `capability_entry.rs`); the gate runs on
-real grammars and is **default-enforcing on the FST/foma path** (`pg-cli`: `--no-enforce-capability`
-escapes, `--allow-unproven` overrides per ADR 0005). Conformance-coverage cross-check (advisory;
+real grammars and is **default-enforcing on the FST/foma path**. The legacy
+`--no-enforce-capability` escape and hidden `--allow-unproven` correctness override are
+developer-only/non-production; the latter may omit valid parses. Conformance-coverage cross-check
+(advisory;
 build-breaking flip deferred). Chain-depth budget dimension (ADR 0003) + apply-path `ApplyBudget`.
 FST-health schema + evaluator (`health.rs`, `health_evaluator.rs`). Gloss-signature unit
 (`pg-realize/src/signature.rs`, PROTOCOL §3-4 / R4). CI conformance gate (`.github/workflows/
@@ -99,8 +119,9 @@ a second pipeline, file artifacts, or the PowerShell/CI/skill layer; `add-refere
 has the Rust gloss-signature unit but zero of the C# oracle harness.
 
 **Since then, two of those gaps closed.** `pangloss pack` writes a real `.pgpack` carrying the
-persistent, indelible ADR 0005 capability-trust stamp (a `Refuse` without `--allow-unproven` writes no
-artifact at all; an override records who/why/when plus every refused config, and the stamp provably
+persistent, indelible ADR 0005 capability-trust stamp (a `Refuse` without the hidden,
+developer-only `--allow-unproven` writes no artifact at all; a developer override records
+who/why/when plus every refused config, and the stamp provably
 survives write→read with no field a consumer can flip). Its two payload sections are honestly-labelled
 placeholders — no Rust-HermitCrab runtime-payload serializer or foma binary-memory export exists yet —
 stated in the module doc and re-printed on stderr at pack time. And `harden-foma-resource-safety`'s
@@ -222,8 +243,11 @@ This spine was reorganized on 2026-07-24 to reflect the honest-capability archit
 - **Multi-topology is the compilation model, not an optimizer** (ADR 0002): nothing ships until it
   exists, so the compile step is refactored to the plan-reified model *as the model*, and capability
   is grown one construct at a time. There is no ad-hoc selection to preserve.
-- **The capability override** (ADR 0005) lets a refused grammar force-compile, load, and run behind
-  an indelible degraded-trust runtime signal — the on-ramp for promoting each construct.
+- **The capability override** (ADR 0005) is a hidden developer-only correctness switch for
+  grounding refused grammars behind an indelible degraded-trust runtime signal; it may omit valid
+  parses and cannot publish or certify. Resource stress is separate: `--remove-size-limits` may
+  remove only internal deterministic size/work caps while retaining containment and exact-result
+  checks.
 - **Packaging/WASM/compat are downstream**: with nothing shipping yet, they trail the compilation
   spine.
 
@@ -290,10 +314,11 @@ budget types.
 
 `recipe-scoped-fst-health` (successor; `define-fst-compilation-health` archived 2026-08-08 with its
 schema shipped and its six open tasks carried over). Rust-owned finding schema, stable codes,
-severity/override semantics, size bands, and the boundary between compilation health (cost axis) and
-linguistic grammar quality. Distinct from the capability-trust axis (ADR 0005). The open half is
-scoping a finding to the backend that produced it, populating remedies, and recalibrating the size
-bands — which are a stated target, not a measurement.
+severity/readiness semantics, size bands, and the boundary between compilation health (cost axis)
+and linguistic grammar quality. Distinct from the capability-trust axis (ADR 0005): health Error
+is production-unready but may be stress-attempted when complete; correctness Critical remains a
+trusted-output refusal. The open half is scoping a finding to the backend that produced it,
+populating remedies, and recalibrating the size bands — which are a stated target, not a measurement.
 
 ### 0E. Reference oracle harness — pulled early
 
@@ -400,9 +425,10 @@ before the witnesses existed — and still not sufficient to flip.
 
 **Two things will never close, and are not gaps.** `MprGroupOverwrite` is a permanent carve-out
 present in **all three** reference grammars (`docs/benchmark-matrix.md`), so no reference grammar can
-ever clear the `--engine=foma` gate without the ADR 0005 override — by design, not by omission. And
-`SimultaneousRewrite`'s overlapping-subrule configuration stays oracle-blocked until a real `hc.dll`
-harness exists, which ADR 0001 itself names.
+ever clear the `--engine=foma` gate without the hidden developer-only ADR 0005
+`--allow-unproven` override — by design, not by omission. That override may omit valid parses and
+cannot publish or certify. And `SimultaneousRewrite`'s overlapping-subrule configuration stays
+oracle-blocked until a real `hc.dll` harness exists, which ADR 0001 itself names.
 
 **Do not read row-level coverage as completeness.** `Covered` means "evidenced at its own
 disposition," never `Admit` (ten rows are `ConfigPredicate`, three `ConfirmOnly`) and never

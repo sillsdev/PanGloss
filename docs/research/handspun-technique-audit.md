@@ -1,5 +1,11 @@
 # Report 1: What did we actually do by hand? A catalogue of hand-spun FST optimisation techniques
 
+> **Current policy overlay (2026-08-23):** Commands and bypasses in this research record describe
+> historical developer investigation, not supported production controls. Experimental correctness
+> and size-limit overrides are developer-build-only; neither permits publication of incomplete,
+> unproven, or production-unready output. See
+> `docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`.
+
 Read-only research. No code was edited, no builds or tests were run, no git commands were run. This
 document reverse-engineers what `pg-foma` **actually does today**, as opposed to what the many
 `docs/fst-plan/*.md` planning documents describe wanting to do. Every claim is cited to a `file:line`

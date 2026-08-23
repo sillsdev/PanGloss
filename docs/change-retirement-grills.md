@@ -1,5 +1,11 @@
 # Retirement grills: the 14 changes that do not align with current work
 
+> **Current policy overlay (2026-08-23):** Historical statements below about whether a Critical
+> package is refused predate the separation of correctness, production readiness, and containment.
+> Error is a readiness result; Critical/capability refusal is a correctness gap; experimental
+> overrides are developer-build-only. See
+> `docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`.
+
 Fourteen of the seventeen remaining OpenSpec changes. Each states what it was for, **what actually
 exists now** (checked against the tree, not against the proposal), why the premise may have dissolved,
 and the choices.

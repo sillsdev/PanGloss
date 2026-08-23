@@ -34,27 +34,38 @@ a verdict — a report, with reasoning a human or an AI can act on.
 **Selector.** Reads every backend's compatibility report and chooses no path, one path, or two. Its
 decision, and the reports behind it, are what the user sees.
 
-### The report has two axes and they must never merge
+### Three axes that must never merge
 
-**Correctness is binary.** Either this backend can produce right answers for this grammar, or it
-cannot. There is no "probably".
+**Correctness/representability is binary.** Either this backend can preserve the complete
+HermitCrab analysis set for this grammar, or it cannot. There is no "probably" for a trusted result.
 
-- the backend can represent it, and the result is right — **yes**
-- can represent it, with the confirm pass pruning the proposal to keep it right — **yes**
-- the backend cannot represent the construct at all — **no**
-- might produce INCORRECT results — **no**. This is a rejection, not a caveat.
+- the backend can represent it, and the result is right — **admitted**;
+- it can represent it as a proven proposer superset, with confirmation preserving the result —
+  **admitted**;
+- the backend cannot represent the construct or cannot prove complete construction — **refused**;
+- it might omit a valid analysis — **refused**, not a caveat.
 
-**Cost is graded, and never a rejection on its own.** How large, how slow, how fast it grows with the
-number of features. Cost may be unknown, and unknown cost is still a **yes** — with the uncertainty
-stated.
+**Health/readiness is graded.** `Ideal`, `Info`, `Warning`, and `Error` describe computational
+cost, size, and maintainability under a named operational profile. A `Warning` says that cleanup
+or another backend may be preferable. An `Error` says that the result is not production-ready under
+the selected production envelope. An Error is still an attemptable diagnostic/stress condition; it
+does not, by itself, prove that the backend is semantically wrong.
 
-The distinction is the whole point. "Not sure" is not a third category: it is either uncertainty about
-SIZE, which is a yes carrying a caveat, or uncertainty about CORRECTNESS, which is a no. Merging them
-gives "maybe" somewhere to hide, and a maybe is how a backend ends up shipping analyses nobody
-checked.
+**Containment is operational.** Named envelopes protect the host and make attempts reproducible.
+Production uses its managed envelope. A developer-only `--remove-size-limits` stress attempt may
+disable only internal deterministic size/work caps while retaining worker isolation, bounded I/O,
+the external watchdog/RSS guard, and the absolute ceiling. It does not bypass capability checks or
+completion/parity requirements.
 
-This is not a new rule, only a consistently applied one — `docs/adr/0001` already requires cost and
-capability to be gated by different standards, warning on cost and never hard-failing on it alone.
+The distinction is the whole point. Uncertainty about correctness is a refusal; uncertainty or
+excess about cost is a health/readiness finding. A complete, exact, parity-verified stress result
+may therefore be accurate while still carrying `Error` and remaining ineligible for production
+publication. No flag makes partial, truncated, skipped, or unproven output accurate.
+
+`--allow-unproven` is a hidden, developer-build-only correctness override. It may force an
+unproven run that omits valid parses, solely to inspect behavior and gather grounding evidence. It
+never publishes or certifies an artifact, and it does not remove resource limits. The older
+`--no-enforce-capability` switch is legacy developer-only behavior and is not a production API.
 
 ## Deployment domains
 
@@ -119,7 +130,10 @@ Containment of every oracle analysis in the proposer-to-confirm result for a dec
 _Avoid_: Word coverage, language coverage
 
 **Supported language**:
-A grammar whose declared corpus has complete corpus recall, stays within its resource envelope, and exercises no detected-unsupported construct.
+A grammar whose declared corpus has complete corpus recall, has a correctness-admitted route, stays
+within its production resource envelope, and exercises no detected-unsupported construct. A complete
+stress result outside that envelope is evidence about representability and cost, not by itself a
+supported-language or production-readiness claim.
 _Avoid_: Parses some words, corpus covered
 
 **Honest unsupported**:
@@ -240,9 +254,27 @@ _Avoid_: Grammar quality, language quality
 A stable coded compiler diagnostic with severity, phase, affected constructs, measured or predicted values, thresholds, and applicable remedies.
 _Avoid_: AI grammar advice
 
-**FST admission result**:
-The worst non-overridden FST health severity for one grammar compilation: Ideal, Info, Warning, Error, or Critical. Error and Critical are both **overridable via the capability override** (ADR 0005), which force-compiles behind an indelible degraded-trust runtime signal; the override is explicit and permanently recorded. The trust axis is binary — proven vs unproven — and the *only* non-overridable hard floor is ADR 0003 apply-time execution containment (the killable compile worker + cooperative apply budgets), which converts a real blowup into a clean containment error rather than a crash. A predicted FST-health verdict, however severe, never becomes a non-overridable refusal.
-_Avoid_: Supported language status, "Critical is a hard refusal"
+**FST health severity**:
+The graded computational/readiness finding for one backend attempt: Ideal, Info, Warning, or Error.
+Warning identifies cleanup or cost concerns while a complete route remains available. Error means the
+attempt is not production-ready under the selected production envelope; it may still be attempted
+in developer stress mode and may yield a complete, accurate result under larger internal work caps.
+`Critical` is reserved for a correctness/capability gap, not a size band. Health severity never
+changes the correctness/representability disposition.
+_Avoid_: Supported language status, correctness verdict, "Error cannot be attempted"
+
+**FST correctness disposition**:
+The binary representability result for one backend: admitted when a complete recall-preserving route
+is proven, refused when the backend cannot represent the grammar or cannot prove complete construction.
+The latter is a correctness gap, normally reported as Critical. A refusal is never silently converted
+to a trusted artifact.
+_Avoid_: Cost band, readiness score, "probably correct"
+
+**FST production admission**:
+The normal release decision requiring a correctness-admitted backend, a complete certificate and
+finalized payload, and health no worse than Warning under the managed production envelope. A stress
+run may produce an accurate complete payload with Error, but that payload remains production-unready.
+_Avoid_: Stress success, capability override
 
 **Semantic uncertainty**:
 A condition where the compiler cannot preserve every analysis required by the frozen HermitCrab model. It fails closed rather than producing a knowingly incomplete analysis artifact.
@@ -255,6 +287,13 @@ _Avoid_: Unsupported semantics, automatic rejection
 **Explicit resource retry**:
 A new caller-requested compilation using a named, versioned resource envelope with larger limits. The compiler never escalates limits or retries automatically; the prior terminal finding remains available to guide grammar improvement or the explicit retry.
 _Avoid_: Automatic backoff, hidden retry
+
+**Size-limit removal (developer stress mode)**:
+The hidden `--remove-size-limits` developer-build control that disables only internal deterministic
+size/work caps for one compile attempt. It retains worker isolation, bounded I/O, external watchdog
+and sampled-RSS guardrails, and the absolute ceiling. It does not bypass capability checks, exact
+completion, finalized-payload, or semantic-parity requirements, and it is not a production profile.
+_Avoid_: Unlimited build, trusted override, no containment
 
 **Proven work bound**:
 An exact value or conservative mathematical lower bound derived from compiler inputs, suitable for proving that an operation cannot fit within its remaining logical budget. A heuristic estimate is diagnostic evidence, not a rejection proof.
@@ -344,7 +383,11 @@ Compiler/runtime-owned factual provenance for an observed proposal, confirmation
 _Avoid_: Root-cause verdict, AI explanation
 
 **Absolute resource ceiling**:
-A versioned, hard-coded, deliberately high non-disableable limit above all default, app, and caller limits. Runtime ceilings and budget dimensions are identical across native Windows, native Linux, and WASM. It is an emergency containment boundary, not a normal operating target or a substitute for earlier logical-budget diagnostics.
+A versioned, hard-coded, deliberately high non-disableable limit above all default, app, caller, and
+developer stress limits. Runtime ceilings and budget dimensions are identical across native Windows,
+native Linux, and WASM. It remains in force when `--remove-size-limits` disables internal
+deterministic size/work caps. It is an emergency containment boundary, not a normal operating target
+or a substitute for earlier logical-budget diagnostics.
 _Avoid_: Unlimited, default budget
 
 **Characteristics profile**:
@@ -380,11 +423,26 @@ The CI check that makes "supported" mean "proven accurate": a construct or confi
 _Avoid_: Certification, sign-off (there is no separate terminal certification stage; ground truth is committed per-fixture and integration tests run the current engine against it)
 
 **Capability override**:
-An explicit escape hatch that force-compiles a grammar the characteristics check refused. It produces an artifact indelibly stamped unproven/recall-unsafe that still loads and runs. It is the development on-ramp for promoting a construct (force-compile → iterate → prove → cover → flip supported) and the way an in-progress grammar reaches a user for trial. The override is recorded in the pack manifest; it never passes the conformance gate and is cleared only by genuine proof plus a clean recompile.
+The hidden, developer-build-only `--allow-unproven` escape hatch that force-compiles a grammar the
+characteristics check refused. It may omit valid parses and is useful only for inspecting behavior or
+gathering grounding evidence. Any resulting output is indelibly stamped unproven/recall-unsafe; it
+never loads as a trusted production artifact, passes the conformance gate, or becomes publishable.
+The override is recorded in the build evidence and, where an artifact is written, the pack manifest.
+It is cleared only by genuine proof plus a clean recompile. It does not remove size/work limits.
 _Avoid_: Bypass, disable-check (it does not silence the contract; it records the exception and marks the result)
 
+**Legacy capability-enforcement switch**:
+The older `--no-enforce-capability` developer-only switch. It is retained only for compatibility or
+focused diagnostics, is non-production, and must not be presented as an alternative way to obtain a
+trusted or publishable result.
+_Avoid_: Public production selector, correctness proof
+
 **Unproven-grammar trust signal**:
-The strong, machine-readable degraded-trust status a Runtime broadcasts for a capability-overridden pack — pack-level `unproven` at load and a degraded/experimental flag on every analysis result — which a consuming app keys off to warn the user ("this is potentially broken"). For unproven packs the signal, not a refusal, is the safety mechanism; a proven pack fires neither.
+The strong, machine-readable degraded-trust status a developer Runtime broadcasts for a
+capability-overridden pack — pack-level `unproven` at load and a degraded/experimental flag on
+every analysis result — which tooling keys off to warn that valid parses may be missing. The
+signal is required for developer inspection but is not a production/publication substitute:
+production rejects the unproven result before it can be shipped. A proven pack fires neither.
 _Avoid_: Warning (unqualified), error band (that is the separate cost/health axis)
 
 **Compilation plan**:

@@ -10,6 +10,14 @@
 - [x] 2.2 Refactor the pre-expansion and structural closure walks onto shared production transition kernels/traces; make every work, depth, unsupported, and internal exit explicit, record live successors as pending, and require empty worklist plus zero pending successors for `Complete`.
 - [x] 2.3 Thread one selected envelope snapshot through characterization and Tuned Surface production construction from clean state; preserve the managed 3,000 default, implement only caller-requested linked retry, and retain the first attempt's terminal evidence.
 - [x] 2.4 Make the Phase A targets green without editing their acceptance direction, then run the focused existing closure regressions with `& rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget closure_unbounded_realizational` and `& rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget backend_selection_contract`.
+- [ ] 2.5 Add hidden developer-build-only `--remove-size-limits` stress handling that disables
+      only internal deterministic size/work caps. Keep worker isolation, bounded I/O, external
+      watchdog/RSS/absolute ceilings, capability checks, empty-worklist completion, finalized
+      payload, and parity mandatory; record the effective mode in attempt evidence.
+- [ ] 2.6 Add hidden developer-build-only `--allow-unproven` handling as a correctness-only
+      override that may omit valid parses. Reject it in production/publication/certification,
+      retain an indelible unproven marker, and keep `--no-enforce-capability` legacy,
+      developer-only, and non-production.
 
 ## 3. Indonesian construction evidence
 
@@ -37,3 +45,10 @@
 - [ ] 6.1 Make `trusted_selected_build_gate`, worker protocol, build-report, assessment-link, backend-selection, backend-card, and Indonesian focused targets green through `rust/tools/pg.ps1`; capture complete outputs and deterministic counter deltas.
 - [ ] 6.2 Run the single authoritative merged-tip pg-foma package gate after the morphology phase is integrated; do not claim a language route from a check-only report or a corpus result produced by another network.
 - [ ] 6.3 Update the three-language acceptance documentation with the named envelope, immutable attempt/build-report evidence, separate assessment evidence, selected/realized route, and any unavailable corpus evidence; no Mbugwe result is added.
+- [ ] 6.4 Verify both developer-only switches are orthogonal: stress does not waive correctness,
+      allow-unproven does not waive resource containment, and neither permits partial,
+      truncated, skipped, or parity-unverified output to be selected or published.
+- [ ] 6.5 Run the separate five-grammar developer stress loop for Indonesian, Amharic, Aweti,
+      Sena, and Mbugwe. Keep its complete Error results and backend pain/remedies distinct from the
+      three-language production-certification report; Mbugwe remains a stress target, not a
+      production-slice blocker.

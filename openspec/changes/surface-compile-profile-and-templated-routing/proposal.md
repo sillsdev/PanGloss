@@ -35,6 +35,15 @@ the production compiler, with every omission and construction failure visible an
 - Treat actual construction under the named envelope as acceptance. A static report may explain
   capability and cost, but it cannot select a normal backend or claim a trusted artifact without a
   successful production build and proposer-to-confirm evidence.
+- Keep three axes explicit: correctness admission is binary, production readiness is graded, and
+  containment is operational. A complete exact/parity-verified Error result may be attempted in
+  developer stress mode but remains production-unready.
+- Add hidden developer-build controls with separate contracts: `--allow-unproven` is a correctness
+  override that may omit valid parses and is rejected for production/publication/certification;
+  `--remove-size-limits` disables only internal deterministic size/work caps while retaining
+  worker isolation, bounded I/O, external watchdog/RSS/absolute ceilings, capability checks,
+  exact completion, finalized payload, and parity. `--no-enforce-capability` is legacy
+  developer-only/non-production.
 - Couple backend selection to the lower-layer completed-build value: requested and realized backend, plan/build
   fingerprint, envelope identity, and completeness must agree. Refuse candidates with skipped
   material, uncovered/gap diagnostics, technical markers, closure refusals, or a different realized
@@ -73,7 +82,8 @@ filters, turn corpus recall into capability proof, or address any other referenc
 
 It does not authorize automatic retry, partial or best-effort FSTs, arbitrary per-call product
 limits, process-environment configuration for the named envelopes, or backend substitution after a
-build failure.
+build failure. Developer stress is explicit diagnostic work, not a public envelope or a way to
+publish an Error or unproven result.
 
 ## Dependencies and Impact
 
@@ -102,3 +112,7 @@ trusted production build is selectable for normal generation.
   has a marker/gap/skip, is refused even when another backend would succeed.
 - Card contract tests accept only controls backed by the caller API and reject the old nonexistent
   environment-variable name.
+- Stress tests prove `--remove-size-limits` leaves external safety, capability, completion,
+  finalized-payload, and parity checks active; correctness tests prove `--allow-unproven` may
+  omit parses, is rejected in production, and neither switch makes partial/truncated/skipped
+  output accurate or publishable.

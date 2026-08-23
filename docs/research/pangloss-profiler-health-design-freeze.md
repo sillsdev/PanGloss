@@ -4,6 +4,16 @@ Date: 2026-08-11
 
 Status: product grill complete; ready for implementation.
 
+> **Current FST policy note (2026-08-23).** The profiler records three separate axes: capability
+> correctness, resource/size cost, and readiness health. `--allow-unproven` and
+> `--remove-size-limits` are developer-build-only controls, absent and rejected in production.
+> The former may lose valid parses and never certifies or publishes; the latter removes internal
+> deterministic size/work caps only, while exact completion, external watchdog/RSS containment,
+> bounded I/O, and the absolute ceiling remain mandatory. `Error` can be complete/accurate stress
+> evidence but is production-unready; `Critical` is a correctness gap. The legacy
+> `--no-enforce-capability` escape is developer-only. Acknowledgements never turn either result
+> into production admission.
+
 ## Frozen product decisions
 
 1. PanGloss works from `.fwdata` plus CLI arguments and built-in defaults; configuration is optional.
@@ -12,8 +22,10 @@ Status: product grill complete; ready for implementation.
 4. Acknowledgements are immutable event files under `Acknowledgements/<event-id>.json`.
 5. Chorus/FLExBridge registration is required eventually but deferred; v1 calls the files
    project-local.
-6. Acknowledgements affect `Info`/`Warning` presentation only. `Error`/`Critical` use the existing
-   explicit override/trust workflow.
+6. Acknowledgements affect `Info`/`Warning` presentation only. `Error` remains a production-
+   readiness failure; `Critical` is a correctness/capability gap. Only the explicit developer-only
+   capability override can inspect that gap as unproven output, and it never creates production
+   trust.
 7. Numeric acknowledgements store accepted value and native-unit bound. A provisional +25% bound is
    suggested only for comparable deterministic finite higher-is-worse integer metrics.
 8. Numeric validity follows comparable health-observation identity and context, not source edits.
@@ -57,7 +69,7 @@ implement:
 - missing findings meaning zero, healthy, or cleared;
 - observations as a separate artifact from their `HealthReport` findings;
 - detailed rule-by-word samples duplicated into `HealthReport`;
-- acknowledgement bypass of `Error`/`Critical` admission.
+- acknowledgement bypass of production Error readiness or Critical capability refusal.
 
 ## Engineering contracts to pin in schemas/tests
 
