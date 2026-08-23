@@ -1083,6 +1083,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         // Candidate-count/confirm distributions, gated behind an env var since it is one line per word, too much for a default-on diagnostic on a large corpus.
         let stats_on = std::env::var("HC_FOMA_STATS").is_ok();
 
+        // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.
+        let t_parse = Instant::now();
         if threads == 1 {
             for (i, word) in words.iter().enumerate() {
                 if i < start_idx {
@@ -1152,7 +1154,9 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     .map_err(|e| e.to_string())?;
             }
         }
+        let parse_elapsed_ms = t_parse.elapsed().as_secs_f64() * 1e3;
         w.flush().map_err(|e| e.to_string())?;
+        eprintln!("PARSEELAPSED\tengine=foma\telapsed_ms={parse_elapsed_ms:.3}");
         eprintln!(
             "batch complete: {} words parsed ({} skipped) [engine=foma, threads={}]",
             parsed, skipped, threads,
@@ -1189,6 +1193,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         pg_rules::stats_calibrate::KindTotals,
     > = std::collections::HashMap::new();
 
+    // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.
+    let t_parse = Instant::now();
     if threads == 1 {
         // Legacy sequential path: STARTED sentinel + per-line flush, crash-resumable.
         for (i, word) in words.iter().enumerate() {
@@ -1323,8 +1329,10 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         }
     }
+    let parse_elapsed_ms = t_parse.elapsed().as_secs_f64() * 1e3;
     w.flush().map_err(|e| e.to_string())?;
 
+    eprintln!("PARSEELAPSED\tengine=default\telapsed_ms={parse_elapsed_ms:.3}");
     eprintln!(
         "batch complete: {} words parsed ({} skipped), {} hit the step cap, {} timed out [memo={}, threads={}]",
         parsed,

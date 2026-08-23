@@ -89,6 +89,9 @@ pub struct PerObjectRow {
     pub surface_mismatch: i64,
     pub uses: i64,
     pub estimated_ns: Option<i64>,
+    /// Measured (not derived) wall-clock self time summed across every row this object owns --
+    /// `pg_rules::stats::StatsCollector::time_enter`'s tier, independent of `estimated_ns`.
+    pub self_time_ns: i64,
 }
 
 const PER_OBJECT_SQL: &str = "
@@ -96,7 +99,8 @@ const PER_OBJECT_SQL: &str = "
            SUM(f.attempts), SUM(f.work), SUM(f.outputs),
            SUM(CASE WHEN f.allomorph_id = 0 THEN f.not_applied ELSE 0 END),
            SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses),
-           SUM(f.work) * oc.ns_per_unit AS estimated_ns
+           SUM(f.work) * oc.ns_per_unit AS estimated_ns,
+           SUM(f.self_time_ns)
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
@@ -148,6 +152,7 @@ pub fn per_object_report(
                 surface_mismatch: row.get(8)?,
                 uses: row.get(9)?,
                 estimated_ns: row.get(10)?,
+                self_time_ns: row.get(11)?,
             })
         },
     )?;
@@ -187,13 +192,16 @@ pub struct PerAllomorphRow {
     pub surface_mismatch: i64,
     pub uses: i64,
     pub estimated_ns: Option<i64>,
+    /// Measured (not derived) wall-clock self time summed across this `(object, allomorph)` pair's rows.
+    pub self_time_ns: i64,
 }
 
 const PER_ALLOMORPH_SQL: &str = "
     SELECT o.kind, o.label, a.key, a.label,
            SUM(f.attempts), SUM(f.work), SUM(f.outputs), SUM(f.not_applied),
            SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses),
-           SUM(f.work) * oc.ns_per_unit AS estimated_ns
+           SUM(f.work) * oc.ns_per_unit AS estimated_ns,
+           SUM(f.self_time_ns)
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
@@ -240,6 +248,7 @@ pub fn per_allomorph_report(
                 surface_mismatch: row.get(9)?,
                 uses: row.get(10)?,
                 estimated_ns: row.get(11)?,
+                self_time_ns: row.get(12)?,
             })
         },
     )?;
@@ -603,6 +612,7 @@ mod tests {
             no_root,
             surface_mismatch: 0,
             uses: 0,
+            self_time_ns: 0,
         }
     }
 
@@ -751,6 +761,7 @@ mod tests {
             no_root: 0,
             surface_mismatch: 0,
             uses: 0,
+            self_time_ns: 0,
         }
     }
 
@@ -904,6 +915,7 @@ mod tests {
             no_root: 0,
             surface_mismatch: 0,
             uses: 0,
+            self_time_ns: 0,
         }
     }
 
@@ -973,6 +985,7 @@ mod tests {
             no_root: 0,
             surface_mismatch: 0,
             uses: 0,
+            self_time_ns: 0,
         }
     }
 
@@ -1336,6 +1349,7 @@ mod tests {
             no_root: 0,
             surface_mismatch: 0,
             uses: 0,
+            self_time_ns: 0,
         }
     }
 

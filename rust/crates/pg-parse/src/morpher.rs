@@ -591,6 +591,16 @@ impl<'g> Morpher<'g> {
                         aw.shape.len() as u64,
                     )
                 });
+                // Tier-1 per-object self time: always on (no `stats-calibrate` gate), one of the three object boundaries `StatsCollector::time_enter` names.
+                let _time_lex = stats.map(|stats| {
+                    stats.time_enter(
+                        pg_rules::stats::ObjectKind::LexEntry,
+                        aw.stratum,
+                        le.0,
+                        allo_idx as u32 + 1,
+                        pg_rules::stats::Direction::Analysis,
+                    )
+                });
                 // The clone drops alternatives and records `aw` as its source — the boundary `expand_alternatives` walks back from.
                 let mut nw = aw.clone_without_alternatives();
                 nw.source = Some(Rc::new(aw.clone()));

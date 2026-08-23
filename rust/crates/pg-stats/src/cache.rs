@@ -10,8 +10,8 @@ use rusqlite::{params, Connection, Transaction};
 
 use crate::error::StatsError;
 use crate::model::{
-    CoverageState, Direction, FactRecord, IdentityQuality, ObjectKind, RunMetadata,
-    StructuralLocator, WordRecord,
+    CoverageState, FactRecord, IdentityQuality, ObjectKind, RunMetadata, StructuralLocator,
+    WordRecord,
 };
 use crate::schema;
 use crate::util::to_i64;
@@ -240,8 +240,8 @@ fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), S
         None => 0,
     };
     tx.execute(
-        "INSERT INTO fact (word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        "INSERT INTO fact (word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(word_id, object_id, stratum_id, allomorph_id, direction) DO UPDATE SET
            attempts = excluded.attempts,
            work = excluded.work,
@@ -249,7 +249,8 @@ fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), S
            not_applied = excluded.not_applied,
            no_root = excluded.no_root,
            surface_mismatch = excluded.surface_mismatch,
-           uses = excluded.uses",
+           uses = excluded.uses,
+           self_time_ns = excluded.self_time_ns",
         params![
             word_id,
             object_id,
@@ -263,6 +264,7 @@ fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), S
             to_i64("no_root", fact.no_root)?,
             to_i64("surface_mismatch", fact.surface_mismatch)?,
             to_i64("uses", fact.uses)?,
+            to_i64("self_time_ns", fact.self_time_ns)?,
         ],
     )?;
     Ok(())
@@ -319,6 +321,7 @@ fn intern_allomorph_on(conn: &Connection, locator: &StructuralLocator) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Direction;
     use crate::test_support::TempDir;
 
     fn sample_word(form: &str) -> WordRecord {
@@ -345,6 +348,7 @@ mod tests {
                 no_root: 0,
                 surface_mismatch: 0,
                 uses: 1,
+                self_time_ns: 0,
             }],
         }
     }

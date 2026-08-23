@@ -226,6 +226,9 @@ pub struct FactRecord {
     pub no_root: u64,
     pub surface_mismatch: u64,
     pub uses: u64,
+    /// Measured wall-clock self time for this object (rule application, allomorph attempt, or
+    /// lexicon lookup); always collected whenever `--stats` is on, no derived constant involved.
+    pub self_time_ns: u64,
 }
 
 /// One analyzed word and every fact row it produced.

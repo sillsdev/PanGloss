@@ -140,6 +140,7 @@ fn fact_record_from_stats_row(
         no_root: row.counters.no_root,
         surface_mismatch: row.counters.surface_mismatch,
         uses: row.counters.uses,
+        self_time_ns: row.counters.self_time_ns,
     }
 }
 
@@ -661,12 +662,13 @@ fn render_word(conn: &rusqlite::Connection, out: Option<&str>) -> Result<(), Str
     }
 }
 
-const OBJECT_HEADERS_BASE: [&str; 11] = [
+const OBJECT_HEADERS_BASE: [&str; 12] = [
     "kind",
     "label",
     "identity_quality",
     "attempts",
     "estimated_time_ms",
+    "measured_time_ms",
     "outputs",
     "amplification",
     "Didn't apply",
@@ -702,6 +704,11 @@ fn estimated_cell(estimated_ns: Option<i64>) -> String {
     }
 }
 
+/// Measured self time (always present, never a calibration lookup), same units as `estimated_cell`.
+fn measured_cell(self_time_ns: i64) -> String {
+    format!("{:.3}", self_time_ns as f64 / 1e6)
+}
+
 fn object_row_cells(
     r: &pg_stats::PerObjectRow,
     coverage: &CoverageMap,
@@ -713,6 +720,7 @@ fn object_row_cells(
         r.identity_quality.clone(),
         counter_cell(&r.kind, "attempts", r.attempts, coverage),
         estimated_cell(r.estimated_ns),
+        measured_cell(r.self_time_ns),
         counter_cell(&r.kind, "outputs", r.outputs, coverage),
         amplification_cell(r.attempts, r.outputs),
         counter_cell(&r.kind, "not_applied", r.not_applied, coverage),
@@ -752,13 +760,14 @@ fn render_object(
     }
 }
 
-const ALLOMORPH_HEADERS_BASE: [&str; 12] = [
+const ALLOMORPH_HEADERS_BASE: [&str; 13] = [
     "object_kind",
     "object_label",
     "allomorph_key",
     "allomorph_label",
     "attempts",
     "estimated_time_ms",
+    "measured_time_ms",
     "outputs",
     "amplification",
     "Didn't apply",
@@ -788,6 +797,7 @@ fn allomorph_row_cells(
         r.allomorph_label.clone(),
         counter_cell(&r.object_kind, "attempts", r.attempts, coverage),
         estimated_cell(r.estimated_ns),
+        measured_cell(r.self_time_ns),
         counter_cell(&r.object_kind, "outputs", r.outputs, coverage),
         amplification_cell(r.attempts, r.outputs),
         counter_cell(&r.object_kind, "not_applied", r.not_applied, coverage),
@@ -1439,6 +1449,7 @@ mod tests {
             surface_mismatch: 0,
             uses: 1,
             estimated_ns: Some(200),
+            self_time_ns: 150,
         }
     }
 
@@ -1674,6 +1685,7 @@ mod tests {
             no_root: 0,
             surface_mismatch: 0,
             uses: 0,
+            self_time_ns: 0,
         }
     }
 

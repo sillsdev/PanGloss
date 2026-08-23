@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS fact (
   no_root          INTEGER NOT NULL,
   surface_mismatch INTEGER NOT NULL,
   uses             INTEGER NOT NULL,
+  self_time_ns     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (word_id, object_id, stratum_id, allomorph_id, direction)
 ) WITHOUT ROWID;
 

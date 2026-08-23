@@ -36,7 +36,7 @@ use pg_grammar::model::{
 use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 
 use crate::bridge::{BridgeError, PatternBridge};
-use crate::stats::{AnalysisPhase, MRuleStatsCtx};
+use crate::stats::{AnalysisPhase, MRuleStatsCtx, ObjectKind};
 use crate::stratum::NonHeadRootFilter;
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
@@ -2286,9 +2286,20 @@ fn ana_affix_cached(
         };
         let before = output.len();
         let _allo_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::AnaAffixAllomorph, 1));
+        // Tier-1: this allomorph's own self time, keyed apart from the rule's `ALLOMORPH_NONE` row (+1 matches `record_mrule_reach`'s convention).
+        let _allo_time = mstats.map(|m| {
+            m.stats.time_enter(
+                ObjectKind::MorphRule,
+                m.stratum,
+                m.id.0,
+                i as u32 + 1,
+                m.direction,
+            )
+        });
         output.extend(ana_affix_allomorph(
             g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn, mstats,
         ));
+        drop(_allo_time);
         drop(_allo_phase);
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -2326,8 +2337,12 @@ fn ana_allomorph_matches(
     };
     for result in matches {
         let out = generate_shape(g, table, &parts, lhs, fst, &result, node_of, &word.shape);
-        let mut w = word.clone();
-        w.shape = freeze_out(g, &out);
+        let mut w = {
+            let _wb = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::WordBuild, 1));
+            let mut w = word.clone();
+            w.shape = freeze_out(g, &out);
+            w
+        };
         carry(&mut w);
         push_remove_duplicates(&mut allo_out, w);
     }
@@ -2411,9 +2426,20 @@ fn ana_realizational_cached(
         };
         let before = output.len();
         let _allo_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::AnaRealizational, 1));
+        // Tier-1: this allomorph's own self time, keyed apart from the rule's `ALLOMORPH_NONE` row (+1 matches `record_mrule_reach`'s convention).
+        let _allo_time = mstats.map(|m| {
+            m.stats.time_enter(
+                ObjectKind::MorphRule,
+                m.stratum,
+                m.id.0,
+                i as u32 + 1,
+                m.direction,
+            )
+        });
         output.extend(ana_realizational_allomorph(
             g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs, mstats,
         ));
+        drop(_allo_time);
         drop(_allo_phase);
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -2922,6 +2948,16 @@ fn ana_compound_cached(
         };
         let before = output.len();
         let _sr_phase = mstats.map(|m| m.stats.phase_enter(AnalysisPhase::AnaCompound, 1));
+        // Tier-1: this subrule's own self time, keyed apart from the rule's `ALLOMORPH_NONE` row (+1 matches `record_mrule_reach`'s convention). Nesting-aware: excludes whatever a non-head lexicon lookup inside `ana_compound_subrule` already claimed for itself when `root_filter` is `Some` and that filter also calls `StatsCollector::time_enter`.
+        let _sr_time = mstats.map(|m| {
+            m.stats.time_enter(
+                ObjectKind::MorphRule,
+                m.stratum,
+                m.id.0,
+                i as u32 + 1,
+                m.direction,
+            )
+        });
         output.extend(ana_compound_subrule(
             g,
             table,
@@ -2935,6 +2971,7 @@ fn ana_compound_cached(
             &new_syn,
             root_filter,
         ));
+        drop(_sr_time);
         drop(_sr_phase);
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);

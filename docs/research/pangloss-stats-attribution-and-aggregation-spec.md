@@ -33,6 +33,79 @@ lexemes that **over-apply**. Correctness is deliberately out of scope — FieldW
 does that job. This report asks whether the grammar is *efficient*; Run Tests asks whether it is
 *right*. The two are used together, one tuning and one guarding against regression.
 
+## The quick way to get a usable answer
+
+For a human or an AI who wants to know "what is wrong with this grammar" and does not want to read the
+rest of this document. Four commands, bounded runtime, qualitative answer.
+
+**1. Bound the run so a pathological grammar cannot hang it.**
+
+```
+pangloss batch <grammar> <words.txt> out.tsv --engine=hc --stats \
+        --threads 1 --word-timeout-ms 1000 --cache <cache.sqlite3>
+```
+
+`--threads 1` is not optional: the default thread count fans words out concurrently and multiplies
+memory, and a probe on this machine once reached 30+ GB RSS where single-threaded plus a timeout
+finished the same work in minutes. `--word-timeout-ms 1000` makes the worst case *n* seconds for *n*
+words — usually far less, since a word that parses in 5ms does not consume its second. **Ten words is
+ten seconds, worst case.** That is what makes a first look at an unknown grammar tractable.
+
+**2. Ask what never fires.** The single most actionable report.
+
+```
+pangloss stats <grammar> --cache <cache.sqlite3> --group never-fires
+```
+
+Rules entered many times that produced nothing, ever. Across three real grammars this found four Sena
+rules entered 2.37M times for zero outputs, and five Aweti affixes ~1.56M times each.
+
+**3. Ask what manufactures non-words.**
+
+```
+pangloss stats <grammar> --cache <cache.sqlite3> --group object --sort no-root
+```
+
+High `no_root` means a rule keeps producing forms the lexicon does not contain — the expensive kind of
+over-application, because each bogus form drags a whole subtree of searching behind it.
+
+**4. If you need to know where the *time* goes, not which rule is busiest**, build with the
+`stats-calibrate` feature and set `HC_PHASE_PROFILE=1`. This is the only measurement that reads a real
+clock, and it attributed 98.6% of Amharic's wall clock and ~100% of Indonesian's.
+
+### How to read the result without being misled
+
+- **Rank by counters, never by `estimated_time_ms`.** See the warning below: measured, that column is
+  wrong by ~180x.
+- **`attempts` is not cost.** Compounding is entered 2.9% as often as affix allomorphs in Amharic and
+  costs more than all of them combined. A ranking by attempts points at the wrong thing; only the
+  phase profile settles where time goes.
+- **Capped words give floors, not totals.** A word cut off at its timeout contributes real counts up to
+  the cut. Fine for ranking, wrong for "this rule costs X". `--exclude-censored` drops them.
+- **A cap preserves *which* phases matter, but can invert their order.** Measured on Amharic's full
+  673 words, varying only the timeout:
+
+  | cap | total time | parsed | timed out | traversal | compounding |
+  |---|---|---|---|---|---|
+  | 20s | 1369.7s | 631 | 38 | 41.5% | **52.6%** |
+  | 1s | 258.8s | 520 | 149 | **65.6%** | 27.7% |
+
+  The same two phases carry ~93-94% under both caps, so the *candidate set* is stable. But the leader
+  flips. A tighter cap **systematically under-weights work that happens deep in a word's search and
+  over-weights work that happens constantly from the start** — compounding is entered late, traversal
+  runs throughout. The trend is monotone across three samples: worst-22 at 20s gave 64.3/29.5, full at
+  20s gave 52.6/41.5, full at 1s gave 27.7/65.6.
+
+  So: **use a cap to discover what to look at, never to decide what to optimise.** Confirm the
+  ordering at a cap generous enough that few words hit it, and quote the capped fraction whenever you
+  quote a share.
+- **Zero outputs on a small word list is ambiguous.** It means either the rule cannot fire or these
+  words do not use it. Only a bigger list distinguishes them — say which you have.
+- **Prefer `--step-cap` when comparing runs.** A wall-clock cap is machine- and load-dependent, so two
+  runs are not comparable; a step cap is deterministic. But note it bounds only admitted morphological
+  rule applications, so it does not bound compounding internals or phonological work — for a grammar
+  whose cost is inside one compound call, only the wall-clock cap actually bounds the run. Use both.
+
 ## Scope
 
 **In v1:** the collector, the SQLite cache, `batch --stats`, `pangloss stats` with the per-word and
@@ -519,6 +592,43 @@ grammar's data and is wiped when the grammar changes.
 into a perfectly cheap FST, or may blow up the network instead. Over-generation is a property of the
 grammar and shows up either way, which is why this is a useful grammar-tuning instrument — but
 `fst-health` and `make-report` remain the FST-cost instruments.
+
+## Do not trust `estimated_time_ms`. Measured, it is wrong by ~180x.
+
+The constants are calibrated over the conformance suite, which is synthetic by hard rule and whose
+patterns are trivial next to a real grammar's. Measured against real corpora the gap is not marginal:
+
+- Amharic, 673 words: summing every per-rule `estimated_time_ms` accounts for a couple of seconds
+  against a **1369.7 second** run. The model explains roughly 0.2% of wall clock.
+- Per attempt: ~1.7ms actually elapsed against ~9.6µs predicted, about **180x**.
+
+Two independent causes. The `work` unit charges a rule the full segment count of the candidate shape,
+while the dominant event is a *failed* match touching an unpredictable prefix. And per-kind constants
+do not discriminate — `morph_rule` 471.1, `phon_rule` 457.2, `lex_entry` 438.9 ns per unit, a 7%
+spread — so the whole per-kind dimension collapses to roughly one scalar.
+
+**Rank by the deterministic counters** (`attempts`, `outputs`, `not_applied`, `no_root`, `uses`), which
+are exact and reproducible. Where real time is needed, use the feature-gated phase instrumentation,
+which attributes 98.6% of wall clock on Amharic and ~100% on Indonesian. Every published grammar
+finding to date rests on counters and phase times, never on this column.
+
+## What the phase instrumentation found, and why it matters to this design
+
+Two buckets dominate every grammar measured, and neither is visible in the counter-based reports:
+
+| | Amharic (673 words) | Indonesian (121 words) |
+|---|---|---|
+| compounding analysis | 52.6% | 60.8% |
+| affix pattern traversal | 41.5% | 33.0% |
+| everything else | 5.9% | 6.2% |
+
+This is a caution about the whole counter model, not a footnote. Compounding is entered *rarely* —
+42,807 times against 1,480,923 affix-allomorph attempts in Amharic, about 2.9% — and costs more than
+all of them combined. **A report ranked by `attempts` therefore points at the wrong thing**, because
+attempts and cost are not proportional across kinds. Indonesian is the control that proves the point
+is about cost rather than share: compounding is 60.8% of its time too, and the grammar is fast
+(1.28s for 121 words). The discriminator is per-call cost — 0.6ms in Indonesian against 17.2ms in
+Amharic.
 
 ## Known limitations as shipped
 

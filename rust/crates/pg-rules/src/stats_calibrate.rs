@@ -219,6 +219,24 @@ mod tests {
         assert_eq!(totals.get(&K::Outer).unwrap().work, 7);
     }
 
+    /// One-off recalibration tool for `crate::stats::CLOCK_READ_NS`; prints, never asserts.
+    #[cfg(feature = "stats-calibrate")]
+    #[test]
+    #[ignore = "run manually with --nocapture to recalibrate CLOCK_READ_NS on new hardware"]
+    fn measure_clock_read_cost_ns() {
+        use web_time::Instant;
+        const N: u32 = 200_000;
+        let start = Instant::now();
+        for _ in 0..N {
+            std::hint::black_box(Instant::now());
+        }
+        let total_ns = start.elapsed().as_nanos() as u64;
+        println!(
+            "measured clock read cost: {} ns/read over {N} reads ({total_ns} ns total)",
+            total_ns / u64::from(N)
+        );
+    }
+
     #[cfg(not(feature = "stats-calibrate"))]
     #[test]
     fn off_build_records_no_time_even_across_a_real_sleep() {

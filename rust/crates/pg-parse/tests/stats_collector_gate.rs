@@ -5,7 +5,7 @@ mod csharp_port_common;
 use pg_conformance_fixtures::discover;
 use pg_parse::morpher::ParseOptions;
 use pg_parse::Morpher;
-use pg_rules::stats::{Direction, ObjectKind};
+use pg_rules::stats::{Direction, ObjectKind, StatsRow};
 
 /// One fixture-provided word to replay, paired with the grammar it belongs to.
 struct Case {
@@ -170,6 +170,9 @@ fn repeated_runs_produce_identical_rows() {
             let opts = ParseOptions::default();
             let (_o1, rows1) = morpher.parse_word_with_stats(case.word, &opts);
             let (_o2, rows2) = morpher.parse_word_with_stats(case.word, &opts);
+            // Self time is wall-clock; only the counter projection is reproducible.
+            let rows1: Vec<_> = rows1.iter().map(StatsRow::without_timing).collect();
+            let rows2: Vec<_> = rows2.iter().map(StatsRow::without_timing).collect();
             assert_eq!(
                 rows1, rows2,
                 "{}: repeated parses must yield identical stats rows",
@@ -186,8 +189,8 @@ fn rows_are_identical_across_concurrent_threads() {
         let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
         for case in &cases {
             let opts = ParseOptions::default();
-            let (_baseline_outcome, baseline_rows) =
-                morpher.parse_word_with_stats(case.word, &opts);
+            let (_baseline_outcome, baseline_raw) = morpher.parse_word_with_stats(case.word, &opts);
+            let baseline_rows: Vec<_> = baseline_raw.iter().map(StatsRow::without_timing).collect();
 
             std::thread::scope(|scope| {
                 let handles: Vec<_> = (0..4)
@@ -195,6 +198,7 @@ fn rows_are_identical_across_concurrent_threads() {
                     .collect();
                 for h in handles {
                     let rows = h.join().expect("worker thread must not panic");
+                    let rows: Vec<_> = rows.iter().map(StatsRow::without_timing).collect();
                     assert_eq!(
                         rows, baseline_rows,
                         "{}: a concurrent parse must yield the same stats rows as the single-threaded baseline",
