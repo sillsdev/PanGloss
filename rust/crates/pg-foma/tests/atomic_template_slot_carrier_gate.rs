@@ -109,6 +109,51 @@ fn carrier_preserves_other_template_slots() {
     }
 }
 
+#[test]
+fn carrier_preserves_derivation_chains_around_the_root() {
+    let xml = MIXED_SLOT_XML
+        .replace(
+            "</SegmentDefinitions>",
+            r#"<SegmentDefinition id="cv"><Representations><Representation>v</Representation></Representations></SegmentDefinition><SegmentDefinition id="cw"><Representations><Representation>w</Representation></Representations></SegmentDefinition></SegmentDefinitions>"#,
+        )
+        .replace(
+            "morphologicalRuleOrder=\"linear\" morphologicalRules=\"\"",
+            "morphologicalRuleOrder=\"linear\" morphologicalRules=\"pre post\"",
+        )
+        .replace(
+            "</MorphologicalRuleDefinitions>",
+            r#"<MorphologicalRule id="pre" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
+              <Name>derivational prefix</Name><MorphologicalSubrules><MorphologicalSubrule id="pre-subrule">
+                <MorphologicalInput><PhoneticSequence id="pre-stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>v</PhoneticShape></InsertSegments><CopyFromInput index="pre-stem" /></MorphologicalOutput>
+              </MorphologicalSubrule></MorphologicalSubrules><MorphemeId>PRE</MorphemeId>
+            </MorphologicalRule>
+            <MorphologicalRule id="post" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
+              <Name>derivational suffix</Name><MorphologicalSubrules><MorphologicalSubrule id="post-subrule">
+                <MorphologicalInput><PhoneticSequence id="post-stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="post-stem" /><InsertSegments><PhoneticShape>w</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule></MorphologicalSubrules><MorphemeId>POST</MorphemeId>
+            </MorphologicalRule></MorphologicalRuleDefinitions>"#,
+        );
+    let grammar = pg_grammar::load(&xml).expect("carrier plus derivation fixture must load");
+    let compiled = compile_templated_morphotactics(&grammar)
+        .expect("carrier must preserve the normal derivation topology");
+    let mut proposer = compiled.proposer;
+
+    for surface in ["pvqws", "uvqw", "vqwt", "vqw"] {
+        assert!(
+            !proposer.propose(surface).is_empty(),
+            "authored carrier plus derivation path {surface:?} must remain reachable"
+        );
+    }
+    for surface in ["pvqwt", "uvqwt", "uvqws"] {
+        assert!(
+            proposer.propose(surface).is_empty(),
+            "carrier must not cross alternatives while preserving derivation: {surface:?}"
+        );
+    }
+}
+
 fn assert_typed_unsupported(xml: &str, context: &str) {
     let grammar = pg_grammar::load(xml).unwrap_or_else(|error| panic!("{context}: {error}"));
     match compile_templated_morphotactics(&grammar) {
