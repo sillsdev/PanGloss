@@ -8,7 +8,7 @@ use pg_grammar::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, Grammar, MRuleId,
     MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode,
     ReduplicationHint, SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId, TableId,
-    TemplateId, VarTable,
+    TemplateId, TemplateSlotZone, VarTable,
 };
 use pg_memo::AnalysisScope;
 use pg_rules::stratum::{
@@ -219,6 +219,7 @@ fn memo_on_equals_memo_off_with_template() {
     let slot = SlotDef {
         name: None,
         optional: true,
+        zone: TemplateSlotZone::LegacyUnspecified,
         rules: vec![tp_id],
     };
     let tmpl = push_template(&mut g, vec![slot]);

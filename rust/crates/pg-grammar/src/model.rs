@@ -741,10 +741,18 @@ pub struct AffixTemplateDef {
     pub slots: Vec<SlotDef>,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum TemplateSlotZone {
+    Prefix,
+    Suffix,
+    LegacyUnspecified,
+}
+
 #[derive(Debug)]
 pub struct SlotDef {
     pub name: Option<String>,
     pub optional: bool,
+    pub zone: TemplateSlotZone,
     /// Rules in the slot's `morphologicalRules` id-list order (missing ids skipped, as C#).
     /// `AffixProcess`, `Compounding`, or `Realizational` rules (C# DTD comment: "refers to one or
     /// more MorphologicalRule or RealizationalRule IDs" — resolved through the same `local_mr` map
