@@ -43,6 +43,7 @@ pub struct TemplatedCompileOutput {
 #[derive(Debug)]
 pub enum TemplatedCompileError {
     MissingCharacterTable,
+    Unsupported(String),
     LexcCompileFailed,
     RuleCompileFailed(String),
     NoCompiledRules,
@@ -53,6 +54,7 @@ impl fmt::Display for TemplatedCompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingCharacterTable => write!(f, "grammar has no character table"),
+            Self::Unsupported(reason) => write!(f, "templated emission unsupported: {reason}"),
             Self::LexcCompileFailed => write!(f, "templated lexc failed to compile"),
             Self::RuleCompileFailed(error) => write!(f, "rule compile/compose failed: {error}"),
             Self::NoCompiledRules => write!(f, "no phonological rule compiled"),
@@ -77,6 +79,13 @@ pub fn compile_templated_morphotactics(
     let started = Instant::now();
     let emitted = emit_underlying_templated(g, &alphabet, None);
     let templated_emit_elapsed = started.elapsed();
+
+    // Refusals are represented by the emitter's existing empty-source Unsupported tier. Check
+    // that verdict before the helper's own reachability probe or the lexc parser can inspect it;
+    // no partial/bad FST is ever accepted.
+    if let crate::emit::FomaTier::Unsupported { reason } = &emitted.report.tier {
+        return Err(TemplatedCompileError::Unsupported(reason.clone()));
+    }
 
     let started = Instant::now();
     let lexc_net = fsm_lexc_parse_string(&opts, None, &emitted.lexc_source)
