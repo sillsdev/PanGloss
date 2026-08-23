@@ -16,7 +16,7 @@ use pg_snapshot::phonology::{
 use pg_snapshot::project::Project;
 use pg_snapshot::{FeatureSystems, Snapshot, WsForm};
 
-use crate::model::MorphRuleDef;
+use crate::model::{MorphRuleDef, TemplateSlotZone};
 
 use super::{compile_project, environment};
 
@@ -224,7 +224,33 @@ fn stem_and_inflectional_affix_and_template_compile_into_expected_grammar() {
     assert_eq!(grammar.templates.len(), 1, "one template expected");
     assert_eq!(grammar.templates[0].slots.len(), 1);
     assert_eq!(grammar.templates[0].slots[0].rules.len(), 1);
+    assert_eq!(
+        grammar.templates[0].slots[0].zone,
+        TemplateSlotZone::Suffix,
+        "snapshot compilation must preserve the physical slot occurrence side"
+    );
     let _ = f.template;
+}
+
+#[test]
+fn template_slot_occurrences_preserve_suffix_then_reversed_prefix_layout() {
+    let (mut snapshot, f) = fixture();
+    let template = &mut snapshot.morphology.parts_of_speech[0].affix_templates[0];
+    template.suffix_slots = vec![f.slot.clone()];
+    template.prefix_slots = vec![f.slot.clone()];
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("fixture must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let zones: Vec<_> = grammar.templates[0]
+        .slots
+        .iter()
+        .map(|slot| slot.zone)
+        .collect();
+    assert_eq!(
+        zones,
+        vec![TemplateSlotZone::Suffix, TemplateSlotZone::Prefix],
+        "the side belongs to each physical template occurrence, even for one shared slot"
+    );
 }
 
 // --- 2. environment-string tokenization -------------------------------------------------------
