@@ -183,7 +183,9 @@ impl<'de> Deserialize<'de> for ResourceEnvelope {
             backend: wire.backend,
         };
         if actual != expected {
-            return Err(D::Error::custom("resource envelope is not an exact shipped profile"));
+            return Err(D::Error::custom(
+                "resource envelope is not an exact shipped profile",
+            ));
         }
         Ok(actual)
     }
@@ -305,7 +307,10 @@ impl CompileEnvelopeRequest {
         if authorization.envelope_id == envelope_id {
             return Err("a retry must select a different resource envelope".to_string());
         }
-        if matches!(authorization.prior_closure.terminal, ClosureTerminal::Complete) {
+        if matches!(
+            authorization.prior_closure.terminal,
+            ClosureTerminal::Complete
+        ) {
             return Err("a complete attempt cannot authorize a retry".to_string());
         }
         Ok(Self {
@@ -330,6 +335,25 @@ impl CompileEnvelopeRequest {
 
     pub fn prior_closure(&self) -> Option<&CharacterizationResult> {
         self.prior_closure.as_ref()
+    }
+
+    pub(crate) fn from_worker_wire(
+        envelope_id: ResourceEnvelopeId,
+        envelope_digest: &str,
+        attempt_id: impl Into<String>,
+    ) -> Result<Self, String> {
+        let expected = ResourceEnvelope::for_id(envelope_id);
+        if envelope_digest != expected.digest() {
+            return Err(format!(
+                "resource envelope digest does not match shipped {envelope_id}"
+            ));
+        }
+        Ok(Self {
+            envelope_id,
+            attempt_id: AttemptId::new(attempt_id)?,
+            retry_of: None,
+            prior_closure: None,
+        })
     }
 }
 
@@ -357,5 +381,4 @@ impl RetryAuthorization {
             None
         }
     }
-
 }
