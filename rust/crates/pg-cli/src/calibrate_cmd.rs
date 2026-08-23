@@ -129,6 +129,31 @@ fn default_out_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/stats_op_cost.json")
 }
 
+/// Runtime candidates for the calibration file, tried in order: beside the running executable first, then `default_out_path`'s compile-time-baked checkout path (correct only for `cargo run`/tests).
+fn runtime_op_cost_candidates() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            out.push(dir.join("data").join("stats_op_cost.json"));
+        }
+    }
+    out.push(default_out_path());
+    out
+}
+
+/// Loads calibration constants for `batch --stats`; absent, unreadable, or unparseable at every candidate is `None`, never an error, so a stats run cannot fail because a calibration file is missing.
+pub(crate) fn load_op_cost_constants() -> Option<CalibrationConstants> {
+    for path in runtime_op_cost_candidates() {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if let Ok(constants) = serde_json::from_str(&text) {
+            return Some(constants);
+        }
+    }
+    None
+}
+
 const CALIBRATE_USAGE: &str = "usage: calibrate [--out FILE]";
 
 pub(crate) fn run_calibrate(args: &[String]) -> Result<(), String> {

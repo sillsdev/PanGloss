@@ -116,10 +116,18 @@ Inside one allomorph loop, four states are distinguishable and worth keeping dis
 MPR group (`continue`), tried and failed (`synth_process_allomorph` returns `None`), succeeded, and
 **never reached** because an earlier allomorph triggered the disjunctive `break`.
 
-**No `direction` dimension.** Unapply and apply work are merged. Direction would only earn its place
-for engine-to-engine comparison, and the ground truth here is FieldWorks' analyses rather than the
-other engine. The dead-end columns already separate the phases by construction: `no_root` can only
-arise during analysis, `surface_mismatch` only during synthesis.
+**`direction` is a dimension**, valued `analysis` (unapply) or `synthesis` (apply). It was dropped
+once, on the grounds that it only earned its place for engine-to-engine comparison while the ground
+truth here is FieldWorks' analyses. That reasoning was wrong for a reason the dead-end columns hide:
+merging the directions left the apply-direction paths uninstrumented entirely, and the primary
+invariant could not detect the gap because `SUM(attempts) == steps` is analysis-only on *both* sides
+— self-consistent rather than complete. A word cheap to analyse and expensive to confirm therefore
+under-reported the rules burning its time, silently.
+
+So the invariant is scoped: `SUM(attempts)` over morphological rows equals the word's `steps` only
+when filtered to `direction = analysis`, because `StepBudget::tick()` fires solely in
+`apply_one_mrule`. Synthesis rows are pinned by their own test, since an invariant that cannot see a
+whole direction cannot guard it.
 
 **Templates** are a report-time rollup joining rules to their owning template. One caveat: a rule
 appearing in more than one template is attributed to each, so per-template sums can exceed the total.
@@ -500,15 +508,18 @@ grammar and shows up either way, which is why this is a useful grammar-tuning in
 The design above describes the intended contract. These are the places the first implementation
 falls short of it, found by adversarial review rather than left implicit.
 
-**Synthesis (apply-direction) work is uninstrumented.** Only the analysis half is counted. The
-apply-direction paths in `stratum.rs` carry no collector at all, and 6 of the 15 allomorph-loop
-sites — the synthesis-side ones — are not instrumented. So a word whose analysis is cheap but whose
-confirm pass is expensive under-reports the rules actually burning the time.
+**`work` is recorded but unreachable, and mis-weights the dominant event.** No report surfaces it —
+neither the rendered table nor the CSV export — so it exists only as an input to
+`estimated_time_ms`. Worse, its definition charges a rule the full segment count of the candidate
+shape, while the event that dominates every measured corpus is a *failed* match, which touches an
+unpredictable prefix and often stops at the first segment. So it systematically over-charges fast
+failures and under-charges a rule that scans a whole shape before failing.
 
-This is a direct consequence of dropping the `direction` dimension: with attempts merged across
-directions, adding synthesis attempts would push `SUM(attempts)` past analysis-only `steps` and break
-the primary invariant. Worse, that invariant **cannot detect the gap** — it is analysis-only on both
-sides, so it is self-consistent rather than complete. Re-introducing `direction` is the clean fix.
+Measured constants make this concrete: `morph_rule` 471.1, `phon_rule` 457.2 and `lex_entry` 438.9
+ns per unit sit within 7% of each other, so a per-kind constant discriminates nothing. The
+discriminating factor is per-*object* and static — an allomorph pattern's length, its variable count,
+whether it compiles to a nondeterministic automaton — which is computable at grammar load and free
+at run time.
 
 **Phonological rules get no `uses` and no `no_root`.** `Word` carries `mrule_apps` but no
 `PRuleId` trail, and growing `Word` is forbidden (it already clones a `BTreeMap` per clone). So

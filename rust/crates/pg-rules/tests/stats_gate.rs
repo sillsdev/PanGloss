@@ -4,13 +4,19 @@ mod common;
 
 use common::load_alpha_grammar;
 use pg_grammar::model::{
-    AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, Dir, Grammar, MRuleId, MorphRuleDef,
-    MorphRuleOrder, MorphemeId, MprSet, OutputAction, PRuleId, PartRef, Pattern, PatternNode,
-    ReduplicationHint, RewriteMode, RewriteRuleDef, RewriteSubruleDef, SegmentedText,
+    AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, Dir, Grammar, MRuleId,
+    MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet, OutputAction, PRuleId, PartRef, Pattern,
+    PatternNode, ReduplicationHint, RewriteMode, RewriteRuleDef, RewriteSubruleDef, SegmentedText,
     SimpleContext, StratumDef, StratumId, TableId, VarTable,
 };
-use pg_rules::stats::{ObjectKind, PRuleStatsCtx, StatsCollector, ALLOMORPH_NONE, WIRED_COUNTERS};
-use pg_rules::stratum::{analyze_stratum_scoped_filtered_ruled_traced, AnalyzerConfig, StepBudget};
+use pg_rules::cache::RuleCache;
+use pg_rules::stats::{
+    Direction, ObjectKind, PRuleStatsCtx, StatsCollector, ALLOMORPH_NONE, WIRED_COUNTERS,
+};
+use pg_rules::stratum::{
+    analyze_stratum_scoped_filtered_ruled_traced, synthesize_stratum_traced, AnalyzerConfig,
+    StepBudget,
+};
 use pg_rules::trace::{NoopSink, TraceHandle};
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
@@ -98,6 +104,36 @@ fn self_matching_suffix_rule(g: &Grammar, morpheme: u32, seg: &str, max_apps: u1
         is_template_rule: false,
         allomorphs: vec![allomorph(
             morpheme,
+            vec![one_or_more("nc_any", g)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(g, seg),
+            ],
+        )],
+    })
+}
+
+/// `self_matching_suffix_rule`, but with an explicit allomorph id, for a caller that also registers a matching `Grammar::allomorph_owners` entry so `RuleCache::build` can index it.
+fn self_matching_suffix_rule_with_allo_id(
+    g: &Grammar,
+    morpheme: u32,
+    allo_id: u32,
+    seg: &str,
+    max_apps: u16,
+) -> MorphRuleDef {
+    MorphRuleDef::AffixProcess(AffixProcessRuleDef {
+        morpheme: MorphemeId(morpheme),
+        name: None,
+        blockable: false,
+        partial: false,
+        max_apps,
+        required_syn_fs: pg_featstruct::FsId(0),
+        out_syn_fs: pg_featstruct::FsId(0),
+        obligatory_features: vec![],
+        required_stem_name: None,
+        is_template_rule: false,
+        allomorphs: vec![allomorph(
+            allo_id,
             vec![one_or_more("nc_any", g)],
             vec![
                 OutputAction::Copy(PartRef::Input(0)),
@@ -380,6 +416,93 @@ fn allomorph_rows_never_carry_nonzero_attempts() {
     );
 }
 
+/// The synthesis-side confirm pass must record its own `Direction::Synthesis` rows, distinct from the analysis-side rows the peeling pass already recorded for the same rule.
+#[test]
+fn synthesis_confirm_pass_records_its_own_synthesis_direction_rows() {
+    let mut g = load_alpha_grammar();
+    // `RuleCache::build` indexes `AllomorphId` by position in `g.allomorph_owners` -- register it.
+    let allo_id = g.allomorph_owners.len() as u32;
+    let r = self_matching_suffix_rule_with_allo_id(&g, 320, allo_id, "p", 5);
+    let rid = push_mrule(&mut g, r);
+    g.allomorph_owners.push(AllomorphOwner::Affix(rid, 0));
+    let cfg = AnalyzerConfig::default();
+    let budget = StepBudget::new(usize::MAX);
+    let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
+    let cache = RuleCache::build(&g);
+    let stats = StatsCollector::new(&g);
+
+    let out = analyze_stratum_scoped_filtered_ruled_traced(
+        &g,
+        s,
+        word(&g, "appp", s),
+        &cfg,
+        None,
+        None,
+        None,
+        None,
+        &budget,
+        Some(&stats),
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(!out.capped, "gate must terminate without the step cap");
+
+    let candidate = out
+        .words
+        .into_iter()
+        .find(|w| w.mrule_app_index >= 0)
+        .expect("the rule must unapply at least once, leaving a resynthesizable candidate");
+
+    let synth_out = synthesize_stratum_traced(
+        &g,
+        s,
+        candidate,
+        usize::MAX,
+        &cache,
+        &budget,
+        Some(&stats),
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(
+        !synth_out.is_empty(),
+        "the peeled candidate must resynthesize back to at least one word"
+    );
+
+    let rows = stats.rows();
+    let synth_rows: Vec<_> = rows
+        .iter()
+        .filter(|r| {
+            r.kind == ObjectKind::MorphRule
+                && r.object_index == rid.0
+                && r.direction == Direction::Synthesis
+        })
+        .collect();
+    assert!(
+        !synth_rows.is_empty(),
+        "the confirm-pass reapplication must leave its own synthesis-direction rows, not silently \
+         merge into (or be missing from) the analysis-direction rows"
+    );
+    let synth_attempts: u64 = synth_rows.iter().map(|r| r.counters.attempts).sum();
+    assert!(
+        synth_attempts >= 1,
+        "the rule's synthesis-side reapplication must record a nonzero attempt"
+    );
+
+    let analysis_rows: Vec<_> = rows
+        .iter()
+        .filter(|r| {
+            r.kind == ObjectKind::MorphRule
+                && r.object_index == rid.0
+                && r.direction == Direction::Analysis
+        })
+        .collect();
+    assert!(
+        !analysis_rows.is_empty(),
+        "the analysis-side peeling pass must still have its own rows, untouched by synthesis"
+    );
+}
+
 /// A phonological rule fixture: `p -> [voiced]` between two vowels.
 fn voicing_prule(g: &Grammar) -> RewriteRuleDef {
     RewriteRuleDef {
@@ -504,6 +627,7 @@ fn wired_counters_matches_reality() {
         stats: &pstats,
         stratum: StratumId(0),
         id: PRuleId(0),
+        direction: Direction::Analysis,
     };
     let applied = pg_rules::rewrite::analyze(
         &phon_g,
@@ -516,6 +640,7 @@ fn wired_counters_matches_reality() {
         stats: &pstats,
         stratum: StratumId(0),
         id: PRuleId(0),
+        direction: Direction::Analysis,
     };
     let not_applied = pg_rules::rewrite::analyze(
         &phon_g,

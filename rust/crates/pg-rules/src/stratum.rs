@@ -598,6 +598,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             stats,
             stratum: self.stratum_id,
             id,
+            direction: crate::stats::Direction::Analysis,
         });
         // Threaded into `morph::ana_compound` rather than post-filtering: root-allomorph resolution must join `ana_compound_subrule`'s own per-subrule dedup scope.
         let node_parent = w.trace.unwrap_or(self.parent);
@@ -967,6 +968,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 stats,
                 stratum: self.stratum_id,
                 id: pid,
+                direction: crate::stats::Direction::Analysis,
             });
             let result = match &self.g.prules[pid.0 as usize] {
                 pg_grammar::model::PhonRuleDef::Rewrite(r) => {
@@ -1115,18 +1117,22 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
 #[allow(clippy::too_many_arguments)]
 fn guided_template_apply(
     g: &Grammar,
+    stratum: StratumId,
     tid: TemplateId,
     input: &Word,
     cap: usize,
     steps: &Cell<usize>,
     cache: &RuleCache,
+    stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
     budget: &StepBudget,
 ) -> Vec<Word> {
     let tmpl = &g.templates[tid.0 as usize];
     let mut out: HashMap<WordKey, Word> = HashMap::default();
-    let apply = |g: &Grammar, rid: MRuleId, w: &Word| guided_synth(g, rid, w, cache, trace, parent);
+    let apply = |g: &Grammar, rid: MRuleId, w: &Word| {
+        guided_synth(g, stratum, rid, w, cache, stats, trace, parent)
+    };
     if trace.is_tracing() {
         let node_parent = input.trace.unwrap_or(parent);
         trace.begin_apply_template(node_parent, tid, input);
@@ -1220,11 +1226,14 @@ fn synth_slots_generic<F>(
 // Synthesis stratum rule.
 
 /// Guided single-rule synthesis confirms the analysis: a rule re-applies only as the word's current expected unapplication; `MaxApplicationCount` is not enforced (needs a per-word count this port lacks).
+#[allow(clippy::too_many_arguments)]
 fn guided_synth(
     g: &Grammar,
+    stratum: StratumId,
     id: MRuleId,
     w: &Word,
     cache: &RuleCache,
+    stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
@@ -1243,6 +1252,13 @@ fn guided_synth(
     if !applicable {
         return Vec::new();
     }
+    // The synthesis-direction counterpart of `Analyzer::apply_one_mrule`'s ctx: this invocation is the confirm-pass reapplication of `id`.
+    let mstats = stats.map(|stats| crate::stats::MRuleStatsCtx {
+        stats,
+        stratum,
+        id,
+        direction: crate::stats::Direction::Synthesis,
+    });
     // Threaded INTO `synthesize_cached_traced` rather than applied after: it fires applied/not-applied events at its own internal gates and sets each output's `.trace`.
     let node_parent = w.trace.unwrap_or(parent);
     let mut outs = morph::synthesize_cached_traced(
@@ -1251,6 +1267,7 @@ fn guided_synth(
         w,
         &g.mrules[id.0 as usize],
         cache,
+        mstats,
         trace,
         node_parent,
     );
@@ -1317,6 +1334,7 @@ pub fn synthesize_stratum(
         cap,
         cache,
         &budget,
+        None,
         &crate::trace::NoopSink,
         TraceHandle::DUMMY,
     )
@@ -1331,6 +1349,7 @@ pub fn synthesize_stratum_traced(
     cap: usize,
     cache: &RuleCache,
     budget: &StepBudget,
+    stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
@@ -1355,6 +1374,7 @@ pub fn synthesize_stratum_traced(
         cap,
         &steps,
         cache,
+        stats,
         trace,
         node_parent,
         budget,
@@ -1367,6 +1387,7 @@ pub fn synthesize_stratum_traced(
         cap,
         &steps,
         cache,
+        stats,
         trace,
         node_parent,
         budget,
@@ -1440,6 +1461,7 @@ fn synth_apply_mrules(
     cap: usize,
     steps: &Cell<usize>,
     cache: &RuleCache,
+    stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
     budget: &StepBudget,
@@ -1460,7 +1482,7 @@ fn synth_apply_mrules(
             return Vec::new();
         }
         steps.set(steps.get() + 1);
-        guided_synth(g, sd.mrules[i], w, cache, trace, parent)
+        guided_synth(g, stratum, sd.mrules[i], w, cache, stats, trace, parent)
     };
     let casc = Cascade::new(true, usize::MAX);
     let n = sd.mrules.len();
@@ -1476,7 +1498,7 @@ fn synth_apply_mrules(
             result.push(w);
         } else {
             result.extend(synth_apply_templates(
-                g, stratum, sd, &w, cap, steps, cache, trace, parent, budget,
+                g, stratum, sd, &w, cap, steps, cache, stats, trace, parent, budget,
             ));
         }
     }
@@ -1548,6 +1570,7 @@ fn synth_apply_templates(
     cap: usize,
     steps: &Cell<usize>,
     cache: &RuleCache,
+    stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
     budget: &StepBudget,
@@ -1577,7 +1600,9 @@ fn synth_apply_templates(
             continue;
         }
         applicable = true;
-        for w in guided_template_apply(g, tid, input, cap, steps, cache, trace, parent, budget) {
+        for w in guided_template_apply(
+            g, stratum, tid, input, cap, steps, cache, stats, trace, parent, budget,
+        ) {
             let final_flag = w.flags.is_partial || tmpl.is_final;
             let mut w = w;
             w.flags.is_last_applied_rule_final = Some(final_flag);
@@ -1607,7 +1632,7 @@ fn synth_apply_templates(
             for t in templated {
                 if t.dedup_key() != in_key {
                     for m in synth_apply_mrules(
-                        g, stratum, sd, &t, cap, steps, cache, trace, parent, budget,
+                        g, stratum, sd, &t, cap, steps, cache, stats, trace, parent, budget,
                     ) {
                         out.entry(m.dedup_key()).or_insert(m);
                     }

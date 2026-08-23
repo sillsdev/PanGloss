@@ -63,6 +63,8 @@ pub struct PerObjectFilter {
     pub kind: Option<String>,
     pub object_key: Option<String>,
     pub stratum_key: Option<String>,
+    /// Narrows to `"analysis"` or `"synthesis"`; `None` sums both, recovering the undirected total.
+    pub direction: Option<String>,
     pub min_attempts: Option<i64>,
     pub exclude_censored_words: bool,
     pub top_n: Option<usize>,
@@ -101,6 +103,7 @@ const PER_OBJECT_SQL: &str = "
     WHERE (:kind IS NULL OR o.kind = :kind)
       AND (:object_key IS NULL OR o.key = :object_key)
       AND (:stratum_key IS NULL OR s.key = :stratum_key)
+      AND (:direction IS NULL OR f.direction = :direction)
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
     GROUP BY o.object_id
     HAVING (:min_attempts IS NULL OR SUM(f.attempts) >= :min_attempts)
@@ -124,6 +127,7 @@ pub fn per_object_report(
             ":kind": filter.kind.as_deref(),
             ":object_key": filter.object_key.as_deref(),
             ":stratum_key": filter.stratum_key.as_deref(),
+            ":direction": filter.direction.as_deref(),
             ":exclude_censored": i64::from(filter.exclude_censored_words),
             ":min_attempts": filter.min_attempts,
             ":sort_no_root": i64::from(filter.sort == SortKey::NoRoot),
@@ -154,6 +158,8 @@ pub fn per_object_report(
 pub struct PerAllomorphFilter {
     pub kind: Option<String>,
     pub object_key: Option<String>,
+    /// Narrows to `"analysis"` or `"synthesis"`; `None` sums both.
+    pub direction: Option<String>,
     pub min_attempts: Option<i64>,
     pub exclude_censored_words: bool,
     pub top_n: Option<usize>,
@@ -193,6 +199,7 @@ const PER_ALLOMORPH_SQL: &str = "
     LEFT JOIN op_cost oc ON oc.kind = o.kind
     WHERE (:kind IS NULL OR o.kind = :kind)
       AND (:object_key IS NULL OR o.key = :object_key)
+      AND (:direction IS NULL OR f.direction = :direction)
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
     GROUP BY o.object_id, f.allomorph_id
     HAVING (:min_attempts IS NULL OR SUM(f.attempts) >= :min_attempts)
@@ -212,6 +219,7 @@ pub fn per_allomorph_report(
         named_params! {
             ":kind": filter.kind.as_deref(),
             ":object_key": filter.object_key.as_deref(),
+            ":direction": filter.direction.as_deref(),
             ":exclude_censored": i64::from(filter.exclude_censored_words),
             ":min_attempts": filter.min_attempts,
             ":limit": limit,
@@ -242,6 +250,8 @@ pub fn per_allomorph_report(
 pub struct PerStratumFilter {
     pub kind: Option<String>,
     pub object_key: Option<String>,
+    /// Narrows to `"analysis"` or `"synthesis"`; `None` sums both.
+    pub direction: Option<String>,
     pub min_attempts: Option<i64>,
     pub exclude_censored_words: bool,
     pub top_n: Option<usize>,
@@ -275,6 +285,7 @@ const PER_STRATUM_SQL: &str = "
     LEFT JOIN stratum s ON s.stratum_id = f.stratum_id
     WHERE (:kind IS NULL OR o.kind = :kind)
       AND (:object_key IS NULL OR o.key = :object_key)
+      AND (:direction IS NULL OR f.direction = :direction)
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
     GROUP BY f.stratum_id
     HAVING (:min_attempts IS NULL OR SUM(f.attempts) >= :min_attempts)
@@ -294,6 +305,7 @@ pub fn per_stratum_report(
         named_params! {
             ":kind": filter.kind.as_deref(),
             ":object_key": filter.object_key.as_deref(),
+            ":direction": filter.direction.as_deref(),
             ":exclude_censored": i64::from(filter.exclude_censored_words),
             ":min_attempts": filter.min_attempts,
             ":limit": limit,
@@ -309,6 +321,81 @@ pub fn per_stratum_report(
                 no_root: row.get(6)?,
                 surface_mismatch: row.get(7)?,
                 uses: row.get(8)?,
+            })
+        },
+    )?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Optional narrowing for `per_direction_report`. Every field left at its default means "no
+/// narrowing" — both directions, unlimited (there are only ever two rows, so no `top_n`).
+#[derive(Debug, Clone, Default)]
+pub struct PerDirectionFilter {
+    pub kind: Option<String>,
+    pub object_key: Option<String>,
+    pub min_attempts: Option<i64>,
+    pub exclude_censored_words: bool,
+}
+
+/// One row of the per-direction report: the direction tag and the same summed counters
+/// `per_object_report` returns, summed across every object/stratum/allomorph that shares it.
+/// Direction partitions rather than duplicates: summing this report's rows recovers the same
+/// total `per_object_report` shows with no `direction` filter, pinned by
+/// `per_direction_report_partitions_rather_than_duplicates_the_object_total`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PerDirectionRow {
+    pub direction: String,
+    pub attempts: i64,
+    pub work: i64,
+    pub outputs: i64,
+    pub not_applied: i64,
+    pub no_root: i64,
+    pub surface_mismatch: i64,
+    pub uses: i64,
+}
+
+const PER_DIRECTION_SQL: &str = "
+    SELECT f.direction,
+           SUM(f.attempts), SUM(f.work), SUM(f.outputs), SUM(f.not_applied),
+           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses)
+    FROM fact f
+    JOIN object o ON o.object_id = f.object_id
+    JOIN word w ON w.word_id = f.word_id
+    WHERE (:kind IS NULL OR o.kind = :kind)
+      AND (:object_key IS NULL OR o.key = :object_key)
+      AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
+    GROUP BY f.direction
+    HAVING (:min_attempts IS NULL OR SUM(f.attempts) >= :min_attempts)
+    -- `direction` is a plain two-value tag, not a measured quantity, so ordering by the tag itself
+    -- is already exact and stable -- unlike work/estimated-time sorts elsewhere in this file, no
+    -- tie-break column is needed.
+    ORDER BY f.direction ASC
+";
+
+/// Direction tag and summed counters — one row per direction with a fact, optionally narrowed to
+/// one object or one kind.
+pub fn per_direction_report(
+    conn: &Connection,
+    filter: &PerDirectionFilter,
+) -> Result<Vec<PerDirectionRow>, StatsError> {
+    let mut stmt = conn.prepare(PER_DIRECTION_SQL)?;
+    let rows = stmt.query_map(
+        named_params! {
+            ":kind": filter.kind.as_deref(),
+            ":object_key": filter.object_key.as_deref(),
+            ":exclude_censored": i64::from(filter.exclude_censored_words),
+            ":min_attempts": filter.min_attempts,
+        },
+        |row| {
+            Ok(PerDirectionRow {
+                direction: row.get(0)?,
+                attempts: row.get(1)?,
+                work: row.get(2)?,
+                outputs: row.get(3)?,
+                not_applied: row.get(4)?,
+                no_root: row.get(5)?,
+                surface_mismatch: row.get(6)?,
+                uses: row.get(7)?,
             })
         },
     )?;
@@ -372,7 +459,8 @@ mod tests {
     use super::*;
     use crate::cache::StatsCache;
     use crate::model::{
-        FactRecord, IdentityQuality, ObjectKind, RunMetadata, StructuralLocator, WordRecord,
+        Direction, FactRecord, IdentityQuality, ObjectKind, RunMetadata, StructuralLocator,
+        WordRecord,
     };
 
     fn run() -> RunMetadata {
@@ -394,6 +482,24 @@ mod tests {
         work: u64,
         no_root: u64,
     ) -> FactRecord {
+        fact_with_direction(
+            object_key,
+            kind,
+            Direction::Analysis,
+            attempts,
+            work,
+            no_root,
+        )
+    }
+
+    fn fact_with_direction(
+        object_key: &str,
+        kind: ObjectKind,
+        direction: Direction,
+        attempts: u64,
+        work: u64,
+        no_root: u64,
+    ) -> FactRecord {
         FactRecord {
             object_key: object_key.to_string(),
             object_kind: kind,
@@ -401,6 +507,7 @@ mod tests {
             identity_quality: IdentityQuality::Authored,
             stratum: Some(StructuralLocator::new("0:Root", "Root")),
             allomorph: None,
+            direction,
             attempts,
             work,
             outputs: attempts,
@@ -548,6 +655,7 @@ mod tests {
             identity_quality: IdentityQuality::Authored,
             stratum: Some(StructuralLocator::new("0:Root", "Root")),
             allomorph: allomorph.map(|(k, l)| StructuralLocator::new(k, l)),
+            direction: Direction::Analysis,
             attempts,
             work,
             outputs: attempts,
@@ -701,6 +809,7 @@ mod tests {
             identity_quality: IdentityQuality::Authored,
             stratum: stratum.map(|(k, l)| StructuralLocator::new(k, l)),
             allomorph: None,
+            direction: Direction::Analysis,
             attempts,
             work,
             outputs: attempts,
@@ -937,5 +1046,116 @@ mod tests {
         assert_eq!(rows_a[0].state, "measured");
         assert_eq!(rows_b.len(), 1);
         assert_eq!(rows_b[0].state, "unsupported");
+    }
+
+    /// One rule fact recorded under both directions, sharing `(word, object, stratum, allomorph)`.
+    fn seeded_direction_cache() -> StatsCache {
+        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+        let words = vec![WordRecord {
+            form: "dirword".to_string(),
+            elapsed_ns: 1_000,
+            attempts: 8,
+            passes: 1,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts: vec![
+                fact_with_direction(
+                    "rule-dir",
+                    ObjectKind::MorphRule,
+                    Direction::Analysis,
+                    5,
+                    20,
+                    2,
+                ),
+                fact_with_direction(
+                    "rule-dir",
+                    ObjectKind::MorphRule,
+                    Direction::Synthesis,
+                    3,
+                    12,
+                    0,
+                ),
+            ],
+        }];
+        outcome.cache.flush(&run(), &words).unwrap();
+        outcome.cache
+    }
+
+    #[test]
+    fn per_object_direction_filter_narrows_to_one_direction() {
+        let cache = seeded_direction_cache();
+
+        let analysis_only = per_object_report(
+            cache.connection(),
+            &PerObjectFilter {
+                direction: Some("analysis".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(analysis_only.len(), 1);
+        assert_eq!(analysis_only[0].attempts, 5);
+        assert_eq!(analysis_only[0].no_root, 2);
+
+        let synthesis_only = per_object_report(
+            cache.connection(),
+            &PerObjectFilter {
+                direction: Some("synthesis".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(synthesis_only.len(), 1);
+        assert_eq!(synthesis_only[0].attempts, 3);
+        assert_eq!(synthesis_only[0].no_root, 0);
+
+        let unfiltered =
+            per_object_report(cache.connection(), &PerObjectFilter::default()).unwrap();
+        assert_eq!(
+            unfiltered[0].attempts, 8,
+            "no direction filter must sum both directions' attempts, recovering the undirected total"
+        );
+    }
+
+    #[test]
+    fn per_direction_report_partitions_rather_than_duplicates_the_object_total() {
+        let cache = seeded_direction_cache();
+
+        let object_total = per_object_report(cache.connection(), &PerObjectFilter::default())
+            .unwrap()
+            .into_iter()
+            .find(|r| r.label == "rule-dir")
+            .unwrap();
+
+        let direction_rows =
+            per_direction_report(cache.connection(), &PerDirectionFilter::default()).unwrap();
+        assert_eq!(
+            direction_rows.len(),
+            2,
+            "both directions must have a row, since both carry non-zero counters"
+        );
+        let summed_attempts: i64 = direction_rows.iter().map(|r| r.attempts).sum();
+        let summed_work: i64 = direction_rows.iter().map(|r| r.work).sum();
+        let summed_no_root: i64 = direction_rows.iter().map(|r| r.no_root).sum();
+        assert_eq!(
+            summed_attempts, object_total.attempts,
+            "summing over direction must recover the object's undirected total, not double it"
+        );
+        assert_eq!(summed_work, object_total.work);
+        assert_eq!(summed_no_root, object_total.no_root);
+    }
+
+    #[test]
+    fn per_direction_report_orders_deterministically() {
+        let cache = seeded_direction_cache();
+        let rows =
+            per_direction_report(cache.connection(), &PerDirectionFilter::default()).unwrap();
+        let directions: Vec<_> = rows.iter().map(|r| r.direction.clone()).collect();
+        assert_eq!(
+            directions,
+            vec!["analysis".to_string(), "synthesis".to_string()],
+            "direction rows must sort in a fixed, explicit order, not an incidental one"
+        );
     }
 }

@@ -167,7 +167,7 @@ fn both_gates_reject_first_reported_reason_is_the_template_prohibition() {
     let sink = TreeTraceSink::new();
     let root = sink.generate_words();
 
-    synthesize_stratum_traced(&g, s, input, 10_000, &cache, &budget, &sink, root);
+    synthesize_stratum_traced(&g, s, input, 10_000, &cache, &budget, None, &sink, root);
 
     // Finds every rule-level gate node (`subrule_index == Some(-1)`); see docs/research/pg-rules-synth-gate-order-design-notes.md.
     let mut rule_level_reasons = Vec::new();

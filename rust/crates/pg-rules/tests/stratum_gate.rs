@@ -601,6 +601,7 @@ fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short()
         CAP,
         &cache,
         &full_budget,
+        None,
         &NoopSink,
         TraceHandle::DUMMY,
     );
@@ -633,6 +634,7 @@ fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short()
         CAP,
         &cache,
         &expired_budget,
+        None,
         &NoopSink,
         TraceHandle::DUMMY,
     );

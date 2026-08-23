@@ -5,7 +5,7 @@ mod csharp_port_common;
 use pg_conformance_fixtures::discover;
 use pg_parse::morpher::ParseOptions;
 use pg_parse::Morpher;
-use pg_rules::stats::ObjectKind;
+use pg_rules::stats::{Direction, ObjectKind};
 
 /// One fixture-provided word to replay, paired with the grammar it belongs to.
 struct Case {
@@ -57,7 +57,7 @@ fn fixture_cases() -> Vec<(pg_grammar::model::Grammar, Vec<Case>)> {
     ]
 }
 
-/// `SUM(morph_rule attempts)` must equal the word's `steps` -- the primary invariant.
+/// `SUM(morph_rule attempts)` filtered to `direction = analysis` must equal the word's `steps` -- `StepBudget::tick()` fires solely on the analysis side, so summing both directions would overcount.
 #[test]
 fn sum_of_morph_rule_attempts_equals_steps() {
     let mut checked = 0usize;
@@ -68,12 +68,12 @@ fn sum_of_morph_rule_attempts_equals_steps() {
                 morpher.parse_word_with_stats(case.word, &ParseOptions::default());
             let sum_attempts: u64 = rows
                 .iter()
-                .filter(|r| r.kind == ObjectKind::MorphRule)
+                .filter(|r| r.kind == ObjectKind::MorphRule && r.direction == Direction::Analysis)
                 .map(|r| r.counters.attempts)
                 .sum();
             assert_eq!(
                 sum_attempts, outcome.steps as u64,
-                "{}: SUM(morph_rule attempts) must equal the word's steps",
+                "{}: SUM(morph_rule attempts) filtered to analysis must equal the word's steps",
                 case.label
             );
             checked += 1;
@@ -82,6 +82,36 @@ fn sum_of_morph_rule_attempts_equals_steps() {
     assert!(
         checked >= 5,
         "must have replayed several words across two fixtures"
+    );
+}
+
+/// The confirm pass must leave nonzero synthesis-direction rows across words that parse; checked in aggregate, not per-word, since a bare-root word legitimately involves no rule at all.
+#[test]
+fn synthesis_direction_rows_are_nonzero_for_words_that_parse() {
+    let mut parsed = 0usize;
+    let mut total_synth_attempts: u64 = 0;
+    for (g, cases) in fixture_cases() {
+        let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
+        for case in &cases {
+            let (outcome, rows) =
+                morpher.parse_word_with_stats(case.word, &ParseOptions::default());
+            if outcome.analyses.is_empty() {
+                continue;
+            }
+            parsed += 1;
+            total_synth_attempts += rows
+                .iter()
+                .filter(|r| r.kind == ObjectKind::MorphRule && r.direction == Direction::Synthesis)
+                .map(|r| r.counters.attempts)
+                .sum::<u64>();
+        }
+    }
+    assert!(parsed >= 1, "must have replayed at least one parsing word");
+    assert!(
+        total_synth_attempts >= 1,
+        "at least one parsed word's confirm pass must leave a nonzero synthesis-direction \
+         attempts row -- this is the gap that made the old, direction-less invariant unable to \
+         detect the synthesis side going uninstrumented"
     );
 }
 

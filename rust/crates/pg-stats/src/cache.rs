@@ -10,8 +10,8 @@ use rusqlite::{params, Connection, Transaction};
 
 use crate::error::StatsError;
 use crate::model::{
-    CoverageState, FactRecord, IdentityQuality, ObjectKind, RunMetadata, StructuralLocator,
-    WordRecord,
+    CoverageState, Direction, FactRecord, IdentityQuality, ObjectKind, RunMetadata,
+    StructuralLocator, WordRecord,
 };
 use crate::schema;
 use crate::util::to_i64;
@@ -240,9 +240,9 @@ fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), S
         None => 0,
     };
     tx.execute(
-        "INSERT INTO fact (word_id, object_id, stratum_id, allomorph_id, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-         ON CONFLICT(word_id, object_id, stratum_id, allomorph_id) DO UPDATE SET
+        "INSERT INTO fact (word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         ON CONFLICT(word_id, object_id, stratum_id, allomorph_id, direction) DO UPDATE SET
            attempts = excluded.attempts,
            work = excluded.work,
            outputs = excluded.outputs,
@@ -255,6 +255,7 @@ fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), S
             object_id,
             stratum_id,
             allomorph_id,
+            fact.direction.as_str(),
             to_i64("attempts", fact.attempts)?,
             to_i64("work", fact.work)?,
             to_i64("outputs", fact.outputs)?,
@@ -336,6 +337,7 @@ mod tests {
                 identity_quality: IdentityQuality::Authored,
                 stratum: Some(StructuralLocator::new("0:Root", "Root")),
                 allomorph: None,
+                direction: Direction::Analysis,
                 attempts: 5,
                 work: 20,
                 outputs: 2,

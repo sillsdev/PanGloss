@@ -55,19 +55,27 @@ fn record_mrule_reach(
     let Some(ctx) = mstats else { return };
     let allomorph = index + 1;
     if *reached == 0 {
-        ctx.stats.record_mrule_reach_attempt(ctx.stratum, ctx.id);
+        ctx.stats
+            .record_mrule_reach_attempt(ctx.stratum, ctx.id, ctx.direction);
     }
     *reached += 1;
-    ctx.stats
-        .record_mrule_allomorph_try(ctx.stratum, ctx.id, allomorph, segments, outputs);
+    ctx.stats.record_mrule_allomorph_try(
+        ctx.stratum,
+        ctx.id,
+        allomorph,
+        ctx.direction,
+        segments,
+        outputs,
+    );
 }
 
 /// Attributes a whole rule invocation (gated before the loop, or zero allomorphs reached) to `ALLOMORPH_NONE`.
 fn record_mrule_none_residual(mstats: Option<MRuleStatsCtx>, segments: u64) {
     let Some(ctx) = mstats else { return };
     ctx.stats
-        .record_mrule_attempt(ctx.stratum, ctx.id, segments);
-    ctx.stats.record_mrule_outcome(ctx.stratum, ctx.id, 0);
+        .record_mrule_attempt(ctx.stratum, ctx.id, ctx.direction, segments);
+    ctx.stats
+        .record_mrule_outcome(ctx.stratum, ctx.id, ctx.direction, 0);
 }
 
 // Table is resolved once per rule application and threaded down explicitly; a word's shape may carry frozen material from an earlier different-table stratum, but nothing here re-derives an identity for it.
@@ -81,10 +89,20 @@ fn record_mrule_none_residual(mstats: Option<MRuleStatsCtx>, segments: u64) {
 /// called on standalone, non-grammar-resident rule fixtures that have no stable index into a
 /// `crate::cache::RuleCache`. The real per-word pipeline calls `synthesize_cached` instead.
 pub fn synthesize(g: &Grammar, word: &Word, rule: &MorphRuleDef) -> Vec<Word> {
+    synthesize_stats(g, word, rule, None)
+}
+
+/// `synthesize`'s `--stats`-carrying sibling; `pub(crate)` since only `crate::stratum` needs the ctx.
+pub(crate) fn synthesize_stats(
+    g: &Grammar,
+    word: &Word,
+    rule: &MorphRuleDef,
+    mstats: Option<MRuleStatsCtx>,
+) -> Vec<Word> {
     let out = match rule {
-        MorphRuleDef::AffixProcess(def) => synth_affix(g, word, def),
-        MorphRuleDef::Compounding(def) => synth_compound(g, word, def),
-        MorphRuleDef::Realizational(def) => synth_realizational(g, word, def),
+        MorphRuleDef::AffixProcess(def) => synth_affix(g, word, def, mstats),
+        MorphRuleDef::Compounding(def) => synth_compound(g, word, def, mstats),
+        MorphRuleDef::Realizational(def) => synth_realizational(g, word, def, mstats),
     };
     apply_blocking(g, out, rule.blockable())
 }
@@ -92,24 +110,26 @@ pub fn synthesize(g: &Grammar, word: &Word, rule: &MorphRuleDef) -> Vec<Word> {
 /// The `crate::cache::RuleCache`-aware sibling of `synthesize`, used by the real per-word pipeline.
 /// `mrid` must identify `rule` — every production call site already holds both. Pass
 /// `&NoopSink`/`TraceHandle::DUMMY` for an untraced call.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn synthesize_cached_traced(
     g: &Grammar,
     mrid: MRuleId,
     word: &Word,
     rule: &MorphRuleDef,
     cache: &crate::cache::RuleCache,
+    mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
     let out = match rule {
         MorphRuleDef::AffixProcess(def) => {
-            synth_affix_cached(g, word, def, mrid, cache, trace, parent)
+            synth_affix_cached(g, word, def, mrid, cache, mstats, trace, parent)
         }
         MorphRuleDef::Compounding(def) => {
-            synth_compound_cached(g, word, def, mrid, cache, trace, parent)
+            synth_compound_cached(g, word, def, mrid, cache, mstats, trace, parent)
         }
         MorphRuleDef::Realizational(def) => {
-            synth_realizational_cached(g, word, def, mrid, cache, trace, parent)
+            synth_realizational_cached(g, word, def, mrid, cache, mstats, trace, parent)
         }
     };
     apply_blocking_traced(g, out, rule.blockable(), mrid, trace, parent)
@@ -131,6 +151,7 @@ pub fn synthesize_cached(
         word,
         rule,
         cache,
+        None,
         &crate::trace::NoopSink,
         crate::trace::TraceHandle::DUMMY,
     )
@@ -1293,7 +1314,12 @@ fn root_stem_name(g: &Grammar, word: &Word) -> Option<pg_grammar::model::StemNam
     g.entries[le.0 as usize].allomorphs[idx as usize].stem_name
 }
 
-fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word> {
+fn synth_affix(
+    g: &Grammar,
+    word: &Word,
+    rule: &AffixProcessRuleDef,
+    mstats: Option<MRuleStatsCtx>,
+) -> Vec<Word> {
     // Gate order matches C#: template prohibitions, then `RequiredStemName`, then the syn-FS unify; independent gates, so order only picks which `FailureReason` is reported first. Both template checks are guarded on `!is_template_rule`, since a template's own slot rules are never subject to them.
 
     // After a *final* template, prohibit a non-partial rule.
@@ -1302,6 +1328,7 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
         && !word.flags.is_partial
         && !rule.partial
     {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     // (b) After a *non-final* template, prohibit a partial rule unless the input is itself partial.
@@ -1310,15 +1337,18 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
         && !word.flags.is_partial
         && rule.partial
     {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
 
     // `requiredStemName` is a reference-equality gate on the WORD's root stem name, not the rule's allomorphs'; `None` on both sides passes.
     if rule.required_stem_name.is_some() && rule.required_stem_name != root_stem_name(g, word) {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
 
     let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
 
@@ -1328,6 +1358,7 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
     let mut output = Vec::new();
     // Indices already applied in this loop, recorded on each output morph before the producing index is added.
     let mut applied: Vec<u16> = Vec::new();
+    let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         if !g.mpr_group_ok(allo.required_mpr, allo.excluded_mpr, word.mpr) {
             continue;
@@ -1336,7 +1367,7 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
         let Ok((fst, names)) = compile_parts(g, table, &allo.lhs, "p", true) else {
             continue;
         };
-        if let Some(w) = synth_process_allomorph(
+        let matched = synth_process_allomorph(
             g,
             table,
             word,
@@ -1351,7 +1382,16 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
             &fst,
             &names,
             &applied,
-        ) {
+        );
+        let is_match = matched.is_some();
+        record_mrule_reach(
+            mstats,
+            i as u32,
+            segs.len() as u64,
+            u64::from(is_match),
+            &mut reached,
+        );
+        if let Some(w) = matched {
             output.push(w);
             applied.push(i as u16);
             // Disjunctive-allomorph break: stop after the first match unless this allomorph is environment/syn-constrained or free-fluctuates with the next one.
@@ -1367,6 +1407,9 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
             }
         }
     }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
+    }
     output
 }
 
@@ -1378,6 +1421,7 @@ fn synth_affix_cached(
     rule: &AffixProcessRuleDef,
     mrid: MRuleId,
     cache: &crate::cache::RuleCache,
+    mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
@@ -1386,6 +1430,7 @@ fn synth_affix_cached(
             if trace.is_tracing() {
                 trace.morphological_rule_not_applied(parent, mrid, -1, word, $reason);
             }
+            record_mrule_none_residual(mstats, word.shape.len() as u64);
             return Vec::new();
         }};
     }
@@ -1420,6 +1465,7 @@ fn synth_affix_cached(
     let (segs, node_of) = segs_of(g, table, &word.shape, true);
     let mut output = Vec::new();
     let mut applied: Vec<u16> = Vec::new();
+    let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
             if trace.is_tracing() {
@@ -1430,7 +1476,7 @@ fn synth_affix_cached(
         let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
             continue;
         };
-        match synth_process_allomorph(
+        let matched = synth_process_allomorph(
             g,
             table,
             word,
@@ -1445,7 +1491,15 @@ fn synth_affix_cached(
             fst,
             names,
             &applied,
-        ) {
+        );
+        record_mrule_reach(
+            mstats,
+            i as u32,
+            segs.len() as u64,
+            u64::from(matched.is_some()),
+            &mut reached,
+        );
+        match matched {
             Some(mut w) => {
                 if trace.is_tracing() {
                     w.trace = Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
@@ -1477,6 +1531,9 @@ fn synth_affix_cached(
             }
         }
     }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
+    }
     output
 }
 
@@ -1502,15 +1559,23 @@ fn realizational_is_blocked(real_fs: &FeatureStruct, syn_fs: &FeatureStruct) -> 
 }
 
 /// C# `Apply`: gates in order are `real_fs` subsumption, `IsBlocked` (when `real_fs` non-empty), then the required-syn-FS unify via `synth_syn_fs`; unlike `synth_affix` this class has no partial/final/obligatory/max-application gates.
-fn synth_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) -> Vec<Word> {
+fn synth_realizational(
+    g: &Grammar,
+    word: &Word,
+    rule: &RealizationalRuleDef,
+    mstats: Option<MRuleStatsCtx>,
+) -> Vec<Word> {
     let real_fs = g.fs_interner.get(rule.real_fs);
     if !pg_featstruct::subsumes(real_fs, &word.real_fs) {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     if !real_fs.is_empty() && realizational_is_blocked(real_fs, &word.syn_fs) {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.real_fs, word) else {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
 
@@ -1519,6 +1584,7 @@ fn synth_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) ->
     let (segs, node_of) = segs_of(g, table, &word.shape, true);
     let mut output = Vec::new();
     let mut applied: Vec<u16> = Vec::new();
+    let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         if !g.mpr_group_ok(allo.required_mpr, allo.excluded_mpr, word.mpr) {
             continue;
@@ -1526,7 +1592,7 @@ fn synth_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) ->
         let Ok((fst, names)) = compile_parts(g, table, &allo.lhs, "p", true) else {
             continue;
         };
-        if let Some(w) = synth_process_allomorph(
+        let matched = synth_process_allomorph(
             g,
             table,
             word,
@@ -1541,7 +1607,15 @@ fn synth_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) ->
             &fst,
             &names,
             &applied,
-        ) {
+        );
+        record_mrule_reach(
+            mstats,
+            i as u32,
+            segs.len() as u64,
+            u64::from(matched.is_some()),
+            &mut reached,
+        );
+        if let Some(w) = matched {
             output.push(w);
             applied.push(i as u16);
             let next_free_fluctuates = rule
@@ -1556,6 +1630,9 @@ fn synth_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) ->
             }
         }
     }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
+    }
     output
 }
 
@@ -1567,14 +1644,17 @@ fn synth_realizational_cached(
     rule: &RealizationalRuleDef,
     mrid: MRuleId,
     cache: &crate::cache::RuleCache,
+    mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
     let real_fs = g.fs_interner.get(rule.real_fs);
     if !pg_featstruct::subsumes(real_fs, &word.real_fs) {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     if !real_fs.is_empty() && realizational_is_blocked(real_fs, &word.syn_fs) {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.real_fs, word) else {
@@ -1587,6 +1667,7 @@ fn synth_realizational_cached(
                 FailureReason::RequiredSyntacticFeatureStruct,
             );
         }
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
 
@@ -1594,6 +1675,7 @@ fn synth_realizational_cached(
     let (segs, node_of) = segs_of(g, table, &word.shape, true);
     let mut output = Vec::new();
     let mut applied: Vec<u16> = Vec::new();
+    let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
             if trace.is_tracing() {
@@ -1604,7 +1686,7 @@ fn synth_realizational_cached(
         let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
             continue;
         };
-        match synth_process_allomorph(
+        let matched = synth_process_allomorph(
             g,
             table,
             word,
@@ -1619,7 +1701,15 @@ fn synth_realizational_cached(
             fst,
             names,
             &applied,
-        ) {
+        );
+        record_mrule_reach(
+            mstats,
+            i as u32,
+            segs.len() as u64,
+            u64::from(matched.is_some()),
+            &mut reached,
+        );
+        match matched {
             Some(mut w) => {
                 if trace.is_tracing() {
                     w.trace = Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
@@ -1649,6 +1739,9 @@ fn synth_realizational_cached(
                 }
             }
         }
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
     }
     output
 }
@@ -2416,21 +2509,31 @@ fn effective_cd_sets_eq(a: EffectiveCdSet, b: EffectiveCdSet) -> bool {
 
 // Compounding — synthesis.
 
-fn synth_compound(g: &Grammar, word: &Word, rule: &CompoundingRuleDef) -> Vec<Word> {
+fn synth_compound(
+    g: &Grammar,
+    word: &Word,
+    rule: &CompoundingRuleDef,
+    mstats: Option<MRuleStatsCtx>,
+) -> Vec<Word> {
     let Some(nh) = word.current_non_head().cloned() else {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     // Gating.
     if !is_unifiable(g.fs_interner.get(rule.non_head_required_syn_fs), &nh.syn_fs) {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     let Some(new_syn) = synth_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     if matches!(word.flags.is_last_applied_rule_final, Some(true)) && !word.flags.is_partial {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     if !rule.head_prod_restrictions_mpr.compound_match(word.mpr) {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
 
@@ -2439,7 +2542,8 @@ fn synth_compound(g: &Grammar, word: &Word, rule: &CompoundingRuleDef) -> Vec<Wo
     let (head_segs, head_node_of) = segs_of(g, table, &word.shape, true);
     let (nh_segs, nh_node_of) = segs_of(g, table, &nh.shape, true);
     let mut output = Vec::new();
-    for sr in &rule.subrules {
+    let mut reached: u32 = 0;
+    for (i, sr) in rule.subrules.iter().enumerate() {
         if !g.mpr_group_ok(sr.required_mpr, sr.excluded_mpr, word.mpr) {
             continue;
         }
@@ -2450,7 +2554,7 @@ fn synth_compound(g: &Grammar, word: &Word, rule: &CompoundingRuleDef) -> Vec<Wo
         let Ok((nh_fst, nh_names)) = compile_parts(g, table, &sr.non_head_lhs, "n", true) else {
             continue;
         };
-        if let Ok(w) = synth_compound_subrule(
+        let matched = synth_compound_subrule(
             g,
             table,
             word,
@@ -2466,10 +2570,21 @@ fn synth_compound(g: &Grammar, word: &Word, rule: &CompoundingRuleDef) -> Vec<Wo
             &head_names,
             &nh_fst,
             &nh_names,
-        ) {
+        );
+        record_mrule_reach(
+            mstats,
+            i as u32,
+            (head_segs.len() + nh_segs.len()) as u64,
+            u64::from(matched.is_ok()),
+            &mut reached,
+        );
+        if let Ok(w) = matched {
             output.push(w);
             break; // C# breaks after the first matching subrule
         }
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, (head_segs.len() + nh_segs.len()) as u64);
     }
     output
 }
@@ -2482,10 +2597,12 @@ fn synth_compound_cached(
     rule: &CompoundingRuleDef,
     mrid: MRuleId,
     cache: &crate::cache::RuleCache,
+    mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
     let Some(nh) = word.current_non_head().cloned() else {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     if !is_unifiable(g.fs_interner.get(rule.non_head_required_syn_fs), &nh.syn_fs) {
@@ -2498,6 +2615,7 @@ fn synth_compound_cached(
                 FailureReason::NonHeadRequiredSyntacticFeatureStruct,
             );
         }
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     let Some(new_syn) = synth_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
@@ -2510,6 +2628,7 @@ fn synth_compound_cached(
                 FailureReason::HeadRequiredSyntacticFeatureStruct,
             );
         }
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     if matches!(word.flags.is_last_applied_rule_final, Some(true)) && !word.flags.is_partial {
@@ -2522,6 +2641,7 @@ fn synth_compound_cached(
                 FailureReason::NonPartialRuleProhibitedAfterFinalTemplate,
             );
         }
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     if !rule.head_prod_restrictions_mpr.compound_match(word.mpr) {
@@ -2533,6 +2653,7 @@ fn synth_compound_cached(
                 FailureReason::HeadProdRestrictMprFeatures,
             );
         }
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
 
@@ -2541,6 +2662,7 @@ fn synth_compound_cached(
     let (head_segs, head_node_of) = segs_of(g, table, &word.shape, true);
     let (nh_segs, nh_node_of) = segs_of(g, table, &nh.shape, true);
     let mut output = Vec::new();
+    let mut reached: u32 = 0;
     for (i, sr) in rule.subrules.iter().enumerate() {
         if let Some(reason) = mpr_gate_reason(g, sr.required_mpr, sr.excluded_mpr, word.mpr) {
             if trace.is_tracing() {
@@ -2554,7 +2676,7 @@ fn synth_compound_cached(
         else {
             continue;
         };
-        match synth_compound_subrule(
+        let matched = synth_compound_subrule(
             g,
             table,
             word,
@@ -2570,7 +2692,15 @@ fn synth_compound_cached(
             head_names,
             nh_fst,
             nh_names,
-        ) {
+        );
+        record_mrule_reach(
+            mstats,
+            i as u32,
+            (head_segs.len() + nh_segs.len()) as u64,
+            u64::from(matched.is_ok()),
+            &mut reached,
+        );
+        match matched {
             Ok(mut w) => {
                 if trace.is_tracing() {
                     w.trace = Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
@@ -2584,6 +2714,9 @@ fn synth_compound_cached(
                 }
             }
         }
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, (head_segs.len() + nh_segs.len()) as u64);
     }
     output
 }

@@ -58,6 +58,42 @@ impl FromStr for ObjectKind {
     }
 }
 
+/// Which pass produced a fact row: unapplying the surface form toward a root (`Analysis`), or
+/// reapplying rules forward to build/confirm a surface form (`Synthesis`). Part of the fact key,
+/// stored inline rather than interned -- a fixed two-value tag has no locator or label to look up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Direction {
+    Analysis,
+    Synthesis,
+}
+
+impl Direction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Direction::Analysis => "analysis",
+            Direction::Synthesis => "synthesis",
+        }
+    }
+}
+
+impl std::fmt::Display for Direction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Direction {
+    type Err = UnknownVariant;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "analysis" => Ok(Direction::Analysis),
+            "synthesis" => Ok(Direction::Synthesis),
+            other => Err(UnknownVariant(other.to_string())),
+        }
+    }
+}
+
 /// How trustworthy an object's `key` is as something a human can look up in FLEx.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IdentityQuality {
@@ -182,6 +218,7 @@ pub struct FactRecord {
     pub identity_quality: IdentityQuality,
     pub stratum: Option<StructuralLocator>,
     pub allomorph: Option<StructuralLocator>,
+    pub direction: Direction,
     pub attempts: u64,
     pub work: u64,
     pub outputs: u64,

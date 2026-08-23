@@ -448,6 +448,7 @@ impl<'g> Morpher<'g> {
                             root,
                             rule_filter,
                             &budget,
+                            stats,
                             None,
                         ) {
                             candidates_generated += 1;
@@ -479,7 +480,7 @@ impl<'g> Morpher<'g> {
                     guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
                 {
                     for alt in synthesis_word.expand_alternatives() {
-                        for vw in self.synthesis_pipeline_traced(alt, trace, root, &budget) {
+                        for vw in self.synthesis_pipeline_traced(alt, trace, root, &budget, stats) {
                             candidates_generated += 1;
                             if self.is_word_valid_traced(&vw, trace, root)
                                 && self.is_match_traced(&vw, word, trace, root)
@@ -712,7 +713,15 @@ impl<'g> Morpher<'g> {
     fn synthesis_pipeline(&self, syn_word: Word) -> Vec<Word> {
         let sink = NoopSink;
         let budget = pg_rules::stratum::StepBudget::new(self.cap);
-        self.synthesis_pipeline_selected(syn_word, &sink, TraceHandle::DUMMY, None, &budget, None)
+        self.synthesis_pipeline_selected(
+            syn_word,
+            &sink,
+            TraceHandle::DUMMY,
+            None,
+            &budget,
+            None,
+            None,
+        )
     }
 
     /// `Self::synthesis_pipeline`'s traced sibling; the callee reassigns each word's trace cursor per rule so a multi-rule synthesis renders as a followable sequence.
@@ -722,11 +731,13 @@ impl<'g> Morpher<'g> {
         trace: &dyn TraceSink,
         parent: TraceHandle,
         budget: &pg_rules::stratum::StepBudget,
+        stats: Option<&pg_rules::stats::StatsCollector>,
     ) -> Vec<Word> {
-        self.synthesis_pipeline_selected(syn_word, trace, parent, None, budget, None)
+        self.synthesis_pipeline_selected(syn_word, trace, parent, None, budget, stats, None)
     }
 
     /// `Self::synthesis_pipeline_traced`'s selector-restricted sibling; a rejected stratum passes the word through unchanged, and `budget` enforces only the wall-clock deadline.
+    #[allow(clippy::too_many_arguments)]
     fn synthesis_pipeline_selected(
         &self,
         syn_word: Word,
@@ -734,6 +745,7 @@ impl<'g> Morpher<'g> {
         parent: TraceHandle,
         rule_filter: Option<pg_rules::stratum::RuleFilter>,
         budget: &pg_rules::stratum::StepBudget,
+        stats: Option<&pg_rules::stats::StatsCollector>,
         work_budget: Option<&SynthesisBudget>,
     ) -> Vec<Word> {
         let g = self.g;
@@ -761,6 +773,7 @@ impl<'g> Morpher<'g> {
                     self.cap,
                     &self.cache,
                     budget,
+                    stats,
                     trace,
                     node_parent,
                 ) {
@@ -1331,6 +1344,7 @@ impl<'g> Morpher<'g> {
                 TraceHandle::DUMMY,
                 None,
                 &work.steps,
+                None,
                 Some(work),
             )
         } else {

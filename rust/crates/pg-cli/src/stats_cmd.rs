@@ -121,6 +121,10 @@ fn fact_record_from_stats_row(
         let a = pg_grammar::stats_identity::allomorph_identity(grammar, AllomorphId(row.allomorph));
         Some(pg_stats::StructuralLocator::new(a.key, a.label))
     };
+    let direction = match row.direction {
+        pg_rules::stats::Direction::Analysis => pg_stats::Direction::Analysis,
+        pg_rules::stats::Direction::Synthesis => pg_stats::Direction::Synthesis,
+    };
     pg_stats::FactRecord {
         object_key: identity.key,
         object_kind: to_stats_kind(identity.kind),
@@ -128,6 +132,7 @@ fn fact_record_from_stats_row(
         identity_quality: to_stats_quality(identity.quality),
         stratum: Some(pg_stats::StructuralLocator::new(stratum.key, stratum.label)),
         allomorph,
+        direction,
         attempts: row.counters.attempts,
         work: row.counters.work,
         outputs: row.counters.outputs,
@@ -213,6 +218,42 @@ struct StatsOptionsRecord {
     guess: bool,
 }
 
+/// Copies every kind with a measured constant into the cache's `op_cost` table; a kind with `ns_per_unit: None` is left absent so its estimated-time column keeps rendering "—" rather than a fake zero.
+fn write_op_cost_constants(
+    cache: &pg_stats::StatsCache,
+    constants: &crate::calibrate_cmd::CalibrationConstants,
+) -> Result<(), String> {
+    const KINDS: [pg_stats::ObjectKind; 6] = [
+        pg_stats::ObjectKind::MorphRule,
+        pg_stats::ObjectKind::PhonRule,
+        pg_stats::ObjectKind::LexEntry,
+        pg_stats::ObjectKind::RootIndex,
+        pg_stats::ObjectKind::Guesser,
+        pg_stats::ObjectKind::Overlay,
+    ];
+    let provenance = format!(
+        "pangloss calibrate {} on {} at {}",
+        constants.provenance.tool_version,
+        constants.provenance.cpu_model,
+        constants.provenance.measured_utc
+    );
+    for kind in KINDS {
+        let Some(entry) = constants.kinds.get(kind.as_str()) else {
+            continue;
+        };
+        let Some(ns) = entry.ns_per_unit else {
+            continue;
+        };
+        if !ns.is_finite() || ns < 0.0 {
+            continue;
+        }
+        cache
+            .write_op_cost(kind, ns.round() as u64, &provenance)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Shared tail of `run_batch_stats_hc`/`run_batch_stats_foma`: flushes `records` in batches, writes coverage, and prints the one summary line `batch --stats` promises.
 fn finish_stats_flush(
     cache: &mut pg_stats::StatsCache,
@@ -236,6 +277,10 @@ fn finish_stats_flush(
         options_json,
         created_utc: now_utc_string(),
     };
+
+    if let Some(constants) = crate::calibrate_cmd::load_op_cost_constants() {
+        write_op_cost_constants(cache, &constants)?;
+    }
 
     let analyzed = records.len();
     let mut chunks: Vec<&[pg_stats::WordRecord]> = records.chunks(STATS_FLUSH_BATCH).collect();
@@ -412,7 +457,7 @@ pub(crate) fn run_batch_stats_foma(
 
 // The `stats` subcommand: read-only, no grammar loaded.
 
-const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|stratum] [--kind K] [--object KEY] [--stratum KEY] [--min-attempts N] [--top N] [--sort time|no-root] [--exclude-censored] [--cache <path>] [--out FILE]";
+const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|stratum|direction] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--min-attempts N] [--top N] [--sort time|no-root] [--exclude-censored] [--cache <path>] [--out FILE]";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ReportGroup {
@@ -420,6 +465,7 @@ enum ReportGroup {
     Object,
     Allomorph,
     Stratum,
+    Direction,
 }
 
 #[derive(Default)]
@@ -427,6 +473,8 @@ struct Filters {
     kind: Option<String>,
     object_key: Option<String>,
     stratum_key: Option<String>,
+    /// `"analysis"` or `"synthesis"`; validated at parse time, threaded through unchanged.
+    direction: Option<String>,
     min_attempts: Option<i64>,
     top_n: Option<usize>,
     sort: Option<pg_stats::SortKey>,
@@ -438,6 +486,7 @@ fn per_object_filter(f: &Filters) -> pg_stats::PerObjectFilter {
         kind: f.kind.clone(),
         object_key: f.object_key.clone(),
         stratum_key: f.stratum_key.clone(),
+        direction: f.direction.clone(),
         min_attempts: f.min_attempts,
         exclude_censored_words: f.exclude_censored,
         top_n: f.top_n,
@@ -449,6 +498,7 @@ fn per_allomorph_filter(f: &Filters) -> pg_stats::PerAllomorphFilter {
     pg_stats::PerAllomorphFilter {
         kind: f.kind.clone(),
         object_key: f.object_key.clone(),
+        direction: f.direction.clone(),
         min_attempts: f.min_attempts,
         exclude_censored_words: f.exclude_censored,
         top_n: f.top_n,
@@ -459,9 +509,19 @@ fn per_stratum_filter(f: &Filters) -> pg_stats::PerStratumFilter {
     pg_stats::PerStratumFilter {
         kind: f.kind.clone(),
         object_key: f.object_key.clone(),
+        direction: f.direction.clone(),
         min_attempts: f.min_attempts,
         exclude_censored_words: f.exclude_censored,
         top_n: f.top_n,
+    }
+}
+
+fn per_direction_filter(f: &Filters) -> pg_stats::PerDirectionFilter {
+    pg_stats::PerDirectionFilter {
+        kind: f.kind.clone(),
+        object_key: f.object_key.clone(),
+        min_attempts: f.min_attempts,
+        exclude_censored_words: f.exclude_censored,
     }
 }
 
@@ -759,6 +819,48 @@ fn render_stratum(
     }
 }
 
+const DIRECTION_HEADERS: [&str; 8] = [
+    "direction",
+    "attempts",
+    "outputs",
+    "Didn't apply",
+    "No root found",
+    "Didn't match the word",
+    "uses",
+    "work",
+];
+
+/// Only two rows ever exist, so -- like `render_stratum` -- no single `coverage` lookup fits a row that can span several object kinds; narrow with `--kind` for a coverage-accurate view.
+fn direction_row_cells(r: &pg_stats::PerDirectionRow) -> Vec<String> {
+    vec![
+        r.direction.clone(),
+        r.attempts.to_string(),
+        r.outputs.to_string(),
+        r.not_applied.to_string(),
+        r.no_root.to_string(),
+        r.surface_mismatch.to_string(),
+        r.uses.to_string(),
+        r.work.to_string(),
+    ]
+}
+
+fn render_direction(
+    conn: &rusqlite::Connection,
+    filters: &Filters,
+    out: Option<&str>,
+) -> Result<(), String> {
+    let filter = per_direction_filter(filters);
+    let rows = pg_stats::per_direction_report(conn, &filter).map_err(|e| e.to_string())?;
+    let table_rows: Vec<Vec<String>> = rows.iter().map(direction_row_cells).collect();
+    match out {
+        Some(path) => write_csv(path, &DIRECTION_HEADERS, &table_rows),
+        None => {
+            print!("{}", render_table(&DIRECTION_HEADERS, &table_rows));
+            Ok(())
+        }
+    }
+}
+
 fn render_default(conn: &rusqlite::Connection, coverage: &CoverageMap) -> Result<(), String> {
     render_word(conn, None)?;
     println!();
@@ -792,6 +894,12 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             }
             s if s.starts_with("--stratum=") => {
                 filters.stratum_key = Some(s["--stratum=".len()..].to_string())
+            }
+            "--direction" => {
+                filters.direction = Some(it.next().ok_or("--direction requires a value")?.clone())
+            }
+            s if s.starts_with("--direction=") => {
+                filters.direction = Some(s["--direction=".len()..].to_string())
             }
             "--min-attempts" => {
                 let v = it.next().ok_or("--min-attempts requires a value")?;
@@ -840,12 +948,26 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         Some("object") => Some(ReportGroup::Object),
         Some("allomorph") => Some(ReportGroup::Allomorph),
         Some("stratum") => Some(ReportGroup::Stratum),
+        Some("direction") => Some(ReportGroup::Direction),
         Some(other) => {
             return Err(format!(
-                "invalid --group: {other} (expected word|object|allomorph|stratum)"
+                "invalid --group: {other} (expected word|object|allomorph|stratum|direction)"
             ))
         }
     };
+    if let Some(d) = filters.direction.as_deref() {
+        if d != "analysis" && d != "synthesis" {
+            return Err(format!(
+                "invalid --direction: {d} (expected analysis|synthesis)"
+            ));
+        }
+    }
+    if filters.direction.is_some() && matches!(group, Some(ReportGroup::Word)) {
+        return Err(
+            "--direction does not apply to --group word: word rows have no direction dimension"
+                .to_string(),
+        );
+    }
     filters.sort = match sort_arg.as_deref() {
         None => None,
         Some("time") => Some(pg_stats::SortKey::EstimatedNs),
@@ -910,6 +1032,7 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             render_allomorph(&conn, &coverage, &filters, out_path.as_deref())
         }
         Some(ReportGroup::Stratum) => render_stratum(&conn, &filters, out_path.as_deref()),
+        Some(ReportGroup::Direction) => render_direction(&conn, &filters, out_path.as_deref()),
     }
 }
 
@@ -1338,5 +1461,129 @@ mod tests {
         ];
         run_stats(&default_args)
             .expect("run_stats with no --group must render the dual default view");
+    }
+
+    fn calibration_constants(
+        morph_ns: Option<f64>,
+        guesser_ns: Option<f64>,
+    ) -> crate::calibrate_cmd::CalibrationConstants {
+        use crate::calibrate_cmd::{CalibrationConstants, OpCostEntry, Provenance};
+        use std::collections::BTreeMap;
+        let entry = |ns: Option<f64>| OpCostEntry {
+            ns_per_unit: ns,
+            work_observed: if ns.is_some() { 10_000 } else { 0 },
+            provisional: ns.is_none(),
+            note: "test".to_string(),
+        };
+        let mut kinds = BTreeMap::new();
+        kinds.insert("morph_rule".to_string(), entry(morph_ns));
+        kinds.insert("guesser".to_string(), entry(guesser_ns));
+        CalibrationConstants {
+            schema_version: crate::calibrate_cmd::CALIBRATION_SCHEMA_VERSION,
+            provenance: Provenance {
+                tool_version: "0.0.0-test".to_string(),
+                cpu_model: "Test CPU".to_string(),
+                measured_utc: "unix:0".to_string(),
+                fixtures: vec![],
+            },
+            kinds,
+        }
+    }
+
+    fn simple_fact(
+        key: &str,
+        kind: pg_stats::ObjectKind,
+        attempts: u64,
+        work: u64,
+    ) -> pg_stats::FactRecord {
+        pg_stats::FactRecord {
+            object_key: key.to_string(),
+            object_kind: kind,
+            object_label: key.to_string(),
+            identity_quality: pg_stats::IdentityQuality::Authored,
+            stratum: Some(pg_stats::StructuralLocator::new("0:Root", "Root")),
+            allomorph: None,
+            direction: pg_stats::Direction::Analysis,
+            attempts,
+            work,
+            outputs: attempts,
+            not_applied: 0,
+            no_root: 0,
+            surface_mismatch: 0,
+            uses: 0,
+        }
+    }
+
+    /// Wires a calibration constant through to `per_object_report`'s estimated-time column, and confirms a null constant leaves that column `None` rather than a fake zero.
+    #[test]
+    fn op_cost_constants_measured_kind_gets_estimate_null_kind_stays_unmeasured() {
+        let dir = scratch_dir("op-cost-write");
+        let cache_path = dir.join("cache.sqlite3");
+        let mut outcome = pg_stats::StatsCache::open(&cache_path, "hash-op-cost").unwrap();
+
+        let constants = calibration_constants(Some(500.0), None);
+        write_op_cost_constants(&outcome.cache, &constants).unwrap();
+
+        outcome
+            .cache
+            .flush(
+                &pg_stats::RunMetadata {
+                    build_info: "test-build".to_string(),
+                    fwdata_path: "C:/x/project.fwdata".to_string(),
+                    grammar_hash: "hash-op-cost".to_string(),
+                    engine: "hc".to_string(),
+                    options_hash: "opts-a".to_string(),
+                    options_json: "{}".to_string(),
+                    created_utc: "unix:0".to_string(),
+                },
+                &[pg_stats::WordRecord {
+                    form: "opcostword".to_string(),
+                    elapsed_ns: 100,
+                    attempts: 1,
+                    passes: 1,
+                    capped: false,
+                    timed_out: false,
+                    invalid_shape: false,
+                    facts: vec![
+                        simple_fact("rule-a", pg_stats::ObjectKind::MorphRule, 5, 20),
+                        simple_fact("guess-a", pg_stats::ObjectKind::Guesser, 1, 4),
+                    ],
+                }],
+            )
+            .unwrap();
+
+        let rows = pg_stats::per_object_report(
+            outcome.cache.connection(),
+            &pg_stats::PerObjectFilter::default(),
+        )
+        .unwrap();
+        let morph_row = rows.iter().find(|r| r.kind == "morph_rule").unwrap();
+        assert_eq!(
+            morph_row.estimated_ns,
+            Some(20 * 500),
+            "a kind with a measured op_cost constant must get a non-null estimated time"
+        );
+
+        let guesser_row = rows.iter().find(|r| r.kind == "guesser").unwrap();
+        assert_eq!(
+            guesser_row.estimated_ns, None,
+            "a kind whose calibration constant is null must stay unmeasured, never a fake zero"
+        );
+    }
+
+    /// Reads the repo's own committed constants via `default_out_path`'s fallback candidate.
+    #[test]
+    fn load_op_cost_constants_finds_the_committed_runtime_file() {
+        let constants = crate::calibrate_cmd::load_op_cost_constants().expect(
+            "the repo's committed rust/data/stats_op_cost.json must be locatable at runtime",
+        );
+        let measured = constants
+            .kinds
+            .values()
+            .any(|entry| entry.ns_per_unit.is_some());
+        assert!(
+            measured,
+            "the committed calibration file must have at least one measured kind"
+        );
     }
 }
