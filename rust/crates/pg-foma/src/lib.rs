@@ -80,6 +80,8 @@ pub mod backend_registry;
 /// Schema-versioned machine and human views over backend-optimization runs.
 pub mod backend_report;
 pub mod backend_runtime;
+/// Opaque trusted compiler output and selector-owned runtime handoff.
+pub mod completed_build;
 pub mod backend_cards {
     pub use super::backend_cards_data::{
         catalog, checked_in_relative_path, render_markdown, BackendCard, BigO, Envelope,
