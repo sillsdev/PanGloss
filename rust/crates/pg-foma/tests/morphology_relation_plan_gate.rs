@@ -397,6 +397,29 @@ fn ordinary_affix_derivation_retains_its_authored_application_bound() {
 }
 
 #[test]
+fn zero_application_affix_retains_its_zero_bound() {
+    let mut grammar = load_with_prefix_rule_at_both_sites();
+    let MorphRuleDef::AffixProcess(rule) = &mut grammar.mrules[0] else {
+        panic!("expected ordinary affix rule");
+    };
+    rule.max_apps = 0;
+    let plan = MorphologyRelationPlan::build(&grammar, pg_grammar::model::TableId(0))
+        .expect("a zero-bound rule remains a classified, confirmable proposal site");
+    let projection = plan
+        .derivation_projection(DerivationProjectionKey {
+            stratum: StratumId(0),
+            site: 0,
+            rule: MRuleId(0),
+            route: SlotAlternativeRoute::Prefix,
+        })
+        .expect("zero-bound prefix derivation");
+
+    assert!(projection.alternatives().iter().all(|alternative| {
+        alternative.repeat_eligibility() == RepeatEligibility::Bounded { max_apps: 0 }
+    }));
+}
+
+#[test]
 fn unbounded_structural_derivation_fails_closed() {
     let grammar = load_with_realizational_structural_rule();
     let structural = match &grammar.mrules[1] {
