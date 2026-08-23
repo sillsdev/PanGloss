@@ -8,6 +8,7 @@ use pg_snapshot::Snapshot;
 use crate::model::{
     AffixTemplateDef, AllomorphId, AllomorphOwner, MRuleId, MorphRuleDef, MorphemeId, MorphemeInfo,
     OutputAction, PartRef, Pattern, ReduplicationHint, SlotDef, StratumId, TemplateId,
+    TemplateSlotZone,
 };
 use crate::GrammarError;
 
@@ -139,6 +140,11 @@ fn build_template(
         slot_defs.push(SlotDef {
             name: Some(affix_slot.name.clone()),
             optional: affix_slot.optional,
+            zone: if is_prefix {
+                TemplateSlotZone::Prefix
+            } else {
+                TemplateSlotZone::Suffix
+            },
             rules,
         });
     }

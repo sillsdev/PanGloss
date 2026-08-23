@@ -9,7 +9,8 @@ use pg_grammar::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, AllomorphOwner, Grammar,
     LexEntryDef, LexEntryId, MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet,
     OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint, RootAllomorphDef,
-    SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId, TableId, TemplateId, VarTable,
+    SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId, TableId, TemplateId,
+    TemplateSlotZone, VarTable,
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::stratum::synthesize_stratum;
@@ -154,6 +155,7 @@ fn push_template(g: &mut Grammar, is_final: bool, slot_rule: MRuleId) -> Templat
         slots: vec![SlotDef {
             name: None,
             optional: false,
+            zone: TemplateSlotZone::LegacyUnspecified,
             rules: vec![slot_rule],
         }],
     });

@@ -1955,6 +1955,7 @@ fn load_affix_template(
         slots.push(SlotDef {
             name: slot.text_of("Name").map(str::to_string),
             optional: parse_bool(slot.attr("optional"), false),
+            zone: crate::model::TemplateSlotZone::LegacyUnspecified,
             rules,
         });
     }
