@@ -10,6 +10,7 @@ use std::fmt;
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 use pg_grammar::model::Grammar;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::analyzer::{prepare_network_for_apply, read_foma_binary_payload, FomaProposer};
@@ -174,6 +175,130 @@ impl CompletedBackendBuild {
     pub fn payload_bytes(&self) -> &[u8] {
         &self.payload_bytes
     }
+
+    pub(crate) fn into_wire(&self) -> CompletedBackendBuildWire {
+        let proof = match &self.evidence.completion_proof {
+            CompletionProof::TunedClosure {
+                terminal,
+                envelope_id,
+                envelope_digest,
+                worklist_empty,
+                pending_successor_count,
+            } => CompletionProofWire::TunedClosure {
+                terminal: *terminal,
+                envelope_id: *envelope_id,
+                envelope_digest: envelope_digest.clone(),
+                worklist_empty: *worklist_empty,
+                pending_successor_count: *pending_successor_count,
+            },
+            CompletionProof::TemplatedFullEmission {
+                uncovered_count,
+                skipped_count,
+            } => CompletionProofWire::TemplatedFullEmission {
+                uncovered_count: *uncovered_count,
+                skipped_count: *skipped_count,
+            },
+        };
+        CompletedBackendBuildWire {
+            requested_strategy: self.evidence.requested_strategy.label().to_string(),
+            realized_strategy: self.evidence.realized_strategy.label().to_string(),
+            grammar_identity: self.evidence.grammar_identity.clone(),
+            attempt_id: self.evidence.attempt_id.clone(),
+            envelope_id: self.evidence.envelope_id,
+            envelope_digest: self.evidence.envelope_digest.clone(),
+            completion_proof: proof,
+            state_count: self.evidence.state_count,
+            arc_count: self.evidence.arc_count,
+            model_fingerprint: self.evidence.model_fingerprint.clone(),
+            payload_fingerprint: self.evidence.payload_fingerprint.clone(),
+            payload_bytes: self.payload_bytes.clone(),
+        }
+    }
+
+    pub(crate) fn from_wire(wire: CompletedBackendBuildWire) -> Result<Self, CompletedBuildError> {
+        let requested_strategy = strategy_from_label(&wire.requested_strategy)?;
+        let realized_strategy = strategy_from_label(&wire.realized_strategy)?;
+        let completion_proof = match wire.completion_proof {
+            CompletionProofWire::TunedClosure {
+                terminal,
+                envelope_id,
+                envelope_digest,
+                worklist_empty,
+                pending_successor_count,
+            } => CompletionProof::TunedClosure {
+                terminal,
+                envelope_id,
+                envelope_digest,
+                worklist_empty,
+                pending_successor_count,
+            },
+            CompletionProofWire::TemplatedFullEmission {
+                uncovered_count,
+                skipped_count,
+            } => CompletionProof::TemplatedFullEmission {
+                uncovered_count,
+                skipped_count,
+            },
+        };
+        Ok(Self {
+            evidence: CompletedBackendBuildEvidence {
+                requested_strategy,
+                realized_strategy,
+                grammar_identity: wire.grammar_identity,
+                attempt_id: wire.attempt_id,
+                envelope_id: wire.envelope_id,
+                envelope_digest: wire.envelope_digest,
+                completion_proof,
+                state_count: wire.state_count,
+                arc_count: wire.arc_count,
+                model_fingerprint: wire.model_fingerprint,
+                payload_fingerprint: wire.payload_fingerprint,
+            },
+            payload_bytes: wire.payload_bytes,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompletedBackendBuildWire {
+    pub requested_strategy: String,
+    pub realized_strategy: String,
+    pub grammar_identity: String,
+    pub attempt_id: String,
+    pub envelope_id: ResourceEnvelopeId,
+    pub envelope_digest: String,
+    pub completion_proof: CompletionProofWire,
+    pub state_count: i32,
+    pub arc_count: i32,
+    pub model_fingerprint: String,
+    pub payload_fingerprint: String,
+    pub payload_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CompletionProofWire {
+    TunedClosure {
+        terminal: ClosureTerminal,
+        envelope_id: ResourceEnvelopeId,
+        envelope_digest: String,
+        worklist_empty: bool,
+        pending_successor_count: usize,
+    },
+    TemplatedFullEmission {
+        uncovered_count: usize,
+        skipped_count: usize,
+    },
+}
+
+fn strategy_from_label(label: &str) -> Result<EmissionStrategy, CompletedBuildError> {
+    match label {
+        "tuned-surface-probed" => Ok(EmissionStrategy::TunedSurfaceProbed),
+        "templated-underlying-tokens" => Ok(EmissionStrategy::TemplatedUnderlyingTokens),
+        "plan-composed" => Ok(EmissionStrategy::PlanComposed),
+        _ => Err(CompletedBuildError::IncompleteEvidence(format!(
+            "unknown completed-build strategy label {label:?}"
+        ))),
+    }
 }
 
 /// The selector's opaque choice.  It cannot be constructed from a caller-supplied strategy or
@@ -303,7 +428,10 @@ impl fmt::Display for CompletedBuildError {
                 "backend strategy mismatch: requested {requested:?}, realized {realized:?}"
             ),
             Self::PreferredBuildMissing(strategy) => {
-                write!(f, "preferred completed backend build is missing for {strategy:?}")
+                write!(
+                    f,
+                    "preferred completed backend build is missing for {strategy:?}"
+                )
             }
             Self::NoMatchingCompletedBuild => f.write_str("no matching completed backend build"),
         }

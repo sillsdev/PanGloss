@@ -110,10 +110,21 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::analyzer::FomaError;
+use crate::backend_selection::BackendSelection;
+use crate::completed_build::{
+    compile_completed_backend, select_completed_build, CompletedBackendBuildWire,
+};
 use crate::compose_budget::ComposeBudget;
+use crate::enumerate::EmissionStrategy;
 use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
+use crate::resource_envelope::{
+    BackendEnvelope, CommunicationEnvelope, CompileEnvelopeRequest, ComposeEnvelope,
+    EnumerationEnvelope, ResourceEnvelope, ResourceEnvelopeId,
+    WatchdogEnvelope as ResourceWatchdog,
+};
+use pg_grammar::model::Grammar;
 
 // Protocol version and versioned wire limits, mirroring `pg_pack::format`'s `VersionLimits` shape.
 
@@ -272,6 +283,9 @@ pub struct CompileWorkerRequest {
     pub chain_depth_cap: Option<usize>,
     /// `ComposeBudget::ordering_multiplicity_cap`.
     pub ordering_multiplicity_cap: Option<usize>,
+    /// Additive selected-backend payload request. `None` preserves the original worker behavior.
+    #[serde(default)]
+    pub(crate) selected: Option<SelectedCompileRequest>,
 }
 
 impl CompileWorkerRequest {
@@ -296,6 +310,7 @@ impl CompileWorkerRequest {
             ordering_multiplicity_cap: Some(
                 crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET,
             ),
+            selected: None,
         }
     }
 
@@ -357,6 +372,26 @@ pub enum CompileWorkerOutcome {
     GrammarLoadFailed { detail: String },
     /// The request frame itself was malformed (wrong `protocol_version`, or valid JSON of the wrong shape) -- distinct from a grammar-content problem.
     ProtocolViolation { detail: String },
+    /// One exact, fully evidenced selected backend payload produced by the child.
+    SelectedSuccess { build: CompletedBackendBuildWire },
+    /// A selected-backend compile failed before a trusted payload could be returned.
+    SelectedCompileFailed { detail: String },
+}
+
+/// Additional request material for the selected-payload seam. Every profile field is carried so
+/// the child can reject a forged or stale request before constructing its private attempt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct SelectedCompileRequest {
+    pub(crate) schema_version: u32,
+    pub(crate) envelope_id: ResourceEnvelopeId,
+    pub(crate) envelope_digest: String,
+    pub(crate) attempt_id: String,
+    pub(crate) route: String,
+    pub(crate) watchdog: ResourceWatchdog,
+    pub(crate) communication: CommunicationEnvelope,
+    pub(crate) compose: ComposeEnvelope,
+    pub(crate) enumeration: EnumerationEnvelope,
+    pub(crate) backend: BackendEnvelope,
 }
 
 /// Loads and compiles `grammar_path` into a `pg_grammar::model::Grammar`, mirroring `pg-cli::load_grammar`'s extension dispatch and `Result<_, String>` error shape.
@@ -468,6 +503,95 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
     }
 }
 
+fn strategy_from_worker_route(route: &str) -> Result<EmissionStrategy, String> {
+    match route {
+        "tuned-surface-probed" => Ok(EmissionStrategy::TunedSurfaceProbed),
+        "templated-underlying-tokens" => Ok(EmissionStrategy::TemplatedUnderlyingTokens),
+        "plan-composed" => Ok(EmissionStrategy::PlanComposed),
+        _ => Err(format!("unknown selected backend route {route:?}")),
+    }
+}
+
+fn compile_selected_from_request(
+    request: &CompileWorkerRequest,
+    selected: &SelectedCompileRequest,
+) -> CompileWorkerOutcome {
+    let expected = ResourceEnvelope::for_id(selected.envelope_id);
+    if selected.envelope_digest != expected.digest()
+        || selected.schema_version != expected.schema_version()
+        || expected.worker_protocol_version() != request.protocol_version
+        || selected.watchdog
+            != (ResourceWatchdog {
+                wall_timeout_ms: expected.watchdog().wall_timeout_ms,
+                rss_limit_mb: expected.watchdog().rss_limit_mb,
+                rss_sample_interval_ms: expected.watchdog().rss_sample_interval_ms,
+            })
+        || selected.communication != expected.communication()
+        || selected.compose != expected.compose()
+        || selected.enumeration != expected.enumeration()
+        || selected.backend != expected.backend()
+    {
+        return CompileWorkerOutcome::SelectedCompileFailed {
+            detail: "selected request does not exactly match its shipped resource envelope"
+                .to_string(),
+        };
+    }
+    let strategy = match strategy_from_worker_route(&selected.route) {
+        Ok(strategy) => strategy,
+        Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
+    };
+    let private_request = match CompileEnvelopeRequest::from_worker_wire(
+        selected.envelope_id,
+        &selected.envelope_digest,
+        selected.attempt_id.clone(),
+    ) {
+        Ok(request) => request,
+        Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
+    };
+    let grammar = match load_grammar_for_worker(&request.grammar_path, request.grammar_format) {
+        Ok(grammar) => grammar,
+        Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
+    };
+    let completed = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compile_completed_backend(&grammar, strategy, &private_request)
+    })) {
+        Ok(Ok(build)) => build,
+        Ok(Err(error)) => {
+            return CompileWorkerOutcome::SelectedCompileFailed {
+                detail: error.to_string(),
+            }
+        }
+        Err(_) => {
+            return CompileWorkerOutcome::SelectedCompileFailed {
+                detail: "selected backend compile panicked inside the worker process".to_string(),
+            }
+        }
+    };
+    let wire = completed.into_wire();
+    let result_size = match serde_json::to_vec(&CompileWorkerResult {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        outcome: CompileWorkerOutcome::SelectedSuccess {
+            build: wire.clone(),
+        },
+    }) {
+        Ok(bytes) => bytes.len() as u64,
+        Err(error) => {
+            return CompileWorkerOutcome::SelectedCompileFailed {
+                detail: format!("selected build result could not be serialized: {error}"),
+            }
+        }
+    };
+    if result_size > V1_WORKER_LIMITS.max_result_bytes {
+        return CompileWorkerOutcome::SelectedCompileFailed {
+            detail: format!(
+                "selected build result is {result_size} byte(s), exceeding the {}-byte protocol limit",
+                V1_WORKER_LIMITS.max_result_bytes
+            ),
+        };
+    }
+    CompileWorkerOutcome::SelectedSuccess { build: wire }
+}
+
 /// The worker CHILD's entry point: reads exactly one `CompileWorkerRequest` frame from `input`, compiles it,
 /// and writes exactly one `CompileWorkerResult` frame to `output`. Never panics on malformed
 /// input -- an oversized/malformed request frame is reported as
@@ -527,7 +651,10 @@ pub fn run_worker_child<R: Read, W: Write>(mut input: R, mut output: W) -> io::R
         );
     }
 
-    let outcome = compile_grammar_from_request(&request);
+    let outcome = match request.selected.as_ref() {
+        Some(selected) => compile_selected_from_request(&request, selected),
+        None => compile_grammar_from_request(&request),
+    };
     write_result(
         &mut output,
         &CompileWorkerResult {
@@ -660,9 +787,11 @@ impl WorkerOutcome {
                 }
                 CompileWorkerOutcome::CompileFailed { detail, .. }
                 | CompileWorkerOutcome::GrammarLoadFailed { detail }
-                | CompileWorkerOutcome::ProtocolViolation { detail } => {
+                | CompileWorkerOutcome::ProtocolViolation { detail }
+                | CompileWorkerOutcome::SelectedCompileFailed { detail } => {
                     build_process_failure_health(detail.clone())
                 }
+                CompileWorkerOutcome::SelectedSuccess { .. } => HealthReport::new(Vec::new()),
             },
             WorkerOutcome::WallTimeoutKilled { elapsed, limit } => {
                 HealthReport::new(vec![HealthFinding {
@@ -1027,6 +1156,65 @@ pub fn run_compile_worker(
     let _ = stderr_buf; // captured for future diagnostics surfacing; not read on every path today.
 
     outcome
+}
+
+/// Compile exactly `selection.preferred()` in one contained worker and hand its raw payload through
+/// the ordinary trusted selector. The caller cannot supply a route independently of selection;
+/// no lower-ranked route is attempted when the preferred route fails.
+pub fn run_selected_compile_worker(
+    child_exe: &Path,
+    child_args: &[String],
+    grammar_path: &str,
+    grammar_format: GrammarFormat,
+    grammar: &Grammar,
+    selection: &BackendSelection,
+    request: &CompileEnvelopeRequest,
+) -> Result<crate::completed_build::SelectedBackendBuild, crate::completed_build::CompletedBuildError>
+{
+    let preferred = selection
+        .preferred()
+        .ok_or(crate::completed_build::CompletedBuildError::NoMatchingCompletedBuild)?;
+    let envelope = ResourceEnvelope::for_id(request.envelope_id());
+    let selected = SelectedCompileRequest {
+        schema_version: envelope.schema_version(),
+        envelope_id: envelope.id(),
+        envelope_digest: envelope.digest(),
+        attempt_id: request.attempt_id().as_str().to_string(),
+        route: preferred.label().to_string(),
+        watchdog: envelope.watchdog(),
+        communication: envelope.communication(),
+        compose: envelope.compose(),
+        enumeration: envelope.enumeration(),
+        backend: envelope.backend(),
+    };
+    let mut worker_request = CompileWorkerRequest::new(grammar_path.to_string(), grammar_format);
+    worker_request.selected = Some(selected);
+    let watchdog = WatchdogEnvelope::clamped(
+        Duration::from_millis(envelope.watchdog().wall_timeout_ms),
+        envelope.watchdog().rss_limit_mb,
+        Duration::from_millis(envelope.watchdog().rss_sample_interval_ms),
+    );
+    let outcome = run_compile_worker(child_exe, child_args, &worker_request, &watchdog);
+    let wire = match outcome {
+        WorkerOutcome::Completed(CompileWorkerOutcome::SelectedSuccess { build }) => build,
+        WorkerOutcome::Completed(CompileWorkerOutcome::SelectedCompileFailed { detail }) => {
+            return Err(crate::completed_build::CompletedBuildError::Compiler(
+                detail,
+            ))
+        }
+        other => {
+            return Err(crate::completed_build::CompletedBuildError::Compiler(
+                format!("selected compile worker did not return a payload: {other:?}"),
+            ))
+        }
+    };
+    let build = crate::completed_build::CompletedBackendBuild::from_wire(wire)?;
+    select_completed_build(
+        selection,
+        [build],
+        request,
+        &crate::backend_runtime::grammar_identity(grammar),
+    )
 }
 
 #[cfg(test)]
