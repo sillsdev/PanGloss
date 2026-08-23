@@ -6,10 +6,10 @@
 
 ## 2. Phase A envelope and closure implementation
 
-- [ ] 2.1 Add the closed `ResourceEnvelopeId`/`ResourceEnvelope` and immutable attempt/evidence value types by composing the existing worker, communication, compose, enumeration, and backend budgets; keep raw closure-limit helpers internal/test-only and make canonical serialization/digest tests from 1.1 pass.
-- [ ] 2.2 Refactor the pre-expansion and structural closure walks onto shared production transition kernels/traces; make every work, depth, unsupported, and internal exit explicit, record live successors as pending, and require empty worklist plus zero pending successors for `Complete`.
-- [ ] 2.3 Thread one selected envelope snapshot through characterization and Tuned Surface production construction from clean state; preserve the managed 3,000 default, implement only caller-requested linked retry, and retain the first attempt's terminal evidence.
-- [ ] 2.4 Make the Phase A targets green without editing their acceptance direction, then run the focused existing closure regressions with `& rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget closure_unbounded_realizational` and `& rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget backend_selection_contract`.
+- [x] 2.1 Add the closed `ResourceEnvelopeId`/`ResourceEnvelope` and immutable attempt/evidence value types by composing the existing worker, communication, compose, enumeration, and backend budgets; keep raw closure-limit helpers internal/test-only and make canonical serialization/digest tests from 1.1 pass.
+- [x] 2.2 Refactor the pre-expansion and structural closure walks onto shared production transition kernels/traces; make every work, depth, unsupported, and internal exit explicit, record live successors as pending, and require empty worklist plus zero pending successors for `Complete`.
+- [x] 2.3 Thread one selected envelope snapshot through characterization and Tuned Surface production construction from clean state; preserve the managed 3,000 default, implement only caller-requested linked retry, and retain the first attempt's terminal evidence.
+- [x] 2.4 Make the Phase A targets green without editing their acceptance direction, then run the focused existing closure regressions with `& rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget closure_unbounded_realizational` and `& rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget backend_selection_contract`.
 
 ## 3. Indonesian construction evidence
 
