@@ -220,6 +220,10 @@ for Amharic/Aweti morphology coverage and route certification.
   realized`, immutable envelope metadata, and a fingerprint for the measured network; reject
   language-ID switches, stale profiles, and un-fingerprinted substitutions. Consumed by the sibling
   artifact tasks 4.1–5.4 and 6.1; the morphology route check remains in its tasks 6.1 and 7.1.
+- **Completion evidence is backend-specific.** Candidate admission answers which routes are
+  eligible; it does not prove that a completed artifact for any one of those routes is available.
+  Retain a TunedSurface closure proof only for TunedSurface and a Full-emission proof only for the
+  templated route; never let one route masquerade as another's certificate.
 - **Semantic equality and deterministic counters outrank elapsed time.** Historical gates exposed
   losses hidden by reachability, containment, or timing; Aweti diagnostics require exact canonical
   analysis sets and reproducible recipe/state/arc/timeout counters. Retain exact set equality and

@@ -22,6 +22,41 @@ use crate::enumerate::EmissionStrategy;
 use crate::resource_envelope::{CompileEnvelopeRequest, ResourceEnvelope, ResourceEnvelopeId};
 use crate::templated_compile::compile_templated_morphotactics;
 
+/// Which kind of route-specific evidence made a completed payload eligible for selection.
+///
+/// The proof is deliberately not interchangeable: a templated emission certificate never claims
+/// to have run TunedSurface closure, and a TunedSurface closure certificate never stands in for a
+/// templated emitter's Full report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompletionProofKind {
+    TunedClosure,
+    TemplatedFullEmission,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CompletionProof {
+    TunedClosure {
+        terminal: ClosureTerminal,
+        envelope_id: ResourceEnvelopeId,
+        envelope_digest: String,
+        worklist_empty: bool,
+        pending_successor_count: usize,
+    },
+    TemplatedFullEmission {
+        uncovered_count: usize,
+        skipped_count: usize,
+    },
+}
+
+impl CompletionProof {
+    fn kind(&self) -> CompletionProofKind {
+        match self {
+            Self::TunedClosure { .. } => CompletionProofKind::TunedClosure,
+            Self::TemplatedFullEmission { .. } => CompletionProofKind::TemplatedFullEmission,
+        }
+    }
+}
+
 /// Immutable evidence attached to one completed backend payload.
 ///
 /// The fields stay private so a caller cannot manufacture a trusted artifact by assembling values
@@ -35,12 +70,7 @@ pub struct CompletedBackendBuildEvidence {
     attempt_id: String,
     envelope_id: ResourceEnvelopeId,
     envelope_digest: String,
-    closure_complete: bool,
-    worklist_empty: bool,
-    pending_successor_count: usize,
-    uncovered_count: usize,
-    skipped_count: usize,
-    marker_count: usize,
+    completion_proof: CompletionProof,
     state_count: i32,
     arc_count: i32,
     model_fingerprint: String,
@@ -72,28 +102,8 @@ impl CompletedBackendBuildEvidence {
         &self.envelope_digest
     }
 
-    pub fn closure_complete(&self) -> bool {
-        self.closure_complete
-    }
-
-    pub fn worklist_empty(&self) -> bool {
-        self.worklist_empty
-    }
-
-    pub fn pending_successor_count(&self) -> usize {
-        self.pending_successor_count
-    }
-
-    pub fn uncovered_count(&self) -> usize {
-        self.uncovered_count
-    }
-
-    pub fn skipped_count(&self) -> usize {
-        self.skipped_count
-    }
-
-    pub fn marker_count(&self) -> usize {
-        self.marker_count
+    pub fn completion_proof_kind(&self) -> CompletionProofKind {
+        self.completion_proof.kind()
     }
 
     pub fn state_count(&self) -> i32 {
@@ -113,16 +123,39 @@ impl CompletedBackendBuildEvidence {
     }
 
     pub fn is_trusted_complete(&self) -> bool {
-        self.requested_strategy == self.realized_strategy
-            && self.closure_complete
-            && self.worklist_empty
-            && self.pending_successor_count == 0
-            && self.uncovered_count == 0
-            && self.skipped_count == 0
-            && self.marker_count == 0
-            && !self.attempt_id.is_empty()
-            && !self.model_fingerprint.is_empty()
-            && !self.payload_fingerprint.is_empty()
+        if self.requested_strategy != self.realized_strategy
+            || self.attempt_id.is_empty()
+            || self.model_fingerprint.is_empty()
+            || self.payload_fingerprint.is_empty()
+        {
+            return false;
+        }
+
+        match (&self.realized_strategy, &self.completion_proof) {
+            (
+                EmissionStrategy::TunedSurfaceProbed,
+                CompletionProof::TunedClosure {
+                    terminal: ClosureTerminal::Complete,
+                    envelope_id,
+                    envelope_digest,
+                    worklist_empty,
+                    pending_successor_count,
+                },
+            ) => {
+                *envelope_id == self.envelope_id
+                    && envelope_digest == &self.envelope_digest
+                    && *worklist_empty
+                    && *pending_successor_count == 0
+            }
+            (
+                EmissionStrategy::TemplatedUnderlyingTokens,
+                CompletionProof::TemplatedFullEmission {
+                    uncovered_count,
+                    skipped_count,
+                },
+            ) => *uncovered_count == 0 && *skipped_count == 0,
+            _ => false,
+        }
     }
 }
 
@@ -303,8 +336,13 @@ pub fn compile_completed_backend(
                     })?;
             prepare_network_for_apply(&mut network);
             let model_fingerprint = finished_net_digest(&network);
-            let pending_successor_count = closure.evidence.pending_successor_count;
-            let worklist_empty = closure.evidence.worklist_empty;
+            let completion_proof = CompletionProof::TunedClosure {
+                terminal: closure.terminal,
+                envelope_id: closure.evidence.envelope_id,
+                envelope_digest: closure.evidence.envelope_digest.clone(),
+                worklist_empty: closure.evidence.worklist_empty,
+                pending_successor_count: closure.evidence.pending_successor_count,
+            };
             let proposer = FomaProposer::from_precompiled_network(&network, report);
             build_from_proposer(
                 requested_strategy,
@@ -312,11 +350,7 @@ pub fn compile_completed_backend(
                 request,
                 proposer,
                 model_fingerprint,
-                pending_successor_count,
-                worklist_empty,
-                true,
-                0,
-                0,
+                completion_proof,
             )
         }
         EmissionStrategy::TemplatedUnderlyingTokens => {
@@ -334,6 +368,10 @@ pub fn compile_completed_backend(
                     "templated compiler skipped {skipped} rule/allomorph items"
                 )));
             }
+            let completion_proof = CompletionProof::TemplatedFullEmission {
+                uncovered_count: report.uncovered.len(),
+                skipped_count: skipped,
+            };
             let model_fingerprint = finished_net_digest(&output.network);
             build_from_proposer(
                 requested_strategy,
@@ -341,11 +379,7 @@ pub fn compile_completed_backend(
                 request,
                 output.proposer,
                 model_fingerprint,
-                0,
-                true,
-                true,
-                skipped,
-                0,
+                completion_proof,
             )
         }
         strategy => Err(CompletedBuildError::UnsupportedStrategy(strategy)),
@@ -489,18 +523,13 @@ fn validate_emit_report(report: &EmitReport) -> Result<(), CompletedBuildError> 
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_from_proposer(
     requested_strategy: EmissionStrategy,
     grammar_identity: String,
     request: &CompileEnvelopeRequest,
     proposer: FomaProposer,
     model_fingerprint: String,
-    pending_successor_count: usize,
-    worklist_empty: bool,
-    closure_complete: bool,
-    skipped_count: usize,
-    marker_count: usize,
+    completion_proof: CompletionProof,
 ) -> Result<CompletedBackendBuild, CompletedBuildError> {
     let envelope = ResourceEnvelope::for_id(request.envelope_id());
     let payload_bytes = proposer
@@ -527,12 +556,7 @@ fn build_from_proposer(
         attempt_id: request.attempt_id().as_str().to_string(),
         envelope_id: envelope.id(),
         envelope_digest: envelope.digest(),
-        closure_complete,
-        worklist_empty,
-        pending_successor_count,
-        uncovered_count: 0,
-        skipped_count,
-        marker_count,
+        completion_proof,
         state_count,
         arc_count,
         model_fingerprint: actual_model_fingerprint,
