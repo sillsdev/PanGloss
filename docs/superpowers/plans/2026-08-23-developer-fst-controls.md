@@ -18,7 +18,7 @@
 - Modify: `rust/crates/pg-cli/src/main.rs`
 - Test: `rust/crates/pg-cli/tests/developer_flags_contract.rs`
 
-- [ ] **Step 1: Add a failing production-contract test**
+- [x] **Step 1: Add a failing production-contract test**
 
 Spawn `pangloss help`, `parse`, `batch`, `pack`, and `make-report` from the integration test. Assert
 that default-build help omits all three spellings and that each command rejects
@@ -34,13 +34,13 @@ for flag in ["--allow-unproven", "--remove-size-limits", "--no-enforce-capabilit
 }
 ```
 
-- [ ] **Step 2: Run the production test and observe failure**
+- [x] **Step 2: Run the production test and observe failure**
 
 Run: `& rust/tools/pg.ps1 -Mode test -Package pg-cli -TestTarget developer_flags_contract`
 
 Expected: FAIL because current help exposes the switches and parsers accept or positionalize them.
 
-- [ ] **Step 3: Add the opt-in features and parser helper**
+- [x] **Step 3: Add the opt-in features and parser helper**
 
 Add `developer-tools = []` to `pg-foma` and
 `developer-tools = ["pg-foma/developer-tools"]` to `pg-cli`. In `main.rs`, centralize parsing:
@@ -60,7 +60,7 @@ fn reject_or_accept_developer_flag(arg: &str) -> Result<bool, String> {
 Use it before every positional fallback in `main.rs`, `pack.rs`, and `make_report.rs`; conditionally
 render developer help. Production must not silently treat an unknown `--...` token as a path/word.
 
-- [ ] **Step 4: Prove both build surfaces**
+- [x] **Step 4: Prove both build surfaces**
 
 Run the default command from Step 2; expected PASS. Then set
 `PANGLOSS_EXTRA_ARGS=--features developer-tools`, rerun it, and require the feature-gated assertions

@@ -93,6 +93,72 @@ mod recipe_optimize;
 mod stats_cmd;
 mod trace_render;
 
+/// Accepts the experimental FST controls only when this binary was explicitly built with the
+/// `developer-tools` feature. Production parsing returns an error before a token can become a
+/// positional grammar or word path.
+fn accept_developer_flag(arg: &str) -> Result<(), String> {
+    debug_assert!(matches!(
+        arg,
+        "--allow-unproven" | "--remove-size-limits" | "--no-enforce-capability"
+    ));
+    #[cfg(feature = "developer-tools")]
+    {
+        let _ = arg;
+        Ok(())
+    }
+    #[cfg(not(feature = "developer-tools"))]
+    {
+        Err(format!("unknown option: {arg} (developer-tools feature required)"))
+    }
+}
+
+fn reject_unknown_option(arg: &str) -> Result<(), String> {
+    if arg.starts_with("--") {
+        Err(format!("unknown option: {arg}"))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "developer-tools")]
+const PARSE_DEVELOPER_HELP: &str =
+    " [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--remove-size-limits]";
+#[cfg(not(feature = "developer-tools"))]
+const PARSE_DEVELOPER_HELP: &str = "";
+
+#[cfg(feature = "developer-tools")]
+const BATCH_DEVELOPER_HELP: &str =
+    " [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--remove-size-limits]";
+#[cfg(not(feature = "developer-tools"))]
+const BATCH_DEVELOPER_HELP: &str = "";
+
+#[cfg(feature = "developer-tools")]
+const PACK_DEVELOPER_HELP: &str =
+    " [--allow-unproven] [--remove-size-limits]";
+#[cfg(not(feature = "developer-tools"))]
+const PACK_DEVELOPER_HELP: &str = "";
+
+#[cfg(feature = "developer-tools")]
+const REPORT_DEVELOPER_HELP: &str =
+    " [--allow-unproven] [--remove-size-limits]";
+#[cfg(not(feature = "developer-tools"))]
+const REPORT_DEVELOPER_HELP: &str = "";
+
+#[cfg(feature = "developer-tools")]
+const DEVELOPER_HELP: &str =
+    "Developer-only FST controls: --allow-unproven overrides correctness refusal for an unproven\
+     development run; --remove-size-limits requests the planned stress mode; --no-enforce-\
+     capability is retained only as a legacy parse/batch development switch.\n                 ";
+#[cfg(not(feature = "developer-tools"))]
+const DEVELOPER_HELP: &str = "";
+
+#[cfg(feature = "developer-tools")]
+const CAPABILITY_REFUSAL_REMEDIATION: &str =
+    "pass --allow-unproven to force-compile anyway, see ADR 0005";
+#[cfg(not(feature = "developer-tools"))]
+const CAPABILITY_REFUSAL_REMEDIATION: &str =
+    "consult the saved capability/readiness report or use a developer-tools build for an explicitly authorized override workflow";
+
 /// Which proposer/verifier path a `batch`/`parse` invocation drives: `Default` is the full-search `pg_parse::Morpher` engine, `Foma` proposes via the compiled foma network and confirms via the same `Morpher` machinery; output shape is identical between engines by construction.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Engine {
@@ -246,20 +312,20 @@ fn run() -> ExitCode {
         _ => {
             eprintln!(
                 "pangloss {} — HermitCrab Rust engine CLI\n\
-                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess] [--stats] [--cache <path>]\n\
+                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma]{} [--guess] [--stats] [--cache <path>]\n\
                  usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
-                 usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess]\n\
+                 usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma]{} [--guess]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
                  usage: pangloss diagnose <grammar> <words.txt> <out-dir>\n\
                  usage: pangloss assess <grammar> (--suite <suite.json> | --words <words.txt>) [--pipeline foma-confirm|hermitcrab] [--budget-paths N] [--budget-candidates N] [--report <path>]\n\
                  usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
                  usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
                  usage: pangloss investigate <report.json> --case <caseId> [--grammar <path>] [--report <path>]\n\
-                 usage: pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--watchdog]\n\
+                 usage: pangloss pack <grammar> <out.pgpack>{} [--authorized-by=<name>] [--reason=<text>] [--watchdog]\n\
                  usage: pangloss fst-health <grammar> [<words.txt>] [<out.json>]\n\
                  usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
                  usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
-                 usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--words=<path>] [--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>] [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--repeats=N]\n\
+                 usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--words=<path>] [--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>]{} [--authorized-by=<name>] [--reason=<text>] [--repeats=N]\n\
                  usage: pangloss recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N]\n\
                  usage: pangloss stats <project-or-grammar> [options] (run `pangloss stats` with no arguments to print the full current option list)\n\
                  \n\
@@ -268,21 +334,25 @@ fn run() -> ExitCode {
                  FieldWorks project file (.fwdata, imported in-memory and compiled on the fly).\n\
                  \n\
                  Capability gate (ADR 0001/0005): --engine=foma is DEFAULT-ENFORCING -- a Refuse\n\
-                 verdict fails hard unless --allow-unproven overrides it (trust=unproven marker);\n\
-                 --no-enforce-capability drops back to advisory-only. --engine=default (the\n\
+                 verdict fails hard under the production policy. --engine=default (the\n\
                  HC-oracle path) is never enforced, regardless of any flag. `pack`'s own\n\
-                 --allow-unproven is unconditional (packing is always capability-checked) and its\n\
-                 override is PERSISTENT, written into the .pgpack manifest itself -- not the\n\
-                 session-only stderr marker batch/parse emit (see `pack.rs`'s module doc).\n\
+                 pack is always capability-checked, and its trust record is PERSISTENT, written\n\
+                 into the .pgpack manifest itself -- not a session-only analysis marker (see\n\
+                 `pack.rs`'s module doc).\n\
                  \n\
-                 --guess (`batch`/`parse`, --engine=default only; HC-rust port gap G3,\n\
+                 {}--guess (`batch`/`parse`, --engine=default only; HC-rust port gap G3,\n\
                  docs/hermitcrab-rust-port-audit.md sec 2/3 item 1): OFF by default, byte-identical\n\
                  to the pre-existing behavior. When passed, an out-of-lexicon word whose normal\n\
                  analysis is empty is retried via the lexical-pattern guesser (P11,\n\
                  docs/p11-guesser-api-design.md); a resulting analysis is always clearly marked\n\
                  guessed, never presented as confirmed -- `parse` prints an extra `guessed:` line,\n\
                  `batch` appends a 6th `guessed` TSV column, both only when --guess is passed.",
-                env!("CARGO_PKG_VERSION")
+                env!("CARGO_PKG_VERSION"),
+                BATCH_DEVELOPER_HELP,
+                PARSE_DEVELOPER_HELP,
+                PACK_DEVELOPER_HELP,
+                REPORT_DEVELOPER_HELP,
+                DEVELOPER_HELP
             );
             ExitCode::FAILURE
         }
@@ -548,8 +618,7 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
             if !allow_unproven {
                 let mut lines = vec![format!(
                     "capability: Refuse ({} diagnostic(s)) [{backend} declined; enforcing: \
-                     REFUSING -- no analysis will be performed, see ADR 0001; pass \
-                     --allow-unproven to force-compile anyway, see ADR 0005]",
+                     REFUSING -- no analysis will be performed, see ADR 0001; {CAPABILITY_REFUSAL_REMEDIATION}]",
                     diags.len()
                 )];
                 for d in &diags {
@@ -605,13 +674,11 @@ fn run_capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> Resu
     if gate.proceed {
         Ok(())
     } else {
-        Err(
+        Err(format!(
             "capability gate refused this grammar under capability enforcement (diagnostics \
              printed above; ADR 0001); no analysis was performed. --engine=foma enforces by \
-             default -- pass --no-enforce-capability to fall back to advisory-only, or \
-             --allow-unproven to force-compile anyway (ADR 0005, marked trust=unproven)."
-                .to_string(),
-        )
+             default -- {CAPABILITY_REFUSAL_REMEDIATION}."
+        ))
     }
 }
 
@@ -627,6 +694,8 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     // None unless the user explicitly passed --enforce-capability/--no-enforce-capability; resolved to a plain bool once engine is final (see resolve_capability_enforcement).
     let mut enforce_capability_flag: Option<bool> = None;
     let mut allow_unproven = false;
+    #[cfg(feature = "developer-tools")]
+    let mut remove_size_limits = false;
     let mut guess = false;
 
     let mut it = args.iter();
@@ -666,12 +735,30 @@ fn run_parse(args: &[String]) -> Result<(), String> {
                 engine = Engine::parse(&s["--engine=".len()..])?;
             }
             "--enforce-capability" => enforce_capability_flag = Some(true),
-            "--no-enforce-capability" => enforce_capability_flag = Some(false),
-            "--allow-unproven" => allow_unproven = true,
+            "--no-enforce-capability" => {
+                accept_developer_flag(a)?;
+                enforce_capability_flag = Some(false);
+            }
+            "--allow-unproven" => {
+                accept_developer_flag(a)?;
+                allow_unproven = true;
+            }
+            "--remove-size-limits" => {
+                accept_developer_flag(a)?;
+                #[cfg(feature = "developer-tools")]
+                {
+                    remove_size_limits = true;
+                }
+            }
             "--guess" => guess = true,
-            s => positional.push(s),
+            s => {
+                reject_unknown_option(s)?;
+                positional.push(s);
+            }
         }
     }
+    #[cfg(feature = "developer-tools")]
+    let _ = remove_size_limits;
     let enforce_capability = resolve_capability_enforcement(engine, enforce_capability_flag);
     if trace_format != "text" && trace_format != "json" {
         return Err(format!(
@@ -700,7 +787,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess]".into());
+        return Err(format!("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma]{} [--guess]", PARSE_DEVELOPER_HELP));
     };
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
@@ -901,6 +988,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     // None unless the user explicitly passed --enforce-capability/--no-enforce-capability; resolved to a plain bool once engine is final.
     let mut enforce_capability_flag: Option<bool> = None;
     let mut allow_unproven = false;
+    #[cfg(feature = "developer-tools")]
+    let mut remove_size_limits = false;
     // Same shared --guess contract as run_parse: default-off, guessed rows always marked, --engine=default only.
     let mut guess = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
@@ -967,8 +1056,21 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 engine = Engine::parse(&s["--engine=".len()..])?;
             }
             "--enforce-capability" => enforce_capability_flag = Some(true),
-            "--no-enforce-capability" => enforce_capability_flag = Some(false),
-            "--allow-unproven" => allow_unproven = true,
+            "--no-enforce-capability" => {
+                accept_developer_flag(a)?;
+                enforce_capability_flag = Some(false);
+            }
+            "--allow-unproven" => {
+                accept_developer_flag(a)?;
+                allow_unproven = true;
+            }
+            "--remove-size-limits" => {
+                accept_developer_flag(a)?;
+                #[cfg(feature = "developer-tools")]
+                {
+                    remove_size_limits = true;
+                }
+            }
             "--guess" => guess = true,
             "--stats" => stats_requested = true,
             "--cache" => {
@@ -978,9 +1080,14 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--cache=") => {
                 cache_path_arg = Some(s["--cache=".len()..].to_string());
             }
-            s => positional.push(s),
+            s => {
+                reject_unknown_option(s)?;
+                positional.push(s);
+            }
         }
     }
+    #[cfg(feature = "developer-tools")]
+    let _ = remove_size_limits;
     let enforce_capability = resolve_capability_enforcement(engine, enforce_capability_flag);
     if threads == 0 {
         return Err("--threads must be >= 1".into());
@@ -994,7 +1101,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess] [--stats] [--cache <path>]"
+            format!("usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma]{} [--guess] [--stats] [--cache <path>]", BATCH_DEVELOPER_HELP)
                 .into(),
         );
     };
@@ -1667,7 +1774,7 @@ mod tests {
 
     /// Covers `capability_gate`'s pure boolean contract directly, and `resolve_capability_enforcement`'s engine-scoping policy end-to-end through `run_batch`: `--engine=default` never enforces, `--engine=foma` enforces by default, `--no-enforce-capability` opts back out, and `--allow-unproven` still overrides a foma-path refusal.
     mod capability_gate_tests {
-        use super::super::{capability_gate, run_batch};
+        use super::super::{capability_gate, run_batch, run_capability_gate};
         use std::fs;
         use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -1741,6 +1848,31 @@ mod tests {
             );
         }
 
+        #[cfg(not(feature = "developer-tools"))]
+        #[test]
+        fn production_refusal_diagnostics_do_not_advertise_developer_flags() {
+            let refused = load(PERMANENTLY_REFUSED_GRAMMAR_XML);
+            let gate = capability_gate(&refused, true, false);
+            assert!(!gate.proceed);
+            let rendered = gate.stderr_lines.join("\n");
+            for flag in [
+                "--allow-unproven",
+                "--no-enforce-capability",
+                "--remove-size-limits",
+            ] {
+                assert!(!rendered.contains(flag), "production diagnostic leaked {flag}: {rendered}");
+            }
+            let error = run_capability_gate(&refused, true, false)
+                .expect_err("a refused grammar must fail the production gate");
+            for flag in [
+                "--allow-unproven",
+                "--no-enforce-capability",
+                "--remove-size-limits",
+            ] {
+                assert!(!error.contains(flag), "production error leaked {flag}: {error}");
+            }
+        }
+
         /// A grammar the gated backend cannot compile at all must be refused AT THE GATE, naming that backend and the construct -- never let through to die inside the compiler on an internal budget message.
         #[test]
         fn a_grammar_only_the_gated_backend_refuses_is_still_blocked_at_the_gate() {
@@ -1783,6 +1915,7 @@ mod tests {
         }
 
         /// `--enforce-capability --allow-unproven` on the same `Refuse` grammar: must proceed (the override), flagged `overridden`, with an unmissable `trust=unproven` marker plus the overridden diagnostics by name.
+        #[cfg(feature = "developer-tools")]
         #[test]
         fn capability_gate_override_force_compiles_and_marks_trust_unproven() {
             let refused = load(PERMANENTLY_REFUSED_GRAMMAR_XML);
@@ -1869,6 +2002,7 @@ mod tests {
         }
 
         /// `--engine=foma --no-enforce-capability` is the escape hatch back to advisory-only: the same `Refuse`-verdict grammar must now proceed unenforced.
+        #[cfg(feature = "developer-tools")]
         #[test]
         fn run_batch_foma_engine_no_enforce_capability_proceeds_for_permanently_refused() {
             let (result, out_path) = run_batch_raw(
@@ -1888,6 +2022,7 @@ mod tests {
         }
 
         /// Same `Refuse`-verdict grammar on `--engine=foma`, now with `--allow-unproven` alone (enforcement is already the foma-path default): `run_batch` must succeed and actually write `out.tsv`.
+        #[cfg(feature = "developer-tools")]
         #[test]
         fn run_batch_foma_engine_allow_unproven_overrides_default_enforcement() {
             let (result, out_path) = run_batch_raw(

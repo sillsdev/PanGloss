@@ -12,6 +12,7 @@ use pg_foma::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, OverrideRecord, Phase, Severity,
     ValueProvenance,
 };
+
 use pg_foma::health_evaluator::{evaluate_foma_error, evaluate_health};
 use pg_foma::peel::{ReduplicationPeeler, RUNTIME_FEATURE_REDUPLICATION_PEEL};
 use pg_grammar::model::Grammar;
@@ -34,6 +35,20 @@ compiled artifact and must never be loaded as one.";
 const PLACEHOLDER_FOMA_PAYLOAD: &[u8] = b"PANGLOSS-PLACEHOLDER-FOMA-PAYLOAD: this grammar's foma \
 compile did not succeed (or --watchdog was passed), so no compiled network was available to \
 serialize; this byte content is NOT a compiled network and must never be loaded as one.";
+
+#[cfg(feature = "developer-tools")]
+const CAPABILITY_REFUSAL_REMEDIATION: &str =
+    "Pass --allow-unproven (ADR 0005) to force-pack anyway -- the pack will be indelibly stamped capability_trust=Overridden/unproven.";
+#[cfg(not(feature = "developer-tools"))]
+const CAPABILITY_REFUSAL_REMEDIATION: &str =
+    "The grammar is outside the production capability policy; consult the saved capability/readiness report or use a developer-tools build for an explicitly authorized override workflow.";
+
+#[cfg(feature = "developer-tools")]
+const HEALTH_REFUSAL_REMEDIATION: &str =
+    "Pass --allow-unproven only for an explicitly authorized development build";
+#[cfg(not(feature = "developer-tools"))]
+const HEALTH_REFUSAL_REMEDIATION: &str =
+    "the FST health report is outside the production publication policy; consult the saved report or use a developer-tools build for an explicitly authorized override workflow";
 
 /// This crate's own `Cargo.toml` semver, used as the `required_runtime_features.hc_port_semver` value.
 fn this_crate_semver() -> (u32, u32, u32) {
@@ -218,7 +233,7 @@ fn apply_health_override(
     }
     if !allow_unproven {
         return Err(format!(
-            "FST health is {admission:?}; no .pgpack was written. Pass --allow-unproven only for an explicitly authorized development build"
+            "FST health is {admission:?}; no .pgpack was written. {HEALTH_REFUSAL_REMEDIATION}"
         ));
     }
 
@@ -262,6 +277,8 @@ fn record_foma_payload_availability(report: &mut HealthReport, payload_is_real: 
 pub fn run_pack(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut allow_unproven = false;
+    #[cfg(feature = "developer-tools")]
+    let mut remove_size_limits = false;
     let mut authorized_by: Option<String> = None;
     let mut reason: Option<String> = None;
     let mut watchdog = false;
@@ -269,7 +286,17 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--allow-unproven" => allow_unproven = true,
+            "--allow-unproven" => {
+                crate::accept_developer_flag(a)?;
+                allow_unproven = true;
+            }
+            "--remove-size-limits" => {
+                crate::accept_developer_flag(a)?;
+                #[cfg(feature = "developer-tools")]
+                {
+                    remove_size_limits = true;
+                }
+            }
             "--authorized-by" => {
                 let v = it.next().ok_or("--authorized-by requires a value")?;
                 authorized_by = Some(v.clone());
@@ -285,14 +312,22 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
                 reason = Some(s["--reason=".len()..].to_string());
             }
             "--watchdog" => watchdog = true,
-            s => positional.push(s),
+            s => {
+                crate::reject_unknown_option(s)?;
+                positional.push(s);
+            }
         }
     }
+    #[cfg(feature = "developer-tools")]
+    let _ = remove_size_limits;
     let [grammar_path, out_path] = positional[..] else {
         return Err(
-            "usage: pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] \
-             [--reason=<text>] [--watchdog]"
-                .into(),
+            format!(
+                "usage: pack <grammar> <out.pgpack>{} [--authorized-by=<name>] \
+                 [--reason=<text>] [--watchdog]",
+                crate::PACK_DEVELOPER_HELP
+            )
+            .into(),
         );
     };
 
@@ -353,6 +388,14 @@ pub(crate) fn build_pack(
     reason: Option<&str>,
     watchdog: bool,
 ) -> Result<BuiltPack, String> {
+    #[cfg(not(feature = "developer-tools"))]
+    if allow_unproven {
+        return Err(
+            "--allow-unproven requires a pg-cli build with the developer-tools feature"
+                .to_string(),
+        );
+    }
+
     // ---- ADR 0001/0005: the capability-trust stamp ---------------------------------------------
     let backend = crate::GATED_BACKEND.label();
     let selection = select_backends(semantics);
@@ -380,9 +423,7 @@ pub(crate) fn build_pack(
             if !allow_unproven {
                 let mut msg = format!(
                     "capability gate refused this grammar: backend={backend} declined on {} \
-                     construct(s); no .pgpack was written. Pass --allow-unproven (ADR 0005) to \
-                     force-pack anyway -- the pack will be indelibly stamped \
-                     capability_trust=Overridden/unproven.\n",
+                     construct(s); no .pgpack was written. {CAPABILITY_REFUSAL_REMEDIATION}\n",
                     diags.len()
                 );
                 for d in diags {
@@ -465,10 +506,19 @@ pub(crate) fn build_pack(
             None,
         )
     } else {
-        let (proposer_result, compile_profile) = if allow_unproven {
-            FomaProposer::new_unproven_with_profile(grammar)
-        } else {
-            FomaProposer::new_with_profile(grammar)
+        let (proposer_result, compile_profile) = {
+            #[cfg(feature = "developer-tools")]
+            {
+                if allow_unproven {
+                    FomaProposer::new_unproven_with_profile(grammar)
+                } else {
+                    FomaProposer::new_with_profile(grammar)
+                }
+            }
+            #[cfg(not(feature = "developer-tools"))]
+            {
+                FomaProposer::new_with_profile(grammar)
+            }
         };
         match &proposer_result {
             Ok(proposer) => {
@@ -635,6 +685,8 @@ mod tests {
         let mut report = synthetic_health(Severity::Error);
         let error = apply_health_override(&mut report, false, None, None, false).unwrap_err();
         assert!(error.contains("no .pgpack was written"));
+        #[cfg(not(feature = "developer-tools"))]
+        assert!(!error.contains("--allow-unproven"));
         assert_eq!(report.admission(), Severity::Error);
         assert!(report.findings[0].override_record.is_none());
     }
@@ -644,9 +696,12 @@ mod tests {
         let mut report = synthetic_health(Severity::Critical);
         let error = apply_health_override(&mut report, false, None, None, false).unwrap_err();
         assert!(error.contains("no .pgpack was written"));
+        #[cfg(not(feature = "developer-tools"))]
+        assert!(!error.contains("--allow-unproven"));
         assert_eq!(report.admission(), Severity::Critical);
     }
 
+    #[cfg(feature = "developer-tools")]
     #[test]
     fn health_error_development_override_is_recorded_and_admitted() {
         let mut report = synthetic_health(Severity::Error);
@@ -664,6 +719,7 @@ mod tests {
         assert_eq!(record.reason, "exercise the fallback");
     }
 
+    #[cfg(feature = "developer-tools")]
     #[test]
     fn health_critical_development_override_is_recorded_and_admitted() {
         let mut report = synthetic_health(Severity::Critical);
@@ -679,6 +735,7 @@ mod tests {
         assert!(report.findings[0].override_record.is_some());
     }
 
+    #[cfg(feature = "developer-tools")]
     #[test]
     fn health_apply_containment_cannot_be_overridden() {
         let mut report = synthetic_health(Severity::Critical);
@@ -707,6 +764,7 @@ mod tests {
         assert!(apply_health_override(&mut report, false, None, None, false).is_err());
     }
 
+    #[cfg(feature = "developer-tools")]
     #[test]
     fn missing_foma_payload_requires_and_records_development_override() {
         let mut report = HealthReport::new(Vec::new());
@@ -733,6 +791,7 @@ mod tests {
         assert_eq!(report.admission(), Severity::Ideal);
     }
 
+    #[cfg(feature = "developer-tools")]
     #[test]
     fn missing_foma_payload_cannot_downgrade_or_override_critical_worker_failure() {
         let mut report = synthetic_health(Severity::Critical);
@@ -911,6 +970,7 @@ mod tests {
     }
 
     /// The same `Refuse`-verdict grammar with `--allow-unproven`: pack succeeds and reads back `Overridden` with the reason/authorized-by and refused construct(s) recorded.
+    #[cfg(feature = "developer-tools")]
     #[test]
     fn pack_refuse_grammar_with_allow_unproven_writes_overridden_manifest_with_refused_configs() {
         let (result, out_path) = run_pack_raw(
@@ -972,6 +1032,7 @@ mod tests {
     }
 
     /// ADR 0005's indelibility invariant: an overridden pack's stamp survives write -> read and can never read back as `Proven`.
+    #[cfg(feature = "developer-tools")]
     #[test]
     fn overridden_pack_stamp_is_indelible_across_write_then_read() {
         let (result, out_path) = run_pack_raw(
@@ -996,6 +1057,7 @@ mod tests {
     }
 
     /// A reduplication-shaped grammar must declare `RUNTIME_FEATURE_REDUPLICATION_PEEL` (ADR 0004) regardless of its own capability verdict.
+    #[cfg(feature = "developer-tools")]
     #[test]
     fn pack_redup_grammar_declares_reduplication_peel_runtime_feature() {
         let (result, out_path) = run_pack_raw(
@@ -1019,6 +1081,7 @@ mod tests {
     }
 
     /// Omitting `--authorized-by`/`--reason` on an override still records non-empty, honest default text, never a blank field.
+    #[cfg(feature = "developer-tools")]
     #[test]
     fn pack_override_without_authorized_by_or_reason_still_records_honest_defaults() {
         let (result, out_path) = run_pack_raw(

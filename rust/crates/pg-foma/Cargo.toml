@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
+developer-tools = []
 test-concurrency-hook = []
 # `candidate_filter::test_support` hands a caller the authority to construct a filter, and a filter
 # deletes candidates: a caller who can build one can pair a pass that rejects every witness with a
@@ -80,7 +81,7 @@ pg-fwdata.workspace = true
 # Enables this crate's own `test-support` feature for its test targets without offering it to any
 # other crate. A package dev-depending on itself is cargo's supported way to scope a feature to a
 # crate's own tests; the resolver keeps a dev-only feature out of an ordinary build.
-pg-foma = { path = ".", features = ["test-support"] }
+pg-foma = { path = ".", features = ["test-support", "developer-tools"] }
 # Phase C (docs/fst-plan/phase-c-generator-design.md): the synthetic-grammar generator + its
 # Morpher-as-generator oracle, used by tests/phase_c_*.rs (and tests/common/gate_template.rs).
 # `features = ["oracle"]` because `pg-grammar-gen`'s own `pg-parse` dependency is feature-gated

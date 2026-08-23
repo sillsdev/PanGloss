@@ -317,6 +317,7 @@ impl FomaProposer {
     /// result that is explicitly marked [`FomaTier::Partial`] so callers can inspect it, but the
     /// caller must persist an unproven/degraded trust record. It never admits `Unsupported` or a
     /// resource-aborted result, because those paths intentionally contain no usable lexc source.
+    #[cfg(any(feature = "developer-tools", test))]
     pub fn new_unproven_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
         let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let compose_budget = ComposeBudget::from_env();
