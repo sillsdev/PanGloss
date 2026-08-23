@@ -27,6 +27,7 @@ use pg_grammar::model::{
 use pg_shape::{NodeFlags, NodeKind, Shape, ShapeBuilder};
 
 use crate::bridge::{pattern_var_occurrences, PatternBridge, VarOccur, UNCONSTRAINED};
+use crate::stats::PRuleStatsCtx;
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::Word;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
@@ -1125,7 +1126,21 @@ pub fn synthesize_with_mpr_cached_traced(
 ///
 /// Recompiles on every call — see `synthesize_with_mpr`'s doc for why (standalone test fixtures
 /// with no grammar-resident index). The real pipeline calls `analyze_cached`.
-pub fn analyze(g: &Grammar, rule: &RewriteRuleDef, input: &Shape) -> Vec<Shape> {
+pub fn analyze(
+    g: &Grammar,
+    rule: &RewriteRuleDef,
+    input: &Shape,
+    stats: Option<PRuleStatsCtx>,
+) -> Vec<Shape> {
+    if let Some(ctx) = stats {
+        ctx.stats
+            .record_prule_attempt(ctx.stratum, ctx.id, input.len() as u64);
+    }
+    // `pangloss calibrate`'s self-time region for this rule invocation; a no-op off the `stats-calibrate` feature.
+    let _calib = stats.map(|ctx| {
+        ctx.stats
+            .calibrate_enter(crate::stats::ObjectKind::PhonRule, input.len() as u64)
+    });
     let table_id = TableId(0);
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
@@ -1188,11 +1203,17 @@ pub fn analyze(g: &Grammar, rule: &RewriteRuleDef, input: &Shape) -> Vec<Shape> 
         applied |= did;
     }
 
-    if applied {
+    let result = if applied {
         vec![ms.to_shape()]
     } else {
         Vec::new()
+    };
+    drop(_calib);
+    if let Some(ctx) = stats {
+        ctx.stats
+            .record_prule_outcome(ctx.stratum, ctx.id, result.len() as u64);
     }
+    result
 }
 
 /// The cache-aware sibling of `analyze`, used by the real pipeline. See `synthesize_with_mpr_cached`
@@ -1203,7 +1224,17 @@ pub(crate) fn analyze_cached(
     rule: &RewriteRuleDef,
     input: &Shape,
     cache: &crate::cache::RuleCache,
+    stats: Option<PRuleStatsCtx>,
 ) -> Vec<Shape> {
+    if let Some(ctx) = stats {
+        ctx.stats
+            .record_prule_attempt(ctx.stratum, ctx.id, input.len() as u64);
+    }
+    // `pangloss calibrate`'s self-time region for this rule invocation; a no-op off the `stats-calibrate` feature.
+    let _calib = stats.map(|ctx| {
+        ctx.stats
+            .calibrate_enter(crate::stats::ObjectKind::PhonRule, input.len() as u64)
+    });
     // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
@@ -1299,11 +1330,17 @@ pub(crate) fn analyze_cached(
         applied |= did;
     }
 
-    if applied {
+    let result = if applied {
         vec![ms.to_shape()]
     } else {
         Vec::new()
+    };
+    drop(_calib);
+    if let Some(ctx) = stats {
+        ctx.stats
+            .record_prule_outcome(ctx.stratum, ctx.id, result.len() as u64);
     }
+    result
 }
 
 // Phonological rule tracing, analysis side: unlike synthesis's post-hoc readout, C# traces INLINE per subrule (no `FailureReason`, since analysis has no MPR/POS gate to attribute a failure to).
@@ -1316,11 +1353,16 @@ pub fn analyze_traced(
     pid: PRuleId,
     rule: &RewriteRuleDef,
     input: &Shape,
+    stats: Option<PRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Shape> {
     if !trace.is_tracing() {
-        return analyze(g, rule, input);
+        return analyze(g, rule, input, stats);
+    }
+    if let Some(ctx) = stats {
+        ctx.stats
+            .record_prule_attempt(ctx.stratum, ctx.id, input.len() as u64);
     }
     // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
@@ -1389,11 +1431,16 @@ pub fn analyze_traced(
         }
     }
 
-    if applied {
+    let result = if applied {
         vec![ms.to_shape()]
     } else {
         Vec::new()
+    };
+    if let Some(ctx) = stats {
+        ctx.stats
+            .record_prule_outcome(ctx.stratum, ctx.id, result.len() as u64);
     }
+    result
 }
 
 /// The cache-aware sibling of `analyze_traced`, called by the analysis stratum driver's prule
@@ -1404,11 +1451,16 @@ pub fn analyze_cached_traced(
     rule: &RewriteRuleDef,
     input: &Shape,
     cache: &crate::cache::RuleCache,
+    stats: Option<PRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Shape> {
     if !trace.is_tracing() {
-        return analyze_cached(g, pid, rule, input, cache);
+        return analyze_cached(g, pid, rule, input, cache, stats);
+    }
+    if let Some(ctx) = stats {
+        ctx.stats
+            .record_prule_attempt(ctx.stratum, ctx.id, input.len() as u64);
     }
     // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
@@ -1510,11 +1562,16 @@ pub fn analyze_cached_traced(
         }
     }
 
-    if applied {
+    let result = if applied {
         vec![ms.to_shape()]
     } else {
         Vec::new()
+    };
+    if let Some(ctx) = stats {
+        ctx.stats
+            .record_prule_outcome(ctx.stratum, ctx.id, result.len() as u64);
     }
+    result
 }
 
 // Feature-change (LHS.count == RHS.count).

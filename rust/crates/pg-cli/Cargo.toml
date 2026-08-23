@@ -43,6 +43,13 @@ pg-conformance-fixtures.workspace = true
 # independently-pinned copy.
 sha2.workspace = true
 sysinfo.workspace = true
+# `stats_cmd.rs`: `batch --stats` and the `stats` subcommand read/write the per-project cache this
+# crate owns.
+pg-stats.workspace = true
+# `stats_cmd.rs`'s `stats` subcommand reads the cache directly (bypassing
+# `pg_stats::StatsCache::open`'s wipe-on-grammar-change gate, since a report-only read must never
+# destroy data) via `pg_stats::report`'s `&rusqlite::Connection`-based queries.
+rusqlite.workspace = true
 
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]

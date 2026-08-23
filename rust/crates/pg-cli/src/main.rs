@@ -83,6 +83,7 @@ use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
 mod assess;
+mod calibrate_cmd;
 mod coverage;
 mod diagnostics;
 mod fst_health;
@@ -90,6 +91,7 @@ mod make_report;
 mod pack;
 mod plan_diagram;
 mod recipe_optimize;
+mod stats_cmd;
 mod trace_render;
 
 /// Which proposer/verifier path a `batch`/`parse` invocation drives: `Default` is the full-search `pg_parse::Morpher` engine, `Foma` proposes via the compiled foma network and confirms via the same `Morpher` machinery; output shape is identical between engines by construction.
@@ -209,6 +211,20 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("stats") => match stats_cmd::run_stats(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("pangloss stats: {e}");
+                ExitCode::FAILURE
+            }
+        },
+        Some("calibrate") => match calibrate_cmd::run_calibrate(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("pangloss calibrate: {e}");
+                ExitCode::FAILURE
+            }
+        },
         Some("recipe-optimize") => match recipe_optimize::run_recipe_optimize(&args[2..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -238,7 +254,7 @@ fn run() -> ExitCode {
         _ => {
             eprintln!(
                 "pangloss {} — HermitCrab Rust engine CLI\n\
-                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess]\n\
+                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess] [--stats] [--cache <path>]\n\
                  usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
                  usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
@@ -253,6 +269,8 @@ fn run() -> ExitCode {
                  usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
                  usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--words=<path>] [--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>] [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--repeats=N]\n\
                  usage: pangloss recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N]\n\
+                 usage: pangloss stats <project-or-grammar> [--group word|object|allomorph|stratum] [--kind K] [--object KEY] [--stratum KEY] [--min-attempts N] [--top N] [--sort time|no-root] [--exclude-censored] [--cache <path>] [--out FILE]\n\
+                 usage: pangloss calibrate [--out FILE]\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
@@ -894,6 +912,9 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut allow_unproven = false;
     // Same shared --guess contract as run_parse: default-off, guessed rows always marked, --engine=default only.
     let mut guess = false;
+    // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
+    let mut stats_requested = false;
+    let mut cache_path_arg: Option<String> = None;
     let parse_memo = |v: &str| match v {
         "on" | "true" | "1" => Ok(true),
         "off" | "false" | "0" => Ok(false),
@@ -958,6 +979,14 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             "--no-enforce-capability" => enforce_capability_flag = Some(false),
             "--allow-unproven" => allow_unproven = true,
             "--guess" => guess = true,
+            "--stats" => stats_requested = true,
+            "--cache" => {
+                let v = it.next().ok_or("--cache requires a value")?;
+                cache_path_arg = Some(v.clone());
+            }
+            s if s.starts_with("--cache=") => {
+                cache_path_arg = Some(s["--cache=".len()..].to_string());
+            }
             s => positional.push(s),
         }
     }
@@ -974,7 +1003,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess] [--stats] [--cache <path>]"
                 .into(),
         );
     };
@@ -1099,6 +1128,16 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             "batch complete: {} words parsed ({} skipped) [engine=foma, threads={}]",
             parsed, skipped, threads,
         );
+        if stats_requested {
+            stats_cmd::run_batch_stats_foma(
+                &grammar,
+                grammar_path,
+                &mut analyzer,
+                &words,
+                word_timeout_ms,
+                cache_path_arg.as_deref(),
+            )?;
+        }
         return Ok(());
     }
 
@@ -1246,6 +1285,20 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         if memo { "on" } else { "off" },
         threads,
     );
+    if stats_requested {
+        stats_cmd::run_batch_stats_hc(
+            &grammar,
+            grammar_path,
+            &morpher,
+            &opts,
+            &words,
+            step_cap,
+            word_timeout_ms,
+            memo,
+            guess,
+            cache_path_arg.as_deref(),
+        )?;
+    }
     Ok(())
 }
 

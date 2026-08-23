@@ -36,10 +36,39 @@ use pg_grammar::model::{
 use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 
 use crate::bridge::{BridgeError, PatternBridge};
+use crate::stats::MRuleStatsCtx;
 use crate::stratum::NonHeadRootFilter;
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+
+// Analysis-side allomorph/subrule stats attribution; see `crate::stats::MRuleStatsCtx`.
+
+/// Ticks the rule's own `attempts` once on the invocation's first-reached allomorph/subrule (`index`, 0-based) and always records that allomorph's own work/outputs; shifts by one so index 0 never collides with `ALLOMORPH_NONE`.
+fn record_mrule_reach(
+    mstats: Option<MRuleStatsCtx>,
+    index: u32,
+    segments: u64,
+    outputs: u64,
+    reached: &mut u32,
+) {
+    let Some(ctx) = mstats else { return };
+    let allomorph = index + 1;
+    if *reached == 0 {
+        ctx.stats.record_mrule_reach_attempt(ctx.stratum, ctx.id);
+    }
+    *reached += 1;
+    ctx.stats
+        .record_mrule_allomorph_try(ctx.stratum, ctx.id, allomorph, segments, outputs);
+}
+
+/// Attributes a whole rule invocation (gated before the loop, or zero allomorphs reached) to `ALLOMORPH_NONE`.
+fn record_mrule_none_residual(mstats: Option<MRuleStatsCtx>, segments: u64) {
+    let Some(ctx) = mstats else { return };
+    ctx.stats
+        .record_mrule_attempt(ctx.stratum, ctx.id, segments);
+    ctx.stats.record_mrule_outcome(ctx.stratum, ctx.id, 0);
+}
 
 // Table is resolved once per rule application and threaded down explicitly; a word's shape may carry frozen material from an earlier different-table stratum, but nothing here re-derives an identity for it.
 
@@ -126,10 +155,20 @@ fn mpr_gate_reason(
 /// Un-apply `rule` to `word` (analysis); empty if it cannot be un-applied. Recompiles on every
 /// call — see `synthesize`'s doc for why. The real pipeline calls `analyze_cached`.
 pub fn analyze(g: &Grammar, word: &Word, rule: &MorphRuleDef) -> Vec<Word> {
+    analyze_stats(g, word, rule, None)
+}
+
+/// `analyze`'s `--stats`-carrying sibling; `pub(crate)` since only `crate::stratum` needs the ctx.
+pub(crate) fn analyze_stats(
+    g: &Grammar,
+    word: &Word,
+    rule: &MorphRuleDef,
+    mstats: Option<MRuleStatsCtx>,
+) -> Vec<Word> {
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix(g, word, def),
-        MorphRuleDef::Compounding(def) => ana_compound(g, word, def, None),
-        MorphRuleDef::Realizational(def) => ana_realizational(g, word, def),
+        MorphRuleDef::AffixProcess(def) => ana_affix(g, word, def, mstats),
+        MorphRuleDef::Compounding(def) => ana_compound(g, word, def, None, mstats),
+        MorphRuleDef::Realizational(def) => ana_realizational(g, word, def, mstats),
     }
 }
 
@@ -141,11 +180,14 @@ pub(crate) fn analyze_cached(
     word: &Word,
     rule: &MorphRuleDef,
     cache: &crate::cache::RuleCache,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix_cached(g, word, def, cache),
-        MorphRuleDef::Compounding(def) => ana_compound_cached(g, word, def, mrid, cache, None),
-        MorphRuleDef::Realizational(def) => ana_realizational_cached(g, word, def, cache),
+        MorphRuleDef::AffixProcess(def) => ana_affix_cached(g, word, def, cache, mstats),
+        MorphRuleDef::Compounding(def) => {
+            ana_compound_cached(g, word, def, mrid, cache, None, mstats)
+        }
+        MorphRuleDef::Realizational(def) => ana_realizational_cached(g, word, def, cache, mstats),
     }
 }
 
@@ -153,6 +195,7 @@ pub(crate) fn analyze_cached(
 /// Only a `Compounding` rule consumes it. Threading the filter in here rather than post-filtering
 /// the returned words is what lets root resolution join C#'s **per-subrule** dedup scope — see
 /// `ana_compound_subrule`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn analyze_cached_with_root_filter(
     g: &Grammar,
     mrid: MRuleId,
@@ -160,13 +203,14 @@ pub(crate) fn analyze_cached_with_root_filter(
     rule: &MorphRuleDef,
     cache: &crate::cache::RuleCache,
     root_filter: NonHeadRootFilter,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix_cached(g, word, def, cache),
+        MorphRuleDef::AffixProcess(def) => ana_affix_cached(g, word, def, cache, mstats),
         MorphRuleDef::Compounding(def) => {
-            ana_compound_cached(g, word, def, mrid, cache, Some(root_filter))
+            ana_compound_cached(g, word, def, mrid, cache, Some(root_filter), mstats)
         }
-        MorphRuleDef::Realizational(def) => ana_realizational_cached(g, word, def, cache),
+        MorphRuleDef::Realizational(def) => ana_realizational_cached(g, word, def, cache, mstats),
     }
 }
 
@@ -178,10 +222,21 @@ pub fn analyze_with_root_filter(
     rule: &MorphRuleDef,
     root_filter: NonHeadRootFilter,
 ) -> Vec<Word> {
+    analyze_with_root_filter_stats(g, word, rule, root_filter, None)
+}
+
+/// `analyze_with_root_filter`'s `--stats`-carrying sibling; `pub(crate)` since only `crate::stratum` needs the ctx.
+pub(crate) fn analyze_with_root_filter_stats(
+    g: &Grammar,
+    word: &Word,
+    rule: &MorphRuleDef,
+    root_filter: NonHeadRootFilter,
+    mstats: Option<MRuleStatsCtx>,
+) -> Vec<Word> {
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix(g, word, def),
-        MorphRuleDef::Compounding(def) => ana_compound(g, word, def, Some(root_filter)),
-        MorphRuleDef::Realizational(def) => ana_realizational(g, word, def),
+        MorphRuleDef::AffixProcess(def) => ana_affix(g, word, def, mstats),
+        MorphRuleDef::Compounding(def) => ana_compound(g, word, def, Some(root_filter), mstats),
+        MorphRuleDef::Realizational(def) => ana_realizational(g, word, def, mstats),
     }
 }
 
@@ -194,21 +249,22 @@ pub(crate) fn analyze_cached_traced(
     word: &Word,
     rule: &MorphRuleDef,
     cache: &crate::cache::RuleCache,
+    mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
     if !trace.is_tracing() {
-        return analyze_cached(g, mrid, word, rule, cache);
+        return analyze_cached(g, mrid, word, rule, cache, mstats);
     }
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix_cached_traced(g, word, def, mrid, cache, trace, parent)
+            ana_affix_cached_traced(g, word, def, mrid, cache, mstats, trace, parent)
         }
         MorphRuleDef::Compounding(def) => {
-            ana_compound_cached_traced(g, word, def, mrid, cache, None, trace, parent)
+            ana_compound_cached_traced(g, word, def, mrid, cache, None, mstats, trace, parent)
         }
         MorphRuleDef::Realizational(def) => {
-            ana_realizational_cached_traced(g, word, def, mrid, cache, trace, parent)
+            ana_realizational_cached_traced(g, word, def, mrid, cache, mstats, trace, parent)
         }
     }
 }
@@ -222,21 +278,30 @@ pub(crate) fn analyze_cached_with_root_filter_traced(
     rule: &MorphRuleDef,
     cache: &crate::cache::RuleCache,
     root_filter: NonHeadRootFilter,
+    mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
     if !trace.is_tracing() {
-        return analyze_cached_with_root_filter(g, mrid, word, rule, cache, root_filter);
+        return analyze_cached_with_root_filter(g, mrid, word, rule, cache, root_filter, mstats);
     }
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix_cached_traced(g, word, def, mrid, cache, trace, parent)
+            ana_affix_cached_traced(g, word, def, mrid, cache, mstats, trace, parent)
         }
-        MorphRuleDef::Compounding(def) => {
-            ana_compound_cached_traced(g, word, def, mrid, cache, Some(root_filter), trace, parent)
-        }
+        MorphRuleDef::Compounding(def) => ana_compound_cached_traced(
+            g,
+            word,
+            def,
+            mrid,
+            cache,
+            Some(root_filter),
+            mstats,
+            trace,
+            parent,
+        ),
         MorphRuleDef::Realizational(def) => {
-            ana_realizational_cached_traced(g, word, def, mrid, cache, trace, parent)
+            ana_realizational_cached_traced(g, word, def, mrid, cache, mstats, trace, parent)
         }
     }
 }
@@ -248,6 +313,7 @@ fn ana_affix_cached_traced(
     rule: &AffixProcessRuleDef,
     mrid: MRuleId,
     cache: &crate::cache::RuleCache,
+    mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
@@ -259,11 +325,13 @@ fn ana_affix_cached_traced(
             word,
             FailureReason::RequiredSyntacticFeatureStruct,
         );
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     let mut output = Vec::new();
+    let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
             continue;
@@ -274,6 +342,8 @@ fn ana_affix_cached_traced(
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
+        let n = (output.len() - before) as u64;
+        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
         if output.len() == before {
             trace.morphological_rule_not_unapplied(
                 parent,
@@ -283,6 +353,9 @@ fn ana_affix_cached_traced(
                 FailureReason::Pattern,
             );
         }
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
     }
     output
 }
@@ -294,6 +367,7 @@ fn ana_realizational_cached_traced(
     rule: &RealizationalRuleDef,
     mrid: MRuleId,
     cache: &crate::cache::RuleCache,
+    mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
@@ -305,11 +379,13 @@ fn ana_realizational_cached_traced(
             word,
             FailureReason::RequiredSyntacticFeatureStruct,
         );
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     let mut output = Vec::new();
+    let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
             continue;
@@ -321,6 +397,8 @@ fn ana_realizational_cached_traced(
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
+        let n = (output.len() - before) as u64;
+        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
         if output.len() == before {
             trace.morphological_rule_not_unapplied(
                 parent,
@@ -330,6 +408,9 @@ fn ana_realizational_cached_traced(
                 FailureReason::Pattern,
             );
         }
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
     }
     output
 }
@@ -342,6 +423,7 @@ fn ana_compound_cached_traced(
     mrid: MRuleId,
     cache: &crate::cache::RuleCache,
     root_filter: Option<NonHeadRootFilter>,
+    mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
@@ -353,12 +435,14 @@ fn ana_compound_cached_traced(
             word,
             FailureReason::HeadRequiredSyntacticFeatureStruct,
         );
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     let table = crate::cache::owning_table_for_mrule(g, mrid).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     let cc = cache.compound(mrid);
     let mut output = Vec::new();
+    let mut reached: u32 = 0;
     for (i, sr) in rule.subrules.iter().enumerate() {
         let Some((fst, lhs)) = cc.subrules[i].ana.as_ref() else {
             continue;
@@ -380,6 +464,8 @@ fn ana_compound_cached_traced(
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
+        let n = (output.len() - before) as u64;
+        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
         if output.len() == before {
             trace.morphological_rule_not_unapplied(
                 parent,
@@ -389,6 +475,9 @@ fn ana_compound_cached_traced(
                 FailureReason::Pattern,
             );
         }
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
     }
     output
 }
@@ -2045,21 +2134,34 @@ pub(crate) fn build_ana_affix_lhs(
     Ok((fst, lhs))
 }
 
-fn ana_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word> {
+fn ana_affix(
+    g: &Grammar,
+    word: &Word,
+    rule: &AffixProcessRuleDef,
+    mstats: Option<MRuleStatsCtx>,
+) -> Vec<Word> {
     let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     // Resolved once per call — see `synth_affix`'s twin site.
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     let mut output = Vec::new();
-    for allo in &rule.allomorphs {
+    let mut reached: u32 = 0;
+    for (i, allo) in rule.allomorphs.iter().enumerate() {
         let Ok((fst, lhs)) = build_ana_affix_lhs(g, table, allo) else {
             continue;
         };
+        let before = output.len();
         output.extend(ana_affix_allomorph(
             g, table, word, allo, &lhs, &fst, &segs, &node_of, &new_syn,
         ));
+        let n = (output.len() - before) as u64;
+        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
     }
     output
 }
@@ -2070,20 +2172,29 @@ fn ana_affix_cached(
     word: &Word,
     rule: &AffixProcessRuleDef,
     cache: &crate::cache::RuleCache,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
     let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     let mut output = Vec::new();
-    for allo in &rule.allomorphs {
+    let mut reached: u32 = 0;
+    for (i, allo) in rule.allomorphs.iter().enumerate() {
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
             continue;
         };
+        let before = output.len();
         output.extend(ana_affix_allomorph(
             g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn,
         ));
+        let n = (output.len() - before) as u64;
+        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
     }
     output
 }
@@ -2141,21 +2252,34 @@ fn ana_affix_allomorph(
 // Realizational affix process — analysis.
 
 /// C# `Apply`: one rule-level gate (the realizational-FS unify), after which every allomorph's matches carry that same unified value; unlike `ana_affix`, no max-application or syn-FS gate exists here.
-fn ana_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) -> Vec<Word> {
+fn ana_realizational(
+    g: &Grammar,
+    word: &Word,
+    rule: &RealizationalRuleDef,
+    mstats: Option<MRuleStatsCtx>,
+) -> Vec<Word> {
     let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     // Resolved once per call — see `synth_affix`'s twin site.
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     let mut output = Vec::new();
-    for allo in &rule.allomorphs {
+    let mut reached: u32 = 0;
+    for (i, allo) in rule.allomorphs.iter().enumerate() {
         let Ok((fst, lhs)) = build_ana_affix_lhs(g, table, allo) else {
             continue;
         };
+        let before = output.len();
         output.extend(ana_realizational_allomorph(
             g, table, word, allo, &lhs, &fst, &segs, &node_of, &real_fs,
         ));
+        let n = (output.len() - before) as u64;
+        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
     }
     output
 }
@@ -2166,20 +2290,29 @@ fn ana_realizational_cached(
     word: &Word,
     rule: &RealizationalRuleDef,
     cache: &crate::cache::RuleCache,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
     let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     let mut output = Vec::new();
-    for allo in &rule.allomorphs {
+    let mut reached: u32 = 0;
+    for (i, allo) in rule.allomorphs.iter().enumerate() {
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
             continue;
         };
+        let before = output.len();
         output.extend(ana_realizational_allomorph(
             g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs,
         ));
+        let n = (output.len() - before) as u64;
+        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
     }
     output
 }
@@ -2565,23 +2698,28 @@ fn build_ana_compound_lhs(
     Ok((fst, lhs))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ana_compound(
     g: &Grammar,
     word: &Word,
     rule: &CompoundingRuleDef,
     root_filter: Option<NonHeadRootFilter>,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
     // Same guard and adjust as `ana_affix`; the head-required/out pair plays the affix rule's required/out role exactly.
     let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     let table = crate::cache::owning_table_for_compounding_rule(g, rule).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     let mut output = Vec::new();
-    for sr in &rule.subrules {
+    let mut reached: u32 = 0;
+    for (i, sr) in rule.subrules.iter().enumerate() {
         let Ok((fst, lhs)) = build_ana_compound_lhs(g, table, sr) else {
             continue;
         };
+        let before = output.len();
         output.extend(ana_compound_subrule(
             g,
             table,
@@ -2595,11 +2733,17 @@ fn ana_compound(
             &new_syn,
             root_filter,
         ));
+        let n = (output.len() - before) as u64;
+        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
     }
     output
 }
 
 /// `crate::cache::RuleCache`-aware sibling of `ana_compound`.
+#[allow(clippy::too_many_arguments)]
 fn ana_compound_cached(
     g: &Grammar,
     word: &Word,
@@ -2607,18 +2751,22 @@ fn ana_compound_cached(
     mrid: MRuleId,
     cache: &crate::cache::RuleCache,
     root_filter: Option<NonHeadRootFilter>,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
     let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     let table = crate::cache::owning_table_for_mrule(g, mrid).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     let cc = cache.compound(mrid);
     let mut output = Vec::new();
+    let mut reached: u32 = 0;
     for (i, sr) in rule.subrules.iter().enumerate() {
         let Some((fst, lhs)) = cc.subrules[i].ana.as_ref() else {
             continue;
         };
+        let before = output.len();
         output.extend(ana_compound_subrule(
             g,
             table,
@@ -2632,6 +2780,11 @@ fn ana_compound_cached(
             &new_syn,
             root_filter,
         ));
+        let n = (output.len() - before) as u64;
+        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+    }
+    if reached == 0 {
+        record_mrule_none_residual(mstats, segs.len() as u64);
     }
     output
 }

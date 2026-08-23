@@ -16,6 +16,11 @@ hashbrown.workspace = true
 rustc-hash.workspace = true
 web-time.workspace = true
 
+# `stats_calibrate`: real per-call timers for `pangloss calibrate`, compiled out by default so an
+# ordinary build never reads the clock at a rule-application site.
+[features]
+stats-calibrate = []
+
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
 workspace = true

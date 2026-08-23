@@ -21,6 +21,7 @@ pub mod load;
 pub mod model;
 pub mod nfd;
 pub mod segment;
+pub mod stats_identity;
 
 pub use compile::compile_project;
 pub use load::load;

@@ -1,15 +1,17 @@
 [package]
-name = "pg-snapshot"
+name = "pg-stats"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
+rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
 sha2.workspace = true
+thiserror.workspace = true
 
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]

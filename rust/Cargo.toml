@@ -22,6 +22,7 @@ members = [
     "crates/pg-grammar-gen",
     "crates/pg-pack",
     "crates/pg-assess",
+    "crates/pg-stats",
 ]
 
 # Doc-comment link integrity. `broken_intra_doc_links` only WARNS by default, and a warning nobody
@@ -81,6 +82,10 @@ ed25519-dalek = "2"
 # PID (never a system-wide scan) -- see that module's own doc for why sampling is reported with its
 # interval and observed peak, never as a hard memory ceiling.
 sysinfo = "0.32"
+
+# `pg-stats`' per-project statistics cache. `bundled` compiles SQLite from vendored C source so
+# there is no system libsqlite3 to install or version-match across machines and worktrees.
+rusqlite = { version = "0.32", features = ["bundled"] }
 # internal crates
 pg-grammar = { path = "crates/pg-grammar" }
 pg-featstruct = { path = "crates/pg-featstruct" }
@@ -95,6 +100,7 @@ pg-lexicon = { path = "crates/pg-lexicon" }
 pg-snapshot = { path = "crates/pg-snapshot" }
 pg-fwdata = { path = "crates/pg-fwdata" }
 pg-assess = { path = "crates/pg-assess" }
+pg-stats = { path = "crates/pg-stats" }
 pg-conformance-fixtures = { path = "crates/pg-conformance-fixtures" }
 pg-grammar-gen = { path = "crates/pg-grammar-gen" }
 # `.pgpack` container (R2A / `make-wasm-analysis-only`): ADR 0004 required-runtime-feature

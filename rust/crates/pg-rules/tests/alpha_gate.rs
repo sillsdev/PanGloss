@@ -154,7 +154,7 @@ fn analysis_agreement_applies_when_places_agree() {
     let g = load_alpha_grammar();
     let r = place_agreement_rule(&g);
     // Analyze "bb": both labial voiced, so the following b agrees and unapply underspecifies the first b's voice.
-    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "bb"));
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "bb"), None);
     assert_eq!(out.len(), 1, "agreeing places: unapplication proceeds");
     assert_eq!(
         interior(&out[0])[0].1[1],
@@ -168,7 +168,7 @@ fn analysis_agreement_rejects_when_places_disagree() {
     let g = load_alpha_grammar();
     let r = place_agreement_rule(&g);
     // Analyze "bg": the following g's place disagrees, so the candidate is rejected -- the FST alone would over-generate an analysis here.
-    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "bg"));
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "bg"), None);
     assert!(
         out.is_empty(),
         "disagreeing places: analysis candidate rejected"
@@ -257,7 +257,7 @@ fn analysis_left_env_var_across_unbounded_quantifier_rejects_disagreeing_place()
     let r = quantifier_gap_rule(&g);
     // The analysis target must already be voiced, so use 'b'; the disagreeing env var is still rejected on this analysis call site too.
     let w = quantifier_gap_word('g', 2, 'b');
-    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, &w));
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, &w), None);
     assert!(
         out.is_empty(),
         "disagreeing places across the quantifier gap ({w:?}): analysis must reject"

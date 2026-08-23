@@ -281,7 +281,7 @@ impl<'g> Morpher<'g> {
         rule_filter: Option<pg_rules::stratum::RuleFilter>,
     ) -> ParseOutcome {
         let sink = NoopSink;
-        self.parse_word_core_selected(word, opts, &sink, lex_entry_filter, rule_filter)
+        self.parse_word_core_selected(word, opts, &sink, lex_entry_filter, rule_filter, None)
     }
 
     /// `Self::parse_word_selected`'s traced sibling, on exactly the selector-restricted path
@@ -295,7 +295,40 @@ impl<'g> Morpher<'g> {
         lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
         rule_filter: Option<pg_rules::stratum::RuleFilter>,
     ) -> ParseOutcome {
-        self.parse_word_core_selected(word, opts, trace, lex_entry_filter, rule_filter)
+        self.parse_word_core_selected(word, opts, trace, lex_entry_filter, rule_filter, None)
+    }
+
+    /// `Self::parse_word_opts` plus a per-word `--stats` collector: gated collection, opt-in via
+    /// this separate entry point so every other caller pays nothing. Returns the ordinary outcome
+    /// alongside the collector's drained rows for a later task to persist.
+    pub fn parse_word_with_stats(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+    ) -> (ParseOutcome, Vec<pg_rules::stats::StatsRow>) {
+        let stats = pg_rules::stats::StatsCollector::new(self.g);
+        let sink = NoopSink;
+        let outcome = self.parse_word_core_selected(word, opts, &sink, None, None, Some(&stats));
+        (outcome, stats.rows())
+    }
+
+    /// `Self::parse_word_with_stats` plus `pangloss calibrate`'s per-kind self-time totals from the
+    /// SAME real parse, so calibration never needs a separate synthetic measurement pass. Totals
+    /// are empty unless this binary was built with the `stats-calibrate` Cargo feature.
+    pub fn parse_word_with_stats_and_calibration(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+    ) -> (
+        ParseOutcome,
+        Vec<pg_rules::stats::StatsRow>,
+        HashMap<pg_rules::stats::ObjectKind, pg_rules::stats_calibrate::KindTotals>,
+    ) {
+        let stats = pg_rules::stats::StatsCollector::new(self.g);
+        let sink = NoopSink;
+        let outcome = self.parse_word_core_selected(word, opts, &sink, None, None, Some(&stats));
+        let calib = stats.calibration_totals();
+        (outcome, stats.rows(), calib)
     }
 
     /// Shared body behind `Self::parse_word_opts`/`Self::parse_word_traced`; every trace call here must be guarded by `trace.is_tracing()`, since `NoopSink` panics otherwise.
@@ -305,10 +338,10 @@ impl<'g> Morpher<'g> {
         opts: &ParseOptions,
         trace: &dyn TraceSink,
     ) -> ParseOutcome {
-        self.parse_word_core_selected(word, opts, trace, None, None)
+        self.parse_word_core_selected(word, opts, trace, None, None, None)
     }
 
-    /// The actual shared implementation; `Self::parse_word_core` is a thin `(None, None)` wrapper over this.
+    /// The actual shared implementation; `Self::parse_word_core` is a thin `(None, None, None)` wrapper over this.
     fn parse_word_core_selected(
         &self,
         word: &str,
@@ -316,6 +349,7 @@ impl<'g> Morpher<'g> {
         trace: &dyn TraceSink,
         lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
         rule_filter: Option<pg_rules::stratum::RuleFilter>,
+        stats: Option<&pg_rules::stats::StatsCollector>,
     ) -> ParseOutcome {
         let g = self.g;
         let n = g.strata.len();
@@ -379,6 +413,7 @@ impl<'g> Morpher<'g> {
                     rule_filter,
                     Some(&self.cache),
                     &budget,
+                    stats,
                     trace,
                     node_parent,
                 );
@@ -399,7 +434,12 @@ impl<'g> Morpher<'g> {
         let mut matches: HashMap<WordKey, Word> = HashMap::default();
         if !opts.guess_only {
             for aw in results.values() {
-                for syn_word in self.lexical_lookup_filtered(aw, lex_entry_filter, trace, root) {
+                let looked_up =
+                    self.lexical_lookup_filtered(aw, lex_entry_filter, trace, root, stats);
+                if looked_up.is_empty() {
+                    self.record_no_root(stats, aw);
+                }
+                for syn_word in looked_up {
                     // Recovers the shape-equivalent candidates `merge_equivalent` folded away; skipping this loses real analyses whenever merging is on (the default).
                     for alt in syn_word.expand_alternatives() {
                         for vw in self.synthesis_pipeline_selected(
@@ -411,11 +451,15 @@ impl<'g> Morpher<'g> {
                             None,
                         ) {
                             candidates_generated += 1;
-                            if self.is_word_valid_traced(&vw, trace, root)
-                                && self.is_match_traced(&vw, word, trace, root)
-                            {
-                                matches.entry(vw.dedup_key()).or_insert(vw);
+                            if !self.is_word_valid_traced(&vw, trace, root) {
+                                continue;
                             }
+                            if !self.is_match_traced(&vw, word, trace, root) {
+                                self.record_surface_mismatch(stats, &vw);
+                                continue;
+                            }
+                            self.commit_uses(stats, &vw);
+                            matches.entry(vw.dedup_key()).or_insert(vw);
                         }
                     }
                 }
@@ -427,6 +471,9 @@ impl<'g> Morpher<'g> {
         {
             let mut guess_matches: Vec<Word> = Vec::new();
             for aw in results.values() {
+                if let Some(stats) = stats {
+                    stats.record_guesser_attempt(aw.stratum, aw.shape.len() as u64);
+                }
                 // C#'s `.Distinct()` here is a documented no-op (fresh clones, no `Equals` override), so consuming `guess::lexical_guess`'s output directly is faithful.
                 for synthesis_word in
                     guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
@@ -478,6 +525,7 @@ impl<'g> Morpher<'g> {
         lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
         trace: &dyn TraceSink,
         parent: TraceHandle,
+        stats: Option<&pg_rules::stats::StatsCollector>,
     ) -> Vec<Word> {
         // Fires once per call before any root-allomorph search; `aw.trace` resolves to its own node, not the parse root.
         if trace.is_tracing() {
@@ -485,7 +533,18 @@ impl<'g> Morpher<'g> {
             trace.lexical_lookup(node_parent, aw.stratum, aw);
         }
         let g = self.g;
+        if let Some(stats) = stats {
+            stats.record_root_index_attempt(aw.stratum, aw.shape.len() as u64);
+        }
+        // `pangloss calibrate`'s self-time region for this trie walk; a no-op off the `stats-calibrate` feature.
+        let _calib_root = stats.map(|stats| {
+            stats.calibrate_enter(
+                pg_rules::stats::ObjectKind::RootIndex,
+                aw.shape.len() as u64,
+            )
+        });
         let matched = self.search_roots(aw.stratum, &aw.shape);
+        drop(_calib_root);
         // Distinct entries in first-seen order; `lex_entry_filter` runs before the dedup, mirroring C#'s `.Where().Distinct()` order.
         let mut entries: Vec<LexEntryId> = Vec::new();
         for root in &matched {
@@ -502,7 +561,18 @@ impl<'g> Morpher<'g> {
         let mut out = Vec::new();
         for le in entries {
             let entry = &g.entries[le.0 as usize];
-            for allo in &entry.allomorphs {
+            for (allo_idx, allo) in entry.allomorphs.iter().enumerate() {
+                if let Some(stats) = stats {
+                    // +1: index 0 must not collide with the `ALLOMORPH_NONE` sentinel.
+                    stats.record_lex_entry_attempt(aw.stratum, le, allo_idx as u32 + 1);
+                }
+                // `pangloss calibrate`'s self-time region for this candidate; a no-op off the `stats-calibrate` feature.
+                let _calib_lex = stats.map(|stats| {
+                    stats.calibrate_enter(
+                        pg_rules::stats::ObjectKind::LexEntry,
+                        aw.shape.len() as u64,
+                    )
+                });
                 // The clone drops alternatives and records `aw` as its source — the boundary `expand_alternatives` walks back from.
                 let mut nw = aw.clone_without_alternatives();
                 nw.source = Some(Rc::new(aw.clone()));
@@ -520,6 +590,9 @@ impl<'g> Morpher<'g> {
             let Ok(shape) = segment_with_features(g, table, &root.lexical_spelling) else {
                 continue;
             };
+            if let Some(stats) = stats {
+                stats.record_overlay_attempt(aw.stratum, shape.len() as u64);
+            }
             nw.shape = shape;
             nw.stratum = root.stratum;
             nw.syn_fs = root.syn_fs.clone();
@@ -565,6 +638,74 @@ impl<'g> Morpher<'g> {
         // MarkMorph(shape, rootAllomorph, RootMorphID): the root is the base morph at order 0.
         w.root_runtime_id = None;
         w.morphs = vec![MorphRecord::new(allo, entry.morpheme, 0)];
+    }
+
+    /// `no_root`: charged to the last rule applied on `aw`'s trail, or to the stratum's root lookup when none applied.
+    fn record_no_root(&self, stats: Option<&pg_rules::stats::StatsCollector>, aw: &Word) {
+        let Some(stats) = stats else { return };
+        if let Some(Some(id)) = aw.mrule_apps.last() {
+            if let Some(stratum) = self.mrule_stratum(*id) {
+                stats.record_no_root_mrule(stratum, *id);
+                return;
+            }
+        }
+        stats.record_no_root_root_index(aw.stratum);
+    }
+
+    /// `surface_mismatch`: `vw` passed validity but its rendered surface did not match the input word.
+    fn record_surface_mismatch(&self, stats: Option<&pg_rules::stats::StatsCollector>, vw: &Word) {
+        let Some(stats) = stats else { return };
+        if let Some((le, allo_idx)) = self.root_lex_entry(vw) {
+            stats.record_surface_mismatch(vw.stratum, le, allo_idx);
+        }
+    }
+
+    /// `uses`: commit every morphological rule and the root lexical entry on a surviving analysis.
+    fn commit_uses(&self, stats: Option<&pg_rules::stats::StatsCollector>, vw: &Word) {
+        let Some(stats) = stats else { return };
+        let mut seen: Vec<MRuleId> = Vec::new();
+        for id in vw.mrule_apps.iter().flatten() {
+            if seen.contains(id) {
+                continue;
+            }
+            seen.push(*id);
+            if let Some(stratum) = self.mrule_stratum(*id) {
+                stats.record_use_mrule(stratum, *id);
+            }
+        }
+        if let Some((le, allo_idx)) = self.root_lex_entry(vw) {
+            stats.record_use_lex_entry(vw.stratum, le, allo_idx);
+        }
+    }
+
+    /// The grammar-resident `(LexEntryId, 1-based allomorph index)` behind `w.root_allomorph`, matching `Self::lexical_lookup_filtered`'s shift; `None` for a guessed or supplied root, which has no `LexEntry` row.
+    fn root_lex_entry(&self, w: &Word) -> Option<(LexEntryId, u32)> {
+        let id = w.root_allomorph?;
+        if id == AllomorphId::GUESSED {
+            return None;
+        }
+        match self.g.allomorph_owners[id.0 as usize] {
+            AllomorphOwner::Root(le, idx) => Some((le, idx as u32 + 1)),
+            AllomorphOwner::Affix(..) => None,
+        }
+    }
+
+    /// The stratum owning `id`, by linear scan; stats-gated callers only, not the per-word hot path.
+    fn mrule_stratum(&self, id: MRuleId) -> Option<StratumId> {
+        let g = self.g;
+        for (si, sd) in g.strata.iter().enumerate() {
+            if sd.mrules.contains(&id) {
+                return Some(StratumId(si as u8));
+            }
+            for &tid in &sd.templates {
+                for slot in &g.templates[tid.0 as usize].slots {
+                    if slot.rules.contains(&id) {
+                        return Some(StratumId(si as u8));
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Folds the candidate through every stratum deepest→surface, deduping by `WordKey`; the budget here is timeout-less since generation has no per-word deadline.

@@ -16,6 +16,9 @@ hashbrown.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 
+[dev-dependencies]
+pg-conformance-fixtures.workspace = true
+
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
 workspace = true

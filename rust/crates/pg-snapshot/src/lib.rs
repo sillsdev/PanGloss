@@ -158,6 +158,20 @@ impl Snapshot {
         serde_json::to_string_pretty(self).expect("Snapshot serialization is infallible")
     }
 
+    /// A stable hex digest (SHA-256) of `to_json()`'s bytes: the stats cache's grammar-change
+    /// detector. Hashing the source snapshot rather than the compiled `Grammar` means an edit that
+    /// cannot change `to_json()`'s output (e.g. a no-op re-save) never invalidates the cache.
+    pub fn grammar_hash(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(self.to_json().as_bytes());
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
     /// Light structural validation: GUID cross-references that don't resolve within this same
     /// snapshot, reported as `Warning`s (a stable short code alongside human-readable prose).
     /// Never fails/panics; an empty `Vec` means nothing suspicious was found (not that the
@@ -316,6 +330,39 @@ mod tests {
     fn to_json_is_deterministic_across_calls() {
         let snap = sample_snapshot();
         assert_eq!(snap.to_json(), snap.to_json());
+    }
+
+    #[test]
+    fn grammar_hash_is_stable_across_repeated_calls_on_the_same_snapshot() {
+        let snap = sample_snapshot();
+        assert_eq!(snap.grammar_hash(), snap.grammar_hash());
+    }
+
+    #[test]
+    fn grammar_hash_is_stable_across_two_loads_of_the_same_source() {
+        let snap_a = sample_snapshot();
+        let json = snap_a.to_json();
+        let snap_b = Snapshot::from_json(&json).expect("round-trip must parse");
+        assert_eq!(snap_a.grammar_hash(), snap_b.grammar_hash());
+    }
+
+    #[test]
+    fn grammar_hash_differs_for_different_grammars() {
+        let snap_a = sample_snapshot();
+        let mut snap_b = sample_snapshot();
+        snap_b.lexicon.entries[0].citation_form = vec![ws("sen", "different")];
+        assert_ne!(snap_a.grammar_hash(), snap_b.grammar_hash());
+    }
+
+    #[test]
+    fn grammar_hash_is_a_64_char_hex_digest() {
+        let snap = sample_snapshot();
+        let hash = snap.grammar_hash();
+        assert_eq!(hash.len(), 64, "expected a SHA-256 hex digest: {hash:?}");
+        assert!(
+            hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "expected only hex digits: {hash:?}"
+        );
     }
 
     #[test]

@@ -63,6 +63,7 @@ pub type RuleFilter<'a> = &'a (dyn Fn(RuleRef) -> bool + Sync);
 
 use crate::cache::RuleCache;
 use crate::cascade::Cascade;
+use crate::stats::{PRuleStatsCtx, StatsCollector};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{Word, WordKey};
 use crate::{metathesis, morph, rewrite};
@@ -442,6 +443,7 @@ pub fn analyze_stratum_scoped_filtered_ruled(
         rule_filter,
         cache,
         budget,
+        None,
         &crate::trace::NoopSink,
         TraceHandle::DUMMY,
     )
@@ -449,7 +451,8 @@ pub fn analyze_stratum_scoped_filtered_ruled(
 
 /// `analyze_stratum_scoped_filtered_ruled`'s traced sibling — identical in every other respect.
 /// The intended caller is `pg_parse::Morpher::parse_word_selected_traced`; see `crate::morph`'s
-/// analysis-tracing docs and `StratumAnalyzer`'s `trace`/`parent` fields.
+/// analysis-tracing docs and `StratumAnalyzer`'s `trace`/`parent` fields. `stats` is `None` for
+/// every existing caller — gated collection is `pg-parse`'s decision, not this layer's.
 #[allow(clippy::too_many_arguments)]
 pub fn analyze_stratum_scoped_filtered_ruled_traced(
     g: &Grammar,
@@ -461,6 +464,7 @@ pub fn analyze_stratum_scoped_filtered_ruled_traced(
     rule_filter: Option<RuleFilter>,
     cache: Option<&RuleCache>,
     budget: &StepBudget,
+    stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> StratumAnalysis {
@@ -473,6 +477,7 @@ pub fn analyze_stratum_scoped_filtered_ruled_traced(
         rule_filter,
         cache,
         budget,
+        stats,
         trace,
         parent,
     )
@@ -497,6 +502,8 @@ struct StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     rule_filter: Option<RuleFilter<'r>>,
     /// The compile-once FST cache; `None` recompiles per call. See `analyze_stratum_scoped` for why the fallback is still needed.
     cache: Option<&'c RuleCache>,
+    /// The gated `--stats` collector, or `None` when stats collection is off; see `crate::stats`.
+    stats: Option<&'b StatsCollector>,
     /// The analysis-side trace sink; every entry point but `analyze_stratum_scoped_filtered_ruled_traced` passes `NoopSink`.
     trace: &'t dyn TraceSink,
     /// The ambient trace cursor; call sites resolve `word.trace.unwrap_or(parent)` so successful (un)applications nest under the deepest event on that branch.
@@ -514,6 +521,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         rule_filter: Option<RuleFilter<'r>>,
         cache: Option<&'c RuleCache>,
         budget: &'b StepBudget,
+        stats: Option<&'b StatsCollector>,
         trace: &'t dyn TraceSink,
         parent: TraceHandle,
     ) -> Self {
@@ -531,6 +539,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             non_head_root_filter,
             rule_filter,
             cache,
+            stats,
             trace,
             parent,
         }
@@ -584,8 +593,18 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             return Vec::new();
         }
         self.tick();
+        // `morph`'s allomorph loops record attempts/work/outputs themselves now; see `crate::stats::MRuleStatsCtx`.
+        let mstats = self.stats.map(|stats| crate::stats::MRuleStatsCtx {
+            stats,
+            stratum: self.stratum_id,
+            id,
+        });
         // Threaded into `morph::ana_compound` rather than post-filtering: root-allomorph resolution must join `ana_compound_subrule`'s own per-subrule dedup scope.
         let node_parent = w.trace.unwrap_or(self.parent);
+        // `pangloss calibrate`'s self-time region for this whole invocation; a no-op off the `stats-calibrate` feature.
+        let _calib = self.stats.map(|stats| {
+            stats.calibrate_enter(crate::stats::ObjectKind::MorphRule, w.shape.len() as u64)
+        });
         let mut outs = match (rule, self.non_head_root_filter) {
             (MorphRuleDef::Compounding(_), Some(filter)) => match self.cache {
                 Some(cache) => morph::analyze_cached_with_root_filter_traced(
@@ -595,10 +614,11 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     rule,
                     cache,
                     filter,
+                    mstats,
                     self.trace,
                     node_parent,
                 ),
-                None => morph::analyze_with_root_filter(self.g, w, rule, filter),
+                None => morph::analyze_with_root_filter_stats(self.g, w, rule, filter, mstats),
             },
             _ => match self.cache {
                 Some(cache) => morph::analyze_cached_traced(
@@ -607,12 +627,14 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     w,
                     rule,
                     cache,
+                    mstats,
                     self.trace,
                     node_parent,
                 ),
-                None => morph::analyze(self.g, w, rule),
+                None => morph::analyze_stats(self.g, w, rule, mstats),
             },
         };
+        drop(_calib);
         for o in &mut outs {
             // Analysis always records the known rule; the null case only arises from generation seeding a bare non-head directly.
             o.mrule_apps.push(Some(id));
@@ -941,26 +963,42 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             if self.budget.synthesis_over_budget() {
                 break;
             }
+            let prule_stats = self.stats.map(|stats| PRuleStatsCtx {
+                stats,
+                stratum: self.stratum_id,
+                id: pid,
+            });
             let result = match &self.g.prules[pid.0 as usize] {
-                pg_grammar::model::PhonRuleDef::Rewrite(r) => match self.cache {
-                    Some(cache) => rewrite::analyze_cached_traced(
-                        self.g,
-                        pid,
-                        r,
-                        &input.shape,
-                        cache,
-                        self.trace,
-                        self.parent,
-                    ),
-                    None => rewrite::analyze_traced(
-                        self.g,
-                        pid,
-                        r,
-                        &input.shape,
-                        self.trace,
-                        self.parent,
-                    ),
-                },
+                pg_grammar::model::PhonRuleDef::Rewrite(r) => {
+                    // `pangloss calibrate`'s self-time region for this rewrite rule; a no-op off the `stats-calibrate` feature.
+                    let _calib = self.stats.map(|stats| {
+                        stats.calibrate_enter(
+                            crate::stats::ObjectKind::PhonRule,
+                            input.shape.len() as u64,
+                        )
+                    });
+                    match self.cache {
+                        Some(cache) => rewrite::analyze_cached_traced(
+                            self.g,
+                            pid,
+                            r,
+                            &input.shape,
+                            cache,
+                            prule_stats,
+                            self.trace,
+                            self.parent,
+                        ),
+                        None => rewrite::analyze_traced(
+                            self.g,
+                            pid,
+                            r,
+                            &input.shape,
+                            prule_stats,
+                            self.trace,
+                            self.parent,
+                        ),
+                    }
+                }
                 pg_grammar::model::PhonRuleDef::Metathesis(r) => match self.cache {
                     Some(cache) => metathesis::analyze_cached_traced(
                         pid,

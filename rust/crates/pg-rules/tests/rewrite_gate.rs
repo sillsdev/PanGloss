@@ -160,7 +160,7 @@ fn feature_change_analysis_underspecifies_voice() {
     let g = load_probe_grammar();
     let r = voicing_rule(&g);
     // Analyze "ada": Unapply underspecifies the changed voice feature to the full mask (0b11) so lexical lookup can match either t or d.
-    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "ada"));
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "ada"), None);
     assert_eq!(out.len(), 1, "unapplied");
     let got = interior(&out[0]);
     assert_eq!(
@@ -176,7 +176,9 @@ fn feature_change_round_trip_recovers_superset() {
     let r = voicing_rule(&g);
     let orig = seg(&g, "ata");
     let synth = pg_rules::rewrite::synthesize(&g, &r, &orig).pop().unwrap();
-    let ana = pg_rules::rewrite::analyze(&g, &r, &synth).pop().unwrap();
+    let ana = pg_rules::rewrite::analyze(&g, &r, &synth, None)
+        .pop()
+        .unwrap();
     // The analyzed medial node must unify with the original t (superset containment).
     let ana_mid = &interior(&ana)[1].2;
     let orig_mid = &interior(&orig)[1].2;
@@ -201,7 +203,7 @@ fn feature_change_analysis_reversal_excludes_the_third_symbol() {
     let g = common::load_anti_fs_grammar();
     let r = place_rule(&g);
     // Analyze "k": reversal sets place to {lab, vel} (L ∪ R), never the full-unconstrained {lab, cor, vel} — "cor" was never a possible value on either side and must stay excluded.
-    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "k"));
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "k"), None);
     assert_eq!(out.len(), 1, "unapplied");
     let place = feat(&g, "feat_place").0 as usize;
     let lab = 0b001u64;
@@ -252,7 +254,7 @@ fn deletion_analysis_reinserts_optional_t() {
     let g = load_probe_grammar();
     let r = deletion_rule(&g);
     // Analyze "aa": NarrowAnalysis re-inserts the deleted t as OPTIONAL, so lexical lookup can recover both "aa" and "ata".
-    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "aa"));
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "aa"), None);
     let got = interior(&out[0]);
     assert_eq!(got.len(), 3, "optional t re-inserted");
     assert_eq!(got[1].2, T.to_vec(), "re-inserted segment is t");
@@ -267,8 +269,10 @@ fn deletion_round_trip_recovers_original() {
     let synth = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "ata"))
         .pop()
         .unwrap(); // "aa"
-    let ana = pg_rules::rewrite::analyze(&g, &r, &synth).pop().unwrap(); // "a(t)a"
-                                                                         // Taking the optional t recovers the original interior a t a.
+    let ana = pg_rules::rewrite::analyze(&g, &r, &synth, None)
+        .pop()
+        .unwrap(); // "a(t)a"
+                   // Taking the optional t recovers the original interior a t a.
     let got = interior(&ana);
     assert_eq!(got.len(), 3);
     assert_eq!(got[1].2, T.to_vec());
@@ -307,7 +311,7 @@ fn word_initial_deletion_analysis_reinserts_optional_t_at_word_start() {
     let g = load_probe_grammar();
     let r = word_initial_deletion_rule(&g);
     // Analyze "a": ana_narrow treats the shape's own left-anchor node as a legitimate deletion-unapply site, matching C#'s RewriteRuleSpec.MatchSubrule _isTargetEmpty branch.
-    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "a"));
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "a"), None);
     assert_eq!(out.len(), 1, "unapplied");
     let got = interior(&out[0]);
     assert_eq!(got.len(), 2, "optional t re-inserted before the vowel");
@@ -324,7 +328,9 @@ fn word_initial_deletion_round_trip_recovers_original() {
     let synth = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "ta"))
         .pop()
         .unwrap(); // "a"
-    let ana = pg_rules::rewrite::analyze(&g, &r, &synth).pop().unwrap(); // "(t)a"
+    let ana = pg_rules::rewrite::analyze(&g, &r, &synth, None)
+        .pop()
+        .unwrap(); // "(t)a"
     let got = interior(&ana);
     assert_eq!(got.len(), 2);
     assert_eq!(got[0].2, T.to_vec());
@@ -469,7 +475,7 @@ fn epenthesis_analysis_marks_epenthetic_segment_optional() {
     let g = load_probe_grammar();
     let r = epenthesis_rule(&g);
     // Analyze "ata": the medial t is marked OPTIONAL (EpenthesisAnalysis.Unapply) rather than deleted.
-    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "ata"));
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "ata"), None);
     let got = interior(&out[0]);
     assert_eq!(got.len(), 3);
     assert!(got[1].3, "epenthetic t marked OPTIONAL on unapply");
@@ -494,7 +500,7 @@ fn epenthesis_analysis_multi_node_target_matches_document_order() {
         ),
     );
     // "tda": the document-order substring t,d at (0,2) is marked optional; the final a is not.
-    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "tda"));
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "tda"), None);
     assert_eq!(out.len(), 1, "unapply fired on the document-order match");
     let got = interior(&out[0]);
     assert_eq!(
@@ -503,7 +509,7 @@ fn epenthesis_analysis_multi_node_target_matches_document_order() {
         "t,d marked optional (document order), a untouched"
     );
     // "dta" contains only the REVERSED sequence d,t — C# would not match it, and neither may we.
-    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "dta"));
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "dta"), None);
     assert!(
         out.is_empty(),
         "reversed physical sequence must NOT match the analysis target"
@@ -517,8 +523,10 @@ fn epenthesis_round_trip_recovers_superset() {
     let synth = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "aa"))
         .pop()
         .unwrap(); // "ata"
-    let ana = pg_rules::rewrite::analyze(&g, &r, &synth).pop().unwrap(); // "a(t)a"
-                                                                         // Skipping the optional t recovers the original "aa".
+    let ana = pg_rules::rewrite::analyze(&g, &r, &synth, None)
+        .pop()
+        .unwrap(); // "a(t)a"
+                   // Skipping the optional t recovers the original "aa".
     let got = interior(&ana);
     assert!(got[1].3, "optional t: skipping it recovers the original aa");
 }
@@ -736,6 +744,7 @@ fn feature_change_analysis_pick_order_depends_on_direction() {
         &g,
         &double_t_feature_change_rule_dir(&g, Dir::LeftToRight),
         &seg(&g, "ddd"),
+        None,
     );
     assert_eq!(out_ltr.len(), 1, "LtR-declared rule: unapplied");
     let got = interior(&out_ltr[0]);
@@ -758,6 +767,7 @@ fn feature_change_analysis_pick_order_depends_on_direction() {
         &g,
         &double_t_feature_change_rule_dir(&g, Dir::RightToLeft),
         &seg(&g, "ddd"),
+        None,
     );
     assert_eq!(out_rtl.len(), 1, "RtL-declared rule: unapplied");
     let got = interior(&out_rtl[0]);
@@ -1106,7 +1116,8 @@ fn traced_analysis_reports_unapplied_and_not_unapplied() {
     // "aa": the deleted t round-trips (analysis re-inserts it optionally) — Unapplied.
     let sink = TreeTraceSink::new();
     let root = sink.generate_words();
-    let out = pg_rules::rewrite::analyze_traced(&g, PRuleId(4), &r, &seg(&g, "aa"), &sink, root);
+    let out =
+        pg_rules::rewrite::analyze_traced(&g, PRuleId(4), &r, &seg(&g, "aa"), None, &sink, root);
     assert_eq!(out.len(), 1);
     let children = children_of(&sink, root);
     assert_eq!(children.len(), 1);
@@ -1121,7 +1132,8 @@ fn traced_analysis_reports_unapplied_and_not_unapplied() {
     // "at": no vowel-t-vowel deletion site exists at all -- NotUnapplied.
     let sink2 = TreeTraceSink::new();
     let root2 = sink2.generate_words();
-    let out2 = pg_rules::rewrite::analyze_traced(&g, PRuleId(4), &r, &seg(&g, "at"), &sink2, root2);
+    let out2 =
+        pg_rules::rewrite::analyze_traced(&g, PRuleId(4), &r, &seg(&g, "at"), None, &sink2, root2);
     assert!(out2.is_empty());
     let ev2 = sink2.node(children_of(&sink2, root2)[0]);
     assert_eq!(ev2.type_, TraceType::PhonologicalRuleAnalysis);
@@ -1148,6 +1160,7 @@ fn traced_analysis_cached_matches_uncached() {
         &r,
         &seg(&g, "aa"),
         &cache,
+        None,
         &sink,
         root,
     );
@@ -1241,7 +1254,7 @@ fn epenthesis_natural_class_rhs_round_trips_with_environment() {
         );
 
         // Analysis must recover the pre-insertion form: the medial inserted segment is marked OPTIONAL (never deleted), flanking a/t untouched, round-tripping correctly in both directions.
-        let ana = pg_rules::rewrite::analyze(&g, &r, &synth[0]);
+        let ana = pg_rules::rewrite::analyze(&g, &r, &synth[0], None);
         assert_eq!(
             ana.len(),
             1,
