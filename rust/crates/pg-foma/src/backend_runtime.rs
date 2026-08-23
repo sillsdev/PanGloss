@@ -530,7 +530,7 @@ pub fn grammar_identity(grammar: &Grammar) -> String {
 
 /// The identity of a finished proposer network: domain-framed SHA-256 over everything `apply_up` can observe about it, so any two nets sharing a digest must return identical raw paths for any query.
 /// See `docs/research/pg-foma-recipe-runtime-design-notes.md` for the preimage completeness argument and the two deliberate exclusions.
-fn finished_net_digest(net: &foma::types::Fsm) -> String {
+pub(crate) fn finished_net_digest(net: &foma::types::Fsm) -> String {
     let mut hash = Sha256::new();
     framed(&mut hash, FINISHED_NET_PROJECTION.as_bytes());
     hash.update(net.arity.to_le_bytes());
