@@ -1,51 +1,17 @@
-use pg_foma::templated_compile::{
-    compile_templated_morphotactics, TemplatedCompileError,
-};
+use pg_foma::templated_compile::{compile_templated_morphotactics, TemplatedCompileError};
 
-const MIXED_SLOT_XML: &str = r#"
-<HermitCrabInput><Language><Name>atomic-template-slot</Name>
-  <PartsOfSpeech><PartOfSpeech id="pos"><Name>Root</Name></PartOfSpeech></PartsOfSpeech>
-  <CharacterDefinitionTable id="table"><Name>Main</Name><SegmentDefinitions>
-    <SegmentDefinition id="cp"><Representations><Representation>p</Representation><Representation>P</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cs"><Representations><Representation>s</Representation><Representation>S</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions></CharacterDefinitionTable>
-  <NaturalClasses><FeatureNaturalClass id="any"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
-  <Strata><Stratum characterDefinitionTable="table" morphologicalRuleOrder="linear" morphologicalRules="">
-    <Name>Only</Name>
-    <MorphologicalRuleDefinitions>
-      <MorphologicalRule id="mixed" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
-        <Name>mixed slot alternatives</Name><MorphologicalSubrules>
-          <MorphologicalSubrule id="wrapper">
-            <MorphologicalInput><PhoneticSequence id="whole"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-            <MorphologicalOutput><InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments><CopyFromInput index="whole" /><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput>
-          </MorphologicalSubrule>
-          <MorphologicalSubrule id="suffix">
-            <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-            <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>t</PhoneticShape></InsertSegments></MorphologicalOutput>
-          </MorphologicalSubrule>
-          <MorphologicalSubrule id="prefix">
-            <MorphologicalInput><PhoneticSequence id="base"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-            <MorphologicalOutput><InsertSegments><PhoneticShape>u</PhoneticShape></InsertSegments><CopyFromInput index="base" /></MorphologicalOutput>
-          </MorphologicalSubrule>
-        </MorphologicalSubrules><MorphemeId>MIXED</MorphemeId>
-      </MorphologicalRule>
-    </MorphologicalRuleDefinitions>
-    <AffixTemplates><AffixTemplate id="template" final="true" requiredPartsOfSpeech="pos">
-      <Name>template</Name><Slot optional="true" morphologicalRules="mixed"><Name>mixed</Name></Slot>
-    </AffixTemplate></AffixTemplates>
-    <LexicalEntries><LexicalEntry id="root" partOfSpeech="pos"><Allomorphs>
-      <Allomorph id="root-allomorph"><PhoneticShape>q</PhoneticShape></Allomorph>
-    </Allomorphs><MorphemeId>ROOT</MorphemeId></LexicalEntry></LexicalEntries>
-  </Stratum></Strata>
-</Language></HermitCrabInput>
-"#;
+fn mixed_slot_xml() -> String {
+    std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/fixtures/pangloss/fst-completeness/atomic-template-slot-carrier/grammar.xml",
+        ),
+    )
+    .expect("atomic template-slot carrier fixture must be readable")
+}
 
 #[test]
 fn one_slot_choice_stays_atomic_across_the_root() {
-    let grammar = pg_grammar::load(MIXED_SLOT_XML).expect("mixed-slot fixture must load");
+    let grammar = pg_grammar::load(&mixed_slot_xml()).expect("mixed-slot fixture must load");
     let compiled = compile_templated_morphotactics(&grammar)
         .expect("the atomic carrier must compile before any lexc artifact is accepted");
     let mut proposer = compiled.proposer;
@@ -57,9 +23,7 @@ fn one_slot_choice_stays_atomic_across_the_root() {
         );
     }
 
-    for surface in [
-        "pqt", "Pqt", "uqt", "uqs", "uqS", "pq", "Pq", "qs", "qS",
-    ] {
+    for surface in ["pqt", "Pqt", "uqt", "uqs", "uqS", "pq", "Pq", "qs", "qS"] {
         assert!(
             proposer.propose(surface).is_empty(),
             "unmatched or crossed slot path {surface:?} must not be manufactured"
@@ -69,7 +33,7 @@ fn one_slot_choice_stays_atomic_across_the_root() {
 
 #[test]
 fn suffix_first_one_sided_choices_still_enter_the_carrier() {
-    let xml = MIXED_SLOT_XML.replace(
+    let xml = mixed_slot_xml().replace(
         r#"          <MorphologicalSubrule id="wrapper">
             <MorphologicalInput><PhoneticSequence id="whole"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
             <MorphologicalOutput><InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments><CopyFromInput index="whole" /><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput>
@@ -93,7 +57,7 @@ fn suffix_first_one_sided_choices_still_enter_the_carrier() {
 
 #[test]
 fn carrier_preserves_other_template_slots() {
-    let xml = MIXED_SLOT_XML
+    let xml = mixed_slot_xml()
         .replace(
             "</SegmentDefinitions>",
             r#"<SegmentDefinition id="ch"><Representations><Representation>h</Representation></Representations></SegmentDefinition><SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition></SegmentDefinitions>"#,
@@ -125,9 +89,7 @@ fn carrier_preserves_other_template_slots() {
         .expect("one mixed slot among ordinary template slots must compile");
     let mut proposer = compiled.proposer;
 
-    for surface in [
-        "pxqsh", "pxqSh", "Pxqsh", "PxqSh", "xqth", "uxqh", "xqh",
-    ] {
+    for surface in ["pxqsh", "pxqSh", "Pxqsh", "PxqSh", "xqth", "uxqh", "xqh"] {
         assert!(
             !proposer.propose(surface).is_empty(),
             "authored multi-slot path {surface:?} must remain reachable"
@@ -146,7 +108,7 @@ fn carrier_preserves_other_template_slots() {
 
 #[test]
 fn carrier_preserves_derivation_chains_around_the_root() {
-    let xml = MIXED_SLOT_XML
+    let xml = mixed_slot_xml()
         .replace(
             "</SegmentDefinitions>",
             r#"<SegmentDefinition id="cv"><Representations><Representation>v</Representation></Representations></SegmentDefinition><SegmentDefinition id="cw"><Representations><Representation>w</Representation></Representations></SegmentDefinition></SegmentDefinitions>"#,
@@ -200,7 +162,7 @@ fn assert_typed_unsupported(xml: &str, context: &str) {
 
 #[test]
 fn two_cross_root_slots_fail_closed() {
-    let xml = MIXED_SLOT_XML.replace(
+    let xml = mixed_slot_xml().replace(
         "</AffixTemplate></AffixTemplates>",
         r#"<Slot optional="true" morphologicalRules="mixed"><Name>second mixed</Name></Slot></AffixTemplate></AffixTemplates>"#,
     );
@@ -209,7 +171,7 @@ fn two_cross_root_slots_fail_closed() {
 
 #[test]
 fn cross_root_slot_with_compounding_fails_closed() {
-    let xml = MIXED_SLOT_XML
+    let xml = mixed_slot_xml()
         .replace(
             "morphologicalRuleOrder=\"linear\" morphologicalRules=\"\"",
             "morphologicalRuleOrder=\"linear\" morphologicalRules=\"compound\"",
@@ -229,7 +191,7 @@ fn cross_root_slot_with_compounding_fails_closed() {
 
 #[test]
 fn dual_authored_cross_root_rule_fails_closed_without_a_derivation_carrier() {
-    let xml = MIXED_SLOT_XML.replace(
+    let xml = mixed_slot_xml().replace(
         "morphologicalRuleOrder=\"linear\" morphologicalRules=\"\"",
         "morphologicalRuleOrder=\"linear\" morphologicalRules=\"mixed\"",
     );
