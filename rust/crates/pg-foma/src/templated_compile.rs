@@ -85,8 +85,8 @@ pub fn compile_templated_morphotactics(
     let emitted = emit_underlying_templated(g, &alphabet, None);
     let templated_emit_elapsed = started.elapsed();
 
-    // Check the emission tier before its reachability probe or the lexc parser can inspect the
-    // source; neither incomplete nor refused emission is a compilable artifact.
+    // Check the returned tier before this compiler invokes its lexc parser. The emitter may have
+    // already run its internal reachability probe; neither incomplete nor refused output is safe.
     match &emitted.report.tier {
         crate::emit::FomaTier::Full => {}
         crate::emit::FomaTier::Unsupported { .. }
