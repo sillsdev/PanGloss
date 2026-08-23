@@ -3511,8 +3511,10 @@ const TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE: &str = "strategy-coverage.templated
 
 /// Applies shape-specific eligibility checks to templated emission.
 fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
+    let grammar = semantics.grammar();
     let mut diagnostics = Vec::new();
-    for (rule_index, rule) in semantics.grammar().mrules.iter().enumerate() {
+    let mut role_floor_refusals = HashSet::new();
+    for (rule_index, rule) in grammar.mrules.iter().enumerate() {
         let Some(allomorphs) = rule.affix_allomorphs() else {
             continue;
         };
@@ -3531,6 +3533,7 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
             let Some(reason) = reason else {
                 continue;
             };
+            role_floor_refusals.insert((rule_index, allomorph_index));
             diagnostics.push(CapabilityDiagnostic {
                 predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
                 construct: format!(
@@ -3546,8 +3549,82 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
         }
     }
 
+    let active_table = grammar.strata.last().map(|stratum| stratum.table);
+    match active_table {
+        None => diagnostics.push(CapabilityDiagnostic {
+            predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
+            construct: "grammar (missing final active pipeline table)".to_string(),
+            witness: "no faithful templated emission path: grammar has no final active pipeline table"
+                .to_string(),
+        }),
+        Some(active_table) if grammar.char_tables.get(active_table.0 as usize).is_none() => {
+            diagnostics.push(CapabilityDiagnostic {
+                predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
+                construct: format!("grammar (invalid final active pipeline table {active_table:?})"),
+                witness: format!(
+                    "no faithful templated emission path: final active pipeline table {active_table:?} is not defined"
+                ),
+            });
+        }
+        Some(active_table) => {
+            for (rule_index, rule) in grammar.mrules.iter().enumerate() {
+                let Some(allomorphs) = rule.affix_allomorphs() else {
+                    continue;
+                };
+                for (allomorph_index, allomorph) in allomorphs.iter().enumerate() {
+                    if role_floor_refusals.contains(&(rule_index, allomorph_index)) {
+                        continue;
+                    }
+                    let crate::structural_allomorph::MorphologyRewrite::Unsupported {
+                        shape_id,
+                        reason_id,
+                        ..
+                    } = crate::structural_allomorph::MorphologyRewriteClassifier::classify(
+                        grammar,
+                        allomorph,
+                        active_table,
+                    )
+                    else {
+                        continue;
+                    };
+                    diagnostics.push(CapabilityDiagnostic {
+                        predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
+                        construct: format!(
+                            "mrule {} allomorph #{} ({} morphology relation)",
+                            rule_index, allomorph_index, shape_id
+                        ),
+                        witness: format!(
+                            "no faithful templated emission path: morphology relation classifier \
+                             rejected {shape_id}/{reason_id} against final active pipeline table \
+                             {active_table:?}"
+                        ),
+                    });
+                }
+            }
+
+            if let Err(error) =
+                crate::structural_allomorph::MorphologyRelationPlan::build(grammar, active_table)
+            {
+                if !matches!(
+                    error,
+                    crate::structural_allomorph::MorphologyRelationError::UnsupportedRewrite { .. }
+                ) {
+                    diagnostics.push(CapabilityDiagnostic {
+                        predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
+                        construct: "morphology relation plan".to_string(),
+                        witness: format!(
+                            "no faithful templated emission path: morphology relation plan \
+                             cannot be constructed against final active pipeline table \
+                             {active_table:?}: {error}"
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
     let is_loose_rule = |rule_id: &MRuleId| {
-        let Some(allomorphs) = semantics.grammar().mrules[rule_id.0 as usize].affix_allomorphs()
+        let Some(allomorphs) = grammar.mrules[rule_id.0 as usize].affix_allomorphs()
         else {
             return false;
         };
@@ -3558,7 +3635,7 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
                     && allomorph.out_mpr.is_empty()
             })
     };
-    for (stratum_index, stratum) in semantics.grammar().strata.iter().enumerate() {
+    for (stratum_index, stratum) in grammar.strata.iter().enumerate() {
         if !matches!(stratum.mrule_order, MorphRuleOrder::Unordered) {
             continue;
         }
@@ -3583,7 +3660,7 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
         }
     }
 
-    for (prule_index, prule) in semantics.grammar().prules.iter().enumerate() {
+    for (prule_index, prule) in grammar.prules.iter().enumerate() {
         let PhonRuleDef::Rewrite(rule) = prule else {
             continue;
         };
