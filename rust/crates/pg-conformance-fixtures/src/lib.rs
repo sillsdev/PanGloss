@@ -20,6 +20,7 @@
 //! own doc for why silently picking either is worse than refusing.
 
 pub mod corpus;
+pub mod case_set;
 
 use std::path::{Path, PathBuf};
 
