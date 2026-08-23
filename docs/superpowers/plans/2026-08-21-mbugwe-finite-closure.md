@@ -2,6 +2,9 @@
 
 > Execute this plan with `subagent-driven-development`; all Rust commands go through `rust/tools/pg.ps1`.
 
+> **Deferred future work.** This plan is not part of the current Indonesian/Amharic/Aweti release
+> slice and its Mbugwe scale-acceptance task is not a current shipping gate.
+
 **Goal:** Replace the unsound three-extra-rule structural enumeration limit with deterministic, grammar-bounded closure, refuse incomplete construction, and certify every trusted Foma artifact.
 
 **Boundary:** The committed `late-structural-anchor-five-rule-chain` and `complex-inserted-redup-later-allomorph` grammars are small PanGloss-only semantic fixtures. They prove compiler behavior, not Mbugwe corpus-scale coverage. Scale acceptance is a separate final task.

@@ -12,6 +12,10 @@ The four parity languages remain required scale and integration gates. They are 
 themselves, evidence of typological generality. Small source-backed conformance grammars provide
 the orthogonal semantic evidence.
 
+> **Historical/superseded acceptance scope.** The four-language requirement above is retained as
+> scale and integration provenance, not as the current shipping gate. Current acceptance is limited
+> to Indonesian, Amharic, and Aweti.
+
 ## Decisions
 
 ### D1. Preserve Plan as the physical algebra
