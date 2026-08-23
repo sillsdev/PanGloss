@@ -68,6 +68,30 @@ fn one_slot_choice_stays_atomic_across_the_root() {
 }
 
 #[test]
+fn suffix_first_one_sided_choices_still_enter_the_carrier() {
+    let xml = MIXED_SLOT_XML.replace(
+        r#"          <MorphologicalSubrule id="wrapper">
+            <MorphologicalInput><PhoneticSequence id="whole"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+            <MorphologicalOutput><InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments><CopyFromInput index="whole" /><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput>
+          </MorphologicalSubrule>
+"#,
+        "",
+    );
+    let grammar = pg_grammar::load(&xml).expect("suffix-first mixed-slot fixture must load");
+    let compiled = compile_templated_morphotactics(&grammar)
+        .expect("suffix-first mixed slot must enter its atomic carrier");
+    let mut proposer = compiled.proposer;
+
+    for surface in ["qt", "uq", "q"] {
+        assert!(!proposer.propose(surface).is_empty(), "{surface:?}");
+    }
+    assert!(
+        proposer.propose("uqt").is_empty(),
+        "prefix-only and suffix-only alternatives must not cross"
+    );
+}
+
+#[test]
 fn carrier_preserves_other_template_slots() {
     let xml = MIXED_SLOT_XML
         .replace(
@@ -201,4 +225,13 @@ fn cross_root_slot_with_compounding_fails_closed() {
             </CompoundingRule></MorphologicalRuleDefinitions>"#,
         );
     assert_typed_unsupported(&xml, "cross-root slot with compounding");
+}
+
+#[test]
+fn dual_authored_cross_root_rule_fails_closed_without_a_derivation_carrier() {
+    let xml = MIXED_SLOT_XML.replace(
+        "morphologicalRuleOrder=\"linear\" morphologicalRules=\"\"",
+        "morphologicalRuleOrder=\"linear\" morphologicalRules=\"mixed\"",
+    );
+    assert_typed_unsupported(&xml, "dual-authored cross-root rule");
 }
