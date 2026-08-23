@@ -6,6 +6,10 @@ Templated Underlying Tokens instead emits compact underlying morphotactics and c
 phonological cascade.  The structural layer must therefore lower a closed set of root-independent
 relations, not synthesize one surface entry per root.
 
+A physical template slot is one authored choice, not independent prefix and suffix inventories.
+That choice must remain attached to the route over the root; otherwise a later continuation can
+combine halves that never co-occurred in the grammar.
+
 The current implementation has three separate decisions: `emit.rs` decides what text/marker to
 write, `capability.rs` decides what looks supported, and `templated_compile.rs` decides what to
 compose.  The design below makes one classifier the source of truth for all three.  It also treats
@@ -20,6 +24,8 @@ related reports.
   compiling their stated regular supersets; HermitCrab remains authoritative for LHS predicates.
 - Make routing, marker placement, capability disposition, emission, and relation compilation use
   the same classifier result.
+- Preserve each physical template-slot alternative as route-specific state across the root, or
+  refuse the candidate before lexc parsing when no verified carrier exists.
 - Fail closed for every unclassified action, Pattern, table mapping, marker state, or skipped
   phonological rule.
 - Prove the mechanism with synthetic witnesses, then prove the actual selected Templated path with
@@ -109,19 +115,33 @@ repeated/missing/reordered `Copy` references, copied `Head`/`NonHead` references
 independent LHS partitions, reduplication, unbounded copying, an empty or untranslatable
 modification output set, unknown output actions, and any shape not listed above.
 
+One-sided whole-root wrappers remain ordinary edge routes.  A true two-sided wrapper is a
+`SlotProjectionAlternative` whose `route()` is `SlotAlternativeRoute::Coupled`; it is not a pair
+of independently reusable lists.
+A template-only rule is not a standalone derivation, and explicit stratum sites remain distinct.
+
 ### 2. One classifier owns routing, marker placement, capability, and emission
 
 `MorphologyRewriteClassifier::classify(g, allomorph, active_table)` returns either:
 
 - `OrdinaryLiteral` (no marker, ordinary zone routing); or
-- `DirectWholeRootWrapper { prefix_variants, suffix_variants }` (no marker; its two halves already
-  identify their zones and form the full Cartesian product); or
+- `DirectWholeRootWrapper { prefix_variants, suffix_variants }` (no marker; this result is for
+  one allomorph's true two-sided wrapper); or
 - `MarkedStructural { shape_id, recipe, zone_requirement, marker }`, where the requirement is an
   intrinsic edge (`Prefix`/`Suffix`) or `Caller` for a root-internal recipe; or
 - `Unsupported { shape_id, reason, source_rule, allomorph }`.
 
-The `DirectWholeRootWrapper` result carries two independently deduplicated translated variant sets;
-emission offers every `prefix_variants × suffix_variants` pair and never zips or selects one pair.
+The classifier is per allomorph.  Each `DirectWholeRootWrapper` result carries independently
+deduplicated translated variants for that allomorph, and emission offers every
+`prefix_variants × suffix_variants` pair within it.  The physical slot plan adds a
+`SlotProjectionAlternative` (or equivalent verified route carrier) that keeps each result's
+authored choice attached through root and continuation; it never forms a product across
+allomorph alternatives.  Thus `Coupled(p,s)` plus `SuffixOnly(t)` permits `pROOTs` and `ROOTt`
+but rejects invented `pROOTt`.  The route-specific state may be carried by duplicated
+root/continuation topology or a new verified carrier relation.  The current independent
+`classify_template` prefix/suffix lists and `build_slot_chain` cannot provide this invariant;
+flags, candidate filtering, and partial FST construction are not substitutes.  If no carrier is
+available, emission reports `Unsupported` and fails before lexc parsing.
 The `MarkedStructural` result contains the closed action-topology ID, ordered literal/output-class
 material, validated input references, source/active-table translation, an intrinsic-or-caller zone
 requirement, and exactly one allomorph-owned marker; it does
@@ -183,8 +203,11 @@ isolation witness, a marker-free identity witness, a foreign/multiple-marker rej
 and a final zero-marker assertion.  Terminal modification additionally has a one-segment positive
 witness and multi-segment and quantified-span negative witnesses, proving that one replacement
 cannot stand in for HermitCrab's modification of every segment in a captured span.  A wrapper
-witness with at least two prefix variants and two suffix variants proves all four pairs are emitted,
-so a zip or first-variant implementation fails.  Mechanism evidence is deterministic: classifier
+witness with at least two prefix variants and two suffix variants proves all four pairs
+within one classified allomorph's `Coupled` projection are emitted, while a mixed slot
+`Coupled` + `SuffixOnly` witness proves the cross-allomorph product is absent (`pROOTt` is rejected).
+Mechanism evidence is deterministic:
+classifier
 counts, marker allocations/consumptions, unsupported/uncovered items, skipped rules, and missing
 subtrees are compile evidence. Relation-fire counts are observation evidence and increment only
 when named witnesses actually traverse the compiled relation; an immutable compile profile never
@@ -249,9 +272,10 @@ gates prove it for the realized artifact.
 - **Cross-table literals may be misencoded.** Classification must fail unless every literal is
   translated from its owning table into the active table; add a deliberately misaligned two-table
   witness.
-- **Template slots may route a later circumfix incorrectly.** Route every allomorph from its own
-  classifier result and test a non-first circumfix alternative; first-allomorph-only role checks
-  are forbidden.
+- **Template slots may route a later circumfix incorrectly.** Preserve the atomic authored
+  alternative across the root and test a non-first alternative; independent prefix/suffix lists,
+  first-allomorph-only role checks, flags, filtering, and partial FSTs are forbidden.  Missing
+  carrier state is a pre-lexc refusal.
 - **Composition may grow.** Record deterministic recipe/state/arc counters and keep resource
   containment, but treat cost separately from semantic admission.
 - **Corpus recall may hide an unexercised construct.** Synthetic witnesses and zero unsupported,
@@ -264,10 +288,12 @@ gates prove it for the realized artifact.
    keep the existing narrow recipe behavior unchanged until
    its classifier result is proven equivalent.
 2. Implement shared classification and make emission, capability, and relation compilation consume
-   it.  Add origin-table translation and per-allomorph zone routing at this boundary.
+   it.  Add origin-table translation and the atomic template-slot carrier at this boundary; do not
+   proceed to lexc parsing until each route retains its authored choice across the root.
 3. Implement the Aweti wrapper and bounded drop, then Amharic interior insertion, terminal modify,
-   and initial-vowel replacement one recipe at a time.  Each step must leave unrelated shapes
-   refused rather than falling through to literal text.
+   and initial-vowel replacement one recipe at a time.  Prove the full product within each
+   allomorph's `DirectWholeRootWrapper` while refusing cross-slot-alternative/allomorph products;
+   each unrelated shape remains refused rather than falling through to literal text.
 4. Add the unioned relation and total marker assertions, then compose it before the existing
    phonology cascade.  Any skipped rule, uncovered item, missing subtree, or marker leakage keeps
    the candidate unavailable.
