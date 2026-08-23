@@ -11,6 +11,22 @@ This specification is a delivery contract, not evidence that any of these langua
 trusted shipped FST. A language is accepted only after its selected route has a complete payload,
 certificate, and the required runtime evidence.
 
+### Scope reset from Sol/xhigh review (2026-08-23)
+
+Outcome-weighted progress is **0/3 certified routes**. The existing infrastructure is useful, but
+it is not language acceptance evidence. In particular, an expected constant such as Aweti
+`106/106` is a target, not a measurement; only a current exact-case run can establish that result.
+
+The delivery order is now: freeze real case IDs, source bindings, and denominators; make the
+selected payload and its evidence one artifact; then fix only failures reproduced by those cases;
+then run exact semantic certification. Bare-FST claims and complete-pipeline claims remain
+distinct: a pipeline using a proposer, peeler, confirmation engine, or filter is acceptable only
+when every required stage is explicitly bound and covered by the certificate.
+
+Stop Amharic TunedSurface exploration at the observed >3-million-pair boundary. Its production
+route is the Templated route with the required runtime stages. Do not add generic capability,
+peeler, advice, or PlanComposed work without a frozen failing case. Mbugwe remains deferred.
+
 The registered OpenSpec changes are `surface-compile-profile-and-templated-routing` and
 `cover-circumfix-cross-product-and-infix-drop`. Historical references to
 `surface-fst-complete-build-envelope` and `cover-amharic-aweti-structural-morphology` mean those
@@ -120,6 +136,19 @@ The current cross-change authorities are
 for complete Indonesian construction and artifact binding, and
 [`cover-circumfix-cross-product-and-infix-drop`](../../openspec/changes/cover-circumfix-cross-product-and-infix-drop/tasks.md)
 for Amharic/Aweti morphology coverage and route certification.
+
+- **Review status is an acceptance invariant.** Count certified routes, not infrastructure or
+  expected constants: the current baseline is 0/3, and Aweti `106/106` remains unmeasured until
+  its exact frozen gate passes. Freeze denominators before adding framework work; every later fix
+  must be driven by a declared red case. Consumed by tasks 6.1–6.6 and 7.1–7.3.
+- **A backend claim names its whole execution path.** A bare FST cannot inherit correctness from a
+  peeler, confirmation engine, or filter. Conversely, a complete pipeline may be certified only
+  when those stages and their bindings are part of the selected artifact evidence. Consumed by
+  tasks 4.1–4.3 and 6.1–6.4.
+- **Scope is deliberately narrow.** Amharic TunedSurface exploration stops at the observed
+  >3-million-pair boundary; use the Templated route. Mbugwe, generic peeler support, advice
+  expansion, and PlanComposed implementation are deferred. The static card contract remains in
+  force, but cards are not route evidence. Consumed by tasks 6.1–6.6 and 7.1–7.3.
 
 - **No single old builder solved all three languages.** The P6 rule compiler reached Indonesian
   parity and Amharic alpha-tuple scale, while the underlying emitter was still template-less and
