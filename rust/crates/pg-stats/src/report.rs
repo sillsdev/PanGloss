@@ -83,6 +83,7 @@ pub struct PerObjectRow {
     pub attempts: i64,
     pub work: i64,
     pub outputs: i64,
+    /// Rule-level only (the `allomorph_id = 0` row): one per invocation that produced nothing, matching `attempts`'s granularity. The per-allomorph breakdown lives in `PerAllomorphRow` instead.
     pub not_applied: i64,
     pub no_root: i64,
     pub surface_mismatch: i64,
@@ -92,7 +93,8 @@ pub struct PerObjectRow {
 
 const PER_OBJECT_SQL: &str = "
     SELECT o.kind, o.label, o.identity_quality,
-           SUM(f.attempts), SUM(f.work), SUM(f.outputs), SUM(f.not_applied),
+           SUM(f.attempts), SUM(f.work), SUM(f.outputs),
+           SUM(CASE WHEN f.allomorph_id = 0 THEN f.not_applied ELSE 0 END),
            SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses),
            SUM(f.work) * oc.ns_per_unit AS estimated_ns
     FROM fact f
@@ -396,6 +398,92 @@ pub fn per_direction_report(
                 no_root: row.get(5)?,
                 surface_mismatch: row.get(6)?,
                 uses: row.get(7)?,
+            })
+        },
+    )?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Below this many attempts, "never fires" is indistinguishable from ordinary noise, so the
+/// default excludes it rather than defaulting to 0 -- the sensible-default this report needs to
+/// be actionable rather than a dump of every rarely-tried object.
+pub const NEVER_FIRES_DEFAULT_MIN_ATTEMPTS: i64 = 1000;
+
+/// Optional narrowing for `never_fires_report`. `min_attempts` defaults to
+/// `NEVER_FIRES_DEFAULT_MIN_ATTEMPTS`, not 0 -- see that constant's doc.
+#[derive(Debug, Clone)]
+pub struct NeverFiresFilter {
+    pub kind: Option<String>,
+    pub direction: Option<String>,
+    pub min_attempts: i64,
+    pub exclude_censored_words: bool,
+    pub top_n: Option<usize>,
+}
+
+impl Default for NeverFiresFilter {
+    fn default() -> Self {
+        NeverFiresFilter {
+            kind: None,
+            direction: None,
+            min_attempts: NEVER_FIRES_DEFAULT_MIN_ATTEMPTS,
+            exclude_censored_words: false,
+            top_n: None,
+        }
+    }
+}
+
+/// One row of the never-fires report: an object heavily attempted in `direction` that produced
+/// zero outputs there. Direction-scoped rather than undirected, so an object that fires only in
+/// the other direction never appears -- see `NeverFiresFilter`'s doc.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NeverFiresRow {
+    pub kind: String,
+    pub label: String,
+    pub identity_quality: String,
+    pub direction: String,
+    pub attempts: i64,
+}
+
+/// Scoped to the kinds whose collector wires an `outputs` counter at all; `lex_entry` never populates it, so "zero outputs" would be an artifact there, not a finding.
+const NEVER_FIRES_SQL: &str = "
+    SELECT o.kind, o.label, o.identity_quality, f.direction, SUM(f.attempts) AS total_attempts
+    FROM fact f
+    JOIN object o ON o.object_id = f.object_id
+    JOIN word w ON w.word_id = f.word_id
+    WHERE o.kind IN ('morph_rule', 'phon_rule')
+      AND (:kind IS NULL OR o.kind = :kind)
+      AND (:direction IS NULL OR f.direction = :direction)
+      AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
+    GROUP BY o.object_id, f.direction
+    HAVING SUM(f.outputs) = 0 AND total_attempts >= :min_attempts
+    ORDER BY total_attempts DESC, o.key ASC, f.direction ASC
+    LIMIT :limit
+";
+
+/// Objects heavily attempted (`>= filter.min_attempts`) that produced zero outputs, in the
+/// direction they were attempted -- the single most actionable fact this cache can surface: a
+/// rule entered hundreds of thousands of times for nothing.
+pub fn never_fires_report(
+    conn: &Connection,
+    filter: &NeverFiresFilter,
+) -> Result<Vec<NeverFiresRow>, StatsError> {
+    let mut stmt = conn.prepare(NEVER_FIRES_SQL)?;
+    let limit: i64 = filter.top_n.map(|n| n as i64).unwrap_or(-1);
+    let rows = stmt.query_map(
+        named_params! {
+            ":kind": filter.kind.as_deref(),
+            ":direction": filter.direction.as_deref(),
+            ":exclude_censored": i64::from(filter.exclude_censored_words),
+            ":min_attempts": filter.min_attempts,
+            ":limit": limit,
+        },
+        |row| {
+            Ok(NeverFiresRow {
+                kind: row.get(0)?,
+                label: row.get(1)?,
+                identity_quality: row.get(2)?,
+                direction: row.get(3)?,
+                attempts: row.get(4)?,
             })
         },
     )?;
@@ -795,6 +883,74 @@ mod tests {
         );
     }
 
+    fn fact_with_allomorph_not_applied(
+        object_key: &str,
+        allomorph: Option<(&str, &str)>,
+        attempts: u64,
+        not_applied: u64,
+    ) -> FactRecord {
+        FactRecord {
+            object_key: object_key.to_string(),
+            object_kind: ObjectKind::MorphRule,
+            object_label: object_key.to_string(),
+            identity_quality: IdentityQuality::Authored,
+            stratum: Some(StructuralLocator::new("0:Root", "Root")),
+            allomorph: allomorph.map(|(k, l)| StructuralLocator::new(k, l)),
+            direction: Direction::Analysis,
+            attempts,
+            work: 1,
+            outputs: 0,
+            not_applied,
+            no_root: 0,
+            surface_mismatch: 0,
+            uses: 0,
+        }
+    }
+
+    /// Two failing allomorphs must not inflate per-object `not_applied` past the one invocation.
+    #[test]
+    fn per_object_not_applied_counts_rule_level_invocations_not_per_allomorph_failures() {
+        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+        let words = vec![WordRecord {
+            form: "granularity".to_string(),
+            elapsed_ns: 1,
+            attempts: 1,
+            passes: 0,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts: vec![
+                // Rule-level residual: one invocation, reached both allomorphs, produced nothing.
+                fact_with_allomorph_not_applied("rule-f", None, 1, 1),
+                fact_with_allomorph_not_applied("rule-f", Some(("rule-f:0", "Allo 0")), 0, 1),
+                fact_with_allomorph_not_applied("rule-f", Some(("rule-f:1", "Allo 1")), 0, 1),
+            ],
+        }];
+        outcome.cache.flush(&run(), &words).unwrap();
+
+        let object_rows =
+            per_object_report(outcome.cache.connection(), &PerObjectFilter::default()).unwrap();
+        assert_eq!(object_rows.len(), 1);
+        assert_eq!(
+            object_rows[0].not_applied, 1,
+            "one failed invocation must read as 1, not 3 -- summing every allomorph's own failure \
+             mixes a per-allomorph count into a per-invocation column"
+        );
+
+        let allomorph_rows =
+            per_allomorph_report(outcome.cache.connection(), &PerAllomorphFilter::default())
+                .unwrap();
+        assert_eq!(
+            allomorph_rows.len(),
+            3,
+            "the per-allomorph report keeps all three rows, including the NONE sentinel"
+        );
+        assert!(
+            allomorph_rows.iter().all(|r| r.not_applied == 1),
+            "the per-allomorph report is unaffected -- each row still reports its own failure"
+        );
+    }
+
     fn fact_with_stratum(
         object_key: &str,
         kind: ObjectKind,
@@ -1156,6 +1312,116 @@ mod tests {
             directions,
             vec!["analysis".to_string(), "synthesis".to_string()],
             "direction rows must sort in a fixed, explicit order, not an incidental one"
+        );
+    }
+
+    fn never_fires_fact(
+        object_key: &str,
+        direction: Direction,
+        attempts: u64,
+        outputs: u64,
+    ) -> FactRecord {
+        FactRecord {
+            object_key: object_key.to_string(),
+            object_kind: ObjectKind::MorphRule,
+            object_label: object_key.to_string(),
+            identity_quality: IdentityQuality::Authored,
+            stratum: Some(StructuralLocator::new("0:Root", "Root")),
+            allomorph: None,
+            direction,
+            attempts,
+            work: attempts,
+            outputs,
+            not_applied: attempts.saturating_sub(outputs),
+            no_root: 0,
+            surface_mismatch: 0,
+            uses: 0,
+        }
+    }
+
+    fn seeded_never_fires_cache() -> StatsCache {
+        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+        let words = vec![WordRecord {
+            form: "neverfiresword".to_string(),
+            elapsed_ns: 1,
+            attempts: 1,
+            passes: 0,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts: vec![
+                // Heavily attempted, zero outputs -- the motivating case.
+                never_fires_fact("rule-dead", Direction::Analysis, 2_500, 0),
+                // Heavily attempted but productive -- must never appear.
+                never_fires_fact("rule-alive", Direction::Analysis, 2_500, 40),
+                // Zero outputs but below the sensible default floor -- noise, not signal.
+                never_fires_fact("rule-thin", Direction::Analysis, 5, 0),
+                // Dead in analysis, alive in synthesis -- direction-aware, only one row must appear.
+                never_fires_fact("rule-dir-split", Direction::Analysis, 3_000, 0),
+                never_fires_fact("rule-dir-split", Direction::Synthesis, 500, 10),
+            ],
+        }];
+        outcome.cache.flush(&run(), &words).unwrap();
+        outcome.cache
+    }
+
+    #[test]
+    fn never_fires_report_finds_heavily_attempted_zero_output_objects() {
+        let cache = seeded_never_fires_cache();
+        let rows = never_fires_report(cache.connection(), &NeverFiresFilter::default()).unwrap();
+        let labels: Vec<_> = rows.iter().map(|r| r.label.clone()).collect();
+
+        assert!(
+            labels.contains(&"rule-dead".to_string()),
+            "a heavily-attempted, zero-output rule must be reported"
+        );
+        assert!(
+            !labels.contains(&"rule-alive".to_string()),
+            "a rule that produced outputs must never appear, no matter how many attempts"
+        );
+        assert!(
+            !labels.contains(&"rule-thin".to_string()),
+            "below the sensible default min_attempts, a zero-output rule is noise, not signal"
+        );
+    }
+
+    #[test]
+    fn never_fires_report_is_direction_aware() {
+        let cache = seeded_never_fires_cache();
+        let rows = never_fires_report(cache.connection(), &NeverFiresFilter::default()).unwrap();
+        let split_rows: Vec<_> = rows
+            .iter()
+            .filter(|r| r.label == "rule-dir-split")
+            .collect();
+
+        assert_eq!(
+            split_rows.len(),
+            1,
+            "the rule fires in synthesis, so only its analysis row may be reported"
+        );
+        assert_eq!(split_rows[0].direction, "analysis");
+    }
+
+    #[test]
+    fn never_fires_report_orders_by_attempts_descending_and_respects_explicit_min_attempts() {
+        let cache = seeded_never_fires_cache();
+        let rows = never_fires_report(
+            cache.connection(),
+            &NeverFiresFilter {
+                min_attempts: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let labels: Vec<_> = rows.iter().map(|r| r.label.clone()).collect();
+        assert_eq!(
+            labels,
+            vec![
+                "rule-dir-split".to_string(),
+                "rule-dead".to_string(),
+                "rule-thin".to_string(),
+            ],
+            "descending by attempts (3000, 2500, 5), and a low explicit min_attempts admits rule-thin"
         );
     }
 }

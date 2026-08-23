@@ -457,7 +457,7 @@ pub(crate) fn run_batch_stats_foma(
 
 // The `stats` subcommand: read-only, no grammar loaded.
 
-const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|stratum|direction] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--min-attempts N] [--top N] [--sort time|no-root] [--exclude-censored] [--cache <path>] [--out FILE]";
+const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|stratum|direction|never-fires] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--min-attempts N] [--top N] [--sort time|no-root] [--exclude-censored] [--show-work] [--cache <path>] [--out FILE]";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ReportGroup {
@@ -466,6 +466,7 @@ enum ReportGroup {
     Allomorph,
     Stratum,
     Direction,
+    NeverFires,
 }
 
 #[derive(Default)]
@@ -479,6 +480,8 @@ struct Filters {
     top_n: Option<usize>,
     sort: Option<pg_stats::SortKey>,
     exclude_censored: bool,
+    /// `--show-work`: appends the raw `work` counter column, hidden by default.
+    show_work: bool,
 }
 
 fn per_object_filter(f: &Filters) -> pg_stats::PerObjectFilter {
@@ -511,6 +514,19 @@ fn per_stratum_filter(f: &Filters) -> pg_stats::PerStratumFilter {
         object_key: f.object_key.clone(),
         direction: f.direction.clone(),
         min_attempts: f.min_attempts,
+        exclude_censored_words: f.exclude_censored,
+        top_n: f.top_n,
+    }
+}
+
+/// Unlike the other filters, an unset `--min-attempts` still applies the sensible default floor.
+fn never_fires_filter(f: &Filters) -> pg_stats::NeverFiresFilter {
+    pg_stats::NeverFiresFilter {
+        kind: f.kind.clone(),
+        direction: f.direction.clone(),
+        min_attempts: f
+            .min_attempts
+            .unwrap_or(pg_stats::NEVER_FIRES_DEFAULT_MIN_ATTEMPTS),
         exclude_censored_words: f.exclude_censored,
         top_n: f.top_n,
     }
@@ -645,7 +661,7 @@ fn render_word(conn: &rusqlite::Connection, out: Option<&str>) -> Result<(), Str
     }
 }
 
-const OBJECT_HEADERS: [&str; 11] = [
+const OBJECT_HEADERS_BASE: [&str; 11] = [
     "kind",
     "label",
     "identity_quality",
@@ -658,6 +674,15 @@ const OBJECT_HEADERS: [&str; 11] = [
     "Didn't match the word",
     "uses",
 ];
+
+/// `OBJECT_HEADERS_BASE`, plus `work` when `--show-work` was passed; the raw counter is opt-in since its per-attempt weighting is provisional (see the spec's "Known limitations").
+fn object_headers(show_work: bool) -> Vec<&'static str> {
+    let mut h = OBJECT_HEADERS_BASE.to_vec();
+    if show_work {
+        h.push("work");
+    }
+    h
+}
 
 /// Printed with every per-object/per-allomorph report: estimated time is a calibration multiplier, not a measurement, and will not sum to the actual total.
 const OBJECT_ESTIMATE_DISCLAIMER: &str = "estimated_time_ms is a calibrated estimate from `pangloss calibrate` (one core); it will not sum to the actual per-word total";
@@ -677,8 +702,12 @@ fn estimated_cell(estimated_ns: Option<i64>) -> String {
     }
 }
 
-fn object_row_cells(r: &pg_stats::PerObjectRow, coverage: &CoverageMap) -> Vec<String> {
-    vec![
+fn object_row_cells(
+    r: &pg_stats::PerObjectRow,
+    coverage: &CoverageMap,
+    show_work: bool,
+) -> Vec<String> {
+    let mut cells = vec![
         r.kind.clone(),
         r.label.clone(),
         r.identity_quality.clone(),
@@ -690,7 +719,11 @@ fn object_row_cells(r: &pg_stats::PerObjectRow, coverage: &CoverageMap) -> Vec<S
         counter_cell(&r.kind, "no_root", r.no_root, coverage),
         counter_cell(&r.kind, "surface_mismatch", r.surface_mismatch, coverage),
         counter_cell(&r.kind, "uses", r.uses, coverage),
-    ]
+    ];
+    if show_work {
+        cells.push(counter_cell(&r.kind, "work", r.work, coverage));
+    }
+    cells
 }
 
 fn render_object(
@@ -701,21 +734,25 @@ fn render_object(
 ) -> Result<(), String> {
     let filter = per_object_filter(filters);
     let rows = pg_stats::per_object_report(conn, &filter).map_err(|e| e.to_string())?;
-    let table_rows: Vec<Vec<String>> = rows.iter().map(|r| object_row_cells(r, coverage)).collect();
+    let headers = object_headers(filters.show_work);
+    let table_rows: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| object_row_cells(r, coverage, filters.show_work))
+        .collect();
     match out {
         Some(path) => {
             eprintln!("stats: {OBJECT_ESTIMATE_DISCLAIMER}");
-            write_csv(path, &OBJECT_HEADERS, &table_rows)
+            write_csv(path, &headers, &table_rows)
         }
         None => {
             println!("# {OBJECT_ESTIMATE_DISCLAIMER}");
-            print!("{}", render_table(&OBJECT_HEADERS, &table_rows));
+            print!("{}", render_table(&headers, &table_rows));
             Ok(())
         }
     }
 }
 
-const ALLOMORPH_HEADERS: [&str; 12] = [
+const ALLOMORPH_HEADERS_BASE: [&str; 12] = [
     "object_kind",
     "object_label",
     "allomorph_key",
@@ -730,8 +767,21 @@ const ALLOMORPH_HEADERS: [&str; 12] = [
     "uses",
 ];
 
-fn allomorph_row_cells(r: &pg_stats::PerAllomorphRow, coverage: &CoverageMap) -> Vec<String> {
-    vec![
+/// See `object_headers`.
+fn allomorph_headers(show_work: bool) -> Vec<&'static str> {
+    let mut h = ALLOMORPH_HEADERS_BASE.to_vec();
+    if show_work {
+        h.push("work");
+    }
+    h
+}
+
+fn allomorph_row_cells(
+    r: &pg_stats::PerAllomorphRow,
+    coverage: &CoverageMap,
+    show_work: bool,
+) -> Vec<String> {
+    let mut cells = vec![
         r.object_kind.clone(),
         r.object_label.clone(),
         r.allomorph_key.clone().unwrap_or_default(),
@@ -749,7 +799,11 @@ fn allomorph_row_cells(r: &pg_stats::PerAllomorphRow, coverage: &CoverageMap) ->
             coverage,
         ),
         counter_cell(&r.object_kind, "uses", r.uses, coverage),
-    ]
+    ];
+    if show_work {
+        cells.push(counter_cell(&r.object_kind, "work", r.work, coverage));
+    }
+    cells
 }
 
 fn render_allomorph(
@@ -760,24 +814,25 @@ fn render_allomorph(
 ) -> Result<(), String> {
     let filter = per_allomorph_filter(filters);
     let rows = pg_stats::per_allomorph_report(conn, &filter).map_err(|e| e.to_string())?;
+    let headers = allomorph_headers(filters.show_work);
     let table_rows: Vec<Vec<String>> = rows
         .iter()
-        .map(|r| allomorph_row_cells(r, coverage))
+        .map(|r| allomorph_row_cells(r, coverage, filters.show_work))
         .collect();
     match out {
         Some(path) => {
             eprintln!("stats: {OBJECT_ESTIMATE_DISCLAIMER}");
-            write_csv(path, &ALLOMORPH_HEADERS, &table_rows)
+            write_csv(path, &headers, &table_rows)
         }
         None => {
             println!("# {OBJECT_ESTIMATE_DISCLAIMER}");
-            print!("{}", render_table(&ALLOMORPH_HEADERS, &table_rows));
+            print!("{}", render_table(&headers, &table_rows));
             Ok(())
         }
     }
 }
 
-const STRATUM_HEADERS: [&str; 8] = [
+const STRATUM_HEADERS_BASE: [&str; 8] = [
     "stratum_key",
     "stratum_label",
     "attempts",
@@ -788,9 +843,18 @@ const STRATUM_HEADERS: [&str; 8] = [
     "uses",
 ];
 
+/// See `object_headers`.
+fn stratum_headers(show_work: bool) -> Vec<&'static str> {
+    let mut h = STRATUM_HEADERS_BASE.to_vec();
+    if show_work {
+        h.push("work");
+    }
+    h
+}
+
 /// A stratum row can sum several object kinds at once, so no single `coverage` lookup fits it; narrow with `--kind` for a coverage-accurate view.
-fn stratum_row_cells(r: &pg_stats::PerStratumRow) -> Vec<String> {
-    vec![
+fn stratum_row_cells(r: &pg_stats::PerStratumRow, show_work: bool) -> Vec<String> {
+    let mut cells = vec![
         r.stratum_key.clone().unwrap_or_default(),
         r.stratum_label.clone(),
         r.attempts.to_string(),
@@ -799,7 +863,11 @@ fn stratum_row_cells(r: &pg_stats::PerStratumRow) -> Vec<String> {
         r.no_root.to_string(),
         r.surface_mismatch.to_string(),
         r.uses.to_string(),
-    ]
+    ];
+    if show_work {
+        cells.push(r.work.to_string());
+    }
+    cells
 }
 
 fn render_stratum(
@@ -809,17 +877,21 @@ fn render_stratum(
 ) -> Result<(), String> {
     let filter = per_stratum_filter(filters);
     let rows = pg_stats::per_stratum_report(conn, &filter).map_err(|e| e.to_string())?;
-    let table_rows: Vec<Vec<String>> = rows.iter().map(stratum_row_cells).collect();
+    let headers = stratum_headers(filters.show_work);
+    let table_rows: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| stratum_row_cells(r, filters.show_work))
+        .collect();
     match out {
-        Some(path) => write_csv(path, &STRATUM_HEADERS, &table_rows),
+        Some(path) => write_csv(path, &headers, &table_rows),
         None => {
-            print!("{}", render_table(&STRATUM_HEADERS, &table_rows));
+            print!("{}", render_table(&headers, &table_rows));
             Ok(())
         }
     }
 }
 
-const DIRECTION_HEADERS: [&str; 8] = [
+const DIRECTION_HEADERS_BASE: [&str; 7] = [
     "direction",
     "attempts",
     "outputs",
@@ -827,12 +899,20 @@ const DIRECTION_HEADERS: [&str; 8] = [
     "No root found",
     "Didn't match the word",
     "uses",
-    "work",
 ];
 
+/// See `object_headers`.
+fn direction_headers(show_work: bool) -> Vec<&'static str> {
+    let mut h = DIRECTION_HEADERS_BASE.to_vec();
+    if show_work {
+        h.push("work");
+    }
+    h
+}
+
 /// Only two rows ever exist, so -- like `render_stratum` -- no single `coverage` lookup fits a row that can span several object kinds; narrow with `--kind` for a coverage-accurate view.
-fn direction_row_cells(r: &pg_stats::PerDirectionRow) -> Vec<String> {
-    vec![
+fn direction_row_cells(r: &pg_stats::PerDirectionRow, show_work: bool) -> Vec<String> {
+    let mut cells = vec![
         r.direction.clone(),
         r.attempts.to_string(),
         r.outputs.to_string(),
@@ -840,8 +920,11 @@ fn direction_row_cells(r: &pg_stats::PerDirectionRow) -> Vec<String> {
         r.no_root.to_string(),
         r.surface_mismatch.to_string(),
         r.uses.to_string(),
-        r.work.to_string(),
-    ]
+    ];
+    if show_work {
+        cells.push(r.work.to_string());
+    }
+    cells
 }
 
 fn render_direction(
@@ -851,11 +934,45 @@ fn render_direction(
 ) -> Result<(), String> {
     let filter = per_direction_filter(filters);
     let rows = pg_stats::per_direction_report(conn, &filter).map_err(|e| e.to_string())?;
-    let table_rows: Vec<Vec<String>> = rows.iter().map(direction_row_cells).collect();
+    let headers = direction_headers(filters.show_work);
+    let table_rows: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| direction_row_cells(r, filters.show_work))
+        .collect();
     match out {
-        Some(path) => write_csv(path, &DIRECTION_HEADERS, &table_rows),
+        Some(path) => write_csv(path, &headers, &table_rows),
         None => {
-            print!("{}", render_table(&DIRECTION_HEADERS, &table_rows));
+            print!("{}", render_table(&headers, &table_rows));
+            Ok(())
+        }
+    }
+}
+
+const NEVER_FIRES_HEADERS: [&str; 5] =
+    ["kind", "label", "identity_quality", "direction", "attempts"];
+
+fn never_fires_row_cells(r: &pg_stats::NeverFiresRow) -> Vec<String> {
+    vec![
+        r.kind.clone(),
+        r.label.clone(),
+        r.identity_quality.clone(),
+        r.direction.clone(),
+        r.attempts.to_string(),
+    ]
+}
+
+fn render_never_fires(
+    conn: &rusqlite::Connection,
+    filters: &Filters,
+    out: Option<&str>,
+) -> Result<(), String> {
+    let filter = never_fires_filter(filters);
+    let rows = pg_stats::never_fires_report(conn, &filter).map_err(|e| e.to_string())?;
+    let table_rows: Vec<Vec<String>> = rows.iter().map(never_fires_row_cells).collect();
+    match out {
+        Some(path) => write_csv(path, &NEVER_FIRES_HEADERS, &table_rows),
+        None => {
+            print!("{}", render_table(&NEVER_FIRES_HEADERS, &table_rows));
             Ok(())
         }
     }
@@ -864,7 +981,22 @@ fn render_direction(
 fn render_default(conn: &rusqlite::Connection, coverage: &CoverageMap) -> Result<(), String> {
     render_word(conn, None)?;
     println!();
-    render_object(conn, coverage, &Filters::default(), None)
+    render_object(conn, coverage, &Filters::default(), None)?;
+
+    let never_fires_rows =
+        pg_stats::never_fires_report(conn, &pg_stats::NeverFiresFilter::default())
+            .map_err(|e| e.to_string())?;
+    if !never_fires_rows.is_empty() {
+        println!();
+        println!(
+            "# never-fires: attempted >= {} time(s) with zero outputs",
+            pg_stats::NEVER_FIRES_DEFAULT_MIN_ATTEMPTS
+        );
+        let table_rows: Vec<Vec<String>> =
+            never_fires_rows.iter().map(never_fires_row_cells).collect();
+        print!("{}", render_table(&NEVER_FIRES_HEADERS, &table_rows));
+    }
+    Ok(())
 }
 
 /// `stats <project-or-grammar> [options]`: reads the cache via a raw `rusqlite::Connection`, never `StatsCache::open`, so a report-only read can never trip the grammar-hash wipe gate.
@@ -926,6 +1058,7 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             "--sort" => sort_arg = Some(it.next().ok_or("--sort requires a value")?.clone()),
             s if s.starts_with("--sort=") => sort_arg = Some(s["--sort=".len()..].to_string()),
             "--exclude-censored" => filters.exclude_censored = true,
+            "--show-work" => filters.show_work = true,
             "--cache" => {
                 cache_override = Some(it.next().ok_or("--cache requires a value")?.clone())
             }
@@ -949,9 +1082,10 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         Some("allomorph") => Some(ReportGroup::Allomorph),
         Some("stratum") => Some(ReportGroup::Stratum),
         Some("direction") => Some(ReportGroup::Direction),
+        Some("never-fires") => Some(ReportGroup::NeverFires),
         Some(other) => {
             return Err(format!(
-                "invalid --group: {other} (expected word|object|allomorph|stratum|direction)"
+                "invalid --group: {other} (expected word|object|allomorph|stratum|direction|never-fires)"
             ))
         }
     };
@@ -1033,6 +1167,7 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         }
         Some(ReportGroup::Stratum) => render_stratum(&conn, &filters, out_path.as_deref()),
         Some(ReportGroup::Direction) => render_direction(&conn, &filters, out_path.as_deref()),
+        Some(ReportGroup::NeverFires) => render_never_fires(&conn, &filters, out_path.as_deref()),
     }
 }
 
@@ -1311,15 +1446,15 @@ mod tests {
     fn unsupported_counter_renders_em_dash_not_zero() {
         let coverage = coverage_entry(pg_stats::CoverageState::Unsupported);
         let row = sample_object_row(0);
-        let cells = object_row_cells(&row, &coverage);
-        let no_root_col = OBJECT_HEADERS
+        let cells = object_row_cells(&row, &coverage, false);
+        let no_root_col = object_headers(false)
             .iter()
             .position(|h| *h == "No root found")
             .unwrap();
         assert_eq!(cells[no_root_col], "\u{2014}");
 
         let measured = coverage_entry(pg_stats::CoverageState::Measured);
-        let cells_measured = object_row_cells(&row, &measured);
+        let cells_measured = object_row_cells(&row, &measured, false);
         assert_eq!(
             cells_measured[no_root_col], "0",
             "falsifiability check: a measured zero must still render as a plain 0"
@@ -1331,8 +1466,8 @@ mod tests {
         // No entry at all for (morph_rule, no_root) -- distinct from an explicit "unsupported" row.
         let coverage = CoverageMap::new();
         let row = sample_object_row(7);
-        let cells = object_row_cells(&row, &coverage);
-        let no_root_col = OBJECT_HEADERS
+        let cells = object_row_cells(&row, &coverage, false);
+        let no_root_col = object_headers(false)
             .iter()
             .position(|h| *h == "No root found")
             .unwrap();
@@ -1376,8 +1511,8 @@ mod tests {
             .iter()
             .find(|r| r.kind == "morph_rule")
             .expect("a morph_rule row must exist for this fixture");
-        let cells = object_row_cells(morph_row, &coverage);
-        let attempts_col = OBJECT_HEADERS
+        let cells = object_row_cells(morph_row, &coverage, false);
+        let attempts_col = object_headers(false)
             .iter()
             .position(|h| *h == "attempts")
             .unwrap();
@@ -1389,10 +1524,33 @@ mod tests {
 
     #[test]
     fn group_object_renders_estimated_not_actual_and_group_word_is_the_reverse() {
-        assert!(OBJECT_HEADERS.contains(&"estimated_time_ms"));
-        assert!(!OBJECT_HEADERS.iter().any(|h| h.contains("actual")));
+        assert!(object_headers(false).contains(&"estimated_time_ms"));
+        assert!(!object_headers(false).iter().any(|h| h.contains("actual")));
         assert!(WORD_HEADERS.contains(&"elapsed_ms_actual"));
         assert!(!WORD_HEADERS.iter().any(|h| h.contains("estimated")));
+    }
+
+    #[test]
+    fn show_work_appends_the_work_column_and_is_absent_by_default() {
+        assert!(!object_headers(false).contains(&"work"));
+        assert!(object_headers(true).contains(&"work"));
+        assert!(!allomorph_headers(false).contains(&"work"));
+        assert!(allomorph_headers(true).contains(&"work"));
+        assert!(!stratum_headers(false).contains(&"work"));
+        assert!(stratum_headers(true).contains(&"work"));
+        assert!(!direction_headers(false).contains(&"work"));
+        assert!(direction_headers(true).contains(&"work"));
+
+        let row = sample_object_row(0);
+        let coverage = coverage_entry(pg_stats::CoverageState::Measured);
+        assert_eq!(
+            object_row_cells(&row, &coverage, false).len(),
+            object_headers(false).len()
+        );
+        assert_eq!(
+            object_row_cells(&row, &coverage, true).len(),
+            object_headers(true).len()
+        );
     }
 
     #[test]
@@ -1412,13 +1570,14 @@ mod tests {
             "0".to_string(),
             "1".to_string(),
         ]];
-        write_csv(out_path.to_str().unwrap(), &OBJECT_HEADERS, &rows).unwrap();
+        let headers = object_headers(false);
+        write_csv(out_path.to_str().unwrap(), &headers, &rows).unwrap();
         let text = fs::read_to_string(&out_path).unwrap();
         let mut lines = text.lines();
         assert_eq!(
             lines.next().unwrap(),
-            OBJECT_HEADERS.join(","),
-            "header row must match OBJECT_HEADERS in stable order"
+            headers.join(","),
+            "header row must match object_headers(false) in stable order"
         );
         assert!(
             lines.next().unwrap().contains("\"Rule, A\""),
@@ -1452,7 +1611,10 @@ mod tests {
         ];
         run_stats(&stats_args).expect("run_stats --group object --out must succeed");
         let csv_text = fs::read_to_string(&csv_path).unwrap();
-        assert_eq!(csv_text.lines().next().unwrap(), OBJECT_HEADERS.join(","));
+        assert_eq!(
+            csv_text.lines().next().unwrap(),
+            object_headers(false).join(",")
+        );
 
         let default_args: Vec<String> = vec![
             grammar_path.to_string_lossy().into_owned(),
@@ -1485,6 +1647,7 @@ mod tests {
                 cpu_model: "Test CPU".to_string(),
                 measured_utc: "unix:0".to_string(),
                 fixtures: vec![],
+                calibration_model: "test".to_string(),
             },
             kinds,
         }

@@ -3,7 +3,7 @@
   "provenance": {
     "tool_version": "0.1.0",
     "cpu_model": "12th Gen Intel(R) Core(TM) i7-12700",
-    "measured_utc": "unix:1787447508",
+    "measured_utc": "unix:1787477954",
     "fixtures": [
       "machine:edge-cases/alpha-variable-name-collision",
       "machine:edge-cases/bistratal-overlapping-segment-representation",
@@ -63,7 +63,8 @@
       "staging:edge-cases/template-category-sharing",
       "staging:edge-cases/two-table-shared-representation-recall",
       "staging:edge-cases/unbounded-iterative-quantifier-expansion"
-    ]
+    ],
+    "calibration_model": "two-bucket: 'default' (morph_rule, phon_rule, lex_entry, guesser, overlay) and 'root_index' (its own bucket); per-kind constants for the first group were measured within 7% of each other and do not discriminate"
   },
   "kinds": {
     "guesser": {
@@ -73,16 +74,16 @@
       "note": "no per-call self-time instrumentation is wired for this kind in this build"
     },
     "lex_entry": {
-      "ns_per_unit": 438.90539871223376,
+      "ns_per_unit": 900.4561374172032,
       "work_observed": 4038,
       "provisional": false,
-      "note": "self-timed at the real per-word tick site during an ordinary parse"
+      "note": "'default' bucket, self-timed at the real per-word tick site during an ordinary parse"
     },
     "morph_rule": {
-      "ns_per_unit": 471.1358500964453,
+      "ns_per_unit": 900.4561374172032,
       "work_observed": 90725,
       "provisional": false,
-      "note": "self-timed at the real per-word tick site during an ordinary parse"
+      "note": "'default' bucket, self-timed at the real per-word tick site during an ordinary parse"
     },
     "overlay": {
       "ns_per_unit": null,
@@ -91,16 +92,16 @@
       "note": "no per-call self-time instrumentation is wired for this kind in this build"
     },
     "phon_rule": {
-      "ns_per_unit": 457.1972049689441,
+      "ns_per_unit": 900.4561374172032,
       "work_observed": 12880,
       "provisional": false,
-      "note": "self-timed at the real per-word tick site during an ordinary parse"
+      "note": "'default' bucket, self-timed at the real per-word tick site during an ordinary parse"
     },
     "root_index": {
-      "ns_per_unit": 83.93397177419355,
+      "ns_per_unit": 182.3084677419355,
       "work_observed": 15872,
       "provisional": false,
-      "note": "self-timed at the real per-word tick site during an ordinary parse"
+      "note": "'root_index' bucket, self-timed at the real per-word tick site during an ordinary parse"
     }
   }
 }

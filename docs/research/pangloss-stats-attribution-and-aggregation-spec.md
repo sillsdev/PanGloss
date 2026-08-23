@@ -442,8 +442,10 @@ Aggregation needs nothing beyond SQLite at this scale.
 
 ## Reports
 
-Two defaults in v1. Both are `GROUP BY` queries; per-kind sections, no top-N by default (object count
-is bounded by grammar size, so print everything), `--top` for large grammars.
+Three defaults as shipped (originally two; **never-fires** was added after real-grammar use found
+its absence the single most actionable gap — see "Known limitations as shipped"). All are
+`GROUP BY` queries; per-kind sections, no top-N by default (object count is bounded by grammar size,
+so print everything), `--top` for large grammars.
 
 **1. Per word.** Form, **actual** elapsed, attempts, passes, capped/timed-out flags. Sorted by
 elapsed descending. This is the entry point — find the bad word, then find the bad rule inside it —
@@ -452,7 +454,19 @@ read it.
 
 **2. Per object.** Kind, label, attempts, **estimated** time, outputs, amplification, `Didn't apply`,
 `No root found`, `Didn't match the word`, uses. Sorted by estimated time descending by default;
-`--sort` switches to `no_root` for the over-application question directly.
+`--sort` switches to `no_root` for the over-application question directly. `Didn't apply` is
+rule-level here — one count per invocation that produced nothing, at the same granularity as
+`attempts` — never the sum of every allomorph's own failure; see "Known limitations as shipped" for
+why that distinction had to be made explicit.
+
+**3. Never-fires** (`--group never-fires`, `pg_stats::never_fires_report`). Objects (scoped to
+`morph_rule`/`phon_rule`, the only kinds with a wired `outputs` counter) attempted at least
+`NEVER_FIRES_DEFAULT_MIN_ATTEMPTS` (1000) times in one direction that produced zero outputs there,
+ordered by attempts descending. Direction-aware by construction — the query groups by
+`(object, direction)`, so a rule dead in analysis but live in synthesis contributes only its analysis
+row. Included by default whenever the cache holds any such row, printed after the per-object report;
+`--min-attempts` overrides the floor explicitly (0 admits everything, which is the point of *not*
+defaulting there).
 
 **Actual and estimated time never appear in the same table.** They will disagree — the constants are
 measured elsewhere on one core — and a user seeing "estimated 2s, actual 6s" rightly distrusts the
@@ -466,6 +480,9 @@ An unmeasurable column renders **—**, never **0**, driven by the `coverage` ta
 in foma mode, where the proposer replaces HC's analysis search, so `no_root` is zero on every row —
 not because the grammar is clean, but because that phase never ran. Same rule this repo states
 elsewhere: *"I could not look" must never read as "everything is fine."*
+
+**`work` is opt-in** (`--show-work`), on every report that carries it, rather than a default column
+or absent entirely — see "Known limitations as shipped" for why its basis is provisional.
 
 ## Filtering
 
@@ -506,20 +523,53 @@ grammar and shows up either way, which is why this is a useful grammar-tuning in
 ## Known limitations as shipped
 
 The design above describes the intended contract. These are the places the first implementation
-falls short of it, found by adversarial review rather than left implicit.
+falls short of it, found by adversarial review rather than left implicit. Five items below were
+found by running the shipped v1 feature against real grammars (Sena, Amharic, Aweti) and are marked
+**fixed** with what changed; the rest remain open.
 
-**`work` is recorded but unreachable, and mis-weights the dominant event.** No report surfaces it —
-neither the rendered table nor the CSV export — so it exists only as an input to
-`estimated_time_ms`. Worse, its definition charges a rule the full segment count of the candidate
-shape, while the event that dominates every measured corpus is a *failed* match, which touches an
-unpredictable prefix and often stops at the first segment. So it systematically over-charges fast
-failures and under-charges a rule that scans a whole shape before failing.
+**FIXED — `work` was recorded but unreachable.** No report surfaced it, so it existed only as an
+input to `estimated_time_ms`. Now `--show-work` appends it as an opt-in column on every report that
+carries it (object, allomorph, stratum, direction); the default view still omits it. This does not
+fix the counter's own weighting problem: it still charges a rule the full segment count of the
+candidate shape, while the event that dominates every measured corpus is a *failed* match, which
+touches an unpredictable prefix and often stops at the first segment — so it still systematically
+over-charges fast failures and under-charges a rule that scans a whole shape before failing. That
+basis is **provisional pending a concurrent measurement effort** into what actually drives per-attempt
+cost (an Amharic run showed the current model explaining roughly 0.23% of wall clock); a per-object
+weight model is deliberately not built on top of an unmeasured basis. Making the counter observable,
+without pretending its weighting is settled, is what shipped.
 
-Measured constants make this concrete: `morph_rule` 471.1, `phon_rule` 457.2 and `lex_entry` 438.9
-ns per unit sit within 7% of each other, so a per-kind constant discriminates nothing. The
-discriminating factor is per-*object* and static — an allomorph pattern's length, its variable count,
-whether it compiles to a nondeterministic automaton — which is computable at grammar load and free
-at run time.
+**FIXED — per-kind calibration constants did not discriminate.** Measured: `morph_rule` 471.1,
+`phon_rule` 457.2, and `lex_entry` 438.9 ns per unit sit within 7% of each other; only `root_index`
+(83.9) was distinct. `pangloss calibrate` now collapses every kind into one of two `CostBucket`s —
+`default` (`morph_rule`, `phon_rule`, `lex_entry`, `guesser`, `overlay`) and `root_index` (its own
+bucket) — so `morph_rule`/`phon_rule`/`lex_entry` report the *same* constant (their bucket's
+Σns/Σwork), and the collapse is stated in `Provenance.calibration_model` in the committed
+`stats_op_cost.json`. `work_observed` stays per-kind for diagnosability, and a kind with zero of its
+own instrumented work (`guesser`, `overlay`) stays unmeasured regardless of its bucket's total — the
+collapse shares a *constant*, never manufactures evidence a kind doesn't have. A genuine per-object
+cost model (pattern length, variable count, determinism) remains future work, gated on the concurrent
+per-attempt-cost measurement mentioned above.
+
+**FIXED — a "never fires" pattern had no dedicated report.** The single most actionable fact found
+scanning three real grammars by eye was "this rule is entered hundreds of thousands of times and
+produces nothing" (Sena: four rules, 2.37M entries, zero outputs; Aweti: five affixes, ~1.56M each).
+`--group never-fires` (and inclusion in the default view whenever the cache holds a qualifying row)
+now surfaces this directly — see "Reports".
+
+**FIXED — the per-object report mixed two different countable units under `Didn't apply`.** Summing
+`fact.not_applied` across every allomorph row alongside the rule-level residual meant a two-allomorph
+rule failing both ways booked 2 against 1 `attempts` — arithmetically defensible, but Sena showed
+635,762 attempts against 1,271,524 "didn't apply" and it reads as broken. The per-object report now
+sums `not_applied` only over the rule's own `allomorph_id = 0` row — one count per invocation that
+produced nothing, matching `attempts`'s granularity — via a new collector-side counter
+(`record_mrule_invocation_not_applied`) that ticks once when an invocation reaches one or more
+allomorphs but none of them produce output. The per-allomorph report is unchanged: it still shows
+each allomorph's own failure count, which is the right place for that detail.
+
+**MEASURED, not fixed — `--stats` overhead.** "Must not add appreciable time to parsing" was a
+stated requirement with no evidence behind it; see this file's overhead measurement (added
+alongside the four fixes above) for the number and the recommendation that follows from it.
 
 **Phonological rules get no `uses` and no `no_root`.** `Word` carries `mrule_apps` but no
 `PRuleId` trail, and growing `Word` is forbidden (it already clones a `BTreeMap` per clone). So
@@ -542,6 +592,11 @@ today.
 
 **"Stats off allocates nothing" is unverified.** Inspection supports it — the collector is
 constructed in exactly one entry point and every other path threads `None` — but no test pins it.
+
+## `--stats` overhead, measured
+
+_Placeholder pending the measurement run — see the implementation report for this change for the
+actual numbers and recommendation once filled in._
 
 ## What this refuses to say
 

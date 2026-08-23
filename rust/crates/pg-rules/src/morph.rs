@@ -78,6 +78,22 @@ fn record_mrule_none_residual(mstats: Option<MRuleStatsCtx>, segments: u64) {
         .record_mrule_outcome(ctx.stratum, ctx.id, ctx.direction, 0);
 }
 
+/// Post-loop dispatch: zero-reached takes the full `record_mrule_none_residual` residual, reached-but-empty ticks one rule-level "not applied" instead.
+fn record_mrule_invocation_end(
+    mstats: Option<MRuleStatsCtx>,
+    reached: u32,
+    total_outputs: u64,
+    segments: u64,
+) {
+    let Some(ctx) = mstats else { return };
+    if reached == 0 {
+        record_mrule_none_residual(Some(ctx), segments);
+    } else if total_outputs == 0 {
+        ctx.stats
+            .record_mrule_invocation_not_applied(ctx.stratum, ctx.id, ctx.direction);
+    }
+}
+
 // Table is resolved once per rule application and threaded down explicitly; a word's shape may carry frozen material from an earlier different-table stratum, but nothing here re-derives an identity for it.
 
 // Public API.
@@ -375,9 +391,7 @@ fn ana_affix_cached_traced(
             );
         }
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -430,9 +444,7 @@ fn ana_realizational_cached_traced(
             );
         }
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -497,9 +509,7 @@ fn ana_compound_cached_traced(
             );
         }
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -1407,9 +1417,7 @@ fn synth_affix(
             }
         }
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -1531,9 +1539,7 @@ fn synth_affix_cached(
             }
         }
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -1630,9 +1636,7 @@ fn synth_realizational(
             }
         }
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -1740,9 +1744,7 @@ fn synth_realizational_cached(
             }
         }
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -2253,9 +2255,7 @@ fn ana_affix(
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -2286,9 +2286,7 @@ fn ana_affix_cached(
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -2371,9 +2369,7 @@ fn ana_realizational(
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -2404,9 +2400,7 @@ fn ana_realizational_cached(
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -2583,9 +2577,12 @@ fn synth_compound(
             break; // C# breaks after the first matching subrule
         }
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, (head_segs.len() + nh_segs.len()) as u64);
-    }
+    record_mrule_invocation_end(
+        mstats,
+        reached,
+        output.len() as u64,
+        (head_segs.len() + nh_segs.len()) as u64,
+    );
     output
 }
 
@@ -2715,9 +2712,12 @@ fn synth_compound_cached(
             }
         }
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, (head_segs.len() + nh_segs.len()) as u64);
-    }
+    record_mrule_invocation_end(
+        mstats,
+        reached,
+        output.len() as u64,
+        (head_segs.len() + nh_segs.len()) as u64,
+    );
     output
 }
 
@@ -2869,9 +2869,7 @@ fn ana_compound(
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 
@@ -2916,9 +2914,7 @@ fn ana_compound_cached(
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
-    if reached == 0 {
-        record_mrule_none_residual(mstats, segs.len() as u64);
-    }
+    record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
 }
 

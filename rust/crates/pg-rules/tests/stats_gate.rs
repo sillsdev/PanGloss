@@ -287,6 +287,66 @@ fn not_applied_fires_when_an_attempted_rule_matches_nothing() {
     );
 }
 
+/// Two allomorphs reached and both failing must tick rule-level `not_applied` once, not twice.
+#[test]
+fn reached_but_empty_invocation_ticks_rule_level_not_applied_once() {
+    let mut g = load_alpha_grammar();
+    let r = two_allomorph_suffix_rule(&g, 210, "p", 5);
+    let rid = push_mrule(&mut g, r);
+    let cfg = AnalyzerConfig::default();
+    let budget = StepBudget::new(usize::MAX);
+    let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
+    let stats = StatsCollector::new(&g);
+
+    // "aaa" carries no trailing "p" for either allomorph to unapply, so both are reached and fail.
+    let out = analyze_stratum_scoped_filtered_ruled_traced(
+        &g,
+        s,
+        word(&g, "aaa", s),
+        &cfg,
+        None,
+        None,
+        None,
+        None,
+        &budget,
+        Some(&stats),
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(!out.capped);
+    assert_eq!(out.words.len(), 1, "only the unmodified seed survives");
+
+    let rows = stats.rows();
+    let rule_rows: Vec<_> = rows
+        .iter()
+        .filter(|r| r.kind == ObjectKind::MorphRule && r.object_index == rid.0)
+        .collect();
+    let none_row = rule_rows
+        .iter()
+        .find(|r| r.allomorph == ALLOMORPH_NONE)
+        .expect("the rule's own ALLOMORPH_NONE row must exist");
+    let allo1 = rule_rows
+        .iter()
+        .find(|r| r.allomorph == 1)
+        .expect("allomorph index 0 must have its own row");
+    let allo2 = rule_rows
+        .iter()
+        .find(|r| r.allomorph == 2)
+        .expect("allomorph index 1 must have its own row");
+
+    assert_eq!(none_row.counters.attempts, 1, "sanity: one invocation");
+    assert_eq!(
+        none_row.counters.not_applied, 1,
+        "the invocation reached allomorphs but produced nothing overall -- exactly one rule-level \
+         not_applied, matching attempts's own one-per-invocation granularity"
+    );
+    assert_eq!(
+        allo1.counters.not_applied, 1,
+        "each failing allomorph still records its own not_applied, unaffected by the rule-level tick"
+    );
+    assert_eq!(allo2.counters.not_applied, 1);
+}
+
 /// THE critical invariant: allomorph rows (incl. `ALLOMORPH_NONE`) sum their `attempts` to the rule's tick count.
 #[test]
 fn allomorph_rows_sum_to_the_rules_tick_count() {

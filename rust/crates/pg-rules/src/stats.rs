@@ -56,6 +56,7 @@ pub struct Counters {
     pub attempts: u64,
     pub work: u64,
     pub outputs: u64,
+    /// Both rule-level (the `ALLOMORPH_NONE` row, one per invocation) and per-allomorph (one per failing try); a per-object report must sum only the former to stay comparable with `attempts`.
     pub not_applied: u64,
     pub no_root: u64,
     pub surface_mismatch: u64,
@@ -297,6 +298,19 @@ impl StatsCollector {
                 }
             },
         );
+    }
+
+    /// The rule invocation reached at least one allomorph but none of them produced output;
+    /// ticks `not_applied` on the rule's own `ALLOMORPH_NONE` row (not an allomorph row), keeping
+    /// this counter one-per-invocation like `attempts` rather than one-per-allomorph-try.
+    pub fn record_mrule_invocation_not_applied(
+        &self,
+        stratum: StratumId,
+        id: MRuleId,
+        direction: Direction,
+    ) {
+        self.morph
+            .with_row(direction, stratum, id.0, |c| c.not_applied += 1);
     }
 
     /// `no_root`: an analysis candidate's lexical lookup matched nothing, charged to the last rule

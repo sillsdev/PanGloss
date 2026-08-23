@@ -50,6 +50,36 @@ impl CalibKind {
             pg_rules::stats::ObjectKind::Overlay => CalibKind::Overlay,
         }
     }
+
+    /// Which `CostBucket` this kind's constant is drawn from -- see that type's doc.
+    fn bucket(self) -> CostBucket {
+        match self {
+            CalibKind::RootIndex => CostBucket::RootIndex,
+            CalibKind::MorphRule
+            | CalibKind::PhonRule
+            | CalibKind::LexEntry
+            | CalibKind::Guesser
+            | CalibKind::Overlay => CostBucket::Default,
+        }
+    }
+}
+
+/// Which of two calibration buckets a kind's constant is drawn from: per-kind constants did not discriminate, except for `root_index`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum CostBucket {
+    /// Every per-object match/rewrite/lookup kind: `morph_rule`, `phon_rule`, `lex_entry`, `guesser`, `overlay`.
+    Default,
+    /// The shared per-stratum trie walk -- distinctly cheaper, and shared rather than per-object.
+    RootIndex,
+}
+
+impl CostBucket {
+    fn as_str(self) -> &'static str {
+        match self {
+            CostBucket::Default => "default",
+            CostBucket::RootIndex => "root_index",
+        }
+    }
 }
 
 /// One kind's measured (or unmeasured) constant.
@@ -68,7 +98,13 @@ pub(crate) struct Provenance {
     pub(crate) cpu_model: String,
     pub(crate) measured_utc: String,
     pub(crate) fixtures: Vec<String>,
+    /// States the bucket collapse; absent (`#[serde(default)]`) on a file written before it existed.
+    #[serde(default)]
+    pub(crate) calibration_model: String,
 }
+
+/// What `Provenance.calibration_model` says on every freshly written file -- see `CostBucket`'s doc.
+const CALIBRATION_MODEL_NOTE: &str = "two-bucket: 'default' (morph_rule, phon_rule, lex_entry, guesser, overlay) and 'root_index' (its own bucket); per-kind constants for the first group were measured within 7% of each other and do not discriminate";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct CalibrationConstants {
@@ -199,6 +235,58 @@ pub(crate) fn run_calibrate(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Collapses per-kind totals into `CostBucket`-shared constants; zero own work stays unmeasured.
+fn bucketed_kind_entries(
+    ns_by_kind: &BTreeMap<CalibKind, u64>,
+    work_by_kind: &BTreeMap<CalibKind, u64>,
+) -> BTreeMap<String, OpCostEntry> {
+    let mut ns_by_bucket: BTreeMap<CostBucket, u64> = BTreeMap::new();
+    let mut work_by_bucket: BTreeMap<CostBucket, u64> = BTreeMap::new();
+    for kind in CalibKind::ALL {
+        *ns_by_bucket.entry(kind.bucket()).or_default() +=
+            ns_by_kind.get(&kind).copied().unwrap_or(0);
+        *work_by_bucket.entry(kind.bucket()).or_default() +=
+            work_by_kind.get(&kind).copied().unwrap_or(0);
+    }
+
+    let mut kinds = BTreeMap::new();
+    for kind in CalibKind::ALL {
+        let own_work = work_by_kind.get(&kind).copied().unwrap_or(0);
+        let entry = if own_work > 0 {
+            let bucket = kind.bucket();
+            let bucket_work = work_by_bucket.get(&bucket).copied().unwrap_or(0);
+            let bucket_ns = ns_by_bucket.get(&bucket).copied().unwrap_or(0);
+            let provisional = bucket_work < PROVISIONAL_WORK_FLOOR;
+            OpCostEntry {
+                ns_per_unit: work_weighted_ns_per_unit(bucket_ns, bucket_work),
+                work_observed: own_work,
+                provisional,
+                note: if provisional {
+                    format!(
+                        "'{}' bucket thinly represented in this run's conformance suite",
+                        bucket.as_str()
+                    )
+                } else {
+                    format!(
+                        "'{}' bucket, self-timed at the real per-word tick site during an ordinary parse",
+                        bucket.as_str()
+                    )
+                },
+            }
+        } else {
+            OpCostEntry {
+                ns_per_unit: None,
+                work_observed: 0,
+                provisional: true,
+                note: "no per-call self-time instrumentation is wired for this kind in this build"
+                    .to_string(),
+            }
+        };
+        kinds.insert(kind.as_str().to_string(), entry);
+    }
+    kinds
+}
+
 /// Real, single-threaded measurement: every kind's self-time comes from the same ordinary parse `batch --stats` would run.
 fn measure_conformance_suite(
     fixtures: &[pg_conformance_fixtures::FixtureRef],
@@ -237,33 +325,7 @@ fn measure_conformance_suite(
         }
     }
 
-    let mut kinds = BTreeMap::new();
-    for kind in CalibKind::ALL {
-        let work = work_by_kind.get(&kind).copied().unwrap_or(0);
-        let entry = if work > 0 {
-            let ns = ns_by_kind.get(&kind).copied().unwrap_or(0);
-            let provisional = work < PROVISIONAL_WORK_FLOOR;
-            OpCostEntry {
-                ns_per_unit: work_weighted_ns_per_unit(ns, work),
-                work_observed: work,
-                provisional,
-                note: if provisional {
-                    "thinly represented in this run's conformance suite".to_string()
-                } else {
-                    "self-timed at the real per-word tick site during an ordinary parse".to_string()
-                },
-            }
-        } else {
-            OpCostEntry {
-                ns_per_unit: None,
-                work_observed: 0,
-                provisional: true,
-                note: "no per-call self-time instrumentation is wired for this kind in this build"
-                    .to_string(),
-            }
-        };
-        kinds.insert(kind.as_str().to_string(), entry);
-    }
+    let kinds = bucketed_kind_entries(&ns_by_kind, &work_by_kind);
 
     CalibrationConstants {
         schema_version: CALIBRATION_SCHEMA_VERSION,
@@ -272,6 +334,7 @@ fn measure_conformance_suite(
             cpu_model: cpu_model(),
             measured_utc: measured_utc_now(),
             fixtures: fixture_labels,
+            calibration_model: CALIBRATION_MODEL_NOTE.to_string(),
         },
         kinds,
     }
@@ -298,6 +361,67 @@ mod tests {
     #[test]
     fn estimator_is_none_with_zero_work() {
         assert_eq!(work_weighted_ns_per_unit(500, 0), None);
+    }
+
+    /// The three `default`-bucket kinds must share one constant, distinct from `root_index`'s.
+    #[test]
+    fn bucketed_kind_entries_collapses_default_kinds_to_one_shared_constant() {
+        let mut ns_by_kind = BTreeMap::new();
+        let mut work_by_kind = BTreeMap::new();
+        ns_by_kind.insert(CalibKind::MorphRule, 4_711_358);
+        work_by_kind.insert(CalibKind::MorphRule, 10_000);
+        ns_by_kind.insert(CalibKind::PhonRule, 4_571_972);
+        work_by_kind.insert(CalibKind::PhonRule, 10_000);
+        ns_by_kind.insert(CalibKind::LexEntry, 4_389_054);
+        work_by_kind.insert(CalibKind::LexEntry, 10_000);
+        ns_by_kind.insert(CalibKind::RootIndex, 839_340);
+        work_by_kind.insert(CalibKind::RootIndex, 10_000);
+
+        let kinds = bucketed_kind_entries(&ns_by_kind, &work_by_kind);
+        let morph = kinds["morph_rule"].ns_per_unit.unwrap();
+        let phon = kinds["phon_rule"].ns_per_unit.unwrap();
+        let lex = kinds["lex_entry"].ns_per_unit.unwrap();
+        let root = kinds["root_index"].ns_per_unit.unwrap();
+
+        assert_eq!(
+            morph, phon,
+            "morph_rule and phon_rule share the 'default' bucket's one constant"
+        );
+        assert_eq!(
+            morph, lex,
+            "lex_entry shares that same bucket constant, not its own independent rate"
+        );
+        let expected_default = (4_711_358.0 + 4_571_972.0 + 4_389_054.0) / (10_000.0 * 3.0);
+        assert!(
+            (morph - expected_default).abs() < 1e-6,
+            "the shared constant is the bucket's Σns/Σwork, not any one kind's own rate"
+        );
+        assert!(
+            root < morph / 2.0,
+            "root_index must stay its own, distinctly cheaper bucket"
+        );
+
+        assert_eq!(
+            kinds["guesser"].ns_per_unit, None,
+            "a kind with zero of its own instrumented work must stay unmeasured, not borrow the bucket's rate"
+        );
+    }
+
+    #[test]
+    fn bucketed_kind_entries_work_observed_stays_per_kind() {
+        let mut ns_by_kind = BTreeMap::new();
+        let mut work_by_kind = BTreeMap::new();
+        ns_by_kind.insert(CalibKind::MorphRule, 100_000);
+        work_by_kind.insert(CalibKind::MorphRule, 200);
+        ns_by_kind.insert(CalibKind::PhonRule, 50_000);
+        work_by_kind.insert(CalibKind::PhonRule, 100);
+
+        let kinds = bucketed_kind_entries(&ns_by_kind, &work_by_kind);
+        assert_eq!(
+            kinds["morph_rule"].work_observed, 200,
+            "work_observed stays this kind's own evidence, for diagnosability"
+        );
+        assert_eq!(kinds["phon_rule"].work_observed, 100);
     }
 
     fn sample_constants() -> CalibrationConstants {
@@ -328,6 +452,7 @@ mod tests {
                 cpu_model: "Test CPU".to_string(),
                 measured_utc: "unix:0".to_string(),
                 fixtures: vec!["staging:languages:example".to_string()],
+                calibration_model: "test".to_string(),
             },
             kinds,
         }
