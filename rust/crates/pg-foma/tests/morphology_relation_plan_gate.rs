@@ -420,6 +420,22 @@ fn zero_application_affix_retains_its_zero_bound() {
 }
 
 #[test]
+fn invalid_derivation_rule_reference_names_its_authored_site() {
+    let mut grammar = load_with_prefix_rule_at_both_sites();
+    let missing = MRuleId(u32::MAX);
+    grammar.strata[0].mrules = vec![missing];
+
+    let error = MorphologyRelationPlan::build(&grammar, pg_grammar::model::TableId(0))
+        .expect_err("an invalid authored derivation reference must fail closed");
+    let message = error.to_string();
+
+    assert!(
+        message.contains("stratum 0/site 0") && message.contains(&format!("{missing:?}")),
+        "diagnostic must name the actual authored site and missing rule, got: {message}"
+    );
+}
+
+#[test]
 fn unbounded_structural_derivation_fails_closed() {
     let grammar = load_with_realizational_structural_rule();
     let structural = match &grammar.mrules[1] {
