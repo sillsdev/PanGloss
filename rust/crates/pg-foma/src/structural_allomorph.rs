@@ -12,7 +12,7 @@ use pg_grammar::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef,
     NaturalClassKind, OutputAction, PartRef, Pattern, PatternNode, PhonRuleDef, SimpleContext,
-    TableId, TemplateSlotZone,
+    StratumId, TableId, TemplateSlotZone,
 };
 use pg_shape::{NodeKind, Shape};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -550,6 +550,7 @@ pub struct SlotProjectionAlternative {
     allomorph: AllomorphId,
     decision: MorphologyRewrite,
     route: SlotAlternativeRoute,
+    repeat_eligibility: RepeatEligibility,
     prefix_variants: Vec<String>,
     suffix_variants: Vec<String>,
     prefix_binding: Option<MarkerBinding>,
@@ -571,6 +572,10 @@ impl SlotProjectionAlternative {
 
     pub fn route(&self) -> SlotAlternativeRoute {
         self.route
+    }
+
+    pub fn repeat_eligibility(&self) -> RepeatEligibility {
+        self.repeat_eligibility
     }
 
     pub fn prefix_variants(&self) -> &[String] {
@@ -618,8 +623,17 @@ impl SlotProjection {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DerivationProjectionKey {
+    pub stratum: StratumId,
+    pub site: usize,
     pub rule: MRuleId,
-    pub zone: MarkerZone,
+    pub route: SlotAlternativeRoute,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepeatEligibility {
+    Once,
+    Bounded { max_apps: u16 },
+    Unbounded,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -758,6 +772,7 @@ impl MorphologyRelationPlan {
                         decision,
                         &zones,
                         route,
+                        RepeatEligibility::Once,
                     )?;
                     alternatives.push(alternative);
                 }
@@ -777,55 +792,81 @@ impl MorphologyRelationPlan {
         }
 
         let mut derivation_projections: Vec<DerivationProjection> = Vec::new();
-        for (rule_index, rule_definition) in grammar.mrules.iter().enumerate() {
-            let (allomorphs, repeat_policy) = match rule_definition {
-                MorphRuleDef::AffixProcess(definition) if !definition.is_template_rule => (
-                    definition.allomorphs.as_slice(),
-                    DerivationRepeatPolicy::Bounded {
-                        max_apps: definition.max_apps,
-                    },
-                ),
-                MorphRuleDef::Realizational(definition) => (
-                    definition.allomorphs.as_slice(),
-                    DerivationRepeatPolicy::RealizationalLoop,
-                ),
-                _ => continue,
-            };
-            let rule = MRuleId(rule_index as u32);
-            for allomorph in allomorphs {
-                let Some(decision) = decisions.get(&allomorph.id) else {
-                    return Err(MorphologyRelationError::UnsupportedRewrite {
-                        allomorph: allomorph.id,
-                        shape_id: "InvalidReferences",
-                        reason_id: "derivation-allomorph-not-classified",
-                    });
-                };
-                let zones = derivation_zones(decision, allomorph)?;
-                if zones.is_empty() {
+        for (stratum_index, stratum) in grammar.strata.iter().enumerate() {
+            for (site, &rule) in stratum.mrules.iter().enumerate() {
+                let Some(rule_definition) = grammar.mrules.get(rule.0 as usize) else {
                     continue;
-                }
-                for zone in zones {
-                    let route = route_for_zone(zone);
-                    let alternative =
-                        make_projection_alternative(
+                };
+                let (allomorphs, repeat_policy, repeat_eligibility) = match rule_definition {
+                    MorphRuleDef::AffixProcess(definition) => (
+                        definition.allomorphs.as_slice(),
+                        DerivationRepeatPolicy::Bounded {
+                            max_apps: definition.max_apps,
+                        },
+                        if definition.max_apps > 1 {
+                            RepeatEligibility::Bounded {
+                                max_apps: definition.max_apps,
+                            }
+                        } else {
+                            RepeatEligibility::Once
+                        },
+                    ),
+                    MorphRuleDef::Realizational(definition) => (
+                        definition.allomorphs.as_slice(),
+                        DerivationRepeatPolicy::RealizationalLoop,
+                        RepeatEligibility::Unbounded,
+                    ),
+                    _ => continue,
+                };
+                for allomorph in allomorphs {
+                    let Some(decision) = decisions.get(&allomorph.id) else {
+                        return Err(MorphologyRelationError::UnsupportedRewrite {
+                            allomorph: allomorph.id,
+                            shape_id: "InvalidReferences",
+                            reason_id: "derivation-allomorph-not-classified",
+                        });
+                    };
+                    let zones = derivation_zones(decision, allomorph)?;
+                    if zones.is_empty() {
+                        continue;
+                    }
+                    if let MorphologyRewrite::MarkedStructural { shape_id, .. } = decision {
+                        if !matches!(repeat_eligibility, RepeatEligibility::Once) {
+                            return Err(MorphologyRelationError::UnsupportedRewrite {
+                                allomorph: allomorph.id,
+                                shape_id,
+                                reason_id: "unsupported-structural-repetition",
+                            });
+                        }
+                    }
+                    for zone in zones {
+                        let route = route_for_zone(zone);
+                        let alternative = make_projection_alternative(
                             rule,
                             allomorph,
                             decision,
                             &[zone],
                             route,
+                            repeat_eligibility,
                         )?;
-                    let key = DerivationProjectionKey { rule, zone };
-                    if let Some(projection) = derivation_projections
-                        .iter_mut()
-                        .find(|projection| projection.key == key)
-                    {
-                        projection.alternatives.push(alternative);
-                    } else {
-                        derivation_projections.push(DerivationProjection {
-                            key,
-                            repeat_policy,
-                            alternatives: vec![alternative],
-                        });
+                        let key = DerivationProjectionKey {
+                            stratum: StratumId(stratum_index as u8),
+                            site,
+                            rule,
+                            route,
+                        };
+                        if let Some(projection) = derivation_projections
+                            .iter_mut()
+                            .find(|projection| projection.key == key)
+                        {
+                            projection.alternatives.push(alternative);
+                        } else {
+                            derivation_projections.push(DerivationProjection {
+                                key,
+                                repeat_policy,
+                                alternatives: vec![alternative],
+                            });
+                        }
                     }
                 }
             }
@@ -962,12 +1003,14 @@ fn make_projection_alternative(
     decision: &MorphologyRewrite,
     zones: &[MarkerZone],
     route: SlotAlternativeRoute,
+    repeat_eligibility: RepeatEligibility,
 ) -> Result<SlotProjectionAlternative, MorphologyRelationError> {
     let mut alternative = SlotProjectionAlternative {
         rule,
         allomorph: allomorph.id,
         decision: decision.clone(),
         route,
+        repeat_eligibility,
         prefix_variants: Vec::new(),
         suffix_variants: Vec::new(),
         prefix_binding: None,
@@ -1247,14 +1290,22 @@ fn derivation_zones(
     allomorph: &AffixAllomorphDef,
 ) -> Result<Vec<MarkerZone>, MorphologyRelationError> {
     match decision {
-        MorphologyRewrite::DirectWholeRootWrapper { .. } => {
-            // Refuse until derivation can couple both wrapper halves as one choice.
-            Err(MorphologyRelationError::UnsupportedRewrite {
+        MorphologyRewrite::DirectWholeRootWrapper {
+            prefix_variants,
+            suffix_variants,
+            ..
+        } => match (
+            prefix_variants.iter().any(|variant| !variant.is_empty()),
+            suffix_variants.iter().any(|variant| !variant.is_empty()),
+        ) {
+            (true, false) => Ok(vec![MarkerZone::Prefix]),
+            (false, true) => Ok(vec![MarkerZone::Suffix]),
+            (true, true) | (false, false) => Err(MorphologyRelationError::UnsupportedRewrite {
                 allomorph: allomorph.id,
                 shape_id: "DirectWholeRootWrapper",
                 reason_id: "standalone-wrapper-requires-coupled-projection",
-            })
-        }
+            }),
+        },
         MorphologyRewrite::MarkedStructural {
             zone_requirement, ..
         } => match zone_requirement {
