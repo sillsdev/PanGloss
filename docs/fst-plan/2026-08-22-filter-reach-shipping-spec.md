@@ -27,6 +27,13 @@ scoped measurement; a certified artifact has a valid completeness certificate; a
 FST is a certified artifact accepted for delivery. None of the three current languages reaches the
 last two columns.
 
+Current-tip note: `fst/selector-relation-floor` includes the atomic template-slot carrier and
+fail-closed validation against the grammar's final active pipeline table. The carrier is relevant
+to Aweti's mixed-slot route correlation; it is not Amharic-dependent. Indonesian, Amharic, and
+Aweti certification is `not_run`/pending marker-relation production wiring on this tip, even though
+the private corpora are available through `PANGLOSS_CORPUS_ROOT`; the historical denominators above
+remain bounded, non-certifying evidence.
+
 ## Terminology
 
 In this work, a **computationally awkward FieldWorks grammar** may be described informally as a
