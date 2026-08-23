@@ -5478,6 +5478,9 @@ pub fn emit_underlying_templated(
         symbols.insert((true, r.morpheme.0));
     }
     for &mid in deriv_prefix.iter().chain(deriv_suffix.iter()) {
+        if allomorphs_of(g, mid).is_empty() {
+            continue;
+        }
         let owner = owning_morpheme(g, mid);
         symbols.insert((false, owner.0));
         affix_owner_mrule.entry(owner.0).or_insert(mid);
@@ -5485,7 +5488,9 @@ pub fn emit_underlying_templated(
     for t in &g.templates {
         for slot in &t.slots {
             for &mid in &slot.rules {
-                if !matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_)) {
+                if !matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_))
+                    && !allomorphs_of(g, mid).is_empty()
+                {
                     let owner = owning_morpheme(g, mid);
                     symbols.insert((false, owner.0));
                     affix_owner_mrule.entry(owner.0).or_insert(mid);
