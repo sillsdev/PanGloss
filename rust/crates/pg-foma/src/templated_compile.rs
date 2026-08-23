@@ -13,7 +13,7 @@ use pg_grammar::chardef::CharDefKind;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 use crate::analyzer::{prepare_network_for_apply, FomaProposer};
-use crate::emit::{emit_underlying_templated, surface_table};
+use crate::emit::{emit_underlying_templated, surface_table, EmitReport};
 use crate::replace::{compile_and_compose_rules_recall_safe, SegAlphabet, TupleReport};
 
 /// Timings and sizes from each exact stage of the pipeline.
@@ -43,7 +43,7 @@ pub struct TemplatedCompileOutput {
 #[derive(Debug)]
 pub enum TemplatedCompileError {
     MissingCharacterTable,
-    Unsupported(String),
+    Unsupported(EmitReport),
     LexcCompileFailed,
     RuleCompileFailed(String),
     NoCompiledRules,
@@ -54,7 +54,12 @@ impl fmt::Display for TemplatedCompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingCharacterTable => write!(f, "grammar has no character table"),
-            Self::Unsupported(reason) => write!(f, "templated emission unsupported: {reason}"),
+            Self::Unsupported(report) => write!(
+                f,
+                "templated emission unsupported: {:?} ({} uncovered)",
+                report.tier,
+                report.uncovered.len()
+            ),
             Self::LexcCompileFailed => write!(f, "templated lexc failed to compile"),
             Self::RuleCompileFailed(error) => write!(f, "rule compile/compose failed: {error}"),
             Self::NoCompiledRules => write!(f, "no phonological rule compiled"),
@@ -80,11 +85,14 @@ pub fn compile_templated_morphotactics(
     let emitted = emit_underlying_templated(g, &alphabet, None);
     let templated_emit_elapsed = started.elapsed();
 
-    // Refusals are represented by the emitter's existing empty-source Unsupported tier. Check
-    // that verdict before the helper's own reachability probe or the lexc parser can inspect it;
-    // no partial/bad FST is ever accepted.
-    if let crate::emit::FomaTier::Unsupported { reason } = &emitted.report.tier {
-        return Err(TemplatedCompileError::Unsupported(reason.clone()));
+    // Check the emission tier before its reachability probe or the lexc parser can inspect the
+    // source; neither incomplete nor refused emission is a compilable artifact.
+    match &emitted.report.tier {
+        crate::emit::FomaTier::Full => {}
+        crate::emit::FomaTier::Unsupported { .. }
+        | crate::emit::FomaTier::Partial { .. } => {
+            return Err(TemplatedCompileError::Unsupported(emitted.report));
+        }
     }
 
     let started = Instant::now();
