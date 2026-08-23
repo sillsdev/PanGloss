@@ -142,7 +142,6 @@ impl FromStr for IdentityQuality {
 pub enum CoverageState {
     Measured,
     Unsupported,
-    Censored,
 }
 
 impl CoverageState {
@@ -150,7 +149,6 @@ impl CoverageState {
         match self {
             CoverageState::Measured => "measured",
             CoverageState::Unsupported => "unsupported",
-            CoverageState::Censored => "censored",
         }
     }
 }
@@ -168,7 +166,6 @@ impl FromStr for CoverageState {
         match s {
             "measured" => Ok(CoverageState::Measured),
             "unsupported" => Ok(CoverageState::Unsupported),
-            "censored" => Ok(CoverageState::Censored),
             other => Err(UnknownVariant(other.to_string())),
         }
     }
@@ -218,6 +215,10 @@ pub struct FactRecord {
     pub identity_quality: IdentityQuality,
     pub stratum: Option<StructuralLocator>,
     pub allomorph: Option<StructuralLocator>,
+    /// The morpheme this object's `lex_entry` realizes, so a report can group scattered entries
+    /// and allomorphs back to one morpheme. `None` for every other `ObjectKind` -- a rule/root
+    /// index/guesser/overlay row names no single morpheme.
+    pub morpheme: Option<StructuralLocator>,
     pub direction: Direction,
     pub attempts: u64,
     pub work: u64,

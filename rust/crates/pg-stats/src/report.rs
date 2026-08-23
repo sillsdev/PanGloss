@@ -1,7 +1,7 @@
-//! The read side: the two v1 reports, mixed-settings detection, and coverage.
+//! The read side: every report orientation, mixed-settings detection, and coverage.
 //!
 //! Every function here takes a plain `&Connection` (via `crate::cache::StatsCache::connection`)
-//! and returns plain Rust rows — no formatting, no CSV. Rendering is the CLI layer's job.
+//! and returns plain Rust rows — no formatting, no rendering. That is the CLI layer's job.
 
 use rusqlite::{named_params, params, Connection};
 
@@ -41,19 +41,68 @@ pub fn per_word_report(conn: &Connection) -> Result<Vec<PerWordRow>, StatsError>
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-/// Which column `per_object_report` orders by. Measured self time is the default because it is
-/// the direct over-application question; `no_root` answers "which object manufactures bogus
-/// forms" directly, without an analyst dividing two columns by hand.
+/// Total (already word-deduplicated) elapsed wall-clock across the cache, or one word's own
+/// `elapsed_ns` when `word` narrows to it -- the attribution check's denominator: "how much of
+/// this real time did the object rows account for?"
+pub fn word_elapsed_ns_total(conn: &Connection, word: Option<&str>) -> Result<i64, StatsError> {
+    conn.query_row(
+        "SELECT COALESCE(SUM(elapsed_ns), 0) FROM word WHERE (:word IS NULL OR form = :word)",
+        named_params! { ":word": word },
+        |row| row.get(0),
+    )
+    .map_err(Into::into)
+}
+
+/// Whether any fact row of `kind` has ever been recorded in this cache, regardless of the current
+/// report's own narrowing -- lets an empty result say whether that is because this kind never
+/// occurs at all, or because it exists but nothing matched the requested filter.
+pub fn kind_has_any_recorded_object(conn: &Connection, kind: &str) -> Result<bool, StatsError> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM object WHERE kind = ?1",
+        params![kind],
+        |row| row.get(0),
+    )?;
+    Ok(n > 0)
+}
+
+/// Which column an object-shaped report orders by. Measured self time is the default because it
+/// is the direct over-application question; the others answer the next most common hand-derived
+/// question directly, without an analyst dividing two columns themselves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortKey {
     SelfTimeNs,
     NoRoot,
+    /// `outputs / attempts` — how many results one attempt amplifies into.
+    Amp,
+    Uses,
+    Attempts,
 }
 
 impl Default for SortKey {
     fn default() -> Self {
         SortKey::SelfTimeNs
     }
+}
+
+fn sort_key_code(sort: SortKey) -> i64 {
+    match sort {
+        SortKey::SelfTimeNs => 0,
+        SortKey::NoRoot => 1,
+        SortKey::Amp => 2,
+        SortKey::Uses => 3,
+        SortKey::Attempts => 4,
+    }
+}
+
+/// The `CASE :sort_key WHEN ... END` expression shared by every sortable report's CTE.
+fn sort_case_sql() -> &'static str {
+    "CASE :sort_key
+        WHEN 1 THEN no_root
+        WHEN 2 THEN CAST(outputs AS REAL) / NULLIF(attempts, 0)
+        WHEN 3 THEN uses
+        WHEN 4 THEN attempts
+        ELSE self_time_ns
+     END"
 }
 
 /// Optional narrowing for `per_object_report`. Every field left at its default means "no
@@ -65,9 +114,11 @@ pub struct PerObjectFilter {
     pub stratum_key: Option<String>,
     /// Narrows to `"analysis"` or `"synthesis"`; `None` sums both, recovering the undirected total.
     pub direction: Option<String>,
-    pub min_attempts: Option<i64>,
+    /// Narrows to one word's own fact rows, so a bad word can be traced straight to its objects.
+    pub word: Option<String>,
     pub exclude_censored_words: bool,
-    pub top_n: Option<usize>,
+    /// Per-`kind`, not global: `Some(1)` returns the top object of `morph_rule`, the top of
+    /// `phon_rule`, and so on, rather than hiding every kind but the one with the largest values.
     pub sort: SortKey,
 }
 
@@ -91,46 +142,52 @@ pub struct PerObjectRow {
     pub self_time_ns: i64,
 }
 
-const PER_OBJECT_SQL: &str = "
-    SELECT o.kind, o.label, o.identity_quality,
-           SUM(f.attempts), SUM(f.work), SUM(f.outputs),
-           SUM(CASE WHEN f.allomorph_id = 0 THEN f.not_applied ELSE 0 END),
-           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses),
-           SUM(f.self_time_ns)
-    FROM fact f
-    JOIN object o ON o.object_id = f.object_id
-    JOIN word w ON w.word_id = f.word_id
-    LEFT JOIN stratum s ON s.stratum_id = f.stratum_id
-    WHERE (:kind IS NULL OR o.kind = :kind)
-      AND (:object_key IS NULL OR o.key = :object_key)
-      AND (:stratum_key IS NULL OR s.key = :stratum_key)
-      AND (:direction IS NULL OR f.direction = :direction)
-      AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
-    GROUP BY o.object_id
-    HAVING (:min_attempts IS NULL OR SUM(f.attempts) >= :min_attempts)
-    ORDER BY CASE WHEN :sort_no_root = 1 THEN SUM(f.no_root)
-                  ELSE SUM(f.self_time_ns) END DESC
-    LIMIT :limit
-";
+fn per_object_sql() -> String {
+    format!(
+        "WITH agg AS (
+            SELECT o.object_id, o.kind, o.label, o.identity_quality, o.key AS object_key_sort,
+                   SUM(f.attempts) AS attempts, SUM(f.work) AS work, SUM(f.outputs) AS outputs,
+                   SUM(CASE WHEN f.allomorph_id = 0 THEN f.not_applied ELSE 0 END) AS not_applied,
+                   SUM(f.no_root) AS no_root, SUM(f.surface_mismatch) AS surface_mismatch,
+                   SUM(f.uses) AS uses, SUM(f.self_time_ns) AS self_time_ns
+            FROM fact f
+            JOIN object o ON o.object_id = f.object_id
+            JOIN word w ON w.word_id = f.word_id
+            LEFT JOIN stratum s ON s.stratum_id = f.stratum_id
+            WHERE (:kind IS NULL OR o.kind = :kind)
+              AND (:object_key IS NULL OR o.key = :object_key)
+              AND (:stratum_key IS NULL OR s.key = :stratum_key)
+              AND (:direction IS NULL OR f.direction = :direction)
+              AND (:word IS NULL OR w.form = :word)
+              AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
+            GROUP BY o.object_id
+        )
+        SELECT kind, label, identity_quality, attempts, work, outputs, not_applied, no_root,
+               surface_mismatch, uses, self_time_ns
+        FROM agg
+        ORDER BY {sort} DESC, object_key_sort ASC",
+        sort = sort_case_sql()
+    )
+}
 
 /// Kind, label, identity quality, summed counters, and measured self time — sorted and filtered
-/// per `filter`. Object count is bounded by grammar size, so an unset `top_n` prints everything.
+/// per `filter`, unlimited: a caller that shows only the top rows must still sum every row, or
+/// each row's share is a share of the excerpt rather than of the run.
 pub fn per_object_report(
     conn: &Connection,
     filter: &PerObjectFilter,
 ) -> Result<Vec<PerObjectRow>, StatsError> {
-    let mut stmt = conn.prepare(PER_OBJECT_SQL)?;
-    let limit: i64 = filter.top_n.map(|n| n as i64).unwrap_or(-1);
+    let sql = per_object_sql();
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(
         named_params! {
             ":kind": filter.kind.as_deref(),
             ":object_key": filter.object_key.as_deref(),
             ":stratum_key": filter.stratum_key.as_deref(),
             ":direction": filter.direction.as_deref(),
+            ":word": filter.word.as_deref(),
             ":exclude_censored": i64::from(filter.exclude_censored_words),
-            ":min_attempts": filter.min_attempts,
-            ":sort_no_root": i64::from(filter.sort == SortKey::NoRoot),
-            ":limit": limit,
+            ":sort_key": sort_key_code(filter.sort),
         },
         |row| {
             Ok(PerObjectRow {
@@ -159,9 +216,8 @@ pub struct PerAllomorphFilter {
     pub object_key: Option<String>,
     /// Narrows to `"analysis"` or `"synthesis"`; `None` sums both.
     pub direction: Option<String>,
-    pub min_attempts: Option<i64>,
+    pub word: Option<String>,
     pub exclude_censored_words: bool,
-    pub top_n: Option<usize>,
 }
 
 /// One row of the per-allomorph report: the owning object's identity, the allomorph locator, and
@@ -188,22 +244,28 @@ pub struct PerAllomorphRow {
 }
 
 const PER_ALLOMORPH_SQL: &str = "
-    SELECT o.kind, o.label, a.key, a.label,
-           SUM(f.attempts), SUM(f.work), SUM(f.outputs), SUM(f.not_applied),
-           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses),
-           SUM(f.self_time_ns)
-    FROM fact f
-    JOIN object o ON o.object_id = f.object_id
-    JOIN word w ON w.word_id = f.word_id
-    LEFT JOIN allomorph a ON a.allomorph_id = f.allomorph_id
-    WHERE (:kind IS NULL OR o.kind = :kind)
-      AND (:object_key IS NULL OR o.key = :object_key)
-      AND (:direction IS NULL OR f.direction = :direction)
-      AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
-    GROUP BY o.object_id, f.allomorph_id
-    HAVING (:min_attempts IS NULL OR SUM(f.attempts) >= :min_attempts)
-    ORDER BY SUM(f.self_time_ns) DESC, o.key ASC, a.key ASC
-    LIMIT :limit
+    WITH agg AS (
+        SELECT o.kind AS object_kind, o.label AS object_label, o.key AS object_key_sort,
+               a.key AS allomorph_key, a.label AS allomorph_label,
+               SUM(f.attempts) AS attempts, SUM(f.work) AS work, SUM(f.outputs) AS outputs,
+               SUM(f.not_applied) AS not_applied, SUM(f.no_root) AS no_root,
+               SUM(f.surface_mismatch) AS surface_mismatch, SUM(f.uses) AS uses,
+               SUM(f.self_time_ns) AS self_time_ns
+        FROM fact f
+        JOIN object o ON o.object_id = f.object_id
+        JOIN word w ON w.word_id = f.word_id
+        LEFT JOIN allomorph a ON a.allomorph_id = f.allomorph_id
+        WHERE (:kind IS NULL OR o.kind = :kind)
+          AND (:object_key IS NULL OR o.key = :object_key)
+          AND (:direction IS NULL OR f.direction = :direction)
+          AND (:word IS NULL OR w.form = :word)
+          AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
+        GROUP BY o.object_id, f.allomorph_id
+    )
+    SELECT object_kind, object_label, allomorph_key, allomorph_label, attempts, work, outputs,
+           not_applied, no_root, surface_mismatch, uses, self_time_ns
+    FROM agg
+    ORDER BY self_time_ns DESC, object_key_sort ASC, allomorph_key ASC
 ";
 
 /// Object identity, allomorph locator, summed counters, and measured self time — one row per
@@ -213,15 +275,13 @@ pub fn per_allomorph_report(
     filter: &PerAllomorphFilter,
 ) -> Result<Vec<PerAllomorphRow>, StatsError> {
     let mut stmt = conn.prepare(PER_ALLOMORPH_SQL)?;
-    let limit: i64 = filter.top_n.map(|n| n as i64).unwrap_or(-1);
     let rows = stmt.query_map(
         named_params! {
             ":kind": filter.kind.as_deref(),
             ":object_key": filter.object_key.as_deref(),
             ":direction": filter.direction.as_deref(),
+            ":word": filter.word.as_deref(),
             ":exclude_censored": i64::from(filter.exclude_censored_words),
-            ":min_attempts": filter.min_attempts,
-            ":limit": limit,
         },
         |row| {
             Ok(PerAllomorphRow {
@@ -251,9 +311,8 @@ pub struct PerStratumFilter {
     pub object_key: Option<String>,
     /// Narrows to `"analysis"` or `"synthesis"`; `None` sums both.
     pub direction: Option<String>,
-    pub min_attempts: Option<i64>,
+    pub word: Option<String>,
     pub exclude_censored_words: bool,
-    pub top_n: Option<usize>,
 }
 
 /// One row of the per-stratum report: the stratum locator and the same summed counters
@@ -272,12 +331,13 @@ pub struct PerStratumRow {
     pub no_root: i64,
     pub surface_mismatch: i64,
     pub uses: i64,
+    pub self_time_ns: i64,
 }
 
 const PER_STRATUM_SQL: &str = "
     SELECT s.key, s.label,
            SUM(f.attempts), SUM(f.work), SUM(f.outputs), SUM(f.not_applied),
-           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses)
+           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses), SUM(f.self_time_ns)
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
@@ -285,11 +345,10 @@ const PER_STRATUM_SQL: &str = "
     WHERE (:kind IS NULL OR o.kind = :kind)
       AND (:object_key IS NULL OR o.key = :object_key)
       AND (:direction IS NULL OR f.direction = :direction)
+      AND (:word IS NULL OR w.form = :word)
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
     GROUP BY f.stratum_id
-    HAVING (:min_attempts IS NULL OR SUM(f.attempts) >= :min_attempts)
     ORDER BY SUM(f.work) DESC, s.key ASC
-    LIMIT :limit
 ";
 
 /// Stratum locator and summed counters — one row per stratum with a fact, including the
@@ -299,15 +358,13 @@ pub fn per_stratum_report(
     filter: &PerStratumFilter,
 ) -> Result<Vec<PerStratumRow>, StatsError> {
     let mut stmt = conn.prepare(PER_STRATUM_SQL)?;
-    let limit: i64 = filter.top_n.map(|n| n as i64).unwrap_or(-1);
     let rows = stmt.query_map(
         named_params! {
             ":kind": filter.kind.as_deref(),
             ":object_key": filter.object_key.as_deref(),
             ":direction": filter.direction.as_deref(),
+            ":word": filter.word.as_deref(),
             ":exclude_censored": i64::from(filter.exclude_censored_words),
-            ":min_attempts": filter.min_attempts,
-            ":limit": limit,
         },
         |row| {
             Ok(PerStratumRow {
@@ -320,6 +377,7 @@ pub fn per_stratum_report(
                 no_root: row.get(6)?,
                 surface_mismatch: row.get(7)?,
                 uses: row.get(8)?,
+                self_time_ns: row.get(9)?,
             })
         },
     )?;
@@ -327,12 +385,12 @@ pub fn per_stratum_report(
 }
 
 /// Optional narrowing for `per_direction_report`. Every field left at its default means "no
-/// narrowing" — both directions, unlimited (there are only ever two rows, so no `top_n`).
+/// narrowing" — both directions (there are only ever two rows).
 #[derive(Debug, Clone, Default)]
 pub struct PerDirectionFilter {
     pub kind: Option<String>,
     pub object_key: Option<String>,
-    pub min_attempts: Option<i64>,
+    pub word: Option<String>,
     pub exclude_censored_words: bool,
 }
 
@@ -351,20 +409,21 @@ pub struct PerDirectionRow {
     pub no_root: i64,
     pub surface_mismatch: i64,
     pub uses: i64,
+    pub self_time_ns: i64,
 }
 
 const PER_DIRECTION_SQL: &str = "
     SELECT f.direction,
            SUM(f.attempts), SUM(f.work), SUM(f.outputs), SUM(f.not_applied),
-           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses)
+           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses), SUM(f.self_time_ns)
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
     WHERE (:kind IS NULL OR o.kind = :kind)
       AND (:object_key IS NULL OR o.key = :object_key)
+      AND (:word IS NULL OR w.form = :word)
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
     GROUP BY f.direction
-    HAVING (:min_attempts IS NULL OR SUM(f.attempts) >= :min_attempts)
     -- `direction` is a plain two-value tag, not a measured quantity, so ordering by the tag itself
     -- is already exact and stable -- unlike the work/self-time sorts elsewhere in this file, no
     -- tie-break column is needed.
@@ -382,8 +441,8 @@ pub fn per_direction_report(
         named_params! {
             ":kind": filter.kind.as_deref(),
             ":object_key": filter.object_key.as_deref(),
+            ":word": filter.word.as_deref(),
             ":exclude_censored": i64::from(filter.exclude_censored_words),
-            ":min_attempts": filter.min_attempts,
         },
         |row| {
             Ok(PerDirectionRow {
@@ -395,6 +454,150 @@ pub fn per_direction_report(
                 no_root: row.get(5)?,
                 surface_mismatch: row.get(6)?,
                 uses: row.get(7)?,
+                self_time_ns: row.get(8)?,
+            })
+        },
+    )?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Optional narrowing for `per_kind_report`. Every field left at its default means "no narrowing".
+#[derive(Debug, Clone, Default)]
+pub struct PerKindFilter {
+    pub kind: Option<String>,
+    pub direction: Option<String>,
+    pub word: Option<String>,
+    pub exclude_censored_words: bool,
+}
+
+/// One row of the `group` orientation: one `ObjectKind`'s counters, summed across every object of
+/// that kind -- "was it the compounding, the lexemes, or the allomorphs?" in one glance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PerKindRow {
+    pub kind: String,
+    pub attempts: i64,
+    pub work: i64,
+    pub outputs: i64,
+    pub not_applied: i64,
+    pub no_root: i64,
+    pub surface_mismatch: i64,
+    pub uses: i64,
+    pub self_time_ns: i64,
+}
+
+const PER_KIND_SQL: &str = "
+    SELECT o.kind,
+           SUM(f.attempts), SUM(f.work), SUM(f.outputs),
+           SUM(CASE WHEN f.allomorph_id = 0 THEN f.not_applied ELSE 0 END),
+           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses), SUM(f.self_time_ns)
+    FROM fact f
+    JOIN object o ON o.object_id = f.object_id
+    JOIN word w ON w.word_id = f.word_id
+    WHERE (:kind IS NULL OR o.kind = :kind)
+      AND (:direction IS NULL OR f.direction = :direction)
+      AND (:word IS NULL OR w.form = :word)
+      AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
+    GROUP BY o.kind
+    ORDER BY SUM(f.self_time_ns) DESC, o.kind ASC
+";
+
+/// One row per `ObjectKind` with a fact, summed across every object of that kind.
+pub fn per_kind_report(
+    conn: &Connection,
+    filter: &PerKindFilter,
+) -> Result<Vec<PerKindRow>, StatsError> {
+    let mut stmt = conn.prepare(PER_KIND_SQL)?;
+    let rows = stmt.query_map(
+        named_params! {
+            ":kind": filter.kind.as_deref(),
+            ":direction": filter.direction.as_deref(),
+            ":word": filter.word.as_deref(),
+            ":exclude_censored": i64::from(filter.exclude_censored_words),
+        },
+        |row| {
+            Ok(PerKindRow {
+                kind: row.get(0)?,
+                attempts: row.get(1)?,
+                work: row.get(2)?,
+                outputs: row.get(3)?,
+                not_applied: row.get(4)?,
+                no_root: row.get(5)?,
+                surface_mismatch: row.get(6)?,
+                uses: row.get(7)?,
+                self_time_ns: row.get(8)?,
+            })
+        },
+    )?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Optional narrowing for `per_morpheme_report`. Always scoped to `lex_entry` objects; every
+/// other field left at its default means "no narrowing".
+#[derive(Debug, Clone, Default)]
+pub struct PerMorphemeFilter {
+    pub direction: Option<String>,
+    pub word: Option<String>,
+    pub exclude_censored_words: bool,
+}
+
+/// One row of the `morpheme` orientation: a morpheme's locator and the summed counters of every
+/// `lex_entry` object (and its allomorph rows) that realizes it. `morpheme_key` is `None` only for
+/// the `NONE` sentinel -- a `lex_entry` whose morpheme could not be resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PerMorphemeRow {
+    pub morpheme_key: Option<String>,
+    pub morpheme_label: String,
+    pub attempts: i64,
+    pub work: i64,
+    pub outputs: i64,
+    pub not_applied: i64,
+    pub no_root: i64,
+    pub surface_mismatch: i64,
+    pub uses: i64,
+    pub self_time_ns: i64,
+}
+
+const PER_MORPHEME_SQL: &str = "
+    SELECT m.key, m.label,
+           SUM(f.attempts), SUM(f.work), SUM(f.outputs), SUM(f.not_applied),
+           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses), SUM(f.self_time_ns)
+    FROM fact f
+    JOIN object o ON o.object_id = f.object_id
+    JOIN word w ON w.word_id = f.word_id
+    LEFT JOIN morpheme m ON m.morpheme_id = o.morpheme_id
+    WHERE o.kind = 'lex_entry'
+      AND (:direction IS NULL OR f.direction = :direction)
+      AND (:word IS NULL OR w.form = :word)
+      AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
+    GROUP BY o.morpheme_id
+    ORDER BY SUM(f.self_time_ns) DESC, m.key ASC
+";
+
+/// Morpheme locator and summed counters — one row per morpheme with a `lex_entry` fact, so
+/// entries and allomorphs scattered across several rows collapse to the morpheme they realize.
+pub fn per_morpheme_report(
+    conn: &Connection,
+    filter: &PerMorphemeFilter,
+) -> Result<Vec<PerMorphemeRow>, StatsError> {
+    let mut stmt = conn.prepare(PER_MORPHEME_SQL)?;
+    let rows = stmt.query_map(
+        named_params! {
+            ":direction": filter.direction.as_deref(),
+            ":word": filter.word.as_deref(),
+            ":exclude_censored": i64::from(filter.exclude_censored_words),
+        },
+        |row| {
+            Ok(PerMorphemeRow {
+                morpheme_key: row.get(0)?,
+                morpheme_label: row.get(1)?,
+                attempts: row.get(2)?,
+                work: row.get(3)?,
+                outputs: row.get(4)?,
+                not_applied: row.get(5)?,
+                no_root: row.get(6)?,
+                surface_mismatch: row.get(7)?,
+                uses: row.get(8)?,
+                self_time_ns: row.get(9)?,
             })
         },
     )?;
@@ -403,7 +606,8 @@ pub fn per_direction_report(
 
 /// Below this many attempts, "never fires" is indistinguishable from ordinary noise, so the
 /// default excludes it rather than defaulting to 0 -- the sensible-default this report needs to
-/// be actionable rather than a dump of every rarely-tried object.
+/// be actionable rather than a dump of every rarely-tried object. Internal to this report only
+/// (the CLI carries no general `--min-attempts` override); see `NeverFiresFilter`.
 pub const NEVER_FIRES_DEFAULT_MIN_ATTEMPTS: i64 = 1000;
 
 /// Optional narrowing for `never_fires_report`. `min_attempts` defaults to
@@ -412,9 +616,9 @@ pub const NEVER_FIRES_DEFAULT_MIN_ATTEMPTS: i64 = 1000;
 pub struct NeverFiresFilter {
     pub kind: Option<String>,
     pub direction: Option<String>,
+    pub word: Option<String>,
     pub min_attempts: i64,
     pub exclude_censored_words: bool,
-    pub top_n: Option<usize>,
 }
 
 impl Default for NeverFiresFilter {
@@ -422,9 +626,9 @@ impl Default for NeverFiresFilter {
         NeverFiresFilter {
             kind: None,
             direction: None,
+            word: None,
             min_attempts: NEVER_FIRES_DEFAULT_MIN_ATTEMPTS,
             exclude_censored_words: false,
-            top_n: None,
         }
     }
 }
@@ -450,11 +654,11 @@ const NEVER_FIRES_SQL: &str = "
     WHERE o.kind IN ('morph_rule', 'phon_rule')
       AND (:kind IS NULL OR o.kind = :kind)
       AND (:direction IS NULL OR f.direction = :direction)
+      AND (:word IS NULL OR w.form = :word)
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
     GROUP BY o.object_id, f.direction
     HAVING SUM(f.outputs) = 0 AND total_attempts >= :min_attempts
     ORDER BY total_attempts DESC, o.key ASC, f.direction ASC
-    LIMIT :limit
 ";
 
 /// Objects heavily attempted (`>= filter.min_attempts`) that produced zero outputs, in the
@@ -465,14 +669,13 @@ pub fn never_fires_report(
     filter: &NeverFiresFilter,
 ) -> Result<Vec<NeverFiresRow>, StatsError> {
     let mut stmt = conn.prepare(NEVER_FIRES_SQL)?;
-    let limit: i64 = filter.top_n.map(|n| n as i64).unwrap_or(-1);
     let rows = stmt.query_map(
         named_params! {
             ":kind": filter.kind.as_deref(),
             ":direction": filter.direction.as_deref(),
+            ":word": filter.word.as_deref(),
             ":exclude_censored": i64::from(filter.exclude_censored_words),
             ":min_attempts": filter.min_attempts,
-            ":limit": limit,
         },
         |row| {
             Ok(NeverFiresRow {
@@ -592,6 +795,7 @@ mod tests {
             identity_quality: IdentityQuality::Authored,
             stratum: Some(StructuralLocator::new("0:Root", "Root")),
             allomorph: None,
+            morpheme: None,
             direction,
             attempts,
             work,
@@ -618,32 +822,39 @@ mod tests {
         }
     }
 
+    /// `attempts` is a word-level placeholder here -- no test in this module reads it.
+    fn word_record(form: &str, elapsed_ns: u64, facts: Vec<FactRecord>) -> WordRecord {
+        WordRecord {
+            form: form.to_string(),
+            elapsed_ns,
+            attempts: 1,
+            passes: 1,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts,
+        }
+    }
+
     fn seeded_cache() -> StatsCache {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
 
         let words = vec![
-            WordRecord {
-                form: "apu".to_string(),
-                elapsed_ns: 500,
-                attempts: 3,
-                passes: 1,
-                capped: false,
-                timed_out: false,
-                invalid_shape: false,
-                facts: vec![
+            word_record(
+                "apu",
+                500,
+                vec![
                     fact("rule-a", ObjectKind::MorphRule, 5, 20, 1),
                     fact("root-a", ObjectKind::LexEntry, 2, 4, 5),
                 ],
-            },
+            ),
             WordRecord {
-                form: "beta".to_string(),
-                elapsed_ns: 1_500,
-                attempts: 7,
-                passes: 0,
                 capped: true,
-                timed_out: false,
-                invalid_shape: false,
-                facts: vec![fact("rule-a", ObjectKind::MorphRule, 9, 40, 0)],
+                ..word_record(
+                    "beta",
+                    1_500,
+                    vec![fact("rule-a", ObjectKind::MorphRule, 9, 40, 0)],
+                )
             },
         ];
         outcome.cache.flush(&run(), &words).unwrap();
@@ -674,16 +885,20 @@ mod tests {
     }
 
     #[test]
-    fn per_object_min_attempts_excludes_small_objects() {
+    fn per_object_word_filter_narrows_to_one_words_objects() {
         let cache = seeded_cache();
+        // "beta" only ever attempted rule-a; root-a belongs entirely to "apu".
         let filter = PerObjectFilter {
-            min_attempts: Some(10),
+            word: Some("beta".to_string()),
             ..Default::default()
         };
         let rows = per_object_report(cache.connection(), &filter).unwrap();
-        // rule-a sums to 5 + 9 = 14 attempts across both words; root-a sums to 2.
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].label, "rule-a");
+        assert_eq!(
+            rows[0].attempts, 9,
+            "only beta's own contribution, not apu's"
+        );
     }
 
     #[test]
@@ -706,20 +921,15 @@ mod tests {
     #[test]
     fn per_object_sort_key_changes_order() {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        let words = vec![WordRecord {
-            form: "apu".to_string(),
-            elapsed_ns: 500,
-            attempts: 7,
-            passes: 1,
-            capped: false,
-            timed_out: false,
-            invalid_shape: false,
-            facts: vec![
+        let words = vec![word_record(
+            "apu",
+            500,
+            vec![
                 // rule-a has more measured self time (6000ns vs 400ns) but root-a has more no_root (5 vs 1) -- the sort keys disagree.
                 fact_with_self_time("rule-a", ObjectKind::MorphRule, 5, 20, 1, 6_000),
                 fact_with_self_time("root-a", ObjectKind::LexEntry, 2, 4, 5, 400),
             ],
-        }];
+        )];
         outcome.cache.flush(&run(), &words).unwrap();
         let cache = outcome.cache;
 
@@ -738,24 +948,67 @@ mod tests {
         assert_eq!(by_no_root[1].label, "rule-a");
     }
 
+    #[test]
+    fn per_object_sort_by_amp_uses_and_attempts() {
+        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+        let mut low_amp = fact("rule-low-amp", ObjectKind::MorphRule, 10, 10, 0);
+        low_amp.outputs = 1; // amp 0.1
+        low_amp.uses = 1;
+        let mut high_amp = fact("rule-high-amp", ObjectKind::MorphRule, 10, 10, 0);
+        high_amp.outputs = 9; // amp 0.9
+        high_amp.uses = 9;
+        let words = vec![word_record("w", 1, vec![low_amp, high_amp])];
+        outcome.cache.flush(&run(), &words).unwrap();
+        let cache = outcome.cache;
+
+        let by_amp = per_object_report(
+            cache.connection(),
+            &PerObjectFilter {
+                sort: SortKey::Amp,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(by_amp[0].label, "rule-high-amp");
+
+        let by_uses = per_object_report(
+            cache.connection(),
+            &PerObjectFilter {
+                sort: SortKey::Uses,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(by_uses[0].label, "rule-high-amp");
+
+        let by_attempts = per_object_report(
+            cache.connection(),
+            &PerObjectFilter {
+                sort: SortKey::Attempts,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            by_attempts.len(),
+            2,
+            "both rules tie on attempts; both must still appear"
+        );
+    }
+
     /// A per-kind total must be the exact sum of its objects' measured self times, never apportioned.
     #[test]
     fn per_kind_total_equals_sum_of_objects_measured_self_times() {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        let words = vec![WordRecord {
-            form: "apu".to_string(),
-            elapsed_ns: 500,
-            attempts: 10,
-            passes: 1,
-            capped: false,
-            timed_out: false,
-            invalid_shape: false,
-            facts: vec![
+        let words = vec![word_record(
+            "apu",
+            500,
+            vec![
                 fact_with_self_time("rule-a", ObjectKind::MorphRule, 5, 20, 0, 1_000),
                 fact_with_self_time("rule-b", ObjectKind::MorphRule, 3, 12, 0, 2_500),
                 fact_with_self_time("root-a", ObjectKind::LexEntry, 2, 4, 0, 700),
             ],
-        }];
+        )];
         outcome.cache.flush(&run(), &words).unwrap();
 
         let morph_rows = per_object_report(
@@ -774,17 +1027,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn per_object_top_n_limits_rows() {
-        let cache = seeded_cache();
-        let filter = PerObjectFilter {
-            top_n: Some(1),
-            ..Default::default()
-        };
-        let rows = per_object_report(cache.connection(), &filter).unwrap();
-        assert_eq!(rows.len(), 1);
-    }
-
     fn fact_with_allomorph(
         object_key: &str,
         kind: ObjectKind,
@@ -799,6 +1041,7 @@ mod tests {
             identity_quality: IdentityQuality::Authored,
             stratum: Some(StructuralLocator::new("0:Root", "Root")),
             allomorph: allomorph.map(|(k, l)| StructuralLocator::new(k, l)),
+            morpheme: None,
             direction: Direction::Analysis,
             attempts,
             work,
@@ -813,15 +1056,10 @@ mod tests {
 
     fn seeded_allomorph_cache() -> StatsCache {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        let words = vec![WordRecord {
-            form: "gamma".to_string(),
-            elapsed_ns: 700,
-            attempts: 10,
-            passes: 1,
-            capped: false,
-            timed_out: false,
-            invalid_shape: false,
-            facts: vec![
+        let words = vec![word_record(
+            "gamma",
+            700,
+            vec![
                 fact_with_allomorph(
                     "rule-b",
                     ObjectKind::MorphRule,
@@ -845,7 +1083,7 @@ mod tests {
                     1,
                 ),
             ],
-        }];
+        )];
         outcome.cache.flush(&run(), &words).unwrap();
         outcome.cache
     }
@@ -914,19 +1152,14 @@ mod tests {
     #[test]
     fn per_allomorph_orders_deterministically_on_ties() {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        let words = vec![WordRecord {
-            form: "tie".to_string(),
-            elapsed_ns: 1,
-            attempts: 2,
-            passes: 1,
-            capped: false,
-            timed_out: false,
-            invalid_shape: false,
-            facts: vec![
+        let words = vec![word_record(
+            "tie",
+            1,
+            vec![
                 fact_with_allomorph("rule-y", ObjectKind::MorphRule, Some(("a0", "A0")), 1, 5),
                 fact_with_allomorph("rule-x", ObjectKind::MorphRule, Some(("a0", "A0")), 1, 5),
             ],
-        }];
+        )];
         outcome.cache.flush(&run(), &words).unwrap();
 
         let rows = per_allomorph_report(outcome.cache.connection(), &PerAllomorphFilter::default())
@@ -953,6 +1186,7 @@ mod tests {
             identity_quality: IdentityQuality::Authored,
             stratum: Some(StructuralLocator::new("0:Root", "Root")),
             allomorph: allomorph.map(|(k, l)| StructuralLocator::new(k, l)),
+            morpheme: None,
             direction: Direction::Analysis,
             attempts,
             work: 1,
@@ -969,21 +1203,16 @@ mod tests {
     #[test]
     fn per_object_not_applied_counts_rule_level_invocations_not_per_allomorph_failures() {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        let words = vec![WordRecord {
-            form: "granularity".to_string(),
-            elapsed_ns: 1,
-            attempts: 1,
-            passes: 0,
-            capped: false,
-            timed_out: false,
-            invalid_shape: false,
-            facts: vec![
+        let words = vec![word_record(
+            "granularity",
+            1,
+            vec![
                 // Rule-level residual: one invocation, reached both allomorphs, produced nothing.
                 fact_with_allomorph_not_applied("rule-f", None, 1, 1),
                 fact_with_allomorph_not_applied("rule-f", Some(("rule-f:0", "Allo 0")), 0, 1),
                 fact_with_allomorph_not_applied("rule-f", Some(("rule-f:1", "Allo 1")), 0, 1),
             ],
-        }];
+        )];
         outcome.cache.flush(&run(), &words).unwrap();
 
         let object_rows =
@@ -1023,6 +1252,7 @@ mod tests {
             identity_quality: IdentityQuality::Authored,
             stratum: stratum.map(|(k, l)| StructuralLocator::new(k, l)),
             allomorph: None,
+            morpheme: None,
             direction: Direction::Analysis,
             attempts,
             work,
@@ -1037,15 +1267,10 @@ mod tests {
 
     fn seeded_stratum_cache() -> StatsCache {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        let words = vec![WordRecord {
-            form: "delta".to_string(),
-            elapsed_ns: 900,
-            attempts: 11,
-            passes: 1,
-            capped: false,
-            timed_out: false,
-            invalid_shape: false,
-            facts: vec![
+        let words = vec![word_record(
+            "delta",
+            900,
+            vec![
                 fact_with_stratum(
                     "rule-d",
                     ObjectKind::MorphRule,
@@ -1069,7 +1294,7 @@ mod tests {
                     10,
                 ),
             ],
-        }];
+        )];
         outcome.cache.flush(&run(), &words).unwrap();
         outcome.cache
     }
@@ -1141,15 +1366,10 @@ mod tests {
     #[test]
     fn per_stratum_orders_deterministically_on_ties() {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        let words = vec![WordRecord {
-            form: "tie2".to_string(),
-            elapsed_ns: 1,
-            attempts: 2,
-            passes: 1,
-            capped: false,
-            timed_out: false,
-            invalid_shape: false,
-            facts: vec![
+        let words = vec![word_record(
+            "tie2",
+            1,
+            vec![
                 fact_with_stratum(
                     "rule-e",
                     ObjectKind::MorphRule,
@@ -1165,7 +1385,7 @@ mod tests {
                     5,
                 ),
             ],
-        }];
+        )];
         outcome.cache.flush(&run(), &words).unwrap();
 
         let rows =
@@ -1201,35 +1421,11 @@ mod tests {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
         let run_id_a = outcome
             .cache
-            .flush(
-                &run(),
-                &[WordRecord {
-                    form: "apu".to_string(),
-                    elapsed_ns: 1,
-                    attempts: 1,
-                    passes: 1,
-                    capped: false,
-                    timed_out: false,
-                    invalid_shape: false,
-                    facts: vec![],
-                }],
-            )
+            .flush(&run(), &[word_record("apu", 1, vec![])])
             .unwrap();
         let run_id_b = outcome
             .cache
-            .flush(
-                &run(),
-                &[WordRecord {
-                    form: "beta".to_string(),
-                    elapsed_ns: 1,
-                    attempts: 1,
-                    passes: 1,
-                    capped: false,
-                    timed_out: false,
-                    invalid_shape: false,
-                    facts: vec![],
-                }],
-            )
+            .flush(&run(), &[word_record("beta", 1, vec![])])
             .unwrap();
         assert_ne!(
             run_id_a, run_id_b,
@@ -1266,15 +1462,10 @@ mod tests {
     /// One rule fact recorded under both directions, sharing `(word, object, stratum, allomorph)`.
     fn seeded_direction_cache() -> StatsCache {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        let words = vec![WordRecord {
-            form: "dirword".to_string(),
-            elapsed_ns: 1_000,
-            attempts: 8,
-            passes: 1,
-            capped: false,
-            timed_out: false,
-            invalid_shape: false,
-            facts: vec![
+        let words = vec![word_record(
+            "dirword",
+            1_000,
+            vec![
                 fact_with_direction(
                     "rule-dir",
                     ObjectKind::MorphRule,
@@ -1292,7 +1483,7 @@ mod tests {
                     0,
                 ),
             ],
-        }];
+        )];
         outcome.cache.flush(&run(), &words).unwrap();
         outcome.cache
     }
@@ -1374,6 +1565,90 @@ mod tests {
         );
     }
 
+    #[test]
+    fn per_kind_report_sums_across_every_object_of_a_kind() {
+        let cache = seeded_cache();
+        let rows = per_kind_report(cache.connection(), &PerKindFilter::default()).unwrap();
+        let morph_row = rows.iter().find(|r| r.kind == "morph_rule").unwrap();
+        assert_eq!(morph_row.attempts, 14, "both words' rule-a attempts summed");
+        let lex_row = rows.iter().find(|r| r.kind == "lex_entry").unwrap();
+        assert_eq!(lex_row.attempts, 2);
+    }
+
+    #[test]
+    fn per_kind_report_word_filter_narrows_the_sum() {
+        let cache = seeded_cache();
+        let rows = per_kind_report(
+            cache.connection(),
+            &PerKindFilter {
+                word: Some("beta".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 1, "beta only ever touched morph_rule");
+        assert_eq!(rows[0].kind, "morph_rule");
+        assert_eq!(rows[0].attempts, 9);
+    }
+
+    fn fact_with_morpheme(
+        object_key: &str,
+        morpheme: Option<(&str, &str)>,
+        attempts: u64,
+        work: u64,
+    ) -> FactRecord {
+        FactRecord {
+            object_key: object_key.to_string(),
+            object_kind: ObjectKind::LexEntry,
+            object_label: object_key.to_string(),
+            identity_quality: IdentityQuality::Authored,
+            stratum: Some(StructuralLocator::new("0:Root", "Root")),
+            allomorph: None,
+            morpheme: morpheme.map(|(k, l)| StructuralLocator::new(k, l)),
+            direction: Direction::Analysis,
+            attempts,
+            work,
+            outputs: attempts,
+            not_applied: 0,
+            no_root: 0,
+            surface_mismatch: 0,
+            uses: 0,
+            self_time_ns: 0,
+        }
+    }
+
+    #[test]
+    fn per_morpheme_report_collapses_scattered_entries_to_one_row() {
+        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+        let words = vec![word_record(
+            "w",
+            1,
+            vec![
+                // Two distinct lex_entry objects (different authored ids/allomorphs) sharing one morpheme.
+                fact_with_morpheme("entry-1", Some(("cat-morph", "cat")), 3, 3),
+                fact_with_morpheme("entry-2", Some(("cat-morph", "cat")), 2, 2),
+                fact_with_morpheme("entry-3", Some(("dog-morph", "dog")), 5, 5),
+            ],
+        )];
+        outcome.cache.flush(&run(), &words).unwrap();
+
+        let rows =
+            per_morpheme_report(outcome.cache.connection(), &PerMorphemeFilter::default()).unwrap();
+        assert_eq!(
+            rows.len(),
+            2,
+            "two morphemes, however many entries realize each"
+        );
+        let cat_row = rows
+            .iter()
+            .find(|r| r.morpheme_key.as_deref() == Some("cat-morph"))
+            .expect("cat-morph row must exist");
+        assert_eq!(
+            cat_row.attempts, 5,
+            "entry-1 and entry-2 both realize cat-morph and must collapse into one row"
+        );
+    }
+
     fn never_fires_fact(
         object_key: &str,
         direction: Direction,
@@ -1387,6 +1662,7 @@ mod tests {
             identity_quality: IdentityQuality::Authored,
             stratum: Some(StructuralLocator::new("0:Root", "Root")),
             allomorph: None,
+            morpheme: None,
             direction,
             attempts,
             work: attempts,
@@ -1401,15 +1677,10 @@ mod tests {
 
     fn seeded_never_fires_cache() -> StatsCache {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        let words = vec![WordRecord {
-            form: "neverfiresword".to_string(),
-            elapsed_ns: 1,
-            attempts: 1,
-            passes: 0,
-            capped: false,
-            timed_out: false,
-            invalid_shape: false,
-            facts: vec![
+        let words = vec![word_record(
+            "neverfiresword",
+            1,
+            vec![
                 // Heavily attempted, zero outputs -- the motivating case.
                 never_fires_fact("rule-dead", Direction::Analysis, 2_500, 0),
                 // Heavily attempted but productive -- must never appear.
@@ -1420,7 +1691,7 @@ mod tests {
                 never_fires_fact("rule-dir-split", Direction::Analysis, 3_000, 0),
                 never_fires_fact("rule-dir-split", Direction::Synthesis, 500, 10),
             ],
-        }];
+        )];
         outcome.cache.flush(&run(), &words).unwrap();
         outcome.cache
     }
@@ -1482,6 +1753,26 @@ mod tests {
                 "rule-thin".to_string(),
             ],
             "descending by attempts (3000, 2500, 5), and a low explicit min_attempts admits rule-thin"
+        );
+    }
+
+    #[test]
+    fn word_elapsed_ns_total_sums_all_words_or_narrows_to_one() {
+        let cache = seeded_cache();
+        let total = word_elapsed_ns_total(cache.connection(), None).unwrap();
+        assert_eq!(total, 500 + 1_500);
+
+        let one = word_elapsed_ns_total(cache.connection(), Some("beta")).unwrap();
+        assert_eq!(one, 1_500);
+    }
+
+    #[test]
+    fn kind_has_any_recorded_object_distinguishes_absent_from_present() {
+        let cache = seeded_cache();
+        assert!(kind_has_any_recorded_object(cache.connection(), "morph_rule").unwrap());
+        assert!(
+            !kind_has_any_recorded_object(cache.connection(), "phon_rule").unwrap(),
+            "no phon_rule fact was ever recorded in this cache"
         );
     }
 }

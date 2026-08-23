@@ -101,14 +101,17 @@ impl StatsCache {
     }
 
     /// Returns the stable id for `(key, kind)`, inserting a new `object` row on first sight.
+    /// `morpheme` is only ever `Some` for a `lex_entry` object; every other kind interns the
+    /// `morpheme` sentinel (id 0).
     pub fn intern_object(
         &self,
         key: &str,
         kind: ObjectKind,
         label: &str,
         identity_quality: IdentityQuality,
+        morpheme: Option<&StructuralLocator>,
     ) -> Result<i64, StatsError> {
-        intern_object_on(&self.conn, key, kind, label, identity_quality)
+        intern_object_on(&self.conn, key, kind, label, identity_quality, morpheme)
     }
 
     /// Returns the stable id for a stratum `key`, inserting a new row on first sight.
@@ -119,6 +122,11 @@ impl StatsCache {
     /// Returns the stable id for an allomorph `key`, inserting a new row on first sight.
     pub fn intern_allomorph(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
         intern_allomorph_on(&self.conn, locator)
+    }
+
+    /// Returns the stable id for a morpheme `key`, inserting a new row on first sight.
+    pub fn intern_morpheme(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
+        intern_morpheme_on(&self.conn, locator)
     }
 
     /// Records whether `counter` could be measured at all for `kind` in run `run_id`, so a report
@@ -215,6 +223,7 @@ fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), S
         fact.object_kind,
         &fact.object_label,
         fact.identity_quality,
+        fact.morpheme.as_ref(),
     )?;
     let stratum_id = match &fact.stratum {
         Some(locator) => intern_stratum_on(tx, locator)?,
@@ -262,10 +271,15 @@ fn intern_object_on(
     kind: ObjectKind,
     label: &str,
     identity_quality: IdentityQuality,
+    morpheme: Option<&StructuralLocator>,
 ) -> Result<i64, StatsError> {
+    let morpheme_id = match morpheme {
+        Some(locator) => intern_morpheme_on(conn, locator)?,
+        None => 0,
+    };
     conn.execute(
-        "INSERT OR IGNORE INTO object (key, kind, label, identity_quality) VALUES (?1, ?2, ?3, ?4)",
-        params![key, kind.as_str(), label, identity_quality.as_str()],
+        "INSERT OR IGNORE INTO object (key, kind, label, identity_quality, morpheme_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![key, kind.as_str(), label, identity_quality.as_str(), morpheme_id],
     )?;
     conn.query_row(
         "SELECT object_id FROM object WHERE key = ?1 AND kind = ?2",
@@ -303,6 +317,20 @@ fn intern_allomorph_on(conn: &Connection, locator: &StructuralLocator) -> Result
     .map_err(Into::into)
 }
 
+/// See `intern_stratum_on` — `morpheme_key` gives `morpheme` the same shape.
+fn intern_morpheme_on(conn: &Connection, locator: &StructuralLocator) -> Result<i64, StatsError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO morpheme (key, label) VALUES (?1, ?2)",
+        params![locator.key, locator.label],
+    )?;
+    conn.query_row(
+        "SELECT morpheme_id FROM morpheme WHERE key = ?1",
+        params![locator.key],
+        |row| row.get(0),
+    )
+    .map_err(Into::into)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +353,7 @@ mod tests {
                 identity_quality: IdentityQuality::Authored,
                 stratum: Some(StructuralLocator::new("0:Root", "Root")),
                 allomorph: None,
+                morpheme: None,
                 direction: Direction::Analysis,
                 attempts: 5,
                 work: 20,
@@ -469,6 +498,7 @@ mod tests {
                 ObjectKind::MorphRule,
                 "Rule A",
                 IdentityQuality::Authored,
+                None,
             )
             .unwrap();
         let id_a_again = first
@@ -478,6 +508,7 @@ mod tests {
                 ObjectKind::MorphRule,
                 "Rule A",
                 IdentityQuality::Authored,
+                None,
             )
             .unwrap();
         assert_eq!(id_a, id_a_again);
@@ -491,6 +522,7 @@ mod tests {
                 ObjectKind::MorphRule,
                 "Rule A",
                 IdentityQuality::Authored,
+                None,
             )
             .unwrap();
         assert_eq!(id_a, id_a_reopened);

@@ -19,6 +19,15 @@ use crate::model::{
     PhonRuleDef, StratumId,
 };
 
+/// A morpheme's locator identity, mirroring [`StratumIdentity`]: a morpheme is a dimension a
+/// report groups lexical entries by, never a counted object on its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MorphemeIdentity {
+    pub key: String,
+    pub label: String,
+    pub quality: IdentityQuality,
+}
+
 /// How trustworthy an identity's `key` is as a stable, cross-run identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentityQuality {
@@ -70,17 +79,6 @@ pub struct AllomorphIdentity {
     pub key: String,
     pub label: String,
     pub quality: IdentityQuality,
-}
-
-/// Every identity in a grammar, keyed by dimension — enough for a caller to build a lookup table
-/// from a runtime id to its resolved identity.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GrammarIdentities {
-    /// One entry per `MRuleId`, `PRuleId`, `LexEntryId`, `root_index` (one per stratum), plus one
-    /// `guesser` and one `overlay`.
-    pub objects: Vec<ObjectIdentity>,
-    pub strata: Vec<StratumIdentity>,
-    pub allomorphs: Vec<AllomorphIdentity>,
 }
 
 /// The morpheme's authored `xml_key`, or `None` if unresolvable or empty.
@@ -194,9 +192,8 @@ pub fn stratum_identity(grammar: &Grammar, id: StratumId) -> StratumIdentity {
     }
 }
 
-/// Resolve an allomorph's structural locator from its owner (`AllomorphOwner` already carries
-/// both the owning object's id and the allomorph's index within it).
-pub fn allomorph_identity_for_owner(grammar: &Grammar, owner: AllomorphOwner) -> AllomorphIdentity {
+/// Resolve an allomorph's structural locator from its owner's identity and index within it.
+fn allomorph_identity_for_owner(grammar: &Grammar, owner: AllomorphOwner) -> AllomorphIdentity {
     let (owner_key, owner_label, index) = match owner {
         AllomorphOwner::Root(entry_id, idx) => {
             let owner_identity = lex_entry_identity(grammar, entry_id);
@@ -265,44 +262,42 @@ pub fn overlay_identity(_grammar: &Grammar) -> ObjectIdentity {
     }
 }
 
-/// Resolve every identity in `grammar`, so a caller can build a lookup table from every runtime
-/// id (`MRuleId`, `PRuleId`, `LexEntryId`, `StratumId`, `AllomorphId`) to its resolved identity in
-/// one pass.
-pub fn resolve_all(grammar: &Grammar) -> GrammarIdentities {
-    let mut objects = Vec::with_capacity(
-        grammar.mrules.len()
-            + grammar.prules.len()
-            + grammar.entries.len()
-            + grammar.strata.len()
-            + 2,
-    );
-    for i in 0..grammar.mrules.len() {
-        objects.push(morph_rule_identity(grammar, MRuleId(i as u32)));
+/// Resolve a morpheme's locator identity, so a `lex_entry` report can group scattered entries and
+/// allomorphs back to the single morpheme they realize. `MorphemeId::GUESSED` names no grammar row
+/// (a fabricated root has no morpheme at all), so it resolves to a synthetic sentinel rather than
+/// indexing `grammar.morphemes` out of bounds.
+pub fn morpheme_identity(grammar: &Grammar, id: MorphemeId) -> MorphemeIdentity {
+    if id == MorphemeId::GUESSED {
+        return MorphemeIdentity {
+            key: "morpheme#guessed".to_string(),
+            label: "guessed morpheme".to_string(),
+            quality: IdentityQuality::Synthetic,
+        };
     }
-    for i in 0..grammar.prules.len() {
-        objects.push(phon_rule_identity(grammar, PRuleId(i as u32)));
-    }
-    for i in 0..grammar.entries.len() {
-        objects.push(lex_entry_identity(grammar, LexEntryId(i as u32)));
-    }
-    for i in 0..grammar.strata.len() {
-        objects.push(root_index_identity(grammar, StratumId(i as u8)));
-    }
-    objects.push(guesser_identity(grammar));
-    objects.push(overlay_identity(grammar));
-
-    let strata = (0..grammar.strata.len())
-        .map(|i| stratum_identity(grammar, StratumId(i as u8)))
-        .collect();
-
-    let allomorphs = (0..grammar.allomorph_owners.len())
-        .map(|i| allomorph_identity(grammar, AllomorphId(i as u32)))
-        .collect();
-
-    GrammarIdentities {
-        objects,
-        strata,
-        allomorphs,
+    match grammar.morphemes.get(id.0 as usize) {
+        Some(info) if !info.xml_key.is_empty() => MorphemeIdentity {
+            label: info
+                .gloss
+                .clone()
+                .filter(|g| !g.is_empty())
+                .unwrap_or_else(|| info.xml_key.clone()),
+            key: info.xml_key.clone(),
+            quality: IdentityQuality::Authored,
+        },
+        Some(info) => MorphemeIdentity {
+            key: format!("morpheme#{}", id.0),
+            label: info
+                .gloss
+                .clone()
+                .filter(|g| !g.is_empty())
+                .unwrap_or_else(|| format!("morpheme#{}", id.0)),
+            quality: IdentityQuality::Structural,
+        },
+        None => MorphemeIdentity {
+            key: format!("morpheme#{}", id.0),
+            label: format!("morpheme#{}", id.0),
+            quality: IdentityQuality::Structural,
+        },
     }
 }
 
@@ -339,62 +334,75 @@ mod tests {
         assert_eq!(identity.quality, IdentityQuality::Synthetic);
     }
 
+    /// Every individual resolver, called directly over `grammar`'s own runtime ids.
     fn assert_all_non_empty_and_expected_quality(grammar: &crate::model::Grammar, label: &str) {
-        let identities = resolve_all(grammar);
-
-        for oi in &identities.objects {
+        for i in 0..grammar.mrules.len() {
+            let oi = morph_rule_identity(grammar, MRuleId(i as u32));
             assert!(!oi.key.is_empty(), "{label}: empty key for {oi:?}");
             assert!(!oi.label.is_empty(), "{label}: empty label for {oi:?}");
-            match oi.kind {
-                ObjectKind::MorphRule | ObjectKind::PhonRule | ObjectKind::LexEntry => {
-                    assert!(
-                        matches!(
-                            oi.quality,
-                            IdentityQuality::Authored | IdentityQuality::Structural
-                        ),
-                        "{label}: unexpected quality for authored-capable kind {oi:?}"
-                    );
-                }
-                ObjectKind::RootIndex | ObjectKind::Guesser | ObjectKind::Overlay => {
-                    assert_eq!(
-                        oi.quality,
-                        IdentityQuality::Synthetic,
-                        "{label}: synthetic kind must be Synthetic: {oi:?}"
-                    );
-                }
-            }
+            assert!(
+                matches!(
+                    oi.quality,
+                    IdentityQuality::Authored | IdentityQuality::Structural
+                ),
+                "{label}: unexpected quality for morph rule {oi:?}"
+            );
         }
-
-        for si in &identities.strata {
+        for i in 0..grammar.prules.len() {
+            let oi = phon_rule_identity(grammar, PRuleId(i as u32));
+            assert!(!oi.key.is_empty(), "{label}: empty key for {oi:?}");
+            assert!(!oi.label.is_empty(), "{label}: empty label for {oi:?}");
+            assert!(
+                matches!(
+                    oi.quality,
+                    IdentityQuality::Authored | IdentityQuality::Structural
+                ),
+                "{label}: unexpected quality for phon rule {oi:?}"
+            );
+        }
+        for i in 0..grammar.entries.len() {
+            let oi = lex_entry_identity(grammar, LexEntryId(i as u32));
+            assert!(!oi.key.is_empty(), "{label}: empty key for {oi:?}");
+            assert!(!oi.label.is_empty(), "{label}: empty label for {oi:?}");
+            assert_eq!(oi.quality, IdentityQuality::Authored);
+        }
+        for i in 0..grammar.strata.len() {
+            let si = stratum_identity(grammar, StratumId(i as u8));
             assert!(!si.key.is_empty(), "{label}: empty stratum key");
             assert!(!si.label.is_empty(), "{label}: empty stratum label");
             assert_eq!(si.quality, IdentityQuality::Structural);
-        }
 
-        for ai in &identities.allomorphs {
+            let oi = root_index_identity(grammar, StratumId(i as u8));
+            assert!(!oi.key.is_empty());
+            assert_eq!(oi.quality, IdentityQuality::Synthetic);
+        }
+        for i in 0..grammar.allomorph_owners.len() {
+            let ai = allomorph_identity(grammar, AllomorphId(i as u32));
             assert!(!ai.key.is_empty(), "{label}: empty allomorph key");
             assert!(!ai.label.is_empty(), "{label}: empty allomorph label");
             assert_eq!(ai.quality, IdentityQuality::Structural);
         }
+        for i in 0..grammar.morphemes.len() {
+            let mi = morpheme_identity(grammar, MorphemeId(i as u32));
+            assert!(!mi.key.is_empty(), "{label}: empty morpheme key");
+            assert!(!mi.label.is_empty(), "{label}: empty morpheme label");
+        }
+
+        assert_eq!(
+            guesser_identity(grammar).quality,
+            IdentityQuality::Synthetic
+        );
+        assert_eq!(
+            overlay_identity(grammar).quality,
+            IdentityQuality::Synthetic
+        );
 
         // Guards against a fixture change silently emptying what this test actually exercises.
+        assert!(!grammar.entries.is_empty(), "{label}: no lex entries");
+        assert!(!grammar.mrules.is_empty(), "{label}: no morph rules");
         assert!(
-            identities
-                .objects
-                .iter()
-                .any(|o| o.kind == ObjectKind::LexEntry),
-            "{label}: no lex entries resolved"
-        );
-        assert!(
-            identities
-                .objects
-                .iter()
-                .any(|o| o.kind == ObjectKind::MorphRule),
-            "{label}: no morph rules resolved"
-        );
-        assert!(
-            !identities.allomorphs.is_empty(),
-            "{label}: no allomorphs resolved"
+            !grammar.allomorph_owners.is_empty(),
+            "{label}: no allomorphs"
         );
     }
 
@@ -412,6 +420,34 @@ mod tests {
         let xml = f.load_grammar_xml();
         let g1 = crate::load(&xml).unwrap();
         let g2 = crate::load(&xml).unwrap();
-        assert_eq!(resolve_all(&g1), resolve_all(&g2));
+
+        assert_eq!(
+            morph_rule_identity(&g1, MRuleId(0)),
+            morph_rule_identity(&g2, MRuleId(0))
+        );
+        assert_eq!(
+            lex_entry_identity(&g1, LexEntryId(0)),
+            lex_entry_identity(&g2, LexEntryId(0))
+        );
+        assert_eq!(
+            stratum_identity(&g1, StratumId(0)),
+            stratum_identity(&g2, StratumId(0))
+        );
+        assert_eq!(
+            allomorph_identity(&g1, AllomorphId(0)),
+            allomorph_identity(&g2, AllomorphId(0))
+        );
+        assert_eq!(
+            morpheme_identity(&g1, MorphemeId(0)),
+            morpheme_identity(&g2, MorphemeId(0))
+        );
+    }
+
+    #[test]
+    fn morpheme_identity_resolves_the_guessed_sentinel_without_panicking() {
+        let [grammar, _] = two_sample_grammars();
+        let identity = morpheme_identity(&grammar, MorphemeId::GUESSED);
+        assert!(!identity.key.is_empty());
+        assert_eq!(identity.quality, IdentityQuality::Synthetic);
     }
 }

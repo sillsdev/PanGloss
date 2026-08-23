@@ -121,6 +121,14 @@ fn fact_record_from_stats_row(
         let a = pg_grammar::stats_identity::allomorph_identity(grammar, AllomorphId(row.allomorph));
         Some(pg_stats::StructuralLocator::new(a.key, a.label))
     };
+    // Only a `lex_entry` object realizes a single morpheme; every other kind carries no locator.
+    let morpheme = if row.kind == pg_rules::stats::ObjectKind::LexEntry {
+        let morpheme_id = grammar.entries[row.object_index as usize].morpheme;
+        let m = pg_grammar::stats_identity::morpheme_identity(grammar, morpheme_id);
+        Some(pg_stats::StructuralLocator::new(m.key, m.label))
+    } else {
+        None
+    };
     let direction = match row.direction {
         pg_rules::stats::Direction::Analysis => pg_stats::Direction::Analysis,
         pg_rules::stats::Direction::Synthesis => pg_stats::Direction::Synthesis,
@@ -132,6 +140,7 @@ fn fact_record_from_stats_row(
         identity_quality: to_stats_quality(identity.quality),
         stratum: Some(pg_stats::StructuralLocator::new(stratum.key, stratum.label)),
         allomorph,
+        morpheme,
         direction,
         attempts: row.counters.attempts,
         work: row.counters.work,
@@ -418,7 +427,7 @@ pub(crate) fn run_batch_stats_foma(
 
 // The `stats` subcommand: read-only, no grammar loaded.
 
-const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|stratum|direction|never-fires] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--min-attempts N] [--top N] [--sort time|no-root] [--exclude-censored] [--show-work] [--cache <path>] [--out FILE]";
+const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|stratum|direction|morpheme|group|never-fires] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--word FORM] [--top N] [--sort time|no-root|amp|uses|attempts] [--exclude-censored] [--wide] [--format text|jsonl] [--cache <path>] [--out FILE]";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ReportGroup {
@@ -427,7 +436,15 @@ enum ReportGroup {
     Allomorph,
     Stratum,
     Direction,
+    Morpheme,
+    Group,
     NeverFires,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OutputFormat {
+    Text,
+    Jsonl,
 }
 
 #[derive(Default)]
@@ -437,12 +454,13 @@ struct Filters {
     stratum_key: Option<String>,
     /// `"analysis"` or `"synthesis"`; validated at parse time, threaded through unchanged.
     direction: Option<String>,
-    min_attempts: Option<i64>,
+    /// Narrows to one word's own fact rows -- the find-the-bad-word-then-the-bad-rule workflow.
+    word: Option<String>,
     top_n: Option<usize>,
     sort: Option<pg_stats::SortKey>,
     exclude_censored: bool,
-    /// `--show-work`: appends the raw `work` counter column, hidden by default.
-    show_work: bool,
+    /// `--wide`: appends `work`/`not_applied`/`no_root`/`surface_mismatch`/`identity_quality`.
+    wide: bool,
 }
 
 fn per_object_filter(f: &Filters) -> pg_stats::PerObjectFilter {
@@ -451,9 +469,8 @@ fn per_object_filter(f: &Filters) -> pg_stats::PerObjectFilter {
         object_key: f.object_key.clone(),
         stratum_key: f.stratum_key.clone(),
         direction: f.direction.clone(),
-        min_attempts: f.min_attempts,
+        word: f.word.clone(),
         exclude_censored_words: f.exclude_censored,
-        top_n: f.top_n,
         sort: f.sort.unwrap_or_default(),
     }
 }
@@ -463,9 +480,8 @@ fn per_allomorph_filter(f: &Filters) -> pg_stats::PerAllomorphFilter {
         kind: f.kind.clone(),
         object_key: f.object_key.clone(),
         direction: f.direction.clone(),
-        min_attempts: f.min_attempts,
+        word: f.word.clone(),
         exclude_censored_words: f.exclude_censored,
-        top_n: f.top_n,
     }
 }
 
@@ -474,22 +490,8 @@ fn per_stratum_filter(f: &Filters) -> pg_stats::PerStratumFilter {
         kind: f.kind.clone(),
         object_key: f.object_key.clone(),
         direction: f.direction.clone(),
-        min_attempts: f.min_attempts,
+        word: f.word.clone(),
         exclude_censored_words: f.exclude_censored,
-        top_n: f.top_n,
-    }
-}
-
-/// Unlike the other filters, an unset `--min-attempts` still applies the sensible default floor.
-fn never_fires_filter(f: &Filters) -> pg_stats::NeverFiresFilter {
-    pg_stats::NeverFiresFilter {
-        kind: f.kind.clone(),
-        direction: f.direction.clone(),
-        min_attempts: f
-            .min_attempts
-            .unwrap_or(pg_stats::NEVER_FIRES_DEFAULT_MIN_ATTEMPTS),
-        exclude_censored_words: f.exclude_censored,
-        top_n: f.top_n,
     }
 }
 
@@ -497,7 +499,35 @@ fn per_direction_filter(f: &Filters) -> pg_stats::PerDirectionFilter {
     pg_stats::PerDirectionFilter {
         kind: f.kind.clone(),
         object_key: f.object_key.clone(),
-        min_attempts: f.min_attempts,
+        word: f.word.clone(),
+        exclude_censored_words: f.exclude_censored,
+    }
+}
+
+fn per_kind_filter(f: &Filters) -> pg_stats::PerKindFilter {
+    pg_stats::PerKindFilter {
+        kind: f.kind.clone(),
+        direction: f.direction.clone(),
+        word: f.word.clone(),
+        exclude_censored_words: f.exclude_censored,
+    }
+}
+
+fn per_morpheme_filter(f: &Filters) -> pg_stats::PerMorphemeFilter {
+    pg_stats::PerMorphemeFilter {
+        direction: f.direction.clone(),
+        word: f.word.clone(),
+        exclude_censored_words: f.exclude_censored,
+    }
+}
+
+/// The CLI carries no general `--min-attempts` override; never-fires always uses its own internal default.
+fn never_fires_filter(f: &Filters) -> pg_stats::NeverFiresFilter {
+    pg_stats::NeverFiresFilter {
+        kind: f.kind.clone(),
+        direction: f.direction.clone(),
+        word: f.word.clone(),
+        min_attempts: pg_stats::NEVER_FIRES_DEFAULT_MIN_ATTEMPTS,
         exclude_censored_words: f.exclude_censored,
     }
 }
@@ -519,45 +549,15 @@ fn coverage_map_for_latest_run(conn: &rusqlite::Connection) -> Result<CoverageMa
         .collect())
 }
 
-fn counter_cell(kind: &str, counter: &str, value: i64, coverage: &CoverageMap) -> String {
-    // An absent coverage row is "I could not look", never "everything is fine" -- it must render like an unsupported one, not a bare number.
+/// `None` unless `coverage` explicitly marks `(kind, counter)` measured -- an absent row is unsupported too.
+fn masked(kind: &str, counter: &str, value: i64, coverage: &CoverageMap) -> Option<i64> {
     match coverage
         .get(&(kind.to_string(), counter.to_string()))
         .map(String::as_str)
     {
-        Some("measured") => value.to_string(),
-        _ => "\u{2014}".to_string(),
+        Some("measured") => Some(value),
+        _ => None,
     }
-}
-
-fn csv_field(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
-}
-
-fn write_csv(path: &str, headers: &[&str], rows: &[Vec<String>]) -> Result<(), String> {
-    let mut out = String::new();
-    out.push_str(
-        &headers
-            .iter()
-            .map(|h| csv_field(h))
-            .collect::<Vec<_>>()
-            .join(","),
-    );
-    out.push('\n');
-    for row in rows {
-        out.push_str(
-            &row.iter()
-                .map(|c| csv_field(c))
-                .collect::<Vec<_>>()
-                .join(","),
-        );
-        out.push('\n');
-    }
-    std::fs::write(path, out).map_err(|e| format!("write {path}: {e}"))
 }
 
 fn render_table(headers: &[&str], rows: &[Vec<String>]) -> String {
@@ -586,376 +586,717 @@ fn render_table(headers: &[&str], rows: &[Vec<String>]) -> String {
     out
 }
 
-const WORD_HEADERS: [&str; 6] = [
-    "form",
-    "elapsed_ms_actual",
+/// A shape-normalized row for the six counter-bearing orientations; `None` renders as `-`, whether that means "not applicable" or "unmeasured".
+#[derive(Clone)]
+struct RowView {
+    label: String,
+    kind: Option<String>,
+    identity_quality: Option<String>,
+    self_time_ns: Option<i64>,
+    attempts: Option<i64>,
+    outputs: Option<i64>,
+    uses: Option<i64>,
+    work: Option<i64>,
+    not_applied: Option<i64>,
+    no_root: Option<i64>,
+    surface_mismatch: Option<i64>,
+}
+
+fn object_row_view(r: &pg_stats::PerObjectRow, coverage: &CoverageMap) -> RowView {
+    RowView {
+        label: format!("{}: {}", r.kind, r.label),
+        kind: Some(r.kind.clone()),
+        identity_quality: Some(r.identity_quality.clone()),
+        self_time_ns: Some(r.self_time_ns),
+        attempts: masked(&r.kind, "attempts", r.attempts, coverage),
+        outputs: masked(&r.kind, "outputs", r.outputs, coverage),
+        uses: masked(&r.kind, "uses", r.uses, coverage),
+        work: masked(&r.kind, "work", r.work, coverage),
+        not_applied: masked(&r.kind, "not_applied", r.not_applied, coverage),
+        no_root: masked(&r.kind, "no_root", r.no_root, coverage),
+        surface_mismatch: masked(&r.kind, "surface_mismatch", r.surface_mismatch, coverage),
+    }
+}
+
+fn allomorph_row_view(r: &pg_stats::PerAllomorphRow, coverage: &CoverageMap) -> RowView {
+    RowView {
+        label: format!(
+            "{}: {} [{}]",
+            r.object_kind, r.object_label, r.allomorph_label
+        ),
+        kind: Some(r.object_kind.clone()),
+        identity_quality: None,
+        self_time_ns: Some(r.self_time_ns),
+        attempts: masked(&r.object_kind, "attempts", r.attempts, coverage),
+        outputs: masked(&r.object_kind, "outputs", r.outputs, coverage),
+        uses: masked(&r.object_kind, "uses", r.uses, coverage),
+        work: masked(&r.object_kind, "work", r.work, coverage),
+        not_applied: masked(&r.object_kind, "not_applied", r.not_applied, coverage),
+        no_root: masked(&r.object_kind, "no_root", r.no_root, coverage),
+        surface_mismatch: masked(
+            &r.object_kind,
+            "surface_mismatch",
+            r.surface_mismatch,
+            coverage,
+        ),
+    }
+}
+
+/// A stratum can span several kinds at once, so counters render unmasked; narrow with `--kind`.
+fn stratum_row_view(r: &pg_stats::PerStratumRow) -> RowView {
+    RowView {
+        label: r.stratum_label.clone(),
+        kind: None,
+        identity_quality: None,
+        self_time_ns: Some(r.self_time_ns),
+        attempts: Some(r.attempts),
+        outputs: Some(r.outputs),
+        uses: Some(r.uses),
+        work: Some(r.work),
+        not_applied: Some(r.not_applied),
+        no_root: Some(r.no_root),
+        surface_mismatch: Some(r.surface_mismatch),
+    }
+}
+
+/// See `stratum_row_view` -- only two rows ever exist, but they too can span several kinds.
+fn direction_row_view(r: &pg_stats::PerDirectionRow) -> RowView {
+    RowView {
+        label: r.direction.clone(),
+        kind: None,
+        identity_quality: None,
+        self_time_ns: Some(r.self_time_ns),
+        attempts: Some(r.attempts),
+        outputs: Some(r.outputs),
+        uses: Some(r.uses),
+        work: Some(r.work),
+        not_applied: Some(r.not_applied),
+        no_root: Some(r.no_root),
+        surface_mismatch: Some(r.surface_mismatch),
+    }
+}
+
+fn morpheme_row_view(r: &pg_stats::PerMorphemeRow, coverage: &CoverageMap) -> RowView {
+    const KIND: &str = "lex_entry";
+    RowView {
+        label: r.morpheme_label.clone(),
+        kind: Some(KIND.to_string()),
+        identity_quality: None,
+        self_time_ns: Some(r.self_time_ns),
+        attempts: masked(KIND, "attempts", r.attempts, coverage),
+        outputs: masked(KIND, "outputs", r.outputs, coverage),
+        uses: masked(KIND, "uses", r.uses, coverage),
+        work: masked(KIND, "work", r.work, coverage),
+        not_applied: masked(KIND, "not_applied", r.not_applied, coverage),
+        no_root: masked(KIND, "no_root", r.no_root, coverage),
+        surface_mismatch: masked(KIND, "surface_mismatch", r.surface_mismatch, coverage),
+    }
+}
+
+fn kind_row_view(r: &pg_stats::PerKindRow, coverage: &CoverageMap) -> RowView {
+    RowView {
+        label: r.kind.clone(),
+        kind: Some(r.kind.clone()),
+        identity_quality: None,
+        self_time_ns: Some(r.self_time_ns),
+        attempts: masked(&r.kind, "attempts", r.attempts, coverage),
+        outputs: masked(&r.kind, "outputs", r.outputs, coverage),
+        uses: masked(&r.kind, "uses", r.uses, coverage),
+        work: masked(&r.kind, "work", r.work, coverage),
+        not_applied: masked(&r.kind, "not_applied", r.not_applied, coverage),
+        no_root: masked(&r.kind, "no_root", r.no_root, coverage),
+        surface_mismatch: masked(&r.kind, "surface_mismatch", r.surface_mismatch, coverage),
+    }
+}
+
+fn fmt_ms(ns: Option<i64>) -> String {
+    match ns {
+        Some(v) => format!("{:.3}", v as f64 / 1e6),
+        None => "-".to_string(),
+    }
+}
+
+fn fmt_pct(v: Option<i64>, total: i64) -> String {
+    match v {
+        Some(v) if total > 0 => format!("{:.1}%", v as f64 / total as f64 * 100.0),
+        _ => "-".to_string(),
+    }
+}
+
+fn fmt_amp(attempts: Option<i64>, outputs: Option<i64>) -> String {
+    match (attempts, outputs) {
+        (Some(a), Some(o)) if a > 0 => format!("{:.2}", o as f64 / a as f64),
+        _ => "-".to_string(),
+    }
+}
+
+fn fmt_opt_i64(v: Option<i64>) -> String {
+    v.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string())
+}
+
+const NARROW_HEADERS: [&str; 7] = [
+    "label",
+    "time_ms",
+    "time%",
     "attempts",
-    "passes",
-    "capped",
-    "timed_out",
+    "attempts%",
+    "amp",
+    "uses",
+];
+const WIDE_EXTRA_HEADERS: [&str; 5] = [
+    "work",
+    "not_applied",
+    "no_root",
+    "surface_mismatch",
+    "identity_quality",
 ];
 
-fn word_rows_as_strings(rows: &[pg_stats::PerWordRow]) -> Vec<Vec<String>> {
-    rows.iter()
+/// Denominators are arguments, never sums of `rows`: `rows` may be a `--top` excerpt, and a share of an excerpt is not the share a reader reads it as.
+fn render_narrow(
+    rows: &[RowView],
+    wide: bool,
+    total_time: i64,
+    total_attempts: i64,
+) -> (Vec<&'static str>, Vec<Vec<String>>) {
+    let mut headers: Vec<&'static str> = NARROW_HEADERS.to_vec();
+    if wide {
+        headers.extend(WIDE_EXTRA_HEADERS);
+    }
+    let table_rows = rows
+        .iter()
         .map(|r| {
-            vec![
-                r.form.clone(),
-                format!("{:.3}", r.elapsed_ns as f64 / 1e6),
-                r.attempts.to_string(),
-                r.passes.to_string(),
-                r.capped.to_string(),
-                r.timed_out.to_string(),
-            ]
+            let mut cells = vec![
+                r.label.clone(),
+                fmt_ms(r.self_time_ns),
+                fmt_pct(r.self_time_ns, total_time),
+                fmt_opt_i64(r.attempts),
+                fmt_pct(r.attempts, total_attempts),
+                fmt_amp(r.attempts, r.outputs),
+                fmt_opt_i64(r.uses),
+            ];
+            if wide {
+                cells.push(fmt_opt_i64(r.work));
+                cells.push(fmt_opt_i64(r.not_applied));
+                cells.push(fmt_opt_i64(r.no_root));
+                cells.push(fmt_opt_i64(r.surface_mismatch));
+                cells.push(
+                    r.identity_quality
+                        .clone()
+                        .unwrap_or_else(|| "-".to_string()),
+                );
+            }
+            cells
+        })
+        .collect();
+    (headers, table_rows)
+}
+
+fn row_view_to_json(r: &RowView) -> serde_json::Value {
+    let amp = match (r.attempts, r.outputs) {
+        (Some(a), Some(o)) if a > 0 => Some(o as f64 / a as f64),
+        _ => None,
+    };
+    serde_json::json!({
+        "label": r.label,
+        "kind": r.kind,
+        "identity_quality": r.identity_quality,
+        "time_ns": r.self_time_ns,
+        "attempts": r.attempts,
+        "outputs": r.outputs,
+        "amp": amp,
+        "uses": r.uses,
+        "work": r.work,
+        "not_applied": r.not_applied,
+        "no_root": r.no_root,
+        "surface_mismatch": r.surface_mismatch,
+    })
+}
+
+/// The totals/attribution line printed under every orientation: row count, row-time sum, and its "N% attributed" check against `run_elapsed_ns`.
+struct TotalsSummary {
+    /// Every row the filters matched, whether or not `--top` displayed it.
+    matched_rows: usize,
+    shown_rows: usize,
+    total_time_ns: i64,
+    total_attempts: i64,
+    total_uses: i64,
+    run_elapsed_ns: i64,
+}
+
+impl TotalsSummary {
+    /// `rows` must be the full matched set; `shown_rows` only narrows what the table displayed.
+    fn from_rows(rows: &[RowView], shown_rows: usize, run_elapsed_ns: i64) -> Self {
+        TotalsSummary {
+            matched_rows: rows.len(),
+            shown_rows,
+            total_time_ns: rows.iter().filter_map(|r| r.self_time_ns).sum(),
+            total_attempts: rows.iter().filter_map(|r| r.attempts).sum(),
+            total_uses: rows.iter().filter_map(|r| r.uses).sum(),
+            run_elapsed_ns,
+        }
+    }
+
+    fn attributed_pct(&self) -> f64 {
+        if self.run_elapsed_ns > 0 {
+            self.total_time_ns as f64 / self.run_elapsed_ns as f64 * 100.0
+        } else {
+            0.0
+        }
+    }
+
+    /// Named so a truncated table can never read as the whole of what matched.
+    fn shown_note(&self) -> String {
+        if self.shown_rows < self.matched_rows {
+            format!(" ({} shown)", self.shown_rows)
+        } else {
+            String::new()
+        }
+    }
+
+    fn text_line(&self) -> String {
+        format!(
+            "TOTAL  {} row(s){}   time {:.3}ms ({:.1}% attributed of {:.3}ms recorded)   attempts {}   uses {}\n",
+            self.matched_rows,
+            self.shown_note(),
+            self.total_time_ns as f64 / 1e6,
+            self.attributed_pct(),
+            self.run_elapsed_ns as f64 / 1e6,
+            self.total_attempts,
+            self.total_uses,
+        )
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "rows": self.matched_rows,
+            "rows_shown": self.shown_rows,
+            "time_ns": self.total_time_ns,
+            "attempts": self.total_attempts,
+            "uses": self.total_uses,
+            "run_elapsed_ns": self.run_elapsed_ns,
+            "attributed_pct": self.attributed_pct(),
+        })
+    }
+}
+
+fn sort_key_name(s: pg_stats::SortKey) -> &'static str {
+    match s {
+        pg_stats::SortKey::SelfTimeNs => "time",
+        pg_stats::SortKey::NoRoot => "no-root",
+        pg_stats::SortKey::Amp => "amp",
+        pg_stats::SortKey::Uses => "uses",
+        pg_stats::SortKey::Attempts => "attempts",
+    }
+}
+
+fn filters_json(f: &Filters) -> serde_json::Value {
+    serde_json::json!({
+        "kind": f.kind,
+        "object": f.object_key,
+        "stratum": f.stratum_key,
+        "direction": f.direction,
+        "word": f.word,
+        "top": f.top_n,
+        "sort": f.sort.map(sort_key_name),
+        "exclude_censored": f.exclude_censored,
+    })
+}
+
+fn run_identity(conn: &rusqlite::Connection) -> Result<(String, String), String> {
+    conn.query_row(
+        "SELECT grammar_hash, engine FROM run ORDER BY run_id DESC LIMIT 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn jsonl_meta_line(
+    conn: &rusqlite::Connection,
+    orientation: &str,
+    filters: &Filters,
+    totals: &TotalsSummary,
+) -> Result<String, String> {
+    let (grammar_hash, engine) = run_identity(conn)?;
+    let meta = serde_json::json!({
+        "meta": true,
+        "orientation": orientation,
+        "grammar_hash": grammar_hash,
+        "engine": engine,
+        "filters": filters_json(filters),
+        "totals": totals.to_json(),
+    });
+    serde_json::to_string(&meta).map_err(|e| e.to_string())
+}
+
+/// Distinguishes "never recorded in this cache" from "exists but matched nothing" for an empty result.
+fn empty_explanation(
+    conn: &rusqlite::Connection,
+    kind_scope: Option<&str>,
+) -> Result<String, String> {
+    let exists = match kind_scope {
+        Some(k) => pg_stats::kind_has_any_recorded_object(conn, k).map_err(|e| e.to_string())?,
+        None => {
+            let n: i64 = conn
+                .query_row("SELECT COUNT(*) FROM object", [], |row| row.get(0))
+                .map_err(|e| e.to_string())?;
+            n > 0
+        }
+    };
+    let scope_desc = kind_scope.map(|k| format!("{k} ")).unwrap_or_default();
+    Ok(if exists {
+        format!(
+            "stats: {scope_desc}objects exist in this cache, but none match this filter (0 rows \
+             recorded) -- try loosening --word/--direction/--object/--stratum\n"
+        )
+    } else {
+        format!(
+            "stats: no {scope_desc}objects have ever been recorded in this cache -- this grammar \
+             may have none of this kind, or they have never fired\n"
+        )
+    })
+}
+
+/// Per-kind so one crowded kind hides no other, and after the totals rather than in SQL, since a LIMIT would narrow the denominators too.
+fn truncate_per_kind(rows: Vec<RowView>, top_n: Option<usize>) -> Vec<RowView> {
+    let Some(n) = top_n else { return rows };
+    let mut taken: HashMap<Option<String>, usize> = HashMap::new();
+    rows.into_iter()
+        .filter(|r| {
+            let count = taken.entry(r.kind.clone()).or_insert(0);
+            *count += 1;
+            *count <= n
         })
         .collect()
 }
 
-fn render_word(conn: &rusqlite::Connection, out: Option<&str>) -> Result<(), String> {
-    let rows = pg_stats::per_word_report(conn).map_err(|e| e.to_string())?;
-    let table_rows = word_rows_as_strings(&rows);
-    match out {
-        Some(path) => write_csv(path, &WORD_HEADERS, &table_rows),
-        None => {
-            print!("{}", render_table(&WORD_HEADERS, &table_rows));
-            Ok(())
+fn render_rowview_body(
+    conn: &rusqlite::Connection,
+    orientation: &str,
+    filters: &Filters,
+    rows: Vec<RowView>,
+    kind_scope: Option<&str>,
+    format: OutputFormat,
+) -> Result<String, String> {
+    if rows.is_empty() {
+        return empty_explanation(conn, kind_scope);
+    }
+    let run_elapsed_ns = pg_stats::word_elapsed_ns_total(conn, filters.word.as_deref())
+        .map_err(|e| e.to_string())?;
+    let shown = truncate_per_kind(rows.clone(), filters.top_n);
+    let totals = TotalsSummary::from_rows(&rows, shown.len(), run_elapsed_ns);
+    match format {
+        OutputFormat::Text => {
+            let (headers, table_rows) = render_narrow(
+                &shown,
+                filters.wide,
+                totals.total_time_ns,
+                totals.total_attempts,
+            );
+            let mut out = render_table(&headers, &table_rows);
+            out.push_str(&totals.text_line());
+            Ok(out)
+        }
+        OutputFormat::Jsonl => {
+            let mut lines = vec![jsonl_meta_line(conn, orientation, filters, &totals)?];
+            for r in &shown {
+                lines.push(serde_json::to_string(&row_view_to_json(r)).map_err(|e| e.to_string())?);
+            }
+            lines.push(String::new());
+            Ok(lines.join("\n"))
         }
     }
-}
-
-const OBJECT_HEADERS_BASE: [&str; 11] = [
-    "kind",
-    "label",
-    "identity_quality",
-    "attempts",
-    "measured_time_ms",
-    "outputs",
-    "amplification",
-    "Didn't apply",
-    "No root found",
-    "Didn't match the word",
-    "uses",
-];
-
-/// `OBJECT_HEADERS_BASE`, plus `work` when `--show-work` was passed; the raw counter is opt-in since its per-attempt weighting is provisional (see the spec's "Known limitations").
-fn object_headers(show_work: bool) -> Vec<&'static str> {
-    let mut h = OBJECT_HEADERS_BASE.to_vec();
-    if show_work {
-        h.push("work");
-    }
-    h
-}
-
-/// Printed with every per-object/per-allomorph report: `measured_time_ms` is real, so per-kind totals sum exactly.
-const OBJECT_TIME_NOTE: &str = "measured_time_ms is wall-clock self time recorded during this --stats run; it sums exactly to the per-kind and per-word totals";
-
-fn amplification_cell(attempts: i64, outputs: i64) -> String {
-    if attempts == 0 {
-        "\u{2014}".to_string()
-    } else {
-        format!("{:.2}", outputs as f64 / attempts as f64)
-    }
-}
-
-/// Measured self time, same units the TSV's other millisecond columns use.
-fn measured_cell(self_time_ns: i64) -> String {
-    format!("{:.3}", self_time_ns as f64 / 1e6)
-}
-
-fn object_row_cells(
-    r: &pg_stats::PerObjectRow,
-    coverage: &CoverageMap,
-    show_work: bool,
-) -> Vec<String> {
-    let mut cells = vec![
-        r.kind.clone(),
-        r.label.clone(),
-        r.identity_quality.clone(),
-        counter_cell(&r.kind, "attempts", r.attempts, coverage),
-        measured_cell(r.self_time_ns),
-        counter_cell(&r.kind, "outputs", r.outputs, coverage),
-        amplification_cell(r.attempts, r.outputs),
-        counter_cell(&r.kind, "not_applied", r.not_applied, coverage),
-        counter_cell(&r.kind, "no_root", r.no_root, coverage),
-        counter_cell(&r.kind, "surface_mismatch", r.surface_mismatch, coverage),
-        counter_cell(&r.kind, "uses", r.uses, coverage),
-    ];
-    if show_work {
-        cells.push(counter_cell(&r.kind, "work", r.work, coverage));
-    }
-    cells
 }
 
 fn render_object(
     conn: &rusqlite::Connection,
     coverage: &CoverageMap,
     filters: &Filters,
-    out: Option<&str>,
-) -> Result<(), String> {
-    let filter = per_object_filter(filters);
-    let rows = pg_stats::per_object_report(conn, &filter).map_err(|e| e.to_string())?;
-    let headers = object_headers(filters.show_work);
-    let table_rows: Vec<Vec<String>> = rows
-        .iter()
-        .map(|r| object_row_cells(r, coverage, filters.show_work))
-        .collect();
-    match out {
-        Some(path) => {
-            eprintln!("stats: {OBJECT_TIME_NOTE}");
-            write_csv(path, &headers, &table_rows)
-        }
-        None => {
-            println!("# {OBJECT_TIME_NOTE}");
-            print!("{}", render_table(&headers, &table_rows));
-            Ok(())
-        }
-    }
-}
-
-const ALLOMORPH_HEADERS_BASE: [&str; 12] = [
-    "object_kind",
-    "object_label",
-    "allomorph_key",
-    "allomorph_label",
-    "attempts",
-    "measured_time_ms",
-    "outputs",
-    "amplification",
-    "Didn't apply",
-    "No root found",
-    "Didn't match the word",
-    "uses",
-];
-
-/// See `object_headers`.
-fn allomorph_headers(show_work: bool) -> Vec<&'static str> {
-    let mut h = ALLOMORPH_HEADERS_BASE.to_vec();
-    if show_work {
-        h.push("work");
-    }
-    h
-}
-
-fn allomorph_row_cells(
-    r: &pg_stats::PerAllomorphRow,
-    coverage: &CoverageMap,
-    show_work: bool,
-) -> Vec<String> {
-    let mut cells = vec![
-        r.object_kind.clone(),
-        r.object_label.clone(),
-        r.allomorph_key.clone().unwrap_or_default(),
-        r.allomorph_label.clone(),
-        counter_cell(&r.object_kind, "attempts", r.attempts, coverage),
-        measured_cell(r.self_time_ns),
-        counter_cell(&r.object_kind, "outputs", r.outputs, coverage),
-        amplification_cell(r.attempts, r.outputs),
-        counter_cell(&r.object_kind, "not_applied", r.not_applied, coverage),
-        counter_cell(&r.object_kind, "no_root", r.no_root, coverage),
-        counter_cell(
-            &r.object_kind,
-            "surface_mismatch",
-            r.surface_mismatch,
-            coverage,
-        ),
-        counter_cell(&r.object_kind, "uses", r.uses, coverage),
-    ];
-    if show_work {
-        cells.push(counter_cell(&r.object_kind, "work", r.work, coverage));
-    }
-    cells
+    format: OutputFormat,
+) -> Result<String, String> {
+    let rows = pg_stats::per_object_report(conn, &per_object_filter(filters))
+        .map_err(|e| e.to_string())?;
+    let views: Vec<RowView> = rows.iter().map(|r| object_row_view(r, coverage)).collect();
+    render_rowview_body(
+        conn,
+        "object",
+        filters,
+        views,
+        filters.kind.as_deref(),
+        format,
+    )
 }
 
 fn render_allomorph(
     conn: &rusqlite::Connection,
     coverage: &CoverageMap,
     filters: &Filters,
-    out: Option<&str>,
-) -> Result<(), String> {
-    let filter = per_allomorph_filter(filters);
-    let rows = pg_stats::per_allomorph_report(conn, &filter).map_err(|e| e.to_string())?;
-    let headers = allomorph_headers(filters.show_work);
-    let table_rows: Vec<Vec<String>> = rows
+    format: OutputFormat,
+) -> Result<String, String> {
+    let rows = pg_stats::per_allomorph_report(conn, &per_allomorph_filter(filters))
+        .map_err(|e| e.to_string())?;
+    let views: Vec<RowView> = rows
         .iter()
-        .map(|r| allomorph_row_cells(r, coverage, filters.show_work))
+        .map(|r| allomorph_row_view(r, coverage))
         .collect();
-    match out {
-        Some(path) => {
-            eprintln!("stats: {OBJECT_TIME_NOTE}");
-            write_csv(path, &headers, &table_rows)
-        }
-        None => {
-            println!("# {OBJECT_TIME_NOTE}");
-            print!("{}", render_table(&headers, &table_rows));
-            Ok(())
-        }
-    }
-}
-
-const STRATUM_HEADERS_BASE: [&str; 8] = [
-    "stratum_key",
-    "stratum_label",
-    "attempts",
-    "outputs",
-    "Didn't apply",
-    "No root found",
-    "Didn't match the word",
-    "uses",
-];
-
-/// See `object_headers`.
-fn stratum_headers(show_work: bool) -> Vec<&'static str> {
-    let mut h = STRATUM_HEADERS_BASE.to_vec();
-    if show_work {
-        h.push("work");
-    }
-    h
-}
-
-/// A stratum row can sum several object kinds at once, so no single `coverage` lookup fits it; narrow with `--kind` for a coverage-accurate view.
-fn stratum_row_cells(r: &pg_stats::PerStratumRow, show_work: bool) -> Vec<String> {
-    let mut cells = vec![
-        r.stratum_key.clone().unwrap_or_default(),
-        r.stratum_label.clone(),
-        r.attempts.to_string(),
-        r.outputs.to_string(),
-        r.not_applied.to_string(),
-        r.no_root.to_string(),
-        r.surface_mismatch.to_string(),
-        r.uses.to_string(),
-    ];
-    if show_work {
-        cells.push(r.work.to_string());
-    }
-    cells
+    render_rowview_body(
+        conn,
+        "allomorph",
+        filters,
+        views,
+        filters.kind.as_deref(),
+        format,
+    )
 }
 
 fn render_stratum(
     conn: &rusqlite::Connection,
     filters: &Filters,
-    out: Option<&str>,
-) -> Result<(), String> {
-    let filter = per_stratum_filter(filters);
-    let rows = pg_stats::per_stratum_report(conn, &filter).map_err(|e| e.to_string())?;
-    let headers = stratum_headers(filters.show_work);
-    let table_rows: Vec<Vec<String>> = rows
-        .iter()
-        .map(|r| stratum_row_cells(r, filters.show_work))
-        .collect();
-    match out {
-        Some(path) => write_csv(path, &headers, &table_rows),
-        None => {
-            print!("{}", render_table(&headers, &table_rows));
-            Ok(())
-        }
-    }
-}
-
-const DIRECTION_HEADERS_BASE: [&str; 7] = [
-    "direction",
-    "attempts",
-    "outputs",
-    "Didn't apply",
-    "No root found",
-    "Didn't match the word",
-    "uses",
-];
-
-/// See `object_headers`.
-fn direction_headers(show_work: bool) -> Vec<&'static str> {
-    let mut h = DIRECTION_HEADERS_BASE.to_vec();
-    if show_work {
-        h.push("work");
-    }
-    h
-}
-
-/// Only two rows ever exist, so -- like `render_stratum` -- no single `coverage` lookup fits a row that can span several object kinds; narrow with `--kind` for a coverage-accurate view.
-fn direction_row_cells(r: &pg_stats::PerDirectionRow, show_work: bool) -> Vec<String> {
-    let mut cells = vec![
-        r.direction.clone(),
-        r.attempts.to_string(),
-        r.outputs.to_string(),
-        r.not_applied.to_string(),
-        r.no_root.to_string(),
-        r.surface_mismatch.to_string(),
-        r.uses.to_string(),
-    ];
-    if show_work {
-        cells.push(r.work.to_string());
-    }
-    cells
+    format: OutputFormat,
+) -> Result<String, String> {
+    let rows = pg_stats::per_stratum_report(conn, &per_stratum_filter(filters))
+        .map_err(|e| e.to_string())?;
+    let views: Vec<RowView> = rows.iter().map(stratum_row_view).collect();
+    render_rowview_body(
+        conn,
+        "stratum",
+        filters,
+        views,
+        filters.kind.as_deref(),
+        format,
+    )
 }
 
 fn render_direction(
     conn: &rusqlite::Connection,
     filters: &Filters,
-    out: Option<&str>,
-) -> Result<(), String> {
-    let filter = per_direction_filter(filters);
-    let rows = pg_stats::per_direction_report(conn, &filter).map_err(|e| e.to_string())?;
-    let headers = direction_headers(filters.show_work);
-    let table_rows: Vec<Vec<String>> = rows
-        .iter()
-        .map(|r| direction_row_cells(r, filters.show_work))
-        .collect();
-    match out {
-        Some(path) => write_csv(path, &headers, &table_rows),
-        None => {
-            print!("{}", render_table(&headers, &table_rows));
-            Ok(())
-        }
-    }
+    format: OutputFormat,
+) -> Result<String, String> {
+    let rows = pg_stats::per_direction_report(conn, &per_direction_filter(filters))
+        .map_err(|e| e.to_string())?;
+    let views: Vec<RowView> = rows.iter().map(direction_row_view).collect();
+    render_rowview_body(
+        conn,
+        "direction",
+        filters,
+        views,
+        filters.kind.as_deref(),
+        format,
+    )
 }
 
-const NEVER_FIRES_HEADERS: [&str; 5] =
-    ["kind", "label", "identity_quality", "direction", "attempts"];
+fn render_morpheme(
+    conn: &rusqlite::Connection,
+    coverage: &CoverageMap,
+    filters: &Filters,
+    format: OutputFormat,
+) -> Result<String, String> {
+    let rows = pg_stats::per_morpheme_report(conn, &per_morpheme_filter(filters))
+        .map_err(|e| e.to_string())?;
+    let views: Vec<RowView> = rows
+        .iter()
+        .map(|r| morpheme_row_view(r, coverage))
+        .collect();
+    render_rowview_body(conn, "morpheme", filters, views, Some("lex_entry"), format)
+}
 
-fn never_fires_row_cells(r: &pg_stats::NeverFiresRow) -> Vec<String> {
-    vec![
-        r.kind.clone(),
-        r.label.clone(),
-        r.identity_quality.clone(),
-        r.direction.clone(),
-        r.attempts.to_string(),
-    ]
+fn render_group(
+    conn: &rusqlite::Connection,
+    coverage: &CoverageMap,
+    filters: &Filters,
+    format: OutputFormat,
+) -> Result<String, String> {
+    let rows =
+        pg_stats::per_kind_report(conn, &per_kind_filter(filters)).map_err(|e| e.to_string())?;
+    let views: Vec<RowView> = rows.iter().map(|r| kind_row_view(r, coverage)).collect();
+    render_rowview_body(
+        conn,
+        "group",
+        filters,
+        views,
+        filters.kind.as_deref(),
+        format,
+    )
+}
+
+fn render_word(
+    conn: &rusqlite::Connection,
+    filters: &Filters,
+    format: OutputFormat,
+) -> Result<String, String> {
+    let mut rows = pg_stats::per_word_report(conn).map_err(|e| e.to_string())?;
+    if let Some(w) = filters.word.as_deref() {
+        rows.retain(|r| r.form == w);
+    }
+    if rows.is_empty() {
+        return Ok(match filters.word.as_deref() {
+            Some(w) => format!("stats: no word named {w} found in this cache\n"),
+            None => "stats: cache has no recorded words\n".to_string(),
+        });
+    }
+    let total_elapsed: i64 = rows.iter().map(|r| r.elapsed_ns).sum();
+    let total_attempts: i64 = rows.iter().map(|r| r.attempts).sum();
+    match format {
+        OutputFormat::Text => {
+            let headers = [
+                "form",
+                "time_ms",
+                "time%",
+                "attempts",
+                "attempts%",
+                "passes",
+                "capped",
+                "timed_out",
+            ];
+            let table_rows: Vec<Vec<String>> = rows
+                .iter()
+                .map(|r| {
+                    vec![
+                        r.form.clone(),
+                        format!("{:.3}", r.elapsed_ns as f64 / 1e6),
+                        fmt_pct(Some(r.elapsed_ns), total_elapsed),
+                        r.attempts.to_string(),
+                        fmt_pct(Some(r.attempts), total_attempts),
+                        r.passes.to_string(),
+                        r.capped.to_string(),
+                        r.timed_out.to_string(),
+                    ]
+                })
+                .collect();
+            let mut out = render_table(&headers, &table_rows);
+            out.push_str(&format!(
+                "TOTAL  {} word(s)   time {:.3}ms (100.0% attributed; word rows ARE the recorded \
+                 total)   attempts {}\n",
+                rows.len(),
+                total_elapsed as f64 / 1e6,
+                total_attempts,
+            ));
+            Ok(out)
+        }
+        OutputFormat::Jsonl => {
+            let (grammar_hash, engine) = run_identity(conn)?;
+            let meta = serde_json::json!({
+                "meta": true,
+                "orientation": "word",
+                "grammar_hash": grammar_hash,
+                "engine": engine,
+                "filters": filters_json(filters),
+                "totals": {"rows": rows.len(), "time_ns": total_elapsed, "attempts": total_attempts},
+            });
+            let mut lines = vec![serde_json::to_string(&meta).map_err(|e| e.to_string())?];
+            for r in &rows {
+                let v = serde_json::json!({
+                    "form": r.form,
+                    "elapsed_ns": r.elapsed_ns,
+                    "attempts": r.attempts,
+                    "passes": r.passes,
+                    "capped": r.capped,
+                    "timed_out": r.timed_out,
+                });
+                lines.push(serde_json::to_string(&v).map_err(|e| e.to_string())?);
+            }
+            lines.push(String::new());
+            Ok(lines.join("\n"))
+        }
+    }
 }
 
 fn render_never_fires(
     conn: &rusqlite::Connection,
     filters: &Filters,
-    out: Option<&str>,
-) -> Result<(), String> {
-    let filter = never_fires_filter(filters);
-    let rows = pg_stats::never_fires_report(conn, &filter).map_err(|e| e.to_string())?;
-    let table_rows: Vec<Vec<String>> = rows.iter().map(never_fires_row_cells).collect();
-    match out {
-        Some(path) => write_csv(path, &NEVER_FIRES_HEADERS, &table_rows),
-        None => {
-            print!("{}", render_table(&NEVER_FIRES_HEADERS, &table_rows));
-            Ok(())
+    format: OutputFormat,
+) -> Result<String, String> {
+    let rows = pg_stats::never_fires_report(conn, &never_fires_filter(filters))
+        .map_err(|e| e.to_string())?;
+    if rows.is_empty() {
+        return empty_explanation(conn, filters.kind.as_deref());
+    }
+    let total_attempts: i64 = rows.iter().map(|r| r.attempts).sum();
+    match format {
+        OutputFormat::Text => {
+            let headers = [
+                "kind",
+                "label",
+                "identity_quality",
+                "direction",
+                "attempts",
+                "attempts%",
+            ];
+            let table_rows: Vec<Vec<String>> = rows
+                .iter()
+                .map(|r| {
+                    vec![
+                        r.kind.clone(),
+                        r.label.clone(),
+                        r.identity_quality.clone(),
+                        r.direction.clone(),
+                        r.attempts.to_string(),
+                        fmt_pct(Some(r.attempts), total_attempts),
+                    ]
+                })
+                .collect();
+            let mut out = format!(
+                "# never-fires: attempted >= {} time(s) with zero outputs\n",
+                pg_stats::NEVER_FIRES_DEFAULT_MIN_ATTEMPTS
+            );
+            out.push_str(&render_table(&headers, &table_rows));
+            out.push_str(&format!(
+                "TOTAL  {} object(s) never fired   attempts wasted {}\n",
+                rows.len(),
+                total_attempts
+            ));
+            Ok(out)
+        }
+        OutputFormat::Jsonl => {
+            let (grammar_hash, engine) = run_identity(conn)?;
+            let meta = serde_json::json!({
+                "meta": true,
+                "orientation": "never-fires",
+                "grammar_hash": grammar_hash,
+                "engine": engine,
+                "filters": filters_json(filters),
+                "totals": {"rows": rows.len(), "attempts": total_attempts},
+            });
+            let mut lines = vec![serde_json::to_string(&meta).map_err(|e| e.to_string())?];
+            for r in &rows {
+                let v = serde_json::json!({
+                    "kind": r.kind,
+                    "label": r.label,
+                    "identity_quality": r.identity_quality,
+                    "direction": r.direction,
+                    "attempts": r.attempts,
+                });
+                lines.push(serde_json::to_string(&v).map_err(|e| e.to_string())?);
+            }
+            lines.push(String::new());
+            Ok(lines.join("\n"))
         }
     }
 }
 
-fn render_default(conn: &rusqlite::Connection, coverage: &CoverageMap) -> Result<(), String> {
-    render_word(conn, None)?;
-    println!();
-    render_object(conn, coverage, &Filters::default(), None)?;
+fn render_default(conn: &rusqlite::Connection, coverage: &CoverageMap) -> Result<String, String> {
+    let default_filters = Filters::default();
+    let mut out = render_word(conn, &default_filters, OutputFormat::Text)?;
+    out.push('\n');
+    out.push_str(&render_object(
+        conn,
+        coverage,
+        &default_filters,
+        OutputFormat::Text,
+    )?);
 
     let never_fires_rows =
         pg_stats::never_fires_report(conn, &pg_stats::NeverFiresFilter::default())
             .map_err(|e| e.to_string())?;
     if !never_fires_rows.is_empty() {
-        println!();
-        println!(
-            "# never-fires: attempted >= {} time(s) with zero outputs",
-            pg_stats::NEVER_FIRES_DEFAULT_MIN_ATTEMPTS
-        );
-        let table_rows: Vec<Vec<String>> =
-            never_fires_rows.iter().map(never_fires_row_cells).collect();
-        print!("{}", render_table(&NEVER_FIRES_HEADERS, &table_rows));
+        out.push('\n');
+        out.push_str(&render_never_fires(
+            conn,
+            &default_filters,
+            OutputFormat::Text,
+        )?);
     }
-    Ok(())
+    Ok(out)
 }
 
 /// `stats <project-or-grammar> [options]`: reads the cache via a raw `rusqlite::Connection`, never `StatsCache::open`, so a report-only read can never trip the grammar-hash wipe gate.
@@ -964,6 +1305,7 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
     let mut group: Option<String> = None;
     let mut filters = Filters::default();
     let mut sort_arg: Option<String> = None;
+    let mut format_arg: Option<String> = None;
     let mut cache_override: Option<String> = None;
     let mut out_path: Option<String> = None;
 
@@ -992,20 +1334,8 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--direction=") => {
                 filters.direction = Some(s["--direction=".len()..].to_string())
             }
-            "--min-attempts" => {
-                let v = it.next().ok_or("--min-attempts requires a value")?;
-                filters.min_attempts = Some(
-                    v.parse()
-                        .map_err(|_| format!("invalid --min-attempts: {v}"))?,
-                );
-            }
-            s if s.starts_with("--min-attempts=") => {
-                let v = &s["--min-attempts=".len()..];
-                filters.min_attempts = Some(
-                    v.parse()
-                        .map_err(|_| format!("invalid --min-attempts: {v}"))?,
-                );
-            }
+            "--word" => filters.word = Some(it.next().ok_or("--word requires a value")?.clone()),
+            s if s.starts_with("--word=") => filters.word = Some(s["--word=".len()..].to_string()),
             "--top" => {
                 let v = it.next().ok_or("--top requires a value")?;
                 filters.top_n = Some(v.parse().map_err(|_| format!("invalid --top: {v}"))?);
@@ -1017,7 +1347,11 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             "--sort" => sort_arg = Some(it.next().ok_or("--sort requires a value")?.clone()),
             s if s.starts_with("--sort=") => sort_arg = Some(s["--sort=".len()..].to_string()),
             "--exclude-censored" => filters.exclude_censored = true,
-            "--show-work" => filters.show_work = true,
+            "--wide" => filters.wide = true,
+            "--format" => format_arg = Some(it.next().ok_or("--format requires a value")?.clone()),
+            s if s.starts_with("--format=") => {
+                format_arg = Some(s["--format=".len()..].to_string())
+            }
             "--cache" => {
                 cache_override = Some(it.next().ok_or("--cache requires a value")?.clone())
             }
@@ -1041,10 +1375,12 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         Some("allomorph") => Some(ReportGroup::Allomorph),
         Some("stratum") => Some(ReportGroup::Stratum),
         Some("direction") => Some(ReportGroup::Direction),
+        Some("morpheme") => Some(ReportGroup::Morpheme),
+        Some("group") => Some(ReportGroup::Group),
         Some("never-fires") => Some(ReportGroup::NeverFires),
         Some(other) => {
             return Err(format!(
-                "invalid --group: {other} (expected word|object|allomorph|stratum|direction|never-fires)"
+                "invalid --group: {other} (expected word|object|allomorph|stratum|direction|morpheme|group|never-fires)"
             ))
         }
     };
@@ -1065,7 +1401,14 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         None => None,
         Some("time") => Some(pg_stats::SortKey::SelfTimeNs),
         Some("no-root") => Some(pg_stats::SortKey::NoRoot),
-        Some(other) => return Err(format!("invalid --sort: {other} (expected time|no-root)")),
+        Some("amp") => Some(pg_stats::SortKey::Amp),
+        Some("uses") => Some(pg_stats::SortKey::Uses),
+        Some("attempts") => Some(pg_stats::SortKey::Attempts),
+        Some(other) => {
+            return Err(format!(
+                "invalid --sort: {other} (expected time|no-root|amp|uses|attempts)"
+            ))
+        }
     };
     if filters.sort.is_some() && !matches!(group, None | Some(ReportGroup::Object)) {
         return Err("--sort only applies to --group object (or the default view)".to_string());
@@ -1073,9 +1416,37 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
     if filters.stratum_key.is_some() && !matches!(group, None | Some(ReportGroup::Object)) {
         return Err("--stratum only applies to --group object (or the default view)".to_string());
     }
+    if filters.object_key.is_some()
+        && matches!(
+            group,
+            Some(ReportGroup::Morpheme)
+                | Some(ReportGroup::Group)
+                | Some(ReportGroup::Word)
+                | Some(ReportGroup::NeverFires)
+        )
+    {
+        return Err("--object does not apply to this --group".to_string());
+    }
+    if filters.kind.is_some() && matches!(group, Some(ReportGroup::Morpheme)) {
+        return Err(
+            "--kind does not apply to --group morpheme: always scoped to lex_entry".to_string(),
+        );
+    }
+
+    let format = match format_arg.as_deref() {
+        None | Some("text") => OutputFormat::Text,
+        Some("jsonl") => OutputFormat::Jsonl,
+        Some(other) => return Err(format!("invalid --format: {other} (expected text|jsonl)")),
+    };
     if out_path.is_some() && group.is_none() {
         return Err(
-            "--out requires --group (a CSV file holds one table shape; the default view renders two)"
+            "--out requires --group (a single file holds one report shape; the default view renders several)"
+                .to_string(),
+        );
+    }
+    if matches!(format, OutputFormat::Jsonl) && group.is_none() {
+        return Err(
+            "--format jsonl requires --group (the default view has no single row shape)"
                 .to_string(),
         );
     }
@@ -1117,21 +1488,38 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
 
     let coverage = coverage_map_for_latest_run(&conn)?;
 
-    match group {
-        None => render_default(&conn, &coverage),
-        Some(ReportGroup::Word) => render_word(&conn, out_path.as_deref()),
-        Some(ReportGroup::Object) => render_object(&conn, &coverage, &filters, out_path.as_deref()),
-        Some(ReportGroup::Allomorph) => {
-            render_allomorph(&conn, &coverage, &filters, out_path.as_deref())
+    let body = match group {
+        None => render_default(&conn, &coverage)?,
+        Some(ReportGroup::Word) => render_word(&conn, &filters, format)?,
+        Some(ReportGroup::Object) => render_object(&conn, &coverage, &filters, format)?,
+        Some(ReportGroup::Allomorph) => render_allomorph(&conn, &coverage, &filters, format)?,
+        Some(ReportGroup::Stratum) => render_stratum(&conn, &filters, format)?,
+        Some(ReportGroup::Direction) => render_direction(&conn, &filters, format)?,
+        Some(ReportGroup::Morpheme) => render_morpheme(&conn, &coverage, &filters, format)?,
+        Some(ReportGroup::Group) => render_group(&conn, &coverage, &filters, format)?,
+        Some(ReportGroup::NeverFires) => render_never_fires(&conn, &filters, format)?,
+    };
+    match out_path {
+        Some(path) => std::fs::write(&path, body).map_err(|e| format!("write {path}: {e}")),
+        None => {
+            print!("{body}");
+            Ok(())
         }
-        Some(ReportGroup::Stratum) => render_stratum(&conn, &filters, out_path.as_deref()),
-        Some(ReportGroup::Direction) => render_direction(&conn, &filters, out_path.as_deref()),
-        Some(ReportGroup::NeverFires) => render_never_fires(&conn, &filters, out_path.as_deref()),
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    /// Sums the displayed rows for its own denominators -- correct only where the caller shows every matched row.
+    fn render_narrow_self_totals(
+        rows: &[RowView],
+        wide: bool,
+    ) -> (Vec<&'static str>, Vec<Vec<String>>) {
+        let time: i64 = rows.iter().filter_map(|r| r.self_time_ns).sum();
+        let attempts: i64 = rows.iter().filter_map(|r| r.attempts).sum();
+        render_narrow(rows, wide, time, attempts)
+    }
     use super::*;
     use std::fs;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -1405,17 +1793,17 @@ mod tests {
     fn unsupported_counter_renders_em_dash_not_zero() {
         let coverage = coverage_entry(pg_stats::CoverageState::Unsupported);
         let row = sample_object_row(0);
-        let cells = object_row_cells(&row, &coverage, false);
-        let no_root_col = object_headers(false)
-            .iter()
-            .position(|h| *h == "No root found")
-            .unwrap();
-        assert_eq!(cells[no_root_col], "\u{2014}");
+        let view = object_row_view(&row, &coverage);
+        let (headers, table_rows) = render_narrow_self_totals(std::slice::from_ref(&view), true);
+        let no_root_col = headers.iter().position(|h| *h == "no_root").unwrap();
+        assert_eq!(table_rows[0][no_root_col], "-");
 
         let measured = coverage_entry(pg_stats::CoverageState::Measured);
-        let cells_measured = object_row_cells(&row, &measured, false);
+        let view_measured = object_row_view(&row, &measured);
+        let (_, table_rows_measured) =
+            render_narrow_self_totals(std::slice::from_ref(&view_measured), true);
         assert_eq!(
-            cells_measured[no_root_col], "0",
+            table_rows_measured[0][no_root_col], "0",
             "falsifiability check: a measured zero must still render as a plain 0"
         );
     }
@@ -1425,13 +1813,11 @@ mod tests {
         // No entry at all for (morph_rule, no_root) -- distinct from an explicit "unsupported" row.
         let coverage = CoverageMap::new();
         let row = sample_object_row(7);
-        let cells = object_row_cells(&row, &coverage, false);
-        let no_root_col = object_headers(false)
-            .iter()
-            .position(|h| *h == "No root found")
-            .unwrap();
+        let view = object_row_view(&row, &coverage);
+        let (headers, table_rows) = render_narrow_self_totals(std::slice::from_ref(&view), true);
+        let no_root_col = headers.iter().position(|h| *h == "no_root").unwrap();
         assert_eq!(
-            cells[no_root_col], "\u{2014}",
+            table_rows[0][no_root_col], "-",
             "a coverage row that was never written must never read as a measured value"
         );
     }
@@ -1470,82 +1856,444 @@ mod tests {
             .iter()
             .find(|r| r.kind == "morph_rule")
             .expect("a morph_rule row must exist for this fixture");
-        let cells = object_row_cells(morph_row, &coverage, false);
-        let attempts_col = object_headers(false)
-            .iter()
-            .position(|h| *h == "attempts")
-            .unwrap();
+        let view = object_row_view(morph_row, &coverage);
+        let (headers, table_rows) = render_narrow_self_totals(std::slice::from_ref(&view), false);
+        let attempts_col = headers.iter().position(|h| *h == "attempts").unwrap();
         assert_eq!(
-            cells[attempts_col], "\u{2014}",
+            table_rows[0][attempts_col], "-",
             "a deleted coverage row must render as unmeasured, never as a bare number"
         );
     }
 
     #[test]
-    fn group_object_renders_measured_not_actual_and_group_word_is_the_reverse() {
-        assert!(object_headers(false).contains(&"measured_time_ms"));
-        assert!(!object_headers(false).iter().any(|h| h.contains("actual")));
-        assert!(WORD_HEADERS.contains(&"elapsed_ms_actual"));
-        assert!(!WORD_HEADERS.iter().any(|h| h.contains("measured")));
-    }
-
-    #[test]
-    fn show_work_appends_the_work_column_and_is_absent_by_default() {
-        assert!(!object_headers(false).contains(&"work"));
-        assert!(object_headers(true).contains(&"work"));
-        assert!(!allomorph_headers(false).contains(&"work"));
-        assert!(allomorph_headers(true).contains(&"work"));
-        assert!(!stratum_headers(false).contains(&"work"));
-        assert!(stratum_headers(true).contains(&"work"));
-        assert!(!direction_headers(false).contains(&"work"));
-        assert!(direction_headers(true).contains(&"work"));
-
+    fn wide_appends_extra_columns_and_is_absent_by_default() {
         let row = sample_object_row(0);
         let coverage = coverage_entry(pg_stats::CoverageState::Measured);
-        assert_eq!(
-            object_row_cells(&row, &coverage, false).len(),
-            object_headers(false).len()
-        );
-        assert_eq!(
-            object_row_cells(&row, &coverage, true).len(),
-            object_headers(true).len()
-        );
+        let view = object_row_view(&row, &coverage);
+
+        let (narrow_headers, narrow_rows) =
+            render_narrow_self_totals(std::slice::from_ref(&view), false);
+        assert!(!narrow_headers.contains(&"work"));
+        assert!(!narrow_headers.contains(&"identity_quality"));
+        assert_eq!(narrow_rows[0].len(), narrow_headers.len());
+
+        let (wide_headers, wide_rows) =
+            render_narrow_self_totals(std::slice::from_ref(&view), true);
+        assert!(wide_headers.contains(&"work"));
+        assert!(wide_headers.contains(&"not_applied"));
+        assert!(wide_headers.contains(&"no_root"));
+        assert!(wide_headers.contains(&"surface_mismatch"));
+        assert!(wide_headers.contains(&"identity_quality"));
+        assert_eq!(wide_rows[0].len(), wide_headers.len());
     }
 
     #[test]
-    fn csv_output_has_stable_header_and_is_parseable() {
-        let dir = scratch_dir("csv");
-        let out_path = dir.join("out.csv");
-        let rows = vec![vec![
-            "morph_rule".to_string(),
-            "Rule, A".to_string(),
-            "authored".to_string(),
-            "5".to_string(),
-            "0.200".to_string(),
-            "2".to_string(),
-            "0.40".to_string(),
-            "1".to_string(),
-            "\u{2014}".to_string(),
-            "0".to_string(),
-            "1".to_string(),
-        ]];
-        let headers = object_headers(false);
-        write_csv(out_path.to_str().unwrap(), &headers, &rows).unwrap();
-        let text = fs::read_to_string(&out_path).unwrap();
-        let mut lines = text.lines();
-        assert_eq!(
-            lines.next().unwrap(),
-            headers.join(","),
-            "header row must match object_headers(false) in stable order"
+    fn shares_sum_to_100_pct_per_orientation() {
+        let (grammar_xml, word) = primary_fixture();
+        let dir = scratch_dir("shares");
+        let cache_path = dir.join("cache.sqlite3");
+        let (args, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &["--stats", "--cache", cache_path.to_str().unwrap()],
+        );
+        crate::run_batch(&args).expect("seed the cache via batch --stats");
+
+        let conn = rusqlite::Connection::open(&cache_path).unwrap();
+        let coverage = coverage_map_for_latest_run(&conn).unwrap();
+        let rows =
+            pg_stats::per_object_report(&conn, &pg_stats::PerObjectFilter::default()).unwrap();
+        assert!(!rows.is_empty(), "sanity: the fixture must produce rows");
+        let views: Vec<RowView> = rows.iter().map(|r| object_row_view(r, &coverage)).collect();
+        let (headers, table_rows) = render_narrow_self_totals(&views, false);
+
+        let time_col = headers.iter().position(|h| *h == "time%").unwrap();
+        let attempts_col = headers.iter().position(|h| *h == "attempts%").unwrap();
+        let sum_pct = |col: usize| -> f64 {
+            table_rows
+                .iter()
+                .filter_map(|r| r[col].trim_end_matches('%').parse::<f64>().ok())
+                .sum()
+        };
+        let time_sum = sum_pct(time_col);
+        let attempts_sum = sum_pct(attempts_col);
+        assert!(
+            (99.0..=101.0).contains(&time_sum),
+            "time% must sum to ~100% with no --top narrowing: got {time_sum}"
         );
         assert!(
-            lines.next().unwrap().contains("\"Rule, A\""),
-            "an embedded comma must be quoted"
+            (99.0..=101.0).contains(&attempts_sum),
+            "attempts% must likewise sum to ~100%: got {attempts_sum}"
         );
     }
 
     #[test]
-    fn run_stats_end_to_end_group_object_writes_csv_and_default_view_succeeds() {
+    fn totals_line_attribution_matches_hand_summed_rows() {
+        let (grammar_xml, word) = primary_fixture();
+        let dir = scratch_dir("attribution");
+        let cache_path = dir.join("cache.sqlite3");
+        let (args, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &["--stats", "--cache", cache_path.to_str().unwrap()],
+        );
+        crate::run_batch(&args).expect("seed the cache via batch --stats");
+
+        let conn = rusqlite::Connection::open(&cache_path).unwrap();
+        let coverage = coverage_map_for_latest_run(&conn).unwrap();
+        let body =
+            render_object(&conn, &coverage, &Filters::default(), OutputFormat::Text).unwrap();
+        let total_line = body
+            .lines()
+            .find(|l| l.starts_with("TOTAL"))
+            .expect("a TOTAL line must be printed");
+
+        let rows =
+            pg_stats::per_object_report(&conn, &pg_stats::PerObjectFilter::default()).unwrap();
+        let hand_summed_time_ns: i64 = rows.iter().map(|r| r.self_time_ns).sum();
+        let run_elapsed_ns = pg_stats::word_elapsed_ns_total(&conn, None).unwrap();
+        let expected_pct = if run_elapsed_ns > 0 {
+            hand_summed_time_ns as f64 / run_elapsed_ns as f64 * 100.0
+        } else {
+            0.0
+        };
+        assert!(
+            total_line.contains(&format!("{:.3}ms", hand_summed_time_ns as f64 / 1e6)),
+            "TOTAL line must report the exact hand-summed row time: {total_line}"
+        );
+        assert!(
+            total_line.contains(&format!("{expected_pct:.1}% attributed")),
+            "TOTAL line's attribution percentage must match summing rows by hand: {total_line}"
+        );
+    }
+
+    #[test]
+    fn word_filter_narrows_and_absent_word_explains_itself() {
+        let (grammar_xml, word) = primary_fixture();
+        let dir = scratch_dir("word-filter");
+        let cache_path = dir.join("cache.sqlite3");
+        let (args, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &["--stats", "--cache", cache_path.to_str().unwrap()],
+        );
+        crate::run_batch(&args).expect("seed the cache via batch --stats");
+
+        let conn = rusqlite::Connection::open(&cache_path).unwrap();
+        let coverage = coverage_map_for_latest_run(&conn).unwrap();
+
+        let matching = Filters {
+            word: Some(word.clone()),
+            ..Filters::default()
+        };
+        let body = render_object(&conn, &coverage, &matching, OutputFormat::Text).unwrap();
+        assert!(
+            body.contains("TOTAL"),
+            "the word that was actually analyzed must still produce rows: {body}"
+        );
+
+        let absent = Filters {
+            word: Some("this-word-was-never-analyzed-xyz".to_string()),
+            ..Filters::default()
+        };
+        let empty_body = render_object(&conn, &coverage, &absent, OutputFormat::Text).unwrap();
+        assert!(
+            empty_body.contains("objects exist in this cache, but none match this filter"),
+            "a real kind narrowed to an absent word must explain the empty result: {empty_body}"
+        );
+    }
+
+    #[test]
+    fn top_n_is_scoped_per_kind_and_never_narrows_the_totals() {
+        let (grammar_xml, word) = primary_fixture();
+        let dir = scratch_dir("top-per-kind");
+        let cache_path = dir.join("cache.sqlite3");
+        let (args, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &["--stats", "--cache", cache_path.to_str().unwrap()],
+        );
+        crate::run_batch(&args).expect("seed the cache via batch --stats");
+
+        let conn = rusqlite::Connection::open(&cache_path).unwrap();
+        let coverage = coverage_map_for_latest_run(&conn).unwrap();
+        let all_rows =
+            pg_stats::per_object_report(&conn, &pg_stats::PerObjectFilter::default()).unwrap();
+        let kinds: std::collections::HashSet<_> = all_rows.iter().map(|r| r.kind.clone()).collect();
+        assert!(
+            all_rows.len() > kinds.len(),
+            "this fixture must record more objects than kinds, or --top drops nothing to test"
+        );
+
+        let untopped =
+            render_object(&conn, &coverage, &Filters::default(), OutputFormat::Text).unwrap();
+        let topped = render_object(
+            &conn,
+            &coverage,
+            &Filters {
+                top_n: Some(1),
+                ..Filters::default()
+            },
+            OutputFormat::Text,
+        )
+        .unwrap();
+
+        for kind in &kinds {
+            let shown = topped
+                .lines()
+                .filter(|l| l.starts_with(&format!("{kind}: ")))
+                .count();
+            assert_eq!(
+                shown, 1,
+                "--top 1 must keep exactly one row of kind {kind}, never collapse to a single \
+                 global winner: {topped}"
+            );
+        }
+
+        let total_time_field = |body: &str| {
+            body.lines()
+                .find(|l| l.starts_with("TOTAL"))
+                .expect("every rendered table carries a TOTAL line")
+                .split("   ")
+                .find(|f| f.trim_start().starts_with("time "))
+                .expect("the TOTAL line carries a time field")
+                .trim()
+                .to_string()
+        };
+        assert_eq!(
+            total_time_field(&topped),
+            total_time_field(&untopped),
+            "a --top excerpt must total (and attribute) every matched row, not just shown ones"
+        );
+        let total_line = topped.lines().find(|l| l.starts_with("TOTAL")).unwrap();
+        assert!(
+            total_line.contains(&format!(
+                "{} row(s) ({} shown)",
+                all_rows.len(),
+                kinds.len()
+            )),
+            "a truncated table must say how many of the matched rows it displayed: {total_line}"
+        );
+    }
+
+    #[test]
+    fn a_shown_row_states_its_share_of_every_matched_row_not_of_the_excerpt() {
+        let row = RowView {
+            label: "r".to_string(),
+            kind: Some("morph_rule".to_string()),
+            identity_quality: None,
+            self_time_ns: Some(1_000),
+            attempts: Some(10),
+            outputs: Some(0),
+            uses: Some(0),
+            work: Some(0),
+            not_applied: Some(0),
+            no_root: Some(0),
+            surface_mismatch: Some(0),
+        };
+        // One row displayed out of a matched set totalling four times its time and attempts.
+        let (headers, rows) = render_narrow(&[row], false, 4_000, 40);
+        let time_pct = headers.iter().position(|h| *h == "time%").unwrap();
+        let attempts_pct = headers.iter().position(|h| *h == "attempts%").unwrap();
+        assert_eq!(
+            (rows[0][time_pct].as_str(), rows[0][attempts_pct].as_str()),
+            ("25.0%", "25.0%"),
+            "a lone displayed row must not read as 100% of the run"
+        );
+    }
+
+    #[test]
+    fn jsonl_first_line_is_meta_and_every_row_parses() {
+        let (grammar_xml, word) = primary_fixture();
+        let dir = scratch_dir("jsonl");
+        let cache_path = dir.join("cache.sqlite3");
+        let (args, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &["--stats", "--cache", cache_path.to_str().unwrap()],
+        );
+        crate::run_batch(&args).expect("seed the cache via batch --stats");
+
+        let conn = rusqlite::Connection::open(&cache_path).unwrap();
+        let coverage = coverage_map_for_latest_run(&conn).unwrap();
+        let body =
+            render_object(&conn, &coverage, &Filters::default(), OutputFormat::Jsonl).unwrap();
+        let mut lines = body.lines();
+
+        let meta_line = lines.next().expect("jsonl output must have a meta line");
+        let meta: serde_json::Value =
+            serde_json::from_str(meta_line).expect("meta line must be valid JSON");
+        assert_eq!(meta["meta"], serde_json::Value::Bool(true));
+        assert_eq!(meta["orientation"], "object");
+
+        let mut row_count = 0;
+        for line in lines {
+            let _: serde_json::Value = serde_json::from_str(line)
+                .unwrap_or_else(|e| panic!("row line failed to parse: {line}: {e}"));
+            row_count += 1;
+        }
+        assert!(
+            row_count > 0,
+            "at least one data row must follow the meta line"
+        );
+    }
+
+    #[test]
+    fn empty_result_distinguishes_never_recorded_from_filtered_to_nothing() {
+        let dir = scratch_dir("empty-explain");
+        let cache_path = dir.join("cache.sqlite3");
+        let mut outcome = pg_stats::StatsCache::open(&cache_path, "hash-a").unwrap();
+        let run = pg_stats::RunMetadata {
+            build_info: "test".to_string(),
+            fwdata_path: "x".to_string(),
+            grammar_hash: "hash-a".to_string(),
+            engine: "hc".to_string(),
+            options_hash: "opts".to_string(),
+            options_json: "{}".to_string(),
+            created_utc: "unix:0".to_string(),
+        };
+        let word_record = pg_stats::WordRecord {
+            form: "onlyword".to_string(),
+            elapsed_ns: 1_000,
+            attempts: 1,
+            passes: 1,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts: vec![pg_stats::FactRecord {
+                object_key: "rule-a".to_string(),
+                object_kind: pg_stats::ObjectKind::MorphRule,
+                object_label: "Rule A".to_string(),
+                identity_quality: pg_stats::IdentityQuality::Authored,
+                stratum: Some(pg_stats::StructuralLocator::new("0:Root", "Root")),
+                allomorph: None,
+                morpheme: None,
+                direction: pg_stats::Direction::Analysis,
+                attempts: 5,
+                work: 10,
+                outputs: 2,
+                not_applied: 1,
+                no_root: 0,
+                surface_mismatch: 0,
+                uses: 1,
+                self_time_ns: 100,
+            }],
+        };
+        outcome.cache.flush(&run, &[word_record]).unwrap();
+
+        let conn = outcome.cache.connection();
+        let coverage = coverage_map_for_latest_run(conn).unwrap();
+
+        let never_recorded = Filters {
+            kind: Some("phon_rule".to_string()),
+            ..Filters::default()
+        };
+        let body_a = render_object(conn, &coverage, &never_recorded, OutputFormat::Text).unwrap();
+        assert!(
+            body_a.contains("no phon_rule objects have ever been recorded"),
+            "must explain that this kind never occurred at all: {body_a}"
+        );
+
+        let filtered_to_nothing = Filters {
+            kind: Some("morph_rule".to_string()),
+            word: Some("a-word-never-analyzed".to_string()),
+            ..Filters::default()
+        };
+        let body_b =
+            render_object(conn, &coverage, &filtered_to_nothing, OutputFormat::Text).unwrap();
+        assert!(
+            body_b.contains("morph_rule objects exist in this cache, but none match this filter"),
+            "must explain that this kind exists but the filter matched nothing: {body_b}"
+        );
+    }
+
+    #[test]
+    fn group_orientation_reports_one_row_per_kind() {
+        let (grammar_xml, word) = primary_fixture();
+        let dir = scratch_dir("group-orientation");
+        let cache_path = dir.join("cache.sqlite3");
+        let (args, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &["--stats", "--cache", cache_path.to_str().unwrap()],
+        );
+        crate::run_batch(&args).expect("seed the cache via batch --stats");
+
+        let conn = rusqlite::Connection::open(&cache_path).unwrap();
+        let coverage = coverage_map_for_latest_run(&conn).unwrap();
+        let body = render_group(&conn, &coverage, &Filters::default(), OutputFormat::Text).unwrap();
+        assert!(
+            body.contains("morph_rule"),
+            "group orientation must surface the morph_rule kind: {body}"
+        );
+    }
+
+    #[test]
+    fn morpheme_orientation_collapses_scattered_entries_through_the_cli() {
+        let dir = scratch_dir("morpheme-cli");
+        let cache_path = dir.join("cache.sqlite3");
+        let mut outcome = pg_stats::StatsCache::open(&cache_path, "hash-a").unwrap();
+        let run = pg_stats::RunMetadata {
+            build_info: "test".to_string(),
+            fwdata_path: "x".to_string(),
+            grammar_hash: "hash-a".to_string(),
+            engine: "hc".to_string(),
+            options_hash: "opts".to_string(),
+            options_json: "{}".to_string(),
+            created_utc: "unix:0".to_string(),
+        };
+        let make_fact = |key: &str, morpheme_key: &str, attempts: u64| pg_stats::FactRecord {
+            object_key: key.to_string(),
+            object_kind: pg_stats::ObjectKind::LexEntry,
+            object_label: key.to_string(),
+            identity_quality: pg_stats::IdentityQuality::Authored,
+            stratum: Some(pg_stats::StructuralLocator::new("0:Root", "Root")),
+            allomorph: None,
+            morpheme: Some(pg_stats::StructuralLocator::new(morpheme_key, morpheme_key)),
+            direction: pg_stats::Direction::Analysis,
+            attempts,
+            work: attempts,
+            outputs: attempts,
+            not_applied: 0,
+            no_root: 0,
+            surface_mismatch: 0,
+            uses: 0,
+            self_time_ns: attempts * 10,
+        };
+        let word_record = pg_stats::WordRecord {
+            form: "w".to_string(),
+            elapsed_ns: 1_000,
+            attempts: 1,
+            passes: 1,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts: vec![
+                make_fact("entry-1", "cat-morph", 3),
+                make_fact("entry-2", "cat-morph", 2),
+            ],
+        };
+        outcome.cache.flush(&run, &[word_record]).unwrap();
+
+        let conn = outcome.cache.connection();
+        let coverage = coverage_map_for_latest_run(conn).unwrap();
+        let body =
+            render_morpheme(conn, &coverage, &Filters::default(), OutputFormat::Text).unwrap();
+        let data_rows = body.lines().filter(|l| l.contains("cat-morph")).count();
+        assert_eq!(
+            data_rows, 1,
+            "two entries sharing a morpheme must collapse to one row: {body}"
+        );
+    }
+
+    #[test]
+    fn run_stats_end_to_end_group_object_writes_jsonl_and_default_view_succeeds() {
         let (grammar_xml, word) = primary_fixture();
         let dir = scratch_dir("run-stats-e2e");
         let cache_path = dir.join("cache.sqlite3");
@@ -1558,29 +2306,60 @@ mod tests {
         crate::run_batch(&batch_args).expect("seed the cache via batch --stats");
 
         let grammar_path = dir.join("grammar.xml");
-        let csv_path = dir.join("object.csv");
+        let jsonl_path = dir.join("object.jsonl");
         let stats_args: Vec<String> = vec![
             grammar_path.to_string_lossy().into_owned(),
             "--group".to_string(),
             "object".to_string(),
             "--cache".to_string(),
             cache_path.to_string_lossy().into_owned(),
+            "--format".to_string(),
+            "jsonl".to_string(),
             "--out".to_string(),
-            csv_path.to_string_lossy().into_owned(),
+            jsonl_path.to_string_lossy().into_owned(),
         ];
-        run_stats(&stats_args).expect("run_stats --group object --out must succeed");
-        let csv_text = fs::read_to_string(&csv_path).unwrap();
-        assert_eq!(
-            csv_text.lines().next().unwrap(),
-            object_headers(false).join(",")
-        );
+        run_stats(&stats_args).expect("run_stats --group object --format jsonl --out must succeed");
+        let jsonl_text = fs::read_to_string(&jsonl_path).unwrap();
+        let mut lines = jsonl_text.lines();
+        let meta: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
+        assert_eq!(meta["meta"], serde_json::Value::Bool(true));
+        let mut n = 0;
+        for line in lines {
+            serde_json::from_str::<serde_json::Value>(line).unwrap();
+            n += 1;
+        }
+        assert!(n > 0);
 
         let default_args: Vec<String> = vec![
             grammar_path.to_string_lossy().into_owned(),
             "--cache".to_string(),
             cache_path.to_string_lossy().into_owned(),
         ];
-        run_stats(&default_args)
-            .expect("run_stats with no --group must render the dual default view");
+        run_stats(&default_args).expect("run_stats with no --group must render the default view");
+    }
+
+    #[test]
+    fn jsonl_format_requires_group() {
+        let (grammar_xml, word) = primary_fixture();
+        let dir = scratch_dir("jsonl-requires-group");
+        let cache_path = dir.join("cache.sqlite3");
+        let (batch_args, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &["--stats", "--cache", cache_path.to_str().unwrap()],
+        );
+        crate::run_batch(&batch_args).expect("seed the cache via batch --stats");
+
+        let grammar_path = dir.join("grammar.xml");
+        let args: Vec<String> = vec![
+            grammar_path.to_string_lossy().into_owned(),
+            "--cache".to_string(),
+            cache_path.to_string_lossy().into_owned(),
+            "--format".to_string(),
+            "jsonl".to_string(),
+        ];
+        let err = run_stats(&args).expect_err("--format jsonl with no --group must be refused");
+        assert!(err.contains("--format jsonl requires --group"));
     }
 }

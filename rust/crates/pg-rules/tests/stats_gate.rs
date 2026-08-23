@@ -869,50 +869,11 @@ fn phase_self_times_never_exceed_the_wall_clock_envelope() {
     assert!(!out.capped);
 
     let totals = stats.phase_totals();
-    let timed_sum_ns: u64 = totals
-        .iter()
-        .filter(|(k, _)| **k != pg_rules::stats::AnalysisPhase::Instrumentation)
-        .map(|(_, t)| t.ns)
-        .sum();
+    let timed_sum_ns: u64 = totals.values().map(|t| t.ns).sum();
     assert!(
         timed_sum_ns <= wall_ns,
         "sum of every timed phase's self time ({timed_sum_ns}ns) must not exceed this call's own \
          wall-clock time ({wall_ns}ns); an excess would mean two regions double-counted the same \
          real time"
-    );
-}
-
-/// `Instrumentation` is derived (count * `CLOCK_READ_NS` * 2), never itself a timed region.
-#[cfg(feature = "stats-calibrate")]
-#[test]
-fn instrumentation_bucket_is_a_derived_multiplication_not_a_timed_region() {
-    let (g, s, budget) = memoized_cascade_fixture();
-    let stats = StatsCollector::new(&g);
-    let out = run_memoized_cascade(&g, s, &budget, &stats);
-    assert!(!out.capped);
-
-    let totals = stats.phase_totals();
-    let region_entries: u64 = totals
-        .iter()
-        .filter(|(k, _)| **k != pg_rules::stats::AnalysisPhase::Instrumentation)
-        .map(|(_, t)| t.work)
-        .sum();
-    let instrumentation = totals
-        .get(&pg_rules::stats::AnalysisPhase::Instrumentation)
-        .copied()
-        .expect("Instrumentation must be present once any other phase has fired");
-    assert_eq!(
-        instrumentation.work, region_entries,
-        "Instrumentation's count must equal the plain sum of every real phase's entry count"
-    );
-    assert!(
-        instrumentation.ns > 0,
-        "Instrumentation's derived ns must be positive once real regions have fired"
-    );
-    assert_eq!(
-        instrumentation.ns % instrumentation.work,
-        0,
-        "Instrumentation's ns must be an exact multiple of its count (ns = count * CLOCK_READ_NS * 2), \
-         never a clock reading with its own jitter"
     );
 }

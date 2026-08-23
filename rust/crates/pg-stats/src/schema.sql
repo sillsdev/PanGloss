@@ -21,9 +21,20 @@ CREATE TABLE IF NOT EXISTS object (
   key              TEXT NOT NULL,
   kind             TEXT NOT NULL,
   label            TEXT NOT NULL,
-  identity_quality TEXT NOT NULL
+  identity_quality TEXT NOT NULL,
+  -- The morpheme a `lex_entry` object realizes, so the `morpheme` orientation can group scattered
+  -- entries/allomorphs back to one row; 0 (the `morpheme` sentinel) for every other kind.
+  morpheme_id      INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS object_key_kind ON object(key, kind);
+
+-- Locator table for the morpheme dimension, mirroring `stratum`/`allomorph` below.
+CREATE TABLE IF NOT EXISTS morpheme (
+  morpheme_id INTEGER PRIMARY KEY,
+  key         TEXT,
+  label       TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS morpheme_key ON morpheme(key);
 
 -- The unique indexes make interning race-safe across processes, not merely within one
 -- transaction: two concurrent runs interning the same key must converge on one row, or their fact

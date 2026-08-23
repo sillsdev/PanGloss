@@ -8,7 +8,7 @@ use crate::error::StatsError;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped when `schema.sql` changes shape. A cache is wiped, never migrated, on a mismatch.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// Bumped by hand when what a counter means changes; recorded per run rather than wiped on.
 pub const COUNTER_SEMANTICS_VERSION: i64 = 2;
@@ -27,6 +27,10 @@ fn seed_sentinels(conn: &Connection) -> Result<(), StatsError> {
         "INSERT OR IGNORE INTO allomorph (allomorph_id, key, label) VALUES (0, NULL, 'NONE')",
         [],
     )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO morpheme (morpheme_id, key, label) VALUES (0, NULL, 'NONE')",
+        [],
+    )?;
     Ok(())
 }
 
@@ -37,6 +41,7 @@ pub(crate) fn wipe_and_recreate(conn: &Connection) -> Result<(), StatsError> {
          DROP TABLE IF EXISTS coverage;
          DROP TABLE IF EXISTS allomorph;
          DROP TABLE IF EXISTS stratum;
+         DROP TABLE IF EXISTS morpheme;
          DROP TABLE IF EXISTS object;
          DROP TABLE IF EXISTS run;",
     )?;
@@ -87,6 +92,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(allomorph_key, None);
+        let morpheme_key: Option<String> = conn
+            .query_row(
+                "SELECT key FROM morpheme WHERE morpheme_id = 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(morpheme_key, None);
 
         conn.execute(
             "INSERT INTO stratum (key, label) VALUES ('0:Root', 'Root')",
@@ -95,6 +108,11 @@ mod tests {
         .unwrap();
         conn.execute(
             "INSERT INTO allomorph (key, label) VALUES ('allo-a', 'Allo A')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO morpheme (key, label) VALUES ('morph-a', 'Morph A')",
             [],
         )
         .unwrap();

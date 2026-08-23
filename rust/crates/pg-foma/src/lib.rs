@@ -69,6 +69,8 @@ pub mod analyzer;
 /// `backend_optimizer::Score`'s job. Read that module's own doc for the soundness argument and the
 /// one hazard it is counted against.
 pub mod backend_accuracy;
+/// Static, machine-independent capability cards for the executable backends.
+mod backend_cards_data;
 /// Serializable mechanism vocabulary and fail-closed executable-backend graph validation.
 pub mod backend_mechanism;
 /// Extensible, budget-aware offline search and confirmed-only backend selection.
@@ -78,8 +80,6 @@ pub mod backend_registry;
 /// Schema-versioned machine and human views over backend-optimization runs.
 pub mod backend_report;
 pub mod backend_runtime;
-/// Static, machine-independent capability cards for the executable backends.
-mod backend_cards_data;
 pub mod backend_cards {
     pub use super::backend_cards_data::{
         catalog, checked_in_relative_path, render_markdown, BackendCard, BigO, Envelope,

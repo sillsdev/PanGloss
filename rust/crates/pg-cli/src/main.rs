@@ -261,7 +261,7 @@ fn run() -> ExitCode {
                  usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
                  usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--words=<path>] [--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>] [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--repeats=N]\n\
                  usage: pangloss recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N]\n\
-                 usage: pangloss stats <project-or-grammar> [--group word|object|allomorph|stratum] [--kind K] [--object KEY] [--stratum KEY] [--min-attempts N] [--top N] [--sort time|no-root] [--exclude-censored] [--cache <path>] [--out FILE]\n\
+                 usage: pangloss stats <project-or-grammar> [options] (run `pangloss stats` with no arguments to print the full current option list)\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\

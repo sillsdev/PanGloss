@@ -44,8 +44,7 @@ impl Direction {
 /// bookkeeping not attributable to any named phase. `WordBuild`, `MemoKey`, and `Dedup` name three
 /// concrete costs that residual used to hide (candidate `Word` construction/cloning, the memo key
 /// plus hash lookup/insert, and dedup-set insertion) and are entered at their real call sites,
-/// which is not always nested under one `Overhead` region. `Instrumentation` is never a timed
-/// region -- see `StatsCollector::phase_totals`.
+/// which is not always nested under one `Overhead` region.
 ///
 /// Every `KindTotals::work` here is a genuine per-kind event count (one per `phase_enter` call),
 /// never a caller-chosen unit like a segment count.
@@ -61,11 +60,7 @@ pub enum AnalysisPhase {
     WordBuild,
     MemoKey,
     Dedup,
-    Instrumentation,
 }
-
-/// One clock read's cost on this development machine (a CPU property, not a grammar property); see `stats_calibrate::measure_clock_read_cost_ns` to recalibrate on different hardware.
-const CLOCK_READ_NS: u64 = 30;
 
 /// Which grammar object a fact row is attributed to.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -346,26 +341,9 @@ impl StatsCollector {
     }
 
     /// This collector's accumulated `AnalysisPhase` totals; empty unless built with
-    /// `stats-calibrate`. Also injects a derived `AnalysisPhase::Instrumentation` entry: timing the
-    /// timer would double the very clock reads it measures, so this is never a timed region -- its
-    /// `work` is the plain sum of every real phase's own entry count (one `CLOCK_READ_NS`-costed
-    /// clock read per `enter`, one per `exit`), and its `ns` is that count times `CLOCK_READ_NS *
-    /// 2`. Skipped when `totals` is already empty, so an ordinary (non-`stats-calibrate`) build
-    /// still reports nothing at all.
+    /// `stats-calibrate`.
     pub fn phase_totals(&self) -> HashMap<AnalysisPhase, crate::stats_calibrate::KindTotals> {
-        let mut totals = self.phase_calib.totals();
-        if totals.is_empty() {
-            return totals;
-        }
-        let region_entries: u64 = totals.values().map(|t| t.work).sum();
-        totals.insert(
-            AnalysisPhase::Instrumentation,
-            crate::stats_calibrate::KindTotals {
-                ns: CLOCK_READ_NS * 2 * region_entries,
-                work: region_entries,
-            },
-        );
-        totals
+        self.phase_calib.totals()
     }
 
     fn sparse_with_row(&self, key: SparseKey, f: impl FnOnce(&mut Counters)) {
