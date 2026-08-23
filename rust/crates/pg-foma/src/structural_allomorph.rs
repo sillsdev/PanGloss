@@ -66,7 +66,7 @@ impl From<TemplateSlotZone> for SlotOwnership {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SlotAlternativeRoute {
     Prefix,
     Suffix,
