@@ -292,6 +292,11 @@ pub enum MorphologyRelationError {
     DuplicateDecision {
         allomorph: AllomorphId,
     },
+    InvalidDerivationRuleReference {
+        stratum: StratumId,
+        site: usize,
+        rule: MRuleId,
+    },
     InvalidSlotRule {
         template_index: usize,
         slot_index: usize,
@@ -367,6 +372,16 @@ impl fmt::Display for MorphologyRelationError {
             Self::DuplicateDecision { allomorph } => {
                 write!(f, "duplicate morphology plan decision for {allomorph:?}")
             }
+            Self::InvalidDerivationRuleReference {
+                stratum,
+                site,
+                rule,
+            } => write!(
+                f,
+                "invalid morphology derivation rule reference at stratum {}/site {}: {rule:?}",
+                stratum.0,
+                site,
+            ),
             Self::InvalidSlotRule {
                 template_index,
                 slot_index,
@@ -782,10 +797,10 @@ impl MorphologyRelationPlan {
         for (stratum_index, stratum) in grammar.strata.iter().enumerate() {
             for (site, &rule) in stratum.mrules.iter().enumerate() {
                 let Some(rule_definition) = grammar.mrules.get(rule.0 as usize) else {
-                    return Err(MorphologyRelationError::UnsupportedRewrite {
-                        allomorph: AllomorphId(0),
-                        shape_id: "InvalidReferences",
-                        reason_id: "invalid-derivation-rule-reference",
+                    return Err(MorphologyRelationError::InvalidDerivationRuleReference {
+                        stratum: StratumId(stratum_index as u8),
+                        site,
+                        rule,
                     });
                 };
                 let (allomorphs, repeat_eligibility) = match rule_definition {
