@@ -76,9 +76,16 @@ pangloss stats <grammar> --cache <cache.sqlite3> --group object --sort no-root
 High `no_root` means a rule keeps producing forms the lexicon does not contain — the expensive kind of
 over-application, because each bogus form drags a whole subtree of searching behind it.
 
-**4. Ask where the time went.** `measured_time_ms` in the per-object report is real wall-clock self
-time, collected whenever `--stats` ran, and summing it by kind answers "was it the compounding, the
-lexemes, or the allomorphs?" exactly rather than by apportionment.
+**4. Ask where the time went.**
+
+```
+pangloss stats <grammar> --cache <cache.sqlite3> --group group
+```
+
+One row per object kind, which answers "was it the compounding, the lexemes, or the allomorphs?"
+exactly rather than by apportionment: `time_ms` is real wall-clock self time, collected whenever
+`--stats` ran. Then `--group object --word <form>` drills from the kind into the individual rules of
+one word.
 
 **5. Only if you need the split *inside* one of those** — traversal versus shape prep versus memo key
 versus word build — build with the `stats-calibrate` feature and set `HC_PHASE_PROFILE=1`. That tier
@@ -521,17 +528,34 @@ Aggregation needs nothing beyond SQLite at this scale.
 
 ## Reports
 
-Three defaults as shipped (originally two; **never-fires** was added after real-grammar use found
-its absence the single most actionable gap — see "Known limitations as shipped"). All are
-`GROUP BY` queries; per-kind sections, no top-N by default (object count is bounded by grammar size,
-so print everything), `--top` for large grammars.
+Seven orientations as shipped, selected by `--group`: `word`, `object`, `group`, `morpheme`,
+`allomorph`, `stratum`, `direction`, plus `never-fires`. All are `GROUP BY` queries; no top-N by
+default (object count is bounded by grammar size, so print everything), `--top N` for large grammars.
 
-**1. Per word.** Form, **actual** elapsed, attempts, passes, capped/timed-out flags. Sorted by
+Every orientation prints the same narrow column set — `label`, `time_ms`, `time%`, `attempts`,
+`attempts%`, `amp`, `uses` — because every conclusion anyone has drawn from this data has been a
+share rather than an absolute. `--wide` appends `work`, `not_applied`, `no_root`,
+`surface_mismatch`, and `identity_quality`. `--format jsonl` emits the same rows machine-readably,
+prefixed by a meta line carrying run identity, the active filters, and the totals.
+
+**Every orientation ends with a TOTAL line**, carrying the row count, the summed time, and that
+sum as a percentage of the wall clock actually recorded — the attribution check. That percentage is
+what decides whether the numbers are worth acting on (Amharic attributed 98.6%; a run attributing
+40% is telling you the cost is somewhere the collector cannot see), and it was hand-computed for
+every finding before it was a column.
+
+**`--top` narrows what is displayed, never what is counted.** It keeps the first N rows of each
+*kind*, so one crowded kind cannot hide another entirely, and it is applied after the totals are
+taken: each row's `time%` is its share of every matched row, and a truncated table says how many of
+the matched rows it showed. A SQL `LIMIT` cannot do this — it narrows the denominators along with
+the rows, so an excerpt's shares sum to 100% and read exactly like the whole run's.
+
+**Per word** (`--group word`). Form, **actual** elapsed, attempts, passes, capped/timed-out flags. Sorted by
 elapsed descending. This is the entry point — find the bad word, then find the bad rule inside it —
 and it is what FLEx's Run Tests already gives via a sortable Parse Time column, so users can already
 read it.
 
-**2. Per object.** Kind, label, attempts, **measured** time, outputs, amplification, `Didn't apply`,
+**Per object** (`--group object`). Kind, label, attempts, **measured** time, outputs, amplification, `Didn't apply`,
 `No root found`, `Didn't match the word`, uses. Sorted by measured time descending by default;
 `--sort` switches to `no_root` for the over-application question directly. `Didn't apply` is
 rule-level here — one count per invocation that produced nothing, at the same granularity as
@@ -543,9 +567,9 @@ why that distinction had to be made explicit.
 `NEVER_FIRES_DEFAULT_MIN_ATTEMPTS` (1000) times in one direction that produced zero outputs there,
 ordered by attempts descending. Direction-aware by construction — the query groups by
 `(object, direction)`, so a rule dead in analysis but live in synthesis contributes only its analysis
-row. Included by default whenever the cache holds any such row, printed after the per-object report;
-`--min-attempts` overrides the floor explicitly (0 admits everything, which is the point of *not*
-defaulting there).
+row. Included by default whenever the cache holds any such row, printed after the per-object report.
+The floor is the library default and carries no CLI override: a caller wanting a different one
+queries the documented schema, which is cheaper than a flag nobody reached for.
 
 **The per-word report's `elapsed_ms_actual` and the per-object report's `measured_time_ms` are both
 real measurements, at different granularities**, so the per-object report no longer needs the old
@@ -561,8 +585,8 @@ in foma mode, where the proposer replaces HC's analysis search, so `no_root` is 
 not because the grammar is clean, but because that phase never ran. Same rule this repo states
 elsewhere: *"I could not look" must never read as "everything is fine."*
 
-**`work` is opt-in** (`--show-work`), on every report that carries it, rather than a default column
-or absent entirely — see "Known limitations as shipped" for why its basis is provisional.
+**`work` is opt-in** (`--wide`, alongside the other detail columns) rather than a default column or
+absent entirely — see "Known limitations as shipped" for why its basis is provisional.
 
 ## Filtering
 
@@ -570,9 +594,9 @@ or absent entirely — see "Known limitations as shipped" for why its basis is p
 the worst) is mostly unnecessary because the cache accumulates: those words are already there, so the
 question is a query, not a re-run.
 
-**Aggregation side** — flags for the common cases (`--kind`, `--stratum`, `--object`,
-`--min-attempts`, `--top`, `--sort`, `--exclude-capped`) plus **the SQLite schema documented as a
-public escape hatch**, so a power user or an AI writes its own query instead of waiting for a flag.
+**Aggregation side** — flags for the common cases (`--word`, `--kind`, `--stratum`, `--object`,
+`--direction`, `--top`, `--sort`, `--exclude-censored`, `--wide`, `--format`) plus **the SQLite
+schema documented as a public escape hatch**, so a power user or an AI writes its own query instead of waiting for a flag.
 Consequence accepted deliberately: once documented, `schema_version` is a compatibility promise, not
 a note.
 
@@ -665,9 +689,9 @@ found by running the shipped v1 feature against real grammars (Sena, Amharic, Aw
 **fixed** with what changed; the rest remain open.
 
 **FIXED — `work` was recorded but unreachable.** No report surfaced it, so at the time it existed
-only as an input to the now-deleted `estimated_time_ms`. `--show-work` appends it as an opt-in column
-on every report that carries it (object, allomorph, stratum, direction); the default view still
-omits it. `work` remains a plain counter behind that flag — it is simply no longer a time basis:
+only as an input to the now-deleted `estimated_time_ms`. `--wide` appends it on every report that
+carries it (object, allomorph, stratum, direction, group, morpheme); the default view still omits
+it. `work` remains a plain counter behind that flag — it is simply no longer a time basis:
 measured self time (see "Time") replaced it for that purpose, so `work`'s own weighting problem
 (charging a rule the full segment count of the candidate shape when the dominant event is a *failed*
 match touching an unpredictable prefix) is moot for time reporting, though the counter is still
