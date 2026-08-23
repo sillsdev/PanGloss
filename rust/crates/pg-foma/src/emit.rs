@@ -211,6 +211,7 @@ use crate::plan::{FragmentSpec, Plan, PlanNodeKind};
 use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
 use crate::profile::{CompileProfileBuilder, CompileStage};
 use crate::replace::SegAlphabet;
+use crate::structural_allomorph::MarkerZone;
 use crate::tags;
 
 fn trace_emit_stage(stage: CompileStage, elapsed: std::time::Duration, allow_env_trace: bool) {
@@ -1115,6 +1116,251 @@ fn write_untagged_entry(out: &mut String, text: &str, continuation: &str, counts
     out.push_str(continuation);
     out.push_str(" ;\n");
     counts.lexc_lines += 1;
+}
+
+#[derive(Clone)]
+struct AtomicCarrier {
+    template_index: usize,
+    slot_index: usize,
+    alternative_index: usize,
+    prefix_variants: Vec<String>,
+    suffix_variants: Vec<String>,
+    alternative: crate::structural_allomorph::SlotProjectionAlternative,
+    edge_alternatives: Vec<(usize, crate::structural_allomorph::SlotProjectionAlternative)>,
+    roots_name: String,
+    post_name: String,
+}
+
+fn atomic_carrier_refusal(
+    uncovered: Vec<UncoveredItem>,
+    counts: EmitCounts,
+    reason: &str,
+) -> EmitResult {
+    EmitResult {
+        lexc_source: String::new(),
+        report: EmitReport {
+            uncovered,
+            counts,
+            tier: FomaTier::Unsupported {
+                reason: reason.to_owned(),
+            },
+            enum_budget_exceeded: None,
+            closure_refusal: None,
+            closure_evidence: None,
+        },
+        retry_authorization: None,
+    }
+}
+
+/// Build bounded carrier names from the reviewed relation plan. A carrier is used only for a
+/// finite two-sided wrapper in a one-slot template; all other topologies refuse before lexc.
+fn atomic_template_carriers(
+    g: &Grammar,
+    pipeline_table: &CharDefTable,
+    counts: EmitCounts,
+    uncovered: Vec<UncoveredItem>,
+) -> Result<HashMap<(usize, usize), Vec<AtomicCarrier>>, EmitResult> {
+    let candidate = g.templates.iter().any(|template| {
+        template.slots.iter().any(|slot| {
+            slot.rules.iter().any(|&rule| {
+                allomorphs_of(g, rule)
+                    .iter()
+                    .any(|allomorph| classify_affix(&allomorph.rhs) == Role::CircumfixPrefix)
+            })
+        })
+    });
+    if !candidate {
+        return Ok(HashMap::new());
+    }
+    let Some(table_index) = g
+        .char_tables
+        .iter()
+        .position(|table| std::ptr::eq(table, pipeline_table))
+    else {
+        return Err(atomic_carrier_refusal(
+            uncovered,
+            counts,
+            "atomic template carrier has no active pipeline character table",
+        ));
+    };
+    let plan = crate::structural_allomorph::MorphologyRelationPlan::build(
+        g,
+        TableId(table_index as u16),
+    )
+    .map_err(|error| atomic_carrier_refusal(uncovered.clone(), counts.clone(), &error.to_string()))?;
+    let mut carriers: HashMap<(usize, usize), Vec<AtomicCarrier>> = HashMap::new();
+    for projection in plan.slot_projections() {
+        let coupled: Vec<(usize, &crate::structural_allomorph::SlotProjectionAlternative)> =
+            projection
+                .alternatives()
+                .iter()
+                .enumerate()
+                .filter(|(_, alternative)| {
+                    alternative.route() == crate::structural_allomorph::SlotAlternativeRoute::Coupled
+                })
+                .collect();
+        if coupled.is_empty() {
+            continue;
+        }
+        let key = projection.key();
+        let Some(template) = g.templates.get(key.template_index) else {
+            return Err(atomic_carrier_refusal(
+                uncovered.clone(),
+                counts.clone(),
+                "atomic template carrier references an invalid template",
+            ));
+        };
+        if template.slots.len() != 1 || key.slot_index != 0 {
+            return Err(atomic_carrier_refusal(
+                uncovered.clone(),
+                counts.clone(),
+                "atomic template carrier supports exactly one physical slot per template",
+            ));
+        }
+        for (alternative_index, alternative) in coupled {
+            if !matches!(
+                alternative.decision(),
+                crate::structural_allomorph::MorphologyRewrite::DirectWholeRootWrapper { .. }
+            ) || alternative.prefix_variants().is_empty()
+                || alternative.suffix_variants().is_empty()
+            {
+                return Err(atomic_carrier_refusal(
+                    uncovered.clone(),
+                    counts.clone(),
+                    "atomic template carrier requires a finite two-sided wrapper alternative",
+                ));
+            }
+            carriers.entry((key.template_index, key.slot_index)).or_default().push(
+                AtomicCarrier {
+                    template_index: key.template_index,
+                    slot_index: key.slot_index,
+                    alternative_index,
+                    prefix_variants: alternative.prefix_variants().to_vec(),
+                    suffix_variants: alternative.suffix_variants().to_vec(),
+                    alternative: alternative.clone(),
+                    edge_alternatives: projection
+                        .alternatives()
+                        .iter()
+                        .cloned()
+                        .enumerate()
+                        .collect(),
+                    roots_name: format!("AtomicT{}S{}A{}Roots", key.template_index, key.slot_index, alternative_index),
+                    post_name: format!("AtomicT{}S{}A{}Post", key.template_index, key.slot_index, alternative_index),
+                },
+            );
+        }
+    }
+    Ok(carriers)
+}
+
+fn emit_atomic_projection_alternative(
+    out: &mut String,
+    g: &Grammar,
+    alternative: &crate::structural_allomorph::SlotProjectionAlternative,
+    zone: MarkerZone,
+    continuation: &str,
+    width: usize,
+    counts: &mut EmitCounts,
+    pk: &mut PrecisionEmit,
+) {
+    let tag = tags::morph_tag_lexc(owning_morpheme(g, alternative.rule()), width);
+    match alternative.decision() {
+        crate::structural_allomorph::MorphologyRewrite::OrdinaryLiteral { variants, .. } => {
+            for variant in variants {
+                write_tag_entry(out, &tag, variant, continuation, counts, pk, Some(alternative.allomorph()));
+            }
+        }
+        crate::structural_allomorph::MorphologyRewrite::DirectWholeRootWrapper { .. } => {
+            let variants = match zone {
+                MarkerZone::Prefix => alternative.prefix_variants(),
+                MarkerZone::Suffix => alternative.suffix_variants(),
+            };
+            for variant in variants {
+                write_tag_entry(out, &tag, variant, continuation, counts, pk, Some(alternative.allomorph()));
+            }
+        }
+        crate::structural_allomorph::MorphologyRewrite::MarkedStructural { .. } => {
+            let binding = match zone {
+                MarkerZone::Prefix => alternative.prefix_binding(),
+                MarkerZone::Suffix => alternative.suffix_binding(),
+            };
+            if let Some(binding) = binding {
+                write_tag_entry(out, &tag, &binding.symbol.to_string(), continuation, counts, pk, Some(alternative.allomorph()));
+            }
+        }
+        crate::structural_allomorph::MorphologyRewrite::Unsupported { .. } => {}
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_atomic_slot_chain(
+    out: &mut String,
+    g: &Grammar,
+    prefix: &str,
+    slot: &SlotDef,
+    zone_role: Role,
+    template_category: FsId,
+    width: usize,
+    exit: &str,
+    carriers: &[AtomicCarrier],
+    counts: &mut EmitCounts,
+    pk: &mut PrecisionEmit,
+) -> String {
+    let entry_name = format!("{prefix}0");
+    write_lexicon_header(out, &entry_name);
+    let is_prefix = zone_role == Role::Prefix;
+    if slot.optional {
+        write_bare(out, exit, counts);
+    }
+    for carrier in carriers {
+        for (alternative_index, alternative) in &carrier.edge_alternatives {
+            let req = required_category(g, alternative.rule());
+            if !g.fs_interner.get(req).is_empty()
+                && !is_unifiable(g.fs_interner.get(template_category), g.fs_interner.get(req))
+            {
+                continue;
+            }
+            match (is_prefix, alternative.route()) {
+                (true, crate::structural_allomorph::SlotAlternativeRoute::Coupled) => {
+                    if *alternative_index != carrier.alternative_index {
+                        continue;
+                    }
+                    let tag = tags::morph_tag_lexc(owning_morpheme(g, alternative.rule()), width);
+                    for variant in &carrier.prefix_variants {
+                        write_tag_entry(
+                            out,
+                            &tag,
+                            variant,
+                            &carrier.roots_name,
+                            counts,
+                            pk,
+                            Some(alternative.allomorph()),
+                        );
+                    }
+                }
+                (false, crate::structural_allomorph::SlotAlternativeRoute::Coupled) => {}
+                (true, crate::structural_allomorph::SlotAlternativeRoute::Prefix)
+                | (false, crate::structural_allomorph::SlotAlternativeRoute::Suffix) => {
+                    emit_atomic_projection_alternative(
+                        out,
+                        g,
+                        alternative,
+                        if is_prefix {
+                            MarkerZone::Prefix
+                        } else {
+                            MarkerZone::Suffix
+                        },
+                        exit,
+                        width,
+                        counts,
+                        pk,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+    entry_name
 }
 
 fn write_root_entries_with_width(
@@ -4964,6 +5210,36 @@ pub fn emit_underlying_templated(
         }
     }
 
+    // A two-sided template alternative is one authored choice, not a prefix and a suffix
+    // occurrence that can be selected independently. Build the reviewed relation plan only
+    // when this emitter actually has a circumfix-shaped template candidate; the broad legacy
+    // emitter remains unchanged for grammars without one. The bounded carrier below supports
+    // one physical slot per template, with no other derivational/compound topology around it.
+    let atomic_carriers = match atomic_template_carriers(g, table, counts.clone(), uncovered.clone())
+    {
+        Ok(carriers) => carriers,
+        Err(refusal) => return refusal,
+    };
+    // The legacy circumfix convenience loop above adds template rules to the global suffix
+    // chain. A carrier owns this physical slot instead; remove only rules which have no separate
+    // authored standalone site, preserving explicitly dual-authored rules.
+    for (template_index, slot_index) in atomic_carriers.keys().copied() {
+        for &rule in &g.templates[template_index].slots[slot_index].rules {
+            let standalone = g.strata.iter().any(|stratum| stratum.mrules.contains(&rule));
+            if !standalone {
+                deriv_prefix.retain(|candidate| *candidate != rule);
+                deriv_suffix.retain(|candidate| *candidate != rule);
+            }
+        }
+    }
+    if !atomic_carriers.is_empty() && has_compounding_rules {
+        return atomic_carrier_refusal(
+            uncovered,
+            counts,
+            "atomic template carrier requires a bounded non-compounding root/post topology",
+        );
+    }
+
     // Identical grouping to emit_with_budget's own: one per distinct required_syn_fs, first-seen order.
     let mut group_keys: Vec<FsId> = Vec::new();
     let mut group_templates: Vec<Vec<usize>> = Vec::new();
@@ -5294,26 +5570,48 @@ pub fn emit_underlying_templated(
         let mut join_lines: BTreeSet<String> = BTreeSet::new();
         for &ti in &group_templates[gi] {
             let template = &g.templates[ti];
-            let (_, suffix_slots) = classify_template(g, template, &mut uncovered);
+            let (_, mut suffix_slots) = classify_template(g, template, &mut uncovered);
+            if atomic_carriers.contains_key(&(ti, 0)) {
+                // The carrier owns the coupled prefix half; the same authored slot is also
+                // present on the suffix edge for its independent suffix-only alternatives.
+                suffix_slots = vec![&template.slots[0]];
+            }
             if suffix_slots.is_empty() {
                 join_lines.insert("OuterSfx0".to_string());
             } else {
-                let entry = build_slot_chain(
-                    &mut out,
-                    g,
-                    table,
-                    &format!("T{ti}Z"),
-                    &suffix_slots,
-                    Role::Suffix,
-                    template.required_syn_fs,
-                    width,
-                    "OuterSfx0",
-                    &mut uncovered,
-                    &mut counts,
-                    phon,
-                    &mut pk,
-                    mode,
-                );
+                let entry = if let Some(carriers) = atomic_carriers.get(&(ti, 0)) {
+                    build_atomic_slot_chain(
+                        &mut out,
+                        g,
+                        table,
+                        &format!("T{ti}Z"),
+                        &template.slots[0],
+                        Role::Suffix,
+                        template.required_syn_fs,
+                        width,
+                        "OuterSfx0",
+                        carriers,
+                        &mut counts,
+                        &mut pk,
+                    )
+                } else {
+                    build_slot_chain(
+                        &mut out,
+                        g,
+                        table,
+                        &format!("T{ti}Z"),
+                        &suffix_slots,
+                        Role::Suffix,
+                        template.required_syn_fs,
+                        width,
+                        "OuterSfx0",
+                        &mut uncovered,
+                        &mut counts,
+                        phon,
+                        &mut pk,
+                        mode,
+                    )
+                };
                 join_lines.insert(entry);
             }
         }
@@ -5431,22 +5729,55 @@ pub fn emit_underlying_templated(
             if prefix_slots.is_empty() {
                 continue;
             }
-            build_slot_chain(
-                &mut out,
-                g,
-                table,
-                &format!("T{ti}P"),
-                &prefix_slots,
-                Role::Prefix,
-                template.required_syn_fs,
-                width,
-                &format!("G{gi}PfxD0"),
-                &mut uncovered,
-                &mut counts,
-                phon,
-                &mut pk,
-                mode,
-            );
+            if let Some(carriers) = atomic_carriers.get(&(ti, 0)) {
+                build_atomic_slot_chain(
+                    &mut out,
+                    g,
+                    table,
+                    &format!("T{ti}P"),
+                    &template.slots[0],
+                    Role::Prefix,
+                    template.required_syn_fs,
+                    width,
+                    &format!("G{gi}PfxD0"),
+                    carriers,
+                    &mut counts,
+                    &mut pk,
+                );
+            } else {
+                build_slot_chain(
+                    &mut out,
+                    g,
+                    table,
+                    &format!("T{ti}P"),
+                    &prefix_slots,
+                    Role::Prefix,
+                    template.required_syn_fs,
+                    width,
+                    &format!("G{gi}PfxD0"),
+                    &mut uncovered,
+                    &mut counts,
+                    phon,
+                    &mut pk,
+                    mode,
+                );
+            }
+        }
+
+        for carriers in atomic_carriers
+            .values()
+            .filter(|carriers| carriers.first().is_some_and(|carrier| group_templates[gi].contains(&carrier.template_index)))
+        {
+            // Carrier names include the physical slot key and alternative index; no allomorph
+            // id is used as a namespace because one allomorph may be authored at multiple sites.
+            for carrier in carriers {
+                write_lexicon_header(&mut out, &carrier.roots_name);
+                write_root_entries(&mut out, &eligible_roots, &carrier.post_name, &mut counts, &mut pk);
+                write_lexicon_header(&mut out, &carrier.post_name);
+                for suffix in &carrier.suffix_variants {
+                    write_untagged_entry(&mut out, suffix, "OuterSfx0", &mut counts);
+                }
+            }
         }
 
         // Checked at the end of each group's own emission, so a pathological grammar bails during the group that crossed the cap, not several groups later.
