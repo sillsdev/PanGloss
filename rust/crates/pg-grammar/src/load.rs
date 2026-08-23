@@ -2808,6 +2808,11 @@ mod tests {
 
         // Slot optional: omitted -> false.
         assert!(!g.templates[0].slots[0].optional);
+        assert_eq!(
+            g.templates[0].slots[0].zone,
+            crate::model::TemplateSlotZone::LegacyUnspecified,
+            "HC XML has no physical prefix/suffix slot metadata"
+        );
 
         // MorphologicalRule blockable/partial/multipleApplication: all omitted.
         let MorphRuleDef::AffixProcess(mr1) = &g.mrules[0] else {
