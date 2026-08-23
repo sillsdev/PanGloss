@@ -72,16 +72,25 @@ fn carrier_preserves_other_template_slots() {
     let xml = MIXED_SLOT_XML
         .replace(
             "</SegmentDefinitions>",
-            r#"<SegmentDefinition id="ch"><Representations><Representation>h</Representation></Representations></SegmentDefinition></SegmentDefinitions>"#,
+            r#"<SegmentDefinition id="ch"><Representations><Representation>h</Representation></Representations></SegmentDefinition><SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition></SegmentDefinitions>"#,
         )
         .replace(
             "</MorphologicalRuleDefinitions>",
-            r#"<MorphologicalRule id="tail" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
+            r#"<MorphologicalRule id="head" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
+              <Name>head</Name><MorphologicalSubrules><MorphologicalSubrule id="head-subrule">
+                <MorphologicalInput><PhoneticSequence id="head-stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments><CopyFromInput index="head-stem" /></MorphologicalOutput>
+              </MorphologicalSubrule></MorphologicalSubrules><MorphemeId>HEAD</MorphemeId>
+            </MorphologicalRule><MorphologicalRule id="tail" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
               <Name>tail</Name><MorphologicalSubrules><MorphologicalSubrule id="tail-subrule">
                 <MorphologicalInput><PhoneticSequence id="tail-stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
                 <MorphologicalOutput><CopyFromInput index="tail-stem" /><InsertSegments><PhoneticShape>h</PhoneticShape></InsertSegments></MorphologicalOutput>
               </MorphologicalSubrule></MorphologicalSubrules><MorphemeId>TAIL</MorphemeId>
             </MorphologicalRule></MorphologicalRuleDefinitions>"#,
+        )
+        .replace(
+            "<Name>template</Name><Slot optional=\"true\" morphologicalRules=\"mixed\">",
+            r#"<Name>template</Name><Slot optional="false" morphologicalRules="head"><Name>head</Name></Slot><Slot optional="true" morphologicalRules="mixed">"#,
         )
         .replace(
             "</AffixTemplate></AffixTemplates>",
@@ -92,7 +101,9 @@ fn carrier_preserves_other_template_slots() {
         .expect("one mixed slot among ordinary template slots must compile");
     let mut proposer = compiled.proposer;
 
-    for surface in ["pqsh", "pqSh", "Pqsh", "PqSh", "qth", "uqh", "qh"] {
+    for surface in [
+        "pxqsh", "pxqSh", "Pxqsh", "PxqSh", "xqth", "uxqh", "xqh",
+    ] {
         assert!(
             !proposer.propose(surface).is_empty(),
             "authored multi-slot path {surface:?} must remain reachable"
@@ -100,7 +111,7 @@ fn carrier_preserves_other_template_slots() {
     }
 
     for surface in [
-        "pqth", "Pqth", "uqth", "uqsh", "uqSh", "pqh", "Pqh", "qsh", "qSh",
+        "pxqth", "Pxqth", "uxqth", "uxqsh", "uxqSh", "pxqh", "Pxqh", "xqsh", "xqSh",
     ] {
         assert!(
             proposer.propose(surface).is_empty(),
