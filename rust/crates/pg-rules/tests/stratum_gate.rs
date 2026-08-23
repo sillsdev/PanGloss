@@ -8,7 +8,7 @@ use pg_grammar::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, AllomorphOwner, Grammar,
     MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet, OutputAction, PartRef, Pattern,
     PatternNode, ReduplicationHint, SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId,
-    TableId, TemplateId, VarTable,
+    TableId, TemplateId, TemplateSlotZone, VarTable,
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::stratum::{
@@ -309,11 +309,13 @@ fn template_stratum(slot0_optional: bool) -> (Grammar, StratumId) {
             SlotDef {
                 name: None,
                 optional: slot0_optional,
+                zone: TemplateSlotZone::LegacyUnspecified,
                 rules: vec![a],
             },
             SlotDef {
                 name: None,
                 optional: false,
+                zone: TemplateSlotZone::LegacyUnspecified,
                 rules: vec![b],
             },
         ],
@@ -397,11 +399,13 @@ fn synthesis_template_optional_slot_yields_filled_and_skipped() {
             SlotDef {
                 name: None,
                 optional: true,
+                zone: TemplateSlotZone::LegacyUnspecified,
                 rules: vec![a],
             },
             SlotDef {
                 name: None,
                 optional: false,
+                zone: TemplateSlotZone::LegacyUnspecified,
                 rules: vec![b],
             },
         ],
