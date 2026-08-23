@@ -1098,6 +1098,50 @@ fn unresolved_slot_zone(
     }
 }
 
+fn wrapper_route(
+    allomorph: &AffixAllomorphDef,
+    prefix_variants: &[String],
+    suffix_variants: &[String],
+    ownership: SlotOwnership,
+    siblings: &[(MRuleId, &AffixAllomorphDef)],
+    decisions: &HashMap<AllomorphId, MorphologyRewrite>,
+) -> Result<SlotAlternativeRoute, MorphologyRelationError> {
+    let has_prefix = prefix_variants.iter().any(|variant| !variant.is_empty());
+    let has_suffix = suffix_variants.iter().any(|variant| !variant.is_empty());
+    let route = match (has_prefix, has_suffix) {
+        (true, true) => SlotAlternativeRoute::Coupled,
+        (true, false) => SlotAlternativeRoute::Prefix,
+        (false, true) => SlotAlternativeRoute::Suffix,
+        (false, false) => match ownership {
+            SlotOwnership::Fixed(zone) => route_for_zone(zone),
+            SlotOwnership::LegacyChoice => {
+                let Some(zone) = sibling_edge_route(allomorph, siblings, decisions) else {
+                    return Err(unresolved_slot_zone(allomorph, "DirectWholeRootWrapper"));
+                };
+                route_for_zone(zone)
+            }
+        },
+    };
+
+    if let SlotOwnership::Fixed(actual) = ownership {
+        if let Some(required) = match route {
+            SlotAlternativeRoute::Prefix => Some(MarkerZone::Prefix),
+            SlotAlternativeRoute::Suffix => Some(MarkerZone::Suffix),
+            SlotAlternativeRoute::Coupled => None,
+        } {
+            if required != actual {
+                return Err(MorphologyRelationError::ZoneMismatch {
+                    allomorph: allomorph.id,
+                    required,
+                    actual,
+                });
+            }
+        }
+    }
+
+    Ok(route)
+}
+
 fn projection_route(
     decision: &MorphologyRewrite,
     allomorph: &AffixAllomorphDef,
@@ -1106,7 +1150,18 @@ fn projection_route(
     decisions: &HashMap<AllomorphId, MorphologyRewrite>,
 ) -> Result<SlotAlternativeRoute, MorphologyRelationError> {
     match decision {
-        MorphologyRewrite::DirectWholeRootWrapper { .. } => Ok(SlotAlternativeRoute::Coupled),
+        MorphologyRewrite::DirectWholeRootWrapper {
+            prefix_variants,
+            suffix_variants,
+            ..
+        } => wrapper_route(
+            allomorph,
+            prefix_variants,
+            suffix_variants,
+            ownership,
+            siblings,
+            decisions,
+        ),
         MorphologyRewrite::MarkedStructural {
             zone_requirement, ..
         } => match (ownership, zone_requirement) {
