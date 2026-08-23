@@ -171,3 +171,42 @@ fn stale_completed_build_evidence_is_rejected_before_runtime() {
         "a build for another grammar identity must fail closed before analyzer construction"
     );
 }
+
+#[test]
+fn missing_preferred_completed_build_must_not_silently_select_a_lower_ranked_route() {
+    let grammar = pg_grammar::load(TUNED_FIXTURE).expect("synthetic fixture must load");
+    let selection = select_backends_for_grammar(&grammar);
+    let preferred = selection
+        .preferred()
+        .expect("fixture must have a preferred backend");
+    assert_eq!(
+        preferred,
+        EmissionStrategy::TunedSurfaceProbed,
+        "fixture's preferred route must be the shipping tuned backend"
+    );
+    let lower_ranked = selection
+        .selected()
+        .into_iter()
+        .find(|strategy| *strategy != preferred && strategy.is_whole_grammar())
+        .expect("fixture must expose a lower-ranked whole-grammar route");
+    let request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
+        .expect("managed envelope request");
+    let lower_build = compile_completed_backend(&grammar, lower_ranked, &request)
+        .expect("lower-ranked route must be independently buildable");
+    let grammar_id = grammar_identity(&grammar);
+
+    let error = select_completed_build(
+        &selection,
+        vec![lower_build],
+        &request,
+        &grammar_id,
+    )
+    .expect_err(
+        "selection must fail closed when the preferred completed build is absent; silently using \
+         a lower-ranked payload would misreport preferred == selected == realized",
+    );
+    assert!(
+        error.to_string().contains("preferred"),
+        "the typed failure must explain that the preferred build is missing, got: {error}"
+    );
+}
