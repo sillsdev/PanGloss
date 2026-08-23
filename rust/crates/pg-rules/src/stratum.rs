@@ -602,10 +602,6 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         });
         // Threaded into `morph::ana_compound` rather than post-filtering: root-allomorph resolution must join `ana_compound_subrule`'s own per-subrule dedup scope.
         let node_parent = w.trace.unwrap_or(self.parent);
-        // `pangloss calibrate`'s self-time region for this whole invocation; a no-op off the `stats-calibrate` feature.
-        let _calib = self.stats.map(|stats| {
-            stats.calibrate_enter(crate::stats::ObjectKind::MorphRule, w.shape.len() as u64)
-        });
         // The `AnalysisPhase` breakdown's outermost region: whatever the nested phase regions inside `morph::analyze*` don't claim is this region's own self time. Count is rule-body entries, not segments -- `AnalysisPhase::work` is always a per-kind event count.
         let _phase = self
             .stats
@@ -649,7 +645,6 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 None => morph::analyze_stats(self.g, w, rule, mstats),
             },
         };
-        drop(_calib);
         drop(_phase);
         drop(_obj_time);
         for o in &mut outs {
@@ -1010,36 +1005,27 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 direction: crate::stats::Direction::Analysis,
             });
             let result = match &self.g.prules[pid.0 as usize] {
-                pg_grammar::model::PhonRuleDef::Rewrite(r) => {
-                    // `pangloss calibrate`'s self-time region for this rewrite rule; a no-op off the `stats-calibrate` feature.
-                    let _calib = self.stats.map(|stats| {
-                        stats.calibrate_enter(
-                            crate::stats::ObjectKind::PhonRule,
-                            input.shape.len() as u64,
-                        )
-                    });
-                    match self.cache {
-                        Some(cache) => rewrite::analyze_cached_traced(
-                            self.g,
-                            pid,
-                            r,
-                            &input.shape,
-                            cache,
-                            prule_stats,
-                            self.trace,
-                            self.parent,
-                        ),
-                        None => rewrite::analyze_traced(
-                            self.g,
-                            pid,
-                            r,
-                            &input.shape,
-                            prule_stats,
-                            self.trace,
-                            self.parent,
-                        ),
-                    }
-                }
+                pg_grammar::model::PhonRuleDef::Rewrite(r) => match self.cache {
+                    Some(cache) => rewrite::analyze_cached_traced(
+                        self.g,
+                        pid,
+                        r,
+                        &input.shape,
+                        cache,
+                        prule_stats,
+                        self.trace,
+                        self.parent,
+                    ),
+                    None => rewrite::analyze_traced(
+                        self.g,
+                        pid,
+                        r,
+                        &input.shape,
+                        prule_stats,
+                        self.trace,
+                        self.parent,
+                    ),
+                },
                 pg_grammar::model::PhonRuleDef::Metathesis(r) => match self.cache {
                     Some(cache) => metathesis::analyze_cached_traced(
                         pid,

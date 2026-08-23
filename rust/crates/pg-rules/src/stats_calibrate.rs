@@ -1,12 +1,12 @@
-//! A nesting-depth-aware timer stack for `pangloss calibrate`'s per-kind cost model: real elapsed
-//! nanoseconds attributed to the innermost active region, with every nested region's own elapsed
-//! time subtracted from its parent so a rule that triggers other rules is charged only its own
-//! cost, never theirs too. Gated behind the `stats-calibrate` Cargo feature; off (every ordinary
-//! build), `enter`/`totals` never read the clock — see
+//! A nesting-depth-aware timer stack backing `crate::stats::StatsCollector`'s `AnalysisPhase`
+//! sub-phase breakdown: real elapsed nanoseconds attributed to the innermost active region, with
+//! every nested region's own elapsed time subtracted from its parent so a rule that triggers other
+//! rules is charged only its own cost, never theirs too. Gated behind the `stats-calibrate` Cargo
+//! feature; off (every ordinary build), `enter`/`totals` never read the clock — see
 //! `off_build_records_no_time_even_across_a_real_sleep` below.
 //!
 //! Generic over the caller's own key type so this crate carries no opinion about what a "kind" is;
-//! `pangloss calibrate` supplies its own.
+//! `crate::stats::AnalysisPhase` supplies its own.
 
 #[cfg(feature = "stats-calibrate")]
 mod live {

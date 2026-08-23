@@ -1136,11 +1136,6 @@ pub fn analyze(
         ctx.stats
             .record_prule_attempt(ctx.stratum, ctx.id, ctx.direction, input.len() as u64);
     }
-    // `pangloss calibrate`'s self-time region for this rule invocation; a no-op off the `stats-calibrate` feature.
-    let _calib = stats.map(|ctx| {
-        ctx.stats
-            .calibrate_enter(crate::stats::ObjectKind::PhonRule, input.len() as u64)
-    });
     let table_id = TableId(0);
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
@@ -1208,7 +1203,6 @@ pub fn analyze(
     } else {
         Vec::new()
     };
-    drop(_calib);
     if let Some(ctx) = stats {
         ctx.stats
             .record_prule_outcome(ctx.stratum, ctx.id, ctx.direction, result.len() as u64);
@@ -1230,11 +1224,6 @@ pub(crate) fn analyze_cached(
         ctx.stats
             .record_prule_attempt(ctx.stratum, ctx.id, ctx.direction, input.len() as u64);
     }
-    // `pangloss calibrate`'s self-time region for this rule invocation; a no-op off the `stats-calibrate` feature.
-    let _calib = stats.map(|ctx| {
-        ctx.stats
-            .calibrate_enter(crate::stats::ObjectKind::PhonRule, input.len() as u64)
-    });
     // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
@@ -1335,7 +1324,6 @@ pub(crate) fn analyze_cached(
     } else {
         Vec::new()
     };
-    drop(_calib);
     if let Some(ctx) = stats {
         ctx.stats
             .record_prule_outcome(ctx.stratum, ctx.id, ctx.direction, result.len() as u64);

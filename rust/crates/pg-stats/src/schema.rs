@@ -8,7 +8,7 @@ use crate::error::StatsError;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped when `schema.sql` changes shape. A cache is wiped, never migrated, on a mismatch.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// Bumped by hand when what a counter means changes; recorded per run rather than wiped on.
 pub const COUNTER_SEMANTICS_VERSION: i64 = 2;
@@ -35,7 +35,6 @@ pub(crate) fn wipe_and_recreate(conn: &Connection) -> Result<(), StatsError> {
         "DROP TABLE IF EXISTS fact;
          DROP TABLE IF EXISTS word;
          DROP TABLE IF EXISTS coverage;
-         DROP TABLE IF EXISTS op_cost;
          DROP TABLE IF EXISTS allomorph;
          DROP TABLE IF EXISTS stratum;
          DROP TABLE IF EXISTS object;

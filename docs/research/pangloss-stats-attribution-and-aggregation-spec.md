@@ -14,15 +14,22 @@ Companion research: `search-tree-failure-attribution.md` (why `terminated-at`),
 ## Conclusion
 
 A gated collector records, per analyzed word, seven integers for every
-`(authored object, stratum, allomorph)` combination that participated. Nothing else is collected
-during the run, no ratio is stored, and no timer is read inside the search.
+`(authored object, stratum, allomorph)` combination that participated. No ratio is ever stored — every
+rate is derived at report time from the integers.
+
+`--stats` is **opt-in and off by default**, which is what makes reading a clock affordable at all: an
+ordinary parse allocates nothing and reads no clock, and only a caller who asked for statistics pays.
+Measured cost of asking, including the SQLite write: **1.5-3.5%**, within run-to-run noise on a
+70-word corpus.
 
 Blame for a dead path goes to **terminated-at** — the object applied immediately before the path
 died — never to the whole ancestor path.
 
-Time is a **derived estimate**: one universal work unit (segments touched per attempt) times a
-per-kind constant, measured by `pangloss calibrate` over the conformance suite on one core and
-committed to the repo with provenance. The claim is explicitly relative, not absolute.
+Time is **measured, not estimated**: a wall-clock self-time region is entered and exited at each of
+the three object boundaries (rule application, allomorph attempt, lexicon lookup), nesting-aware so
+a rule that triggers other rules is charged only its own cost. This replaced an earlier
+`work × per-kind-constant` estimator — see "History: why `estimated_time_ms` was replaced by
+measured self time" below for why that approach failed and could not be salvaged.
 
 Records live in **one** SQLite cache per FieldWorks data path, owned by PanGloss, accumulating across
 runs and wiped only when the grammar changes. Words already cached are not recomputed. Reports are
@@ -69,14 +76,20 @@ pangloss stats <grammar> --cache <cache.sqlite3> --group object --sort no-root
 High `no_root` means a rule keeps producing forms the lexicon does not contain — the expensive kind of
 over-application, because each bogus form drags a whole subtree of searching behind it.
 
-**4. If you need to know where the *time* goes, not which rule is busiest**, build with the
-`stats-calibrate` feature and set `HC_PHASE_PROFILE=1`. This is the only measurement that reads a real
-clock, and it attributed 98.6% of Amharic's wall clock and ~100% of Indonesian's.
+**4. Ask where the time went.** `measured_time_ms` in the per-object report is real wall-clock self
+time, collected whenever `--stats` ran, and summing it by kind answers "was it the compounding, the
+lexemes, or the allomorphs?" exactly rather than by apportionment.
+
+**5. Only if you need the split *inside* one of those** — traversal versus shape prep versus memo key
+versus word build — build with the `stats-calibrate` feature and set `HC_PHASE_PROFILE=1`. That tier
+enters many more regions per attempt, so it costs roughly 11% on an attempt-heavy grammar; it is for
+engine work, not for advising a grammar owner. It attributed 98.6% of Amharic's wall clock and ~100%
+of Indonesian's.
 
 ### How to read the result without being misled
 
-- **Rank by counters, never by `estimated_time_ms`.** See the warning below: measured, that column is
-  wrong by ~180x.
+- **`measured_time_ms` is real wall-clock self time**, not an estimate — see "History: why
+  `estimated_time_ms` was replaced by measured self time" below for what it replaced.
 - **`attempts` is not cost.** Compounding is entered 2.9% as often as affix allomorphs in Amharic and
   costs more than all of them combined. A ranking by attempts points at the wrong thing; only the
   phase profile settles where time goes.
@@ -108,8 +121,8 @@ clock, and it attributed 98.6% of Amharic's wall clock and ~100% of Indonesian's
 
 ## Scope
 
-**In v1:** the collector, the SQLite cache, `batch --stats`, `pangloss stats` with the per-word and
-per-object reports, `pangloss calibrate`, and the invariant tests.
+**In v1:** the collector (including measured per-object self time), the SQLite cache, `batch
+--stats`, `pangloss stats` with the per-word and per-object reports, and the invariant tests.
 
 **Out of v1:** the per-text report. It needs text and occurrence extraction, and `pg-fwdata` handles
 no `Text`, `StText`, `StTxtPara`, `Segment`, or `WfiWordform` at all; that work belongs to the
@@ -260,38 +273,35 @@ cohort lift. Storing raw counts is what keeps the ranking question re-openable w
 
 ## Time
 
-No timer is read inside the search. `work × op_cost[kind].ns_per_unit`, where the constants come from
-`pangloss calibrate`:
+A real clock is read inside the search, at exactly three object boundaries: rule application,
+allomorph attempt, and lexicon lookup. Each is a `StatsCollector::time_enter`/exit pair booked
+against the same `(object, stratum, allomorph, direction)` row the seven counters already use, so
+the result rides in `Counters::self_time_ns` alongside them rather than needing its own table.
 
-- **Corpus:** the conformance suite — broad, already maintained, already in-repo, and it cannot rot
-  into unrepresentativeness the way a curated bad-word list would.
-- **One core.** Measures the code path rather than the load; contention and bandwidth sharing are
-  exactly the variance that would make a re-measurement disagree for no informative reason.
-- **Estimator: Σns / Σwork per kind**, never the mean of per-item rates. The constant is a multiplier
-  against work units, so it must be work-weighted; the conformance suite deliberately contains
-  pathological fixtures, and one would distort a mean of rates badly.
-- **Self time.** A morphological rule's timed region encloses the phonological rules it triggers.
-  Timed naively, both constants inflate and every nested call is double-counted. The harness subtracts
-  nested instrumented regions.
-- **Committed to the repo as data with provenance** — version, CPU, date, and the fixtures used. A
-  *change* in a constant is itself a finding: if phonological per-attempt cost triples between
-  measurements, that is an engine regression visible in a diff.
-- **Copied into the cache's `op_cost` rows** at run time, so an exported report carries the constants
-  it was computed with and stays self-describing.
+- **Nesting-aware.** A morphological rule's timed region encloses the phonological rules it
+  triggers and the lexicon lookups its allomorph loop performs. A region entered while another is
+  already open has its elapsed time subtracted from the enclosing region's own total on exit, so a
+  compounding rule's self time excludes whatever a nested lexicon lookup already claimed for
+  itself — never double-counted, never silently folded into the parent.
+- **Always on whenever `--stats` collects at all.** Unlike the feature-gated `AnalysisPhase`
+  sub-phase breakdown below, this tier carries no Cargo feature gate: it is two clock reads per
+  object boundary, cheap enough to be part of the ordinary `--stats` collector rather than an
+  opt-in instrument.
+- **Exact, not apportioned.** Because `self_time_ns` is booked directly at the object that owns it,
+  a per-kind total is the plain `SUM` of its objects' rows — there is nothing to divide, and no
+  `bucket_ns × (object_attempts / bucket_attempts)` apportionment anywhere in the design.
+- **Wall-clock, therefore excluded from goldens.** `Counters::without_timing` /
+  `StatsRow::without_timing` zero this field before any equality check, matching `elapsed_ns`'s
+  treatment elsewhere in this design — see "Determinism" below.
 
-**The claim is relative.** A constant measured on one machine and applied on another is wrong in
-absolute terms but right in ratio terms, and ratios are what a ranking needs. Single-core constants
-also systematically under-state a threaded run; all kinds inflate together, so rankings survive. The
-report header says so; nothing tries to correct it.
-
-**Within a kind the constant cancels entirely** — ranking rule A against rule B is a pure `work`
-comparison. Since reports are sectioned per kind, the default views are calibration-independent, and
-the constant only matters across kinds, which is not a default view. The time column's real job is
-human legibility, not ranking.
-
-Two gates, for two different things: the **collector** is runtime-gated (`--stats`), while the
-**calibration timers** are compile-time gated behind a Cargo feature and never exist in a normal
-build. That is the only place real per-call timers appear anywhere in the design.
+**A second, independent tier stays feature-gated.** `AnalysisPhase` (`Overhead`, `AnaSynFs`,
+`SegsOf`, `AnaAffixAllomorph`, `FstTraversal`, `AnaRealizational`, `AnaCompound`, `WordBuild`,
+`MemoKey`, `Dedup`) is a finer breakdown *inside* the `morph_rule` invocation the per-object tier
+above already times, read via `HC_PHASE_PROFILE` and built only with the `stats-calibrate` Cargo
+feature — see "What the phase instrumentation found" below. The two tiers answer different
+questions: per-object self time answers "which rule/allomorph/lookup is expensive," while the phase
+breakdown answers "which *part* of rule application (traversal versus compounding versus
+bookkeeping) is expensive." Neither derives the other.
 
 ## Memoization: physical versus semantic
 
@@ -342,9 +352,11 @@ read-only across `--threads=N` workers" (`rust/crates/pg-parse/src/morpher.rs:43
 compiled-matcher cache carrying nothing between words — and the results memo (`AnalysisScope`) is
 per-parse. So no word's counters can depend on whether another word ran first.
 
-Since the per-object time column is `work ×` a frozen constant, **the entire report is reproducible
-bit-for-bit across thread counts.** The only non-deterministic values in the design are the raw
-`elapsed_ns` fields, which goldens exclude.
+Every counter above `self_time_ns` is reproducible bit-for-bit across thread counts. `self_time_ns`
+is real wall-clock and therefore not: it is excluded from equality via `Counters::without_timing` /
+`StatsRow::without_timing`, matching the raw `elapsed_ns` fields' treatment — a measured time of
+zero is a real zero and renders as `0`, but this exclusion is about golden *equality*, not about
+whether the value is meaningful.
 
 ## The lexicon side: there is no mini-FST
 
@@ -473,15 +485,9 @@ CREATE TABLE fact (
   no_root          INTEGER NOT NULL,
   surface_mismatch INTEGER NOT NULL,
   uses             INTEGER NOT NULL,
+  self_time_ns     INTEGER NOT NULL DEFAULT 0,  -- measured wall-clock, excluded from golden equality
   PRIMARY KEY (word_id, object_id, stratum_id, allomorph_id)
 ) WITHOUT ROWID;
-
--- Frozen measured constants, copied in from the committed table.
-CREATE TABLE op_cost (
-  kind          TEXT PRIMARY KEY,
-  ns_per_unit   INTEGER NOT NULL,   -- per segment touched
-  provenance    TEXT NOT NULL       -- version, CPU, date, fixtures
-);
 
 -- Which counters this run could measure at all, so an unmeasurable column renders "—" not "0".
 CREATE TABLE coverage (
@@ -525,8 +531,8 @@ elapsed descending. This is the entry point — find the bad word, then find the
 and it is what FLEx's Run Tests already gives via a sortable Parse Time column, so users can already
 read it.
 
-**2. Per object.** Kind, label, attempts, **estimated** time, outputs, amplification, `Didn't apply`,
-`No root found`, `Didn't match the word`, uses. Sorted by estimated time descending by default;
+**2. Per object.** Kind, label, attempts, **measured** time, outputs, amplification, `Didn't apply`,
+`No root found`, `Didn't match the word`, uses. Sorted by measured time descending by default;
 `--sort` switches to `no_root` for the over-application question directly. `Didn't apply` is
 rule-level here — one count per invocation that produced nothing, at the same granularity as
 `attempts` — never the sum of every allomorph's own failure; see "Known limitations as shipped" for
@@ -541,13 +547,14 @@ row. Included by default whenever the cache holds any such row, printed after th
 `--min-attempts` overrides the floor explicitly (0 admits everything, which is the point of *not*
 defaulting there).
 
-**Actual and estimated time never appear in the same table.** They will disagree — the constants are
-measured elsewhere on one core — and a user seeing "estimated 2s, actual 6s" rightly distrusts the
-estimate, which is the column doing the real work. So actual belongs to the per-word report and
-estimated to the per-object report, and the per-object report carries a one-line header stating its
-times are estimates that **will not sum to the actual total**: constants are approximate, and time
-spent outside instrumented objects is not attributed at all. Without that line, "my rules add up to
-40s but the run took 90s" reads as a missing-time bug rather than as a ranking tool.
+**The per-word report's `elapsed_ms_actual` and the per-object report's `measured_time_ms` are both
+real measurements, at different granularities**, so the per-object report no longer needs the old
+"will not sum to the actual total" disclaimer that `estimated_time_ms` required — measured self
+times genuinely sum, both within a kind and across the whole word (modulo whatever wall-clock work
+happens outside the three instrumented object boundaries, e.g. cascade bookkeeping between
+attempts). The per-object report's header instead states plainly that time is measured, and only
+when `--stats` ran with timing (the collector is always timed whenever it runs at all, so in
+practice: whenever the cache holds this run's rows).
 
 An unmeasurable column renders **—**, never **0**, driven by the `coverage` table. This matters most
 in foma mode, where the proposer replaces HC's analysis search, so `no_root` is zero on every row —
@@ -593,24 +600,44 @@ into a perfectly cheap FST, or may blow up the network instead. Over-generation 
 grammar and shows up either way, which is why this is a useful grammar-tuning instrument — but
 `fst-health` and `make-report` remain the FST-cost instruments.
 
-## Do not trust `estimated_time_ms`. Measured, it is wrong by ~180x.
+## History: why `estimated_time_ms` was replaced by measured self time
 
-The constants are calibrated over the conformance suite, which is synthetic by hard rule and whose
-patterns are trivial next to a real grammar's. Measured against real corpora the gap is not marginal:
+The first shipped design did not read a clock inside the search at all. It derived a time column as
+`work × op_cost[kind].ns_per_unit`, where `work` was a per-attempt segment count and the per-kind
+constants came from `pangloss calibrate`, a subcommand that measured Σns/Σwork over the conformance
+suite on one core and committed the result to `rust/data/stats_op_cost.json` with provenance. That
+design is fully described in the "Time" section above only in its current, measured form; this
+section preserves *why* the estimator existed and *why* it had to be replaced rather than tuned,
+since that reasoning is the justification for measuring self time directly instead.
 
-- Amharic, 673 words: summing every per-rule `estimated_time_ms` accounts for a couple of seconds
-  against a **1369.7 second** run. The model explains roughly 0.2% of wall clock.
+Measured against real corpora, `estimated_time_ms` was wrong by roughly **180x**, and the gap was not
+marginal:
+
+- Amharic, 673 words: summing every per-rule `estimated_time_ms` accounted for a couple of seconds
+  against a **1369.7 second** run. The model explained roughly 0.2% of wall clock.
 - Per attempt: ~1.7ms actually elapsed against ~9.6µs predicted, about **180x**.
 
-Two independent causes. The `work` unit charges a rule the full segment count of the candidate shape,
-while the dominant event is a *failed* match touching an unpredictable prefix. And per-kind constants
-do not discriminate — `morph_rule` 471.1, `phon_rule` 457.2, `lex_entry` 438.9 ns per unit, a 7%
-spread — so the whole per-kind dimension collapses to roughly one scalar.
+Two independent causes, neither fixable by re-calibrating the same shape of model. The `work` unit
+charged a rule the full segment count of the candidate shape, while the dominant event is a *failed*
+match touching an unpredictable prefix — often stopping at the first segment, so `work` and actual
+cost were only weakly related to begin with. And per-kind constants did not discriminate —
+`morph_rule` 471.1, `phon_rule` 457.2, `lex_entry` 438.9 ns per unit, a 7% spread — so the whole
+per-kind dimension collapsed to roughly one scalar regardless of which kind was charged. A later
+revision collapsed the near-identical kinds into one shared `CostBucket` constant (only `root_index`,
+at 83.9 ns/unit, was genuinely distinct), which fixed the second symptom but not the first: the
+estimator's *unit* was wrong, not merely its constants.
 
-**Rank by the deterministic counters** (`attempts`, `outputs`, `not_applied`, `no_root`, `uses`), which
-are exact and reproducible. Where real time is needed, use the feature-gated phase instrumentation,
-which attributes 98.6% of wall clock on Amharic and ~100% on Indonesian. Every published grammar
-finding to date rests on counters and phase times, never on this column.
+Both causes point at the same root fix: stop deriving time from a proxy count and measure it
+directly. `StatsCollector::time_enter` (see "Time" above) is that fix — it reads a real clock at each
+object boundary, so there is no `work` unit to mis-weight and no per-kind constant to calibrate,
+collapse, or go stale. `pangloss calibrate`, `rust/data/stats_op_cost.json`, the `op_cost` table, and
+the `CostBucket` collapse are all deleted; nothing computes `estimated_time_ms` any more.
+
+**Rank by the deterministic counters** (`attempts`, `outputs`, `not_applied`, `no_root`, `uses`) or by
+measured self time, all of which are either exact and reproducible or excluded from golden equality
+by design (see "Determinism"). Where the finer sub-phase breakdown is needed, use the feature-gated
+phase instrumentation, which attributes 98.6% of wall clock on Amharic and ~100% on Indonesian. Every
+published grammar finding to date rests on counters and phase times, never on the deleted estimator.
 
 ## What the phase instrumentation found, and why it matters to this design
 
@@ -637,29 +664,23 @@ falls short of it, found by adversarial review rather than left implicit. Five i
 found by running the shipped v1 feature against real grammars (Sena, Amharic, Aweti) and are marked
 **fixed** with what changed; the rest remain open.
 
-**FIXED — `work` was recorded but unreachable.** No report surfaced it, so it existed only as an
-input to `estimated_time_ms`. Now `--show-work` appends it as an opt-in column on every report that
-carries it (object, allomorph, stratum, direction); the default view still omits it. This does not
-fix the counter's own weighting problem: it still charges a rule the full segment count of the
-candidate shape, while the event that dominates every measured corpus is a *failed* match, which
-touches an unpredictable prefix and often stops at the first segment — so it still systematically
-over-charges fast failures and under-charges a rule that scans a whole shape before failing. That
-basis is **provisional pending a concurrent measurement effort** into what actually drives per-attempt
-cost (an Amharic run showed the current model explaining roughly 0.23% of wall clock); a per-object
-weight model is deliberately not built on top of an unmeasured basis. Making the counter observable,
-without pretending its weighting is settled, is what shipped.
+**FIXED — `work` was recorded but unreachable.** No report surfaced it, so at the time it existed
+only as an input to the now-deleted `estimated_time_ms`. `--show-work` appends it as an opt-in column
+on every report that carries it (object, allomorph, stratum, direction); the default view still
+omits it. `work` remains a plain counter behind that flag — it is simply no longer a time basis:
+measured self time (see "Time") replaced it for that purpose, so `work`'s own weighting problem
+(charging a rule the full segment count of the candidate shape when the dominant event is a *failed*
+match touching an unpredictable prefix) is moot for time reporting, though the counter is still
+useful for its own sake (e.g. comparing candidate-shape sizes across attempts).
 
-**FIXED — per-kind calibration constants did not discriminate.** Measured: `morph_rule` 471.1,
-`phon_rule` 457.2, and `lex_entry` 438.9 ns per unit sit within 7% of each other; only `root_index`
-(83.9) was distinct. `pangloss calibrate` now collapses every kind into one of two `CostBucket`s —
-`default` (`morph_rule`, `phon_rule`, `lex_entry`, `guesser`, `overlay`) and `root_index` (its own
-bucket) — so `morph_rule`/`phon_rule`/`lex_entry` report the *same* constant (their bucket's
-Σns/Σwork), and the collapse is stated in `Provenance.calibration_model` in the committed
-`stats_op_cost.json`. `work_observed` stays per-kind for diagnosability, and a kind with zero of its
-own instrumented work (`guesser`, `overlay`) stays unmeasured regardless of its bucket's total — the
-collapse shares a *constant*, never manufactures evidence a kind doesn't have. A genuine per-object
-cost model (pattern length, variable count, determinism) remains future work, gated on the concurrent
-per-attempt-cost measurement mentioned above.
+**SUPERSEDED — per-kind calibration constants did not discriminate.** Measured: `morph_rule` 471.1,
+`phon_rule` 457.2, and `lex_entry` 438.9 ns per unit sat within 7% of each other; only `root_index`
+(83.9) was distinct. An intermediate fix collapsed every kind into one of two `CostBucket`s so the
+near-identical kinds shared one constant instead of three near-equal ones. That collapse, the
+`pangloss calibrate` subcommand that produced it, and the `op_cost` table it fed have all since been
+deleted outright — see "History: why `estimated_time_ms` was replaced by measured self time". A
+shared-bucket constant was still a derived estimate at bottom; measuring `self_time_ns` directly at
+each object boundary removed the need for any per-kind constant, bucketed or not.
 
 **FIXED — a "never fires" pattern had no dedicated report.** The single most actionable fact found
 scanning three real grammars by eye was "this rule is entered hundreds of thousands of times and

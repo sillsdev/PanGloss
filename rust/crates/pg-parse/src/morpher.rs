@@ -312,26 +312,7 @@ impl<'g> Morpher<'g> {
         (outcome, stats.rows())
     }
 
-    /// `Self::parse_word_with_stats` plus `pangloss calibrate`'s per-kind self-time totals from the
-    /// SAME real parse, so calibration never needs a separate synthetic measurement pass. Totals
-    /// are empty unless this binary was built with the `stats-calibrate` Cargo feature.
-    pub fn parse_word_with_stats_and_calibration(
-        &self,
-        word: &str,
-        opts: &ParseOptions,
-    ) -> (
-        ParseOutcome,
-        Vec<pg_rules::stats::StatsRow>,
-        HashMap<pg_rules::stats::ObjectKind, pg_rules::stats_calibrate::KindTotals>,
-    ) {
-        let stats = pg_rules::stats::StatsCollector::new(self.g);
-        let sink = NoopSink;
-        let outcome = self.parse_word_core_selected(word, opts, &sink, None, None, Some(&stats));
-        let calib = stats.calibration_totals();
-        (outcome, stats.rows(), calib)
-    }
-
-    /// `Self::parse_word_with_stats_and_calibration`'s sibling for the finer
+    /// `Self::parse_word_with_stats`'s sibling for the finer
     /// `pg_rules::stats::AnalysisPhase` self-time breakdown; empty unless built with `stats-calibrate`.
     pub fn parse_word_with_stats_and_phases(
         &self,
@@ -554,15 +535,7 @@ impl<'g> Morpher<'g> {
         if let Some(stats) = stats {
             stats.record_root_index_attempt(aw.stratum, aw.shape.len() as u64);
         }
-        // `pangloss calibrate`'s self-time region for this trie walk; a no-op off the `stats-calibrate` feature.
-        let _calib_root = stats.map(|stats| {
-            stats.calibrate_enter(
-                pg_rules::stats::ObjectKind::RootIndex,
-                aw.shape.len() as u64,
-            )
-        });
         let matched = self.search_roots(aw.stratum, &aw.shape);
-        drop(_calib_root);
         // Distinct entries in first-seen order; `lex_entry_filter` runs before the dedup, mirroring C#'s `.Where().Distinct()` order.
         let mut entries: Vec<LexEntryId> = Vec::new();
         for root in &matched {
@@ -584,13 +557,6 @@ impl<'g> Morpher<'g> {
                     // +1: index 0 must not collide with the `ALLOMORPH_NONE` sentinel.
                     stats.record_lex_entry_attempt(aw.stratum, le, allo_idx as u32 + 1);
                 }
-                // `pangloss calibrate`'s self-time region for this candidate; a no-op off the `stats-calibrate` feature.
-                let _calib_lex = stats.map(|stats| {
-                    stats.calibrate_enter(
-                        pg_rules::stats::ObjectKind::LexEntry,
-                        aw.shape.len() as u64,
-                    )
-                });
                 // Tier-1 per-object self time: always on (no `stats-calibrate` gate), one of the three object boundaries `StatsCollector::time_enter` names.
                 let _time_lex = stats.map(|stats| {
                     stats.time_enter(

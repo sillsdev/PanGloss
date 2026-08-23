@@ -121,21 +121,6 @@ impl StatsCache {
         intern_allomorph_on(&self.conn, locator)
     }
 
-    /// Copies one measured `op_cost` row in, keyed by kind.
-    pub fn write_op_cost(
-        &self,
-        kind: ObjectKind,
-        ns_per_unit: u64,
-        provenance: &str,
-    ) -> Result<(), StatsError> {
-        self.conn.execute(
-            "INSERT INTO op_cost (kind, ns_per_unit, provenance) VALUES (?1, ?2, ?3)
-             ON CONFLICT(kind) DO UPDATE SET ns_per_unit = excluded.ns_per_unit, provenance = excluded.provenance",
-            params![kind.as_str(), to_i64("ns_per_unit", ns_per_unit)?, provenance],
-        )?;
-        Ok(())
-    }
-
     /// Records whether `counter` could be measured at all for `kind` in run `run_id`, so a report
     /// can render "—" instead of "0" for a counter the engine never touches.
     pub fn write_coverage(

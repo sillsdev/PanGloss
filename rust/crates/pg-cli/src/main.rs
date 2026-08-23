@@ -83,7 +83,6 @@ use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
 mod assess;
-mod calibrate_cmd;
 mod coverage;
 mod diagnostics;
 mod fst_health;
@@ -218,13 +217,6 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Some("calibrate") => match calibrate_cmd::run_calibrate(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss calibrate: {e}");
-                ExitCode::FAILURE
-            }
-        },
         Some("recipe-optimize") => match recipe_optimize::run_recipe_optimize(&args[2..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -270,7 +262,6 @@ fn run() -> ExitCode {
                  usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--words=<path>] [--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>] [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--repeats=N]\n\
                  usage: pangloss recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N]\n\
                  usage: pangloss stats <project-or-grammar> [--group word|object|allomorph|stratum] [--kind K] [--object KEY] [--stratum KEY] [--min-attempts N] [--top N] [--sort time|no-root] [--exclude-censored] [--cache <path>] [--out FILE]\n\
-                 usage: pangloss calibrate [--out FILE]\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\

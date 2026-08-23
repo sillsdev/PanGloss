@@ -219,42 +219,6 @@ struct StatsOptionsRecord {
     guess: bool,
 }
 
-/// Copies every kind with a measured constant into the cache's `op_cost` table; a kind with `ns_per_unit: None` is left absent so its estimated-time column keeps rendering "—" rather than a fake zero.
-fn write_op_cost_constants(
-    cache: &pg_stats::StatsCache,
-    constants: &crate::calibrate_cmd::CalibrationConstants,
-) -> Result<(), String> {
-    const KINDS: [pg_stats::ObjectKind; 6] = [
-        pg_stats::ObjectKind::MorphRule,
-        pg_stats::ObjectKind::PhonRule,
-        pg_stats::ObjectKind::LexEntry,
-        pg_stats::ObjectKind::RootIndex,
-        pg_stats::ObjectKind::Guesser,
-        pg_stats::ObjectKind::Overlay,
-    ];
-    let provenance = format!(
-        "pangloss calibrate {} on {} at {}",
-        constants.provenance.tool_version,
-        constants.provenance.cpu_model,
-        constants.provenance.measured_utc
-    );
-    for kind in KINDS {
-        let Some(entry) = constants.kinds.get(kind.as_str()) else {
-            continue;
-        };
-        let Some(ns) = entry.ns_per_unit else {
-            continue;
-        };
-        if !ns.is_finite() || ns < 0.0 {
-            continue;
-        }
-        cache
-            .write_op_cost(kind, ns.round() as u64, &provenance)
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
 /// Shared tail of `run_batch_stats_hc`/`run_batch_stats_foma`: flushes `records` in batches, writes coverage, and prints the one summary line `batch --stats` promises.
 fn finish_stats_flush(
     cache: &mut pg_stats::StatsCache,
@@ -278,10 +242,6 @@ fn finish_stats_flush(
         options_json,
         created_utc: now_utc_string(),
     };
-
-    if let Some(constants) = crate::calibrate_cmd::load_op_cost_constants() {
-        write_op_cost_constants(cache, &constants)?;
-    }
 
     let analyzed = records.len();
     let mut chunks: Vec<&[pg_stats::WordRecord]> = records.chunks(STATS_FLUSH_BATCH).collect();
@@ -662,12 +622,11 @@ fn render_word(conn: &rusqlite::Connection, out: Option<&str>) -> Result<(), Str
     }
 }
 
-const OBJECT_HEADERS_BASE: [&str; 12] = [
+const OBJECT_HEADERS_BASE: [&str; 11] = [
     "kind",
     "label",
     "identity_quality",
     "attempts",
-    "estimated_time_ms",
     "measured_time_ms",
     "outputs",
     "amplification",
@@ -686,8 +645,8 @@ fn object_headers(show_work: bool) -> Vec<&'static str> {
     h
 }
 
-/// Printed with every per-object/per-allomorph report: estimated time is a calibration multiplier, not a measurement, and will not sum to the actual total.
-const OBJECT_ESTIMATE_DISCLAIMER: &str = "estimated_time_ms is a calibrated estimate from `pangloss calibrate` (one core); it will not sum to the actual per-word total";
+/// Printed with every per-object/per-allomorph report: `measured_time_ms` is real, so per-kind totals sum exactly.
+const OBJECT_TIME_NOTE: &str = "measured_time_ms is wall-clock self time recorded during this --stats run; it sums exactly to the per-kind and per-word totals";
 
 fn amplification_cell(attempts: i64, outputs: i64) -> String {
     if attempts == 0 {
@@ -697,14 +656,7 @@ fn amplification_cell(attempts: i64, outputs: i64) -> String {
     }
 }
 
-fn estimated_cell(estimated_ns: Option<i64>) -> String {
-    match estimated_ns {
-        Some(ns) => format!("{:.3}", ns as f64 / 1e6),
-        None => "\u{2014}".to_string(),
-    }
-}
-
-/// Measured self time (always present, never a calibration lookup), same units as `estimated_cell`.
+/// Measured self time, same units the TSV's other millisecond columns use.
 fn measured_cell(self_time_ns: i64) -> String {
     format!("{:.3}", self_time_ns as f64 / 1e6)
 }
@@ -719,7 +671,6 @@ fn object_row_cells(
         r.label.clone(),
         r.identity_quality.clone(),
         counter_cell(&r.kind, "attempts", r.attempts, coverage),
-        estimated_cell(r.estimated_ns),
         measured_cell(r.self_time_ns),
         counter_cell(&r.kind, "outputs", r.outputs, coverage),
         amplification_cell(r.attempts, r.outputs),
@@ -749,24 +700,23 @@ fn render_object(
         .collect();
     match out {
         Some(path) => {
-            eprintln!("stats: {OBJECT_ESTIMATE_DISCLAIMER}");
+            eprintln!("stats: {OBJECT_TIME_NOTE}");
             write_csv(path, &headers, &table_rows)
         }
         None => {
-            println!("# {OBJECT_ESTIMATE_DISCLAIMER}");
+            println!("# {OBJECT_TIME_NOTE}");
             print!("{}", render_table(&headers, &table_rows));
             Ok(())
         }
     }
 }
 
-const ALLOMORPH_HEADERS_BASE: [&str; 13] = [
+const ALLOMORPH_HEADERS_BASE: [&str; 12] = [
     "object_kind",
     "object_label",
     "allomorph_key",
     "allomorph_label",
     "attempts",
-    "estimated_time_ms",
     "measured_time_ms",
     "outputs",
     "amplification",
@@ -796,7 +746,6 @@ fn allomorph_row_cells(
         r.allomorph_key.clone().unwrap_or_default(),
         r.allomorph_label.clone(),
         counter_cell(&r.object_kind, "attempts", r.attempts, coverage),
-        estimated_cell(r.estimated_ns),
         measured_cell(r.self_time_ns),
         counter_cell(&r.object_kind, "outputs", r.outputs, coverage),
         amplification_cell(r.attempts, r.outputs),
@@ -831,11 +780,11 @@ fn render_allomorph(
         .collect();
     match out {
         Some(path) => {
-            eprintln!("stats: {OBJECT_ESTIMATE_DISCLAIMER}");
+            eprintln!("stats: {OBJECT_TIME_NOTE}");
             write_csv(path, &headers, &table_rows)
         }
         None => {
-            println!("# {OBJECT_ESTIMATE_DISCLAIMER}");
+            println!("# {OBJECT_TIME_NOTE}");
             print!("{}", render_table(&headers, &table_rows));
             Ok(())
         }
@@ -1114,7 +1063,7 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
     }
     filters.sort = match sort_arg.as_deref() {
         None => None,
-        Some("time") => Some(pg_stats::SortKey::EstimatedNs),
+        Some("time") => Some(pg_stats::SortKey::SelfTimeNs),
         Some("no-root") => Some(pg_stats::SortKey::NoRoot),
         Some(other) => return Err(format!("invalid --sort: {other} (expected time|no-root)")),
     };
@@ -1448,7 +1397,6 @@ mod tests {
             no_root,
             surface_mismatch: 0,
             uses: 1,
-            estimated_ns: Some(200),
             self_time_ns: 150,
         }
     }
@@ -1534,11 +1482,11 @@ mod tests {
     }
 
     #[test]
-    fn group_object_renders_estimated_not_actual_and_group_word_is_the_reverse() {
-        assert!(object_headers(false).contains(&"estimated_time_ms"));
+    fn group_object_renders_measured_not_actual_and_group_word_is_the_reverse() {
+        assert!(object_headers(false).contains(&"measured_time_ms"));
         assert!(!object_headers(false).iter().any(|h| h.contains("actual")));
         assert!(WORD_HEADERS.contains(&"elapsed_ms_actual"));
-        assert!(!WORD_HEADERS.iter().any(|h| h.contains("estimated")));
+        assert!(!WORD_HEADERS.iter().any(|h| h.contains("measured")));
     }
 
     #[test]
@@ -1634,131 +1582,5 @@ mod tests {
         ];
         run_stats(&default_args)
             .expect("run_stats with no --group must render the dual default view");
-    }
-
-    fn calibration_constants(
-        morph_ns: Option<f64>,
-        guesser_ns: Option<f64>,
-    ) -> crate::calibrate_cmd::CalibrationConstants {
-        use crate::calibrate_cmd::{CalibrationConstants, OpCostEntry, Provenance};
-        use std::collections::BTreeMap;
-        let entry = |ns: Option<f64>| OpCostEntry {
-            ns_per_unit: ns,
-            work_observed: if ns.is_some() { 10_000 } else { 0 },
-            provisional: ns.is_none(),
-            note: "test".to_string(),
-        };
-        let mut kinds = BTreeMap::new();
-        kinds.insert("morph_rule".to_string(), entry(morph_ns));
-        kinds.insert("guesser".to_string(), entry(guesser_ns));
-        CalibrationConstants {
-            schema_version: crate::calibrate_cmd::CALIBRATION_SCHEMA_VERSION,
-            provenance: Provenance {
-                tool_version: "0.0.0-test".to_string(),
-                cpu_model: "Test CPU".to_string(),
-                measured_utc: "unix:0".to_string(),
-                fixtures: vec![],
-                calibration_model: "test".to_string(),
-            },
-            kinds,
-        }
-    }
-
-    fn simple_fact(
-        key: &str,
-        kind: pg_stats::ObjectKind,
-        attempts: u64,
-        work: u64,
-    ) -> pg_stats::FactRecord {
-        pg_stats::FactRecord {
-            object_key: key.to_string(),
-            object_kind: kind,
-            object_label: key.to_string(),
-            identity_quality: pg_stats::IdentityQuality::Authored,
-            stratum: Some(pg_stats::StructuralLocator::new("0:Root", "Root")),
-            allomorph: None,
-            direction: pg_stats::Direction::Analysis,
-            attempts,
-            work,
-            outputs: attempts,
-            not_applied: 0,
-            no_root: 0,
-            surface_mismatch: 0,
-            uses: 0,
-            self_time_ns: 0,
-        }
-    }
-
-    /// Wires a calibration constant through to `per_object_report`'s estimated-time column, and confirms a null constant leaves that column `None` rather than a fake zero.
-    #[test]
-    fn op_cost_constants_measured_kind_gets_estimate_null_kind_stays_unmeasured() {
-        let dir = scratch_dir("op-cost-write");
-        let cache_path = dir.join("cache.sqlite3");
-        let mut outcome = pg_stats::StatsCache::open(&cache_path, "hash-op-cost").unwrap();
-
-        let constants = calibration_constants(Some(500.0), None);
-        write_op_cost_constants(&outcome.cache, &constants).unwrap();
-
-        outcome
-            .cache
-            .flush(
-                &pg_stats::RunMetadata {
-                    build_info: "test-build".to_string(),
-                    fwdata_path: "C:/x/project.fwdata".to_string(),
-                    grammar_hash: "hash-op-cost".to_string(),
-                    engine: "hc".to_string(),
-                    options_hash: "opts-a".to_string(),
-                    options_json: "{}".to_string(),
-                    created_utc: "unix:0".to_string(),
-                },
-                &[pg_stats::WordRecord {
-                    form: "opcostword".to_string(),
-                    elapsed_ns: 100,
-                    attempts: 1,
-                    passes: 1,
-                    capped: false,
-                    timed_out: false,
-                    invalid_shape: false,
-                    facts: vec![
-                        simple_fact("rule-a", pg_stats::ObjectKind::MorphRule, 5, 20),
-                        simple_fact("guess-a", pg_stats::ObjectKind::Guesser, 1, 4),
-                    ],
-                }],
-            )
-            .unwrap();
-
-        let rows = pg_stats::per_object_report(
-            outcome.cache.connection(),
-            &pg_stats::PerObjectFilter::default(),
-        )
-        .unwrap();
-        let morph_row = rows.iter().find(|r| r.kind == "morph_rule").unwrap();
-        assert_eq!(
-            morph_row.estimated_ns,
-            Some(20 * 500),
-            "a kind with a measured op_cost constant must get a non-null estimated time"
-        );
-
-        let guesser_row = rows.iter().find(|r| r.kind == "guesser").unwrap();
-        assert_eq!(
-            guesser_row.estimated_ns, None,
-            "a kind whose calibration constant is null must stay unmeasured, never a fake zero"
-        );
-    }
-
-    /// Reads the repo's own committed constants via `default_out_path`'s fallback candidate.
-    #[test]
-    fn load_op_cost_constants_finds_the_committed_runtime_file() {
-        let constants = crate::calibrate_cmd::load_op_cost_constants().expect(
-            "the repo's committed rust/data/stats_op_cost.json must be locatable at runtime",
-        );
-        let measured = constants
-            .kinds
-            .values()
-            .any(|entry| entry.ns_per_unit.is_some());
-        assert!(
-            measured,
-            "the committed calibration file must have at least one measured kind"
-        );
     }
 }

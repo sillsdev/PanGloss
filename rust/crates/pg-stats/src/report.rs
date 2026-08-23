@@ -20,8 +20,8 @@ pub struct PerWordRow {
 
 /// Form, actual elapsed, attempts, passes, capped/timed-out — ordered by elapsed descending.
 ///
-/// Actual time only; this report never appears alongside the per-object report's *estimated*
-/// time in the same table (they will disagree, and that disagreement is not a bug).
+/// `elapsed_ns` is this word's whole-parse wall clock; the per-object report's `self_time_ns` is a
+/// finer per-object breakdown, so summing one does not need to reproduce the other exactly.
 pub fn per_word_report(conn: &Connection) -> Result<Vec<PerWordRow>, StatsError> {
     let mut stmt = conn.prepare(
         "SELECT form, elapsed_ns, attempts, passes, capped, timed_out
@@ -41,23 +41,23 @@ pub fn per_word_report(conn: &Connection) -> Result<Vec<PerWordRow>, StatsError>
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-/// Which column `per_object_report` orders by. Estimated time is the default because it is the
-/// direct over-application question; `no_root` answers "which object manufactures bogus forms"
-/// directly, without an analyst dividing two columns by hand.
+/// Which column `per_object_report` orders by. Measured self time is the default because it is
+/// the direct over-application question; `no_root` answers "which object manufactures bogus
+/// forms" directly, without an analyst dividing two columns by hand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortKey {
-    EstimatedNs,
+    SelfTimeNs,
     NoRoot,
 }
 
 impl Default for SortKey {
     fn default() -> Self {
-        SortKey::EstimatedNs
+        SortKey::SelfTimeNs
     }
 }
 
 /// Optional narrowing for `per_object_report`. Every field left at its default means "no
-/// narrowing" — the full grammar, ordered by estimated time, no limit.
+/// narrowing" — the full grammar, ordered by measured self time, no limit.
 #[derive(Debug, Clone, Default)]
 pub struct PerObjectFilter {
     pub kind: Option<String>,
@@ -71,10 +71,7 @@ pub struct PerObjectFilter {
     pub sort: SortKey,
 }
 
-/// One row of the per-object report: identity, summed counters, and an estimated-time column.
-///
-/// `estimated_ns` is `None` when no `op_cost` row exists for this object's kind — an unmeasured
-/// calibration, not a zero-cost claim.
+/// One row of the per-object report: identity, summed counters, and measured self time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PerObjectRow {
     pub kind: String,
@@ -88,9 +85,9 @@ pub struct PerObjectRow {
     pub no_root: i64,
     pub surface_mismatch: i64,
     pub uses: i64,
-    pub estimated_ns: Option<i64>,
-    /// Measured (not derived) wall-clock self time summed across every row this object owns --
-    /// `pg_rules::stats::StatsCollector::time_enter`'s tier, independent of `estimated_ns`.
+    /// Measured wall-clock self time summed across every row this object owns --
+    /// `pg_rules::stats::StatsCollector::time_enter`'s tier. Exact, not apportioned: each row's
+    /// `self_time_ns` was booked directly at that object, so this sum needs no division.
     pub self_time_ns: i64,
 }
 
@@ -99,12 +96,10 @@ const PER_OBJECT_SQL: &str = "
            SUM(f.attempts), SUM(f.work), SUM(f.outputs),
            SUM(CASE WHEN f.allomorph_id = 0 THEN f.not_applied ELSE 0 END),
            SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses),
-           SUM(f.work) * oc.ns_per_unit AS estimated_ns,
            SUM(f.self_time_ns)
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
-    LEFT JOIN op_cost oc ON oc.kind = o.kind
     LEFT JOIN stratum s ON s.stratum_id = f.stratum_id
     WHERE (:kind IS NULL OR o.kind = :kind)
       AND (:object_key IS NULL OR o.key = :object_key)
@@ -113,15 +108,13 @@ const PER_OBJECT_SQL: &str = "
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
     GROUP BY o.object_id
     HAVING (:min_attempts IS NULL OR SUM(f.attempts) >= :min_attempts)
-    -- An uncalibrated kind must not sink to the bottom on a NULL: raw work is the
-    -- calibration-independent ranking, and within one kind the constant only rescales it.
     ORDER BY CASE WHEN :sort_no_root = 1 THEN SUM(f.no_root)
-                  ELSE SUM(f.work) * COALESCE(oc.ns_per_unit, 1) END DESC
+                  ELSE SUM(f.self_time_ns) END DESC
     LIMIT :limit
 ";
 
-/// Kind, label, identity quality, summed counters, and estimated time — sorted and filtered per
-/// `filter`. Object count is bounded by grammar size, so an unset `top_n` prints everything.
+/// Kind, label, identity quality, summed counters, and measured self time — sorted and filtered
+/// per `filter`. Object count is bounded by grammar size, so an unset `top_n` prints everything.
 pub fn per_object_report(
     conn: &Connection,
     filter: &PerObjectFilter,
@@ -151,8 +144,7 @@ pub fn per_object_report(
                 no_root: row.get(7)?,
                 surface_mismatch: row.get(8)?,
                 uses: row.get(9)?,
-                estimated_ns: row.get(10)?,
-                self_time_ns: row.get(11)?,
+                self_time_ns: row.get(10)?,
             })
         },
     )?;
@@ -160,7 +152,7 @@ pub fn per_object_report(
 }
 
 /// Optional narrowing for `per_allomorph_report`. Every field left at its default means "no
-/// narrowing" — every object's allomorph breakdown, ordered by estimated time, no limit.
+/// narrowing" — every object's allomorph breakdown, ordered by measured self time, no limit.
 #[derive(Debug, Clone, Default)]
 pub struct PerAllomorphFilter {
     pub kind: Option<String>,
@@ -191,8 +183,7 @@ pub struct PerAllomorphRow {
     pub no_root: i64,
     pub surface_mismatch: i64,
     pub uses: i64,
-    pub estimated_ns: Option<i64>,
-    /// Measured (not derived) wall-clock self time summed across this `(object, allomorph)` pair's rows.
+    /// Measured wall-clock self time summed across this `(object, allomorph)` pair's rows.
     pub self_time_ns: i64,
 }
 
@@ -200,24 +191,22 @@ const PER_ALLOMORPH_SQL: &str = "
     SELECT o.kind, o.label, a.key, a.label,
            SUM(f.attempts), SUM(f.work), SUM(f.outputs), SUM(f.not_applied),
            SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses),
-           SUM(f.work) * oc.ns_per_unit AS estimated_ns,
            SUM(f.self_time_ns)
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
     LEFT JOIN allomorph a ON a.allomorph_id = f.allomorph_id
-    LEFT JOIN op_cost oc ON oc.kind = o.kind
     WHERE (:kind IS NULL OR o.kind = :kind)
       AND (:object_key IS NULL OR o.key = :object_key)
       AND (:direction IS NULL OR f.direction = :direction)
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
     GROUP BY o.object_id, f.allomorph_id
     HAVING (:min_attempts IS NULL OR SUM(f.attempts) >= :min_attempts)
-    ORDER BY SUM(f.work) * COALESCE(oc.ns_per_unit, 1) DESC, o.key ASC, a.key ASC
+    ORDER BY SUM(f.self_time_ns) DESC, o.key ASC, a.key ASC
     LIMIT :limit
 ";
 
-/// Object identity, allomorph locator, summed counters, and estimated time — one row per
+/// Object identity, allomorph locator, summed counters, and measured self time — one row per
 /// `(object, allomorph)` pair with a fact, including each object's `NONE` sentinel residue.
 pub fn per_allomorph_report(
     conn: &Connection,
@@ -247,8 +236,7 @@ pub fn per_allomorph_report(
                 no_root: row.get(8)?,
                 surface_mismatch: row.get(9)?,
                 uses: row.get(10)?,
-                estimated_ns: row.get(11)?,
-                self_time_ns: row.get(12)?,
+                self_time_ns: row.get(11)?,
             })
         },
     )?;
@@ -378,7 +366,7 @@ const PER_DIRECTION_SQL: &str = "
     GROUP BY f.direction
     HAVING (:min_attempts IS NULL OR SUM(f.attempts) >= :min_attempts)
     -- `direction` is a plain two-value tag, not a measured quantity, so ordering by the tag itself
-    -- is already exact and stable -- unlike work/estimated-time sorts elsewhere in this file, no
+    -- is already exact and stable -- unlike the work/self-time sorts elsewhere in this file, no
     -- tie-break column is needed.
     ORDER BY f.direction ASC
 ";
@@ -616,16 +604,22 @@ mod tests {
         }
     }
 
+    fn fact_with_self_time(
+        object_key: &str,
+        kind: ObjectKind,
+        attempts: u64,
+        work: u64,
+        no_root: u64,
+        self_time_ns: u64,
+    ) -> FactRecord {
+        FactRecord {
+            self_time_ns,
+            ..fact(object_key, kind, attempts, work, no_root)
+        }
+    }
+
     fn seeded_cache() -> StatsCache {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        outcome
-            .cache
-            .write_op_cost(ObjectKind::MorphRule, 10, "test provenance")
-            .unwrap();
-        outcome
-            .cache
-            .write_op_cost(ObjectKind::LexEntry, 100, "test provenance")
-            .unwrap();
 
         let words = vec![
             WordRecord {
@@ -711,12 +705,28 @@ mod tests {
 
     #[test]
     fn per_object_sort_key_changes_order() {
-        let cache = seeded_cache();
-        // rule-a estimates higher (work 60 vs 4) but root-a has more no_root (5 vs 1) -- the sort keys disagree.
-        let by_estimate =
+        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+        let words = vec![WordRecord {
+            form: "apu".to_string(),
+            elapsed_ns: 500,
+            attempts: 7,
+            passes: 1,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts: vec![
+                // rule-a has more measured self time (6000ns vs 400ns) but root-a has more no_root (5 vs 1) -- the sort keys disagree.
+                fact_with_self_time("rule-a", ObjectKind::MorphRule, 5, 20, 1, 6_000),
+                fact_with_self_time("root-a", ObjectKind::LexEntry, 2, 4, 5, 400),
+            ],
+        }];
+        outcome.cache.flush(&run(), &words).unwrap();
+        let cache = outcome.cache;
+
+        let by_self_time =
             per_object_report(cache.connection(), &PerObjectFilter::default()).unwrap();
-        assert_eq!(by_estimate[0].label, "rule-a");
-        assert_eq!(by_estimate[1].label, "root-a");
+        assert_eq!(by_self_time[0].label, "rule-a");
+        assert_eq!(by_self_time[1].label, "root-a");
 
         let filter = PerObjectFilter {
             sort: SortKey::NoRoot,
@@ -726,6 +736,42 @@ mod tests {
         assert_eq!(by_no_root[0].label, "root-a");
         assert_eq!(by_no_root[0].no_root, 5);
         assert_eq!(by_no_root[1].label, "rule-a");
+    }
+
+    /// A per-kind total must be the exact sum of its objects' measured self times, never apportioned.
+    #[test]
+    fn per_kind_total_equals_sum_of_objects_measured_self_times() {
+        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+        let words = vec![WordRecord {
+            form: "apu".to_string(),
+            elapsed_ns: 500,
+            attempts: 10,
+            passes: 1,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts: vec![
+                fact_with_self_time("rule-a", ObjectKind::MorphRule, 5, 20, 0, 1_000),
+                fact_with_self_time("rule-b", ObjectKind::MorphRule, 3, 12, 0, 2_500),
+                fact_with_self_time("root-a", ObjectKind::LexEntry, 2, 4, 0, 700),
+            ],
+        }];
+        outcome.cache.flush(&run(), &words).unwrap();
+
+        let morph_rows = per_object_report(
+            outcome.cache.connection(),
+            &PerObjectFilter {
+                kind: Some("morph_rule".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let per_kind_total: i64 = morph_rows.iter().map(|r| r.self_time_ns).sum();
+        assert_eq!(
+            per_kind_total,
+            1_000 + 2_500,
+            "the per-kind total must be the exact sum of its objects' measured self times"
+        );
     }
 
     #[test]
@@ -890,7 +936,7 @@ mod tests {
         assert_eq!(
             labels,
             vec!["rule-x".to_string(), "rule-y".to_string()],
-            "equal estimated cost must still order deterministically via the key tie-break"
+            "equal measured self time must still order deterministically via the key tie-break"
         );
     }
 

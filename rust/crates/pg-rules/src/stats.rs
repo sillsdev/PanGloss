@@ -37,8 +37,8 @@ impl Direction {
 }
 
 /// Finer-grained self-time phase inside the ANALYSIS rule-body invocation `ObjectKind::MorphRule`
-/// already times; orthogonal to `ObjectKind` and never a counted `StatsRow` -- a `pangloss
-/// calibrate`-style diagnostic dimension only, read via `StatsCollector::phase_totals`. `Overhead`
+/// already times; orthogonal to `ObjectKind` and never a counted `StatsRow` -- a diagnostic
+/// dimension only, read via `StatsCollector::phase_totals`. `Overhead`
 /// is entered as the outermost region around the whole invocation, so its self-time (after every
 /// named phase below is subtracted out as a nested region) is the honest residual: engine
 /// bookkeeping not attributable to any named phase. `WordBuild`, `MemoKey`, and `Dedup` name three
@@ -241,9 +241,7 @@ pub struct StatsCollector {
     morph: DenseTable,
     phon: DenseTable,
     sparse: RefCell<HashMap<SparseKey, Counters>>,
-    /// `pangloss calibrate`'s self-time accumulator; a no-op unless built with `stats-calibrate`.
-    calib: crate::stats_calibrate::SelfTimeAccumulator<ObjectKind>,
-    /// The finer `AnalysisPhase` breakdown; independent accumulator, same no-op-off-feature contract as `calib`.
+    /// The finer `AnalysisPhase` breakdown; a no-op unless built with `stats-calibrate`.
     phase_calib: crate::stats_calibrate::SelfTimeAccumulator<AnalysisPhase>,
     /// `Self::time_enter`'s open-region stack; always live (no feature gate), empty until entered.
     obj_time_stack: RefCell<Vec<ObjTimeFrame>>,
@@ -255,7 +253,6 @@ impl StatsCollector {
             morph: DenseTable::new(g.strata.len(), g.mrules.len()),
             phon: DenseTable::new(g.strata.len(), g.prules.len()),
             sparse: RefCell::new(HashMap::default()),
-            calib: crate::stats_calibrate::SelfTimeAccumulator::new(),
             phase_calib: crate::stats_calibrate::SelfTimeAccumulator::new(),
             obj_time_stack: RefCell::new(Vec::new()),
         }
@@ -339,23 +336,7 @@ impl StatsCollector {
         }
     }
 
-    /// Enter a calibration self-time region for `kind`; real only when built with the
-    /// `stats-calibrate` feature, a zero-cost no-op otherwise.
-    pub fn calibrate_enter(
-        &self,
-        kind: ObjectKind,
-        work: u64,
-    ) -> crate::stats_calibrate::RegionGuard<'_, ObjectKind> {
-        self.calib.enter(kind, work)
-    }
-
-    /// This collector's accumulated calibration totals; empty unless built with `stats-calibrate`.
-    pub fn calibration_totals(&self) -> HashMap<ObjectKind, crate::stats_calibrate::KindTotals> {
-        self.calib.totals()
-    }
-
-    /// Enter an `AnalysisPhase` self-time region; same no-op-unless-`stats-calibrate` contract as
-    /// `Self::calibrate_enter`, on the independent phase accumulator.
+    /// Enter an `AnalysisPhase` self-time region; a no-op unless built with `stats-calibrate`.
     pub fn phase_enter(
         &self,
         phase: AnalysisPhase,
