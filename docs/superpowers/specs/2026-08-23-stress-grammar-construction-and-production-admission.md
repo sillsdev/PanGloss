@@ -49,9 +49,9 @@ the parsing, help text, and APIs for both switches; release packaging must not e
 ## Developer correctness override: `--allow-unproven`
 
 `--allow-unproven` bypasses a correctness or representability refusal solely for compiler development
-and grounding. The resulting proposal may omit valid parses. It is stamped `trust=unproven`, may not
-enter normal backend selection, and may not be published, certified, or used as evidence that PanGloss
-accurately represents the grammar.
+and grounding. The resulting proposal may omit valid parses. It is stamped `trust=unproven`, may be
+written as a local developer evidence artifact, but may not enter normal backend selection, production
+publication, certification, or be used as evidence that PanGloss accurately represents the grammar.
 
 The switch does not suppress diagnostics or remove resource containment. It exists to inspect a known
 gap, compare experimental behavior, and build the conformance evidence needed to eliminate the gap.
@@ -108,6 +108,7 @@ PanGloss-only conformance fixtures must prove the policy without promotion to Ma
 - an Error-level grammar can complete accurately in stress mode while remaining production-unready;
 - a live successor or internal-cap stop cannot produce a successful artifact;
 - `--remove-size-limits` retains outer containment and all correctness checks;
-- `--allow-unproven` is developer-only and always produces unproven output;
+- `--allow-unproven` is developer-only and produces only explicitly unproven output; any persisted
+  pack is local developer evidence, never a production-publishable or certifiable artifact;
 - production binaries expose and accept neither experimental switch;
 - every backend report survives selection and shares stable remedy references where applicable.

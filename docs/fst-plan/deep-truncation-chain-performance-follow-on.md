@@ -54,7 +54,7 @@ cargo run --release -p pg-foma --example p6_deep_truncation_chain_perf_trace
 
 ## Explicitly rejected shortcuts
 
-- Raised budgets hide path growth and weaken the typed preflight refusal.
+- Raised budgets hide path growth and weaken the typed characterization refusal.
 - Early stopping changes ambiguity and multiplicity semantics.
 - Beam pruning can discard required analyses.
 - Truncation cascades turn incomplete traversal into false negative evidence.
@@ -72,7 +72,7 @@ For this plan, **material** means at least a 20% reduction in the targeted measu
 
 The new opt-in trace fields are `raw_paths`, `canonical_paths`, `unique_candidates`, `confirmation_groups`, `confirmation_calls`, `cap_status`, traversal/decode/confirmation elapsed time, and exact-equality status. The duplicate-heavy probe must be selected from a preliminary capped corpus scan and named in the report; if no word has a material duplicate ratio, the canonicalization branch stops.
 
-The baseline is the Task 5 after profile (`fb3e753`) and its reported 50,000 path allowance, 5.364-ms preparation, 0.889-ms three-probe traversal, 100/106 recall, 18 rules, and 10,609/298,830 final network. “No timeout” means every bounded input returns before the existing external watchdog and reports `cap_status=complete`; a typed preflight refusal remains `UNMEASURED`.
+The baseline is the Task 5 after profile (`fb3e753`) and its reported 50,000 path allowance, 5.364-ms preparation, 0.889-ms three-probe traversal, 100/106 recall, 18 rules, and 10,609/298,830 final network. “No timeout” means every bounded input returns before the existing external watchdog and reports `cap_status=complete`; a typed characterization refusal remains `UNMEASURED`.
 
 The membership spike is test-only: it must run beside, not replace, current full-engine confirmation until equality is demonstrated. Its report compares both paths on identical candidate inputs before any production-path proposal.
 

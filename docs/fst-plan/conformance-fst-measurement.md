@@ -536,7 +536,7 @@ fn evaluate(&self, profile: &CharacteristicsProfile, _plan_node: &PlanNodeKind) 
 
 **This never returns `Refuse`, under any input** — directly contradicting roughly ten doc comments
 across six files (`capability.rs` itself, `conformance_coverage.rs`, `coverage_ledger.rs`,
-`plan_diagram.rs`, `plan_interaction_coverage.rs`, `preflight.rs`, `selection.rs`) that still describe
+`plan_diagram.rs`, `plan_interaction_coverage.rs`, `characterization.rs`, `selection.rs`) that still describe
 this predicate as "permanent," "unconditional" `Refuse`, and the predicate's own struct name
 (`...FailClosedPredicate`). A shipped unit test even asserts the contradictory pair directly:
 `compose_envelope_confirms_overwrite_group_alone`'s own doc comment says "must compose to `Refuse`

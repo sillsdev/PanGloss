@@ -217,9 +217,9 @@ graph-structured problems (many NP-hard problems become linear-time given bounde
 `Compose` node into several `Gate`-partitioned pieces, or a multi-table split like
 `docs/conformance/multitable-shared-representation-design.md`'s own worked decision) will blow up.
 *Status:* **Candidate — the principled successor to an already-flagged placeholder.**
-`preflight.rs`'s own `rule_interaction_product_finding` uses `mrule_count * prule_count` as a cost
+`characterization.rs`'s own `rule_interaction_product_finding` uses `mrule_count * prule_count` as a cost
 proxy and says so explicitly: "a conservative, provisional placeholder... no real-grammar
-calibration evidence exists yet for this specific product" (`rust/crates/pg-foma/src/preflight.rs`,
+calibration evidence exists yet for this specific product" (`rust/crates/pg-foma/src/characterization.rs`,
 lines ~72–80). A treewidth-style analysis of `plan_interaction_coverage.rs`'s own adjacency-tuple
 graph (which constructs actually interact, at which plan nodes) is exactly the more principled
 version of that placeholder ADR 0001 anticipates when it says cost gating is "a predicted
@@ -505,7 +505,7 @@ in competition with a faithful one — this is not a dimension to weigh, it is a
 - Tool for the disposition half: `capability::characterize` + the per-backend selector
   `backend_selection::select_backends` (`pg-foma::backend_selection`), which `pangloss
   pack`/`make-report` actually enforce; `capability_entry::best_case_across_backends` is the
-  separate, advisory-only whole-grammar join `preflight.rs` reads for its health findings, and is
+  separate, advisory-only whole-grammar join `characterization.rs` reads for its health findings, and is
   the wrong tool for a real accept/reject decision (see that function's own doc). **Computable
   today.**
 - Tool for the recall half: a `differential_oracle`-style parity check (`oracle.rs`'s own pattern) or
@@ -636,8 +636,8 @@ was never built to notice this class of change.
 Full treatment (including which of the five trigger conditions this bears on) is in
 `.claude/skills/fix-a-grammar/NOTES-research.md`. The short version: capability `Refuse` (trigger e)
 is the only one of the five triggers with a fully automatic, build-relevant severity signal today
-(`preflight.rs`'s `semantic_uncertainty_finding`, always `Critical`). Artifact size (trigger b) has
-automatic severity banding (`health.rs::severity_for_size_bytes`, five bands). Build time, per-word
+(`characterization.rs`'s `semantic_uncertainty_finding`, always `Critical`). Artifact size (trigger b) has
+automatic readiness banding (`health.rs::severity_for_size_bytes`, Ideal through Error). Build time, per-word
 apply cost, and proposer looseness (triggers a, d, c) all have **numbers** computed by existing tools
 but **no automatic threshold** — `Metric::ElapsedMillis`/`RejectionShare`/`ProposalCandidateCount`
 findings are always emitted at a flat `Severity::Info`, never escalated by magnitude

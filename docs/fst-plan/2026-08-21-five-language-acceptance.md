@@ -8,7 +8,8 @@
 
 > **Current policy note (2026-08-23).** `--allow-unproven`, `--remove-size-limits`, and the legacy
 > `--no-enforce-capability` escape are developer-build-only and must be hidden/rejected in
-> production. The first may lose valid parses and never certifies or publishes; the second removes
+> production. The first may lose valid parses and may write local developer evidence, but never
+> production-publishes or certifies; the second removes
 > internal caps only, while exact completion and mandatory external watchdog/RSS containment,
 > bounded I/O, and the absolute ceiling remain active. `Error` can be complete/accurate stress
 > evidence but is production-unready; `Critical` is a correctness gap. Historical rows below are

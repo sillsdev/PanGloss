@@ -57,7 +57,7 @@ cutoff) structurally infeasible for some reason not yet written down, or simply 
   native star's net size is independent of any repetition count. This is the whole point.
 - `slot_candidates` (used by the metathesis path, `replace.rs:1117-1122`) enumerates concrete
   candidates and so still cannot accept a `Slot::Repeat` — that stays `None`, unchanged and honest.
-- Everything that currently reads a `Slot::Repeat`'s `max` for a finite size preflight must be audited
+- Everything that currently reads a `Slot::Repeat`'s `max` for finite size characterization must be audited
   for a "no finite max" path rather than defaulting to a number.
 
 ### Termination is not at risk, and here is why

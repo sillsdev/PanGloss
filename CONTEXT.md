@@ -64,7 +64,8 @@ publication. No flag makes partial, truncated, skipped, or unproven output accur
 
 `--allow-unproven` is a hidden, developer-build-only correctness override. It may force an
 unproven run that omits valid parses, solely to inspect behavior and gather grounding evidence. It
-never publishes or certifies an artifact, and it does not remove resource limits. The older
+may persist a local developer evidence artifact, but never production-publishes or certifies one,
+and it does not remove resource limits. The older
 `--no-enforce-capability` switch is legacy developer-only behavior and is not a production API.
 
 ## Deployment domains

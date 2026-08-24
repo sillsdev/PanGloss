@@ -8,8 +8,9 @@ not test.
 
 > **Current product policy (2026-08-23).** `make-report` may expose unsafe overrides only in a
 > developer/test build; production must hide and reject `--allow-unproven` and
-> `--remove-size-limits`. `--allow-unproven` may lose valid parses and never certifies or
-> publishes. `--remove-size-limits` removes internal deterministic size/work caps only; exact
+> `--remove-size-limits`. `--allow-unproven` may lose valid parses and may write local developer
+> evidence, but never production-publishes or certifies. `--remove-size-limits` removes internal
+> deterministic size/work caps only; exact
 > completion, external watchdog/RSS containment, bounded I/O, and the absolute ceiling remain
 > mandatory. A complete/accurate stress result may retain `Error` evidence, but `Error` is
 > production-unready and `Critical` is a correctness gap. The legacy `--no-enforce-capability`
@@ -59,8 +60,8 @@ Exactly like `run_batch`/`run_parse`/`pangloss pack`: a capability `Refuse` verd
 `make-report` requires the same flag be passed to `pangloss pack` too; a caller cannot point
 `--pack` at a pre-built overridden artifact and have this command quietly measure against it
 without acknowledging the override at the report layer as well. This is a developer-only
-diagnostic route: because it may omit valid parses, its report cannot certify or publish the
-artifact. A separate developer stress run with `--remove-size-limits` may cross internal caps,
+diagnostic route: because it may omit valid parses, a local evidence artifact/report cannot certify
+or production-publish the artifact. A separate developer stress run with `--remove-size-limits` may cross internal caps,
 but it still requires exact completion and outer containment; an Error report can be useful stress
 evidence without becoming production-ready.
 
