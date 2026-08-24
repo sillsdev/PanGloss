@@ -175,13 +175,19 @@ With the non-compiling gate removed, `pg-foma` builds and runs as a package for 
 Measured on this branch, identically with and without `developer-tools`, and `pg-cli` run with
 `--no-fail-fast` so nothing hides behind an earlier failure:
 
-| Package | Result |
-|---|---|
-| `pg-foma` | 1154 tests, 961 passed, **1 failed**, 73 skipped |
-| `pg-cli` | 142 tests, 136 passed, **6 failed**, 11 skipped |
+| Package | Features | Result |
+|---|---|---|
+| `pg-foma` | default and `developer-tools` alike | 1154 tests, **1 failed**, 73 skipped |
+| `pg-cli` | default | 123 tests, **4 failed**, 11 skipped |
+| `pg-cli` | `developer-tools` | 141 tests, **6 failed**, 11 skipped |
 
-All seven failures reproduce byte-identically at the pre-session baseline, so none is a regression
-from this branch:
+The two extra `pg-cli` failures are `#[cfg(feature = "developer-tools")]`, so a production build sees
+four, not six. Both of those, and the four recipe failures, need `--no-fail-fast` to be seen at all:
+nextest cancels the run after the first, and the `bin/pangloss` unit tests sort after the integration
+targets, so a default run stops before reaching them.
+
+All seven distinct failures reproduce byte-identically at the pre-session baseline, so none is a
+regression from this branch:
 
 - the four recipe-optimizer failures above;
 - `morphotactics_boundary_cleanup_slice::templated_query_accepts_a_surface_with_an_explicit_boundary`
