@@ -427,7 +427,7 @@ pub(crate) fn run_batch_stats_foma(
 
 // The `stats` subcommand: read-only, no grammar loaded.
 
-const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|stratum|direction|morpheme|group|never-fires] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--word FORM] [--top N] [--sort time|no-root|amp|uses|attempts] [--exclude-censored] [--wide] [--format text|jsonl] [--cache <path>] [--out FILE]";
+const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|stratum|direction|morpheme|group|never-fires] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--word FORM] [--top N] [--sort time|no-root|amp|uses|attempts] [--exclude-censored] [--wide] [--by-kind] [--format text|jsonl] [--cache <path>] [--out FILE]";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ReportGroup {
@@ -461,6 +461,8 @@ struct Filters {
     exclude_censored: bool,
     /// `--wide`: appends `work`/`not_applied`/`no_root`/`surface_mismatch`/`identity_quality`.
     wide: bool,
+    /// `--by-kind`: one section per kind, each with its share of the run's total time.
+    by_kind: bool,
 }
 
 fn per_object_filter(f: &Filters) -> pg_stats::PerObjectFilter {
@@ -751,12 +753,62 @@ const WIDE_EXTRA_HEADERS: [&str; 5] = [
     "identity_quality",
 ];
 
+/// Kinds paired with their summed `attempts`, heaviest first, ties broken by name for determinism.
+fn attempts_by_kind_desc(rows: &[RowView]) -> Vec<(Option<String>, i64)> {
+    let mut totals: HashMap<Option<String>, i64> = HashMap::new();
+    for r in rows {
+        if let Some(a) = r.attempts {
+            *totals.entry(r.kind.clone()).or_insert(0) += a;
+        }
+    }
+    let mut out: Vec<(Option<String>, i64)> = totals.into_iter().collect();
+    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    out
+}
+
+/// Kinds in the order they first appear in `rows`, which is already the caller's sort order.
+fn kinds_in_row_order(rows: &[RowView]) -> Vec<Option<String>> {
+    let mut seen: Vec<Option<String>> = Vec::new();
+    for r in rows {
+        if !seen.contains(&r.kind) {
+            seen.push(r.kind.clone());
+        }
+    }
+    seen
+}
+
+/// Percentage denominators, taken from every matched row rather than from a `--top` excerpt.
+struct Denominators {
+    /// Global: measured self time means the same thing whatever kind produced it.
+    total_time_ns: i64,
+    /// Per kind, because a rule's `attempts` is an invocation while a lexical entry's is a candidate materialization: one cross-kind share compares different units.
+    attempts_by_kind: HashMap<Option<String>, i64>,
+}
+
+impl Denominators {
+    fn of(rows: &[RowView]) -> Self {
+        let mut attempts_by_kind: HashMap<Option<String>, i64> = HashMap::new();
+        for r in rows {
+            if let Some(a) = r.attempts {
+                *attempts_by_kind.entry(r.kind.clone()).or_insert(0) += a;
+            }
+        }
+        Denominators {
+            total_time_ns: rows.iter().filter_map(|r| r.self_time_ns).sum(),
+            attempts_by_kind,
+        }
+    }
+
+    fn attempts_of(&self, kind: &Option<String>) -> i64 {
+        self.attempts_by_kind.get(kind).copied().unwrap_or(0)
+    }
+}
+
 /// Denominators are arguments, never sums of `rows`: `rows` may be a `--top` excerpt, and a share of an excerpt is not the share a reader reads it as.
 fn render_narrow(
     rows: &[RowView],
     wide: bool,
-    total_time: i64,
-    total_attempts: i64,
+    denoms: &Denominators,
 ) -> (Vec<&'static str>, Vec<Vec<String>>) {
     let mut headers: Vec<&'static str> = NARROW_HEADERS.to_vec();
     if wide {
@@ -768,9 +820,9 @@ fn render_narrow(
             let mut cells = vec![
                 r.label.clone(),
                 fmt_ms(r.self_time_ns),
-                fmt_pct(r.self_time_ns, total_time),
+                fmt_pct(r.self_time_ns, denoms.total_time_ns),
                 fmt_opt_i64(r.attempts),
-                fmt_pct(r.attempts, total_attempts),
+                fmt_pct(r.attempts, denoms.attempts_of(&r.kind)),
                 fmt_amp(r.attempts, r.outputs),
                 fmt_opt_i64(r.uses),
             ];
@@ -818,7 +870,8 @@ struct TotalsSummary {
     matched_rows: usize,
     shown_rows: usize,
     total_time_ns: i64,
-    total_attempts: i64,
+    /// Per kind, in descending count order: one cross-kind `attempts` sum adds different units.
+    attempts_by_kind: Vec<(Option<String>, i64)>,
     total_uses: i64,
     run_elapsed_ns: i64,
 }
@@ -830,7 +883,7 @@ impl TotalsSummary {
             matched_rows: rows.len(),
             shown_rows,
             total_time_ns: rows.iter().filter_map(|r| r.self_time_ns).sum(),
-            total_attempts: rows.iter().filter_map(|r| r.attempts).sum(),
+            attempts_by_kind: attempts_by_kind_desc(rows),
             total_uses: rows.iter().filter_map(|r| r.uses).sum(),
             run_elapsed_ns,
         }
@@ -841,6 +894,19 @@ impl TotalsSummary {
             self.total_time_ns as f64 / self.run_elapsed_ns as f64 * 100.0
         } else {
             0.0
+        }
+    }
+
+    /// `attempts a  b  c` across kinds, or a bare count when every row shares one kind.
+    fn attempts_text(&self) -> String {
+        match self.attempts_by_kind.as_slice() {
+            [] => "-".to_string(),
+            [(_, n)] => n.to_string(),
+            many => many
+                .iter()
+                .map(|(kind, n)| format!("{} {n}", kind.as_deref().unwrap_or("-")))
+                .collect::<Vec<_>>()
+                .join("  "),
         }
     }
 
@@ -861,7 +927,7 @@ impl TotalsSummary {
             self.total_time_ns as f64 / 1e6,
             self.attributed_pct(),
             self.run_elapsed_ns as f64 / 1e6,
-            self.total_attempts,
+            self.attempts_text(),
             self.total_uses,
         )
     }
@@ -871,7 +937,16 @@ impl TotalsSummary {
             "rows": self.matched_rows,
             "rows_shown": self.shown_rows,
             "time_ns": self.total_time_ns,
-            "attempts": self.total_attempts,
+            "attempts_by_kind": self
+                .attempts_by_kind
+                .iter()
+                .map(|(k, n)| {
+                    (
+                        k.clone().unwrap_or_else(|| "-".to_string()),
+                        serde_json::json!(n),
+                    )
+                })
+                .collect::<serde_json::Map<String, serde_json::Value>>(),
             "uses": self.total_uses,
             "run_elapsed_ns": self.run_elapsed_ns,
             "attributed_pct": self.attributed_pct(),
@@ -899,6 +974,7 @@ fn filters_json(f: &Filters) -> serde_json::Value {
         "top": f.top_n,
         "sort": f.sort.map(sort_key_name),
         "exclude_censored": f.exclude_censored,
+        "by_kind": f.by_kind,
     })
 }
 
@@ -911,22 +987,55 @@ fn run_identity(conn: &rusqlite::Connection) -> Result<(String, String), String>
     .map_err(|e| e.to_string())
 }
 
-fn jsonl_meta_line(
+fn jsonl_meta_value(
     conn: &rusqlite::Connection,
     orientation: &str,
     filters: &Filters,
     totals: &TotalsSummary,
-) -> Result<String, String> {
+) -> Result<serde_json::Value, String> {
     let (grammar_hash, engine) = run_identity(conn)?;
-    let meta = serde_json::json!({
+    Ok(serde_json::json!({
         "meta": true,
         "orientation": orientation,
         "grammar_hash": grammar_hash,
         "engine": engine,
         "filters": filters_json(filters),
         "totals": totals.to_json(),
-    });
+    }))
+}
+
+fn jsonl_meta_line(
+    conn: &rusqlite::Connection,
+    orientation: &str,
+    filters: &Filters,
+    totals: &TotalsSummary,
+) -> Result<String, String> {
+    let meta = jsonl_meta_value(conn, orientation, filters, totals)?;
     serde_json::to_string(&meta).map_err(|e| e.to_string())
+}
+
+/// An empty result still has to be machine-readable: prose on stdout would break a strict JSONL parser.
+fn empty_output(
+    conn: &rusqlite::Connection,
+    orientation: &str,
+    filters: &Filters,
+    reason: String,
+    format: OutputFormat,
+) -> Result<String, String> {
+    match format {
+        OutputFormat::Text => Ok(reason),
+        OutputFormat::Jsonl => {
+            let run_elapsed_ns = pg_stats::word_elapsed_ns_total(conn, filters.word.as_deref())
+                .map_err(|e| e.to_string())?;
+            let totals = TotalsSummary::from_rows(&[], 0, run_elapsed_ns);
+            let mut meta = jsonl_meta_value(conn, orientation, filters, &totals)?;
+            meta["empty_reason"] = serde_json::Value::String(reason.trim().to_string());
+            Ok(format!(
+                "{}\n",
+                serde_json::to_string(&meta).map_err(|e| e.to_string())?
+            ))
+        }
+    }
 }
 
 /// Distinguishes "never recorded in this cache" from "exists but matched nothing" for an empty result.
@@ -979,20 +1088,31 @@ fn render_rowview_body(
     format: OutputFormat,
 ) -> Result<String, String> {
     if rows.is_empty() {
-        return empty_explanation(conn, kind_scope);
+        let reason = empty_explanation(conn, kind_scope)?;
+        return empty_output(conn, orientation, filters, reason, format);
     }
     let run_elapsed_ns = pg_stats::word_elapsed_ns_total(conn, filters.word.as_deref())
         .map_err(|e| e.to_string())?;
     let shown = truncate_per_kind(rows.clone(), filters.top_n);
     let totals = TotalsSummary::from_rows(&rows, shown.len(), run_elapsed_ns);
+    let denoms = Denominators::of(&rows);
     match format {
+        OutputFormat::Text if filters.by_kind => {
+            let mut out = String::new();
+            for kind in kinds_in_row_order(&shown) {
+                let section: Vec<RowView> =
+                    shown.iter().filter(|r| r.kind == kind).cloned().collect();
+                let (headers, table_rows) = render_narrow(&section, filters.wide, &denoms);
+                out.push_str(&format!("== {} ==\n", kind.as_deref().unwrap_or("-")));
+                out.push_str(&render_table(&headers, &table_rows));
+                out.push_str(&subtotal_line(&section, &kind, &denoms));
+                out.push('\n');
+            }
+            out.push_str(&totals.text_line());
+            Ok(out)
+        }
         OutputFormat::Text => {
-            let (headers, table_rows) = render_narrow(
-                &shown,
-                filters.wide,
-                totals.total_time_ns,
-                totals.total_attempts,
-            );
+            let (headers, table_rows) = render_narrow(&shown, filters.wide, &denoms);
             let mut out = render_table(&headers, &table_rows);
             out.push_str(&totals.text_line());
             Ok(out)
@@ -1002,10 +1122,55 @@ fn render_rowview_body(
             for r in &shown {
                 lines.push(serde_json::to_string(&row_view_to_json(r)).map_err(|e| e.to_string())?);
             }
+            if filters.by_kind {
+                for kind in kinds_in_row_order(&shown) {
+                    let section: Vec<RowView> =
+                        shown.iter().filter(|r| r.kind == kind).cloned().collect();
+                    lines.push(
+                        serde_json::to_string(&subtotal_json(&section, &kind, &denoms))
+                            .map_err(|e| e.to_string())?,
+                    );
+                }
+            }
             lines.push(String::new());
             Ok(lines.join("\n"))
         }
     }
+}
+
+/// The percentage is the group's share of the run's total time, never a within-group 100% that would say nothing about what this kind cost.
+fn subtotal_line(section: &[RowView], kind: &Option<String>, denoms: &Denominators) -> String {
+    let time: i64 = section.iter().filter_map(|r| r.self_time_ns).sum();
+    let attempts: i64 = section.iter().filter_map(|r| r.attempts).sum();
+    format!(
+        "SUBTOTAL {}  {} row(s)  time {:.3}ms ({} of total time)  attempts {}\n",
+        kind.as_deref().unwrap_or("-"),
+        section.len(),
+        time as f64 / 1e6,
+        fmt_pct(Some(time), denoms.total_time_ns),
+        attempts,
+    )
+}
+
+fn subtotal_json(
+    section: &[RowView],
+    kind: &Option<String>,
+    denoms: &Denominators,
+) -> serde_json::Value {
+    let time: i64 = section.iter().filter_map(|r| r.self_time_ns).sum();
+    let attempts: i64 = section.iter().filter_map(|r| r.attempts).sum();
+    serde_json::json!({
+        "subtotal": true,
+        "kind": kind,
+        "rows": section.len(),
+        "time_ns": time,
+        "share_of_total_time_pct": if denoms.total_time_ns > 0 {
+            Some(time as f64 / denoms.total_time_ns as f64 * 100.0)
+        } else {
+            None
+        },
+        "attempts": attempts,
+    })
 }
 
 fn render_object(
@@ -1129,10 +1294,11 @@ fn render_word(
         rows.retain(|r| r.form == w);
     }
     if rows.is_empty() {
-        return Ok(match filters.word.as_deref() {
+        let reason = match filters.word.as_deref() {
             Some(w) => format!("stats: no word named {w} found in this cache\n"),
             None => "stats: cache has no recorded words\n".to_string(),
-        });
+        };
+        return empty_output(conn, "word", filters, reason, format);
     }
     let total_elapsed: i64 = rows.iter().map(|r| r.elapsed_ns).sum();
     let total_attempts: i64 = rows.iter().map(|r| r.attempts).sum();
@@ -1209,7 +1375,8 @@ fn render_never_fires(
     let rows = pg_stats::never_fires_report(conn, &never_fires_filter(filters))
         .map_err(|e| e.to_string())?;
     if rows.is_empty() {
-        return empty_explanation(conn, filters.kind.as_deref());
+        let reason = empty_explanation(conn, filters.kind.as_deref())?;
+        return empty_output(conn, "never-fires", filters, reason, format);
     }
     let total_attempts: i64 = rows.iter().map(|r| r.attempts).sum();
     match format {
@@ -1347,6 +1514,7 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             "--sort" => sort_arg = Some(it.next().ok_or("--sort requires a value")?.clone()),
             s if s.starts_with("--sort=") => sort_arg = Some(s["--sort=".len()..].to_string()),
             "--exclude-censored" => filters.exclude_censored = true,
+            "--by-kind" => filters.by_kind = true,
             "--wide" => filters.wide = true,
             "--format" => format_arg = Some(it.next().ok_or("--format requires a value")?.clone()),
             s if s.starts_with("--format=") => {
@@ -1432,6 +1600,28 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             "--kind does not apply to --group morpheme: always scoped to lex_entry".to_string(),
         );
     }
+    if filters.by_kind
+        && !matches!(
+            group,
+            Some(ReportGroup::Object) | Some(ReportGroup::Allomorph)
+        )
+    {
+        return Err(
+            "--by-kind applies to --group object and --group allomorph only: every other orientation is either one row per kind already or carries no kind at all"
+                .to_string(),
+        );
+    }
+    if matches!(group, Some(ReportGroup::NeverFires))
+        && filters
+            .kind
+            .as_deref()
+            .is_some_and(|k| k != "morph_rule" && k != "phon_rule")
+    {
+        return Err(
+            "--group never-fires covers morph_rule and phon_rule only: no other kind wires an `outputs` counter, so \"zero outputs\" would be an artifact there"
+                .to_string(),
+        );
+    }
 
     let format = match format_arg.as_deref() {
         None | Some("text") => OutputFormat::Text,
@@ -1470,7 +1660,7 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
 
     let mixed = pg_stats::mixed_settings(&conn).map_err(|e| e.to_string())?;
     if mixed.is_mixed() {
-        println!(
+        eprintln!(
             "warning: this cache spans {} distinct options_hash and {} distinct counter_semantics value(s); counters may not be directly comparable",
             mixed.distinct_options_hashes, mixed.distinct_counter_semantics
         );
@@ -1481,7 +1671,7 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         })
         .map_err(|e| e.to_string())?;
     if distinct_engines > 1 {
-        println!(
+        eprintln!(
             "warning: this cache spans more than one engine; per-object counters mix measured and unsupported rows"
         );
     }
@@ -1516,9 +1706,7 @@ mod tests {
         rows: &[RowView],
         wide: bool,
     ) -> (Vec<&'static str>, Vec<Vec<String>>) {
-        let time: i64 = rows.iter().filter_map(|r| r.self_time_ns).sum();
-        let attempts: i64 = rows.iter().filter_map(|r| r.attempts).sum();
-        render_narrow(rows, wide, time, attempts)
+        render_narrow(rows, wide, &Denominators::of(rows))
     }
     use super::*;
     use std::fs;
@@ -1910,22 +2098,36 @@ mod tests {
 
         let time_col = headers.iter().position(|h| *h == "time%").unwrap();
         let attempts_col = headers.iter().position(|h| *h == "attempts%").unwrap();
-        let sum_pct = |col: usize| -> f64 {
-            table_rows
-                .iter()
-                .filter_map(|r| r[col].trim_end_matches('%').parse::<f64>().ok())
-                .sum()
+        let pct_of = |row: &[String], col: usize| -> Option<f64> {
+            row[col].trim_end_matches('%').parse::<f64>().ok()
         };
-        let time_sum = sum_pct(time_col);
-        let attempts_sum = sum_pct(attempts_col);
+
+        // Self time means the same thing whatever kind produced it, so its shares span the report.
+        let time_sum: f64 = table_rows.iter().filter_map(|r| pct_of(r, time_col)).sum();
         assert!(
             (99.0..=101.0).contains(&time_sum),
             "time% must sum to ~100% with no --top narrowing: got {time_sum}"
         );
+
+        // `attempts` does not: each kind counts a different event, so shares close within a kind.
+        let mut by_kind: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        for (view, row) in views.iter().zip(table_rows.iter()) {
+            if let Some(p) = pct_of(row, attempts_col) {
+                *by_kind
+                    .entry(view.kind.clone().unwrap_or_else(|| "-".to_string()))
+                    .or_insert(0.0) += p;
+            }
+        }
         assert!(
-            (99.0..=101.0).contains(&attempts_sum),
-            "attempts% must likewise sum to ~100%: got {attempts_sum}"
+            by_kind.len() > 1,
+            "sanity: this fixture must span several kinds, or the per-kind claim is untested"
         );
+        for (kind, sum) in &by_kind {
+            assert!(
+                (99.0..=101.0).contains(sum),
+                "attempts% must sum to ~100% within {kind}, not across kinds: got {sum}"
+            );
+        }
     }
 
     #[test]
@@ -2096,7 +2298,11 @@ mod tests {
             surface_mismatch: Some(0),
         };
         // One row displayed out of a matched set totalling four times its time and attempts.
-        let (headers, rows) = render_narrow(&[row], false, 4_000, 40);
+        let denoms = Denominators {
+            total_time_ns: 4_000,
+            attempts_by_kind: HashMap::from([(Some("morph_rule".to_string()), 40)]),
+        };
+        let (headers, rows) = render_narrow(&[row], false, &denoms);
         let time_pct = headers.iter().position(|h| *h == "time%").unwrap();
         let attempts_pct = headers.iter().position(|h| *h == "attempts%").unwrap();
         assert_eq!(

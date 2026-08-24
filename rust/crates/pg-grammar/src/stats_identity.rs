@@ -325,6 +325,43 @@ mod tests {
         ]
     }
 
+    /// A key collision silently merges two distinct objects' counters into one row, so injectivity is checked over every discoverable fixture rather than the two sampled above.
+    #[test]
+    fn object_keys_are_injective_across_every_fixture() {
+        let fixtures = discover();
+        assert!(!fixtures.is_empty(), "no conformance fixtures discovered");
+        for f in &fixtures {
+            let Ok(grammar) = crate::load(&f.load_grammar_xml()) else {
+                continue;
+            };
+            let label = format!("{}/{}", f.category, f.name);
+            let mut seen: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for i in 0..grammar.mrules.len() {
+                let key = morph_rule_identity(&grammar, MRuleId(i as u32)).key;
+                if let Some(prev) = seen.insert(key.clone(), i) {
+                    panic!("{label}: mrules {prev} and {i} share the identity key {key:?}");
+                }
+            }
+            let mut seen: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for i in 0..grammar.prules.len() {
+                let key = phon_rule_identity(&grammar, PRuleId(i as u32)).key;
+                if let Some(prev) = seen.insert(key.clone(), i) {
+                    panic!("{label}: prules {prev} and {i} share the identity key {key:?}");
+                }
+            }
+            let mut seen: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for i in 0..grammar.entries.len() {
+                let key = lex_entry_identity(&grammar, LexEntryId(i as u32)).key;
+                if let Some(prev) = seen.insert(key.clone(), i) {
+                    panic!("{label}: entries {prev} and {i} share the identity key {key:?}");
+                }
+            }
+        }
+    }
+
     /// Resolving the guessed-root sentinel must not index the allomorph registry out of bounds.
     #[test]
     fn the_guessed_allomorph_sentinel_resolves_instead_of_panicking() {

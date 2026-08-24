@@ -4,7 +4,7 @@
 //! every `(object, stratum, allomorph, direction)` combination that participated in the search.
 //! This crate
 //! is everything downstream of that: where the cache file lives, how it is opened, wiped, and
-//! accumulated into, how facts are written, and the two v1 reports that read them back.
+//! accumulated into, how facts are written, and the reports that read them back.
 //!
 //! The schema (`schema.sql`, embedded via `include_str!`) is a documented public escape hatch —
 //! `run.schema_version` is a compatibility promise once a caller queries the file directly, so

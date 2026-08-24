@@ -20,7 +20,8 @@ rate is derived at report time from the integers.
 `--stats` is **opt-in and off by default**, which is what makes reading a clock affordable at all: an
 ordinary parse allocates nothing and reads no clock, and only a caller who asked for statistics pays.
 Measured cost of asking, including the SQLite write: **1.5-3.5%**, within run-to-run noise on a
-70-word corpus.
+70-word corpus. That figure comes from the overhead run described below rather than from a
+reproducible harness, so treat it as an order of magnitude, not a pinned number.
 
 Blame for a dead path goes to **terminated-at** — the object applied immediately before the path
 died — never to the whole ancestor path.
@@ -82,10 +83,17 @@ over-application, because each bogus form drags a whole subtree of searching beh
 pangloss stats <grammar> --cache <cache.sqlite3> --group group
 ```
 
-One row per object kind, which answers "was it the compounding, the lexemes, or the allomorphs?"
-exactly rather than by apportionment: `time_ms` is real wall-clock self time, collected whenever
-`--stats` ran. Then `--group object --word <form>` drills from the kind into the individual rules of
-one word.
+One row per object kind: `morph_rule`, `phon_rule`, `lex_entry`, `root_index`, `guesser`, `overlay`.
+`time_ms` is real wall-clock self time, collected whenever `--stats` ran, so this separates the
+lexemes from the rules without apportionment. Then `--group object --word <form>` drills from the
+kind into the individual rules of one word.
+
+**It does not separate compounding from ordinary affixation.** A compounding rule is recorded under
+`ObjectKind::MorphRule` like any other morphological rule, so its cost sits inside the `morph_rule`
+row. Compounding as its own bucket exists only in the feature-gated phase tier (`AnaCompound`),
+which is where the "Amharic spends 52.6% of its time in compounding" figure came from — not from
+this report. `--group object` still names individual compounding rules, so the per-rule cost is
+reachable; the kind-level rollup is what is missing.
 
 **5. Only if you need the split *inside* one of those** — traversal versus shape prep versus memo key
 versus word build — build with the `stats-calibrate` feature and set `HC_PHASE_PROFILE=1`. That tier
@@ -222,9 +230,10 @@ when filtered to `direction = analysis`, because `StepBudget::tick()` fires sole
 `apply_one_mrule`. Synthesis rows are pinned by their own test, since an invariant that cannot see a
 whole direction cannot guard it.
 
-**Templates** are a report-time rollup joining rules to their owning template. One caveat: a rule
-appearing in more than one template is attributed to each, so per-template sums can exceed the total.
-A rollup artifact, never in stored data.
+**Templates** were designed as a report-time rollup joining rules to their owning template, with the
+caveat that a rule appearing in more than one template is attributed to each, so per-template sums
+can exceed the total. **Not shipped:** there is no `--group template` and no template column. Listed
+here as a design, not a feature.
 
 ## Object kinds and identity
 
@@ -328,7 +337,9 @@ candidate, reused, no allocation per candidate — accumulates the objects that 
 candidate's synthesis, and commits to the collector only if the candidate passes the gate.
 
 The candidate `Word` carries `morphs` (allomorph + morpheme) and `mrule_apps`, so this one mechanism
-writes `uses` for lexical entries, morphological rules, and phonological rules alike. Deriving `uses`
+writes `uses` for lexical entries and morphological rules. (Not phonological rules: `WIRED_COUNTERS`
+does not wire `(PhonRule, "uses")`, so that cell renders unmeasured -- see "Known limitations as
+shipped".) Deriving `uses`
 from `WordAnalysis` for some kinds and from synthesis for others would be two mechanisms drifting
 apart on one column.
 
@@ -405,16 +416,19 @@ asking about more words is incremental.
 
 **The grammar hash is the only destructive event.** On a mismatch the next `batch --stats` wipes and
 starts fresh, and says so — a silent wipe would look like the accumulation feature failing. The hash
-is over the `Snapshot` (`Snapshot::to_json()`), not the `.fwdata` bytes, so edits that cannot affect
-parsing do not invalidate. Note this is not free: a `.fwdata` input imports in-memory straight to a
+is over the `Snapshot` (`Snapshot::to_json()`) for `.json`/`.fwdata` inputs, so edits that cannot
+affect parsing do not invalidate. **An `.xml` grammar hashes its raw file bytes instead**, because
+`pg_grammar::load()` produces no `Snapshot` for that path -- so a comment- or whitespace-only edit to
+an XML grammar does force a wipe. Fail-closed, never silently wrong, but not the stated property. Note this is not free: a `.fwdata` input imports in-memory straight to a
 compiled grammar with no JSON written, so hashing costs one serialization pass per run.
 
 **Options, engine, and counter-semantics version are recorded per word, not keyed on.** They change
 what a counter means — `--step-cap 1000` yields different `attempts` and `not_applied` than uncapped
 — so mixing them silently corrupts every `SUM`. But wiping on them would fight the accumulation
 model, since a human exploring one bad word will try several caps. Recording them makes the hazard
-*visible*: `pangloss stats` warns when a query spans mixed option sets and can filter to one. `run`
-rows carry full build info for forensics.
+*visible*: `pangloss stats` warns when a query spans mixed option sets. **Filtering to one option
+set is not shipped** -- there is no `--run`/`--options-hash` flag, so narrowing to a single set means
+querying the documented schema directly. `run` rows carry full build info for forensics.
 
 The counter-semantics version is hand-maintained, bumped when counting semantics change, on the same
 discipline as `schema_version`. It will occasionally be forgotten; the mitigation is that `run` rows
@@ -500,7 +514,7 @@ CREATE TABLE fact (
 CREATE TABLE coverage (
   kind    TEXT NOT NULL,
   counter TEXT NOT NULL,
-  state   TEXT NOT NULL,            -- measured | unsupported | censored
+  state   TEXT NOT NULL,            -- measured | unsupported
   PRIMARY KEY (kind, counter)
 ) WITHOUT ROWID;
 ```

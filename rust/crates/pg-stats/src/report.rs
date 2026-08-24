@@ -248,6 +248,7 @@ const PER_ALLOMORPH_SQL: &str = "
         SELECT o.kind AS object_kind, o.label AS object_label, o.key AS object_key_sort,
                a.key AS allomorph_key, a.label AS allomorph_label,
                SUM(f.attempts) AS attempts, SUM(f.work) AS work, SUM(f.outputs) AS outputs,
+               -- Deliberately unmasked: this report groups BY allomorph, so each row is one allomorph's own count and the rule-level residue is its own `NONE` row.
                SUM(f.not_applied) AS not_applied, SUM(f.no_root) AS no_root,
                SUM(f.surface_mismatch) AS surface_mismatch, SUM(f.uses) AS uses,
                SUM(f.self_time_ns) AS self_time_ns
@@ -334,10 +335,16 @@ pub struct PerStratumRow {
     pub self_time_ns: i64,
 }
 
-const PER_STRATUM_SQL: &str = "
+/// `not_applied` is masked to each rule's own `ALLOMORPH_NONE` row, since it is recorded at two granularities and a raw SUM turns one failure into `1 + allomorphs_reached`.
+const SUMMED_COUNTERS: &str = "SUM(f.attempts), SUM(f.work), SUM(f.outputs),
+           SUM(CASE WHEN f.allomorph_id = 0 THEN f.not_applied ELSE 0 END),
+           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses), SUM(f.self_time_ns)";
+
+fn per_stratum_sql() -> String {
+    format!(
+        "
     SELECT s.key, s.label,
-           SUM(f.attempts), SUM(f.work), SUM(f.outputs), SUM(f.not_applied),
-           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses), SUM(f.self_time_ns)
+           {SUMMED_COUNTERS}
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
@@ -349,7 +356,9 @@ const PER_STRATUM_SQL: &str = "
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
     GROUP BY f.stratum_id
     ORDER BY SUM(f.work) DESC, s.key ASC
-";
+"
+    )
+}
 
 /// Stratum locator and summed counters — one row per stratum with a fact, including the
 /// not-applicable sentinel, optionally narrowed to one object or one kind.
@@ -357,7 +366,7 @@ pub fn per_stratum_report(
     conn: &Connection,
     filter: &PerStratumFilter,
 ) -> Result<Vec<PerStratumRow>, StatsError> {
-    let mut stmt = conn.prepare(PER_STRATUM_SQL)?;
+    let mut stmt = conn.prepare(&per_stratum_sql())?;
     let rows = stmt.query_map(
         named_params! {
             ":kind": filter.kind.as_deref(),
@@ -412,10 +421,11 @@ pub struct PerDirectionRow {
     pub self_time_ns: i64,
 }
 
-const PER_DIRECTION_SQL: &str = "
+fn per_direction_sql() -> String {
+    format!(
+        "
     SELECT f.direction,
-           SUM(f.attempts), SUM(f.work), SUM(f.outputs), SUM(f.not_applied),
-           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses), SUM(f.self_time_ns)
+           {SUMMED_COUNTERS}
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
@@ -428,7 +438,9 @@ const PER_DIRECTION_SQL: &str = "
     -- is already exact and stable -- unlike the work/self-time sorts elsewhere in this file, no
     -- tie-break column is needed.
     ORDER BY f.direction ASC
-";
+"
+    )
+}
 
 /// Direction tag and summed counters — one row per direction with a fact, optionally narrowed to
 /// one object or one kind.
@@ -436,7 +448,7 @@ pub fn per_direction_report(
     conn: &Connection,
     filter: &PerDirectionFilter,
 ) -> Result<Vec<PerDirectionRow>, StatsError> {
-    let mut stmt = conn.prepare(PER_DIRECTION_SQL)?;
+    let mut stmt = conn.prepare(&per_direction_sql())?;
     let rows = stmt.query_map(
         named_params! {
             ":kind": filter.kind.as_deref(),
@@ -485,11 +497,11 @@ pub struct PerKindRow {
     pub self_time_ns: i64,
 }
 
-const PER_KIND_SQL: &str = "
+fn per_kind_sql() -> String {
+    format!(
+        "
     SELECT o.kind,
-           SUM(f.attempts), SUM(f.work), SUM(f.outputs),
-           SUM(CASE WHEN f.allomorph_id = 0 THEN f.not_applied ELSE 0 END),
-           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses), SUM(f.self_time_ns)
+           {SUMMED_COUNTERS}
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
@@ -499,14 +511,16 @@ const PER_KIND_SQL: &str = "
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
     GROUP BY o.kind
     ORDER BY SUM(f.self_time_ns) DESC, o.kind ASC
-";
+"
+    )
+}
 
 /// One row per `ObjectKind` with a fact, summed across every object of that kind.
 pub fn per_kind_report(
     conn: &Connection,
     filter: &PerKindFilter,
 ) -> Result<Vec<PerKindRow>, StatsError> {
-    let mut stmt = conn.prepare(PER_KIND_SQL)?;
+    let mut stmt = conn.prepare(&per_kind_sql())?;
     let rows = stmt.query_map(
         named_params! {
             ":kind": filter.kind.as_deref(),
@@ -557,10 +571,11 @@ pub struct PerMorphemeRow {
     pub self_time_ns: i64,
 }
 
-const PER_MORPHEME_SQL: &str = "
+fn per_morpheme_sql() -> String {
+    format!(
+        "
     SELECT m.key, m.label,
-           SUM(f.attempts), SUM(f.work), SUM(f.outputs), SUM(f.not_applied),
-           SUM(f.no_root), SUM(f.surface_mismatch), SUM(f.uses), SUM(f.self_time_ns)
+           {SUMMED_COUNTERS}
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
@@ -571,7 +586,9 @@ const PER_MORPHEME_SQL: &str = "
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
     GROUP BY o.morpheme_id
     ORDER BY SUM(f.self_time_ns) DESC, m.key ASC
-";
+"
+    )
+}
 
 /// Morpheme locator and summed counters — one row per morpheme with a `lex_entry` fact, so
 /// entries and allomorphs scattered across several rows collapse to the morpheme they realize.
@@ -579,7 +596,7 @@ pub fn per_morpheme_report(
     conn: &Connection,
     filter: &PerMorphemeFilter,
 ) -> Result<Vec<PerMorphemeRow>, StatsError> {
-    let mut stmt = conn.prepare(PER_MORPHEME_SQL)?;
+    let mut stmt = conn.prepare(&per_morpheme_sql())?;
     let rows = stmt.query_map(
         named_params! {
             ":direction": filter.direction.as_deref(),
@@ -1235,6 +1252,48 @@ mod tests {
         assert!(
             allomorph_rows.iter().all(|r| r.not_applied == 1),
             "the per-allomorph report is unaffected -- each row still reports its own failure"
+        );
+    }
+
+    #[test]
+    fn every_orientation_reports_one_failed_invocation_as_one_not_applied() {
+        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+        let words = vec![word_record(
+            "granularity",
+            1,
+            vec![
+                fact_with_allomorph_not_applied("rule-f", None, 1, 1),
+                fact_with_allomorph_not_applied("rule-f", Some(("rule-f:0", "Allo 0")), 0, 1),
+                fact_with_allomorph_not_applied("rule-f", Some(("rule-f:1", "Allo 1")), 0, 1),
+            ],
+        )];
+        outcome.cache.flush(&run(), &words).unwrap();
+        let conn = outcome.cache.connection();
+
+        // Three of these four summed raw and reported 3 for one failure.
+        let stratum = per_stratum_report(conn, &PerStratumFilter::default()).unwrap();
+        assert_eq!(
+            stratum.iter().map(|r| r.not_applied).sum::<i64>(),
+            1,
+            "the stratum orientation must not sum each allomorph's own failure into the rule's"
+        );
+        let direction = per_direction_report(conn, &PerDirectionFilter::default()).unwrap();
+        assert_eq!(
+            direction.iter().map(|r| r.not_applied).sum::<i64>(),
+            1,
+            "the direction orientation must not sum each allomorph's own failure into the rule's"
+        );
+        let kind = per_kind_report(conn, &PerKindFilter::default()).unwrap();
+        assert_eq!(
+            kind.iter().map(|r| r.not_applied).sum::<i64>(),
+            1,
+            "the group orientation must not sum each allomorph's own failure into the rule's"
+        );
+        let object = per_object_report(conn, &PerObjectFilter::default()).unwrap();
+        assert_eq!(
+            object.iter().map(|r| r.not_applied).sum::<i64>(),
+            1,
+            "the object orientation is the one that already masked -- it must stay masked"
         );
     }
 

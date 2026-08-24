@@ -478,12 +478,6 @@ impl StatsCollector {
             .with_row(Direction::Analysis, stratum, id.0, |c| c.no_root += 1);
     }
 
-    /// `no_root` charged to a phonological rule, when that is the last object applied instead.
-    pub fn record_no_root_prule(&self, stratum: StratumId, id: PRuleId) {
-        self.phon
-            .with_row(Direction::Analysis, stratum, id.0, |c| c.no_root += 1);
-    }
-
     /// One lexical-entry candidate materialized (one per matched entry × allomorph); analysis-only,
     /// since lexical lookup runs only on the way toward a root.
     pub fn record_lex_entry_attempt(&self, stratum: StratumId, entry: LexEntryId, allomorph: u32) {
@@ -586,12 +580,6 @@ impl StatsCollector {
     /// same rule's synthesis-direction attempts.
     pub fn record_use_mrule(&self, stratum: StratumId, id: MRuleId) {
         self.morph
-            .with_row(Direction::Synthesis, stratum, id.0, |c| c.uses += 1);
-    }
-
-    /// `uses`: a phonological rule appeared in at least one surviving analysis.
-    pub fn record_use_prule(&self, stratum: StratumId, id: PRuleId) {
-        self.phon
             .with_row(Direction::Synthesis, stratum, id.0, |c| c.uses += 1);
     }
 
