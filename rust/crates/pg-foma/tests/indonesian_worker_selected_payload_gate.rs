@@ -1,9 +1,4 @@
-//! Production RED gate for the exact selected worker payload.
-//!
-//! The frozen Indonesian denominator is the first shipping vertical: the named tuned retry must
-//! compile in the contained worker, return one trusted completed payload, and reconstruct the
-//! analyzer from those exact bytes. No parent rebuild, lower-ranked fallback, placeholder, or
-//! partial comparison can satisfy this gate.
+//! Verifies that the selected Indonesian worker returns one trusted payload whose exact bytes reconstruct the analyzer.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

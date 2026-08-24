@@ -412,9 +412,7 @@ impl ThreeLanguageDenominatorGate {
                 });
             }
         }
-        // The caller's language order is not semantic.  Store the declared Indonesian, Amharic,
-        // Aweti order so the same report cannot change bytes merely because a runner discovered
-        // languages in a different order.
+        // Canonical order keeps reports deterministic regardless of language discovery order.
         ledgers.sort_by_key(|ledger| {
             CANONICAL_LANGUAGES
                 .iter()

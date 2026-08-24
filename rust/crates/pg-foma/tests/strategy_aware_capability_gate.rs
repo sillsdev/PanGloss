@@ -498,8 +498,7 @@ fn templated_selector_refuses_each_known_unsupported_shape_with_per_allomorph_di
     }
 }
 
-/// Classifier recognition alone cannot make a backend selectable before the emitter,
-/// relation compiler, and strict compile-result gate consume the same result.
+/// Classifier recognition does not make a backend selectable until emission, relation compilation, and strict result validation agree.
 #[test]
 fn templated_static_floor_keeps_process_morphology_unrepresentable_until_realization() {
     assert_eq!(

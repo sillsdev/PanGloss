@@ -2119,10 +2119,7 @@ fn compound_extra_levels_checked_with_cap(
             let mut budget = selected_compose.map_or_else(
                 ComposeBudget::from_env,
                 |compose| {
-                    // Before Foma network construction, this emitter only checks the compound
-                    // pair and chain dimensions. The remaining dimensions are carried in this
-                    // complete budget for the downstream Foma composer; unnamed callers retain
-                    // their historical env-driven behavior above.
+                    // A selected snapshot supplies the complete budget; this check adds the compound chain-depth cap before Foma construction.
                     let mut budget = ComposeBudget::with_caps(
                         compose.state_cap,
                         compose.arc_cap,
@@ -4285,9 +4282,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
 
     // Built once and shared by both composite builders below, so they prune against the identical automaton instead of each reading the env vars for their own.
     let morphotactic_index = crate::morphotactics::MorphotacticIndex::build(g);
-    // Named-envelope attempts use only the selected snapshot.  The measurement-only flat and
-    // probe switches remain available to legacy untraced callers, but must not affect a closed
-    // production attempt.
+    // Traced attempts use the selected snapshot; untraced callers retain environment-driven exploration.
     let explore_mode = if closure_trace.is_some() {
         crate::morphotactics::ExploreMode::Pruned
     } else {
