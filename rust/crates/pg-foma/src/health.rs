@@ -11,25 +11,27 @@
 //! axis) is a *different* dimension from the capability-trust axis (characteristics-check
 //! hard-fail vs. capability override, binary proven-vs-unproven). A pack can be cost-healthy yet
 //! capability-unproven, or vice versa — this module models only the cost/health axis. The
-//! `OverrideRecord` on a `HealthFinding` is the capability override *as it bears on one
-//! health finding* (a severity that would otherwise gate publication was force-compiled through),
-//! not a re-implementation of the capability registry itself.
+//! `OverrideRecord` on a `HealthFinding` is retained for backward-compatible audit reading only;
+//! it is not an admission mechanism and does not re-implement the capability registry.
 //!
 //! # Severity and size bands
 //! `severity_for_size_bytes` implements the exact decimal-byte FST-payload bands from the
-//! `*_MAX_BYTES` constants. The warning a crossed band raises is wanted; the exact edge is
+//! `*_MAX_BYTES` constants. The warning or readiness error a crossed band raises is wanted; the exact edge is
 //! provisional — read `IDEAL_MAX_BYTES` before citing an edge as evidence. Size is one dimension among several —
 //! see `Metric` for the others (compile work, intermediate nets, candidates, paths, application
 //! time, unknown/unbounded constructs) — and `HealthReport::admission` aggregates across all of
 //! them, not size alone.
 //!
-//! # Override policy
-//! Both `Severity::Error` and `Severity::Critical` require an explicit recorded development
-//! override. Apply-time execution containment remains non-overridable.
+//! # Legacy override records
+//! `Severity::Error` and `Severity::Critical` remain explicit readiness failures. Older serialized
+//! reports may carry an `OverrideRecord`, but it is audit metadata only: health admission always
+//! reflects raw severity, and capability trust is the only active override axis. Apply-time
+//! execution containment remains a hard boundary as well.
 //!
-//! # Worst non-overridden severity ("FST admission result")
-//! `HealthReport::admission` is the worst severity among findings that do not carry an override
-//! record. The raw severity remains available through `admission_without_overrides`.
+//! # Worst severity ("FST admission result")
+//! `HealthReport::admission` and `admission_without_overrides` both return the worst raw finding
+//! severity. The latter name remains as a compatibility aid for callers that used the old
+//! override-aware schema.
 //!
 //! # Cost uncertainty is not itself Critical
 //! `ValueProvenance` and `MetricValue::Unbounded` encode that unknown cost is not itself
@@ -56,7 +58,7 @@
 //! # Canonical JSON
 //! `HealthReport::to_json`/`HealthReport::from_json` are this schema's canonical
 //! machine-readable form: the source artifact, with any human-readable rendering (e.g. Markdown)
-//! meant to be derived from it rather than authored independently — no such renderer exists yet.
+//! derived by consumers such as `pg-cli make-report` rather than authored independently.
 //! Pretty-printed with two-space indentation and struct fields in Rust declaration order (serde's
 //! default, unmodified), mirroring `pg-snapshot`'s own determinism convention.
 //!
@@ -96,20 +98,18 @@ pub enum Severity {
     Info,
     /// Action-worthy but does not block publication.
     Warning,
-    /// Requires an explicit, recorded `OverrideRecord` before the artifact may publish.
+    /// A readiness failure; a legacy `OverrideRecord` cannot admit it.
     Error,
-    /// The worst band; explicitly overridable for development builds unless the finding is a
-    /// worker/apply containment outcome.
+    /// The worst band; a legacy `OverrideRecord` cannot admit it. Capability overrides are
+    /// recorded on `CapabilityTrust`, not on health findings.
     Critical,
 }
 
 impl Severity {
-    /// Whether an explicit development override may admit this severity.
+    /// Legacy compatibility predicate. Health findings are never admitted by an override record;
+    /// capability trust is the only active override axis.
     pub const fn overridable(self) -> bool {
-        match self {
-            Severity::Error | Severity::Critical => true,
-            Severity::Ideal | Severity::Info | Severity::Warning => false,
-        }
+        false
     }
 }
 
@@ -132,7 +132,8 @@ pub const IDEAL_MAX_BYTES: u64 = 100_000_000;
 pub const INFO_MAX_BYTES: u64 = 200_000_000;
 /// Inclusive upper edge of the Warning payload band. Provenance: see [`IDEAL_MAX_BYTES`].
 pub const WARNING_MAX_BYTES: u64 = 1_000_000_000;
-/// Inclusive upper edge of the Error payload band; above this is Critical. Provenance: see
+/// Inclusive upper edge of the Error payload band; larger payloads remain Error readiness findings
+/// rather than becoming correctness Critical. Provenance: see
 /// [`IDEAL_MAX_BYTES`].
 pub const ERROR_MAX_BYTES: u64 = 5_000_000_000;
 
@@ -155,7 +156,8 @@ pub const fn severity_for_size_bytes(bytes: u64) -> Severity {
     } else if bytes <= ERROR_MAX_BYTES {
         Severity::Error
     } else {
-        Severity::Critical
+        // Payload size is readiness; Critical is reserved for capability findings.
+        Severity::Error
     }
 }
 
@@ -478,24 +480,23 @@ pub struct HealthFinding {
     /// Zero or more ranked, applicable remedies.
     #[serde(default)]
     pub remedies: Vec<Remedy>,
-    /// Present only when this finding's severity was explicitly overridden. `None` means not
-    /// overridden — including for every `Severity::Ideal`/`Severity::Info`/
-    /// `Severity::Warning` finding, which never need one.
+    /// Legacy audit metadata retained for backward-compatible serialized reports. Presence never
+    /// changes health admission; capability trust is the only active override axis.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub override_record: Option<OverrideRecord>,
 }
 
 impl HealthFinding {
-    /// Whether this finding may be overridden by an explicit development override. Apply-time
-    /// findings remain a hard containment boundary even when their severity is Error/Critical.
+    /// Legacy compatibility predicate. Serialized `override_record` values remain readable for
+    /// audit, but no health finding may be admitted through one. Capability trust is the only
+    /// active override axis.
     pub const fn override_allowed(&self) -> bool {
-        !matches!(self.phase, Phase::Apply) && self.severity.overridable()
+        false
     }
 }
 
 /// The aggregated report for one grammar compilation. See `HealthReport::admission` for the
-/// aggregation rule and this module's doc for why an overridden Critical does not dominate a
-/// lower non-overridden severity elsewhere in the same report.
+/// raw-severity aggregation rule; legacy override records never alter it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HealthReport {
     /// This schema's version (`HEALTH_SCHEMA_VERSION`) at the time this report was produced.
@@ -515,25 +516,19 @@ impl HealthReport {
         }
     }
 
-    /// The worst severity among findings that do not carry an override record.
+    /// The worst raw severity, including findings with legacy override records.
     pub fn admission(&self) -> Severity {
         self.findings
             .iter()
-            .filter(|finding| finding.override_record.is_none())
             .map(|finding| finding.severity)
             .max()
             .unwrap_or(Severity::Ideal)
     }
 
-    /// The worst severity in the report, including findings that already carry an override
-    /// record. Callers use this before deciding whether an explicit development override is
-    /// allowed; `admission` remains the post-override result.
+    /// Compatibility alias for the raw admission result. The name remains because it is part of
+    /// the public API and appears in older callers and serialized-report discussions.
     pub fn admission_without_overrides(&self) -> Severity {
-        self.findings
-            .iter()
-            .map(|finding| finding.severity)
-            .max()
-            .unwrap_or(Severity::Ideal)
+        self.admission()
     }
 
     /// Canonical machine-readable form. Pretty-printed, two-space indent, fields in Rust
@@ -622,24 +617,24 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_size_bands_critical_lower_edge_exclusive_of_error() {
+    fn fst_health_size_bands_above_error_floor_remains_error() {
         assert_eq!(
             severity_for_size_bytes(ERROR_MAX_BYTES + 1),
-            Severity::Critical
+            Severity::Error
         );
     }
 
     #[test]
-    fn fst_health_size_bands_critical_far_above_floor() {
-        assert_eq!(severity_for_size_bytes(u64::MAX), Severity::Critical);
+    fn fst_health_size_bands_far_above_floor_remains_error() {
+        assert_eq!(severity_for_size_bytes(u64::MAX), Severity::Error);
     }
 
-    // fst_health_override_policy: Error/Critical are overrideable; Apply containment is not.
+    // fst_health_override_policy: legacy records are audit-only and never admit health.
 
     #[test]
-    fn fst_health_override_policy_error_and_critical_are_overridable() {
-        assert!(Severity::Error.overridable());
-        assert!(Severity::Critical.overridable());
+    fn fst_health_override_policy_error_and_critical_are_non_admitting() {
+        assert!(!Severity::Error.overridable());
+        assert!(!Severity::Critical.overridable());
     }
 
     #[test]
@@ -677,34 +672,49 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_override_policy_overridden_critical_does_not_dominate_non_overridden_warning() {
+    fn fst_health_override_policy_legacy_critical_still_dominates_warning() {
         let report = HealthReport::new(vec![
             synthetic_finding(Severity::Critical, Some(synthetic_override())),
             synthetic_finding(Severity::Warning, None),
         ]);
         assert_eq!(
             report.admission(),
-            Severity::Warning,
-            "an overridden Critical finding must not dominate a non-overridden Warning finding"
+            Severity::Critical,
+            "a legacy override record cannot hide a Critical readiness finding"
         );
     }
 
     #[test]
-    fn fst_health_override_policy_overridden_error_does_not_dominate_non_overridden_info() {
+    fn fst_health_override_policy_legacy_error_still_dominates_info() {
         let report = HealthReport::new(vec![
             synthetic_finding(Severity::Error, Some(synthetic_override())),
             synthetic_finding(Severity::Info, None),
         ]);
-        assert_eq!(report.admission(), Severity::Info);
+        assert_eq!(report.admission(), Severity::Error);
     }
 
     #[test]
-    fn fst_health_override_policy_all_findings_overridden_admits_ideal() {
+    fn fst_health_legacy_override_record_never_changes_raw_admission() {
+        let report = HealthReport::new(vec![synthetic_finding(
+            Severity::Error,
+            Some(synthetic_override()),
+        )]);
+
+        assert_eq!(report.admission_without_overrides(), Severity::Error);
+        assert_eq!(
+            report.admission(),
+            Severity::Error,
+            "legacy override records are audit data and cannot admit readiness"
+        );
+    }
+
+    #[test]
+    fn fst_health_override_policy_all_findings_with_legacy_records_still_fail() {
         let report = HealthReport::new(vec![synthetic_finding(
             Severity::Critical,
             Some(synthetic_override()),
         )]);
-        assert_eq!(report.admission(), Severity::Ideal);
+        assert_eq!(report.admission(), Severity::Critical);
     }
 
     #[test]
@@ -714,7 +724,7 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_override_policy_worst_non_overridden_wins_among_several() {
+    fn fst_health_override_policy_worst_raw_severity_wins_among_several() {
         let report = HealthReport::new(vec![
             synthetic_finding(Severity::Info, None),
             synthetic_finding(Severity::Error, None),
@@ -724,12 +734,12 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_override_policy_raw_admission_keeps_overridden_severity_visible() {
+    fn fst_health_override_policy_raw_admission_matches_compatibility_alias() {
         let report = HealthReport::new(vec![synthetic_finding(
             Severity::Critical,
             Some(synthetic_override()),
         )]);
-        assert_eq!(report.admission(), Severity::Ideal);
+        assert_eq!(report.admission(), Severity::Critical);
         assert_eq!(report.admission_without_overrides(), Severity::Critical);
     }
 
@@ -947,12 +957,12 @@ mod tests {
             parsed, report,
             "round trip through canonical JSON must be lossless"
         );
-        assert_eq!(parsed.admission(), Severity::Warning);
+        assert_eq!(parsed.admission(), Severity::Error);
     }
 
     #[test]
-    fn fst_health_schema_golden_admission_is_warning() {
-        // The golden's Error finding is overridden and therefore must not dominate.
-        assert_eq!(representative_report().admission(), Severity::Warning);
+    fn fst_health_schema_golden_admission_includes_legacy_overridden_error() {
+        // The golden's Error finding remains a readiness failure despite its audit record.
+        assert_eq!(representative_report().admission(), Severity::Error);
     }
 }

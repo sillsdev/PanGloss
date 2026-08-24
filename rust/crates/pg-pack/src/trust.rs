@@ -5,14 +5,13 @@
 //! `CapabilityTrust` is its own
 //! distinct manifest field (see `crate::manifest::PackManifest::capability_trust`), **not** a
 //! reuse of `pg_foma::health::HealthFinding::override_record` — that per-finding
-//! `pg_foma::health::OverrideRecord` stays exactly what it is (a cost/health-axis override on
-//! one finding); this module's `CapabilityOverrideRecord` is the pack-level correctness-trust
+//! `pg_foma::health::OverrideRecord` is legacy audit metadata and never admits a readiness
+//! finding; this module's `CapabilityOverrideRecord` is the pack-level correctness-trust
 //! override. Distinct fields per axis: reuse the artifact, not the field.
 //!
 //! This is the **persistent** home for capability-override state: `rust/crates/pg-cli/src/main.rs`'s
-//! `GateResult::overridden` is today only a session/report-level stand-in ("no `.pgpack` packaging
-//! exists yet to carry that" — see that type's own doc), scoped to one CLI invocation. This
-//! module's `CapabilityOverrideRecord` is that persistent, indelible, serialized record: once
+//! `GateResult::overridden` is scoped to one CLI invocation, while this module's
+//! `CapabilityOverrideRecord` is the indelible serialized record. Once
 //! written into a pack manifest and the pack is distributed, the record travels with the pack
 //! forever -- the stamp is indelible and cannot be removed by a consumer.
 //!

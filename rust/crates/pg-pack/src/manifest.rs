@@ -92,7 +92,7 @@ pub struct PackManifest {
     /// The capability-trust stamp: proven, or overridden/unproven with its permanent
     /// override record.
     pub capability_trust: CapabilityTrust,
-    /// The FST-health admission/findings/override report (reusing
+    /// The FST-health raw admission/findings/audit-record report (reusing
     /// `pg_foma::health::HealthReport`/`Severity`/`HealthReport::admission` verbatim --
     /// never redefined here).
     pub fst_health: HealthReport,

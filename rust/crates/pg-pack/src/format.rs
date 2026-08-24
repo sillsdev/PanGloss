@@ -48,6 +48,7 @@ use thiserror::Error;
 
 use crate::manifest::PackManifest;
 use crate::signature::{self, SignatureState};
+use crate::trust::CapabilityTrust;
 
 /// Fixed PanGloss magic bytes opening every `.pgpack` container.
 pub const MAGIC: [u8; 8] = *b"PGLOPACK";
@@ -131,6 +132,17 @@ pub enum PgPackError {
     FingerprintMismatch,
     #[error("invalid pack manifest JSON: {0}")]
     ManifestJson(String),
+    #[error("overridden capability trust cannot carry an FST completeness certificate")]
+    OverriddenCompletenessConflict,
+}
+
+fn validate_trust_completeness(manifest: &PackManifest) -> Result<(), PgPackError> {
+    if matches!(&manifest.capability_trust, CapabilityTrust::Overridden(_))
+        && manifest.fst_completeness.is_some()
+    {
+        return Err(PgPackError::OverriddenCompletenessConflict);
+    }
+    Ok(())
 }
 
 /// The anti-mix-across-grammars package fingerprint: one fingerprint binds both
@@ -184,6 +196,7 @@ pub fn write_pack(
     if manifest.package_fingerprint != expected_fingerprint {
         return Err(PgPackError::FingerprintMismatch);
     }
+    validate_trust_completeness(manifest)?;
 
     let manifest_json = manifest.to_canonical_json();
     let manifest_bytes = manifest_json.as_bytes();
@@ -351,6 +364,7 @@ pub fn read_pack(bytes: &[u8]) -> Result<ReadPack, PgPackError> {
         .map_err(|e| PgPackError::ManifestJson(format!("manifest is not valid UTF-8: {e}")))?;
     let manifest = PackManifest::from_json(manifest_str)
         .map_err(|e| PgPackError::ManifestJson(e.to_string()))?;
+    validate_trust_completeness(&manifest)?;
 
     let runtime_payload = runtime_bytes.to_vec();
     let foma_payload = foma_bytes.to_vec();
@@ -544,12 +558,54 @@ mod tests {
                     witness: "synthetic-witness".to_string(),
                 }],
             });
+        manifest.fst_completeness = None;
         // Fingerprint is independent of capability_trust, so it's still valid unchanged.
         let bytes =
             write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         let read = read_pack(&bytes).unwrap();
         assert!(read.manifest.capability_trust.is_unproven());
         assert_eq!(read.manifest, manifest);
+    }
+
+    #[test]
+    fn write_pack_rejects_overridden_manifest_with_completeness_certificate() {
+        let mut manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
+        manifest.capability_trust = CapabilityTrust::Overridden(crate::trust::CapabilityOverrideRecord {
+            authorized_by: "test".to_string(),
+            reason: "test".to_string(),
+            recorded_at: "test".to_string(),
+            overridden_configs: vec![],
+        });
+
+        let err = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD)
+            .expect_err("overridden completeness must be refused");
+        assert_eq!(err, PgPackError::OverriddenCompletenessConflict);
+    }
+
+    #[test]
+    fn read_pack_rejects_overridden_manifest_with_completeness_certificate() {
+        let mut manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
+        manifest.capability_trust = CapabilityTrust::Overridden(crate::trust::CapabilityOverrideRecord {
+            authorized_by: "test".to_string(),
+            reason: "test".to_string(),
+            recorded_at: "test".to_string(),
+            overridden_configs: vec![],
+        });
+        let manifest_bytes = manifest.to_canonical_json();
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&MAGIC);
+        bytes.extend_from_slice(&CONTAINER_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&(manifest_bytes.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&(SYNTHETIC_RUNTIME_PAYLOAD.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&(SYNTHETIC_FOMA_PAYLOAD.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(manifest_bytes.as_bytes());
+        bytes.extend_from_slice(SYNTHETIC_RUNTIME_PAYLOAD);
+        bytes.extend_from_slice(SYNTHETIC_FOMA_PAYLOAD);
+        let digest = Sha256::digest(&bytes);
+        bytes.extend_from_slice(&digest);
+
+        let err = read_pack(&bytes).expect_err("overridden completeness must be refused");
+        assert_eq!(err, PgPackError::OverriddenCompletenessConflict);
     }
 
     // --- Bad magic / bad version ---
