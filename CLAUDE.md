@@ -43,6 +43,28 @@ refuses `cargo build|test|check|run` and `cargo nextest run`; `cargo fmt`/`clean
 The escape hatch is `PANGLOSS_ALLOW_BARE_CARGO=1`, deliberately an env var — needing it means the
 managed path is broken and should be fixed, not routed around.
 
+**A feature-gated test needs a second pass, and a one-pass run cannot tell you it was skipped.**
+`pg.ps1` passes no `--features`, so every `#[cfg(feature = "developer-tools")]` test is *compiled
+out* of an ordinary `-Mode test` run. It does not appear as a failure, and it does not appear as a
+skip either — it appears as nothing at all, which is exactly the shape of "I could not look" reading
+as "everything is fine" that this file refuses elsewhere. Measured: `pg-cli --test
+developer_flags_contract` runs **2** tests by default and **4** with the feature on, and the two
+sets are disjoint — the production tests assert the flags are rejected as unknown options, the
+developer tests assert they are honoured. Verifying only the default half proves nothing about the
+other.
+
+So any change touching a developer-gated flag, API, or `CompileSizeMode` variant must be verified
+**twice**. `pg.ps1` reads `PANGLOSS_EXTRA_ARGS` (a binder-proof passthrough appended after
+`-ExtraArgs`), so the second pass is:
+```powershell
+$env:PANGLOSS_EXTRA_ARGS = '--features developer-tools'
+& .\rust\tools\pg.ps1 -Mode test -Package pg-cli -TestTarget developer_flags_contract
+$env:PANGLOSS_EXTRA_ARGS = ''
+```
+Read the printed cargo line back and confirm it really contains `--features developer-tools`; a pass
+that silently lost the flag is indistinguishable from a green run of the wrong half. Clearing the
+variable afterward matters — left set, it silently re-features every later build in the session.
+
 ## Keeping SSH / remote desktop alive during builds
 
 This machine is administered remotely, and builds used to freeze SSH and Chrome Remote Desktop
