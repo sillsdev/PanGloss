@@ -844,6 +844,7 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
     let emit::EmitResult {
         lexc_source,
         report,
+        ..
     } = emit::emit(&g);
     let emit_ms = ms(stage.elapsed());
     // `Unsupported` means `lexc_source` is deliberately empty; compiling it anyway would silently report every word as `no-candidates` instead of the real reason.

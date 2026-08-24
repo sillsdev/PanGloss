@@ -9,7 +9,8 @@
 //! recomputation. This module reads exactly four measurement sources that exist in this crate
 //! **today** — nothing here calls `foma`, walks a grammar, or measures anything itself:
 //! - **Payload size**: a plain `u64` byte count the caller already has (the emitted network /
-//!   `pg-pack` payload), scored by `crate::health::severity_for_size_bytes` (unchanged, reused).
+//!   `pg-pack` payload), scored by `crate::health::severity_for_size_bytes`; oversized payloads
+//!   remain readiness `Error`, never correctness `Critical`.
 //! - **`crate::emit::EmitReport`**: `tier`/`uncovered`/`enum_budget_exceeded`, already produced
 //!   by `crate::emit::emit`/`emit_with_budget`.
 //! - **`crate::compose_budget::ComposeError`** (compile-time composition budget trips) and
@@ -283,7 +284,9 @@ fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
         Severity::Info => MetricValue::Bytes(crate::health::IDEAL_MAX_BYTES),
         Severity::Warning => MetricValue::Bytes(crate::health::INFO_MAX_BYTES),
         Severity::Error => MetricValue::Bytes(crate::health::WARNING_MAX_BYTES),
-        Severity::Critical => MetricValue::Bytes(crate::health::ERROR_MAX_BYTES),
+        Severity::Critical => unreachable!(
+            "payload size bands do not produce Critical; Critical is reserved for capability findings"
+        ),
     }
 }
 
@@ -922,7 +925,7 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_evaluator_critical_payload_is_explicitly_overridable() {
+    fn fst_health_evaluator_oversized_payload_remains_error_readiness() {
         let report = evaluate_health(
             Some(crate::health::ERROR_MAX_BYTES + 1),
             None,
@@ -930,9 +933,9 @@ mod tests {
             &[],
             None,
         );
-        assert_eq!(report.findings[0].severity, Severity::Critical);
-        assert!(report.findings[0].severity.overridable());
-        assert_eq!(report.admission(), Severity::Critical);
+        assert_eq!(report.findings[0].severity, Severity::Error);
+        assert!(!report.findings[0].severity.overridable());
+        assert_eq!(report.admission(), Severity::Error);
     }
 
     // fst_health_evaluator_emit_report: FomaTier + enum-budget-exceeded mapping.

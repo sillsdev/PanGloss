@@ -121,7 +121,9 @@ pub struct OverrideRecord {
 pub enum TrustStatus {
     /// The characteristics-check gate admitted this artifact cleanly; no override was exercised.
     Proven,
-    /// This artifact was force-compiled past a refusal or an overridden FST-health band, permanently disqualifying certification regardless of every other input.
+    /// This artifact was force-compiled past a capability/correctness refusal, permanently
+    /// disqualifying certification regardless of every other input. FST-health findings are a
+    /// separate readiness axis and are never admitted by this trust status.
     Overridden(OverrideRecord),
 }
 

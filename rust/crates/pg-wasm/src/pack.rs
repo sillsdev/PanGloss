@@ -161,9 +161,8 @@ impl LoadedPack {
     }
 
     /// The FST-health "admission result" (`pg_foma::health::HealthReport::admission`,
-    /// reused verbatim — this module never redefines or re-derives the health schema). The worst non-overridden severity
-    /// among this pack's FST-health findings; `pg_foma::health::Severity::Ideal` for an empty or
-    /// fully-overridden report.
+    /// reused verbatim — this module never redefines or re-derives the health schema). It is the
+    /// worst raw severity, including legacy audit override records; capability trust is separate.
     pub fn fst_health_admission(&self) -> pg_foma::health::Severity {
         self.manifest.fst_health.admission()
     }
@@ -357,6 +356,8 @@ mod tests {
             RUNTIME_PAYLOAD,
             FOMA_PAYLOAD,
         );
+        let mut manifest = manifest;
+        manifest.fst_completeness = None;
         let bytes = pg_pack::write_pack(&manifest, RUNTIME_PAYLOAD, FOMA_PAYLOAD).unwrap();
 
         let loaded =

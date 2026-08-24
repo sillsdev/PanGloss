@@ -93,9 +93,7 @@ mod recipe_optimize;
 mod stats_cmd;
 mod trace_render;
 
-/// Accepts the experimental FST controls only when this binary was explicitly built with the
-/// `developer-tools` feature. Production parsing returns an error before a token can become a
-/// positional grammar or word path.
+/// Accepts experimental FST controls only in `developer-tools` builds, before positional parsing.
 fn accept_developer_flag(arg: &str) -> Result<(), String> {
     debug_assert!(matches!(
         arg,
@@ -500,6 +498,25 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
     }
 }
 
+fn build_foma_analyzer<'g>(
+    grammar: &'g Grammar,
+    capability_overridden: bool,
+) -> Result<FomaAnalyzer<'g>, pg_foma::analyzer::FomaError> {
+    if !capability_overridden {
+        return FomaAnalyzer::new(grammar);
+    }
+
+    #[cfg(feature = "developer-tools")]
+    {
+        let (proposer, _profile) =
+            pg_foma::analyzer::FomaProposer::new_unproven_with_profile(grammar);
+        return proposer.map(|proposer| FomaAnalyzer::from_precompiled_proposer(grammar, proposer));
+    }
+
+    #[cfg(not(feature = "developer-tools"))]
+    FomaAnalyzer::new(grammar)
+}
+
 /// Decides what `run_batch`/`run_parse` should do about the gated backend's `CompileDecision` for `g` (`gated_backend_decision` over `pg_foma::backend_selection::select_backends_for_grammar`'s report), given the resolved `enforce`/`allow_unproven` booleans, and what to print to stderr about it.
 /// See `docs/research/pg-cli-main-design-notes.md` for the full enforce/override contract and why the override marker is session-level, not a persistent stamp.
 struct GateResult {
@@ -666,13 +683,17 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
 }
 
 /// Runs `capability_gate` over `g`, prints its `stderr_lines`, and returns `Err` on a gate refusal; called before any output file is created or analysis line printed, so a hard refusal truly produces no analysis output.
-fn run_capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> Result<(), String> {
+fn run_capability_gate(
+    g: &Grammar,
+    enforce: bool,
+    allow_unproven: bool,
+) -> Result<GateResult, String> {
     let gate = capability_gate(g, enforce, allow_unproven);
     for line in &gate.stderr_lines {
         eprintln!("{line}");
     }
     if gate.proceed {
-        Ok(())
+        Ok(gate)
     } else {
         Err(format!(
             "capability gate refused this grammar under capability enforcement (diagnostics \
@@ -792,7 +813,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
-    run_capability_gate(&grammar, enforce_capability, allow_unproven)?;
+    let gate = run_capability_gate(&grammar, enforce_capability, allow_unproven)?;
 
     // --natural-gloss=eng setup built once up front, since neither the embedded table nor the sidecar map depends on the word being parsed.
     let natural: Option<(pg_realize::TableRealizer, pg_realize::RealizeMap)> = match &natural_gloss
@@ -808,7 +829,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
 
     if engine == Engine::Foma {
         // --trace was already rejected above, so this routes through FomaAnalyzer::analyze_word instead of Morpher::parse_word, with output shape identical to the default engine's.
-        let mut analyzer = FomaAnalyzer::new(&grammar)
+        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden)
             .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?;
         let (analyses, structured) = if foma_invalid_shape(&grammar, word) {
             (Vec::new(), Vec::new())
@@ -1112,7 +1133,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     print_grammar_warnings(&warnings);
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
     // Computed after grammar_load_ms so the gate's own cost never perturbs the LOADTIME diagnostic, and before out_path is created, so a foma-path refusal truly produces no analysis output.
-    run_capability_gate(&grammar, enforce_capability, allow_unproven)?;
+    let gate = run_capability_gate(&grammar, enforce_capability, allow_unproven)?;
 
     let words: Vec<String> = fs::read_to_string(words_path)
         .map_err(|e| format!("read {words_path}: {e}"))?
@@ -1141,7 +1162,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     if engine == Engine::Foma {
         // The foma path: one FomaAnalyzer built once and reused across every word. --step-cap/--memo are silently ignored (the internal verifier Morpher is always uncapped), --word-timeout-ms applies via with_word_timeout, and threads > 1 routes through analyze_words (confirm parallelized, propose sequential since the single ApplyHandle can't be split across threads) with results buffered and written once, no per-word crash-resume.
         let t_compile = Instant::now();
-        let mut analyzer = FomaAnalyzer::new(&grammar)
+        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden)
             .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?
             .with_word_timeout(word_timeout_ms.map(Duration::from_millis));
         let compile_ms = t_compile.elapsed().as_secs_f64() * 1e3;
@@ -1774,7 +1795,7 @@ mod tests {
 
     /// Covers `capability_gate`'s pure boolean contract directly, and `resolve_capability_enforcement`'s engine-scoping policy end-to-end through `run_batch`: `--engine=default` never enforces, `--engine=foma` enforces by default, `--no-enforce-capability` opts back out, and `--allow-unproven` still overrides a foma-path refusal.
     mod capability_gate_tests {
-        use super::super::{capability_gate, run_batch, run_capability_gate};
+        use super::super::{capability_gate, run_batch};
         use std::fs;
         use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -1862,8 +1883,9 @@ mod tests {
             ] {
                 assert!(!rendered.contains(flag), "production diagnostic leaked {flag}: {rendered}");
             }
-            let error = run_capability_gate(&refused, true, false)
-                .expect_err("a refused grammar must fail the production gate");
+            let error = super::super::run_capability_gate(&refused, true, false)
+                .err()
+                .expect("a refused grammar must fail the production gate");
             for flag in [
                 "--allow-unproven",
                 "--no-enforce-capability",

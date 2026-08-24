@@ -66,7 +66,7 @@ Run the default command from Step 2; expected PASS. Then set
 `PANGLOSS_EXTRA_ARGS=--features developer-tools`, rerun it, and require the feature-gated assertions
 to see the developer flags in help.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit: `feat(cli): quarantine developer FST flags`
 
@@ -79,23 +79,26 @@ Commit: `feat(cli): quarantine developer FST flags`
 - Modify: `rust/crates/pg-foma/src/health.rs`
 - Test: `rust/crates/pg-cli/tests/developer_flags_contract.rs`
 
-- [ ] **Step 1: Add failing trust/readiness tests**
+- [x] **Step 1: Add failing trust/readiness tests**
 
-Under `developer-tools`, prove `--allow-unproven` can cross only a capability refusal, always writes
-`CapabilityTrust::Overridden`, never certifies, and does not change an Error readiness finding.
+Under `developer-tools`, prove `--allow-unproven` can cross only a capability refusal, writes local
+developer evidence with `CapabilityTrust::Overridden`, never certifies or production-publishes, and
+does not change an independent Error readiness finding. The refused partial fixture's `PGF0013`
+capability finding belongs in its backend assessment, so its readiness projection may be `Ideal`;
+use a separate readiness fixture to prove raw Error still blocks publication.
 
 ```rust
 assert_eq!(pack.manifest.capability_trust, CapabilityTrust::Overridden { /* fixture record */ });
-assert_eq!(pack.manifest.fst_health.admission_without_overrides(), Severity::Error);
+assert_eq!(pack.manifest.fst_health.admission_without_overrides(), Severity::Ideal);
 assert!(!report.certified);
 ```
 
-- [ ] **Step 2: Run and observe the health-coupling failure**
+- [x] **Step 2: Run and observe the health-coupling failure**
 
 Run the feature-enabled `developer_flags_contract`; expected FAIL in `apply_health_override` because
 the current Boolean override also admits Error/Critical health.
 
-- [ ] **Step 3: Split the code paths**
+- [x] **Step 3: Split the code paths**
 
 Feature-gate `FomaProposer::new_unproven_with_profile`. Replace `apply_health_override(...,
 allow_unproven, ...)` with correctness-specific trust construction; never attach an override record
@@ -103,14 +106,23 @@ to an Error readiness finding. In `health.rs`, make payload sizes above the old 
 Error readiness findings; capability refusal supplies Critical at the compatibility-report layer.
 Keep `readiness_verdict.rs` returning `NotSupported` for overridden trust.
 
-- [ ] **Step 4: Run focused CLI/unit tests**
+- [x] **Step 4: Run focused CLI/unit tests**
 
 Run `pg-cli`'s developer contract plus existing `pack` and `make_report` unit filters through
 `pg.ps1`; expected PASS and no production help exposure.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit: `fix(pack): separate trust from readiness`
+
+Verification note: the focused trust/readiness filters and production flag contract pass. A full
+`pg-cli` developer-feature run also exposes four separate recipe-optimizer regressions introduced
+by `87320bff`: marker-bearing candidates return `Unsupported` before measurement, while the older
+continuation/evidence tests still expect confirmation work. This slice does not change
+`backend_runtime.rs`, `recipe_optimize.rs`, or those tests; repair that contract independently.
+An independent Sol/xhigh source review found no P0-P2 defects and verified the three corrected
+invariants: current-grammar override selection, overridden/completeness pack rejection, and
+missing-payload evidence in the gated backend assessment.
 
 ### Task 3: Typed size-limit stress mode
 
@@ -118,8 +130,14 @@ Commit: `fix(pack): separate trust from readiness`
 - Modify: `rust/crates/pg-foma/src/resource_envelope.rs`
 - Modify: `rust/crates/pg-foma/src/compose_budget.rs`
 - Modify: `rust/crates/pg-foma/src/morphotactics.rs`
+- Modify: `rust/crates/pg-foma/src/characterization.rs`
 - Modify: `rust/crates/pg-foma/src/worker.rs`
+- Modify: `rust/crates/pg-foma/src/worker_contract.rs`
 - Modify: `rust/crates/pg-foma/src/emit.rs`
+- Modify: `rust/crates/pg-foma/src/completed_build.rs`
+- Modify: `rust/crates/pg-foma/src/analyzer.rs`
+- Coordinate CLI propagation in `rust/crates/pg-cli/src/main.rs` (the Task 4 CLI wiring owns the
+  final flag surface).
 - Test: `rust/crates/pg-foma/tests/developer_budget_controls.rs`
 
 - [ ] **Step 1: Add failing orthogonality tests**
@@ -133,7 +151,12 @@ assert_eq!(stress.watchdog(), managed.watchdog());
 assert_eq!(stress.communication(), managed.communication());
 ```
 
-Also inject a live successor and assert `Incomplete`, never `SelectedSuccess`.
+Construct `managed` and `stress` as typed projections of the same shipped
+`ResourceEnvelope`; assert that the projection preserves the envelope's identity/digest and
+protocol/communication/watchdog values. Also require a mechanism-engaged counter: a fixture must
+cross at least one managed deterministic compose/enumeration/closure cap, then complete under
+stress with the observed counter retained in evidence. Inject a live successor separately and
+assert `Incomplete`, never `SelectedSuccess`.
 
 - [ ] **Step 2: Run and observe missing API failure**
 
@@ -149,15 +172,30 @@ Add a serde-stable worker field:
 pub enum CompileSizeMode { Managed, #[cfg(feature = "developer-tools")] DeveloperStress }
 ```
 
-Convert only deterministic compose/enumeration/closure caps to optional disabled values in stress
-mode. Do not alter `WatchdogEnvelope`, `CommunicationEnvelope`, absolute ceiling, capability result,
-closure terminal, payload validation, or parity validation. Record the mode in attempt evidence and
-bump the worker protocol version.
+Keep `ResourceEnvelope::for_id` and its canonical identity/digest as the exact shipped managed
+profile. Derive a typed, non-digest-changing mode projection for effective budgets; never mutate or
+re-hash the shipped envelope. Thread the mode through both generic and selected worker requests,
+`CompileEnvelopeRequest`, the analyzer/emitter, and the completed-build evidence/wire. Bump the
+worker protocol version in `worker_contract.rs`.
+
+In `DeveloperStress`, disable only deterministic internal compose, enumeration, and closure
+size/work caps (including their compound dimensions), while retaining observed counters. Preserve
+the compose step timeout, apply-time containment, the versioned absolute chain-depth ceiling,
+representation/correctness caps (including uncovered-material reporting), and all worker watchdog,
+RSS, output, request/result protocol, and payload ceilings. Do not alter capability results,
+closure-terminal semantics, exact terminal evidence, payload identity validation, or semantic parity
+validation. A live successor, pending work, skipped/truncated/uncovered material, or any containment
+breach remains incomplete and can never produce a selected artifact.
+
+The CLI must not consume `--remove-size-limits` and do nothing: `parse`/`batch` either propagate
+the typed mode into their Foma compile path or reject it with an explicit command/path error.
 
 - [ ] **Step 4: Prove containment and completion**
 
 Run `developer_budget_controls`, `worker_supervisor`, `closure_terminal_parity_gate`, and
-`trusted_selected_build_gate` through `pg.ps1`; expected PASS.
+`trusted_selected_build_gate` through `pg.ps1`; expected PASS. The developer-budget test must prove
+the mode was engaged via observed counters, outer containment is unchanged, a complete stress
+artifact remains readiness `Error`, and incomplete/live-successor attempts never become selected.
 
 - [ ] **Step 5: Commit**
 

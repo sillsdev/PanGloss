@@ -6,10 +6,12 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+use pg_foma::analyzer::FomaProposer;
 use pg_foma::backend_selection::select_backends;
 use pg_foma::capability::CompileDecision;
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::grammar_semantics::GrammarSemantics;
+use pg_foma::health::HealthReport;
 use pg_foma::plan_diagram::{
     build_plan_document_with_semantics, render_mermaid, MermaidRender, RenderMode,
 };
@@ -305,6 +307,188 @@ fn render_checks_table(checks: &[CheckResult], policy: &ThresholdPolicy) -> Stri
     out
 }
 
+fn render_health_findings(health: Option<&HealthReport>) -> Option<String> {
+    let report = health?;
+    let mut out = String::new();
+    writeln!(out, "| Severity | Code | Phase | Explanation | Remedies |").unwrap();
+    writeln!(out, "|---|---|---|---|---|").unwrap();
+    for finding in &report.findings {
+        let remedies = if finding.remedies.is_empty() {
+            "none".to_string()
+        } else {
+            finding
+                .remedies
+                .iter()
+                .map(|remedy| remedy.description.replace('|', "\\|").replace('\n', " "))
+                .collect::<Vec<_>>()
+                .join("<br>")
+        };
+        writeln!(
+            out,
+            "| `{:?}` | `{}` | `{:?}` | {} | {} |",
+            finding.severity,
+            finding.code.code(),
+            finding.phase,
+            finding.explanation.replace('|', "\\|").replace('\n', " "),
+            remedies,
+        )
+        .unwrap();
+    }
+    Some(out)
+}
+
+fn markdown_cell(value: &str) -> String {
+    value.replace('|', "\\|").replace('\n', " ")
+}
+
+fn render_backend_assessments(
+    assessments: Option<&[pg_pack::BackendAssessment]>,
+) -> Option<String> {
+    let assessments = assessments?;
+    let mut out = String::new();
+    for assessment in assessments {
+        writeln!(out, "### Backend `{}`", markdown_cell(&assessment.backend)).unwrap();
+        writeln!(
+            out,
+            "Decision: `{}`; status: `{}`",
+            markdown_cell(&assessment.decision),
+            markdown_cell(&assessment.status),
+        )
+        .unwrap();
+        if let Some(detail) = &assessment.status_detail {
+            writeln!(out, "Status detail: {}", markdown_cell(detail)).unwrap();
+        }
+        let failed_predicates = if assessment.failed_predicates.is_empty() {
+            "none".to_string()
+        } else {
+            assessment
+                .failed_predicates
+                .iter()
+                .map(|predicate| markdown_cell(predicate))
+                .collect::<Vec<_>>()
+                .join("<br>")
+        };
+        writeln!(out, "Failed predicates: {failed_predicates}").unwrap();
+        let advice_references = if assessment.advice_references.is_empty() {
+            "none".to_string()
+        } else {
+            assessment
+                .advice_references
+                .iter()
+                .map(|reference| {
+                    format!(
+                        "{} / {} (effort={:?})",
+                        markdown_cell(&reference.shape_key),
+                        markdown_cell(&reference.remedy_key),
+                        reference.effort,
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("<br>")
+        };
+        writeln!(out, "Advice references: {advice_references}").unwrap();
+        let shapes = if assessment.shapes.is_empty() {
+            "none".to_string()
+        } else {
+            assessment
+                .shapes
+                .iter()
+                .map(|shape| markdown_cell(shape))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        writeln!(out, "Shapes: {shapes}").unwrap();
+        let cost_evidence = if assessment.cost_evidence.is_empty() {
+            "none".to_string()
+        } else {
+            assessment
+                .cost_evidence
+                .iter()
+                .map(|evidence| {
+                    markdown_cell(&format!(
+                        "metric={:?}; value={:?}; threshold={:?}; provenance={:?}",
+                        evidence.metric,
+                        evidence.value,
+                        evidence.threshold,
+                        evidence.provenance,
+                    ))
+                })
+                .collect::<Vec<_>>()
+                .join("<br>")
+        };
+        writeln!(out, "Cost evidence: {cost_evidence}").unwrap();
+        if assessment.findings.is_empty() {
+            writeln!(out, "Findings: none").unwrap();
+        } else {
+            writeln!(out).unwrap();
+            writeln!(out, "| Code | Severity | Explanation | Remedies |").unwrap();
+            writeln!(out, "|---|---|---|---|").unwrap();
+            for finding in &assessment.findings {
+                let remedies = if finding.remedies.is_empty() {
+                    "none".to_string()
+                } else {
+                    finding
+                        .remedies
+                        .iter()
+                        .map(|remedy| {
+                            let caveat = remedy
+                                .caveat
+                                .as_deref()
+                                .map(|text| format!(" (caveat: {})", markdown_cell(text)))
+                                .unwrap_or_default();
+                            format!(
+                                "#{}: {}{}",
+                                remedy.rank,
+                                markdown_cell(&remedy.description),
+                                caveat,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("<br>")
+                };
+                writeln!(
+                    out,
+                    "| `{}` | `{:?}` | {} | {} |",
+                    finding.code.code(),
+                    finding.severity,
+                    markdown_cell(&finding.explanation),
+                    remedies,
+                )
+                .unwrap();
+            }
+        }
+        writeln!(out).unwrap();
+    }
+    Some(out)
+}
+
+fn build_report_analyzer<'g>(
+    grammar: &'g Grammar,
+    unproven: bool,
+) -> Result<FomaAnalyzer<'g>, String> {
+    let (result, _profile) = if unproven {
+        #[cfg(feature = "developer-tools")]
+        {
+            FomaProposer::new_unproven_with_profile(grammar)
+        }
+        #[cfg(not(feature = "developer-tools"))]
+        {
+            return Err(
+                "unproven report measurement requires the developer-tools feature".to_string(),
+            );
+        }
+    } else {
+        FomaProposer::new_with_profile(grammar)
+    };
+    result
+        .map(|proposer| FomaAnalyzer::from_precompiled_proposer(grammar, proposer))
+        .map_err(|error| format!("foma compile failed for report measurement: {error}"))
+}
+
+fn capability_override_engaged(decision: &CompileDecision, allow_unproven: bool) -> bool {
+    allow_unproven && matches!(decision, CompileDecision::Refuse(_))
+}
+
 fn render_capability(capability: &CapabilitySummary) -> String {
     match capability {
         CapabilitySummary::Admit => {
@@ -366,6 +550,7 @@ fn render_trust(trust: &TrustStatus) -> String {
     }
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn render_markdown(
     grammar_id: &str,
@@ -374,6 +559,50 @@ fn render_markdown(
     out_path: &str,
     policy: &ThresholdPolicy,
     verdict: &ReadinessReport,
+    fst_health: Option<&HealthReport>,
+    build_time_line: &str,
+    latency_methodology_line: &str,
+    coverage_attestation_line: &str,
+    mermaid: &str,
+    mermaid_summary_line: &str,
+    pack_pin: &str,
+    corpus_pin: &str,
+    submodule_pin: &str,
+    repo_head: &str,
+    not_tested: &[String],
+) -> String {
+    render_markdown_with_assessments(
+        grammar_id,
+        grammar_path,
+        grammar_sha256,
+        out_path,
+        policy,
+        verdict,
+        fst_health,
+        None,
+        build_time_line,
+        latency_methodology_line,
+        coverage_attestation_line,
+        mermaid,
+        mermaid_summary_line,
+        pack_pin,
+        corpus_pin,
+        submodule_pin,
+        repo_head,
+        not_tested,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_markdown_with_assessments(
+    grammar_id: &str,
+    grammar_path: &str,
+    grammar_sha256: &str,
+    out_path: &str,
+    policy: &ThresholdPolicy,
+    verdict: &ReadinessReport,
+    fst_health: Option<&HealthReport>,
+    backend_assessments: Option<&[pg_pack::BackendAssessment]>,
     build_time_line: &str,
     latency_methodology_line: &str,
     coverage_attestation_line: &str,
@@ -437,6 +666,28 @@ fn render_markdown(
     writeln!(out).unwrap();
     writeln!(out, "{}", render_trust(&verdict.trust)).unwrap();
     writeln!(out).unwrap();
+
+    if let Some(findings) = render_health_findings(fst_health) {
+        writeln!(out, "## FST health findings").unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "Raw readiness findings from the pack; capability trust is reported separately and legacy health override records are non-admitting.").unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "{findings}").unwrap();
+        writeln!(out).unwrap();
+    }
+
+    if let Some(assessments) = render_backend_assessments(backend_assessments) {
+        writeln!(out, "## Backend assessments").unwrap();
+        writeln!(out).unwrap();
+        writeln!(
+            out,
+            "Every considered backend is retained here, including refused or failed routes; these diagnostics are independent of FST readiness health and capability trust."
+        )
+        .unwrap();
+        writeln!(out).unwrap();
+        writeln!(out, "{assessments}").unwrap();
+        writeln!(out).unwrap();
+    }
 
     writeln!(out, "## Checks").unwrap();
     writeln!(out).unwrap();
@@ -630,11 +881,15 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
 
     // One derivation, shared by every place this command needs the capability verdict, rather than three independent characterize walks over the same grammar.
     let semantics = GrammarSemantics::derive(&grammar);
-    let decision = crate::gated_backend_decision(&select_backends(&semantics));
+    let selection = select_backends(&semantics);
+    let decision = crate::gated_backend_decision(&selection);
+    let capability_overridden = capability_override_engaged(&decision, allow_unproven);
     let attempt_compile = matches!(
         decision,
         CompileDecision::Admit | CompileDecision::ConfirmOnly
-    ) || (matches!(decision, CompileDecision::Refuse(_)) && allow_unproven);
+    ) || (matches!(decision, CompileDecision::Refuse(_)) && allow_unproven)
+        // Supplied packs remain reportable even when their source grammar is refused.
+        || pack_path.is_some();
 
     let mut not_tested: Vec<String> = vec![
         "correctness: NOT CERTIFIED HERE -- coverage (when assessed) is a token-level analysis \
@@ -649,6 +904,8 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         String,
         String,
     );
+    let fst_health: Option<HealthReport>;
+    let backend_assessments: Option<Vec<pg_pack::BackendAssessment>>;
     let latency_methodology_line: String;
     // Separate from `verdict.checks` on purpose: that only carries the Pass/Fail/NotAssessed outcome, never the attestor/date fields, which render from the `CoverageAssessment` this command built, not reconstructed from the tiered verdict after the fact.
     let coverage_attestation_line: String;
@@ -662,10 +919,20 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         ));
         trust = TrustStatus::Proven; // no override was exercised; there is simply no artifact.
         measurements = None;
-        build_time_line = format!("not measured -- the grammar was refused and no compiled artifact was \
+        fst_health = None;
+        backend_assessments = Some(crate::pack::backend_assessments(
+            &selection,
+            crate::GATED_BACKEND,
+            &[],
+            None,
+            &HealthReport::new(Vec::new()),
+        ));
+        build_time_line = format!(
+            "not measured -- the grammar was refused and no compiled artifact was \
              ever built ({REFUSED_REPORT_REMEDIATION}; the resulting \
              report will still never certify -- trust=unproven never certifies, under any \
-             configuration).");
+             configuration)."
+        );
         pack_pin = format!("none -- the grammar was refused and {REFUSED_PACK_REMEDIATION}.");
         latency_methodology_line = "not measured -- see \"build time\" above.".to_string();
         coverage_attestation_line =
@@ -674,65 +941,109 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                 .to_string();
     } else {
         // ---- trust + artifact size: from a REAL artifact, never a caller-supplied parameter ----
-        let (trust_src, artifact_size, pack_pin_line): (pg_pack::CapabilityTrust, u64, String) =
-            match &pack_path {
-                Some(p) => {
-                    let bytes = fs::read(p).map_err(|e| format!("read --pack {p}: {e}"))?;
-                    let read =
-                        pg_pack::read_pack(&bytes).map_err(|e| format!("read_pack {p}: {e}"))?;
-                    if read.manifest.grammar_id != grammar_id {
-                        eprintln!(
-                            "warning: --pack {p}'s manifest grammar_id ({:?}) does not match this \
+        let (trust_src, artifact_size, pack_pin_line, health, assessments): (
+            pg_pack::CapabilityTrust,
+            u64,
+            String,
+            HealthReport,
+            Vec<pg_pack::BackendAssessment>,
+        ) = match &pack_path {
+            Some(p) => {
+                let bytes = fs::read(p).map_err(|e| format!("read --pack {p}: {e}"))?;
+                let read = pg_pack::read_pack(&bytes).map_err(|e| format!("read_pack {p}: {e}"))?;
+                if matches!(
+                    &read.manifest.capability_trust,
+                    pg_pack::CapabilityTrust::Overridden(_)
+                ) && !allow_unproven
+                {
+                    return Err(format!(
+                        "supplied --pack {p} is stamped capability_trust=Overridden/unproven; pass --allow-unproven for an explicitly authorized developer-only evidence report"
+                    ));
+                }
+                if matches!(
+                    &read.manifest.capability_trust,
+                    pg_pack::CapabilityTrust::Proven
+                ) {
+                    crate::pack::validate_health_readiness(&read.manifest.fst_health, false)?;
+                }
+                if read.manifest.grammar_id != grammar_id {
+                    eprintln!(
+                        "warning: --pack {p}'s manifest grammar_id ({:?}) does not match this \
                              grammar's own id ({grammar_id:?}) -- proceeding anyway, but verify \
                              this is really the pack for this grammar",
-                            read.manifest.grammar_id
-                        );
-                    }
-                    let pin = format!(
-                        "supplied `{p}` (sha256=`{}`, package_fingerprint=`{}`)",
-                        sha256_hex(&bytes),
-                        read.manifest.package_fingerprint
+                        read.manifest.grammar_id
                     );
-                    (read.manifest.capability_trust, bytes.len() as u64, pin)
                 }
-                None => {
-                    let built = crate::pack::build_pack(
-                        grammar_path,
-                        &grammar,
-                        &semantics,
-                        allow_unproven,
-                        authorized_by.as_deref(),
-                        reason.as_deref(),
-                        false,
-                    )?;
-                    let pin = format!(
-                        "built in-process for this report, not persisted to disk (sha256=`{}`, \
+                let pin = format!(
+                    "supplied `{p}` (sha256=`{}`, package_fingerprint=`{}`)",
+                    sha256_hex(&bytes),
+                    read.manifest.package_fingerprint
+                );
+                (
+                    read.manifest.capability_trust,
+                    bytes.len() as u64,
+                    pin,
+                    read.manifest.fst_health.clone(),
+                    read.manifest.backend_assessments.clone(),
+                )
+            }
+            None => {
+                let built = crate::pack::build_pack(
+                    grammar_path,
+                    &grammar,
+                    &semantics,
+                    allow_unproven,
+                    authorized_by.as_deref(),
+                    reason.as_deref(),
+                    false,
+                )?;
+                let pin = format!(
+                    "built in-process for this report, not persisted to disk (sha256=`{}`, \
                          package_fingerprint=`{}`)",
-                        sha256_hex(&built.bytes),
-                        built.manifest.package_fingerprint
-                    );
-                    (
-                        built.manifest.capability_trust,
-                        built.bytes.len() as u64,
-                        pin,
-                    )
+                    sha256_hex(&built.bytes),
+                    built.manifest.package_fingerprint
+                );
+                if matches!(
+                    &built.manifest.capability_trust,
+                    pg_pack::CapabilityTrust::Proven
+                ) {
+                    crate::pack::validate_health_readiness(&built.manifest.fst_health, false)?;
                 }
-            };
+                (
+                    built.manifest.capability_trust,
+                    built.bytes.len() as u64,
+                    pin,
+                    built.manifest.fst_health.clone(),
+                    built.manifest.backend_assessments.clone(),
+                )
+            }
+        };
         trust = map_trust(&trust_src);
         pack_pin = pack_pin_line;
+        fst_health = Some(health);
+        backend_assessments = Some(assessments);
 
         // The compiled propose+confirm analyzer these build-time/latency numbers are about: a separate compile from whatever produced the pack above.
         let t_build = Instant::now();
-        let mut analyzer = FomaAnalyzer::new(&grammar)
-            .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?;
+        let mut analyzer = build_report_analyzer(&grammar, capability_overridden)?;
         let build_ns = t_build.elapsed().as_nanos() as u64;
         let floor_ns = measure_timer_floor_ns();
-        build_time_line = format!(
-            "{} (compiling the propose+confirm analyzer this report's latency numbers were \
-             measured against; informational only -- no threshold in the declared policy gates \
-             this figure).",
-            render_latency_measurement(&latency_measurement(build_ns, floor_ns))
-        );
+        let rendered_build_time =
+            render_latency_measurement(&latency_measurement(build_ns, floor_ns));
+        build_time_line = if trust.is_unproven() {
+            format!(
+                "{rendered_build_time} (unproven grounding evidence, not accuracy evidence; \
+                 compiling the propose+confirm analyzer this report's latency numbers were \
+                 measured against; informational only -- no threshold in the declared policy \
+                 gates this figure)."
+            )
+        } else {
+            format!(
+                "{rendered_build_time} (compiling the propose+confirm analyzer this report's \
+                 latency numbers were measured against; informational only -- no threshold in \
+                 the declared policy gates this figure)."
+            )
+        };
 
         // ---- latency word list: --words if given, else this grammar's own lexical roots ----
         let (words, words_source): (Vec<String>, String) = match &words_path {
@@ -819,6 +1130,15 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
             latency_p90,
             latency_p99,
         });
+        if trust.is_unproven() {
+            not_tested.push(
+                "build time, artifact size, lexicon scale, latency, and coverage: retained as
+                 unproven grounding evidence only, never accuracy evidence; capability trust
+                 remains unproven, so every readiness check is blocked and certification is
+                 impossible."
+                    .to_string(),
+            );
+        }
     }
 
     let verdict = certify_with_semantics(&semantics, &trust, measurements.as_ref(), &policy);
@@ -836,13 +1156,15 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
     let submodule_pin = submodule_revision("machine");
     let repo_head = repo_head_revision();
 
-    let report_md = render_markdown(
+    let report_md = render_markdown_with_assessments(
         &grammar_id,
         grammar_path,
         &grammar_sha256,
         out_path,
         &policy,
         &verdict,
+        fst_health.as_ref(),
+        backend_assessments.as_deref(),
         &build_time_line,
         &latency_methodology_line,
         &coverage_attestation_line,
@@ -956,6 +1278,24 @@ mod tests {
             text.contains("reduplication.peel-eligible-rule-kind"),
             "must name the construct the gated backend declined on: {text}"
         );
+        for backend in [
+            "tuned-surface-probed",
+            "templated-underlying-tokens",
+            "plan-composed",
+        ] {
+            assert!(
+                text.contains(&format!("### Backend `{backend}`")),
+                "refused diagnostic report must retain {backend}: {text}"
+            );
+        }
+        assert!(
+            text.contains("Failed predicates: reduplication.peel-eligible-rule-kind"),
+            "refused backend assessment must retain its predicate: {text}"
+        );
+        assert!(
+            text.contains("Advice references:") && !text.contains("Advice references: none"),
+            "refused backend assessment must retain catalog remedy references: {text}"
+        );
         // Every check must render as NOT ASSESSED, never PASS.
         assert!(text.contains("NOT ASSESSED"), "{text}");
         assert!(
@@ -970,6 +1310,35 @@ mod tests {
         // Pinned revisions must still be present even in the refused case.
         assert!(text.contains("Pinned revisions"), "{text}");
         assert!(text.contains("sha256="), "{text}");
+    }
+
+    #[test]
+    fn backend_assessment_renderer_includes_shapes_and_cost_evidence() {
+        let assessment = pg_pack::BackendAssessment {
+            backend: "synthetic-backend".to_string(),
+            decision: "admit".to_string(),
+            status: "accepted".to_string(),
+            findings: Vec::new(),
+            failed_predicates: Vec::new(),
+            shapes: vec!["synthetic-shape".to_string()],
+            cost_evidence: vec![pg_pack::BackendCostEvidence {
+                metric: pg_foma::health::Metric::CompositeRulePairCount,
+                value: pg_foma::health::MetricValue::Count(42),
+                threshold: Some(pg_foma::health::MetricValue::Count(10)),
+                provenance: pg_foma::health::ValueProvenance::ProvenBound,
+            }],
+            advice_references: Vec::new(),
+            status_detail: None,
+        };
+
+        let rendered = render_backend_assessments(Some(std::slice::from_ref(&assessment)))
+            .expect("assessment rendering must produce markdown");
+        assert!(rendered.contains("Shapes: synthetic-shape"), "{rendered}");
+        assert!(rendered.contains("Cost evidence:"), "{rendered}");
+        assert!(rendered.contains("metric=CompositeRulePairCount"), "{rendered}");
+        assert!(rendered.contains("value=Count(42)"), "{rendered}");
+        assert!(rendered.contains("threshold=Some(Count(10))"), "{rendered}");
+        assert!(rendered.contains("provenance=ProvenBound"), "{rendered}");
     }
 
     /// A clean `Admit` grammar with no corpus/no words: every individual check is named with its measured value and threshold, never only a bare summary line.
@@ -1095,6 +1464,26 @@ mod tests {
         assert!(text.contains("synthetic-operator"), "{text}");
         assert!(text.contains("**BLOCKED**"), "{text}");
         assert!(
+            text.contains("unproven grounding evidence"),
+            "overridden measurements must be labeled as grounding evidence: {text}"
+        );
+        assert!(
+            text.contains("FST health findings")
+                && !text.contains("| Critical | PGF0013 |"),
+            "the raw readiness section must remain visible without reclassifying capability PGF0013 as health: {text}"
+        );
+        assert!(text.contains("Backend assessments"), "{text}");
+        for backend in [
+            "tuned-surface-probed",
+            "templated-underlying-tokens",
+            "plan-composed",
+        ] {
+            assert!(
+                text.contains(backend),
+                "report must retain the {backend} assessment: {text}"
+            );
+        }
+        assert!(
             !text.contains("| PASS"),
             "an overridden artifact must never show a passing check: {text}"
         );
@@ -1133,6 +1522,45 @@ mod tests {
             text.contains("supplied `"),
             "must name the supplied pack, not a built-in-process one: {text}"
         );
+    }
+
+    #[cfg(feature = "developer-tools")]
+    #[test]
+    fn supplied_unproven_pack_requires_explicit_developer_acknowledgment() {
+        let dir = scratch_dir("supplied-pack-no-ack");
+        let grammar_path = dir.join("grammar.xml");
+        let pack_path = dir.join("out.pgpack");
+        fs::write(&grammar_path, REFUSE_GRAMMAR_XML).expect("write grammar");
+        crate::pack::run_pack(&[
+            grammar_path.to_string_lossy().into_owned(),
+            pack_path.to_string_lossy().into_owned(),
+            "--allow-unproven".to_string(),
+            "--authorized-by=synthetic-pack-builder".to_string(),
+        ])
+        .expect("build local unproven evidence pack");
+
+        let out_path = dir.join("report.md");
+        let error = run_make_report(&[
+            grammar_path.to_string_lossy().into_owned(),
+            out_path.to_string_lossy().into_owned(),
+            format!("--pack={}", pack_path.to_string_lossy()),
+            "--repeats=1".to_string(),
+        ])
+        .expect_err("supplied unproven evidence requires explicit developer acknowledgment");
+
+        assert!(error.contains("--allow-unproven"), "{error}");
+        assert!(!out_path.exists());
+    }
+
+    #[cfg(feature = "developer-tools")]
+    #[test]
+    fn admitted_current_grammar_never_engages_capability_override_for_supplied_pack() {
+        let grammar = pg_grammar::load(ADMIT_GRAMMAR_XML).expect("admitted fixture loads");
+        let semantics = GrammarSemantics::derive(&grammar);
+        let selection = select_backends(&semantics);
+        let decision = crate::gated_backend_decision(&selection);
+
+        assert!(!capability_override_engaged(&decision, true));
     }
 
     /// Why the count was 5 before this test's fix, and why `pack::build_pack`'s own characterize call is deliberately excluded from it: docs/research/pg-cli-make-report-characterize-once-regression.md.
@@ -1224,6 +1652,7 @@ mod tests {
             "report.md",
             &policy,
             &verdict,
+            None,
             "0.500 ms (compiling the propose+confirm analyzer this report's latency numbers were \
              measured against; informational only -- no threshold in the declared policy gates \
              this figure).",

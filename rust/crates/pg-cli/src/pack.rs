@@ -9,8 +9,7 @@ use pg_foma::emit::{EmitReport, FomaTier};
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::health::{
-    FindingCode, HealthFinding, HealthReport, Metric, MetricValue, OverrideRecord, Phase, Severity,
-    ValueProvenance,
+    FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
 
 use pg_foma::health_evaluator::{evaluate_foma_error, evaluate_health};
@@ -42,13 +41,6 @@ const CAPABILITY_REFUSAL_REMEDIATION: &str =
 #[cfg(not(feature = "developer-tools"))]
 const CAPABILITY_REFUSAL_REMEDIATION: &str =
     "The grammar is outside the production capability policy; consult the saved capability/readiness report or use a developer-tools build for an explicitly authorized override workflow.";
-
-#[cfg(feature = "developer-tools")]
-const HEALTH_REFUSAL_REMEDIATION: &str =
-    "Pass --allow-unproven only for an explicitly authorized development build";
-#[cfg(not(feature = "developer-tools"))]
-const HEALTH_REFUSAL_REMEDIATION: &str =
-    "the FST health report is outside the production publication policy; consult the saved report or use a developer-tools build for an explicitly authorized override workflow";
 
 /// This crate's own `Cargo.toml` semver, used as the `required_runtime_features.hc_port_semver` value.
 fn this_crate_semver() -> (u32, u32, u32) {
@@ -126,7 +118,7 @@ fn assessment_from_report(report: &BackendReport) -> BackendAssessment {
 }
 
 /// Preserves every backend report while attaching compile findings only to the selected backend.
-fn backend_assessments(
+pub(crate) fn backend_assessments(
     selection: &BackendSelection,
     gated_backend: EmissionStrategy,
     gated_compile_findings: &[HealthFinding],
@@ -176,11 +168,27 @@ fn backend_assessments(
         .collect()
 }
 
+fn merge_gated_selection_findings(
+    health: &mut HealthReport,
+    selection: &BackendSelection,
+    gated_backend: EmissionStrategy,
+) {
+    let Some(report) = selection.report_for(gated_backend) else {
+        return;
+    };
+    for finding in report.findings() {
+        if !health.findings.iter().any(|existing| existing == finding) {
+            health.findings.push(finding.clone());
+        }
+    }
+}
+
 /// Certifies only full payloads with no uncovered construct, pending successor, or budget trip.
 fn completeness_certificate(
     backend: EmissionStrategy,
     report: Option<&EmitReport>,
     compiled_payload_present: bool,
+    capability_trust_proven: bool,
 ) -> Option<FstCompletenessCertificate> {
     let report = report?;
     let pending_successors = report
@@ -188,7 +196,8 @@ fn completeness_certificate(
         .as_ref()
         .and_then(|refusal| refusal.pending_successors)
         .unwrap_or(0);
-    let complete = compiled_payload_present
+    let complete = capability_trust_proven
+        && compiled_payload_present
         && matches!(report.tier, FomaTier::Full)
         && report.uncovered.is_empty()
         && pending_successors == 0
@@ -203,18 +212,12 @@ fn completeness_certificate(
     })
 }
 
-/// Applies the publication gate, recording health overrides without changing capability trust.
-fn apply_health_override(
-    report: &mut HealthReport,
-    allow_unproven: bool,
-    authorized_by: Option<&str>,
-    reason: Option<&str>,
+/// Applies readiness independently of capability trust; raw Error/Critical findings never admit.
+pub(crate) fn validate_health_readiness(
+    report: &HealthReport,
     worker_containment: bool,
-) -> Result<bool, String> {
+) -> Result<(), String> {
     let admission = report.admission_without_overrides();
-    if admission < Severity::Error {
-        return Ok(false);
-    }
     if worker_containment {
         return Err(
             "FST health is a worker containment failure; it cannot be overridden and no .pgpack was written"
@@ -224,35 +227,26 @@ fn apply_health_override(
     if report
         .findings
         .iter()
-        .any(|finding| finding.severity >= Severity::Error && !finding.override_allowed())
+        .any(|finding| finding.phase == Phase::Apply && finding.severity >= Severity::Error)
     {
         return Err(
             "FST health is an apply containment failure; it cannot be overridden and no .pgpack was written"
                 .to_string(),
         );
     }
-    if !allow_unproven {
+    if report
+        .findings
+        .iter()
+        .any(|finding| finding.severity >= Severity::Error)
+    {
         return Err(format!(
-            "FST health is {admission:?}; no .pgpack was written. {HEALTH_REFUSAL_REMEDIATION}"
+            "FST health is {admission:?}; no .pgpack was written. Correctness overrides do not admit Error/Critical readiness findings."
         ));
     }
-
-    let record = OverrideRecord {
-        authorized_by: authorized_by.unwrap_or("unspecified").to_string(),
-        reason: reason
-            .unwrap_or("--allow-unproven development build")
-            .to_string(),
-        recorded_at: now_string(),
-    };
-    for finding in &mut report.findings {
-        if finding.override_allowed() && finding.override_record.is_none() {
-            finding.override_record = Some(record.clone());
-        }
-    }
-    Ok(true)
+    Ok(())
 }
 
-/// Records a missing serialized Foma network as an overrideable development-only error.
+/// Records a missing serialized Foma network as a hard publication error.
 fn record_foma_payload_availability(report: &mut HealthReport, payload_is_real: bool) {
     if payload_is_real {
         return;
@@ -271,6 +265,18 @@ fn record_foma_payload_availability(report: &mut HealthReport, payload_is_real: 
         remedies: Vec::new(),
         override_record: None,
     });
+}
+
+/// Removes overridden capability gaps from readiness; proven-route gaps remain Critical.
+fn project_overridden_capability_findings(
+    report: &mut HealthReport,
+    capability_overridden: bool,
+) {
+    if capability_overridden {
+        report
+            .findings
+            .retain(|finding| finding.code != FindingCode::BackendCoverageIncomplete);
+    }
 }
 
 /// `pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--watchdog]`; `--watchdog` runs the FST-health compile in a killable child process instead of in-process.
@@ -321,14 +327,12 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
     #[cfg(feature = "developer-tools")]
     let _ = remove_size_limits;
     let [grammar_path, out_path] = positional[..] else {
-        return Err(
-            format!(
-                "usage: pack <grammar> <out.pgpack>{} [--authorized-by=<name>] \
+        return Err(format!(
+            "usage: pack <grammar> <out.pgpack>{} [--authorized-by=<name>] \
                  [--reason=<text>] [--watchdog]",
-                crate::PACK_DEVELOPER_HELP
-            )
-            .into(),
-        );
+            crate::PACK_DEVELOPER_HELP
+        )
+        .into());
     };
 
     let (grammar, warnings) = crate::load_grammar(grammar_path)?;
@@ -344,6 +348,8 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
         reason.as_deref(),
         watchdog,
     )?;
+
+    validate_health_readiness(&built.manifest.fst_health, watchdog)?;
 
     fs::write(out_path, &built.bytes).map_err(|e| format!("write {out_path}: {e}"))?;
 
@@ -391,8 +397,7 @@ pub(crate) fn build_pack(
     #[cfg(not(feature = "developer-tools"))]
     if allow_unproven {
         return Err(
-            "--allow-unproven requires a pg-cli build with the developer-tools feature"
-                .to_string(),
+            "--allow-unproven requires a pg-cli build with the developer-tools feature".to_string(),
         );
     }
 
@@ -400,10 +405,6 @@ pub(crate) fn build_pack(
     let backend = crate::GATED_BACKEND.label();
     let selection = select_backends(semantics);
     let decision = crate::gated_backend_decision(&selection);
-    let gated_backend_findings: Vec<HealthFinding> = selection
-        .report_for(crate::GATED_BACKEND)
-        .map(|report| report.findings().to_vec())
-        .unwrap_or_default();
     let capability_trust = match &decision {
         CompileDecision::Admit => {
             eprintln!(
@@ -484,6 +485,7 @@ pub(crate) fn build_pack(
     };
 
     // ---- FST health, plus the real foma payload when this same compile succeeds ----------------
+    let capability_overridden = matches!(capability_trust, CapabilityTrust::Overridden(_));
     let (
         mut fst_health,
         real_foma_payload,
@@ -509,7 +511,7 @@ pub(crate) fn build_pack(
         let (proposer_result, compile_profile) = {
             #[cfg(feature = "developer-tools")]
             {
-                if allow_unproven {
+                if capability_overridden {
                     FomaProposer::new_unproven_with_profile(grammar)
                 } else {
                     FomaProposer::new_with_profile(grammar)
@@ -554,20 +556,20 @@ pub(crate) fn build_pack(
             }
         }
     };
-    // Static backend findings remain part of admission even when this compile finishes.
-    fst_health.findings.extend(gated_backend_findings);
+    merge_gated_selection_findings(&mut fst_health, &selection, crate::GATED_BACKEND);
+    project_overridden_capability_findings(&mut fst_health, capability_overridden);
+    let payload_findings_start = fst_health.findings.len();
     record_foma_payload_availability(&mut fst_health, real_foma_payload.is_some());
-    let _health_overridden = apply_health_override(
-        &mut fst_health,
-        allow_unproven,
-        authorized_by,
-        reason,
-        watchdog,
-    )?;
+    let mut assessment_compile_findings = gated_compile_findings;
+    assessment_compile_findings.extend(
+        fst_health.findings[payload_findings_start..]
+            .iter()
+            .cloned(),
+    );
     let backend_assessments = backend_assessments(
         &selection,
         crate::GATED_BACKEND,
-        &gated_compile_findings,
+        &assessment_compile_findings,
         gated_compile_error.as_deref(),
         &fst_health,
     );
@@ -575,6 +577,7 @@ pub(crate) fn build_pack(
         crate::GATED_BACKEND,
         gated_emit_report.as_ref(),
         real_foma_payload.is_some(),
+        !capability_overridden,
     );
     // `None` iff `--watchdog` was used or this compile did not succeed; falls back to the placeholder.
     let foma_payload: &[u8] = real_foma_payload
@@ -674,65 +677,118 @@ mod tests {
 
     #[test]
     fn health_warning_publishes_without_override() {
-        let mut report = synthetic_health(Severity::Warning);
-        assert!(!apply_health_override(&mut report, false, None, None, false).unwrap());
+        let report = synthetic_health(Severity::Warning);
+        assert!(validate_health_readiness(&report, false).is_ok());
         assert_eq!(report.admission(), Severity::Warning);
         assert!(report.findings[0].override_record.is_none());
     }
 
     #[test]
     fn health_error_refuses_publication_without_override() {
-        let mut report = synthetic_health(Severity::Error);
-        let error = apply_health_override(&mut report, false, None, None, false).unwrap_err();
+        let report = synthetic_health(Severity::Error);
+        let error = validate_health_readiness(&report, false).unwrap_err();
         assert!(error.contains("no .pgpack was written"));
-        #[cfg(not(feature = "developer-tools"))]
-        assert!(!error.contains("--allow-unproven"));
         assert_eq!(report.admission(), Severity::Error);
         assert!(report.findings[0].override_record.is_none());
     }
 
     #[test]
     fn health_critical_refuses_publication_without_override() {
-        let mut report = synthetic_health(Severity::Critical);
-        let error = apply_health_override(&mut report, false, None, None, false).unwrap_err();
+        let report = synthetic_health(Severity::Critical);
+        let error = validate_health_readiness(&report, false).unwrap_err();
         assert!(error.contains("no .pgpack was written"));
-        #[cfg(not(feature = "developer-tools"))]
-        assert!(!error.contains("--allow-unproven"));
         assert_eq!(report.admission(), Severity::Critical);
     }
 
     #[cfg(feature = "developer-tools")]
     #[test]
-    fn health_error_development_override_is_recorded_and_admitted() {
-        let mut report = synthetic_health(Severity::Error);
-        assert!(apply_health_override(
-            &mut report,
+    fn correctness_override_does_not_override_health_error() {
+        let report = synthetic_health(Severity::Error);
+        assert!(validate_health_readiness(&report, false).is_err());
+        assert_eq!(report.admission_without_overrides(), Severity::Error);
+        assert_eq!(report.admission(), Severity::Error);
+        assert!(report.findings[0].override_record.is_none());
+    }
+
+    #[test]
+    fn proven_route_keeps_unexpected_backend_coverage_gap_critical() {
+        let mut report = synthetic_health(Severity::Critical);
+        report.findings[0].code = FindingCode::BackendCoverageIncomplete;
+
+        project_overridden_capability_findings(&mut report, false);
+
+        assert_eq!(report.admission(), Severity::Critical);
+        assert_eq!(report.findings.len(), 1);
+        assert!(validate_health_readiness(&report, false).is_err());
+    }
+
+    #[test]
+    fn gated_selection_findings_enter_health_before_projection() {
+        let mut static_health = synthetic_health(Severity::Error);
+        let static_finding = static_health.findings.remove(0);
+        let gated_report = BackendReport::accepted(
+            crate::GATED_BACKEND,
+            CompileDecision::Admit,
+            vec![static_finding],
+        )
+        .expect("an admitted synthetic backend report must be constructible");
+        let selection = BackendSelection::from_reports(vec![gated_report]);
+        let mut health = HealthReport::new(Vec::new());
+
+        merge_gated_selection_findings(&mut health, &selection, crate::GATED_BACKEND);
+
+        assert_eq!(health.admission(), Severity::Error);
+        assert!(health
+            .findings
+            .iter()
+            .any(|finding| finding.code == FindingCode::ResourceBudgetReached));
+        assert!(validate_health_readiness(&health, false).is_err());
+
+        let mut overridden = health;
+        project_overridden_capability_findings(&mut overridden, true);
+        assert_eq!(overridden.admission(), Severity::Error);
+        assert!(overridden
+            .findings
+            .iter()
+            .any(|finding| finding.code == FindingCode::ResourceBudgetReached));
+    }
+
+    #[test]
+    fn unproven_full_emit_never_receives_completeness_certificate() {
+        let report = EmitReport {
+            uncovered: Vec::new(),
+            counts: pg_foma::emit::EmitCounts::default(),
+            tier: FomaTier::Full,
+            enum_budget_exceeded: None,
+            closure_refusal: None,
+            closure_evidence: None,
+        };
+
+        assert!(completeness_certificate(
+            crate::GATED_BACKEND,
+            Some(&report),
             true,
-            Some("test operator"),
-            Some("exercise the fallback"),
             false,
         )
-        .unwrap());
-        assert_eq!(report.admission(), Severity::Ideal);
-        let record = report.findings[0].override_record.as_ref().unwrap();
-        assert_eq!(record.authorized_by, "test operator");
-        assert_eq!(record.reason, "exercise the fallback");
+        .is_none());
+        assert!(completeness_certificate(
+            crate::GATED_BACKEND,
+            Some(&report),
+            true,
+            true,
+        )
+        .is_some());
     }
 
     #[cfg(feature = "developer-tools")]
     #[test]
-    fn health_critical_development_override_is_recorded_and_admitted() {
+    fn capability_override_does_not_admit_health_critical() {
         let mut report = synthetic_health(Severity::Critical);
-        assert!(apply_health_override(
-            &mut report,
-            true,
-            Some("test operator"),
-            Some("exercise the critical fallback"),
-            false,
-        )
-        .unwrap());
-        assert_eq!(report.admission(), Severity::Ideal);
-        assert!(report.findings[0].override_record.is_some());
+        report.findings[0].code = FindingCode::BackendCoverageIncomplete;
+        assert!(validate_health_readiness(&report, false).is_err());
+        assert_eq!(report.admission_without_overrides(), Severity::Critical);
+        assert_eq!(report.admission(), Severity::Critical);
+        assert!(report.findings[0].override_record.is_none());
     }
 
     #[cfg(feature = "developer-tools")]
@@ -740,7 +796,7 @@ mod tests {
     fn health_apply_containment_cannot_be_overridden() {
         let mut report = synthetic_health(Severity::Critical);
         report.findings[0].phase = Phase::Apply;
-        let error = apply_health_override(&mut report, true, None, None, false).unwrap_err();
+        let error = validate_health_readiness(&report, false).unwrap_err();
         assert!(error.contains("apply containment"));
         assert!(report.findings[0].override_record.is_none());
     }
@@ -761,25 +817,42 @@ mod tests {
         assert!(report.findings[0]
             .explanation
             .contains("no compiled Foma payload"));
-        assert!(apply_health_override(&mut report, false, None, None, false).is_err());
+        assert!(validate_health_readiness(&report, false).is_err());
     }
 
     #[cfg(feature = "developer-tools")]
     #[test]
-    fn missing_foma_payload_requires_and_records_development_override() {
-        let mut report = HealthReport::new(Vec::new());
-        record_foma_payload_availability(&mut report, false);
-
-        assert!(apply_health_override(
-            &mut report,
+    fn missing_foma_payload_finding_reaches_gated_backend_assessment() {
+        let (_result, out_path) = run_pack_raw(
+            "missing-payload-assessment",
+            REFUSE_GRAMMAR_XML,
+            &["--allow-unproven", "--reason=missing payload assessment"],
+        );
+        let grammar_path = out_path.with_file_name("grammar.xml");
+        let (grammar, _warnings) = crate::load_grammar(&grammar_path.to_string_lossy())
+            .expect("reload the refused grammar");
+        let semantics = GrammarSemantics::derive(&grammar);
+        let built = build_pack(
+            &grammar_path.to_string_lossy(),
+            &grammar,
+            &semantics,
             true,
-            Some("test operator"),
-            Some("exercise the watchdog placeholder path"),
-            false,
+            None,
+            Some("missing payload assessment"),
+            true,
         )
-        .unwrap());
-        assert_eq!(report.admission(), Severity::Ideal);
-        assert!(report.findings[0].override_record.is_some());
+        .expect("developer evidence pack may be built");
+
+        let assessment = built
+            .manifest
+            .backend_assessments
+            .iter()
+            .find(|assessment| assessment.backend == crate::GATED_BACKEND.label())
+            .expect("gated backend assessment");
+        assert!(assessment
+            .findings
+            .iter()
+            .any(|finding| finding.code == FindingCode::BackendCompilationFailed));
     }
 
     #[test]
@@ -797,14 +870,7 @@ mod tests {
         let mut report = synthetic_health(Severity::Critical);
         record_foma_payload_availability(&mut report, false);
 
-        let error = apply_health_override(
-            &mut report,
-            true,
-            Some("test operator"),
-            Some("must not bypass a worker failure"),
-            true,
-        )
-        .unwrap_err();
+        let error = validate_health_readiness(&report, true).unwrap_err();
         assert!(error.contains("cannot be overridden"));
         assert_eq!(report.admission(), Severity::Critical);
         assert!(report
@@ -859,6 +925,7 @@ mod tests {
     const REFUSE_GRAMMAR_XML: &str = crate::test_support::BACKEND_REFUSED_GRAMMAR_XML;
 
     /// A grammar whose single rule duplicates `stem` via `CopyFromInput` twice, matching `classify_affix`'s `Role::Reduplication` trigger.
+    #[cfg(feature = "developer-tools")]
     const REDUP_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>PackRedupFixture</Name>
       <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
@@ -969,10 +1036,10 @@ mod tests {
         );
     }
 
-    /// The same `Refuse`-verdict grammar with `--allow-unproven`: pack succeeds and reads back `Overridden` with the reason/authorized-by and refused construct(s) recorded.
+    /// A refused grammar may write local evidence, but its trust stamp and absent certificate block production use.
     #[cfg(feature = "developer-tools")]
     #[test]
-    fn pack_refuse_grammar_with_allow_unproven_writes_overridden_manifest_with_refused_configs() {
+    fn pack_refuse_grammar_with_allow_unproven_writes_only_unproven_evidence() {
         let (result, out_path) = run_pack_raw(
             "refuse-override",
             REFUSE_GRAMMAR_XML,
@@ -982,53 +1049,12 @@ mod tests {
                 "--reason=synthetic field trial",
             ],
         );
-        assert!(
-            result.is_ok(),
-            "--allow-unproven must force-pack a Refuse verdict: {result:?}"
-        );
-
-        let bytes = std::fs::read(&out_path).expect("read out.pgpack");
-        let read =
-            pg_pack::read_pack(&bytes).expect("an overridden pack must still read back cleanly");
+        assert!(result.is_ok(), "developer evidence pack must build: {result:?}");
+        let bytes = std::fs::read(&out_path).expect("read local developer evidence pack");
+        let read = pg_pack::read_pack(&bytes).expect("read local developer evidence pack");
         assert!(read.manifest.capability_trust.is_unproven());
-        match &read.manifest.capability_trust {
-            CapabilityTrust::Overridden(record) => {
-                assert_eq!(record.authorized_by, "synthetic-test-operator");
-                assert_eq!(record.reason, "synthetic field trial");
-                assert!(!record.recorded_at.is_empty());
-                assert!(
-                    record
-                        .overridden_configs
-                        .iter()
-                        .any(|c| c.predicate == "reduplication.peel-eligible-rule-kind"),
-                    "expected the construct the gated backend declined on: {:?}",
-                    record.overridden_configs
-                );
-            }
-            other => panic!("expected Overridden, got {other:?}"),
-        }
-        assert_eq!(read.manifest.backend_assessments.len(), 3);
-        let tuned = read
-            .manifest
-            .backend_assessments
-            .iter()
-            .find(|assessment| assessment.backend == "tuned-surface-probed")
-            .expect("the gated backend must have an assessment");
-        assert_eq!(tuned.status, "refused");
-        assert!(!tuned.failed_predicates.is_empty());
-        assert!(tuned
-            .findings
-            .iter()
-            .any(|finding| finding.override_record.is_some()));
-        assert!(read
-            .manifest
-            .backend_assessments
-            .iter()
-            .any(|assessment| assessment.status == "refused"));
-        assert!(
-            read.manifest.fst_completeness.is_none(),
-            "an overridden partial backend must not receive a completeness certificate"
-        );
+        assert_eq!(read.manifest.fst_health.admission(), Severity::Ideal);
+        assert!(read.manifest.fst_completeness.is_none());
     }
 
     /// ADR 0005's indelibility invariant: an overridden pack's stamp survives write -> read and can never read back as `Proven`.
@@ -1040,9 +1066,8 @@ mod tests {
             REFUSE_GRAMMAR_XML,
             &["--allow-unproven", "--reason=synthetic indelibility check"],
         );
-        assert!(result.is_ok());
-
-        let bytes = std::fs::read(&out_path).expect("read out.pgpack");
+        assert!(result.is_ok(), "developer evidence pack must build: {result:?}");
+        let bytes = std::fs::read(&out_path).expect("read local developer evidence pack");
         let first_read = pg_pack::read_pack(&bytes).expect("first read");
         assert!(first_read.manifest.capability_trust.is_unproven());
 
@@ -1056,6 +1081,47 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "developer-tools")]
+    #[test]
+    fn refused_backend_findings_stay_in_backend_assessments_not_fst_readiness() {
+        let (_result, out_path) = run_pack_raw(
+            "readiness-separation",
+            REFUSE_GRAMMAR_XML,
+            &[
+                "--allow-unproven",
+                "--reason=synthetic readiness separation",
+            ],
+        );
+        let grammar_path = out_path.with_file_name("grammar.xml");
+        let (grammar, _warnings) = crate::load_grammar(&grammar_path.to_string_lossy())
+            .expect("reload the refused grammar");
+        let semantics = GrammarSemantics::derive(&grammar);
+        let built = build_pack(
+            &grammar_path.to_string_lossy(),
+            &grammar,
+            &semantics,
+            true,
+            None,
+            Some("synthetic readiness separation"),
+            false,
+        )
+        .expect("capability override may collect an evidence pack");
+
+        assert_eq!(built.manifest.fst_health.admission(), Severity::Ideal);
+        assert!(built
+            .manifest
+            .fst_health
+            .findings
+            .iter()
+            .all(|finding| finding.code != FindingCode::BackendCoverageIncomplete));
+        assert!(built
+            .manifest
+            .backend_assessments
+            .iter()
+            .flat_map(|assessment| assessment.findings.iter())
+            .any(|finding| finding.code == FindingCode::BackendCoverageIncomplete));
+    }
+
     /// A reduplication-shaped grammar must declare `RUNTIME_FEATURE_REDUPLICATION_PEEL` (ADR 0004) regardless of its own capability verdict.
     #[cfg(feature = "developer-tools")]
     #[test]
@@ -1065,9 +1131,8 @@ mod tests {
             REDUP_GRAMMAR_XML,
             &["--allow-unproven", "--reason=synthetic redup-feature check"],
         );
-        assert!(result.is_ok(), "redup grammar must pack: {result:?}");
-
-        let bytes = std::fs::read(&out_path).expect("read out.pgpack");
+        assert!(result.is_ok(), "developer evidence pack must build: {result:?}");
+        let bytes = std::fs::read(&out_path).expect("read local developer evidence pack");
         let read = pg_pack::read_pack(&bytes).expect("read redup pack");
         assert!(
             read.manifest
@@ -1089,8 +1154,8 @@ mod tests {
             REFUSE_GRAMMAR_XML,
             &["--allow-unproven"],
         );
-        assert!(result.is_ok());
-        let bytes = std::fs::read(&out_path).expect("read out.pgpack");
+        assert!(result.is_ok(), "developer evidence pack must build: {result:?}");
+        let bytes = std::fs::read(&out_path).expect("read local developer evidence pack");
         let read = pg_pack::read_pack(&bytes).expect("read pack");
         match &read.manifest.capability_trust {
             CapabilityTrust::Overridden(record) => {
