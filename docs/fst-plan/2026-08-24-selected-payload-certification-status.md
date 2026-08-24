@@ -88,8 +88,25 @@ so this says nothing yet about analysis parity — the payload cannot be constru
 
 **Indonesian is therefore not certified, but the reason is now measured rather than assumed.** The
 blocker is a resource-envelope dimension mismatch in the selected-payload route, not missing data
-and not a corpus problem. That is a considerably more actionable place to be than where this
-document started.
+and not a corpus problem.
+
+And there is no envelope that would fix it. `ResourceEnvelopeId` declares exactly two variants, and
+they differ in one dimension only:
+
+| Envelope | `tuned_surface_closure_work_cap` | enumeration caps |
+|---|---|---|
+| `ManagedV1` | 3,000 | `DEFAULT_ENTRY_BUDGET` / `DEFAULT_PROBE_BUDGET` |
+| `TunedSurfaceWork10kV1` | 10,000 | the same |
+
+Both carry identical enumeration caps, so the gate is not naming the wrong envelope — no envelope
+raising the dimension that actually bound exists. Certifying Indonesian therefore requires a
+**decision**, not a fix: raise the shipped enumeration budget, add a third named retry envelope with
+a larger one, or make the completed-build closure incremental so it need not finish inside one
+budget. Each changes what ships. An envelope id is serialized into completion evidence, the worker
+wire protocol, and the envelope digest, so adding one is a compatibility-bearing change and not a
+local edit.
+
+That is the whole remaining distance between this branch and 1-of-3 certified.
 
 **A trap worth naming:** the repo's own `samples/data/indonesian-words.txt` (750 bytes) does **not**
 match the lock's `sourceSha256`; the recovered copy (1,105 bytes) does. Populating `samples/data`
