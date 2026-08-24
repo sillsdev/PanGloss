@@ -26,19 +26,29 @@ The blockers are two independent kinds, and neither is closed by writing more te
 worktree and is not a repository defect. Measured against `rust/tools/corpus-manifest.json`'s
 `required: true` entries:
 
-| Language | Required grammar | Present | Required word list | Present |
-|---|---|---|---|---|
-| indonesian | `indonesian-hc.xml` | **no** | `indonesian-words.txt` | yes |
-| sena | `sena-hc.xml` | **no** | `sena-words.txt` | yes |
-| amharic | `amharic-hc.xml` | **no** | `amharic-words.txt` | yes |
-| aweti | `aweti.json` | **no** | `aweti-words.txt` | yes |
-| mbugwe | `mbugwe.fwdata` | yes | `mbugwe-words.txt` | yes |
+Every required word list is present in `samples/data`. The grammars are the gap — but only one of
+them is truly gone. Three are simply somewhere else on this machine, left behind in other
+worktrees' own `samples/data`:
 
-Only mbugwe's required pair is complete, and mbugwe is not in the acceptance slice. The `.fwdata`
-files for the other four are present but are **not** substitutes: the case-set lock in
-`rust/tools/three-language-case-sets.json` pins `grammarSha256` for the declared grammar source and
-the gates assert those bytes before use, so repointing a gate at a different source silently
-changes the denominator it was locked against.
+| Language | Required grammar | In `samples/data` | Recoverable on this machine |
+|---|---|---|---|
+| indonesian | `indonesian-hc.xml` | no | **no — not anywhere under the repo** |
+| sena | `sena-hc.xml` | no | yes, `.claude/worktrees/hc-stats/samples/data` |
+| amharic | `amharic-hc.xml` | no | yes, `.claude/worktrees/hc-stats/samples/data` |
+| aweti | `aweti.json` | no | yes, an agent worktree's `samples/data` |
+| mbugwe | `mbugwe.fwdata` | yes | — |
+
+So the corpus is one file short of complete, not four. Assembling the recoverable grammars with the
+word lists into a directory and pointing `PANGLOSS_CORPUS_ROOT` at it satisfies 9 of the 10
+manifest-`required` entries.
+
+The `.fwdata` files are present for all five but are **not** substitutes for the missing
+`indonesian-hc.xml`: the case-set lock in `rust/tools/three-language-case-sets.json` pins
+`grammarSha256` for the declared grammar source and the gates assert those bytes before use, so
+repointing a gate at a different source silently changes the denominator it was locked against.
+
+`-Mode corpus-test` still refuses outright while `indonesian-hc.xml` is absent, which is correct —
+it validates every required path before Cargo starts. Nothing below claims a corpus-test pass.
 
 `pg.ps1 -Mode corpus-test` is the correct way to run any of this: it refuses before Cargo starts
 when a required input is missing, and fails a run that records zero executed corpus cases. Populate
@@ -63,6 +73,29 @@ break when a corpus goes missing, and the manifest's own comment records a previ
 contract naming a gate that could never run. A gate that needs `indonesian-hc.xml` but does not
 declare it is the mirror-image defect: it declares nothing and so is silently skipped rather than
 loudly refused.
+
+## The Amharic and Aweti verdicts are measured, not inferred
+
+With the recoverable grammars assembled under `PANGLOSS_CORPUS_ROOT` and ignored tests enabled,
+`five_language_backend_reports_gate` runs against the real grammars rather than a reading of
+`capability.rs`:
+
+```
+PASS  amharic_backend_reports_are_complete   (1.047s)   real amharic-hc.xml
+PASS  aweti_backend_reports_are_complete     (1.490s)   real aweti.json
+FAIL  indonesian_backend_reports_are_complete           corpus.rs:91, input absent
+```
+
+Both passing gates assert `assert_default_resource_no_path` — `is_no_path()`, `preferred() == None`,
+`selected().is_empty()`. Passing against real data is therefore positive evidence that **Amharic and
+Aweti have no admitted backend at all** under the default envelope. The sections below explain why;
+this is the measurement that grounds them.
+
+The Indonesian failure is the fail-closed contract behaving correctly. `corpus::require` refuses
+rather than skipping, with the reason "This test was requested explicitly, so it fails rather than
+reporting a pass it did not earn." That is the outcome to want from a missing input.
+
+This was a targeted run, not `-Mode corpus-test`, and it does not claim that suite's guarantees.
 
 ## Amharic — blocked by a missing emission mechanism
 
@@ -207,9 +240,12 @@ Two of these sit on files byte-identical to `main`, and the recipe-optimizer pai
 
 ## What would change this document
 
-1. Populate `samples/data/` (or set `PANGLOSS_CORPUS_ROOT`) and run
-   `pg.ps1 -Mode corpus-test -Package pg-foma`. That alone can move Indonesian from written to
-   certified, and turns the four skipped net-queryable tests into evidence rather than a gap.
+1. Recover `indonesian-hc.xml` — the one genuinely missing input, and the only thing standing
+   between Indonesian and certification. Copy the three recoverable grammars named above into
+   `samples/data` alongside it, then run `pg.ps1 -Mode corpus-test -Package pg-foma`. That single
+   file also unblocks the four skipped net-queryable tests and the 120-case selected-payload gate.
+   Note the grammar must be the exact bytes the case lock's `grammarSha256` pins; another copy of
+   "Indonesian" will not do.
 2. Settle whether the recipe-optimizer refusal above is a fixture-selection defect or a real
    backend-selection gap. It needs no corpus, and it is main's defect rather than this branch's.
 3. Aweti: close the six named recall misses, then admit the templated route in
