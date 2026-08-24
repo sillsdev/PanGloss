@@ -294,6 +294,25 @@ pub enum FindingCode {
     BackendCoverageIncomplete,
 }
 
+/// Which of the three independent admission questions a `FindingCode` answers. A finding never
+/// blurs these: representability, readiness, and containment are checked separately and none may
+/// stand in for another.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FindingClass {
+    /// Can this backend preserve every valid HermitCrab analysis? A failure here means PanGloss
+    /// cannot prove a recall-preserving representation.
+    Representability,
+    /// Is the complete result acceptably sized/fast/maintainable to release? A failure here does
+    /// not mean the grammar is unsupported.
+    Readiness,
+    /// Did THIS attempt stay inside its operational safety boundary? Says nothing about the
+    /// language; never makes partial output usable.
+    Containment,
+    /// The attempt failed for a reason that is not a statement about the grammar at all (bad
+    /// input, worker/protocol failure, internal compiler fault).
+    Process,
+}
+
 impl FindingCode {
     /// Every registered code, in registry order. The single source of truth every registry test
     /// (uniqueness, format, round trip) iterates.
@@ -391,6 +410,26 @@ impl FindingCode {
     /// sync, not two.
     pub fn from_code(code: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|c| c.code() == code)
+    }
+
+    /// Which of the three independent admission questions this code answers. Exhaustive match, no
+    /// catch-all arm — adding a variant breaks this build until it is classified here.
+    pub const fn class(self) -> FindingClass {
+        match self {
+            FindingCode::BackendCoverageIncomplete => FindingClass::Representability,
+            FindingCode::PayloadSizeBand => FindingClass::Readiness,
+            FindingCode::IntermediateNetworkGrowth => FindingClass::Readiness,
+            FindingCode::ProposalVolume => FindingClass::Readiness,
+            FindingCode::ConfirmationWork => FindingClass::Readiness,
+            FindingCode::DuplicateAnalysisOverlap => FindingClass::Readiness,
+            FindingCode::ApplicationTimeWork => FindingClass::Readiness,
+            FindingCode::UnknownUnboundedConstruct => FindingClass::Readiness,
+            FindingCode::CompileWorkBudget => FindingClass::Containment,
+            FindingCode::ResourceBudgetReached => FindingClass::Containment,
+            FindingCode::ProvenBoundExceedsBudget => FindingClass::Containment,
+            FindingCode::BackendCompilationFailed => FindingClass::Process,
+            FindingCode::BuildProcessFailed => FindingClass::Process,
+        }
     }
 }
 
@@ -492,6 +531,11 @@ impl HealthFinding {
     /// active override axis.
     pub const fn override_allowed(&self) -> bool {
         false
+    }
+
+    /// Which of the three independent admission questions this finding's code answers.
+    pub fn class(&self) -> FindingClass {
+        self.code.class()
     }
 }
 
@@ -964,5 +1008,58 @@ mod tests {
     fn fst_health_schema_golden_admission_includes_legacy_overridden_error() {
         // The golden's Error finding remains a readiness failure despite its audit record.
         assert_eq!(representative_report().admission(), Severity::Error);
+    }
+
+    // fst_health_finding_class: FindingCode -> FindingClass, the three-question vocabulary.
+
+    #[test]
+    fn every_finding_code_has_a_class() {
+        let classified: Vec<FindingClass> =
+            FindingCode::ALL.iter().map(|code| code.class()).collect();
+        assert_eq!(classified.len(), FindingCode::ALL.len());
+    }
+
+    #[test]
+    fn representability_is_the_only_class_that_denies_the_grammar() {
+        assert_eq!(
+            FindingCode::BackendCoverageIncomplete.class(),
+            FindingClass::Representability
+        );
+        for code in FindingCode::ALL {
+            if *code == FindingCode::BackendCoverageIncomplete {
+                continue;
+            }
+            assert_ne!(
+                code.class(),
+                FindingClass::Representability,
+                "{code:?} must not claim to deny the grammar's representability"
+            );
+        }
+    }
+
+    #[test]
+    fn containment_codes_are_about_the_attempt_not_the_language() {
+        let containment: Vec<FindingCode> = FindingCode::ALL
+            .iter()
+            .copied()
+            .filter(|code| code.class() == FindingClass::Containment)
+            .collect();
+        assert_eq!(
+            containment,
+            vec![
+                FindingCode::CompileWorkBudget,
+                FindingCode::ResourceBudgetReached,
+                FindingCode::ProvenBoundExceedsBudget,
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_unbounded_construct_is_not_representability() {
+        // Its own doc calls the construct recall-preserving: cost uncertainty, not a denial.
+        assert_eq!(
+            FindingCode::UnknownUnboundedConstruct.class(),
+            FindingClass::Readiness
+        );
     }
 }
