@@ -108,6 +108,30 @@ local edit.
 
 That is the whole remaining distance between this branch and 1-of-3 certified.
 
+**And the shipped design is internally inconsistent about it.**
+`RetryAuthorization::from_terminal_failure` (`resource_envelope.rs:464-472`) lists
+`EnumerationBudgetReached` among the retryable stop reasons, alongside `WorkBudgetReached`,
+`DepthBudgetReached`, and `ResourceBudgetReached`. So a compile that dies this way is handed a
+retry authorization. But the only envelope a retry can move to raises
+`tuned_surface_closure_work_cap` and nothing else — both envelopes carry identical enumeration
+caps — so the retry re-enters the same limit and fails identically. The authorization is real; the
+capability behind it is not.
+
+The trip site names the same asymmetry from the other side. `emit.rs:4413` reaches
+`enum_budget.trip_reason()` and reports "grammar exceeds the foma-engine's eager-enumeration budget
+… a floor, not a total (limit {limit}; Aweti's measured uncapped total is ~15x this cap)". A cap
+routinely exceeded by an order of magnitude, declared retryable, with no larger envelope to retry
+into.
+
+Two coherent resolutions, and they are opposites:
+
+1. Add an envelope that raises the enumeration caps, making the existing retry authorization
+   mean something. This is the path that could certify Indonesian.
+2. Remove `EnumerationBudgetReached` from the retryable set, so the engine stops promising a
+   recovery it cannot perform, and the condition reports as terminal.
+
+Doing neither leaves a retry path that is guaranteed to fail, which is the worst of the three.
+
 **A trap worth naming:** the repo's own `samples/data/indonesian-words.txt` (750 bytes) does **not**
 match the lock's `sourceSha256`; the recovered copy (1,105 bytes) does. Populating `samples/data`
 from the in-repo copy will fail the lock assertion, which reads like a gate bug and is not one.
