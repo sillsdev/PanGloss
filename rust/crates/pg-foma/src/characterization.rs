@@ -60,8 +60,11 @@
 //! (`crate::unordered::check_unordered_strata_bound`, surfaced post-hoc by
 //! `crate::health_evaluator::compose_error_finding`'s `OrderingMultiplicityExceeded` arm) trips
 //! against — the exact count is already known before foma ever runs, so this finding's
-//! `crate::health::ValueProvenance` is `ProvenBound`, not a heuristic guess, and its severity is
-//! `Critical` (an exact count proven to exceed budget can reject work before allocation). This
+//! `crate::health::ValueProvenance` is `ProvenBound`, not a heuristic guess. Its severity is
+//! `Error`, matching `compose_error_finding`'s own `OrderingMultiplicityExceeded` arm: this is a
+//! combinatorial work cap, not a representability gap, so a different backend may still admit the
+//! grammar (see this module's own `characterization_raises_ordering_rule_count_finding_on_shaped_unordered_grammar`
+//! test, which asserts `best_case_across_backends` still resolves to `ConfirmOnly` here). This
 //! deliberately duplicates part of what `semantic_uncertainty_finding`'s `Refuse` case already
 //! names in a less specific way (a grammar-wide `Refuse` diagnostic list) with a MORE specific,
 //! metric-tagged finding for this one construct — both are kept, since
@@ -451,7 +454,33 @@ pub fn tuned_surface_resource_finding_for_envelope(
             ValueProvenance::Observed,
             "Use the full morphological-parser engine or a backend that represents this construct with a finite/looping mechanism.",
         ),
-        ClosureTerminal::Refused(_) => (
+        // Containment-class refusals: a cost cap, never a representability gap.
+        ClosureTerminal::Refused(ClosureStopReason::WorkBudgetReached) => (
+            FindingCode::ResourceBudgetReached,
+            Severity::Error,
+            ValueProvenance::Observed,
+            "TunedSurface refused after its closure work budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
+        ),
+        ClosureTerminal::Refused(ClosureStopReason::DepthBudgetReached) => (
+            FindingCode::ResourceBudgetReached,
+            Severity::Error,
+            ValueProvenance::Observed,
+            "TunedSurface refused after its closure depth budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
+        ),
+        ClosureTerminal::Refused(ClosureStopReason::EnumerationBudgetReached) => (
+            FindingCode::ResourceBudgetReached,
+            Severity::Error,
+            ValueProvenance::Observed,
+            "TunedSurface refused after its closure enumeration budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
+        ),
+        ClosureTerminal::Refused(ClosureStopReason::ResourceBudgetReached) => (
+            FindingCode::ResourceBudgetReached,
+            Severity::Error,
+            ValueProvenance::Observed,
+            "TunedSurface refused after its named resource envelope was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
+        ),
+        // Not containment: the compiler itself may be broken, so the code stays distinct.
+        ClosureTerminal::Refused(ClosureStopReason::InternalConstructionFault) => (
             FindingCode::BackendCompilationFailed,
             Severity::Error,
             ValueProvenance::Observed,
@@ -622,14 +651,14 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
         .collect()
 }
 
-/// Bounded-product case for `MorphRuleOrder::Unordered` strata: `within_bound == false` means the exact rule count is already proven to exceed `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, so this is `ProvenBound`/`Critical`.
+/// Bounded-product case for `MorphRuleOrder::Unordered` strata: `within_bound == false` means the exact rule count is already proven to exceed `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, so this is `ProvenBound`/`Error` (a containment cap, not a representability gap; matches `crate::health_evaluator::compose_error_finding`'s `OrderingMultiplicityExceeded` arm).
 fn unordered_stratum_findings(profile: &CharacteristicsProfile) -> Vec<HealthFinding> {
     profile
         .unordered_stratum_details()
         .filter(|d| !d.within_bound)
         .map(|d| HealthFinding {
             code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::Critical,
+            severity: Severity::Error,
             phase: Phase::Characterization,
             affected: vec![format!("{:?}", d.stratum)],
             metric: Metric::OrderingRuleCount,
@@ -756,7 +785,7 @@ mod tests {
                 panic!("expected a ProvenBoundExceedsBudget characterization finding, got {findings:?}")
             });
         assert_eq!(finding.metric, Metric::OrderingRuleCount);
-        assert_eq!(finding.severity, Severity::Critical);
+        assert_eq!(finding.severity, Severity::Error);
         assert_eq!(finding.phase, Phase::Characterization);
         assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
         assert_eq!(finding.value, MetricValue::Count(rule_count as u64));
