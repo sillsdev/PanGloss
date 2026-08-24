@@ -14,6 +14,7 @@ use pg_foma::health::{
 
 use pg_foma::health_evaluator::{evaluate_foma_error, evaluate_health};
 use pg_foma::peel::{ReduplicationPeeler, RUNTIME_FEATURE_REDUPLICATION_PEEL};
+use pg_foma::resource_envelope::CompileSizeMode;
 use pg_grammar::model::Grammar;
 use pg_pack::{
     BackendAdviceReference, BackendAssessment, BackendCostEvidence, CapabilityOverrideRecord,
@@ -325,7 +326,13 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
         }
     }
     #[cfg(feature = "developer-tools")]
-    let _ = remove_size_limits;
+    let size_mode = if remove_size_limits {
+        CompileSizeMode::DeveloperStress
+    } else {
+        CompileSizeMode::Managed
+    };
+    #[cfg(not(feature = "developer-tools"))]
+    let size_mode = CompileSizeMode::Managed;
     let [grammar_path, out_path] = positional[..] else {
         return Err(format!(
             "usage: pack <grammar> <out.pgpack>{} [--authorized-by=<name>] \
@@ -339,7 +346,7 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
     crate::print_grammar_warnings(&warnings);
 
     let semantics = GrammarSemantics::derive(&grammar);
-    let built = build_pack(
+    let built = build_pack_with_size_mode(
         grammar_path,
         &grammar,
         &semantics,
@@ -347,6 +354,7 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
         authorized_by.as_deref(),
         reason.as_deref(),
         watchdog,
+        size_mode,
     )?;
 
     validate_health_readiness(&built.manifest.fst_health, watchdog)?;
@@ -383,8 +391,8 @@ pub(crate) struct BuiltPack {
     pub foma_payload_is_real: bool,
 }
 
-/// Builds one `.pgpack` in memory: capability-trust stamp, required-runtime-feature set, FST-health report, and the written `pg_pack::write_pack` container bytes. `semantics` must be `GrammarSemantics::derive`d from `grammar`, so callers pay for the grammar walk once.
-#[allow(clippy::too_many_arguments)] // one more grammar-derived input alongside `grammar` itself.
+/// Managed-default wrapper for internal test callers.
+#[cfg(test)]
 pub(crate) fn build_pack(
     grammar_path: &str,
     grammar: &Grammar,
@@ -393,6 +401,30 @@ pub(crate) fn build_pack(
     authorized_by: Option<&str>,
     reason: Option<&str>,
     watchdog: bool,
+) -> Result<BuiltPack, String> {
+    build_pack_with_size_mode(
+        grammar_path,
+        grammar,
+        semantics,
+        allow_unproven,
+        authorized_by,
+        reason,
+        watchdog,
+        CompileSizeMode::Managed,
+    )
+}
+
+/// Builds one `.pgpack` in memory: capability-trust stamp, required-runtime-feature set, FST-health report, and the written `pg_pack::write_pack` container bytes. `semantics` must be `GrammarSemantics::derive`d from `grammar`, so callers pay for the grammar walk once.
+#[allow(clippy::too_many_arguments)] // one more grammar-derived input alongside `grammar` itself.
+pub(crate) fn build_pack_with_size_mode(
+    grammar_path: &str,
+    grammar: &Grammar,
+    semantics: &GrammarSemantics<'_>,
+    allow_unproven: bool,
+    authorized_by: Option<&str>,
+    reason: Option<&str>,
+    watchdog: bool,
+    size_mode: CompileSizeMode,
 ) -> Result<BuiltPack, String> {
     #[cfg(not(feature = "developer-tools"))]
     if allow_unproven {
@@ -499,7 +531,7 @@ pub(crate) fn build_pack(
         Option<String>,
         Option<EmitReport>,
     ) = if watchdog {
-        let health = run_fst_health_under_watchdog(grammar_path)?;
+        let health = run_fst_health_under_watchdog(grammar_path, size_mode)?;
         (
             health.clone(),
             None,
@@ -512,14 +544,14 @@ pub(crate) fn build_pack(
             #[cfg(feature = "developer-tools")]
             {
                 if capability_overridden {
-                    FomaProposer::new_unproven_with_profile(grammar)
+                    FomaProposer::new_unproven_with_profile_for_mode(grammar, size_mode)
                 } else {
-                    FomaProposer::new_with_profile(grammar)
+                    FomaProposer::new_with_profile_for_mode(grammar, size_mode)
                 }
             }
             #[cfg(not(feature = "developer-tools"))]
             {
-                FomaProposer::new_with_profile(grammar)
+                FomaProposer::new_with_profile_for_mode(grammar, size_mode)
             }
         };
         match &proposer_result {
@@ -638,9 +670,11 @@ fn infer_grammar_format(grammar_path: &str) -> pg_foma::worker::GrammarFormat {
 /// Runs the FST-health compile in a re-exec'd `__compile-worker-child` process under a killable watchdog, mapping the outcome to a `HealthReport`.
 fn run_fst_health_under_watchdog(
     grammar_path: &str,
+    size_mode: CompileSizeMode,
 ) -> Result<pg_foma::health::HealthReport, String> {
     let format = infer_grammar_format(grammar_path);
-    let request = pg_foma::worker::CompileWorkerRequest::new(grammar_path.to_string(), format);
+    let mut request = pg_foma::worker::CompileWorkerRequest::new(grammar_path.to_string(), format);
+    request.size_mode = size_mode;
     let envelope = pg_foma::worker::WatchdogEnvelope::default_envelope();
     let exe = std::env::current_exe()
         .map_err(|e| format!("--watchdog: could not resolve this executable's own path: {e}"))?;

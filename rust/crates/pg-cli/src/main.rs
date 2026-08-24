@@ -79,6 +79,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use pg_foma::composite::FomaAnalyzer;
+use pg_foma::resource_envelope::CompileSizeMode;
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
@@ -498,23 +499,43 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
     }
 }
 
+#[cfg(feature = "developer-tools")]
+fn resolve_compile_size_mode(
+    engine: Engine,
+    remove_size_limits: bool,
+) -> Result<CompileSizeMode, String> {
+    if remove_size_limits && engine != Engine::Foma {
+        return Err("--remove-size-limits requires --engine=foma".to_string());
+    }
+    Ok(if remove_size_limits {
+        CompileSizeMode::DeveloperStress
+    } else {
+        CompileSizeMode::Managed
+    })
+}
+
 fn build_foma_analyzer<'g>(
     grammar: &'g Grammar,
     capability_overridden: bool,
+    size_mode: CompileSizeMode,
 ) -> Result<FomaAnalyzer<'g>, pg_foma::analyzer::FomaError> {
-    if !capability_overridden {
-        return FomaAnalyzer::new(grammar);
-    }
-
     #[cfg(feature = "developer-tools")]
     {
-        let (proposer, _profile) =
-            pg_foma::analyzer::FomaProposer::new_unproven_with_profile(grammar);
+        let (proposer, _profile) = if capability_overridden {
+            pg_foma::analyzer::FomaProposer::new_unproven_with_profile_for_mode(grammar, size_mode)
+        } else {
+            pg_foma::analyzer::FomaProposer::new_with_profile_for_mode(grammar, size_mode)
+        };
         return proposer.map(|proposer| FomaAnalyzer::from_precompiled_proposer(grammar, proposer));
     }
 
     #[cfg(not(feature = "developer-tools"))]
-    FomaAnalyzer::new(grammar)
+    {
+        let _ = capability_overridden;
+        let (proposer, _profile) =
+            pg_foma::analyzer::FomaProposer::new_with_profile_for_mode(grammar, size_mode);
+        proposer.map(|proposer| FomaAnalyzer::from_precompiled_proposer(grammar, proposer))
+    }
 }
 
 /// Decides what `run_batch`/`run_parse` should do about the gated backend's `CompileDecision` for `g` (`gated_backend_decision` over `pg_foma::backend_selection::select_backends_for_grammar`'s report), given the resolved `enforce`/`allow_unproven` booleans, and what to print to stderr about it.
@@ -779,7 +800,9 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     #[cfg(feature = "developer-tools")]
-    let _ = remove_size_limits;
+    let size_mode = resolve_compile_size_mode(engine, remove_size_limits)?;
+    #[cfg(not(feature = "developer-tools"))]
+    let size_mode = CompileSizeMode::Managed;
     let enforce_capability = resolve_capability_enforcement(engine, enforce_capability_flag);
     if trace_format != "text" && trace_format != "json" {
         return Err(format!(
@@ -829,7 +852,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
 
     if engine == Engine::Foma {
         // --trace was already rejected above, so this routes through FomaAnalyzer::analyze_word instead of Morpher::parse_word, with output shape identical to the default engine's.
-        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden)
+        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden, size_mode)
             .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?;
         let (analyses, structured) = if foma_invalid_shape(&grammar, word) {
             (Vec::new(), Vec::new())
@@ -1108,7 +1131,9 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         }
     }
     #[cfg(feature = "developer-tools")]
-    let _ = remove_size_limits;
+    let size_mode = resolve_compile_size_mode(engine, remove_size_limits)?;
+    #[cfg(not(feature = "developer-tools"))]
+    let size_mode = CompileSizeMode::Managed;
     let enforce_capability = resolve_capability_enforcement(engine, enforce_capability_flag);
     if threads == 0 {
         return Err("--threads must be >= 1".into());
@@ -1162,7 +1187,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     if engine == Engine::Foma {
         // The foma path: one FomaAnalyzer built once and reused across every word. --step-cap/--memo are silently ignored (the internal verifier Morpher is always uncapped), --word-timeout-ms applies via with_word_timeout, and threads > 1 routes through analyze_words (confirm parallelized, propose sequential since the single ApplyHandle can't be split across threads) with results buffered and written once, no per-word crash-resume.
         let t_compile = Instant::now();
-        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden)
+        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden, size_mode)
             .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?
             .with_word_timeout(word_timeout_ms.map(Duration::from_millis));
         let compile_ms = t_compile.elapsed().as_secs_f64() * 1e3;
