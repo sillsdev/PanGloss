@@ -97,7 +97,7 @@ Two decisions these force, neither urgent tonight:
   ignored-test job does not. This is what let a false assertion sit in a green CI.
 - **G15 changes what health must report, and it should be built with it.** Narrowing predicates
   created a reporting hole: a grammar that some compilers refuse and one accepts now produces no
-  warning at all, because preflight reads the joined verdict and cannot see which compilers declined.
+  warning at all, because characterization reads the joined verdict and cannot see which compilers declined.
   That is precisely the "which recipe compiled this, which did not and why" material the recipe-scoped
   health work exists to report — so the hole and its fix are the same piece of work.
 

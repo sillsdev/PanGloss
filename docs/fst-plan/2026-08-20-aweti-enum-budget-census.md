@@ -9,7 +9,8 @@ Date: 2026-08-20. Worktree `fst/aweti-enum-budget` (base `main` @ `27091d1c`). C
 > `--remove-size-limits` control may remove internal caps for similar stress work, but exact
 > completion, external watchdog/RSS containment, bounded I/O, and the absolute ceiling remain
 > mandatory. `--allow-unproven` is a separate developer-only capability override that may lose
-> valid parses and never certifies or publishes; `Error` can be complete/accurate stress evidence,
+> valid parses and may write local developer evidence, but never production-publishes or certifies;
+> `Error` can be complete/accurate stress evidence,
 > while `Critical` is a correctness gap. Measurements and conclusions below are unchanged.
 
 ## 1. The question as posed
@@ -144,7 +145,7 @@ computed by the FST instead of enumerated per root:
      inventory but block a general strategy swap.
   3. **Per-grammar strategy selection** (the keep-old-paths directive,
      `docs/fst-plan/foma-fst-plan.md` P6): the mainline `--engine=foma` must be able to *choose*
-     the templated construction for an Aweti-shaped grammar off a measured preflight -- machinery
+     the templated construction for an Aweti-shaped grammar off measured characterization -- machinery
      `backend_selection`/`EmissionStrategy` was built for and does not yet do for this case.
 
 Raising `DEFAULT_ENTRY_BUDGET` (or `HC_ENUM_ENTRY_BUDGET`) is not on this list and would buy

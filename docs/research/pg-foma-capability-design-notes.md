@@ -359,12 +359,12 @@ compiler still gated by *every* predicate, which is
 and it asserts that premise about the registry before relying on it, so the test cannot quietly
 become vacuous if a future narrowing touches Templated.
 
-`preflight::semantic_uncertainty_finding` reads the scalar `CompileDecision`, so its
+`characterization::semantic_uncertainty_finding` reads the scalar `CompileDecision`, so its
 `Critical`/`UnknownUnboundedConstruct` finding now fires only for a construct EVERY compiler
 declines. Its fixture moved from genuinely-overlapping simultaneous subrules (a cascade-only
 refusal) to true reduplication owned by a `RealizationalRule`, which no narrowing touches.
 
-**This leaves a real gap, recorded rather than fixed:** preflight consumes the join and has no access
+**This leaves a real gap, recorded rather than fixed:** characterization consumes the join and has no access
 to `StrategyEnvelope::declining`, so a grammar that only SOME compilers refuse now raises no
-preflight finding at all. Before this change that case could not exist, because every predicate
-constrained every compiler. Surfacing per-compiler refusals in preflight is a separate piece of work.
+characterization finding at all. Before this change that case could not exist, because every predicate
+constrained every compiler. Surfacing per-compiler refusals in characterization is a separate piece of work.

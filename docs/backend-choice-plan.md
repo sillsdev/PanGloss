@@ -10,7 +10,8 @@ to the worktree root `.claude/worktrees/cleanup-and-recipe-parity/`.
 > a production flag surface from its hypothetical switches. Production uses named closed resource
 > envelopes and fail-closed capability/readiness decisions. `--allow-unproven` and
 > `--remove-size-limits` are developer-build-only, absent and rejected in production;
-> `--allow-unproven` may lose valid parses and never certifies or publishes, while
+> `--allow-unproven` may lose valid parses and may write local developer evidence, but never
+> production-publishes or certifies, while
 > `--remove-size-limits` removes internal caps only under exact-completion and mandatory external
 > containment. `Error` can be complete/accurate stress evidence but is production-unready;
 > `Critical` is a correctness gap. The legacy `--no-enforce-capability` escape is developer-only.
@@ -140,7 +141,7 @@ is evidence for building the split backend, not evidence that enumeration is goo
 | `compose_budget.rs` | Kernel-style containment for the composition path: states 2M (`:73`), arcs 20M (`:79`), tuples 5k (`:88`), groups 64 (`:101`), lexc lines 1M (`:113`), compound pairs 4M (`:165`). A breach means "fall back to another engine", explicitly not a graded signal (`:97-100`). | Composition path only (PlanComposed/templated cascade) | Yes, default-on during those builds. |
 | `health.rs` | The size axis vocabulary: payload bands 100MB/200MB/1GB/5GB (`:136-143`), `severity_for_size_bytes` (`:154-166`) — and the three-way provenance vocabulary `ValueProvenance { Predicted, ProvenBound, Observed }` (`:233-240`). Health is *reported about* a compile, never consulted during one (`:4-7`). Bands are admitted-unmeasured: "no grammar was measured to pick them" (`:124-135`). | No — schema only | Yes as schema; populated by `pangloss fst-health` and the health evaluator. |
 | `health_evaluator.rs` + `pg-cli fst_health.rs` | Turns existing measurements (payload bytes, EmitReport, ComposeError, CompileProfile) into findings; `pangloss fst-health <grammar> [words]` adds apply-side proposal-volume/rejection-share/duplicate findings. | **No** — apply side uses `FomaAnalyzer::new`, i.e. the tuned backend only (`fst_health.rs:19-20`) | Yes, as a CLI command, on demand. |
-| `preflight.rs` | **The only pre-compile cost pass**: cardinality, quantifier/alternative products, alpha tuples, predicted emitted work, ConfirmOnly expansion, unknown/unbounded work — no foma call (`:1-4`). Verdict semantics are the whole-grammar best-case join, i.e. "some backend", explicitly NOT the backend a run will compile with (`:20-27`). | **No** | Yes, inside `fst-health`. |
+| `characterization.rs` | **The only pre-compile cost pass**: cardinality, quantifier/alternative products, alpha tuples, predicted emitted work, ConfirmOnly expansion, unknown/unbounded work — no foma call (`:1-4`). Verdict semantics are the whole-grammar best-case join, i.e. "some backend", explicitly NOT the backend a run will compile with (`:20-27`). | **No** | Yes, inside `fst-health`. |
 | `profile.rs` `CompileProfile` | Per-stage compile timings + final state/arc counts. Production pipeline ONLY — the experimental cascade is unwired and `ProfileLabel::ExperimentalComposition` exists precisely to keep that honest (`:9-26`). | **No** (tuned path only) | Yes, inside `FomaProposer::new_with_budget`. |
 | `tests/typology_speedup.rs` | Per-word median/min/max ns over the whole conformance suite — but the two "engines" are full-HC (`"complete"`, `:313`) vs the shipping tuned pipeline (`"compiled"`, `:373`). It is an HC-vs-FST harness, not a backend-vs-backend one. | **No** | `#[ignore]`d, full-corpus, on demand (`:944-946`). Wall-clock; its below-floor discipline is reused by `readiness_verdict.rs` (`:58-67`). |
 | `net_shape.rs` | Static post-compile, pre-apply shape inspection, O(states+arcs): zero-width-cycle defect detection plus size-as-context-never-ranking (`:1-35`). The accuracy half is `backend_accuracy`'s zero-confirmation set containment (`backend_accuracy.rs:1-40`, `assess_accuracy_with_cache` `backend_runtime.rs:1938`). | Yes (any finished net) | Test gate only (`tests/net_shape_gate.rs`). |
@@ -162,8 +163,8 @@ each labeled with its provenance, and a statement of *when* it becomes available
 
 | Signal | Observed | ProvenBound | Predicted (pre-compile) |
 |---|---|---|---|
-| Precision (proposals / raw_paths / confirmation_steps per confirmed analysis) | **Exists** — `Score` via `evaluate_plans*`, per backend, corpus-relative. Cost: one full build per backend + one oracle pass + one propose+confirm pass per corpus. Only produced by offline `recipe-optimize` runs and gates; **persisted nowhere** for reuse. | Does not exist. (The `MAX_PROPOSAL_RATIO=2` gate is a pinned assertion for one fixture, not a bound derived per grammar.) | **Does not exist at all.** `preflight.rs` predicts emitted work and ConfirmOnly expansion for the whole grammar under "some backend" semantics — nothing predicts candidates-per-analysis for a named backend without building it. |
-| Size (payload bytes, states+arcs) | **Exists** — `Score.states/arcs` per backend (recipe-optimize); payload bytes + `severity_for_size_bytes` via `fst-health`/pack, tuned backend only. | Partial: a `compose_budget` breach is a real proven-bound event (`FindingCode::ResourceBudgetReached`/`ProvenBoundExceedsBudget`, `health.rs:283-285`), but only on the composition path, and it is containment, not a graded value. | Partial and not per-backend: preflight's quantifier/tuple/compound products are whole-grammar predictions. |
+| Precision (proposals / raw_paths / confirmation_steps per confirmed analysis) | **Exists** — `Score` via `evaluate_plans*`, per backend, corpus-relative. Cost: one full build per backend + one oracle pass + one propose+confirm pass per corpus. Only produced by offline `recipe-optimize` runs and gates; **persisted nowhere** for reuse. | Does not exist. (The `MAX_PROPOSAL_RATIO=2` gate is a pinned assertion for one fixture, not a bound derived per grammar.) | **Does not exist at all.** `characterization.rs` predicts emitted work and ConfirmOnly expansion for the whole grammar under "some backend" semantics — nothing predicts candidates-per-analysis for a named backend without building it. |
+| Size (payload bytes, states+arcs) | **Exists** — `Score.states/arcs` per backend (recipe-optimize); payload bytes + `severity_for_size_bytes` via `fst-health`/pack, tuned backend only. | Partial: a `compose_budget` breach is a real proven-bound event (`FindingCode::ResourceBudgetReached`/`ProvenBoundExceedsBudget`, `health.rs:283-285`), but only on the composition path, and it is containment, not a graded value. | Partial and not per-backend: characterization's quantifier/tuple/compound products are whole-grammar predictions. |
 
 The named gaps, bluntly:
 
@@ -262,7 +263,7 @@ not a measurement — say so in the record).
 **Stage 5 (research, explicitly deferred) — Pre-compile prediction.**
 Only after Stages 2-4 accumulate (characteristics-profile → measured winner) rows: fit predictors
 from `GrammarCardinality`/`CharacteristicsProfile` (already computed pre-compile by
-`preflight.rs`) to Predicted-provenance cost bands with error bounds; overlapping bounds → build
+`characterization.rs`) to Predicted-provenance cost bands with error bounds; overlapping bounds → build
 both and measure (ADR `0002:35-39`). Be blunt: for grammars whose three builds finish in seconds,
 this stage may never pay for itself against Stage 4's build-and-look; its real customer is the
 grammar whose *build* is the expensive part. Do not start it before a real grammar demonstrates
@@ -282,7 +283,7 @@ cost, or predictions may only order/inform while every choice rests on something
 calibrated error bounds and a governance story (ADR 0002); a decider that must build-all needs a
 build-cost budget story instead. These are different systems.
 **Options:** (a) *Build-all-and-measure*: pre-compile signals never do anything; every choice is
-Observed (Stage 4). (b) *Predictions order, never skip*: preflight-derived bands sort the build
+Observed (Stage 4). (b) *Predictions order, never skip*: characterization-derived bands sort the build
 queue and set budgets, but every viable backend is still built. (c) *Predictions may skip when
 bounds don't overlap* (full ADR 0002). (d) *Cache-only pre-compile*: the only admissible
 pre-compile signal is a previous Observed census for this grammar (Stage 3), else build-all.

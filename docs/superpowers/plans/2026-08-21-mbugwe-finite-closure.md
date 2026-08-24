@@ -7,8 +7,9 @@
 
 > **Current policy note (2026-08-23).** The closure work must preserve exact completion and the
 > certificate boundary. `--allow-unproven` and `--remove-size-limits` are developer-build-only,
-> absent and rejected in production. The former may lose valid parses and never certifies or
-> publishes; the latter removes internal deterministic size/work caps only, while external
+> absent and rejected in production. The former may lose valid parses and may write local
+> developer evidence, but never production-publishes or certifies; the latter removes internal
+> deterministic size/work caps only, while external
 > watchdog/RSS containment, bounded I/O, the absolute ceiling, and exact completion remain
 > mandatory. `Error` can describe complete/accurate stress evidence but is production-unready;
 > `Critical` is a correctness gap. `--no-enforce-capability` is legacy developer-only.

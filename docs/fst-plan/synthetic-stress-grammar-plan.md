@@ -6,7 +6,8 @@ playing whack-a-mole with each new language, and can we get ahead of it systemat
 
 > **Current policy note (2026-08-23).** The stress corpus is developer/test evidence, not a
 > production acceptance path. `--allow-unproven` is a developer-build-only capability override
-> that may lose valid parses; it never certifies or publishes an artifact. The distinct
+> that may lose valid parses; it may write local developer evidence, but never production-publishes
+> or certifies an artifact. The distinct
 > `--remove-size-limits` developer control removes internal deterministic size/work caps only:
 > exact completion remains required, and the external watchdog/RSS guard, bounded I/O, and
 > non-disableable absolute ceiling remain mandatory. A complete and accurate stress build may

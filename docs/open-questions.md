@@ -9,7 +9,8 @@ Ordered by consequence, not by size.
 > **Current FST policy (2026-08-23).** Future switch/design questions must preserve three axes:
 > capability correctness, resource/size containment, and readiness health. Both
 > `--allow-unproven` and `--remove-size-limits` are developer-build-only and must be absent and
-> rejected in production. The former may lose valid parses and never certifies or publishes; the
+> rejected in production. The former may lose valid parses and may write local developer evidence,
+> but never production-publishes or certifies; the
 > latter removes internal deterministic size/work caps only, with exact completion, external
 > watchdog/RSS containment, bounded I/O, and the absolute ceiling still mandatory. `Error` may be
 > complete/accurate stress evidence but is production-unready; `Critical` is a correctness gap.
@@ -370,10 +371,10 @@ touched.
 
 **G15 — The gate change created a reporting hole: a partly-refused grammar now warns about nothing.**
 Introduced deliberately by the per-compiler narrowing (`5a7e800`) and worth closing before the recipe
-work leans on it. `preflight`'s `semantic_uncertainty_finding` reads the scalar `CompileDecision`,
+work leans on it. Characterization's `semantic_uncertainty_finding` reads the scalar `CompileDecision`,
 which is the JOIN across compilers — the best any of them offers. It has no access to
 `StrategyEnvelope::declining`, which is the list of compilers that declined and why. So a grammar that
-*some* compilers refuse and one accepts now produces no preflight finding at all.
+*some* compilers refuse and one accepts now produces no characterization finding at all.
 
 Before the narrowing that case could not arise, because every predicate bound every compiler and the
 join was therefore unanimous. The change is right; the reporting has not caught up. This is precisely

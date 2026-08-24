@@ -7,7 +7,8 @@ Status: product grill complete; ready for implementation.
 > **Current FST policy note (2026-08-23).** The profiler records three separate axes: capability
 > correctness, resource/size cost, and readiness health. `--allow-unproven` and
 > `--remove-size-limits` are developer-build-only controls, absent and rejected in production.
-> The former may lose valid parses and never certifies or publishes; the latter removes internal
+> The former may lose valid parses and may write local developer evidence, but never production-publishes
+> or certifies; the latter removes internal
 > deterministic size/work caps only, while exact completion, external watchdog/RSS containment,
 > bounded I/O, and the absolute ceiling remain mandatory. `Error` can be complete/accurate stress
 > evidence but is production-unready; `Critical` is a correctness gap. The legacy

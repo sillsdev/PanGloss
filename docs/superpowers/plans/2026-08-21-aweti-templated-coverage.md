@@ -11,7 +11,8 @@
 > **Current policy note (2026-08-23).** This plan's route acceptance remains a production
 > criterion: only complete, correctly represented routes with no correctness gap are selectable.
 > `--allow-unproven` and `--remove-size-limits` are developer-build-only and must be absent and
-> rejected in production. The former may lose valid parses and never certifies or publishes; the
+> rejected in production. The former may lose valid parses and may write local developer evidence,
+> but never production-publishes or certifies; the
 > latter disables internal size/work caps only while exact completion, external watchdog/RSS
 > containment, bounded I/O, and the absolute ceiling remain mandatory. A complete/accurate stress
 > result may be retained as `Error` evidence, but `Error` is production-unready and `Critical` is
