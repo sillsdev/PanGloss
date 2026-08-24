@@ -4070,7 +4070,7 @@ pub(crate) fn emit_with_budget_profiled_with_compose(
     precision: PrecisionConfig,
     enum_budget: &crate::morphotactics::EnumerationBudget,
     profile: Option<&mut CompileProfileBuilder>,
-    compose: crate::resource_envelope::ComposeEnvelope,
+    compose: Option<crate::resource_envelope::ComposeEnvelope>,
 ) -> EmitResult {
     emit_with_budget_profiled_with_strategy_and_trace(
         g,
@@ -4080,7 +4080,7 @@ pub(crate) fn emit_with_budget_profiled_with_compose(
         SurfaceEmitStrategy::default(),
         None,
         true,
-        Some(compose),
+        compose,
     )
 }
 

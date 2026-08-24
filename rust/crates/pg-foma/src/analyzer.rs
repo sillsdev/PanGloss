@@ -28,24 +28,6 @@ use crate::resource_envelope::{
 };
 use crate::tags::{self, Candidate};
 
-fn compose_budget_from_envelope(compose: ComposeEnvelope) -> ComposeBudget {
-    let mut budget = ComposeBudget::with_caps(
-        compose.state_cap,
-        compose.arc_cap,
-        compose.tuple_cap,
-        compose.group_cap,
-        compose.line_cap,
-        None,
-    );
-    if let Some(cap) = compose.chain_depth_cap {
-        budget = budget.with_chain_depth_cap(cap);
-    }
-    if let Some(cap) = compose.ordering_multiplicity_cap {
-        budget = budget.with_ordering_multiplicity_cap(cap);
-    }
-    budget
-}
-
 /// Errors constructing a `FomaProposer`. Deliberately small (this stage doesn't need a rich
 /// error hierarchy) — a grammar whose foma path fails to compile should fall back to the full
 /// engine (plan §1's per-grammar tiering), which only needs to know THAT it failed.
@@ -334,15 +316,15 @@ impl FomaProposer {
         Self::new_with_budget_and_profile(g, &enum_budget, &compose_budget)
     }
 
-    /// Builds a profiled proposer for the typed construction-size mode. Managed delegates to
-    /// [`Self::new_with_profile`] to preserve its legacy environment behavior; DeveloperStress
-    /// uses the shipped `ManagedV1` projection.
-    pub fn new_with_profile_for_mode(
+    /// Shared core of `new_with_profile_for_mode` and `new_unproven_with_profile_for_mode`.
+    fn new_with_profile_for_size_mode(
         g: &Grammar,
         size_mode: CompileSizeMode,
+        allow_incomplete: bool,
+        managed: impl FnOnce(&Grammar) -> (Result<Self>, CompileProfile),
     ) -> (Result<Self>, CompileProfile) {
         if matches!(size_mode, CompileSizeMode::Managed) {
-            return Self::new_with_profile(g);
+            return managed(g);
         }
         let limits = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1)
             .compile_limits(size_mode);
@@ -350,13 +332,24 @@ impl FomaProposer {
             limits.enumeration.composite_entry_cap,
             limits.enumeration.pair_probe_cap,
         );
-        let compose_budget = compose_budget_from_envelope(limits.compose);
-        Self::new_with_budget_and_profile_and_compose(
+        let compose_budget = limits.compose.to_compose_budget();
+        Self::new_with_budget_and_profile_policy(
             g,
             &enum_budget,
             &compose_budget,
-            limits.compose,
+            allow_incomplete,
+            Some(limits.compose),
         )
+    }
+
+    /// Builds a profiled proposer for the typed construction-size mode. Managed delegates to
+    /// [`Self::new_with_profile`] to preserve its legacy environment behavior; DeveloperStress
+    /// uses the shipped `ManagedV1` projection.
+    pub fn new_with_profile_for_mode(
+        g: &Grammar,
+        size_mode: CompileSizeMode,
+    ) -> (Result<Self>, CompileProfile) {
+        Self::new_with_profile_for_size_mode(g, size_mode, false, Self::new_with_profile)
     }
 
     /// Development-only counterpart to [`Self::new_with_profile`]. It may compile an emitter
@@ -367,7 +360,7 @@ impl FomaProposer {
     pub fn new_unproven_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
         let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let compose_budget = ComposeBudget::from_env();
-        Self::new_with_budget_and_profile_policy(g, &enum_budget, &compose_budget, true)
+        Self::new_with_budget_and_profile_policy(g, &enum_budget, &compose_budget, true, None)
     }
 
     /// Developer-only mode-aware counterpart to [`Self::new_unproven_with_profile`]. The
@@ -377,23 +370,7 @@ impl FomaProposer {
         g: &Grammar,
         size_mode: CompileSizeMode,
     ) -> (Result<Self>, CompileProfile) {
-        if matches!(size_mode, CompileSizeMode::Managed) {
-            return Self::new_unproven_with_profile(g);
-        }
-        let limits = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1)
-            .compile_limits(size_mode);
-        let enum_budget = crate::morphotactics::EnumerationBudget::with_caps(
-            limits.enumeration.composite_entry_cap,
-            limits.enumeration.pair_probe_cap,
-        );
-        let compose_budget = compose_budget_from_envelope(limits.compose);
-        Self::new_with_budget_and_profile_policy_and_compose(
-            g,
-            &enum_budget,
-            &compose_budget,
-            true,
-            limits.compose,
-        )
+        Self::new_with_profile_for_size_mode(g, size_mode, true, Self::new_unproven_with_profile)
     }
 
     /// `Self::new`'s core, with the fail-fast enumeration budget AND
@@ -430,7 +407,7 @@ impl FomaProposer {
         enum_budget: &crate::morphotactics::EnumerationBudget,
         compose_budget: &ComposeBudget,
     ) -> (Result<Self>, CompileProfile) {
-        Self::new_with_budget_and_profile_policy(g, enum_budget, compose_budget, false)
+        Self::new_with_budget_and_profile_policy(g, enum_budget, compose_budget, false, None)
     }
 
     /// Worker-facing profiled constructor with explicit deterministic compose projection. The
@@ -443,12 +420,12 @@ impl FomaProposer {
         compose_budget: &ComposeBudget,
         compose: ComposeEnvelope,
     ) -> (Result<Self>, CompileProfile) {
-        Self::new_with_budget_and_profile_policy_and_compose(
+        Self::new_with_budget_and_profile_policy(
             g,
             enum_budget,
             compose_budget,
             false,
-            compose,
+            Some(compose),
         )
     }
 
@@ -457,38 +434,7 @@ impl FomaProposer {
         enum_budget: &crate::morphotactics::EnumerationBudget,
         compose_budget: &ComposeBudget,
         allow_incomplete: bool,
-    ) -> (Result<Self>, CompileProfile) {
-        let mut profile = CompileProfileBuilder::production();
-
-        // Reject unordered multiplicity before doing emission work.
-        if let Err(err) = crate::unordered::check_unordered_strata_bound(g, compose_budget) {
-            let err = match err {
-                crate::compose_budget::ComposeError::OrderingMultiplicityExceeded {
-                    rule_count,
-                    limit,
-                    ..
-                } => FomaError::UnorderedOrderingMultiplicityExceeded { rule_count, limit },
-                other => unreachable!(
-                    "check_unordered_strata_bound only ever produces OrderingMultiplicityExceeded, got {other:?}"
-                ),
-            };
-            return (Err(err), profile.finish(None, None));
-        }
-        let result = emit::emit_with_budget_profiled(
-            g,
-            crate::precision::PrecisionConfig::Strip,
-            enum_budget,
-            Some(&mut profile),
-        );
-        Self::finish_profiled_compile(result, profile, allow_incomplete)
-    }
-
-    fn new_with_budget_and_profile_policy_and_compose(
-        g: &Grammar,
-        enum_budget: &crate::morphotactics::EnumerationBudget,
-        compose_budget: &ComposeBudget,
-        allow_incomplete: bool,
-        compose: ComposeEnvelope,
+        compose: Option<ComposeEnvelope>,
     ) -> (Result<Self>, CompileProfile) {
         let mut profile = CompileProfileBuilder::production();
 

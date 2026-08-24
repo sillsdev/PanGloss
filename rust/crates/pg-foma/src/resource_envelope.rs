@@ -97,6 +97,27 @@ pub struct ComposeEnvelope {
     pub ordering_multiplicity_cap: Option<usize>,
 }
 
+impl ComposeEnvelope {
+    /// Projects this envelope's caps onto a `ComposeBudget`, the deterministic compile-time compose limit.
+    pub(crate) fn to_compose_budget(self) -> crate::compose_budget::ComposeBudget {
+        let mut budget = crate::compose_budget::ComposeBudget::with_caps(
+            self.state_cap,
+            self.arc_cap,
+            self.tuple_cap,
+            self.group_cap,
+            self.line_cap,
+            None,
+        );
+        if let Some(cap) = self.chain_depth_cap {
+            budget = budget.with_chain_depth_cap(cap);
+        }
+        if let Some(cap) = self.ordering_multiplicity_cap {
+            budget = budget.with_ordering_multiplicity_cap(cap);
+        }
+        budget
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EnumerationEnvelope {

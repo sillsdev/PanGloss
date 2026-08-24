@@ -470,24 +470,7 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
         },
     );
     let compose_budget = stress_limits
-        .map(|limits| {
-            let compose = limits.compose;
-            let mut budget = ComposeBudget::with_caps(
-                compose.state_cap,
-                compose.arc_cap,
-                compose.tuple_cap,
-                compose.group_cap,
-                compose.line_cap,
-                None,
-            );
-            if let Some(cap) = compose.chain_depth_cap {
-                budget = budget.with_chain_depth_cap(cap);
-            }
-            if let Some(cap) = compose.ordering_multiplicity_cap {
-                budget = budget.with_ordering_multiplicity_cap(cap);
-            }
-            budget
-        })
+        .map(|limits| limits.compose.to_compose_budget())
         .unwrap_or_else(|| request.compose_budget());
 
     let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1256,7 +1239,6 @@ pub fn run_selected_compile_worker(
         backend: envelope.backend(),
     };
     let mut worker_request = CompileWorkerRequest::new(grammar_path.to_string(), grammar_format);
-    worker_request.size_mode = request.size_mode();
     worker_request.selected = Some(selected);
     let watchdog = WatchdogEnvelope::clamped(
         Duration::from_millis(envelope.watchdog().wall_timeout_ms),
