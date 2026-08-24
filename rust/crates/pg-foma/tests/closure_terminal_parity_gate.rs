@@ -6,7 +6,9 @@ use pg_foma::emit::{
     emit_tuned_surface_for_envelope, emit_tuned_surface_for_request,
     emit_tuned_surface_with_closure_limits_for_test, EmitResult, FomaTier,
 };
-use pg_foma::resource_envelope::{CompileEnvelopeRequest, ResourceEnvelope, ResourceEnvelopeId};
+use pg_foma::resource_envelope::{
+    CompileEnvelopeRequest, CompileSizeMode, ResourceEnvelope, ResourceEnvelopeId,
+};
 
 const FINITE_CHAIN_XML: &str = r#"<HermitCrabInput><Language><Name>TotalClosureContract</Name>
   <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
@@ -262,6 +264,66 @@ fn only_a_terminal_failure_can_authorize_a_linked_retry() {
     assert!(!second.lexc_source.is_empty());
     assert_eq!(second.report.tier, FomaTier::Full);
     assert!(second.retry_authorization().is_none());
+}
+
+#[test]
+#[cfg(feature = "developer-tools")]
+fn developer_stress_removes_only_deterministic_compile_caps() {
+    let shipped = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
+    let managed = shipped.compile_limits(CompileSizeMode::Managed);
+    let stress = shipped.compile_limits(CompileSizeMode::DeveloperStress);
+
+    assert_eq!(managed.compose, shipped.compose());
+    assert_eq!(managed.enumeration, shipped.enumeration());
+    assert_eq!(managed.backend, shipped.backend());
+    assert_eq!(shipped.id(), ResourceEnvelopeId::ManagedV1);
+    assert_eq!(shipped.watchdog(), ResourceEnvelope::for_id(shipped.id()).watchdog());
+    assert_eq!(
+        shipped.communication(),
+        ResourceEnvelope::for_id(shipped.id()).communication()
+    );
+
+    assert_eq!(stress.compose.state_cap, usize::MAX);
+    assert_eq!(stress.compose.arc_cap, usize::MAX);
+    assert_eq!(stress.compose.tuple_cap, usize::MAX);
+    assert_eq!(stress.compose.group_cap, usize::MAX);
+    assert_eq!(stress.compose.line_cap, usize::MAX);
+    assert_eq!(stress.compose.compound_pair_cap, usize::MAX);
+    assert_eq!(stress.compose.ordering_multiplicity_cap, None);
+    assert_eq!(stress.compose.chain_depth_cap, Some(1_000_000));
+    assert_eq!(stress.enumeration.composite_entry_cap, usize::MAX);
+    assert_eq!(stress.enumeration.pair_probe_cap, usize::MAX);
+    assert_eq!(stress.backend.tuned_surface_closure_work_cap, usize::MAX);
+    assert_eq!(stress.backend.tuned_surface_closure_depth_cap, 1_000_000);
+    assert_eq!(
+        stress.backend.tuned_surface_compound_chain_depth_cap,
+        1_000_000
+    );
+
+    let grammar = pg_grammar::load(&bounded_branching_xml(6))
+        .expect("bounded stress fixture must load");
+    let request = CompileEnvelopeRequest::try_new_with_mode(
+        ResourceEnvelopeId::ManagedV1,
+        CompileSizeMode::DeveloperStress,
+    )
+    .expect("developer stress request must be constructible");
+    assert_eq!(request.size_mode(), CompileSizeMode::DeveloperStress);
+    assert_eq!(request.envelope_id(), ResourceEnvelopeId::ManagedV1);
+
+    let result = emit_tuned_surface_for_request(&grammar, &request);
+    let terminal = result
+        .report
+        .closure_evidence
+        .as_ref()
+        .expect("stress attempt retains exact closure evidence");
+    assert_eq!(terminal.terminal, ClosureTerminal::Complete);
+    assert!(terminal.evidence.worklist_empty);
+    assert_eq!(terminal.evidence.pending_successor_count, 0);
+    assert!(terminal.evidence.rule_pairs_visited > 3_000);
+    assert_eq!(terminal.evidence.envelope_id, ResourceEnvelopeId::ManagedV1);
+    assert_eq!(terminal.evidence.envelope_digest, shipped.digest());
+    assert!(!result.lexc_source.is_empty());
+    assert_eq!(result.report.tier, FomaTier::Full);
 }
 
 #[test]

@@ -4120,7 +4120,21 @@ fn emit_tuned_surface_for_envelope_with_trace_policy(
     envelope: &crate::resource_envelope::ResourceEnvelope,
     allow_env_trace: bool,
 ) -> EmitResult {
-    let backend = envelope.backend();
+    emit_tuned_surface_for_envelope_with_limits(
+        g,
+        envelope,
+        envelope.compile_limits(crate::resource_envelope::CompileSizeMode::Managed),
+        allow_env_trace,
+    )
+}
+
+fn emit_tuned_surface_for_envelope_with_limits(
+    g: &Grammar,
+    envelope: &crate::resource_envelope::ResourceEnvelope,
+    limits: crate::resource_envelope::CompileLimits,
+    allow_env_trace: bool,
+) -> EmitResult {
+    let backend = limits.backend;
     let trace = crate::characterization::ClosureTrace::new(
         envelope,
         crate::characterization::ClosureTestLimits {
@@ -4128,7 +4142,7 @@ fn emit_tuned_surface_for_envelope_with_trace_policy(
             depth_cap: backend.tuned_surface_closure_depth_cap,
         },
     );
-    let enumeration = envelope.enumeration();
+    let enumeration = limits.enumeration;
     let enum_budget = crate::morphotactics::EnumerationBudget::with_caps(
         enumeration.composite_entry_cap,
         enumeration.pair_probe_cap,
@@ -4141,7 +4155,7 @@ fn emit_tuned_surface_for_envelope_with_trace_policy(
         SurfaceEmitStrategy::default(),
         Some(&trace),
         allow_env_trace,
-        Some(envelope.compose()),
+        Some(limits.compose),
     )
 }
 
@@ -4152,7 +4166,12 @@ pub fn emit_tuned_surface_for_request(
     request: &crate::resource_envelope::CompileEnvelopeRequest,
 ) -> EmitResult {
     let envelope = crate::resource_envelope::ResourceEnvelope::for_id(request.envelope_id());
-    let mut result = emit_tuned_surface_for_envelope_with_trace_policy(g, &envelope, false);
+    let mut result = emit_tuned_surface_for_envelope_with_limits(
+        g,
+        &envelope,
+        envelope.compile_limits(request.size_mode()),
+        false,
+    );
     result.retry_authorization = result
         .report
         .closure_evidence

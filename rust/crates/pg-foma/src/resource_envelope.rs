@@ -18,6 +18,25 @@ pub enum ResourceEnvelopeId {
     TunedSurfaceWork10kV1,
 }
 
+/// Construction-cap policy for one developer or managed compile attempt.
+///
+/// This is deliberately separate from [`ResourceEnvelopeId`]: the envelope remains the shipped
+/// identity for watchdog, transport, and completion evidence while this policy only projects the
+/// internal deterministic construction caps used by the emitter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CompileSizeMode {
+    Managed,
+    #[cfg(feature = "developer-tools")]
+    DeveloperStress,
+}
+
+impl Default for CompileSizeMode {
+    fn default() -> Self {
+        Self::Managed
+    }
+}
+
 impl ResourceEnvelopeId {
     pub const fn all() -> &'static [Self] {
         &[Self::ManagedV1, Self::TunedSurfaceWork10kV1]
@@ -105,6 +124,13 @@ pub struct ResourceEnvelope {
     backend: BackendEnvelope,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompileLimits {
+    pub compose: ComposeEnvelope,
+    pub enumeration: EnumerationEnvelope,
+    pub backend: BackendEnvelope,
+}
+
 impl ResourceEnvelope {
     pub const fn id(&self) -> ResourceEnvelopeId {
         self.id
@@ -129,6 +155,42 @@ impl ResourceEnvelope {
     }
     pub const fn backend(&self) -> BackendEnvelope {
         self.backend
+    }
+
+    /// Projects the internal construction limits for one attempt without changing the shipped
+    /// envelope identity or any external containment limit.
+    pub const fn compile_limits(&self, mode: CompileSizeMode) -> CompileLimits {
+        match mode {
+            CompileSizeMode::Managed => CompileLimits {
+                compose: self.compose,
+                enumeration: self.enumeration,
+                backend: self.backend,
+            },
+            #[cfg(feature = "developer-tools")]
+            CompileSizeMode::DeveloperStress => CompileLimits {
+                compose: ComposeEnvelope {
+                    state_cap: usize::MAX,
+                    arc_cap: usize::MAX,
+                    tuple_cap: usize::MAX,
+                    group_cap: usize::MAX,
+                    line_cap: usize::MAX,
+                    compound_pair_cap: usize::MAX,
+                    chain_depth_cap: Some(crate::compose_budget::CHAIN_DEPTH_ABSOLUTE_CEILING),
+                    ordering_multiplicity_cap: None,
+                },
+                enumeration: EnumerationEnvelope {
+                    composite_entry_cap: usize::MAX,
+                    pair_probe_cap: usize::MAX,
+                },
+                backend: BackendEnvelope {
+                    tuned_surface_closure_work_cap: usize::MAX,
+                    tuned_surface_closure_depth_cap:
+                        crate::compose_budget::CHAIN_DEPTH_ABSOLUTE_CEILING,
+                    tuned_surface_compound_chain_depth_cap:
+                        crate::compose_budget::CHAIN_DEPTH_ABSOLUTE_CEILING,
+                },
+            },
+        }
     }
 }
 
@@ -267,6 +329,7 @@ impl AttemptId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileEnvelopeRequest {
     envelope_id: ResourceEnvelopeId,
+    size_mode: CompileSizeMode,
     attempt_id: AttemptId,
     retry_of: Option<AttemptId>,
     prior_closure: Option<CharacterizationResult>,
@@ -292,8 +355,16 @@ fn fresh_attempt_id() -> Result<AttemptId, String> {
 
 impl CompileEnvelopeRequest {
     pub fn try_new(envelope_id: ResourceEnvelopeId) -> Result<Self, String> {
+        Self::try_new_with_mode(envelope_id, CompileSizeMode::Managed)
+    }
+
+    pub fn try_new_with_mode(
+        envelope_id: ResourceEnvelopeId,
+        size_mode: CompileSizeMode,
+    ) -> Result<Self, String> {
         Ok(Self {
             envelope_id,
+            size_mode,
             attempt_id: fresh_attempt_id()?,
             retry_of: None,
             prior_closure: None,
@@ -315,6 +386,7 @@ impl CompileEnvelopeRequest {
         }
         Ok(Self {
             envelope_id,
+            size_mode: CompileSizeMode::Managed,
             attempt_id: fresh_attempt_id()?,
             retry_of: Some(authorization.attempt_id.clone()),
             prior_closure: Some(authorization.prior_closure.clone()),
@@ -323,6 +395,10 @@ impl CompileEnvelopeRequest {
 
     pub const fn envelope_id(&self) -> ResourceEnvelopeId {
         self.envelope_id
+    }
+
+    pub const fn size_mode(&self) -> CompileSizeMode {
+        self.size_mode
     }
 
     pub fn attempt_id(&self) -> &AttemptId {
@@ -341,6 +417,7 @@ impl CompileEnvelopeRequest {
         envelope_id: ResourceEnvelopeId,
         envelope_digest: &str,
         attempt_id: impl Into<String>,
+        size_mode: CompileSizeMode,
     ) -> Result<Self, String> {
         let expected = ResourceEnvelope::for_id(envelope_id);
         if envelope_digest != expected.digest() {
@@ -350,6 +427,7 @@ impl CompileEnvelopeRequest {
         }
         Ok(Self {
             envelope_id,
+            size_mode,
             attempt_id: AttemptId::new(attempt_id)?,
             retry_of: None,
             prior_closure: None,
