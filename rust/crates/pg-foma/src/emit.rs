@@ -4062,6 +4062,28 @@ pub(crate) fn emit_with_budget_profiled(
     )
 }
 
+/// Mode-aware counterpart to [`emit_with_budget_profiled`]. The selected compose projection is
+/// supplied explicitly so developer stress runs remove the internal construction caps without
+/// consulting process environment, while legacy callers retain their env-driven behavior.
+pub(crate) fn emit_with_budget_profiled_with_compose(
+    g: &Grammar,
+    precision: PrecisionConfig,
+    enum_budget: &crate::morphotactics::EnumerationBudget,
+    profile: Option<&mut CompileProfileBuilder>,
+    compose: crate::resource_envelope::ComposeEnvelope,
+) -> EmitResult {
+    emit_with_budget_profiled_with_strategy_and_trace(
+        g,
+        precision,
+        enum_budget,
+        profile,
+        SurfaceEmitStrategy::default(),
+        None,
+        true,
+        Some(compose),
+    )
+}
+
 /// `emit_with_budget_profiled` with an explicit surface strategy; the wrapper above supplies the default.
 fn emit_with_budget_profiled_with_strategy(
     g: &Grammar,

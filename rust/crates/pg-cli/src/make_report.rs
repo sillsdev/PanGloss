@@ -21,6 +21,7 @@ use pg_foma::readiness_verdict::{
     CoverageAssessment, LatencyMeasurement, Measurements, OverriddenConfig as RvOverriddenConfig,
     OverrideRecord as RvOverrideRecord, ReadinessReport, Tier, TrustStatus,
 };
+use pg_foma::resource_envelope::CompileSizeMode;
 use pg_grammar::model::Grammar;
 use sha2::{Digest, Sha256};
 
@@ -465,11 +466,12 @@ fn render_backend_assessments(
 fn build_report_analyzer<'g>(
     grammar: &'g Grammar,
     unproven: bool,
+    size_mode: CompileSizeMode,
 ) -> Result<FomaAnalyzer<'g>, String> {
     let (result, _profile) = if unproven {
         #[cfg(feature = "developer-tools")]
         {
-            FomaProposer::new_unproven_with_profile(grammar)
+            FomaProposer::new_unproven_with_profile_for_mode(grammar, size_mode)
         }
         #[cfg(not(feature = "developer-tools"))]
         {
@@ -478,7 +480,7 @@ fn build_report_analyzer<'g>(
             );
         }
     } else {
-        FomaProposer::new_with_profile(grammar)
+        FomaProposer::new_with_profile_for_mode(grammar, size_mode)
     };
     result
         .map(|proposer| FomaAnalyzer::from_precompiled_proposer(grammar, proposer))
@@ -823,7 +825,13 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         }
     }
     #[cfg(feature = "developer-tools")]
-    let _ = remove_size_limits;
+    let size_mode = if remove_size_limits {
+        CompileSizeMode::DeveloperStress
+    } else {
+        CompileSizeMode::Managed
+    };
+    #[cfg(not(feature = "developer-tools"))]
+    let size_mode = CompileSizeMode::Managed;
     if repeats == 0 {
         return Err("--repeats must be >= 1".to_string());
     }
@@ -988,7 +996,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                 )
             }
             None => {
-                let built = crate::pack::build_pack(
+                let built = crate::pack::build_pack_with_size_mode(
                     grammar_path,
                     &grammar,
                     &semantics,
@@ -996,6 +1004,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                     authorized_by.as_deref(),
                     reason.as_deref(),
                     false,
+                    size_mode,
                 )?;
                 let pin = format!(
                     "built in-process for this report, not persisted to disk (sha256=`{}`, \
@@ -1025,7 +1034,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
 
         // The compiled propose+confirm analyzer these build-time/latency numbers are about: a separate compile from whatever produced the pack above.
         let t_build = Instant::now();
-        let mut analyzer = build_report_analyzer(&grammar, capability_overridden)?;
+        let mut analyzer = build_report_analyzer(&grammar, capability_overridden, size_mode)?;
         let build_ns = t_build.elapsed().as_nanos() as u64;
         let floor_ns = measure_timer_floor_ns();
         let rendered_build_time =

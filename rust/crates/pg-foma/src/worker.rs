@@ -268,6 +268,10 @@ pub struct CompileWorkerRequest {
     pub protocol_version: u32,
     pub grammar_path: String,
     pub grammar_format: GrammarFormat,
+    /// Typed projection of the shipped internal construction caps. The serde default keeps
+    /// older generic requests managed while the worker protocol remains additive.
+    #[serde(default)]
+    pub size_mode: CompileSizeMode,
     /// `ComposeBudget::state_cap`.
     pub state_cap: usize,
     /// `ComposeBudget::arc_cap`.
@@ -301,6 +305,7 @@ impl CompileWorkerRequest {
             protocol_version: WORKER_PROTOCOL_VERSION,
             grammar_path: grammar_path.into(),
             grammar_format,
+            size_mode: CompileSizeMode::Managed,
             state_cap: crate::compose_budget::DEFAULT_STATE_BUDGET,
             arc_cap: crate::compose_budget::DEFAULT_ARC_BUDGET,
             tuple_cap: crate::compose_budget::DEFAULT_TUPLE_BUDGET,
@@ -315,8 +320,27 @@ impl CompileWorkerRequest {
     }
 
     /// Builds the `ComposeBudget` this request describes -- what `run_worker_child` compiles
-    /// under. Mirrors `ComposeBudget::from_env`'s own field-by-field construction, just sourced
-    /// from this request's fields instead of process env.
+    /// under. The shipped managed profile is the base; explicit legacy managed wire caps remain
+    /// honored for compatibility with existing callers/tests, while DeveloperStress is an
+    /// authoritative typed projection that removes those internal caps.
+    pub fn compile_limits(&self) -> crate::resource_envelope::CompileLimits {
+        let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
+        let mut limits = envelope.compile_limits(self.size_mode);
+        if matches!(self.size_mode, CompileSizeMode::Managed) {
+            limits.compose = ComposeEnvelope {
+                state_cap: self.state_cap,
+                arc_cap: self.arc_cap,
+                tuple_cap: self.tuple_cap,
+                group_cap: self.group_cap,
+                line_cap: self.line_cap,
+                compound_pair_cap: limits.compose.compound_pair_cap,
+                chain_depth_cap: self.chain_depth_cap,
+                ordering_multiplicity_cap: self.ordering_multiplicity_cap,
+            };
+        }
+        limits
+    }
+
     pub fn compose_budget(&self) -> ComposeBudget {
         let mut budget = ComposeBudget::with_caps(
             self.state_cap,
@@ -431,15 +455,55 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
         Err(detail) => return CompileWorkerOutcome::GrammarLoadFailed { detail },
     };
 
-    let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
-    let compose_budget = request.compose_budget();
+    #[cfg(feature = "developer-tools")]
+    let stress_limits = matches!(request.size_mode, CompileSizeMode::DeveloperStress)
+        .then(|| request.compile_limits());
+    #[cfg(not(feature = "developer-tools"))]
+    let stress_limits: Option<crate::resource_envelope::CompileLimits> = None;
+    let enum_budget = stress_limits.map_or_else(
+        crate::morphotactics::EnumerationBudget::from_env,
+        |limits| {
+            crate::morphotactics::EnumerationBudget::with_caps(
+                limits.enumeration.composite_entry_cap,
+                limits.enumeration.pair_probe_cap,
+            )
+        },
+    );
+    let compose_budget = stress_limits
+        .map(|limits| {
+            let compose = limits.compose;
+            let mut budget = ComposeBudget::with_caps(
+                compose.state_cap,
+                compose.arc_cap,
+                compose.tuple_cap,
+                compose.group_cap,
+                compose.line_cap,
+                None,
+            );
+            if let Some(cap) = compose.chain_depth_cap {
+                budget = budget.with_chain_depth_cap(cap);
+            }
+            if let Some(cap) = compose.ordering_multiplicity_cap {
+                budget = budget.with_ordering_multiplicity_cap(cap);
+            }
+            budget
+        })
+        .unwrap_or_else(|| request.compose_budget());
 
     let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::analyzer::FomaProposer::new_with_budget_and_profile(
-            &grammar,
-            &enum_budget,
-            &compose_budget,
-        )
+        match stress_limits {
+            Some(limits) => crate::analyzer::FomaProposer::new_with_budget_and_profile_and_compose(
+                &grammar,
+                &enum_budget,
+                &compose_budget,
+                limits.compose,
+            ),
+            None => crate::analyzer::FomaProposer::new_with_budget_and_profile(
+                &grammar,
+                &enum_budget,
+                &compose_budget,
+            ),
+        }
     }));
 
     let (result, profile) = match compiled {
@@ -1192,6 +1256,7 @@ pub fn run_selected_compile_worker(
         backend: envelope.backend(),
     };
     let mut worker_request = CompileWorkerRequest::new(grammar_path.to_string(), grammar_format);
+    worker_request.size_mode = request.size_mode();
     worker_request.selected = Some(selected);
     let watchdog = WatchdogEnvelope::clamped(
         Duration::from_millis(envelope.watchdog().wall_timeout_ms),
