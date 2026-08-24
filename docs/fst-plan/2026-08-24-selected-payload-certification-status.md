@@ -63,8 +63,37 @@ worker returned, then compares `AnalysisIdentity` sets against the `Morpher` ora
 locked cases. It reaches the preferred tuned route through the named
 `ResourceEnvelopeId::TunedSurfaceWork10kV1` retry rather than the default envelope.
 
-It is `#[ignore]`d with the reason "needs local private Indonesian grammar/corpus; run through
-pg.ps1 corpus-test", and `indonesian-hc.xml` is absent, so it has not executed here.
+**It has now run, for the first time, and it fails.** Both Indonesian inputs were recovered from
+`C:\Users\johnm\Documents\repos\.worktrees\phase2-w6\samples\data` and verified against the lock
+before use — `indonesian-hc.xml` hashes to the pinned `grammarSha256` (`e450110e…`) and
+`indonesian-words.txt` to the pinned `sourceSha256` (`004d6aa3…`), both exactly. With all ten
+manifest-`required` files present, `-Mode corpus-test` proceeded and the gate reported:
+
+```
+indonesian_worker_selected_payload_gate.rs:99
+  the contained worker must return the exact selected completed payload:
+  Compiler("completed-build closure is incomplete:
+            terminal=Incomplete(EnumerationBudgetReached), rule_pairs_visited=1016,
+            pending_successor_count=0, pending_rule_ordinals=[], worklist_empty=false")
+```
+
+Read that carefully, because the failing dimension is not the one the gate compensates for. The gate
+deliberately uses the named `TunedSurfaceWork10kV1` retry, which raises the **closure-work** cap to
+10,000; the run stopped at 1,016 visited rule pairs, nowhere near it. The terminal reason is
+`EnumerationBudgetReached` — a *different* budget, which that retry envelope does not raise. So the
+named retry lifts the wrong limit for this grammar, and the completed build never closes.
+
+The failure is at the `run_selected_compile_worker` call, before any of the 120 cases is compared,
+so this says nothing yet about analysis parity — the payload cannot be constructed at all.
+
+**Indonesian is therefore not certified, but the reason is now measured rather than assumed.** The
+blocker is a resource-envelope dimension mismatch in the selected-payload route, not missing data
+and not a corpus problem. That is a considerably more actionable place to be than where this
+document started.
+
+**A trap worth naming:** the repo's own `samples/data/indonesian-words.txt` (750 bytes) does **not**
+match the lock's `sourceSha256`; the recovered copy (1,105 bytes) does. Populating `samples/data`
+from the in-repo copy will fail the lock assertion, which reads like a gate bug and is not one.
 
 **Gap fixed here, independently of the corpus:** this gate, and three of the four corpus tests in
 `backend_runtime_net_is_queryable_gate`, were not listed in the manifest's
@@ -150,6 +179,38 @@ The contract governing the short-circuit these cases exercise is
 whole-grammar strategy to return a real measurement and a `PlanComposed` candidate with unbuildable
 markers to be refused. That contract test runs and passes.
 
+## Real-language evidence that the marker refusal, not fixture choice, is the defect
+
+With the corpus complete, the four previously-unrunnable corpus tests in
+`backend_runtime_net_is_queryable_gate` ran for the first time. Three pass:
+
+```
+PASS  corpus_indonesian_first_word_runtime_phases_complete
+PASS  corpus_indonesian_plan_composed_baseline_completes
+PASS  corpus_indonesian_registry_candidates_are_named_before_build
+FAIL  corpus_indonesian_confirms_after_the_finish_step
+[pg] corpus-test executed 9 corpus case(s) across 3 label(s)
+```
+
+The one failure matters more than the three passes. On the **real Indonesian grammar**, no candidate
+reaches `FullHcConfirmed`, and the seven certifications say exactly why:
+
+- **five** `Unsupported { "plan requires subtrees build_controllable does not build
+  (CompositeEmissionMarker, StructuralCompositeMarker); use a whole-grammar backend" }`
+- one `StaticRejected` — TunedSurface needs more than 3,000 reachable root/chain-state × rule pairs
+  and stopped at 3,001: "the current TunedSurface operational envelope is too small"
+- one `BuildFailed` — templated emission `Partial { uncovered: 3 }`
+
+That is the *same* short-circuit at `backend_runtime.rs:1830-1838` that produces the four `pg-cli`
+recipe failures below, reproducing here on real-language data rather than a staged fixture. It
+settles a question that was open: the hypothesis that those failures were a
+**fixture-selection defect** — fixable by repointing the tests at some other grammar — does not
+survive. The refusal fires on the reference grammar too, so no choice of fixture avoids it.
+
+The test's own message records that it once passed: "Pre-fix this read 0 of 3 confirmed with a
+`merasa` multiplicity mismatch." So the marker-bearing candidates were measurable at some point and
+are not now.
+
 ## The recipe-optimizer regressions are four runnable `pg-cli` failures
 
 `four_grammar_recipe_evidence::four_promoted_grammars_have_truthful_recipe_evidence` and three tests
@@ -174,12 +235,19 @@ called. The other two are whole-grammar adapters, which skip that check and inst
 genuine build failure at one uncovered construct. Since only `FullHcConfirmed` is selectable, nothing
 can confirm.
 
-Note what `recipe_optimize_continuation.rs:154` says about itself: "Non-vacuity FIRST: without both
-kinds present this test asserts nothing." These tests require a fixture producing both a confirmed
-and a non-confirmed candidate, and the chosen fixture produces only the latter — so the defect may
-be fixture selection rather than the compiler. Which of those it is decides whether the fix is small
-or reaches into unchecked backend-selection work, and it should be settled before anyone edits the
-short-circuit: the synthetic contract test above is the only guarantee currently proven about it.
+`recipe_optimize_continuation.rs:154` says "Non-vacuity FIRST: without both kinds present this test
+asserts nothing", which invites the theory that the fixture simply became unsuitable. **The
+real-language evidence above rules that out**: the same refusal fires on the reference Indonesian
+grammar, so no fixture avoids it. Repointing these tests would trade a specific pinned claim — that
+the optimizer measures marker-bearing grammars — for a vague one, and leave the defect in place.
+
+The fix therefore reaches into backend selection: replacing the coarse
+`ProcessMorphology => CannotRepresent` row in `strategy_coverage.rs` with a predicate-backed
+disposition resolved through the classifier. That is scheduled work in the
+`cover-circumfix-cross-product-and-infix-drop` change, not this branch's, and it should not be
+attempted piecemeal — the synthetic contract test
+(`out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar`) is currently the only
+proven guarantee about the short-circuit's behavior.
 
 `four_grammar_recipe_evidence` is a different fixture (`edge-cases/mpr-gated-exception`) whose
 feasible count fell to 2 against an expected 5. That fixture has previously produced a genuine
