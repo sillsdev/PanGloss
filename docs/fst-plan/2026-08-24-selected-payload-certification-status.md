@@ -103,18 +103,67 @@ fact that `backend_selection` does not admit the templated route for an Aweti-sh
 Summary [0.788s] 2 tests run: 2 passed, 4 skipped
 ```
 
-Those four are the reported regressions, and they cannot be observed here, so no fix to them can be
-verified here either.
+These four are blocked on the same missing grammar as everything above. They are **not** the
+recipe-optimizer regressions recorded elsewhere as outstanding; an earlier draft of this document
+said they were, on nothing better than both sets numbering four. See the next section for the real
+ones.
 
-The mechanism they concern is the short-circuit in `backend_runtime.rs`: a candidate whose adapter
-`interprets_plan()` and whose plan carries unbuildable markers returns
-`Certification::Unsupported` with zero measured operations, before any build or confirm. The
-contract governing that is `out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar`,
-which requires a whole-grammar strategy to return a real measurement and a `PlanComposed` candidate
-with unbuildable markers to be refused. **That contract test runs and passes.** Whatever the four
-corpus cases disagree about is therefore specific to the real grammar and invisible without it, so
-changing the short-circuit on the strength of the passing synthetic contract alone would risk
-breaking the one guarantee currently proven.
+The contract governing the short-circuit these cases exercise is
+`out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar`, which requires a
+whole-grammar strategy to return a real measurement and a `PlanComposed` candidate with unbuildable
+markers to be refused. That contract test runs and passes.
+
+## The recipe-optimizer regressions are four runnable `pg-cli` failures
+
+`four_grammar_recipe_evidence::four_promoted_grammars_have_truthful_recipe_evidence` and three tests
+in `recipe_optimize_continuation` fail today, need no corpus, and are reproducible on any machine:
+
+| Test | Assertion |
+|---|---|
+| `a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report` | needs measurable confirmation work; got `[0, 0, 0, 0, 0, 0]` |
+| `a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress` | "the fixture must also confirm at least one candidate" |
+| `a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict` | got `"unsupported"`, wanted `"resource-breach"` |
+| `four_promoted_grammars_have_truthful_recipe_evidence` | feasible count 2, wanted 5 |
+
+They are **pre-existing**, with byte-identical panic messages, line numbers and values at the
+pre-session baseline and at every commit since.
+
+Root cause for the three `recipe_optimize_continuation` failures, measured by running
+`pangloss recipe-optimize` against `conformance-staging/edge-cases/backend-strata-generic/grammar.xml`
+and reading `progress.jsonl`: all six candidates refuse before measurement. Four short-circuit to
+`Certification::Unsupported` with an all-zero score at `backend_runtime.rs:1830-1838`, where
+`unbuildable_marker_reason` flags a `CompositeEmissionMarker` leaf before `build_candidate` is ever
+called. The other two are whole-grammar adapters, which skip that check and instead fail on a
+genuine build failure at one uncovered construct. Since only `FullHcConfirmed` is selectable, nothing
+can confirm.
+
+Note what `recipe_optimize_continuation.rs:154` says about itself: "Non-vacuity FIRST: without both
+kinds present this test asserts nothing." These tests require a fixture producing both a confirmed
+and a non-confirmed candidate, and the chosen fixture produces only the latter — so the defect may
+be fixture selection rather than the compiler. Which of those it is decides whether the fix is small
+or reaches into unchecked backend-selection work, and it should be settled before anyone edits the
+short-circuit: the synthetic contract test above is the only guarantee currently proven about it.
+
+`four_grammar_recipe_evidence` is a different fixture (`edge-cases/mpr-gated-exception`) whose
+feasible count fell to 2 against an expected 5. That fixture has previously produced a genuine
+winner, so a stale expectation and a real feasibility regression are both live hypotheses, and the
+count alone does not distinguish them.
+
+## Why neither problem was visible
+
+`pg-foma`'s test suite does not compile. `tests/templated_morphology_marker_gate.rs` is a deliberate
+TDD red gate — `openspec/changes/cover-circumfix-cross-product-and-infix-drop/tasks.md` records task
+1.3 ("verify RED") as done and tasks 4.1/4.2/3.2/3.5/3.6 as not — but it fails to *compile* rather
+than to *fail*, referencing nine fields that have never existed on `TemplatedCompileProfile`
+(`templated_compile.rs:20`) plus a `marked_input` signature that became fallible after the gate was
+written. A non-compiling test target takes the whole package's test build with it.
+
+The consequence is the part worth remembering: every green result on this branch came from narrow
+`-TestTarget` runs, which compile only the named target. Such a run never builds the broken gate and
+never runs the failing `pg-cli` tests, so it reports green while two real defects sit next to it. A
+targeted run is a claim about one target, never about a package — and this is the same shape as the
+`-Scope` rule for conformance runs and the `developer-tools` two-pass rule: a narrower run that
+reports identically to a broader one is the hazard, not the narrowness itself.
 
 ## What would change this document
 
