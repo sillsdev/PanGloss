@@ -108,14 +108,24 @@ local edit.
 
 That is the whole remaining distance between this branch and 1-of-3 certified.
 
-**And the shipped design is internally inconsistent about it.**
+**And the envelope ladder has no rung for the dimension that bound.**
 `RetryAuthorization::from_terminal_failure` (`resource_envelope.rs:464-472`) lists
 `EnumerationBudgetReached` among the retryable stop reasons, alongside `WorkBudgetReached`,
-`DepthBudgetReached`, and `ResourceBudgetReached`. So a compile that dies this way is handed a
-retry authorization. But the only envelope a retry can move to raises
-`tuned_surface_closure_work_cap` and nothing else — both envelopes carry identical enumeration
-caps — so the retry re-enters the same limit and fails identically. The authorization is real; the
-capability behind it is not.
+`DepthBudgetReached`, and `ResourceBudgetReached`, so a compile that dies this way is handed a retry
+authorization. `CompileEnvelopeRequest::retry_from` then refuses a same-envelope retry — pinned by
+`closure_terminal_parity_gate.rs:230`, which asserts retrying into `ManagedV1` from a `ManagedV1`
+failure is an error — and requires escalating to a different envelope id. That design is coherent:
+authorize, then escalate.
+
+The gap is that for this stop reason the only escalation target, `TunedSurfaceWork10kV1`, raises
+`tuned_surface_closure_work_cap` and nothing else. Escalation is therefore permitted but futile: a
+different envelope carrying the same enumeration caps produces the same terminal.
+
+Two qualifications, so this is not read as more alarming than it is. Nothing in production reads
+`retry_authorization()` today — the only callers are in `closure_terminal_parity_gate.rs` — so no
+shipped code path currently performs a futile retry; the gap is latent. And the authorization itself
+is correct evidence: the failure genuinely *is* the retryable kind. What is missing is an envelope
+worth retrying into.
 
 The trip site names the same asymmetry from the other side. `emit.rs:4413` reaches
 `enum_budget.trip_reason()` and reports "grammar exceeds the foma-engine's eager-enumeration budget
@@ -125,12 +135,14 @@ into.
 
 Two coherent resolutions, and they are opposites:
 
-1. Add an envelope that raises the enumeration caps, making the existing retry authorization
-   mean something. This is the path that could certify Indonesian.
-2. Remove `EnumerationBudgetReached` from the retryable set, so the engine stops promising a
-   recovery it cannot perform, and the condition reports as terminal.
+1. Add an envelope that raises the enumeration caps, giving the authorization somewhere to escalate
+   to. This is the only path that could certify Indonesian.
+2. Remove `EnumerationBudgetReached` from the retryable set, so the condition reports as terminal
+   and no caller is invited to escalate into an envelope that cannot help.
 
-Doing neither leaves a retry path that is guaranteed to fail, which is the worst of the three.
+Option 1 is the one that unblocks certification; option 2 only removes a misleading affordance.
+Whichever is chosen should be decided before any caller starts acting on `retry_authorization()`,
+because today none does and the choice is still free.
 
 **A trap worth naming:** the repo's own `samples/data/indonesian-words.txt` (750 bytes) does **not**
 match the lock's `sourceSha256`; the recovered copy (1,105 bytes) does. Populating `samples/data`
