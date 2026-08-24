@@ -123,9 +123,11 @@ Each card is generated from a single versioned capability catalog and contains:
 - linked remedy IDs and a reference to the authoritative shared advice catalog; and
 - the mandatory language-validity safety statement on potentially meaning-changing remedies.
 
-The explicit generator produces deterministic output for the checked-in cards. Ordinary builds do
-not validate or rewrite these human- and AI-readable artifacts; the static catalog remains the
-source of truth, and the generated cards may be refreshed deliberately when that catalog changes.
+The managed PanGloss `pg.ps1` build and release modes regenerate deterministic output after a
+successful workspace build or `pg-foma` package build. The Markdown cards are checked in for human
+and AI use. There is intentionally no stale-diff enforcement: ordinary tests do not compare or
+rewrite the tracked cards. The static catalog remains the source of truth, and a subsequent managed
+build or release refreshes the cards when that catalog changes.
 Card presence or metadata is not evidence that a language has a trusted build.
 
 ## Historical lessons for the three-language slice
