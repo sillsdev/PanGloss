@@ -4,8 +4,10 @@
 
 **No route is certified: 0 of 3.** The selected-payload trust boundary — ranked capability reports
 choose a route, `select_completed_build` refuses anything that does not match the shipped envelope
-and grammar identity, and the exact returned payload bytes reconstruct the analyzer — is built and
-green over synthetic fixtures. It is certified over **no real grammar**.
+and grammar identity, and the exact returned payload bytes reconstruct the analyzer — is built, and
+green over the narrow test targets that have actually been run. It is **not** green over a full
+package suite, and four synthetic-fixture `pg-cli` tests fail (see below). It is certified over **no
+real grammar**.
 
 Earlier "working FST" results for these languages were compile-and-parity evidence. Parity of a
 compiled network is not certification of a packaged payload, and this document exists so the two
@@ -54,11 +56,13 @@ locked cases. It reaches the preferred tuned route through the named
 It is `#[ignore]`d with the reason "needs local private Indonesian grammar/corpus; run through
 pg.ps1 corpus-test", and `indonesian-hc.xml` is absent, so it has not executed here.
 
-**Gap worth fixing independently of the corpus:** this gate is *not* listed in the manifest's
-`indonesian.requiring_tests`. That list is how `-Mode corpus-test` knows which tests break when a
-corpus goes missing, and the manifest's own comment records a previous instance of that contract
-naming a gate that could never run. A gate that needs `indonesian-hc.xml` but does not declare it is
-the mirror-image defect: it declares nothing and so is silently skipped rather than loudly refused.
+**Gap fixed here, independently of the corpus:** this gate, and three of the four corpus tests in
+`backend_runtime_net_is_queryable_gate`, were not listed in the manifest's
+`indonesian.requiring_tests`; they now are. That list is how `-Mode corpus-test` knows which tests
+break when a corpus goes missing, and the manifest's own comment records a previous instance of that
+contract naming a gate that could never run. A gate that needs `indonesian-hc.xml` but does not
+declare it is the mirror-image defect: it declares nothing and so is silently skipped rather than
+loudly refused.
 
 ## Amharic — blocked by a missing emission mechanism
 
@@ -165,13 +169,43 @@ targeted run is a claim about one target, never about a package — and this is 
 `-Scope` rule for conformance runs and the `developer-tools` two-pass rule: a narrower run that
 reports identically to a broader one is the hazard, not the narrowness itself.
 
+## Full-suite baseline, measured
+
+With the non-compiling gate removed, `pg-foma` builds and runs as a package for the first time.
+Measured on this branch, identically with and without `developer-tools`, and `pg-cli` run with
+`--no-fail-fast` so nothing hides behind an earlier failure:
+
+| Package | Result |
+|---|---|
+| `pg-foma` | 1154 tests, 961 passed, **1 failed**, 73 skipped |
+| `pg-cli` | 142 tests, 136 passed, **6 failed**, 11 skipped |
+
+All seven failures reproduce byte-identically at the pre-session baseline, so none is a regression
+from this branch:
+
+- the four recipe-optimizer failures above;
+- `morphotactics_boundary_cleanup_slice::templated_query_accepts_a_surface_with_an_explicit_boundary`
+  — templated compile refuses a grammar carrying infix and reduplication rules as "not representable
+  (v1)", the same categorical gap that blocks Amharic;
+- `pack::tests::pack_redup_grammar_declares_reduplication_peel_runtime_feature` — the pack-level
+  policy that correctness overrides may not admit an `Error`/`Critical` readiness finding;
+- `capability_gate_tests::run_batch_foma_engine_no_enforce_capability_proceeds_for_permanently_refused`
+  — this one is a latent inconsistency between two tests rather than a compiler gap.
+  `capability_gate`'s `!enforce` branch returns `overridden: false` (and
+  `capability_gate_no_flags_never_blocks_either_grammar` asserts that it must), so
+  `--no-enforce-capability` relaxes the capability gate but never grants unproven-*tier* admission,
+  which is `--allow-unproven`'s job. The failing test expects one flag to do both.
+
+Two of these sit on files byte-identical to `main`, and the recipe-optimizer pair does too, so
+`main`'s own `pg-cli` suite is red today. That is worth fixing at the source rather than here.
+
 ## What would change this document
 
 1. Populate `samples/data/` (or set `PANGLOSS_CORPUS_ROOT`) and run
    `pg.ps1 -Mode corpus-test -Package pg-foma`. That alone can move Indonesian from written to
    certified, and turns the four skipped net-queryable tests into evidence rather than a gap.
-2. Add the Indonesian selected-payload gate to the manifest's `requiring_tests` so its inputs are
-   declared and its absence is refused rather than skipped. This is doable now, with no corpus.
+2. Settle whether the recipe-optimizer refusal above is a fixture-selection defect or a real
+   backend-selection gap. It needs no corpus, and it is main's defect rather than this branch's.
 3. Aweti: close the six named recall misses, then admit the templated route in
    `backend_selection`/`capability`, then write the payload gate against the existing 106-case lock.
 4. Amharic: implement templated infix emission, then selection wiring, then the payload gate against

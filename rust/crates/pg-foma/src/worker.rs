@@ -270,6 +270,10 @@ pub struct CompileWorkerRequest {
     pub grammar_format: GrammarFormat,
     /// Typed projection of the shipped internal construction caps. The serde default keeps
     /// older generic requests managed while the worker protocol remains additive.
+    ///
+    /// Read only on the generic route. A request carrying a `selected` frame is compiled from that
+    /// frame's own `size_mode`, so this field stays at its default there and a serialized request
+    /// can legitimately show `Managed` here beside a stress mode inside `selected`.
     #[serde(default)]
     pub size_mode: CompileSizeMode,
     /// `ComposeBudget::state_cap`.
