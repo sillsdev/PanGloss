@@ -120,8 +120,8 @@ use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
 use crate::resource_envelope::{
-    BackendEnvelope, CommunicationEnvelope, CompileEnvelopeRequest, ComposeEnvelope,
-    EnumerationEnvelope, ResourceEnvelope, ResourceEnvelopeId,
+    BackendEnvelope, CommunicationEnvelope, CompileEnvelopeRequest, CompileSizeMode,
+    ComposeEnvelope, EnumerationEnvelope, ResourceEnvelope, ResourceEnvelopeId,
     WatchdogEnvelope as ResourceWatchdog,
 };
 use pg_grammar::model::Grammar;
@@ -386,6 +386,8 @@ pub(crate) struct SelectedCompileRequest {
     pub(crate) envelope_id: ResourceEnvelopeId,
     pub(crate) envelope_digest: String,
     pub(crate) attempt_id: String,
+    #[serde(default)]
+    pub(crate) size_mode: CompileSizeMode,
     pub(crate) route: String,
     pub(crate) watchdog: ResourceWatchdog,
     pub(crate) communication: CommunicationEnvelope,
@@ -544,6 +546,7 @@ fn compile_selected_from_request(
         selected.envelope_id,
         &selected.envelope_digest,
         selected.attempt_id.clone(),
+        selected.size_mode,
     ) {
         Ok(request) => request,
         Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
@@ -1180,6 +1183,7 @@ pub fn run_selected_compile_worker(
         envelope_id: envelope.id(),
         envelope_digest: envelope.digest(),
         attempt_id: request.attempt_id().as_str().to_string(),
+        size_mode: request.size_mode(),
         route: preferred.label().to_string(),
         watchdog: envelope.watchdog(),
         communication: envelope.communication(),
