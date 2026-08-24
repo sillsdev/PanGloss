@@ -90,8 +90,7 @@ fn templated_preferred_selection() -> BackendSelection {
     ])
 }
 
-/// `selection` is the caller's, so each case states whether its route comes from production
-/// ranking or from reports built for the case; the payload seam below is the subject either way.
+/// Each case supplies its own `selection`, so the payload seam stays the subject either way.
 fn assert_selected_payload_route(
     grammar: &Grammar,
     selection: &BackendSelection,
