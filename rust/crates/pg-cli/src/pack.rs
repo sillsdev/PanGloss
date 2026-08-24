@@ -346,7 +346,7 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
     crate::print_grammar_warnings(&warnings);
 
     let semantics = GrammarSemantics::derive(&grammar);
-    let built = build_pack_with_size_mode(
+    let built = build_pack(
         grammar_path,
         &grammar,
         &semantics,
@@ -391,32 +391,9 @@ pub(crate) struct BuiltPack {
     pub foma_payload_is_real: bool,
 }
 
-/// Managed-default wrapper for internal test callers.
-#[cfg(test)]
-pub(crate) fn build_pack(
-    grammar_path: &str,
-    grammar: &Grammar,
-    semantics: &GrammarSemantics<'_>,
-    allow_unproven: bool,
-    authorized_by: Option<&str>,
-    reason: Option<&str>,
-    watchdog: bool,
-) -> Result<BuiltPack, String> {
-    build_pack_with_size_mode(
-        grammar_path,
-        grammar,
-        semantics,
-        allow_unproven,
-        authorized_by,
-        reason,
-        watchdog,
-        CompileSizeMode::Managed,
-    )
-}
-
 /// Builds one `.pgpack` in memory: capability-trust stamp, required-runtime-feature set, FST-health report, and the written `pg_pack::write_pack` container bytes. `semantics` must be `GrammarSemantics::derive`d from `grammar`, so callers pay for the grammar walk once.
 #[allow(clippy::too_many_arguments)] // one more grammar-derived input alongside `grammar` itself.
-pub(crate) fn build_pack_with_size_mode(
+pub(crate) fn build_pack(
     grammar_path: &str,
     grammar: &Grammar,
     semantics: &GrammarSemantics<'_>,
@@ -874,6 +851,7 @@ mod tests {
             None,
             Some("missing payload assessment"),
             true,
+            CompileSizeMode::Managed,
         )
         .expect("developer evidence pack may be built");
 
@@ -1138,6 +1116,7 @@ mod tests {
             None,
             Some("synthetic readiness separation"),
             false,
+            CompileSizeMode::Managed,
         )
         .expect("capability override may collect an evidence pack");
 

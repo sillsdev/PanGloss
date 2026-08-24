@@ -996,7 +996,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                 )
             }
             None => {
-                let built = crate::pack::build_pack_with_size_mode(
+                let built = crate::pack::build_pack(
                     grammar_path,
                     &grammar,
                     &semantics,
