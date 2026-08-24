@@ -1,9 +1,4 @@
-//! RED gate for the trusted selected-build seam.
-//!
-//! This is deliberately written against the opaque selected-build API that Phase B must add:
-//! selection computes the route from reports and completed artifacts, and runtime receives the
-//! exact finalized payload.  The test must never provide `preferred`/`selected` values to a
-//! validator and must never rebuild after selection.
+//! Verifies that selection derives a trusted completed build and runtime consumes its exact finalized payload.
 
 use std::collections::BTreeSet;
 
@@ -65,8 +60,7 @@ fn assert_selected_payload_route(
     let grammar = pg_grammar::load(xml).expect("synthetic fixture must load");
     let selection = select_backends_for_grammar(&grammar);
 
-    // The route is discovered from the real reports.  The test may state the fixture's expected
-    // route, but it cannot inject that route into selection or trusted-build validation.
+    // Selection must derive the route from reports; expected values may only assert the fixture's route.
     assert!(
         selection.selected().contains(&expected_strategy),
         "the real capability reports must admit the route exercised by this case"
@@ -90,8 +84,7 @@ fn assert_selected_payload_route(
     assert!(selected.evidence().is_trusted_complete());
     assert!(!selected.payload_bytes().is_empty());
 
-    // Runtime receives the exact selected payload.  This API is intentionally not a compiler API:
-    // it must deserialize the finalized bytes and then run propose -> peel -> confirm.
+    // Runtime deserializes the exact selected bytes before running propose -> peel -> confirm.
     let mut analyzer = selected
         .into_analyzer(&grammar)
         .expect("exact selected payload must reconstruct the analyzer");
