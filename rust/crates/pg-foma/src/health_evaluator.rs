@@ -275,6 +275,19 @@ fn retry_full_engine_remedy() -> Remedy {
     }
 }
 
+/// Remedy for a containment stop: the sanctioned route to more headroom is a larger named envelope, never a developer switch.
+fn retry_larger_envelope_remedy() -> Remedy {
+    Remedy {
+        rank: 0,
+        description: "Re-run under a larger named resource envelope. The attempt stopped at an \
+            internal cap, so a fresh characterization with more headroom may complete; the \
+            developer stress switch is not a route to a production artifact."
+            .to_string(),
+        requires_linguistic_equivalence: false,
+        caveat: None,
+    }
+}
+
 /// The band edge just below `severity` -- the threshold a non-`Severity::Ideal` finding crossed -- read from the shared `*_MAX_BYTES` constants so a band change cannot desync a second copy.
 fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
     match severity {
@@ -373,21 +386,46 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
             ),
         })
         .unwrap_or_default();
+    // A depth-budget stop halted THIS attempt; every other cause is a coverage gap in the grammar.
+    let depth_budget_stop = matches!(
+        report.closure_refusal.as_ref().map(|refusal| refusal.code),
+        Some(ClosureRefusalCode::DepthBudgetExceeded)
+    );
+    let (code, severity, explanation, remedies) = if depth_budget_stop {
+        (
+            FindingCode::ResourceBudgetReached,
+            Severity::Error,
+            format!(
+                "This grammar's FST-propose path stopped at an internal closure-depth cap before \
+                 it finished ({reason}); the attempt is incomplete and its partial output is \
+                 unusable, but no fixed affix depth is a language boundary and nothing here shows \
+                 the grammar is unrepresentable.{closure_detail}"
+            ),
+            vec![retry_larger_envelope_remedy(), retry_full_engine_remedy()],
+        )
+    } else {
+        (
+            FindingCode::BackendCoverageIncomplete,
+            Severity::Critical,
+            format!(
+                "This grammar's FST-propose path produced no usable network at all ({reason}); \
+                 this compile path's coverage is entirely unknown, the maximal case of R6's \"any \
+                 uncertainty that could omit an analysis fails closed\".{closure_detail}"
+            ),
+            vec![retry_full_engine_remedy()],
+        )
+    };
     HealthFinding {
-        code: FindingCode::UnknownUnboundedConstruct,
-        severity: Severity::Error,
+        code,
+        severity,
         phase: Phase::Compile,
         affected,
         metric: Metric::UnknownUnboundedWork,
         value,
         provenance: ValueProvenance::Observed,
         threshold: None,
-        explanation: format!(
-            "This grammar's FST-propose path produced no usable network at all ({reason}); this \
-             compile path's coverage is entirely unknown, the maximal case of R6's \"any \
-             uncertainty that could omit an analysis fails closed\".{closure_detail}"
-        ),
-        remedies: vec![retry_full_engine_remedy()],
+        explanation,
+        remedies,
         override_record: None,
     }
 }
@@ -755,6 +793,7 @@ mod tests {
     use crate::emit::{
         ClosureFallbackBackend, ClosureRefusal, ClosureRefusalCode, EmitCounts, UncoveredItem,
     };
+    use crate::health::FindingClass;
     use std::time::Duration;
 
     fn synthetic_full_emit_report() -> EmitReport {
@@ -801,10 +840,15 @@ mod tests {
             },
         ];
 
+        // Every error must BLOCK; the exact band is per-cause, pinned by the split tests below.
         for error in cases {
             let health = evaluate_foma_error(&error, None);
             assert!(!health.findings.is_empty(), "empty health for {error}");
-            assert_eq!(health.admission(), Severity::Error, "health for {error}");
+            assert!(
+                health.admission() >= Severity::Error,
+                "health for {error} must block publication, got {:?}",
+                health.admission()
+            );
         }
     }
 
@@ -992,7 +1036,7 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_evaluator_unsupported_tier_is_critical() {
+    fn fst_health_evaluator_unsupported_tier_with_no_closure_refusal_is_critical() {
         let report = EmitReport {
             uncovered: Vec::new(),
             counts: EmitCounts::default(),
@@ -1006,10 +1050,74 @@ mod tests {
         let health = evaluate_health(None, Some(&report), &[], &[], None);
         assert_eq!(health.findings.len(), 1);
         let finding = &health.findings[0];
-        assert_eq!(finding.code, FindingCode::UnknownUnboundedConstruct);
-        assert_eq!(finding.severity, Severity::Error);
+        assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
+        assert_eq!(finding.severity, Severity::Critical);
         assert_eq!(finding.value, MetricValue::Unbounded);
-        assert_eq!(health.admission(), Severity::Error);
+        assert_eq!(health.admission(), Severity::Critical);
+    }
+
+    #[test]
+    fn fst_health_evaluator_unbounded_rule_application_is_critical() {
+        let report = EmitReport {
+            uncovered: Vec::new(),
+            counts: EmitCounts::default(),
+            tier: FomaTier::Unsupported {
+                reason: "a participating rule has no authored finite bound".to_string(),
+            },
+            enum_budget_exceeded: None,
+            closure_refusal: Some(ClosureRefusal {
+                code: ClosureRefusalCode::UnboundedRuleApplication,
+                affected_rule_ordinals: vec![7],
+                depth_limit: None,
+                pending_successors: None,
+                remedy_backend: ClosureFallbackBackend::FullMorphologicalParser,
+            }),
+            closure_evidence: None,
+        };
+        let health = evaluate_health(None, Some(&report), &[], &[], None);
+        let finding = &health.findings[0];
+        assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
+        assert_eq!(finding.severity, Severity::Critical);
+        assert_eq!(finding.class(), FindingClass::Representability);
+    }
+
+    /// An artificial cap is never a representability verdict, however deep it stopped.
+    #[test]
+    fn fst_health_evaluator_depth_budget_stop_is_containment_not_critical() {
+        let report = EmitReport {
+            uncovered: Vec::new(),
+            counts: EmitCounts::default(),
+            tier: FomaTier::Unsupported {
+                reason: "closure depth budget exceeded".to_string(),
+            },
+            enum_budget_exceeded: None,
+            closure_refusal: Some(ClosureRefusal {
+                code: ClosureRefusalCode::DepthBudgetExceeded,
+                affected_rule_ordinals: vec![3],
+                depth_limit: Some(16),
+                pending_successors: Some(5),
+                remedy_backend: ClosureFallbackBackend::FullMorphologicalParser,
+            }),
+            closure_evidence: None,
+        };
+        let health = evaluate_health(None, Some(&report), &[], &[], None);
+        let finding = &health.findings[0];
+        assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
+        assert_eq!(finding.severity, Severity::Error);
+        assert_eq!(finding.class(), FindingClass::Containment);
+        assert_ne!(
+            finding.severity,
+            Severity::Critical,
+            "a depth-budget stop halted one attempt; it must never condemn the grammar"
+        );
+        assert!(
+            finding
+                .remedies
+                .iter()
+                .any(|remedy| remedy.description.contains("larger named resource envelope")),
+            "a containment stop must name the envelope-retry route: {:?}",
+            finding.remedies
+        );
     }
 
     #[test]
@@ -1064,7 +1172,8 @@ mod tests {
         assert_eq!(budget_finding.severity, Severity::Error);
         assert_eq!(budget_finding.value, MetricValue::Count(5_001));
         assert_eq!(budget_finding.threshold, Some(MetricValue::Count(5_000)));
-        assert_eq!(health.admission(), Severity::Error);
+        // The co-occurring Unsupported-tier Critical dominates this Error under admission()'s max.
+        assert_eq!(health.admission(), Severity::Critical);
     }
 
     // fst_health_evaluator_compose_errors: every ComposeError variant maps to a finding.
