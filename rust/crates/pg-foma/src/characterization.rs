@@ -112,12 +112,13 @@ use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{
     FindingCode, HealthFinding, Metric, MetricValue, Phase, Remedy, Severity, ValueProvenance,
 };
-use crate::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 
 /// Default logical-work budget for TunedSurface composite closure. This counts reachable
 /// root/chain-state x rule applications, never affix depth. Ordinary selection keeps this budget
-/// frozen; envelope-specific characterization remains only for the explicit manifest bridge.
+/// frozen; characterization uses these fixed internal limits.
 pub(crate) const DEFAULT_TUNED_CLOSURE_WORK_LIMIT: usize = 3_000;
+pub(crate) const DEFAULT_TUNED_CLOSURE_DEPTH_LIMIT: usize = 64;
+const DEFAULT_TUNED_COMPOUND_CHAIN_DEPTH_LIMIT: usize = 200;
 
 /// Why a closure walk did not reach an exhausted worklist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -153,8 +154,6 @@ pub struct ClosureTestLimits {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClosureEvidence {
-    pub envelope_id: ResourceEnvelopeId,
-    pub envelope_digest: String,
     pub rule_pairs_visited: usize,
     pub synthesized_successors: usize,
     pub maximum_depth: usize,
@@ -182,26 +181,20 @@ struct TraceState {
     terminal: Option<ClosureTerminal>,
 }
 
-/// Mutable evidence sink shared by the production emitter and characterization APIs. Normal
-/// legacy emission passes `None`; named-envelope production installs this trace so the returned
-/// artifact and characterization retain identical terminal evidence.
+/// Mutable evidence sink shared by the production emitter and characterization APIs.
 pub(crate) struct ClosureTrace {
     limits: ClosureTestLimits,
     compound_pair_cap: usize,
     compound_chain_depth_cap: usize,
-    envelope_id: ResourceEnvelopeId,
-    envelope_digest: String,
     state: Mutex<TraceState>,
 }
 
 impl ClosureTrace {
-    pub(crate) fn new(envelope: &ResourceEnvelope, limits: ClosureTestLimits) -> Self {
+    pub(crate) fn new(limits: ClosureTestLimits) -> Self {
         Self {
             limits,
-            compound_pair_cap: envelope.compose().compound_pair_cap,
-            compound_chain_depth_cap: envelope.backend().tuned_surface_compound_chain_depth_cap,
-            envelope_id: envelope.id(),
-            envelope_digest: envelope.digest(),
+            compound_pair_cap: crate::compose_budget::DEFAULT_COMPOUND_PAIR_BUDGET,
+            compound_chain_depth_cap: DEFAULT_TUNED_COMPOUND_CHAIN_DEPTH_LIMIT,
             state: Mutex::new(TraceState {
                 rule_pairs_visited: 0,
                 synthesized_successors: 0,
@@ -287,8 +280,6 @@ impl ClosureTrace {
         CharacterizationResult {
             terminal,
             evidence: ClosureEvidence {
-                envelope_id: self.envelope_id,
-                envelope_digest: self.envelope_digest.clone(),
                 rule_pairs_visited: state.rule_pairs_visited,
                 synthesized_successors: state.synthesized_successors,
                 maximum_depth: state.maximum_depth,
@@ -321,33 +312,29 @@ impl ClosureTrace {
 #[doc(hidden)]
 pub fn characterize_tuned_surface_closure_for_test(
     grammar: &Grammar,
-    envelope: &ResourceEnvelope,
     limits: ClosureTestLimits,
 ) -> CharacterizationResult {
-    crate::emit::emit_tuned_surface_with_closure_limits_for_test(grammar, envelope, limits)
+    crate::emit::emit_tuned_surface_with_closure_limits_for_test(grammar, limits)
         .report
         .closure_evidence
         .expect("traced emitter must retain closure evidence")
 }
 
-/// Characterizes the selected closed product envelope by running the production emitter's
+/// Characterizes the ordinary finite TunedSurface product by running the production emitter's
 /// traversal and retaining its exact terminal evidence.
-pub fn characterize_tuned_surface_closure(
-    grammar: &Grammar,
-    envelope: &ResourceEnvelope,
-) -> CharacterizationResult {
-    crate::emit::emit_tuned_surface_for_envelope(grammar, envelope)
+pub fn characterize_tuned_surface_closure(grammar: &Grammar) -> CharacterizationResult {
+    crate::emit::emit_tuned_surface(grammar)
         .report
         .closure_evidence
-        .expect("envelope emitter must retain closure evidence")
+        .expect("traced emitter must retain closure evidence")
 }
 
 /// Backend-specific resource characterization for TunedSurface structural closure.
 ///
 /// A returned finding is a proven lower bound above `limit`, so it is an operational `NotProductionReady`: a
-/// complete finite strategy remains known, but this envelope declines to start the expensive
+/// complete finite strategy remains known, but the fixed internal limit declines to start the expensive
 /// surface-emission pass. `None` means only that this particular proven bound did not exceed the
-/// envelope; it is not a completeness certificate or a prediction that construction will finish.
+/// limit; it is not a completeness certificate or a prediction that construction will finish.
 pub(crate) fn tuned_surface_resource_finding_with_limit(
     grammar: &Grammar,
     limit: usize,
@@ -425,20 +412,9 @@ pub(crate) fn tuned_surface_resource_finding_with_limit(
     })
 }
 
-/// TunedSurface resource characterization under the shipping envelope.
+/// TunedSurface resource characterization under the fixed internal limits.
 pub fn tuned_surface_resource_finding(grammar: &Grammar) -> Option<HealthFinding> {
-    tuned_surface_resource_finding_for_envelope(
-        grammar,
-        &ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1),
-    )
-}
-
-/// Characterize Tuned Surface under one selected, immutable product envelope snapshot.
-fn tuned_surface_resource_finding_for_envelope(
-    grammar: &Grammar,
-    envelope: &ResourceEnvelope,
-) -> Option<HealthFinding> {
-    let result = characterize_tuned_surface_closure(grammar, envelope);
+    let result = characterize_tuned_surface_closure(grammar);
     let terminal = result.terminal;
     if matches!(terminal, ClosureTerminal::Complete) {
         return None;
@@ -494,7 +470,7 @@ fn tuned_surface_resource_finding_for_envelope(
     };
     let metric = Metric::CompositeRulePairCount;
     let threshold = Some(MetricValue::Count(
-        envelope.backend().tuned_surface_closure_work_cap as u64,
+        DEFAULT_TUNED_CLOSURE_WORK_LIMIT as u64,
     ));
     let affected = evidence
         .pending_rule_ordinals
@@ -512,8 +488,8 @@ fn tuned_surface_resource_finding_for_envelope(
         provenance,
         threshold,
         explanation: format!(
-            "TunedSurface closure terminal under envelope {}: {:?}.",
-            evidence.envelope_id, terminal
+            "TunedSurface closure terminal under fixed internal limits: {:?}.",
+            terminal
         ),
         remedies: vec![Remedy {
             rank: 1,
@@ -609,7 +585,7 @@ fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding>
              (propose the superset, HermitCrab confirm prunes false positives), but this characterization \
              stage has no proven bound on the FST-compile cost it adds. Not itself a CannotRepresent verdict \
              (R6: unknown cost in a recall-preserving construction); a recall-preserving compilation \
-             attempt is permitted under the shared resource envelope."
+             attempt is permitted under the fixed internal limits."
             .to_string(),
         remedies: Vec::new(),
     })
@@ -634,8 +610,8 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
                     "Rule {:?} has at least one quantifier occurrence with no concrete max bound \
                      (the DTD's max=\"-1\" Kleene sentinel); this characterization stage cannot bound the \
                      FST-compile cost this rule adds ahead of time. Not itself a CannotRepresent verdict (R6): a \
-                     recall-preserving compilation attempt is permitted under the shared resource \
-                     envelope.",
+                     recall-preserving compilation attempt is permitted under the fixed internal \
+                     limits.",
                     d.rule,
                 ),
                 remedies: Vec::new(),
@@ -821,7 +797,7 @@ mod tests {
     fn tuned_surface_resource_finding_is_error_with_proven_pair_work() {
         let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
         let finding = tuned_surface_resource_finding_with_limit(&grammar, 1)
-            .expect("a one-pair envelope must reject this finite structural closure");
+            .expect("a one-pair closure limit must reject this finite structural closure");
 
         assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
         assert_eq!(finding.severity, Severity::NotProductionReady);
@@ -856,7 +832,7 @@ mod tests {
         );
 
         let finding = tuned_surface_resource_finding_with_limit(&grammar, 1)
-            .expect("ordinary phonology-sensitive rule pairs must consume the same tuned envelope");
+            .expect("ordinary phonology-sensitive rule pairs must consume the same tuned limit");
         assert_eq!(finding.metric, Metric::CompositeRulePairCount);
         assert_eq!(finding.severity, Severity::NotProductionReady);
         assert!(matches!(finding.value, MetricValue::Count(value) if value > 1));

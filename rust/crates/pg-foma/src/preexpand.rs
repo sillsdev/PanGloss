@@ -189,7 +189,7 @@ pub struct CompositeReport {
     /// ownership handoff, `candidate_rules`'s own doc) -- `emit.rs` clears ITS uncovered entry from
     /// `crate::emit::build_structural_composites`'s own covered-rules set instead.
     pub covered_infix_rules: std::collections::BTreeSet<u32>,
-    /// Legal synthesized successors found beyond the configured closure-depth resource envelope.
+    /// Legal synthesized successors found beyond the configured closure-depth limit.
     /// Any nonzero value proves this construction incomplete and prevents artifact creation.
     pub pending_successors: usize,
     /// Stable grammar ordinals of rules that produced pending successors.
@@ -638,7 +638,7 @@ struct Acc {
     report: CompositeReport,
 }
 
-/// Explores authored applications within the closure-depth resource envelope.
+/// Explores authored applications within the closure-depth limit.
 #[allow(clippy::too_many_arguments)]
 fn extend(
     ctx: &ExtendCtx,

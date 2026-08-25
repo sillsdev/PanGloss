@@ -20,8 +20,60 @@ use crate::characterization::ClosureTerminal;
 use crate::composite::FomaAnalyzer;
 use crate::emit::{EmitReport, FomaTier};
 use crate::enumerate::EmissionStrategy;
-use crate::resource_envelope::{CompileEnvelopeRequest, ResourceEnvelope, ResourceEnvelopeId};
 use crate::templated_compile::compile_templated_morphotactics;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AttemptId(String);
+
+impl AttemptId {
+    fn new(value: impl Into<String>) -> Result<Self, String> {
+        let value = value.into();
+        if value.trim().is_empty() {
+            Err("attempt id must not be empty".to_string())
+        } else {
+            Ok(Self(value))
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+fn fresh_attempt_id() -> Result<AttemptId, String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|error| format!("could not create attempt id: {error}"))?;
+    let mut encoded = String::with_capacity("attempt-".len() + bytes.len() * 2);
+    encoded.push_str("attempt-");
+    for byte in bytes {
+        encoded.push_str(&format!("{byte:02x}"));
+    }
+    AttemptId::new(encoded)
+}
+
+/// Identity for one compilation attempt. It is deliberately independent of execution limits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompileAttempt {
+    attempt_id: AttemptId,
+}
+
+impl CompileAttempt {
+    pub fn try_new() -> Result<Self, String> {
+        Ok(Self {
+            attempt_id: fresh_attempt_id()?,
+        })
+    }
+
+    pub fn attempt_id(&self) -> &AttemptId {
+        &self.attempt_id
+    }
+
+    pub(crate) fn from_worker_wire(attempt_id: impl Into<String>) -> Result<Self, String> {
+        Ok(Self {
+            attempt_id: AttemptId::new(attempt_id)?,
+        })
+    }
+}
 
 /// Which kind of route-specific evidence made a completed payload eligible for selection.
 ///
@@ -38,8 +90,6 @@ pub enum CompletionProofKind {
 enum CompletionProof {
     TunedClosure {
         terminal: ClosureTerminal,
-        envelope_id: ResourceEnvelopeId,
-        envelope_digest: String,
         worklist_empty: bool,
         pending_successor_count: usize,
     },
@@ -69,8 +119,6 @@ pub struct CompletedBackendBuildEvidence {
     realized_strategy: EmissionStrategy,
     grammar_identity: String,
     attempt_id: String,
-    envelope_id: ResourceEnvelopeId,
-    envelope_digest: String,
     completion_proof: CompletionProof,
     state_count: i32,
     arc_count: i32,
@@ -93,14 +141,6 @@ impl CompletedBackendBuildEvidence {
 
     pub fn attempt_id(&self) -> &str {
         &self.attempt_id
-    }
-
-    pub fn envelope_id(&self) -> ResourceEnvelopeId {
-        self.envelope_id
-    }
-
-    pub fn envelope_digest(&self) -> &str {
-        &self.envelope_digest
     }
 
     pub fn completion_proof_kind(&self) -> CompletionProofKind {
@@ -137,17 +177,10 @@ impl CompletedBackendBuildEvidence {
                 EmissionStrategy::TunedSurfaceProbed,
                 CompletionProof::TunedClosure {
                     terminal: ClosureTerminal::Complete,
-                    envelope_id,
-                    envelope_digest,
                     worklist_empty,
                     pending_successor_count,
                 },
-            ) => {
-                *envelope_id == self.envelope_id
-                    && envelope_digest == &self.envelope_digest
-                    && *worklist_empty
-                    && *pending_successor_count == 0
-            }
+            ) => *worklist_empty && *pending_successor_count == 0,
             (
                 EmissionStrategy::TemplatedUnderlyingTokens,
                 CompletionProof::TemplatedFullEmission {
@@ -180,14 +213,10 @@ impl CompletedBackendBuild {
         let proof = match &self.evidence.completion_proof {
             CompletionProof::TunedClosure {
                 terminal,
-                envelope_id,
-                envelope_digest,
                 worklist_empty,
                 pending_successor_count,
             } => CompletionProofWire::TunedClosure {
                 terminal: *terminal,
-                envelope_id: *envelope_id,
-                envelope_digest: envelope_digest.clone(),
                 worklist_empty: *worklist_empty,
                 pending_successor_count: *pending_successor_count,
             },
@@ -204,8 +233,6 @@ impl CompletedBackendBuild {
             realized_strategy: self.evidence.realized_strategy.label().to_string(),
             grammar_identity: self.evidence.grammar_identity.clone(),
             attempt_id: self.evidence.attempt_id.clone(),
-            envelope_id: self.evidence.envelope_id,
-            envelope_digest: self.evidence.envelope_digest.clone(),
             completion_proof: proof,
             state_count: self.evidence.state_count,
             arc_count: self.evidence.arc_count,
@@ -221,14 +248,10 @@ impl CompletedBackendBuild {
         let completion_proof = match wire.completion_proof {
             CompletionProofWire::TunedClosure {
                 terminal,
-                envelope_id,
-                envelope_digest,
                 worklist_empty,
                 pending_successor_count,
             } => CompletionProof::TunedClosure {
                 terminal,
-                envelope_id,
-                envelope_digest,
                 worklist_empty,
                 pending_successor_count,
             },
@@ -246,8 +269,6 @@ impl CompletedBackendBuild {
                 realized_strategy,
                 grammar_identity: wire.grammar_identity,
                 attempt_id: wire.attempt_id,
-                envelope_id: wire.envelope_id,
-                envelope_digest: wire.envelope_digest,
                 completion_proof,
                 state_count: wire.state_count,
                 arc_count: wire.arc_count,
@@ -260,13 +281,12 @@ impl CompletedBackendBuild {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CompletedBackendBuildWire {
     pub requested_strategy: String,
     pub realized_strategy: String,
     pub grammar_identity: String,
     pub attempt_id: String,
-    pub envelope_id: ResourceEnvelopeId,
-    pub envelope_digest: String,
     pub completion_proof: CompletionProofWire,
     pub state_count: i32,
     pub arc_count: i32,
@@ -276,11 +296,10 @@ pub struct CompletedBackendBuildWire {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum CompletionProofWire {
     TunedClosure {
         terminal: ClosureTerminal,
-        envelope_id: ResourceEnvelopeId,
-        envelope_digest: String,
         worklist_empty: bool,
         pending_successor_count: usize,
     },
@@ -372,14 +391,6 @@ pub enum CompletedBuildError {
         expected: String,
         actual: String,
     },
-    EnvelopeMismatch {
-        expected: ResourceEnvelopeId,
-        actual: ResourceEnvelopeId,
-    },
-    EnvelopeDigestMismatch {
-        expected: String,
-        actual: String,
-    },
     AttemptMismatch {
         expected: String,
         actual: String,
@@ -430,13 +441,6 @@ impl fmt::Display for CompletedBuildError {
                 f,
                 "grammar identity mismatch: expected {expected}, got {actual}"
             ),
-            Self::EnvelopeMismatch { expected, actual } => {
-                write!(f, "envelope mismatch: expected {expected}, got {actual}")
-            }
-            Self::EnvelopeDigestMismatch { expected, actual } => write!(
-                f,
-                "envelope digest mismatch: expected {expected}, got {actual}"
-            ),
             Self::AttemptMismatch { expected, actual } => write!(
                 f,
                 "compile attempt mismatch: expected {expected}, got {actual}"
@@ -465,20 +469,19 @@ impl std::error::Error for CompletedBuildError {}
 pub fn compile_completed_backend(
     grammar: &Grammar,
     requested_strategy: EmissionStrategy,
-    request: &CompileEnvelopeRequest,
+    request: &CompileAttempt,
 ) -> Result<CompletedBackendBuild, CompletedBuildError> {
-    let envelope = ResourceEnvelope::for_id(request.envelope_id());
     let grammar_id = grammar_identity(grammar);
     match requested_strategy {
         EmissionStrategy::TunedSurfaceProbed => {
-            let emitted = crate::emit::emit_tuned_surface_for_request(grammar, request);
+            let emitted = crate::emit::emit_tuned_surface_for_request(grammar);
             let report = emitted.report;
             let closure = report.closure_evidence.as_ref().ok_or_else(|| {
                 CompletedBuildError::IncompleteEvidence(
                     "TunedSurface emitted no closure certificate".to_string(),
                 )
             })?;
-            validate_closure(closure, &envelope)?;
+            validate_closure(closure)?;
             validate_emit_report(&report)?;
             let mut network =
                 fsm_lexc_parse_string(&FomaOptions::default(), None, &emitted.lexc_source)
@@ -491,8 +494,6 @@ pub fn compile_completed_backend(
             let model_fingerprint = finished_net_digest(&network);
             let completion_proof = CompletionProof::TunedClosure {
                 terminal: closure.terminal,
-                envelope_id: closure.evidence.envelope_id,
-                envelope_digest: closure.evidence.envelope_digest.clone(),
                 worklist_empty: closure.evidence.worklist_empty,
                 pending_successor_count: closure.evidence.pending_successor_count,
             };
@@ -544,7 +545,7 @@ pub fn compile_completed_backend(
 pub fn select_completed_build<I>(
     selection: &BackendSelection,
     completed_builds: I,
-    request: &CompileEnvelopeRequest,
+    request: &CompileAttempt,
     expected_grammar_identity: &str,
 ) -> Result<SelectedBackendBuild, CompletedBuildError>
 where
@@ -566,7 +567,7 @@ where
 
 fn validate_selected_build(
     build: &CompletedBackendBuild,
-    request: &CompileEnvelopeRequest,
+    request: &CompileAttempt,
     expected_grammar_identity: &str,
 ) -> Result<(), CompletedBuildError> {
     let evidence = &build.evidence;
@@ -581,19 +582,6 @@ fn validate_selected_build(
         return Err(CompletedBuildError::AttemptMismatch {
             expected: expected_attempt.to_string(),
             actual: evidence.attempt_id.clone(),
-        });
-    }
-    let expected_envelope = ResourceEnvelope::for_id(request.envelope_id());
-    if evidence.envelope_id != expected_envelope.id() {
-        return Err(CompletedBuildError::EnvelopeMismatch {
-            expected: expected_envelope.id(),
-            actual: evidence.envelope_id,
-        });
-    }
-    if evidence.envelope_digest != expected_envelope.digest() {
-        return Err(CompletedBuildError::EnvelopeDigestMismatch {
-            expected: expected_envelope.digest(),
-            actual: evidence.envelope_digest.clone(),
         });
     }
     if evidence.requested_strategy != evidence.realized_strategy {
@@ -635,20 +623,7 @@ fn validate_payload(build: &CompletedBackendBuild) -> Result<(), CompletedBuildE
 
 fn validate_closure(
     closure: &crate::characterization::CharacterizationResult,
-    envelope: &ResourceEnvelope,
 ) -> Result<(), CompletedBuildError> {
-    if closure.evidence.envelope_id != envelope.id() {
-        return Err(CompletedBuildError::EnvelopeMismatch {
-            expected: envelope.id(),
-            actual: closure.evidence.envelope_id,
-        });
-    }
-    if closure.evidence.envelope_digest != envelope.digest() {
-        return Err(CompletedBuildError::EnvelopeDigestMismatch {
-            expected: envelope.digest(),
-            actual: closure.evidence.envelope_digest.clone(),
-        });
-    }
     if closure.terminal != ClosureTerminal::Complete
         || closure.evidence.pending_successor_count != 0
         || !closure.evidence.worklist_empty
@@ -682,12 +657,11 @@ fn validate_emit_report(report: &EmitReport) -> Result<(), CompletedBuildError> 
 fn build_from_proposer(
     requested_strategy: EmissionStrategy,
     grammar_identity: String,
-    request: &CompileEnvelopeRequest,
+    request: &CompileAttempt,
     proposer: FomaProposer,
     model_fingerprint: String,
     completion_proof: CompletionProof,
 ) -> Result<CompletedBackendBuild, CompletedBuildError> {
-    let envelope = ResourceEnvelope::for_id(request.envelope_id());
     let payload_bytes = proposer
         .foma_binary_payload()
         .map_err(|error| CompletedBuildError::Compiler(error.to_string()))?;
@@ -710,8 +684,6 @@ fn build_from_proposer(
         realized_strategy: requested_strategy,
         grammar_identity,
         attempt_id: request.attempt_id().as_str().to_string(),
-        envelope_id: envelope.id(),
-        envelope_digest: envelope.digest(),
         completion_proof,
         state_count,
         arc_count,

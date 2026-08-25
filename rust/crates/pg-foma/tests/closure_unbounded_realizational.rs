@@ -171,7 +171,7 @@ fn unbounded_realizational_composite_route_returns_no_artifact() {
     let evidence = traced
         .report
         .closure_evidence
-        .expect("the product envelope path must retain terminal evidence");
+        .expect("the fixed-limit path must retain terminal evidence");
     assert_eq!(
         evidence.terminal,
         ClosureTerminal::Refused(ClosureStopReason::UnboundedTransition)
@@ -234,11 +234,11 @@ fn excessive_bounded_chain_returns_no_partial_artifact() {
     let result = emit::emit(&grammar);
     let reason = match &result.report.tier {
         FomaTier::Unsupported { reason } => reason,
-        tier => panic!("resource-envelope breach must refuse, got {tier:?}"),
+        tier => panic!("closure-depth limit breach must refuse, got {tier:?}"),
     };
     assert!(
-        reason.contains("resource envelope") && reason.contains("live successor"),
-        "refusal must identify incomplete resource-bounded closure: {reason}"
+        reason.contains("closure-depth limit") && reason.contains("live successor"),
+        "refusal must identify incomplete closure: {reason}"
     );
     assert!(
         result.lexc_source.is_empty(),
@@ -262,7 +262,7 @@ fn excessive_bounded_chain_returns_no_partial_artifact() {
     let evidence = traced
         .report
         .closure_evidence
-        .expect("the product envelope path must retain terminal evidence");
+        .expect("the fixed-limit path must retain terminal evidence");
     assert_eq!(
         evidence.terminal,
         ClosureTerminal::Incomplete(ClosureStopReason::DepthBudgetReached)

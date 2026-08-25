@@ -2032,13 +2032,11 @@ fn compound_chain_depth_and_budget_check(
     uncovered: &[UncoveredItem],
     counts: &EmitCounts,
     chain_depth_cap: Option<usize>,
-    selected_compose: Option<crate::resource_envelope::ComposeEnvelope>,
 ) -> Result<usize, EmitResult> {
     let compound_depth_bound = compound_depth_bound(g);
     let (depth, limit) = match compound_extra_levels_checked_with_cap(
         g,
         chain_depth_cap,
-        selected_compose,
     ) {
         Ok(levels) => return Ok(levels),
         Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) => (depth, limit),
@@ -2094,35 +2092,29 @@ fn compound_depth_bound(g: &Grammar) -> usize {
 /// emitters need -- the same "one construction, two presentations" split
 /// `build_compound_chain`'s own doc uses.
 pub(crate) fn compound_extra_levels_checked(g: &Grammar) -> Result<usize, ComposeError> {
-    compound_extra_levels_checked_with_cap(g, None, None)
+    compound_extra_levels_checked_with_cap(g, None)
+}
+
+fn fixed_compose_budget() -> ComposeBudget {
+    ComposeBudget::with_caps(
+        crate::compose_budget::DEFAULT_STATE_BUDGET,
+        crate::compose_budget::DEFAULT_ARC_BUDGET,
+        crate::compose_budget::DEFAULT_TUPLE_BUDGET,
+        crate::compose_budget::DEFAULT_GROUP_BUDGET,
+        crate::compose_budget::DEFAULT_LINE_BUDGET,
+        None,
+    )
+    .with_ordering_multiplicity_cap(crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET)
 }
 
 fn compound_extra_levels_checked_with_cap(
     g: &Grammar,
     chain_depth_cap: Option<usize>,
-    selected_compose: Option<crate::resource_envelope::ComposeEnvelope>,
 ) -> Result<usize, ComposeError> {
     let compound_extra_levels = compound_depth_bound(g).saturating_sub(1).max(1);
     let budget = match chain_depth_cap {
         Some(cap) => {
-            let mut budget = selected_compose.map_or_else(
-                ComposeBudget::from_env,
-                |compose| {
-                    // A selected snapshot supplies the complete budget; this check adds the compound chain-depth cap before Foma construction.
-                    let mut budget = ComposeBudget::with_caps(
-                        compose.state_cap,
-                        compose.arc_cap,
-                        compose.tuple_cap,
-                        compose.group_cap,
-                        compose.line_cap,
-                        None,
-                    );
-                    if let Some(ordering_cap) = compose.ordering_multiplicity_cap {
-                        budget = budget.with_ordering_multiplicity_cap(ordering_cap);
-                    }
-                    budget
-                },
-            );
+            let mut budget = fixed_compose_budget();
             budget = budget.with_chain_depth_cap(cap);
             budget
         }
@@ -3140,7 +3132,7 @@ struct StructAcc {
     seen: rustc_hash::FxHashSet<(String, String)>,
     /// `g.mrules` indices with at least one composite entry here, so `emit` can drop their now-stale `uncovered` items.
     covered_rules: BTreeSet<u32>,
-    /// Legal synthesized successors beyond the configured closure-depth resource envelope.
+    /// Legal synthesized successors beyond the configured closure-depth limit.
     pending_successors: usize,
     pending_rule_ordinals: BTreeSet<u32>,
 }
@@ -3279,7 +3271,7 @@ fn can_reach_dirty_candidate(ctx: &StructCtx<'_>, start: &ChainState) -> bool {
     ctx.dirty_reach.borrow().get(start).copied().unwrap_or(true)
 }
 
-/// Explores authored applications within the closure envelope, emitting only structural chains.
+/// Explores authored applications within the closure limit, emitting only structural chains.
 #[allow(clippy::too_many_arguments)]
 fn struct_extend(
     ctx: &StructCtx,
@@ -4050,27 +4042,6 @@ pub(crate) fn emit_with_budget_profiled(
     )
 }
 
-/// Mode-aware counterpart to [`emit_with_budget_profiled`]. The selected compose projection is
-/// supplied explicitly so callers can retain the managed internal construction caps.
-pub(crate) fn emit_with_budget_profiled_with_compose(
-    g: &Grammar,
-    precision: PrecisionConfig,
-    enum_budget: &crate::morphotactics::EnumerationBudget,
-    profile: Option<&mut CompileProfileBuilder>,
-    compose: Option<crate::resource_envelope::ComposeEnvelope>,
-) -> EmitResult {
-    emit_with_budget_profiled_with_strategy_and_trace(
-        g,
-        precision,
-        enum_budget,
-        profile,
-        SurfaceEmitStrategy::default(),
-        None,
-        true,
-        compose,
-    )
-}
-
 /// `emit_with_budget_profiled` with an explicit surface strategy; the wrapper above supplies the default.
 fn emit_with_budget_profiled_with_strategy(
     g: &Grammar,
@@ -4087,21 +4058,18 @@ fn emit_with_budget_profiled_with_strategy(
         strategy,
         None,
         true,
-        None,
     )
 }
 
 /// Runs the production TunedSurface emitter with a focused closure trace. This is test-support
-/// only: the numeric limits are supplied by the acceptance test, while product callers select a
-/// closed [`ResourceEnvelope`] instead.
+/// only: the numeric limits are supplied by the acceptance test.
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub fn emit_tuned_surface_with_closure_limits_for_test(
     g: &Grammar,
-    envelope: &crate::resource_envelope::ResourceEnvelope,
     limits: crate::characterization::ClosureTestLimits,
 ) -> EmitResult {
-    let trace = crate::characterization::ClosureTrace::new(envelope, limits);
+    let trace = crate::characterization::ClosureTrace::new(limits);
     let enum_budget = crate::morphotactics::EnumerationBudget::with_caps(usize::MAX, usize::MAX);
     emit_with_budget_profiled_with_strategy_and_trace(
         g,
@@ -4111,44 +4079,20 @@ pub fn emit_tuned_surface_with_closure_limits_for_test(
         SurfaceEmitStrategy::default(),
         Some(&trace),
         false,
-        Some(envelope.compose()),
     )
 }
 
-/// Runs the TunedSurface production emitter under one selected closed resource envelope.
-/// Closure and enumeration limits are taken exclusively from that snapshot.
-pub fn emit_tuned_surface_for_envelope(
-    g: &Grammar,
-    envelope: &crate::resource_envelope::ResourceEnvelope,
-) -> EmitResult {
-    emit_tuned_surface_for_envelope_with_trace_policy(g, envelope, false)
-}
-
-fn emit_tuned_surface_for_envelope_with_trace_policy(
-    g: &Grammar,
-    envelope: &crate::resource_envelope::ResourceEnvelope,
-    allow_env_trace: bool,
-) -> EmitResult {
-    emit_tuned_surface_for_envelope_with_limits(g, envelope, allow_env_trace)
-}
-
-fn emit_tuned_surface_for_envelope_with_limits(
-    g: &Grammar,
-    envelope: &crate::resource_envelope::ResourceEnvelope,
-    allow_env_trace: bool,
-) -> EmitResult {
-    let backend = envelope.backend();
+/// Runs the ordinary TunedSurface emitter with its finite internal caps.
+pub fn emit_tuned_surface(g: &Grammar) -> EmitResult {
     let trace = crate::characterization::ClosureTrace::new(
-        envelope,
         crate::characterization::ClosureTestLimits {
-            work_cap: backend.tuned_surface_closure_work_cap,
-            depth_cap: backend.tuned_surface_closure_depth_cap,
+            work_cap: crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT,
+            depth_cap: crate::characterization::DEFAULT_TUNED_CLOSURE_DEPTH_LIMIT,
         },
     );
-    let enumeration = envelope.enumeration();
     let enum_budget = crate::morphotactics::EnumerationBudget::with_caps(
-        enumeration.composite_entry_cap,
-        enumeration.pair_probe_cap,
+        crate::morphotactics::DEFAULT_ENTRY_BUDGET,
+        crate::morphotactics::DEFAULT_PROBE_BUDGET,
     );
     emit_with_budget_profiled_with_strategy_and_trace(
         g,
@@ -4157,18 +4101,13 @@ fn emit_tuned_surface_for_envelope_with_limits(
         None,
         SurfaceEmitStrategy::default(),
         Some(&trace),
-        allow_env_trace,
-        Some(envelope.compose()),
+        false,
     )
 }
 
-/// Runs the traced production emitter for one private managed attempt.
-pub fn emit_tuned_surface_for_request(
-    g: &Grammar,
-    request: &crate::resource_envelope::CompileEnvelopeRequest,
-) -> EmitResult {
-    let envelope = crate::resource_envelope::ResourceEnvelope::for_id(request.envelope_id());
-    emit_tuned_surface_for_envelope_with_limits(g, &envelope, false)
+/// Runs the traced production emitter for one compile attempt.
+pub fn emit_tuned_surface_for_request(g: &Grammar) -> EmitResult {
+    emit_tuned_surface(g)
 }
 
 fn emit_with_budget_profiled_with_strategy_and_trace(
@@ -4179,7 +4118,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     strategy: SurfaceEmitStrategy,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
     allow_env_trace: bool,
-    selected_compose: Option<crate::resource_envelope::ComposeEnvelope>,
 ) -> EmitResult {
     let mut stage_start = Instant::now();
     let width = tags::tag_width(g.morphemes.len());
@@ -4443,7 +4381,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         let mut affected_rule_ordinals = composite_report.pending_rule_ordinals;
         affected_rule_ordinals.extend(structural_pending_rules);
         let reason = format!(
-            "FST construction exceeded the eager Foma closure-depth resource envelope with \
+            "FST construction exceeded the eager Foma closure-depth limit with \
              {pending_successors} live successor(s) still reachable; the emitted subset would be \
              incomplete, so no artifact was generated. Use the full morphological-parser engine, \
              or consider language-valid rule ordering or affix slots that would make this backend \
@@ -4659,10 +4597,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
         let cross = all_roots.len().saturating_mul(non_head_count);
         let limit = closure_trace.map_or_else(
-            || selected_compose.map_or_else(
-                crate::compose_budget::compound_pair_budget_from_env,
-                |compose| compose.compound_pair_cap,
-            ),
+            crate::compose_budget::compound_pair_budget_from_env,
             crate::characterization::ClosureTrace::compound_pair_cap,
         );
         if cross > limit {
@@ -4701,7 +4636,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             &uncovered,
             &counts,
             closure_trace.map(crate::characterization::ClosureTrace::compound_chain_depth_cap),
-            selected_compose,
         ) {
             Ok(levels) => levels,
             Err(mut early_return) => {
@@ -5557,7 +5491,6 @@ pub fn emit_underlying_templated(
             g,
             &uncovered,
             &counts,
-            None,
             None,
         ) {
             Ok(levels) => levels,

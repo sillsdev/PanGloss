@@ -113,17 +113,12 @@ use serde::{Deserialize, Serialize};
 use crate::analyzer::FomaError;
 use crate::backend_selection::BackendSelection;
 use crate::completed_build::{
-    compile_completed_backend, select_completed_build, CompletedBackendBuildWire,
+    compile_completed_backend, select_completed_build, CompileAttempt, CompletedBackendBuildWire,
 };
 use crate::compose_budget::ComposeBudget;
 use crate::enumerate::EmissionStrategy;
 use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
-};
-use crate::resource_envelope::{
-    BackendEnvelope, CommunicationEnvelope, CompileEnvelopeRequest,
-    ComposeEnvelope, EnumerationEnvelope, ResourceEnvelope, ResourceEnvelopeId,
-    WatchdogEnvelope as ResourceWatchdog,
 };
 use pg_grammar::model::Grammar;
 
@@ -221,7 +216,7 @@ impl Default for ExecutionLimits {
 /// deliberately high absolute ceiling).
 /// These bound the WIRE MESSAGES themselves (request/result JSON frames, captured stdout/stderr) --
 /// a completely different thing from `ComposeBudget`'s logical compile-work caps or this
-/// envelope's own wall-clock/RSS fields, all three of which travel INSIDE a request that itself
+/// watchdog's own wall-clock/RSS fields, all three of which travel INSIDE a request that itself
 /// must first pass these frame-level limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorkerProtocolLimits {
@@ -375,7 +370,7 @@ impl CompileWorkerRequest {
     /// compose-budget caps (`compose_budget::DEFAULT_*` -- the same defaults
     /// `ComposeBudget::from_env` falls back to when no `HC_COMPOSE_*` env var is set), explicit
     /// rather than reading env itself: the request is the single source of truth for what budget
-    /// the CHILD process runs under, so a caller who wants a different envelope should build one
+    /// the CHILD process runs under, so a caller who wants different limits should build them
     /// explicitly (mirrors `ComposeBudget::with_caps`'s own "explicit-caps constructors, never env
     /// vars" convention one layer down).
     pub fn new(grammar_path: impl Into<String>, grammar_format: GrammarFormat) -> Self {
@@ -457,20 +452,12 @@ pub enum CompileWorkerOutcome {
     SelectedCompileFailed { detail: String },
 }
 
-/// Additional request material for the selected-payload seam. Every profile field is carried so
-/// the child can reject a forged or stale request before constructing its private attempt.
+/// Additional request material for the selected-payload seam.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SelectedCompileRequest {
-    pub(crate) schema_version: u32,
-    pub(crate) envelope_id: ResourceEnvelopeId,
-    pub(crate) envelope_digest: String,
     pub(crate) attempt_id: String,
     pub(crate) route: String,
-    pub(crate) watchdog: ResourceWatchdog,
-    pub(crate) communication: CommunicationEnvelope,
-    pub(crate) compose: ComposeEnvelope,
-    pub(crate) enumeration: EnumerationEnvelope,
-    pub(crate) backend: BackendEnvelope,
 }
 
 /// Loads and compiles `grammar_path` into a `pg_grammar::model::Grammar`, mirroring `pg-cli::load_grammar`'s extension dispatch and `Result<_, String>` error shape.
@@ -512,11 +499,10 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
     let compose_budget = request.compose_budget();
 
     let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::analyzer::FomaProposer::new_with_budget_and_profile_and_compose(
+        crate::analyzer::FomaProposer::new_with_budget_and_profile(
             &grammar,
             &enum_budget,
             &compose_budget,
-            ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1).compose(),
         )
     }));
 
@@ -596,35 +582,11 @@ fn compile_selected_from_request(
     request: &CompileWorkerRequest,
     selected: &SelectedCompileRequest,
 ) -> CompileWorkerOutcome {
-    let expected = ResourceEnvelope::for_id(selected.envelope_id);
-    if selected.envelope_digest != expected.digest()
-        || selected.schema_version != expected.schema_version()
-        || expected.worker_protocol_version() != request.protocol_version
-        || selected.watchdog
-            != (ResourceWatchdog {
-                wall_timeout_ms: expected.watchdog().wall_timeout_ms,
-                rss_limit_mb: expected.watchdog().rss_limit_mb,
-                rss_sample_interval_ms: expected.watchdog().rss_sample_interval_ms,
-            })
-        || selected.communication != expected.communication()
-        || selected.compose != expected.compose()
-        || selected.enumeration != expected.enumeration()
-        || selected.backend != expected.backend()
-    {
-        return CompileWorkerOutcome::SelectedCompileFailed {
-            detail: "selected request does not exactly match its shipped resource envelope"
-                .to_string(),
-        };
-    }
     let strategy = match strategy_from_worker_route(&selected.route) {
         Ok(strategy) => strategy,
         Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
     };
-    let private_request = match CompileEnvelopeRequest::from_worker_wire(
-        selected.envelope_id,
-        &selected.envelope_digest,
-        selected.attempt_id.clone(),
-    ) {
+    let private_request = match CompileAttempt::from_worker_wire(selected.attempt_id.clone()) {
         Ok(request) => request,
         Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
     };
@@ -1258,31 +1220,22 @@ pub fn run_selected_compile_worker(
     grammar_format: GrammarFormat,
     grammar: &Grammar,
     selection: &BackendSelection,
-    request: &CompileEnvelopeRequest,
+    request: &CompileAttempt,
 ) -> Result<crate::completed_build::SelectedBackendBuild, crate::completed_build::CompletedBuildError>
 {
     let preferred = selection
         .preferred()
         .ok_or(crate::completed_build::CompletedBuildError::NoMatchingCompletedBuild)?;
-    let envelope = ResourceEnvelope::for_id(request.envelope_id());
     let selected = SelectedCompileRequest {
-        schema_version: envelope.schema_version(),
-        envelope_id: envelope.id(),
-        envelope_digest: envelope.digest(),
         attempt_id: request.attempt_id().as_str().to_string(),
         route: preferred.label().to_string(),
-        watchdog: envelope.watchdog(),
-        communication: envelope.communication(),
-        compose: envelope.compose(),
-        enumeration: envelope.enumeration(),
-        backend: envelope.backend(),
     };
     let mut worker_request = CompileWorkerRequest::new(grammar_path.to_string(), grammar_format);
     worker_request.selected = Some(selected);
     let watchdog = WatchdogEnvelope::clamped(
-        Duration::from_millis(envelope.watchdog().wall_timeout_ms),
-        envelope.watchdog().rss_limit_mb,
-        Duration::from_millis(envelope.watchdog().rss_sample_interval_ms),
+        Duration::from_millis(crate::worker_contract::DEFAULT_WALL_TIMEOUT_MS),
+        crate::worker_contract::DEFAULT_RSS_LIMIT_MB,
+        Duration::from_millis(crate::worker_contract::DEFAULT_RSS_SAMPLE_INTERVAL_MS),
     );
     let outcome = run_compile_worker(child_exe, child_args, &worker_request, &watchdog);
     let wire = match outcome {
