@@ -55,7 +55,7 @@ fn execution_limits_are_configurable_but_cannot_be_disabled() {
 
 #[test]
 fn cleanup_breaks_the_old_worker_protocol_in_lockstep() {
-    assert_eq!(WORKER_PROTOCOL_VERSION, 6);
+    assert_eq!(WORKER_PROTOCOL_VERSION, 7);
     assert!(
         limits_for_version(1).is_none(),
         "pre-cleanup worker messages must be rejected, not migrated"
@@ -68,9 +68,9 @@ fn cleanup_breaks_the_old_worker_protocol_in_lockstep() {
 }
 
 #[test]
-fn protocol_five_request_frames_are_rejected_before_compile() {
+fn protocol_six_request_frames_are_rejected_before_compile() {
     let mut request = CompileWorkerRequest::new("stale.xml", GrammarFormat::Xml);
-    request.protocol_version = 5;
+    request.protocol_version = 6;
     let body = serde_json::to_vec(&request).expect("serialize stale request");
     let mut input = Vec::new();
     input.extend_from_slice(&(body.len() as u64).to_le_bytes());
@@ -85,8 +85,8 @@ fn protocol_five_request_frames_are_rejected_before_compile() {
     match result.outcome {
         CompileWorkerOutcome::ProtocolViolation { detail } => {
             assert!(detail.contains("protocol_version"), "detail: {detail}");
-            assert!(detail.contains("5"), "detail: {detail}");
             assert!(detail.contains("6"), "detail: {detail}");
+            assert!(detail.contains("7"), "detail: {detail}");
         }
         other => panic!("expected ProtocolViolation, got {other:?}"),
     }
@@ -283,106 +283,6 @@ fn compile_attempt_and_completed_build_identity_surfaces_do_not_carry_execution_
 }
 
 #[test]
-fn selected_compile_result_keeps_payload_out_of_the_bounded_result_frame() {
-    let worker = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
-    let completed_build = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/completed_build.rs"
-    ));
-
-    let wire_start = completed_build
-        .find("pub struct CompletedBackendBuildWire")
-        .expect("completed-build source must declare the selected-build metadata wire");
-    let wire_end = completed_build[wire_start..]
-        .find('}')
-        .map(|offset| wire_start + offset)
-        .expect("selected-build metadata wire declaration must be closed");
-    let wire_declaration = &completed_build[wire_start..=wire_end];
-
-    assert!(
-        !wire_declaration.contains("payload_bytes:"),
-        "the 16-MiB JSON result must carry metadata, never the serialized FST bytes"
-    );
-    assert!(
-        worker.contains("artifact_path:") || worker.contains("artifact_token:"),
-        "the selected request must carry a parent-controlled out-of-band artifact destination"
-    );
-    assert!(
-        worker.contains("SelectedSuccess") && worker.contains("artifact"),
-        "selected success must report an out-of-band artifact, not inline payload bytes"
-    );
-}
-
-#[test]
-fn selected_compile_enforces_the_serialized_fst_limit_with_a_typed_failure() {
-    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
-    let start = source
-        .find("fn compile_selected_from_request(")
-        .expect("worker source must declare selected compilation");
-    let end = source[start..]
-        .find("/// The worker CHILD")
-        .map(|offset| start + offset)
-        .expect("selected compilation must end before the worker entrypoint");
-    let selected_compile = &source[start..end];
-    assert!(
-        selected_compile.contains("limits: &ExecutionLimits"),
-        "selected compilation must receive the supervisor's execution limits"
-    );
-    assert!(
-        selected_compile.contains("max_serialized_fst_bytes()"),
-        "the selected worker must apply max_serialized_fst_bytes"
-    );
-    assert!(
-        selected_compile.contains("payload_bytes.len()")
-            || selected_compile.contains("serialized_fst_bytes"),
-        "the limit must be measured against the actual serialized selected payload"
-    );
-    assert!(
-        source.contains("SelectedExecutionLimitExceeded"),
-        "an over-limit selected build must have a typed worker failure, not a detail-only compile failure"
-    );
-}
-
-#[test]
-fn selected_artifact_failures_remove_partial_and_final_transport_files() {
-    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
-    let start = source
-        .find("fn compile_selected_from_request(")
-        .expect("worker source must declare selected compilation");
-    let end = source[start..]
-        .find("/// The worker CHILD")
-        .map(|offset| start + offset)
-        .expect("selected compilation must end before the worker entrypoint");
-    let selected_compile = &source[start..end];
-    let writer_start = source
-        .find("fn write_selected_artifact(")
-        .expect("worker source must declare the artifact writer");
-    let writer_end = source[writer_start..]
-        .find("fn compile_selected_from_request(")
-        .map(|offset| writer_start + offset)
-        .expect("artifact writer must end before selected compilation");
-    let artifact_writer = &source[writer_start..writer_end];
-
-    assert!(
-        selected_compile.contains("remove_file") || selected_compile.contains("cleanup"),
-        "selected compile failures must remove temporary and final artifact paths"
-    );
-    assert!(selected_compile.contains("write_selected_artifact"));
-    assert!(
-        artifact_writer.contains("fs::rename"),
-        "a completed artifact must be published atomically, never left as a partial file"
-    );
-    assert!(
-        source.contains("cleanup_selected_transport_dir(&transport_dir)"),
-        "the parent must remove the reserved transport directory after every outcome"
-    );
-    assert!(
-        source.contains("artifact_path") || source.contains("artifact_token"),
-        "cleanup must be tied to the selected worker's transport artifact"
-    );
-}
-
-#[test]
 fn selected_transport_fields_stay_out_of_compile_and_completed_build_identity() {
     let worker = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
     let completed_build = include_str!(concat!(
@@ -399,9 +299,8 @@ fn selected_transport_fields_stay_out_of_compile_and_completed_build_identity() 
         .expect("selected request declaration must be closed");
     let selected_declaration = &worker[selected_start..=selected_end];
     assert!(
-        selected_declaration.contains("artifact_path:")
-            || selected_declaration.contains("artifact_token:"),
-        "the artifact destination belongs to transport request state"
+        selected_declaration.contains("artifact_directory:"),
+        "the parent-controlled artifact directory belongs to transport request state"
     );
 
     for declaration_name in [

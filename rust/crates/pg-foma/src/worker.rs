@@ -1410,6 +1410,137 @@ fn read_selected_artifact(
 mod tests {
     use super::*;
 
+    fn scratch_transport_dir(tag: &str) -> PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let attempt_id = format!("test-{tag}-{n}");
+        selected_transport_dir(&attempt_id).expect("create scratch transport directory")
+    }
+
+    #[test]
+    fn selected_artifact_publish_is_atomic_and_described_by_actual_bytes() {
+        let transport_dir = scratch_transport_dir("publish");
+        let artifact_path = selected_artifact_path(&transport_dir);
+        let payload = b"fst!";
+
+        let descriptor =
+            write_selected_artifact(&artifact_path, payload).expect("publish selected artifact");
+
+        assert_eq!(fs::read(&artifact_path).expect("read artifact"), payload);
+        assert!(!selected_artifact_temp_path(&artifact_path).exists());
+        assert_eq!(descriptor.path, artifact_path.to_string_lossy());
+        assert_eq!(descriptor.byte_len, payload.len() as u64);
+        assert_eq!(descriptor.sha256, sha256_hex(payload));
+        cleanup_selected_transport_dir(&transport_dir).expect("clean transport directory");
+    }
+
+    #[test]
+    fn selected_payload_over_limit_publishes_nothing() {
+        let transport_dir = scratch_transport_dir("limit");
+        let artifact_path = selected_artifact_path(&transport_dir);
+
+        let outcome = publish_selected_payload(&artifact_path, b"four", 3)
+            .expect_err("four bytes must exceed a three-byte limit");
+
+        assert!(matches!(
+            outcome,
+            CompileWorkerOutcome::SelectedExecutionLimitExceeded {
+                actual_bytes: 4,
+                limit_bytes: 3
+            }
+        ));
+        assert!(!artifact_path.exists());
+        assert!(!selected_artifact_temp_path(&artifact_path).exists());
+        cleanup_selected_transport_dir(&transport_dir).expect("clean transport directory");
+    }
+
+    #[test]
+    fn selected_output_cleanup_removes_partial_and_final_files() {
+        let transport_dir = scratch_transport_dir("cleanup");
+        let artifact_path = selected_artifact_path(&transport_dir);
+        fs::write(&artifact_path, b"final").expect("seed final artifact");
+        fs::write(selected_artifact_temp_path(&artifact_path), b"partial")
+            .expect("seed partial artifact");
+
+        cleanup_selected_output(&artifact_path).expect("clean selected output");
+
+        assert!(!artifact_path.exists());
+        assert!(!selected_artifact_temp_path(&artifact_path).exists());
+        cleanup_selected_transport_dir(&transport_dir).expect("clean transport directory");
+    }
+
+    #[test]
+    fn selected_request_cannot_escape_its_reserved_transport_directory() {
+        let attempt_id = "path-confinement-test";
+        let arbitrary_dir = std::env::temp_dir().join("pangloss-arbitrary-worker-output");
+        fs::create_dir(&arbitrary_dir).expect("create arbitrary directory");
+        let request = SelectedCompileRequest {
+            attempt_id: attempt_id.to_string(),
+            route: "tuned-surface-probed".to_string(),
+            artifact_directory: arbitrary_dir.to_string_lossy().into_owned(),
+            max_serialized_fst_bytes: 4,
+        };
+
+        let error = selected_artifact_path_from_request(&request)
+            .expect_err("child must reject an unreserved artifact directory");
+
+        assert!(error.contains("reserved selected transport directory"), "{error}");
+        fs::remove_dir(&arbitrary_dir).expect("remove arbitrary directory");
+    }
+
+    #[test]
+    fn selected_success_json_contains_descriptor_but_no_payload() {
+        let result = CompileWorkerResult {
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            outcome: CompileWorkerOutcome::SelectedSuccess {
+                build: CompletedBackendBuildWire {
+                    requested_strategy: "templated-underlying-tokens".to_string(),
+                    realized_strategy: "templated-underlying-tokens".to_string(),
+                    grammar_identity: "grammar".to_string(),
+                    attempt_id: "attempt".to_string(),
+                    completion_proof:
+                        crate::completed_build::CompletionProofWire::TemplatedFullEmission {
+                            uncovered_count: 0,
+                            skipped_count: 0,
+                        },
+                    state_count: 1,
+                    arc_count: 1,
+                    model_fingerprint: "model".to_string(),
+                    payload_fingerprint: sha256_hex(b"fst!"),
+                },
+                artifact: SelectedArtifactDescriptor {
+                    path: "selected.fst".to_string(),
+                    byte_len: 4,
+                    sha256: sha256_hex(b"fst!"),
+                },
+            },
+        };
+
+        let json = serde_json::to_value(result).expect("serialize selected success");
+
+        assert_eq!(json["outcome"]["SelectedSuccess"]["artifact"]["byte_len"], 4);
+        assert!(
+            !json.to_string().contains("payload_bytes"),
+            "selected result must contain metadata only: {json}"
+        );
+    }
+
+    #[test]
+    fn selected_serialized_size_limit_is_an_internal_resource_finding() {
+        let outcome = WorkerOutcome::Completed(
+            CompileWorkerOutcome::SelectedExecutionLimitExceeded {
+                actual_bytes: 4,
+                limit_bytes: 3,
+            },
+        );
+
+        let health = outcome.health_report();
+
+        assert_eq!(health.admission(), Severity::NotProductionReady);
+        assert_eq!(health.findings[0].code, FindingCode::ResourceBudgetReached);
+        assert_eq!(health.findings[0].metric, Metric::PayloadBytes);
+    }
+
     #[test]
     fn completed_worker_failures_never_become_empty_or_admissible() {
         let cases = vec![
@@ -1484,10 +1615,12 @@ mod tests {
     }
 
     #[test]
-    fn protocol_four_selected_request_rejects_removed_envelope_fields() {
+    fn selected_request_rejects_removed_envelope_fields() {
         let error = serde_json::from_value::<SelectedCompileRequest>(serde_json::json!({
             "attempt_id": "attempt-test",
             "route": "tuned-surface-probed",
+            "artifact_directory": "reserved-directory",
+            "max_serialized_fst_bytes": 4,
             "envelope_id": "managed-v1",
         }))
         .expect_err("removed envelope fields must be rejected as unknown");
