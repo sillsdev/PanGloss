@@ -540,8 +540,7 @@ impl<'g> Morpher<'g> {
                     // +1: index 0 must not collide with the `ALLOMORPH_NONE` sentinel.
                     stats.record_lex_entry_attempt(aw.stratum, le, allo_idx as u32 + 1);
                 }
-                // Per-object self time is booked at one of the three object boundaries
-                // `StatsCollector::time_enter` names.
+                // Book this lexical entry's self time at its object boundary.
                 let _time_lex = stats.map(|stats| {
                     stats.time_enter(
                         pg_rules::stats::ObjectKind::LexEntry,

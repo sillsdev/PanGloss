@@ -602,8 +602,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         });
         // Threaded into `morph::ana_compound` rather than post-filtering: root-allomorph resolution must join `ana_compound_subrule`'s own per-subrule dedup scope.
         let node_parent = w.trace.unwrap_or(self.parent);
-        // Per-object self time is booked to this rule's own row so a report can attribute coarse
-        // time by kind (e.g. "compounding took N seconds").
+        // Book this rule's self time to its own report row.
         let _obj_time = self.stats.map(|stats| {
             stats.time_enter(
                 crate::stats::ObjectKind::MorphRule,
@@ -689,8 +688,6 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         if self.over_budget() {
             return Vec::new();
         }
-        // One memo-key "probe": `state_key` plus the lookup it drives, bundled since neither is
-        // meaningful alone.
         let (key, hit_replayed) = {
             let key = self.state_key(input);
             let s = scope.borrow();
@@ -756,8 +753,6 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         for i in 0..self.reversed_mrules.len() {
             for result in self.apply_one_mrule(self.reversed_mrules[i], input) {
                 local.push(result.clone());
-                // One dedup insertion attempted: the `OrderedDedup` add, plus the self-loop key
-                // check riding along.
                 out.add(result.clone());
                 // Self-loop guard. Always false here — every unapplication changes the key.
                 let is_self_loop = in_key == result.dedup_key();

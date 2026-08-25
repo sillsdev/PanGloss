@@ -94,7 +94,7 @@ self time.
 
 - **`measured_time_ms` is real wall-clock self time**, not an estimate.
 - **`attempts` is not cost.** Use the actual `self_time_ns` totals for time rankings; attempts remain
-  useful for comparing how often objects participate.
+  useful for comparing participation within each compatible object kind.
 - **Capped words give floors, not totals.** A word cut off at its timeout contributes real counts up to
   the cut. Fine for ranking, wrong for "this rule costs X". `--exclude-censored` drops them.
 - **Zero outputs on a small word list is ambiguous.** It means either the rule cannot fire or these
