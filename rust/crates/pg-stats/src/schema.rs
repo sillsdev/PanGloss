@@ -14,6 +14,8 @@ pub const SCHEMA_VERSION: i64 = 5;
 pub const COUNTER_SEMANTICS_VERSION: i64 = 2;
 
 pub(crate) fn create(conn: &Connection) -> Result<(), StatsError> {
+    // An empty legacy cache has no run signature to trigger recreation, so remove stale coverage here.
+    conn.execute_batch("DROP TABLE IF EXISTS coverage;")?;
     conn.execute_batch(SCHEMA_SQL)?;
     seed_sentinels(conn)
 }
@@ -148,5 +150,28 @@ mod tests {
             coverage_tables, 0,
             "a schema wipe must remove the retired coverage table"
         );
+    }
+
+    #[test]
+    fn create_removes_obsolete_coverage_from_an_empty_legacy_cache() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE coverage (
+                run_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                counter TEXT NOT NULL,
+                state TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        create(&conn).unwrap();
+        let coverage_tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'coverage'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(coverage_tables, 0);
     }
 }

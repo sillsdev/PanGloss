@@ -381,13 +381,18 @@ affect parsing do not invalidate. **An `.xml` grammar hashes its raw file bytes 
 an XML grammar does force a wipe. Fail-closed, never silently wrong, but not the stated property. Note this is not free: a `.fwdata` input imports in-memory straight to a
 compiled grammar with no JSON written, so hashing costs one serialization pass per run.
 
-**Options, engine, and counter-semantics version are recorded per word, not keyed on.** They change
+**Options and counter-semantics version are recorded per word, not keyed on.** They change
 what a counter means — `--step-cap 1000` yields different `attempts` and `not_applied` than uncapped
 — so mixing them silently corrupts every `SUM`. But wiping on them would fight the accumulation
 model, since a human exploring one bad word will try several caps. Recording them makes the hazard
 *visible*: `pangloss stats` warns when a query spans mixed option sets. **Filtering to one option
 set is not shipped** -- there is no `--run`/`--options-hash` flag, so narrowing to a single set means
 querying the documented schema directly. `run` rows carry full build info for forensics.
+
+**Engine is a cache invariant.** The first writer establishes it, and `StatsCache::flush` rejects a
+different engine inside the same immediate transaction that would write the run. The CLI also checks
+early for a clearer error. A legacy cache that already contains mixed engines is refused at read time
+because its counters are not comparable.
 
 The counter-semantics version is hand-maintained, bumped when counting semantics change, on the same
 discipline as `schema_version`. It will occasionally be forgotten; the mitigation is that `run` rows
@@ -469,13 +474,6 @@ CREATE TABLE fact (
   PRIMARY KEY (word_id, object_id, stratum_id, allomorph_id)
 ) WITHOUT ROWID;
 
--- Which counters this run could measure at all, so an unmeasurable column renders "—" not "0".
-CREATE TABLE coverage (
-  kind    TEXT NOT NULL,
-  counter TEXT NOT NULL,
-  state   TEXT NOT NULL,            -- measured | unsupported
-  PRIMARY KEY (kind, counter)
-) WITHOUT ROWID;
 ```
 
 `WITHOUT ROWID` with a composite primary key on `fact` is load-bearing, not tidiness: it removes the
@@ -501,15 +499,18 @@ Aggregation needs nothing beyond SQLite at this scale.
 
 ## Reports
 
-Seven orientations as shipped, selected by `--group`: `word`, `object`, `group`, `morpheme`,
-`allomorph`, `stratum`, `direction`, plus `never-fires`. All are `GROUP BY` queries; no top-N by
-default (object count is bounded by grammar size, so print everything), `--top N` for large grammars.
+Six orientations are shipped, selected by `--group`: `word`, `object`, `group`, `morpheme`,
+`allomorph`, and `never-fires`. Stratum and direction remain dimensions and filters, not standalone
+profiles: aggregating their rows across object kinds would combine incompatible attempt units.
+Reports use `GROUP BY` queries; there is no top-N by default (object count is bounded by grammar
+size), with `--top N` available for large grammars.
 
-Every orientation prints the same narrow column set — `label`, `time_ms`, `time%`, `attempts`,
-`attempts%`, `amp`, `uses` — because every conclusion anyone has drawn from this data has been a
-share rather than an absolute. `--wide` appends `work`, `not_applied`, `no_root`,
-`surface_mismatch`, and `identity_quality`. `--format jsonl` emits the same rows machine-readably,
-prefixed by a meta line carrying run identity, the active filters, and the totals.
+Counter-bearing orientations use the narrow column set `label`, `time_ms`, `time%`, `attempts`,
+`attempts%`, `amp`, and `uses` where those measurements exist. Unsupported cells render as
+unavailable; a column that the engine or orientation cannot measure is omitted from text and null in
+JSON. The word and never-fires reports keep purpose-specific shapes. `--wide` appends `work`,
+`not_applied`, `no_root`, `surface_mismatch`, and `identity_quality`. `--format jsonl` prefixes rows
+with a meta line carrying run identity, active filters, totals, and unmeasured-field explanations.
 
 **Every orientation ends with a TOTAL line**, carrying the row count, the summed time, and that
 sum as a percentage of the wall clock actually recorded — the attribution check. That percentage is
@@ -545,15 +546,16 @@ The floor is the library default and carries no CLI override: a caller wanting a
 queries the documented schema, which is cheaper than a flag nobody reached for.
 
 **The per-word report's `elapsed_ms_actual` and the per-object report's `measured_time_ms` are both
-real measurements, at different granularities.** Measured self times genuinely sum, both within a
-kind and across the whole word (modulo whatever wall-clock work happens outside the three
-instrumented object boundaries, e.g. cascade bookkeeping between attempts). The per-object report's
-header states plainly that time is measured, whenever the cache holds this run's rows.
+real measurements, at different granularities.** Measured self times sum within the instrumented
+`morph_rule` and `lex_entry` kinds. Other kinds render time as unavailable, and the difference from
+word elapsed time remains visible rather than being converted into measured zeroes.
 
-An unmeasurable column renders **—**, never **0**, driven by the `coverage` table. This matters most
-in foma mode, where the proposer replaces HC's analysis search, so `no_root` is zero on every row —
-not because the grammar is clean, but because that lookup never ran. Same rule this repo states
-elsewhere: *"I could not look" must never read as "everything is fine."*
+An unmeasurable column renders **—** or JSON `null`, never **0**. Support comes from the collector's
+kind/counter contract plus report orientation and engine. This matters most in foma mode, where the
+proposer replaces HC's analysis search: its missing counters are unavailable, not evidence that the
+grammar is clean. Named allomorph attempts are likewise unavailable because attempts are counted at
+rule granularity. Same rule this repo states elsewhere: *"I could not look" must never read as
+"everything is fine."*
 
 **`work` is opt-in** (`--wide`, alongside the other detail columns) rather than a default column or
 absent entirely — see "Known limitations as shipped" for why its basis is provisional.
@@ -612,7 +614,7 @@ found by running the shipped v1 feature against real grammars (Sena, Amharic, Aw
 **fixed** with what changed; the rest remain open.
 
 **FIXED — `work` was recorded but unreachable.** No report surfaced it, so `--wide` now appends it on every report that
-carries it (object, allomorph, stratum, direction, group, morpheme); the default view still omits
+carries it (object, allomorph, group, morpheme); the default view still omits
 it. `work` remains a plain counter behind that flag — it is simply no longer a time basis:
 measured self time (see "Time") replaced it for that purpose, so `work`'s own weighting problem
 (charging a rule the full segment count of the candidate shape when the dominant event is a *failed*

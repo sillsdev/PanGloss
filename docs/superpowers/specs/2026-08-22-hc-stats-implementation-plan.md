@@ -105,10 +105,11 @@ recorded inside. `--cache <path>` overrides and hands lifetime to the caller.
 ## Phase 3 — CLI
 
 - `batch --stats [--cache <path>]` — writes the cache, prints one line (words analyzed, elapsed).
-  Accepts `--engine foma`; writes `coverage` rows from the engine so unmeasurable counters are marked
-  `unsupported`.
-- `pangloss stats [--group ...] [--kind] [--stratum] [--object] [--min-attempts] [--top] [--sort]
-  [--exclude-capped] [--out FILE]` — reads the one cache at the derived path, no grammar load.
+  Accepts `--engine foma`; the cache records exactly one engine and rejects a different engine in
+  the write transaction.
+- `pangloss stats [--group word|object|allomorph|morpheme|group|never-fires] [--kind] [--stratum]
+  [--direction] [--object] [--top] [--sort] [--exclude-censored] [--wide] [--format] [--out FILE]`
+  — reads the one cache at the derived path, no grammar load.
   Warns when a query spans mixed option sets or counter-semantics versions.
 
 - Verify: golden CSVs excluding the `elapsed_ns` columns, which are the only non-deterministic values
@@ -124,7 +125,8 @@ Three presentation rules that are part of the design, not polish:
 
 - actual elapsed time and per-object self time are labeled separately
 - the per-object report's header states its times are measured self time
-- an unmeasurable column renders `—`, never `0`, driven by the `coverage` table
+- an unmeasurable column renders `—` or JSON `null`, never `0`, based on collector support,
+  orientation, and engine
 
 ## Risks
 

@@ -1,6 +1,6 @@
 //! `batch --stats`'s cache-writing side and the `stats` subcommand's cache-reading side of `pg_stats::StatsCache`; `--engine=foma` has no collector hook yet, so it records word-level rows only and every per-object report renders as empty for a foma-only cache.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -396,15 +396,13 @@ pub(crate) fn run_batch_stats_foma(
 
 // The `stats` subcommand: read-only, no grammar loaded.
 
-const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|stratum|direction|morpheme|group|never-fires] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--word FORM] [--top N] [--sort time|no-root|amp|uses|attempts] [--exclude-censored] [--wide] [--by-kind] [--format text|jsonl] [--cache <path>] [--out FILE]";
+const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|morpheme|group|never-fires] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--word FORM] [--top N] [--sort time|no-root|amp|uses|attempts] [--exclude-censored] [--wide] [--by-kind] [--format text|jsonl] [--cache <path>] [--out FILE]";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ReportGroup {
     Word,
     Object,
     Allomorph,
-    Stratum,
-    Direction,
     Morpheme,
     Group,
     NeverFires,
@@ -451,25 +449,6 @@ fn per_allomorph_filter(f: &Filters) -> pg_stats::PerAllomorphFilter {
         kind: f.kind.clone(),
         object_key: f.object_key.clone(),
         direction: f.direction.clone(),
-        word: f.word.clone(),
-        exclude_censored_words: f.exclude_censored,
-    }
-}
-
-fn per_stratum_filter(f: &Filters) -> pg_stats::PerStratumFilter {
-    pg_stats::PerStratumFilter {
-        kind: f.kind.clone(),
-        object_key: f.object_key.clone(),
-        direction: f.direction.clone(),
-        word: f.word.clone(),
-        exclude_censored_words: f.exclude_censored,
-    }
-}
-
-fn per_direction_filter(f: &Filters) -> pg_stats::PerDirectionFilter {
-    pg_stats::PerDirectionFilter {
-        kind: f.kind.clone(),
-        object_key: f.object_key.clone(),
         word: f.word.clone(),
         exclude_censored_words: f.exclude_censored,
     }
@@ -536,9 +515,22 @@ fn engine_omitted_counters(engine: &str) -> &'static [&'static str] {
 }
 
 /// The text-mode note explaining an engine-level column omission; `None` when nothing is omitted.
+fn omitted_counters(engine: &str, orientation: &str) -> Vec<&'static str> {
+    let mut omitted = engine_omitted_counters(engine).to_vec();
+    if orientation == "allomorph" && !omitted.contains(&"attempts") {
+        omitted.push("attempts");
+    }
+    omitted
+}
+
 fn engine_omission_note(engine: &str, omitted: &[&str]) -> Option<String> {
     if omitted.is_empty() {
         return None;
+    }
+    if engine != "foma" && omitted == ["attempts"] {
+        return Some(
+            "note: attempts are rule-level and unavailable for named allomorph rows; attempts%, amp, and their denominator are omitted (this is not \"zero\")\n".to_string(),
+        );
     }
     Some(format!(
         "note: engine={engine} never records {}; those columns are omitted (this is not \"zero\")\n",
@@ -547,20 +539,31 @@ fn engine_omission_note(engine: &str, omitted: &[&str]) -> Option<String> {
 }
 
 /// The JSONL meta line's `unmeasured` map: per omitted counter, why -- so a GUI need not guess.
-fn unmeasured_json(engine: &str, omitted: &[&str]) -> serde_json::Value {
+fn unmeasured_json(
+    engine: &str,
+    orientation: &str,
+    omitted: &[&str],
+) -> serde_json::Value {
     let map: serde_json::Map<String, serde_json::Value> = omitted
         .iter()
         .map(|c| {
             (
                 c.to_string(),
-                serde_json::Value::String(format!("engine={engine} never records it")),
+                serde_json::Value::String(if orientation == "allomorph"
+                    && *c == "attempts"
+                    && engine != "foma"
+                {
+                    "attempts are rule-level, not per-allomorph".to_string()
+                } else {
+                    format!("engine={engine} never records it")
+                }),
             )
         })
         .collect();
     serde_json::Value::Object(map)
 }
 
-/// Nulls every `RowView` field this cache's engine can never measure, uniform across every orientation (including stratum/direction, which never call `cell_value` at all).
+/// Nulls every `RowView` field this cache's engine or report orientation cannot measure.
 fn apply_engine_omission(rows: Vec<RowView>, omitted: &[&str]) -> Vec<RowView> {
     if omitted.is_empty() {
         return rows;
@@ -641,7 +644,7 @@ fn object_row_view(r: &pg_stats::PerObjectRow) -> RowView {
         label: format!("{}: {}", r.kind, r.label),
         kind: Some(r.kind.clone()),
         identity_quality: Some(r.identity_quality.clone()),
-        self_time_ns: Some(r.self_time_ns),
+        self_time_ns: self_time_value(&r.kind, r.self_time_ns),
         attempts: cell_value(&r.kind, "attempts", r.attempts),
         outputs: cell_value(&r.kind, "outputs", r.outputs),
         uses: cell_value(&r.kind, "uses", r.uses),
@@ -660,8 +663,12 @@ fn allomorph_row_view(r: &pg_stats::PerAllomorphRow) -> RowView {
         ),
         kind: Some(r.object_kind.clone()),
         identity_quality: None,
-        self_time_ns: Some(r.self_time_ns),
-        attempts: cell_value(&r.object_kind, "attempts", r.attempts),
+        self_time_ns: self_time_value(&r.object_kind, r.self_time_ns),
+        attempts: if r.allomorph_key.is_some() {
+            None
+        } else {
+            cell_value(&r.object_kind, "attempts", r.attempts)
+        },
         outputs: cell_value(&r.object_kind, "outputs", r.outputs),
         uses: cell_value(&r.object_kind, "uses", r.uses),
         work: cell_value(&r.object_kind, "work", r.work),
@@ -671,47 +678,13 @@ fn allomorph_row_view(r: &pg_stats::PerAllomorphRow) -> RowView {
     }
 }
 
-/// A stratum can span several kinds at once, so counters render unmasked; narrow with `--kind`.
-fn stratum_row_view(r: &pg_stats::PerStratumRow) -> RowView {
-    RowView {
-        label: r.stratum_label.clone(),
-        kind: None,
-        identity_quality: None,
-        self_time_ns: Some(r.self_time_ns),
-        attempts: Some(r.attempts),
-        outputs: Some(r.outputs),
-        uses: Some(r.uses),
-        work: Some(r.work),
-        not_applied: Some(r.not_applied),
-        no_root: Some(r.no_root),
-        surface_mismatch: Some(r.surface_mismatch),
-    }
-}
-
-/// See `stratum_row_view` -- only two rows ever exist, but they too can span several kinds.
-fn direction_row_view(r: &pg_stats::PerDirectionRow) -> RowView {
-    RowView {
-        label: r.direction.clone(),
-        kind: None,
-        identity_quality: None,
-        self_time_ns: Some(r.self_time_ns),
-        attempts: Some(r.attempts),
-        outputs: Some(r.outputs),
-        uses: Some(r.uses),
-        work: Some(r.work),
-        not_applied: Some(r.not_applied),
-        no_root: Some(r.no_root),
-        surface_mismatch: Some(r.surface_mismatch),
-    }
-}
-
 fn morpheme_row_view(r: &pg_stats::PerMorphemeRow) -> RowView {
     const KIND: &str = "lex_entry";
     RowView {
         label: r.morpheme_label.clone(),
         kind: Some(KIND.to_string()),
         identity_quality: None,
-        self_time_ns: Some(r.self_time_ns),
+        self_time_ns: self_time_value(KIND, r.self_time_ns),
         attempts: cell_value(KIND, "attempts", r.attempts),
         outputs: cell_value(KIND, "outputs", r.outputs),
         uses: cell_value(KIND, "uses", r.uses),
@@ -727,7 +700,7 @@ fn kind_row_view(r: &pg_stats::PerKindRow) -> RowView {
         label: r.kind.clone(),
         kind: Some(r.kind.clone()),
         identity_quality: None,
-        self_time_ns: Some(r.self_time_ns),
+        self_time_ns: self_time_value(&r.kind, r.self_time_ns),
         attempts: cell_value(&r.kind, "attempts", r.attempts),
         outputs: cell_value(&r.kind, "outputs", r.outputs),
         uses: cell_value(&r.kind, "uses", r.uses),
@@ -1035,6 +1008,17 @@ fn filters_json(f: &Filters) -> serde_json::Value {
 }
 
 fn run_identity(conn: &rusqlite::Connection) -> Result<(String, String), String> {
+    let distinct_engines: i64 = conn
+        .query_row("SELECT COUNT(DISTINCT engine) FROM run", [], |row| {
+            row.get(0)
+        })
+        .map_err(|e| e.to_string())?;
+    if distinct_engines > 1 {
+        return Err(
+            "stats: cache spans more than one engine; report refused because counters are not comparable"
+                .to_string(),
+        );
+    }
     conn.query_row(
         "SELECT grammar_hash, engine FROM run ORDER BY run_id DESC LIMIT 1",
         [],
@@ -1050,7 +1034,7 @@ fn jsonl_meta_value(
     totals: &TotalsSummary,
 ) -> Result<serde_json::Value, String> {
     let (grammar_hash, engine) = run_identity(conn)?;
-    let omitted = engine_omitted_counters(&engine);
+    let omitted = omitted_counters(&engine, orientation);
     Ok(serde_json::json!({
         "meta": true,
         "orientation": orientation,
@@ -1058,7 +1042,7 @@ fn jsonl_meta_value(
         "engine": engine,
         "filters": filters_json(filters),
         "totals": totals.to_json(),
-        "unmeasured": unmeasured_json(&engine, omitted),
+        "unmeasured": unmeasured_json(&engine, orientation, &omitted),
     }))
 }
 
@@ -1124,7 +1108,7 @@ fn empty_explanation(
     })
 }
 
-/// Per-kind so one crowded kind hides no other, and after the totals rather than in SQL, since a LIMIT would narrow the denominators too.
+/// Applies top-N per kind after totals so crowded kinds cannot hide others or narrow denominators.
 fn truncate_per_kind(rows: Vec<RowView>, top_n: Option<usize>) -> Vec<RowView> {
     let Some(n) = top_n else { return rows };
     let mut taken: HashMap<Option<String>, usize> = HashMap::new();
@@ -1146,9 +1130,9 @@ fn render_rowview_body(
     format: OutputFormat,
 ) -> Result<String, String> {
     let (_, engine) = run_identity(conn)?;
-    let omitted = engine_omitted_counters(&engine);
-    let rows = apply_engine_omission(rows, omitted);
-    let note = engine_omission_note(&engine, omitted);
+    let omitted = omitted_counters(&engine, orientation);
+    let rows = apply_engine_omission(rows, &omitted);
+    let note = engine_omission_note(&engine, &omitted);
 
     if rows.is_empty() {
         let reason = empty_explanation(conn, kind_scope)?;
@@ -1172,7 +1156,7 @@ fn render_rowview_body(
             for kind in kinds_in_row_order(&shown) {
                 let section: Vec<RowView> =
                     shown.iter().filter(|r| r.kind == kind).cloned().collect();
-                let (headers, table_rows) = render_narrow(&section, filters.wide, &denoms, omitted);
+                let (headers, table_rows) = render_narrow(&section, filters.wide, &denoms, &omitted);
                 out.push_str(&format!("== {} ==\n", kind.as_deref().unwrap_or("-")));
                 out.push_str(&render_table(&headers, &table_rows));
                 out.push_str(&subtotal_line(&section, &kind, &denoms));
@@ -1182,7 +1166,7 @@ fn render_rowview_body(
             Ok(out)
         }
         OutputFormat::Text => {
-            let (headers, table_rows) = render_narrow(&shown, filters.wide, &denoms, omitted);
+            let (headers, table_rows) = render_narrow(&shown, filters.wide, &denoms, &omitted);
             let mut out = String::new();
             if let Some(n) = &note {
                 out.push_str(n);
@@ -1283,42 +1267,6 @@ fn render_allomorph(
     )
 }
 
-fn render_stratum(
-    conn: &rusqlite::Connection,
-    filters: &Filters,
-    format: OutputFormat,
-) -> Result<String, String> {
-    let rows = pg_stats::per_stratum_report(conn, &per_stratum_filter(filters))
-        .map_err(|e| e.to_string())?;
-    let views: Vec<RowView> = rows.iter().map(stratum_row_view).collect();
-    render_rowview_body(
-        conn,
-        "stratum",
-        filters,
-        views,
-        filters.kind.as_deref(),
-        format,
-    )
-}
-
-fn render_direction(
-    conn: &rusqlite::Connection,
-    filters: &Filters,
-    format: OutputFormat,
-) -> Result<String, String> {
-    let rows = pg_stats::per_direction_report(conn, &per_direction_filter(filters))
-        .map_err(|e| e.to_string())?;
-    let views: Vec<RowView> = rows.iter().map(direction_row_view).collect();
-    render_rowview_body(
-        conn,
-        "direction",
-        filters,
-        views,
-        filters.kind.as_deref(),
-        format,
-    )
-}
-
 fn render_morpheme(
     conn: &rusqlite::Connection,
     filters: &Filters,
@@ -1364,61 +1312,70 @@ fn render_word(
         };
         return empty_output(conn, "word", filters, reason, format);
     }
+    let (grammar_hash, engine) = run_identity(conn)?;
+    let attempts_measured = engine != "foma";
     let total_elapsed: i64 = rows.iter().map(|r| r.elapsed_ns).sum();
     let total_attempts: i64 = rows.iter().map(|r| r.attempts).sum();
     match format {
         OutputFormat::Text => {
-            let headers = [
-                "form",
-                "time_ms",
-                "time%",
-                "attempts",
-                "attempts%",
-                "passes",
-                "capped",
-                "timed_out",
-            ];
+            let mut headers = vec!["form", "time_ms", "time%"];
+            if attempts_measured {
+                headers.extend(["attempts", "attempts%"]);
+            }
+            headers.extend(["passes", "capped", "timed_out"]);
             let table_rows: Vec<Vec<String>> = rows
                 .iter()
                 .map(|r| {
-                    vec![
+                    let mut row = vec![
                         r.form.clone(),
                         format!("{:.3}", r.elapsed_ns as f64 / 1e6),
                         fmt_pct(Some(r.elapsed_ns), total_elapsed),
-                        r.attempts.to_string(),
-                        fmt_pct(Some(r.attempts), total_attempts),
+                    ];
+                    if attempts_measured {
+                        row.push(r.attempts.to_string());
+                        row.push(fmt_pct(Some(r.attempts), total_attempts));
+                    }
+                    row.extend([
                         r.passes.to_string(),
                         r.capped.to_string(),
                         r.timed_out.to_string(),
-                    ]
+                    ]);
+                    row
                 })
                 .collect();
             let mut out = render_table(&headers, &table_rows);
+            if !attempts_measured {
+                out.insert_str(0, "note: engine=foma never records attempts; attempts and attempts% are omitted (this is not \"zero\")\n");
+            }
             out.push_str(&format!(
                 "TOTAL  {} word(s)   time {:.3}ms (100.0% attributed; word rows ARE the recorded \
-                 total)   attempts {}\n",
+                 total){}\n",
                 rows.len(),
                 total_elapsed as f64 / 1e6,
-                total_attempts,
+                if attempts_measured {
+                    format!("   attempts {total_attempts}")
+                } else {
+                    String::new()
+                },
             ));
             Ok(out)
         }
         OutputFormat::Jsonl => {
-            let (grammar_hash, engine) = run_identity(conn)?;
             let meta = serde_json::json!({
                 "meta": true,
                 "orientation": "word",
                 "grammar_hash": grammar_hash,
                 "engine": engine,
                 "filters": filters_json(filters),
-                "totals": {"rows": rows.len(), "time_ns": total_elapsed, "attempts": total_attempts},
+                "totals": {"rows": rows.len(), "time_ns": total_elapsed, "attempts": if attempts_measured { serde_json::json!(total_attempts) } else { serde_json::Value::Null }},
+                "unmeasured": if attempts_measured { serde_json::json!({}) } else { serde_json::json!({"attempts": "engine=foma never records it"}) },
             });
             let mut lines = vec![serde_json::to_string(&meta).map_err(|e| e.to_string())?];
             for r in &rows {
                 let v = serde_json::json!({
                     "form": r.form,
                     "elapsed_ns": r.elapsed_ns,
-                    "attempts": r.attempts,
+                    "attempts": if attempts_measured { serde_json::json!(r.attempts) } else { serde_json::Value::Null },
                     "passes": r.passes,
                     "capped": r.capped,
                     "timed_out": r.timed_out,
@@ -1442,7 +1399,10 @@ fn render_never_fires(
         let reason = empty_explanation(conn, filters.kind.as_deref())?;
         return empty_output(conn, "never-fires", filters, reason, format);
     }
-    let total_attempts: i64 = rows.iter().map(|r| r.attempts).sum();
+    let mut attempts_by_kind: BTreeMap<String, i64> = BTreeMap::new();
+    for row in &rows {
+        *attempts_by_kind.entry(row.kind.clone()).or_insert(0) += row.attempts;
+    }
     match format {
         OutputFormat::Text => {
             let headers = [
@@ -1462,7 +1422,10 @@ fn render_never_fires(
                         r.identity_quality.clone(),
                         r.direction.clone(),
                         r.attempts.to_string(),
-                        fmt_pct(Some(r.attempts), total_attempts),
+                        fmt_pct(
+                            Some(r.attempts),
+                            attempts_by_kind.get(&r.kind).copied().unwrap_or(0),
+                        ),
                     ]
                 })
                 .collect();
@@ -1474,7 +1437,11 @@ fn render_never_fires(
             out.push_str(&format!(
                 "TOTAL  {} object(s) never fired   attempts wasted {}\n",
                 rows.len(),
-                total_attempts
+                attempts_by_kind
+                    .iter()
+                    .map(|(kind, attempts)| format!("{kind} {attempts}"))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             ));
             Ok(out)
         }
@@ -1486,7 +1453,7 @@ fn render_never_fires(
                 "grammar_hash": grammar_hash,
                 "engine": engine,
                 "filters": filters_json(filters),
-                "totals": {"rows": rows.len(), "attempts": total_attempts},
+                "totals": {"rows": rows.len(), "attempts_by_kind": attempts_by_kind},
             });
             let mut lines = vec![serde_json::to_string(&meta).map_err(|e| e.to_string())?];
             for r in &rows {
@@ -1600,14 +1567,12 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         Some("word") => Some(ReportGroup::Word),
         Some("object") => Some(ReportGroup::Object),
         Some("allomorph") => Some(ReportGroup::Allomorph),
-        Some("stratum") => Some(ReportGroup::Stratum),
-        Some("direction") => Some(ReportGroup::Direction),
         Some("morpheme") => Some(ReportGroup::Morpheme),
         Some("group") => Some(ReportGroup::Group),
         Some("never-fires") => Some(ReportGroup::NeverFires),
         Some(other) => {
             return Err(format!(
-                "invalid --group: {other} (expected word|object|allomorph|stratum|direction|morpheme|group|never-fires)"
+                "invalid --group: {other} (expected word|object|allomorph|morpheme|group|never-fires)"
             ))
         }
     };
@@ -1730,8 +1695,9 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         })
         .map_err(|e| e.to_string())?;
     if distinct_engines > 1 {
-        eprintln!(
-            "warning: this cache spans more than one engine; per-object counters mix measured and unsupported rows"
+        return Err(
+            "stats: cache spans more than one engine; report refused because counters are not comparable"
+                .to_string(),
         );
     }
 
@@ -1740,8 +1706,6 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         Some(ReportGroup::Word) => render_word(&conn, &filters, format)?,
         Some(ReportGroup::Object) => render_object(&conn, &filters, format)?,
         Some(ReportGroup::Allomorph) => render_allomorph(&conn, &filters, format)?,
-        Some(ReportGroup::Stratum) => render_stratum(&conn, &filters, format)?,
-        Some(ReportGroup::Direction) => render_direction(&conn, &filters, format)?,
         Some(ReportGroup::Morpheme) => render_morpheme(&conn, &filters, format)?,
         Some(ReportGroup::Group) => render_group(&conn, &filters, format)?,
         Some(ReportGroup::NeverFires) => render_never_fires(&conn, &filters, format)?,
@@ -2200,70 +2164,6 @@ mod tests {
             header_line.contains("attempts"),
             "an hc cache must keep the attempts column: {header_line}"
         );
-    }
-
-    /// A synthetic `foma`-tagged run with real fact rows, pinning that stratum/direction share the same engine-level omission as every other orientation.
-    #[test]
-    fn stratum_and_direction_orientations_omit_the_same_columns_under_foma() {
-        let dir = scratch_dir("foma-stratum-direction");
-        let cache_path = dir.join("cache.sqlite3");
-        let mut outcome = pg_stats::StatsCache::open(&cache_path, "hash-foma").unwrap();
-        let run = pg_stats::RunMetadata {
-            build_info: "test".to_string(),
-            fwdata_path: "x".to_string(),
-            grammar_hash: "hash-foma".to_string(),
-            engine: "foma".to_string(),
-            options_hash: "opts".to_string(),
-            options_json: "{}".to_string(),
-            created_utc: "unix:0".to_string(),
-        };
-        let word_record = pg_stats::WordRecord {
-            form: "w".to_string(),
-            elapsed_ns: 1_000,
-            attempts: 0,
-            passes: 1,
-            capped: false,
-            timed_out: false,
-            invalid_shape: false,
-            facts: vec![pg_stats::FactRecord {
-                object_key: "rule-a".to_string(),
-                object_kind: pg_stats::ObjectKind::MorphRule,
-                object_label: "Rule A".to_string(),
-                identity_quality: pg_stats::IdentityQuality::Authored,
-                stratum: Some(pg_stats::StructuralLocator::new("0:Root", "Root")),
-                allomorph: None,
-                morpheme: None,
-                direction: pg_stats::Direction::Analysis,
-                attempts: 5,
-                work: 10,
-                outputs: 2,
-                not_applied: 1,
-                no_root: 3,
-                surface_mismatch: 0,
-                uses: 1,
-                self_time_ns: 100,
-            }],
-        };
-        outcome.cache.flush(&run, &[word_record]).unwrap();
-        let conn = outcome.cache.connection();
-
-        let stratum_body = render_stratum(conn, &Filters::default(), OutputFormat::Text).unwrap();
-        let direction_body =
-            render_direction(conn, &Filters::default(), OutputFormat::Text).unwrap();
-        for body in [&stratum_body, &direction_body] {
-            assert!(
-                body.contains("engine=foma never records"),
-                "stratum/direction must honour the same engine-level omission: {body}"
-            );
-            let header_line = body
-                .lines()
-                .find(|l| l.contains("label"))
-                .expect("a header line must be present");
-            assert!(
-                !header_line.contains("attempts"),
-                "the attempts column must be omitted entirely, not merely masked: {header_line}"
-            );
-        }
     }
 
     #[test]
@@ -2745,4 +2645,255 @@ mod tests {
         let err = run_stats(&args).expect_err("--format jsonl with no --group must be refused");
         assert!(err.contains("--format jsonl requires --group"));
     }
+
+    #[test]
+    fn public_stats_groups_do_not_expose_internal_stratum_or_direction_orientations() {
+        assert!(!STATS_USAGE.contains("|stratum"));
+        assert!(!STATS_USAGE.contains("|direction"));
+        for removed in ["stratum", "direction"] {
+            let args = vec![
+                "unused.xml".to_string(),
+                "--group".to_string(),
+                removed.to_string(),
+            ];
+            let err = run_stats(&args).expect_err("removed report groups must be rejected");
+            assert!(err.contains("invalid --group"), "{removed}: {err}");
+        }
+    }
+
+    fn synthetic_stats_cache(engine: &str, facts: Vec<pg_stats::FactRecord>) -> pg_stats::StatsCache {
+        let dir = scratch_dir("contract");
+        let path = dir.join("cache.sqlite3");
+        let mut outcome = pg_stats::StatsCache::open(&path, "contract-hash").unwrap();
+        let run = pg_stats::RunMetadata {
+            build_info: "test".to_string(),
+            fwdata_path: "x".to_string(),
+            grammar_hash: "contract-hash".to_string(),
+            engine: engine.to_string(),
+            options_hash: "opts".to_string(),
+            options_json: "{}".to_string(),
+            created_utc: "unix:0".to_string(),
+        };
+        outcome
+            .cache
+            .flush(
+                &run,
+                &[pg_stats::WordRecord {
+                    form: "w".to_string(),
+                    elapsed_ns: 1000,
+                    attempts: 4,
+                    passes: 1,
+                    capped: false,
+                    timed_out: false,
+                    invalid_shape: false,
+                    facts,
+                }],
+            )
+            .unwrap();
+        outcome.cache
+    }
+
+    fn synthetic_fact(
+        kind: pg_stats::ObjectKind,
+        allomorph: Option<(&str, &str)>,
+        attempts: u64,
+    ) -> pg_stats::FactRecord {
+        pg_stats::FactRecord {
+            object_key: "rule-a".to_string(),
+            object_kind: kind,
+            object_label: "Rule A".to_string(),
+            identity_quality: pg_stats::IdentityQuality::Authored,
+            stratum: Some(pg_stats::StructuralLocator::new("0:Root", "Root")),
+            allomorph: allomorph.map(|(k, l)| pg_stats::StructuralLocator::new(k, l)),
+            morpheme: None,
+            direction: pg_stats::Direction::Analysis,
+            attempts,
+            work: 10,
+            outputs: 2,
+            not_applied: 1,
+            no_root: 0,
+            surface_mismatch: 0,
+            uses: 1,
+            self_time_ns: 100,
+        }
+    }
+
+    #[test]
+    fn named_allomorph_report_does_not_claim_rule_attempts() {
+        let cache = synthetic_stats_cache(
+            "hc",
+            vec![
+                synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 4),
+                synthetic_fact(
+                    pg_stats::ObjectKind::MorphRule,
+                    Some(("rule-a:0", "Allo A")),
+                    4,
+                ),
+            ],
+        );
+        let text = render_allomorph(
+            cache.connection(),
+            &Filters::default(),
+            OutputFormat::Text,
+        )
+        .unwrap();
+        let header = text.lines().find(|line| line.contains("label")).unwrap();
+        assert!(!header.contains("attempts"), "{text}");
+        assert!(!header.contains("amp"), "{text}");
+
+        let json = render_allomorph(
+            cache.connection(),
+            &Filters::default(),
+            OutputFormat::Jsonl,
+        )
+        .unwrap();
+        let named = json
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .find(|row| row["label"].as_str().is_some_and(|s| s.contains("Allo A")))
+            .unwrap();
+        assert!(named["attempts"].is_null(), "{named}");
+        assert!(named["amp"].is_null(), "{named}");
+        assert_eq!(named["outputs"], 2);
+        let meta: serde_json::Value =
+            serde_json::from_str(json.lines().next().unwrap()).unwrap();
+        assert_eq!(
+            meta["unmeasured"]["attempts"],
+            "attempts are rule-level, not per-allomorph"
+        );
+    }
+
+    #[test]
+    fn foma_word_report_does_not_claim_unmeasured_attempts() {
+        let cache = synthetic_stats_cache("foma", vec![]);
+        let text = render_word(
+            cache.connection(),
+            &Filters::default(),
+            OutputFormat::Text,
+        )
+        .unwrap();
+        let header = text.lines().find(|line| line.contains("form")).unwrap();
+        assert!(!header.contains("attempts"), "{text}");
+
+        let json = render_word(
+            cache.connection(),
+            &Filters::default(),
+            OutputFormat::Jsonl,
+        )
+        .unwrap();
+        let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
+        assert_eq!(meta["unmeasured"]["attempts"], "engine=foma never records it");
+        let row: serde_json::Value = serde_json::from_str(json.lines().nth(1).unwrap()).unwrap();
+        assert!(row["attempts"].is_null(), "{row}");
+    }
+
+    #[test]
+    fn untimed_object_kinds_render_self_time_as_unavailable() {
+        for kind in ["phon_rule", "root_index", "guesser", "overlay"] {
+            let row = pg_stats::PerObjectRow {
+                kind: kind.to_string(),
+                label: kind.to_string(),
+                identity_quality: "synthetic".to_string(),
+                attempts: 1,
+                work: 1,
+                outputs: 0,
+                not_applied: 0,
+                no_root: 0,
+                surface_mismatch: 0,
+                uses: 0,
+                self_time_ns: 0,
+            };
+            assert_eq!(object_row_view(&row).self_time_ns, None, "{kind}");
+        }
+    }
+
+    #[test]
+    fn never_fires_keeps_attempt_denominators_within_rule_kind() {
+        let mut morph = synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 2_000);
+        morph.outputs = 0;
+        let mut phon = synthetic_fact(pg_stats::ObjectKind::PhonRule, None, 3_000);
+        phon.object_key = "phon-a".to_string();
+        phon.object_label = "Phon A".to_string();
+        phon.outputs = 0;
+        let cache = synthetic_stats_cache("hc", vec![morph, phon]);
+        let json = render_never_fires(
+            cache.connection(),
+            &Filters::default(),
+            OutputFormat::Jsonl,
+        )
+        .unwrap();
+        let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
+        assert!(meta["totals"]["attempts"].is_null(), "{meta}");
+        assert_eq!(meta["totals"]["attempts_by_kind"]["morph_rule"], 2_000);
+        assert_eq!(meta["totals"]["attempts_by_kind"]["phon_rule"], 3_000);
+    }
+
+    #[test]
+    fn stats_read_rejects_a_cache_with_multiple_engines() {
+        let dir = scratch_dir("mixed-engine-read");
+        let path = dir.join("cache.sqlite3");
+        let mut outcome = pg_stats::StatsCache::open(&path, "mixed-hash").unwrap();
+        let hc = pg_stats::RunMetadata {
+            build_info: "test".to_string(),
+            fwdata_path: "x".to_string(),
+            grammar_hash: "mixed-hash".to_string(),
+            engine: "hc".to_string(),
+            options_hash: "opts".to_string(),
+            options_json: "{}".to_string(),
+            created_utc: "unix:0".to_string(),
+        };
+        outcome
+            .cache
+            .flush(&hc, &[pg_stats::WordRecord {
+                form: "hc-word".to_string(),
+                elapsed_ns: 1,
+                attempts: 1,
+                passes: 1,
+                capped: false,
+                timed_out: false,
+                invalid_shape: false,
+                facts: vec![],
+            }])
+            .unwrap();
+        // Bypass the new write-side guard to model a pre-existing legacy mixed cache.
+        outcome
+            .cache
+            .connection()
+            .execute(
+                "INSERT INTO run (schema_version, counter_semantics, build_info, fwdata_path, grammar_hash, engine, options_hash, options_json, created_utc, word_count, total_elapsed_ns)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                rusqlite::params![
+                    pg_stats::SCHEMA_VERSION,
+                    pg_stats::COUNTER_SEMANTICS_VERSION,
+                    "test",
+                    "x",
+                    "mixed-hash",
+                    "foma",
+                    "opts",
+                    "{}",
+                    "unix:1",
+                    0i64,
+                    0i64,
+                ],
+            )
+            .unwrap();
+        drop(outcome);
+
+        let args = vec![
+            "unused.xml".to_string(),
+            "--group".to_string(),
+            "word".to_string(),
+            "--cache".to_string(),
+            path.to_string_lossy().into_owned(),
+        ];
+        let err = run_stats(&args).expect_err("mixed-engine cache reads must be hard errors");
+        assert!(err.contains("engine"), "{err}");
+    }
+}
+
+fn self_time_value(kind: &str, value: i64) -> Option<i64> {
+    let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
+        panic!("kind string from the cache must be a known ObjectKind: {kind}")
+    });
+    pg_rules::stats::self_time_supported(stats_kind_to_rules_kind(stats_kind)).then_some(value)
 }

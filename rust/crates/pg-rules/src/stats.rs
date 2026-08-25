@@ -49,6 +49,13 @@ pub enum ObjectKind {
     Overlay,
 }
 
+/// Whether this object kind has an actual `StatsCollector::time_enter` instrumentation boundary.
+/// Keep this beside the collector's kind definition so report adapters cannot turn an unwired
+/// counter's numeric default into a claim of measured time.
+pub fn self_time_supported(kind: ObjectKind) -> bool {
+    matches!(kind, ObjectKind::MorphRule | ObjectKind::LexEntry)
+}
+
 /// The seven counters for one `(object, stratum, allomorph)` row.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Counters {
@@ -706,5 +713,25 @@ fn collect_rows(table: &DenseTable, kind: ObjectKind, out: &mut Vec<StatsRow>) {
             direction,
             counters,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{self_time_supported, ObjectKind};
+
+    #[test]
+    fn self_time_support_matches_every_instrumented_kind() {
+        let support = [
+            (ObjectKind::MorphRule, true),
+            (ObjectKind::PhonRule, false),
+            (ObjectKind::LexEntry, true),
+            (ObjectKind::RootIndex, false),
+            (ObjectKind::Guesser, false),
+            (ObjectKind::Overlay, false),
+        ];
+        for (kind, expected) in support {
+            assert_eq!(self_time_supported(kind), expected, "{kind:?}");
+        }
     }
 }

@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
 
-use rusqlite::{params, Connection, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 
 use crate::error::StatsError;
 use crate::model::{
@@ -134,7 +134,23 @@ impl StatsCache {
     /// upsert on their composite key for the same reason. Returns the new `run_id`.
     pub fn flush(&mut self, run: &RunMetadata, words: &[WordRecord]) -> Result<i64, StatsError> {
         let total_elapsed_ns: u64 = words.iter().map(|w| w.elapsed_ns).sum();
-        let tx = self.conn.transaction()?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        let incompatible_engine: Option<String> = tx
+            .query_row(
+                "SELECT engine FROM run WHERE engine <> ?1 LIMIT 1",
+                params![&run.engine],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(existing) = incompatible_engine {
+            return Err(StatsError::EngineMismatch {
+                existing,
+                requested: run.engine.clone(),
+            });
+        }
 
         tx.execute(
             "INSERT INTO run (schema_version, counter_semantics, build_info, fwdata_path, grammar_hash, engine, options_hash, options_json, created_utc, word_count, total_elapsed_ns)
@@ -318,6 +334,8 @@ mod tests {
     use super::*;
     use crate::model::Direction;
     use crate::test_support::TempDir;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
 
     fn sample_word(form: &str) -> WordRecord {
         WordRecord {
@@ -575,5 +593,71 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn flush_rejects_a_different_engine_after_the_first_run() {
+        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+        outcome
+            .cache
+            .flush(&sample_run(), &[sample_word("apu")])
+            .unwrap();
+        let mut other = sample_run();
+        other.engine = "foma".to_string();
+        let err = outcome
+            .cache
+            .flush(&other, &[sample_word("beta")])
+            .expect_err("one cache must not accept facts from two engines");
+        assert!(matches!(
+            err,
+            StatsError::EngineMismatch {
+                existing,
+                requested
+            } if existing == "hc" && requested == "foma"
+        ));
+        let run_count: i64 = outcome
+            .cache
+            .connection()
+            .query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(run_count, 1, "a rejected flush must write nothing");
+    }
+
+    #[test]
+    fn concurrent_first_writers_cannot_mix_engines() {
+        let dir = TempDir::new("pg-stats-engine-race");
+        let cache_path = dir.path().join("cache.sqlite3");
+        drop(StatsCache::open(&cache_path, "hash-a").unwrap());
+
+        let barrier = Arc::new(Barrier::new(2));
+        let spawn_writer = |engine: &'static str, form: &'static str| {
+            let cache_path = cache_path.clone();
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                let mut cache = StatsCache::open(&cache_path, "hash-a").unwrap().cache;
+                let mut run = sample_run();
+                run.engine = engine.to_string();
+                barrier.wait();
+                cache.flush(&run, &[sample_word(form)])
+            })
+        };
+        let hc = spawn_writer("hc", "apu");
+        let foma = spawn_writer("foma", "beta");
+        let results = [hc.join().unwrap(), foma.join().unwrap()];
+
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(result, Err(StatsError::EngineMismatch { .. })))
+                .count(),
+            1
+        );
+        let cache = StatsCache::open(&cache_path, "hash-a").unwrap().cache;
+        let engines: i64 = cache
+            .connection()
+            .query_row("SELECT COUNT(DISTINCT engine) FROM run", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(engines, 1);
     }
 }

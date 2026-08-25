@@ -19,6 +19,9 @@ pub enum StatsError {
     )]
     CounterOverflow { counter: &'static str, value: u64 },
 
+    #[error("stats cache already contains engine `{existing}`, cannot append engine `{requested}")]
+    EngineMismatch { existing: String, requested: String },
+
     #[error(
         "could not determine a user-data directory for the stats cache (checked LOCALAPPDATA / \
          XDG_DATA_HOME / HOME)"
