@@ -629,7 +629,7 @@ fn run_fst_health_under_watchdog(
     grammar_path: &str,
 ) -> Result<(pg_foma::health::HealthReport, bool), String> {
     let format = infer_grammar_format(grammar_path);
-    let mut request = pg_foma::worker::CompileWorkerRequest::new(grammar_path.to_string(), format);
+    let request = pg_foma::worker::CompileWorkerRequest::new(grammar_path.to_string(), format);
     let envelope = pg_foma::worker::WatchdogEnvelope::default_envelope();
     let exe = std::env::current_exe()
         .map_err(|e| format!("--watchdog: could not resolve this executable's own path: {e}"))?;
