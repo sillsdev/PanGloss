@@ -1144,9 +1144,9 @@ mod tests {
         );
     }
 
-    /// A managed-mode pack records the shipped default envelope and `CompileSizeMode::Managed`.
+    /// A managed-mode pack records the current manifest schema without legacy envelope fields.
     #[test]
-    fn managed_build_records_managed_v1_envelope_and_size_mode() {
+    fn managed_build_writes_current_manifest_without_removed_envelope_fields() {
         let (result, out_path) = run_pack_raw("managed-envelope", CLEAN_GRAMMAR_XML, &[]);
         assert!(
             result.is_ok(),
@@ -1155,8 +1155,14 @@ mod tests {
 
         let bytes = std::fs::read(&out_path).expect("read out.pgpack");
         let read = pg_pack::read_pack(&bytes).expect("a pack this command wrote must read back");
-        assert_eq!(read.manifest.resource_envelope_id, ResourceEnvelopeId::ManagedV1);
-        assert_eq!(read.manifest.compile_size_mode, CompileSizeMode::Managed);
+        let value: serde_json::Value = serde_json::from_str(&read.manifest.to_canonical_json())
+            .expect("manifest JSON must be valid");
+        assert_eq!(
+            value["manifest_schema_version"],
+            serde_json::json!(MANIFEST_SCHEMA_VERSION)
+        );
+        assert!(value.get("resource_envelope_id").is_none());
+        assert!(value.get("compile_size_mode").is_none());
     }
 
     /// A `Refuse`-verdict grammar with no `--allow-unproven`: pack must fail and write no file.

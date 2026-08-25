@@ -421,8 +421,6 @@ mod tests {
                 hc_port_semver: (1, 0, 0),
                 extensions: vec![],
             },
-            resource_envelope_id: pg_foma::resource_envelope::ResourceEnvelopeId::ManagedV1,
-            compile_size_mode: pg_foma::resource_envelope::CompileSizeMode::Managed,
             capability_trust: CapabilityTrust::Proven,
             fst_health: HealthReport::new(vec![]),
             backend_assessments: vec![],
@@ -455,6 +453,44 @@ mod tests {
         assert_eq!(read.runtime_payload, SYNTHETIC_RUNTIME_PAYLOAD);
         assert_eq!(read.foma_payload, SYNTHETIC_FOMA_PAYLOAD);
         assert_eq!(read.signature_state, SignatureState::Unsigned);
+    }
+
+    #[test]
+    fn write_pack_rejects_stale_manifest_schema() {
+        let mut manifest =
+            synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
+        manifest.manifest_schema_version = 3;
+
+        let error = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD)
+            .expect_err("stale manifest schema must not be written");
+        assert_eq!(error, PgPackError::UnsupportedManifestSchema { found: 3 });
+    }
+
+    #[test]
+    fn read_pack_rejects_stale_manifest_schema() {
+        let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
+        let mut bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+
+        let mut stale_value: serde_json::Value =
+            serde_json::from_str(&manifest.to_canonical_json()).expect("valid manifest JSON");
+        stale_value["manifest_schema_version"] = serde_json::json!(3);
+        let stale_json = serde_json::to_string_pretty(&stale_value)
+            .expect("stale manifest JSON serialization must succeed");
+        let current_json_len = manifest.to_canonical_json().len();
+        assert_eq!(
+            stale_json.len(),
+            current_json_len,
+            "schema v3 and v4 fixtures must retain the same framed manifest length"
+        );
+
+        bytes[HEADER_LEN..HEADER_LEN + stale_json.len()].copy_from_slice(stale_json.as_bytes());
+        let digest_offset = bytes.len() - DIGEST_LEN;
+        let digest = Sha256::digest(&bytes[..digest_offset]);
+        bytes[digest_offset..].copy_from_slice(&digest);
+
+        let error = read_pack(&bytes).expect_err("stale manifest schema must not be read");
+        assert_eq!(error, PgPackError::UnsupportedManifestSchema { found: 3 });
     }
 
     // --- Real foma binary-memory bytes (not just the plain-ASCII synthetic fixtures above) ---
