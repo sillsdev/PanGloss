@@ -15,12 +15,11 @@ use pg_rules::stats::{
 };
 use pg_rules::stratum::{
     analyze_stratum_scoped_filtered_ruled_traced, synthesize_stratum_traced, AnalyzerConfig,
-    MemoScope, StepBudget,
+    StepBudget,
 };
 use pg_rules::trace::{NoopSink, TraceHandle};
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
-use std::cell::RefCell;
 
 // ---- shape / word / rule builders (mirrors max_apps_gate.rs) ----------------------------------
 
@@ -47,7 +46,6 @@ fn shape_with_lanes(g: &Grammar, text: &str) -> Shape {
     }
     b.finish()
 }
-
 fn ctx(nc: &str, g: &Grammar) -> SimpleContext {
     common::ctx(common::nat_class(g, nc))
 }
@@ -239,41 +237,45 @@ fn max_apps_rejection_contributes_no_attempt() {
     );
 }
 
-/// `StatsCollector::phase_totals` must stay empty in an ordinary build, over a real analyzer run.
-#[cfg(not(feature = "stats-calibrate"))]
+/// Pins the grammar-owner report to one timing tier: ordinary per-object self time.
 #[test]
-fn phase_totals_are_empty_without_the_stats_calibrate_feature() {
-    let mut g = load_alpha_grammar();
-    let r = self_matching_suffix_rule(&g, 290, "p", 5);
-    let rid = push_mrule(&mut g, r);
-    let cfg = AnalyzerConfig::default();
-    let budget = StepBudget::new(usize::MAX);
-    let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
-    let stats = StatsCollector::new(&g);
+fn engine_phase_profiler_is_absent_from_the_stats_surface() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_crates = manifest_dir.parent().expect("pg-rules has a crates parent");
+    let checked_sources = [
+        manifest_dir.join("Cargo.toml"),
+        manifest_dir.join("src/lib.rs"),
+        manifest_dir.join("src/stats.rs"),
+        manifest_dir.join("src/morph.rs"),
+        manifest_dir.join("src/stratum.rs"),
+        workspace_crates.join("pg-parse/src/morpher.rs"),
+        workspace_crates.join("pg-cli/src/main.rs"),
+    ];
+    let forbidden = [
+        "stats-calibrate",
+        "stats_calibrate",
+        "AnalysisPhase",
+        "phase_enter",
+        "phase_totals",
+        "parse_word_with_stats_and_phases",
+        "HC_PHASE_PROFILE",
+        "PHASEPROF",
+    ];
 
-    let out = analyze_stratum_scoped_filtered_ruled_traced(
-        &g,
-        s,
-        word(&g, "appp", s),
-        &cfg,
-        None,
-        None,
-        None,
-        None,
-        &budget,
-        Some(&stats),
-        &NoopSink,
-        TraceHandle::DUMMY,
-    );
-    assert!(!out.capped, "gate must terminate without the step cap");
+    for path in checked_sources {
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read removal-boundary source {}: {e}", path.display()));
+        for symbol in forbidden {
+            assert!(
+                !source.contains(symbol),
+                "removed engine phase profiler symbol {symbol:?} remains in {}",
+                path.display()
+            );
+        }
+    }
     assert!(
-        !stats.rows().is_empty(),
-        "sanity: the rule must actually have been reached, or this test proves nothing"
-    );
-
-    assert!(
-        stats.phase_totals().is_empty(),
-        "AnalysisPhase totals must be empty when this crate is built without stats-calibrate"
+        !manifest_dir.join("src/stats_calibrate.rs").exists(),
+        "the removed phase-profiler implementation file must not remain dormant"
     );
 }
 
@@ -777,7 +779,6 @@ fn wired_counters_matches_reality() {
         }
     }
 }
-
 /// A narrower assertion would still pass a `counter_support` that never reached one of the two non-`Measured` states, so this pins both.
 #[test]
 fn counter_support_agrees_with_wired_counters_and_reaches_both_gap_states() {
@@ -799,105 +800,5 @@ fn counter_support_agrees_with_wired_counters_and_reaches_both_gap_states() {
         counter_support(ObjectKind::PhonRule, "no_root"),
         CounterSupport::NotWired,
         "no_root could in principle attribute to a phonological rule, but Word carries no PRuleId trail yet"
-    );
-}
-
-/// A fixture whose memoized `Unordered` cascade reaches `WordBuild`/`MemoKey`/`Dedup`.
-#[cfg(feature = "stats-calibrate")]
-fn memoized_cascade_fixture() -> (Grammar, StratumId, StepBudget) {
-    let mut g = load_alpha_grammar();
-    let r = self_matching_suffix_rule(&g, 400, "p", 5);
-    let rid = push_mrule(&mut g, r);
-    let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
-    (g, s, StepBudget::new(usize::MAX))
-}
-
-#[cfg(feature = "stats-calibrate")]
-fn run_memoized_cascade(
-    g: &Grammar,
-    s: StratumId,
-    budget: &StepBudget,
-    stats: &StatsCollector,
-) -> pg_rules::stratum::StratumAnalysis {
-    let cfg = AnalyzerConfig::default();
-    let scope = MemoScope::default();
-    analyze_stratum_scoped_filtered_ruled_traced(
-        g,
-        s,
-        word(g, "apppp", s),
-        &cfg,
-        Some(&scope),
-        None,
-        None,
-        None,
-        budget,
-        Some(stats),
-        &NoopSink,
-        TraceHandle::DUMMY,
-    )
-}
-
-/// The three new sub-phases each fire under the memoized cascade with a genuine entry count.
-#[cfg(feature = "stats-calibrate")]
-#[test]
-fn new_subphases_fire_with_genuine_entry_counts() {
-    let (g, s, budget) = memoized_cascade_fixture();
-    let stats = StatsCollector::new(&g);
-    let out = run_memoized_cascade(&g, s, &budget, &stats);
-    assert!(!out.capped, "gate must terminate without the step cap");
-
-    let totals = stats.phase_totals();
-    for phase in [
-        pg_rules::stats::AnalysisPhase::WordBuild,
-        pg_rules::stats::AnalysisPhase::MemoKey,
-        pg_rules::stats::AnalysisPhase::Dedup,
-        pg_rules::stats::AnalysisPhase::Overhead,
-    ] {
-        let t = totals
-            .get(&phase)
-            .unwrap_or_else(|| panic!("{phase:?} must have a recorded total"));
-        assert!(t.work > 0, "{phase:?} must have a nonzero entry count");
-    }
-}
-
-/// `Overhead`'s count must equal the shared `StepBudget`'s tick count, never a segment count.
-#[cfg(feature = "stats-calibrate")]
-#[test]
-fn overhead_count_is_entries_not_segments() {
-    let (g, s, budget) = memoized_cascade_fixture();
-    let stats = StatsCollector::new(&g);
-    let out = run_memoized_cascade(&g, s, &budget, &stats);
-    assert!(!out.capped);
-
-    let overhead = stats
-        .phase_totals()
-        .get(&pg_rules::stats::AnalysisPhase::Overhead)
-        .copied()
-        .expect("Overhead must have a recorded total");
-    let ticks = budget.steps() as u64;
-    assert_eq!(
-        overhead.work, ticks,
-        "Overhead's count must equal rule-body entries (one per tick), not a segment count"
-    );
-}
-
-/// Every timed phase's self-time sum must never exceed the call's own wall-clock envelope.
-#[cfg(feature = "stats-calibrate")]
-#[test]
-fn phase_self_times_never_exceed_the_wall_clock_envelope() {
-    let (g, s, budget) = memoized_cascade_fixture();
-    let stats = StatsCollector::new(&g);
-    let t0 = std::time::Instant::now();
-    let out = run_memoized_cascade(&g, s, &budget, &stats);
-    let wall_ns = t0.elapsed().as_nanos() as u64;
-    assert!(!out.capped);
-
-    let totals = stats.phase_totals();
-    let timed_sum_ns: u64 = totals.values().map(|t| t.ns).sum();
-    assert!(
-        timed_sum_ns <= wall_ns,
-        "sum of every timed phase's self time ({timed_sum_ns}ns) must not exceed this call's own \
-         wall-clock time ({wall_ns}ns); an excess would mean two regions double-counted the same \
-         real time"
     );
 }
