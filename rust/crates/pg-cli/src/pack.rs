@@ -241,7 +241,7 @@ pub(crate) fn validate_health_readiness(
         .any(|finding| finding.severity >= Severity::NotProductionReady)
     {
         return Err(format!(
-            "FST health is {admission:?}; no .pgpack was written. Correctness overrides do not admit NotProductionReady/MachineLimit/CannotRepresent readiness findings."
+            "FST health is {admission:?}; no .pgpack was written. A correctness override cannot admit an oversized artifact, a contained attempt, or an unrepresentable feature."
         ));
     }
     Ok(())

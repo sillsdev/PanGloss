@@ -111,10 +111,12 @@ pub const HEALTH_SCHEMA_VERSION: u32 = 3;
 /// (proven-vs-unproven capability checks). Each variant answers a different question about WHERE
 /// the evidence came from, not how alarming it sounds:
 ///
-/// - [`Severity::WithinLimits`] / [`Severity::Elevated`] / [`Severity::LargeMultiplier`]: static
-///   analysis, produced BEFORE compiling, never blocks.
-/// - [`Severity::CannotRepresent`]: static analysis, produced BEFORE compiling, and nothing can be
-///   built for the affected feature.
+/// - [`Severity::WithinLimits`] / [`Severity::Elevated`] / [`Severity::LargeMultiplier`]: an
+///   analysis of magnitude — how much of something there is. Never blocks. These say nothing about
+///   WHEN the quantity was learned: `ValueProvenance` carries that, so a predicted product and a
+///   measured count can both be `LargeMultiplier` when both are simply too large.
+/// - [`Severity::CannotRepresent`]: analysis of representability, and nothing can be built for the
+///   affected feature.
 /// - [`Severity::NotProductionReady`]: the compiled artifact was measured AFTER a successful
 ///   compile and found not shippable; a labelling verdict that must never block compiling.
 /// - [`Severity::MachineLimit`]: process containment fired DURING a compile (near-OOM, out of
@@ -133,8 +135,9 @@ pub enum Severity {
     /// Above the within-limits band but not yet action-worthy. Formerly `Info`.
     #[serde(alias = "info")]
     Elevated,
-    /// Static analysis: an N x M x O multiplier is too large. Produced BEFORE compiling; does not
-    /// block. Remedy: check grammar optimization. Formerly `Warning`.
+    /// A multiplier is too large — an N x M x O product, or a count crowding its budget. Predicted
+    /// or measured alike (`ValueProvenance` says which); never blocks. Remedy: check grammar
+    /// optimization. Formerly `Warning`.
     #[serde(alias = "warning")]
     LargeMultiplier,
     /// The compiled artifact was measured AFTER a successful compile and is not shippable (e.g.
@@ -147,10 +150,10 @@ pub enum Severity {
     /// algorithm — no larger envelope helps. Formerly `Critical`.
     #[serde(alias = "critical")]
     MachineLimit,
-    /// Static analysis: candidates using this feature cannot be faithfully proposed. Produced
-    /// BEFORE compiling; nothing can be built. Remedy: implement the feature, or use the full
-    /// engine. New in schema 3 — no legacy spelling to alias, since this verdict did not exist
-    /// before (it was previously conflated with `MachineLimit`/`Critical`).
+    /// Candidates using this feature cannot be faithfully proposed, so nothing can be built for it.
+    /// Remedy: implement the feature, or use the full engine. New in schema 3 — no legacy spelling
+    /// to alias, since this verdict did not exist before (it was previously conflated with
+    /// `MachineLimit`/`Critical`).
     CannotRepresent,
 }
 

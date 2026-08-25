@@ -45,7 +45,7 @@
 //! - **`pack_size_max_bytes`, `Calibration::Placeholder`**: no full-scale (10^4-10^5 entry) pack
 //!   has ever been built and measured end-to-end, so there is no real evidence to calibrate a
 //!   device-storage-appropriate cap against. Borrows `crate::health::severity_for_size_bytes`'s own
-//!   Warning/Error band edge (100,000,000 bytes) as a starting reference point ONLY, because
+//!   production-readiness threshold (100,000,000 bytes) as a starting reference point ONLY, because
 //!   that is the one artifact-size policy already declared anywhere in this repo — not itself
 //!   derived from a device memory/storage budget.
 //! - **`lexicon_min_entries`, `Calibration::Placeholder`**: no full-scale reference grammar has
@@ -182,7 +182,7 @@ pub fn policy_v1() -> ThresholdPolicy {
             Calibration::placeholder(
                 "No full-scale (10^4-10^5 entry) .pgpack has been built and measured end-to-end, \
                  so there is no real evidence to calibrate a device-storage-appropriate cap \
-                 against. Borrows crate::health::severity_for_size_bytes's own R6 Warning/Error \
+                 against. Borrows crate::health::severity_for_size_bytes's own R6 production-readiness \
                  band edge (100,000,000 bytes) as a starting reference point only -- that is the \
                  one artifact-size policy already declared in this repo, not itself derived from \
                  a device memory/storage budget. Replace once a real pack-size-vs-device-capacity \
