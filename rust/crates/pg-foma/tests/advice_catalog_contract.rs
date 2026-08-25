@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use pg_foma::advice_catalog::{
     builtin_catalog, render_remedy_group, RemedyEffort, ADVICE_CATALOG_SCHEMA_VERSION,
     GRAMMAR_SAFETY_WARNING, PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY,
-    TUNED_SURFACE_RESOURCE_SHAPE_KEY,
+    TUNED_SURFACE_CLOSURE_BUDGET_SHAPE_KEY,
 };
 
 const REQUIRED_SHAPES: &[&str] = &[
@@ -15,7 +15,7 @@ const REQUIRED_SHAPES: &[&str] = &[
     "plan-composed-missing-subtrees",
     "repeated-application",
     "structural-deletion-or-truncation",
-    "tuned-surface-resource-envelope",
+    "tuned-surface-closure-budget",
     "unordered-interactions",
     "wide-phonology",
 ];
@@ -77,21 +77,24 @@ fn plan_composed_missing_subtrees_has_backend_specific_advice() {
 }
 
 #[test]
-fn tuned_surface_resource_entry_has_typed_budget_evidence_and_safety_caveat() {
+fn tuned_surface_closure_budget_entry_retains_typed_evidence_and_safety_caveat() {
     let catalog = builtin_catalog().expect("built-in advice catalog must validate");
     let entry = catalog
-        .entry_for(TUNED_SURFACE_RESOURCE_SHAPE_KEY)
-        .expect("TunedSurface resource findings must have structured advice");
+        .entry_for(TUNED_SURFACE_CLOSURE_BUDGET_SHAPE_KEY)
+        .expect("TunedSurface closure-budget findings must have structured advice");
 
     assert_eq!(entry.backend_id, "foma");
     assert!(entry
         .evidence_refs
         .iter()
         .any(|reference| reference.value == "composite-rule-pair-count"));
-    assert!(entry
-        .remedies
-        .iter()
-        .any(|remedy| remedy.remedy_key == "retry-larger-closure-envelope"));
+    assert!(
+        entry
+            .remedies
+            .iter()
+            .all(|remedy| remedy.remedy_key != "retry-larger-closure-envelope"),
+        "removed retry remedy must not remain in the catalog"
+    );
     assert_eq!(
         entry.equivalence_caveat.as_deref(),
         Some(GRAMMAR_SAFETY_WARNING)

@@ -286,7 +286,7 @@ fn missing_and_failed_backends_are_typed_errors_with_shared_advice() {
 }
 
 #[test]
-fn tuned_surface_resource_finding_is_reported_and_not_production_ready_is_not_selected() {
+fn tuned_surface_closure_budget_finding_is_reported_and_not_production_ready_is_not_selected() {
     let grammar_xml = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../../machine/conformance/edge-cases/truncate-morphotactic/grammar.xml"
@@ -310,7 +310,7 @@ fn tuned_surface_resource_finding_is_reported_and_not_production_ready_is_not_se
     assert_eq!(tuned.findings()[0].metric, Metric::CompositeRulePairCount);
     assert_eq!(
         tuned.shapes(),
-        &["tuned-surface-resource-envelope".to_string()]
+        &["tuned-surface-closure-budget".to_string()]
     );
     assert!(tuned
         .cost_evidence()
@@ -325,23 +325,10 @@ fn tuned_surface_resource_finding_is_reported_and_not_production_ready_is_not_se
     );
     assert!(
         selection.is_no_path(),
-        "the fixture has no complete route: TunedSurface exceeds the named envelope, Templated \
+        "the fixture has no complete route: TunedSurface exceeds its managed closure budget, \
+         Templated \
          refuses its unordered rules, and PlanComposed cannot build its required structural \
          subtree: {selection:?}"
-    );
-
-    let retried =
-        pg_foma::backend_selection::select_backends_for_grammar_with_tuned_closure_work_limit(
-            &grammar,
-            usize::MAX,
-        );
-    assert_ne!(
-        retried
-            .report_for(EmissionStrategy::TunedSurfaceProbed)
-            .expect("the retry must retain the TunedSurface report")
-            .worst_severity(),
-        Severity::NotProductionReady,
-        "a larger named envelope must rerun characterization instead of preserving the NotProductionReady finding"
     );
 }
 

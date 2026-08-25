@@ -95,17 +95,27 @@ fn rendered_cards_are_deterministic_and_static() {
 }
 
 #[test]
-fn tuned_surface_card_names_the_closed_compile_request_envelopes() {
+fn tuned_surface_card_omits_removed_resource_controls_but_keeps_static_cost_evidence() {
     let card = catalog()
         .iter()
         .find(|card| card.backend_id == "tuned-surface-probed")
         .expect("tuned surface card");
     let rendered = render_markdown(card);
 
-    assert!(rendered.contains("CompileRequest.resource_envelope"));
-    assert!(rendered.contains("managed-v1"));
-    assert!(rendered.contains("tuned-surface-work-10k-v1"));
-    assert!(!rendered.contains("PG_FOMA_TUNED_SURFACE_CLOSURE_BUDGET"));
+    for removed in [
+        "CompileRequest.resource_envelope",
+        "managed-v1",
+        "tuned-surface-work-10k-v1",
+        "retry-larger-closure-envelope",
+    ] {
+        assert!(
+            !rendered.contains(removed),
+            "tuned surface card must omit removed control {removed}: {rendered}"
+        );
+    }
+    assert!(rendered.contains("Static backend contract"));
+    assert!(rendered.contains("O(E x J x P x F + N)"));
+    assert!(rendered.contains("F = feature/unification cost and fan-out"));
 }
 
 #[test]

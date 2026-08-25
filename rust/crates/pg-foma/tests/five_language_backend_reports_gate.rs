@@ -4,14 +4,11 @@ use std::time::Instant;
 
 use pg_conformance_fixtures::corpus;
 use pg_foma::backend_selection::{
-    select_backends_for_grammar, select_backends_for_grammar_with_tuned_closure_work_limit,
-    BackendSelection, BackendStatus, BACKEND_PREFERENCE,
+    select_backends_for_grammar, BackendSelection, BackendStatus, BACKEND_PREFERENCE,
 };
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::health::{FindingCode, Severity};
 use pg_grammar::model::Grammar;
-
-const INDONESIAN_CLOSURE_WORK_10K_V1: usize = 10_000;
 
 fn load_xml(name: &str) -> Grammar {
     let path = corpus::require(name);
@@ -112,7 +109,7 @@ fn assert_backend(
     );
 }
 
-fn assert_default_resource_no_path(selection: &BackendSelection) {
+fn assert_default_closure_budget_no_path(selection: &BackendSelection) {
     assert!(
         selection.is_no_path(),
         "expected no default path: {selection:?}"
@@ -125,7 +122,7 @@ fn assert_default_resource_no_path(selection: &BackendSelection) {
         BackendStatus::Accepted,
         Severity::NotProductionReady,
         Some(FindingCode::ProvenBoundExceedsBudget),
-        Some("tuned-surface-resource-envelope"),
+        Some("tuned-surface-closure-budget"),
     );
     assert_backend(
         selection,
@@ -150,25 +147,7 @@ fn assert_default_resource_no_path(selection: &BackendSelection) {
 fn indonesian_backend_reports_are_complete() {
     let grammar = load_xml("indonesian-hc.xml");
     let selection = characterize("indonesian", &grammar);
-    assert_default_resource_no_path(&selection);
-
-    let retry = select_backends_for_grammar_with_tuned_closure_work_limit(
-        &grammar,
-        INDONESIAN_CLOSURE_WORK_10K_V1,
-    );
-    assert_eq!(
-        retry.preferred(),
-        Some(EmissionStrategy::TunedSurfaceProbed),
-        "the explicit 10k-v1 retry must admit Indonesian TunedSurface: {retry:?}"
-    );
-    assert_backend(
-        &retry,
-        EmissionStrategy::TunedSurfaceProbed,
-        BackendStatus::Accepted,
-        Severity::WithinLimits,
-        None,
-        None,
-    );
+    assert_default_closure_budget_no_path(&selection);
 }
 
 #[test]
@@ -216,19 +195,19 @@ fn sena_backend_reports_are_complete() {
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn amharic_backend_reports_are_complete() {
     let selection = characterize("amharic", &load_xml("amharic-hc.xml"));
-    assert_default_resource_no_path(&selection);
+    assert_default_closure_budget_no_path(&selection);
 }
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn aweti_backend_reports_are_complete() {
     let selection = characterize("aweti", &load_snapshot("aweti.json"));
-    assert_default_resource_no_path(&selection);
+    assert_default_closure_budget_no_path(&selection);
 }
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn mbugwe_backend_reports_are_complete() {
     let selection = characterize("mbugwe", &load_fwdata("mbugwe.fwdata"));
-    assert_default_resource_no_path(&selection);
+    assert_default_closure_budget_no_path(&selection);
 }

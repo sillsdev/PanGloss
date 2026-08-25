@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use pg_foma::worker::{
-    limits_for_version, ExecutionLimitError, ExecutionLimits, DEFAULT_EXECUTION_LIMITS,
+    limits_for_version, run_worker_child, CompileWorkerOutcome, CompileWorkerRequest,
+    ExecutionLimitError, ExecutionLimits, GrammarFormat, DEFAULT_EXECUTION_LIMITS,
     WORKER_PROTOCOL_VERSION,
 };
 
@@ -51,10 +52,39 @@ fn execution_limits_are_configurable_but_cannot_be_disabled() {
 
 #[test]
 fn cleanup_breaks_the_old_worker_protocol_in_lockstep() {
-    assert_eq!(WORKER_PROTOCOL_VERSION, 2);
+    assert_eq!(WORKER_PROTOCOL_VERSION, 3);
     assert!(
         limits_for_version(1).is_none(),
         "pre-cleanup worker messages must be rejected, not migrated"
     );
+    assert!(
+        limits_for_version(2).is_none(),
+        "protocol-2 worker messages must be rejected, not migrated"
+    );
     assert!(limits_for_version(WORKER_PROTOCOL_VERSION).is_some());
+}
+
+#[test]
+fn protocol_two_request_frames_are_rejected_before_compile() {
+    let mut request = CompileWorkerRequest::new("stale.xml", GrammarFormat::Xml);
+    request.protocol_version = 2;
+    let body = serde_json::to_vec(&request).expect("serialize stale request");
+    let mut input = Vec::new();
+    input.extend_from_slice(&(body.len() as u64).to_le_bytes());
+    input.extend_from_slice(&body);
+
+    let mut output = Vec::new();
+    run_worker_child(std::io::Cursor::new(input), &mut output)
+        .expect("stale request must receive a typed response");
+    let len = u64::from_le_bytes(output[0..8].try_into().expect("result length")) as usize;
+    let result: pg_foma::worker::CompileWorkerResult =
+        serde_json::from_slice(&output[8..8 + len]).expect("decode protocol response");
+    match result.outcome {
+        CompileWorkerOutcome::ProtocolViolation { detail } => {
+            assert!(detail.contains("protocol_version"), "detail: {detail}");
+            assert!(detail.contains("2"), "detail: {detail}");
+            assert!(detail.contains("3"), "detail: {detail}");
+        }
+        other => panic!("expected ProtocolViolation, got {other:?}"),
+    }
 }
