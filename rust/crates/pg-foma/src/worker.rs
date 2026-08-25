@@ -1,5 +1,5 @@
-//! Compile-worker watchdog subsystem. Compile-time work runs in a killable native
-//! worker process under the parent watchdog, distinct
+//! Compile-worker supervisor subsystem. Compile-time work runs in a killable native
+//! worker process under the parent supervisor, distinct
 //! from `crate::compose_budget`'s in-process cooperative APPLY-side budgets, under which
 //! apply-time (word analysis) runs in-process. Do not add
 //! anything here that touches per-word `propose`/`apply_up` -- that is `compose_budget.rs`'s
@@ -11,7 +11,7 @@
 //! request/result protocol, standard-library `Child::try_wait`/`Child::kill` wall-time control,
 //! deterministic compiler budgets, and bounded input/output. Production compilation launches no
 //! descendants, so Job Objects, cgroups, process-tree management, Tokio, and `processkit` are out
-//! of scope. WASM is analysis-only and needs no compile watchdog.
+//! of scope. WASM is analysis-only and needs no compile supervisor.
 //!
 //! **Fast-failure primacy.** Deterministic logical counters are the primary fast-failure mechanism;
 //! cooperative
@@ -29,8 +29,8 @@
 //! `#[cfg(not(target_arch = "wasm32"))]`-gated in `lib.rs`, and its three extra dependencies
 //! (`pg-snapshot`, `pg-fwdata`) are scoped to the identical target cfg in this crate's
 //! `Cargo.toml` -- not merely dead code on wasm32, genuinely absent from `pg-wasm`'s dependency
-//! graph, mirroring the contract above: "WASM is analysis-only and needs no compile watchdog." `wasm32-unknown-
-//! unknown` has no `std::process::Command`, so a process-spawning watchdog cannot exist there by
+//! graph, mirroring the contract above: "WASM is analysis-only and needs no compile supervisor." `wasm32-unknown-
+//! unknown` has no `std::process::Command`, so a process-spawning supervisor cannot exist there by
 //! construction, not merely by choice.
 //!
 //! # Three pieces
@@ -74,7 +74,7 @@
 //! # Opt-in, additive, default path unchanged
 //! Nothing in this module is called by `crate::analyzer::FomaProposer::new`/`new_with_profile`,
 //! `crate::composite::FomaAnalyzer::new`, or any other existing production entry point --
-//! spawning a worker is something a caller (`pangloss pack --watchdog`, `pg-cli`'s own hidden
+//! spawning a worker is something a caller (`pg-cli`'s pack path and hidden
 //! `__compile-worker-child` subcommand) opts into explicitly. The in-process compile path's
 //! behavior, output, and exit codes are unchanged by this module's mere existence.
 //!
@@ -309,7 +309,7 @@ pub enum GrammarFormat {
 /// grammar-file PATH rather than embedded grammar bytes -- the worker child runs on the same host
 /// and can read the file itself, keeping this frame small (well under [`WorkerProtocolLimits::
 /// max_request_bytes`]) regardless of the referenced grammar's own size; the referenced grammar's
-/// CONTENT is exactly what `ComposeBudget` and this module's own wall-time/RSS guardrails protect
+/// CONTENT is exactly what `ComposeBudget` and this module's own wall-time limit protect
 /// against, not this small request message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileWorkerRequest {
@@ -614,8 +614,8 @@ fn compile_selected_from_request(
 /// Generic over `Read`/`Write` so this same function is both the real production child (`io::
 /// stdin()`/`io::stdout()`, wired by `pg-cli`'s hidden subcommand) and directly unit-testable
 /// in-process against an in-memory buffer (no subprocess needed to test the protocol/compile-outcome
-/// mapping logic; only the supervisor's own kill/timeout/RSS behavior needs a real spawned process,
-/// exercised by this crate's `tests/worker_supervisor.rs`).
+/// mapping logic; only the supervisor's own kill/timeout behavior needs a real spawned process,
+/// exercised by this crate's `tests/worker_execution_limits_contract.rs`).
 pub fn run_worker_child<R: Read, W: Write>(mut input: R, mut output: W) -> io::Result<()> {
     let limits = WORKER_PROTOCOL_LIMITS;
 
@@ -700,7 +700,7 @@ pub enum OutputStream {
 pub enum WorkerOutcome {
     /// The child ran to completion and reported its own typed outcome.
     Completed(CompileWorkerOutcome),
-    /// The child was killed after `elapsed` exceeded `limit` -- an outer host-safety watchdog, not the normal compiler-health cutoff; reaching this means an uninstrumented stall or too small an envelope.
+    /// The child was killed after `elapsed` exceeded `limit` -- an external execution limit, not a grammar-health verdict.
     WallTimeoutKilled { elapsed: Duration, limit: Duration },
     /// Captured stdout or stderr reached its byte cap and the child was killed; all four wire streams have versioned limits enforced by the parent.
     OutputLimitExceeded {
@@ -717,11 +717,11 @@ pub enum WorkerOutcome {
 
 impl WorkerOutcome {
     /// Maps this outcome into the existing `HealthReport`/`HealthFinding` vocabulary (the
-    /// fast-failure-primacy contract: the report must carry the effective envelope, the reached
+    /// fast-failure-primacy contract: the report must carry the effective limit, the reached
     /// metric, and partial measurements where available) -- never a second, parallel report shape.
     /// `WorkerOutcome::Completed` returns
     /// the child's own real report unchanged; every other variant builds ONE synthetic finding
-    /// describing the parent-observed watchdog event.
+    /// describing the parent-observed supervisor event.
     ///
     /// **Two different facts, two different codes.** `WallTimeoutKilled`/
     /// `OutputLimitExceeded`/`ChildCrashed` are all genuine external-monitor aborts -- the
@@ -765,10 +765,9 @@ impl WorkerOutcome {
                     provenance: ValueProvenance::Observed,
                     threshold: Some(MetricValue::Millis(limit.as_millis() as u64)),
                     explanation: format!(
-                        "The compile worker process was killed after {elapsed:?} of wall-clock \
-                         time (limit {limit:?}). This is the outer host-safety watchdog (R6), not \
-                         the normal compiler-health cutoff -- reaching it means either a genuinely \
-                         uninstrumented stall or an envelope set too small for legitimate work."
+                        "The compile worker process was killed after {elapsed:?}, exceeding its \
+                         configured wall-time limit of {limit:?}. This is an execution-limit \
+                         outcome, not a grammar-capability verdict."
                     ),
                     remedies: Vec::new(),
                 }])

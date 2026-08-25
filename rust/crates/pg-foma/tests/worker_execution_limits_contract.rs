@@ -1,5 +1,6 @@
 use std::path::Path;
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use pg_foma::worker::{
     limits_for_version, run_compile_worker, run_worker_child, CompileWorkerOutcome,
@@ -8,6 +9,7 @@ use pg_foma::worker::{
 };
 
 const GIB: u64 = 1024 * 1024 * 1024;
+static CHILD_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn execution_limits_have_the_ratified_finite_defaults() {
@@ -108,13 +110,43 @@ fn oversized_request_is_rejected_by_the_wire_frame_limit_before_spawning() {
 }
 
 #[test]
+fn wall_limit_kills_a_slow_worker_process() {
+    let _guard = CHILD_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    std::env::set_var("PANGLOSS_WORKER_TEST_SLEEP_MS", "5000");
+    let request = CompileWorkerRequest::new("unused.xml", GrammarFormat::Xml);
+    let limits = ExecutionLimits::try_new(GIB, 10 * GIB, Duration::from_millis(200))
+        .expect("positive test limits must be valid");
+
+    let started = Instant::now();
+    let outcome = run_compile_worker(
+        Path::new(env!("CARGO_BIN_EXE_worker_test_child")),
+        &[],
+        &request,
+        &limits,
+    );
+    let elapsed = started.elapsed();
+    std::env::remove_var("PANGLOSS_WORKER_TEST_SLEEP_MS");
+
+    match outcome {
+        WorkerOutcome::WallTimeoutKilled { limit, .. } => {
+            assert_eq!(limit, limits.max_wall_time());
+        }
+        other => panic!("expected the execution wall limit to kill the child, got {other:?}"),
+    }
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "the supervisor must return before the child's five-second sleep; took {elapsed:?}"
+    );
+}
+
+#[test]
 fn selected_compile_request_wire_is_closed_and_identity_bearing_only() {
     let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
     let start = source
         .find("struct SelectedCompileRequest")
         .expect("worker source must declare SelectedCompileRequest");
     let end = source[start..]
-        .find("}\n")
+        .find('}')
         .map(|offset| start + offset)
         .expect("SelectedCompileRequest declaration must be closed");
     let declaration = &source[start..=end];
