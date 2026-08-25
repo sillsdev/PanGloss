@@ -2,38 +2,50 @@
 
 > **Historical pre-route baseline (2026-08-21).** This document records the measured static
 > five-language matrix from before the current route work. It is retained as historical evidence;
-> it is not the current shipping acceptance document, and none of its rows claims a trusted shipped
-> FST. The active acceptance slice is Indonesian, Amharic, and Aweti; Mbugwe is deferred and does
-> not block that slice. Historical measurements below are intentionally unchanged.
+> it is not the current shipping acceptance document, and none of its rows claims that any backend
+> was admitted and published as production-ready for the attempts recorded here. The active
+> acceptance slice is Indonesian, Amharic, and Aweti; Mbugwe is deferred and does not block that
+> slice. Historical measurements below are intentionally unchanged.
 
-> **Current policy note (2026-08-23).** `--allow-unproven`, `--remove-size-limits`, and the legacy
-> `--no-enforce-capability` escape are developer-build-only and must be hidden/rejected in
-> production. The first may lose valid parses and may write local developer evidence, but never
-> production-publishes or certifies; the second removes
-> internal caps only, while exact completion and mandatory external watchdog/RSS containment,
-> bounded I/O, and the absolute ceiling remain active. `Error` can be complete/accurate stress
-> evidence but is production-unready; `Critical` is a correctness gap. Historical rows below are
+> **Vocabulary supersession (2026-08-23).** This document's severity words (`Warning`, `Error`,
+> `Critical`) and its "No path" cells predate
+> `docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`, which
+> retires them in favor of four verdicts classified by *where each comes from*:
+> `LargeMultiplier` (static, pre-compile, blocks nothing), `CannotRepresent` (static, pre-compile,
+> blocks compiling for the affected feature), `NotProductionReady` (a post-compile measurement of an
+> artifact that already exists; blocks publishing only, never compiling), and `MachineLimit` (an
+> external monitor's verdict about the host and this attempt, never about the grammar). Below,
+> `Error` is `NotProductionReady` (complete/accurate stress evidence, but production-unready) and
+> `Critical` is `CannotRepresent` (a correctness/representability gap). A per-language "Default
+> result: No path" cell in the table below means only that no backend was admitted under the
+> *default* envelope for the attempts recorded here — it is not a claim about the language.
+> `--allow-unproven`, `--remove-size-limits`, and the legacy `--no-enforce-capability` escape are
+> developer-build-only and must be hidden/rejected in production. The first may lose valid parses
+> and may write local developer evidence, but never production-publishes or certifies; the second
+> removes internal caps only, while exact completion and mandatory external watchdog/RSS
+> containment, bounded I/O, and the absolute ceiling remain active. Historical rows below are
 > unchanged.
 
 ## Decision
 
 PanGloss now makes an exact, fail-closed static backend decision for all five reference grammars. The
-default selector retains a report for every backend and emits no trusted FST when every report is
-Error or Critical.
+default selector retains a report for every backend and admits no backend for normal generation, for
+this attempt under the default envelope, when every report is `NotProductionReady` or
+`CannotRepresent`.
 
 | Language | TunedSurface | TemplatedUnderlyingTokens | PlanComposed | Default result |
 |---|---|---|---|---|
-| Indonesian | Error: closure work exceeds the default envelope | Critical: nonregular-process coverage gap | Critical: required plan subtrees are not materialized | No path |
-| Sena | Ideal | Critical: nonregular-process coverage gap | Ideal | TunedSurface preferred; PlanComposed also admissible |
-| Amharic | Error: closure work exceeds the default envelope | Critical: nonregular-process coverage gap | Critical: required plan subtrees are not materialized | No path |
-| Aweti | Error: closure work exceeds the default envelope | Critical: nonregular-process coverage gap | Critical: required plan subtrees are not materialized | No path |
-| Mbugwe | Error: closure work exceeds the default envelope | Critical: nonregular-process coverage gap | Critical: required plan subtrees are not materialized | No path |
+| Indonesian | `NotProductionReady`: closure work exceeds the default envelope | `CannotRepresent`: nonregular-process coverage gap | `CannotRepresent`: required plan subtrees are not materialized | No backend admitted under the default envelope |
+| Sena | Ideal | `CannotRepresent`: nonregular-process coverage gap | Ideal | TunedSurface preferred; PlanComposed also admissible |
+| Amharic | `NotProductionReady`: closure work exceeds the default envelope | `CannotRepresent`: nonregular-process coverage gap | `CannotRepresent`: required plan subtrees are not materialized | No backend admitted under the default envelope |
+| Aweti | `NotProductionReady`: closure work exceeds the default envelope | `CannotRepresent`: nonregular-process coverage gap | `CannotRepresent`: required plan subtrees are not materialized | No backend admitted under the default envelope |
+| Mbugwe | `NotProductionReady`: closure work exceeds the default envelope | `CannotRepresent`: nonregular-process coverage gap | `CannotRepresent`: required plan subtrees are not materialized | No backend admitted under the default envelope |
 
-The TunedSurface Error is `PGF0009 ProvenBoundExceedsBudget`, shape
-`tuned-surface-resource-envelope`. The two correctness refusals are
+The TunedSurface `NotProductionReady` finding is `PGF0009 ProvenBoundExceedsBudget`, shape
+`tuned-surface-resource-envelope`. The two `CannotRepresent` refusals are
 `PGF0013 BackendCoverageIncomplete`, with shapes `nonregular-process-morphology` and
-`plan-composed-missing-subtrees`. Error and Critical reports remain visible with their evidence and
-advice; neither is selected for normal generation.
+`plan-composed-missing-subtrees`. `NotProductionReady` and `CannotRepresent` reports remain visible
+with their evidence and advice; neither is selected for normal generation.
 
 ## Corpus identity
 
@@ -50,7 +62,7 @@ optional fwdata input was `12eebb3beebb`; the acceptance grammar was the require
 
 ## Indonesian explicit retry
 
-Indonesian is the one default Error with a demonstrated small retry envelope. Complete static
+Indonesian is the one default `NotProductionReady` result with a demonstrated small retry envelope. Complete static
 closure characterization visited 3,290 structural rule pairs, synthesized 3,072 successors,
 reached depth 5, and emptied its worklist in 216 ms. A test-scoped retry with a 10,000-unit
 closure-work limit admits TunedSurface as Ideal. This is a clean rerun from grammar state, not an
@@ -73,9 +85,9 @@ but that corpus-scoped result does not discharge the grammar-wide PlanComposed m
 - Mbugwe imports successfully and its bounded full-engine smoke gate passed 20 cases. Fresh runs
   have taken about one minute to a minute and a half. That proves oracle viability, not FST
   viability.
-- States, arcs, FST recall, and FST elapsed time are not applicable where selection returns no path,
-  because no trusted artifact is constructed. A refusal must not be reported as a zero-sized or
-  zero-recall FST.
+- States, arcs, FST recall, and FST elapsed time are not applicable where selection admits no
+  backend for this attempt, because no artifact was compiled. A refusal must not be reported as a
+  zero-sized or zero-recall FST.
 
 ## Runtime evidence boundary
 
