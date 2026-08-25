@@ -79,14 +79,18 @@
 //! crate's own repeated convention — mirrors
 //! `crate::health_evaluator::APPROACHING_BUDGET_WARNING_FRACTION`'s identical disclaimer): no
 //! real-grammar calibration evidence exists yet for this specific product, so this finding is
-//! `Predicted`/`LargeMultiplier` only, never something that can reject a compile on its own.
+//! `Predicted`/`LargeMultiplier` only, never something that can reject a compile on its own. It is
+//! `crate::health::FindingCode::RuleInteractionProduct`, not `UnknownUnboundedConstruct`: the
+//! product is an EXACT, already-computed count (large, not unknown), the textbook
+//! `Severity::LargeMultiplier` case per that variant's own doc.
 //!
 //! # Design notes
 //! 1. **Semantic and cost uncertainty use different stable codes.** A `Refuse` verdict is a known
 //!    coverage gap and uses `crate::health::FindingCode::BackendCoverageIncomplete` with
-//!    `crate::health::Metric::BackendCoverageGapCount`. Recall-preserving `ConfirmOnly`, unbounded
-//!    quantifiers, and the rule-interaction proxy remain cost uncertainty and use
-//!    `crate::health::FindingCode::UnknownUnboundedConstruct`.
+//!    `crate::health::Metric::BackendCoverageGapCount`. Recall-preserving `ConfirmOnly` and
+//!    unbounded quantifiers remain genuine cost uncertainty and use
+//!    `crate::health::FindingCode::UnknownUnboundedConstruct`; the rule-interaction proxy is an
+//!    exact bounded product instead and uses `crate::health::FindingCode::RuleInteractionProduct`.
 //! 2. **`semantic_uncertainty_finding`'s `affected` names each [`crate::capability::
 //!    CapabilityDiagnostic::construct`] string verbatim** (the same field `pg-cli`'s own
 //!    `run_capability_gate`/`pangloss pack` already print to stderr) — never a re-derived
@@ -687,7 +691,7 @@ fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<
         return None;
     }
     Some(HealthFinding {
-        code: FindingCode::UnknownUnboundedConstruct,
+        code: FindingCode::RuleInteractionProduct,
         severity: Severity::LargeMultiplier,
         phase: Phase::Characterization,
         affected: Vec::new(),
@@ -991,6 +995,7 @@ mod tests {
         above.cardinality.prule_count = 9; // 81 > 64
         let finding = rule_interaction_product_finding(&above)
             .unwrap_or_else(|| panic!("expected a rule-interaction-product finding"));
+        assert_eq!(finding.code, FindingCode::RuleInteractionProduct);
         assert_eq!(finding.severity, Severity::LargeMultiplier);
         assert_eq!(finding.provenance, ValueProvenance::Predicted);
         assert_eq!(finding.phase, Phase::Characterization);

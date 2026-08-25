@@ -290,7 +290,8 @@ impl BackendReport {
             BackendStatus::Missing,
         );
         report.status_detail = Some(detail.into());
-        attach_operational_failure(&mut report, FindingCode::BackendCompilationFailed);
+        // Nothing attempted to compile, so this is a build-process fault, not a compile failure.
+        attach_operational_failure(&mut report, FindingCode::BuildProcessFailed);
         report
     }
 
@@ -301,7 +302,8 @@ impl BackendReport {
             BackendStatus::Failed,
         );
         report.status_detail = Some(detail.into());
-        attach_operational_failure(&mut report, FindingCode::BuildProcessFailed);
+        // A compile attempt ran and failed, matching BackendCompilationFailed's own doc.
+        attach_operational_failure(&mut report, FindingCode::BackendCompilationFailed);
         report
     }
 

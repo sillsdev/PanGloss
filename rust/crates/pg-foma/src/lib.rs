@@ -192,7 +192,7 @@ pub mod gate;
 pub mod grammar_semantics;
 /// The FST
 /// compilation-health finding schema -- `health::Severity`/`health::severity_for_size_bytes`
-/// (exact decimal-byte size bands), the immutable `health::FindingCode` `PGFdddd` registry,
+/// (the single decimal-byte size threshold), the immutable `health::FindingCode` `PGFdddd` registry,
 /// `health::HealthFinding`/`health::HealthReport`, and canonical JSON. Health is REPORTED
 /// about a compile, never consulted during one; `health_evaluator` produces the findings.
 pub mod health;

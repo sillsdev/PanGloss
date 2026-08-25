@@ -244,22 +244,31 @@ fn capability_refusal_is_a_typed_cannot_represent_with_actionable_advice() {
 
 #[test]
 fn missing_and_failed_backends_are_typed_errors_with_shared_advice() {
-    for report in [
-        BackendReport::missing(
-            EmissionStrategy::TemplatedUnderlyingTokens,
-            "backend executable is unavailable",
+    for (report, expected_code) in [
+        (
+            BackendReport::missing(
+                EmissionStrategy::TemplatedUnderlyingTokens,
+                "backend executable is unavailable",
+            ),
+            FindingCode::BuildProcessFailed,
         ),
-        BackendReport::failed(
-            EmissionStrategy::PlanComposed,
-            "compiler process exited unsuccessfully",
+        (
+            BackendReport::failed(
+                EmissionStrategy::PlanComposed,
+                "compiler process exited unsuccessfully",
+            ),
+            FindingCode::BackendCompilationFailed,
         ),
     ] {
         assert_eq!(report.worst_severity(), Severity::NotProductionReady);
         assert_eq!(report.findings().len(), 1);
-        assert!(matches!(
+        assert_eq!(
             report.findings()[0].code,
-            FindingCode::BackendCompilationFailed | FindingCode::BuildProcessFailed
-        ));
+            expected_code,
+            "missing() (no tool to run) must emit BuildProcessFailed, and failed() (a compile \
+             attempt that ran and failed) must emit BackendCompilationFailed -- each matching its \
+             own documented meaning, not the other's"
+        );
         assert_eq!(report.shapes(), &["backend-build-unavailable".to_string()]);
         assert!(!report.advice_references().is_empty());
     }
