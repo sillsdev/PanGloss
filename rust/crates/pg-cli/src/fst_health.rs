@@ -162,19 +162,24 @@ fn confirmation_work_findings(total_candidates: u64, total_confirmed: u64) -> Ve
 }
 
 /// Compile-time observed health via a standalone profiled compile; duplicated rather than shared with `pack.rs::run_pack`'s own equivalent section since each composes it into a different report shape.
-fn compile_time_findings(grammar: &Grammar) -> Vec<HealthFinding> {
+fn compile_time_findings(grammar: &Grammar) -> Result<Vec<HealthFinding>, String> {
     let (proposer_result, compile_profile) = FomaProposer::new_with_profile(grammar);
     let report = match &proposer_result {
-        Ok(proposer) => evaluate_health(
-            None,
-            proposer.report.as_ref(),
-            &[],
-            &[],
-            Some(&compile_profile),
-        ),
+        Ok(proposer) => {
+            let foma_bytes = proposer
+                .foma_binary_payload()
+                .map_err(|e| format!("serializing the compiled foma network: {e}"))?;
+            evaluate_health(
+                Some(foma_bytes.len() as u64),
+                proposer.report.as_ref(),
+                &[],
+                &[],
+                Some(&compile_profile),
+            )
+        }
         Err(error) => evaluate_foma_error(error, Some(&compile_profile)),
     };
-    report.findings
+    Ok(report.findings)
 }
 
 /// Composes characterization + compile-time findings, plus apply-side findings only when `words` is `Some`; factored out from `run_fst_health` so the honest no-words contract is directly unit-testable without file I/O.
@@ -183,7 +188,7 @@ fn build_health_report(
     words: Option<&[String]>,
 ) -> Result<HealthReport, String> {
     let mut findings = characterization_findings(grammar);
-    findings.extend(compile_time_findings(grammar));
+    findings.extend(compile_time_findings(grammar)?);
     if let Some(words) = words {
         findings.extend(measure_apply_side(grammar, words)?);
     }

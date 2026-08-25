@@ -975,7 +975,6 @@ mod tests {
     fn fst_health_evaluator_oversized_payload_remains_not_production_ready_readiness() {
         let report = evaluate_health(Some(10_000_000_000u64), None, &[], &[], None);
         assert_eq!(report.findings[0].severity, Severity::NotProductionReady);
-        assert!(!report.findings[0].severity.overridable());
         assert_eq!(report.admission(), Severity::NotProductionReady);
     }
 

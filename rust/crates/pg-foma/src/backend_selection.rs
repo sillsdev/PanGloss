@@ -227,19 +227,26 @@ impl BackendReport {
     /// A backend is a normal-generation candidate when correctness admits it AND no finding shows
     /// it cannot produce a usable artifact. That second test asks "which question failed", never
     /// "how high on the severity scale" — a `FindingClass::Representability` finding means the
-    /// feature cannot be faithfully proposed, and a `FindingClass::Containment` finding means this
+    /// feature cannot be faithfully proposed, a `FindingClass::Containment` finding means this
     /// attempt itself was stopped (self-imposed budget or the external host watchdog) before
-    /// producing one; both leave nothing to build. A `FindingClass::Readiness` finding — including
-    /// one at `Severity::NotProductionReady`, e.g. an oversized payload — labels an artifact that
-    /// DID get built, so it never excludes here; publication gating for it lives in
-    /// `pg_cli::pack::validate_health_readiness`, a separate gate this predicate does not reach.
+    /// producing one, and a `FindingClass::Process` finding means the attempt failed for a reason
+    /// unrelated to the grammar (bad input, worker/protocol failure); all three leave nothing to
+    /// build. The `status == Accepted` check already makes the `Process` exclusion redundant for
+    /// every producer that exists today (`BackendReport::missing`/`failed` both attach a Process
+    /// finding and also set a non-`Accepted` status), pinned by
+    /// `a_process_finding_excludes_even_if_status_were_accepted`; listing it here too makes the
+    /// predicate correct on its own terms rather than by that coincidence. A `FindingClass::
+    /// Readiness` finding — including one at `Severity::NotProductionReady`, e.g. an oversized
+    /// payload — labels an artifact that DID get built, so it never excludes here; publication
+    /// gating for it lives in `pg_cli::pack::validate_health_readiness`, a separate gate this
+    /// predicate does not reach.
     pub fn is_normal_candidate(&self) -> bool {
         self.status == BackendStatus::Accepted
             && !matches!(self.decision, CompileDecision::Refuse(_))
             && !self.findings.iter().any(|finding| {
                 matches!(
                     finding.code.class(),
-                    FindingClass::Representability | FindingClass::Containment
+                    FindingClass::Representability | FindingClass::Containment | FindingClass::Process
                 )
             })
     }
@@ -1020,6 +1027,48 @@ mod tests {
             crate::health::Severity::NotProductionReady,
             "and the label itself must survive selection"
         );
+    }
+
+    /// An approaching-but-not-tripped budget observation must never cost a backend its candidacy.
+    #[test]
+    fn an_approaching_compile_work_budget_labels_a_backend_without_excluding_it() {
+        let reports = vec![BackendReport::accepted(
+            EmissionStrategy::TunedSurfaceProbed,
+            CompileDecision::Admit,
+            vec![finding(
+                crate::health::Severity::LargeMultiplier,
+                crate::health::FindingCode::CompileWorkBudget,
+            )],
+        )
+        .unwrap()];
+        let selection = BackendSelection::from_reports(reports);
+
+        assert!(
+            selection
+                .selected()
+                .contains(&EmissionStrategy::TunedSurfaceProbed),
+            "an approaching-budget magnitude finding must never cost a backend its candidacy"
+        );
+        assert_eq!(
+            crate::health::FindingCode::CompileWorkBudget.class(),
+            FindingClass::Readiness
+        );
+    }
+
+    /// The predicate must exclude on `Process` even where `status == Accepted` would already do so.
+    #[test]
+    fn a_process_finding_excludes_even_if_status_were_accepted() {
+        let report = BackendReport::accepted(
+            EmissionStrategy::TunedSurfaceProbed,
+            CompileDecision::Admit,
+            vec![finding(
+                crate::health::Severity::NotProductionReady,
+                crate::health::FindingCode::BuildProcessFailed,
+            )],
+        )
+        .unwrap();
+
+        assert!(!report.is_normal_candidate());
     }
 
     /// Nothing was built in either case, so neither can be selected.

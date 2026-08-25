@@ -75,6 +75,7 @@ pub struct Provenance {
     pub compiler_version: String,
 }
 
+/// Importer/compiler diagnostic severity, unrelated to `pg_foma::health::Severity`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {

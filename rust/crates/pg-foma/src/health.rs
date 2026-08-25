@@ -15,12 +15,18 @@
 //! `HealthFinding` is retained for backward-compatible audit reading only; it is not an admission
 //! mechanism and does not re-implement the capability registry.
 //!
-//! # Severity names the FACT it represents, not an alarm level
-//! Each variant answers a distinct question about WHERE the evidence came from (see `Severity`'s
-//! own doc for the four questions and `HEALTH_SCHEMA_VERSION`'s doc for the wire-compatibility
-//! story). Every prior name below refers to the pre-schema-3 variant it replaced 1:1; the
-//! `#[serde(alias)]` on each variant keeps an already-serialized report readable under its old
-//! spelling.
+//! # Severity names the blocking TIER; FindingClass names the fact
+//! `Severity` is the publication-blocking axis, not an alarm level and not itself a statement of
+//! WHY: `WithinLimits`/`Elevated`/`LargeMultiplier` never block, `NotProductionReady`/
+//! `MachineLimit`/`CannotRepresent` always do. Several unrelated causes converge on the same
+//! blocking tier -- `NotProductionReady` alone is emitted for an oversized-but-compiled payload, a
+//! self-imposed budget stop with nothing built, a build-process fault, and a pre-compile proven
+//! bound, none of which share a phase or a cause. `FindingCode::class()` (`FindingClass`) is what
+//! answers WHY: see `FindingClass`'s own doc for the four independent questions it distinguishes,
+//! and `HealthReport::admission_by_class` for reading them separately from the plain severity max.
+//! `HEALTH_SCHEMA_VERSION`'s doc has the wire-compatibility story; every prior name below refers to
+//! the pre-schema-3 variant it replaced 1:1, and `#[serde(alias)]` on each variant keeps an
+//! already-serialized report readable under its old spelling.
 //!
 //! # Severity and the payload-size threshold
 //! `severity_for_size_bytes` compares a compiled FST payload's byte count against the single
@@ -99,8 +105,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// This schema's own version, written into every `HealthReport`. Bump only on a
 /// wire-incompatible change to this module's types.
 ///
-/// Bumped to 3 for the `Severity` variant rename (each variant now names the fact it represents
-/// rather than an alarm level) and the new `CannotRepresent` variant: both are wire-visible
+/// Bumped to 3 for the `Severity` variant rename (each variant now names the blocking tier it
+/// represents rather than an alarm level) and the new `CannotRepresent` variant: both are wire-visible
 /// changes to this schema's canonical JSON, even though every old spelling still deserializes via
 /// `#[serde(alias)]` and every new report keeps writing the same five bands plus the one addition.
 pub const HEALTH_SCHEMA_VERSION: u32 = 3;
@@ -108,8 +114,10 @@ pub const HEALTH_SCHEMA_VERSION: u32 = 3;
 // Severity + payload-size threshold
 
 /// The cost/health severity axis — deliberately **distinct** from the capability-trust axis
-/// (proven-vs-unproven capability checks). Each variant answers a different question about WHERE
-/// the evidence came from, not how alarming it sounds:
+/// (proven-vs-unproven capability checks). This is the publication-blocking TIER, not a statement
+/// of WHY: `FindingCode::class()` (`FindingClass`) is what names the fact behind a finding, and a
+/// single severity here can be reached by several unrelated facts (see `NotProductionReady`'s own
+/// doc for the clearest case).
 ///
 /// - [`Severity::WithinLimits`] / [`Severity::Elevated`] / [`Severity::LargeMultiplier`]: an
 ///   analysis of magnitude — how much of something there is. Never blocks. These say nothing about
@@ -117,8 +125,9 @@ pub const HEALTH_SCHEMA_VERSION: u32 = 3;
 ///   measured count can both be `LargeMultiplier` when both are simply too large.
 /// - [`Severity::CannotRepresent`]: analysis of representability, and nothing can be built for the
 ///   affected feature.
-/// - [`Severity::NotProductionReady`]: the compiled artifact was measured AFTER a successful
-///   compile and found not shippable; a labelling verdict that must never block compiling.
+/// - [`Severity::NotProductionReady`]: this tier blocks publication; see its own doc for the
+///   several distinct facts (compiled-but-oversized, budget-stopped, process-faulted,
+///   proven-bound-exceeded) that all reach it.
 /// - [`Severity::MachineLimit`]: process containment fired DURING a compile (near-OOM, out of
 ///   disk, an RSS ceiling) and aborted it; never a statement about the grammar.
 ///
@@ -140,9 +149,13 @@ pub enum Severity {
     /// optimization. Formerly `Warning`.
     #[serde(alias = "warning")]
     LargeMultiplier,
-    /// The compiled artifact was measured AFTER a successful compile and is not shippable (e.g.
-    /// payload over the size threshold above). Must not block compiling; a legacy `OverrideRecord`
-    /// cannot admit it. Remedy: this is a labelling verdict. Formerly `Error`.
+    /// The tier that blocks publication, whatever the underlying cause: an oversized-but-compiled
+    /// payload (a labelling verdict, `severity_for_size_bytes`), an internal-cap stop with nothing
+    /// compiled (`FindingCode::ResourceBudgetReached`), a build-process or backend-compilation
+    /// fault (`FindingCode::BuildProcessFailed`/`FindingCode::BackendCompilationFailed`), or a
+    /// pre-compile proven bound exceeding budget (`FindingCode::ProvenBoundExceedsBudget`). Must
+    /// not itself block compiling; a legacy `OverrideRecord` cannot admit it. Read the finding's
+    /// `FindingClass` (via `HealthFinding::class`) for which of those it is. Formerly `Error`.
     #[serde(alias = "error")]
     NotProductionReady,
     /// Process containment fired DURING a compile and aborted it: near-OOM, out of disk, an RSS
@@ -155,14 +168,6 @@ pub enum Severity {
     /// to alias, since this verdict did not exist before (it was previously conflated with
     /// `MachineLimit`/`Critical`).
     CannotRepresent,
-}
-
-impl Severity {
-    /// Legacy compatibility predicate. Health findings are never admitted by an override record;
-    /// capability trust is the only active override axis.
-    pub const fn overridable(self) -> bool {
-        false
-    }
 }
 
 /// The single payload-size threshold `severity_for_size_bytes` applies.
@@ -496,7 +501,7 @@ impl FindingCode {
             FindingCode::DuplicateAnalysisOverlap => FindingClass::Readiness,
             FindingCode::ApplicationTimeWork => FindingClass::Readiness,
             FindingCode::UnknownUnboundedConstruct => FindingClass::Readiness,
-            FindingCode::CompileWorkBudget => FindingClass::Containment,
+            FindingCode::CompileWorkBudget => FindingClass::Readiness,
             FindingCode::ResourceBudgetReached => FindingClass::Containment,
             FindingCode::ProvenBoundExceedsBudget => FindingClass::Containment,
             FindingCode::BackendCompilationFailed => FindingClass::Process,
@@ -600,13 +605,6 @@ pub struct HealthFinding {
 }
 
 impl HealthFinding {
-    /// Legacy compatibility predicate. Serialized `override_record` values remain readable for
-    /// audit, but no health finding may be admitted through one. Capability trust is the only
-    /// active override axis.
-    pub const fn override_allowed(&self) -> bool {
-        false
-    }
-
     /// Which of the three independent admission questions this finding's code answers.
     pub fn class(&self) -> FindingClass {
         self.code.class()
@@ -799,19 +797,6 @@ mod tests {
 
     // fst_health_override_policy: legacy records are audit-only and never admit health.
 
-    #[test]
-    fn fst_health_override_policy_not_production_ready_and_machine_limit_are_non_admitting() {
-        assert!(!Severity::NotProductionReady.overridable());
-        assert!(!Severity::MachineLimit.overridable());
-    }
-
-    #[test]
-    fn fst_health_override_policy_large_multiplier_and_below_never_need_override() {
-        assert!(!Severity::WithinLimits.overridable());
-        assert!(!Severity::Elevated.overridable());
-        assert!(!Severity::LargeMultiplier.overridable());
-    }
-
     fn synthetic_finding(
         severity: Severity,
         override_record: Option<OverrideRecord>,
@@ -912,13 +897,6 @@ mod tests {
         )]);
         assert_eq!(report.admission(), Severity::MachineLimit);
         assert_eq!(report.admission_without_overrides(), Severity::MachineLimit);
-    }
-
-    #[test]
-    fn fst_health_override_policy_apply_findings_are_not_overridable() {
-        let mut finding = synthetic_finding(Severity::MachineLimit, None);
-        finding.phase = Phase::Apply;
-        assert!(!finding.override_allowed());
     }
 
     // fst_health_schema: code registry, golden JSON, round trip, closed-enum exhaustiveness.
@@ -1199,7 +1177,6 @@ mod tests {
         assert_eq!(
             containment,
             vec![
-                FindingCode::CompileWorkBudget,
                 FindingCode::ResourceBudgetReached,
                 FindingCode::ProvenBoundExceedsBudget,
                 FindingCode::HostContainmentFired,
