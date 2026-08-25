@@ -112,6 +112,8 @@ pub enum PgPackError {
     BadMagic { expected: [u8; 8], found: [u8; 8] },
     #[error("unsupported container version {found}")]
     UnsupportedVersion { found: u32 },
+    #[error("unsupported pack manifest schema version {found}")]
+    UnsupportedManifestSchema { found: u32 },
     #[error("declared {what} length {declared} exceeds this container version's limit of {limit} byte(s)")]
     LengthExceedsLimit {
         what: &'static str,
@@ -141,6 +143,15 @@ fn validate_trust_completeness(manifest: &PackManifest) -> Result<(), PgPackErro
         && manifest.fst_completeness.is_some()
     {
         return Err(PgPackError::OverriddenCompletenessConflict);
+    }
+    Ok(())
+}
+
+fn validate_manifest_schema(manifest: &PackManifest) -> Result<(), PgPackError> {
+    if manifest.manifest_schema_version != crate::manifest::MANIFEST_SCHEMA_VERSION {
+        return Err(PgPackError::UnsupportedManifestSchema {
+            found: manifest.manifest_schema_version,
+        });
     }
     Ok(())
 }
@@ -192,6 +203,7 @@ pub fn write_pack(
     let limits = limits_for_version(CONTAINER_VERSION)
         .expect("CONTAINER_VERSION must always have limits registered for itself");
 
+    validate_manifest_schema(manifest)?;
     let expected_fingerprint = fingerprint_hex(runtime_payload, foma_payload);
     if manifest.package_fingerprint != expected_fingerprint {
         return Err(PgPackError::FingerprintMismatch);
@@ -364,6 +376,7 @@ pub fn read_pack(bytes: &[u8]) -> Result<ReadPack, PgPackError> {
         .map_err(|e| PgPackError::ManifestJson(format!("manifest is not valid UTF-8: {e}")))?;
     let manifest = PackManifest::from_json(manifest_str)
         .map_err(|e| PgPackError::ManifestJson(e.to_string()))?;
+    validate_manifest_schema(&manifest)?;
     validate_trust_completeness(&manifest)?;
 
     let runtime_payload = runtime_bytes.to_vec();

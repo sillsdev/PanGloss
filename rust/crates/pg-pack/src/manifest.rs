@@ -17,7 +17,6 @@ use crate::signature::SignatureBlock;
 use crate::trust::CapabilityTrust;
 use pg_foma::advice_catalog::RemedyEffort;
 use pg_foma::health::{HealthFinding, HealthReport, Metric, MetricValue, ValueProvenance};
-use pg_foma::resource_envelope::{CompileSizeMode, ResourceEnvelopeId};
 
 /// The `"format"` tag every pack manifest carries (mirrors `pg_snapshot::FORMAT_TAG`'s own
 /// envelope-tag convention).
@@ -26,7 +25,7 @@ pub const MANIFEST_FORMAT_TAG: &str = "pangloss-pack-manifest";
 /// `PackManifest`'s shape — independent of `crate::format::CONTAINER_VERSION` (the container
 /// framing) and of `crate::compat::RequiredRuntimeFeatures::payload_format_version` (the
 /// runtime-payload format), which each version separately.
-pub const MANIFEST_SCHEMA_VERSION: u32 = 3;
+pub const MANIFEST_SCHEMA_VERSION: u32 = 4;
 
 /// One catalog remedy linked to the grammar shape it addresses for one backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,6 +72,7 @@ pub struct FstCompletenessCertificate {
 /// `crate::format::write_pack`. Every field this module's own doc names has a slot
 /// here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PackManifest {
     /// `MANIFEST_FORMAT_TAG`, always.
     pub format: String,
@@ -90,15 +90,6 @@ pub struct PackManifest {
     pub package_fingerprint: String,
     /// The required-runtime-feature set this pack was built against.
     pub required_runtime_features: RequiredRuntimeFeatures,
-    /// The named, versioned resource envelope this pack was compiled under. Absent in packs
-    /// written before this field existed; defaults to `ManagedV1`, the shipped default every
-    /// caller used before the envelope was recorded explicitly.
-    #[serde(default)]
-    pub resource_envelope_id: ResourceEnvelopeId,
-    /// The construction-cap policy this pack was compiled under. Absent in packs written before
-    /// this field existed; defaults to `Managed`, the only mode a production build ever used.
-    #[serde(default)]
-    pub compile_size_mode: CompileSizeMode,
     /// The capability-trust stamp: proven, or overridden/unproven with its permanent
     /// override record.
     pub capability_trust: CapabilityTrust,

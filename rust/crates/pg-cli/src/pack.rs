@@ -14,7 +14,6 @@ use pg_foma::health::{
 
 use pg_foma::health_evaluator::{evaluate_foma_error, evaluate_health};
 use pg_foma::peel::{ReduplicationPeeler, RUNTIME_FEATURE_REDUPLICATION_PEEL};
-use pg_foma::resource_envelope::{CompileSizeMode, ResourceEnvelopeId};
 use pg_grammar::model::Grammar;
 use pg_pack::{
     BackendAdviceReference, BackendAssessment, BackendCostEvidence, CapabilityOverrideRecord,
@@ -582,8 +581,6 @@ pub(crate) fn build_pack(
         grammar_id,
         package_fingerprint,
         required_runtime_features,
-        resource_envelope_id: ResourceEnvelopeId::ManagedV1,
-        compile_size_mode: CompileSizeMode::Managed,
         capability_trust,
         fst_health,
         backend_assessments,
