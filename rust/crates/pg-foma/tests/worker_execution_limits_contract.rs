@@ -55,7 +55,7 @@ fn execution_limits_are_configurable_but_cannot_be_disabled() {
 
 #[test]
 fn cleanup_breaks_the_old_worker_protocol_in_lockstep() {
-    assert_eq!(WORKER_PROTOCOL_VERSION, 5);
+    assert_eq!(WORKER_PROTOCOL_VERSION, 6);
     assert!(
         limits_for_version(1).is_none(),
         "pre-cleanup worker messages must be rejected, not migrated"
@@ -68,9 +68,9 @@ fn cleanup_breaks_the_old_worker_protocol_in_lockstep() {
 }
 
 #[test]
-fn protocol_four_request_frames_are_rejected_before_compile() {
+fn protocol_five_request_frames_are_rejected_before_compile() {
     let mut request = CompileWorkerRequest::new("stale.xml", GrammarFormat::Xml);
-    request.protocol_version = 4;
+    request.protocol_version = 5;
     let body = serde_json::to_vec(&request).expect("serialize stale request");
     let mut input = Vec::new();
     input.extend_from_slice(&(body.len() as u64).to_le_bytes());
@@ -85,8 +85,8 @@ fn protocol_four_request_frames_are_rejected_before_compile() {
     match result.outcome {
         CompileWorkerOutcome::ProtocolViolation { detail } => {
             assert!(detail.contains("protocol_version"), "detail: {detail}");
-            assert!(detail.contains("4"), "detail: {detail}");
             assert!(detail.contains("5"), "detail: {detail}");
+            assert!(detail.contains("6"), "detail: {detail}");
         }
         other => panic!("expected ProtocolViolation, got {other:?}"),
     }
@@ -324,7 +324,6 @@ fn selected_compile_enforces_the_serialized_fst_limit_with_a_typed_failure() {
         .map(|offset| start + offset)
         .expect("selected compilation must end before the worker entrypoint");
     let selected_compile = &source[start..end];
-
     assert!(
         selected_compile.contains("limits: &ExecutionLimits"),
         "selected compilation must receive the supervisor's execution limits"
@@ -346,8 +345,6 @@ fn selected_compile_enforces_the_serialized_fst_limit_with_a_typed_failure() {
 
 #[test]
 fn selected_artifact_failures_remove_partial_and_final_transport_files() {
-    // A behavioral fixture would need a real selected compiler and filesystem failure paths.
-    // Keep this source-level so the red test never allocates a large FST.
     let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
     let start = source
         .find("fn compile_selected_from_request(")
@@ -357,14 +354,27 @@ fn selected_artifact_failures_remove_partial_and_final_transport_files() {
         .map(|offset| start + offset)
         .expect("selected compilation must end before the worker entrypoint");
     let selected_compile = &source[start..end];
+    let writer_start = source
+        .find("fn write_selected_artifact(")
+        .expect("worker source must declare the artifact writer");
+    let writer_end = source[writer_start..]
+        .find("fn compile_selected_from_request(")
+        .map(|offset| writer_start + offset)
+        .expect("artifact writer must end before selected compilation");
+    let artifact_writer = &source[writer_start..writer_end];
 
     assert!(
         selected_compile.contains("remove_file") || selected_compile.contains("cleanup"),
         "selected compile failures must remove temporary and final artifact paths"
     );
+    assert!(selected_compile.contains("write_selected_artifact"));
     assert!(
-        selected_compile.contains("rename") || selected_compile.contains("persist"),
+        artifact_writer.contains("fs::rename"),
         "a completed artifact must be published atomically, never left as a partial file"
+    );
+    assert!(
+        source.contains("cleanup_selected_transport_dir(&transport_dir)"),
+        "the parent must remove the reserved transport directory after every outcome"
     );
     assert!(
         source.contains("artifact_path") || source.contains("artifact_token"),

@@ -191,9 +191,7 @@ impl ExecutionLimits {
         self.max_wall_time
     }
 
-    /// Constructs the child-side view for a selected compile. Only the serialized-FST field is
-    /// consulted by the selected compiler; the other two fields are not wire controls and are
-    /// deliberately not enforced by this slice.
+    /// Constructs the child-side serialized-FST limit.
     fn for_selected_payload(max_serialized_fst_bytes: u64) -> Result<Self, ExecutionLimitError> {
         Self::try_new(
             max_serialized_fst_bytes,
@@ -585,8 +583,7 @@ fn selected_artifact_temp_path(path: &Path) -> PathBuf {
     PathBuf::from(format!("{}.tmp", path.display()))
 }
 
-/// Removes only the child-owned partial file. The parent owns the reserved transport directory
-/// and removes the final artifact (and any partial) after the supervisor returns.
+/// Removes the child-owned partial file.
 fn cleanup_selected_partial(path: &Path) {
     let _ = fs::remove_file(selected_artifact_temp_path(path));
 }
@@ -683,8 +680,6 @@ fn compile_selected_from_request(
                 limit_bytes: limits.max_serialized_fst_bytes(),
             };
         }
-        // The transport helper writes a temp file and atomically renames it into place only after
-        // the complete payload has been flushed.
         let artifact = match write_selected_artifact(artifact_path, &payload_bytes) {
             Ok(artifact) => artifact,
             Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
