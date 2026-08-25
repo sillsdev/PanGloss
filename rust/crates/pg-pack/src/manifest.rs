@@ -17,6 +17,7 @@ use crate::signature::SignatureBlock;
 use crate::trust::CapabilityTrust;
 use pg_foma::advice_catalog::RemedyEffort;
 use pg_foma::health::{HealthFinding, HealthReport, Metric, MetricValue, ValueProvenance};
+use pg_foma::resource_envelope::{CompileSizeMode, ResourceEnvelopeId};
 
 /// The `"format"` tag every pack manifest carries (mirrors `pg_snapshot::FORMAT_TAG`'s own
 /// envelope-tag convention).
@@ -25,7 +26,7 @@ pub const MANIFEST_FORMAT_TAG: &str = "pangloss-pack-manifest";
 /// `PackManifest`'s shape — independent of `crate::format::CONTAINER_VERSION` (the container
 /// framing) and of `crate::compat::RequiredRuntimeFeatures::payload_format_version` (the
 /// runtime-payload format), which each version separately.
-pub const MANIFEST_SCHEMA_VERSION: u32 = 2;
+pub const MANIFEST_SCHEMA_VERSION: u32 = 3;
 
 /// One catalog remedy linked to the grammar shape it addresses for one backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,6 +90,15 @@ pub struct PackManifest {
     pub package_fingerprint: String,
     /// The required-runtime-feature set this pack was built against.
     pub required_runtime_features: RequiredRuntimeFeatures,
+    /// The named, versioned resource envelope this pack was compiled under. Absent in packs
+    /// written before this field existed; defaults to `ManagedV1`, the shipped default every
+    /// caller used before the envelope was recorded explicitly.
+    #[serde(default)]
+    pub resource_envelope_id: ResourceEnvelopeId,
+    /// The construction-cap policy this pack was compiled under. Absent in packs written before
+    /// this field existed; defaults to `Managed`, the only mode a production build ever used.
+    #[serde(default)]
+    pub compile_size_mode: CompileSizeMode,
     /// The capability-trust stamp: proven, or overridden/unproven with its permanent
     /// override record.
     pub capability_trust: CapabilityTrust,
@@ -168,6 +178,8 @@ mod tests {
                 hc_port_semver: (1, 0, 0),
                 extensions: vec![],
             },
+            resource_envelope_id: ResourceEnvelopeId::ManagedV1,
+            compile_size_mode: CompileSizeMode::Managed,
             capability_trust: CapabilityTrust::Proven,
             fst_health: HealthReport::new(vec![]),
             backend_assessments: vec![],
@@ -212,5 +224,27 @@ mod tests {
     fn to_canonical_json_is_deterministic() {
         let manifest = synthetic_manifest();
         assert_eq!(manifest.to_canonical_json(), manifest.to_canonical_json());
+    }
+
+    /// A pack written before `resource_envelope_id`/`compile_size_mode` existed must still deserialize, defaulting to `ManagedV1`/`Managed`.
+    #[test]
+    fn pack_without_envelope_or_size_mode_fields_still_deserializes() {
+        let manifest = synthetic_manifest();
+        let mut value: serde_json::Value =
+            serde_json::from_str(&manifest.to_canonical_json()).expect("valid manifest JSON");
+        let object = value.as_object_mut().expect("manifest JSON is an object");
+        object
+            .remove("resource_envelope_id")
+            .expect("fixture JSON carries the field to remove");
+        object
+            .remove("compile_size_mode")
+            .expect("fixture JSON carries the field to remove");
+        let json = serde_json::to_string(&value).expect("re-serialize the trimmed JSON");
+
+        let parsed = PackManifest::from_json(&json)
+            .expect("an older pack missing these fields must still parse");
+
+        assert_eq!(parsed.resource_envelope_id, ResourceEnvelopeId::ManagedV1);
+        assert_eq!(parsed.compile_size_mode, CompileSizeMode::Managed);
     }
 }

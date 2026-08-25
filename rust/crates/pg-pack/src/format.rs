@@ -421,6 +421,8 @@ mod tests {
                 hc_port_semver: (1, 0, 0),
                 extensions: vec![],
             },
+            resource_envelope_id: pg_foma::resource_envelope::ResourceEnvelopeId::ManagedV1,
+            compile_size_mode: pg_foma::resource_envelope::CompileSizeMode::Managed,
             capability_trust: CapabilityTrust::Proven,
             fst_health: HealthReport::new(vec![]),
             backend_assessments: vec![],

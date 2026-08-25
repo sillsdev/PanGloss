@@ -14,7 +14,7 @@ use pg_foma::health::{
 
 use pg_foma::health_evaluator::{evaluate_foma_error, evaluate_health};
 use pg_foma::peel::{ReduplicationPeeler, RUNTIME_FEATURE_REDUPLICATION_PEEL};
-use pg_foma::resource_envelope::CompileSizeMode;
+use pg_foma::resource_envelope::{CompileSizeMode, ResourceEnvelopeId};
 use pg_grammar::model::Grammar;
 use pg_pack::{
     BackendAdviceReference, BackendAssessment, BackendCostEvidence, CapabilityOverrideRecord,
@@ -357,7 +357,7 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
         size_mode,
     )?;
 
-    validate_health_readiness(&built.manifest.fst_health, watchdog)?;
+    validate_health_readiness(&built.manifest.fst_health, built.worker_containment_failed)?;
 
     fs::write(out_path, &built.bytes).map_err(|e| format!("write {out_path}: {e}"))?;
 
@@ -389,6 +389,8 @@ pub(crate) struct BuiltPack {
     pub bytes: Vec<u8>,
     /// `true` iff the packed foma payload is the grammar's own compiled network rather than `PLACEHOLDER_FOMA_PAYLOAD`.
     pub foma_payload_is_real: bool,
+    /// `true` iff `--watchdog` actually killed the compile-worker process; `false` whenever the worker ran to completion, regardless of the flag.
+    pub worker_containment_failed: bool,
 }
 
 /// Builds one `.pgpack` in memory: capability-trust stamp, required-runtime-feature set, FST-health report, and the written `pg_pack::write_pack` container bytes. `semantics` must be `GrammarSemantics::derive`d from `grammar`, so callers pay for the grammar walk once.
@@ -495,6 +497,7 @@ pub(crate) fn build_pack(
 
     // ---- FST health, plus the real foma payload when this same compile succeeds ----------------
     let capability_overridden = matches!(capability_trust, CapabilityTrust::Overridden(_));
+    let mut worker_containment_failed = false;
     let (
         mut fst_health,
         real_foma_payload,
@@ -508,7 +511,9 @@ pub(crate) fn build_pack(
         Option<String>,
         Option<EmitReport>,
     ) = if watchdog {
-        let health = run_fst_health_under_watchdog(grammar_path, size_mode)?;
+        let (health, containment_failed) =
+            run_fst_health_under_watchdog(grammar_path, size_mode)?;
+        worker_containment_failed = containment_failed;
         (
             health.clone(),
             None,
@@ -610,6 +615,8 @@ pub(crate) fn build_pack(
         grammar_id,
         package_fingerprint,
         required_runtime_features,
+        resource_envelope_id: ResourceEnvelopeId::ManagedV1,
+        compile_size_mode: size_mode,
         capability_trust,
         fst_health,
         backend_assessments,
@@ -628,6 +635,7 @@ pub(crate) fn build_pack(
         manifest,
         bytes,
         foma_payload_is_real,
+        worker_containment_failed,
     })
 }
 
@@ -644,11 +652,16 @@ fn infer_grammar_format(grammar_path: &str) -> pg_foma::worker::GrammarFormat {
     }
 }
 
-/// Runs the FST-health compile in a re-exec'd `__compile-worker-child` process under a killable watchdog, mapping the outcome to a `HealthReport`.
+/// `true` iff the supervisor observed anything other than the child completing on its own -- never just the `--watchdog` flag having been passed.
+fn worker_containment_fired(outcome: &pg_foma::worker::WorkerOutcome) -> bool {
+    !matches!(outcome, pg_foma::worker::WorkerOutcome::Completed(_))
+}
+
+/// Runs the FST-health compile in a re-exec'd `__compile-worker-child` process under a killable watchdog, mapping the outcome to a `HealthReport` and reporting whether the supervisor actually killed the child (a real worker-containment event, as opposed to the child completing on its own).
 fn run_fst_health_under_watchdog(
     grammar_path: &str,
     size_mode: CompileSizeMode,
-) -> Result<pg_foma::health::HealthReport, String> {
+) -> Result<(pg_foma::health::HealthReport, bool), String> {
     let format = infer_grammar_format(grammar_path);
     let mut request = pg_foma::worker::CompileWorkerRequest::new(grammar_path.to_string(), format);
     request.size_mode = size_mode;
@@ -662,7 +675,8 @@ fn run_fst_health_under_watchdog(
         &envelope,
     );
     eprintln!("watchdog: compile-worker outcome: {outcome:?}");
-    Ok(outcome.health_report())
+    let worker_containment_failed = worker_containment_fired(&outcome);
+    Ok((outcome.health_report(), worker_containment_failed))
 }
 
 #[cfg(test)]
@@ -891,6 +905,38 @@ mod tests {
             .all(|finding| finding.override_record.is_none()));
     }
 
+    /// A completed watchdog run must not be reported as a worker containment failure just because the flag was passed.
+    #[test]
+    fn watchdog_flag_without_actual_containment_does_not_report_containment_failure() {
+        let health = synthetic_health(Severity::Warning);
+        let outcome = pg_foma::worker::WorkerOutcome::Completed(
+            pg_foma::worker::CompileWorkerOutcome::Success {
+                final_state_count: Some(1),
+                final_arc_count: Some(1),
+                uncovered_count: 0,
+                health: health.clone(),
+            },
+        );
+
+        assert!(!worker_containment_fired(&outcome));
+        assert!(validate_health_readiness(&health, worker_containment_fired(&outcome)).is_ok());
+    }
+
+    /// The same mapping must still report a real supervisor-observed kill as a containment failure.
+    #[test]
+    fn watchdog_kill_is_reported_as_worker_containment_failure() {
+        let health = synthetic_health(Severity::Warning);
+        let outcome = pg_foma::worker::WorkerOutcome::WallTimeoutKilled {
+            elapsed: std::time::Duration::from_secs(5),
+            limit: std::time::Duration::from_secs(1),
+        };
+
+        assert!(worker_containment_fired(&outcome));
+        let error =
+            validate_health_readiness(&health, worker_containment_fired(&outcome)).unwrap_err();
+        assert!(error.contains("worker containment failure"));
+    }
+
     /// A fresh, collision-free scratch directory per test.
     fn scratch_dir(tag: &str) -> std::path::PathBuf {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -1032,6 +1078,48 @@ mod tests {
         assert_eq!(completeness.pending_successors, 0);
         assert!(!completeness.enumeration_budget_exceeded);
         assert!(completeness.compiled_payload_present);
+    }
+
+    /// A managed-mode pack records the shipped default envelope and `CompileSizeMode::Managed`.
+    #[test]
+    fn managed_build_records_managed_v1_envelope_and_size_mode() {
+        let (result, out_path) = run_pack_raw("managed-envelope", CLEAN_GRAMMAR_XML, &[]);
+        assert!(
+            result.is_ok(),
+            "clean grammar must pack successfully: {result:?}"
+        );
+
+        let bytes = std::fs::read(&out_path).expect("read out.pgpack");
+        let read = pg_pack::read_pack(&bytes).expect("a pack this command wrote must read back");
+        assert_eq!(read.manifest.resource_envelope_id, ResourceEnvelopeId::ManagedV1);
+        assert_eq!(read.manifest.compile_size_mode, CompileSizeMode::Managed);
+    }
+
+    /// Pin: a `--remove-size-limits` build must record `CompileSizeMode::DeveloperStress`, never silently fall back to `Managed`.
+    #[cfg(feature = "developer-tools")]
+    #[test]
+    fn developer_stress_build_records_developer_stress_size_mode() {
+        let (result, out_path) = run_pack_raw(
+            "developer-stress-envelope",
+            CLEAN_GRAMMAR_XML,
+            &["--remove-size-limits"],
+        );
+        assert!(
+            result.is_ok(),
+            "clean grammar under --remove-size-limits must pack successfully: {result:?}"
+        );
+
+        let bytes = std::fs::read(&out_path).expect("read out.pgpack");
+        let read = pg_pack::read_pack(&bytes).expect("a pack this command wrote must read back");
+        assert_eq!(
+            read.manifest.compile_size_mode,
+            CompileSizeMode::DeveloperStress
+        );
+        assert_eq!(
+            read.manifest.resource_envelope_id,
+            ResourceEnvelopeId::ManagedV1,
+            "this step only records the envelope already in use, never changes which one is selected"
+        );
     }
 
     /// A `Refuse`-verdict grammar with no `--allow-unproven`: pack must fail and write no file.

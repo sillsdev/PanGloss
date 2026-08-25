@@ -227,6 +227,8 @@ mod tests {
             grammar_id: "synthetic-wasm-wiring-grammar".to_string(),
             package_fingerprint: pg_pack::fingerprint_hex(runtime_payload, foma_payload),
             required_runtime_features,
+            resource_envelope_id: pg_foma::resource_envelope::ResourceEnvelopeId::ManagedV1,
+            compile_size_mode: pg_foma::resource_envelope::CompileSizeMode::Managed,
             capability_trust,
             fst_health: HealthReport::new(Vec::new()),
             backend_assessments: vec![],
