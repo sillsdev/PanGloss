@@ -123,10 +123,8 @@ pub(crate) fn stratum_metrics(
 
 /// Every `Unordered` stratum's own `UnorderedStratumMetrics` (`stratum_metrics`, filtered to
 /// `MorphRuleOrder::Unordered` strata only) -- this module's own tests use this directly; production
-/// code goes through `check_unordered_strata_bound`. `#[allow(dead_code)]`: only this module's
-/// `#[cfg(test)]` tests call it (a plain `--lib` build never does), mirroring
-/// `crate::compose_budget::ComposeBudget::chain_depth_cap`'s own convention for a test-only reader.
-#[allow(dead_code)]
+/// code goes through `check_unordered_strata_bound`.
+#[cfg(test)]
 pub(crate) fn unordered_stratum_metrics(g: &Grammar) -> Vec<UnorderedStratumMetrics> {
     g.strata
         .iter()
