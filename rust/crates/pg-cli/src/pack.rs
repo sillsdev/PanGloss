@@ -219,21 +219,20 @@ pub(crate) fn validate_health_readiness(
     worker_containment: bool,
 ) -> Result<(), String> {
     let admission = report.admission_without_overrides();
+    let by_class = report.admission_by_class().render();
     if worker_containment {
-        return Err(
-            "FST health is a worker containment failure; it cannot be overridden and no .pgpack was written"
-                .to_string(),
-        );
+        return Err(format!(
+            "FST health is a worker containment failure; it cannot be overridden and no .pgpack was written ({by_class})"
+        ));
     }
     if report
         .findings
         .iter()
         .any(|finding| finding.phase == Phase::Apply && finding.severity >= Severity::NotProductionReady)
     {
-        return Err(
-            "FST health is an apply containment failure; it cannot be overridden and no .pgpack was written"
-                .to_string(),
-        );
+        return Err(format!(
+            "FST health is an apply containment failure; it cannot be overridden and no .pgpack was written ({by_class})"
+        ));
     }
     if report
         .findings
@@ -241,7 +240,7 @@ pub(crate) fn validate_health_readiness(
         .any(|finding| finding.severity >= Severity::NotProductionReady)
     {
         return Err(format!(
-            "FST health is {admission:?}; no .pgpack was written. A correctness override cannot admit an oversized artifact, a contained attempt, or an unrepresentable feature."
+            "FST health is {admission:?}; no .pgpack was written. A correctness override cannot admit an oversized artifact, a contained attempt, or an unrepresentable feature. ({by_class})"
         ));
     }
     Ok(())
@@ -363,7 +362,7 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
 
     eprintln!(
         "pack complete: {out_path} ({} bytes) -- capability_trust={}, required_runtime_features={:?}, \
-         fst_health admission={:?}. NOTE: the runtime payload section is an honestly-labeled \
+         fst_health admission={:?} ({}). NOTE: the runtime payload section is an honestly-labeled \
          PLACEHOLDER (no Rust-HermitCrab runtime-payload serializer exists yet anywhere in this \
          workspace -- see this module's own doc). The foma payload section is {} -- do not treat a \
          placeholder section as a usable compiled artifact.",
@@ -371,6 +370,7 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
         if built.manifest.capability_trust.is_unproven() { "overridden/unproven" } else { "proven" },
         built.manifest.required_runtime_features.runtime_operations,
         built.manifest.fst_health.admission(),
+        built.manifest.fst_health.admission_by_class().render(),
         if built.foma_payload_is_real {
             "REAL compiled-network bytes (foma::io::fsm_write_binary, the same encoding \
              fsm_read_binary_mem reads back)"
@@ -716,6 +716,53 @@ mod tests {
         assert!(error.contains("no .pgpack was written"));
         assert_eq!(report.admission(), Severity::NotProductionReady);
         assert!(report.findings[0].override_record.is_none());
+    }
+
+    /// The refusal message must name the failing axis, not just the collapsed severity band.
+    #[test]
+    fn readiness_refusal_message_names_the_failing_axis() {
+        let report = synthetic_health(Severity::NotProductionReady);
+        let error = validate_health_readiness(&report, false).unwrap_err();
+        assert!(
+            error.contains("containment=NotProductionReady"),
+            "expected the per-axis breakdown in the refusal message: {error}"
+        );
+        assert!(error.contains("representability=WithinLimits"));
+        assert!(error.contains("readiness=WithinLimits"));
+        assert!(error.contains("process=WithinLimits"));
+    }
+
+    /// Regression guard: the richer refusal message must not move which reports get refused.
+    #[test]
+    fn validate_health_readiness_decision_matrix_is_unchanged() {
+        let severities = [
+            Severity::WithinLimits,
+            Severity::Elevated,
+            Severity::LargeMultiplier,
+            Severity::NotProductionReady,
+            Severity::MachineLimit,
+            Severity::CannotRepresent,
+        ];
+        let phases = [Phase::Characterization, Phase::Compile, Phase::Apply];
+        for &severity in &severities {
+            for &phase in &phases {
+                for &worker_containment in &[false, true] {
+                    let mut report = synthetic_health(severity);
+                    report.findings[0].phase = phase;
+
+                    let expected_ok = !worker_containment
+                        && !(phase == Phase::Apply && severity >= Severity::NotProductionReady)
+                        && severity < Severity::NotProductionReady;
+
+                    let actual_ok = validate_health_readiness(&report, worker_containment).is_ok();
+                    assert_eq!(
+                        actual_ok, expected_ok,
+                        "severity={severity:?} phase={phase:?} worker_containment={worker_containment} \
+                         must decide ok={expected_ok}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

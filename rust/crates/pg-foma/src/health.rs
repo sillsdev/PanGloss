@@ -650,6 +650,17 @@ pub struct AdmissionByClass {
     pub process: Severity,
 }
 
+impl AdmissionByClass {
+    /// A single-line rendering of all four fields, for a report surface that already prints the
+    /// plain `HealthReport::admission` value and wants the per-axis breakdown alongside it.
+    pub fn render(&self) -> String {
+        format!(
+            "representability={:?}, readiness={:?}, containment={:?}, process={:?}",
+            self.representability, self.readiness, self.containment, self.process
+        )
+    }
+}
+
 impl HealthReport {
     /// Builds a report stamped with the current `HEALTH_SCHEMA_VERSION`.
     pub fn new(findings: Vec<HealthFinding>) -> Self {
@@ -1244,6 +1255,19 @@ mod tests {
         );
         assert_eq!(by_class.readiness, Severity::WithinLimits);
         assert_eq!(by_class.process, Severity::WithinLimits);
+    }
+
+    #[test]
+    fn admission_by_class_render_names_all_four_axes() {
+        let report = HealthReport::new(vec![
+            class_finding(FindingCode::ResourceBudgetReached, Severity::NotProductionReady), // Containment
+            class_finding(FindingCode::BackendCoverageIncomplete, Severity::CannotRepresent), // Representability
+        ]);
+        assert_eq!(
+            report.admission_by_class().render(),
+            "representability=CannotRepresent, readiness=WithinLimits, \
+             containment=NotProductionReady, process=WithinLimits"
+        );
     }
 
     #[test]

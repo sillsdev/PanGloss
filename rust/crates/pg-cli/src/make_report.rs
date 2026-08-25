@@ -674,6 +674,16 @@ fn render_markdown_with_assessments(
         writeln!(out).unwrap();
         writeln!(out, "Raw readiness findings from the pack; capability trust is reported separately and legacy health override records are non-admitting.").unwrap();
         writeln!(out).unwrap();
+        if let Some(report) = fst_health {
+            writeln!(
+                out,
+                "Admission: `{:?}` ({})",
+                report.admission(),
+                report.admission_by_class().render()
+            )
+            .unwrap();
+            writeln!(out).unwrap();
+        }
         writeln!(out, "{findings}").unwrap();
         writeln!(out).unwrap();
     }
@@ -1388,6 +1398,22 @@ mod tests {
         assert!(text.contains("flowchart"), "{text}");
         // Build time must be reported (never silently omitted).
         assert!(text.contains("## Build time"), "{text}");
+    }
+
+    /// The FST health section must show the per-axis breakdown, not just the collapsed band.
+    #[test]
+    fn fst_health_section_shows_the_per_axis_breakdown() {
+        let (result, out_path) = run_make_report_raw("admission-axes", ADMIT_GRAMMAR_XML, &["--repeats=1"]);
+        assert!(result.is_ok(), "{result:?}");
+        let text = fs::read_to_string(&out_path).expect("read report.md");
+        assert!(text.contains("## FST health findings"), "{text}");
+        assert!(
+            text.contains("Admission:") && text.contains("representability="),
+            "expected an Admission line naming all four axes: {text}"
+        );
+        for axis in ["representability=", "readiness=", "containment=", "process="] {
+            assert!(text.contains(axis), "missing axis {axis:?}: {text}");
+        }
     }
 
     /// Render-layer proof: not-assessed coverage never appears as `PASS`, even on a grammar that would otherwise certify cleanly.
