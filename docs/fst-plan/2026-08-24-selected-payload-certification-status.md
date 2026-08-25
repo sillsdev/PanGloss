@@ -100,10 +100,17 @@ they differ in one dimension only:
 
 Both carry identical enumeration caps, so the gate is not naming the wrong envelope — no envelope
 raising the dimension that actually bound exists. Certifying Indonesian therefore requires a
-**decision**, not a fix: raise the shipped enumeration budget, add a third named retry envelope with
-a larger one, or make the completed-build closure incremental so it need not finish inside one
-budget. Each changes what ships. An envelope id is serialized into completion evidence, the worker
-wire protocol, and the envelope digest, so adding one is a compatibility-bearing change and not a
+**decision**, not a fix. Under the current model
+(`docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`), the
+remedy for an artificial internal cap is not a bigger fixed named envelope — a bigger number is
+still a guess about whether the real cost sits inside or outside it, and finding out only after
+picking one is exactly the outcome the model rejects. The remedy is to give this stop reason a
+retry path into internal-caps-removed mode, bounded only by machine containment, which resolves to
+exactly two outcomes: the closure fits, or the attempt hits `MachineLimit`. Making the
+completed-build closure incremental, so it need not finish inside one budget at all, remains a
+separate, still-open alternative. Each changes what ships. An envelope id is serialized into
+completion evidence, the worker wire protocol, and the envelope digest, so adding a new envelope
+variant (if that path were chosen instead) would still be a compatibility-bearing change and not a
 local edit.
 
 That is the whole remaining distance between this branch and 1-of-3 certified.
@@ -124,25 +131,31 @@ different envelope carrying the same enumeration caps produces the same terminal
 Two qualifications, so this is not read as more alarming than it is. Nothing in production reads
 `retry_authorization()` today — the only callers are in `closure_terminal_parity_gate.rs` — so no
 shipped code path currently performs a futile retry; the gap is latent. And the authorization itself
-is correct evidence: the failure genuinely *is* the retryable kind. What is missing is an envelope
-worth retrying into.
+is correct evidence: the failure genuinely *is* the retryable kind. What is missing is a retry path
+this stop reason could actually use.
 
 The trip site names the same asymmetry from the other side. `emit.rs:4413` reaches
 `enum_budget.trip_reason()` and reports "grammar exceeds the foma-engine's eager-enumeration budget
 … a floor, not a total (limit {limit}; Aweti's measured uncapped total is ~15x this cap)". A cap
-routinely exceeded by an order of magnitude, declared retryable, with no larger envelope to retry
-into.
+routinely exceeded by an order of magnitude, declared retryable, with no escalation path that would
+actually help.
 
-Two coherent resolutions, and they are opposites:
+Two coherent resolutions, not the "add a bigger envelope" framing this document used before the
+current model superseded it — a fixed, larger enumeration cap is still an arbitrary guessed number,
+not a decision about whether the real cost is bounded at all:
 
-1. Add an envelope that raises the enumeration caps, giving the authorization somewhere to escalate
-   to. This is the only path that could certify Indonesian.
+1. Give this stop reason a retry path into internal-caps-removed mode — the same mechanism
+   `--remove-size-limits` exposes to developers — bounded only by machine containment, rather than
+   into another fixed enumeration ceiling. That resolves to exactly two outcomes, fits or
+   `MachineLimit`, and either answer is informative in a way a bigger guessed number is not. This is
+   the path that could certify Indonesian.
 2. Remove `EnumerationBudgetReached` from the retryable set, so the condition reports as terminal
-   and no caller is invited to escalate into an envelope that cannot help.
+   and no caller is invited to escalate into a fixed envelope that cannot help.
 
-Option 1 is the one that unblocks certification; option 2 only removes a misleading affordance.
-Whichever is chosen should be decided before any caller starts acting on `retry_authorization()`,
-because today none does and the choice is still free.
+Resolution 1 is the one that unblocks certification; resolution 2 only removes a misleading
+affordance without fixing the underlying cap. Whichever is chosen should be decided before any
+caller starts acting on `retry_authorization()`, because today none does and the choice is still
+free.
 
 **A trap worth naming:** the repo's own `samples/data/indonesian-words.txt` (750 bytes) does **not**
 match the lock's `sourceSha256`; the recovered copy (1,105 bytes) does. Populating `samples/data`
@@ -184,8 +197,8 @@ This was a targeted run, not `-Mode corpus-test`, and it does not claim that sui
 `capability.rs`'s `templated_shape_floor` refuses any grammar carrying a `Role::Infix` allomorph.
 The reason string is explicit: "Role::Infix is handled only by the emitter's uncovered-role branch;
 the templated proposer has no Copy-Insert-Copy/infix entry". Amharic's productive morphology is
-root-and-pattern interdigitation, so this is a categorical refusal, not a budget that a larger
-envelope could raise.
+root-and-pattern interdigitation, so this is a categorical `CannotRepresent` refusal, not a budget
+that a larger envelope could raise.
 
 `five_language_backend_reports_gate.rs::amharic_backend_reports_are_complete` calls
 `assert_default_resource_no_path`, which asserts `is_no_path()`, `preferred() == None`, and
@@ -207,7 +220,7 @@ The templated/cascade construction is much closer: it compiles all 18 phonologic
 three seconds and recalls 100 of 106 oracle-bearing words, with six named residual misses. Two
 things still block certification: those six misses against this project's 100%-recall bar, and the
 fact that `backend_selection` does not admit the templated route for an Aweti-shaped grammar at all
-— `aweti_backend_reports_are_complete` likewise asserts no path.
+— `aweti_backend_reports_are_complete` likewise asserts no backend is admitted (`is_no_path()`).
 
 ## The four net-queryable regressions are the same blocker
 
@@ -346,9 +359,10 @@ regression from this branch:
 - the four recipe-optimizer failures above;
 - `morphotactics_boundary_cleanup_slice::templated_query_accepts_a_surface_with_an_explicit_boundary`
   — templated compile refuses a grammar carrying infix and reduplication rules as "not representable
-  (v1)", the same categorical gap that blocks Amharic;
+  (v1)" (a `CannotRepresent` refusal), the same categorical gap that blocks Amharic;
 - `pack::tests::pack_redup_grammar_declares_reduplication_peel_runtime_feature` — the pack-level
-  policy that correctness overrides may not admit an `Error`/`Critical` readiness finding;
+  policy that correctness overrides may not admit a `NotProductionReady`/`CannotRepresent`
+  readiness finding;
 - `capability_gate_tests::run_batch_foma_engine_no_enforce_capability_proceeds_for_permanently_refused`
   — this one is a latent inconsistency between two tests rather than a compiler gap.
   `capability_gate`'s `!enforce` branch returns `overridden: false` (and
