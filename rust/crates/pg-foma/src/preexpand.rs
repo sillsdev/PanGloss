@@ -120,7 +120,7 @@
 //! (pruned exploration subset-of flat exploration by construction, so emitted composites are a
 //! subset in the same relative order -- recall-preserving, never widening). See that module's own
 //! doc for the full automaton design (loose-rule strata / template-slot sites / the vacuous-slot
-//! recall trap) and the plan doc for the sizing investigation that motivated it.
+//! recall trap).
 
 use pg_featstruct::{flat_unifiable, is_unifiable, FsId};
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
@@ -147,14 +147,9 @@ use crate::tags;
 /// (`morph_order_tags`). Wired by `emit.rs` into one shared `Composites` lexicon reachable from
 /// every roots-lexicon emission site (bare `Root`, `TLRoots`, each `G{gi}Roots`) and continuing
 /// into `CompositeExit` (the union of every post-root continuation), so an interdigitated/fused
-/// stem can still take ordinary prefixes/suffixes around it (plan P1d interaction item 4:
-/// root-section replacement, not bare-only).
+/// stem can still take ordinary prefixes/suffixes around it (root-section replacement, not
+/// bare-only).
 pub(crate) struct CompositeRec {
-    /// The root morpheme this composite is anchored to (bookkeeping/diagnostics only; kept for a
-    /// future gate/debug print that wants to group composite counts by root without re-deriving it
-    /// from `tag_lexc`).
-    #[allow(dead_code)]
-    pub morpheme: MorphemeId,
     /// Every morpheme whose tag appears in `tag_lexc`, as `(is_root, id)` — `emit.rs` declares each
     /// in `Multichar_Symbols` (an Infix rule's morpheme is in NO deriv layer or slot, so no other
     /// collection site would declare it).
@@ -174,12 +169,12 @@ pub struct CompositeReport {
     /// (root allomorph, candidate rule) pairs actually attempted (after the cheap required-FS
     /// pre-filter) -- the module doc's scale-bridge number.
     pub pairs_probed: usize,
-    /// Same count, broken down by recursion depth (0-indexed) -- morphotactic-pruning-plan doc
-    /// "Instrumentation": the dynamic tree is the real unknown pruning must be measured against,
-    /// and a flat total alone can't show WHERE the cost concentrates.
+    /// Same count, broken down by recursion depth (0-indexed) -- the dynamic tree is the real
+    /// unknown pruning must be measured against, and a flat total alone can't show WHERE the cost
+    /// concentrates.
     pub pairs_probed_by_depth: Vec<usize>,
-    /// Number of probed pairs where `synthesize_cached` returned at least one word (morphotactic-
-    /// pruning-plan doc "Instrumentation") -- the dynamic-filter yield counterpart to `pairs_probed`.
+    /// Number of probed pairs where `synthesize_cached` returned at least one word -- the
+    /// dynamic-filter yield counterpart to `pairs_probed`.
     pub synth_successes: usize,
     /// Composite entries emitted for `Role::Infix` rules (miss class 5a).
     pub interdigitation_entries: usize,
@@ -762,7 +757,6 @@ fn extend(
                     .collect();
                 if !new_variants.is_empty() {
                     acc.recs.push(CompositeRec {
-                        morpheme: next_chain[0].0,
                         // `next_chain[0]` is always the seeding root; later elements are rules.
                         chain_morphemes: next_chain
                             .iter()
@@ -939,15 +933,9 @@ fn process_root_work(
 /// `build_composites`'s thin, env-driven wrapper: builds its own `MorphotacticIndex` (grammar-
 /// cheap -- linear in rules/templates/slots, never the expensive recursive probe), resolves
 /// `ExploreMode` from `HC_PREEXPAND_FLAT`, and an optional `ProbeBudget` from
-/// `HC_PREEXPAND_PROBE_CAP`, purely for callers/tests that don't already have their own (the
-/// PRODUCTION path -- `crate::emit::emit_with_precision` -- builds ONE shared
-/// `MorphotacticIndex`/`ProbeBudget` for BOTH composite builders instead and calls
-/// `build_composites_with_mode` directly; see that function's doc). `#[allow(dead_code)]`: no
-/// non-test caller needs this convenience wrapper today (only `pruning_tests::
-/// build_composites_thin_wrapper_defaults_to_pruned` exercises it) -- kept per the plan doc's own
-/// "keep `build_composites` as thin wrapper... for any other callers/tests" instruction, same as
-/// `#[cfg(test)]`-only accessors elsewhere in this crate.
-#[allow(dead_code)]
+/// `HC_PREEXPAND_PROBE_CAP`. Test-only: a convenience wrapper for tests that don't need a shared
+/// `MorphotacticIndex`/`ProbeBudget`.
+#[cfg(test)]
 pub(crate) fn build_composites(
     g: &Grammar,
     width: usize,
@@ -961,7 +949,7 @@ pub(crate) fn build_composites(
         cap,
         counter: &counter,
     });
-    // Default-on budget, env-driven like everything else in this thin wrapper; production callers build their own and call `build_composites_with_mode` directly.
+    // Default-on budget, env-driven like everything else in this thin wrapper.
     let enum_budget = EnumerationBudget::from_env();
     build_composites_with_mode(g, width, phon, &mt, mode, probe_budget, &enum_budget)
 }
@@ -997,6 +985,7 @@ pub(crate) fn build_composites(
 /// and already safe under concurrent access (its own doc) -- pre-warmed by
 /// `build_rule_variants_all_tables` below so the parallel root workers never race a first-touch
 /// compute into them.
+#[cfg(test)]
 pub(crate) fn build_composites_with_mode(
     g: &Grammar,
     width: usize,

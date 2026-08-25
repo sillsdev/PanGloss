@@ -3451,7 +3451,6 @@ fn struct_extend(
                 acc.covered_rules.insert(mid.0);
                 if acc.seen.insert((tag_lexc.clone(), s.clone())) {
                     acc.recs.push(crate::preexpand::CompositeRec {
-                        morpheme: next_chain[0].0,
                         chain_morphemes: next_chain
                             .iter()
                             .enumerate()
