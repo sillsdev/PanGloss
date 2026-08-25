@@ -2228,16 +2228,6 @@ mod tests {
         parity_fixture_grammar()
     }
 
-    fn load_machine_fixture(path: &str) -> Grammar {
-        let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../machine/conformance")
-            .join(path);
-        let xml = std::fs::read_to_string(&full)
-            .unwrap_or_else(|error| panic!("{}: {error}", full.display()));
-        pg_grammar::load(&xml)
-            .unwrap_or_else(|error| panic!("{} failed to load: {error}", full.display()))
-    }
-
     #[test]
     fn order_is_irrelevant() {
         let g = fixture();
