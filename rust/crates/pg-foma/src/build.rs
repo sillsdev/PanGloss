@@ -562,7 +562,7 @@ fn find_gate_node(plan: &Plan) -> NodeId {
 }
 
 /// One gate group's `Compose` node, resolved to its two children `(lexicon_leaf, replace_node)`. Panics on any other child count.
-fn gate_group_children(plan: &Plan, compose_id: NodeId) -> (NodeId, NodeId) {
+pub(crate) fn gate_group_children(plan: &Plan, compose_id: NodeId) -> (NodeId, NodeId) {
     let PlanNodeKind::Compose { children, .. } = plan
         .get(compose_id)
         .unwrap_or_else(|| panic!("dangling Compose NodeId {compose_id} in plan"))
@@ -580,7 +580,7 @@ fn gate_group_children(plan: &Plan, compose_id: NodeId) -> (NodeId, NodeId) {
 }
 
 /// A gate group's `LexiconFragment` leaf, resolved to its `entries` list. Panics if the leaf isn't a `LexiconFragment` or `entries` is `None`.
-fn lexicon_fragment_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> {
+pub(crate) fn lexicon_fragment_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> {
     let PlanNodeKind::Leaf { fragment, .. } = plan
         .get(lexicon_id)
         .unwrap_or_else(|| panic!("dangling LexiconFragment NodeId {lexicon_id}"))
