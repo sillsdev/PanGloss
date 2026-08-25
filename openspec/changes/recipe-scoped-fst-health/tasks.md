@@ -36,12 +36,11 @@ outstanding rather than trusted from its notes.
 
 ## 4. The size bands report production readiness; the exact edges are provisional
 
-**Thresholds stay as managed-envelope readiness findings.** A gigabyte-scale compiled grammar is
-not production-ready and its author has to be told, but health does not decide representability.
-An Error may be attempted in developer stress mode with hidden `--remove-size-limits`; a complete
-exact/parity-verified result remains Error and cannot publish. Hidden `--allow-unproven` is a
-separate correctness override that may omit valid parses and is never production/publication/
-certification authority. `--no-enforce-capability` remains legacy developer-only/non-production.
+**Thresholds stay as readiness findings.** A large compiled grammar is reported, but health does
+not decide representability or select a backend. Explicit stress attempts may configure higher but
+still-finite execution limits. Hidden `--allow-unproven` is for local correctness testing only and
+never removes limits. Publication rejects unproven artifacts. Delete `--remove-size-limits` and
+`--no-enforce-capability` rather than preserving compatibility.
 
 - [ ] 4.1 Recalibrate `*_MAX_BYTES` from the spread across several backends and several grammars.
       The reasoning behind the current edges is a judgment, not a measurement: a grammar is on the
@@ -55,13 +54,12 @@ certification authority. `--no-enforce-capability` remains legacy developer-only
 
 - [ ] 5.1 Wire production publication/selection to refuse a correctness/capability Critical or
       any incomplete, truncated, skipped, or parity-unverified result. A health Error remains a
-      production-readiness refusal under the managed envelope, but may be attempted by explicit
+      production-readiness refusal under configured execution limits, but may be attempted by explicit
       developer stress control and never becomes a trusted production result merely because it
       completed.
-- [ ] 5.2 Test the two hidden developer-only switches independently: `--allow-unproven` may omit
-      valid parses and never publishes/certifies; `--remove-size-limits` removes only internal
-      deterministic size/work caps and retains host safety, capability, completion, payload, and
-      parity checks.
+- [ ] 5.2 Test that local `--allow-unproven` may omit valid parses, never publishes, and never
+      disables execution limits. Test that the retired `--remove-size-limits` and
+      `--no-enforce-capability` spellings are rejected.
 
 ## 6. Verification
 

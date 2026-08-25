@@ -20,7 +20,7 @@ Execution order, prerequisites, and exclusive ownership are governed by
   it exercises; t-wise coverage over composition-types is a CI report, flagging node-kind
   interactions with zero covering fixtures.
 - Covering arrays are primary evidence; seeded random fuzzing is a secondary discovery tool. Failures
-  minimize to named recipes under the same resource envelope.
+  minimize to named recipes under the same configured execution limits.
 - Reports include required, covered, uncovered, orthogonality-retired, and contains-unsupported
   node-kind tuples; `interaction_coverage=complete` requires zero uncovered required tuples.
 

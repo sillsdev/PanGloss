@@ -38,15 +38,11 @@ recipe. That is the most valuable form the advice can take, because it converts 
 route.
 
 **Report the resulting size, per recipe, as readiness evidence.** States, arcs and on-disk bytes
-for what each recipe actually produced remain measurements, and the health bands describe
-production readiness under the managed envelope. `Error` means not production-ready; it does not
-change correctness or forbid an explicit developer stress attempt. A complete exact,
-parity-verified stress result may be accurate evidence while retaining Error. Hidden
-`--remove-size-limits` disables only internal deterministic size/work caps and retains worker
-isolation, bounded I/O, external watchdog/RSS/absolute ceilings, capability checks, completion,
-finalized payload, and parity. Hidden `--allow-unproven` is a separate developer-only correctness
-override that may omit valid parses, is rejected in production/publication/certification, and does
-not remove limits. `--no-enforce-capability` is legacy developer-only/non-production.
+for what each recipe actually produced remain measurements. A crossed health band does not change
+correctness or choose a backend automatically. Explicit stress attempts may configure higher but
+still-finite compile execution limits. Hidden `--allow-unproven` is for local correctness testing,
+may omit valid parses, is rejected by publication, and never removes execution limits. The legacy
+`--no-enforce-capability` and `--remove-size-limits` controls are deleted rather than preserved.
 
 **Carried from the archived change**, each verified as genuinely outstanding rather than trusted from
 its notes:

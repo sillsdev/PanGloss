@@ -29,7 +29,7 @@
       CLI's `--allow-unproven` path yet; that path only emits a stderr marker, per 4.1)
 - [ ] 4.4 Compile the override parsing/help/API out of production builds and reject the spelling;
       prove it remains developer-only, may omit valid parses, never publishes/certifies, does not
-      remove resource containment, and is distinct from `--remove-size-limits` stress execution.
+      remove execution limits. Delete `--remove-size-limits` and reject its spelling.
 
 ## 5. Conformance-coverage CI gate
 - [ ] 5.1 Cross-check capability registry against `machine/conformance/` coverage; break build on gap
