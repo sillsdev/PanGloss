@@ -845,16 +845,6 @@ mod tests {
     }
 
     #[test]
-    fn manifest_bridge_accepts_an_explicit_characterization_limit() {
-        let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
-        assert!(
-            tuned_surface_resource_finding_with_limit(&grammar, usize::MAX).is_none(),
-            "the explicit manifest bridge limit must rerun the complete characterization rather than \
-             preserving the earlier refusal"
-        );
-    }
-
-    #[test]
     fn tuned_surface_resource_finding_includes_preexpand_rule_pairs() {
         let grammar =
             load_machine_fixture("languages/suffixing-extension-slot-ordering/grammar.xml");

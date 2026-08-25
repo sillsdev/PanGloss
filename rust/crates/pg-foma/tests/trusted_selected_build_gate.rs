@@ -116,7 +116,6 @@ fn assert_selected_payload_route(
     assert_eq!(selected.evidence().requested_strategy(), expected_strategy);
     assert_eq!(selected.evidence().realized_strategy(), expected_strategy);
     assert_eq!(selected.evidence().grammar_identity(), grammar_id);
-    assert_eq!(selected.evidence().envelope_id(), request.envelope_id());
     assert_eq!(selected.evidence().completion_proof_kind(), expected_proof);
     assert!(selected.evidence().is_trusted_complete());
     assert!(!selected.payload_bytes().is_empty());
@@ -182,12 +181,12 @@ fn stale_completed_build_evidence_is_rejected_before_runtime() {
     .expect("fixture must produce a completed build");
     let grammar_id = grammar_identity(&grammar);
 
-    let other_request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::TunedSurfaceWork10kV1)
-        .expect("retry envelope request");
+    let other_request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
+        .expect("second attempt request");
     assert!(
         select_completed_build(&selection, vec![build], &other_request, &grammar_id)
             .is_err(),
-        "a build from another envelope must not become a selected artifact"
+        "a build from another attempt must not become a selected artifact"
     );
     let build = compile_completed_backend(
         &grammar,

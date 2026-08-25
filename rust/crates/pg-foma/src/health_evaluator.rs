@@ -1145,8 +1145,8 @@ mod tests {
             finding
                 .remedies
                 .iter()
-                .any(|remedy| remedy.description.contains("internal size/work caps removed")),
-            "a containment stop must name the caps-removed retry route: {:?}",
+                .all(|remedy| !remedy.description.contains("internal size/work caps removed")),
+            "active containment remedies must not advertise removed internal caps: {:?}",
             finding.remedies
         );
     }

@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn incomplete_closure_error_preserves_frontier_evidence() {
-        let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::TunedSurfaceWork10kV1);
+        let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
         let closure = CharacterizationResult {
             terminal: ClosureTerminal::Incomplete(
                 crate::characterization::ClosureStopReason::WorkBudgetReached,
