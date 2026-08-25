@@ -452,12 +452,14 @@ CREATE TABLE stratum (
   key        TEXT,
   label      TEXT
 );
+CREATE UNIQUE INDEX stratum_key ON stratum(key);
 
 CREATE TABLE allomorph (
   allomorph_id INTEGER PRIMARY KEY, -- 0 = NONE sentinel: cost belonging to no allomorph
   key          TEXT,
   label        TEXT
 );
+CREATE UNIQUE INDEX allomorph_key ON allomorph(key);
 
 CREATE TABLE word (
   word_id       INTEGER PRIMARY KEY,

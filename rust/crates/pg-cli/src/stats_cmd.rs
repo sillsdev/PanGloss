@@ -546,12 +546,14 @@ fn unmeasured_json(
         .collect();
     let mut map = map;
     if orientation == "allomorph" && engine != "foma" {
-        map.insert(
-            "attempts".to_string(),
-            serde_json::Value::String(
-                "MorphRule named-allomorph rows have rule-level attempts only".to_string(),
-            ),
-        );
+        for counter in ["attempts", "uses", "no_root"] {
+            map.insert(
+                counter.to_string(),
+                serde_json::Value::String(format!(
+                    "MorphRule named-allomorph rows have rule-level {counter} only"
+                )),
+            );
+        }
     }
     serde_json::Value::Object(map)
 }
@@ -1561,11 +1563,10 @@ fn render_never_fires(
     }
 }
 
-fn render_default(conn: &rusqlite::Connection) -> Result<String, String> {
-    let default_filters = Filters::default();
-    let mut out = render_word(conn, &default_filters, OutputFormat::Text)?;
+fn render_default(conn: &rusqlite::Connection, filters: &Filters) -> Result<String, String> {
+    let mut out = render_word(conn, filters, OutputFormat::Text)?;
     out.push('\n');
-    out.push_str(&render_object(conn, &default_filters, OutputFormat::Text)?);
+    out.push_str(&render_object(conn, filters, OutputFormat::Text)?);
 
     let (_, engine) = run_identity(conn)?;
     let never_fires_rows =
@@ -1575,7 +1576,7 @@ fn render_default(conn: &rusqlite::Connection) -> Result<String, String> {
         out.push('\n');
         out.push_str(&render_never_fires(
             conn,
-            &default_filters,
+            filters,
             OutputFormat::Text,
         )?);
     }
@@ -1788,20 +1789,10 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             mixed.distinct_options_hashes, mixed.distinct_counter_semantics
         );
     }
-    let distinct_engines: i64 = conn
-        .query_row("SELECT COUNT(DISTINCT engine) FROM run", [], |row| {
-            row.get(0)
-        })
-        .map_err(|e| e.to_string())?;
-    if distinct_engines > 1 {
-        return Err(
-            "stats: cache spans more than one engine; report refused because counters are not comparable"
-                .to_string(),
-        );
-    }
+    run_identity(&conn)?;
 
     let body = match group {
-        None => render_default(&conn)?,
+        None => render_default(&conn, &filters)?,
         Some(ReportGroup::Word) => render_word(&conn, &filters, format)?,
         Some(ReportGroup::Object) => render_object(&conn, &filters, format)?,
         Some(ReportGroup::Allomorph) => render_allomorph(&conn, &filters, format)?,
@@ -2862,6 +2853,14 @@ mod tests {
             meta["unmeasured"]["attempts"],
             "MorphRule named-allomorph rows have rule-level attempts only"
         );
+        assert_eq!(
+            meta["unmeasured"]["uses"],
+            "MorphRule named-allomorph rows have rule-level uses only"
+        );
+        assert_eq!(
+            meta["unmeasured"]["no_root"],
+            "MorphRule named-allomorph rows have rule-level no_root only"
+        );
 
         let grouped_json = render_allomorph(
             cache.connection(),
@@ -3008,7 +3007,7 @@ mod tests {
             meta["unmeasured"]["never_fires"],
             "engine=foma cannot measure it"
         );
-        let default = render_default(cache.connection()).unwrap();
+        let default = render_default(cache.connection(), &Filters::default()).unwrap();
         assert!(
             default.contains("engine=foma cannot measure never-fires"),
             "{default}"
@@ -3032,6 +3031,28 @@ mod tests {
         .unwrap();
         assert!(text.contains("== morph_rule =="), "{text}");
         assert!(text.contains("== phon_rule =="), "{text}");
+    }
+
+    #[test]
+    fn default_view_applies_object_filters_instead_of_discarding_them() {
+        let mut phon = synthetic_fact(pg_stats::ObjectKind::PhonRule, None, 3);
+        phon.object_key = "phon-a".to_string();
+        phon.object_label = "Phon A".to_string();
+        let cache = synthetic_stats_cache(
+            "hc",
+            vec![synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 4), phon],
+        );
+        let text = render_default(
+            cache.connection(),
+            &Filters {
+                kind: Some("morph_rule".to_string()),
+                sort: Some(pg_stats::SortKey::Attempts),
+                ..Filters::default()
+            },
+        )
+        .unwrap();
+        assert!(text.contains("== morph_rule =="), "{text}");
+        assert!(!text.contains("== phon_rule =="), "{text}");
     }
 
     #[test]
@@ -3100,6 +3121,8 @@ mod tests {
             "unused.xml".to_string(),
             "--group".to_string(),
             "word".to_string(),
+            "--word".to_string(),
+            "missing".to_string(),
             "--cache".to_string(),
             path.to_string_lossy().into_owned(),
         ];

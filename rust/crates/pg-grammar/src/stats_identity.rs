@@ -194,18 +194,18 @@ pub fn stratum_identity(grammar: &Grammar, id: StratumId) -> StratumIdentity {
 
 /// Resolve an allomorph's structural locator from its owner's identity and index within it.
 fn allomorph_identity_for_owner(grammar: &Grammar, owner: AllomorphOwner) -> AllomorphIdentity {
-    let (owner_key, owner_label, index) = match owner {
+    let (owner_kind, owner_key, owner_label, index) = match owner {
         AllomorphOwner::Root(entry_id, idx) => {
             let owner_identity = lex_entry_identity(grammar, entry_id);
-            (owner_identity.key, owner_identity.label, idx)
+            ("lex_entry", owner_identity.key, owner_identity.label, idx)
         }
         AllomorphOwner::Affix(mrule_id, idx) => {
             let owner_identity = morph_rule_identity(grammar, mrule_id);
-            (owner_identity.key, owner_identity.label, idx)
+            ("morph_rule", owner_identity.key, owner_identity.label, idx)
         }
     };
     AllomorphIdentity {
-        key: format!("{owner_key}#allo{index}"),
+        key: format!("{owner_kind}:{owner_key}#allo{index}"),
         label: format!("{owner_label} allomorph {index}"),
         quality: IdentityQuality::Structural,
     }
@@ -325,9 +325,9 @@ mod tests {
         ]
     }
 
-    /// A key collision silently merges two distinct objects' counters into one row, so injectivity is checked over every discoverable fixture rather than the two sampled above.
+    /// A key collision silently merges distinct stats rows, so injectivity is checked over every discoverable fixture rather than the two sampled above.
     #[test]
-    fn object_keys_are_injective_across_every_fixture() {
+    fn stats_keys_are_injective_across_every_fixture() {
         let fixtures = discover();
         assert!(!fixtures.is_empty(), "no conformance fixtures discovered");
         for f in &fixtures {
@@ -348,6 +348,22 @@ mod tests {
                 let key = phon_rule_identity(&grammar, PRuleId(i as u32)).key;
                 if let Some(prev) = seen.insert(key.clone(), i) {
                     panic!("{label}: prules {prev} and {i} share the identity key {key:?}");
+                }
+            }
+            let mut seen: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for (i, owner) in grammar.allomorph_owners.iter().enumerate() {
+                let key = allomorph_identity(&grammar, AllomorphId(i as u32)).key;
+                let owner_kind = match owner {
+                    AllomorphOwner::Root(..) => "lex_entry",
+                    AllomorphOwner::Affix(..) => "morph_rule",
+                };
+                assert!(
+                    key.starts_with(&format!("{owner_kind}:")),
+                    "{label}: allomorph {i} key {key:?} must include its owner kind"
+                );
+                if let Some(prev) = seen.insert(key.clone(), i) {
+                    panic!("{label}: allomorphs {prev} and {i} share the identity key {key:?}");
                 }
             }
             let mut seen: std::collections::HashMap<String, usize> =
