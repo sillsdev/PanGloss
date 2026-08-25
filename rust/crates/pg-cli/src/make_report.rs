@@ -672,7 +672,11 @@ fn render_markdown_with_assessments(
     if let Some(findings) = render_health_findings(fst_health) {
         writeln!(out, "## FST health findings").unwrap();
         writeln!(out).unwrap();
-        writeln!(out, "Raw readiness findings from the pack; capability trust is reported separately and legacy health override records are non-admitting.").unwrap();
+        writeln!(
+            out,
+            "Raw readiness findings from the pack; capability trust is reported separately."
+        )
+        .unwrap();
         writeln!(out).unwrap();
         if let Some(report) = fst_health {
             writeln!(
@@ -943,7 +947,6 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
             crate::GATED_BACKEND,
             &[],
             None,
-            &HealthReport::new(Vec::new()),
         ));
         build_time_line = format!(
             "not measured -- the grammar was refused and no compiled artifact was \

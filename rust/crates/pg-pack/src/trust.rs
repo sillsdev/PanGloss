@@ -1,13 +1,11 @@
 //! Capability-trust stamp: who/when/why/which fail-closed configurations were overridden,
-//! written into the pack manifest override record — reusing the pack-manifest
-//! admission/findings/override field rather than inventing a parallel one. The trust axis is
+//! written into the pack manifest capability-trust record rather than inventing a parallel one.
+//! The trust axis is
 //! binary and kept separate from the cost/health axis `pg_foma::health` owns. So this module's
 //! `CapabilityTrust` is its own
-//! distinct manifest field (see `crate::manifest::PackManifest::capability_trust`), **not** a
-//! reuse of `pg_foma::health::HealthFinding::override_record` — that per-finding
-//! `pg_foma::health::OverrideRecord` is legacy audit metadata and never admits a readiness
-//! finding; this module's `CapabilityOverrideRecord` is the pack-level correctness-trust
-//! override. Distinct fields per axis: reuse the artifact, not the field.
+//! distinct manifest field (see `crate::manifest::PackManifest::capability_trust`), not a
+//! per-finding health field; this module's `CapabilityOverrideRecord` is the pack-level
+//! correctness-trust override. Distinct fields per axis: reuse the artifact, not the field.
 //!
 //! This is the **persistent** home for capability-override state: `rust/crates/pg-cli/src/main.rs`'s
 //! `GateResult::overridden` is scoped to one CLI invocation, while this module's
@@ -45,9 +43,8 @@ pub struct CapabilityOverrideRecord {
     pub authorized_by: String,
     /// Why the override was exercised.
     pub reason: String,
-    /// Caller-supplied record of when the override was exercised (free-form string, matching
-    /// `pg_foma::health::OverrideRecord::recorded_at`'s own documented reason for not adding a
-    /// timestamp dependency here either).
+    /// Caller-supplied record of when the override was exercised (free-form string, avoiding a
+    /// timestamp dependency in this schema-only type).
     pub recorded_at: String,
     /// Every fail-closed configuration the characteristics-check gate refused that this override
     /// force-compiled through.

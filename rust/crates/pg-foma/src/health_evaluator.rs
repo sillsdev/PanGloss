@@ -50,10 +50,8 @@
 //!
 //! # Two distinct axes, again (see `crate::health`'s own doc first)
 //! Every `HealthFinding` this module builds carries `severity` on the cost/health axis only
-//! (never the capability-trust axis) and always `override_record: None` — attaching
-//! an `crate::health::OverrideRecord` to a finding is a separate, later, explicitly-authorized
-//! caller action, not something this evaluator
-//! (which only reads compiler measurements) can decide on its own. `HealthReport::admission`
+//! (never the capability-trust axis). Capability trust is recorded separately at pack-manifest
+//! level; this evaluator only reads compiler measurements. `HealthReport::admission`
 //! (unmodified, called as-is — never re-derived here) is what turns this report's findings into
 //! the "FST admission result".
 //!
@@ -164,7 +162,6 @@ fn approaching_budget_finding(
         threshold: Some(MetricValue::Count(limit)),
         explanation,
         remedies: Vec::new(),
-        override_record: None,
     })
 }
 
@@ -324,7 +321,6 @@ fn payload_size_finding(bytes: u64) -> Option<HealthFinding> {
              thresholds)."
         ),
         remedies: Vec::new(),
-        override_record: None,
     })
 }
 
@@ -350,7 +346,6 @@ fn partial_tier_finding(report: &EmitReport, uncovered_count: usize) -> HealthFi
              omitted candidates, so normal generation fails closed."
         ),
         remedies: Vec::new(),
-        override_record: None,
     }
 }
 
@@ -430,7 +425,6 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
         threshold: None,
         explanation,
         remedies,
-        override_record: None,
     }
 }
 
@@ -453,7 +447,6 @@ fn enum_budget_finding(exceeded: &EnumBudgetExceeded) -> HealthFinding {
             limit = exceeded.limit,
         ),
         remedies: vec![retry_full_engine_remedy()],
-        override_record: None,
     }
 }
 
@@ -469,7 +462,6 @@ fn backend_compilation_failed_finding(detail: String) -> HealthFinding {
         threshold: None,
         explanation: detail,
         remedies: vec![retry_full_engine_remedy()],
-        override_record: None,
     }
 }
 
@@ -517,7 +509,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                 measure = measure.label(),
             ),
             remedies: vec![retry_full_engine_remedy()],
-            override_record: None,
         },
         ComposeError::AlphaTupleBudgetExceeded {
             surviving,
@@ -538,7 +529,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  to exceed the remaining budget before the per-tuple compile loop began."
             ),
             remedies: vec![retry_full_engine_remedy()],
-            override_record: None,
         },
         ComposeError::GroupBudgetExceeded {
             groups,
@@ -559,7 +549,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  before any per-group compile work began."
             ),
             remedies: vec![retry_full_engine_remedy()],
-            override_record: None,
         },
         ComposeError::EmitLineBudgetExceeded { lines, limit } => HealthFinding {
             code: FindingCode::ResourceBudgetReached,
@@ -575,7 +564,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  before this compilation stopped."
             ),
             remedies: vec![retry_full_engine_remedy()],
-            override_record: None,
         },
         ComposeError::ComposeStepTimedOut {
             elapsed,
@@ -596,7 +584,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  attempt is terminal for this grammar -- never retry the identical call."
             ),
             remedies: vec![retry_full_engine_remedy()],
-            override_record: None,
         },
         ComposeError::ChainDepthExceeded { depth, limit, site } => HealthFinding {
             code: FindingCode::ResourceBudgetReached,
@@ -613,7 +600,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  (ADR 0003) instead of relying on a larger call stack."
             ),
             remedies: Vec::new(),
-            override_record: None,
         },
         ComposeError::OrderingMultiplicityExceeded {
             rule_count,
@@ -634,7 +620,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  ordering-multiplicity budget allows before any combinatorial walk began."
             ),
             remedies: vec![retry_full_engine_remedy()],
-            override_record: None,
         },
         ComposeError::CompoundPairBudgetExceeded {
             heads,
@@ -657,7 +642,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  written."
             ),
             remedies: vec![retry_full_engine_remedy()],
-            override_record: None,
         },
     }
 }
@@ -695,7 +679,6 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
             requires_linguistic_equivalence: false,
             caveat: None,
         }],
-        override_record: None,
     }
 }
 

@@ -124,7 +124,6 @@ pub(crate) fn backend_assessments(
     gated_backend: EmissionStrategy,
     gated_compile_findings: &[HealthFinding],
     gated_compile_error: Option<&str>,
-    health: &HealthReport,
 ) -> Vec<BackendAssessment> {
     selection
         .reports()
@@ -151,18 +150,6 @@ pub(crate) fn backend_assessments(
                                 provenance: finding.provenance,
                             }),
                     );
-            }
-            for finding in &mut assessment.findings {
-                if let Some(source) = health.findings.iter().find(|source| {
-                    source.code == finding.code
-                        && source.phase == finding.phase
-                        && source.affected == finding.affected
-                        && source.metric == finding.metric
-                        && source.value == finding.value
-                        && source.explanation == finding.explanation
-                }) {
-                    finding.override_record = source.override_record.clone();
-                }
             }
             assessment
         })
@@ -263,7 +250,6 @@ fn record_foma_payload_availability(report: &mut HealthReport, payload_is_real: 
         threshold: None,
         explanation: "no compiled Foma payload is available for this pack; a successful watchdog health check does not transport the compiled network, so production publication must stop instead of silently substituting a placeholder".to_string(),
         remedies: Vec::new(),
-        override_record: None,
     });
 }
 
@@ -586,7 +572,6 @@ pub(crate) fn build_pack(
         crate::GATED_BACKEND,
         &assessment_compile_findings,
         gated_compile_error.as_deref(),
-        &fst_health,
     );
     let fst_completeness = completeness_certificate(
         crate::GATED_BACKEND,
@@ -697,7 +682,6 @@ mod tests {
             threshold: Some(MetricValue::Count(100)),
             explanation: "synthetic health gate".to_string(),
             remedies: Vec::new(),
-            override_record: None,
         }])
     }
 
@@ -706,7 +690,6 @@ mod tests {
         let report = synthetic_health(Severity::LargeMultiplier);
         assert!(validate_health_readiness(&report, false).is_ok());
         assert_eq!(report.admission(), Severity::LargeMultiplier);
-        assert!(report.findings[0].override_record.is_none());
     }
 
     #[test]
@@ -715,7 +698,6 @@ mod tests {
         let error = validate_health_readiness(&report, false).unwrap_err();
         assert!(error.contains("no .pgpack was written"));
         assert_eq!(report.admission(), Severity::NotProductionReady);
-        assert!(report.findings[0].override_record.is_none());
     }
 
     /// The refusal message must name the failing axis, not just the collapsed severity band.
@@ -779,8 +761,6 @@ mod tests {
         let report = synthetic_health(Severity::NotProductionReady);
         assert!(validate_health_readiness(&report, false).is_err());
         assert_eq!(report.admission(), Severity::NotProductionReady);
-        assert_eq!(report.admission(), Severity::NotProductionReady);
-        assert!(report.findings[0].override_record.is_none());
     }
 
     #[test]
@@ -864,7 +844,6 @@ mod tests {
             Severity::CannotRepresent
         );
         assert_eq!(report.admission(), Severity::CannotRepresent);
-        assert!(report.findings[0].override_record.is_none());
     }
 
     #[cfg(feature = "developer-tools")]
@@ -874,7 +853,6 @@ mod tests {
         report.findings[0].phase = Phase::Apply;
         let error = validate_health_readiness(&report, false).unwrap_err();
         assert!(error.contains("apply containment"));
-        assert!(report.findings[0].override_record.is_none());
     }
 
     #[test]
@@ -950,10 +928,6 @@ mod tests {
         let error = validate_health_readiness(&report, true).unwrap_err();
         assert!(error.contains("cannot be overridden"));
         assert_eq!(report.admission(), Severity::MachineLimit);
-        assert!(report
-            .findings
-            .iter()
-            .all(|finding| finding.override_record.is_none()));
     }
 
     /// A completed watchdog run must not be reported as a worker containment failure just because the flag was passed.

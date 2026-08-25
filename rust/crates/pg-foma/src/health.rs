@@ -1,19 +1,18 @@
-//! The FST compilation-health finding schema: types, stable codes, severity and override
-//! semantics, the payload-size threshold, and canonical JSON.
+//! The FST compilation-health finding schema: types, stable codes, severity, the payload-size
+//! threshold, and canonical JSON.
 //!
 //! Health is REPORTED about a compile, never consulted during one — `crate::health_evaluator`
 //! produces `HealthFinding`s from budget measurements after the fact, so no compiler pass
-//! branches on anything here. Observed audit fields are populated by whichever pass owns the
-//! measurement and are never independently remeasured.
+//! branches on anything here. Observed fields are populated by whichever pass owns the measurement
+//! and are never independently remeasured.
 //!
 //! # Two distinct axes (do not conflate)
 //! This module's severity axis (`Severity`: WithinLimits/Elevated/LargeMultiplier/
 //! NotProductionReady/MachineLimit/CannotRepresent — a **cost/size** axis) is a *different*
 //! dimension from the capability-trust axis (characteristics-check hard-fail vs. capability
 //! override, binary proven-vs-unproven). A pack can be cost-healthy yet capability-unproven, or
-//! vice versa — this module models only the cost/health axis. The `OverrideRecord` on a
-//! `HealthFinding` is retained for backward-compatible audit reading only; it is not an admission
-//! mechanism and does not re-implement the capability registry.
+//! vice versa — this module models only the cost/health axis; it is not an admission mechanism for
+//! capability trust and does not re-implement the capability registry.
 //!
 //! # Severity names the blocking TIER; FindingClass names the fact
 //! `Severity` is the publication-blocking axis, not an alarm level and not itself a statement of
@@ -24,9 +23,6 @@
 //! bound, none of which share a phase or a cause. `FindingCode::class()` (`FindingClass`) is what
 //! answers WHY: see `FindingClass`'s own doc for the four independent questions it distinguishes,
 //! and `HealthReport::admission_by_class` for reading them separately from the plain severity max.
-//! `HEALTH_SCHEMA_VERSION`'s doc has the wire-compatibility story; every prior name below refers to
-//! the pre-schema-3 variant it replaced 1:1, and `#[serde(alias)]` on each variant keeps an
-//! already-serialized report readable under its old spelling.
 //!
 //! # Severity and the payload-size threshold
 //! `severity_for_size_bytes` compares a compiled FST payload's byte count against the single
@@ -41,11 +37,10 @@
 //! unknown/unbounded constructs) — and `HealthReport::admission` aggregates across all of them,
 //! not size alone.
 //!
-//! # Legacy override records
+//! # Admission and trust boundaries
 //! `Severity::NotProductionReady` and `Severity::MachineLimit` remain explicit readiness
-//! failures. Older serialized reports may carry an `OverrideRecord`, but it is audit metadata
-//! only: health admission always reflects raw severity, and capability trust is the only active
-//! override axis. Apply-time execution containment remains a hard boundary as well.
+//! failures. Health admission always reflects raw severity; capability trust is a separate
+//! manifest-level axis. Apply-time execution containment remains a hard boundary as well.
 //!
 //! # Worst severity ("FST admission result")
 //! `HealthReport::admission` returns the worst raw finding severity — the publication gate's floor.
@@ -97,18 +92,14 @@
 //!   prediction stage that runs before either. "Observed" is not a `Phase` value here — it is
 //!   `ValueProvenance::Observed`, the axis distinguishing predicted/proven-bound/measured values
 //!   *within* a phase.
-//! - `OverrideRecord` carries no timestamp type (a plain caller-supplied `recorded_at: String`)
-//!   to avoid adding a date/time dependency to this crate for a schema-only type.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// This schema's own version, written into every `HealthReport`. Bump only on a
 /// wire-incompatible change to this module's types.
 ///
-/// Bumped to 3 for the `Severity` variant rename (each variant now names the blocking tier it
-/// represents rather than an alarm level) and the new `CannotRepresent` variant: both are wire-visible
-/// changes to this schema's canonical JSON, even though every old spelling still deserializes via
-/// `#[serde(alias)]` and every new report keeps writing the same five bands plus the one addition.
+/// Bumped to 3 when each `Severity` variant was renamed to name its blocking tier and
+/// `CannotRepresent` was added — both wire-visible changes to this schema's canonical JSON.
 pub const HEALTH_SCHEMA_VERSION: u32 = 3;
 
 // Severity + payload-size threshold
@@ -133,40 +124,28 @@ pub const HEALTH_SCHEMA_VERSION: u32 = 3;
 ///
 /// Declaration order is worst-last and is what `Ord` and `HealthReport::admission`'s `max` rely
 /// on: `WithinLimits < Elevated < LargeMultiplier < NotProductionReady < MachineLimit <
-/// CannotRepresent`. Each variant's `#[serde(alias)]` keeps an already-serialized report (written
-/// under the pre-schema-3 alarm-level names) readable.
+/// CannotRepresent`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
-    /// Within every band; nothing to report. Formerly `Ideal`.
-    #[serde(alias = "ideal")]
+    /// Within every band; nothing to report.
     WithinLimits,
-    /// Above the within-limits band but not yet action-worthy. Formerly `Info`.
-    #[serde(alias = "info")]
+    /// Above the within-limits band but not yet action-worthy.
     Elevated,
     /// A multiplier is too large — an N x M x O product, or a count crowding its budget. Predicted
     /// or measured alike (`ValueProvenance` says which); never blocks. Remedy: check grammar
-    /// optimization. Formerly `Warning`.
-    #[serde(alias = "warning")]
+    /// optimization.
     LargeMultiplier,
     /// The tier that blocks publication, whatever the underlying cause: an oversized-but-compiled
-    /// payload (a labelling verdict, `severity_for_size_bytes`), an internal-cap stop with nothing
-    /// compiled (`FindingCode::ResourceBudgetReached`), a build-process or backend-compilation
-    /// fault (`FindingCode::BuildProcessFailed`/`FindingCode::BackendCompilationFailed`), or a
-    /// pre-compile proven bound exceeding budget (`FindingCode::ProvenBoundExceedsBudget`). Must
-    /// not itself block compiling; a legacy `OverrideRecord` cannot admit it. Read the finding's
-    /// `FindingClass` (via `HealthFinding::class`) for which of those it is. Formerly `Error`.
-    #[serde(alias = "error")]
+    /// payload, an internal-cap stop with nothing compiled, a build-process or backend-compilation
+    /// fault, or a pre-compile proven bound exceeding budget. Must not itself block compiling. Read
+    /// the finding's `FindingClass` for which of those it is.
     NotProductionReady,
     /// Process containment fired DURING a compile and aborted it: near-OOM, out of disk, an RSS
-    /// ceiling. A legacy `OverrideRecord` cannot admit it. Remedy: more machine, or a different
-    /// algorithm — no larger envelope helps. Formerly `Critical`.
-    #[serde(alias = "critical")]
+    /// ceiling. Remedy: more machine, or a different algorithm — no larger envelope helps.
     MachineLimit,
     /// Candidates using this feature cannot be faithfully proposed, so nothing can be built for it.
-    /// Remedy: implement the feature, or use the full engine. New in schema 3 — no legacy spelling
-    /// to alias, since this verdict did not exist before (it was previously conflated with
-    /// `MachineLimit`/`Critical`).
+    /// Remedy: implement the feature, or use the full engine.
     CannotRepresent,
 }
 
@@ -529,7 +508,7 @@ impl<'de> Deserialize<'de> for FindingCode {
     }
 }
 
-// Remedy, OverrideRecord, HealthFinding, HealthReport
+// Remedy, HealthFinding, HealthReport
 
 /// One ranked, applicable remedy for a `HealthFinding`. Findings explain computational
 /// consequences only and never assert that a change improves the grammar — a remedy that would
@@ -553,23 +532,9 @@ pub struct Remedy {
     pub caveat: Option<String>,
 }
 
-/// The permanent record of one capability override as it bears on a single `HealthFinding`.
-/// This struct is this report's own copy of that fact — the authoritative, indelible
-/// pack-manifest record is a separate artifact.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct OverrideRecord {
-    /// Who or what authorized the override (a caller identity, tool name, or operator label).
-    pub authorized_by: String,
-    /// Why the override was exercised.
-    pub reason: String,
-    /// Caller-supplied record of when the override was exercised (free-form; see this module's
-    /// doc "Design notes" section for why this is a plain `String`, not a timestamp type).
-    pub recorded_at: String,
-}
-
 /// One stable compiler diagnostic: code, severity, phase, metric, predicted/observed value,
 /// effective threshold, affected grammar/rule/construct identifiers, a concise explanation, zero
-/// or more ranked remedies, and an optional override record.
+/// or more ranked remedies.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HealthFinding {
     /// The immutable `PGFdddd` code (`FindingCode`).
@@ -598,10 +563,6 @@ pub struct HealthFinding {
     /// Zero or more ranked, applicable remedies.
     #[serde(default)]
     pub remedies: Vec<Remedy>,
-    /// Legacy audit metadata retained for backward-compatible serialized reports. Presence never
-    /// changes health admission; capability trust is the only active override axis.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub override_record: Option<OverrideRecord>,
 }
 
 impl HealthFinding {
@@ -612,7 +573,7 @@ impl HealthFinding {
 }
 
 /// The aggregated report for one grammar compilation. See `HealthReport::admission` for the
-/// raw-severity aggregation rule; legacy override records never alter it.
+/// raw-severity aggregation rule.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HealthReport {
     /// This schema's version (`HEALTH_SCHEMA_VERSION`) at the time this report was produced.
@@ -670,7 +631,7 @@ impl HealthReport {
         }
     }
 
-    /// The worst raw severity, including findings with legacy override records.
+    /// The worst raw severity among this report's findings.
     pub fn admission(&self) -> Severity {
         self.findings
             .iter()
@@ -766,13 +727,13 @@ mod tests {
             0,
             IDEAL_MAX_BYTES,
             IDEAL_MAX_BYTES + 1,
-            150_000_000,   // formerly Elevated
-            200_000_000,   // formerly Elevated's upper edge
-            250_000_000,   // formerly LargeMultiplier
-            1_000_000_000, // formerly LargeMultiplier's upper edge
-            3_000_000_000, // formerly NotProductionReady
-            5_000_000_000, // formerly NotProductionReady's upper edge
-            6_000_000_000, // formerly NotProductionReady (above the old Error floor)
+            150_000_000,
+            200_000_000,
+            250_000_000,
+            1_000_000_000,
+            3_000_000_000,
+            5_000_000_000,
+            6_000_000_000,
             u64::MAX,
         ];
         for bytes in sizes {
@@ -800,12 +761,7 @@ mod tests {
         }
     }
 
-    // fst_health_override_policy: legacy records are audit-only and never admit health.
-
-    fn synthetic_finding(
-        severity: Severity,
-        override_record: Option<OverrideRecord>,
-    ) -> HealthFinding {
+    fn synthetic_finding(severity: Severity) -> HealthFinding {
         HealthFinding {
             code: FindingCode::PayloadSizeBand,
             severity,
@@ -817,91 +773,23 @@ mod tests {
             threshold: None,
             explanation: "synthetic test finding".to_string(),
             remedies: Vec::new(),
-            override_record,
-        }
-    }
-
-    fn synthetic_override() -> OverrideRecord {
-        OverrideRecord {
-            authorized_by: "synthetic-test-operator".to_string(),
-            reason: "synthetic field-trial override".to_string(),
-            recorded_at: "2026-07-24T00:00:00Z".to_string(),
         }
     }
 
     #[test]
-    fn fst_health_override_policy_legacy_machine_limit_still_dominates_large_multiplier() {
-        let report = HealthReport::new(vec![
-            synthetic_finding(Severity::MachineLimit, Some(synthetic_override())),
-            synthetic_finding(Severity::LargeMultiplier, None),
-        ]);
-        assert_eq!(
-            report.admission(),
-            Severity::MachineLimit,
-            "a legacy override record cannot hide a MachineLimit readiness finding"
-        );
-    }
-
-    #[test]
-    fn fst_health_override_policy_legacy_not_production_ready_still_dominates_elevated() {
-        let report = HealthReport::new(vec![
-            synthetic_finding(Severity::NotProductionReady, Some(synthetic_override())),
-            synthetic_finding(Severity::Elevated, None),
-        ]);
-        assert_eq!(report.admission(), Severity::NotProductionReady);
-    }
-
-    #[test]
-    fn fst_health_legacy_override_record_never_changes_raw_admission() {
-        let report = HealthReport::new(vec![synthetic_finding(
-            Severity::NotProductionReady,
-            Some(synthetic_override()),
-        )]);
-
-        assert_eq!(
-            report.admission(),
-            Severity::NotProductionReady
-        );
-        assert_eq!(
-            report.admission(),
-            Severity::NotProductionReady,
-            "legacy override records are audit data and cannot admit readiness"
-        );
-    }
-
-    #[test]
-    fn fst_health_override_policy_all_findings_with_legacy_records_still_fail() {
-        let report = HealthReport::new(vec![synthetic_finding(
-            Severity::MachineLimit,
-            Some(synthetic_override()),
-        )]);
-        assert_eq!(report.admission(), Severity::MachineLimit);
-    }
-
-    #[test]
-    fn fst_health_override_policy_empty_report_admits_within_limits() {
+    fn an_empty_report_admits_within_limits() {
         let report = HealthReport::new(Vec::new());
         assert_eq!(report.admission(), Severity::WithinLimits);
     }
 
     #[test]
-    fn fst_health_override_policy_worst_raw_severity_wins_among_several() {
+    fn the_worst_severity_wins_among_several_findings() {
         let report = HealthReport::new(vec![
-            synthetic_finding(Severity::Elevated, None),
-            synthetic_finding(Severity::NotProductionReady, None),
-            synthetic_finding(Severity::LargeMultiplier, None),
+            synthetic_finding(Severity::Elevated),
+            synthetic_finding(Severity::NotProductionReady),
+            synthetic_finding(Severity::LargeMultiplier),
         ]);
         assert_eq!(report.admission(), Severity::NotProductionReady);
-    }
-
-    #[test]
-    fn fst_health_override_policy_raw_admission_matches_compatibility_alias() {
-        let report = HealthReport::new(vec![synthetic_finding(
-            Severity::MachineLimit,
-            Some(synthetic_override()),
-        )]);
-        assert_eq!(report.admission(), Severity::MachineLimit);
-        assert_eq!(report.admission(), Severity::MachineLimit);
     }
 
     // fst_health_schema: code registry, golden JSON, round trip, closed-enum exhaustiveness.
@@ -967,32 +855,12 @@ mod tests {
         assert_eq!(label(Severity::WithinLimits), "within_limits");
         assert_eq!(label(Severity::Elevated), "elevated");
         assert_eq!(label(Severity::LargeMultiplier), "large_multiplier");
-        assert_eq!(
-            label(Severity::NotProductionReady),
-            "not_production_ready"
-        );
+        assert_eq!(label(Severity::NotProductionReady), "not_production_ready");
         assert_eq!(label(Severity::MachineLimit), "machine_limit");
         assert_eq!(label(Severity::CannotRepresent), "cannot_represent");
     }
 
-    /// Every renamed variant's OLD snake_case spelling must still deserialize (`CannotRepresent` is new in schema 3, so it has none).
-    #[test]
-    fn old_severity_spellings_still_deserialize() {
-        let cases = [
-            ("\"ideal\"", Severity::WithinLimits),
-            ("\"info\"", Severity::Elevated),
-            ("\"warning\"", Severity::LargeMultiplier),
-            ("\"error\"", Severity::NotProductionReady),
-            ("\"critical\"", Severity::MachineLimit),
-        ];
-        for (old_json, expected) in cases {
-            let parsed: Severity = serde_json::from_str(old_json)
-                .unwrap_or_else(|e| panic!("{old_json} must still deserialize: {e}"));
-            assert_eq!(parsed, expected, "old spelling {old_json} must map to {expected:?}");
-        }
-    }
-
-    /// Two findings: one LargeMultiplier with a linguistic-equivalence-caveated remedy, one NotProductionReady carrying a permanent `OverrideRecord`.
+    /// Two findings: one LargeMultiplier with a linguistic-equivalence-caveated remedy and one NotProductionReady payload-size label.
     fn representative_report() -> HealthReport {
         HealthReport::new(vec![
             HealthFinding {
@@ -1018,7 +886,6 @@ mod tests {
                             .to_string(),
                     ),
                 }],
-                override_record: None,
             },
             HealthFinding {
                 code: FindingCode::PayloadSizeBand,
@@ -1039,12 +906,6 @@ mod tests {
                     requires_linguistic_equivalence: false,
                     caveat: None,
                 }],
-                override_record: Some(OverrideRecord {
-                    authorized_by: "ci-field-trial-operator".to_string(),
-                    reason: "Field trial requested under the ADR 0005 development on-ramp."
-                        .to_string(),
-                    recorded_at: "2026-07-24T00:00:00Z".to_string(),
-                }),
             },
         ])
     }
@@ -1104,12 +965,7 @@ mod tests {
           "description": "Retry compilation with an explicit larger named envelope.",
           "requires_linguistic_equivalence": false
         }
-      ],
-      "override_record": {
-        "authorized_by": "ci-field-trial-operator",
-        "reason": "Field trial requested under the ADR 0005 development on-ramp.",
-        "recorded_at": "2026-07-24T00:00:00Z"
-      }
+      ]
     }
   ]
 }"#;
@@ -1136,16 +992,7 @@ mod tests {
         assert_eq!(parsed.admission(), Severity::NotProductionReady);
     }
 
-    #[test]
-    fn fst_health_schema_golden_admission_includes_legacy_overridden_not_production_ready() {
-        // The golden's NotProductionReady finding remains a readiness failure despite its audit record.
-        assert_eq!(
-            representative_report().admission(),
-            Severity::NotProductionReady
-        );
-    }
-
-    // fst_health_finding_class: FindingCode -> FindingClass, the three-question vocabulary.
+    // fst_health_finding_class: FindingCode -> FindingClass, the four-question vocabulary.
 
     #[test]
     fn every_finding_code_has_a_class() {
@@ -1221,7 +1068,6 @@ mod tests {
             threshold: None,
             explanation: "synthetic per-class test finding".to_string(),
             remedies: Vec::new(),
-            override_record: None,
         }
     }
 

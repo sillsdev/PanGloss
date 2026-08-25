@@ -428,7 +428,6 @@ pub(crate) fn tuned_surface_resource_finding_with_limit(
                 caveat: Some(safety),
             },
         ],
-        override_record: None,
     })
 }
 
@@ -528,7 +527,6 @@ pub fn tuned_surface_resource_finding_for_envelope(
             requires_linguistic_equivalence: false,
             caveat: None,
         }],
-        override_record: None,
     })
 }
 
@@ -595,7 +593,6 @@ fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFind
             witnesses.join("; "),
         ),
         remedies: Vec::new(),
-        override_record: None,
     })
 }
 
@@ -621,7 +618,6 @@ fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding>
              attempt is permitted under the shared resource envelope."
             .to_string(),
         remedies: Vec::new(),
-        override_record: None,
     })
 }
 
@@ -649,7 +645,6 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
                     d.rule,
                 ),
                 remedies: Vec::new(),
-                override_record: None,
             }),
             _ => None,
         })
@@ -677,7 +672,6 @@ fn unordered_stratum_findings(profile: &CharacteristicsProfile) -> Vec<HealthFin
                 d.stratum, d.rule_count, DEFAULT_ORDERING_MULTIPLICITY_BUDGET,
             ),
             remedies: Vec::new(),
-            override_record: None,
         })
         .collect()
 }
@@ -708,7 +702,6 @@ fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<
              sets reduces their multiplicative interaction."
         ),
         remedies: Vec::new(),
-        override_record: None,
     })
 }
 

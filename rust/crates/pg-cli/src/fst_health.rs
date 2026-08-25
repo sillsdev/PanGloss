@@ -76,7 +76,6 @@ fn duplicate_analysis_findings(word: &str, structured: &[WordAnalysis]) -> Vec<H
             threshold: None,
             explanation: explanation.clone(),
             remedies: Vec::new(),
-            override_record: None,
         },
         HealthFinding {
             code: FindingCode::DuplicateAnalysisOverlap,
@@ -89,7 +88,6 @@ fn duplicate_analysis_findings(word: &str, structured: &[WordAnalysis]) -> Vec<H
             threshold: None,
             explanation,
             remedies: Vec::new(),
-            override_record: None,
         },
     ]
 }
@@ -111,7 +109,6 @@ fn proposal_volume_finding(total_candidates: u64) -> HealthFinding {
              independent of whether every confirmed result was ultimately correct (R6)."
         ),
         remedies: Vec::new(),
-        override_record: None,
     }
 }
 
@@ -132,7 +129,6 @@ fn confirmation_work_findings(total_candidates: u64, total_confirmed: u64) -> Ve
              first-class health evidence independent of correctness (R6)."
         ),
         remedies: Vec::new(),
-        override_record: None,
     }];
 
     if total_candidates > 0 {
@@ -155,7 +151,6 @@ fn confirmation_work_findings(total_candidates: u64, total_confirmed: u64) -> Ve
                 share * 100.0,
             ),
             remedies: Vec::new(),
-            override_record: None,
         });
     }
     findings
