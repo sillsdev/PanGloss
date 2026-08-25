@@ -4,8 +4,24 @@
 
 Before changing an FST threshold, refusal, retry, or containment mechanism, state whether the
 evidence concerns **correctness/representability**, **production readiness**, or **resource
-containment**. Do not use a readiness Error to avoid a contained stress attempt, and never use a
-larger limit to excuse incomplete or unproven output. Follow
+containment** — and name which of the four admission verdicts it is, since each answers exactly one
+of those three questions:
+
+- `LargeMultiplier` — correctness/representability question, answered "not yet a problem": static
+  analysis, before compiling, blocks nothing.
+- `CannotRepresent` — correctness/representability question, answered "no": static analysis, before
+  compiling, blocks compiling for the affected feature; never overridable by production selection.
+- `NotProductionReady` — production readiness question: a measurement of an artifact that already
+  compiled successfully. It is a label, not a gate on compiling.
+- `MachineLimit` — resource containment question: an external monitor's verdict about this machine
+  and this attempt, never about the grammar.
+
+Two rules that are easiest to get wrong:
+(a) `NotProductionReady` must never prevent an FST from being built — it blocks only publishing.
+(b) `MachineLimit` is host protection, never a verdict about the grammar.
+
+Do not use a `NotProductionReady` label to avoid a contained stress attempt, and never use a larger
+limit to excuse incomplete or unproven output. Follow
 `docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`.
 
 ## Managed build commands (required for agent workflows)

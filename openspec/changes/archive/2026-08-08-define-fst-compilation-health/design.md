@@ -1,3 +1,18 @@
+> **Superseded (2026-08-24).** This document's severity/override model is superseded by
+> `docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`, which
+> replaces the Warning/Error/Critical severity scale below with four independent admission verdicts
+> (`LargeMultiplier`, `CannotRepresent`, `NotProductionReady`, `MachineLimit`) classified by where each
+> comes from, not by alarm level. The specific claim below that is now false: *"Error and Critical are
+> BOTH overridable via the ADR 0005 capability override (an explicit per-compilation override,
+> permanently recorded in reports and the pack manifest); the trust axis is binary and the only
+> non-overridable floor is ADR 0003 apply-time execution containment, never a predicted health/size
+> verdict."* Under the current model, `CannotRepresent` (the correctness/representability successor to
+> Critical) is never overridable by production selection, full stop — there is no capability override
+> that lets it into production output. `NotProductionReady` (the successor to Error) is a label on an
+> already-compiled artifact and never blocked compiling to begin with, so describing it as needing an
+> "override" to avoid blocking compilation was already the wrong frame. The body below is left intact
+> as a historical record and must not be read as current policy.
+
 ## Decisions
 
 Execution order and ownership follow `openspec/changes/STAGING.md`.
