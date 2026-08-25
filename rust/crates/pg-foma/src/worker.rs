@@ -960,7 +960,7 @@ pub fn run_compile_worker(
     request: &CompileWorkerRequest,
     limits: &ExecutionLimits,
 ) -> WorkerOutcome {
-    let limits = WORKER_PROTOCOL_LIMITS;
+    let protocol_limits = WORKER_PROTOCOL_LIMITS;
 
     let request_json = match serde_json::to_vec(request) {
         Ok(bytes) => bytes,
@@ -970,12 +970,12 @@ pub fn run_compile_worker(
             };
         }
     };
-    if request_json.len() as u64 > limits.max_request_bytes {
+    if request_json.len() as u64 > protocol_limits.max_request_bytes {
         return WorkerOutcome::ProtocolViolation {
             detail: format!(
                 "request is {} byte(s), exceeding the {}-byte protocol limit",
                 request_json.len(),
-                limits.max_request_bytes
+                protocol_limits.max_request_bytes
             ),
         };
     }
@@ -1008,7 +1008,7 @@ pub fn run_compile_worker(
     let stdout_overflow = Arc::new(AtomicBool::new(false));
     let stdout_handle = spawn_capped_reader(
         stdout,
-        limits.max_result_bytes.saturating_add(8), // frame header + body
+        protocol_limits.max_result_bytes.saturating_add(8), // frame header + body
         Arc::clone(&stdout_buf),
         Arc::clone(&stdout_overflow),
     );
@@ -1017,7 +1017,7 @@ pub fn run_compile_worker(
     let stderr_overflow = Arc::new(AtomicBool::new(false));
     let stderr_handle = spawn_capped_reader(
         stderr,
-        limits.max_captured_stderr_bytes,
+        protocol_limits.max_captured_stderr_bytes,
         Arc::clone(&stderr_buf),
         Arc::clone(&stderr_overflow),
     );
@@ -1043,7 +1043,7 @@ pub fn run_compile_worker(
             let _ = child.wait();
             break WorkerOutcome::OutputLimitExceeded {
                 stream: OutputStream::Stdout,
-                limit_bytes: limits.max_result_bytes,
+                limit_bytes: protocol_limits.max_result_bytes,
             };
         }
         if stderr_overflow.load(Ordering::SeqCst) {
@@ -1051,7 +1051,7 @@ pub fn run_compile_worker(
             let _ = child.wait();
             break WorkerOutcome::OutputLimitExceeded {
                 stream: OutputStream::Stderr,
-                limit_bytes: limits.max_captured_stderr_bytes,
+                limit_bytes: protocol_limits.max_captured_stderr_bytes,
             };
         }
 
