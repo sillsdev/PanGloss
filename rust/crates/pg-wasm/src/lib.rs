@@ -748,6 +748,12 @@ impl PgPack {
     /// verbatim -- see `pack::LoadedPack::fst_health_admission`'s doc), as its lowercase
     /// `Severity` name (`"within_limits"`, `"elevated"`, `"large_multiplier"`,
     /// `"not_production_ready"`, `"machine_limit"`, or `"cannot_represent"`).
+    ///
+    /// These spellings changed in health schema 3 (`pg_foma::health::HEALTH_SCHEMA_VERSION`):
+    /// the old alarm-level names (`"error"`, `"critical"`, ...) were renamed to name the
+    /// blocking tier, and a JS caller that gated on an exact old string (e.g. `=== "error"`)
+    /// silently stops matching anything under the new spelling. `PgPack::fstHealthIsPublishable`
+    /// is the stable boolean gate; prefer it for any publish/block decision.
     #[wasm_bindgen(js_name = fstHealthAdmission)]
     pub fn fst_health_admission(&self) -> String {
         match self.loaded.fst_health_admission() {
@@ -759,6 +765,15 @@ impl PgPack {
             pg_foma::health::Severity::CannotRepresent => "cannot_represent",
         }
         .to_string()
+    }
+
+    /// The stable boolean publication gate: `false` iff `fstHealthAdmission` has reached the
+    /// tier that blocks publication (`NotProductionReady` or worse), `true` otherwise. Add this
+    /// where `fstHealthAdmission`'s exact string is not needed -- its meaning cannot rot the way
+    /// a string-equality check against `fstHealthAdmission` can across a schema rename.
+    #[wasm_bindgen(js_name = fstHealthIsPublishable)]
+    pub fn fst_health_is_publishable(&self) -> bool {
+        self.loaded.fst_health_is_publishable()
     }
 
     /// The complete FST-health report (`pg_foma::health::HealthReport`, reused verbatim) as its

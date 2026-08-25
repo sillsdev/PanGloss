@@ -195,6 +195,15 @@ fn build_health_report(
     Ok(HealthReport::new(findings))
 }
 
+/// The `admission (per-axis breakdown)` fragment of `run_fst_health`'s completion message.
+fn render_admission_summary(report: &HealthReport) -> String {
+    format!(
+        "{:?} ({})",
+        report.admission(),
+        report.admission_by_class().render()
+    )
+}
+
 /// `pangloss fst-health <grammar> [<words.txt>] [<out.json>]`; `<out.json>` omitted writes the canonical JSON to stdout instead of a file, matching this crate's stdout/stderr split.
 pub fn run_fst_health(args: &[String]) -> Result<(), String> {
     let (grammar_path, words_path, out_path): (&str, Option<&str>, Option<&str>) = match args {
@@ -233,9 +242,9 @@ pub fn run_fst_health(args: &[String]) -> Result<(), String> {
     }
 
     eprintln!(
-        "fst-health complete: {} finding(s), admission={:?}.{}",
+        "fst-health complete: {} finding(s), admission={}.{}",
         report.findings.len(),
-        report.admission(),
+        render_admission_summary(&report),
         if words.is_some() {
             String::new()
         } else {
@@ -342,6 +351,18 @@ mod tests {
              finding: {:?}",
             report.findings
         );
+    }
+
+    /// The printed fragment must name all four axes, not just the collapsed severity band.
+    #[test]
+    fn admission_summary_names_all_four_axes() {
+        let g = grammar(CLEAN_GRAMMAR_XML);
+        let report = build_health_report(&g, None).expect("build_health_report must succeed");
+        let summary = render_admission_summary(&report);
+        assert!(summary.contains("representability="), "{summary}");
+        assert!(summary.contains("readiness="), "{summary}");
+        assert!(summary.contains("containment="), "{summary}");
+        assert!(summary.contains("process="), "{summary}");
     }
 
     #[test]
