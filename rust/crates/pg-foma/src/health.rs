@@ -48,9 +48,9 @@
 //! override axis. Apply-time execution containment remains a hard boundary as well.
 //!
 //! # Worst severity ("FST admission result")
-//! `HealthReport::admission` and `admission_without_overrides` both return the worst raw finding
-//! severity. The latter name remains as a compatibility aid for callers that used the old
-//! override-aware schema.
+//! `HealthReport::admission` returns the worst raw finding severity — the publication gate's floor.
+//! It says nothing about WHICH axis failed, so read `HealthReport::admission_by_class` whenever the
+//! answer is going to be shown to someone or routed on.
 //!
 //! # Cost uncertainty is not itself a machine limit
 //! `ValueProvenance` and `MetricValue::Unbounded` encode that unknown cost is not itself
@@ -679,12 +679,6 @@ impl HealthReport {
             .unwrap_or(Severity::WithinLimits)
     }
 
-    /// Compatibility alias for the raw admission result. The name remains because it is part of
-    /// the public API and appears in older callers and serialized-report discussions.
-    pub fn admission_without_overrides(&self) -> Severity {
-        self.admission()
-    }
-
     /// The worst severity among this report's findings of `class`, or `Severity::WithinLimits`
     /// when no finding of that class is present. This is additive reporting alongside
     /// `admission`: it answers one of the three independent admission questions in isolation,
@@ -865,7 +859,7 @@ mod tests {
         )]);
 
         assert_eq!(
-            report.admission_without_overrides(),
+            report.admission(),
             Severity::NotProductionReady
         );
         assert_eq!(
@@ -907,7 +901,7 @@ mod tests {
             Some(synthetic_override()),
         )]);
         assert_eq!(report.admission(), Severity::MachineLimit);
-        assert_eq!(report.admission_without_overrides(), Severity::MachineLimit);
+        assert_eq!(report.admission(), Severity::MachineLimit);
     }
 
     // fst_health_schema: code registry, golden JSON, round trip, closed-enum exhaustiveness.
