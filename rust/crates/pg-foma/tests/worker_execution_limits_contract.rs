@@ -231,7 +231,7 @@ fn compile_attempt_and_completed_build_identity_surfaces_do_not_carry_execution_
             .find(declaration_name)
             .unwrap_or_else(|| panic!("completed-build source must declare {declaration_name}"));
         let end = source[start..]
-            .find("}\n")
+            .find('}')
             .map(|offset| start + offset)
             .unwrap_or_else(|| panic!("{declaration_name} declaration must be closed"));
         let declaration = &source[start..=end];
