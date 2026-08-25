@@ -434,7 +434,7 @@ pub fn tuned_surface_resource_finding(grammar: &Grammar) -> Option<HealthFinding
 }
 
 /// Characterize Tuned Surface under one selected, immutable product envelope snapshot.
-pub fn tuned_surface_resource_finding_for_envelope(
+fn tuned_surface_resource_finding_for_envelope(
     grammar: &Grammar,
     envelope: &ResourceEnvelope,
 ) -> Option<HealthFinding> {

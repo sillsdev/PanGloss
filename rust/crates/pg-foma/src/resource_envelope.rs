@@ -14,7 +14,6 @@ use sha2::{Digest, Sha256};
 #[serde(rename_all = "kebab-case")]
 pub enum ResourceEnvelopeId {
     ManagedV1,
-    TunedSurfaceWork10kV1,
 }
 
 impl Default for ResourceEnvelopeId {
@@ -48,7 +47,6 @@ impl ResourceEnvelopeId {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ManagedV1 => "managed-v1",
-            Self::TunedSurfaceWork10kV1 => "tuned-surface-work-10k-v1",
         }
     }
 }
@@ -65,7 +63,6 @@ impl FromStr for ResourceEnvelopeId {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "managed-v1" => Ok(Self::ManagedV1),
-            "tuned-surface-work-10k-v1" => Ok(Self::TunedSurfaceWork10kV1),
             _ => Err(format!("unknown resource envelope id {value:?}")),
         }
     }
@@ -240,10 +237,8 @@ impl ResourceEnvelope {
                 pair_probe_cap: crate::morphotactics::DEFAULT_PROBE_BUDGET,
             },
             backend: BackendEnvelope {
-                tuned_surface_closure_work_cap: match id {
-                    ResourceEnvelopeId::ManagedV1 => 3_000,
-                    ResourceEnvelopeId::TunedSurfaceWork10kV1 => 10_000,
-                },
+                tuned_surface_closure_work_cap:
+                    crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT,
                 tuned_surface_closure_depth_cap: 64,
                 tuned_surface_compound_chain_depth_cap: 200,
             },

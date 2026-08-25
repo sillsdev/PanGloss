@@ -272,20 +272,6 @@ fn retry_full_engine_remedy() -> Remedy {
     }
 }
 
-/// Remedy for an artificial-cap stop: remove the internal caps rather than raise them, since a bigger arbitrary number is still arbitrary.
-fn retry_with_internal_caps_removed_remedy() -> Remedy {
-    Remedy {
-        rank: 0,
-        description: "Re-run with the internal size/work caps removed so the only remaining \
-            bound is machine containment. The attempt stopped at an artificial cap, not a proven \
-            limit, so a fresh characterization with the caps removed may complete; the result is \
-            developer evidence and is not production-publishable."
-            .to_string(),
-        requires_linguistic_equivalence: false,
-        caveat: None,
-    }
-}
-
 /// The threshold a non-`Severity::WithinLimits` size finding crossed -- read from the shared `IDEAL_MAX_BYTES` constant so a threshold change cannot desync a second copy.
 fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
     match severity {
@@ -397,10 +383,7 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
                  unusable, but no fixed affix depth is a language boundary and nothing here shows \
                  the grammar is unrepresentable.{closure_detail}"
             ),
-            vec![
-                retry_with_internal_caps_removed_remedy(),
-                retry_full_engine_remedy(),
-            ],
+            vec![retry_full_engine_remedy()],
         )
     } else {
         (
@@ -1141,12 +1124,10 @@ mod tests {
             Severity::MachineLimit,
             "a depth-budget stop halted one attempt; it must never condemn the grammar"
         );
-        assert!(
-            finding
-                .remedies
-                .iter()
-                .all(|remedy| !remedy.description.contains("internal size/work caps removed")),
-            "active containment remedies must not advertise removed internal caps: {:?}",
+        assert_eq!(
+            finding.remedies.len(),
+            1,
+            "a depth-budget stop keeps only the actionable full-engine remedy: {:?}",
             finding.remedies
         );
     }
