@@ -86,8 +86,9 @@
 //! The two dispatch functions must be kept in sync by hand if a fourth format is ever added; flagged
 //! here rather than hidden.
 
+use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -98,7 +99,8 @@ use serde::{Deserialize, Serialize};
 use crate::analyzer::FomaError;
 use crate::backend_selection::BackendSelection;
 use crate::completed_build::{
-    compile_completed_backend, select_completed_build, CompileAttempt, CompletedBackendBuildWire,
+    compile_completed_backend, select_completed_build, sha256_hex, CompileAttempt,
+    CompletedBackendBuildWire,
 };
 use crate::compose_budget::ComposeBudget;
 use crate::enumerate::EmissionStrategy;
@@ -187,6 +189,17 @@ impl ExecutionLimits {
 
     pub const fn max_wall_time(self) -> Duration {
         self.max_wall_time
+    }
+
+    /// Constructs the child-side view for a selected compile. Only the serialized-FST field is
+    /// consulted by the selected compiler; the other two fields are not wire controls and are
+    /// deliberately not enforced by this slice.
+    fn for_selected_payload(max_serialized_fst_bytes: u64) -> Result<Self, ExecutionLimitError> {
+        Self::try_new(
+            max_serialized_fst_bytes,
+            DEFAULT_EXECUTION_LIMITS.max_committed_memory_bytes,
+            DEFAULT_EXECUTION_LIMITS.max_wall_time,
+        )
     }
 }
 
@@ -418,7 +431,13 @@ pub enum CompileWorkerOutcome {
     /// The request frame itself was malformed (wrong `protocol_version`, or valid JSON of the wrong shape) -- distinct from a grammar-content problem.
     ProtocolViolation { detail: String },
     /// One exact, fully evidenced selected backend payload produced by the child.
-    SelectedSuccess { build: CompletedBackendBuildWire },
+    SelectedSuccess {
+        build: CompletedBackendBuildWire,
+        artifact: SelectedArtifactDescriptor,
+    },
+    /// The selected backend produced a finalized payload larger than the configured serialized
+    /// FST execution limit; no artifact is published.
+    SelectedExecutionLimitExceeded { actual_bytes: u64, limit_bytes: u64 },
     /// A selected-backend compile failed before a trusted payload could be returned.
     SelectedCompileFailed { detail: String },
 }
@@ -429,6 +448,19 @@ pub enum CompileWorkerOutcome {
 pub(crate) struct SelectedCompileRequest {
     pub(crate) attempt_id: String,
     pub(crate) route: String,
+    pub(crate) artifact_path: String,
+    pub(crate) max_serialized_fst_bytes: u64,
+}
+
+/// Descriptor for the selected payload written out-of-band by the worker child. The path is
+/// transport state, not completed-build identity; the parent accepts it only when it exactly
+/// matches the path it generated for this attempt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SelectedArtifactDescriptor {
+    pub(crate) path: String,
+    pub(crate) byte_len: u64,
+    pub(crate) sha256: String,
 }
 
 /// Loads and compiles `grammar_path` into a `pg_grammar::model::Grammar`, mirroring `pg-cli::load_grammar`'s extension dispatch and `Result<_, String>` error shape.
@@ -549,60 +581,144 @@ fn strategy_from_worker_route(route: &str) -> Result<EmissionStrategy, String> {
     }
 }
 
+fn selected_artifact_temp_path(path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.tmp", path.display()))
+}
+
+fn cleanup_selected_artifact(path: &Path) {
+    let _ = fs::remove_file(path);
+    let _ = fs::remove_file(selected_artifact_temp_path(path));
+}
+
+fn write_selected_artifact(
+    path: &Path,
+    payload_bytes: &[u8],
+) -> Result<SelectedArtifactDescriptor, String> {
+    let temp_path = selected_artifact_temp_path(path);
+    cleanup_selected_artifact(path);
+    let write_result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+            .map_err(|error| {
+                format!(
+                    "create selected artifact temp file {}: {error}",
+                    temp_path.display()
+                )
+            })?;
+        file.write_all(payload_bytes).map_err(|error| {
+            format!(
+                "write selected artifact temp file {}: {error}",
+                temp_path.display()
+            )
+        })?;
+        file.sync_all().map_err(|error| {
+            format!(
+                "flush selected artifact temp file {}: {error}",
+                temp_path.display()
+            )
+        })?;
+        drop(file);
+        fs::rename(&temp_path, path).map_err(|error| {
+            format!(
+                "atomically publish selected artifact {} -> {}: {error}",
+                temp_path.display(),
+                path.display()
+            )
+        })?;
+        Ok(SelectedArtifactDescriptor {
+            path: path.to_string_lossy().into_owned(),
+            byte_len: payload_bytes.len() as u64,
+            sha256: sha256_hex(payload_bytes),
+        })
+    })();
+    if write_result.is_err() {
+        cleanup_selected_artifact(path);
+    }
+    write_result
+}
+
 fn compile_selected_from_request(
     request: &CompileWorkerRequest,
     selected: &SelectedCompileRequest,
+    limits: &ExecutionLimits,
 ) -> CompileWorkerOutcome {
-    let strategy = match strategy_from_worker_route(&selected.route) {
-        Ok(strategy) => strategy,
-        Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
-    };
-    let private_request = match CompileAttempt::from_worker_wire(selected.attempt_id.clone()) {
-        Ok(request) => request,
-        Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
-    };
-    let grammar = match load_grammar_for_worker(&request.grammar_path, request.grammar_format) {
-        Ok(grammar) => grammar,
-        Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
-    };
-    let completed = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compile_completed_backend(&grammar, strategy, &private_request)
-    })) {
-        Ok(Ok(build)) => build,
-        Ok(Err(error)) => {
-            return CompileWorkerOutcome::SelectedCompileFailed {
-                detail: error.to_string(),
-            }
-        }
-        Err(_) => {
-            return CompileWorkerOutcome::SelectedCompileFailed {
-                detail: "selected backend compile panicked inside the worker process".to_string(),
-            }
-        }
-    };
-    let wire = completed.into_wire();
-    let result_size = match serde_json::to_vec(&CompileWorkerResult {
-        protocol_version: WORKER_PROTOCOL_VERSION,
-        outcome: CompileWorkerOutcome::SelectedSuccess {
-            build: wire.clone(),
-        },
-    }) {
-        Ok(bytes) => bytes.len() as u64,
-        Err(error) => {
-            return CompileWorkerOutcome::SelectedCompileFailed {
-                detail: format!("selected build result could not be serialized: {error}"),
-            }
-        }
-    };
-    if result_size > WORKER_PROTOCOL_LIMITS.max_result_bytes {
-        return CompileWorkerOutcome::SelectedCompileFailed {
-            detail: format!(
-                "selected build result is {result_size} byte(s), exceeding the {}-byte protocol limit",
-                WORKER_PROTOCOL_LIMITS.max_result_bytes
-            ),
+    let artifact_path = Path::new(&selected.artifact_path);
+    let outcome = (|| {
+        let strategy = match strategy_from_worker_route(&selected.route) {
+            Ok(strategy) => strategy,
+            Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
         };
+        let private_request = match CompileAttempt::from_worker_wire(selected.attempt_id.clone()) {
+            Ok(request) => request,
+            Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
+        };
+        let grammar = match load_grammar_for_worker(&request.grammar_path, request.grammar_format) {
+            Ok(grammar) => grammar,
+            Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
+        };
+        let completed = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compile_completed_backend(&grammar, strategy, &private_request)
+        })) {
+            Ok(Ok(build)) => build,
+            Ok(Err(error)) => {
+                return CompileWorkerOutcome::SelectedCompileFailed {
+                    detail: error.to_string(),
+                }
+            }
+            Err(_) => {
+                return CompileWorkerOutcome::SelectedCompileFailed {
+                    detail: "selected backend compile panicked inside the worker process"
+                        .to_string(),
+                }
+            }
+        };
+        let (wire, payload_bytes) = completed.into_wire_and_payload();
+        let actual_bytes = payload_bytes.len() as u64;
+        if actual_bytes > limits.max_serialized_fst_bytes() {
+            return CompileWorkerOutcome::SelectedExecutionLimitExceeded {
+                actual_bytes,
+                limit_bytes: limits.max_serialized_fst_bytes(),
+            };
+        }
+        // The transport helper writes a temp file and atomically renames it into place only after
+        // the complete payload has been flushed.
+        let artifact = match write_selected_artifact(artifact_path, &payload_bytes) {
+            Ok(artifact) => artifact,
+            Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
+        };
+        let result_size = match serde_json::to_vec(&CompileWorkerResult {
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            outcome: CompileWorkerOutcome::SelectedSuccess {
+                build: wire.clone(),
+                artifact: artifact.clone(),
+            },
+        }) {
+            Ok(bytes) => bytes.len() as u64,
+            Err(error) => {
+                return CompileWorkerOutcome::SelectedCompileFailed {
+                    detail: format!("selected build result could not be serialized: {error}"),
+                }
+            }
+        };
+        if result_size > WORKER_PROTOCOL_LIMITS.max_result_bytes {
+            return CompileWorkerOutcome::SelectedCompileFailed {
+                detail: format!(
+                    "selected build result is {result_size} byte(s), exceeding the {}-byte protocol limit",
+                    WORKER_PROTOCOL_LIMITS.max_result_bytes
+                ),
+            };
+        }
+        CompileWorkerOutcome::SelectedSuccess {
+            build: wire,
+            artifact,
+        }
+    })();
+    if !matches!(&outcome, CompileWorkerOutcome::SelectedSuccess { .. }) {
+        cleanup_selected_artifact(artifact_path);
     }
-    CompileWorkerOutcome::SelectedSuccess { build: wire }
+    outcome
 }
 
 /// The worker CHILD's entry point: reads exactly one `CompileWorkerRequest` frame from `input`, compiles it,
@@ -665,7 +781,26 @@ pub fn run_worker_child<R: Read, W: Write>(mut input: R, mut output: W) -> io::R
     }
 
     let outcome = match request.selected.as_ref() {
-        Some(selected) => compile_selected_from_request(&request, selected),
+        Some(selected) => {
+            let selected_limits =
+                match ExecutionLimits::for_selected_payload(selected.max_serialized_fst_bytes) {
+                    Ok(limits) => limits,
+                    Err(error) => {
+                        return write_result(
+                            &mut output,
+                            &CompileWorkerResult {
+                                protocol_version: WORKER_PROTOCOL_VERSION,
+                                outcome: CompileWorkerOutcome::ProtocolViolation {
+                                    detail: format!(
+                                        "invalid selected serialized-FST execution limit: {error}"
+                                    ),
+                                },
+                            },
+                        )
+                    }
+                };
+            compile_selected_from_request(&request, selected, &selected_limits)
+        }
         None => compile_grammar_from_request(&request),
     };
     write_result(
@@ -752,6 +887,25 @@ impl WorkerOutcome {
                 | CompileWorkerOutcome::SelectedCompileFailed { detail } => {
                     build_process_failure_health(detail.clone())
                 }
+                CompileWorkerOutcome::SelectedExecutionLimitExceeded {
+                    actual_bytes,
+                    limit_bytes,
+                } => HealthReport::new(vec![HealthFinding {
+                    code: FindingCode::HostContainmentFired,
+                    severity: Severity::MachineLimit,
+                    phase: Phase::Compile,
+                    affected: Vec::new(),
+                    metric: Metric::PayloadBytes,
+                    value: MetricValue::Bytes(*actual_bytes),
+                    provenance: ValueProvenance::Observed,
+                    threshold: Some(MetricValue::Bytes(*limit_bytes)),
+                    explanation: format!(
+                        "The selected compile produced a serialized FST of {actual_bytes} byte(s), \
+                         exceeding the configured {limit_bytes}-byte execution limit. No artifact \
+                         was published."
+                    ),
+                    remedies: Vec::new(),
+                }]),
                 CompileWorkerOutcome::SelectedSuccess { .. } => HealthReport::new(Vec::new()),
             },
             WorkerOutcome::WallTimeoutKilled { elapsed, limit } => {
@@ -960,16 +1114,26 @@ pub fn run_compile_worker(
     limits: &ExecutionLimits,
 ) -> WorkerOutcome {
     let protocol_limits = WORKER_PROTOCOL_LIMITS;
+    let selected_artifact = request
+        .selected
+        .as_ref()
+        .map(|selected| PathBuf::from(&selected.artifact_path));
 
     let request_json = match serde_json::to_vec(request) {
         Ok(bytes) => bytes,
         Err(e) => {
+            if let Some(path) = selected_artifact.as_deref() {
+                cleanup_selected_artifact(path);
+            }
             return WorkerOutcome::ProtocolViolation {
                 detail: format!("failed to serialize compile-worker request: {e}"),
             };
         }
     };
     if request_json.len() as u64 > protocol_limits.max_request_bytes {
+        if let Some(path) = selected_artifact.as_deref() {
+            cleanup_selected_artifact(path);
+        }
         return WorkerOutcome::ProtocolViolation {
             detail: format!(
                 "request is {} byte(s), exceeding the {}-byte protocol limit",
@@ -988,6 +1152,9 @@ pub fn run_compile_worker(
     {
         Ok(c) => c,
         Err(e) => {
+            if let Some(path) = selected_artifact.as_deref() {
+                cleanup_selected_artifact(path);
+            }
             return WorkerOutcome::SpawnFailed {
                 detail: format!("spawning {}: {e}", child_exe.display()),
             };
@@ -1072,6 +1239,14 @@ pub fn run_compile_worker(
     let _ = stderr_handle.join();
     let _ = stderr_buf; // captured for future diagnostics surfacing; not read on every path today.
 
+    if !matches!(
+        &outcome,
+        WorkerOutcome::Completed(CompileWorkerOutcome::SelectedSuccess { .. })
+    ) {
+        if let Some(path) = selected_artifact.as_deref() {
+            cleanup_selected_artifact(path);
+        }
+    }
     outcome
 }
 
@@ -1092,33 +1267,135 @@ pub fn run_selected_compile_worker(
     let preferred = selection
         .preferred()
         .ok_or(crate::completed_build::CompletedBuildError::NoMatchingCompletedBuild)?;
+    let artifact_path = selected_artifact_path(request.attempt_id().as_str());
     let selected = SelectedCompileRequest {
         attempt_id: request.attempt_id().as_str().to_string(),
         route: preferred.label().to_string(),
+        artifact_path: artifact_path.to_string_lossy().into_owned(),
+        max_serialized_fst_bytes: limits.max_serialized_fst_bytes(),
     };
     let mut worker_request = CompileWorkerRequest::new(grammar_path.to_string(), grammar_format);
     worker_request.selected = Some(selected);
     let outcome = run_compile_worker(child_exe, child_args, &worker_request, limits);
-    let wire = match outcome {
-        WorkerOutcome::Completed(CompileWorkerOutcome::SelectedSuccess { build }) => build,
+    let result = match outcome {
+        WorkerOutcome::Completed(CompileWorkerOutcome::SelectedSuccess { build, artifact }) => {
+            match read_selected_artifact(
+                &artifact_path,
+                &artifact,
+                build,
+                limits.max_serialized_fst_bytes(),
+            ) {
+                Ok((wire, payload)) => {
+                    match crate::completed_build::CompletedBackendBuild::from_wire(wire, payload) {
+                        Ok(build) => select_completed_build(
+                            selection,
+                            [build],
+                            request,
+                            &crate::backend_runtime::grammar_identity(grammar),
+                        ),
+                        Err(error) => Err(error),
+                    }
+                }
+                Err(error) => Err(error),
+            }
+        }
+        WorkerOutcome::Completed(CompileWorkerOutcome::SelectedExecutionLimitExceeded {
+            actual_bytes,
+            limit_bytes,
+        }) => Err(crate::completed_build::CompletedBuildError::Compiler(format!(
+            "selected serialized FST is {actual_bytes} byte(s), exceeding the {limit_bytes}-byte execution limit"
+        ))),
         WorkerOutcome::Completed(CompileWorkerOutcome::SelectedCompileFailed { detail }) => {
-            return Err(crate::completed_build::CompletedBuildError::Compiler(
-                detail,
-            ))
+            Err(crate::completed_build::CompletedBuildError::Compiler(detail))
         }
-        other => {
-            return Err(crate::completed_build::CompletedBuildError::Compiler(
-                format!("selected compile worker did not return a payload: {other:?}"),
-            ))
-        }
+        other => Err(crate::completed_build::CompletedBuildError::Compiler(format!(
+            "selected compile worker did not return a payload: {other:?}"
+        ))),
     };
-    let build = crate::completed_build::CompletedBackendBuild::from_wire(wire)?;
-    select_completed_build(
-        selection,
-        [build],
-        request,
-        &crate::backend_runtime::grammar_identity(grammar),
-    )
+    cleanup_selected_artifact(&artifact_path);
+    result
+}
+
+fn selected_artifact_path(attempt_id: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "pangloss-selected-{}-{}.fst",
+        std::process::id(),
+        attempt_id
+    ))
+}
+
+fn read_selected_artifact(
+    expected_path: &Path,
+    descriptor: &SelectedArtifactDescriptor,
+    wire: CompletedBackendBuildWire,
+    max_serialized_fst_bytes: u64,
+) -> Result<(CompletedBackendBuildWire, Vec<u8>), crate::completed_build::CompletedBuildError> {
+    let expected_path = expected_path.to_path_buf();
+    let expected_display = expected_path.display().to_string();
+    if descriptor.path != expected_display {
+        return Err(crate::completed_build::CompletedBuildError::Compiler(
+            format!(
+                "selected artifact path mismatch: expected {expected_display}, got {}",
+                descriptor.path
+            ),
+        ));
+    }
+    let metadata = fs::metadata(&expected_path).map_err(|error| {
+        crate::completed_build::CompletedBuildError::Compiler(format!(
+            "selected artifact metadata failed for {expected_display}: {error}"
+        ))
+    })?;
+    if !metadata.is_file() {
+        return Err(crate::completed_build::CompletedBuildError::Compiler(
+            format!("selected artifact path is not a regular file: {expected_display}"),
+        ));
+    }
+    let actual_len = metadata.len();
+    if actual_len > max_serialized_fst_bytes {
+        return Err(crate::completed_build::CompletedBuildError::Compiler(format!(
+            "selected artifact is {actual_len} byte(s), exceeding the {max_serialized_fst_bytes}-byte execution limit"
+        )));
+    }
+    if descriptor.byte_len != actual_len {
+        return Err(crate::completed_build::CompletedBuildError::Compiler(
+            format!(
+                "selected artifact length mismatch: descriptor {}, file {}",
+                descriptor.byte_len, actual_len
+            ),
+        ));
+    }
+    let payload = fs::read(&expected_path).map_err(|error| {
+        crate::completed_build::CompletedBuildError::Compiler(format!(
+            "selected artifact read failed for {expected_display}: {error}"
+        ))
+    })?;
+    let payload_len = payload.len() as u64;
+    if payload_len != descriptor.byte_len || payload_len > max_serialized_fst_bytes {
+        return Err(crate::completed_build::CompletedBuildError::Compiler(
+            format!(
+                "selected artifact length changed while reading: descriptor {}, read {}, limit {}",
+                descriptor.byte_len, payload_len, max_serialized_fst_bytes
+            ),
+        ));
+    }
+    let actual_digest = sha256_hex(&payload);
+    if descriptor.sha256 != actual_digest {
+        return Err(crate::completed_build::CompletedBuildError::Compiler(
+            format!(
+                "selected artifact digest mismatch: descriptor {}, file {}",
+                descriptor.sha256, actual_digest
+            ),
+        ));
+    }
+    if wire.payload_fingerprint != actual_digest {
+        return Err(crate::completed_build::CompletedBuildError::Compiler(
+            format!(
+                "selected payload evidence digest mismatch: evidence {}, file {}",
+                wire.payload_fingerprint, actual_digest
+            ),
+        ));
+    }
+    Ok((wire, payload))
 }
 
 #[cfg(test)]

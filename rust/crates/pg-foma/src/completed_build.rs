@@ -238,11 +238,18 @@ impl CompletedBackendBuild {
             arc_count: self.evidence.arc_count,
             model_fingerprint: self.evidence.model_fingerprint.clone(),
             payload_fingerprint: self.evidence.payload_fingerprint.clone(),
-            payload_bytes: self.payload_bytes.clone(),
         }
     }
 
-    pub(crate) fn from_wire(wire: CompletedBackendBuildWire) -> Result<Self, CompletedBuildError> {
+    pub(crate) fn into_wire_and_payload(self) -> (CompletedBackendBuildWire, Vec<u8>) {
+        let wire = self.into_wire();
+        (wire, self.payload_bytes)
+    }
+
+    pub(crate) fn from_wire(
+        wire: CompletedBackendBuildWire,
+        payload_bytes: Vec<u8>,
+    ) -> Result<Self, CompletedBuildError> {
         let requested_strategy = strategy_from_label(&wire.requested_strategy)?;
         let realized_strategy = strategy_from_label(&wire.realized_strategy)?;
         let completion_proof = match wire.completion_proof {
@@ -275,7 +282,7 @@ impl CompletedBackendBuild {
                 model_fingerprint: wire.model_fingerprint,
                 payload_fingerprint: wire.payload_fingerprint,
             },
-            payload_bytes: wire.payload_bytes,
+            payload_bytes,
         })
     }
 }
@@ -292,7 +299,6 @@ pub struct CompletedBackendBuildWire {
     pub arc_count: i32,
     pub model_fingerprint: String,
     pub payload_fingerprint: String,
-    pub payload_bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -696,7 +702,7 @@ fn build_from_proposer(
     })
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
