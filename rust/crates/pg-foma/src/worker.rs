@@ -1446,6 +1446,25 @@ mod tests {
         assert!(err.contains("too short"));
     }
 
+    #[test]
+    fn parse_result_frame_rejects_a_stale_worker_protocol() {
+        let stale = CompileWorkerResult {
+            protocol_version: WORKER_PROTOCOL_VERSION - 1,
+            outcome: CompileWorkerOutcome::ProtocolViolation {
+                detail: "synthetic stale result".to_string(),
+            },
+        };
+        let body = serde_json::to_vec(&stale).expect("serialize stale result");
+        let mut frame = Vec::new();
+        write_frame(&mut frame, &body).expect("frame stale result");
+
+        let error = parse_result_frame(&frame)
+            .expect_err("a pre-cleanup child result must not enter a lockstep parent");
+        assert!(error.contains("protocol version"), "error: {error}");
+        assert!(error.contains("1"), "error: {error}");
+        assert!(error.contains("2"), "error: {error}");
+    }
+
     // `run_worker_child` in-process: protocol handling plus the grammar-content outcomes reachable without a real adversarial grammar.
 
     fn call_child(request_bytes: &[u8]) -> CompileWorkerResult {

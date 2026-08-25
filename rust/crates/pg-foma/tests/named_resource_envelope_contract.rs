@@ -27,7 +27,10 @@ fn shipped_resource_envelopes_are_closed_complete_and_canonical() {
 
     let managed = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
     assert_eq!(managed.schema_version(), 1);
-    assert_eq!(managed.worker_protocol_version(), 1);
+    assert_eq!(
+        managed.worker_protocol_version(),
+        pg_foma::worker::WORKER_PROTOCOL_VERSION
+    );
     assert_eq!(managed.watchdog().wall_timeout_ms, 120_000);
     assert_eq!(managed.watchdog().rss_limit_mb, 4_096);
     assert_eq!(managed.watchdog().rss_sample_interval_ms, 200);
