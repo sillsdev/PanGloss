@@ -349,7 +349,7 @@ fn no_root_survives_a_bare_root_candidate_with_no_rule_applied() {
     );
 }
 
-/// `root_index` carries the one counter with a real calibrated constant, so its work must not stay a confident zero.
+/// A real root-index lookup records nonzero raw work rather than a confident zero.
 #[test]
 fn root_index_work_is_nonzero_for_a_real_lookup() {
     let g = csharp_port_common::build_grammar("", "", "", "", "");
