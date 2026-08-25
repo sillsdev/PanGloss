@@ -79,7 +79,6 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use pg_foma::composite::FomaAnalyzer;
-use pg_foma::resource_envelope::CompileSizeMode;
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
@@ -98,7 +97,7 @@ mod trace_render;
 fn accept_developer_flag(arg: &str) -> Result<(), String> {
     debug_assert!(matches!(
         arg,
-        "--allow-unproven" | "--remove-size-limits" | "--no-enforce-capability"
+        "--allow-unproven"
     ));
     #[cfg(feature = "developer-tools")]
     {
@@ -121,33 +120,32 @@ fn reject_unknown_option(arg: &str) -> Result<(), String> {
 
 #[cfg(feature = "developer-tools")]
 const PARSE_DEVELOPER_HELP: &str =
-    " [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--remove-size-limits]";
+    " [--enforce-capability] [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
 const PARSE_DEVELOPER_HELP: &str = "";
 
 #[cfg(feature = "developer-tools")]
 const BATCH_DEVELOPER_HELP: &str =
-    " [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--remove-size-limits]";
+    " [--enforce-capability] [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
 const BATCH_DEVELOPER_HELP: &str = "";
 
 #[cfg(feature = "developer-tools")]
 const PACK_DEVELOPER_HELP: &str =
-    " [--allow-unproven] [--remove-size-limits]";
+    " [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
 const PACK_DEVELOPER_HELP: &str = "";
 
 #[cfg(feature = "developer-tools")]
 const REPORT_DEVELOPER_HELP: &str =
-    " [--allow-unproven] [--remove-size-limits]";
+    " [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
 const REPORT_DEVELOPER_HELP: &str = "";
 
 #[cfg(feature = "developer-tools")]
 const DEVELOPER_HELP: &str =
     "Developer-only FST controls: --allow-unproven overrides correctness refusal for an unproven\
-     development run; --remove-size-limits requests the planned stress mode; --no-enforce-\
-     capability is retained only as a legacy parse/batch development switch.\n                 ";
+     development run.\n                 ";
 #[cfg(not(feature = "developer-tools"))]
 const DEVELOPER_HELP: &str = "";
 
@@ -499,32 +497,16 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
     }
 }
 
-#[cfg(feature = "developer-tools")]
-fn resolve_compile_size_mode(
-    engine: Engine,
-    remove_size_limits: bool,
-) -> Result<CompileSizeMode, String> {
-    if remove_size_limits && engine != Engine::Foma {
-        return Err("--remove-size-limits requires --engine=foma".to_string());
-    }
-    Ok(if remove_size_limits {
-        CompileSizeMode::DeveloperStress
-    } else {
-        CompileSizeMode::Managed
-    })
-}
-
 fn build_foma_analyzer<'g>(
     grammar: &'g Grammar,
     capability_overridden: bool,
-    size_mode: CompileSizeMode,
 ) -> Result<FomaAnalyzer<'g>, pg_foma::analyzer::FomaError> {
     #[cfg(feature = "developer-tools")]
     {
         let (proposer, _profile) = if capability_overridden {
-            pg_foma::analyzer::FomaProposer::new_unproven_with_profile_for_mode(grammar, size_mode)
+            pg_foma::analyzer::FomaProposer::new_unproven_with_profile(grammar)
         } else {
-            pg_foma::analyzer::FomaProposer::new_with_profile_for_mode(grammar, size_mode)
+            pg_foma::analyzer::FomaProposer::new_with_profile(grammar)
         };
         return proposer.map(|proposer| FomaAnalyzer::from_precompiled_proposer(grammar, proposer));
     }
@@ -532,8 +514,7 @@ fn build_foma_analyzer<'g>(
     #[cfg(not(feature = "developer-tools"))]
     {
         let _ = capability_overridden;
-        let (proposer, _profile) =
-            pg_foma::analyzer::FomaProposer::new_with_profile_for_mode(grammar, size_mode);
+        let (proposer, _profile) = pg_foma::analyzer::FomaProposer::new_with_profile(grammar);
         proposer.map(|proposer| FomaAnalyzer::from_precompiled_proposer(grammar, proposer))
     }
 }
@@ -733,11 +714,9 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
     let mut engine = Engine::Default;
-    // None unless the user explicitly passed --enforce-capability/--no-enforce-capability; resolved to a plain bool once engine is final (see resolve_capability_enforcement).
+    // None unless the user explicitly passed --enforce-capability; resolved once engine is final.
     let mut enforce_capability_flag: Option<bool> = None;
     let mut allow_unproven = false;
-    #[cfg(feature = "developer-tools")]
-    let mut remove_size_limits = false;
     let mut guess = false;
 
     let mut it = args.iter();
@@ -777,20 +756,9 @@ fn run_parse(args: &[String]) -> Result<(), String> {
                 engine = Engine::parse(&s["--engine=".len()..])?;
             }
             "--enforce-capability" => enforce_capability_flag = Some(true),
-            "--no-enforce-capability" => {
-                accept_developer_flag(a)?;
-                enforce_capability_flag = Some(false);
-            }
             "--allow-unproven" => {
                 accept_developer_flag(a)?;
                 allow_unproven = true;
-            }
-            "--remove-size-limits" => {
-                accept_developer_flag(a)?;
-                #[cfg(feature = "developer-tools")]
-                {
-                    remove_size_limits = true;
-                }
             }
             "--guess" => guess = true,
             s => {
@@ -799,10 +767,6 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             }
         }
     }
-    #[cfg(feature = "developer-tools")]
-    let size_mode = resolve_compile_size_mode(engine, remove_size_limits)?;
-    #[cfg(not(feature = "developer-tools"))]
-    let size_mode = CompileSizeMode::Managed;
     let enforce_capability = resolve_capability_enforcement(engine, enforce_capability_flag);
     if trace_format != "text" && trace_format != "json" {
         return Err(format!(
@@ -852,7 +816,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
 
     if engine == Engine::Foma {
         // --trace was already rejected above, so this routes through FomaAnalyzer::analyze_word instead of Morpher::parse_word, with output shape identical to the default engine's.
-        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden, size_mode)
+        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden)
             .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?;
         let (analyses, structured) = if foma_invalid_shape(&grammar, word) {
             (Vec::new(), Vec::new())
@@ -1029,11 +993,9 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut start_idx: usize = 0;
     // --engine=foma routes the whole batch through FomaAnalyzer instead of Morpher.
     let mut engine = Engine::Default;
-    // None unless the user explicitly passed --enforce-capability/--no-enforce-capability; resolved to a plain bool once engine is final.
+    // None unless the user explicitly passed --enforce-capability; resolved once engine is final.
     let mut enforce_capability_flag: Option<bool> = None;
     let mut allow_unproven = false;
-    #[cfg(feature = "developer-tools")]
-    let mut remove_size_limits = false;
     // Same shared --guess contract as run_parse: default-off, guessed rows always marked, --engine=default only.
     let mut guess = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
@@ -1100,20 +1062,9 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 engine = Engine::parse(&s["--engine=".len()..])?;
             }
             "--enforce-capability" => enforce_capability_flag = Some(true),
-            "--no-enforce-capability" => {
-                accept_developer_flag(a)?;
-                enforce_capability_flag = Some(false);
-            }
             "--allow-unproven" => {
                 accept_developer_flag(a)?;
                 allow_unproven = true;
-            }
-            "--remove-size-limits" => {
-                accept_developer_flag(a)?;
-                #[cfg(feature = "developer-tools")]
-                {
-                    remove_size_limits = true;
-                }
             }
             "--guess" => guess = true,
             "--stats" => stats_requested = true,
@@ -1130,10 +1081,6 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             }
         }
     }
-    #[cfg(feature = "developer-tools")]
-    let size_mode = resolve_compile_size_mode(engine, remove_size_limits)?;
-    #[cfg(not(feature = "developer-tools"))]
-    let size_mode = CompileSizeMode::Managed;
     let enforce_capability = resolve_capability_enforcement(engine, enforce_capability_flag);
     if threads == 0 {
         return Err("--threads must be >= 1".into());
@@ -1187,7 +1134,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     if engine == Engine::Foma {
         // The foma path: one FomaAnalyzer built once and reused across every word. --step-cap/--memo are silently ignored (the internal verifier Morpher is always uncapped), --word-timeout-ms applies via with_word_timeout, and threads > 1 routes through analyze_words (confirm parallelized, propose sequential since the single ApplyHandle can't be split across threads) with results buffered and written once, no per-word crash-resume.
         let t_compile = Instant::now();
-        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden, size_mode)
+        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden)
             .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?
             .with_word_timeout(word_timeout_ms.map(Duration::from_millis));
         let compile_ms = t_compile.elapsed().as_secs_f64() * 1e3;
@@ -1818,7 +1765,7 @@ mod tests {
         }
     }
 
-    /// Covers `capability_gate`'s pure boolean contract directly, and `resolve_capability_enforcement`'s engine-scoping policy end-to-end through `run_batch`: `--engine=default` never enforces, `--engine=foma` enforces by default, `--no-enforce-capability` opts back out, and `--allow-unproven` still overrides a foma-path refusal.
+    /// Covers `capability_gate`'s pure boolean contract directly, and `resolve_capability_enforcement`'s engine-scoping policy end-to-end through `run_batch`: `--engine=default` never enforces, `--engine=foma` enforces by default, and `--allow-unproven` still overrides a foma-path refusal.
     mod capability_gate_tests {
         use super::super::{capability_gate, run_batch};
         use std::fs;
@@ -1903,8 +1850,6 @@ mod tests {
             let rendered = gate.stderr_lines.join("\n");
             for flag in [
                 "--allow-unproven",
-                "--no-enforce-capability",
-                "--remove-size-limits",
             ] {
                 assert!(!rendered.contains(flag), "production diagnostic leaked {flag}: {rendered}");
             }
@@ -1913,8 +1858,6 @@ mod tests {
                 .expect("a refused grammar must fail the production gate");
             for flag in [
                 "--allow-unproven",
-                "--no-enforce-capability",
-                "--remove-size-limits",
             ] {
                 assert!(!error.contains(flag), "production error leaked {flag}: {error}");
             }
@@ -2045,26 +1988,6 @@ mod tests {
             assert!(
                 !out_path.exists(),
                 "no analysis output may be produced for a refused, non-overridden run"
-            );
-        }
-
-        /// `--engine=foma --no-enforce-capability` is the escape hatch back to advisory-only: the same `Refuse`-verdict grammar must now proceed unenforced.
-        #[cfg(feature = "developer-tools")]
-        #[test]
-        fn run_batch_foma_engine_no_enforce_capability_proceeds_for_permanently_refused() {
-            let (result, out_path) = run_batch_raw(
-                "foma-no-enforce",
-                PERMANENTLY_REFUSED_GRAMMAR_XML,
-                &["--engine=foma", "--no-enforce-capability"],
-            );
-            assert!(
-                result.is_ok(),
-                "--no-enforce-capability must drop back to advisory-only on --engine=foma: \
-                 {result:?}"
-            );
-            assert!(
-                out_path.exists(),
-                "an unenforced run must still produce output"
             );
         }
 

@@ -270,7 +270,6 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut allow_unproven = false;
     #[cfg(feature = "developer-tools")]
-    let mut remove_size_limits = false;
     let mut authorized_by: Option<String> = None;
     let mut reason: Option<String> = None;
     let mut watchdog = false;
@@ -281,13 +280,6 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
             "--allow-unproven" => {
                 crate::accept_developer_flag(a)?;
                 allow_unproven = true;
-            }
-            "--remove-size-limits" => {
-                crate::accept_developer_flag(a)?;
-                #[cfg(feature = "developer-tools")]
-                {
-                    remove_size_limits = true;
-                }
             }
             "--authorized-by" => {
                 let v = it.next().ok_or("--authorized-by requires a value")?;
@@ -310,14 +302,6 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
             }
         }
     }
-    #[cfg(feature = "developer-tools")]
-    let size_mode = if remove_size_limits {
-        CompileSizeMode::DeveloperStress
-    } else {
-        CompileSizeMode::Managed
-    };
-    #[cfg(not(feature = "developer-tools"))]
-    let size_mode = CompileSizeMode::Managed;
     let [grammar_path, out_path] = positional[..] else {
         return Err(format!(
             "usage: pack <grammar> <out.pgpack>{} [--authorized-by=<name>] \
@@ -339,7 +323,6 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
         authorized_by.as_deref(),
         reason.as_deref(),
         watchdog,
-        size_mode,
     )?;
 
     validate_health_readiness(&built.manifest.fst_health, built.worker_containment_failed)?;
@@ -389,7 +372,6 @@ pub(crate) fn build_pack(
     authorized_by: Option<&str>,
     reason: Option<&str>,
     watchdog: bool,
-    size_mode: CompileSizeMode,
 ) -> Result<BuiltPack, String> {
     #[cfg(not(feature = "developer-tools"))]
     if allow_unproven {
@@ -498,7 +480,7 @@ pub(crate) fn build_pack(
         Option<EmitReport>,
     ) = if watchdog {
         let (health, containment_failed) =
-            run_fst_health_under_watchdog(grammar_path, size_mode)?;
+            run_fst_health_under_watchdog(grammar_path)?;
         worker_containment_failed = containment_failed;
         (
             health.clone(),
@@ -512,14 +494,14 @@ pub(crate) fn build_pack(
             #[cfg(feature = "developer-tools")]
             {
                 if capability_overridden {
-                    FomaProposer::new_unproven_with_profile_for_mode(grammar, size_mode)
+                    FomaProposer::new_unproven_with_profile(grammar)
                 } else {
-                    FomaProposer::new_with_profile_for_mode(grammar, size_mode)
+                    FomaProposer::new_with_profile(grammar)
                 }
             }
             #[cfg(not(feature = "developer-tools"))]
             {
-                FomaProposer::new_with_profile_for_mode(grammar, size_mode)
+                FomaProposer::new_with_profile(grammar)
             }
         };
         match &proposer_result {
@@ -602,7 +584,7 @@ pub(crate) fn build_pack(
         package_fingerprint,
         required_runtime_features,
         resource_envelope_id: ResourceEnvelopeId::ManagedV1,
-        compile_size_mode: size_mode,
+        compile_size_mode: CompileSizeMode::Managed,
         capability_trust,
         fst_health,
         backend_assessments,
@@ -646,11 +628,9 @@ fn worker_containment_fired(outcome: &pg_foma::worker::WorkerOutcome) -> bool {
 /// Runs the FST-health compile in a re-exec'd `__compile-worker-child` process under a killable watchdog, mapping the outcome to a `HealthReport` and reporting whether the supervisor actually killed the child (a real worker-containment event, as opposed to the child completing on its own).
 fn run_fst_health_under_watchdog(
     grammar_path: &str,
-    size_mode: CompileSizeMode,
 ) -> Result<(pg_foma::health::HealthReport, bool), String> {
     let format = infer_grammar_format(grammar_path);
     let mut request = pg_foma::worker::CompileWorkerRequest::new(grammar_path.to_string(), format);
-    request.size_mode = size_mode;
     let envelope = pg_foma::worker::WatchdogEnvelope::default_envelope();
     let exe = std::env::current_exe()
         .map_err(|e| format!("--watchdog: could not resolve this executable's own path: {e}"))?;
@@ -894,7 +874,6 @@ mod tests {
             None,
             Some("missing payload assessment"),
             true,
-            CompileSizeMode::Managed,
         )
         .expect("developer evidence pack may be built");
 
@@ -1181,33 +1160,6 @@ mod tests {
         assert_eq!(read.manifest.compile_size_mode, CompileSizeMode::Managed);
     }
 
-    /// Pin: a `--remove-size-limits` build must record `CompileSizeMode::DeveloperStress`, never silently fall back to `Managed`.
-    #[cfg(feature = "developer-tools")]
-    #[test]
-    fn developer_stress_build_records_developer_stress_size_mode() {
-        let (result, out_path) = run_pack_raw(
-            "developer-stress-envelope",
-            CLEAN_GRAMMAR_XML,
-            &["--remove-size-limits"],
-        );
-        assert!(
-            result.is_ok(),
-            "clean grammar under --remove-size-limits must pack successfully: {result:?}"
-        );
-
-        let bytes = std::fs::read(&out_path).expect("read out.pgpack");
-        let read = pg_pack::read_pack(&bytes).expect("a pack this command wrote must read back");
-        assert_eq!(
-            read.manifest.compile_size_mode,
-            CompileSizeMode::DeveloperStress
-        );
-        assert_eq!(
-            read.manifest.resource_envelope_id,
-            ResourceEnvelopeId::ManagedV1,
-            "this step only records the envelope already in use, never changes which one is selected"
-        );
-    }
-
     /// A `Refuse`-verdict grammar with no `--allow-unproven`: pack must fail and write no file.
     #[test]
     fn pack_refuse_grammar_without_override_fails_and_writes_no_file() {
@@ -1290,7 +1242,6 @@ mod tests {
             None,
             Some("synthetic readiness separation"),
             false,
-            CompileSizeMode::Managed,
         )
         .expect("capability override may collect an evidence pack");
 

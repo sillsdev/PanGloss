@@ -121,7 +121,7 @@ use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
 use crate::resource_envelope::{
-    BackendEnvelope, CommunicationEnvelope, CompileEnvelopeRequest, CompileSizeMode,
+    BackendEnvelope, CommunicationEnvelope, CompileEnvelopeRequest,
     ComposeEnvelope, EnumerationEnvelope, ResourceEnvelope, ResourceEnvelopeId,
     WatchdogEnvelope as ResourceWatchdog,
 };
@@ -350,14 +350,6 @@ pub struct CompileWorkerRequest {
     pub protocol_version: u32,
     pub grammar_path: String,
     pub grammar_format: GrammarFormat,
-    /// Typed projection of the shipped internal construction caps. The serde default keeps
-    /// older generic requests managed while the worker protocol remains additive.
-    ///
-    /// Read only on the generic route. A request carrying a `selected` frame is compiled from that
-    /// frame's own `size_mode`, so this field stays at its default there and a serialized request
-    /// can legitimately show `Managed` here beside a stress mode inside `selected`.
-    #[serde(default)]
-    pub size_mode: CompileSizeMode,
     /// `ComposeBudget::state_cap`.
     pub state_cap: usize,
     /// `ComposeBudget::arc_cap`.
@@ -391,7 +383,6 @@ impl CompileWorkerRequest {
             protocol_version: WORKER_PROTOCOL_VERSION,
             grammar_path: grammar_path.into(),
             grammar_format,
-            size_mode: CompileSizeMode::Managed,
             state_cap: crate::compose_budget::DEFAULT_STATE_BUDGET,
             arc_cap: crate::compose_budget::DEFAULT_ARC_BUDGET,
             tuple_cap: crate::compose_budget::DEFAULT_TUPLE_BUDGET,
@@ -403,28 +394,6 @@ impl CompileWorkerRequest {
             ),
             selected: None,
         }
-    }
-
-    /// Builds the `ComposeBudget` this request describes -- what `run_worker_child` compiles
-    /// under. The shipped managed profile is the base; explicit legacy managed wire caps remain
-    /// honored for compatibility with existing callers/tests, while DeveloperStress is an
-    /// authoritative typed projection that removes those internal caps.
-    pub fn compile_limits(&self) -> crate::resource_envelope::CompileLimits {
-        let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
-        let mut limits = envelope.compile_limits(self.size_mode);
-        if matches!(self.size_mode, CompileSizeMode::Managed) {
-            limits.compose = ComposeEnvelope {
-                state_cap: self.state_cap,
-                arc_cap: self.arc_cap,
-                tuple_cap: self.tuple_cap,
-                group_cap: self.group_cap,
-                line_cap: self.line_cap,
-                compound_pair_cap: limits.compose.compound_pair_cap,
-                chain_depth_cap: self.chain_depth_cap,
-                ordering_multiplicity_cap: self.ordering_multiplicity_cap,
-            };
-        }
-        limits
     }
 
     pub fn compose_budget(&self) -> ComposeBudget {
@@ -496,8 +465,6 @@ pub(crate) struct SelectedCompileRequest {
     pub(crate) envelope_id: ResourceEnvelopeId,
     pub(crate) envelope_digest: String,
     pub(crate) attempt_id: String,
-    #[serde(default)]
-    pub(crate) size_mode: CompileSizeMode,
     pub(crate) route: String,
     pub(crate) watchdog: ResourceWatchdog,
     pub(crate) communication: CommunicationEnvelope,
@@ -541,38 +508,15 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
         Err(detail) => return CompileWorkerOutcome::GrammarLoadFailed { detail },
     };
 
-    #[cfg(feature = "developer-tools")]
-    let stress_limits = matches!(request.size_mode, CompileSizeMode::DeveloperStress)
-        .then(|| request.compile_limits());
-    #[cfg(not(feature = "developer-tools"))]
-    let stress_limits: Option<crate::resource_envelope::CompileLimits> = None;
-    let enum_budget = stress_limits.map_or_else(
-        crate::morphotactics::EnumerationBudget::from_env,
-        |limits| {
-            crate::morphotactics::EnumerationBudget::with_caps(
-                limits.enumeration.composite_entry_cap,
-                limits.enumeration.pair_probe_cap,
-            )
-        },
-    );
-    let compose_budget = stress_limits
-        .map(|limits| limits.compose.to_compose_budget())
-        .unwrap_or_else(|| request.compose_budget());
+    let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
+    let compose_budget = request.compose_budget();
 
     let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        match stress_limits {
-            Some(limits) => crate::analyzer::FomaProposer::new_with_budget_and_profile_and_compose(
-                &grammar,
-                &enum_budget,
-                &compose_budget,
-                limits.compose,
-            ),
-            None => crate::analyzer::FomaProposer::new_with_budget_and_profile(
-                &grammar,
-                &enum_budget,
-                &compose_budget,
-            ),
-        }
+        crate::analyzer::FomaProposer::new_with_budget_and_profile(
+            &grammar,
+            &enum_budget,
+            &compose_budget,
+        )
     }));
 
     let (result, profile) = match compiled {
@@ -679,7 +623,6 @@ fn compile_selected_from_request(
         selected.envelope_id,
         &selected.envelope_digest,
         selected.attempt_id.clone(),
-        selected.size_mode,
     ) {
         Ok(request) => request,
         Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
@@ -1326,7 +1269,6 @@ pub fn run_selected_compile_worker(
         envelope_id: envelope.id(),
         envelope_digest: envelope.digest(),
         attempt_id: request.attempt_id().as_str().to_string(),
-        size_mode: request.size_mode(),
         route: preferred.label().to_string(),
         watchdog: envelope.watchdog(),
         communication: envelope.communication(),

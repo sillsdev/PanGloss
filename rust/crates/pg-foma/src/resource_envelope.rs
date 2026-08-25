@@ -6,7 +6,6 @@
 use std::fmt;
 use std::str::FromStr;
 
-use crate::characterization::{CharacterizationResult, ClosureTerminal};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
@@ -25,17 +24,14 @@ impl Default for ResourceEnvelopeId {
     }
 }
 
-/// Construction-cap policy for one developer or managed compile attempt.
+/// Compatibility marker retained for the persisted pack-manifest field.
 ///
-/// This is deliberately separate from [`ResourceEnvelopeId`]: the envelope remains the shipped
-/// identity for watchdog, transport, and completion evidence while this policy only projects the
-/// internal deterministic construction caps used by the emitter.
+/// Live compilation always uses the managed envelope directly. The field is removed by the later
+/// manifest migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CompileSizeMode {
     Managed,
-    #[cfg(feature = "developer-tools")]
-    DeveloperStress,
 }
 
 impl Default for CompileSizeMode {
@@ -46,7 +42,7 @@ impl Default for CompileSizeMode {
 
 impl ResourceEnvelopeId {
     pub const fn all() -> &'static [Self] {
-        &[Self::ManagedV1, Self::TunedSurfaceWork10kV1]
+        &[Self::ManagedV1]
     }
 
     pub const fn as_str(self) -> &'static str {
@@ -152,13 +148,6 @@ pub struct ResourceEnvelope {
     backend: BackendEnvelope,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CompileLimits {
-    pub compose: ComposeEnvelope,
-    pub enumeration: EnumerationEnvelope,
-    pub backend: BackendEnvelope,
-}
-
 impl ResourceEnvelope {
     pub const fn id(&self) -> ResourceEnvelopeId {
         self.id
@@ -185,41 +174,6 @@ impl ResourceEnvelope {
         self.backend
     }
 
-    /// Projects the internal construction limits for one attempt without changing the shipped
-    /// envelope identity or any external containment limit.
-    pub const fn compile_limits(&self, mode: CompileSizeMode) -> CompileLimits {
-        match mode {
-            CompileSizeMode::Managed => CompileLimits {
-                compose: self.compose,
-                enumeration: self.enumeration,
-                backend: self.backend,
-            },
-            #[cfg(feature = "developer-tools")]
-            CompileSizeMode::DeveloperStress => CompileLimits {
-                compose: ComposeEnvelope {
-                    state_cap: usize::MAX,
-                    arc_cap: usize::MAX,
-                    tuple_cap: usize::MAX,
-                    group_cap: usize::MAX,
-                    line_cap: usize::MAX,
-                    compound_pair_cap: usize::MAX,
-                    chain_depth_cap: Some(crate::compose_budget::CHAIN_DEPTH_ABSOLUTE_CEILING),
-                    ordering_multiplicity_cap: None,
-                },
-                enumeration: EnumerationEnvelope {
-                    composite_entry_cap: usize::MAX,
-                    pair_probe_cap: usize::MAX,
-                },
-                backend: BackendEnvelope {
-                    tuned_surface_closure_work_cap: usize::MAX,
-                    tuned_surface_closure_depth_cap:
-                        crate::compose_budget::CHAIN_DEPTH_ABSOLUTE_CEILING,
-                    tuned_surface_compound_chain_depth_cap:
-                        crate::compose_budget::CHAIN_DEPTH_ABSOLUTE_CEILING,
-                },
-            },
-        }
-    }
 }
 
 fn shipped_watchdog() -> WatchdogEnvelope {
@@ -357,17 +311,7 @@ impl AttemptId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileEnvelopeRequest {
     envelope_id: ResourceEnvelopeId,
-    size_mode: CompileSizeMode,
     attempt_id: AttemptId,
-    retry_of: Option<AttemptId>,
-    prior_closure: Option<CharacterizationResult>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RetryAuthorization {
-    attempt_id: AttemptId,
-    envelope_id: ResourceEnvelopeId,
-    prior_closure: CharacterizationResult,
 }
 
 fn fresh_attempt_id() -> Result<AttemptId, String> {
@@ -383,41 +327,9 @@ fn fresh_attempt_id() -> Result<AttemptId, String> {
 
 impl CompileEnvelopeRequest {
     pub fn try_new(envelope_id: ResourceEnvelopeId) -> Result<Self, String> {
-        Self::try_new_with_mode(envelope_id, CompileSizeMode::Managed)
-    }
-
-    pub fn try_new_with_mode(
-        envelope_id: ResourceEnvelopeId,
-        size_mode: CompileSizeMode,
-    ) -> Result<Self, String> {
         Ok(Self {
             envelope_id,
-            size_mode,
             attempt_id: fresh_attempt_id()?,
-            retry_of: None,
-            prior_closure: None,
-        })
-    }
-
-    pub fn retry_from(
-        authorization: &RetryAuthorization,
-        envelope_id: ResourceEnvelopeId,
-    ) -> Result<Self, String> {
-        if authorization.envelope_id == envelope_id {
-            return Err("a retry must select a different resource envelope".to_string());
-        }
-        if matches!(
-            authorization.prior_closure.terminal,
-            ClosureTerminal::Complete
-        ) {
-            return Err("a complete attempt cannot authorize a retry".to_string());
-        }
-        Ok(Self {
-            envelope_id,
-            size_mode: CompileSizeMode::Managed,
-            attempt_id: fresh_attempt_id()?,
-            retry_of: Some(authorization.attempt_id.clone()),
-            prior_closure: Some(authorization.prior_closure.clone()),
         })
     }
 
@@ -425,27 +337,14 @@ impl CompileEnvelopeRequest {
         self.envelope_id
     }
 
-    pub const fn size_mode(&self) -> CompileSizeMode {
-        self.size_mode
-    }
-
     pub fn attempt_id(&self) -> &AttemptId {
         &self.attempt_id
-    }
-
-    pub fn retry_of(&self) -> Option<&AttemptId> {
-        self.retry_of.as_ref()
-    }
-
-    pub fn prior_closure(&self) -> Option<&CharacterizationResult> {
-        self.prior_closure.as_ref()
     }
 
     pub(crate) fn from_worker_wire(
         envelope_id: ResourceEnvelopeId,
         envelope_digest: &str,
         attempt_id: impl Into<String>,
-        size_mode: CompileSizeMode,
     ) -> Result<Self, String> {
         let expected = ResourceEnvelope::for_id(envelope_id);
         if envelope_digest != expected.digest() {
@@ -455,36 +354,7 @@ impl CompileEnvelopeRequest {
         }
         Ok(Self {
             envelope_id,
-            size_mode,
             attempt_id: AttemptId::new(attempt_id)?,
-            retry_of: None,
-            prior_closure: None,
         })
-    }
-}
-
-impl RetryAuthorization {
-    pub(crate) fn from_terminal_failure(
-        request: &CompileEnvelopeRequest,
-        closure: &CharacterizationResult,
-    ) -> Option<Self> {
-        let retryable = matches!(
-            closure.terminal,
-            ClosureTerminal::Incomplete(
-                crate::characterization::ClosureStopReason::WorkBudgetReached
-                    | crate::characterization::ClosureStopReason::DepthBudgetReached
-                    | crate::characterization::ClosureStopReason::EnumerationBudgetReached
-                    | crate::characterization::ClosureStopReason::ResourceBudgetReached
-            )
-        );
-        if retryable {
-            Some(Self {
-                attempt_id: request.attempt_id.clone(),
-                envelope_id: request.envelope_id,
-                prior_closure: closure.clone(),
-            })
-        } else {
-            None
-        }
     }
 }

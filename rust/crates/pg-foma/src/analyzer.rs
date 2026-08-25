@@ -23,9 +23,6 @@ use pg_grammar::model::Grammar;
 use crate::compose_budget::{ApplyBudget, ApplyDimension, ApplyOutcome, ComposeBudget};
 use crate::emit::{self, EmitReport, FomaTier};
 use crate::profile::{CompileProfile, CompileProfileBuilder, CompileStage};
-use crate::resource_envelope::{
-    CompileSizeMode, ComposeEnvelope, ResourceEnvelope, ResourceEnvelopeId,
-};
 use crate::tags::{self, Candidate};
 
 /// Errors constructing a `FomaProposer`. Deliberately small (this stage doesn't need a rich
@@ -316,42 +313,6 @@ impl FomaProposer {
         Self::new_with_budget_and_profile(g, &enum_budget, &compose_budget)
     }
 
-    /// Shared core of `new_with_profile_for_mode` and `new_unproven_with_profile_for_mode`.
-    fn new_with_profile_for_size_mode(
-        g: &Grammar,
-        size_mode: CompileSizeMode,
-        allow_incomplete: bool,
-        managed: impl FnOnce(&Grammar) -> (Result<Self>, CompileProfile),
-    ) -> (Result<Self>, CompileProfile) {
-        if matches!(size_mode, CompileSizeMode::Managed) {
-            return managed(g);
-        }
-        let limits = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1)
-            .compile_limits(size_mode);
-        let enum_budget = crate::morphotactics::EnumerationBudget::with_caps(
-            limits.enumeration.composite_entry_cap,
-            limits.enumeration.pair_probe_cap,
-        );
-        let compose_budget = limits.compose.to_compose_budget();
-        Self::new_with_budget_and_profile_policy(
-            g,
-            &enum_budget,
-            &compose_budget,
-            allow_incomplete,
-            Some(limits.compose),
-        )
-    }
-
-    /// Builds a profiled proposer for the typed construction-size mode. Managed delegates to
-    /// [`Self::new_with_profile`] to preserve its legacy environment behavior; DeveloperStress
-    /// uses the shipped `ManagedV1` projection.
-    pub fn new_with_profile_for_mode(
-        g: &Grammar,
-        size_mode: CompileSizeMode,
-    ) -> (Result<Self>, CompileProfile) {
-        Self::new_with_profile_for_size_mode(g, size_mode, false, Self::new_with_profile)
-    }
-
     /// Development-only counterpart to [`Self::new_with_profile`]. It may compile an emitter
     /// result that is explicitly marked [`FomaTier::Partial`] so callers can inspect it, but the
     /// caller must persist an unproven/degraded trust record. It never admits `Unsupported` or a
@@ -360,17 +321,7 @@ impl FomaProposer {
     pub fn new_unproven_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
         let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let compose_budget = ComposeBudget::from_env();
-        Self::new_with_budget_and_profile_policy(g, &enum_budget, &compose_budget, true, None)
-    }
-
-    /// Developer-only mode-aware counterpart to [`Self::new_unproven_with_profile`]. The
-    /// capability override remains an independent policy choice from the size projection.
-    #[cfg(feature = "developer-tools")]
-    pub fn new_unproven_with_profile_for_mode(
-        g: &Grammar,
-        size_mode: CompileSizeMode,
-    ) -> (Result<Self>, CompileProfile) {
-        Self::new_with_profile_for_size_mode(g, size_mode, true, Self::new_unproven_with_profile)
+        Self::new_with_budget_and_profile_policy(g, &enum_budget, &compose_budget, true)
     }
 
     /// `Self::new`'s core, with the fail-fast enumeration budget AND
@@ -407,26 +358,7 @@ impl FomaProposer {
         enum_budget: &crate::morphotactics::EnumerationBudget,
         compose_budget: &ComposeBudget,
     ) -> (Result<Self>, CompileProfile) {
-        Self::new_with_budget_and_profile_policy(g, enum_budget, compose_budget, false, None)
-    }
-
-    /// Worker-facing profiled constructor with explicit deterministic compose projection. The
-    /// worker derives the projection from `ResourceEnvelope::for_id(ManagedV1)` before calling
-    /// this method; keeping the emitter's compose envelope alongside the `ComposeBudget` makes
-    /// compound-pair admission use the same typed caps as ordering and enumeration.
-    pub(crate) fn new_with_budget_and_profile_and_compose(
-        g: &Grammar,
-        enum_budget: &crate::morphotactics::EnumerationBudget,
-        compose_budget: &ComposeBudget,
-        compose: ComposeEnvelope,
-    ) -> (Result<Self>, CompileProfile) {
-        Self::new_with_budget_and_profile_policy(
-            g,
-            enum_budget,
-            compose_budget,
-            false,
-            Some(compose),
-        )
+        Self::new_with_budget_and_profile_policy(g, enum_budget, compose_budget, false)
     }
 
     fn new_with_budget_and_profile_policy(
@@ -434,7 +366,6 @@ impl FomaProposer {
         enum_budget: &crate::morphotactics::EnumerationBudget,
         compose_budget: &ComposeBudget,
         allow_incomplete: bool,
-        compose: Option<ComposeEnvelope>,
     ) -> (Result<Self>, CompileProfile) {
         let mut profile = CompileProfileBuilder::production();
 
@@ -457,7 +388,7 @@ impl FomaProposer {
             crate::precision::PrecisionConfig::Strip,
             enum_budget,
             Some(&mut profile),
-            compose,
+            None,
         );
         Self::finish_profiled_compile(result, profile, allow_incomplete)
     }

@@ -400,15 +400,6 @@ pub struct EmitReport {
 pub struct EmitResult {
     pub lexc_source: String,
     pub report: EmitReport,
-    retry_authorization: Option<crate::resource_envelope::RetryAuthorization>,
-}
-
-impl EmitResult {
-    pub fn retry_authorization(
-        &self,
-    ) -> Option<&crate::resource_envelope::RetryAuthorization> {
-        self.retry_authorization.as_ref()
-    }
 }
 
 // --- Affix role classification (ported from hc-hybrid/src/token.rs, no dependency) --------------
@@ -1152,7 +1143,6 @@ fn atomic_carrier_refusal(
             closure_refusal: None,
             closure_evidence: None,
         },
-        retry_authorization: None,
     }
 }
 
@@ -2080,7 +2070,6 @@ fn compound_chain_depth_and_budget_check(
                 closure_refusal: None,
                 closure_evidence: None,
             },
-            retry_authorization: None,
         });
     }
 }
@@ -4141,21 +4130,15 @@ fn emit_tuned_surface_for_envelope_with_trace_policy(
     envelope: &crate::resource_envelope::ResourceEnvelope,
     allow_env_trace: bool,
 ) -> EmitResult {
-    emit_tuned_surface_for_envelope_with_limits(
-        g,
-        envelope,
-        envelope.compile_limits(crate::resource_envelope::CompileSizeMode::Managed),
-        allow_env_trace,
-    )
+    emit_tuned_surface_for_envelope_with_limits(g, envelope, allow_env_trace)
 }
 
 fn emit_tuned_surface_for_envelope_with_limits(
     g: &Grammar,
     envelope: &crate::resource_envelope::ResourceEnvelope,
-    limits: crate::resource_envelope::CompileLimits,
     allow_env_trace: bool,
 ) -> EmitResult {
-    let backend = limits.backend;
+    let backend = envelope.backend();
     let trace = crate::characterization::ClosureTrace::new(
         envelope,
         crate::characterization::ClosureTestLimits {
@@ -4163,7 +4146,7 @@ fn emit_tuned_surface_for_envelope_with_limits(
             depth_cap: backend.tuned_surface_closure_depth_cap,
         },
     );
-    let enumeration = limits.enumeration;
+    let enumeration = envelope.enumeration();
     let enum_budget = crate::morphotactics::EnumerationBudget::with_caps(
         enumeration.composite_entry_cap,
         enumeration.pair_probe_cap,
@@ -4176,31 +4159,17 @@ fn emit_tuned_surface_for_envelope_with_limits(
         SurfaceEmitStrategy::default(),
         Some(&trace),
         allow_env_trace,
-        Some(limits.compose),
+        Some(envelope.compose()),
     )
 }
 
-/// Runs the traced production emitter for one private-attempt request and authorizes a retry only
-/// when that exact attempt retained retryable incomplete resource evidence.
+/// Runs the traced production emitter for one private managed attempt.
 pub fn emit_tuned_surface_for_request(
     g: &Grammar,
     request: &crate::resource_envelope::CompileEnvelopeRequest,
 ) -> EmitResult {
     let envelope = crate::resource_envelope::ResourceEnvelope::for_id(request.envelope_id());
-    let mut result = emit_tuned_surface_for_envelope_with_limits(
-        g,
-        &envelope,
-        envelope.compile_limits(request.size_mode()),
-        false,
-    );
-    result.retry_authorization = result
-        .report
-        .closure_evidence
-        .as_ref()
-        .and_then(|closure| {
-            crate::resource_envelope::RetryAuthorization::from_terminal_failure(request, closure)
-        });
-    result
+    emit_tuned_surface_for_envelope_with_limits(g, &envelope, false)
 }
 
 fn emit_with_budget_profiled_with_strategy_and_trace(
@@ -4286,7 +4255,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 }),
                 closure_evidence: closure_trace.map(|trace| trace.result()),
             },
-            retry_authorization: None,
         };
     }
     let rule_cache = RuleCache::build(g);
@@ -4444,7 +4412,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 closure_refusal: None,
                 closure_evidence: closure_trace.map(|trace| trace.result()),
             },
-            retry_authorization: None,
         };
     }
 
@@ -4465,7 +4432,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                     closure_refusal: None,
                     closure_evidence: Some(evidence),
                 },
-                retry_authorization: None,
             };
         }
     }
@@ -4500,7 +4466,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 }),
                 closure_evidence: closure_trace.map(|trace| trace.result()),
             },
-            retry_authorization: None,
         };
     }
 
@@ -4594,7 +4559,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         return EmitResult {
             lexc_source: String::new(),
             report,
-            retry_authorization: None,
         };
     }
 
@@ -4729,7 +4693,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                     closure_refusal: None,
                     closure_evidence: closure_trace.map(|trace| trace.result()),
                 },
-                retry_authorization: None,
             };
         }
 
@@ -5190,7 +5153,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             closure_refusal: None,
             closure_evidence: closure_trace.map(|trace| trace.result()),
         },
-        retry_authorization: None,
     }
 }
 
@@ -5218,7 +5180,6 @@ fn emit_line_budget_breach(
             closure_refusal: None,
             closure_evidence: None,
         },
-        retry_authorization: None,
     }
 }
 
@@ -5391,7 +5352,6 @@ pub fn emit_underlying_templated(
                 closure_refusal: None,
                 closure_evidence: None,
             },
-            retry_authorization: None,
         };
     }
 
@@ -5409,7 +5369,6 @@ pub fn emit_underlying_templated(
                 closure_refusal: None,
                 closure_evidence: None,
             },
-            retry_authorization: None,
         };
     }
 
@@ -5587,7 +5546,6 @@ pub fn emit_underlying_templated(
                     closure_refusal: None,
                     closure_evidence: None,
                 },
-                retry_authorization: None,
             };
         }
     }
@@ -6185,7 +6143,6 @@ pub fn emit_underlying_templated(
             closure_refusal: None,
             closure_evidence: None,
         },
-        retry_authorization: None,
     }
 }
 
