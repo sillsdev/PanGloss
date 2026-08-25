@@ -524,7 +524,7 @@ pub struct Remedy {
     /// `true` when applying this remedy edits the grammar (reordering, constraining, decomposing
     /// a rule) and its safety depends on linguistic equivalence the compiler cannot verify on its
     /// own. `false` for compiler-internal transformations with an owned correctness argument, or
-    /// non-grammar-editing advice (e.g. "retry with a larger named envelope").
+    /// non-grammar-editing computational-cost advice.
     pub requires_linguistic_equivalence: bool,
     /// Free-text caveat surfaced alongside the remedy when `requires_linguistic_equivalence` is
     /// `true`.
@@ -901,7 +901,7 @@ mod tests {
                     .to_string(),
                 remedies: vec![Remedy {
                     rank: 1,
-                    description: "Retry compilation with an explicit larger named envelope."
+                    description: "Review the measured compile cost and simplify the grammar before publication."
                         .to_string(),
                     requires_linguistic_equivalence: false,
                     caveat: None,
@@ -962,7 +962,7 @@ mod tests {
       "remedies": [
         {
           "rank": 1,
-          "description": "Retry compilation with an explicit larger named envelope.",
+          "description": "Review the measured compile cost and simplify the grammar before publication.",
           "requires_linguistic_equivalence": false
         }
       ]

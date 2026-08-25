@@ -10,7 +10,7 @@ pub(crate) struct WorkerProtocolLimits {
     pub(crate) min_rss_sample_interval_ms: u64,
 }
 
-pub(crate) const PROTOCOL_VERSION: u32 = 2;
+pub(crate) const PROTOCOL_VERSION: u32 = 3;
 
 pub(crate) const PROTOCOL_LIMITS: WorkerProtocolLimits = WorkerProtocolLimits {
     max_request_bytes: 4 * 1024 * 1024,

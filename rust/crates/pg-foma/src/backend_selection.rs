@@ -29,7 +29,7 @@ use pg_grammar::model::Grammar;
 
 use crate::advice_catalog::{
     builtin_catalog, RemedyEffort, BACKEND_BUILD_UNAVAILABLE_SHAPE_KEY,
-    PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY, TUNED_SURFACE_RESOURCE_SHAPE_KEY,
+    PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY, TUNED_SURFACE_CLOSURE_BUDGET_SHAPE_KEY,
 };
 use crate::capability::{
     compose_envelope_across_strategies, default_registry, meet, CapabilityDiagnostic,
@@ -501,7 +501,7 @@ fn attach_operational_failure(report: &mut BackendReport, code: FindingCode) {
 fn attach_tuned_surface_resource_finding(report: &mut BackendReport, finding: HealthFinding) {
     let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
     let entry = catalog
-        .entry_for(TUNED_SURFACE_RESOURCE_SHAPE_KEY)
+        .entry_for(TUNED_SURFACE_CLOSURE_BUDGET_SHAPE_KEY)
         .expect("the TunedSurface resource finding must have a catalog entry");
 
     report.findings.push(finding.clone());
@@ -714,21 +714,6 @@ impl BackendSelection {
 /// since deriving one runs the whole `crate::capability::characterize` walk and a caller that
 /// already holds a semantics should never pay for a second.
 pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
-    select_backends_with_tuned_closure_work_limit(
-        semantics,
-        crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT,
-    )
-}
-
-/// Selects backends under an explicitly named TunedSurface closure-work envelope.
-///
-/// Increasing this limit is a clean resource retry, not a correctness override: characterization
-/// starts again from the grammar, and TunedSurface remains excluded unless the complete measured
-/// floor fits the named envelope.
-pub fn select_backends_with_tuned_closure_work_limit(
-    semantics: &GrammarSemantics<'_>,
-    tuned_closure_work_limit: usize,
-) -> BackendSelection {
     let g = semantics.grammar();
     let alphabet = SegAlphabet::new(surface_table(g));
     let phon = PhonologyProbe::new_with_semantics(semantics);
@@ -739,7 +724,7 @@ pub fn select_backends_with_tuned_closure_work_limit(
         &envelope,
         crate::characterization::tuned_surface_resource_finding_with_limit(
             g,
-            tuned_closure_work_limit,
+            crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT,
         ),
         &plan_composed_markers,
     )
@@ -749,17 +734,6 @@ pub fn select_backends_with_tuned_closure_work_limit(
 /// here builds a `foma::types::Fsm`, runs foma, or alters any compile path.
 pub fn select_backends_for_grammar(g: &Grammar) -> BackendSelection {
     select_backends(&GrammarSemantics::derive(g))
-}
-
-/// Bare-grammar form of [`select_backends_with_tuned_closure_work_limit`].
-pub fn select_backends_for_grammar_with_tuned_closure_work_limit(
-    g: &Grammar,
-    tuned_closure_work_limit: usize,
-) -> BackendSelection {
-    select_backends_with_tuned_closure_work_limit(
-        &GrammarSemantics::derive(g),
-        tuned_closure_work_limit,
-    )
 }
 
 #[cfg(test)]

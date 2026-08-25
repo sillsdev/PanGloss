@@ -46,27 +46,25 @@ HermitCrab analysis set for this grammar, or it cannot. There is no "probably" f
 - it might omit a valid analysis — **refused**, not a caveat.
 
 **Health/readiness is graded.** `Ideal`, `Info`, `Warning`, and `Error` describe computational
-cost, size, and maintainability under a named operational profile. A `Warning` says that cleanup
+cost, size, and maintainability under the managed operational budget. A `Warning` says that cleanup
 or another backend may be preferable. An `Error` says that the result is not production-ready under
-the selected production envelope. An Error is still an attemptable diagnostic/stress condition; it
-does not, by itself, prove that the backend is semantically wrong.
+the managed production budget. An Error is diagnostic evidence; it does not, by itself, prove that
+the backend is semantically wrong.
 
-**Containment is operational.** Named envelopes protect the host and make attempts reproducible.
-Production uses its managed envelope. A developer-only `--remove-size-limits` stress attempt may
-disable only internal deterministic size/work caps while retaining worker isolation, bounded I/O,
-the external watchdog/RSS guard, and the absolute ceiling. It does not bypass capability checks or
-completion/parity requirements.
+**Containment is operational.** Frozen managed budgets protect the host and make attempts
+reproducible. Worker isolation, bounded I/O, the external watchdog/RSS guard, and the absolute
+ceiling remain active for every compile. They do not bypass capability checks or completion/parity
+requirements.
 
 The distinction is the whole point. Uncertainty about correctness is a refusal; uncertainty or
-excess about cost is a health/readiness finding. A complete, exact, parity-verified stress result
+excess about cost is a health/readiness finding. A complete, exact, parity-verified diagnostic result
 may therefore be accurate while still carrying `Error` and remaining ineligible for production
 publication. No flag makes partial, truncated, skipped, or unproven output accurate.
 
 `--allow-unproven` is a hidden, developer-build-only correctness override. It may force an
 unproven run that omits valid parses, solely to inspect behavior and gather grounding evidence. It
 may persist a local developer evidence artifact, but never production-publishes or certifies one,
-and it does not remove resource limits. The older
-`--no-enforce-capability` switch is legacy developer-only behavior and is not a production API.
+and it does not remove resource limits. Capability enforcement remains active for ordinary runs.
 
 ## Deployment domains
 
@@ -258,8 +256,8 @@ _Avoid_: AI grammar advice
 **FST health severity**:
 The graded computational/readiness finding for one backend attempt: Ideal, Info, Warning, or Error.
 Warning identifies cleanup or cost concerns while a complete route remains available. Error means the
-attempt is not production-ready under the selected production envelope; it may still be attempted
-in developer stress mode and may yield a complete, accurate result under larger internal work caps.
+attempt is not production-ready under the managed production budget; it remains diagnostic evidence
+and is not a publication decision.
 `Critical` is reserved for a correctness/capability gap, not a size band. Health severity never
 changes the correctness/representability disposition.
 _Avoid_: Supported language status, correctness verdict, "Error cannot be attempted"
@@ -273,8 +271,8 @@ _Avoid_: Cost band, readiness score, "probably correct"
 
 **FST production admission**:
 The normal release decision requiring a correctness-admitted backend, a complete certificate and
-finalized payload, and health no worse than Warning under the managed production envelope. A stress
-run may produce an accurate complete payload with Error, but that payload remains production-unready.
+finalized payload, and health no worse than Warning under the managed production budget. A diagnostic
+run with Error health remains production-unready.
 _Avoid_: Stress success, capability override
 
 **Semantic uncertainty**:
@@ -285,16 +283,11 @@ _Avoid_: Performance risk
 A condition where compilation is recall-preserving but its resource cost cannot be bounded accurately before execution. It is attempted inside the worker watchdog and logical work budgets; uncertainty alone is not a Critical finding.
 _Avoid_: Unsupported semantics, automatic rejection
 
-**Explicit resource retry**:
-A new caller-requested compilation using a named, versioned resource envelope with larger limits. The compiler never escalates limits or retries automatically; the prior terminal finding remains available to guide grammar improvement or the explicit retry.
-_Avoid_: Automatic backoff, hidden retry
-
-**Size-limit removal (developer stress mode)**:
-The hidden `--remove-size-limits` developer-build control that disables only internal deterministic
-size/work caps for one compile attempt. It retains worker isolation, bounded I/O, external watchdog
-and sampled-RSS guardrails, and the absolute ceiling. It does not bypass capability checks, exact
-completion, finalized-payload, or semantic-parity requirements, and it is not a production profile.
-_Avoid_: Unlimited build, trusted override, no containment
+**Managed closure-work budget**:
+The frozen internal budget used to characterize TunedSurface composite closure. The compiler records
+the raw closure-work measurement and terminal finding; it does not expose a named profile switch or
+silently widen the budget.
+_Avoid_: Named retry, automatic backoff, unlimited build
 
 **Proven work bound**:
 An exact value or conservative mathematical lower bound derived from compiler inputs, suitable for proving that an operation cannot fit within its remaining logical budget. A heuristic estimate is diagnostic evidence, not a rejection proof.
@@ -385,8 +378,8 @@ _Avoid_: Root-cause verdict, AI explanation
 
 **Absolute resource ceiling**:
 A versioned, hard-coded, deliberately high non-disableable limit above all default, app, caller, and
-developer stress limits. Runtime ceilings and budget dimensions are identical across native Windows,
-native Linux, and WASM. It remains in force when `--remove-size-limits` disables internal
+managed internal limits. Runtime ceilings and budget dimensions are identical across native Windows,
+native Linux, and WASM. It remains in force for every compile and is
 deterministic size/work caps. It is an emergency containment boundary, not a normal operating target
 or a substitute for earlier logical-budget diagnostics.
 _Avoid_: Unlimited, default budget
@@ -432,10 +425,10 @@ The override is recorded in the build evidence and, where an artifact is written
 It is cleared only by genuine proof plus a clean recompile. It does not remove size/work limits.
 _Avoid_: Bypass, disable-check (it does not silence the contract; it records the exception and marks the result)
 
-**Legacy capability-enforcement switch**:
-The older `--no-enforce-capability` developer-only switch. It is retained only for compatibility or
-focused diagnostics, is non-production, and must not be presented as an alternative way to obtain a
-trusted or publishable result.
+**Capability enforcement**:
+The normal compiler policy always applies capability predicates and fails closed when complete
+construction cannot be proven. `--allow-unproven` is an explicitly degraded diagnostic path, never
+an alternative way to obtain a trusted or publishable result.
 _Avoid_: Public production selector, correctness proof
 
 **Unproven-grammar trust signal**:

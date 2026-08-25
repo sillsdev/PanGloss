@@ -4051,8 +4051,7 @@ pub(crate) fn emit_with_budget_profiled(
 }
 
 /// Mode-aware counterpart to [`emit_with_budget_profiled`]. The selected compose projection is
-/// supplied explicitly so developer stress runs remove the internal construction caps without
-/// consulting process environment, while legacy callers retain their env-driven behavior.
+/// supplied explicitly so callers can retain the managed internal construction caps.
 pub(crate) fn emit_with_budget_profiled_with_compose(
     g: &Grammar,
     precision: PrecisionConfig,

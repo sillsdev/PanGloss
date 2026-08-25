@@ -411,18 +411,12 @@ pub(crate) fn tuned_surface_resource_finding_with_limit(
         remedies: vec![
             Remedy {
                 rank: 1,
-                description: "Retry TunedSurface from a clean state with a larger named closure-work envelope; success still requires the complete worklist to empty.".to_string(),
-                requires_linguistic_equivalence: false,
-                caveat: None,
-            },
-            Remedy {
-                rank: 2,
                 description: "Use a backend that represents the reachable ordinary affix sequence with loops or finite counter states; this would make that backend work for your language when its capability report admits every affected rule.".to_string(),
                 requires_linguistic_equivalence: false,
                 caveat: None,
             },
             Remedy {
-                rank: 3,
+                rank: 2,
                 description: "If your language permits it, ordering the affected rules or placing mutually exclusive choices in affix slots may reduce the reachable rule-pair product and would make this backend work for your language when the new characterization fits its envelope.".to_string(),
                 requires_linguistic_equivalence: true,
                 caveat: Some(safety),
@@ -463,25 +457,25 @@ pub fn tuned_surface_resource_finding_for_envelope(
             FindingCode::ResourceBudgetReached,
             Severity::NotProductionReady,
             ValueProvenance::Observed,
-            "TunedSurface refused after its closure work budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
+            "TunedSurface refused after its closure work budget was reached; use the full morphological-parser engine or simplify the grammar to reduce measured closure work.",
         ),
         ClosureTerminal::Refused(ClosureStopReason::DepthBudgetReached) => (
             FindingCode::ResourceBudgetReached,
             Severity::NotProductionReady,
             ValueProvenance::Observed,
-            "TunedSurface refused after its closure depth budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
+            "TunedSurface refused after its closure depth budget was reached; use the full morphological-parser engine or simplify the grammar to reduce measured closure work.",
         ),
         ClosureTerminal::Refused(ClosureStopReason::EnumerationBudgetReached) => (
             FindingCode::ResourceBudgetReached,
             Severity::NotProductionReady,
             ValueProvenance::Observed,
-            "TunedSurface refused after its closure enumeration budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
+            "TunedSurface refused after its closure enumeration budget was reached; use the full morphological-parser engine or simplify the grammar to reduce measured closure work.",
         ),
         ClosureTerminal::Refused(ClosureStopReason::ResourceBudgetReached) => (
             FindingCode::ResourceBudgetReached,
             Severity::NotProductionReady,
             ValueProvenance::Observed,
-            "TunedSurface refused after its named resource envelope was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
+            "TunedSurface refused after its managed closure-work budget was reached; use the full morphological-parser engine or simplify the grammar to reduce measured closure work.",
         ),
         // Not containment: the compiler itself may be broken, so the code stays distinct.
         ClosureTerminal::Refused(ClosureStopReason::InternalConstructionFault) => (
@@ -494,7 +488,7 @@ pub fn tuned_surface_resource_finding_for_envelope(
             FindingCode::ResourceBudgetReached,
             Severity::NotProductionReady,
             ValueProvenance::Observed,
-            "Retry TunedSurface with a larger named resource envelope or use the full morphological-parser engine.",
+            "TunedSurface closure work remains incomplete under the managed budget; use the full morphological-parser engine or simplify the grammar to reduce measured closure work.",
         ),
         ClosureTerminal::Complete => unreachable!(),
     };

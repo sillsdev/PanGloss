@@ -8,7 +8,7 @@
 ## Capability envelopes
 
 ### `tuned-surface-closure` — Surface-probed composite closure
-- Control: switch-controlled by `CompileRequest.resource_envelope`; default: `managed-v1`.
+- Control: inherent; always part of this backend's contract.
 - Time: `O(E x J x P x F + N)`
 - Space: `O(E + J + N x F)`
 - Variables: E: emitted entries, J: junction variants, P: ordered rule count, F: feature/unification cost, N: composite states.
@@ -20,9 +20,8 @@
   - N = reachable composite states
   - Rule ordering changes probe reuse and the number of distinct junctions
   - Null realizations and deletion increase reachable zero-width and truncated branches
-  - Closed envelopes: managed-v1 (default) or tuned-surface-work-10k-v1 (explicit retry)
+  - Closure work is measured as static cost evidence against the managed internal budget
 - Remedies:
-  - `retry-larger-closure-envelope`
   - `use-loop-capable-backend`
   - `order-or-slot-localize-rules`
 - Advice: [authoritative remedy text and shape-specific effort](../../../rust/crates/pg-foma/assets/backend-advice-v1.toml). A remedy would make this backend work for your language only when its stated prerequisites hold.

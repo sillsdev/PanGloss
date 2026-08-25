@@ -205,21 +205,12 @@ contraindications = ["the operation crosses slot boundaries"]
 equivalence_caveat = "Slot localization can change cross-slot interactions."
 
 [[entry]]
-shape_key = "tuned-surface-resource-envelope"
+shape_key = "tuned-surface-closure-budget"
 backend_id = "foma"
 route = "surface-composite-closure"
-failed_predicate = "TunedSurface composite closure exceeds the current named resource envelope"
+failed_predicate = "TunedSurface composite closure exceeds the managed closure-work budget"
 evidence_refs = ["backend:foma", "route:surface-composite-closure", "predicate:complete-closure", "metric:composite-rule-pair-count"]
 equivalence_caveat = "Don't make any change that would make your language invalid!"
-
-[[entry.remedy]]
-rank = 10
-remedy_key = "retry-larger-closure-envelope"
-description = "Retrying TunedSurface from a clean state with a larger named closure-work envelope would make this backend work for your language if complete closure fits and finishes."
-effort = "easy"
-prerequisites = ["the larger envelope is explicitly named"]
-contraindications = ["the available resource envelope cannot be increased"]
-equivalence_caveat = "A retry changes resources, not the grammar's linguistic analysis."
 
 [[entry.remedy]]
 rank = 20

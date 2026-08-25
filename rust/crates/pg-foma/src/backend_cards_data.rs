@@ -49,10 +49,9 @@ const TUNED_CONTRIBUTORS: &[&str] = &[
     "N = reachable composite states",
     "Rule ordering changes probe reuse and the number of distinct junctions",
     "Null realizations and deletion increase reachable zero-width and truncated branches",
-    "Closed envelopes: managed-v1 (default) or tuned-surface-work-10k-v1 (explicit retry)",
+    "Closure work is measured as static cost evidence against the managed internal budget",
 ];
 const TUNED_REMEDIES: &[&str] = &[
-    "retry-larger-closure-envelope",
     "use-loop-capable-backend",
     "order-or-slot-localize-rules",
 ];
@@ -60,10 +59,7 @@ const TUNED_SOURCES: &[&str] = &["src/emit.rs", "src/junctions.rs", "src/preexpa
 const TUNED_ENVELOPES: &[Envelope] = &[Envelope {
     id: "tuned-surface-closure",
     name: "Surface-probed composite closure",
-    control: EnvelopeControl::SwitchControlled {
-        switch_id: "CompileRequest.resource_envelope",
-        default: "managed-v1",
-    },
+    control: EnvelopeControl::Inherent,
     big_o: BigO {
         time: "O(E x J x P x F + N)",
         space: "O(E + J + N x F)",
