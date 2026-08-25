@@ -23,6 +23,7 @@ use pg_grammar::model::Grammar;
 use crate::compose_budget::{ApplyBudget, ApplyDimension, ApplyOutcome, ComposeBudget};
 use crate::emit::{self, EmitReport, FomaTier};
 use crate::profile::{CompileProfile, CompileProfileBuilder, CompileStage};
+use crate::resource_envelope::ComposeEnvelope;
 use crate::tags::{self, Candidate};
 
 /// Errors constructing a `FomaProposer`. Deliberately small (this stage doesn't need a rich
@@ -321,7 +322,7 @@ impl FomaProposer {
     pub fn new_unproven_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
         let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let compose_budget = ComposeBudget::from_env();
-        Self::new_with_budget_and_profile_policy(g, &enum_budget, &compose_budget, true)
+        Self::new_with_budget_and_profile_policy(g, &enum_budget, &compose_budget, true, None)
     }
 
     /// `Self::new`'s core, with the fail-fast enumeration budget AND
@@ -358,7 +359,19 @@ impl FomaProposer {
         enum_budget: &crate::morphotactics::EnumerationBudget,
         compose_budget: &ComposeBudget,
     ) -> (Result<Self>, CompileProfile) {
-        Self::new_with_budget_and_profile_policy(g, enum_budget, compose_budget, false)
+        Self::new_with_budget_and_profile_policy(g, enum_budget, compose_budget, false, None)
+    }
+
+    /// Worker-facing managed projection. The explicit envelope keeps compound-pair admission
+    /// aligned with the request's ordinary logical budgets while retaining the shipped internal
+    /// cap until the later A10 removal.
+    pub(crate) fn new_with_budget_and_profile_and_compose(
+        g: &Grammar,
+        enum_budget: &crate::morphotactics::EnumerationBudget,
+        compose_budget: &ComposeBudget,
+        compose: ComposeEnvelope,
+    ) -> (Result<Self>, CompileProfile) {
+        Self::new_with_budget_and_profile_policy(g, enum_budget, compose_budget, false, Some(compose))
     }
 
     fn new_with_budget_and_profile_policy(
@@ -366,6 +379,7 @@ impl FomaProposer {
         enum_budget: &crate::morphotactics::EnumerationBudget,
         compose_budget: &ComposeBudget,
         allow_incomplete: bool,
+        compose: Option<ComposeEnvelope>,
     ) -> (Result<Self>, CompileProfile) {
         let mut profile = CompileProfileBuilder::production();
 
@@ -388,7 +402,7 @@ impl FomaProposer {
             crate::precision::PrecisionConfig::Strip,
             enum_budget,
             Some(&mut profile),
-            None,
+            compose,
         );
         Self::finish_profiled_compile(result, profile, allow_incomplete)
     }

@@ -269,7 +269,6 @@ fn project_overridden_capability_findings(
 pub fn run_pack(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut allow_unproven = false;
-    #[cfg(feature = "developer-tools")]
     let mut authorized_by: Option<String> = None;
     let mut reason: Option<String> = None;
     let mut watchdog = false;

@@ -512,10 +512,11 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
     let compose_budget = request.compose_budget();
 
     let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::analyzer::FomaProposer::new_with_budget_and_profile(
+        crate::analyzer::FomaProposer::new_with_budget_and_profile_and_compose(
             &grammar,
             &enum_budget,
             &compose_budget,
+            ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1).compose(),
         )
     }));
 
