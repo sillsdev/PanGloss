@@ -598,8 +598,8 @@ impl StatsCollector {
 }
 
 /// The `(kind, counter)` pairs this collector actually populates today -- the single source of
-/// truth for which cells a coverage row may mark `Measured`, kept next to the recording methods
-/// above so wiring and this list cannot drift apart; pinned by
+/// truth for which measurements reports may expose, kept next to the recording methods above so
+/// wiring and this list cannot drift apart; pinned by
 /// `wired_counters_matches_reality`. Orthogonal to `Direction`: which counters exist for a kind
 /// does not depend on which direction wrote them, so this list needs no direction dimension of its
 /// own -- `MorphRule`'s `attempts` is `Measured` whether the row's direction is analysis or

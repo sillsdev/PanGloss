@@ -1,5 +1,14 @@
 -- Statistics cache schema. Documented as a public escape hatch: callers may query this database
--- directly, so `schema_version` in `run` is a compatibility promise, not a note.
+-- directly, so `schema_version` in `cache_identity` and `run` is a compatibility promise.
+
+-- One durable identity survives an empty cache and makes stale open handles harmless. The
+-- nullable engine is claimed by the first successful flush.
+CREATE TABLE IF NOT EXISTS cache_identity (
+  cache_id       INTEGER PRIMARY KEY CHECK (cache_id = 1),
+  schema_version INTEGER NOT NULL,
+  grammar_hash   TEXT    NOT NULL,
+  engine         TEXT
+);
 
 CREATE TABLE IF NOT EXISTS run (
   run_id              INTEGER PRIMARY KEY,

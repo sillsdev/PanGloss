@@ -407,6 +407,13 @@ deliberately dumb.
 ```sql
 PRAGMA journal_mode = WAL;
 
+CREATE TABLE cache_identity (
+  cache_id       INTEGER PRIMARY KEY CHECK (cache_id = 1),
+  schema_version INTEGER NOT NULL,
+  grammar_hash   TEXT    NOT NULL,
+  engine         TEXT
+);
+
 CREATE TABLE run (
   run_id              INTEGER PRIMARY KEY,
   schema_version      INTEGER NOT NULL,
@@ -428,9 +435,17 @@ CREATE TABLE object (
   -- morph_rule | phon_rule | lex_entry | root_index | guesser | overlay
   kind             TEXT NOT NULL,
   label            TEXT NOT NULL,   -- what a human looks for in FLEx
-  identity_quality TEXT NOT NULL    -- authored | structural | synthetic
+  identity_quality TEXT NOT NULL,   -- authored | structural | synthetic
+  morpheme_id      INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX object_key_kind ON object(key, kind);
+
+CREATE TABLE morpheme (
+  morpheme_id INTEGER PRIMARY KEY,
+  key         TEXT,
+  label       TEXT
+);
+CREATE UNIQUE INDEX morpheme_key ON morpheme(key);
 
 CREATE TABLE stratum (
   stratum_id INTEGER PRIMARY KEY,   -- 0 = not applicable
@@ -463,6 +478,7 @@ CREATE TABLE fact (
   object_id        INTEGER NOT NULL,
   stratum_id       INTEGER NOT NULL,
   allomorph_id     INTEGER NOT NULL,
+  direction        TEXT    NOT NULL,
   attempts         INTEGER NOT NULL,
   work             INTEGER NOT NULL,
   outputs          INTEGER NOT NULL,
@@ -471,7 +487,7 @@ CREATE TABLE fact (
   surface_mismatch INTEGER NOT NULL,
   uses             INTEGER NOT NULL,
   self_time_ns     INTEGER NOT NULL DEFAULT 0,  -- measured wall-clock, excluded from golden equality
-  PRIMARY KEY (word_id, object_id, stratum_id, allomorph_id)
+  PRIMARY KEY (word_id, object_id, stratum_id, allomorph_id, direction)
 ) WITHOUT ROWID;
 
 ```

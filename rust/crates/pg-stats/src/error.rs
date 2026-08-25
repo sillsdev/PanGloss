@@ -19,8 +19,17 @@ pub enum StatsError {
     )]
     CounterOverflow { counter: &'static str, value: u64 },
 
-    #[error("stats cache already contains engine `{existing}`, cannot append engine `{requested}")]
+    #[error("stats cache already contains engine `{existing}`, cannot append engine `{requested}`")]
     EngineMismatch { existing: String, requested: String },
+
+    #[error("stats cache is for grammar `{existing}`, cannot append grammar `{requested}`")]
+    GrammarMismatch { existing: String, requested: String },
+
+    #[error("stats cache schema version {existing} is incompatible with {requested}")]
+    SchemaMismatch { existing: i64, requested: i64 },
+
+    #[error("stats cache has no cache identity row")]
+    CacheIdentityMissing,
 
     #[error(
         "could not determine a user-data directory for the stats cache (checked LOCALAPPDATA / \

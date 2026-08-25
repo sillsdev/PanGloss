@@ -18,6 +18,7 @@ use crate::util::to_i64;
 /// An open stats cache: one SQLite connection, WAL mode, a caller-chosen busy timeout.
 pub struct StatsCache {
     conn: Connection,
+    grammar_hash: String,
 }
 
 /// Result of `StatsCache::open`: the cache, and whether opening it wiped prior data.
@@ -57,25 +58,42 @@ impl StatsCache {
         Self::open_on(conn, grammar_hash)
     }
 
-    fn open_on(conn: Connection, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
-        let wiped = match schema::latest_run_signature(&conn)? {
-            None => {
-                schema::create(&conn)?;
+    fn open_on(mut conn: Connection, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let identity = schema::cache_identity(&tx)?;
+        let run_table_exists = schema::has_run_table(&tx)?;
+        let wiped = match identity {
+            None if !run_table_exists => {
+                schema::create(&tx, Some(grammar_hash))?;
                 false
             }
-            Some((stored_schema_version, stored_grammar_hash)) => {
-                if stored_schema_version != schema::SCHEMA_VERSION
+            None => {
+                schema::wipe_and_recreate(&tx, grammar_hash)?;
+                true
+            }
+            Some((_, stored_schema_version, stored_grammar_hash, _)) => {
+                let latest = schema::latest_run_signature(&tx)?;
+                let run_mismatch = latest.is_some_and(|(version, hash)| {
+                    version != schema::SCHEMA_VERSION || hash != grammar_hash
+                });
+                if !run_table_exists
+                    || stored_schema_version != schema::SCHEMA_VERSION
                     || stored_grammar_hash != grammar_hash
+                    || run_mismatch
                 {
-                    schema::wipe_and_recreate(&conn)?;
+                    schema::wipe_and_recreate(&tx, grammar_hash)?;
                     true
                 } else {
                     false
                 }
             }
         };
+        tx.commit()?;
         Ok(OpenOutcome {
-            cache: StatsCache { conn },
+            cache: StatsCache {
+                conn,
+                grammar_hash: grammar_hash.to_string(),
+            },
             wiped,
         })
     }
@@ -138,6 +156,30 @@ impl StatsCache {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
 
+        let Some((_, identity_schema_version, identity_grammar_hash, identity_engine)) =
+            schema::cache_identity(&tx)?
+        else {
+            return Err(StatsError::CacheIdentityMissing);
+        };
+        if identity_schema_version != schema::SCHEMA_VERSION {
+            return Err(StatsError::SchemaMismatch {
+                existing: identity_schema_version,
+                requested: schema::SCHEMA_VERSION,
+            });
+        }
+        if identity_grammar_hash != self.grammar_hash {
+            return Err(StatsError::GrammarMismatch {
+                existing: identity_grammar_hash,
+                requested: self.grammar_hash.clone(),
+            });
+        }
+        if run.grammar_hash != self.grammar_hash {
+            return Err(StatsError::GrammarMismatch {
+                existing: self.grammar_hash.clone(),
+                requested: run.grammar_hash.clone(),
+            });
+        }
+
         let incompatible_engine: Option<String> = tx
             .query_row(
                 "SELECT engine FROM run WHERE engine <> ?1 LIMIT 1",
@@ -150,6 +192,19 @@ impl StatsCache {
                 existing,
                 requested: run.engine.clone(),
             });
+        }
+        if let Some(existing) = identity_engine {
+            if existing != run.engine {
+                return Err(StatsError::EngineMismatch {
+                    existing,
+                    requested: run.engine.clone(),
+                });
+            }
+        } else {
+            tx.execute(
+                "UPDATE cache_identity SET engine = ?1 WHERE cache_id = 1 AND engine IS NULL",
+                params![&run.engine],
+            )?;
         }
 
         tx.execute(
@@ -433,6 +488,30 @@ mod tests {
     }
 
     #[test]
+    fn wipes_an_empty_legacy_cache_before_claiming_current_identity() {
+        let path = TempDir::new("pg-stats-empty-legacy");
+        let cache_path = path.path().join("cache.sqlite3");
+        let legacy = Connection::open(&cache_path).unwrap();
+        legacy
+            .execute_batch("CREATE TABLE run (run_id INTEGER PRIMARY KEY);")
+            .unwrap();
+        drop(legacy);
+
+        let outcome = StatsCache::open(&cache_path, "hash-a").unwrap();
+        assert!(outcome.wiped, "an unversioned legacy schema must be replaced");
+        let grammar_hash: String = outcome
+            .cache
+            .connection()
+            .query_row(
+                "SELECT grammar_hash FROM cache_identity WHERE cache_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(grammar_hash, "hash-a");
+    }
+
+    #[test]
     fn no_wipe_on_same_hash_and_accumulates_new_words_only() {
         let path = TempDir::new("pg-stats-accumulate");
         let cache_path = path.path().join("cache.sqlite3");
@@ -659,5 +738,70 @@ mod tests {
             .query_row("SELECT COUNT(DISTINCT engine) FROM run", [], |row| row.get(0))
             .unwrap();
         assert_eq!(engines, 1);
+    }
+
+    #[test]
+    fn stale_handle_cannot_append_after_another_grammar_recreates_the_cache() {
+        let dir = TempDir::new("pg-stats-stale-grammar");
+        let cache_path = dir.path().join("cache.sqlite3");
+        let mut stale = StatsCache::open(&cache_path, "hash-a").unwrap().cache;
+        stale
+            .flush(&sample_run(), &[sample_word("apu")])
+            .unwrap();
+
+        let mut fresh = StatsCache::open(&cache_path, "hash-b").unwrap();
+        assert!(fresh.wiped);
+        let mut fresh_run = sample_run();
+        fresh_run.grammar_hash = "hash-b".to_string();
+        fresh
+            .cache
+            .flush(&fresh_run, &[sample_word("beta")])
+            .unwrap();
+
+        let err = stale
+            .flush(&sample_run(), &[sample_word("gamma")])
+            .expect_err("a stale handle must not append its old grammar after recreation");
+        assert!(matches!(err, StatsError::GrammarMismatch { .. }), "{err}");
+        let distinct_hashes: i64 = fresh
+            .cache
+            .connection()
+            .query_row("SELECT COUNT(DISTINCT grammar_hash) FROM run", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(distinct_hashes, 1);
+    }
+
+    #[test]
+    fn concurrent_first_writers_cannot_mix_grammar_hashes() {
+        let dir = TempDir::new("pg-stats-grammar-race");
+        let cache_path = dir.path().join("cache.sqlite3");
+        let cache_a = StatsCache::open(&cache_path, "hash-a").unwrap().cache;
+        let cache_b = StatsCache::open(&cache_path, "hash-b").unwrap().cache;
+        let barrier = Arc::new(Barrier::new(2));
+        let spawn_writer = |mut cache: StatsCache,
+                            hash: &'static str,
+                            form: &'static str,
+                            barrier: Arc<Barrier>| {
+            thread::spawn(move || {
+                let mut run = sample_run();
+                run.grammar_hash = hash.to_string();
+                barrier.wait();
+                cache.flush(&run, &[sample_word(form)])
+            })
+        };
+        let a = spawn_writer(cache_a, "hash-a", "apu", Arc::clone(&barrier));
+        let b = spawn_writer(cache_b, "hash-b", "beta", Arc::clone(&barrier));
+        let results = [a.join().unwrap(), b.join().unwrap()];
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+
+        let cache = StatsCache::open(&cache_path, "hash-b").unwrap().cache;
+        let distinct_hashes: i64 = cache
+            .connection()
+            .query_row("SELECT COUNT(DISTINCT grammar_hash) FROM run", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(distinct_hashes, 1);
     }
 }

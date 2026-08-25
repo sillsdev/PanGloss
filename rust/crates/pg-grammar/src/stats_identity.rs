@@ -331,10 +331,9 @@ mod tests {
         let fixtures = discover();
         assert!(!fixtures.is_empty(), "no conformance fixtures discovered");
         for f in &fixtures {
-            let Ok(grammar) = crate::load(&f.load_grammar_xml()) else {
-                continue;
-            };
             let label = format!("{}/{}", f.category, f.name);
+            let grammar = crate::load(&f.load_grammar_xml())
+                .unwrap_or_else(|error| panic!("{label}: fixture must load: {error}"));
             let mut seen: std::collections::HashMap<String, usize> =
                 std::collections::HashMap::new();
             for i in 0..grammar.mrules.len() {

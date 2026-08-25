@@ -515,22 +515,13 @@ fn engine_omitted_counters(engine: &str) -> &'static [&'static str] {
 }
 
 /// The text-mode note explaining an engine-level column omission; `None` when nothing is omitted.
-fn omitted_counters(engine: &str, orientation: &str) -> Vec<&'static str> {
-    let mut omitted = engine_omitted_counters(engine).to_vec();
-    if orientation == "allomorph" && !omitted.contains(&"attempts") {
-        omitted.push("attempts");
-    }
-    omitted
+fn omitted_counters(engine: &str, _orientation: &str) -> Vec<&'static str> {
+    engine_omitted_counters(engine).to_vec()
 }
 
 fn engine_omission_note(engine: &str, omitted: &[&str]) -> Option<String> {
     if omitted.is_empty() {
         return None;
-    }
-    if engine != "foma" && omitted == ["attempts"] {
-        return Some(
-            "note: attempts are rule-level and unavailable for named allomorph rows; attempts%, amp, and their denominator are omitted (this is not \"zero\")\n".to_string(),
-        );
     }
     Some(format!(
         "note: engine={engine} never records {}; those columns are omitted (this is not \"zero\")\n",
@@ -549,17 +540,19 @@ fn unmeasured_json(
         .map(|c| {
             (
                 c.to_string(),
-                serde_json::Value::String(if orientation == "allomorph"
-                    && *c == "attempts"
-                    && engine != "foma"
-                {
-                    "attempts are rule-level, not per-allomorph".to_string()
-                } else {
-                    format!("engine={engine} never records it")
-                }),
+                serde_json::Value::String(format!("engine={engine} never records it")),
             )
         })
         .collect();
+    let mut map = map;
+    if orientation == "allomorph" && engine != "foma" {
+        map.insert(
+            "attempts".to_string(),
+            serde_json::Value::String(
+                "MorphRule named-allomorph rows have rule-level attempts only".to_string(),
+            ),
+        );
+    }
     serde_json::Value::Object(map)
 }
 
@@ -664,16 +657,24 @@ fn allomorph_row_view(r: &pg_stats::PerAllomorphRow) -> RowView {
         kind: Some(r.object_kind.clone()),
         identity_quality: None,
         self_time_ns: self_time_value(&r.object_kind, r.self_time_ns),
-        attempts: if r.allomorph_key.is_some() {
+        attempts: if r.allomorph_key.is_some() && r.object_kind == "morph_rule" {
             None
         } else {
             cell_value(&r.object_kind, "attempts", r.attempts)
         },
         outputs: cell_value(&r.object_kind, "outputs", r.outputs),
-        uses: cell_value(&r.object_kind, "uses", r.uses),
+        uses: if r.allomorph_key.is_some() && r.object_kind == "morph_rule" {
+            None
+        } else {
+            cell_value(&r.object_kind, "uses", r.uses)
+        },
         work: cell_value(&r.object_kind, "work", r.work),
         not_applied: cell_value(&r.object_kind, "not_applied", r.not_applied),
-        no_root: cell_value(&r.object_kind, "no_root", r.no_root),
+        no_root: if r.allomorph_key.is_some() && r.object_kind == "morph_rule" {
+            None
+        } else {
+            cell_value(&r.object_kind, "no_root", r.no_root)
+        },
         surface_mismatch: cell_value(&r.object_kind, "surface_mismatch", r.surface_mismatch),
     }
 }
@@ -718,9 +719,11 @@ fn fmt_ms(ns: Option<i64>) -> String {
     }
 }
 
-fn fmt_pct(v: Option<i64>, total: i64) -> String {
-    match v {
-        Some(v) if total > 0 => format!("{:.1}%", v as f64 / total as f64 * 100.0),
+fn fmt_pct(v: Option<i64>, total: Option<i64>) -> String {
+    match (v, total) {
+        (Some(v), Some(total)) if total > 0 => {
+            format!("{:.1}%", v as f64 / total as f64 * 100.0)
+        }
         _ => "-".to_string(),
     }
 }
@@ -736,16 +739,57 @@ fn fmt_opt_i64(v: Option<i64>) -> String {
     v.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string())
 }
 
-/// Kinds paired with their summed `attempts`, heaviest first, ties broken by name for determinism.
-fn attempts_by_kind_desc(rows: &[RowView]) -> Vec<(Option<String>, i64)> {
-    let mut totals: HashMap<Option<String>, i64> = HashMap::new();
-    for r in rows {
-        if let Some(a) = r.attempts {
-            *totals.entry(r.kind.clone()).or_insert(0) += a;
+// Sum the measured subset, but preserve the difference between no measurement and measured zero.
+fn sum_optional<I>(values: I) -> Option<i64>
+where
+    I: IntoIterator<Item = Option<i64>>,
+{
+    let mut total = 0;
+    let mut any = false;
+    for value in values {
+        if let Some(value) = value {
+            any = true;
+            total += value;
         }
     }
-    let mut out: Vec<(Option<String>, i64)> = totals.into_iter().collect();
-    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    any.then_some(total)
+}
+
+// A subtotal is unavailable when any row lacks the measurement.
+fn sum_complete<I>(values: I) -> Option<i64>
+where
+    I: IntoIterator<Item = Option<i64>>,
+{
+    let mut total = 0;
+    let mut any = false;
+    for value in values {
+        let value = value?;
+        any = true;
+        total += value;
+    }
+    any.then_some(total)
+}
+
+/// Kinds paired with their summed `attempts`, heaviest first, ties broken by name for determinism.
+fn attempts_by_kind_desc(rows: &[RowView]) -> Vec<(Option<String>, Option<i64>)> {
+    let mut totals: HashMap<Option<String>, (i64, bool)> = HashMap::new();
+    for r in rows {
+        let entry = totals.entry(r.kind.clone()).or_insert((0, false));
+        if let Some(value) = r.attempts {
+            entry.0 += value;
+            entry.1 = true;
+        }
+    }
+    let mut out: Vec<(Option<String>, Option<i64>)> = totals
+        .into_iter()
+        .map(|(kind, (total, any))| (kind, any.then_some(total)))
+        .collect();
+    out.sort_by(|a, b| {
+        b.1.is_some()
+            .cmp(&a.1.is_some())
+            .then_with(|| b.1.cmp(&a.1))
+            .then_with(|| a.0.cmp(&b.0))
+    });
     out
 }
 
@@ -763,27 +807,21 @@ fn kinds_in_row_order(rows: &[RowView]) -> Vec<Option<String>> {
 /// Percentage denominators, taken from every matched row rather than from a `--top` excerpt.
 struct Denominators {
     /// Global: measured self time means the same thing whatever kind produced it.
-    total_time_ns: i64,
+    total_time_ns: Option<i64>,
     /// Per kind, because a rule's `attempts` is an invocation while a lexical entry's is a candidate materialization: one cross-kind share compares different units.
-    attempts_by_kind: HashMap<Option<String>, i64>,
+    attempts_by_kind: HashMap<Option<String>, Option<i64>>,
 }
 
 impl Denominators {
     fn of(rows: &[RowView]) -> Self {
-        let mut attempts_by_kind: HashMap<Option<String>, i64> = HashMap::new();
-        for r in rows {
-            if let Some(a) = r.attempts {
-                *attempts_by_kind.entry(r.kind.clone()).or_insert(0) += a;
-            }
-        }
         Denominators {
-            total_time_ns: rows.iter().filter_map(|r| r.self_time_ns).sum(),
-            attempts_by_kind,
+            total_time_ns: sum_optional(rows.iter().map(|r| r.self_time_ns)),
+            attempts_by_kind: attempts_by_kind_desc(rows).into_iter().collect(),
         }
     }
 
-    fn attempts_of(&self, kind: &Option<String>) -> i64 {
-        self.attempts_by_kind.get(kind).copied().unwrap_or(0)
+    fn attempts_of(&self, kind: &Option<String>) -> Option<i64> {
+        self.attempts_by_kind.get(kind).copied().flatten()
     }
 }
 
@@ -898,10 +936,10 @@ struct TotalsSummary {
     /// Every row the filters matched, whether or not `--top` displayed it.
     matched_rows: usize,
     shown_rows: usize,
-    total_time_ns: i64,
+    total_time_ns: Option<i64>,
     /// Per kind, in descending count order: one cross-kind `attempts` sum adds different units.
-    attempts_by_kind: Vec<(Option<String>, i64)>,
-    total_uses: i64,
+    attempts_by_kind: Vec<(Option<String>, Option<i64>)>,
+    total_uses: Option<i64>,
     run_elapsed_ns: i64,
 }
 
@@ -911,29 +949,35 @@ impl TotalsSummary {
         TotalsSummary {
             matched_rows: rows.len(),
             shown_rows,
-            total_time_ns: rows.iter().filter_map(|r| r.self_time_ns).sum(),
+            total_time_ns: sum_optional(rows.iter().map(|r| r.self_time_ns)),
             attempts_by_kind: attempts_by_kind_desc(rows),
-            total_uses: rows.iter().filter_map(|r| r.uses).sum(),
+            total_uses: sum_optional(rows.iter().map(|r| r.uses)),
             run_elapsed_ns,
         }
     }
 
-    fn attributed_pct(&self) -> f64 {
-        if self.run_elapsed_ns > 0 {
-            self.total_time_ns as f64 / self.run_elapsed_ns as f64 * 100.0
-        } else {
-            0.0
-        }
+    fn attributed_pct(&self) -> Option<f64> {
+        self.total_time_ns.and_then(|total| {
+            (self.run_elapsed_ns > 0)
+                .then_some(total as f64 / self.run_elapsed_ns as f64 * 100.0)
+        })
     }
 
     /// `attempts a  b  c` across kinds, or a bare count when every row shares one kind.
     fn attempts_text(&self) -> String {
         match self.attempts_by_kind.as_slice() {
             [] => "-".to_string(),
-            [(_, n)] => n.to_string(),
+            [(_, Some(n))] => n.to_string(),
+            [(_, None)] => "-".to_string(),
             many => many
                 .iter()
-                .map(|(kind, n)| format!("{} {n}", kind.as_deref().unwrap_or("-")))
+                .map(|(kind, n)| {
+                    format!(
+                        "{} {}",
+                        kind.as_deref().unwrap_or("-"),
+                        fmt_opt_i64(*n)
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("  "),
         }
@@ -950,14 +994,18 @@ impl TotalsSummary {
 
     fn text_line(&self) -> String {
         format!(
-            "TOTAL  {} row(s){}   time {:.3}ms ({:.1}% attributed of {:.3}ms recorded)   attempts {}   uses {}\n",
+            "TOTAL  {} row(s){}   time {} ({} attributed of {:.3}ms recorded)   attempts {}   uses {}\n",
             self.matched_rows,
             self.shown_note(),
-            self.total_time_ns as f64 / 1e6,
-            self.attributed_pct(),
+            self.total_time_ns
+                .map(|value| format!("{:.3}ms", value as f64 / 1e6))
+                .unwrap_or_else(|| "-".to_string()),
+            self.attributed_pct()
+                .map(|value| format!("{value:.1}%"))
+                .unwrap_or_else(|| "-".to_string()),
             self.run_elapsed_ns as f64 / 1e6,
             self.attempts_text(),
-            self.total_uses,
+            fmt_opt_i64(self.total_uses),
         )
     }
 
@@ -1008,6 +1056,17 @@ fn filters_json(f: &Filters) -> serde_json::Value {
 }
 
 fn run_identity(conn: &rusqlite::Connection) -> Result<(String, String), String> {
+    let distinct_grammars: i64 = conn
+        .query_row("SELECT COUNT(DISTINCT grammar_hash) FROM run", [], |row| {
+            row.get(0)
+        })
+        .map_err(|e| e.to_string())?;
+    if distinct_grammars > 1 {
+        return Err(
+            "stats: cache spans more than one grammar hash; report refused because rows are not comparable"
+                .to_string(),
+        );
+    }
     let distinct_engines: i64 = conn
         .query_row("SELECT COUNT(DISTINCT engine) FROM run", [], |row| {
             row.get(0)
@@ -1132,7 +1191,14 @@ fn render_rowview_body(
     let (_, engine) = run_identity(conn)?;
     let omitted = omitted_counters(&engine, orientation);
     let rows = apply_engine_omission(rows, &omitted);
-    let note = engine_omission_note(&engine, &omitted);
+    let note = if orientation == "allomorph" && engine != "foma" {
+        Some(
+            "note: MorphRule named-allomorph rows show - for rule-level attempts, uses, and no_root; these are not zero\n"
+                .to_string(),
+        )
+    } else {
+        engine_omission_note(&engine, &omitted)
+    };
 
     if rows.is_empty() {
         let reason = empty_explanation(conn, kind_scope)?;
@@ -1148,7 +1214,7 @@ fn render_rowview_body(
     let totals = TotalsSummary::from_rows(&rows, shown.len(), run_elapsed_ns);
     let denoms = Denominators::of(&rows);
     match format {
-        OutputFormat::Text if filters.by_kind => {
+        OutputFormat::Text if filters.by_kind || orientation == "object" => {
             let mut out = String::new();
             if let Some(n) = &note {
                 out.push_str(n);
@@ -1198,15 +1264,16 @@ fn render_rowview_body(
 
 /// The percentage is the group's share of the run's total time, never a within-group 100% that would say nothing about what this kind cost.
 fn subtotal_line(section: &[RowView], kind: &Option<String>, denoms: &Denominators) -> String {
-    let time: i64 = section.iter().filter_map(|r| r.self_time_ns).sum();
-    let attempts: i64 = section.iter().filter_map(|r| r.attempts).sum();
+    let time = sum_complete(section.iter().map(|r| r.self_time_ns));
+    let attempts = sum_complete(section.iter().map(|r| r.attempts));
     format!(
-        "SUBTOTAL {}  {} row(s)  time {:.3}ms ({} of total time)  attempts {}\n",
+        "SUBTOTAL {}  {} row(s)  time {} ({} of total time)  attempts {}\n",
         kind.as_deref().unwrap_or("-"),
         section.len(),
-        time as f64 / 1e6,
-        fmt_pct(Some(time), denoms.total_time_ns),
-        attempts,
+        time.map(|value| format!("{:.3}ms", value as f64 / 1e6))
+            .unwrap_or_else(|| "-".to_string()),
+        fmt_pct(time, denoms.total_time_ns),
+        fmt_opt_i64(attempts),
     )
 }
 
@@ -1215,17 +1282,18 @@ fn subtotal_json(
     kind: &Option<String>,
     denoms: &Denominators,
 ) -> serde_json::Value {
-    let time: i64 = section.iter().filter_map(|r| r.self_time_ns).sum();
-    let attempts: i64 = section.iter().filter_map(|r| r.attempts).sum();
+    let time = sum_complete(section.iter().map(|r| r.self_time_ns));
+    let attempts = sum_complete(section.iter().map(|r| r.attempts));
     serde_json::json!({
         "subtotal": true,
         "kind": kind,
         "rows": section.len(),
         "time_ns": time,
-        "share_of_total_time_pct": if denoms.total_time_ns > 0 {
-            Some(time as f64 / denoms.total_time_ns as f64 * 100.0)
-        } else {
-            None
+        "share_of_total_time_pct": match (time, denoms.total_time_ns) {
+            (Some(time), Some(total)) if total > 0 => {
+                Some(time as f64 / total as f64 * 100.0)
+            }
+            _ => None,
         },
         "attempts": attempts,
     })
@@ -1329,11 +1397,11 @@ fn render_word(
                     let mut row = vec![
                         r.form.clone(),
                         format!("{:.3}", r.elapsed_ns as f64 / 1e6),
-                        fmt_pct(Some(r.elapsed_ns), total_elapsed),
+                        fmt_pct(Some(r.elapsed_ns), Some(total_elapsed)),
                     ];
                     if attempts_measured {
                         row.push(r.attempts.to_string());
-                        row.push(fmt_pct(Some(r.attempts), total_attempts));
+                        row.push(fmt_pct(Some(r.attempts), Some(total_attempts)));
                     }
                     row.extend([
                         r.passes.to_string(),
@@ -1393,6 +1461,27 @@ fn render_never_fires(
     filters: &Filters,
     format: OutputFormat,
 ) -> Result<String, String> {
+    let (grammar_hash, engine) = run_identity(conn)?;
+    if engine == "foma" {
+        return match format {
+            OutputFormat::Text => Ok(
+                "engine=foma cannot measure never-fires; no object facts are recorded\n"
+                    .to_string(),
+            ),
+            OutputFormat::Jsonl => {
+                let value = serde_json::json!({
+                    "meta": true,
+                    "orientation": "never-fires",
+                    "grammar_hash": grammar_hash,
+                    "engine": engine,
+                    "filters": filters_json(filters),
+                    "totals": {"rows": 0, "attempts_by_kind": {}},
+                    "unmeasured": {"never_fires": "engine=foma cannot measure it"},
+                });
+                Ok(format!("{}\n", serde_json::to_string(&value).map_err(|e| e.to_string())?))
+            }
+        };
+    }
     let rows = pg_stats::never_fires_report(conn, &never_fires_filter(filters))
         .map_err(|e| e.to_string())?;
     if rows.is_empty() {
@@ -1424,7 +1513,7 @@ fn render_never_fires(
                         r.attempts.to_string(),
                         fmt_pct(
                             Some(r.attempts),
-                            attempts_by_kind.get(&r.kind).copied().unwrap_or(0),
+                            attempts_by_kind.get(&r.kind).copied().map(Some).unwrap_or(None),
                         ),
                     ]
                 })
@@ -1478,10 +1567,11 @@ fn render_default(conn: &rusqlite::Connection) -> Result<String, String> {
     out.push('\n');
     out.push_str(&render_object(conn, &default_filters, OutputFormat::Text)?);
 
+    let (_, engine) = run_identity(conn)?;
     let never_fires_rows =
         pg_stats::never_fires_report(conn, &pg_stats::NeverFiresFilter::default())
             .map_err(|e| e.to_string())?;
-    if !never_fires_rows.is_empty() {
+    if engine == "foma" || !never_fires_rows.is_empty() {
         out.push('\n');
         out.push_str(&render_never_fires(
             conn,
@@ -1604,6 +1694,15 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
     };
     if filters.sort.is_some() && !matches!(group, None | Some(ReportGroup::Object)) {
         return Err("--sort only applies to --group object (or the default view)".to_string());
+    }
+    if matches!(group, None | Some(ReportGroup::Object))
+        && filters.kind.is_none()
+        && !matches!(filters.sort, None | Some(pg_stats::SortKey::SelfTimeNs))
+    {
+        return Err(
+            "non-time object sorting requires --kind because counter units are only comparable within a kind"
+                .to_string(),
+        );
     }
     if filters.stratum_key.is_some() && !matches!(group, None | Some(ReportGroup::Object)) {
         return Err("--stratum only applies to --group object (or the default view)".to_string());
@@ -2383,8 +2482,8 @@ mod tests {
         };
         // One row displayed out of a matched set totalling four times its time and attempts.
         let denoms = Denominators {
-            total_time_ns: 4_000,
-            attempts_by_kind: HashMap::from([(Some("morph_rule".to_string()), 40)]),
+            total_time_ns: Some(4_000),
+            attempts_by_kind: HashMap::from([(Some("morph_rule".to_string()), Some(40))]),
         };
         let (headers, rows) = render_narrow(&[row], false, &denoms, &[]);
         let time_pct = headers.iter().position(|h| *h == "time%").unwrap();
@@ -2738,8 +2837,8 @@ mod tests {
         )
         .unwrap();
         let header = text.lines().find(|line| line.contains("label")).unwrap();
-        assert!(!header.contains("attempts"), "{text}");
-        assert!(!header.contains("amp"), "{text}");
+        assert!(header.contains("attempts"), "{text}");
+        assert!(header.contains("amp"), "{text}");
 
         let json = render_allomorph(
             cache.connection(),
@@ -2754,13 +2853,31 @@ mod tests {
             .unwrap();
         assert!(named["attempts"].is_null(), "{named}");
         assert!(named["amp"].is_null(), "{named}");
+        assert!(named["uses"].is_null(), "{named}");
+        assert!(named["no_root"].is_null(), "{named}");
         assert_eq!(named["outputs"], 2);
         let meta: serde_json::Value =
             serde_json::from_str(json.lines().next().unwrap()).unwrap();
         assert_eq!(
             meta["unmeasured"]["attempts"],
-            "attempts are rule-level, not per-allomorph"
+            "MorphRule named-allomorph rows have rule-level attempts only"
         );
+
+        let grouped_json = render_allomorph(
+            cache.connection(),
+            &Filters {
+                by_kind: true,
+                ..Filters::default()
+            },
+            OutputFormat::Jsonl,
+        )
+        .unwrap();
+        let subtotal = grouped_json
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .find(|row| row["subtotal"] == true)
+            .unwrap();
+        assert!(subtotal["attempts"].is_null(), "{subtotal}");
     }
 
     #[test]
@@ -2808,6 +2925,48 @@ mod tests {
     }
 
     #[test]
+    fn untimed_kind_totals_remain_unavailable_instead_of_becoming_zero() {
+        let cache = synthetic_stats_cache(
+            "hc",
+            vec![synthetic_fact(pg_stats::ObjectKind::PhonRule, None, 4)],
+        );
+        let filters = Filters {
+            kind: Some("phon_rule".to_string()),
+            ..Filters::default()
+        };
+        let text = render_object(cache.connection(), &filters, OutputFormat::Text).unwrap();
+        let total = text.lines().find(|line| line.starts_with("TOTAL")).unwrap();
+        assert!(total.contains("time -"), "{total}");
+
+        let json = render_object(cache.connection(), &filters, OutputFormat::Jsonl).unwrap();
+        let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
+        assert!(meta["totals"]["time_ns"].is_null(), "{meta}");
+        assert!(meta["totals"]["attributed_pct"].is_null(), "{meta}");
+    }
+
+    #[test]
+    fn lex_entry_allomorph_report_keeps_its_measured_attempts() {
+        let mut fact = synthetic_fact(
+            pg_stats::ObjectKind::LexEntry,
+            Some(("entry-a:0", "Entry Allo")),
+            4,
+        );
+        fact.object_key = "entry-a".to_string();
+        fact.object_label = "Entry A".to_string();
+        let cache = synthetic_stats_cache("hc", vec![fact]);
+        let filters = Filters {
+            kind: Some("lex_entry".to_string()),
+            ..Filters::default()
+        };
+        let json = render_allomorph(cache.connection(), &filters, OutputFormat::Jsonl).unwrap();
+        let row: serde_json::Value = serde_json::from_str(json.lines().nth(1).unwrap()).unwrap();
+        assert_eq!(row["attempts"], 4, "{row}");
+        let text = render_allomorph(cache.connection(), &filters, OutputFormat::Text).unwrap();
+        let header = text.lines().find(|line| line.contains("label")).unwrap();
+        assert!(header.contains("attempts"), "{text}");
+    }
+
+    #[test]
     fn never_fires_keeps_attempt_denominators_within_rule_kind() {
         let mut morph = synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 2_000);
         morph.outputs = 0;
@@ -2826,6 +2985,64 @@ mod tests {
         assert!(meta["totals"]["attempts"].is_null(), "{meta}");
         assert_eq!(meta["totals"]["attempts_by_kind"]["morph_rule"], 2_000);
         assert_eq!(meta["totals"]["attempts_by_kind"]["phon_rule"], 3_000);
+    }
+
+    #[test]
+    fn foma_never_fires_reports_that_the_measurement_is_unsupported() {
+        let cache = synthetic_stats_cache("foma", vec![]);
+        let text = render_never_fires(
+            cache.connection(),
+            &Filters::default(),
+            OutputFormat::Text,
+        )
+        .unwrap();
+        assert!(text.contains("engine=foma cannot measure never-fires"), "{text}");
+        let json = render_never_fires(
+            cache.connection(),
+            &Filters::default(),
+            OutputFormat::Jsonl,
+        )
+        .unwrap();
+        let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
+        assert_eq!(
+            meta["unmeasured"]["never_fires"],
+            "engine=foma cannot measure it"
+        );
+        let default = render_default(cache.connection()).unwrap();
+        assert!(
+            default.contains("engine=foma cannot measure never-fires"),
+            "{default}"
+        );
+    }
+
+    #[test]
+    fn object_text_groups_kinds_without_an_opt_in_flag() {
+        let mut phon = synthetic_fact(pg_stats::ObjectKind::PhonRule, None, 3);
+        phon.object_key = "phon-a".to_string();
+        phon.object_label = "Phon A".to_string();
+        let cache = synthetic_stats_cache(
+            "hc",
+            vec![synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 4), phon],
+        );
+        let text = render_object(
+            cache.connection(),
+            &Filters::default(),
+            OutputFormat::Text,
+        )
+        .unwrap();
+        assert!(text.contains("== morph_rule =="), "{text}");
+        assert!(text.contains("== phon_rule =="), "{text}");
+    }
+
+    #[test]
+    fn counter_sort_requires_one_kind() {
+        for group_args in [vec!["--group", "object"], vec![]] {
+            let mut args = vec!["unused.xml".to_string()];
+            args.extend(group_args.into_iter().map(str::to_string));
+            args.extend(["--sort".to_string(), "attempts".to_string()]);
+            let err = run_stats(&args).expect_err("cross-kind attempt sorting must be rejected");
+            assert!(err.contains("--kind"), "{err}");
+        }
     }
 
     #[test]
@@ -2888,6 +3105,54 @@ mod tests {
         ];
         let err = run_stats(&args).expect_err("mixed-engine cache reads must be hard errors");
         assert!(err.contains("engine"), "{err}");
+    }
+
+    #[test]
+    fn stats_read_rejects_a_legacy_cache_with_multiple_grammar_hashes() {
+        let dir = scratch_dir("mixed-grammar-read");
+        let path = dir.join("cache.sqlite3");
+        let mut outcome = pg_stats::StatsCache::open(&path, "hash-a").unwrap();
+        let run = pg_stats::RunMetadata {
+            build_info: "test".to_string(),
+            fwdata_path: "x".to_string(),
+            grammar_hash: "hash-a".to_string(),
+            engine: "hc".to_string(),
+            options_hash: "opts".to_string(),
+            options_json: "{}".to_string(),
+            created_utc: "unix:0".to_string(),
+        };
+        outcome
+            .cache
+            .flush(&run, &[pg_stats::WordRecord {
+                form: "a".to_string(),
+                elapsed_ns: 1,
+                attempts: 1,
+                passes: 1,
+                capped: false,
+                timed_out: false,
+                invalid_shape: false,
+                facts: vec![],
+            }])
+            .unwrap();
+        outcome
+            .cache
+            .connection()
+            .execute(
+                "INSERT INTO run (schema_version, counter_semantics, build_info, fwdata_path, grammar_hash, engine, options_hash, options_json, created_utc, word_count, total_elapsed_ns)
+                 VALUES (?1, ?2, 'test', 'x', 'hash-b', 'hc', 'opts', '{}', 'unix:1', 0, 0)",
+                rusqlite::params![pg_stats::SCHEMA_VERSION, pg_stats::COUNTER_SEMANTICS_VERSION],
+            )
+            .unwrap();
+        drop(outcome);
+        let args = vec![
+            "unused.xml".to_string(),
+            "--group".to_string(),
+            "word".to_string(),
+            "--cache".to_string(),
+            path.to_string_lossy().into_owned(),
+        ];
+        let err = run_stats(&args).expect_err("mixed-grammar cache reads must be hard errors");
+        assert!(err.contains("grammar"), "{err}");
     }
 }
 
