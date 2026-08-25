@@ -142,7 +142,7 @@ pub enum Severity {
     /// the finding's `FindingClass` for which of those it is.
     NotProductionReady,
     /// Process containment fired DURING a compile and aborted it: near-OOM, out of disk, an RSS
-    /// ceiling. Remedy: more machine, or a different algorithm — no larger envelope helps.
+    /// ceiling. Remedy: more machine, or a different algorithm — increasing a logical budget does not help.
     MachineLimit,
     /// Candidates using this feature cannot be faithfully proposed, so nothing can be built for it.
     /// Remedy: implement the feature, or use the full engine.

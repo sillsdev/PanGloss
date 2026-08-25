@@ -845,11 +845,11 @@ mod tests {
     }
 
     #[test]
-    fn named_larger_tuned_surface_envelope_is_a_clean_resource_retry() {
+    fn manifest_bridge_accepts_an_explicit_characterization_limit() {
         let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
         assert!(
             tuned_surface_resource_finding_with_limit(&grammar, usize::MAX).is_none(),
-            "raising the named work envelope must rerun the complete characterization rather than \
+            "the explicit manifest bridge limit must rerun the complete characterization rather than \
              preserving the earlier refusal"
         );
     }
