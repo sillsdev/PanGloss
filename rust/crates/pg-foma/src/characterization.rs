@@ -153,6 +153,7 @@ pub struct ClosureTestLimits {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ClosureEvidence {
     pub rule_pairs_visited: usize,
     pub synthesized_successors: usize,
@@ -164,6 +165,7 @@ pub struct ClosureEvidence {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CharacterizationResult {
     pub terminal: ClosureTerminal,
     pub evidence: ClosureEvidence,
