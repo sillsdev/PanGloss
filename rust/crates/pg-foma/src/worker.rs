@@ -66,15 +66,16 @@
 //! (what the PARENT reports for outcomes the child never got to write -- a wall-timeout kill, an
 //! RSS breach, a flooded pipe, a crash, a malformed protocol message) maps each into the SAME
 //! `crate::health::HealthReport`/`crate::health::HealthFinding` vocabulary via
-//! `WorkerOutcome::health_report`, reusing `crate::health::FindingCode::ResourceBudgetReached`
-//! (this module's own judgment call, documented on that function: none of `crate::health::Metric`'s
-//! existing variants name "parent-observed wall-clock kill" or "sampled child RSS", so one new
-//! variant, `crate::health::Metric::SampledCompileRssBytes`, is appended, never inserted or
-//! renumbered -- the
-//! same "new codes/variants only ever append" discipline `crate::health`'s own module doc
-//! documents, and the same reuse this crate's `OrderingRuleCount`/`enum_budget_finding` precedents
-//! already established for "no existing variant fits, but the finding vocabulary itself is closed
-//! against inventing a whole second schema").
+//! `WorkerOutcome::health_report`. A genuine external-monitor abort (wall-timeout, RSS, output
+//! cap, child crash) uses `crate::health::FindingCode::HostContainmentFired`; a spawn/protocol
+//! fault where no child ever ran to be contained (`SpawnFailed`, `ProtocolViolation`) is instead a
+//! build-process fault and uses `crate::health::FindingCode::BuildProcessFailed` (see
+//! `WorkerOutcome::health_report`'s own doc for the reasoning). `crate::health::
+//! Metric::SampledCompileRssBytes` is appended, never inserted or renumbered -- the same "new
+//! codes/variants only ever append" discipline `crate::health`'s own module doc documents, and the
+//! same reuse this crate's `OrderingRuleCount`/`enum_budget_finding` precedents already established
+//! for "no existing variant fits, but the finding vocabulary itself is closed against inventing a
+//! whole second schema".
 //!
 //! # Sampled RSS is not a hard ceiling (the platform-parity contract's exact wording matters)
 //! `WorkerOutcome::RssLimitExceeded`'s own doc, `sample_rss_mb`'s own doc, and every place this
@@ -815,18 +816,22 @@ impl WorkerOutcome {
     /// metric, and partial measurements where available) -- never a second, parallel report shape.
     /// `WorkerOutcome::Completed` returns
     /// the child's own real report unchanged; every other variant builds ONE synthetic finding
-    /// describing the parent-observed watchdog event, reusing `FindingCode::ResourceBudgetReached`
-    /// throughout.
+    /// describing the parent-observed watchdog event.
     ///
-    /// **Judgment call** (flagged, mirroring this crate's own "Judgment calls" convention in
-    /// `health_evaluator.rs`): `FindingCode`'s registered codes are compile/apply/build-work-
-    /// shaped; none names "the parent's own wall-clock kill" or "a flooded output pipe" specifically.
-    /// `FindingCode::ResourceBudgetReached` is the closest existing code -- every one of these
-    /// outcomes IS a compilation attempt reaching an enforced boundary and stopping, exactly what
-    /// that code's own registered meaning says -- reused rather than inventing per-outcome codes
-    /// this schema's own "new codes only ever append, chosen to cover every dimension... without
-    /// inventing per-construct codes no instrumentation exists to emit yet" discipline would flag as
-    /// premature. `Metric::SampledCompileRssBytes` is the one genuinely new `Metric` variant
+    /// **Two different facts, two different codes.** `WallTimeoutKilled`/`RssLimitExceeded`/
+    /// `OutputLimitExceeded`/`ChildCrashed` are all genuine external-monitor aborts -- the
+    /// supervisor protecting the host from a runaway child -- so they use
+    /// `FindingCode::HostContainmentFired` at `Severity::MachineLimit`. `ChildCrashed` is kept
+    /// here too even though its own doc admits the cause is ambiguous (panic-as-abort, stack
+    /// overflow, allocator OOM, or an external kill): every one of those is still the supervisor
+    /// observing an abnormal exit it did not itself schedule, not a normal build-tooling fault.
+    /// `SpawnFailed`/`ProtocolViolation` are different in kind: no child process was ever running
+    /// to be contained (the executable does not exist, or the request could not even be framed),
+    /// so nothing here is host protection at all -- these use `FindingCode::BuildProcessFailed`
+    /// (`FindingClass::Process`) at `Severity::NotProductionReady`, matching
+    /// `crate::backend_selection`'s own use of the same code for an operational build fault rather
+    /// than `Severity::MachineLimit`, which would misname a tooling fault as host containment.
+    /// `Metric::SampledCompileRssBytes` is the one genuinely new `Metric` variant
     /// this module appends (no existing variant names a sampled memory quantity at all -- see that
     /// variant's own doc).
     pub fn health_report(&self) -> HealthReport {
@@ -849,7 +854,7 @@ impl WorkerOutcome {
             },
             WorkerOutcome::WallTimeoutKilled { elapsed, limit } => {
                 HealthReport::new(vec![HealthFinding {
-                    code: FindingCode::ResourceBudgetReached,
+                    code: FindingCode::HostContainmentFired,
                     severity: Severity::MachineLimit,
                     phase: Phase::Compile,
                     affected: Vec::new(),
@@ -873,7 +878,7 @@ impl WorkerOutcome {
                 interval,
                 peak_mb,
             } => HealthReport::new(vec![HealthFinding {
-                code: FindingCode::ResourceBudgetReached,
+                code: FindingCode::HostContainmentFired,
                 severity: Severity::MachineLimit,
                 phase: Phase::Compile,
                 affected: Vec::new(),
@@ -895,7 +900,7 @@ impl WorkerOutcome {
                 stream,
                 limit_bytes,
             } => HealthReport::new(vec![HealthFinding {
-                code: FindingCode::ResourceBudgetReached,
+                code: FindingCode::HostContainmentFired,
                 severity: Severity::MachineLimit,
                 phase: Phase::Compile,
                 affected: Vec::new(),
@@ -910,8 +915,9 @@ impl WorkerOutcome {
                 remedies: Vec::new(),
                 override_record: None,
             }]),
+            // Cause is ambiguous (own doc: panic/stack-overflow/OOM/external kill); kept as containment, not a tooling fault.
             WorkerOutcome::ChildCrashed { detail } => HealthReport::new(vec![HealthFinding {
-                code: FindingCode::ResourceBudgetReached,
+                code: FindingCode::HostContainmentFired,
                 severity: Severity::MachineLimit,
                 phase: Phase::Compile,
                 affected: Vec::new(),
@@ -926,10 +932,11 @@ impl WorkerOutcome {
                 remedies: Vec::new(),
                 override_record: None,
             }]),
+            // No child process ever ran to be contained, so this is a process fault, not host containment.
             WorkerOutcome::SpawnFailed { detail } | WorkerOutcome::ProtocolViolation { detail } => {
                 HealthReport::new(vec![HealthFinding {
-                    code: FindingCode::ResourceBudgetReached,
-                    severity: Severity::MachineLimit,
+                    code: FindingCode::BuildProcessFailed,
+                    severity: Severity::NotProductionReady,
                     phase: Phase::Compile,
                     affected: Vec::new(),
                     metric: Metric::UnknownUnboundedWork,
@@ -1612,14 +1619,14 @@ mod tests {
     // WorkerOutcome -> HealthReport mapping.
 
     #[test]
-    fn worker_outcome_wall_timeout_maps_to_machine_limit_resource_budget_reached() {
+    fn worker_outcome_wall_timeout_maps_to_machine_limit_host_containment_fired() {
         let outcome = WorkerOutcome::WallTimeoutKilled {
             elapsed: Duration::from_secs(5),
             limit: Duration::from_secs(2),
         };
         let health = outcome.health_report();
         assert_eq!(health.admission(), Severity::MachineLimit);
-        assert_eq!(health.findings[0].code, FindingCode::ResourceBudgetReached);
+        assert_eq!(health.findings[0].code, FindingCode::HostContainmentFired);
         assert_eq!(health.findings[0].metric, Metric::ElapsedMillis);
     }
 
@@ -1632,6 +1639,7 @@ mod tests {
             peak_mb: 500,
         };
         let health = outcome.health_report();
+        assert_eq!(health.findings[0].code, FindingCode::HostContainmentFired);
         assert_eq!(health.findings[0].metric, Metric::SampledCompileRssBytes);
         assert!(health.findings[0]
             .explanation
@@ -1648,5 +1656,73 @@ mod tests {
             health: real_health.clone(),
         });
         assert_eq!(outcome.health_report(), real_health);
+    }
+
+    /// An external-monitor abort answers "was the attempt contained", never a grammar question.
+    #[test]
+    fn host_containment_is_not_a_grammar_verdict() {
+        assert_eq!(
+            FindingCode::HostContainmentFired.class(),
+            crate::health::FindingClass::Containment
+        );
+
+        let outcomes = vec![
+            WorkerOutcome::WallTimeoutKilled {
+                elapsed: Duration::from_secs(5),
+                limit: Duration::from_secs(2),
+            },
+            WorkerOutcome::RssLimitExceeded {
+                sampled_mb: 500,
+                limit_mb: 400,
+                interval: Duration::from_millis(200),
+                peak_mb: 500,
+            },
+            WorkerOutcome::OutputLimitExceeded {
+                stream: OutputStream::Stdout,
+                limit_bytes: 1024,
+            },
+            WorkerOutcome::ChildCrashed {
+                detail: "synthetic crash".to_string(),
+            },
+        ];
+        for outcome in outcomes {
+            let health = outcome.health_report();
+            assert_eq!(health.admission(), Severity::MachineLimit);
+            assert!(
+                health
+                    .findings
+                    .iter()
+                    .all(|f| f.code == FindingCode::HostContainmentFired),
+                "{outcome:?} must carry only HostContainmentFired: {health:?}"
+            );
+        }
+    }
+
+    /// Neither ever ran a child to contain, so both are process faults rather than host limits.
+    #[test]
+    fn spawn_and_protocol_failures_are_process_faults_not_host_limits() {
+        assert_eq!(
+            FindingCode::BuildProcessFailed.class(),
+            crate::health::FindingClass::Process
+        );
+
+        for outcome in [
+            WorkerOutcome::SpawnFailed {
+                detail: "synthetic spawn failure".to_string(),
+            },
+            WorkerOutcome::ProtocolViolation {
+                detail: "synthetic protocol failure".to_string(),
+            },
+        ] {
+            let health = outcome.health_report();
+            assert_eq!(health.findings.len(), 1);
+            assert_eq!(health.findings[0].code, FindingCode::BuildProcessFailed);
+            assert_ne!(
+                health.findings[0].code,
+                FindingCode::HostContainmentFired,
+                "{outcome:?} never ran a child, so it must not read as host containment"
+            );
+            assert_eq!(health.admission(), Severity::NotProductionReady);
+        }
     }
 }

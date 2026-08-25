@@ -289,18 +289,18 @@ fn retry_with_internal_caps_removed_remedy() -> Remedy {
     }
 }
 
-/// The band edge just below `severity` -- the threshold a non-`Severity::WithinLimits` finding crossed -- read from the shared `*_MAX_BYTES` constants so a band change cannot desync a second copy.
+/// The threshold a non-`Severity::WithinLimits` size finding crossed -- read from the shared `IDEAL_MAX_BYTES` constant so a threshold change cannot desync a second copy.
 fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
     match severity {
         Severity::WithinLimits => {
             unreachable!("payload_size_finding filters Severity::WithinLimits before calling this")
         }
-        Severity::Elevated => MetricValue::Bytes(crate::health::IDEAL_MAX_BYTES),
-        Severity::LargeMultiplier => MetricValue::Bytes(crate::health::INFO_MAX_BYTES),
-        Severity::NotProductionReady => MetricValue::Bytes(crate::health::WARNING_MAX_BYTES),
-        Severity::MachineLimit | Severity::CannotRepresent => unreachable!(
-            "payload size bands do not produce MachineLimit/CannotRepresent; those are reserved for containment/capability findings"
-        ),
+        Severity::NotProductionReady => MetricValue::Bytes(crate::health::IDEAL_MAX_BYTES),
+        Severity::Elevated | Severity::LargeMultiplier | Severity::MachineLimit | Severity::CannotRepresent => {
+            unreachable!(
+                "severity_for_size_bytes produces only WithinLimits/NotProductionReady; every other severity is reserved for non-size producers"
+            )
+        }
     }
 }
 
@@ -927,7 +927,7 @@ mod tests {
         );
     }
 
-    // fst_health_evaluator_size_bands: payload-size-only inputs, every severity band.
+    // fst_health_evaluator_size_bands: payload-size-only inputs, the single threshold.
 
     #[test]
     fn fst_health_evaluator_within_limits_payload_produces_no_finding() {
@@ -937,29 +937,28 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_evaluator_large_multiplier_payload_produces_payload_size_band_finding() {
-        // Mid-band, not an edge: the edges are pinned in `health.rs`.
-        let mid_warning = (crate::health::INFO_MAX_BYTES + crate::health::WARNING_MAX_BYTES) / 2;
-        let report = evaluate_health(Some(mid_warning), None, &[], &[], None);
+    fn fst_health_evaluator_over_ideal_payload_produces_not_production_ready_payload_size_band_finding() {
+        let bytes = 500_000_000u64;
+        let report = evaluate_health(Some(bytes), None, &[], &[], None);
         assert_eq!(report.findings.len(), 1);
         let finding = &report.findings[0];
         assert_eq!(finding.code, FindingCode::PayloadSizeBand);
-        assert_eq!(finding.severity, Severity::LargeMultiplier);
+        assert_eq!(finding.severity, Severity::NotProductionReady);
         assert_eq!(finding.metric, Metric::PayloadBytes);
-        assert_eq!(finding.value, MetricValue::Bytes(mid_warning));
+        assert_eq!(finding.value, MetricValue::Bytes(bytes));
         assert_eq!(
             finding.threshold,
-            Some(MetricValue::Bytes(crate::health::INFO_MAX_BYTES))
+            Some(MetricValue::Bytes(crate::health::IDEAL_MAX_BYTES))
         );
         assert_eq!(finding.provenance, ValueProvenance::Observed);
-        assert_eq!(report.admission(), Severity::LargeMultiplier);
+        assert_eq!(report.admission(), Severity::NotProductionReady);
     }
 
     #[test]
     fn fst_health_evaluator_not_production_ready_payload_matches_health_schema_worked_scenario() {
-        // `WARNING_MAX_BYTES` is the upper edge of LargeMultiplier; one byte more crosses into NotProductionReady.
+        // `IDEAL_MAX_BYTES` is the only size threshold; one byte more crosses into NotProductionReady.
         let report = evaluate_health(
-            Some(crate::health::WARNING_MAX_BYTES + 1),
+            Some(crate::health::IDEAL_MAX_BYTES + 1),
             None,
             &[],
             &[],
@@ -968,19 +967,13 @@ mod tests {
         assert_eq!(report.findings[0].severity, Severity::NotProductionReady);
         assert_eq!(
             report.findings[0].threshold,
-            Some(MetricValue::Bytes(crate::health::WARNING_MAX_BYTES))
+            Some(MetricValue::Bytes(crate::health::IDEAL_MAX_BYTES))
         );
     }
 
     #[test]
     fn fst_health_evaluator_oversized_payload_remains_not_production_ready_readiness() {
-        let report = evaluate_health(
-            Some(crate::health::ERROR_MAX_BYTES + 1),
-            None,
-            &[],
-            &[],
-            None,
-        );
+        let report = evaluate_health(Some(10_000_000_000u64), None, &[], &[], None);
         assert_eq!(report.findings[0].severity, Severity::NotProductionReady);
         assert!(!report.findings[0].severity.overridable());
         assert_eq!(report.admission(), Severity::NotProductionReady);
@@ -1492,7 +1485,7 @@ mod tests {
 
     /// Three distinct measurement sources (payload size, an emit report, a compose error) feeding one report, the shape a real caller assembles.
     fn representative_inputs() -> (u64, EmitReport, ComposeError) {
-        let payload_bytes = 250_000_000u64; // LargeMultiplier band: >INFO_MAX_BYTES, <=WARNING_MAX_BYTES
+        let payload_bytes = 250_000_000u64; // NotProductionReady: over IDEAL_MAX_BYTES
         let emit_report = EmitReport {
             uncovered: vec![UncoveredItem {
                 kind: "process-morph".to_string(),
@@ -1519,7 +1512,7 @@ mod tests {
   "findings": [
     {
       "code": "PGF0001",
-      "severity": "large_multiplier",
+      "severity": "not_production_ready",
       "phase": "compile",
       "affected": [],
       "metric": "payload_bytes",
@@ -1530,9 +1523,9 @@ mod tests {
       "provenance": "observed",
       "threshold": {
         "kind": "bytes",
-        "value": 200000000
+        "value": 100000000
       },
-      "explanation": "Final FST payload is 250000000 bytes, in the LargeMultiplier band (R6 decimal-byte size thresholds).",
+      "explanation": "Final FST payload is 250000000 bytes, in the NotProductionReady band (R6 decimal-byte size thresholds).",
       "remedies": []
     },
     {

@@ -1,5 +1,5 @@
 //! The FST compilation-health finding schema: types, stable codes, severity and override
-//! semantics, size bands, and canonical JSON.
+//! semantics, the payload-size threshold, and canonical JSON.
 //!
 //! Health is REPORTED about a compile, never consulted during one — `crate::health_evaluator`
 //! produces `HealthFinding`s from budget measurements after the fact, so no compiler pass
@@ -22,13 +22,18 @@
 //! `#[serde(alias)]` on each variant keeps an already-serialized report readable under its old
 //! spelling.
 //!
-//! # Severity and size bands
-//! `severity_for_size_bytes` implements the exact decimal-byte FST-payload bands from the
-//! `*_MAX_BYTES` constants. The elevated finding or readiness failure a crossed band raises is
-//! wanted; the exact edge is provisional — read `IDEAL_MAX_BYTES` before citing an edge as
-//! evidence. Size is one dimension among several — see `Metric` for the others (compile work,
-//! intermediate nets, candidates, paths, application time, unknown/unbounded constructs) — and
-//! `HealthReport::admission` aggregates across all of them, not size alone.
+//! # Severity and the payload-size threshold
+//! `severity_for_size_bytes` compares a compiled FST payload's byte count against the single
+//! `IDEAL_MAX_BYTES` threshold: at or under it, `Severity::WithinLimits`; over it,
+//! `Severity::NotProductionReady`. Payload size is a post-compile MEASUREMENT, never a static
+//! pre-compile analysis or containment verdict (see `Severity`'s own doc), and conflating the two
+//! would be exactly the category blur this module's design exists to avoid — pinned by
+//! `size_never_reports_an_analysis_verdict`.
+//! The readiness failure a crossed threshold raises is wanted; the exact edge is provisional —
+//! read `IDEAL_MAX_BYTES` before citing it as evidence. Size is one dimension among several — see
+//! `Metric` for the others (compile work, intermediate nets, candidates, paths, application time,
+//! unknown/unbounded constructs) — and `HealthReport::admission` aggregates across all of them,
+//! not size alone.
 //!
 //! # Legacy override records
 //! `Severity::NotProductionReady` and `Severity::MachineLimit` remain explicit readiness
@@ -73,10 +78,13 @@
 //! # Design notes
 //! - `FindingCode` covers every dimension this crate currently measures (payload size,
 //!   intermediate networks, compile work, proposal volume, confirmation work, duplicate-analysis
-//!   overlap, unknown/unbounded cost, a terminal budget-reached outcome, a proven-bound rejection,
-//!   and apply-time work) without inventing per-construct codes no instrumentation exists to emit
-//!   yet. Growing this list is additive (new codes only ever append; no code is ever renumbered
-//!   or removed).
+//!   overlap, unknown/unbounded cost, an internal self-imposed budget reached, a proven-bound
+//!   rejection, apply-time work, an external host-containment abort, and a large-but-bounded
+//!   rule-interaction product) without inventing per-construct codes no instrumentation exists to
+//!   emit yet. Growing this list is additive (new codes only ever append; no code is ever
+//!   renumbered or removed). `ResourceBudgetReached` (internal caps) and `HostContainmentFired`
+//!   (the external watchdog) look similar but answer different questions -- see each variant's
+//!   own doc.
 //! - `Phase` has three values (`Characterization`, `Compile`, `Apply`) rather than a simpler
 //!   "characterization/observed" split: `Compile` and `Apply` are the two production phases (compile-time
 //!   construction vs. per-word application), and `Characterization` is the characteristics-profile-style
@@ -97,7 +105,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// `#[serde(alias)]` and every new report keeps writing the same five bands plus the one addition.
 pub const HEALTH_SCHEMA_VERSION: u32 = 3;
 
-// Severity + size bands
+// Severity + payload-size threshold
 
 /// The cost/health severity axis — deliberately **distinct** from the capability-trust axis
 /// (proven-vs-unproven capability checks). Each variant answers a different question about WHERE
@@ -130,7 +138,7 @@ pub enum Severity {
     #[serde(alias = "warning")]
     LargeMultiplier,
     /// The compiled artifact was measured AFTER a successful compile and is not shippable (e.g.
-    /// payload over the size bands above). Must not block compiling; a legacy `OverrideRecord`
+    /// payload over the size threshold above). Must not block compiling; a legacy `OverrideRecord`
     /// cannot admit it. Remedy: this is a labelling verdict. Formerly `Error`.
     #[serde(alias = "error")]
     NotProductionReady,
@@ -154,34 +162,33 @@ impl Severity {
     }
 }
 
-/// Inclusive upper edge of the Ideal payload band.
+/// The single payload-size threshold `severity_for_size_bytes` applies.
 ///
-/// **The warning these bands raise is real; the exact numbers are provisional.** A compiled
+/// **The warning this threshold raises is real; the exact number is provisional.** A compiled
 /// grammar that runs to a gigabyte is not something anyone can ship, so a payload that large has
-/// to reach its author as a warning — that much is settled, and it is why these are thresholds and
-/// not just a reported number. What is unsettled is where each edge sits: no grammar was measured
-/// to pick them, and the change whose job was to derive such thresholds from evidence was retired
+/// to reach its author as a warning — that much is settled, and it is why this is a threshold and
+/// not just a reported number. What is unsettled is where the edge sits: no grammar was measured
+/// to pick it, and the change whose job was to derive such a threshold from evidence was retired
 /// without producing one.
 ///
-/// They encode an intent. A grammar is on the order of a thousand parameters, so the whole
+/// It encodes an intent. A grammar is on the order of a thousand parameters, so the whole
 /// difficulty is combining them compactly — which is exactly what different backends do better or
-/// worse. Read a crossed band as "this backend did not combine this grammar well", never as a
+/// worse. Read a crossed threshold as "this backend did not combine this grammar well", never as a
 /// proven resource limit. Provenance and the pending recalibration against a real spread across
 /// backends and grammars: `docs/change-retirement-grills.md`.
 pub const IDEAL_MAX_BYTES: u64 = 100_000_000;
-/// Inclusive upper edge of the Info payload band. Provenance: see [`IDEAL_MAX_BYTES`].
-pub const INFO_MAX_BYTES: u64 = 200_000_000;
-/// Inclusive upper edge of the Warning payload band. Provenance: see [`IDEAL_MAX_BYTES`].
-pub const WARNING_MAX_BYTES: u64 = 1_000_000_000;
-/// Inclusive upper edge of the Error payload band; larger payloads remain NotProductionReady
-/// readiness findings rather than becoming a MachineLimit/CannotRepresent verdict. Provenance:
-/// see [`IDEAL_MAX_BYTES`].
-pub const ERROR_MAX_BYTES: u64 = 5_000_000_000;
 
-/// The exact decimal-byte FST-payload size bands, inclusive upper edges, from the
-/// `*_MAX_BYTES` constants — which are a stated target, NOT a measured limit; read
-/// [`IDEAL_MAX_BYTES`] before citing any band as evidence. Each edge is pinned by this
-/// function's tests, so the constants and the bands cannot drift apart silently.
+/// A compiled FST payload's byte count, compared against the single [`IDEAL_MAX_BYTES`]
+/// threshold — a stated target, NOT a measured limit; read [`IDEAL_MAX_BYTES`] before citing it
+/// as evidence. Pinned by this function's tests so the constant and this mapping cannot drift
+/// apart silently.
+///
+/// This is a post-compile MEASUREMENT of an artifact that already compiled successfully, never a
+/// pre-compile static-analysis verdict, so only [`Severity::WithinLimits`] and
+/// [`Severity::NotProductionReady`] are possible outputs: no size input may ever produce
+/// [`Severity::Elevated`], [`Severity::LargeMultiplier`], [`Severity::MachineLimit`], or
+/// [`Severity::CannotRepresent`] — those verdicts belong to other producers (static analysis or
+/// containment), not to a payload byte count.
 ///
 /// Size is one health dimension, not the whole story: compile work, intermediate nets,
 /// candidates, paths, time, and unknown/unbounded constructs may also raise severity. Combine
@@ -190,14 +197,7 @@ pub const ERROR_MAX_BYTES: u64 = 5_000_000_000;
 pub const fn severity_for_size_bytes(bytes: u64) -> Severity {
     if bytes <= IDEAL_MAX_BYTES {
         Severity::WithinLimits
-    } else if bytes <= INFO_MAX_BYTES {
-        Severity::Elevated
-    } else if bytes <= WARNING_MAX_BYTES {
-        Severity::LargeMultiplier
-    } else if bytes <= ERROR_MAX_BYTES {
-        Severity::NotProductionReady
     } else {
-        // Payload size is readiness; MachineLimit/CannotRepresent are reserved for containment/capability findings.
         Severity::NotProductionReady
     }
 }
@@ -307,7 +307,7 @@ pub enum MetricValue {
 /// each code covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FindingCode {
-    /// Final FST payload size crossed a severity band (`severity_for_size_bytes`).
+    /// Final FST payload size crossed the size threshold (`severity_for_size_bytes`).
     PayloadSizeBand,
     /// An intermediate composition/union/minimize product grew large relative to its budget.
     IntermediateNetworkGrowth,
@@ -321,11 +321,16 @@ pub enum FindingCode {
     DuplicateAnalysisOverlap,
     /// A recall-preserving construct's cost cannot be bounded ahead of time; not itself a MachineLimit.
     UnknownUnboundedConstruct,
-    /// A compilation attempt reached an enforced logical/byte/time budget and stopped.
+    /// An INTERNAL, self-imposed compile/apply-time budget (net size, emit lines, compose
+    /// timeout, chain depth, apply-time proposal/path volume) was reached and stopped this
+    /// attempt. Distinct from [`FindingCode::HostContainmentFired`], which is the external host
+    /// watchdog protecting the machine rather than an artificial cap this compiler set itself.
     ResourceBudgetReached,
     /// An exact value or proven lower bound shows an operation cannot fit the remaining budget.
     ProvenBoundExceedsBudget,
-    /// Per-word apply-time work (chain depth, allocation, elapsed time) is elevated.
+    /// Per-word apply-time work (chain depth, allocation, elapsed time) is elevated. Reserved:
+    /// no producer emits this code today (`crate::health_evaluator`'s own module doc lists the
+    /// dimensions this would need before it can be populated).
     ApplicationTimeWork,
     /// A backend failed while compiling its emitted representation and produced no usable artifact.
     BackendCompilationFailed,
@@ -333,6 +338,14 @@ pub enum FindingCode {
     BuildProcessFailed,
     /// A backend is known to omit or reject one or more required grammar constructs.
     BackendCoverageIncomplete,
+    /// An external monitoring process (wall-clock kill, sampled RSS ceiling, output-pipe cap, or
+    /// an unparseable child crash) aborted this attempt to protect the host machine. Never a
+    /// verdict about the grammar -- see [`Severity::MachineLimit`]'s own doc.
+    HostContainmentFired,
+    /// An exact, already-computed morphological x phonological rule-count product is large.
+    /// Distinct from [`FindingCode::UnknownUnboundedConstruct`]: this cost IS bounded ahead of
+    /// time, just large.
+    RuleInteractionProduct,
 }
 
 /// Which of the three independent admission questions a `FindingCode` answers. A finding never
@@ -371,6 +384,8 @@ impl FindingCode {
         FindingCode::BackendCompilationFailed,
         FindingCode::BuildProcessFailed,
         FindingCode::BackendCoverageIncomplete,
+        FindingCode::HostContainmentFired,
+        FindingCode::RuleInteractionProduct,
     ];
 
     /// The immutable `PGFdddd` wire code. Exhaustive match, no catch-all arm — adding a variant
@@ -390,6 +405,8 @@ impl FindingCode {
             FindingCode::BackendCompilationFailed => "PGF0011",
             FindingCode::BuildProcessFailed => "PGF0012",
             FindingCode::BackendCoverageIncomplete => "PGF0013",
+            FindingCode::HostContainmentFired => "PGF0014",
+            FindingCode::RuleInteractionProduct => "PGF0015",
         }
     }
 
@@ -397,7 +414,7 @@ impl FindingCode {
     pub const fn meaning(self) -> &'static str {
         match self {
             FindingCode::PayloadSizeBand => {
-                "Final FST payload size crossed a severity band (R6 decimal-byte thresholds)."
+                "Final FST payload size crossed the size threshold (R6 decimal-byte threshold)."
             }
             FindingCode::IntermediateNetworkGrowth => {
                 "An intermediate composition/union/minimize product grew large relative to its \
@@ -423,8 +440,10 @@ impl FindingCode {
                  uncertainty, not itself a MachineLimit)."
             }
             FindingCode::ResourceBudgetReached => {
-                "A compilation attempt reached an enforced logical/byte/time budget and stopped \
-                 with a typed resource finding."
+                "An internal, self-imposed compile/apply-time budget (net size, emit lines, \
+                 compose timeout, chain depth, or apply-time proposal/path volume) was reached \
+                 and stopped this attempt; never an external host-protection verdict (see \
+                 HostContainmentFired)."
             }
             FindingCode::ProvenBoundExceedsBudget => {
                 "An exact value or proven conservative lower bound shows an operation cannot fit \
@@ -442,6 +461,15 @@ impl FindingCode {
             FindingCode::BackendCoverageIncomplete => {
                 "A backend is known to omit or reject required grammar constructs and therefore \
                  cannot produce a complete artifact."
+            }
+            FindingCode::HostContainmentFired => {
+                "An external monitoring process aborted this attempt to protect the host machine \
+                 (wall-clock kill, sampled RSS ceiling, output-pipe cap, or an unparseable child \
+                 crash); never a verdict about the grammar."
+            }
+            FindingCode::RuleInteractionProduct => {
+                "An exact morphological x phonological rule-count product is large; this cost is \
+                 bounded ahead of time, not unknown."
             }
         }
     }
@@ -470,6 +498,8 @@ impl FindingCode {
             FindingCode::ProvenBoundExceedsBudget => FindingClass::Containment,
             FindingCode::BackendCompilationFailed => FindingClass::Process,
             FindingCode::BuildProcessFailed => FindingClass::Process,
+            FindingCode::HostContainmentFired => FindingClass::Containment,
+            FindingCode::RuleInteractionProduct => FindingClass::Readiness,
         }
     }
 }
@@ -686,22 +716,12 @@ impl HealthReport {
 mod tests {
     use super::*;
 
-    // Edges by relation via the constants; the four values are pinned once, separately, below.
+    // The single threshold, pinned once.
 
     #[test]
-    fn fst_health_size_band_values_are_the_declared_targets() {
-        // Changing one of these changes a stated target: say so in `IDEAL_MAX_BYTES`'s doc.
+    fn fst_health_size_threshold_value_is_the_declared_target() {
+        // Changing this changes a stated target: say so in `IDEAL_MAX_BYTES`'s doc.
         assert_eq!(IDEAL_MAX_BYTES, 100_000_000);
-        assert_eq!(INFO_MAX_BYTES, 200_000_000);
-        assert_eq!(WARNING_MAX_BYTES, 1_000_000_000);
-        assert_eq!(ERROR_MAX_BYTES, 5_000_000_000);
-    }
-
-    #[test]
-    fn fst_health_size_bands_are_strictly_ascending() {
-        assert!(IDEAL_MAX_BYTES < INFO_MAX_BYTES);
-        assert!(INFO_MAX_BYTES < WARNING_MAX_BYTES);
-        assert!(WARNING_MAX_BYTES < ERROR_MAX_BYTES);
     }
 
     #[test]
@@ -718,55 +738,9 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_size_bands_elevated_lower_edge_exclusive_of_within_limits() {
+    fn fst_health_size_bands_not_production_ready_lower_edge_exclusive_of_within_limits() {
         assert_eq!(
             severity_for_size_bytes(IDEAL_MAX_BYTES + 1),
-            Severity::Elevated
-        );
-    }
-
-    #[test]
-    fn fst_health_size_bands_elevated_upper_edge_inclusive() {
-        assert_eq!(severity_for_size_bytes(INFO_MAX_BYTES), Severity::Elevated);
-    }
-
-    #[test]
-    fn fst_health_size_bands_large_multiplier_lower_edge_exclusive_of_elevated() {
-        assert_eq!(
-            severity_for_size_bytes(INFO_MAX_BYTES + 1),
-            Severity::LargeMultiplier
-        );
-    }
-
-    #[test]
-    fn fst_health_size_bands_large_multiplier_upper_edge_inclusive() {
-        // The band boundary is INCLUSIVE: exactly WARNING_MAX_BYTES is LargeMultiplier, not NotProductionReady.
-        assert_eq!(
-            severity_for_size_bytes(WARNING_MAX_BYTES),
-            Severity::LargeMultiplier
-        );
-    }
-
-    #[test]
-    fn fst_health_size_bands_not_production_ready_lower_edge_exclusive_of_large_multiplier() {
-        assert_eq!(
-            severity_for_size_bytes(WARNING_MAX_BYTES + 1),
-            Severity::NotProductionReady
-        );
-    }
-
-    #[test]
-    fn fst_health_size_bands_not_production_ready_upper_edge_inclusive() {
-        assert_eq!(
-            severity_for_size_bytes(ERROR_MAX_BYTES),
-            Severity::NotProductionReady
-        );
-    }
-
-    #[test]
-    fn fst_health_size_bands_above_error_floor_remains_not_production_ready() {
-        assert_eq!(
-            severity_for_size_bytes(ERROR_MAX_BYTES + 1),
             Severity::NotProductionReady
         );
     }
@@ -777,6 +751,47 @@ mod tests {
             severity_for_size_bytes(u64::MAX),
             Severity::NotProductionReady
         );
+    }
+
+    /// The pin for the whole category-leak fix: a compiled-artifact size measurement must never surface as a pre-compile static-analysis or containment verdict, at any size.
+    #[test]
+    fn size_never_reports_an_analysis_verdict() {
+        let sizes = [
+            0,
+            IDEAL_MAX_BYTES,
+            IDEAL_MAX_BYTES + 1,
+            150_000_000,   // formerly Elevated
+            200_000_000,   // formerly Elevated's upper edge
+            250_000_000,   // formerly LargeMultiplier
+            1_000_000_000, // formerly LargeMultiplier's upper edge
+            3_000_000_000, // formerly NotProductionReady
+            5_000_000_000, // formerly NotProductionReady's upper edge
+            6_000_000_000, // formerly NotProductionReady (above the old Error floor)
+            u64::MAX,
+        ];
+        for bytes in sizes {
+            let severity = severity_for_size_bytes(bytes);
+            assert_ne!(
+                severity,
+                Severity::Elevated,
+                "{bytes} bytes must never report the pre-compile Elevated verdict"
+            );
+            assert_ne!(
+                severity,
+                Severity::LargeMultiplier,
+                "{bytes} bytes must never report the pre-compile LargeMultiplier verdict"
+            );
+            assert_ne!(
+                severity,
+                Severity::MachineLimit,
+                "{bytes} bytes must never report the containment MachineLimit verdict"
+            );
+            assert_ne!(
+                severity,
+                Severity::CannotRepresent,
+                "{bytes} bytes must never report the pre-compile CannotRepresent verdict"
+            );
+        }
     }
 
     // fst_health_override_policy: legacy records are audit-only and never admit health.
@@ -1027,9 +1042,9 @@ mod tests {
                 metric: Metric::PayloadBytes,
                 value: MetricValue::Bytes(1_500_000_000),
                 provenance: ValueProvenance::Observed,
-                threshold: Some(MetricValue::Bytes(WARNING_MAX_BYTES)),
-                explanation: "Final FST payload is 1,500,000,000 bytes, in the NotProductionReady \
-                    band (>1,000,000,000..=5,000,000,000)."
+                threshold: Some(MetricValue::Bytes(IDEAL_MAX_BYTES)),
+                explanation: "Final FST payload is 1,500,000,000 bytes, over the 100,000,000-byte \
+                    NotProductionReady threshold."
                     .to_string(),
                 remedies: vec![Remedy {
                     rank: 1,
@@ -1094,9 +1109,9 @@ mod tests {
       "provenance": "observed",
       "threshold": {
         "kind": "bytes",
-        "value": 1000000000
+        "value": 100000000
       },
-      "explanation": "Final FST payload is 1,500,000,000 bytes, in the NotProductionReady band (>1,000,000,000..=5,000,000,000).",
+      "explanation": "Final FST payload is 1,500,000,000 bytes, over the 100,000,000-byte NotProductionReady threshold.",
       "remedies": [
         {
           "rank": 1,
@@ -1184,7 +1199,17 @@ mod tests {
                 FindingCode::CompileWorkBudget,
                 FindingCode::ResourceBudgetReached,
                 FindingCode::ProvenBoundExceedsBudget,
+                FindingCode::HostContainmentFired,
             ]
+        );
+    }
+
+    /// A reserved, unemitted code must stay forever deserializable.
+    #[test]
+    fn reserved_codes_still_deserialize() {
+        assert_eq!(
+            FindingCode::from_code("PGF0010"),
+            Some(FindingCode::ApplicationTimeWork)
         );
     }
 
