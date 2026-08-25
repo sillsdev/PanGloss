@@ -538,18 +538,19 @@ pub(crate) fn build_pack(
         };
         match &proposer_result {
             Ok(proposer) => {
-                let health = evaluate_health(
-                    None,
-                    proposer.report.as_ref(),
-                    &[],
-                    &[],
-                    Some(&compile_profile),
-                );
                 let foma_bytes = proposer.foma_binary_payload().map_err(|e| {
                     format!(
                         "serializing the compiled foma network to its binary-memory payload: {e}"
                     )
                 })?;
+                // The byte count actually destined for the .pgpack foma section, not a pre-serialization estimate.
+                let health = evaluate_health(
+                    Some(foma_bytes.len() as u64),
+                    proposer.report.as_ref(),
+                    &[],
+                    &[],
+                    Some(&compile_profile),
+                );
                 (
                     health.clone(),
                     Some(foma_bytes),
@@ -1081,6 +1082,67 @@ mod tests {
         assert_eq!(completeness.pending_successors, 0);
         assert!(!completeness.enumeration_budget_exceeded);
         assert!(completeness.compiled_payload_present);
+    }
+
+    /// Regression guard: a within-threshold real payload byte count must not trip `PayloadSizeBand`.
+    #[test]
+    fn a_within_threshold_pack_still_publishes_cleanly() {
+        let (result, out_path) = run_pack_raw("within-threshold", CLEAN_GRAMMAR_XML, &[]);
+        assert!(
+            result.is_ok(),
+            "a within-threshold grammar must still pack successfully: {result:?}"
+        );
+
+        let bytes = std::fs::read(&out_path).expect("read out.pgpack");
+        let read = pg_pack::read_pack(&bytes).expect("a pack this command wrote must read back");
+        assert!(
+            !read
+                .manifest
+                .fst_health
+                .findings
+                .iter()
+                .any(|finding| finding.code == FindingCode::PayloadSizeBand),
+            "a within-threshold compiled payload must produce no PayloadSizeBand finding: {:?}",
+            read.manifest.fst_health.findings
+        );
+    }
+
+    /// An oversized payload byte count must produce a `PayloadSizeBand` finding at `NotProductionReady`.
+    #[test]
+    fn an_oversized_payload_is_labelled_not_production_ready() {
+        let oversized = pg_foma::health::IDEAL_MAX_BYTES + 1;
+        let health = evaluate_health(Some(oversized), None, &[], &[], None);
+        let finding = health
+            .findings
+            .iter()
+            .find(|finding| finding.code == FindingCode::PayloadSizeBand)
+            .expect("an oversized payload must produce a PayloadSizeBand finding");
+        assert_eq!(finding.severity, Severity::NotProductionReady);
+    }
+
+    /// Injects the byte count at the `evaluate_health` seam rather than compiling a genuine >100MB network.
+    #[test]
+    fn an_oversized_pack_is_refused_publication() {
+        let oversized = pg_foma::health::IDEAL_MAX_BYTES + 1;
+        let health = evaluate_health(Some(oversized), None, &[], &[], None);
+        assert!(
+            validate_health_readiness(&health, false).is_err(),
+            "an oversized payload must be refused publication"
+        );
+
+        // Mirrors `run_pack`'s own gate-then-write sequence, so a refusal here must leave no file.
+        let dir = scratch_dir("oversized-refusal");
+        let out_path = dir.join("out.pgpack");
+        let attempt: Result<(), String> = (|| {
+            validate_health_readiness(&health, false)?;
+            fs::write(&out_path, b"unused").map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+        assert!(attempt.is_err());
+        assert!(
+            !out_path.exists(),
+            "no .pgpack may be written for a refused oversized payload"
+        );
     }
 
     /// A managed-mode pack records the shipped default envelope and `CompileSizeMode::Managed`.
