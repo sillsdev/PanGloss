@@ -76,11 +76,8 @@ sha2 = "0.10"
 # "Publisher signatures are optional offline provenance"). Not previously in the workspace lockfile
 # for any crate; added here, pinned once, synced to Cargo.lock by this change.
 ed25519-dalek = "2"
-# `harden-foma-resource-safety` section 3 (`openspec/changes/IMPLEMENTATION-READINESS.md` R2): the
-# compile-worker watchdog's sampled-RSS guardrail (`pg-foma/src/worker.rs`). Pinned per R2's exact
-# wording ("a Rust-1.90-compatible `sysinfo` release"); refreshed only for the worker child's own
-# PID (never a system-wide scan) -- see that module's own doc for why sampling is reported with its
-# interval and observed peak, never as a hard memory ceiling.
+# Native process-memory observation used by backend runtime diagnostics and the CLI recipe
+# optimizer. Compile-worker execution limits are enforced independently of this dependency.
 sysinfo = "0.32"
 
 # `pg-stats`' per-project statistics cache. `bundled` compiles SQLite from vendored C source so

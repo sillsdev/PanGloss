@@ -220,7 +220,7 @@ fn wire_frame_limits_remain_separate_from_execution_limits() {
         .find("pub struct WorkerProtocolLimits")
         .expect("worker source must declare wire-frame limits");
     let end = source[start..]
-        .find("}\n")
+        .find('}')
         .map(|offset| start + offset)
         .expect("wire-frame limit declaration must be closed");
     let declaration = &source[start..=end];

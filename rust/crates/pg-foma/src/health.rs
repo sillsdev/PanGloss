@@ -119,8 +119,8 @@ pub const HEALTH_SCHEMA_VERSION: u32 = 3;
 /// - [`Severity::NotProductionReady`]: this tier blocks publication; see its own doc for the
 ///   several distinct facts (compiled-but-oversized, budget-stopped, process-faulted,
 ///   proven-bound-exceeded) that all reach it.
-/// - [`Severity::MachineLimit`]: process containment fired DURING a compile (near-OOM, out of
-///   disk, an RSS ceiling) and aborted it; never a statement about the grammar.
+/// - [`Severity::MachineLimit`]: external process containment fired DURING a compile and aborted
+///   it; never a statement about the grammar.
 ///
 /// Declaration order is worst-last and is what `Ord` and `HealthReport::admission`'s `max` rely
 /// on: `WithinLimits < Elevated < LargeMultiplier < NotProductionReady < MachineLimit <
@@ -141,8 +141,8 @@ pub enum Severity {
     /// fault, or a pre-compile proven bound exceeding budget. Must not itself block compiling. Read
     /// the finding's `FindingClass` for which of those it is.
     NotProductionReady,
-    /// Process containment fired DURING a compile and aborted it: near-OOM, out of disk, an RSS
-    /// ceiling. Remedy: more machine, or a different algorithm — increasing a logical budget does not help.
+    /// External process containment fired DURING a compile and aborted it. Remedy: adjust the
+    /// configured execution limit, use more machine, or choose a different algorithm.
     MachineLimit,
     /// Candidates using this feature cannot be faithfully proposed, so nothing can be built for it.
     /// Remedy: implement the feature, or use the full engine.
@@ -244,9 +244,6 @@ pub enum Metric {
     UnknownUnboundedWork,
     /// An `Unordered` stratum's own loose-rule count; kept distinct from `AlphaTupleCount`/`GateGroupCount` so neither variant's stored meaning becomes ambiguous in canonical JSON.
     OrderingRuleCount,
-    /// A sampled compile-worker RSS reading, in bytes — never a hard ceiling, since allocation
-    /// between samples means a reading below a guardrail is not proof the process stayed under it.
-    SampledCompileRssBytes,
     /// The compound HEAD x NON-HEAD root-allomorph cross product a grammar's `CompoundingRuleDef`s license.
     CompoundRootPairCount,
     /// Reachable root/chain-state x morphological-rule applications that a composite-emitting

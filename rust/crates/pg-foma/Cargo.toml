@@ -60,12 +60,8 @@ rayon.workspace = true
 # and the same for pg-wasm both stay part of this crate's gate.
 pg-parse.workspace = true
 
-# `harden-foma-resource-safety` section 3 (`openspec/changes/IMPLEMENTATION-READINESS.md` R2): the
-# compile-worker watchdog (`src/worker.rs`) is entirely `#[cfg(not(target_arch = "wasm32"))]` --
-# these three dependencies are scoped to the SAME target cfg here too (not merely dead code on
-# wasm32, but genuinely ABSENT from `pg-wasm`'s dependency graph), mirroring R2's "WASM is
-# analysis-only and needs no compile watchdog" / R2A's "WASM... dependency graph SHALL NOT contain
-# FST compiler construction" ethos applied to this worker.
+# Native-only dependencies for FST construction and the supervised compile-worker protocol are
+# absent from the analysis-only wasm dependency graph.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # The production oracle preparation path samples its own process RSS. Pinned once at the workspace
 # root; see `backend_runtime.rs`'s own docs.
