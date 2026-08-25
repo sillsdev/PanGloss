@@ -735,14 +735,11 @@ mod tests {
 
     #[test]
     fn incomplete_closure_error_preserves_frontier_evidence() {
-        let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
         let closure = CharacterizationResult {
             terminal: ClosureTerminal::Incomplete(
                 crate::characterization::ClosureStopReason::WorkBudgetReached,
             ),
             evidence: ClosureEvidence {
-                envelope_id: envelope.id(),
-                envelope_digest: envelope.digest(),
                 rule_pairs_visited: 10_000,
                 synthesized_successors: 10_001,
                 maximum_depth: 42,
@@ -753,7 +750,7 @@ mod tests {
             },
         };
 
-        let error = validate_closure(&closure, &envelope).expect_err("closure must be rejected");
+        let error = validate_closure(&closure).expect_err("closure must be rejected");
         assert_eq!(
             error,
             CompletedBuildError::IncompleteClosure {

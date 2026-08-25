@@ -8,13 +8,12 @@ use pg_foma::backend_selection::{
 };
 use pg_foma::capability::CompileDecision;
 use pg_foma::completed_build::{
-    compile_completed_backend, select_completed_build, CompletionProofKind,
+    compile_completed_backend, select_completed_build, CompileAttempt, CompletionProofKind,
 };
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::health::{
     FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
-use pg_foma::resource_envelope::{CompileEnvelopeRequest, ResourceEnvelopeId};
 use pg_grammar::model::Grammar;
 use pg_parse::identity::AnalysisIdentity;
 use pg_parse::{Morpher, ParseOptions, WordAnalysis};
@@ -103,8 +102,7 @@ fn assert_selected_payload_route(
         "this case's ranked reports must put {expected_strategy:?} first"
     );
 
-    let request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
-        .expect("managed envelope request");
+    let request = CompileAttempt::try_new().expect("compile attempt");
     let grammar_id = grammar_identity(grammar);
     let build = compile_completed_backend(grammar, expected_strategy, &request)
         .expect("the selected route must return a finalized completed build");
@@ -171,8 +169,7 @@ fn selected_templated_underlying_tokens_payload_reconstructs_exact_analysis_pipe
 fn stale_completed_build_evidence_is_rejected_before_runtime() {
     let grammar = pg_grammar::load(TUNED_FIXTURE).expect("synthetic fixture must load");
     let selection = select_backends_for_grammar(&grammar);
-    let request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
-        .expect("managed envelope request");
+    let request = CompileAttempt::try_new().expect("compile attempt");
     let build = compile_completed_backend(
         &grammar,
         EmissionStrategy::TunedSurfaceProbed,
@@ -181,8 +178,7 @@ fn stale_completed_build_evidence_is_rejected_before_runtime() {
     .expect("fixture must produce a completed build");
     let grammar_id = grammar_identity(&grammar);
 
-    let other_request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
-        .expect("second attempt request");
+    let other_request = CompileAttempt::try_new().expect("second compile attempt");
     assert!(
         select_completed_build(&selection, vec![build], &other_request, &grammar_id)
             .is_err(),
@@ -223,8 +219,7 @@ fn missing_preferred_completed_build_must_not_silently_select_a_lower_ranked_rou
         .into_iter()
         .find(|strategy| *strategy != preferred && strategy.is_whole_grammar())
         .expect("fixture must expose a lower-ranked whole-grammar route");
-    let request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
-        .expect("managed envelope request");
+    let request = CompileAttempt::try_new().expect("compile attempt");
     let lower_build = compile_completed_backend(&grammar, lower_ranked, &request)
         .expect("lower-ranked route must be independently buildable");
     let grammar_id = grammar_identity(&grammar);

@@ -1385,6 +1385,20 @@ mod tests {
     }
 
     #[test]
+    fn protocol_four_selected_request_rejects_removed_envelope_fields() {
+        let error = serde_json::from_value::<SelectedCompileRequest>(serde_json::json!({
+            "attempt_id": "attempt-test",
+            "route": "tuned-surface-probed",
+            "envelope_id": "managed-v1",
+        }))
+        .expect_err("removed envelope fields must be rejected as unknown");
+        assert!(
+            error.to_string().contains("unknown field"),
+            "expected deny_unknown_fields rejection, got {error}"
+        );
+    }
+
+    #[test]
     fn parse_result_frame_rejects_declared_length_over_limit() {
         let mut buf = Vec::new();
         let huge = WORKER_PROTOCOL_LIMITS.max_result_bytes + 1;

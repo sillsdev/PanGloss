@@ -3,10 +3,8 @@ use pg_foma::characterization::{
     CharacterizationResult, ClosureStopReason, ClosureTerminal, ClosureTestLimits,
 };
 use pg_foma::emit::{
-    emit_tuned_surface_for_envelope, emit_tuned_surface_with_closure_limits_for_test, EmitResult,
-    FomaTier,
+    emit_tuned_surface, emit_tuned_surface_with_closure_limits_for_test, EmitResult, FomaTier,
 };
-use pg_foma::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 
 const FINITE_CHAIN_XML: &str = r#"<HermitCrabInput><Language><Name>TotalClosureContract</Name>
   <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
@@ -31,10 +29,8 @@ const FINITE_CHAIN_XML: &str = r#"<HermitCrabInput><Language><Name>TotalClosureC
 
 fn observe(work_cap: usize, depth_cap: usize) -> CharacterizationResult {
     let grammar = pg_grammar::load(FINITE_CHAIN_XML).expect("finite closure fixture must load");
-    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
     characterize_tuned_surface_closure_for_test(
         &grammar,
-        &envelope,
         ClosureTestLimits {
             work_cap,
             depth_cap,
@@ -44,10 +40,8 @@ fn observe(work_cap: usize, depth_cap: usize) -> CharacterizationResult {
 
 fn construct(work_cap: usize, depth_cap: usize) -> EmitResult {
     let grammar = pg_grammar::load(FINITE_CHAIN_XML).expect("finite closure fixture must load");
-    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
     emit_tuned_surface_with_closure_limits_for_test(
         &grammar,
-        &envelope,
         ClosureTestLimits {
             work_cap,
             depth_cap,
@@ -57,12 +51,10 @@ fn construct(work_cap: usize, depth_cap: usize) -> EmitResult {
 
 #[test]
 fn work_boundary_is_total_and_characterization_matches_production() {
-    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
     let generous = observe(10_000, 64);
     assert_eq!(generous.terminal, ClosureTerminal::Complete);
     assert!(generous.evidence.worklist_empty);
     assert_eq!(generous.evidence.pending_successor_count, 0);
-    assert_eq!(generous.evidence.envelope_digest, envelope.digest());
     let required = generous.evidence.rule_pairs_visited;
     assert!(required > 0);
 
@@ -109,15 +101,12 @@ fn live_successor_at_depth_boundary_is_reported_not_silently_dropped() {
 }
 
 #[test]
-fn normal_product_entrypoints_use_the_selected_envelope_and_same_production_trace() {
+fn normal_product_entrypoints_use_the_same_production_trace() {
     let grammar = pg_grammar::load(FINITE_CHAIN_XML).expect("finite closure fixture must load");
-    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
-
-    let observed = characterize_tuned_surface_closure(&grammar, &envelope);
-    let produced = emit_tuned_surface_for_envelope(&grammar, &envelope);
+    let observed = characterize_tuned_surface_closure(&grammar);
+    let produced = emit_tuned_surface(&grammar);
 
     assert_eq!(observed.terminal, ClosureTerminal::Complete);
-    assert_eq!(observed.evidence.envelope_digest, envelope.digest());
     assert!(observed.evidence.worklist_empty);
     assert_eq!(observed.evidence.pending_successor_count, 0);
     assert_eq!(produced.report.closure_evidence.as_ref(), Some(&observed));
@@ -130,20 +119,18 @@ fn unsupported_construction_is_a_typed_refusal_not_false_completion() {
     for stratum in &mut grammar.strata {
         stratum.entries.clear();
     }
-    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
-
-    let produced = emit_tuned_surface_for_envelope(&grammar, &envelope);
+    let produced = emit_tuned_surface(&grammar);
     assert!(produced.lexc_source.is_empty());
     let evidence = produced
         .report
         .closure_evidence
-        .expect("unsupported named-envelope construction must retain terminal evidence");
+        .expect("unsupported construction must retain terminal evidence");
     assert_eq!(
         evidence.terminal,
         ClosureTerminal::Refused(ClosureStopReason::UnsupportedTransition)
     );
     assert_eq!(
-        characterize_tuned_surface_closure(&grammar, &envelope),
+        characterize_tuned_surface_closure(&grammar),
         evidence
     );
 }
@@ -154,8 +141,7 @@ fn unsupported_empty_roots_remain_a_typed_refusal() {
     for stratum in &mut grammar.strata {
         stratum.entries.clear();
     }
-    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
-    let result = emit_tuned_surface_for_envelope(&grammar, &envelope);
+    let result = emit_tuned_surface(&grammar);
     let evidence = result
         .report
         .closure_evidence

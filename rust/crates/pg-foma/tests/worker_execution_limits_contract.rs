@@ -52,7 +52,7 @@ fn execution_limits_are_configurable_but_cannot_be_disabled() {
 
 #[test]
 fn cleanup_breaks_the_old_worker_protocol_in_lockstep() {
-    assert_eq!(WORKER_PROTOCOL_VERSION, 3);
+    assert_eq!(WORKER_PROTOCOL_VERSION, 4);
     assert!(
         limits_for_version(1).is_none(),
         "pre-cleanup worker messages must be rejected, not migrated"
@@ -65,9 +65,9 @@ fn cleanup_breaks_the_old_worker_protocol_in_lockstep() {
 }
 
 #[test]
-fn protocol_two_request_frames_are_rejected_before_compile() {
+fn protocol_three_request_frames_are_rejected_before_compile() {
     let mut request = CompileWorkerRequest::new("stale.xml", GrammarFormat::Xml);
-    request.protocol_version = 2;
+    request.protocol_version = 3;
     let body = serde_json::to_vec(&request).expect("serialize stale request");
     let mut input = Vec::new();
     input.extend_from_slice(&(body.len() as u64).to_le_bytes());
@@ -82,9 +82,45 @@ fn protocol_two_request_frames_are_rejected_before_compile() {
     match result.outcome {
         CompileWorkerOutcome::ProtocolViolation { detail } => {
             assert!(detail.contains("protocol_version"), "detail: {detail}");
-            assert!(detail.contains("2"), "detail: {detail}");
             assert!(detail.contains("3"), "detail: {detail}");
+            assert!(detail.contains("4"), "detail: {detail}");
         }
         other => panic!("expected ProtocolViolation, got {other:?}"),
+    }
+}
+
+#[test]
+fn selected_compile_request_wire_is_closed_and_identity_bearing_only() {
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
+    let start = source
+        .find("struct SelectedCompileRequest")
+        .expect("worker source must declare SelectedCompileRequest");
+    let end = source[start..]
+        .find("}\n")
+        .map(|offset| start + offset)
+        .expect("SelectedCompileRequest declaration must be closed");
+    let declaration = &source[start..=end];
+    let attributes = &source[start.saturating_sub(256)..start];
+
+    assert!(
+        attributes.contains("#[serde(deny_unknown_fields)]"),
+        "SelectedCompileRequest must reject removed wire fields"
+    );
+    assert!(declaration.contains("attempt_id:"));
+    assert!(declaration.contains("route:"));
+    for removed in [
+        "schema_version:",
+        "envelope_id:",
+        "envelope_digest:",
+        "watchdog:",
+        "communication:",
+        "compose:",
+        "enumeration:",
+        "backend:",
+    ] {
+        assert!(
+            !declaration.contains(removed),
+            "SelectedCompileRequest must not retain removed field {removed}"
+        );
     }
 }
