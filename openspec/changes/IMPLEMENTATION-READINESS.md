@@ -13,7 +13,7 @@ These are bounded merge units, not permission to apply every task in their paren
 2. **Resource budget/error foundation** — validated config, cumulative logical tracker, checked-net
    API, and typed worker outcomes; no subprocess or terminal production routing in this unit.
 3. **Diagnostic report schema/CLI skeleton** — types, argument parsing, and golden empty report;
-   potentially adversarial grammar execution uses the worker watchdog when available.
+   analysis remains independent of compilation.
 4. **Reference gloss-signature goldens** — finalize and test the shared escaping/missing-gloss
    contract before C# or orchestration work.
 5. **FST compilation-health schema** — Rust types, stable-code registry, severity/override rules,
@@ -29,11 +29,13 @@ model-shape extension is outside this assumption and must explicitly reopen the 
 
 ### R2. Supervisor platform contract — resolved
 
-Windows and Linux are equal, first-class native production targets. Both use one compiler worker,
-one versioned request/result protocol, bounded communication, and parent-enforced execution limits
-for serialized model size, committed process-tree memory, and construction-plus-serialization wall
-time. Limits are configurable, cannot be disabled, and default to 1 GB, 10 GB, and 10 minutes.
-Exceeding one produces diagnostics and no artifact. WASM is analysis-only and does not compile.
+Windows and Linux are equal, first-class native production targets. The ratified contract uses one
+compiler worker, one versioned request/result protocol, bounded communication, and parent-enforced
+execution limits for serialized model size, committed process-tree memory, and
+construction-plus-serialization wall time. Limits are configurable, cannot be disabled, and default
+to 1 GB, 10 GB, and 10 minutes. Wall time is enforced today; serialized-size and committed-memory
+enforcement remain the prerequisite for deleting legacy compile-time refusals. WASM is analysis-only
+and does not compile.
 
 ### R2A. Precompiled WASM artifact container — resolved
 
@@ -92,30 +94,19 @@ once; the health evaluator consumes them without recomputation. FieldWorks, CLI,
 package builder consume the same canonical report. No Python package, notebook, IDE, playground, or
 UI is added to this core repository for these warnings.
 
-FST payload size uses decimal bytes: Ideal `<=10_000_000`; Info `>10_000_000..=20_000_000`;
-Warning `>20_000_000..=100_000_000`; Error `>100_000_000..=500_000_000`; and values beyond
-that remain a high-severity readiness finding, not a correctness/capability Critical by size alone.
-These bands describe production readiness under the managed envelope. A complete exact,
-parity-verified Error result may be attempted in developer stress mode but remains
-production-unready. Hidden developer-only `--allow-unproven` is the ADR 0005 correctness override;
-it may omit valid parses, is rejected in production/publication/certification, and never removes
-limits. Hidden developer-only `--remove-size-limits` disables only internal deterministic
-size/work caps; worker isolation, bounded I/O, external watchdog/RSS/absolute ceilings,
-capability checks, completion, finalized payload, and parity remain. `--no-enforce-capability` is
-legacy developer-only/non-production. Size is one dimension; compile work, intermediate nets,
-candidates, paths, time, and unknown/unbounded constructs may raise health severity.
-Unknown cost is not itself Critical when construction is recall-preserving: compilation proceeds
-under the shared resource envelope and its observed outcome controls admission. Any uncertainty
-that could omit an analysis fails closed.
-The compiler never retries or raises limits automatically. A terminal finding returns the effective
-envelope, reached metric, partial measurements, and grammar-first remedies promptly enough for AI
-tooling to act. A caller may deliberately start a new attempt with a larger named, versioned envelope.
-Deterministic logical counters are the primary fast-failure mechanism; cooperative elapsed checks
-and the parent wall timeout are outer safeguards. Defaults are calibrated from evidence, but the
-plans do not promise identical failure time across different machines.
-Material operations reserve against the cumulative logical budget when an exact value or proven
-conservative lower bound is available. A proven minimum that cannot fit stops before allocation;
-heuristic estimates can warn but cannot reject, so uncertain work is attempted and counted.
+Raw build size, construction time, and memory are comparison evidence, not automatic backend
+selection. Analysis runs independently without compiling; a caller explicitly selects the backend
+or backends to build. Selected builds run sequentially and independently, retaining successful
+artifacts when another selected build fails. There is no preferred backend, fallback, retry, or
+larger named envelope.
+
+Hidden developer-only `--allow-unproven` permits local testing only; publication always rejects an
+unproven artifact. It never disables execution limits. Compile construction is governed by the
+configurable, non-disableable serialized-size, committed process-tree memory, and wall-time limits
+defined in R2. Exceeding a limit produces structured diagnostics, removes intermediates, and emits
+no artifact. The current transition enforces wall time; serialized-size and committed-memory
+enforcement must land before the legacy compile-time logical refusals are deleted.
+
 Compiler diagnostics may recommend reordering, constraining, or decomposing grammar rules, but do not
 apply those source changes. Automatic internal transformations require an owned correctness argument
 that preserves the complete HermitCrab analysis set and record their profile evidence.
@@ -128,9 +119,7 @@ may explicitly retry only the incomplete subset with caller-selected larger appl
 Callers may also select an optional cumulative batch budget. When it is exhausted, completed words
 remain valid, a started unfinished word is incomplete, and remaining unstarted words are explicitly
 not attempted. The latter two subsets can be resubmitted without rerunning completed work.
-All caller, host, and named-envelope values remain beneath versioned, hard-coded, deliberately high
-absolute ceilings for every enforced logical, byte, and wall-time dimension. There is no unlimited
-mode. These are emergency containment bounds; calibrated defaults provide earlier useful failures.
+Apply-time budgets remain configurable and finite; they are separate from compile execution limits.
 Runtime budget dimensions and absolute values form one portable set across Windows, Linux, and WASM.
 Individual applications choose their own lower normal and retry values; ordinary defaults target
 user PCs, and no app may redefine the shared maximum.
@@ -206,10 +195,8 @@ models are concurrency-safe, while active compilation sessions remain single-own
 
 ## Conditional/later work
 
-- Potentially adversarial diagnostic grammar runs use the completed worker watchdog; independent
-  diagnostic implementation continues without them.
 - WASM analysis waits for a compatible artifact from the native compilation authority; WASM is not
-  part of compile profiling, compile-envelope calibration, or compiler coverage certification.
+  part of compile profiling or compiler coverage certification.
 - FST health policy/schema may land before instrumentation; observed audit fields populate as their
   owning profile/budget changes merge and are never independently remeasured.
 - Replacement-cascade profiling waits for Stage 2 production wiring and a matching network

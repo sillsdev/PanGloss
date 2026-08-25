@@ -7,7 +7,7 @@ pub(crate) struct WorkerProtocolLimits {
     pub(crate) max_captured_stderr_bytes: u64,
 }
 
-pub(crate) const PROTOCOL_VERSION: u32 = 4;
+pub(crate) const PROTOCOL_VERSION: u32 = 5;
 
 pub(crate) const PROTOCOL_LIMITS: WorkerProtocolLimits = WorkerProtocolLimits {
     max_request_bytes: 4 * 1024 * 1024,

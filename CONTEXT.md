@@ -51,10 +51,8 @@ or another backend may be preferable. An `Error` says that the result is not pro
 the managed production budget. An Error is diagnostic evidence; it does not, by itself, prove that
 the backend is semantically wrong.
 
-**Containment is operational.** Frozen managed budgets protect the host and make attempts
-reproducible. Worker isolation, bounded I/O, the external watchdog/RSS guard, and the absolute
-ceiling remain active for every compile. They do not bypass capability checks or completion/parity
-requirements.
+**Containment is operational.** Worker isolation, bounded I/O, and configured compile execution
+limits protect the host. They do not bypass capability checks or completion/parity requirements.
 
 The distinction is the whole point. Uncertainty about correctness is a refusal; uncertainty or
 excess about cost is a health/readiness finding. A complete, exact, parity-verified diagnostic result
@@ -130,8 +128,8 @@ _Avoid_: Word coverage, language coverage
 
 **Supported language**:
 A grammar whose declared corpus has complete corpus recall, has a correctness-admitted route, stays
-within its production resource envelope, and exercises no detected-unsupported construct. A complete
-stress result outside that envelope is evidence about representability and cost, not by itself a
+within its configured production execution limits, and exercises no detected-unsupported construct. A complete
+stress result outside those limits is evidence about representability and cost, not by itself a
 supported-language or production-readiness claim.
 _Avoid_: Parses some words, corpus covered
 
@@ -140,11 +138,11 @@ A semantic variant that is detected and reported before compilation rather than 
 _Avoid_: Done, harmless skip
 
 **Compile execution limits**:
-Configurable parent-enforced limits on serialized model size, committed process-tree memory, and build time. They protect the machine and produce no partial artifact; they are not named envelopes and do not affect artifact identity.
+The ratified configurable limits on serialized model size, committed process-tree memory, and build time. They are not named envelopes and do not affect artifact identity. Wall time is enforced; serialized-size and committed-memory enforcement are the next cleanup prerequisite.
 _Avoid_: Resource envelope, watchdog, sampled RSS
 
 **Logical work budgets**:
-Apply-time counters that bound per-word analysis work. Compile construction is governed by the parent-enforced execution limits instead.
+Apply-time counters that bound per-word analysis work. Legacy compile-time refusals remain temporarily and are deleted after every compile execution limit is enforced.
 _Avoid_: Hard limits
 
 **Diagnostic run**:
@@ -156,7 +154,7 @@ The closed semantic surface already represented by the complete Rust HermitCrab 
 _Avoid_: Extensible grammar model
 
 **Compilation authority**:
-The trusted native PanGloss tooling that converts a grammar into a validated, versioned analysis artifact under the applicable resource envelope.
+The trusted native PanGloss tooling that converts a grammar into a validated, versioned analysis artifact under configured execution limits.
 _Avoid_: Browser compiler
 
 **Capability profile**:
@@ -230,7 +228,7 @@ A runtime that loads a validated analysis artifact and performs bounded analysis
 _Avoid_: WASM compiler
 
 **First-class platform**:
-A production target required to provide the same public behavior, watchdog outcomes, and conformance evidence as its peers. Windows and Linux are first-class PanGloss platforms.
+A production target required to provide the same public behavior, execution-limit outcomes, and conformance evidence as its peers. Windows and Linux are first-class PanGloss platforms.
 _Avoid_: Primary platform, CI-only platform
 
 **Evidence availability**:
@@ -276,7 +274,7 @@ A condition where the compiler cannot preserve every analysis required by the fr
 _Avoid_: Performance risk
 
 **Cost uncertainty**:
-A condition where compilation is recall-preserving but its resource cost cannot be bounded accurately before execution. It is attempted inside the worker watchdog and logical work budgets; uncertainty alone is not a Critical finding.
+A condition where compilation is recall-preserving but its resource cost cannot be bounded accurately before execution. It is attempted inside the configured compile execution limits; uncertainty alone is not a Critical finding.
 _Avoid_: Unsupported semantics, automatic rejection
 
 **Managed closure-work budget**:
@@ -326,7 +324,7 @@ A property reported alongside a structured analysis that is not part of its iden
 _Avoid_: Identity field, analysis flag
 
 **Reproducible assessment**:
-An assessment whose case outcomes were decided only by deterministic logical budgets, so re-running it anywhere yields the same outcome digest. An outer safety net firing — a wall-clock word timeout or watchdog — makes the assessment unreproducible, which is recorded on the report rather than hidden, since the same run on another machine could have completed.
+An assessment whose case outcomes were decided only by deterministic logical budgets, so re-running it anywhere yields the same outcome digest. A wall-clock word timeout or compile execution limit firing makes the assessment unreproducible, which is recorded on the report rather than hidden, since the same run on another machine could have completed.
 _Avoid_: Stable report, deterministic run
 
 **Outcome digest**:

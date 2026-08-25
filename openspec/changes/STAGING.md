@@ -14,10 +14,10 @@ Roadmap-level record of what has actually landed on `main`. Per-change `tasks.md
 granular record; this is the spine-level view.
 
 **Stage 0 — LANDED.** Characteristics profile + exhaustive default-deny characterizer + predicate
-registry + envelope composition (`pg-foma/src/capability.rs`, `capability_entry.rs`); the gate runs on
-real grammars and is **default-enforcing on the FST/foma path**. The legacy
-`--no-enforce-capability` escape and hidden `--allow-unproven` correctness override are
-developer-only/non-production; the latter may omit valid parses. Conformance-coverage cross-check
+registry + capability composition (`pg-foma/src/capability.rs`, `capability_entry.rs`); the gate runs on
+real grammars and is **default-enforcing on the FST/foma path**. Hidden `--allow-unproven` is for
+local testing only, may omit valid parses, and is rejected by publication. The legacy
+`--no-enforce-capability` escape is slated for deletion. Conformance-coverage cross-check
 (advisory;
 build-breaking flip deferred). Chain-depth budget dimension (ADR 0003) + apply-path `ApplyBudget`.
 FST-health schema + evaluator (`health.rs`, `health_evaluator.rs`). Gloss-signature unit
@@ -67,17 +67,6 @@ safe to assume — those notes were true when written and carry no timestamp.
 (`PanGlossGrammar::new` still compiles from XML); `add-grammar-diagnostics` defers everything needing
 a second pipeline, file artifacts, or the PowerShell/CI/skill layer; `add-reference-hermitcrab-parity`
 has the Rust gloss-signature unit but zero of the C# oracle harness.
-
-**Since then, two of those gaps closed.** `pangloss pack` writes a real `.pgpack` carrying the
-persistent, indelible ADR 0005 capability-trust stamp (a `Refuse` without the hidden,
-developer-only `--allow-unproven` writes no artifact at all; a developer override records
-who/why/when plus every refused config, and the stamp provably
-survives write→read with no field a consumer can flip). Its two payload sections are honestly-labelled
-placeholders — no Rust-HermitCrab runtime-payload serializer or foma binary-memory export exists yet —
-stated in the module doc and re-printed on stderr at pack time. And `harden-foma-resource-safety`'s
-**watchdog now exists**: a killable compile worker (versioned protocol, validate-before-allocate
-framing, `try_wait`/`kill` wall-time control, sampled RSS that is explicitly *not* a hard ceiling),
-opt-in via `pangloss pack --watchdog` with the default in-process path byte-identical.
 
 **Delanguaging — A + B + C LANDED (C with a measured caveat).** Real-language data removed and
 artifacts renamed in-repo; the `machine` conformance fixtures renamed by inspected construct and pushed
@@ -139,13 +128,6 @@ actual languages. The always-on CI gate it describes is the committed `conforman
 
 **Still open — and each is blocked or large, not merely unstarted:**
 
-- **`calibrate-fst-resource-envelopes`** — the last STAGING item, and it is *data*-blocked. Eight
-  constants ship as documented placeholders (ordering-multiplicity cap 100, the health 80%-of-budget
-  threshold, `MAX_QUANTIFIER_BOUND` 512, the compound-pair budget, the chain-depth ceiling, the
-  rule-product threshold, and the worker wall-timeout/RSS defaults). The large-cascade axis has a
-  reproducing synthetic anchor and could be calibrated now; the deep-chain axis does not (see the Part C
-  measurement above). Per R6 calibration is advisory regardless: it emits evidence plus a proposed diff
-  and requires a human-reviewed commit and policy-version bump — it cannot self-activate.
 - **WASM compiler removal** (`make-wasm-analysis-only` 3.2/3.3, §4) — one step closer now that
   `pangloss pack` writes a genuinely reloadable foma proposer half, but still needs the consumer-side
   "reconstruct an analyzer from `.pgpack` bytes" path *and* the runtime-grammar payload serializer,
@@ -195,9 +177,7 @@ This spine was reorganized on 2026-07-24 to reflect the honest-capability archit
   is grown one construct at a time. There is no ad-hoc selection to preserve.
 - **The capability override** (ADR 0005) is a hidden developer-only correctness switch for
   grounding refused grammars behind an indelible degraded-trust runtime signal; it may omit valid
-  parses and cannot publish or certify. Resource stress is separate: `--remove-size-limits` may
-  remove only internal deterministic size/work caps while retaining containment and exact-result
-  checks.
+  parses and cannot publish or certify. It never disables compile execution limits.
 - **Packaging/WASM/compat are downstream**: with nothing shipping yet, they trail the compilation
   spine.
 
@@ -469,7 +449,7 @@ These assume shippable packs and trail the compilation spine:
   manifest's FST-health admission field with `add-fst-compilation-health-audit`.
 - `.pgpack` packaging/release path.
 - `add-grammar-diagnostics` — **fix** the apply-path containment to ADR 0003's in-process cooperative
-  magnitude budgets (not "the watchdog", which is compile-only).
+  magnitude budgets, separate from compile execution limits.
 - `add-fst-compilation-health-audit`.
 - `reconcile-deep-truncation-baseline` — folds into a synthetic deep-truncation-chain-shaped
   conformance fixture + a construct-driven target; the honest 32/104 floor and non-comparable
