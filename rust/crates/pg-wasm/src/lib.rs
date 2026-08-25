@@ -746,15 +746,17 @@ impl PgPack {
 
     /// The FST-health "admission result" (`pg_foma::health::HealthReport::admission`, reused
     /// verbatim -- see `pack::LoadedPack::fst_health_admission`'s doc), as its lowercase
-    /// `Severity` name (`"ideal"`, `"info"`, `"warning"`, `"error"`, or `"critical"`).
+    /// `Severity` name (`"within_limits"`, `"elevated"`, `"large_multiplier"`,
+    /// `"not_production_ready"`, `"machine_limit"`, or `"cannot_represent"`).
     #[wasm_bindgen(js_name = fstHealthAdmission)]
     pub fn fst_health_admission(&self) -> String {
         match self.loaded.fst_health_admission() {
-            pg_foma::health::Severity::Ideal => "ideal",
-            pg_foma::health::Severity::Info => "info",
-            pg_foma::health::Severity::Warning => "warning",
-            pg_foma::health::Severity::Error => "error",
-            pg_foma::health::Severity::Critical => "critical",
+            pg_foma::health::Severity::WithinLimits => "within_limits",
+            pg_foma::health::Severity::Elevated => "elevated",
+            pg_foma::health::Severity::LargeMultiplier => "large_multiplier",
+            pg_foma::health::Severity::NotProductionReady => "not_production_ready",
+            pg_foma::health::Severity::MachineLimit => "machine_limit",
+            pg_foma::health::Severity::CannotRepresent => "cannot_represent",
         }
         .to_string()
     }

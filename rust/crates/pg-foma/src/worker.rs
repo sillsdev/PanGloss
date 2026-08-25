@@ -850,7 +850,7 @@ impl WorkerOutcome {
             WorkerOutcome::WallTimeoutKilled { elapsed, limit } => {
                 HealthReport::new(vec![HealthFinding {
                     code: FindingCode::ResourceBudgetReached,
-                    severity: Severity::Critical,
+                    severity: Severity::MachineLimit,
                     phase: Phase::Compile,
                     affected: Vec::new(),
                     metric: Metric::ElapsedMillis,
@@ -874,7 +874,7 @@ impl WorkerOutcome {
                 peak_mb,
             } => HealthReport::new(vec![HealthFinding {
                 code: FindingCode::ResourceBudgetReached,
-                severity: Severity::Critical,
+                severity: Severity::MachineLimit,
                 phase: Phase::Compile,
                 affected: Vec::new(),
                 metric: Metric::SampledCompileRssBytes,
@@ -896,7 +896,7 @@ impl WorkerOutcome {
                 limit_bytes,
             } => HealthReport::new(vec![HealthFinding {
                 code: FindingCode::ResourceBudgetReached,
-                severity: Severity::Critical,
+                severity: Severity::MachineLimit,
                 phase: Phase::Compile,
                 affected: Vec::new(),
                 metric: Metric::UnknownUnboundedWork,
@@ -912,7 +912,7 @@ impl WorkerOutcome {
             }]),
             WorkerOutcome::ChildCrashed { detail } => HealthReport::new(vec![HealthFinding {
                 code: FindingCode::ResourceBudgetReached,
-                severity: Severity::Critical,
+                severity: Severity::MachineLimit,
                 phase: Phase::Compile,
                 affected: Vec::new(),
                 metric: Metric::UnknownUnboundedWork,
@@ -929,7 +929,7 @@ impl WorkerOutcome {
             WorkerOutcome::SpawnFailed { detail } | WorkerOutcome::ProtocolViolation { detail } => {
                 HealthReport::new(vec![HealthFinding {
                     code: FindingCode::ResourceBudgetReached,
-                    severity: Severity::Critical,
+                    severity: Severity::MachineLimit,
                     phase: Phase::Compile,
                     affected: Vec::new(),
                     metric: Metric::UnknownUnboundedWork,
@@ -948,7 +948,7 @@ impl WorkerOutcome {
 fn build_process_failure_health(detail: String) -> HealthReport {
     HealthReport::new(vec![HealthFinding {
         code: FindingCode::BuildProcessFailed,
-        severity: Severity::Critical,
+        severity: Severity::MachineLimit,
         phase: Phase::Compile,
         affected: Vec::new(),
         metric: Metric::UnknownUnboundedWork,
@@ -1294,7 +1294,7 @@ mod tests {
         for outcome in cases {
             let health = WorkerOutcome::Completed(outcome).health_report();
             assert!(!health.findings.is_empty());
-            assert_eq!(health.admission(), Severity::Critical);
+            assert_eq!(health.admission(), Severity::MachineLimit);
             assert!(health
                 .findings
                 .iter()
@@ -1495,7 +1495,7 @@ mod tests {
         match result.outcome {
             CompileWorkerOutcome::BudgetTripped { detail, health } => {
                 assert!(detail.contains("ordering-multiplicity"), "detail: {detail}");
-                assert_eq!(health.admission(), Severity::Error);
+                assert_eq!(health.admission(), Severity::NotProductionReady);
                 assert!(health
                     .findings
                     .iter()
@@ -1547,7 +1547,7 @@ mod tests {
         let result = call_child(&buf);
         match result.outcome {
             CompileWorkerOutcome::Success { health, .. } => {
-                assert_eq!(health.admission(), Severity::Ideal);
+                assert_eq!(health.admission(), Severity::WithinLimits);
             }
             other => panic!("expected Success, got {other:?}"),
         }
@@ -1612,13 +1612,13 @@ mod tests {
     // WorkerOutcome -> HealthReport mapping.
 
     #[test]
-    fn worker_outcome_wall_timeout_maps_to_critical_resource_budget_reached() {
+    fn worker_outcome_wall_timeout_maps_to_machine_limit_resource_budget_reached() {
         let outcome = WorkerOutcome::WallTimeoutKilled {
             elapsed: Duration::from_secs(5),
             limit: Duration::from_secs(2),
         };
         let health = outcome.health_report();
-        assert_eq!(health.admission(), Severity::Critical);
+        assert_eq!(health.admission(), Severity::MachineLimit);
         assert_eq!(health.findings[0].code, FindingCode::ResourceBudgetReached);
         assert_eq!(health.findings[0].metric, Metric::ElapsedMillis);
     }

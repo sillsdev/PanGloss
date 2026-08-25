@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(loaded.signature_state, SignatureState::Unsigned);
         assert_eq!(
             loaded.fst_health_admission(),
-            pg_foma::health::Severity::Ideal
+            pg_foma::health::Severity::WithinLimits
         );
     }
 

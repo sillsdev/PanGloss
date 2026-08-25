@@ -1,7 +1,8 @@
 //! The cheap characterization pass: reports constructs, quantifier/alternative products, alpha
 //! tuples, templates/slots, predicted emitted work, peeled/confirm-only expansion, and
-//! unknown/unbounded work without invoking foma. Unknown cost is not itself Critical when
-//! construction is recall-preserving; any uncertainty that could omit an analysis fails closed.
+//! unknown/unbounded work without invoking foma. Unknown cost is not itself a MachineLimit/
+//! CannotRepresent verdict when construction is recall-preserving; any uncertainty that could omit
+//! an analysis fails closed.
 //!
 //! # Consume, never remeasure (same discipline as `crate::health_evaluator`)
 //! `characterization_findings` takes a `&Grammar`, derives ONE
@@ -36,7 +37,7 @@
 //! - **Semantic uncertainty** (`semantic_uncertainty_finding`): [`crate::capability::CompileDecision::
 //!   Refuse`] — at least one construct has no predicate-proven recall-preserving compilation path at
 //!   all. This characterization walk cannot guarantee every HermitCrab analysis survives, so it reports a
-//!   `Critical` finding naming every `crate::capability::CapabilityDiagnostic` the gate collected.
+//!   `CannotRepresent` finding naming every `crate::capability::CapabilityDiagnostic` the gate collected.
 //!   This finding never itself blocks the actual compiler pass (it is evidence, not a second gate —
 //!   `pg-cli`'s own `run_capability_gate`/`pangloss pack` are the real enforcement points a caller
 //!   consults separately, and read a different, per-backend verdict — see this doc's opening
@@ -46,8 +47,8 @@
 //!   `crate::capability::CompileDecision::ConfirmOnly` (a first-class, non-failure verdict:
 //!   propose the superset, HermitCrab confirm prunes false positives) or a specific
 //!   `crate::capability::QuantifierPatternDetail::all_bounded` occurrence marked `false`. Always
-//!   `Warning`, never `Critical` on its own (unknown cost is not itself Critical when construction
-//!   is recall-preserving) — an actual budget trip during the real compile is a completely
+//!   `LargeMultiplier`, never `CannotRepresent` on its own (unknown cost is not itself a
+//!   CannotRepresent verdict when construction is recall-preserving) — an actual budget trip during the real compile is a completely
 //!   different, already-handled code path: `crate::health_evaluator::compose_error_finding`'s
 //!   `crate::health::FindingCode::ResourceBudgetReached`/
 //!   `crate::health::FindingCode::ProvenBoundExceedsBudget` arms, which this module's own
@@ -61,7 +62,7 @@
 //! `crate::health_evaluator::compose_error_finding`'s `OrderingMultiplicityExceeded` arm) trips
 //! against — the exact count is already known before foma ever runs, so this finding's
 //! `crate::health::ValueProvenance` is `ProvenBound`, not a heuristic guess. Its severity is
-//! `Error`, matching `compose_error_finding`'s own `OrderingMultiplicityExceeded` arm: this is a
+//! `NotProductionReady`, matching `compose_error_finding`'s own `OrderingMultiplicityExceeded` arm: this is a
 //! combinatorial work cap, not a representability gap, so a different backend may still admit the
 //! grammar (see this module's own `characterization_raises_ordering_rule_count_finding_on_shaped_unordered_grammar`
 //! test, which asserts `best_case_across_backends` still resolves to `ConfirmOnly` here). This
@@ -78,7 +79,7 @@
 //! crate's own repeated convention — mirrors
 //! `crate::health_evaluator::APPROACHING_BUDGET_WARNING_FRACTION`'s identical disclaimer): no
 //! real-grammar calibration evidence exists yet for this specific product, so this finding is
-//! `Predicted`/`Warning` only, never something that can reject a compile on its own.
+//! `Predicted`/`LargeMultiplier` only, never something that can reject a compile on its own.
 //!
 //! # Design notes
 //! 1. **Semantic and cost uncertainty use different stable codes.** A `Refuse` verdict is a known
@@ -339,7 +340,7 @@ pub fn characterize_tuned_surface_closure(
 
 /// Backend-specific resource characterization for TunedSurface structural closure.
 ///
-/// A returned finding is a proven lower bound above `limit`, so it is an operational `Error`: a
+/// A returned finding is a proven lower bound above `limit`, so it is an operational `NotProductionReady`: a
 /// complete finite strategy remains known, but this envelope declines to start the expensive
 /// surface-emission pass. `None` means only that this particular proven bound did not exceed the
 /// envelope; it is not a completeness certificate or a prediction that construction will finish.
@@ -386,7 +387,7 @@ pub(crate) fn tuned_surface_resource_finding_with_limit(
     let safety = "Don't make any change that would make your language invalid!".to_string();
     Some(HealthFinding {
         code: FindingCode::ProvenBoundExceedsBudget,
-        severity: Severity::Error,
+        severity: Severity::NotProductionReady,
         phase: Phase::Characterization,
         affected,
         metric: Metric::CompositeRulePairCount,
@@ -450,45 +451,45 @@ pub fn tuned_surface_resource_finding_for_envelope(
         ClosureTerminal::Refused(ClosureStopReason::UnboundedTransition)
         | ClosureTerminal::Refused(ClosureStopReason::UnsupportedTransition) => (
             FindingCode::BackendCoverageIncomplete,
-            Severity::Critical,
+            Severity::CannotRepresent,
             ValueProvenance::Observed,
             "Use the full morphological-parser engine or a backend that represents this construct with a finite/looping mechanism.",
         ),
         // Containment-class refusals: a cost cap, never a representability gap.
         ClosureTerminal::Refused(ClosureStopReason::WorkBudgetReached) => (
             FindingCode::ResourceBudgetReached,
-            Severity::Error,
+            Severity::NotProductionReady,
             ValueProvenance::Observed,
             "TunedSurface refused after its closure work budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
         ),
         ClosureTerminal::Refused(ClosureStopReason::DepthBudgetReached) => (
             FindingCode::ResourceBudgetReached,
-            Severity::Error,
+            Severity::NotProductionReady,
             ValueProvenance::Observed,
             "TunedSurface refused after its closure depth budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
         ),
         ClosureTerminal::Refused(ClosureStopReason::EnumerationBudgetReached) => (
             FindingCode::ResourceBudgetReached,
-            Severity::Error,
+            Severity::NotProductionReady,
             ValueProvenance::Observed,
             "TunedSurface refused after its closure enumeration budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
         ),
         ClosureTerminal::Refused(ClosureStopReason::ResourceBudgetReached) => (
             FindingCode::ResourceBudgetReached,
-            Severity::Error,
+            Severity::NotProductionReady,
             ValueProvenance::Observed,
             "TunedSurface refused after its named resource envelope was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
         ),
         // Not containment: the compiler itself may be broken, so the code stays distinct.
         ClosureTerminal::Refused(ClosureStopReason::InternalConstructionFault) => (
             FindingCode::BackendCompilationFailed,
-            Severity::Error,
+            Severity::NotProductionReady,
             ValueProvenance::Observed,
             "Use the full morphological-parser engine and inspect the typed closure refusal.",
         ),
         ClosureTerminal::Incomplete(_) => (
             FindingCode::ResourceBudgetReached,
-            Severity::Error,
+            Severity::NotProductionReady,
             ValueProvenance::Observed,
             "Retry TunedSurface with a larger named resource envelope or use the full morphological-parser engine.",
         ),
@@ -527,7 +528,7 @@ pub fn tuned_surface_resource_finding_for_envelope(
     })
 }
 
-/// A conservative, uncalibrated placeholder (see this module's doc, "Bounded products"); never used to reject a compile, `Predicted`/`Warning` evidence only.
+/// A conservative, uncalibrated placeholder (see this module's doc, "Bounded products"); never used to reject a compile, `Predicted`/`LargeMultiplier` evidence only.
 const RULE_PRODUCT_WARNING_THRESHOLD: u64 = 64;
 
 /// The characterization walker: every `crate::health::HealthFinding` this crate can derive BEFORE any
@@ -573,7 +574,7 @@ fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFind
         .collect();
     Some(HealthFinding {
         code: FindingCode::BackendCoverageIncomplete,
-        severity: Severity::Critical,
+        severity: Severity::CannotRepresent,
         phase: Phase::Characterization,
         affected,
         metric: Metric::BackendCoverageGapCount,
@@ -594,14 +595,14 @@ fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFind
     })
 }
 
-/// `CompileDecision::ConfirmOnly`: recall-preserving, but this characterization stage has no proven cost bound for the construct(s) that landed here. Always `Warning`/`Predicted`; `None` for `Admit`/`Refuse`.
+/// `CompileDecision::ConfirmOnly`: recall-preserving, but this characterization stage has no proven cost bound for the construct(s) that landed here. Always `LargeMultiplier`/`Predicted`; `None` for `Admit`/`Refuse`.
 fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding> {
     if !matches!(decision, CompileDecision::ConfirmOnly) {
         return None;
     }
     Some(HealthFinding {
         code: FindingCode::UnknownUnboundedConstruct,
-        severity: Severity::Warning,
+        severity: Severity::LargeMultiplier,
         phase: Phase::Characterization,
         affected: Vec::new(),
         metric: Metric::UnknownUnboundedWork,
@@ -611,8 +612,8 @@ fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding>
         explanation: "This grammar's ADR 0001 capability gate resolves to ConfirmOnly: at least \
              one construct rests at a config-predicate-resolved recall-preserving disposition \
              (propose the superset, HermitCrab confirm prunes false positives), but this characterization \
-             stage has no proven bound on the FST-compile cost it adds. Not itself Critical (R6: \
-             unknown cost in a recall-preserving construction); a recall-preserving compilation \
+             stage has no proven bound on the FST-compile cost it adds. Not itself a CannotRepresent verdict \
+             (R6: unknown cost in a recall-preserving construction); a recall-preserving compilation \
              attempt is permitted under the shared resource envelope."
             .to_string(),
         remedies: Vec::new(),
@@ -620,7 +621,7 @@ fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding>
     })
 }
 
-/// One `Predicted`/`Warning` finding per rule with a genuinely unbounded (`max="-1"`) quantifier occurrence.
+/// One `Predicted`/`LargeMultiplier` finding per rule with a genuinely unbounded (`max="-1"`) quantifier occurrence.
 fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<HealthFinding> {
     profile
         .observations()
@@ -628,7 +629,7 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
         .filter_map(|o| match &o.detail {
             ObservationDetail::QuantifierPattern(d) if !d.all_bounded => Some(HealthFinding {
                 code: FindingCode::UnknownUnboundedConstruct,
-                severity: Severity::Warning,
+                severity: Severity::LargeMultiplier,
                 phase: Phase::Characterization,
                 affected: vec![format!("{:?}", d.rule)],
                 metric: Metric::UnknownUnboundedWork,
@@ -638,7 +639,7 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
                 explanation: format!(
                     "Rule {:?} has at least one quantifier occurrence with no concrete max bound \
                      (the DTD's max=\"-1\" Kleene sentinel); this characterization stage cannot bound the \
-                     FST-compile cost this rule adds ahead of time. Not itself Critical (R6): a \
+                     FST-compile cost this rule adds ahead of time. Not itself a CannotRepresent verdict (R6): a \
                      recall-preserving compilation attempt is permitted under the shared resource \
                      envelope.",
                     d.rule,
@@ -651,14 +652,14 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
         .collect()
 }
 
-/// Bounded-product case for `MorphRuleOrder::Unordered` strata: `within_bound == false` means the exact rule count is already proven to exceed `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, so this is `ProvenBound`/`Error` (a containment cap, not a representability gap; matches `crate::health_evaluator::compose_error_finding`'s `OrderingMultiplicityExceeded` arm).
+/// Bounded-product case for `MorphRuleOrder::Unordered` strata: `within_bound == false` means the exact rule count is already proven to exceed `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, so this is `ProvenBound`/`NotProductionReady` (a containment cap, not a representability gap; matches `crate::health_evaluator::compose_error_finding`'s `OrderingMultiplicityExceeded` arm).
 fn unordered_stratum_findings(profile: &CharacteristicsProfile) -> Vec<HealthFinding> {
     profile
         .unordered_stratum_details()
         .filter(|d| !d.within_bound)
         .map(|d| HealthFinding {
             code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::Error,
+            severity: Severity::NotProductionReady,
             phase: Phase::Characterization,
             affected: vec![format!("{:?}", d.stratum)],
             metric: Metric::OrderingRuleCount,
@@ -687,7 +688,7 @@ fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<
     }
     Some(HealthFinding {
         code: FindingCode::UnknownUnboundedConstruct,
-        severity: Severity::Warning,
+        severity: Severity::LargeMultiplier,
         phase: Phase::Characterization,
         affected: Vec::new(),
         metric: Metric::UnknownUnboundedWork,
@@ -785,7 +786,7 @@ mod tests {
                 panic!("expected a ProvenBoundExceedsBudget characterization finding, got {findings:?}")
             });
         assert_eq!(finding.metric, Metric::OrderingRuleCount);
-        assert_eq!(finding.severity, Severity::Error);
+        assert_eq!(finding.severity, Severity::NotProductionReady);
         assert_eq!(finding.phase, Phase::Characterization);
         assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
         assert_eq!(finding.value, MetricValue::Count(rule_count as u64));
@@ -803,7 +804,7 @@ mod tests {
             "one compiler can still handle this grammar, so the join must not refuse it"
         );
         assert!(
-            !findings.iter().any(|f| f.severity == Severity::Critical
+            !findings.iter().any(|f| f.severity == Severity::MachineLimit
                 && f.code == FindingCode::UnknownUnboundedConstruct),
             "the semantic-uncertainty finding is Refuse-derived, so it must be absent here: \
              {findings:?}"
@@ -832,7 +833,7 @@ mod tests {
             .expect("a one-pair envelope must reject this finite structural closure");
 
         assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
-        assert_eq!(finding.severity, Severity::Error);
+        assert_eq!(finding.severity, Severity::NotProductionReady);
         assert_eq!(finding.phase, Phase::Characterization);
         assert_eq!(finding.metric, Metric::CompositeRulePairCount);
         assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
@@ -876,7 +877,7 @@ mod tests {
         let finding = tuned_surface_resource_finding_with_limit(&grammar, 1)
             .expect("ordinary phonology-sensitive rule pairs must consume the same tuned envelope");
         assert_eq!(finding.metric, Metric::CompositeRulePairCount);
-        assert_eq!(finding.severity, Severity::Error);
+        assert_eq!(finding.severity, Severity::NotProductionReady);
         assert!(matches!(finding.value, MetricValue::Count(value) if value > 1));
     }
 
@@ -918,10 +919,10 @@ mod tests {
         );
     }
 
-    /// A `Refuse` verdict must produce a `Critical` finding naming the construct; the fixture reduplicates on a `RealizationalRule` because only a construct EVERY compiler declines reaches the JOIN.
+    /// A `Refuse` verdict must produce a `CannotRepresent` finding naming the construct; the fixture reduplicates on a `RealizationalRule` because only a construct EVERY compiler declines reaches the JOIN.
     /// See docs/research/pg-foma-capability-design-notes.md.
     #[test]
-    fn characterization_raises_critical_finding_for_refuse_verdict() {
+    fn characterization_raises_cannot_represent_finding_for_refuse_verdict() {
         const REFUSE_XML: &str = r#"<HermitCrabInput><Language><Name>RedupRealizational</Name>
           <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
@@ -961,9 +962,9 @@ mod tests {
 
         let finding = findings
             .iter()
-            .find(|f| f.severity == Severity::Critical)
+            .find(|f| f.severity == Severity::CannotRepresent)
             .unwrap_or_else(|| {
-                panic!("expected a Critical characterization finding, got {findings:?}")
+                panic!("expected a CannotRepresent characterization finding, got {findings:?}")
             });
         assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
         assert_eq!(finding.metric, Metric::BackendCoverageGapCount);
@@ -982,7 +983,7 @@ mod tests {
         );
     }
 
-    /// Crossing `RULE_PRODUCT_WARNING_THRESHOLD` raises a `Predicted`/`Warning` finding naming the exact product; exercised directly against a synthetic `CharacteristicsProfile` since this finding depends on nothing else in the profile.
+    /// Crossing `RULE_PRODUCT_WARNING_THRESHOLD` raises a `Predicted`/`LargeMultiplier` finding naming the exact product; exercised directly against a synthetic `CharacteristicsProfile` since this finding depends on nothing else in the profile.
     #[test]
     fn rule_interaction_product_finding_fires_above_threshold_not_below() {
         let mut above = CharacteristicsProfile::default();
@@ -990,7 +991,7 @@ mod tests {
         above.cardinality.prule_count = 9; // 81 > 64
         let finding = rule_interaction_product_finding(&above)
             .unwrap_or_else(|| panic!("expected a rule-interaction-product finding"));
-        assert_eq!(finding.severity, Severity::Warning);
+        assert_eq!(finding.severity, Severity::LargeMultiplier);
         assert_eq!(finding.provenance, ValueProvenance::Predicted);
         assert_eq!(finding.phase, Phase::Characterization);
         assert_eq!(finding.value, MetricValue::Count(81));

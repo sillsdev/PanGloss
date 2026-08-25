@@ -164,7 +164,7 @@ fn tiny_wall_timeout_is_killed_and_reported_as_timeout_not_crash_or_false_succes
     );
 
     let health = outcome.health_report();
-    assert_eq!(health.admission(), pg_foma::health::Severity::Critical);
+    assert_eq!(health.admission(), pg_foma::health::Severity::MachineLimit);
 
     let _ = std::fs::remove_file(&path);
 }
@@ -183,8 +183,8 @@ fn budget_trip_is_reported_as_budget_tripped_through_the_full_supervisor_round_t
     match outcome {
         WorkerOutcome::Completed(CompileWorkerOutcome::BudgetTripped { detail, health }) => {
             assert!(detail.contains("ordering-multiplicity"), "detail: {detail}");
-            // Resource excess is Error; both Error and Critical require a development override.
-            assert_eq!(health.admission(), pg_foma::health::Severity::Error);
+            // Resource excess is NotProductionReady; both NotProductionReady and MachineLimit require a development override.
+            assert_eq!(health.admission(), pg_foma::health::Severity::NotProductionReady);
         }
         other => panic!("expected Completed(BudgetTripped), got {other:?}"),
     }

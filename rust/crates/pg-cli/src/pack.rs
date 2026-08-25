@@ -213,7 +213,7 @@ fn completeness_certificate(
     })
 }
 
-/// Applies readiness independently of capability trust; raw Error/Critical findings never admit.
+/// Applies readiness independently of capability trust; raw NotProductionReady/MachineLimit/CannotRepresent findings never admit.
 pub(crate) fn validate_health_readiness(
     report: &HealthReport,
     worker_containment: bool,
@@ -228,7 +228,7 @@ pub(crate) fn validate_health_readiness(
     if report
         .findings
         .iter()
-        .any(|finding| finding.phase == Phase::Apply && finding.severity >= Severity::Error)
+        .any(|finding| finding.phase == Phase::Apply && finding.severity >= Severity::NotProductionReady)
     {
         return Err(
             "FST health is an apply containment failure; it cannot be overridden and no .pgpack was written"
@@ -238,10 +238,10 @@ pub(crate) fn validate_health_readiness(
     if report
         .findings
         .iter()
-        .any(|finding| finding.severity >= Severity::Error)
+        .any(|finding| finding.severity >= Severity::NotProductionReady)
     {
         return Err(format!(
-            "FST health is {admission:?}; no .pgpack was written. Correctness overrides do not admit Error/Critical readiness findings."
+            "FST health is {admission:?}; no .pgpack was written. Correctness overrides do not admit NotProductionReady/MachineLimit/CannotRepresent readiness findings."
         ));
     }
     Ok(())
@@ -255,7 +255,7 @@ fn record_foma_payload_availability(report: &mut HealthReport, payload_is_real: 
 
     report.findings.push(HealthFinding {
         code: FindingCode::BackendCompilationFailed,
-        severity: Severity::Error,
+        severity: Severity::NotProductionReady,
         phase: Phase::Compile,
         affected: vec!["foma-payload".to_string()],
         metric: Metric::UnknownUnboundedWork,
@@ -268,7 +268,7 @@ fn record_foma_payload_availability(report: &mut HealthReport, payload_is_real: 
     });
 }
 
-/// Removes overridden capability gaps from readiness; proven-route gaps remain Critical.
+/// Removes overridden capability gaps from readiness; proven-route gaps remain CannotRepresent.
 fn project_overridden_capability_findings(
     report: &mut HealthReport,
     capability_overridden: bool,
@@ -701,55 +701,55 @@ mod tests {
     }
 
     #[test]
-    fn health_warning_publishes_without_override() {
-        let report = synthetic_health(Severity::Warning);
+    fn health_large_multiplier_publishes_without_override() {
+        let report = synthetic_health(Severity::LargeMultiplier);
         assert!(validate_health_readiness(&report, false).is_ok());
-        assert_eq!(report.admission(), Severity::Warning);
+        assert_eq!(report.admission(), Severity::LargeMultiplier);
         assert!(report.findings[0].override_record.is_none());
     }
 
     #[test]
-    fn health_error_refuses_publication_without_override() {
-        let report = synthetic_health(Severity::Error);
+    fn health_not_production_ready_refuses_publication_without_override() {
+        let report = synthetic_health(Severity::NotProductionReady);
         let error = validate_health_readiness(&report, false).unwrap_err();
         assert!(error.contains("no .pgpack was written"));
-        assert_eq!(report.admission(), Severity::Error);
+        assert_eq!(report.admission(), Severity::NotProductionReady);
         assert!(report.findings[0].override_record.is_none());
     }
 
     #[test]
-    fn health_critical_refuses_publication_without_override() {
-        let report = synthetic_health(Severity::Critical);
+    fn health_machine_limit_refuses_publication_without_override() {
+        let report = synthetic_health(Severity::MachineLimit);
         let error = validate_health_readiness(&report, false).unwrap_err();
         assert!(error.contains("no .pgpack was written"));
-        assert_eq!(report.admission(), Severity::Critical);
+        assert_eq!(report.admission(), Severity::MachineLimit);
     }
 
     #[cfg(feature = "developer-tools")]
     #[test]
-    fn correctness_override_does_not_override_health_error() {
-        let report = synthetic_health(Severity::Error);
+    fn correctness_override_does_not_override_health_not_production_ready() {
+        let report = synthetic_health(Severity::NotProductionReady);
         assert!(validate_health_readiness(&report, false).is_err());
-        assert_eq!(report.admission_without_overrides(), Severity::Error);
-        assert_eq!(report.admission(), Severity::Error);
+        assert_eq!(report.admission_without_overrides(), Severity::NotProductionReady);
+        assert_eq!(report.admission(), Severity::NotProductionReady);
         assert!(report.findings[0].override_record.is_none());
     }
 
     #[test]
-    fn proven_route_keeps_unexpected_backend_coverage_gap_critical() {
-        let mut report = synthetic_health(Severity::Critical);
+    fn proven_route_keeps_unexpected_backend_coverage_gap_cannot_represent() {
+        let mut report = synthetic_health(Severity::CannotRepresent);
         report.findings[0].code = FindingCode::BackendCoverageIncomplete;
 
         project_overridden_capability_findings(&mut report, false);
 
-        assert_eq!(report.admission(), Severity::Critical);
+        assert_eq!(report.admission(), Severity::CannotRepresent);
         assert_eq!(report.findings.len(), 1);
         assert!(validate_health_readiness(&report, false).is_err());
     }
 
     #[test]
     fn gated_selection_findings_enter_health_before_projection() {
-        let mut static_health = synthetic_health(Severity::Error);
+        let mut static_health = synthetic_health(Severity::NotProductionReady);
         let static_finding = static_health.findings.remove(0);
         let gated_report = BackendReport::accepted(
             crate::GATED_BACKEND,
@@ -762,7 +762,7 @@ mod tests {
 
         merge_gated_selection_findings(&mut health, &selection, crate::GATED_BACKEND);
 
-        assert_eq!(health.admission(), Severity::Error);
+        assert_eq!(health.admission(), Severity::NotProductionReady);
         assert!(health
             .findings
             .iter()
@@ -771,7 +771,7 @@ mod tests {
 
         let mut overridden = health;
         project_overridden_capability_findings(&mut overridden, true);
-        assert_eq!(overridden.admission(), Severity::Error);
+        assert_eq!(overridden.admission(), Severity::NotProductionReady);
         assert!(overridden
             .findings
             .iter()
@@ -807,19 +807,22 @@ mod tests {
 
     #[cfg(feature = "developer-tools")]
     #[test]
-    fn capability_override_does_not_admit_health_critical() {
-        let mut report = synthetic_health(Severity::Critical);
+    fn capability_override_does_not_admit_health_cannot_represent() {
+        let mut report = synthetic_health(Severity::CannotRepresent);
         report.findings[0].code = FindingCode::BackendCoverageIncomplete;
         assert!(validate_health_readiness(&report, false).is_err());
-        assert_eq!(report.admission_without_overrides(), Severity::Critical);
-        assert_eq!(report.admission(), Severity::Critical);
+        assert_eq!(
+            report.admission_without_overrides(),
+            Severity::CannotRepresent
+        );
+        assert_eq!(report.admission(), Severity::CannotRepresent);
         assert!(report.findings[0].override_record.is_none());
     }
 
     #[cfg(feature = "developer-tools")]
     #[test]
     fn health_apply_containment_cannot_be_overridden() {
-        let mut report = synthetic_health(Severity::Critical);
+        let mut report = synthetic_health(Severity::MachineLimit);
         report.findings[0].phase = Phase::Apply;
         let error = validate_health_readiness(&report, false).unwrap_err();
         assert!(error.contains("apply containment"));
@@ -831,7 +834,7 @@ mod tests {
         let mut report = HealthReport::new(Vec::new());
         record_foma_payload_availability(&mut report, false);
 
-        assert_eq!(report.admission(), Severity::Error);
+        assert_eq!(report.admission(), Severity::NotProductionReady);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(
             report.findings[0].code,
@@ -887,18 +890,18 @@ mod tests {
         record_foma_payload_availability(&mut report, true);
 
         assert!(report.findings.is_empty());
-        assert_eq!(report.admission(), Severity::Ideal);
+        assert_eq!(report.admission(), Severity::WithinLimits);
     }
 
     #[cfg(feature = "developer-tools")]
     #[test]
-    fn missing_foma_payload_cannot_downgrade_or_override_critical_worker_failure() {
-        let mut report = synthetic_health(Severity::Critical);
+    fn missing_foma_payload_cannot_downgrade_or_override_machine_limit_worker_failure() {
+        let mut report = synthetic_health(Severity::MachineLimit);
         record_foma_payload_availability(&mut report, false);
 
         let error = validate_health_readiness(&report, true).unwrap_err();
         assert!(error.contains("cannot be overridden"));
-        assert_eq!(report.admission(), Severity::Critical);
+        assert_eq!(report.admission(), Severity::MachineLimit);
         assert!(report
             .findings
             .iter()
@@ -908,7 +911,7 @@ mod tests {
     /// A completed watchdog run must not be reported as a worker containment failure just because the flag was passed.
     #[test]
     fn watchdog_flag_without_actual_containment_does_not_report_containment_failure() {
-        let health = synthetic_health(Severity::Warning);
+        let health = synthetic_health(Severity::LargeMultiplier);
         let outcome = pg_foma::worker::WorkerOutcome::Completed(
             pg_foma::worker::CompileWorkerOutcome::Success {
                 final_state_count: Some(1),
@@ -925,7 +928,7 @@ mod tests {
     /// The same mapping must still report a real supervisor-observed kill as a containment failure.
     #[test]
     fn watchdog_kill_is_reported_as_worker_containment_failure() {
-        let health = synthetic_health(Severity::Warning);
+        let health = synthetic_health(Severity::LargeMultiplier);
         let outcome = pg_foma::worker::WorkerOutcome::WallTimeoutKilled {
             elapsed: std::time::Duration::from_secs(5),
             limit: std::time::Duration::from_secs(1),
@@ -1153,7 +1156,7 @@ mod tests {
         let bytes = std::fs::read(&out_path).expect("read local developer evidence pack");
         let read = pg_pack::read_pack(&bytes).expect("read local developer evidence pack");
         assert!(read.manifest.capability_trust.is_unproven());
-        assert_eq!(read.manifest.fst_health.admission(), Severity::Ideal);
+        assert_eq!(read.manifest.fst_health.admission(), Severity::WithinLimits);
         assert!(read.manifest.fst_completeness.is_none());
     }
 
@@ -1208,7 +1211,7 @@ mod tests {
         )
         .expect("capability override may collect an evidence pack");
 
-        assert_eq!(built.manifest.fst_health.admission(), Severity::Ideal);
+        assert_eq!(built.manifest.fst_health.admission(), Severity::WithinLimits);
         assert!(built
             .manifest
             .fst_health

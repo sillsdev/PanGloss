@@ -46,7 +46,7 @@ fn reports_retain_every_backend_and_rank_only_normal_candidates() {
         BackendReport::accepted(
             EmissionStrategy::TunedSurfaceProbed,
             CompileDecision::Admit,
-            vec![finding(Severity::Warning, FindingCode::PayloadSizeBand)],
+            vec![finding(Severity::LargeMultiplier, FindingCode::PayloadSizeBand)],
         )
         .unwrap(),
         BackendReport::accepted(
@@ -87,19 +87,19 @@ fn reports_retain_every_backend_and_rank_only_normal_candidates() {
 }
 
 #[test]
-fn error_and_critical_reports_are_retained_but_not_selected() {
+fn not_production_ready_and_machine_limit_reports_are_retained_but_not_selected() {
     let selection = BackendSelection::from_reports(vec![
         BackendReport::accepted(
             EmissionStrategy::TunedSurfaceProbed,
             CompileDecision::Admit,
-            vec![finding(Severity::Error, FindingCode::PayloadSizeBand)],
+            vec![finding(Severity::NotProductionReady, FindingCode::PayloadSizeBand)],
         )
         .unwrap(),
         BackendReport::accepted(
             EmissionStrategy::TemplatedUnderlyingTokens,
             CompileDecision::Admit,
             vec![finding(
-                Severity::Critical,
+                Severity::MachineLimit,
                 FindingCode::UnknownUnboundedConstruct,
             )],
         )
@@ -113,7 +113,7 @@ fn error_and_critical_reports_are_retained_but_not_selected() {
             .report_for(EmissionStrategy::TunedSurfaceProbed)
             .unwrap()
             .worst_severity(),
-        Severity::Error
+        Severity::NotProductionReady
     );
     assert_eq!(
         selection
@@ -135,7 +135,7 @@ fn selected_candidates_can_be_limited_to_two() {
                     strategy,
                     CompileDecision::Admit,
                     if index == 0 {
-                        vec![finding(Severity::Info, FindingCode::PayloadSizeBand)]
+                        vec![finding(Severity::Elevated, FindingCode::PayloadSizeBand)]
                     } else {
                         vec![]
                     },
@@ -228,10 +228,10 @@ fn accepted_constructor_rejects_refusal() {
 }
 
 #[test]
-fn capability_refusal_is_a_typed_critical_with_actionable_advice() {
+fn capability_refusal_is_a_typed_cannot_represent_with_actionable_advice() {
     let report = refused(EmissionStrategy::TunedSurfaceProbed);
     assert_eq!(report.status(), BackendStatus::Refused);
-    assert_eq!(report.worst_severity(), Severity::Critical);
+    assert_eq!(report.worst_severity(), Severity::CannotRepresent);
     assert_eq!(report.findings().len(), 1);
     assert_eq!(
         report.findings()[0].code,
@@ -254,7 +254,7 @@ fn missing_and_failed_backends_are_typed_errors_with_shared_advice() {
             "compiler process exited unsuccessfully",
         ),
     ] {
-        assert_eq!(report.worst_severity(), Severity::Error);
+        assert_eq!(report.worst_severity(), Severity::NotProductionReady);
         assert_eq!(report.findings().len(), 1);
         assert!(matches!(
             report.findings()[0].code,
@@ -266,7 +266,7 @@ fn missing_and_failed_backends_are_typed_errors_with_shared_advice() {
 }
 
 #[test]
-fn tuned_surface_resource_finding_is_reported_and_error_is_not_selected() {
+fn tuned_surface_resource_finding_is_reported_and_not_production_ready_is_not_selected() {
     let grammar_xml = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../../machine/conformance/edge-cases/truncate-morphotactic/grammar.xml"
@@ -281,7 +281,7 @@ fn tuned_surface_resource_finding_is_reported_and_error_is_not_selected() {
         .expect("TunedSurface must always have one report");
 
     assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
-    assert_eq!(tuned.worst_severity(), Severity::Error);
+    assert_eq!(tuned.worst_severity(), Severity::NotProductionReady);
     assert_eq!(tuned.findings().len(), 1);
     assert_eq!(
         tuned.findings()[0].code,
@@ -301,7 +301,7 @@ fn tuned_surface_resource_finding_is_reported_and_error_is_not_selected() {
         !selection
             .selected()
             .contains(&EmissionStrategy::TunedSurfaceProbed),
-        "a proven resource Error remains reportable but cannot receive an implicit override"
+        "a proven resource NotProductionReady finding remains reportable but cannot receive an implicit override"
     );
     assert!(
         selection.is_no_path(),
@@ -320,13 +320,13 @@ fn tuned_surface_resource_finding_is_reported_and_error_is_not_selected() {
             .report_for(EmissionStrategy::TunedSurfaceProbed)
             .expect("the retry must retain the TunedSurface report")
             .worst_severity(),
-        Severity::Error,
-        "a larger named envelope must rerun characterization instead of preserving the Error"
+        Severity::NotProductionReady,
+        "a larger named envelope must rerun characterization instead of preserving the NotProductionReady finding"
     );
 }
 
 #[test]
-fn plan_composed_required_subtrees_are_a_typed_critical_refusal() {
+fn plan_composed_required_subtrees_are_a_typed_cannot_represent_refusal() {
     let grammar_xml = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../../machine/conformance/edge-cases/truncate-morphotactic/grammar.xml"
@@ -339,7 +339,7 @@ fn plan_composed_required_subtrees_are_a_typed_critical_refusal() {
 
     assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
     assert_eq!(composed.status(), BackendStatus::Refused);
-    assert_eq!(composed.worst_severity(), Severity::Critical);
+    assert_eq!(composed.worst_severity(), Severity::CannotRepresent);
     assert!(composed.findings().iter().any(|finding| {
         finding.code == FindingCode::BackendCoverageIncomplete
             && finding
