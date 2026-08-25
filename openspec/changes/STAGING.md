@@ -3,56 +3,6 @@
 This is the authoritative dependency and worktree-ownership map for the active grammar-coverage
 changes. Change artifacts define behavior; this file defines dispatch and merge order.
 
-**Current policy overlay (2026-08-23):** Correctness/representability is binary; production
-readiness is graded; containment is operational. Production requires a correctness-admitted,
-complete, finalized, parity-verified result at health no worse than Warning under its managed
-envelope. A complete exact Error result may be attempted as developer stress evidence but remains
-production-unready. Hidden developer-only `--allow-unproven` is a correctness override that may
-omit valid parses and is rejected for production/publication/certification. Hidden
-`--remove-size-limits` disables only internal deterministic size/work caps and retains worker
-isolation, bounded I/O, external watchdog/RSS/absolute ceilings, capability checks, completion,
-payload, and parity. `--no-enforce-capability` is legacy developer-only/non-production. Neither
-switch makes partial, truncated, skipped, or parity-unverified output accurate.
-
-The three-language sequence below remains the production-certification slice. In parallel, the
-current developer stress loop covers Indonesian, Amharic, Aweti, Sena, and Mbugwe to establish
-representability, identify backend pain, and fix regressions. An Error-level stress result may be
-complete and accurate without joining the production slice; Mbugwe is deferred only from production
-certification, not from this stress work.
-
-## Active three-language backend expansion (2026-08-22)
-
-The Indonesian, Amharic, and Aweti production-route work is staged as two changes with three
-serialized implementation phases. Mbugwe is outside that production sequence but remains in the
-separate five-grammar developer stress loop described above.
-
-The historical change names `surface-fst-complete-build-envelope` and
-`cover-amharic-aweti-structural-morphology` are aliases for the registered changes
-`surface-compile-profile-and-templated-routing` and
-`cover-circumfix-cross-product-and-infix-drop`, respectively.
-
-1. **`surface-compile-profile-and-templated-routing`, phase A — closure certification and named
-   resource envelopes.** Owns `characterization.rs`, the shared closure traversal kernels and
-   production-trace/characterization regions of `preexpand.rs` and `emit.rs`, and the
-   resource-attempt evidence types. It may refactor production traversal only to share transition
-   semantics and emit parity evidence; it must make every closure walk terminate with an explicit
-   complete or incomplete result and must not change backend selection yet.
-2. **`cover-circumfix-cross-product-and-infix-drop` — templated morphology coverage.** Starts only
-   after phase A releases `emit.rs`. Owns `structural_allomorph.rs`, the templated morphology regions
-   of `emit.rs`, the corresponding `capability.rs` predicate, `strategy_coverage.rs`, and
-   `templated_compile.rs`. It must
-   preserve default-deny behavior and return a complete artifact only when no recipe, rule, subtree,
-   or technical marker is missing.
-3. **`surface-compile-profile-and-templated-routing`, phase B — trusted selection and realized-build
-   evidence.** Starts after the morphology change. Owns `backend_selection.rs`,
-   `backend_runtime.rs`, `worker.rs`, the canonical build-report schema in
-   `pg-cli/src/diagnostics.rs`, the narrow finalized-payload consumption seam in
-   `pg-cli/src/pack.rs`, backend-card catalog data, and their focused tests. It extends the existing
-   build report rather than creating a parallel receipt, returns the finalized Foma payload from
-   the contained worker, and couples the selected backend to that exact constructed artifact; it
-   may not substitute another backend or hide a failed construction. Assessment/corpus results
-   remain in the separate canonical assessment report linked by attempt/model fingerprint.
-
 No two phases edit `emit.rs` concurrently. Changes to `replace.rs` or `gate.rs` are not authorized by
 this staging entry; if implementation proves either necessary, update this ownership map before
 dispatch. The integration branch receives all three phases before the single authoritative merged-tip

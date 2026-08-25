@@ -34,11 +34,6 @@ stages. TunedSurface may still be measured in contained developer stress mode. D
 capability, peeler, advice, or PlanComposed work without a frozen failing case. Mbugwe remains
 deferred from this production slice and active in the separate stress loop.
 
-The registered OpenSpec changes are `surface-compile-profile-and-templated-routing` and
-`cover-circumfix-cross-product-and-infix-drop`. Historical references to
-`surface-fst-complete-build-envelope` and `cover-amharic-aweti-structural-morphology` mean those
-registered changes, respectively.
-
 | Language | Code path | Bounded corpus evidence | Certified artifact | Trusted shipped FST |
 |---|---|---|---|---|
 | Indonesian | Foma propose→confirm and replace-rule prototype paths exist; current construction is not identity-bound. | Historical 121/121 F3, separate 114-case P6, and separate 97/97 non-redup P6 scopes; denominators are not interchangeable without an exact case mapping. | None | None |
@@ -148,11 +143,9 @@ they are historical context, not current shipping claims.
 
 ### Lessons carried forward / traceability
 
-Each item below turns historical evidence into a current invariant. The cited OpenSpec task/gate
-is the consumer; these are not new test results or claims that a trusted artifact already exists.
-The current cross-change authorities are
-[`surface-compile-profile-and-templated-routing`](../../openspec/changes/surface-compile-profile-and-templated-routing/tasks.md)
-for complete Indonesian construction and artifact binding, and
+Each item below turns historical evidence into a current invariant. The cited gate is the consumer;
+these are not new test results or claims that a trusted artifact already exists. The surviving
+cross-change authority is
 [`cover-circumfix-cross-product-and-infix-drop`](../../openspec/changes/cover-circumfix-cross-product-and-infix-drop/tasks.md)
 for Amharic/Aweti morphology coverage and route certification.
 
