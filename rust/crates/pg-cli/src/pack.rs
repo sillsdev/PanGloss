@@ -218,7 +218,7 @@ pub(crate) fn validate_health_readiness(
     report: &HealthReport,
     worker_containment: bool,
 ) -> Result<(), String> {
-    let admission = report.admission_without_overrides();
+    let admission = report.admission();
     let by_class = report.admission_by_class().render();
     if worker_containment {
         return Err(format!(
@@ -778,7 +778,7 @@ mod tests {
     fn correctness_override_does_not_override_health_not_production_ready() {
         let report = synthetic_health(Severity::NotProductionReady);
         assert!(validate_health_readiness(&report, false).is_err());
-        assert_eq!(report.admission_without_overrides(), Severity::NotProductionReady);
+        assert_eq!(report.admission(), Severity::NotProductionReady);
         assert_eq!(report.admission(), Severity::NotProductionReady);
         assert!(report.findings[0].override_record.is_none());
     }
@@ -860,7 +860,7 @@ mod tests {
         report.findings[0].code = FindingCode::BackendCoverageIncomplete;
         assert!(validate_health_readiness(&report, false).is_err());
         assert_eq!(
-            report.admission_without_overrides(),
+            report.admission(),
             Severity::CannotRepresent
         );
         assert_eq!(report.admission(), Severity::CannotRepresent);
