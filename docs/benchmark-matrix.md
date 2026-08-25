@@ -9,14 +9,12 @@ Numbers come from `pangloss batch`'s own per-word `elapsed_ms` column (column 3 
 parity TSV) — the same measurement the parity path already takes, so this adds no instrumentation
 and does not touch a parity-sensitive format.
 
-> **Current policy note (2026-08-23).** This matrix is historical diagnostic evidence. The
+> **Current policy note (2026-08-25).** This matrix is historical diagnostic evidence. The
 > developer-build-only `--allow-unproven` override may lose valid parses and may write local
-> developer evidence, but never production-publishes or certifies; `--remove-size-limits` is a
-> separate developer stress control that removes internal
-> caps only, while exact completion, external watchdog/RSS containment, bounded I/O, and the
-> absolute ceiling remain mandatory. `Error` may be complete/accurate stress evidence but is
-> production-unready; `Critical` is a correctness gap. Production must hide/reject both flags and
-> the legacy `--no-enforce-capability` escape.
+> developer evidence, but publication rejects it. It never disables configurable, finite compile
+> execution limits. Retire `--remove-size-limits` and `--no-enforce-capability` without aliases.
+> `Error` may be complete diagnostic evidence but is production-unready; `Critical` is a
+> correctness gap.
 
 **Resolution floor is real and is reported as such.** `elapsed_ms` is integer milliseconds, so a word
 completing in under 1 ms lands in the 0 bucket; those are shown as `<1`, never as `0`.

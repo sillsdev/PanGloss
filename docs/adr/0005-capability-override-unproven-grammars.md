@@ -53,13 +53,12 @@ still allowing the artifact to run.
 - **Distinct axis from cost/health and containment.** `--allow-unproven` is a correctness-only
   override and may omit valid parses; it does not waive a resource limit. `Error` is a health /
   production-readiness finding, not a capability refusal: an explicit developer stress attempt
-  may use hidden `--remove-size-limits` to disable only internal deterministic size/work caps,
-  while retaining worker isolation, bounded I/O, external watchdog/RSS/absolute ceilings,
-  capability checks, exact completion, finalized payload, and parity. A complete stress result
+  may configure higher but still-finite execution limits. Retire `--remove-size-limits`; limits
+  cannot be disabled. A complete stress result
   can therefore be accurate evidence while remaining production-unready because its health is
   Error. `Critical` correctness/capability gaps still refuse trusted production output; only
   `--allow-unproven` can expose them for developer inspection, with the unproven stamp. The
-  legacy `--no-enforce-capability` switch is developer-only and non-production. The pack manifest
+  legacy `--no-enforce-capability` switch is retired. The pack manifest
   carries correctness trust, health, and containment provenance independently.
 - **It is the construct-promotion workflow.** The override is not only a debugging valve — it is
   the standard loop by which each construct earns "supported" status one at a time, which is the

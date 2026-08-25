@@ -323,7 +323,7 @@ fn selected_compile_enforces_the_serialized_fst_limit_with_a_typed_failure() {
         .find("/// The worker CHILD")
         .map(|offset| start + offset)
         .expect("selected compilation must end before the worker entrypoint");
-    let selected_compile = &source[start..start + end];
+    let selected_compile = &source[start..end];
 
     assert!(
         selected_compile.contains("limits: &ExecutionLimits"),
@@ -346,8 +346,8 @@ fn selected_compile_enforces_the_serialized_fst_limit_with_a_typed_failure() {
 
 #[test]
 fn selected_artifact_failures_remove_partial_and_final_transport_files() {
-    // A behavioral fixture would need to exercise a real selected compiler and its filesystem
-    // failure paths. Keep this contract source-level so the red test never allocates a large FST.
+    // A behavioral fixture would need a real selected compiler and filesystem failure paths.
+    // Keep this source-level so the red test never allocates a large FST.
     let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
     let start = source
         .find("fn compile_selected_from_request(")
@@ -356,7 +356,7 @@ fn selected_artifact_failures_remove_partial_and_final_transport_files() {
         .find("/// The worker CHILD")
         .map(|offset| start + offset)
         .expect("selected compilation must end before the worker entrypoint");
-    let selected_compile = &source[start..start + end];
+    let selected_compile = &source[start..end];
 
     assert!(
         selected_compile.contains("remove_file") || selected_compile.contains("cleanup"),

@@ -92,19 +92,16 @@ overclaim."
 - **Correctness, readiness, and containment are separate axes.** Capability/correctness is
   a binary, recall-preserving claim: an unproven or omission-prone route refuses the normal
   build. Health/readiness is graded (`Ideal`, `Info`, `Warning`, `Error`); `Warning` describes
-  cleanup or cost, while `Error` means the result is not production-ready under the selected
-  managed envelope. An `Error` may still be attempted in an explicit developer stress run, and
+  cleanup or cost, while `Error` means the result is not production-ready. An `Error` may still be
+  attempted under explicitly configured finite execution limits, and
   a complete, exact, parity-verified result remains accurate evidence, but its Error status does
-  not make it publishable. Containment is operational: production uses a managed envelope, while
-  hidden developer-only `--remove-size-limits` may disable only internal deterministic size/work
-  caps; worker isolation, bounded I/O, external watchdog/RSS/absolute ceilings, capability
-  checks, completion, finalized payload, and parity requirements remain. Neither a readiness
-  control nor that stress switch can make partial output accurate.
+  not make it publishable. Execution limits are configurable but cannot be disabled; exceeding one
+  emits no artifact. Retire `--remove-size-limits`. No readiness control can make partial output
+  accurate.
 - **The correctness override is narrower still.** Hidden developer-build-only
   `--allow-unproven` may expose a refused route for grounding and may omit valid parses by
   definition; it is rejected for production, publication, and certification and never removes
-  resource containment. The legacy `--no-enforce-capability` switch is developer-only and
-  non-production, retained only for compatibility/focused diagnostics.
+  execution limits. Retire `--no-enforce-capability` without a compatibility alias.
 - **Two-tier, migrating.** The production mainline hands one lexc source to a black-box foma
   compiler; its capability is proven **behaviorally, by oracle witnesses**, and its compiled
   size is unobservable (cost is enumeration-proxy + runtime only). The controllable

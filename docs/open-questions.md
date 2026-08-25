@@ -6,15 +6,12 @@ it is not ready to be asked.
 
 Ordered by consequence, not by size.
 
-> **Current FST policy (2026-08-23).** Future switch/design questions must preserve three axes:
-> capability correctness, resource/size containment, and readiness health. Both
-> `--allow-unproven` and `--remove-size-limits` are developer-build-only and must be absent and
-> rejected in production. The former may lose valid parses and may write local developer evidence,
-> but never production-publishes or certifies; the
-> latter removes internal deterministic size/work caps only, with exact completion, external
-> watchdog/RSS containment, bounded I/O, and the absolute ceiling still mandatory. `Error` may be
-> complete/accurate stress evidence but is production-unready; `Critical` is a correctness gap.
-> The legacy `--no-enforce-capability` escape is developer-only.
+> **Current FST policy (2026-08-25).** Capability correctness, compile execution limits, and
+> readiness health are separate axes. `--allow-unproven` may lose valid parses and is for local
+> testing only; publication rejects it. It never disables the configurable, finite execution
+> limits. Retire `--remove-size-limits` and `--no-enforce-capability` without compatibility shims.
+> `Error` may be complete diagnostic evidence but is production-unready; `Critical` is a
+> correctness gap.
 
 **Fourteen change-retirement grills are queued separately** in
 `docs/change-retirement-grills.md` — every active OpenSpec change that does not align with the
