@@ -135,6 +135,87 @@ use pg_grammar::model::Grammar;
 /// wire-incompatible change to either type.
 pub const WORKER_PROTOCOL_VERSION: u32 = crate::worker_contract::PROTOCOL_VERSION;
 
+/// Finite, caller-configurable execution limits for one supervised worker attempt.
+///
+/// These values describe external containment policy. They are configuration only in this
+/// contract slice; enforcement and provenance wiring remain separate work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutionLimits {
+    max_serialized_fst_bytes: u64,
+    max_committed_memory_bytes: u64,
+    max_wall_time: Duration,
+}
+
+/// The reason an execution limit configuration was rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionLimitError {
+    ZeroSerializedFstBytes,
+    ZeroCommittedMemoryBytes,
+    ZeroWallTime,
+}
+
+impl std::fmt::Display for ExecutionLimitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let field = match self {
+            Self::ZeroSerializedFstBytes => "max_serialized_fst_bytes",
+            Self::ZeroCommittedMemoryBytes => "max_committed_memory_bytes",
+            Self::ZeroWallTime => "max_wall_time",
+        };
+        write!(f, "{field} must be positive")
+    }
+}
+
+impl std::error::Error for ExecutionLimitError {}
+
+/// Ratified finite defaults: 1 GiB serialized payload, 10 GiB committed memory, and 10 minutes.
+pub const DEFAULT_EXECUTION_LIMITS: ExecutionLimits = ExecutionLimits {
+    max_serialized_fst_bytes: 1024 * 1024 * 1024,
+    max_committed_memory_bytes: 10 * 1024 * 1024 * 1024,
+    max_wall_time: Duration::from_secs(10 * 60),
+};
+
+impl ExecutionLimits {
+    /// Creates an execution-limit configuration; every dimension must be positive.
+    pub fn try_new(
+        max_serialized_fst_bytes: u64,
+        max_committed_memory_bytes: u64,
+        max_wall_time: Duration,
+    ) -> Result<Self, ExecutionLimitError> {
+        if max_serialized_fst_bytes == 0 {
+            return Err(ExecutionLimitError::ZeroSerializedFstBytes);
+        }
+        if max_committed_memory_bytes == 0 {
+            return Err(ExecutionLimitError::ZeroCommittedMemoryBytes);
+        }
+        if max_wall_time == Duration::ZERO {
+            return Err(ExecutionLimitError::ZeroWallTime);
+        }
+        Ok(Self {
+            max_serialized_fst_bytes,
+            max_committed_memory_bytes,
+            max_wall_time,
+        })
+    }
+
+    pub const fn max_serialized_fst_bytes(self) -> u64 {
+        self.max_serialized_fst_bytes
+    }
+
+    pub const fn max_committed_memory_bytes(self) -> u64 {
+        self.max_committed_memory_bytes
+    }
+
+    pub const fn max_wall_time(self) -> Duration {
+        self.max_wall_time
+    }
+}
+
+impl Default for ExecutionLimits {
+    fn default() -> Self {
+        DEFAULT_EXECUTION_LIMITS
+    }
+}
+
 /// Versioned, hard-coded ceilings for this protocol (design discipline shared with
 /// `pg_pack::format::VersionLimits`: every configurable dimension has a hard-coded, versioned,
 /// deliberately high absolute ceiling).
@@ -159,25 +240,25 @@ pub struct WorkerLimits {
     pub min_rss_sample_interval_ms: u64,
 }
 
-/// Protocol version 1's limits. Deliberately generous relative to this protocol's own content (a
+/// The current protocol's limits. Deliberately generous relative to this protocol's own content (a
 /// grammar file PATH plus a handful of numeric budget caps for the request; a
 /// `crate::health::HealthReport` plus a few counts for the result) -- these bound the wire
 /// framing itself against a hostile/malformed peer, not the compile work the framed message
 /// describes (that is `ComposeBudget`'s job, checked separately, inside the child).
-pub const V1_WORKER_LIMITS: WorkerLimits = WorkerLimits {
-    max_request_bytes: crate::worker_contract::V1_LIMITS.max_request_bytes,
-    max_result_bytes: crate::worker_contract::V1_LIMITS.max_result_bytes,
-    max_captured_stderr_bytes: crate::worker_contract::V1_LIMITS.max_captured_stderr_bytes,
-    max_wall_timeout_ms: crate::worker_contract::V1_LIMITS.max_wall_timeout_ms,
-    max_rss_limit_mb: crate::worker_contract::V1_LIMITS.max_rss_limit_mb,
-    min_rss_sample_interval_ms: crate::worker_contract::V1_LIMITS.min_rss_sample_interval_ms,
+pub const WORKER_LIMITS: WorkerLimits = WorkerLimits {
+    max_request_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_request_bytes,
+    max_result_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_result_bytes,
+    max_captured_stderr_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_captured_stderr_bytes,
+    max_wall_timeout_ms: crate::worker_contract::PROTOCOL_LIMITS.max_wall_timeout_ms,
+    max_rss_limit_mb: crate::worker_contract::PROTOCOL_LIMITS.max_rss_limit_mb,
+    min_rss_sample_interval_ms: crate::worker_contract::PROTOCOL_LIMITS.min_rss_sample_interval_ms,
 };
 
 /// Looks up the versioned limits for a protocol version. `None` for any version this build
 /// doesn't understand.
 pub const fn limits_for_version(version: u32) -> Option<WorkerLimits> {
     match version {
-        1 => Some(V1_WORKER_LIMITS),
+        WORKER_PROTOCOL_VERSION => Some(WORKER_LIMITS),
         _ => None,
     }
 }
@@ -636,11 +717,11 @@ fn compile_selected_from_request(
             }
         }
     };
-    if result_size > V1_WORKER_LIMITS.max_result_bytes {
+    if result_size > WORKER_LIMITS.max_result_bytes {
         return CompileWorkerOutcome::SelectedCompileFailed {
             detail: format!(
                 "selected build result is {result_size} byte(s), exceeding the {}-byte protocol limit",
-                V1_WORKER_LIMITS.max_result_bytes
+                WORKER_LIMITS.max_result_bytes
             ),
         };
     }
@@ -659,7 +740,7 @@ fn compile_selected_from_request(
 /// mapping logic; only the supervisor's own kill/timeout/RSS behavior needs a real spawned process,
 /// exercised by this crate's `tests/worker_supervisor.rs`).
 pub fn run_worker_child<R: Read, W: Write>(mut input: R, mut output: W) -> io::Result<()> {
-    let limits = V1_WORKER_LIMITS;
+    let limits = WORKER_LIMITS;
 
     let request_bytes = match read_frame(&mut input, limits.max_request_bytes) {
         Ok(bytes) => bytes,
@@ -738,7 +819,7 @@ pub struct WatchdogEnvelope {
 }
 
 impl WatchdogEnvelope {
-    /// Clamps every field to `V1_WORKER_LIMITS`' absolute ceilings/floors -- a total function with
+    /// Clamps every field to `WORKER_LIMITS`' absolute ceilings/floors -- a total function with
     /// no rejection path, mirroring `crate::compose_budget::clamp_chain_depth_cap`'s own "clamp,
     /// don't reject" convention.
     pub fn clamped(
@@ -746,7 +827,7 @@ impl WatchdogEnvelope {
         rss_limit_mb: u64,
         rss_sample_interval: Duration,
     ) -> Self {
-        let limits = V1_WORKER_LIMITS;
+        let limits = WORKER_LIMITS;
         let wall_timeout_ms = (wall_timeout.as_millis() as u64).min(limits.max_wall_timeout_ms);
         let rss_limit_mb = rss_limit_mb.min(limits.max_rss_limit_mb);
         let interval_ms =
@@ -1005,7 +1086,7 @@ fn parse_result_frame(buf: &[u8]) -> Result<CompileWorkerResult, String> {
         ));
     }
     let len = u64::from_le_bytes(buf[0..8].try_into().expect("checked length above"));
-    let limits = V1_WORKER_LIMITS;
+    let limits = WORKER_LIMITS;
     if len > limits.max_result_bytes {
         return Err(format!(
             "declared result length {len} exceeds the {}-byte protocol limit",
@@ -1078,7 +1159,7 @@ pub fn run_compile_worker(
     request: &CompileWorkerRequest,
     envelope: &WatchdogEnvelope,
 ) -> WorkerOutcome {
-    let limits = V1_WORKER_LIMITS;
+    let limits = WORKER_LIMITS;
 
     let request_json = match serde_json::to_vec(request) {
         Ok(bytes) => bytes,
@@ -1334,11 +1415,11 @@ mod tests {
     #[test]
     fn read_frame_rejects_length_exceeding_protocol_limit_with_short_buffer() {
         let mut buf = Vec::new();
-        let huge = V1_WORKER_LIMITS.max_request_bytes + 1;
+        let huge = WORKER_LIMITS.max_request_bytes + 1;
         buf.extend_from_slice(&huge.to_le_bytes());
         // No body bytes -- proves rejection happens strictly from the header, before any attempt to `read_exact` a body.
         let mut cursor = std::io::Cursor::new(buf);
-        let err = read_frame(&mut cursor, V1_WORKER_LIMITS.max_request_bytes)
+        let err = read_frame(&mut cursor, WORKER_LIMITS.max_request_bytes)
             .expect_err("must reject oversized declared length");
         assert!(matches!(err, FrameError::LengthExceedsLimit { .. }));
     }
@@ -1353,7 +1434,7 @@ mod tests {
     #[test]
     fn parse_result_frame_rejects_declared_length_over_limit() {
         let mut buf = Vec::new();
-        let huge = V1_WORKER_LIMITS.max_result_bytes + 1;
+        let huge = WORKER_LIMITS.max_result_bytes + 1;
         buf.extend_from_slice(&huge.to_le_bytes());
         let err = parse_result_frame(&buf).expect_err("must reject");
         assert!(err.contains("exceeds"));
@@ -1381,7 +1462,7 @@ mod tests {
     #[test]
     fn run_worker_child_reports_protocol_violation_for_oversized_request_frame() {
         let mut buf = Vec::new();
-        buf.extend_from_slice(&(V1_WORKER_LIMITS.max_request_bytes + 1).to_le_bytes());
+        buf.extend_from_slice(&(WORKER_LIMITS.max_request_bytes + 1).to_le_bytes());
         let result = call_child(&buf);
         match result.outcome {
             CompileWorkerOutcome::ProtocolViolation { detail } => {
@@ -1561,13 +1642,13 @@ mod tests {
     #[test]
     fn watchdog_envelope_clamps_wall_timeout_to_absolute_ceiling() {
         let envelope = WatchdogEnvelope::clamped(
-            Duration::from_millis(V1_WORKER_LIMITS.max_wall_timeout_ms + 1_000_000),
+            Duration::from_millis(WORKER_LIMITS.max_wall_timeout_ms + 1_000_000),
             1,
             Duration::from_millis(1),
         );
         assert_eq!(
             envelope.wall_timeout,
-            Duration::from_millis(V1_WORKER_LIMITS.max_wall_timeout_ms)
+            Duration::from_millis(WORKER_LIMITS.max_wall_timeout_ms)
         );
     }
 
@@ -1575,10 +1656,10 @@ mod tests {
     fn watchdog_envelope_clamps_rss_limit_to_absolute_ceiling() {
         let envelope = WatchdogEnvelope::clamped(
             Duration::from_secs(1),
-            V1_WORKER_LIMITS.max_rss_limit_mb + 1_000_000,
+            WORKER_LIMITS.max_rss_limit_mb + 1_000_000,
             Duration::from_millis(1),
         );
-        assert_eq!(envelope.rss_limit_mb, V1_WORKER_LIMITS.max_rss_limit_mb);
+        assert_eq!(envelope.rss_limit_mb, WORKER_LIMITS.max_rss_limit_mb);
     }
 
     #[test]
@@ -1586,7 +1667,7 @@ mod tests {
         let envelope = WatchdogEnvelope::clamped(Duration::from_secs(1), 1024, Duration::ZERO);
         assert_eq!(
             envelope.rss_sample_interval,
-            Duration::from_millis(V1_WORKER_LIMITS.min_rss_sample_interval_ms)
+            Duration::from_millis(WORKER_LIMITS.min_rss_sample_interval_ms)
         );
     }
 

@@ -232,9 +232,9 @@ fn shipped_watchdog() -> WatchdogEnvelope {
 
 fn shipped_communication() -> CommunicationEnvelope {
     CommunicationEnvelope {
-        max_request_bytes: crate::worker_contract::V1_LIMITS.max_request_bytes,
-        max_result_bytes: crate::worker_contract::V1_LIMITS.max_result_bytes,
-        max_captured_stderr_bytes: crate::worker_contract::V1_LIMITS.max_captured_stderr_bytes,
+        max_request_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_request_bytes,
+        max_result_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_result_bytes,
+        max_captured_stderr_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_captured_stderr_bytes,
     }
 }
 

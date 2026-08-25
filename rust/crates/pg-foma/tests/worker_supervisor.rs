@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use pg_foma::worker::{
     run_compile_worker, CompileWorkerOutcome, CompileWorkerRequest, GrammarFormat,
-    WatchdogEnvelope, WorkerOutcome, V1_WORKER_LIMITS,
+    WatchdogEnvelope, WorkerOutcome, WORKER_LIMITS,
 };
 
 /// Serializes every test that touches the process-wide env vars `worker_test_child` reads, since tests in this file run as threads in one process and unsynchronized `set_var` calls would race.
@@ -196,7 +196,7 @@ fn budget_trip_is_reported_as_budget_tripped_through_the_full_supervisor_round_t
 #[test]
 fn oversized_request_is_rejected_as_protocol_violation_before_any_child_is_spawned() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let huge_path = "x".repeat((V1_WORKER_LIMITS.max_request_bytes + 1) as usize);
+    let huge_path = "x".repeat((WORKER_LIMITS.max_request_bytes + 1) as usize);
     let request = CompileWorkerRequest::new(huge_path, GrammarFormat::Xml);
     let envelope = WatchdogEnvelope::default_envelope();
 
