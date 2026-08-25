@@ -3,12 +3,10 @@ use pg_foma::characterization::{
     CharacterizationResult, ClosureStopReason, ClosureTerminal, ClosureTestLimits,
 };
 use pg_foma::emit::{
-    emit_tuned_surface_for_envelope, emit_tuned_surface_for_request,
-    emit_tuned_surface_with_closure_limits_for_test, EmitResult, FomaTier,
+    emit_tuned_surface_for_envelope, emit_tuned_surface_with_closure_limits_for_test, EmitResult,
+    FomaTier,
 };
-use pg_foma::resource_envelope::{
-    CompileEnvelopeRequest, CompileSizeMode, ResourceEnvelope, ResourceEnvelopeId,
-};
+use pg_foma::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 
 const FINITE_CHAIN_XML: &str = r#"<HermitCrabInput><Language><Name>TotalClosureContract</Name>
   <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
@@ -55,39 +53,6 @@ fn construct(work_cap: usize, depth_cap: usize) -> EmitResult {
             depth_cap,
         },
     )
-}
-
-fn bounded_branching_xml(rule_count: usize) -> String {
-    let rule_ids = (0..rule_count)
-        .map(|index| format!("mr{index}"))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let rules = (0..rule_count)
-        .map(|index| {
-            format!(
-                r#"<MorphologicalRule id="mr{index}" multipleApplication="1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>branch-{index}</Name>
-        <MorphologicalSubrules><MorphologicalSubrule id="s{index}"><MorphologicalInput><PhoneticSequence id="stem{index}"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-        <MorphologicalOutput><InsertSegments><PhoneticShape>f</PhoneticShape></InsertSegments><CopyFromInput index="stem{index}" /><InsertSegments><PhoneticShape>g</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>R{index}</MorphemeId></MorphologicalRule>"#
-            )
-        })
-        .collect::<String>();
-    let mut xml = FINITE_CHAIN_XML.replace(
-        "morphologicalRules=\"mr1\"",
-        &format!("morphologicalRules=\"{rule_ids}\""),
-    );
-    let definitions_start = xml
-        .find("<MorphologicalRuleDefinitions>")
-        .expect("fixture has morphology definitions");
-    let rules_start = definitions_start + "<MorphologicalRuleDefinitions>".len();
-    let rules_end = xml
-        .find("</MorphologicalRuleDefinitions>")
-        .expect("fixture closes morphology definitions");
-    xml.replace_range(rules_start..rules_end, &rules);
-    xml = xml.replace(
-        "</LexicalEntries>",
-        r#"<LexicalEntry id="e2" partOfSpeech="posV"><Allomorphs><Allomorph id="a2"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs><MorphemeId>ROOT2</MorphemeId></LexicalEntry></LexicalEntries>"#,
-    );
-    xml
 }
 
 #[test]
@@ -184,166 +149,21 @@ fn unsupported_construction_is_a_typed_refusal_not_false_completion() {
 }
 
 #[test]
-fn only_a_terminal_failure_can_authorize_a_linked_retry() {
-    let ordinary = pg_grammar::load(FINITE_CHAIN_XML).expect("finite closure fixture must load");
-    let complete_request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
-        .expect("managed request must be constructible");
-    let complete = emit_tuned_surface_for_request(&ordinary, &complete_request);
-    assert_eq!(
-        complete
-            .report
-            .closure_evidence
-            .as_ref()
-            .expect("named attempt retains closure evidence")
-            .terminal,
-        ClosureTerminal::Complete
-    );
-    assert!(complete.retry_authorization().is_none());
-
-    let expensive_xml = bounded_branching_xml(6);
-    let expensive = pg_grammar::load(&expensive_xml).expect("bounded retry fixture must load");
-    let first_request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
-        .expect("managed request must be constructible");
-    let first = emit_tuned_surface_for_request(&expensive, &first_request);
-    let first_terminal = first
-        .report
-        .closure_evidence
-        .as_ref()
-        .expect("failed named attempt retains closure evidence");
-    assert_eq!(
-        first_terminal.terminal,
-        ClosureTerminal::Incomplete(ClosureStopReason::WorkBudgetReached)
-    );
-    assert_eq!(
-        first_terminal.evidence.envelope_id,
-        ResourceEnvelopeId::ManagedV1
-    );
-    assert_eq!(first_terminal.evidence.rule_pairs_visited, 3_000);
-    assert!(!first_terminal.evidence.worklist_empty);
-    assert!(first_terminal.evidence.pending_successor_count > 0);
-    assert!(first.lexc_source.is_empty());
-    assert!(matches!(first.report.tier, FomaTier::Unsupported { .. }));
-    let authorization = first
-        .retry_authorization()
-        .expect("terminal failure alone authorizes retry");
-    assert!(
-        CompileEnvelopeRequest::retry_from(authorization, ResourceEnvelopeId::ManagedV1).is_err()
-    );
-
-    let retry = CompileEnvelopeRequest::retry_from(
-        authorization,
-        ResourceEnvelopeId::TunedSurfaceWork10kV1,
-    )
-    .expect("caller may explicitly retry under a different named envelope");
-    assert_ne!(retry.attempt_id(), first_request.attempt_id());
-    assert_eq!(retry.retry_of(), Some(first_request.attempt_id()));
-    assert_eq!(retry.prior_closure(), Some(first_terminal));
-
-    let second = emit_tuned_surface_for_request(&expensive, &retry);
-    let second_terminal = second
-        .report
-        .closure_evidence
-        .as_ref()
-        .expect("retry retains its own fresh closure evidence");
-    assert_eq!(
-        second_terminal.evidence.envelope_id,
-        ResourceEnvelopeId::TunedSurfaceWork10kV1
-    );
-    assert_ne!(
-        second_terminal.evidence.envelope_id,
-        first_terminal.evidence.envelope_id
-    );
-    assert_ne!(
-        second_terminal.evidence.envelope_digest,
-        first_terminal.evidence.envelope_digest
-    );
-    assert_eq!(second_terminal.terminal, ClosureTerminal::Complete);
-    assert!(second_terminal.evidence.worklist_empty);
-    assert_eq!(second_terminal.evidence.pending_successor_count, 0);
-    assert!(second_terminal.evidence.maximum_depth < 64);
-    assert!(!second.lexc_source.is_empty());
-    assert_eq!(second.report.tier, FomaTier::Full);
-    assert!(second.retry_authorization().is_none());
-}
-
-#[test]
-#[cfg(feature = "developer-tools")]
-fn developer_stress_removes_only_deterministic_compile_caps() {
-    let shipped = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
-    let managed = shipped.compile_limits(CompileSizeMode::Managed);
-    let stress = shipped.compile_limits(CompileSizeMode::DeveloperStress);
-
-    assert_eq!(managed.compose, shipped.compose());
-    assert_eq!(managed.enumeration, shipped.enumeration());
-    assert_eq!(managed.backend, shipped.backend());
-    assert_eq!(shipped.id(), ResourceEnvelopeId::ManagedV1);
-    assert_eq!(shipped.watchdog(), ResourceEnvelope::for_id(shipped.id()).watchdog());
-    assert_eq!(
-        shipped.communication(),
-        ResourceEnvelope::for_id(shipped.id()).communication()
-    );
-
-    assert_eq!(stress.compose.state_cap, usize::MAX);
-    assert_eq!(stress.compose.arc_cap, usize::MAX);
-    assert_eq!(stress.compose.tuple_cap, usize::MAX);
-    assert_eq!(stress.compose.group_cap, usize::MAX);
-    assert_eq!(stress.compose.line_cap, usize::MAX);
-    assert_eq!(stress.compose.compound_pair_cap, usize::MAX);
-    assert_eq!(stress.compose.ordering_multiplicity_cap, None);
-    assert_eq!(stress.compose.chain_depth_cap, Some(1_000_000));
-    assert_eq!(stress.enumeration.composite_entry_cap, usize::MAX);
-    assert_eq!(stress.enumeration.pair_probe_cap, usize::MAX);
-    assert_eq!(stress.backend.tuned_surface_closure_work_cap, usize::MAX);
-    assert_eq!(stress.backend.tuned_surface_closure_depth_cap, 1_000_000);
-    assert_eq!(
-        stress.backend.tuned_surface_compound_chain_depth_cap,
-        1_000_000
-    );
-
-    let grammar = pg_grammar::load(&bounded_branching_xml(6))
-        .expect("bounded stress fixture must load");
-    let request = CompileEnvelopeRequest::try_new_with_mode(
-        ResourceEnvelopeId::ManagedV1,
-        CompileSizeMode::DeveloperStress,
-    )
-    .expect("developer stress request must be constructible");
-    assert_eq!(request.size_mode(), CompileSizeMode::DeveloperStress);
-    assert_eq!(request.envelope_id(), ResourceEnvelopeId::ManagedV1);
-
-    let result = emit_tuned_surface_for_request(&grammar, &request);
-    let terminal = result
-        .report
-        .closure_evidence
-        .as_ref()
-        .expect("stress attempt retains exact closure evidence");
-    assert_eq!(terminal.terminal, ClosureTerminal::Complete);
-    assert!(terminal.evidence.worklist_empty);
-    assert_eq!(terminal.evidence.pending_successor_count, 0);
-    assert!(terminal.evidence.rule_pairs_visited > 3_000);
-    assert_eq!(terminal.evidence.envelope_id, ResourceEnvelopeId::ManagedV1);
-    assert_eq!(terminal.evidence.envelope_digest, shipped.digest());
-    assert!(!result.lexc_source.is_empty());
-    assert_eq!(result.report.tier, FomaTier::Full);
-}
-
-#[test]
-fn unsupported_empty_roots_do_not_authorize_resource_retry() {
+fn unsupported_empty_roots_remain_a_typed_refusal() {
     let mut grammar = pg_grammar::load(FINITE_CHAIN_XML).expect("fixture must load");
     for stratum in &mut grammar.strata {
         stratum.entries.clear();
     }
-    let request = CompileEnvelopeRequest::try_new(ResourceEnvelopeId::ManagedV1)
-        .expect("managed request must be constructible");
-    let result = emit_tuned_surface_for_request(&grammar, &request);
+    let envelope = ResourceEnvelope::for_id(ResourceEnvelopeId::ManagedV1);
+    let result = emit_tuned_surface_for_envelope(&grammar, &envelope);
     let evidence = result
         .report
         .closure_evidence
         .as_ref()
-        .expect("unsupported named attempt retains terminal evidence");
+        .expect("unsupported construction retains terminal evidence");
     assert_eq!(
         evidence.terminal,
         ClosureTerminal::Refused(ClosureStopReason::UnsupportedTransition)
     );
     assert!(result.lexc_source.is_empty());
-    assert!(result.retry_authorization().is_none());
 }

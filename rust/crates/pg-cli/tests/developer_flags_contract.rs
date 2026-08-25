@@ -1,10 +1,7 @@
 use std::process::Command;
 
-const DEVELOPER_FLAGS: [&str; 3] = [
-    "--allow-unproven",
-    "--remove-size-limits",
-    "--no-enforce-capability",
-];
+const DEVELOPER_FLAGS: [&str; 1] = ["--allow-unproven"];
+const REMOVED_FLAGS: [&str; 2] = ["--remove-size-limits", "--no-enforce-capability"];
 
 fn pangloss(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_pangloss"))
@@ -33,12 +30,15 @@ fn production_help_omits_developer_only_flags() {
             "production help must omit developer-only flag {flag}: {text}"
         );
     }
+    for flag in REMOVED_FLAGS {
+        assert!(!text.contains(flag), "production help must omit removed flag {flag}: {text}");
+    }
 }
 
 #[cfg(not(feature = "developer-tools"))]
 #[test]
 fn production_commands_reject_developer_flags_as_unknown_options() {
-    for flag in DEVELOPER_FLAGS {
+    for flag in DEVELOPER_FLAGS.into_iter().chain(REMOVED_FLAGS) {
         for args in [
             vec!["parse", "missing.xml", "word", flag],
             vec!["batch", "missing.xml", "words.txt", "out.tsv", flag],
@@ -61,21 +61,9 @@ fn production_commands_reject_developer_flags_as_unknown_options() {
 fn developer_build_accepts_flags_without_building_a_grammar() {
     for args in [
         vec!["parse", "missing.xml", "word", "--allow-unproven"],
-        vec!["parse", "missing.xml", "word", "--remove-size-limits"],
-        vec!["parse", "missing.xml", "word", "--no-enforce-capability"],
         vec!["batch", "missing.xml", "words.txt", "out.tsv", "--allow-unproven"],
-        vec!["batch", "missing.xml", "words.txt", "out.tsv", "--remove-size-limits"],
-        vec![
-            "batch",
-            "missing.xml",
-            "words.txt",
-            "out.tsv",
-            "--no-enforce-capability",
-        ],
         vec!["pack", "missing.xml", "out.pgpack", "--allow-unproven"],
-        vec!["pack", "missing.xml", "out.pgpack", "--remove-size-limits"],
         vec!["make-report", "missing.xml", "out.md", "--allow-unproven"],
-        vec!["make-report", "missing.xml", "out.md", "--remove-size-limits"],
     ] {
         let output = pangloss(&args);
         let text = combined_output(&output);
@@ -89,74 +77,29 @@ fn developer_build_accepts_flags_without_building_a_grammar() {
 
 #[cfg(feature = "developer-tools")]
 #[test]
-fn developer_build_rejects_no_enforce_capability_on_pack_and_report() {
-    for args in [
-        vec!["pack", "missing.xml", "out.pgpack", "--no-enforce-capability"],
-        vec!["make-report", "missing.xml", "out.md", "--no-enforce-capability"],
-    ] {
-        let output = pangloss(&args);
-        let text = combined_output(&output);
-        assert!(!output.status.success(), "{args:?} unexpectedly succeeded");
-        assert!(
-            text.contains("unknown option"),
-            "developer build must reject {:?} on pack/report: {text}",
-            args
-        );
+fn developer_build_rejects_removed_flags_on_all_commands() {
+    for flag in REMOVED_FLAGS {
+        for args in [
+            vec!["parse", "missing.xml", "word", flag],
+            vec!["batch", "missing.xml", "words.txt", "out.tsv", flag],
+            vec!["pack", "missing.xml", "out.pgpack", flag],
+            vec!["make-report", "missing.xml", "out.md", flag],
+        ] {
+            let output = pangloss(&args);
+            let text = combined_output(&output);
+            assert!(!output.status.success(), "{args:?} unexpectedly succeeded");
+            assert!(
+                text.contains("unknown option"),
+                "developer build must reject removed flag {:?} on every command: {text}",
+                args
+            );
+        }
     }
 }
 
 #[cfg(feature = "developer-tools")]
 #[test]
-fn remove_size_limits_requires_the_foma_engine_for_parse_and_batch() {
-    for args in [
-        vec!["parse", "missing.xml", "word", "--remove-size-limits"],
-        vec![
-            "batch",
-            "missing.xml",
-            "words.txt",
-            "out.tsv",
-            "--remove-size-limits",
-        ],
-    ] {
-        let output = pangloss(&args);
-        let text = combined_output(&output);
-        assert!(!output.status.success(), "{args:?} unexpectedly succeeded");
-        assert!(
-            text.contains("--remove-size-limits requires --engine=foma"),
-            "default-engine stress request must fail before grammar loading: {text}"
-        );
-    }
-
-    for args in [
-        vec![
-            "parse",
-            "missing.xml",
-            "word",
-            "--engine=foma",
-            "--remove-size-limits",
-        ],
-        vec![
-            "batch",
-            "missing.xml",
-            "words.txt",
-            "out.tsv",
-            "--engine=foma",
-            "--remove-size-limits",
-        ],
-    ] {
-        let output = pangloss(&args);
-        let text = combined_output(&output);
-        assert!(!output.status.success(), "{args:?} unexpectedly succeeded");
-        assert!(
-            !text.contains("--remove-size-limits requires --engine=foma"),
-            "Foma stress request must proceed to grammar loading: {text}"
-        );
-    }
-}
-
-#[cfg(feature = "developer-tools")]
-#[test]
-fn developer_help_mentions_developer_only_flags() {
+fn developer_help_mentions_only_the_remaining_developer_flag() {
     let output = pangloss(&[]);
     let text = combined_output(&output);
 
@@ -164,6 +107,12 @@ fn developer_help_mentions_developer_only_flags() {
         assert!(
             text.contains(flag),
             "developer help must mention {flag}: {text}"
+        );
+    }
+    for flag in REMOVED_FLAGS {
+        assert!(
+            !text.contains(flag),
+            "developer help must omit removed flag {flag}: {text}"
         );
     }
 }
