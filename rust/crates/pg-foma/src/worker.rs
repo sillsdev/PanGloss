@@ -9,9 +9,9 @@
 //! **Platform parity.** Windows and Linux are equal,
 //! first-class native production targets. Both use ONE compiler worker, ONE versioned
 //! request/result protocol, standard-library `Child::try_wait`/`Child::kill` wall-time control,
-//! deterministic compiler budgets, and bounded input/output. Production compilation launches no
-//! descendants, so Job Objects, cgroups, process-tree management, Tokio, and `processkit` are out
-//! of scope. WASM is analysis-only and needs no compile supervisor.
+//! compiler budgets, and bounded input/output. Broader host process-tree policy is outside this
+//! wire-and-artifact contract; callers may provide that policy around this one-worker seam. WASM
+//! is analysis-only and needs no compile supervisor.
 //!
 //! **Fast-failure primacy.** Deterministic logical counters are the primary fast-failure mechanism;
 //! cooperative
@@ -49,9 +49,8 @@
 //!   writes the request, drains stdout/stderr on capped reader threads, and polls
 //!   `Child::try_wait` in a loop that checks a wall deadline -- killing the child (`Child::kill`)
 //!   and returning a typed `WorkerOutcome` the
-//!   instant any bound is breached. No Tokio, no process tree, no Job Objects/cgroups (platform
-//!   parity, above); the
-//!   only "descendant" is the one worker process itself.
+//!   instant any bound is breached. This module uses only the standard-library child seam; host
+//!   process-tree policy remains the caller's responsibility.
 //!
 //! # Typed outcomes -> existing health/error vocabulary (do not invent a parallel one)
 //! `CompileWorkerOutcome` (what the CHILD reports) reuses `crate::compose_budget::ComposeError`
@@ -446,7 +445,7 @@ pub enum CompileWorkerOutcome {
 pub(crate) struct SelectedCompileRequest {
     pub(crate) attempt_id: String,
     pub(crate) route: String,
-    pub(crate) artifact_path: String,
+    pub(crate) artifact_directory: String,
     pub(crate) max_serialized_fst_bytes: u64,
 }
 
@@ -583,18 +582,57 @@ fn selected_artifact_temp_path(path: &Path) -> PathBuf {
     PathBuf::from(format!("{}.tmp", path.display()))
 }
 
-/// Removes the child-owned partial file.
-fn cleanup_selected_partial(path: &Path) {
-    let _ = fs::remove_file(selected_artifact_temp_path(path));
+/// Removes both selected output paths. A missing path is already clean; every other filesystem
+/// failure is retained so callers can report it alongside the operation that failed.
+fn cleanup_selected_output(path: &Path) -> Result<(), String> {
+    let mut failures = Vec::new();
+    for candidate in [path.to_path_buf(), selected_artifact_temp_path(path)] {
+        match fs::remove_file(&candidate) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => failures.push(format!("{}: {error}", candidate.display())),
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "selected output cleanup failed: {}",
+            failures.join("; ")
+        ))
+    }
 }
 
-fn write_selected_artifact(
+fn cleanup_selected_temp(path: &Path) -> Result<(), String> {
+    let temp_path = selected_artifact_temp_path(path);
+    match fs::remove_file(&temp_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "selected artifact temp cleanup failed for {}: {error}",
+            temp_path.display()
+        )),
+    }
+}
+
+/// Publishes a selected payload only after its serialized-size limit has passed. The temporary
+/// file is created exclusively and then hard-linked into the final name, making final publication
+/// atomic without ever replacing an existing artifact.
+fn publish_selected_payload(
     path: &Path,
     payload_bytes: &[u8],
-) -> Result<SelectedArtifactDescriptor, String> {
+    limit_bytes: u64,
+) -> Result<SelectedArtifactDescriptor, CompileWorkerOutcome> {
+    let actual_bytes = payload_bytes.len() as u64;
+    if actual_bytes > limit_bytes {
+        return Err(CompileWorkerOutcome::SelectedExecutionLimitExceeded {
+            actual_bytes,
+            limit_bytes,
+        });
+    }
+
     let temp_path = selected_artifact_temp_path(path);
-    cleanup_selected_partial(path);
-    let write_result = (|| {
+    let write_result: Result<SelectedArtifactDescriptor, String> = (|| {
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -618,23 +656,88 @@ fn write_selected_artifact(
             )
         })?;
         drop(file);
-        fs::rename(&temp_path, path).map_err(|error| {
+        fs::hard_link(&temp_path, path).map_err(|error| {
             format!(
-                "atomically publish selected artifact {} -> {}: {error}",
+                "atomically publish selected artifact {} -> {} without replacing an existing file: {error}",
                 temp_path.display(),
                 path.display()
             )
         })?;
+        fs::remove_file(&temp_path).map_err(|error| {
+            format!(
+                "remove selected artifact temp file {} after publication: {error}",
+                temp_path.display()
+            )
+        })?;
         Ok(SelectedArtifactDescriptor {
             path: path.to_string_lossy().into_owned(),
-            byte_len: payload_bytes.len() as u64,
+            byte_len: actual_bytes,
             sha256: sha256_hex(payload_bytes),
         })
     })();
-    if write_result.is_err() {
-        cleanup_selected_partial(path);
+    match write_result {
+        Ok(descriptor) => Ok(descriptor),
+        Err(detail) => {
+            let cleanup = cleanup_selected_temp(path);
+            let detail = match cleanup {
+                Ok(()) => detail,
+                Err(cleanup_error) => format!("{detail}; {cleanup_error}"),
+            };
+            Err(CompileWorkerOutcome::SelectedCompileFailed { detail })
+        }
     }
-    write_result
+}
+
+#[cfg(test)]
+fn write_selected_artifact(
+    path: &Path,
+    payload_bytes: &[u8],
+) -> Result<SelectedArtifactDescriptor, String> {
+    match publish_selected_payload(path, payload_bytes, u64::MAX) {
+        Ok(descriptor) => Ok(descriptor),
+        Err(CompileWorkerOutcome::SelectedExecutionLimitExceeded { .. }) => {
+            Err("selected payload exceeded the publication limit".to_string())
+        }
+        Err(CompileWorkerOutcome::SelectedCompileFailed { detail }) => Err(detail),
+        Err(other) => Err(format!("selected payload publication failed: {other:?}")),
+    }
+}
+
+fn selected_artifact_path_from_request(
+    selected: &SelectedCompileRequest,
+) -> Result<PathBuf, String> {
+    let temp_root = fs::canonicalize(std::env::temp_dir())
+        .map_err(|error| format!("canonicalize system temp directory: {error}"))?;
+    let requested_dir = PathBuf::from(&selected.artifact_directory);
+    let metadata = fs::symlink_metadata(&requested_dir).map_err(|error| {
+        format!(
+            "selected artifact directory {} is not an existing directory: {error}",
+            requested_dir.display()
+        )
+    })?;
+    if !metadata.is_dir() {
+        return Err(format!(
+            "selected artifact directory {} is not a directory",
+            requested_dir.display()
+        ));
+    }
+    let canonical_dir = fs::canonicalize(&requested_dir).map_err(|error| {
+        format!(
+            "canonicalize selected artifact directory {}: {error}",
+            requested_dir.display()
+        )
+    })?;
+    let expected_basename = selected_transport_dir_basename(&selected.attempt_id);
+    let is_direct_reserved_child = canonical_dir.parent() == Some(temp_root.as_path())
+        && canonical_dir.file_name().and_then(|name| name.to_str())
+            == Some(expected_basename.as_str());
+    if !is_direct_reserved_child {
+        return Err(format!(
+            "selected artifact directory must be the reserved selected transport directory {} directly under canonical system temp",
+            expected_basename
+        ));
+    }
+    Ok(canonical_dir.join("selected.fst"))
 }
 
 fn compile_selected_from_request(
@@ -642,7 +745,10 @@ fn compile_selected_from_request(
     selected: &SelectedCompileRequest,
     limits: &ExecutionLimits,
 ) -> CompileWorkerOutcome {
-    let artifact_path = Path::new(&selected.artifact_path);
+    let artifact_path = match selected_artifact_path_from_request(selected) {
+        Ok(path) => path,
+        Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
+    };
     let outcome = (|| {
         let strategy = match strategy_from_worker_route(&selected.route) {
             Ok(strategy) => strategy,
@@ -680,9 +786,13 @@ fn compile_selected_from_request(
                 limit_bytes: limits.max_serialized_fst_bytes(),
             };
         }
-        let artifact = match write_selected_artifact(artifact_path, &payload_bytes) {
+        let artifact = match publish_selected_payload(
+            &artifact_path,
+            &payload_bytes,
+            limits.max_serialized_fst_bytes(),
+        ) {
             Ok(artifact) => artifact,
-            Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
+            Err(outcome) => return outcome,
         };
         let result_size = match serde_json::to_vec(&CompileWorkerResult {
             protocol_version: WORKER_PROTOCOL_VERSION,
@@ -712,7 +822,11 @@ fn compile_selected_from_request(
         }
     })();
     if !matches!(&outcome, CompileWorkerOutcome::SelectedSuccess { .. }) {
-        cleanup_selected_partial(artifact_path);
+        if let Err(cleanup_error) = cleanup_selected_output(&artifact_path) {
+            return CompileWorkerOutcome::SelectedCompileFailed {
+                detail: format!("{outcome:?}; {cleanup_error}"),
+            };
+        }
     }
     outcome
 }
@@ -887,8 +1001,8 @@ impl WorkerOutcome {
                     actual_bytes,
                     limit_bytes,
                 } => HealthReport::new(vec![HealthFinding {
-                    code: FindingCode::HostContainmentFired,
-                    severity: Severity::MachineLimit,
+                    code: FindingCode::ResourceBudgetReached,
+                    severity: Severity::NotProductionReady,
                     phase: Phase::Compile,
                     affected: Vec::new(),
                     metric: Metric::PayloadBytes,
@@ -1099,8 +1213,8 @@ fn classify_exit(
 /// until the child exits or `limits.max_wall_time()` is breached -- whichever comes first -- returning exactly one
 /// typed `WorkerOutcome`.
 ///
-/// No Tokio, no process tree, no Job Objects/cgroups (platform parity, above) -- `std::process::Command`/
-/// `Child::try_wait`/`Child::kill` plus two capped reader threads are the entire mechanism.
+/// `std::process::Command`/`Child::try_wait`/`Child::kill` plus two capped reader threads are the
+/// worker mechanism; any broader host process-tree policy belongs to the caller.
 /// Windows-compatible: every API used here is cross-platform in the standard library, with no
 /// Unix-only assumption (no signals, no `/proc` path assumed directly).
 pub fn run_compile_worker(
@@ -1246,7 +1360,7 @@ pub fn run_selected_compile_worker(
     let selected = SelectedCompileRequest {
         attempt_id: request.attempt_id().as_str().to_string(),
         route: preferred.label().to_string(),
-        artifact_path: artifact_path.to_string_lossy().into_owned(),
+        artifact_directory: transport_dir.to_string_lossy().into_owned(),
         max_serialized_fst_bytes: limits.max_serialized_fst_bytes(),
     };
     let mut worker_request = CompileWorkerRequest::new(grammar_path.to_string(), grammar_format);
@@ -1287,10 +1401,20 @@ pub fn run_selected_compile_worker(
             "selected compile worker did not return a payload: {other:?}"
         ))),
     };
-    let cleanup_result = cleanup_selected_transport_dir(&transport_dir);
+    let output_cleanup_result = cleanup_selected_output(&artifact_path);
+    let directory_cleanup_result = cleanup_selected_transport_dir(&transport_dir);
+    let cleanup_result = match (output_cleanup_result, directory_cleanup_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(output_error), Err(directory_error)) => Err(format!(
+            "{output_error}; selected transport directory cleanup failed: {directory_error}"
+        )),
+    };
     match (result, cleanup_result) {
         (Ok(build), Ok(())) => Ok(build),
-        (Ok(_), Err(cleanup_error)) => Err(cleanup_error),
+        (Ok(_), Err(cleanup_error)) => Err(crate::completed_build::CompletedBuildError::Compiler(
+            cleanup_error,
+        )),
         (Err(error), Ok(())) => Err(error),
         (Err(error), Err(cleanup_error)) => {
             Err(crate::completed_build::CompletedBuildError::Compiler(
@@ -1300,14 +1424,19 @@ pub fn run_selected_compile_worker(
     }
 }
 
+fn selected_transport_dir_basename(attempt_id: &str) -> String {
+    format!("pangloss-selected-{attempt_id}")
+}
+
 fn selected_transport_dir(
     attempt_id: &str,
 ) -> Result<PathBuf, crate::completed_build::CompletedBuildError> {
-    let transport_dir = std::env::temp_dir().join(format!(
-        "pangloss-selected-{}-{}",
-        std::process::id(),
-        attempt_id
-    ));
+    let temp_root = fs::canonicalize(std::env::temp_dir()).map_err(|error| {
+        crate::completed_build::CompletedBuildError::Compiler(format!(
+            "canonicalize system temp directory: {error}"
+        ))
+    })?;
+    let transport_dir = temp_root.join(selected_transport_dir_basename(attempt_id));
     fs::create_dir(&transport_dir).map_err(|error| {
         crate::completed_build::CompletedBuildError::Compiler(format!(
             "create selected transport directory {}: {error}",
@@ -1321,15 +1450,15 @@ fn selected_artifact_path(transport_dir: &Path) -> PathBuf {
     transport_dir.join("selected.fst")
 }
 
-fn cleanup_selected_transport_dir(
-    transport_dir: &Path,
-) -> Result<(), crate::completed_build::CompletedBuildError> {
-    fs::remove_dir_all(transport_dir).map_err(|error| {
-        crate::completed_build::CompletedBuildError::Compiler(format!(
+fn cleanup_selected_transport_dir(transport_dir: &Path) -> Result<(), String> {
+    match fs::remove_dir_all(transport_dir) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
             "remove selected transport directory {}: {error}",
             transport_dir.display()
-        ))
-    })
+        )),
+    }
 }
 
 fn read_selected_artifact(
@@ -1348,7 +1477,15 @@ fn read_selected_artifact(
             ),
         ));
     }
-    let metadata = fs::metadata(&expected_path).map_err(|error| {
+    let file = OpenOptions::new()
+        .read(true)
+        .open(&expected_path)
+        .map_err(|error| {
+            crate::completed_build::CompletedBuildError::Compiler(format!(
+                "selected artifact open failed for {expected_display}: {error}"
+            ))
+        })?;
+    let metadata = file.metadata().map_err(|error| {
         crate::completed_build::CompletedBuildError::Compiler(format!(
             "selected artifact metadata failed for {expected_display}: {error}"
         ))
@@ -1372,11 +1509,14 @@ fn read_selected_artifact(
             ),
         ));
     }
-    let payload = fs::read(&expected_path).map_err(|error| {
-        crate::completed_build::CompletedBuildError::Compiler(format!(
-            "selected artifact read failed for {expected_display}: {error}"
-        ))
-    })?;
+    let mut payload = Vec::new();
+    file.take(max_serialized_fst_bytes.saturating_add(1))
+        .read_to_end(&mut payload)
+        .map_err(|error| {
+            crate::completed_build::CompletedBuildError::Compiler(format!(
+                "selected artifact read failed for {expected_display}: {error}"
+            ))
+        })?;
     let payload_len = payload.len() as u64;
     if payload_len != descriptor.byte_len || payload_len > max_serialized_fst_bytes {
         return Err(crate::completed_build::CompletedBuildError::Compiler(
@@ -1484,7 +1624,10 @@ mod tests {
         let error = selected_artifact_path_from_request(&request)
             .expect_err("child must reject an unreserved artifact directory");
 
-        assert!(error.contains("reserved selected transport directory"), "{error}");
+        assert!(
+            error.contains("reserved selected transport directory"),
+            "{error}"
+        );
         fs::remove_dir(&arbitrary_dir).expect("remove arbitrary directory");
     }
 
@@ -1518,7 +1661,10 @@ mod tests {
 
         let json = serde_json::to_value(result).expect("serialize selected success");
 
-        assert_eq!(json["outcome"]["SelectedSuccess"]["artifact"]["byte_len"], 4);
+        assert_eq!(
+            json["outcome"]["SelectedSuccess"]["artifact"]["byte_len"],
+            4
+        );
         assert!(
             !json.to_string().contains("payload_bytes"),
             "selected result must contain metadata only: {json}"
@@ -1527,12 +1673,11 @@ mod tests {
 
     #[test]
     fn selected_serialized_size_limit_is_an_internal_resource_finding() {
-        let outcome = WorkerOutcome::Completed(
-            CompileWorkerOutcome::SelectedExecutionLimitExceeded {
+        let outcome =
+            WorkerOutcome::Completed(CompileWorkerOutcome::SelectedExecutionLimitExceeded {
                 actual_bytes: 4,
                 limit_bytes: 3,
-            },
-        );
+            });
 
         let health = outcome.health_report();
 
