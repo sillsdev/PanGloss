@@ -445,17 +445,13 @@ pub enum CompileWorkerOutcome {
 pub(crate) struct SelectedCompileRequest {
     pub(crate) attempt_id: String,
     pub(crate) route: String,
-    pub(crate) artifact_directory: String,
     pub(crate) max_serialized_fst_bytes: u64,
 }
 
-/// Descriptor for the selected payload written out-of-band by the worker child. The path is
-/// transport state, not completed-build identity; the parent accepts it only when it exactly
-/// matches the path it generated for this attempt.
+/// Evidence for the selected payload written by the worker child.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SelectedArtifactDescriptor {
-    pub(crate) path: String,
     pub(crate) byte_len: u64,
     pub(crate) sha256: String,
 }
@@ -578,46 +574,19 @@ fn strategy_from_worker_route(route: &str) -> Result<EmissionStrategy, String> {
     }
 }
 
-fn selected_artifact_temp_path(path: &Path) -> PathBuf {
-    PathBuf::from(format!("{}.tmp", path.display()))
-}
-
-/// Removes both selected output paths. A missing path is already clean; every other filesystem
-/// failure is retained so callers can report it alongside the operation that failed.
+/// Remove the attempt's direct artifact path. A missing path is already clean.
 fn cleanup_selected_output(path: &Path) -> Result<(), String> {
-    let mut failures = Vec::new();
-    for candidate in [path.to_path_buf(), selected_artifact_temp_path(path)] {
-        match fs::remove_file(&candidate) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => failures.push(format!("{}: {error}", candidate.display())),
-        }
-    }
-    if failures.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "selected output cleanup failed: {}",
-            failures.join("; ")
-        ))
-    }
-}
-
-fn cleanup_selected_temp(path: &Path) -> Result<(), String> {
-    let temp_path = selected_artifact_temp_path(path);
-    match fs::remove_file(&temp_path) {
+    match fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(format!(
-            "selected artifact temp cleanup failed for {}: {error}",
-            temp_path.display()
+            "remove selected artifact {}: {error}",
+            path.display()
         )),
     }
 }
 
-/// Publishes a selected payload only after its serialized-size limit has passed. The temporary
-/// file is created exclusively and then hard-linked into the final name, making final publication
-/// atomic without ever replacing an existing artifact.
+/// Publish the payload directly into its attempt-owned path.
 fn publish_selected_payload(
     path: &Path,
     payload_bytes: &[u8],
@@ -631,61 +600,29 @@ fn publish_selected_payload(
         });
     }
 
-    let temp_path = selected_artifact_temp_path(path);
-    let write_result: Result<SelectedArtifactDescriptor, String> = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_path)
-            .map_err(|error| {
-                format!(
-                    "create selected artifact temp file {}: {error}",
-                    temp_path.display()
-                )
-            })?;
-        file.write_all(payload_bytes).map_err(|error| {
-            format!(
-                "write selected artifact temp file {}: {error}",
-                temp_path.display()
-            )
-        })?;
-        file.sync_all().map_err(|error| {
-            format!(
-                "flush selected artifact temp file {}: {error}",
-                temp_path.display()
-            )
-        })?;
-        drop(file);
-        fs::hard_link(&temp_path, path).map_err(|error| {
-            format!(
-                "atomically publish selected artifact {} -> {} without replacing an existing file: {error}",
-                temp_path.display(),
-                path.display()
-            )
-        })?;
-        fs::remove_file(&temp_path).map_err(|error| {
-            format!(
-                "remove selected artifact temp file {} after publication: {error}",
-                temp_path.display()
-            )
-        })?;
-        Ok(SelectedArtifactDescriptor {
-            path: path.to_string_lossy().into_owned(),
-            byte_len: actual_bytes,
-            sha256: sha256_hex(payload_bytes),
-        })
-    })();
-    match write_result {
-        Ok(descriptor) => Ok(descriptor),
-        Err(detail) => {
-            let cleanup = cleanup_selected_temp(path);
-            let detail = match cleanup {
-                Ok(()) => detail,
-                Err(cleanup_error) => format!("{detail}; {cleanup_error}"),
-            };
-            Err(CompileWorkerOutcome::SelectedCompileFailed { detail })
+    let mut file = match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(file) => file,
+        Err(error) => {
+            return Err(CompileWorkerOutcome::SelectedCompileFailed {
+                detail: format!("create selected artifact {}: {error}", path.display()),
+            });
         }
+    };
+
+    let write_result = file.write_all(payload_bytes).and_then(|_| file.sync_all());
+    if let Err(error) = write_result {
+        let detail = format!("write selected artifact {}: {error}", path.display());
+        let detail = match cleanup_selected_output(path) {
+            Ok(()) => detail,
+            Err(cleanup_error) => format!("{detail}; {cleanup_error}"),
+        };
+        return Err(CompileWorkerOutcome::SelectedCompileFailed { detail });
     }
+
+    Ok(SelectedArtifactDescriptor {
+        byte_len: actual_bytes,
+        sha256: sha256_hex(payload_bytes),
+    })
 }
 
 #[cfg(test)]
@@ -703,41 +640,22 @@ fn write_selected_artifact(
     }
 }
 
-fn selected_artifact_path_from_request(
-    selected: &SelectedCompileRequest,
-) -> Result<PathBuf, String> {
+fn selected_artifact_path_for_attempt(attempt_id: &str) -> Result<PathBuf, String> {
+    let bytes = attempt_id.as_bytes();
+    let valid = bytes.len() == 40
+        && bytes.starts_with(b"attempt-")
+        && bytes[8..]
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte));
+    if !valid {
+        return Err(
+            "attempt id must be attempt- followed by 32 lowercase hex characters".to_string(),
+        );
+    }
+
     let temp_root = fs::canonicalize(std::env::temp_dir())
         .map_err(|error| format!("canonicalize system temp directory: {error}"))?;
-    let requested_dir = PathBuf::from(&selected.artifact_directory);
-    let metadata = fs::symlink_metadata(&requested_dir).map_err(|error| {
-        format!(
-            "selected artifact directory {} is not an existing directory: {error}",
-            requested_dir.display()
-        )
-    })?;
-    if !metadata.is_dir() {
-        return Err(format!(
-            "selected artifact directory {} is not a directory",
-            requested_dir.display()
-        ));
-    }
-    let canonical_dir = fs::canonicalize(&requested_dir).map_err(|error| {
-        format!(
-            "canonicalize selected artifact directory {}: {error}",
-            requested_dir.display()
-        )
-    })?;
-    let expected_basename = selected_transport_dir_basename(&selected.attempt_id);
-    let is_direct_reserved_child = canonical_dir.parent() == Some(temp_root.as_path())
-        && canonical_dir.file_name().and_then(|name| name.to_str())
-            == Some(expected_basename.as_str());
-    if !is_direct_reserved_child {
-        return Err(format!(
-            "selected artifact directory must be the reserved selected transport directory {} directly under canonical system temp",
-            expected_basename
-        ));
-    }
-    Ok(canonical_dir.join("selected.fst"))
+    Ok(temp_root.join(format!("pangloss-selected-{attempt_id}.fst")))
 }
 
 fn compile_selected_from_request(
@@ -745,10 +663,11 @@ fn compile_selected_from_request(
     selected: &SelectedCompileRequest,
     limits: &ExecutionLimits,
 ) -> CompileWorkerOutcome {
-    let artifact_path = match selected_artifact_path_from_request(selected) {
+    let artifact_path = match selected_artifact_path_for_attempt(&selected.attempt_id) {
         Ok(path) => path,
         Err(detail) => return CompileWorkerOutcome::SelectedCompileFailed { detail },
     };
+    let mut artifact_created = false;
     let outcome = (|| {
         let strategy = match strategy_from_worker_route(&selected.route) {
             Ok(strategy) => strategy,
@@ -779,13 +698,6 @@ fn compile_selected_from_request(
             }
         };
         let (wire, payload_bytes) = completed.into_wire_and_payload();
-        let actual_bytes = payload_bytes.len() as u64;
-        if actual_bytes > limits.max_serialized_fst_bytes() {
-            return CompileWorkerOutcome::SelectedExecutionLimitExceeded {
-                actual_bytes,
-                limit_bytes: limits.max_serialized_fst_bytes(),
-            };
-        }
         let artifact = match publish_selected_payload(
             &artifact_path,
             &payload_bytes,
@@ -794,6 +706,7 @@ fn compile_selected_from_request(
             Ok(artifact) => artifact,
             Err(outcome) => return outcome,
         };
+        artifact_created = true;
         let result_size = match serde_json::to_vec(&CompileWorkerResult {
             protocol_version: WORKER_PROTOCOL_VERSION,
             outcome: CompileWorkerOutcome::SelectedSuccess {
@@ -821,7 +734,7 @@ fn compile_selected_from_request(
             artifact,
         }
     })();
-    if !matches!(&outcome, CompileWorkerOutcome::SelectedSuccess { .. }) {
+    if artifact_created && !matches!(&outcome, CompileWorkerOutcome::SelectedSuccess { .. }) {
         if let Err(cleanup_error) = cleanup_selected_output(&artifact_path) {
             return CompileWorkerOutcome::SelectedCompileFailed {
                 detail: format!("{outcome:?}; {cleanup_error}"),
@@ -1355,12 +1268,16 @@ pub fn run_selected_compile_worker(
     let preferred = selection
         .preferred()
         .ok_or(crate::completed_build::CompletedBuildError::NoMatchingCompletedBuild)?;
-    let transport_dir = selected_transport_dir(request.attempt_id().as_str())?;
-    let artifact_path = selected_artifact_path(&transport_dir);
+    let artifact_path = selected_artifact_path_for_attempt(request.attempt_id().as_str())
+        .map_err(crate::completed_build::CompletedBuildError::Compiler)?;
+    let parent_owns_artifact = match fs::symlink_metadata(&artifact_path) {
+        Ok(_) => false,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+        Err(_) => false,
+    };
     let selected = SelectedCompileRequest {
         attempt_id: request.attempt_id().as_str().to_string(),
         route: preferred.label().to_string(),
-        artifact_directory: transport_dir.to_string_lossy().into_owned(),
         max_serialized_fst_bytes: limits.max_serialized_fst_bytes(),
     };
     let mut worker_request = CompileWorkerRequest::new(grammar_path.to_string(), grammar_format);
@@ -1401,14 +1318,10 @@ pub fn run_selected_compile_worker(
             "selected compile worker did not return a payload: {other:?}"
         ))),
     };
-    let output_cleanup_result = cleanup_selected_output(&artifact_path);
-    let directory_cleanup_result = cleanup_selected_transport_dir(&transport_dir);
-    let cleanup_result = match (output_cleanup_result, directory_cleanup_result) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-        (Err(output_error), Err(directory_error)) => Err(format!(
-            "{output_error}; selected transport directory cleanup failed: {directory_error}"
-        )),
+    let cleanup_result = if parent_owns_artifact {
+        cleanup_selected_output(&artifact_path)
+    } else {
+        Ok(())
     };
     match (result, cleanup_result) {
         (Ok(build), Ok(())) => Ok(build),
@@ -1418,46 +1331,9 @@ pub fn run_selected_compile_worker(
         (Err(error), Ok(())) => Err(error),
         (Err(error), Err(cleanup_error)) => {
             Err(crate::completed_build::CompletedBuildError::Compiler(
-                format!("{error}; selected transport cleanup also failed: {cleanup_error}"),
+                format!("{error}; selected artifact cleanup also failed: {cleanup_error}"),
             ))
         }
-    }
-}
-
-fn selected_transport_dir_basename(attempt_id: &str) -> String {
-    format!("pangloss-selected-{attempt_id}")
-}
-
-fn selected_transport_dir(
-    attempt_id: &str,
-) -> Result<PathBuf, crate::completed_build::CompletedBuildError> {
-    let temp_root = fs::canonicalize(std::env::temp_dir()).map_err(|error| {
-        crate::completed_build::CompletedBuildError::Compiler(format!(
-            "canonicalize system temp directory: {error}"
-        ))
-    })?;
-    let transport_dir = temp_root.join(selected_transport_dir_basename(attempt_id));
-    fs::create_dir(&transport_dir).map_err(|error| {
-        crate::completed_build::CompletedBuildError::Compiler(format!(
-            "create selected transport directory {}: {error}",
-            transport_dir.display()
-        ))
-    })?;
-    Ok(transport_dir)
-}
-
-fn selected_artifact_path(transport_dir: &Path) -> PathBuf {
-    transport_dir.join("selected.fst")
-}
-
-fn cleanup_selected_transport_dir(transport_dir: &Path) -> Result<(), String> {
-    match fs::remove_dir_all(transport_dir) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!(
-            "remove selected transport directory {}: {error}",
-            transport_dir.display()
-        )),
     }
 }
 
@@ -1469,14 +1345,6 @@ fn read_selected_artifact(
 ) -> Result<(CompletedBackendBuildWire, Vec<u8>), crate::completed_build::CompletedBuildError> {
     let expected_path = expected_path.to_path_buf();
     let expected_display = expected_path.display().to_string();
-    if descriptor.path != expected_display {
-        return Err(crate::completed_build::CompletedBuildError::Compiler(
-            format!(
-                "selected artifact path mismatch: expected {expected_display}, got {}",
-                descriptor.path
-            ),
-        ));
-    }
     let file = OpenOptions::new()
         .read(true)
         .open(&expected_path)
