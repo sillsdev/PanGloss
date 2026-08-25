@@ -955,7 +955,7 @@ impl WorkerOutcome {
 fn build_process_failure_health(detail: String) -> HealthReport {
     HealthReport::new(vec![HealthFinding {
         code: FindingCode::BuildProcessFailed,
-        severity: Severity::MachineLimit,
+        severity: Severity::NotProductionReady,
         phase: Phase::Compile,
         affected: Vec::new(),
         metric: Metric::UnknownUnboundedWork,
@@ -1301,7 +1301,8 @@ mod tests {
         for outcome in cases {
             let health = WorkerOutcome::Completed(outcome).health_report();
             assert!(!health.findings.is_empty());
-            assert_eq!(health.admission(), Severity::MachineLimit);
+            // A tooling fault still refuses publication, but naming it a host abort would be wrong.
+            assert_eq!(health.admission(), Severity::NotProductionReady);
             assert!(health
                 .findings
                 .iter()

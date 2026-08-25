@@ -471,7 +471,7 @@ pub struct QuantifierPatternDetail {
     /// bounded one does, `compile_attempted` below is the only fact that matters for disposition
     /// now) — `all_bounded` is retained purely as structural evidence for OTHER consumers,
     /// specifically `crate::characterization`'s own per-rule cost-uncertainty health finding (an unbounded
-    /// quantifier's own FST-compile cost is not characterization-boundable ahead of time, a `Warning`-level
+    /// quantifier's own FST-compile cost is not characterization-boundable ahead of time, a `LargeMultiplier`-level
     /// observation independent of whether the grammar's capability gate admits the rule).
     pub all_bounded: bool,
     /// `true` iff `rtl_reversal_construction_attempted` accepts this rule's WHOLE pattern shape
