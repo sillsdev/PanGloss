@@ -3,13 +3,20 @@
 Opened 2026-08-04. **Running tab, not a one-off audit.** Add to it whenever a doc comment is found
 disagreeing with what the code actually does; strike entries as they are fixed.
 
-> **Current policy note (2026-08-23).** References to `allow_unproven` below document code
-> reachability, not a public production escape. `--allow-unproven`, `--remove-size-limits`, and
-> legacy `--no-enforce-capability` are developer-build-only and production must hide/reject them.
-> The first may lose valid parses and may write local developer evidence, but never production-publishes
-> or certifies; the second removes internal
-> caps only under exact completion and mandatory outer containment. `Error` may be complete/accurate
-> stress evidence but is production-unready; `Critical` is a correctness gap.
+> **Current policy note (2026-08-23, vocabulary aligned 2026-08-24).** References to
+> `allow_unproven` below document code reachability, not a public production escape.
+> `--allow-unproven`, `--remove-size-limits`, and legacy `--no-enforce-capability` are
+> developer-build-only and production must hide/reject them. The first may lose valid parses and may
+> write local developer evidence, but never production-publishes or certifies; the second removes
+> internal caps only under exact completion and mandatory outer containment. `NotProductionReady`
+> (formerly spelled `Error`) may be complete/accurate stress evidence but is production-unready — it
+> is a label on an already-compiled artifact and never blocks compiling. `CannotRepresent` (formerly
+> spelled `Critical`, where it named a representability gap rather than host containment) is a
+> correctness/representability gap: it blocks compiling for the affected feature and is never
+> overridable by production selection. See
+> `docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md` for the
+> full four-verdict model (`LargeMultiplier`, `CannotRepresent`, `NotProductionReady`,
+> `MachineLimit`).
 
 ## Why this file exists
 
@@ -400,6 +407,7 @@ this ledger that cannot state what it examined as unverified.
 | `docs/fst-plan/grammar-optimization-techniques.md:521` vs project notes | Same harness called both "the one dimension with no measurement gap" and a thing that must still be built | **fixed** `554cfbd` |
 | `rust/tools/typology-speedup.sh` | Only driver for a finished harness; bash + bare cargo on a Windows box with a hook that refuses it | **fixed** `554cfbd` |
 | `capability.rs:1538` | Records a *previous* stale-doc correction in place — evidence this class recurs | open |
+| `openspec/changes/archive/2026-08-08-define-fst-compilation-health/design.md:13-16` | Present tense, unqualified: *"Error and Critical are BOTH overridable via the ADR 0005 capability override (an explicit per-compilation override, permanently recorded in reports and the pack manifest); the trust axis is binary and the only non-overridable floor is ADR 0003 apply-time execution containment, never a predicted health/size verdict."* Superseded by the four-verdict model (`docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`): `CannotRepresent` (this document's Critical, when naming a representability gap) is never overridable by production selection at all, and `NotProductionReady` (this document's Error) never blocked compiling in the first place, so it needed no override to begin with | **fixed 2026-08-24** — superseded banner added at the top of the archived doc naming the current spec and quoting the false claim; body left intact as history |
 
 ## The standing fix, not just the instances
 
