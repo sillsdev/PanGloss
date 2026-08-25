@@ -337,7 +337,7 @@ pub mod uflexc;
 pub(crate) mod unordered;
 /// The compile-worker watchdog -- a versioned request/result
 /// protocol, a killable native worker process (`std::process::Command`/`Child::try_wait`/
-/// `Child::kill`, sampled RSS via `sysinfo`), and typed outcomes mapped into `health`'s existing
+/// `Child::kill`), and typed outcomes mapped into `health`'s existing
 /// vocabulary. COMPILE-side containment, distinct from `compose_budget`'s in-process
 /// cooperative APPLY-side budgets -- see that module's own doc. `#[cfg(not(target_arch =
 /// "wasm32"))]`: this crate's own wasm32 dependency-graph discipline (WASM is analysis-only

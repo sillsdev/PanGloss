@@ -67,8 +67,8 @@ pg-parse.workspace = true
 # analysis-only and needs no compile watchdog" / R2A's "WASM... dependency graph SHALL NOT contain
 # FST compiler construction" ethos applied to this worker.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# The compile worker's sampled-RSS guardrail (R2: "sampled RSS through a Rust-1.90-compatible
-# `sysinfo` release"). Pinned once at the workspace root; see `worker.rs`'s own doc.
+# The production oracle preparation path samples its own process RSS. Pinned once at the workspace
+# root; see `backend_runtime.rs`'s own docs.
 sysinfo.workspace = true
 # The worker child's own `.xml`/`.json`/`.fwdata` grammar-source dispatch (`worker.rs`'s
 # `load_grammar_for_worker`, mirroring `pg-cli::load_grammar`'s three-way extension dispatch so the

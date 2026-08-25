@@ -627,14 +627,14 @@ fn run_fst_health_under_watchdog(
 ) -> Result<(pg_foma::health::HealthReport, bool), String> {
     let format = infer_grammar_format(grammar_path);
     let request = pg_foma::worker::CompileWorkerRequest::new(grammar_path.to_string(), format);
-    let envelope = pg_foma::worker::WatchdogEnvelope::default_envelope();
+    let limits = pg_foma::worker::DEFAULT_EXECUTION_LIMITS;
     let exe = std::env::current_exe()
         .map_err(|e| format!("--watchdog: could not resolve this executable's own path: {e}"))?;
     let outcome = pg_foma::worker::run_compile_worker(
         &exe,
         &["__compile-worker-child".to_string()],
         &request,
-        &envelope,
+        &limits,
     );
     eprintln!("watchdog: compile-worker outcome: {outcome:?}");
     let worker_containment_failed = worker_containment_fired(&outcome);

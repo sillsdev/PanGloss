@@ -9,16 +9,14 @@
 //! **Platform parity.** Windows and Linux are equal,
 //! first-class native production targets. Both use ONE compiler worker, ONE versioned
 //! request/result protocol, standard-library `Child::try_wait`/`Child::kill` wall-time control,
-//! deterministic compiler budgets, bounded input/output, and sampled RSS through a
-//! Rust-1.90-compatible `sysinfo` release. Production compilation launches no descendants, so Job
-//! Objects, cgroups, process-tree management, Tokio, and `processkit` are out of scope. Sampled RSS
-//! is reported with its interval and observed peak; it is NOT called a hard memory ceiling. WASM is
-//! analysis-only and needs no compile watchdog.
+//! deterministic compiler budgets, and bounded input/output. Production compilation launches no
+//! descendants, so Job Objects, cgroups, process-tree management, Tokio, and `processkit` are out
+//! of scope. WASM is analysis-only and needs no compile watchdog.
 //!
 //! **Fast-failure primacy.** Deterministic logical counters are the primary fast-failure mechanism;
 //! cooperative
-//! elapsed checks and the parent wall timeout are outer safeguards. This module's wall-clock/RSS
-//! checks are exactly that outer safeguard -- `CompileWorkerRequest::compose_budget` is what the
+//! elapsed checks and the parent wall timeout are outer safeguards. This module's wall-clock check
+//! is exactly that outer safeguard -- `CompileWorkerRequest::compose_budget` is what the
 //! child compiles UNDER (the same `crate::compose_budget::ComposeBudget` every other production
 //! call site uses), never a substitute for it.
 //!
@@ -29,7 +27,7 @@
 //!
 //! # Why this whole module is non-wasm only
 //! `#[cfg(not(target_arch = "wasm32"))]`-gated in `lib.rs`, and its three extra dependencies
-//! (`sysinfo`, `pg-snapshot`, `pg-fwdata`) are scoped to the identical target cfg in this crate's
+//! (`pg-snapshot`, `pg-fwdata`) are scoped to the identical target cfg in this crate's
 //! `Cargo.toml` -- not merely dead code on wasm32, genuinely absent from `pg-wasm`'s dependency
 //! graph, mirroring the contract above: "WASM is analysis-only and needs no compile watchdog." `wasm32-unknown-
 //! unknown` has no `std::process::Command`, so a process-spawning watchdog cannot exist there by
@@ -49,8 +47,8 @@
 //!   `Result`.
 //! - **Supervisor** (`run_compile_worker`): spawns a child process (`std::process::Command`),
 //!   writes the request, drains stdout/stderr on capped reader threads, and polls
-//!   `Child::try_wait` in a loop that also samples the child's RSS via `sysinfo` and checks a wall
-//!   deadline -- killing the child (`Child::kill`) and returning a typed `WorkerOutcome` the
+//!   `Child::try_wait` in a loop that checks a wall deadline -- killing the child (`Child::kill`)
+//!   and returning a typed `WorkerOutcome` the
 //!   instant any bound is breached. No Tokio, no process tree, no Job Objects/cgroups (platform
 //!   parity, above); the
 //!   only "descendant" is the one worker process itself.
@@ -63,28 +61,15 @@
 //! `crate::analyzer::FomaError` variant before ever handing lexc to the foma compiler) and feeds
 //! every measurement into `crate::health_evaluator::evaluate_health` to build a real
 //! `crate::health::HealthReport` -- never a second, parallel report shape. `WorkerOutcome`
-//! (what the PARENT reports for outcomes the child never got to write -- a wall-timeout kill, an
-//! RSS breach, a flooded pipe, a crash, a malformed protocol message) maps each into the SAME
+//! (what the PARENT reports for outcomes the child never got to write -- a wall-timeout kill, a
+//! flooded pipe, a crash, a malformed protocol message) maps each into the SAME
 //! `crate::health::HealthReport`/`crate::health::HealthFinding` vocabulary via
-//! `WorkerOutcome::health_report`. A genuine external-monitor abort (wall-timeout, RSS, output
+//! `WorkerOutcome::health_report`. A genuine external-monitor abort (wall-timeout, output
 //! cap, child crash) uses `crate::health::FindingCode::HostContainmentFired`; a spawn/protocol
 //! fault where no child ever ran to be contained (`SpawnFailed`, `ProtocolViolation`) is instead a
 //! build-process fault and uses `crate::health::FindingCode::BuildProcessFailed` (see
-//! `WorkerOutcome::health_report`'s own doc for the reasoning). `crate::health::
-//! Metric::SampledCompileRssBytes` is appended, never inserted or renumbered -- the same "new
-//! codes/variants only ever append" discipline `crate::health`'s own module doc documents, and the
-//! same reuse this crate's `OrderingRuleCount`/`enum_budget_finding` precedents already established
-//! for "no existing variant fits, but the finding vocabulary itself is closed against inventing a
-//! whole second schema".
-//!
-//! # Sampled RSS is not a hard ceiling (the platform-parity contract's exact wording matters)
-//! `WorkerOutcome::RssLimitExceeded`'s own doc, `sample_rss_mb`'s own doc, and every place this
-//! module surfaces a sampled RSS value in prose all say the same thing the contract above says verbatim:
-//! **allocation can occur between samples, so a sampled value below the limit is never proof the
-//! child never exceeded it, and a sampled value above the limit is a real observed measurement,
-//! not a kernel-enforced ceiling.** The kill this module performs on breach is real (the child
-//! process really is killed); the *measurement* that triggered it is a periodic sample, not a
-//! continuously enforced hardware/kernel limit the way, say, a cgroup memory controller would be.
+//! `WorkerOutcome::health_report`'s own doc for the reasoning). The health vocabulary remains
+//! shared with the rest of the crate; this module does not add a parallel report shape.
 //!
 //! # Opt-in, additive, default path unchanged
 //! Nothing in this module is called by `crate::analyzer::FomaProposer::new`/`new_with_profile`,
@@ -212,12 +197,8 @@ impl Default for ExecutionLimits {
 }
 
 /// Versioned, hard-coded ceilings for this protocol (design discipline shared with
-/// `pg_pack::format::VersionLimits`: every configurable dimension has a hard-coded, versioned,
-/// deliberately high absolute ceiling).
-/// These bound the WIRE MESSAGES themselves (request/result JSON frames, captured stdout/stderr) --
-/// a completely different thing from `ComposeBudget`'s logical compile-work caps or this
-/// watchdog's own wall-clock/RSS fields, all three of which travel INSIDE a request that itself
-/// must first pass these frame-level limits.
+/// `pg_pack::format::VersionLimits`). These bound the WIRE MESSAGES themselves (request/result JSON
+/// frames and captured stderr), not compile execution policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorkerProtocolLimits {
     /// Ceiling on one serialized `CompileWorkerRequest` frame's byte length.
@@ -226,13 +207,6 @@ pub struct WorkerProtocolLimits {
     pub max_result_bytes: u64,
     /// Ceiling on total captured stderr bytes the supervisor retains from the child.
     pub max_captured_stderr_bytes: u64,
-    /// Absolute ceiling on a caller-requested wall-clock timeout -- see `WatchdogEnvelope::clamped`.
-    pub max_wall_timeout_ms: u64,
-    /// Absolute ceiling on a caller-requested RSS guardrail, in mebibytes.
-    pub max_rss_limit_mb: u64,
-    /// Floor on the RSS sampling interval -- prevents a caller from requesting a busy-loop sample
-    /// rate that would itself become the resource problem.
-    pub min_rss_sample_interval_ms: u64,
 }
 
 /// The current protocol's limits. Deliberately generous relative to this protocol's own content (a
@@ -244,9 +218,6 @@ pub const WORKER_PROTOCOL_LIMITS: WorkerProtocolLimits = WorkerProtocolLimits {
     max_request_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_request_bytes,
     max_result_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_result_bytes,
     max_captured_stderr_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_captured_stderr_bytes,
-    max_wall_timeout_ms: crate::worker_contract::PROTOCOL_LIMITS.max_wall_timeout_ms,
-    max_rss_limit_mb: crate::worker_contract::PROTOCOL_LIMITS.max_rss_limit_mb,
-    min_rss_sample_interval_ms: crate::worker_contract::PROTOCOL_LIMITS.min_rss_sample_interval_ms,
 };
 
 /// Looks up the versioned limits for a protocol version. `None` for any version this build
@@ -713,52 +684,6 @@ fn write_result<W: Write>(output: &mut W, result: &CompileWorkerResult) -> io::R
 
 // Supervisor (parent side).
 
-/// The parent-requested wall-time/RSS envelope, clamped to `WorkerProtocolLimits`' absolute ceilings --
-/// contractually clamps excessive values and provides no unlimited setting, applied here to the
-/// watchdog envelope exactly as `compose_budget::clamp_chain_depth_cap` applies
-/// it to the chain-depth dimension.
-#[derive(Debug, Clone, Copy)]
-pub struct WatchdogEnvelope {
-    pub wall_timeout: Duration,
-    pub rss_limit_mb: u64,
-    pub rss_sample_interval: Duration,
-}
-
-impl WatchdogEnvelope {
-    /// Clamps every field to `WORKER_PROTOCOL_LIMITS`' absolute ceilings/floors -- a total function with
-    /// no rejection path, mirroring `crate::compose_budget::clamp_chain_depth_cap`'s own "clamp,
-    /// don't reject" convention.
-    pub fn clamped(
-        wall_timeout: Duration,
-        rss_limit_mb: u64,
-        rss_sample_interval: Duration,
-    ) -> Self {
-        let limits = WORKER_PROTOCOL_LIMITS;
-        let wall_timeout_ms = (wall_timeout.as_millis() as u64).min(limits.max_wall_timeout_ms);
-        let rss_limit_mb = rss_limit_mb.min(limits.max_rss_limit_mb);
-        let interval_ms =
-            (rss_sample_interval.as_millis() as u64).max(limits.min_rss_sample_interval_ms);
-        WatchdogEnvelope {
-            wall_timeout: Duration::from_millis(wall_timeout_ms.max(1)),
-            rss_limit_mb: rss_limit_mb.max(1),
-            rss_sample_interval: Duration::from_millis(interval_ms),
-        }
-    }
-
-    /// A generous default envelope for an interactive/offline diagnostic invocation (`pangloss pack
-    /// --watchdog`): 2 minutes wall time, 4 GiB sampled-RSS guardrail, sampled every 200ms.
-    /// Calibrated defaults for this envelope are later work (mirrors every other budget dimension's
-    /// own "provisional, explicit, revisited by `calibrate-fst-resource-envelopes`" convention) --
-    /// this is a deliberately conservative, documented placeholder, not a final number.
-    pub fn default_envelope() -> Self {
-        Self::clamped(
-            Duration::from_millis(crate::worker_contract::DEFAULT_WALL_TIMEOUT_MS),
-            crate::worker_contract::DEFAULT_RSS_LIMIT_MB,
-            Duration::from_millis(crate::worker_contract::DEFAULT_RSS_SAMPLE_INTERVAL_MS),
-        )
-    }
-}
-
 /// Which captured output stream breached its byte cap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputStream {
@@ -777,13 +702,6 @@ pub enum WorkerOutcome {
     Completed(CompileWorkerOutcome),
     /// The child was killed after `elapsed` exceeded `limit` -- an outer host-safety watchdog, not the normal compiler-health cutoff; reaching this means an uninstrumented stall or too small an envelope.
     WallTimeoutKilled { elapsed: Duration, limit: Duration },
-    /// A sampled RSS reading exceeded `limit_mb` and the child was killed; `sampled_mb` is the triggering sample and `peak_mb` the run's highest, but sampling is periodic, not a hard ceiling.
-    RssLimitExceeded {
-        sampled_mb: u64,
-        limit_mb: u64,
-        interval: Duration,
-        peak_mb: u64,
-    },
     /// Captured stdout or stderr reached its byte cap and the child was killed; all four wire streams have versioned limits enforced by the parent.
     OutputLimitExceeded {
         stream: OutputStream,
@@ -805,7 +723,7 @@ impl WorkerOutcome {
     /// the child's own real report unchanged; every other variant builds ONE synthetic finding
     /// describing the parent-observed watchdog event.
     ///
-    /// **Two different facts, two different codes.** `WallTimeoutKilled`/`RssLimitExceeded`/
+    /// **Two different facts, two different codes.** `WallTimeoutKilled`/
     /// `OutputLimitExceeded`/`ChildCrashed` are all genuine external-monitor aborts -- the
     /// supervisor protecting the host from a runaway child -- so they use
     /// `FindingCode::HostContainmentFired` at `Severity::MachineLimit`. `ChildCrashed` is kept
@@ -818,9 +736,6 @@ impl WorkerOutcome {
     /// (`FindingClass::Process`) at `Severity::NotProductionReady`, matching
     /// `crate::backend_selection`'s own use of the same code for an operational build fault rather
     /// than `Severity::MachineLimit`, which would misname a tooling fault as host containment.
-    /// `Metric::SampledCompileRssBytes` is the one genuinely new `Metric` variant
-    /// this module appends (no existing variant names a sampled memory quantity at all -- see that
-    /// variant's own doc).
     pub fn health_report(&self) -> HealthReport {
         match self {
             WorkerOutcome::Completed(outcome) => match outcome {
@@ -858,29 +773,6 @@ impl WorkerOutcome {
                     remedies: Vec::new(),
                 }])
             }
-            WorkerOutcome::RssLimitExceeded {
-                sampled_mb,
-                limit_mb,
-                interval,
-                peak_mb,
-            } => HealthReport::new(vec![HealthFinding {
-                code: FindingCode::HostContainmentFired,
-                severity: Severity::MachineLimit,
-                phase: Phase::Compile,
-                affected: Vec::new(),
-                metric: Metric::SampledCompileRssBytes,
-                value: MetricValue::Bytes(sampled_mb.saturating_mul(1024 * 1024)),
-                provenance: ValueProvenance::Observed,
-                threshold: Some(MetricValue::Bytes(limit_mb.saturating_mul(1024 * 1024))),
-                explanation: format!(
-                    "The compile worker process was killed after a sampled RSS reading of \
-                     {sampled_mb} MiB exceeded its {limit_mb} MiB guardrail (sampled every \
-                     {interval:?}; peak observed sample: {peak_mb} MiB). This is a SAMPLED value, \
-                     not a hard memory ceiling -- allocation between samples means the process's \
-                     real peak RSS could have been higher than any individual sample recorded."
-                ),
-                remedies: Vec::new(),
-            }]),
             WorkerOutcome::OutputLimitExceeded {
                 stream,
                 limit_bytes,
@@ -1019,12 +911,6 @@ fn parse_result_frame(buf: &[u8]) -> Result<CompileWorkerResult, String> {
     Ok(result)
 }
 
-/// Samples one process's RSS in mebibytes via `sysinfo`, refreshing only that PID; returns `None` if the process has already exited (a benign race, not an error).
-fn sample_rss_mb(sys: &mut sysinfo::System, pid: sysinfo::Pid) -> Option<u64> {
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
-    sys.process(pid).map(|p| p.memory() / (1024 * 1024))
-}
-
 fn classify_exit(
     status: io::Result<ExitStatus>,
     stdout_buf: &Arc<Mutex<Vec<u8>>>,
@@ -1061,19 +947,18 @@ fn classify_exit(
 /// `Child::try_wait`/`Child::kill` wall-time control"): spawns `child_exe child_args...` (expected to eventually call `run_worker_child` on
 /// its own stdin/stdout -- e.g. `pangloss`'s hidden `__compile-worker-child` subcommand, or this
 /// crate's own `worker_test_child` test-support binary), writes `request` to its stdin, and polls
-/// until the child exits or `envelope` is breached -- whichever comes first -- returning exactly one
+/// until the child exits or `limits.max_wall_time()` is breached -- whichever comes first -- returning exactly one
 /// typed `WorkerOutcome`.
 ///
-/// No Tokio, no process tree, no Job Objects/cgroups (platform parity, above) -- `std::process::Command`/`Child::
-/// try_wait`/`Child::kill` plus two capped reader threads and a `sysinfo` sample per poll tick are
-/// the entire mechanism. Windows-compatible: every API used here (`Command`, `Child::kill`/
-/// `try_wait`, `sysinfo::System`) is cross-platform in the standard library / `sysinfo` itself, with
-/// no Unix-only assumption (no signals, no `/proc` path assumed directly).
+/// No Tokio, no process tree, no Job Objects/cgroups (platform parity, above) -- `std::process::Command`/
+/// `Child::try_wait`/`Child::kill` plus two capped reader threads are the entire mechanism.
+/// Windows-compatible: every API used here is cross-platform in the standard library, with no
+/// Unix-only assumption (no signals, no `/proc` path assumed directly).
 pub fn run_compile_worker(
     child_exe: &Path,
     child_args: &[String],
     request: &CompileWorkerRequest,
-    envelope: &WatchdogEnvelope,
+    limits: &ExecutionLimits,
 ) -> WorkerOutcome {
     let limits = WORKER_PROTOCOL_LIMITS;
 
@@ -1110,9 +995,6 @@ pub fn run_compile_worker(
         }
     };
 
-    let pid = child.id();
-    let sysinfo_pid = sysinfo::Pid::from_u32(pid);
-
     let mut stdin = child.stdin.take().expect("piped stdin");
     let stdin_handle = std::thread::spawn(move || {
         // Best-effort: a hung child that never reads stdin blocks only this thread, not the supervisor's poll loop, which still enforces the wall deadline.
@@ -1140,10 +1022,8 @@ pub fn run_compile_worker(
         Arc::clone(&stderr_overflow),
     );
 
-    let mut sys = sysinfo::System::new();
-    let mut peak_rss_mb: u64 = 0;
     let start = Instant::now();
-    let poll_interval = envelope.rss_sample_interval.min(Duration::from_millis(50));
+    let poll_interval = Duration::from_millis(50);
 
     let outcome = loop {
         match child.try_wait() {
@@ -1176,27 +1056,13 @@ pub fn run_compile_worker(
         }
 
         let elapsed = start.elapsed();
-        if elapsed >= envelope.wall_timeout {
+        if elapsed >= limits.max_wall_time() {
             let _ = child.kill();
             let _ = child.wait();
             break WorkerOutcome::WallTimeoutKilled {
                 elapsed,
-                limit: envelope.wall_timeout,
+                limit: limits.max_wall_time(),
             };
-        }
-
-        if let Some(rss_mb) = sample_rss_mb(&mut sys, sysinfo_pid) {
-            peak_rss_mb = peak_rss_mb.max(rss_mb);
-            if rss_mb > envelope.rss_limit_mb {
-                let _ = child.kill();
-                let _ = child.wait();
-                break WorkerOutcome::RssLimitExceeded {
-                    sampled_mb: rss_mb,
-                    limit_mb: envelope.rss_limit_mb,
-                    interval: envelope.rss_sample_interval,
-                    peak_mb: peak_rss_mb,
-                };
-            }
         }
 
         std::thread::sleep(poll_interval);
@@ -1221,6 +1087,7 @@ pub fn run_selected_compile_worker(
     grammar: &Grammar,
     selection: &BackendSelection,
     request: &CompileAttempt,
+    limits: &ExecutionLimits,
 ) -> Result<crate::completed_build::SelectedBackendBuild, crate::completed_build::CompletedBuildError>
 {
     let preferred = selection
@@ -1232,12 +1099,7 @@ pub fn run_selected_compile_worker(
     };
     let mut worker_request = CompileWorkerRequest::new(grammar_path.to_string(), grammar_format);
     worker_request.selected = Some(selected);
-    let watchdog = WatchdogEnvelope::clamped(
-        Duration::from_millis(crate::worker_contract::DEFAULT_WALL_TIMEOUT_MS),
-        crate::worker_contract::DEFAULT_RSS_LIMIT_MB,
-        Duration::from_millis(crate::worker_contract::DEFAULT_RSS_SAMPLE_INTERVAL_MS),
-    );
-    let outcome = run_compile_worker(child_exe, child_args, &worker_request, &watchdog);
+    let outcome = run_compile_worker(child_exe, child_args, &worker_request, limits);
     let wire = match outcome {
         WorkerOutcome::Completed(CompileWorkerOutcome::SelectedSuccess { build }) => build,
         WorkerOutcome::Completed(CompileWorkerOutcome::SelectedCompileFailed { detail }) => {
@@ -1582,61 +1444,6 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    // Envelope clamping.
-
-    #[test]
-    fn watchdog_envelope_clamps_wall_timeout_to_absolute_ceiling() {
-        let envelope = WatchdogEnvelope::clamped(
-            Duration::from_millis(WORKER_PROTOCOL_LIMITS.max_wall_timeout_ms + 1_000_000),
-            1,
-            Duration::from_millis(1),
-        );
-        assert_eq!(
-            envelope.wall_timeout,
-            Duration::from_millis(WORKER_PROTOCOL_LIMITS.max_wall_timeout_ms)
-        );
-    }
-
-    #[test]
-    fn watchdog_envelope_clamps_rss_limit_to_absolute_ceiling() {
-        let envelope = WatchdogEnvelope::clamped(
-            Duration::from_secs(1),
-            WORKER_PROTOCOL_LIMITS.max_rss_limit_mb + 1_000_000,
-            Duration::from_millis(1),
-        );
-        assert_eq!(envelope.rss_limit_mb, WORKER_PROTOCOL_LIMITS.max_rss_limit_mb);
-    }
-
-    #[test]
-    fn watchdog_envelope_floors_sample_interval() {
-        let envelope = WatchdogEnvelope::clamped(Duration::from_secs(1), 1024, Duration::ZERO);
-        assert_eq!(
-            envelope.rss_sample_interval,
-            Duration::from_millis(WORKER_PROTOCOL_LIMITS.min_rss_sample_interval_ms)
-        );
-    }
-
-    // RSS sampling only; a live breach-and-kill needs a real adversarial process, exercised end-to-end in `tests/worker_supervisor.rs`.
-
-    #[test]
-    fn sample_rss_mb_reports_a_nonzero_value_for_this_process() {
-        let mut sys = sysinfo::System::new();
-        let pid = sysinfo::Pid::from_u32(std::process::id());
-        let sampled = sample_rss_mb(&mut sys, pid);
-        assert!(
-            sampled.is_some(),
-            "must find this running process's own PID"
-        );
-    }
-
-    #[test]
-    fn sample_rss_mb_returns_none_for_an_implausible_pid() {
-        // A PID vanishingly unlikely to be running on any test host.
-        let mut sys = sysinfo::System::new();
-        let pid = sysinfo::Pid::from_u32(u32::MAX - 1);
-        assert_eq!(sample_rss_mb(&mut sys, pid), None);
-    }
-
     // WorkerOutcome -> HealthReport mapping.
 
     #[test]
@@ -1649,22 +1456,6 @@ mod tests {
         assert_eq!(health.admission(), Severity::MachineLimit);
         assert_eq!(health.findings[0].code, FindingCode::HostContainmentFired);
         assert_eq!(health.findings[0].metric, Metric::ElapsedMillis);
-    }
-
-    #[test]
-    fn worker_outcome_rss_exceeded_maps_to_sampled_compile_rss_bytes_and_says_not_a_ceiling() {
-        let outcome = WorkerOutcome::RssLimitExceeded {
-            sampled_mb: 500,
-            limit_mb: 400,
-            interval: Duration::from_millis(200),
-            peak_mb: 500,
-        };
-        let health = outcome.health_report();
-        assert_eq!(health.findings[0].code, FindingCode::HostContainmentFired);
-        assert_eq!(health.findings[0].metric, Metric::SampledCompileRssBytes);
-        assert!(health.findings[0]
-            .explanation
-            .contains("not a hard memory ceiling"));
     }
 
     #[test]
@@ -1691,12 +1482,6 @@ mod tests {
             WorkerOutcome::WallTimeoutKilled {
                 elapsed: Duration::from_secs(5),
                 limit: Duration::from_secs(2),
-            },
-            WorkerOutcome::RssLimitExceeded {
-                sampled_mb: 500,
-                limit_mb: 400,
-                interval: Duration::from_millis(200),
-                peak_mb: 500,
             },
             WorkerOutcome::OutputLimitExceeded {
                 stream: OutputStream::Stdout,

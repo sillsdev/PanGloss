@@ -244,7 +244,8 @@ pub enum Metric {
     UnknownUnboundedWork,
     /// An `Unordered` stratum's own loose-rule count; kept distinct from `AlphaTupleCount`/`GateGroupCount` so neither variant's stored meaning becomes ambiguous in canonical JSON.
     OrderingRuleCount,
-    /// A sampled compile-worker RSS reading, in bytes — never a hard ceiling, since allocation between samples means a reading below a guardrail is not proof the process stayed under it.
+    /// A sampled compile-worker RSS reading, in bytes — never a hard ceiling, since allocation
+    /// between samples means a reading below a guardrail is not proof the process stayed under it.
     SampledCompileRssBytes,
     /// The compound HEAD x NON-HEAD root-allomorph cross product a grammar's `CompoundingRuleDef`s license.
     CompoundRootPairCount,
@@ -325,8 +326,8 @@ pub enum FindingCode {
     BuildProcessFailed,
     /// A backend is known to omit or reject one or more required grammar constructs.
     BackendCoverageIncomplete,
-    /// An external monitoring process (wall-clock kill, sampled RSS ceiling, output-pipe cap, or
-    /// an unparseable child crash) aborted this attempt to protect the host machine. Never a
+    /// An external monitoring process (wall-clock kill, output-pipe cap, or an unparseable child
+    /// crash) aborted this attempt to protect the host machine. Never a
     /// verdict about the grammar -- see [`Severity::MachineLimit`]'s own doc.
     HostContainmentFired,
     /// An exact, already-computed morphological x phonological rule-count product is large.
@@ -451,7 +452,7 @@ impl FindingCode {
             }
             FindingCode::HostContainmentFired => {
                 "An external monitoring process aborted this attempt to protect the host machine \
-                 (wall-clock kill, sampled RSS ceiling, output-pipe cap, or an unparseable child \
+                 (wall-clock kill, output-pipe cap, or an unparseable child \
                  crash); never a verdict about the grammar."
             }
             FindingCode::RuleInteractionProduct => {
