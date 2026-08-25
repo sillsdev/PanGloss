@@ -114,9 +114,9 @@ use crate::health::{
 };
 use crate::resource_envelope::{ResourceEnvelope, ResourceEnvelopeId};
 
-/// Default logical-work envelope for TunedSurface composite closure. This counts reachable
-/// root/chain-state x rule applications, never affix depth. A caller may request a larger named
-/// envelope and rerun the complete characterization from a clean state.
+/// Default logical-work budget for TunedSurface composite closure. This counts reachable
+/// root/chain-state x rule applications, never affix depth. Ordinary selection keeps this budget
+/// frozen; envelope-specific characterization remains only for the explicit manifest bridge.
 pub(crate) const DEFAULT_TUNED_CLOSURE_WORK_LIMIT: usize = 3_000;
 
 /// Why a closure walk did not reach an exhausted worklist.
@@ -404,7 +404,7 @@ pub(crate) fn tuned_surface_resource_finding_with_limit(
              stopped after {visited} visits; surface pre-expansion saw {} root allomorphs and {} \
              candidate rules, while structural closure saw {structural_roots} root allomorphs and \
              {structural_rules} candidate rules. This is not an affix-depth complaint: the current \
-             TunedSurface operational envelope is too small, so this backend will not start \
+             the managed closure-work budget is exhausted, so this backend will not start \
              construction or write a partial FST.",
             preexpand.root_allomorphs, preexpand.candidate_rules,
         ),
@@ -417,7 +417,7 @@ pub(crate) fn tuned_surface_resource_finding_with_limit(
             },
             Remedy {
                 rank: 2,
-                description: "If your language permits it, ordering the affected rules or placing mutually exclusive choices in affix slots may reduce the reachable rule-pair product and would make this backend work for your language when the new characterization fits its envelope.".to_string(),
+                description: "If your language permits it, ordering the affected rules or placing mutually exclusive choices in affix slots may reduce the reachable rule-pair product and would make this backend work for your language when the new characterization fits the managed closure-work budget.".to_string(),
                 requires_linguistic_equivalence: true,
                 caveat: Some(safety),
             },

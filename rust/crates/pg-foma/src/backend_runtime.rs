@@ -1060,9 +1060,6 @@ pub struct RuntimeBudget {
     pub apply: Option<u64>,
     pub proposals: Option<u64>,
     pub confirmation: Option<u64>,
-    /// TunedSurface composite-closure logical work. `None` uses the shipping envelope;
-    /// `Some(usize::MAX)` is an explicit clean resource retry without this characterization cap.
-    pub tuned_closure_work_limit: Option<usize>,
     /// Ground-truth oracle step cap. UNLIKE every field above, `None` here does NOT mean
     /// "unbounded" — it means "caller did not override the default", because unbounded is exactly
     /// the defect this field exists to close (an unbounded oracle `Morpher` call is what hung the
@@ -1093,11 +1090,6 @@ pub struct RuntimeBudget {
 }
 
 impl RuntimeBudget {
-    pub fn resolved_tuned_closure_work_limit(&self) -> usize {
-        self.tuned_closure_work_limit
-            .unwrap_or(crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT)
-    }
-
     /// The per-word apply-path envelope this budget puts in force, resolved.
     ///
     /// `Some(usize::MAX)` on either field is honoured as `None` on the `ApplyBudget` — i.e. genuinely
@@ -1452,7 +1444,10 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     budget: RuntimeBudget,
 ) -> EvaluatedPlan {
     if let Some(reason) =
-        tuned_surface_resource_refusal(grammar, budget.resolved_tuned_closure_work_limit())
+        tuned_surface_resource_refusal(
+            grammar,
+            crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT,
+        )
     {
         return failed_evaluated_over(
             EmissionStrategy::TunedSurfaceProbed,
@@ -2055,7 +2050,6 @@ pub fn assess_accuracy_with_cache(
                 &alphabet,
                 &prules,
                 &compose,
-                budget.resolved_tuned_closure_work_limit(),
                 cache,
             );
             let (realized_strategy, proposer) = match realized {
@@ -2092,7 +2086,6 @@ fn realize_accuracy_proposer(
     alphabet: &SegAlphabet<'_>,
     prules: &[&PhonRuleDef],
     compose: &ComposeBudget,
-    tuned_closure_work_limit: usize,
     _cache: &mut RunEvaluationCache,
 ) -> Result<(EmissionStrategy, FomaProposer), (EmissionStrategy, String)> {
     if candidate.adapter.interprets_plan() {
@@ -2102,7 +2095,10 @@ fn realize_accuracy_proposer(
     }
     match candidate.adapter {
         LoweringAdapter::TunedSurfaceEmit => {
-            if let Some(reason) = tuned_surface_resource_refusal(grammar, tuned_closure_work_limit)
+            if let Some(reason) = tuned_surface_resource_refusal(
+                grammar,
+                crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT,
+            )
             {
                 return Err((EmissionStrategy::TunedSurfaceProbed, reason));
             }
@@ -2240,54 +2236,6 @@ mod tests {
             .unwrap_or_else(|error| panic!("{}: {error}", full.display()));
         pg_grammar::load(&xml)
             .unwrap_or_else(|error| panic!("{} failed to load: {error}", full.display()))
-    }
-
-    #[test]
-    fn tuned_resource_refusal_happens_before_any_foma_build() {
-        let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
-        let evaluated = evaluate_via_tuned_emit_mode::<false>(
-            &grammar,
-            &[],
-            &[],
-            RuntimeBudget {
-                tuned_closure_work_limit: Some(0),
-                ..RuntimeBudget::default()
-            },
-        );
-
-        assert!(matches!(
-            evaluated.evaluation.certification,
-            Certification::StaticRejected { .. }
-        ));
-        assert_eq!(
-            evaluated.evaluation.score.build, 0,
-            "a characterization refusal must return before FomaProposer::new"
-        );
-    }
-
-    #[test]
-    fn tuned_resource_refusal_also_guards_accuracy_realization() {
-        let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
-        let budget = RuntimeBudget {
-            tuned_closure_work_limit: Some(0),
-            ..RuntimeBudget::default()
-        };
-        let mut cache = RunEvaluationCache::prepare(&grammar, &[], budget)
-            .expect("an empty accuracy corpus needs no oracle work");
-        let candidate = LoweredCandidate {
-            label: "tuned-resource-accuracy-control",
-            plan: crate::plan::Plan::new(),
-            adapter: LoweringAdapter::TunedSurfaceEmit,
-            role: crate::enumerate::CandidateRole::Alternative,
-        };
-
-        let assessed = assess_accuracy_with_cache(&grammar, &[candidate], &[], budget, &mut cache);
-        assert!(matches!(
-            &assessed[0].verdict,
-            AccuracyVerdict::NotDetermined { reason }
-                if reason.contains("resource characterization refused TunedSurface")
-        ));
-        assert_eq!(assessed[0].counters, AccuracyCounters::default());
     }
 
     #[test]

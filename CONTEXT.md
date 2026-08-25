@@ -376,13 +376,12 @@ _Avoid_: Bless current output, automatic baseline update
 Compiler/runtime-owned factual provenance for an observed proposal, confirmation, result, duplicate, or delta: stable rule/construct IDs, named stages, path relationships, outcomes, and completeness/truncation. Breadcrumbs show participation and association; they do not claim that one grammar edit caused a semantic change.
 _Avoid_: Root-cause verdict, AI explanation
 
-**Absolute resource ceiling**:
-A versioned, hard-coded, deliberately high non-disableable limit above all default, app, caller, and
-managed internal limits. Runtime ceilings and budget dimensions are identical across native Windows,
-native Linux, and WASM. It remains in force for every compile and is
-deterministic size/work caps. It is an emergency containment boundary, not a normal operating target
-or a substitute for earlier logical-budget diagnostics.
-_Avoid_: Unlimited, default budget
+**Configurable execution limits**:
+All execution-limit dimensions are positive and non-disableable. Defaults are 1 GiB finalized
+payload, 10 GiB committed process-tree memory, and 10 minutes for construction plus serialization.
+Configured values are provenance for that attempt, not artifact identity. The internal TunedSurface
+closure-work budget remains temporarily frozen pending A10.
+_Avoid_: Unlimited, disabled limit, profile identity
 
 **Characteristics profile**:
 The total, fail-closed projection of a grammar-plus-stem-data compilation input onto the constructs, configurations, cardinalities, and scale dimensions that determine compiler capability and cost. Produced by an enumerator exhaustive over the frozen model; an unrecognized construct is a build break, never a silent omission.
