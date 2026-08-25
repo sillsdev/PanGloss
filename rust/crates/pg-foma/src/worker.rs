@@ -1103,7 +1103,7 @@ fn parse_result_frame(buf: &[u8]) -> Result<CompileWorkerResult, String> {
             buf.len()
         ));
     }
-    let result = decode_frame_body(&buf[8..]).map_err(|e| e.to_string())?;
+    let result: CompileWorkerResult = decode_frame_body(&buf[8..]).map_err(|e| e.to_string())?;
     if result.protocol_version != WORKER_PROTOCOL_VERSION {
         return Err(format!(
             "unsupported result protocol version {}; expected {}",
