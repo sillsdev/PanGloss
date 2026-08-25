@@ -18,6 +18,13 @@ pub enum ResourceEnvelopeId {
     TunedSurfaceWork10kV1,
 }
 
+impl Default for ResourceEnvelopeId {
+    /// The shipped default every caller used before this field was named explicitly.
+    fn default() -> Self {
+        Self::ManagedV1
+    }
+}
+
 /// Construction-cap policy for one developer or managed compile attempt.
 ///
 /// This is deliberately separate from [`ResourceEnvelopeId`]: the envelope remains the shipped
