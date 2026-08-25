@@ -778,6 +778,30 @@ fn wired_counters_matches_reality() {
     }
 }
 
+/// A narrower assertion would still pass a `counter_support` that never reached one of the two non-`Measured` states, so this pins both.
+#[test]
+fn counter_support_agrees_with_wired_counters_and_reaches_both_gap_states() {
+    use pg_rules::stats::{counter_support, CounterSupport};
+
+    for &(kind, counter) in WIRED_COUNTERS {
+        assert_eq!(
+            counter_support(kind, counter),
+            CounterSupport::Measured,
+            "{kind:?}/{counter} is in WIRED_COUNTERS but counter_support disagrees"
+        );
+    }
+    assert_eq!(
+        counter_support(ObjectKind::LexEntry, "no_root"),
+        CounterSupport::NotApplicable,
+        "a lexical entry cannot fail its own root lookup"
+    );
+    assert_eq!(
+        counter_support(ObjectKind::PhonRule, "no_root"),
+        CounterSupport::NotWired,
+        "no_root could in principle attribute to a phonological rule, but Word carries no PRuleId trail yet"
+    );
+}
+
 /// A fixture whose memoized `Unordered` cascade reaches `WordBuild`/`MemoKey`/`Dedup`.
 #[cfg(feature = "stats-calibrate")]
 fn memoized_cascade_fixture() -> (Grammar, StratumId, StepBudget) {

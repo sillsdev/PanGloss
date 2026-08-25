@@ -10,8 +10,7 @@ use rusqlite::{params, Connection, Transaction};
 
 use crate::error::StatsError;
 use crate::model::{
-    CoverageState, FactRecord, IdentityQuality, ObjectKind, RunMetadata, StructuralLocator,
-    WordRecord,
+    FactRecord, IdentityQuality, ObjectKind, RunMetadata, StructuralLocator, WordRecord,
 };
 use crate::schema;
 use crate::util::to_i64;
@@ -127,23 +126,6 @@ impl StatsCache {
     /// Returns the stable id for a morpheme `key`, inserting a new row on first sight.
     pub fn intern_morpheme(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
         intern_morpheme_on(&self.conn, locator)
-    }
-
-    /// Records whether `counter` could be measured at all for `kind` in run `run_id`, so a report
-    /// can render "—" instead of "0" for a counter the engine never touches.
-    pub fn write_coverage(
-        &self,
-        run_id: i64,
-        kind: ObjectKind,
-        counter: &str,
-        state: CoverageState,
-    ) -> Result<(), StatsError> {
-        self.conn.execute(
-            "INSERT INTO coverage (run_id, kind, counter, state) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(run_id, kind, counter) DO UPDATE SET state = excluded.state",
-            params![run_id, kind.as_str(), counter, state.as_str()],
-        )?;
-        Ok(())
     }
 
     /// Writes one run's metadata and every word/fact row it produced, in a single transaction.

@@ -736,29 +736,6 @@ pub fn mixed_settings(conn: &Connection) -> Result<MixedSettings, StatsError> {
     .map_err(Into::into)
 }
 
-/// One `coverage` row: whether `counter` could be measured at all for `kind` in this cache.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CoverageRow {
-    pub kind: String,
-    pub counter: String,
-    pub state: String,
-}
-
-/// `run_id`'s recorded coverage rows, so a renderer can print "—" for a counter an engine never
-/// touches (foma mode's `no_root`, for example) instead of a misleading zero. Scoped to one run so
-/// a later run's coverage state can never mask an earlier run's in the same accumulating cache.
-pub fn coverage_rows(conn: &Connection, run_id: i64) -> Result<Vec<CoverageRow>, StatsError> {
-    let mut stmt = conn.prepare("SELECT kind, counter, state FROM coverage WHERE run_id = ?1")?;
-    let rows = stmt.query_map(params![run_id], |row| {
-        Ok(CoverageRow {
-            kind: row.get(0)?,
-            counter: row.get(1)?,
-            state: row.get(2)?,
-        })
-    })?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1456,66 +1433,6 @@ mod tests {
             vec!["First".to_string(), "Last".to_string()],
             "equal work must still order deterministically via the key tie-break"
         );
-    }
-
-    #[test]
-    fn coverage_rows_round_trip() {
-        let outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        outcome
-            .cache
-            .write_coverage(
-                1,
-                ObjectKind::RootIndex,
-                "no_root",
-                crate::model::CoverageState::Unsupported,
-            )
-            .unwrap();
-        let rows = coverage_rows(outcome.cache.connection(), 1).unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].state, "unsupported");
-    }
-
-    #[test]
-    fn coverage_is_scoped_per_run_and_does_not_overwrite() {
-        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
-        let run_id_a = outcome
-            .cache
-            .flush(&run(), &[word_record("apu", 1, vec![])])
-            .unwrap();
-        let run_id_b = outcome
-            .cache
-            .flush(&run(), &[word_record("beta", 1, vec![])])
-            .unwrap();
-        assert_ne!(
-            run_id_a, run_id_b,
-            "sanity: two flushes produce distinct runs"
-        );
-
-        outcome
-            .cache
-            .write_coverage(
-                run_id_a,
-                ObjectKind::RootIndex,
-                "no_root",
-                crate::model::CoverageState::Measured,
-            )
-            .unwrap();
-        outcome
-            .cache
-            .write_coverage(
-                run_id_b,
-                ObjectKind::RootIndex,
-                "no_root",
-                crate::model::CoverageState::Unsupported,
-            )
-            .unwrap();
-
-        let rows_a = coverage_rows(outcome.cache.connection(), run_id_a).unwrap();
-        let rows_b = coverage_rows(outcome.cache.connection(), run_id_b).unwrap();
-        assert_eq!(rows_a.len(), 1);
-        assert_eq!(rows_a[0].state, "measured");
-        assert_eq!(rows_b.len(), 1);
-        assert_eq!(rows_b[0].state, "unsupported");
     }
 
     /// One rule fact recorded under both directions, sharing `(word, object, stratum, allomorph)`.

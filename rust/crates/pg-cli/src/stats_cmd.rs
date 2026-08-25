@@ -1,4 +1,4 @@
-//! `batch --stats`'s cache-writing side and the `stats` subcommand's cache-reading side of `pg_stats::StatsCache`; `--engine=foma` has no collector hook yet, so it records word-level rows only, every counter marked `unsupported`.
+//! `batch --stats`'s cache-writing side and the `stats` subcommand's cache-reading side of `pg_stats::StatsCache`; `--engine=foma` has no collector hook yet, so it records word-level rows only and every per-object report renders as empty for a foma-only cache.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -153,69 +153,40 @@ fn fact_record_from_stats_row(
     }
 }
 
-fn rules_kind_to_stats_kind(k: pg_rules::stats::ObjectKind) -> pg_stats::ObjectKind {
-    use pg_rules::stats::ObjectKind as R;
+fn stats_kind_to_rules_kind(k: pg_stats::ObjectKind) -> pg_rules::stats::ObjectKind {
+    use pg_stats::ObjectKind as S;
     match k {
-        R::MorphRule => pg_stats::ObjectKind::MorphRule,
-        R::PhonRule => pg_stats::ObjectKind::PhonRule,
-        R::LexEntry => pg_stats::ObjectKind::LexEntry,
-        R::RootIndex => pg_stats::ObjectKind::RootIndex,
-        R::Guesser => pg_stats::ObjectKind::Guesser,
-        R::Overlay => pg_stats::ObjectKind::Overlay,
+        S::MorphRule => pg_rules::stats::ObjectKind::MorphRule,
+        S::PhonRule => pg_rules::stats::ObjectKind::PhonRule,
+        S::LexEntry => pg_rules::stats::ObjectKind::LexEntry,
+        S::RootIndex => pg_rules::stats::ObjectKind::RootIndex,
+        S::Guesser => pg_rules::stats::ObjectKind::Guesser,
+        S::Overlay => pg_rules::stats::ObjectKind::Overlay,
     }
 }
 
-/// Delegates to `pg_rules::stats::WIRED_COUNTERS`, the single source of truth for what the collector actually populates.
-fn is_wired(kind: pg_stats::ObjectKind, counter: &str) -> bool {
-    pg_rules::stats::WIRED_COUNTERS
-        .iter()
-        .any(|&(k, c)| rules_kind_to_stats_kind(k) == kind && c == counter)
-}
-
-/// Records, per `(kind, counter)`, whether this run's collector could measure it, driven by `is_wired`.
-fn write_stats_coverage(
+/// Errors when `cache_path` already holds a different engine's runs, checked before analyzing a word or writing a row -- a report cannot span two engines.
+fn refuse_if_cache_engine_differs(
     cache: &pg_stats::StatsCache,
-    run_id: i64,
-    foma: bool,
+    new_engine: &str,
+    cache_path: &std::path::Path,
 ) -> Result<(), String> {
-    use pg_stats::{CoverageState, ObjectKind};
-    const COUNTERS: [&str; 7] = [
-        "attempts",
-        "work",
-        "outputs",
-        "not_applied",
-        "no_root",
-        "surface_mismatch",
-        "uses",
-    ];
-    const KINDS: [ObjectKind; 6] = [
-        ObjectKind::MorphRule,
-        ObjectKind::PhonRule,
-        ObjectKind::LexEntry,
-        ObjectKind::RootIndex,
-        ObjectKind::Guesser,
-        ObjectKind::Overlay,
-    ];
-    // One transaction for all rows, matching `flush`'s own all-or-nothing shape: an interrupted run must never leave partial coverage behind.
-    let tx = cache
+    let mut stmt = cache
         .connection()
-        .unchecked_transaction()
+        .prepare("SELECT DISTINCT engine FROM run")
         .map_err(|e| e.to_string())?;
-    for kind in KINDS {
-        for counter in COUNTERS {
-            let state = if foma {
-                CoverageState::Unsupported
-            } else if is_wired(kind, counter) {
-                CoverageState::Measured
-            } else {
-                CoverageState::Unsupported
-            };
-            cache
-                .write_coverage(run_id, kind, counter, state)
-                .map_err(|e| e.to_string())?;
-        }
+    let existing: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    if let Some(other) = existing.iter().find(|e| e.as_str() != new_engine) {
+        return Err(format!(
+            "stats: cache at {} already holds runs from engine `{other}`; a report cannot span two \
+             engines -- point --cache at another path for a `{new_engine}` run",
+            cache_path.display()
+        ));
     }
-    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -228,7 +199,7 @@ struct StatsOptionsRecord {
     guess: bool,
 }
 
-/// Shared tail of `run_batch_stats_hc`/`run_batch_stats_foma`: flushes `records` in batches, writes coverage, and prints the one summary line `batch --stats` promises.
+/// Shared tail of `run_batch_stats_hc`/`run_batch_stats_foma`: flushes `records` in batches and prints the one summary line `batch --stats` promises.
 fn finish_stats_flush(
     cache: &mut pg_stats::StatsCache,
     grammar_path: &str,
@@ -237,7 +208,6 @@ fn finish_stats_flush(
     records: Vec<pg_stats::WordRecord>,
     skipped: usize,
     elapsed: Duration,
-    foma: bool,
 ) -> Result<(), String> {
     let options_json =
         serde_json::to_string(options).map_err(|e| format!("serialize stats options: {e}"))?;
@@ -258,8 +228,7 @@ fn finish_stats_flush(
         chunks.push(&[]);
     }
     for chunk in chunks {
-        let run_id = cache.flush(&run, chunk).map_err(|e| e.to_string())?;
-        write_stats_coverage(cache, run_id, foma)?;
+        cache.flush(&run, chunk).map_err(|e| e.to_string())?;
     }
 
     println!(
@@ -293,6 +262,7 @@ pub(crate) fn run_batch_stats_hc(
             cache_path.display()
         );
     }
+    refuse_if_cache_engine_differs(&outcome.cache, "hc", &cache_path)?;
 
     let refs: Vec<&str> = words.iter().map(String::as_str).collect();
     let existing = outcome
@@ -345,11 +315,10 @@ pub(crate) fn run_batch_stats_hc(
         records,
         skipped,
         total_elapsed,
-        false,
     )
 }
 
-/// `batch --stats`'s `--engine=foma` path: word-level rows only (no stats hook yet), so `write_stats_coverage` marks every counter `unsupported` for this run.
+/// `batch --stats`'s `--engine=foma` path: word-level rows only (no stats hook yet), so no per-object fact is ever recorded for this run.
 pub(crate) fn run_batch_stats_foma(
     grammar: &Grammar,
     grammar_path: &str,
@@ -368,6 +337,7 @@ pub(crate) fn run_batch_stats_foma(
             cache_path.display()
         );
     }
+    refuse_if_cache_engine_differs(&outcome.cache, "foma", &cache_path)?;
 
     let refs: Vec<&str> = words.iter().map(String::as_str).collect();
     let existing = outcome
@@ -421,7 +391,6 @@ pub(crate) fn run_batch_stats_foma(
         records,
         skipped,
         total_elapsed,
-        true,
     )
 }
 
@@ -534,32 +503,95 @@ fn never_fires_filter(f: &Filters) -> pg_stats::NeverFiresFilter {
     }
 }
 
-/// `(kind, counter) -> state` for one run, so a renderer can print `\u{2014}` instead of `0`.
-type CoverageMap = HashMap<(String, String), String>;
-
-fn coverage_map_for_latest_run(conn: &rusqlite::Connection) -> Result<CoverageMap, String> {
-    let latest_run_id: Option<i64> = conn
-        .query_row("SELECT MAX(run_id) FROM run", [], |row| row.get(0))
-        .map_err(|e| e.to_string())?;
-    let Some(run_id) = latest_run_id else {
-        return Ok(CoverageMap::new());
-    };
-    Ok(pg_stats::coverage_rows(conn, run_id)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .map(|r| ((r.kind, r.counter), r.state))
-        .collect())
+/// `None` for any per-kind `CounterSupport` other than `Measured`, both of which render `-` here.
+fn cell_value(kind: &str, counter: &str, value: i64) -> Option<i64> {
+    let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
+        panic!("kind string from the cache must be a known ObjectKind: {kind}")
+    });
+    match pg_rules::stats::counter_support(stats_kind_to_rules_kind(stats_kind), counter) {
+        pg_rules::stats::CounterSupport::Measured => Some(value),
+        pg_rules::stats::CounterSupport::NotApplicable
+        | pg_rules::stats::CounterSupport::NotWired => None,
+    }
 }
 
-/// `None` unless `coverage` explicitly marks `(kind, counter)` measured -- an absent row is unsupported too.
-fn masked(kind: &str, counter: &str, value: i64, coverage: &CoverageMap) -> Option<i64> {
-    match coverage
-        .get(&(kind.to_string(), counter.to_string()))
-        .map(String::as_str)
-    {
-        Some("measured") => Some(value),
-        _ => None,
+/// The seven per-object counters, in the fixed display/JSONL order.
+const ALL_COUNTERS: [&str; 7] = [
+    "attempts",
+    "work",
+    "outputs",
+    "not_applied",
+    "no_root",
+    "surface_mismatch",
+    "uses",
+];
+
+/// Counters this cache's engine can never write into a `fact` row at all, uniform across every kind -- unlike `cell_value`'s per-kind masking, this drops the whole column.
+fn engine_omitted_counters(engine: &str) -> &'static [&'static str] {
+    if engine == "foma" {
+        &ALL_COUNTERS
+    } else {
+        &[]
     }
+}
+
+/// The text-mode note explaining an engine-level column omission; `None` when nothing is omitted.
+fn engine_omission_note(engine: &str, omitted: &[&str]) -> Option<String> {
+    if omitted.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "note: engine={engine} never records {}; those columns are omitted (this is not \"zero\")\n",
+        omitted.join("/")
+    ))
+}
+
+/// The JSONL meta line's `unmeasured` map: per omitted counter, why -- so a GUI need not guess.
+fn unmeasured_json(engine: &str, omitted: &[&str]) -> serde_json::Value {
+    let map: serde_json::Map<String, serde_json::Value> = omitted
+        .iter()
+        .map(|c| {
+            (
+                c.to_string(),
+                serde_json::Value::String(format!("engine={engine} never records it")),
+            )
+        })
+        .collect();
+    serde_json::Value::Object(map)
+}
+
+/// Nulls every `RowView` field this cache's engine can never measure, uniform across every orientation (including stratum/direction, which never call `cell_value` at all).
+fn apply_engine_omission(rows: Vec<RowView>, omitted: &[&str]) -> Vec<RowView> {
+    if omitted.is_empty() {
+        return rows;
+    }
+    let has = |c: &str| omitted.contains(&c);
+    rows.into_iter()
+        .map(|mut r| {
+            if has("attempts") {
+                r.attempts = None;
+            }
+            if has("work") {
+                r.work = None;
+            }
+            if has("outputs") {
+                r.outputs = None;
+            }
+            if has("not_applied") {
+                r.not_applied = None;
+            }
+            if has("no_root") {
+                r.no_root = None;
+            }
+            if has("surface_mismatch") {
+                r.surface_mismatch = None;
+            }
+            if has("uses") {
+                r.uses = None;
+            }
+            r
+        })
+        .collect()
 }
 
 fn render_table(headers: &[&str], rows: &[Vec<String>]) -> String {
@@ -604,23 +636,23 @@ struct RowView {
     surface_mismatch: Option<i64>,
 }
 
-fn object_row_view(r: &pg_stats::PerObjectRow, coverage: &CoverageMap) -> RowView {
+fn object_row_view(r: &pg_stats::PerObjectRow) -> RowView {
     RowView {
         label: format!("{}: {}", r.kind, r.label),
         kind: Some(r.kind.clone()),
         identity_quality: Some(r.identity_quality.clone()),
         self_time_ns: Some(r.self_time_ns),
-        attempts: masked(&r.kind, "attempts", r.attempts, coverage),
-        outputs: masked(&r.kind, "outputs", r.outputs, coverage),
-        uses: masked(&r.kind, "uses", r.uses, coverage),
-        work: masked(&r.kind, "work", r.work, coverage),
-        not_applied: masked(&r.kind, "not_applied", r.not_applied, coverage),
-        no_root: masked(&r.kind, "no_root", r.no_root, coverage),
-        surface_mismatch: masked(&r.kind, "surface_mismatch", r.surface_mismatch, coverage),
+        attempts: cell_value(&r.kind, "attempts", r.attempts),
+        outputs: cell_value(&r.kind, "outputs", r.outputs),
+        uses: cell_value(&r.kind, "uses", r.uses),
+        work: cell_value(&r.kind, "work", r.work),
+        not_applied: cell_value(&r.kind, "not_applied", r.not_applied),
+        no_root: cell_value(&r.kind, "no_root", r.no_root),
+        surface_mismatch: cell_value(&r.kind, "surface_mismatch", r.surface_mismatch),
     }
 }
 
-fn allomorph_row_view(r: &pg_stats::PerAllomorphRow, coverage: &CoverageMap) -> RowView {
+fn allomorph_row_view(r: &pg_stats::PerAllomorphRow) -> RowView {
     RowView {
         label: format!(
             "{}: {} [{}]",
@@ -629,18 +661,13 @@ fn allomorph_row_view(r: &pg_stats::PerAllomorphRow, coverage: &CoverageMap) -> 
         kind: Some(r.object_kind.clone()),
         identity_quality: None,
         self_time_ns: Some(r.self_time_ns),
-        attempts: masked(&r.object_kind, "attempts", r.attempts, coverage),
-        outputs: masked(&r.object_kind, "outputs", r.outputs, coverage),
-        uses: masked(&r.object_kind, "uses", r.uses, coverage),
-        work: masked(&r.object_kind, "work", r.work, coverage),
-        not_applied: masked(&r.object_kind, "not_applied", r.not_applied, coverage),
-        no_root: masked(&r.object_kind, "no_root", r.no_root, coverage),
-        surface_mismatch: masked(
-            &r.object_kind,
-            "surface_mismatch",
-            r.surface_mismatch,
-            coverage,
-        ),
+        attempts: cell_value(&r.object_kind, "attempts", r.attempts),
+        outputs: cell_value(&r.object_kind, "outputs", r.outputs),
+        uses: cell_value(&r.object_kind, "uses", r.uses),
+        work: cell_value(&r.object_kind, "work", r.work),
+        not_applied: cell_value(&r.object_kind, "not_applied", r.not_applied),
+        no_root: cell_value(&r.object_kind, "no_root", r.no_root),
+        surface_mismatch: cell_value(&r.object_kind, "surface_mismatch", r.surface_mismatch),
     }
 }
 
@@ -678,36 +705,36 @@ fn direction_row_view(r: &pg_stats::PerDirectionRow) -> RowView {
     }
 }
 
-fn morpheme_row_view(r: &pg_stats::PerMorphemeRow, coverage: &CoverageMap) -> RowView {
+fn morpheme_row_view(r: &pg_stats::PerMorphemeRow) -> RowView {
     const KIND: &str = "lex_entry";
     RowView {
         label: r.morpheme_label.clone(),
         kind: Some(KIND.to_string()),
         identity_quality: None,
         self_time_ns: Some(r.self_time_ns),
-        attempts: masked(KIND, "attempts", r.attempts, coverage),
-        outputs: masked(KIND, "outputs", r.outputs, coverage),
-        uses: masked(KIND, "uses", r.uses, coverage),
-        work: masked(KIND, "work", r.work, coverage),
-        not_applied: masked(KIND, "not_applied", r.not_applied, coverage),
-        no_root: masked(KIND, "no_root", r.no_root, coverage),
-        surface_mismatch: masked(KIND, "surface_mismatch", r.surface_mismatch, coverage),
+        attempts: cell_value(KIND, "attempts", r.attempts),
+        outputs: cell_value(KIND, "outputs", r.outputs),
+        uses: cell_value(KIND, "uses", r.uses),
+        work: cell_value(KIND, "work", r.work),
+        not_applied: cell_value(KIND, "not_applied", r.not_applied),
+        no_root: cell_value(KIND, "no_root", r.no_root),
+        surface_mismatch: cell_value(KIND, "surface_mismatch", r.surface_mismatch),
     }
 }
 
-fn kind_row_view(r: &pg_stats::PerKindRow, coverage: &CoverageMap) -> RowView {
+fn kind_row_view(r: &pg_stats::PerKindRow) -> RowView {
     RowView {
         label: r.kind.clone(),
         kind: Some(r.kind.clone()),
         identity_quality: None,
         self_time_ns: Some(r.self_time_ns),
-        attempts: masked(&r.kind, "attempts", r.attempts, coverage),
-        outputs: masked(&r.kind, "outputs", r.outputs, coverage),
-        uses: masked(&r.kind, "uses", r.uses, coverage),
-        work: masked(&r.kind, "work", r.work, coverage),
-        not_applied: masked(&r.kind, "not_applied", r.not_applied, coverage),
-        no_root: masked(&r.kind, "no_root", r.no_root, coverage),
-        surface_mismatch: masked(&r.kind, "surface_mismatch", r.surface_mismatch, coverage),
+        attempts: cell_value(&r.kind, "attempts", r.attempts),
+        outputs: cell_value(&r.kind, "outputs", r.outputs),
+        uses: cell_value(&r.kind, "uses", r.uses),
+        work: cell_value(&r.kind, "work", r.work),
+        not_applied: cell_value(&r.kind, "not_applied", r.not_applied),
+        no_root: cell_value(&r.kind, "no_root", r.no_root),
+        surface_mismatch: cell_value(&r.kind, "surface_mismatch", r.surface_mismatch),
     }
 }
 
@@ -735,23 +762,6 @@ fn fmt_amp(attempts: Option<i64>, outputs: Option<i64>) -> String {
 fn fmt_opt_i64(v: Option<i64>) -> String {
     v.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string())
 }
-
-const NARROW_HEADERS: [&str; 7] = [
-    "label",
-    "time_ms",
-    "time%",
-    "attempts",
-    "attempts%",
-    "amp",
-    "uses",
-];
-const WIDE_EXTRA_HEADERS: [&str; 5] = [
-    "work",
-    "not_applied",
-    "no_root",
-    "surface_mismatch",
-    "identity_quality",
-];
 
 /// Kinds paired with their summed `attempts`, heaviest first, ties broken by name for determinism.
 fn attempts_by_kind_desc(rows: &[RowView]) -> Vec<(Option<String>, i64)> {
@@ -804,15 +814,47 @@ impl Denominators {
     }
 }
 
-/// Denominators are arguments, never sums of `rows`: `rows` may be a `--top` excerpt, and a share of an excerpt is not the share a reader reads it as.
+/// Denominators are arguments, never sums of `rows`: `rows` may be a `--top` excerpt, and a share of an excerpt is not the share a reader reads it as. `omitted` drops a counter's column (and its derived `%`/`amp` columns) entirely, rather than merely masking its cells -- see `engine_omitted_counters`.
 fn render_narrow(
     rows: &[RowView],
     wide: bool,
     denoms: &Denominators,
+    omitted: &[&str],
 ) -> (Vec<&'static str>, Vec<Vec<String>>) {
-    let mut headers: Vec<&'static str> = NARROW_HEADERS.to_vec();
+    let show = |c: &str| !omitted.contains(&c);
+    let show_attempts = show("attempts");
+    let show_amp = show_attempts && show("outputs");
+    let show_uses = show("uses");
+    let show_work = show("work");
+    let show_not_applied = show("not_applied");
+    let show_no_root = show("no_root");
+    let show_surface_mismatch = show("surface_mismatch");
+
+    let mut headers: Vec<&'static str> = vec!["label", "time_ms", "time%"];
+    if show_attempts {
+        headers.push("attempts");
+        headers.push("attempts%");
+    }
+    if show_amp {
+        headers.push("amp");
+    }
+    if show_uses {
+        headers.push("uses");
+    }
     if wide {
-        headers.extend(WIDE_EXTRA_HEADERS);
+        if show_work {
+            headers.push("work");
+        }
+        if show_not_applied {
+            headers.push("not_applied");
+        }
+        if show_no_root {
+            headers.push("no_root");
+        }
+        if show_surface_mismatch {
+            headers.push("surface_mismatch");
+        }
+        headers.push("identity_quality");
     }
     let table_rows = rows
         .iter()
@@ -821,16 +863,30 @@ fn render_narrow(
                 r.label.clone(),
                 fmt_ms(r.self_time_ns),
                 fmt_pct(r.self_time_ns, denoms.total_time_ns),
-                fmt_opt_i64(r.attempts),
-                fmt_pct(r.attempts, denoms.attempts_of(&r.kind)),
-                fmt_amp(r.attempts, r.outputs),
-                fmt_opt_i64(r.uses),
             ];
+            if show_attempts {
+                cells.push(fmt_opt_i64(r.attempts));
+                cells.push(fmt_pct(r.attempts, denoms.attempts_of(&r.kind)));
+            }
+            if show_amp {
+                cells.push(fmt_amp(r.attempts, r.outputs));
+            }
+            if show_uses {
+                cells.push(fmt_opt_i64(r.uses));
+            }
             if wide {
-                cells.push(fmt_opt_i64(r.work));
-                cells.push(fmt_opt_i64(r.not_applied));
-                cells.push(fmt_opt_i64(r.no_root));
-                cells.push(fmt_opt_i64(r.surface_mismatch));
+                if show_work {
+                    cells.push(fmt_opt_i64(r.work));
+                }
+                if show_not_applied {
+                    cells.push(fmt_opt_i64(r.not_applied));
+                }
+                if show_no_root {
+                    cells.push(fmt_opt_i64(r.no_root));
+                }
+                if show_surface_mismatch {
+                    cells.push(fmt_opt_i64(r.surface_mismatch));
+                }
                 cells.push(
                     r.identity_quality
                         .clone()
@@ -994,6 +1050,7 @@ fn jsonl_meta_value(
     totals: &TotalsSummary,
 ) -> Result<serde_json::Value, String> {
     let (grammar_hash, engine) = run_identity(conn)?;
+    let omitted = engine_omitted_counters(&engine);
     Ok(serde_json::json!({
         "meta": true,
         "orientation": orientation,
@@ -1001,6 +1058,7 @@ fn jsonl_meta_value(
         "engine": engine,
         "filters": filters_json(filters),
         "totals": totals.to_json(),
+        "unmeasured": unmeasured_json(&engine, omitted),
     }))
 }
 
@@ -1087,9 +1145,18 @@ fn render_rowview_body(
     kind_scope: Option<&str>,
     format: OutputFormat,
 ) -> Result<String, String> {
+    let (_, engine) = run_identity(conn)?;
+    let omitted = engine_omitted_counters(&engine);
+    let rows = apply_engine_omission(rows, omitted);
+    let note = engine_omission_note(&engine, omitted);
+
     if rows.is_empty() {
         let reason = empty_explanation(conn, kind_scope)?;
-        return empty_output(conn, orientation, filters, reason, format);
+        let out = empty_output(conn, orientation, filters, reason, format)?;
+        return Ok(match (format, &note) {
+            (OutputFormat::Text, Some(n)) => format!("{n}{out}"),
+            _ => out,
+        });
     }
     let run_elapsed_ns = pg_stats::word_elapsed_ns_total(conn, filters.word.as_deref())
         .map_err(|e| e.to_string())?;
@@ -1099,10 +1166,13 @@ fn render_rowview_body(
     match format {
         OutputFormat::Text if filters.by_kind => {
             let mut out = String::new();
+            if let Some(n) = &note {
+                out.push_str(n);
+            }
             for kind in kinds_in_row_order(&shown) {
                 let section: Vec<RowView> =
                     shown.iter().filter(|r| r.kind == kind).cloned().collect();
-                let (headers, table_rows) = render_narrow(&section, filters.wide, &denoms);
+                let (headers, table_rows) = render_narrow(&section, filters.wide, &denoms, omitted);
                 out.push_str(&format!("== {} ==\n", kind.as_deref().unwrap_or("-")));
                 out.push_str(&render_table(&headers, &table_rows));
                 out.push_str(&subtotal_line(&section, &kind, &denoms));
@@ -1112,8 +1182,12 @@ fn render_rowview_body(
             Ok(out)
         }
         OutputFormat::Text => {
-            let (headers, table_rows) = render_narrow(&shown, filters.wide, &denoms);
-            let mut out = render_table(&headers, &table_rows);
+            let (headers, table_rows) = render_narrow(&shown, filters.wide, &denoms, omitted);
+            let mut out = String::new();
+            if let Some(n) = &note {
+                out.push_str(n);
+            }
+            out.push_str(&render_table(&headers, &table_rows));
             out.push_str(&totals.text_line());
             Ok(out)
         }
@@ -1175,13 +1249,12 @@ fn subtotal_json(
 
 fn render_object(
     conn: &rusqlite::Connection,
-    coverage: &CoverageMap,
     filters: &Filters,
     format: OutputFormat,
 ) -> Result<String, String> {
     let rows = pg_stats::per_object_report(conn, &per_object_filter(filters))
         .map_err(|e| e.to_string())?;
-    let views: Vec<RowView> = rows.iter().map(|r| object_row_view(r, coverage)).collect();
+    let views: Vec<RowView> = rows.iter().map(object_row_view).collect();
     render_rowview_body(
         conn,
         "object",
@@ -1194,16 +1267,12 @@ fn render_object(
 
 fn render_allomorph(
     conn: &rusqlite::Connection,
-    coverage: &CoverageMap,
     filters: &Filters,
     format: OutputFormat,
 ) -> Result<String, String> {
     let rows = pg_stats::per_allomorph_report(conn, &per_allomorph_filter(filters))
         .map_err(|e| e.to_string())?;
-    let views: Vec<RowView> = rows
-        .iter()
-        .map(|r| allomorph_row_view(r, coverage))
-        .collect();
+    let views: Vec<RowView> = rows.iter().map(allomorph_row_view).collect();
     render_rowview_body(
         conn,
         "allomorph",
@@ -1252,28 +1321,23 @@ fn render_direction(
 
 fn render_morpheme(
     conn: &rusqlite::Connection,
-    coverage: &CoverageMap,
     filters: &Filters,
     format: OutputFormat,
 ) -> Result<String, String> {
     let rows = pg_stats::per_morpheme_report(conn, &per_morpheme_filter(filters))
         .map_err(|e| e.to_string())?;
-    let views: Vec<RowView> = rows
-        .iter()
-        .map(|r| morpheme_row_view(r, coverage))
-        .collect();
+    let views: Vec<RowView> = rows.iter().map(morpheme_row_view).collect();
     render_rowview_body(conn, "morpheme", filters, views, Some("lex_entry"), format)
 }
 
 fn render_group(
     conn: &rusqlite::Connection,
-    coverage: &CoverageMap,
     filters: &Filters,
     format: OutputFormat,
 ) -> Result<String, String> {
     let rows =
         pg_stats::per_kind_report(conn, &per_kind_filter(filters)).map_err(|e| e.to_string())?;
-    let views: Vec<RowView> = rows.iter().map(|r| kind_row_view(r, coverage)).collect();
+    let views: Vec<RowView> = rows.iter().map(kind_row_view).collect();
     render_rowview_body(
         conn,
         "group",
@@ -1441,16 +1505,11 @@ fn render_never_fires(
     }
 }
 
-fn render_default(conn: &rusqlite::Connection, coverage: &CoverageMap) -> Result<String, String> {
+fn render_default(conn: &rusqlite::Connection) -> Result<String, String> {
     let default_filters = Filters::default();
     let mut out = render_word(conn, &default_filters, OutputFormat::Text)?;
     out.push('\n');
-    out.push_str(&render_object(
-        conn,
-        coverage,
-        &default_filters,
-        OutputFormat::Text,
-    )?);
+    out.push_str(&render_object(conn, &default_filters, OutputFormat::Text)?);
 
     let never_fires_rows =
         pg_stats::never_fires_report(conn, &pg_stats::NeverFiresFilter::default())
@@ -1676,17 +1735,15 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         );
     }
 
-    let coverage = coverage_map_for_latest_run(&conn)?;
-
     let body = match group {
-        None => render_default(&conn, &coverage)?,
+        None => render_default(&conn)?,
         Some(ReportGroup::Word) => render_word(&conn, &filters, format)?,
-        Some(ReportGroup::Object) => render_object(&conn, &coverage, &filters, format)?,
-        Some(ReportGroup::Allomorph) => render_allomorph(&conn, &coverage, &filters, format)?,
+        Some(ReportGroup::Object) => render_object(&conn, &filters, format)?,
+        Some(ReportGroup::Allomorph) => render_allomorph(&conn, &filters, format)?,
         Some(ReportGroup::Stratum) => render_stratum(&conn, &filters, format)?,
         Some(ReportGroup::Direction) => render_direction(&conn, &filters, format)?,
-        Some(ReportGroup::Morpheme) => render_morpheme(&conn, &coverage, &filters, format)?,
-        Some(ReportGroup::Group) => render_group(&conn, &coverage, &filters, format)?,
+        Some(ReportGroup::Morpheme) => render_morpheme(&conn, &filters, format)?,
+        Some(ReportGroup::Group) => render_group(&conn, &filters, format)?,
         Some(ReportGroup::NeverFires) => render_never_fires(&conn, &filters, format)?,
     };
     match out_path {
@@ -1706,7 +1763,7 @@ mod tests {
         rows: &[RowView],
         wide: bool,
     ) -> (Vec<&'static str>, Vec<Vec<String>>) {
-        render_narrow(rows, wide, &Denominators::of(rows))
+        render_narrow(rows, wide, &Denominators::of(rows), &[])
     }
     use super::*;
     use std::fs;
@@ -1804,13 +1861,14 @@ mod tests {
             !rows.is_empty(),
             "a fixture with morphological rules must produce at least one per-object row"
         );
-        let coverage = coverage_map_for_latest_run(&conn).unwrap();
+        let morph_row = rows
+            .iter()
+            .find(|r| r.kind == "morph_rule")
+            .expect("this fixture must produce a morph_rule row");
         assert_eq!(
-            coverage
-                .get(&("morph_rule".to_string(), "attempts".to_string()))
-                .map(String::as_str),
-            Some("measured"),
-            "the hc engine's attempts counter must be marked measured"
+            cell_value("morph_rule", "attempts", morph_row.attempts),
+            Some(morph_row.attempts),
+            "the hc engine's attempts counter is Measured for morph_rule"
         );
     }
 
@@ -1891,6 +1949,68 @@ mod tests {
         assert_eq!(form, other_word, "only the new grammar's word must remain");
     }
 
+    /// A same-grammar cache already holding one engine's runs must refuse a run under the other, before touching the cache at all.
+    #[test]
+    fn batch_stats_refuses_when_cache_holds_a_different_engine() {
+        let dir = scratch_dir("engine-mismatch");
+        let cache_path = dir.join("cache.sqlite3");
+        let (args_hc, _) = run_batch_args(
+            &dir,
+            FOMA_FRIENDLY_GRAMMAR_XML,
+            "kat\n",
+            &["--stats", "--cache", cache_path.to_str().unwrap()],
+        );
+        crate::run_batch(&args_hc).expect("seed the cache with an hc run");
+
+        let conn = rusqlite::Connection::open(&cache_path).unwrap();
+        let word_count_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM word", [], |row| row.get(0))
+            .unwrap();
+        let run_count_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))
+            .unwrap();
+        drop(conn);
+
+        // Same grammar.xml (same grammar_hash, so no wipe), different engine -- must be refused.
+        let (args_foma, _) = run_batch_args(
+            &dir,
+            FOMA_FRIENDLY_GRAMMAR_XML,
+            "kat\n",
+            &[
+                "--engine=foma",
+                "--stats",
+                "--cache",
+                cache_path.to_str().unwrap(),
+            ],
+        );
+        let err = crate::run_batch(&args_foma)
+            .expect_err("a cache already holding hc runs must refuse a foma run");
+        assert!(
+            err.contains("engine"),
+            "the refusal must name the reason: {err}"
+        );
+        assert!(
+            err.contains("--cache"),
+            "the refusal must name the fix (point --cache elsewhere): {err}"
+        );
+
+        let conn = rusqlite::Connection::open(&cache_path).unwrap();
+        let word_count_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM word", [], |row| row.get(0))
+            .unwrap();
+        let run_count_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            word_count_before, word_count_after,
+            "a refused run must never modify the cache"
+        );
+        assert_eq!(
+            run_count_before, run_count_after,
+            "a refused run must never modify the cache"
+        );
+    }
+
     /// Root-only, no rules at all, so `FomaAnalyzer::new` always has a trivial network to compile.
     const FOMA_FRIENDLY_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1925,7 +2045,7 @@ mod tests {
 "#;
 
     #[test]
-    fn batch_stats_accepts_engine_foma_and_marks_no_root_unsupported() {
+    fn batch_stats_accepts_engine_foma_and_the_report_omits_columns_that_stay_unmeasured() {
         let dir = scratch_dir("foma");
         let cache_path = dir.join("cache.sqlite3");
         let (args, _) = run_batch_args(
@@ -1942,23 +2062,15 @@ mod tests {
         crate::run_batch(&args).expect("--engine=foma --stats must be accepted, not refused");
 
         let conn = rusqlite::Connection::open(&cache_path).unwrap();
-        let coverage = coverage_map_for_latest_run(&conn).unwrap();
-        assert_eq!(
-            coverage
-                .get(&("morph_rule".to_string(), "no_root".to_string()))
-                .map(String::as_str),
-            Some("unsupported"),
-            "the foma engine's analysis-side no_root counter must be marked unsupported, not measured"
+        let body = render_object(&conn, &Filters::default(), OutputFormat::Text).unwrap();
+        assert!(
+            body.contains("engine=foma never records"),
+            "a foma-engine cache must name what it cannot measure, not just fall silent: {body}"
         );
-    }
-
-    fn coverage_entry(state: pg_stats::CoverageState) -> CoverageMap {
-        let mut m = CoverageMap::new();
-        m.insert(
-            ("morph_rule".to_string(), "no_root".to_string()),
-            state.as_str().to_string(),
+        assert!(
+            body.contains("no_root"),
+            "the omission note must name no_root specifically: {body}"
         );
-        m
     }
 
     fn sample_object_row(no_root: i64) -> pg_stats::PerObjectRow {
@@ -1977,87 +2089,33 @@ mod tests {
         }
     }
 
+    /// A genuinely `Measured` counter on the same row must still render as a plain number.
     #[test]
-    fn unsupported_counter_renders_em_dash_not_zero() {
-        let coverage = coverage_entry(pg_stats::CoverageState::Unsupported);
-        let row = sample_object_row(0);
-        let view = object_row_view(&row, &coverage);
-        let (headers, table_rows) = render_narrow_self_totals(std::slice::from_ref(&view), true);
-        let no_root_col = headers.iter().position(|h| *h == "no_root").unwrap();
-        assert_eq!(table_rows[0][no_root_col], "-");
-
-        let measured = coverage_entry(pg_stats::CoverageState::Measured);
-        let view_measured = object_row_view(&row, &measured);
-        let (_, table_rows_measured) =
-            render_narrow_self_totals(std::slice::from_ref(&view_measured), true);
-        assert_eq!(
-            table_rows_measured[0][no_root_col], "0",
-            "falsifiability check: a measured zero must still render as a plain 0"
-        );
-    }
-
-    #[test]
-    fn absent_coverage_row_renders_em_dash_not_a_number() {
-        // No entry at all for (morph_rule, no_root) -- distinct from an explicit "unsupported" row.
-        let coverage = CoverageMap::new();
+    fn not_applicable_counter_renders_em_dash_not_zero() {
+        // morph_rule carries no surface_mismatch identity of its own (see counter_support's doc).
         let row = sample_object_row(7);
-        let view = object_row_view(&row, &coverage);
+        let view = object_row_view(&row);
         let (headers, table_rows) = render_narrow_self_totals(std::slice::from_ref(&view), true);
+        let surface_mismatch_col = headers
+            .iter()
+            .position(|h| *h == "surface_mismatch")
+            .unwrap();
+        assert_eq!(
+            table_rows[0][surface_mismatch_col], "-",
+            "morph_rule's surface_mismatch is NotApplicable -- it must never render as a bare number"
+        );
+
         let no_root_col = headers.iter().position(|h| *h == "no_root").unwrap();
         assert_eq!(
-            table_rows[0][no_root_col], "-",
-            "a coverage row that was never written must never read as a measured value"
-        );
-    }
-
-    #[test]
-    fn deleted_coverage_row_renders_em_dash_not_zero_in_a_real_cache() {
-        let (grammar_xml, word) = primary_fixture();
-        let dir = scratch_dir("coverage-delete");
-        let cache_path = dir.join("cache.sqlite3");
-        let (args, _) = run_batch_args(
-            &dir,
-            &grammar_xml,
-            &format!("{word}\n"),
-            &["--stats", "--cache", cache_path.to_str().unwrap()],
-        );
-        crate::run_batch(&args).expect("seed the cache via batch --stats");
-
-        let conn = rusqlite::Connection::open(&cache_path).unwrap();
-        conn.execute(
-            "DELETE FROM coverage WHERE kind = 'morph_rule' AND counter = 'attempts'",
-            [],
-        )
-        .unwrap();
-
-        let coverage = coverage_map_for_latest_run(&conn).unwrap();
-        assert!(
-            coverage
-                .get(&("morph_rule".to_string(), "attempts".to_string()))
-                .is_none(),
-            "sanity: the row must actually be gone before checking the render"
-        );
-
-        let rows =
-            pg_stats::per_object_report(&conn, &pg_stats::PerObjectFilter::default()).unwrap();
-        let morph_row = rows
-            .iter()
-            .find(|r| r.kind == "morph_rule")
-            .expect("a morph_rule row must exist for this fixture");
-        let view = object_row_view(morph_row, &coverage);
-        let (headers, table_rows) = render_narrow_self_totals(std::slice::from_ref(&view), false);
-        let attempts_col = headers.iter().position(|h| *h == "attempts").unwrap();
-        assert_eq!(
-            table_rows[0][attempts_col], "-",
-            "a deleted coverage row must render as unmeasured, never as a bare number"
+            table_rows[0][no_root_col], "7",
+            "falsifiability check: morph_rule's no_root IS measured and must still render as a plain number"
         );
     }
 
     #[test]
     fn wide_appends_extra_columns_and_is_absent_by_default() {
         let row = sample_object_row(0);
-        let coverage = coverage_entry(pg_stats::CoverageState::Measured);
-        let view = object_row_view(&row, &coverage);
+        let view = object_row_view(&row);
 
         let (narrow_headers, narrow_rows) =
             render_narrow_self_totals(std::slice::from_ref(&view), false);
@@ -2075,6 +2133,139 @@ mod tests {
         assert_eq!(wide_rows[0].len(), wide_headers.len());
     }
 
+    /// The engine-level whole-column omission is a different mechanism from per-kind cell masking.
+    #[test]
+    fn foma_cache_omits_unmeasured_columns_and_names_them_in_the_header() {
+        let dir = scratch_dir("foma-omit");
+        let cache_path = dir.join("cache.sqlite3");
+        let (args, _) = run_batch_args(
+            &dir,
+            FOMA_FRIENDLY_GRAMMAR_XML,
+            "kat\n",
+            &[
+                "--engine=foma",
+                "--stats",
+                "--cache",
+                cache_path.to_str().unwrap(),
+            ],
+        );
+        crate::run_batch(&args).expect("--engine=foma --stats must be accepted");
+
+        let conn = rusqlite::Connection::open(&cache_path).unwrap();
+        let body = render_object(&conn, &Filters::default(), OutputFormat::Text).unwrap();
+        assert!(
+            body.contains("this is not \"zero\""),
+            "an omitted column must never be read as a measured zero: {body}"
+        );
+        for counter in ALL_COUNTERS {
+            assert!(
+                body.contains(counter),
+                "the note must name {counter} as omitted: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn hc_cache_renders_with_the_columns_foma_would_omit() {
+        let (grammar_xml, word) = primary_fixture();
+        let dir = scratch_dir("hc-has-columns");
+        let cache_path = dir.join("cache.sqlite3");
+        let (args, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &["--stats", "--cache", cache_path.to_str().unwrap()],
+        );
+        crate::run_batch(&args).expect("seed the cache via batch --stats");
+
+        let conn = rusqlite::Connection::open(&cache_path).unwrap();
+        let body = render_object(
+            &conn,
+            &Filters {
+                wide: true,
+                ..Filters::default()
+            },
+            OutputFormat::Text,
+        )
+        .unwrap();
+        assert!(
+            !body.contains("never records"),
+            "an hc cache must never print the foma omission note: {body}"
+        );
+        let header_line = body
+            .lines()
+            .find(|l| l.contains("label"))
+            .expect("the rendered table must have a header line");
+        assert!(
+            header_line.contains("attempts"),
+            "an hc cache must keep the attempts column: {header_line}"
+        );
+    }
+
+    /// A synthetic `foma`-tagged run with real fact rows, pinning that stratum/direction share the same engine-level omission as every other orientation.
+    #[test]
+    fn stratum_and_direction_orientations_omit_the_same_columns_under_foma() {
+        let dir = scratch_dir("foma-stratum-direction");
+        let cache_path = dir.join("cache.sqlite3");
+        let mut outcome = pg_stats::StatsCache::open(&cache_path, "hash-foma").unwrap();
+        let run = pg_stats::RunMetadata {
+            build_info: "test".to_string(),
+            fwdata_path: "x".to_string(),
+            grammar_hash: "hash-foma".to_string(),
+            engine: "foma".to_string(),
+            options_hash: "opts".to_string(),
+            options_json: "{}".to_string(),
+            created_utc: "unix:0".to_string(),
+        };
+        let word_record = pg_stats::WordRecord {
+            form: "w".to_string(),
+            elapsed_ns: 1_000,
+            attempts: 0,
+            passes: 1,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts: vec![pg_stats::FactRecord {
+                object_key: "rule-a".to_string(),
+                object_kind: pg_stats::ObjectKind::MorphRule,
+                object_label: "Rule A".to_string(),
+                identity_quality: pg_stats::IdentityQuality::Authored,
+                stratum: Some(pg_stats::StructuralLocator::new("0:Root", "Root")),
+                allomorph: None,
+                morpheme: None,
+                direction: pg_stats::Direction::Analysis,
+                attempts: 5,
+                work: 10,
+                outputs: 2,
+                not_applied: 1,
+                no_root: 3,
+                surface_mismatch: 0,
+                uses: 1,
+                self_time_ns: 100,
+            }],
+        };
+        outcome.cache.flush(&run, &[word_record]).unwrap();
+        let conn = outcome.cache.connection();
+
+        let stratum_body = render_stratum(conn, &Filters::default(), OutputFormat::Text).unwrap();
+        let direction_body =
+            render_direction(conn, &Filters::default(), OutputFormat::Text).unwrap();
+        for body in [&stratum_body, &direction_body] {
+            assert!(
+                body.contains("engine=foma never records"),
+                "stratum/direction must honour the same engine-level omission: {body}"
+            );
+            let header_line = body
+                .lines()
+                .find(|l| l.contains("label"))
+                .expect("a header line must be present");
+            assert!(
+                !header_line.contains("attempts"),
+                "the attempts column must be omitted entirely, not merely masked: {header_line}"
+            );
+        }
+    }
+
     #[test]
     fn shares_sum_to_100_pct_per_orientation() {
         let (grammar_xml, word) = primary_fixture();
@@ -2089,11 +2280,10 @@ mod tests {
         crate::run_batch(&args).expect("seed the cache via batch --stats");
 
         let conn = rusqlite::Connection::open(&cache_path).unwrap();
-        let coverage = coverage_map_for_latest_run(&conn).unwrap();
         let rows =
             pg_stats::per_object_report(&conn, &pg_stats::PerObjectFilter::default()).unwrap();
         assert!(!rows.is_empty(), "sanity: the fixture must produce rows");
-        let views: Vec<RowView> = rows.iter().map(|r| object_row_view(r, &coverage)).collect();
+        let views: Vec<RowView> = rows.iter().map(object_row_view).collect();
         let (headers, table_rows) = render_narrow_self_totals(&views, false);
 
         let time_col = headers.iter().position(|h| *h == "time%").unwrap();
@@ -2144,9 +2334,7 @@ mod tests {
         crate::run_batch(&args).expect("seed the cache via batch --stats");
 
         let conn = rusqlite::Connection::open(&cache_path).unwrap();
-        let coverage = coverage_map_for_latest_run(&conn).unwrap();
-        let body =
-            render_object(&conn, &coverage, &Filters::default(), OutputFormat::Text).unwrap();
+        let body = render_object(&conn, &Filters::default(), OutputFormat::Text).unwrap();
         let total_line = body
             .lines()
             .find(|l| l.starts_with("TOTAL"))
@@ -2185,13 +2373,12 @@ mod tests {
         crate::run_batch(&args).expect("seed the cache via batch --stats");
 
         let conn = rusqlite::Connection::open(&cache_path).unwrap();
-        let coverage = coverage_map_for_latest_run(&conn).unwrap();
 
         let matching = Filters {
             word: Some(word.clone()),
             ..Filters::default()
         };
-        let body = render_object(&conn, &coverage, &matching, OutputFormat::Text).unwrap();
+        let body = render_object(&conn, &matching, OutputFormat::Text).unwrap();
         assert!(
             body.contains("TOTAL"),
             "the word that was actually analyzed must still produce rows: {body}"
@@ -2201,7 +2388,7 @@ mod tests {
             word: Some("this-word-was-never-analyzed-xyz".to_string()),
             ..Filters::default()
         };
-        let empty_body = render_object(&conn, &coverage, &absent, OutputFormat::Text).unwrap();
+        let empty_body = render_object(&conn, &absent, OutputFormat::Text).unwrap();
         assert!(
             empty_body.contains("objects exist in this cache, but none match this filter"),
             "a real kind narrowed to an absent word must explain the empty result: {empty_body}"
@@ -2222,7 +2409,6 @@ mod tests {
         crate::run_batch(&args).expect("seed the cache via batch --stats");
 
         let conn = rusqlite::Connection::open(&cache_path).unwrap();
-        let coverage = coverage_map_for_latest_run(&conn).unwrap();
         let all_rows =
             pg_stats::per_object_report(&conn, &pg_stats::PerObjectFilter::default()).unwrap();
         let kinds: std::collections::HashSet<_> = all_rows.iter().map(|r| r.kind.clone()).collect();
@@ -2231,11 +2417,9 @@ mod tests {
             "this fixture must record more objects than kinds, or --top drops nothing to test"
         );
 
-        let untopped =
-            render_object(&conn, &coverage, &Filters::default(), OutputFormat::Text).unwrap();
+        let untopped = render_object(&conn, &Filters::default(), OutputFormat::Text).unwrap();
         let topped = render_object(
             &conn,
-            &coverage,
             &Filters {
                 top_n: Some(1),
                 ..Filters::default()
@@ -2302,7 +2486,7 @@ mod tests {
             total_time_ns: 4_000,
             attempts_by_kind: HashMap::from([(Some("morph_rule".to_string()), 40)]),
         };
-        let (headers, rows) = render_narrow(&[row], false, &denoms);
+        let (headers, rows) = render_narrow(&[row], false, &denoms, &[]);
         let time_pct = headers.iter().position(|h| *h == "time%").unwrap();
         let attempts_pct = headers.iter().position(|h| *h == "attempts%").unwrap();
         assert_eq!(
@@ -2326,9 +2510,7 @@ mod tests {
         crate::run_batch(&args).expect("seed the cache via batch --stats");
 
         let conn = rusqlite::Connection::open(&cache_path).unwrap();
-        let coverage = coverage_map_for_latest_run(&conn).unwrap();
-        let body =
-            render_object(&conn, &coverage, &Filters::default(), OutputFormat::Jsonl).unwrap();
+        let body = render_object(&conn, &Filters::default(), OutputFormat::Jsonl).unwrap();
         let mut lines = body.lines();
 
         let meta_line = lines.next().expect("jsonl output must have a meta line");
@@ -2393,13 +2575,12 @@ mod tests {
         outcome.cache.flush(&run, &[word_record]).unwrap();
 
         let conn = outcome.cache.connection();
-        let coverage = coverage_map_for_latest_run(conn).unwrap();
 
         let never_recorded = Filters {
             kind: Some("phon_rule".to_string()),
             ..Filters::default()
         };
-        let body_a = render_object(conn, &coverage, &never_recorded, OutputFormat::Text).unwrap();
+        let body_a = render_object(conn, &never_recorded, OutputFormat::Text).unwrap();
         assert!(
             body_a.contains("no phon_rule objects have ever been recorded"),
             "must explain that this kind never occurred at all: {body_a}"
@@ -2410,8 +2591,7 @@ mod tests {
             word: Some("a-word-never-analyzed".to_string()),
             ..Filters::default()
         };
-        let body_b =
-            render_object(conn, &coverage, &filtered_to_nothing, OutputFormat::Text).unwrap();
+        let body_b = render_object(conn, &filtered_to_nothing, OutputFormat::Text).unwrap();
         assert!(
             body_b.contains("morph_rule objects exist in this cache, but none match this filter"),
             "must explain that this kind exists but the filter matched nothing: {body_b}"
@@ -2432,8 +2612,7 @@ mod tests {
         crate::run_batch(&args).expect("seed the cache via batch --stats");
 
         let conn = rusqlite::Connection::open(&cache_path).unwrap();
-        let coverage = coverage_map_for_latest_run(&conn).unwrap();
-        let body = render_group(&conn, &coverage, &Filters::default(), OutputFormat::Text).unwrap();
+        let body = render_group(&conn, &Filters::default(), OutputFormat::Text).unwrap();
         assert!(
             body.contains("morph_rule"),
             "group orientation must surface the morph_rule kind: {body}"
@@ -2488,9 +2667,7 @@ mod tests {
         outcome.cache.flush(&run, &[word_record]).unwrap();
 
         let conn = outcome.cache.connection();
-        let coverage = coverage_map_for_latest_run(conn).unwrap();
-        let body =
-            render_morpheme(conn, &coverage, &Filters::default(), OutputFormat::Text).unwrap();
+        let body = render_morpheme(conn, &Filters::default(), OutputFormat::Text).unwrap();
         let data_rows = body.lines().filter(|l| l.contains("cat-morph")).count();
         assert_eq!(
             data_rows, 1,

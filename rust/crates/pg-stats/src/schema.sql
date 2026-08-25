@@ -85,15 +85,3 @@ CREATE TABLE IF NOT EXISTS fact (
   self_time_ns     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (word_id, object_id, stratum_id, allomorph_id, direction)
 ) WITHOUT ROWID;
-
--- Keyed by run because coverage is a property of the pipeline that ran: an accumulating cache can
--- hold both an hc run and a foma run, and the counters one of them cannot measure are measured
--- normally by the other. A cache-wide coverage row would let the later run's state mask the
--- earlier one's, rendering a real zero as unmeasured or the reverse.
-CREATE TABLE IF NOT EXISTS coverage (
-  run_id  INTEGER NOT NULL,
-  kind    TEXT NOT NULL,
-  counter TEXT NOT NULL,
-  state   TEXT NOT NULL,
-  PRIMARY KEY (run_id, kind, counter)
-) WITHOUT ROWID;

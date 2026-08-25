@@ -8,7 +8,7 @@ use crate::error::StatsError;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped when `schema.sql` changes shape. A cache is wiped, never migrated, on a mismatch.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// Bumped by hand when what a counter means changes; recorded per run rather than wiped on.
 pub const COUNTER_SEMANTICS_VERSION: i64 = 2;
@@ -119,5 +119,34 @@ mod tests {
 
         // Re-seeding (as a reopen without a flush does) must stay a no-op, not a conflict.
         seed_sentinels(&conn).unwrap();
+    }
+
+    #[test]
+    fn wipe_removes_the_obsolete_coverage_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        create(&conn).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE coverage (
+                run_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                counter TEXT NOT NULL,
+                state TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+
+        wipe_and_recreate(&conn).unwrap();
+
+        let coverage_tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'coverage'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            coverage_tables, 0,
+            "a schema wipe must remove the retired coverage table"
+        );
     }
 }

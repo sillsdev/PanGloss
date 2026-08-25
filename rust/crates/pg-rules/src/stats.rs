@@ -664,6 +664,71 @@ pub const WIRED_COUNTERS: &[(ObjectKind, &str)] = &[
     (ObjectKind::Overlay, "work"),
 ];
 
+/// Whether, and why, a `(kind, counter)` cell can carry a real number.
+///
+/// `Measured` and the other two states answer different questions: `NotApplicable` says the
+/// counter describes something this kind of object cannot do (a permanent property of the model,
+/// e.g. a `lex_entry` cannot fail its own root lookup); `NotWired` says the counter is meaningful
+/// for this kind but this collector does not yet record it (a gap, e.g. `PhonRule`'s `uses` --
+/// `Word` carries no `PRuleId` trail for commit-on-pass to attribute to). Conflating the two would
+/// let a genuine gap read as a permanent fact, or vice versa -- a report renders both as `-`, but a
+/// caller deciding whether to spend effort closing the gap needs to tell them apart.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CounterSupport {
+    Measured,
+    NotApplicable,
+    NotWired,
+}
+
+/// `(kind, counter)` pairs permanently meaningless for that kind; see `counter_support`'s doc for why each one is here.
+const NOT_APPLICABLE_COUNTERS: &[(ObjectKind, &str)] = &[
+    (ObjectKind::MorphRule, "surface_mismatch"),
+    (ObjectKind::PhonRule, "surface_mismatch"),
+    (ObjectKind::LexEntry, "outputs"),
+    (ObjectKind::LexEntry, "not_applied"),
+    (ObjectKind::LexEntry, "no_root"),
+    (ObjectKind::RootIndex, "outputs"),
+    (ObjectKind::RootIndex, "not_applied"),
+    (ObjectKind::RootIndex, "surface_mismatch"),
+    (ObjectKind::RootIndex, "uses"),
+    (ObjectKind::Guesser, "no_root"),
+    (ObjectKind::Guesser, "surface_mismatch"),
+    (ObjectKind::Overlay, "no_root"),
+    (ObjectKind::Overlay, "surface_mismatch"),
+    (ObjectKind::Overlay, "outputs"),
+    (ObjectKind::Overlay, "not_applied"),
+];
+
+/// Resolves `(kind, counter)` to one of the three `CounterSupport` states.
+/// `Measured` is derived from `WIRED_COUNTERS` itself (never a second hand-kept list), so the two
+/// cannot drift apart the way a duplicated table could; pinned against real analyzer behavior by
+/// `wired_counters_matches_reality`.
+///
+/// `NOT_APPLICABLE_COUNTERS`'s reasoning, kind by kind:
+///
+/// - `surface_mismatch` is recorded only against a `LexEntryId` (see the recorder's own
+///   signature), so `MorphRule`/`PhonRule`/`RootIndex`/`Guesser`/`Overlay` can never carry it --
+///   none of them has a reconstructed-root identity shaped like a lexical entry to mismatch.
+/// - `LexEntry`'s `outputs`/`not_applied`/`no_root` are inapplicable because an "attempt" is only
+///   ever recorded on a match: there is no failed-lookup, no-output, or ran-but-empty state left
+///   to distinguish once a candidate has already been found.
+/// - `RootIndex`'s `no_root` is its only failure state, so a separate `outputs`/`not_applied`
+///   would double-book the same event, and (per the point above) it has no `LexEntry`-shaped
+///   identity for `surface_mismatch`/`uses` either.
+/// - `Guesser` and `Overlay` bypass the lexicon lookup entirely -- that is their whole purpose --
+///   so `no_root` cannot apply to either; `Overlay`'s attempt, like `LexEntry`'s, is only recorded
+///   once a candidate root shape already exists, so its `outputs`/`not_applied` are as
+///   inapplicable as `LexEntry`'s.
+pub fn counter_support(kind: ObjectKind, counter: &str) -> CounterSupport {
+    if WIRED_COUNTERS.contains(&(kind, counter)) {
+        CounterSupport::Measured
+    } else if NOT_APPLICABLE_COUNTERS.contains(&(kind, counter)) {
+        CounterSupport::NotApplicable
+    } else {
+        CounterSupport::NotWired
+    }
+}
+
 fn collect_rows(table: &DenseTable, kind: ObjectKind, out: &mut Vec<StatsRow>) {
     let per_direction = table.num_strata * table.num_rules;
     for (i, cell) in table.cells.iter().enumerate() {

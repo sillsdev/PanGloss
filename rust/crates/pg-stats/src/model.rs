@@ -134,43 +134,6 @@ impl FromStr for IdentityQuality {
     }
 }
 
-/// Whether a counter could be measured at all for a kind, in this cache.
-///
-/// Drives the report-time "—" versus "0" distinction: an engine that never runs a phase (foma
-/// mode has no `no_root` phase) must not render that phase's counter as a clean zero.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CoverageState {
-    Measured,
-    Unsupported,
-}
-
-impl CoverageState {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            CoverageState::Measured => "measured",
-            CoverageState::Unsupported => "unsupported",
-        }
-    }
-}
-
-impl std::fmt::Display for CoverageState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl FromStr for CoverageState {
-    type Err = UnknownVariant;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "measured" => Ok(CoverageState::Measured),
-            "unsupported" => Ok(CoverageState::Unsupported),
-            other => Err(UnknownVariant(other.to_string())),
-        }
-    }
-}
-
 /// A structural locator for a `stratum` or `allomorph` dimension row: a key plus a display label.
 ///
 /// `None` in a `FactRecord` means the sentinel row (`stratum_id`/`allomorph_id` 0) applies —

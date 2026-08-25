@@ -24,17 +24,16 @@ mod util;
 pub use cache::{OpenOutcome, StatsCache};
 pub use error::StatsError;
 pub use model::{
-    CoverageState, Direction, FactRecord, IdentityQuality, ObjectKind, RunMetadata,
-    StructuralLocator, UnknownVariant, WordRecord,
+    Direction, FactRecord, IdentityQuality, ObjectKind, RunMetadata, StructuralLocator,
+    UnknownVariant, WordRecord,
 };
 pub use path::{default_cache_dir, default_cache_path};
 pub use report::{
-    coverage_rows, kind_has_any_recorded_object, mixed_settings, never_fires_report,
-    per_allomorph_report, per_direction_report, per_kind_report, per_morpheme_report,
-    per_object_report, per_stratum_report, per_word_report, word_elapsed_ns_total, CoverageRow,
-    MixedSettings, NeverFiresFilter, NeverFiresRow, PerAllomorphFilter, PerAllomorphRow,
-    PerDirectionFilter, PerDirectionRow, PerKindFilter, PerKindRow, PerMorphemeFilter,
-    PerMorphemeRow, PerObjectFilter, PerObjectRow, PerStratumFilter, PerStratumRow, PerWordRow,
-    SortKey, NEVER_FIRES_DEFAULT_MIN_ATTEMPTS,
+    kind_has_any_recorded_object, mixed_settings, never_fires_report, per_allomorph_report,
+    per_direction_report, per_kind_report, per_morpheme_report, per_object_report,
+    per_stratum_report, per_word_report, word_elapsed_ns_total, MixedSettings, NeverFiresFilter,
+    NeverFiresRow, PerAllomorphFilter, PerAllomorphRow, PerDirectionFilter, PerDirectionRow,
+    PerKindFilter, PerKindRow, PerMorphemeFilter, PerMorphemeRow, PerObjectFilter, PerObjectRow,
+    PerStratumFilter, PerStratumRow, PerWordRow, SortKey, NEVER_FIRES_DEFAULT_MIN_ATTEMPTS,
 };
 pub use schema::{COUNTER_SEMANTICS_VERSION, SCHEMA_VERSION};
