@@ -98,9 +98,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// This schema's own version, written into every `HealthReport`. Bump only on a
 /// wire-incompatible change to this module's types.
 ///
-/// Bumped to 3 when each `Severity` variant was renamed to name its blocking tier and
-/// `CannotRepresent` was added — both wire-visible changes to this schema's canonical JSON.
-pub const HEALTH_SCHEMA_VERSION: u32 = 3;
+/// Bumped to 4 when the obsolete sampled compile-worker RSS metric was removed.
+pub const HEALTH_SCHEMA_VERSION: u32 = 4;
 
 // Severity + payload-size threshold
 
@@ -833,8 +832,8 @@ mod tests {
     }
 
     #[test]
-    fn characterization_wire_rename_bumps_health_schema_version() {
-        assert_eq!(HEALTH_SCHEMA_VERSION, 3);
+    fn removed_worker_rss_metric_bumps_health_schema_version() {
+        assert_eq!(HEALTH_SCHEMA_VERSION, 4);
     }
 
     /// An exhaustive `match` with no catch-all arm over every `Severity` variant, so adding a variant stops this from compiling until every exhaustive match in this file is updated.
@@ -909,7 +908,7 @@ mod tests {
     }
 
     const GOLDEN_JSON: &str = r#"{
-  "schema_version": 3,
+  "schema_version": 4,
   "findings": [
     {
       "code": "PGF0002",

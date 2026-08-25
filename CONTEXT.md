@@ -139,16 +139,12 @@ _Avoid_: Parses some words, corpus covered
 A semantic variant that is detected and reported before compilation rather than silently mistranslated.
 _Avoid_: Done, harmless skip
 
-**Resource envelope**:
-The named, versioned combination of parent-enforced worker limits, sampled resource guardrails, bounded communication, and deterministic logical work budgets under which a pipeline is accepted.
-_Avoid_: State budget
-
-**Worker watchdog limits**:
-Parent-enforced wall time, sampled worker RSS, and bounded input/output protecting the host from a compiler worker. Wall time and I/O sizes are enforced bounds; sampled RSS is a guardrail rather than a kernel memory ceiling.
-_Avoid_: Hard RSS limit, process-tree sandbox
+**Compile execution limits**:
+Configurable parent-enforced limits on serialized model size, committed process-tree memory, and build time. They protect the machine and produce no partial artifact; they are not named envelopes and do not affect artifact identity.
+_Avoid_: Resource envelope, watchdog, sampled RSS
 
 **Logical work budgets**:
-Deterministic counters used as the primary, reproducible early-stop and admission mechanism. Cooperative elapsed-time checks and the parent wall-time watchdog are outer safety nets, not the normal way to discover excessive grammar work and not memory-safety enforcement.
+Apply-time counters that bound per-word analysis work. Compile construction is governed by the parent-enforced execution limits instead.
 _Avoid_: Hard limits
 
 **Diagnostic run**:

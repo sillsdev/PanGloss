@@ -30,12 +30,10 @@ model-shape extension is outside this assumption and must explicitly reopen the 
 ### R2. Supervisor platform contract — resolved
 
 Windows and Linux are equal, first-class native production targets. Both use one compiler worker,
-one versioned request/result protocol, standard-library `Child::try_wait`/`Child::kill` wall-time
-control, deterministic compiler budgets, bounded input/output, and sampled RSS through a
-Rust-1.90-compatible `sysinfo` release. Production compilation launches no descendants, so Job
-Objects, cgroups, process-tree management, Tokio, and `processkit` are out of scope. Sampled RSS is
-reported with its interval and observed peak; it is not called a hard memory ceiling. WASM is
-analysis-only and needs no compile watchdog.
+one versioned request/result protocol, bounded communication, and parent-enforced execution limits
+for serialized model size, committed process-tree memory, and construction-plus-serialization wall
+time. Limits are configurable, cannot be disabled, and default to 1 GB, 10 GB, and 10 minutes.
+Exceeding one produces diagnostics and no artifact. WASM is analysis-only and does not compile.
 
 ### R2A. Precompiled WASM artifact container — resolved
 
