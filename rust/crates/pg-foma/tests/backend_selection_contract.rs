@@ -39,6 +39,30 @@ fn advice(shape: &str, remedy: &str, effort: RemedyEffort) -> AdviceReference {
     AdviceReference::new(shape, remedy, effort)
 }
 
+fn default_budget_exceeding_grammar() -> pg_grammar::model::Grammar {
+    let base = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../machine/conformance/edge-cases/truncate-morphotactic/grammar.xml"
+    ));
+    let mut entries = String::new();
+    for index in 0..1_100 {
+        entries.push_str(&format!(
+            r#"          <LexicalEntry id="syntheticRoot{index}" partOfSpeech="posV">
+            <Allomorphs>
+              <Allomorph id="syntheticRoot{index}_1">
+                <PhoneticShape>sag</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <Gloss>synthetic-{index}</Gloss>
+          </LexicalEntry>
+"#
+        ));
+    }
+    let marker = "        </LexicalEntries>";
+    let expanded = base.replacen(marker, &format!("{entries}{marker}"), 1);
+    pg_grammar::load(&expanded).expect("default-budget fixture must load")
+}
+
 #[test]
 fn reports_retain_every_backend_and_rank_only_normal_candidates() {
     let selection = BackendSelection::from_reports(vec![
@@ -287,15 +311,8 @@ fn missing_and_failed_backends_are_typed_errors_with_shared_advice() {
 
 #[test]
 fn tuned_surface_closure_budget_finding_is_reported_and_not_production_ready_is_not_selected() {
-    let grammar_xml = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../machine/conformance/edge-cases/truncate-morphotactic/grammar.xml"
-    ));
-    let grammar = pg_grammar::load(grammar_xml).expect("resource fixture must load");
-    let selection =
-        pg_foma::backend_selection::select_backends_for_grammar_with_tuned_closure_work_limit(
-            &grammar, 1,
-        );
+    let grammar = default_budget_exceeding_grammar();
+    let selection = pg_foma::backend_selection::select_backends_for_grammar(&grammar);
     let tuned = selection
         .report_for(EmissionStrategy::TunedSurfaceProbed)
         .expect("TunedSurface must always have one report");
@@ -321,7 +338,7 @@ fn tuned_surface_closure_budget_finding_is_reported_and_not_production_ready_is_
         !selection
             .selected()
             .contains(&EmissionStrategy::TunedSurfaceProbed),
-        "a proven resource NotProductionReady finding remains reportable but cannot receive an implicit override"
+        "a proven closure-budget NotProductionReady finding remains reportable but cannot receive an implicit override"
     );
     assert!(
         selection.is_no_path(),
