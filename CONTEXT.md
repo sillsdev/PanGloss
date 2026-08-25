@@ -287,7 +287,7 @@ _Avoid_: Unsupported semantics, automatic rejection
 The frozen internal budget used to characterize TunedSurface composite closure. The compiler records
 the raw closure-work measurement and terminal finding; it does not expose a named profile switch or
 silently widen the budget.
-_Avoid_: Named retry, automatic backoff, unlimited build
+_Avoid_: Automatic backoff, unlimited build, disabled limits
 
 **Proven work bound**:
 An exact value or conservative mathematical lower bound derived from compiler inputs, suitable for proving that an operation cannot fit within its remaining logical budget. A heuristic estimate is diagnostic evidence, not a rejection proof.
