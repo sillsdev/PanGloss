@@ -62,8 +62,8 @@ fn characterize(name: &str, grammar: &Grammar) -> BackendSelection {
         );
         if !report.is_selected() {
             assert!(
-                report.worst_severity() >= Severity::Error,
-                "{name} {:?} was excluded without Error/Critical evidence: {report:?}",
+                report.worst_severity() >= Severity::NotProductionReady,
+                "{name} {:?} was excluded without NotProductionReady/MachineLimit/CannotRepresent evidence: {report:?}",
                 report.strategy()
             );
             assert!(
@@ -123,7 +123,7 @@ fn assert_default_resource_no_path(selection: &BackendSelection) {
         selection,
         EmissionStrategy::TunedSurfaceProbed,
         BackendStatus::Accepted,
-        Severity::Error,
+        Severity::NotProductionReady,
         Some(FindingCode::ProvenBoundExceedsBudget),
         Some("tuned-surface-resource-envelope"),
     );
@@ -131,7 +131,7 @@ fn assert_default_resource_no_path(selection: &BackendSelection) {
         selection,
         EmissionStrategy::TemplatedUnderlyingTokens,
         BackendStatus::Refused,
-        Severity::Critical,
+        Severity::CannotRepresent,
         Some(FindingCode::BackendCoverageIncomplete),
         Some("nonregular-process-morphology"),
     );
@@ -139,7 +139,7 @@ fn assert_default_resource_no_path(selection: &BackendSelection) {
         selection,
         EmissionStrategy::PlanComposed,
         BackendStatus::Refused,
-        Severity::Critical,
+        Severity::CannotRepresent,
         Some(FindingCode::BackendCoverageIncomplete),
         Some("plan-composed-missing-subtrees"),
     );
@@ -165,7 +165,7 @@ fn indonesian_backend_reports_are_complete() {
         &retry,
         EmissionStrategy::TunedSurfaceProbed,
         BackendStatus::Accepted,
-        Severity::Ideal,
+        Severity::WithinLimits,
         None,
         None,
     );
@@ -190,7 +190,7 @@ fn sena_backend_reports_are_complete() {
         &selection,
         EmissionStrategy::TunedSurfaceProbed,
         BackendStatus::Accepted,
-        Severity::Ideal,
+        Severity::WithinLimits,
         None,
         None,
     );
@@ -198,7 +198,7 @@ fn sena_backend_reports_are_complete() {
         &selection,
         EmissionStrategy::TemplatedUnderlyingTokens,
         BackendStatus::Refused,
-        Severity::Critical,
+        Severity::CannotRepresent,
         Some(FindingCode::BackendCoverageIncomplete),
         Some("nonregular-process-morphology"),
     );
@@ -206,7 +206,7 @@ fn sena_backend_reports_are_complete() {
         &selection,
         EmissionStrategy::PlanComposed,
         BackendStatus::Accepted,
-        Severity::Ideal,
+        Severity::WithinLimits,
         None,
         None,
     );

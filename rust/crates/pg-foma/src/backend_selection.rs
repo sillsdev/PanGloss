@@ -11,9 +11,10 @@
 //!
 //! # Correctness selects; cost does not
 //! A backend is a normal-generation candidate only when its own report is correctness-admitted and
-//! its worst health severity is at most `Warning`. `Admit` and `ConfirmOnly` are both
-//! correctness-admitted: `ConfirmOnly` is a recall-preserving mode, not a defect. Error/Critical
-//! reports and every refusal remain in the report but are never silently selected.
+//! its worst health severity is at most `LargeMultiplier`. `Admit` and `ConfirmOnly` are both
+//! correctness-admitted: `ConfirmOnly` is a recall-preserving mode, not a defect.
+//! NotProductionReady/MachineLimit/CannotRepresent reports and every refusal remain in the report
+//! but are never silently selected.
 //!
 //! Candidate ranking is deterministic and deliberately modest: clean reports first, then worst
 //! severity, then finding count, with `BACKEND_PREFERENCE` only as the final tie-break. Cost
@@ -207,21 +208,21 @@ impl BackendReport {
     }
 
     /// The worst health finding for this backend. Overrides are intentionally retained in this
-    /// aggregate: an explicit development override does not silently turn an Error/Critical
-    /// backend into a normal-generation candidate.
+    /// aggregate: an explicit development override does not silently turn a
+    /// NotProductionReady/MachineLimit/CannotRepresent backend into a normal-generation candidate.
     pub fn worst_severity(&self) -> Severity {
         self.findings
             .iter()
             .map(|finding| finding.severity)
             .max()
-            .unwrap_or(Severity::Ideal)
+            .unwrap_or(Severity::WithinLimits)
     }
 
     /// A backend is a normal-generation candidate only when both correctness and health admit it.
     pub fn is_normal_candidate(&self) -> bool {
         self.status == BackendStatus::Accepted
             && !matches!(self.decision, CompileDecision::Refuse(_))
-            && self.worst_severity() <= Severity::Warning
+            && self.worst_severity() <= Severity::LargeMultiplier
     }
 
     fn rank_key(&self) -> (bool, Severity, usize) {
@@ -319,7 +320,8 @@ impl BackendReport {
     }
 
     /// Whether this backend is a normal-generation path for the grammar. Refused, missing,
-    /// failed, Error, and Critical reports are retained but not selected.
+    /// failed, NotProductionReady, MachineLimit, and CannotRepresent reports are retained but not
+    /// selected.
     pub fn is_selected(&self) -> bool {
         self.is_normal_candidate()
     }
@@ -388,7 +390,7 @@ fn attach_capability_refusal(report: &mut BackendReport) {
         .join("; ");
     report.findings.push(HealthFinding {
         code: FindingCode::BackendCoverageIncomplete,
-        severity: Severity::Critical,
+        severity: Severity::CannotRepresent,
         phase: Phase::Characterization,
         affected: diagnostics
             .iter()
@@ -438,7 +440,7 @@ fn attach_operational_failure(report: &mut BackendReport, code: FindingCode) {
         .unwrap_or("backend construction did not complete");
     report.findings.push(HealthFinding {
         code,
-        severity: Severity::Error,
+        severity: Severity::NotProductionReady,
         phase: Phase::Compile,
         affected: vec![format!("{:?}", report.strategy)],
         metric: Metric::UnknownUnboundedWork,
@@ -642,8 +644,9 @@ impl BackendSelection {
     }
 
     /// Returns at most the requested number of normally admissible candidates. The caller may
-    /// request two for a measured comparison; no Error/Critical/refused backend can enter this
-    /// list. Ranking is clean report, severity, finding count, then committed preference.
+    /// request two for a measured comparison; no NotProductionReady/MachineLimit/
+    /// CannotRepresent/refused backend can enter this list. Ranking is clean report, severity,
+    /// finding count, then committed preference.
     pub fn select_up_to(&self, limit: usize) -> Vec<EmissionStrategy> {
         self.ranked_candidates()
             .into_iter()
@@ -821,7 +824,7 @@ mod tests {
         let report = selection
             .report_for(EmissionStrategy::TunedSurfaceProbed)
             .expect("the refusal remains reportable");
-        assert_eq!(report.worst_severity(), Severity::Critical);
+        assert_eq!(report.worst_severity(), Severity::CannotRepresent);
         assert_eq!(
             report.findings()[0].code,
             FindingCode::BackendCoverageIncomplete
@@ -926,7 +929,7 @@ mod tests {
                 EmissionStrategy::TunedSurfaceProbed,
                 CompileDecision::Admit,
                 vec![finding(
-                    crate::health::Severity::Warning,
+                    crate::health::Severity::LargeMultiplier,
                     crate::health::FindingCode::PayloadSizeBand,
                 )],
             )
@@ -967,13 +970,13 @@ mod tests {
     }
 
     #[test]
-    fn error_and_critical_reports_are_retained_but_not_selected() {
+    fn not_production_ready_and_machine_limit_reports_are_retained_but_not_selected() {
         let reports = vec![
             BackendReport::accepted(
                 EmissionStrategy::TunedSurfaceProbed,
                 CompileDecision::Admit,
                 vec![finding(
-                    crate::health::Severity::Error,
+                    crate::health::Severity::NotProductionReady,
                     crate::health::FindingCode::PayloadSizeBand,
                 )],
             )
@@ -982,7 +985,7 @@ mod tests {
                 EmissionStrategy::TemplatedUnderlyingTokens,
                 CompileDecision::Admit,
                 vec![finding(
-                    crate::health::Severity::Critical,
+                    crate::health::Severity::MachineLimit,
                     crate::health::FindingCode::UnknownUnboundedConstruct,
                 )],
             )
@@ -995,9 +998,9 @@ mod tests {
         assert_eq!(
             selection
                 .report_for(EmissionStrategy::TunedSurfaceProbed)
-                .expect("error report remains retained")
+                .expect("not-production-ready report remains retained")
                 .worst_severity(),
-            crate::health::Severity::Error
+            crate::health::Severity::NotProductionReady
         );
         assert_eq!(
             selection
@@ -1019,7 +1022,7 @@ mod tests {
                     CompileDecision::Admit,
                     if index == 0 {
                         vec![finding(
-                            crate::health::Severity::Info,
+                            crate::health::Severity::Elevated,
                             crate::health::FindingCode::PayloadSizeBand,
                         )]
                     } else {

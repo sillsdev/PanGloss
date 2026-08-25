@@ -60,7 +60,7 @@ fn identities(grammar: &Grammar, analyses: &[WordAnalysis]) -> BTreeSet<Analysis
 fn synthetic_warning() -> HealthFinding {
     HealthFinding {
         code: FindingCode::PayloadSizeBand,
-        severity: Severity::Warning,
+        severity: Severity::LargeMultiplier,
         phase: Phase::Compile,
         affected: vec!["selected-payload-test".to_string()],
         metric: Metric::EmittedLineCount,

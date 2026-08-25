@@ -1478,7 +1478,7 @@ mod tests {
         );
         assert!(
             text.contains("FST health findings")
-                && !text.contains("| Critical | PGF0013 |"),
+                && !text.contains("| CannotRepresent | PGF0013 |"),
             "the raw readiness section must remain visible without reclassifying capability PGF0013 as health: {text}"
         );
         assert!(text.contains("Backend assessments"), "{text}");

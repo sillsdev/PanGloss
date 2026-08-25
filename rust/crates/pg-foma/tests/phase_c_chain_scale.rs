@@ -57,7 +57,7 @@ fn ordinary_affix_depth_five_and_ten_are_not_health_violations() {
         let health = evaluate_health(None, Some(&emitted.report), &[], &[], None);
         assert_eq!(
             health.admission(),
-            Severity::Ideal,
+            Severity::WithinLimits,
             "ordinary depth {depth} alone must produce no health complaint: {:?}",
             health.findings
         );

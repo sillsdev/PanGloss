@@ -39,7 +39,7 @@ fn measure_apply_side(grammar: &Grammar, words: &[String]) -> Result<Vec<HealthF
     Ok(findings)
 }
 
-/// One word's pre-dedup duplicate-analysis evidence: many copies still mean one semantic answer but expose an FST design problem, so this emits `Severity::Info` count/ratio findings, both empty when `structured` has no duplicate at all.
+/// One word's pre-dedup duplicate-analysis evidence: many copies still mean one semantic answer but expose an FST design problem, so this emits `Severity::Elevated` count/ratio findings, both empty when `structured` has no duplicate at all.
 fn duplicate_analysis_findings(word: &str, structured: &[WordAnalysis]) -> Vec<HealthFinding> {
     let total = structured.len();
     if total == 0 {
@@ -67,7 +67,7 @@ fn duplicate_analysis_findings(word: &str, structured: &[WordAnalysis]) -> Vec<H
     vec![
         HealthFinding {
             code: FindingCode::DuplicateAnalysisOverlap,
-            severity: Severity::Info,
+            severity: Severity::Elevated,
             phase: Phase::Apply,
             affected: vec![word.to_string()],
             metric: Metric::DuplicateAnalysisCount,
@@ -80,7 +80,7 @@ fn duplicate_analysis_findings(word: &str, structured: &[WordAnalysis]) -> Vec<H
         },
         HealthFinding {
             code: FindingCode::DuplicateAnalysisOverlap,
-            severity: Severity::Info,
+            severity: Severity::Elevated,
             phase: Phase::Apply,
             affected: vec![word.to_string()],
             metric: Metric::DuplicateAnalysisRatio,
@@ -94,11 +94,11 @@ fn duplicate_analysis_findings(word: &str, structured: &[WordAnalysis]) -> Vec<H
     ]
 }
 
-/// Total distinct FST-propose candidates across every word measured; `Severity::Info` since proposal volume is evidence, not itself a problem.
+/// Total distinct FST-propose candidates across every word measured; `Severity::Elevated` since proposal volume is evidence, not itself a problem.
 fn proposal_volume_finding(total_candidates: u64) -> HealthFinding {
     HealthFinding {
         code: FindingCode::ProposalVolume,
-        severity: Severity::Info,
+        severity: Severity::Elevated,
         phase: Phase::Apply,
         affected: Vec::new(),
         metric: Metric::ProposalCandidateCount,
@@ -119,7 +119,7 @@ fn proposal_volume_finding(total_candidates: u64) -> HealthFinding {
 fn confirmation_work_findings(total_candidates: u64, total_confirmed: u64) -> Vec<HealthFinding> {
     let mut findings = vec![HealthFinding {
         code: FindingCode::ConfirmationWork,
-        severity: Severity::Info,
+        severity: Severity::Elevated,
         phase: Phase::Apply,
         affected: Vec::new(),
         metric: Metric::ConfirmationCount,
@@ -140,7 +140,7 @@ fn confirmation_work_findings(total_candidates: u64, total_confirmed: u64) -> Ve
         let share = rejected as f64 / total_candidates as f64;
         findings.push(HealthFinding {
             code: FindingCode::ConfirmationWork,
-            severity: Severity::Info,
+            severity: Severity::Elevated,
             phase: Phase::Apply,
             affected: Vec::new(),
             metric: Metric::RejectionShare,

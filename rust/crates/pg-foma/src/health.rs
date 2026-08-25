@@ -7,37 +7,45 @@
 //! measurement and are never independently remeasured.
 //!
 //! # Two distinct axes (do not conflate)
-//! This module's severity axis (`Severity`: Ideal/Info/Warning/Error/Critical — a **cost/size**
-//! axis) is a *different* dimension from the capability-trust axis (characteristics-check
-//! hard-fail vs. capability override, binary proven-vs-unproven). A pack can be cost-healthy yet
-//! capability-unproven, or vice versa — this module models only the cost/health axis. The
-//! `OverrideRecord` on a `HealthFinding` is retained for backward-compatible audit reading only;
-//! it is not an admission mechanism and does not re-implement the capability registry.
+//! This module's severity axis (`Severity`: WithinLimits/Elevated/LargeMultiplier/
+//! NotProductionReady/MachineLimit/CannotRepresent — a **cost/size** axis) is a *different*
+//! dimension from the capability-trust axis (characteristics-check hard-fail vs. capability
+//! override, binary proven-vs-unproven). A pack can be cost-healthy yet capability-unproven, or
+//! vice versa — this module models only the cost/health axis. The `OverrideRecord` on a
+//! `HealthFinding` is retained for backward-compatible audit reading only; it is not an admission
+//! mechanism and does not re-implement the capability registry.
+//!
+//! # Severity names the FACT it represents, not an alarm level
+//! Each variant answers a distinct question about WHERE the evidence came from (see `Severity`'s
+//! own doc for the four questions and `HEALTH_SCHEMA_VERSION`'s doc for the wire-compatibility
+//! story). Every prior name below refers to the pre-schema-3 variant it replaced 1:1; the
+//! `#[serde(alias)]` on each variant keeps an already-serialized report readable under its old
+//! spelling.
 //!
 //! # Severity and size bands
 //! `severity_for_size_bytes` implements the exact decimal-byte FST-payload bands from the
-//! `*_MAX_BYTES` constants. The warning or readiness error a crossed band raises is wanted; the exact edge is
-//! provisional — read `IDEAL_MAX_BYTES` before citing an edge as evidence. Size is one dimension among several —
-//! see `Metric` for the others (compile work, intermediate nets, candidates, paths, application
-//! time, unknown/unbounded constructs) — and `HealthReport::admission` aggregates across all of
-//! them, not size alone.
+//! `*_MAX_BYTES` constants. The elevated finding or readiness failure a crossed band raises is
+//! wanted; the exact edge is provisional — read `IDEAL_MAX_BYTES` before citing an edge as
+//! evidence. Size is one dimension among several — see `Metric` for the others (compile work,
+//! intermediate nets, candidates, paths, application time, unknown/unbounded constructs) — and
+//! `HealthReport::admission` aggregates across all of them, not size alone.
 //!
 //! # Legacy override records
-//! `Severity::Error` and `Severity::Critical` remain explicit readiness failures. Older serialized
-//! reports may carry an `OverrideRecord`, but it is audit metadata only: health admission always
-//! reflects raw severity, and capability trust is the only active override axis. Apply-time
-//! execution containment remains a hard boundary as well.
+//! `Severity::NotProductionReady` and `Severity::MachineLimit` remain explicit readiness
+//! failures. Older serialized reports may carry an `OverrideRecord`, but it is audit metadata
+//! only: health admission always reflects raw severity, and capability trust is the only active
+//! override axis. Apply-time execution containment remains a hard boundary as well.
 //!
 //! # Worst severity ("FST admission result")
 //! `HealthReport::admission` and `admission_without_overrides` both return the worst raw finding
 //! severity. The latter name remains as a compatibility aid for callers that used the old
 //! override-aware schema.
 //!
-//! # Cost uncertainty is not itself Critical
+//! # Cost uncertainty is not itself a machine limit
 //! `ValueProvenance` and `MetricValue::Unbounded` encode that unknown cost is not itself
-//! Critical when construction is recall-preserving: an `Unbounded` value with
+//! `Severity::MachineLimit` when construction is recall-preserving: an `Unbounded` value with
 //! `ValueProvenance::Predicted` is diagnostic evidence only and cannot by itself justify
-//! `Severity::Critical` — only an actual observed `Metric::ResourceBudget`-style outcome (a
+//! `Severity::MachineLimit` — only an actual observed `Metric::ResourceBudget`-style outcome (a
 //! `FindingCode::ResourceBudgetReached` finding, `ValueProvenance::Observed`) or a
 //! `ValueProvenance::ProvenBound` that cannot fit the remaining budget
 //! (`FindingCode::ProvenBoundExceedsBudget`) does. This module records the distinction; it does
@@ -82,27 +90,60 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// This schema's own version, written into every `HealthReport`. Bump only on a
 /// wire-incompatible change to this module's types.
-pub const HEALTH_SCHEMA_VERSION: u32 = 2;
+///
+/// Bumped to 3 for the `Severity` variant rename (each variant now names the fact it represents
+/// rather than an alarm level) and the new `CannotRepresent` variant: both are wire-visible
+/// changes to this schema's canonical JSON, even though every old spelling still deserializes via
+/// `#[serde(alias)]` and every new report keeps writing the same five bands plus the one addition.
+pub const HEALTH_SCHEMA_VERSION: u32 = 3;
 
 // Severity + size bands
 
 /// The cost/health severity axis — deliberately **distinct** from the capability-trust axis
-/// (proven-vs-unproven capability checks). Declaration order is worst-last and is what `Ord`
-/// and `HealthReport::admission`'s `max` rely on: `Ideal < Info < Warning < Error < Critical`.
+/// (proven-vs-unproven capability checks). Each variant answers a different question about WHERE
+/// the evidence came from, not how alarming it sounds:
+///
+/// - [`Severity::WithinLimits`] / [`Severity::Elevated`] / [`Severity::LargeMultiplier`]: static
+///   analysis, produced BEFORE compiling, never blocks.
+/// - [`Severity::CannotRepresent`]: static analysis, produced BEFORE compiling, and nothing can be
+///   built for the affected feature.
+/// - [`Severity::NotProductionReady`]: the compiled artifact was measured AFTER a successful
+///   compile and found not shippable; a labelling verdict that must never block compiling.
+/// - [`Severity::MachineLimit`]: process containment fired DURING a compile (near-OOM, out of
+///   disk, an RSS ceiling) and aborted it; never a statement about the grammar.
+///
+/// Declaration order is worst-last and is what `Ord` and `HealthReport::admission`'s `max` rely
+/// on: `WithinLimits < Elevated < LargeMultiplier < NotProductionReady < MachineLimit <
+/// CannotRepresent`. Each variant's `#[serde(alias)]` keeps an already-serialized report (written
+/// under the pre-schema-3 alarm-level names) readable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
-    /// Within every band; nothing to report.
-    Ideal,
-    /// Above the Ideal band but not yet action-worthy.
-    Info,
-    /// Action-worthy but does not block publication.
-    Warning,
-    /// A readiness failure; a legacy `OverrideRecord` cannot admit it.
-    Error,
-    /// The worst band; a legacy `OverrideRecord` cannot admit it. Capability overrides are
-    /// recorded on `CapabilityTrust`, not on health findings.
-    Critical,
+    /// Within every band; nothing to report. Formerly `Ideal`.
+    #[serde(alias = "ideal")]
+    WithinLimits,
+    /// Above the within-limits band but not yet action-worthy. Formerly `Info`.
+    #[serde(alias = "info")]
+    Elevated,
+    /// Static analysis: an N x M x O multiplier is too large. Produced BEFORE compiling; does not
+    /// block. Remedy: check grammar optimization. Formerly `Warning`.
+    #[serde(alias = "warning")]
+    LargeMultiplier,
+    /// The compiled artifact was measured AFTER a successful compile and is not shippable (e.g.
+    /// payload over the size bands above). Must not block compiling; a legacy `OverrideRecord`
+    /// cannot admit it. Remedy: this is a labelling verdict. Formerly `Error`.
+    #[serde(alias = "error")]
+    NotProductionReady,
+    /// Process containment fired DURING a compile and aborted it: near-OOM, out of disk, an RSS
+    /// ceiling. A legacy `OverrideRecord` cannot admit it. Remedy: more machine, or a different
+    /// algorithm — no larger envelope helps. Formerly `Critical`.
+    #[serde(alias = "critical")]
+    MachineLimit,
+    /// Static analysis: candidates using this feature cannot be faithfully proposed. Produced
+    /// BEFORE compiling; nothing can be built. Remedy: implement the feature, or use the full
+    /// engine. New in schema 3 — no legacy spelling to alias, since this verdict did not exist
+    /// before (it was previously conflated with `MachineLimit`/`Critical`).
+    CannotRepresent,
 }
 
 impl Severity {
@@ -132,9 +173,9 @@ pub const IDEAL_MAX_BYTES: u64 = 100_000_000;
 pub const INFO_MAX_BYTES: u64 = 200_000_000;
 /// Inclusive upper edge of the Warning payload band. Provenance: see [`IDEAL_MAX_BYTES`].
 pub const WARNING_MAX_BYTES: u64 = 1_000_000_000;
-/// Inclusive upper edge of the Error payload band; larger payloads remain Error readiness findings
-/// rather than becoming correctness Critical. Provenance: see
-/// [`IDEAL_MAX_BYTES`].
+/// Inclusive upper edge of the Error payload band; larger payloads remain NotProductionReady
+/// readiness findings rather than becoming a MachineLimit/CannotRepresent verdict. Provenance:
+/// see [`IDEAL_MAX_BYTES`].
 pub const ERROR_MAX_BYTES: u64 = 5_000_000_000;
 
 /// The exact decimal-byte FST-payload size bands, inclusive upper edges, from the
@@ -148,16 +189,16 @@ pub const ERROR_MAX_BYTES: u64 = 5_000_000_000;
 /// function's result alone as overall admission.
 pub const fn severity_for_size_bytes(bytes: u64) -> Severity {
     if bytes <= IDEAL_MAX_BYTES {
-        Severity::Ideal
+        Severity::WithinLimits
     } else if bytes <= INFO_MAX_BYTES {
-        Severity::Info
+        Severity::Elevated
     } else if bytes <= WARNING_MAX_BYTES {
-        Severity::Warning
+        Severity::LargeMultiplier
     } else if bytes <= ERROR_MAX_BYTES {
-        Severity::Error
+        Severity::NotProductionReady
     } else {
-        // Payload size is readiness; Critical is reserved for capability findings.
-        Severity::Error
+        // Payload size is readiness; MachineLimit/CannotRepresent are reserved for containment/capability findings.
+        Severity::NotProductionReady
     }
 }
 
@@ -278,7 +319,7 @@ pub enum FindingCode {
     ConfirmationWork,
     /// Pre-dedup duplicate analysis count/ratio with rule or proposal-path provenance, when available.
     DuplicateAnalysisOverlap,
-    /// A recall-preserving construct's cost cannot be bounded ahead of time; not itself Critical.
+    /// A recall-preserving construct's cost cannot be bounded ahead of time; not itself a MachineLimit.
     UnknownUnboundedConstruct,
     /// A compilation attempt reached an enforced logical/byte/time budget and stopped.
     ResourceBudgetReached,
@@ -379,7 +420,7 @@ impl FindingCode {
             }
             FindingCode::UnknownUnboundedConstruct => {
                 "A recall-preserving construct's cost cannot be bounded ahead of time (cost \
-                 uncertainty, not itself Critical)."
+                 uncertainty, not itself a MachineLimit)."
             }
             FindingCode::ResourceBudgetReached => {
                 "A compilation attempt reached an enforced logical/byte/time budget and stopped \
@@ -559,20 +600,22 @@ pub struct HealthReport {
 /// `process`. See `HealthReport::admission_by_class`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AdmissionByClass {
-    /// Worst severity among this report's `FindingClass::Representability` findings. A non-`Ideal`
-    /// value here means PanGloss cannot prove a recall-preserving representation; it is not a
-    /// statement about size, speed, or resource use.
+    /// Worst severity among this report's `FindingClass::Representability` findings. A
+    /// non-`WithinLimits` value here means PanGloss cannot prove a recall-preserving
+    /// representation; it is not a statement about size, speed, or resource use.
     pub representability: Severity,
-    /// Worst severity among this report's `FindingClass::Readiness` findings. A non-`Ideal` value
-    /// here is about shippability (size/speed/maintainability), not about whether the grammar is
-    /// representable at all.
+    /// Worst severity among this report's `FindingClass::Readiness` findings. A non-`WithinLimits`
+    /// value here is about shippability (size/speed/maintainability), not about whether the
+    /// grammar is representable at all.
     pub readiness: Severity,
-    /// Worst severity among this report's `FindingClass::Containment` findings. A non-`Ideal`
-    /// value here means only that THIS attempt hit its own operational safety boundary; it says
-    /// nothing about the grammar's representability and never makes partial output usable.
+    /// Worst severity among this report's `FindingClass::Containment` findings. A
+    /// non-`WithinLimits` value here means only that THIS attempt hit its own operational safety
+    /// boundary; it says nothing about the grammar's representability and never makes partial
+    /// output usable.
     pub containment: Severity,
-    /// Worst severity among this report's `FindingClass::Process` findings. A non-`Ideal` value
-    /// here reflects bad input or a worker/protocol/internal fault, not a fact about the grammar.
+    /// Worst severity among this report's `FindingClass::Process` findings. A non-`WithinLimits`
+    /// value here reflects bad input or a worker/protocol/internal fault, not a fact about the
+    /// grammar.
     pub process: Severity,
 }
 
@@ -591,7 +634,7 @@ impl HealthReport {
             .iter()
             .map(|finding| finding.severity)
             .max()
-            .unwrap_or(Severity::Ideal)
+            .unwrap_or(Severity::WithinLimits)
     }
 
     /// Compatibility alias for the raw admission result. The name remains because it is part of
@@ -600,17 +643,17 @@ impl HealthReport {
         self.admission()
     }
 
-    /// The worst severity among this report's findings of `class`, or `Severity::Ideal` when no
-    /// finding of that class is present. This is additive reporting alongside `admission`: it
-    /// answers one of the three independent admission questions in isolation, never combined with
-    /// the others.
+    /// The worst severity among this report's findings of `class`, or `Severity::WithinLimits`
+    /// when no finding of that class is present. This is additive reporting alongside
+    /// `admission`: it answers one of the three independent admission questions in isolation,
+    /// never combined with the others.
     pub fn worst_by_class(&self, class: FindingClass) -> Severity {
         self.findings
             .iter()
             .filter(|finding| finding.class() == class)
             .map(|finding| finding.severity)
             .max()
-            .unwrap_or(Severity::Ideal)
+            .unwrap_or(Severity::WithinLimits)
     }
 
     /// The three independent admission questions (plus `Process`) answered separately, never
@@ -662,81 +705,93 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_size_bands_zero_is_ideal() {
-        assert_eq!(severity_for_size_bytes(0), Severity::Ideal);
+    fn fst_health_size_bands_zero_is_within_limits() {
+        assert_eq!(severity_for_size_bytes(0), Severity::WithinLimits);
     }
 
     #[test]
-    fn fst_health_size_bands_ideal_upper_edge_inclusive() {
-        assert_eq!(severity_for_size_bytes(IDEAL_MAX_BYTES), Severity::Ideal);
+    fn fst_health_size_bands_within_limits_upper_edge_inclusive() {
+        assert_eq!(
+            severity_for_size_bytes(IDEAL_MAX_BYTES),
+            Severity::WithinLimits
+        );
     }
 
     #[test]
-    fn fst_health_size_bands_info_lower_edge_exclusive_of_ideal() {
-        assert_eq!(severity_for_size_bytes(IDEAL_MAX_BYTES + 1), Severity::Info);
+    fn fst_health_size_bands_elevated_lower_edge_exclusive_of_within_limits() {
+        assert_eq!(
+            severity_for_size_bytes(IDEAL_MAX_BYTES + 1),
+            Severity::Elevated
+        );
     }
 
     #[test]
-    fn fst_health_size_bands_info_upper_edge_inclusive() {
-        assert_eq!(severity_for_size_bytes(INFO_MAX_BYTES), Severity::Info);
+    fn fst_health_size_bands_elevated_upper_edge_inclusive() {
+        assert_eq!(severity_for_size_bytes(INFO_MAX_BYTES), Severity::Elevated);
     }
 
     #[test]
-    fn fst_health_size_bands_warning_lower_edge_exclusive_of_info() {
+    fn fst_health_size_bands_large_multiplier_lower_edge_exclusive_of_elevated() {
         assert_eq!(
             severity_for_size_bytes(INFO_MAX_BYTES + 1),
-            Severity::Warning
+            Severity::LargeMultiplier
         );
     }
 
     #[test]
-    fn fst_health_size_bands_warning_upper_edge_inclusive() {
-        // The band boundary is INCLUSIVE: exactly WARNING_MAX_BYTES is Warning, not Error.
+    fn fst_health_size_bands_large_multiplier_upper_edge_inclusive() {
+        // The band boundary is INCLUSIVE: exactly WARNING_MAX_BYTES is LargeMultiplier, not NotProductionReady.
         assert_eq!(
             severity_for_size_bytes(WARNING_MAX_BYTES),
-            Severity::Warning
+            Severity::LargeMultiplier
         );
     }
 
     #[test]
-    fn fst_health_size_bands_error_lower_edge_exclusive_of_warning() {
+    fn fst_health_size_bands_not_production_ready_lower_edge_exclusive_of_large_multiplier() {
         assert_eq!(
             severity_for_size_bytes(WARNING_MAX_BYTES + 1),
-            Severity::Error
+            Severity::NotProductionReady
         );
     }
 
     #[test]
-    fn fst_health_size_bands_error_upper_edge_inclusive() {
-        assert_eq!(severity_for_size_bytes(ERROR_MAX_BYTES), Severity::Error);
+    fn fst_health_size_bands_not_production_ready_upper_edge_inclusive() {
+        assert_eq!(
+            severity_for_size_bytes(ERROR_MAX_BYTES),
+            Severity::NotProductionReady
+        );
     }
 
     #[test]
-    fn fst_health_size_bands_above_error_floor_remains_error() {
+    fn fst_health_size_bands_above_error_floor_remains_not_production_ready() {
         assert_eq!(
             severity_for_size_bytes(ERROR_MAX_BYTES + 1),
-            Severity::Error
+            Severity::NotProductionReady
         );
     }
 
     #[test]
-    fn fst_health_size_bands_far_above_floor_remains_error() {
-        assert_eq!(severity_for_size_bytes(u64::MAX), Severity::Error);
+    fn fst_health_size_bands_far_above_floor_remains_not_production_ready() {
+        assert_eq!(
+            severity_for_size_bytes(u64::MAX),
+            Severity::NotProductionReady
+        );
     }
 
     // fst_health_override_policy: legacy records are audit-only and never admit health.
 
     #[test]
-    fn fst_health_override_policy_error_and_critical_are_non_admitting() {
-        assert!(!Severity::Error.overridable());
-        assert!(!Severity::Critical.overridable());
+    fn fst_health_override_policy_not_production_ready_and_machine_limit_are_non_admitting() {
+        assert!(!Severity::NotProductionReady.overridable());
+        assert!(!Severity::MachineLimit.overridable());
     }
 
     #[test]
-    fn fst_health_override_policy_warning_and_below_never_need_override() {
-        assert!(!Severity::Ideal.overridable());
-        assert!(!Severity::Info.overridable());
-        assert!(!Severity::Warning.overridable());
+    fn fst_health_override_policy_large_multiplier_and_below_never_need_override() {
+        assert!(!Severity::WithinLimits.overridable());
+        assert!(!Severity::Elevated.overridable());
+        assert!(!Severity::LargeMultiplier.overridable());
     }
 
     fn synthetic_finding(
@@ -767,38 +822,41 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_override_policy_legacy_critical_still_dominates_warning() {
+    fn fst_health_override_policy_legacy_machine_limit_still_dominates_large_multiplier() {
         let report = HealthReport::new(vec![
-            synthetic_finding(Severity::Critical, Some(synthetic_override())),
-            synthetic_finding(Severity::Warning, None),
+            synthetic_finding(Severity::MachineLimit, Some(synthetic_override())),
+            synthetic_finding(Severity::LargeMultiplier, None),
         ]);
         assert_eq!(
             report.admission(),
-            Severity::Critical,
-            "a legacy override record cannot hide a Critical readiness finding"
+            Severity::MachineLimit,
+            "a legacy override record cannot hide a MachineLimit readiness finding"
         );
     }
 
     #[test]
-    fn fst_health_override_policy_legacy_error_still_dominates_info() {
+    fn fst_health_override_policy_legacy_not_production_ready_still_dominates_elevated() {
         let report = HealthReport::new(vec![
-            synthetic_finding(Severity::Error, Some(synthetic_override())),
-            synthetic_finding(Severity::Info, None),
+            synthetic_finding(Severity::NotProductionReady, Some(synthetic_override())),
+            synthetic_finding(Severity::Elevated, None),
         ]);
-        assert_eq!(report.admission(), Severity::Error);
+        assert_eq!(report.admission(), Severity::NotProductionReady);
     }
 
     #[test]
     fn fst_health_legacy_override_record_never_changes_raw_admission() {
         let report = HealthReport::new(vec![synthetic_finding(
-            Severity::Error,
+            Severity::NotProductionReady,
             Some(synthetic_override()),
         )]);
 
-        assert_eq!(report.admission_without_overrides(), Severity::Error);
+        assert_eq!(
+            report.admission_without_overrides(),
+            Severity::NotProductionReady
+        );
         assert_eq!(
             report.admission(),
-            Severity::Error,
+            Severity::NotProductionReady,
             "legacy override records are audit data and cannot admit readiness"
         );
     }
@@ -806,41 +864,41 @@ mod tests {
     #[test]
     fn fst_health_override_policy_all_findings_with_legacy_records_still_fail() {
         let report = HealthReport::new(vec![synthetic_finding(
-            Severity::Critical,
+            Severity::MachineLimit,
             Some(synthetic_override()),
         )]);
-        assert_eq!(report.admission(), Severity::Critical);
+        assert_eq!(report.admission(), Severity::MachineLimit);
     }
 
     #[test]
-    fn fst_health_override_policy_empty_report_admits_ideal() {
+    fn fst_health_override_policy_empty_report_admits_within_limits() {
         let report = HealthReport::new(Vec::new());
-        assert_eq!(report.admission(), Severity::Ideal);
+        assert_eq!(report.admission(), Severity::WithinLimits);
     }
 
     #[test]
     fn fst_health_override_policy_worst_raw_severity_wins_among_several() {
         let report = HealthReport::new(vec![
-            synthetic_finding(Severity::Info, None),
-            synthetic_finding(Severity::Error, None),
-            synthetic_finding(Severity::Warning, None),
+            synthetic_finding(Severity::Elevated, None),
+            synthetic_finding(Severity::NotProductionReady, None),
+            synthetic_finding(Severity::LargeMultiplier, None),
         ]);
-        assert_eq!(report.admission(), Severity::Error);
+        assert_eq!(report.admission(), Severity::NotProductionReady);
     }
 
     #[test]
     fn fst_health_override_policy_raw_admission_matches_compatibility_alias() {
         let report = HealthReport::new(vec![synthetic_finding(
-            Severity::Critical,
+            Severity::MachineLimit,
             Some(synthetic_override()),
         )]);
-        assert_eq!(report.admission(), Severity::Critical);
-        assert_eq!(report.admission_without_overrides(), Severity::Critical);
+        assert_eq!(report.admission(), Severity::MachineLimit);
+        assert_eq!(report.admission_without_overrides(), Severity::MachineLimit);
     }
 
     #[test]
     fn fst_health_override_policy_apply_findings_are_not_overridable() {
-        let mut finding = synthetic_finding(Severity::Critical, None);
+        let mut finding = synthetic_finding(Severity::MachineLimit, None);
         finding.phase = Phase::Apply;
         assert!(!finding.override_allowed());
     }
@@ -889,7 +947,7 @@ mod tests {
 
     #[test]
     fn characterization_wire_rename_bumps_health_schema_version() {
-        assert_eq!(HEALTH_SCHEMA_VERSION, 2);
+        assert_eq!(HEALTH_SCHEMA_VERSION, 3);
     }
 
     /// An exhaustive `match` with no catch-all arm over every `Severity` variant, so adding a variant stops this from compiling until every exhaustive match in this file is updated.
@@ -897,26 +955,48 @@ mod tests {
     fn fst_health_schema_severity_is_closed_and_exhaustive() {
         const fn label(severity: Severity) -> &'static str {
             match severity {
-                Severity::Ideal => "ideal",
-                Severity::Info => "info",
-                Severity::Warning => "warning",
-                Severity::Error => "error",
-                Severity::Critical => "critical",
+                Severity::WithinLimits => "within_limits",
+                Severity::Elevated => "elevated",
+                Severity::LargeMultiplier => "large_multiplier",
+                Severity::NotProductionReady => "not_production_ready",
+                Severity::MachineLimit => "machine_limit",
+                Severity::CannotRepresent => "cannot_represent",
             }
         }
-        assert_eq!(label(Severity::Ideal), "ideal");
-        assert_eq!(label(Severity::Info), "info");
-        assert_eq!(label(Severity::Warning), "warning");
-        assert_eq!(label(Severity::Error), "error");
-        assert_eq!(label(Severity::Critical), "critical");
+        assert_eq!(label(Severity::WithinLimits), "within_limits");
+        assert_eq!(label(Severity::Elevated), "elevated");
+        assert_eq!(label(Severity::LargeMultiplier), "large_multiplier");
+        assert_eq!(
+            label(Severity::NotProductionReady),
+            "not_production_ready"
+        );
+        assert_eq!(label(Severity::MachineLimit), "machine_limit");
+        assert_eq!(label(Severity::CannotRepresent), "cannot_represent");
     }
 
-    /// Two findings: one Warning with a linguistic-equivalence-caveated remedy, one Error carrying a permanent `OverrideRecord`.
+    /// Every renamed variant's OLD snake_case spelling must still deserialize (`CannotRepresent` is new in schema 3, so it has none).
+    #[test]
+    fn old_severity_spellings_still_deserialize() {
+        let cases = [
+            ("\"ideal\"", Severity::WithinLimits),
+            ("\"info\"", Severity::Elevated),
+            ("\"warning\"", Severity::LargeMultiplier),
+            ("\"error\"", Severity::NotProductionReady),
+            ("\"critical\"", Severity::MachineLimit),
+        ];
+        for (old_json, expected) in cases {
+            let parsed: Severity = serde_json::from_str(old_json)
+                .unwrap_or_else(|e| panic!("{old_json} must still deserialize: {e}"));
+            assert_eq!(parsed, expected, "old spelling {old_json} must map to {expected:?}");
+        }
+    }
+
+    /// Two findings: one LargeMultiplier with a linguistic-equivalence-caveated remedy, one NotProductionReady carrying a permanent `OverrideRecord`.
     fn representative_report() -> HealthReport {
         HealthReport::new(vec![
             HealthFinding {
                 code: FindingCode::IntermediateNetworkGrowth,
-                severity: Severity::Warning,
+                severity: Severity::LargeMultiplier,
                 phase: Phase::Compile,
                 affected: vec!["mrule:0042".to_string(), "mrule:0043".to_string()],
                 metric: Metric::IntermediateStateCount,
@@ -941,15 +1021,15 @@ mod tests {
             },
             HealthFinding {
                 code: FindingCode::PayloadSizeBand,
-                severity: Severity::Error,
+                severity: Severity::NotProductionReady,
                 phase: Phase::Compile,
                 affected: vec!["synthetic-stress-grammar".to_string()],
                 metric: Metric::PayloadBytes,
                 value: MetricValue::Bytes(1_500_000_000),
                 provenance: ValueProvenance::Observed,
                 threshold: Some(MetricValue::Bytes(WARNING_MAX_BYTES)),
-                explanation: "Final FST payload is 1,500,000,000 bytes, in the Error band \
-                    (>1,000,000,000..=5,000,000,000)."
+                explanation: "Final FST payload is 1,500,000,000 bytes, in the NotProductionReady \
+                    band (>1,000,000,000..=5,000,000,000)."
                     .to_string(),
                 remedies: vec![Remedy {
                     rank: 1,
@@ -969,11 +1049,11 @@ mod tests {
     }
 
     const GOLDEN_JSON: &str = r#"{
-  "schema_version": 2,
+  "schema_version": 3,
   "findings": [
     {
       "code": "PGF0002",
-      "severity": "warning",
+      "severity": "large_multiplier",
       "phase": "compile",
       "affected": [
         "mrule:0042",
@@ -1001,7 +1081,7 @@ mod tests {
     },
     {
       "code": "PGF0001",
-      "severity": "error",
+      "severity": "not_production_ready",
       "phase": "compile",
       "affected": [
         "synthetic-stress-grammar"
@@ -1016,7 +1096,7 @@ mod tests {
         "kind": "bytes",
         "value": 1000000000
       },
-      "explanation": "Final FST payload is 1,500,000,000 bytes, in the Error band (>1,000,000,000..=5,000,000,000).",
+      "explanation": "Final FST payload is 1,500,000,000 bytes, in the NotProductionReady band (>1,000,000,000..=5,000,000,000).",
       "remedies": [
         {
           "rank": 1,
@@ -1052,13 +1132,16 @@ mod tests {
             parsed, report,
             "round trip through canonical JSON must be lossless"
         );
-        assert_eq!(parsed.admission(), Severity::Error);
+        assert_eq!(parsed.admission(), Severity::NotProductionReady);
     }
 
     #[test]
-    fn fst_health_schema_golden_admission_includes_legacy_overridden_error() {
-        // The golden's Error finding remains a readiness failure despite its audit record.
-        assert_eq!(representative_report().admission(), Severity::Error);
+    fn fst_health_schema_golden_admission_includes_legacy_overridden_not_production_ready() {
+        // The golden's NotProductionReady finding remains a readiness failure despite its audit record.
+        assert_eq!(
+            representative_report().admission(),
+            Severity::NotProductionReady
+        );
     }
 
     // fst_health_finding_class: FindingCode -> FindingClass, the three-question vocabulary.
@@ -1136,40 +1219,40 @@ mod tests {
     fn admission_by_class_separates_a_resource_stop_from_a_representability_gap() {
         // Demonstrates the blur is gone: one severity used to hide which question was failing.
         let report = HealthReport::new(vec![
-            class_finding(FindingCode::ResourceBudgetReached, Severity::Error), // Containment
-            class_finding(FindingCode::BackendCoverageIncomplete, Severity::Critical), // Representability
+            class_finding(FindingCode::ResourceBudgetReached, Severity::NotProductionReady), // Containment
+            class_finding(FindingCode::BackendCoverageIncomplete, Severity::CannotRepresent), // Representability
         ]);
 
         // The existing publish-gating value is untouched: still the plain max over everything.
-        assert_eq!(report.admission(), Severity::Critical);
+        assert_eq!(report.admission(), Severity::CannotRepresent);
 
         let by_class = report.admission_by_class();
         assert_eq!(
             by_class.containment,
-            Severity::Error,
+            Severity::NotProductionReady,
             "the resource stop must be visible on its own axis"
         );
         assert_eq!(
             by_class.representability,
-            Severity::Critical,
+            Severity::CannotRepresent,
             "the representability gap must be visible on its own axis"
         );
-        assert_eq!(by_class.readiness, Severity::Ideal);
-        assert_eq!(by_class.process, Severity::Ideal);
+        assert_eq!(by_class.readiness, Severity::WithinLimits);
+        assert_eq!(by_class.process, Severity::WithinLimits);
     }
 
     #[test]
-    fn worst_by_class_is_ideal_for_an_absent_class() {
+    fn worst_by_class_is_within_limits_for_an_absent_class() {
         let report = HealthReport::new(vec![
-            class_finding(FindingCode::PayloadSizeBand, Severity::Warning), // Readiness
+            class_finding(FindingCode::PayloadSizeBand, Severity::LargeMultiplier), // Readiness
         ]);
         assert_eq!(
             report.worst_by_class(FindingClass::Representability),
-            Severity::Ideal
+            Severity::WithinLimits
         );
         assert_eq!(
             report.worst_by_class(FindingClass::Containment),
-            Severity::Ideal
+            Severity::WithinLimits
         );
     }
 
@@ -1178,15 +1261,18 @@ mod tests {
         // Regression pin: adding `admission_by_class` must move `admission()` for no report.
         let reports = vec![
             HealthReport::new(Vec::new()),
-            HealthReport::new(vec![class_finding(FindingCode::PayloadSizeBand, Severity::Info)]),
+            HealthReport::new(vec![class_finding(
+                FindingCode::PayloadSizeBand,
+                Severity::Elevated,
+            )]),
             HealthReport::new(vec![
-                class_finding(FindingCode::CompileWorkBudget, Severity::Error),
-                class_finding(FindingCode::BackendCoverageIncomplete, Severity::Warning),
+                class_finding(FindingCode::CompileWorkBudget, Severity::NotProductionReady),
+                class_finding(FindingCode::BackendCoverageIncomplete, Severity::LargeMultiplier),
             ]),
             HealthReport::new(vec![
-                class_finding(FindingCode::BackendCompilationFailed, Severity::Critical),
-                class_finding(FindingCode::ProposalVolume, Severity::Info),
-                class_finding(FindingCode::ProvenBoundExceedsBudget, Severity::Warning),
+                class_finding(FindingCode::BackendCompilationFailed, Severity::MachineLimit),
+                class_finding(FindingCode::ProposalVolume, Severity::Elevated),
+                class_finding(FindingCode::ProvenBoundExceedsBudget, Severity::LargeMultiplier),
             ]),
         ];
 
@@ -1196,7 +1282,7 @@ mod tests {
                 .iter()
                 .map(|finding| finding.severity)
                 .max()
-                .unwrap_or(Severity::Ideal);
+                .unwrap_or(Severity::WithinLimits);
             assert_eq!(
                 report.admission(),
                 plain_max,
