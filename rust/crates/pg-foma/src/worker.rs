@@ -1550,34 +1550,33 @@ fn read_selected_artifact(
 mod tests {
     use super::*;
 
-    fn scratch_transport_dir(tag: &str) -> PathBuf {
+    fn scratch_attempt_id() -> String {
         static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let attempt_id = format!("test-{tag}-{n}");
-        selected_transport_dir(&attempt_id).expect("create scratch transport directory")
+        format!("attempt-{:08x}{:024x}", std::process::id(), n)
+    }
+
+    fn scratch_artifact_path() -> PathBuf {
+        selected_artifact_path_for_attempt(&scratch_attempt_id()).expect("derive scratch artifact")
     }
 
     #[test]
     fn selected_artifact_publish_is_atomic_and_described_by_actual_bytes() {
-        let transport_dir = scratch_transport_dir("publish");
-        let artifact_path = selected_artifact_path(&transport_dir);
+        let artifact_path = scratch_artifact_path();
         let payload = b"fst!";
 
         let descriptor =
             write_selected_artifact(&artifact_path, payload).expect("publish selected artifact");
 
         assert_eq!(fs::read(&artifact_path).expect("read artifact"), payload);
-        assert!(!selected_artifact_temp_path(&artifact_path).exists());
-        assert_eq!(descriptor.path, artifact_path.to_string_lossy());
         assert_eq!(descriptor.byte_len, payload.len() as u64);
         assert_eq!(descriptor.sha256, sha256_hex(payload));
-        cleanup_selected_transport_dir(&transport_dir).expect("clean transport directory");
+        cleanup_selected_output(&artifact_path).expect("clean selected output");
     }
 
     #[test]
     fn selected_payload_over_limit_publishes_nothing() {
-        let transport_dir = scratch_transport_dir("limit");
-        let artifact_path = selected_artifact_path(&transport_dir);
+        let artifact_path = scratch_artifact_path();
 
         let outcome = publish_selected_payload(&artifact_path, b"four", 3)
             .expect_err("four bytes must exceed a three-byte limit");
@@ -1590,45 +1589,88 @@ mod tests {
             }
         ));
         assert!(!artifact_path.exists());
-        assert!(!selected_artifact_temp_path(&artifact_path).exists());
-        cleanup_selected_transport_dir(&transport_dir).expect("clean transport directory");
     }
 
     #[test]
-    fn selected_output_cleanup_removes_partial_and_final_files() {
-        let transport_dir = scratch_transport_dir("cleanup");
-        let artifact_path = selected_artifact_path(&transport_dir);
-        fs::write(&artifact_path, b"final").expect("seed final artifact");
-        fs::write(selected_artifact_temp_path(&artifact_path), b"partial")
-            .expect("seed partial artifact");
+    fn selected_publish_never_clobbers_or_removes_an_existing_file() {
+        let artifact_path = scratch_artifact_path();
+        fs::write(&artifact_path, b"sentinel").expect("seed existing artifact");
+
+        let outcome = publish_selected_payload(&artifact_path, b"replacement", u64::MAX)
+            .expect_err("create-new publication must reject an existing artifact");
+
+        assert!(matches!(
+            outcome,
+            CompileWorkerOutcome::SelectedCompileFailed { .. }
+        ));
+        assert_eq!(
+            fs::read(&artifact_path).expect("read sentinel"),
+            b"sentinel"
+        );
+        fs::remove_file(&artifact_path).expect("remove sentinel");
+    }
+
+    #[test]
+    fn selected_output_cleanup_removes_the_attempt_owned_file() {
+        let artifact_path = scratch_artifact_path();
+        fs::write(&artifact_path, b"partial").expect("seed partial artifact");
 
         cleanup_selected_output(&artifact_path).expect("clean selected output");
 
         assert!(!artifact_path.exists());
-        assert!(!selected_artifact_temp_path(&artifact_path).exists());
-        cleanup_selected_transport_dir(&transport_dir).expect("clean transport directory");
     }
 
     #[test]
-    fn selected_request_cannot_escape_its_reserved_transport_directory() {
-        let attempt_id = "path-confinement-test";
-        let arbitrary_dir = std::env::temp_dir().join("pangloss-arbitrary-worker-output");
-        fs::create_dir(&arbitrary_dir).expect("create arbitrary directory");
+    fn selected_artifact_path_is_a_fixed_direct_child_of_canonical_temp() {
+        let attempt_id = "attempt-0123456789abcdef0123456789abcdef";
+
+        let artifact_path =
+            selected_artifact_path_for_attempt(attempt_id).expect("derive selected artifact");
+        let temp_root = fs::canonicalize(std::env::temp_dir()).expect("canonical temp");
+
+        assert_eq!(artifact_path.parent(), Some(temp_root.as_path()));
+        assert_eq!(
+            artifact_path.file_name().and_then(|name| name.to_str()),
+            Some("pangloss-selected-attempt-0123456789abcdef0123456789abcdef.fst")
+        );
+    }
+
+    #[test]
+    fn selected_artifact_path_rejects_every_non_generated_attempt_id_shape() {
+        for invalid in [
+            "",
+            "attempt",
+            "attempt-0123",
+            "../outside",
+            "attempt-../../outside",
+            "attempt-0123456789abcdef0123456789abcdeg",
+            "attempt-0123456789ABCDEF0123456789ABCDEF",
+            "attempt-0123456789abcdef0123456789abcdef0",
+            "C:\\outside",
+            "attempt-0123456789abcdef/123456789abcdef0",
+            "attempt-0123456789abcdef\\123456789abcdef0",
+            "attempt-0123456789abcdef0123456789abcdeé",
+        ] {
+            assert!(
+                selected_artifact_path_for_attempt(invalid).is_err(),
+                "malformed attempt id must not become a path: {invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn selected_request_json_contains_no_filesystem_destination() {
         let request = SelectedCompileRequest {
-            attempt_id: attempt_id.to_string(),
+            attempt_id: "attempt-0123456789abcdef0123456789abcdef".to_string(),
             route: "tuned-surface-probed".to_string(),
-            artifact_directory: arbitrary_dir.to_string_lossy().into_owned(),
             max_serialized_fst_bytes: 4,
         };
 
-        let error = selected_artifact_path_from_request(&request)
-            .expect_err("child must reject an unreserved artifact directory");
+        let json = serde_json::to_value(request).expect("serialize selected request");
 
-        assert!(
-            error.contains("reserved selected transport directory"),
-            "{error}"
-        );
-        fs::remove_dir(&arbitrary_dir).expect("remove arbitrary directory");
+        assert!(json.get("artifact_path").is_none());
+        assert!(json.get("artifact_directory").is_none());
+        assert!(json.get("artifact_token").is_none());
     }
 
     #[test]
@@ -1652,7 +1694,6 @@ mod tests {
                     payload_fingerprint: sha256_hex(b"fst!"),
                 },
                 artifact: SelectedArtifactDescriptor {
-                    path: "selected.fst".to_string(),
                     byte_len: 4,
                     sha256: sha256_hex(b"fst!"),
                 },
@@ -1684,6 +1725,36 @@ mod tests {
         assert_eq!(health.admission(), Severity::NotProductionReady);
         assert_eq!(health.findings[0].code, FindingCode::ResourceBudgetReached);
         assert_eq!(health.findings[0].metric, Metric::PayloadBytes);
+    }
+
+    #[test]
+    fn selected_parent_read_is_bounded_before_accepting_payload() {
+        let artifact_path = scratch_artifact_path();
+        fs::write(&artifact_path, b"four").expect("write oversized artifact");
+        let descriptor = SelectedArtifactDescriptor {
+            byte_len: 4,
+            sha256: sha256_hex(b"four"),
+        };
+        let wire = CompletedBackendBuildWire {
+            requested_strategy: "templated-underlying-tokens".to_string(),
+            realized_strategy: "templated-underlying-tokens".to_string(),
+            grammar_identity: "grammar".to_string(),
+            attempt_id: "attempt-0123456789abcdef0123456789abcdef".to_string(),
+            completion_proof: crate::completed_build::CompletionProofWire::TemplatedFullEmission {
+                uncovered_count: 0,
+                skipped_count: 0,
+            },
+            state_count: 1,
+            arc_count: 1,
+            model_fingerprint: "model".to_string(),
+            payload_fingerprint: sha256_hex(b"four"),
+        };
+
+        let error = read_selected_artifact(&artifact_path, &descriptor, wire, 3)
+            .expect_err("parent must reject before accepting an over-limit payload");
+
+        assert!(error.to_string().contains("execution limit"), "{error}");
+        cleanup_selected_output(&artifact_path).expect("clean selected output");
     }
 
     #[test]

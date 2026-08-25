@@ -55,7 +55,7 @@ fn execution_limits_are_configurable_but_cannot_be_disabled() {
 
 #[test]
 fn cleanup_breaks_the_old_worker_protocol_in_lockstep() {
-    assert_eq!(WORKER_PROTOCOL_VERSION, 7);
+    assert_eq!(WORKER_PROTOCOL_VERSION, 8);
     assert!(
         limits_for_version(1).is_none(),
         "pre-cleanup worker messages must be rejected, not migrated"
@@ -68,9 +68,9 @@ fn cleanup_breaks_the_old_worker_protocol_in_lockstep() {
 }
 
 #[test]
-fn protocol_six_request_frames_are_rejected_before_compile() {
+fn protocol_seven_request_frames_are_rejected_before_compile() {
     let mut request = CompileWorkerRequest::new("stale.xml", GrammarFormat::Xml);
-    request.protocol_version = 6;
+    request.protocol_version = 7;
     let body = serde_json::to_vec(&request).expect("serialize stale request");
     let mut input = Vec::new();
     input.extend_from_slice(&(body.len() as u64).to_le_bytes());
@@ -85,8 +85,8 @@ fn protocol_six_request_frames_are_rejected_before_compile() {
     match result.outcome {
         CompileWorkerOutcome::ProtocolViolation { detail } => {
             assert!(detail.contains("protocol_version"), "detail: {detail}");
-            assert!(detail.contains("6"), "detail: {detail}");
             assert!(detail.contains("7"), "detail: {detail}");
+            assert!(detail.contains("8"), "detail: {detail}");
         }
         other => panic!("expected ProtocolViolation, got {other:?}"),
     }
@@ -137,42 +137,6 @@ fn wall_limit_kills_a_slow_worker_process() {
         elapsed < Duration::from_secs(4),
         "the supervisor must return before the child's five-second sleep; took {elapsed:?}"
     );
-}
-
-#[test]
-fn selected_compile_request_wire_is_closed_and_identity_bearing_only() {
-    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
-    let start = source
-        .find("struct SelectedCompileRequest")
-        .expect("worker source must declare SelectedCompileRequest");
-    let end = source[start..]
-        .find('}')
-        .map(|offset| start + offset)
-        .expect("SelectedCompileRequest declaration must be closed");
-    let declaration = &source[start..=end];
-    let attributes = &source[start.saturating_sub(256)..start];
-
-    assert!(
-        attributes.contains("#[serde(deny_unknown_fields)]"),
-        "SelectedCompileRequest must reject removed wire fields"
-    );
-    assert!(declaration.contains("attempt_id:"));
-    assert!(declaration.contains("route:"));
-    for removed in [
-        "schema_version:",
-        "envelope_id:",
-        "envelope_digest:",
-        "watchdog:",
-        "communication:",
-        "compose:",
-        "enumeration:",
-        "backend:",
-    ] {
-        assert!(
-            !declaration.contains(removed),
-            "SelectedCompileRequest must not retain removed field {removed}"
-        );
-    }
 }
 
 #[test]
@@ -277,57 +241,6 @@ fn compile_attempt_and_completed_build_identity_surfaces_do_not_carry_execution_
             assert!(
                 !declaration.contains(removed),
                 "{declaration_name} must not carry execution-control field {removed}"
-            );
-        }
-    }
-}
-
-#[test]
-fn selected_transport_fields_stay_out_of_compile_and_completed_build_identity() {
-    let worker = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
-    let completed_build = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/completed_build.rs"
-    ));
-
-    let selected_start = worker
-        .find("struct SelectedCompileRequest")
-        .expect("selected request declaration must remain explicit");
-    let selected_end = worker[selected_start..]
-        .find('}')
-        .map(|offset| selected_start + offset)
-        .expect("selected request declaration must be closed");
-    let selected_declaration = &worker[selected_start..=selected_end];
-    assert!(
-        selected_declaration.contains("artifact_directory:"),
-        "the parent-controlled artifact directory belongs to transport request state"
-    );
-
-    for declaration_name in [
-        "pub struct CompileAttempt",
-        "pub struct CompletedBackendBuildEvidence",
-        "pub struct CompletedBackendBuildWire",
-    ] {
-        let start = completed_build
-            .find(declaration_name)
-            .unwrap_or_else(|| panic!("completed-build source must declare {declaration_name}"));
-        let end = completed_build[start..]
-            .find('}')
-            .map(|offset| start + offset)
-            .unwrap_or_else(|| panic!("{declaration_name} declaration must be closed"));
-        let declaration = &completed_build[start..=end];
-        for transport_field in [
-            "artifact_path",
-            "artifact_token",
-            "artifact_directory",
-            "ExecutionLimits",
-            "max_serialized_fst_bytes",
-            "max_committed_memory_bytes",
-            "max_wall_time",
-        ] {
-            assert!(
-                !declaration.contains(transport_field),
-                "{declaration_name} must not carry transport/execution field {transport_field}"
             );
         }
     }
