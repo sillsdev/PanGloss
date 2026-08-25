@@ -585,8 +585,9 @@ fn selected_artifact_temp_path(path: &Path) -> PathBuf {
     PathBuf::from(format!("{}.tmp", path.display()))
 }
 
-fn cleanup_selected_artifact(path: &Path) {
-    let _ = fs::remove_file(path);
+/// Removes only the child-owned partial file. The parent owns the reserved transport directory
+/// and removes the final artifact (and any partial) after the supervisor returns.
+fn cleanup_selected_partial(path: &Path) {
     let _ = fs::remove_file(selected_artifact_temp_path(path));
 }
 
@@ -595,7 +596,7 @@ fn write_selected_artifact(
     payload_bytes: &[u8],
 ) -> Result<SelectedArtifactDescriptor, String> {
     let temp_path = selected_artifact_temp_path(path);
-    cleanup_selected_artifact(path);
+    cleanup_selected_partial(path);
     let write_result = (|| {
         let mut file = OpenOptions::new()
             .write(true)
@@ -634,7 +635,7 @@ fn write_selected_artifact(
         })
     })();
     if write_result.is_err() {
-        cleanup_selected_artifact(path);
+        cleanup_selected_partial(path);
     }
     write_result
 }
@@ -716,7 +717,7 @@ fn compile_selected_from_request(
         }
     })();
     if !matches!(&outcome, CompileWorkerOutcome::SelectedSuccess { .. }) {
-        cleanup_selected_artifact(artifact_path);
+        cleanup_selected_partial(artifact_path);
     }
     outcome
 }
@@ -1114,26 +1115,15 @@ pub fn run_compile_worker(
     limits: &ExecutionLimits,
 ) -> WorkerOutcome {
     let protocol_limits = WORKER_PROTOCOL_LIMITS;
-    let selected_artifact = request
-        .selected
-        .as_ref()
-        .map(|selected| PathBuf::from(&selected.artifact_path));
-
     let request_json = match serde_json::to_vec(request) {
         Ok(bytes) => bytes,
         Err(e) => {
-            if let Some(path) = selected_artifact.as_deref() {
-                cleanup_selected_artifact(path);
-            }
             return WorkerOutcome::ProtocolViolation {
                 detail: format!("failed to serialize compile-worker request: {e}"),
             };
         }
     };
     if request_json.len() as u64 > protocol_limits.max_request_bytes {
-        if let Some(path) = selected_artifact.as_deref() {
-            cleanup_selected_artifact(path);
-        }
         return WorkerOutcome::ProtocolViolation {
             detail: format!(
                 "request is {} byte(s), exceeding the {}-byte protocol limit",
@@ -1152,9 +1142,6 @@ pub fn run_compile_worker(
     {
         Ok(c) => c,
         Err(e) => {
-            if let Some(path) = selected_artifact.as_deref() {
-                cleanup_selected_artifact(path);
-            }
             return WorkerOutcome::SpawnFailed {
                 detail: format!("spawning {}: {e}", child_exe.display()),
             };
@@ -1239,14 +1226,6 @@ pub fn run_compile_worker(
     let _ = stderr_handle.join();
     let _ = stderr_buf; // captured for future diagnostics surfacing; not read on every path today.
 
-    if !matches!(
-        &outcome,
-        WorkerOutcome::Completed(CompileWorkerOutcome::SelectedSuccess { .. })
-    ) {
-        if let Some(path) = selected_artifact.as_deref() {
-            cleanup_selected_artifact(path);
-        }
-    }
     outcome
 }
 
@@ -1267,7 +1246,8 @@ pub fn run_selected_compile_worker(
     let preferred = selection
         .preferred()
         .ok_or(crate::completed_build::CompletedBuildError::NoMatchingCompletedBuild)?;
-    let artifact_path = selected_artifact_path(request.attempt_id().as_str());
+    let transport_dir = selected_transport_dir(request.attempt_id().as_str())?;
+    let artifact_path = selected_artifact_path(&transport_dir);
     let selected = SelectedCompileRequest {
         attempt_id: request.attempt_id().as_str().to_string(),
         route: preferred.label().to_string(),
@@ -1312,16 +1292,49 @@ pub fn run_selected_compile_worker(
             "selected compile worker did not return a payload: {other:?}"
         ))),
     };
-    cleanup_selected_artifact(&artifact_path);
-    result
+    let cleanup_result = cleanup_selected_transport_dir(&transport_dir);
+    match (result, cleanup_result) {
+        (Ok(build), Ok(())) => Ok(build),
+        (Ok(_), Err(cleanup_error)) => Err(cleanup_error),
+        (Err(error), Ok(())) => Err(error),
+        (Err(error), Err(cleanup_error)) => {
+            Err(crate::completed_build::CompletedBuildError::Compiler(
+                format!("{error}; selected transport cleanup also failed: {cleanup_error}"),
+            ))
+        }
+    }
 }
 
-fn selected_artifact_path(attempt_id: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "pangloss-selected-{}-{}.fst",
+fn selected_transport_dir(
+    attempt_id: &str,
+) -> Result<PathBuf, crate::completed_build::CompletedBuildError> {
+    let transport_dir = std::env::temp_dir().join(format!(
+        "pangloss-selected-{}-{}",
         std::process::id(),
         attempt_id
-    ))
+    ));
+    fs::create_dir(&transport_dir).map_err(|error| {
+        crate::completed_build::CompletedBuildError::Compiler(format!(
+            "create selected transport directory {}: {error}",
+            transport_dir.display()
+        ))
+    })?;
+    Ok(transport_dir)
+}
+
+fn selected_artifact_path(transport_dir: &Path) -> PathBuf {
+    transport_dir.join("selected.fst")
+}
+
+fn cleanup_selected_transport_dir(
+    transport_dir: &Path,
+) -> Result<(), crate::completed_build::CompletedBuildError> {
+    fs::remove_dir_all(transport_dir).map_err(|error| {
+        crate::completed_build::CompletedBuildError::Compiler(format!(
+            "remove selected transport directory {}: {error}",
+            transport_dir.display()
+        ))
+    })
 }
 
 fn read_selected_artifact(
