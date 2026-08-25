@@ -883,35 +883,6 @@ fn parse_batch_with_opts(
     })
 }
 
-/// `HC_PHASE_PROFILE`'s summary: total self ns, call count, ns/call, and share of the measured total per `pg_rules::stats::AnalysisPhase`, sorted for a stable report.
-fn print_phase_profile(
-    totals: &std::collections::HashMap<
-        pg_rules::stats::AnalysisPhase,
-        pg_rules::stats_calibrate::KindTotals,
-    >,
-) {
-    let grand_total_ns: u64 = totals.values().map(|t| t.ns).sum();
-    let mut rows: Vec<_> = totals.iter().collect();
-    rows.sort_by_key(|(phase, _)| **phase);
-    eprintln!("PHASEPROF\tphase\ttotal_ns\tcalls\tns_per_call\tshare_pct");
-    for (phase, t) in rows {
-        let per_call = if t.work > 0 {
-            t.ns as f64 / t.work as f64
-        } else {
-            0.0
-        };
-        let share = if grand_total_ns > 0 {
-            t.ns as f64 / grand_total_ns as f64 * 100.0
-        } else {
-            0.0
-        };
-        eprintln!(
-            "PHASEPROF\t{phase:?}\t{}\t{}\t{per_call:.1}\t{share:.2}",
-            t.ns, t.work
-        );
-    }
-}
-
 fn run_batch(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut step_cap: usize = usize::MAX;
@@ -1177,13 +1148,6 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     // --guess omitted is exactly ParseOptions::default(), so parse_word_opts below is byte-identical to parse_word(word).
     let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
 
-    // `HC_PHASE_PROFILE`: aggregate `AnalysisPhase` self-time across every word, like `HC_STEP_STATS`/`HC_FST_PROFILE` above.
-    let phase_profile = std::env::var("HC_PHASE_PROFILE").is_ok();
-    let mut phase_totals: std::collections::HashMap<
-        pg_rules::stats::AnalysisPhase,
-        pg_rules::stats_calibrate::KindTotals,
-    > = std::collections::HashMap::new();
-
     // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.
     let t_parse = Instant::now();
     if threads == 1 {
@@ -1196,17 +1160,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             // Flush the STARTED sentinel immediately, before starting this word's parse, or it would only reach disk alongside the result line, defeating its purpose as a live in-flight signal for an external watchdog.
             w.flush().map_err(|e| e.to_string())?;
             let start = Instant::now();
-            let outcome = if phase_profile {
-                let (outcome, phases) = morpher.parse_word_with_stats_and_phases(word, &opts);
-                for (phase, totals) in phases {
-                    let entry = phase_totals.entry(phase).or_default();
-                    entry.ns += totals.ns;
-                    entry.work += totals.work;
-                }
-                outcome
-            } else {
-                morpher.parse_word_opts(word, &opts)
-            };
+            let outcome = morpher.parse_word_opts(word, &opts);
             let elapsed_ms = start.elapsed().as_millis();
             let (status, signature) = if outcome.invalid_shape {
                 skipped += 1;
@@ -1276,9 +1230,6 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             )
             .map_err(|e| e.to_string())?;
             w.flush().map_err(|e| e.to_string())?; // per-line flush (AutoFlush), crash/monitor resumable
-        }
-        if phase_profile {
-            print_phase_profile(&phase_totals);
         }
     } else {
         // Parallel path: hc_parse_batch parallelizes internally and returns results already reindexed to original word order; buffered and written once, no STARTED lines, so --start only skips work with no per-word crash-resume in this mode.

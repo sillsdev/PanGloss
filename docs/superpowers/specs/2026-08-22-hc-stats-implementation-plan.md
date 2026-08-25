@@ -7,7 +7,7 @@ All builds and tests go through `rust/tools/pg.ps1` per the repo's managed-build
 
 ## Shape
 
-Six phases, ordered by risk rather than by dependency, because the risky part is the collector and
+Five phases, ordered by risk rather than by dependency, because the risky part is the collector and
 everything else is plumbing around it. Phases 1 and 2 can proceed in parallel once Phase 0 lands.
 
 Per-text reporting is **not** in this plan — it needs text and occurrence extraction that
@@ -117,29 +117,14 @@ recorded inside. `--cache <path>` overrides and hands lifetime to the caller.
 ## Phase 4 — Reports
 
 Two defaults. Per word: form, **actual** elapsed, attempts, passes, capped/timed-out, sorted by
-elapsed descending. Per object: kind, label, attempts, **estimated** time, outputs, amplification, the
-three dead-end columns, uses, in per-kind sections, sorted by estimated time descending.
+elapsed descending. Per object: kind, label, attempts, **measured self** time, outputs, amplification,
+the three dead-end columns, uses, in per-kind sections, sorted by measured self time descending.
 
 Three presentation rules that are part of the design, not polish:
 
-- actual and estimated time never appear in the same table
-- the per-object report's header states its times are estimates that will not sum to the actual total
+- actual elapsed time and per-object self time are labeled separately
+- the per-object report's header states its times are measured self time
 - an unmeasurable column renders `—`, never `0`, driven by the `coverage` table
-
-## Phase 5 — Calibration
-
-- Cargo feature (e.g. `stats-calibrate`) gating the only real per-call timers in the design. Off in
-  every normal build; a test asserts that.
-- Self-time aware: a nesting-depth-aware timer stack that subtracts nested instrumented regions, or a
-  morphological rule's constant absorbs the phonological cost it triggers and every estimate
-  double-counts.
-- `pangloss calibrate` over the conformance suite, single-core, estimator **Σns / Σwork per kind** —
-  never the mean of per-item rates, since the suite deliberately contains pathological fixtures.
-- Emits a committed constants file with provenance (version, CPU, date, fixtures). Loader copies it
-  into `op_cost` at run time so an exported report stays self-describing.
-
-- Verify: the feature is off by default; the constants file round-trips; a synthetic nested case shows
-  self time excluding the nested region.
 
 ## Risks
 
@@ -153,10 +138,6 @@ and the invariants need to run under `--stats` in CI rather than only by hand.
 **The counter-semantics version is hand-maintained** and will occasionally be forgotten, mixing
 incomparable rows in one cache. `run` rows record build info so it is diagnosable after the fact, and
 the invariants usually catch a semantics change loudly at the next test run.
-
-**Calibration constants go stale**, silently mis-ranking kinds relative to each other after an engine
-optimization. Within a kind the constant cancels entirely, and reports are sectioned per kind, so the
-exposure is limited to cross-kind comparison — which is not a default view.
 
 ## Start here
 

@@ -12,7 +12,6 @@ pub mod morph;
 pub mod rewrite;
 pub mod shape_feat;
 pub mod stats;
-pub mod stats_calibrate;
 pub mod stratum;
 pub mod surface_probe;
 pub mod trace;

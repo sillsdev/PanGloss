@@ -63,7 +63,7 @@ pub type RuleFilter<'a> = &'a (dyn Fn(RuleRef) -> bool + Sync);
 
 use crate::cache::RuleCache;
 use crate::cascade::Cascade;
-use crate::stats::{AnalysisPhase, PRuleStatsCtx, StatsCollector};
+use crate::stats::{PRuleStatsCtx, StatsCollector};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{Word, WordKey};
 use crate::{metathesis, morph, rewrite};
@@ -602,11 +602,8 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         });
         // Threaded into `morph::ana_compound` rather than post-filtering: root-allomorph resolution must join `ana_compound_subrule`'s own per-subrule dedup scope.
         let node_parent = w.trace.unwrap_or(self.parent);
-        // The `AnalysisPhase` breakdown's outermost region: whatever the nested phase regions inside `morph::analyze*` don't claim is this region's own self time. Count is rule-body entries, not segments -- `AnalysisPhase::work` is always a per-kind event count.
-        let _phase = self
-            .stats
-            .map(|stats| stats.phase_enter(crate::stats::AnalysisPhase::Overhead, 1));
-        // Tier-1 per-object self time: always on (no `stats-calibrate` gate), booked to this rule's own row so a report can attribute coarse time by kind (e.g. "compounding took N seconds") without any phase breakdown.
+        // Per-object self time is booked to this rule's own row so a report can attribute coarse
+        // time by kind (e.g. "compounding took N seconds").
         let _obj_time = self.stats.map(|stats| {
             stats.time_enter(
                 crate::stats::ObjectKind::MorphRule,
@@ -645,7 +642,6 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 None => morph::analyze_stats(self.g, w, rule, mstats),
             },
         };
-        drop(_phase);
         drop(_obj_time);
         for o in &mut outs {
             // Analysis always records the known rule; the null case only arises from generation seeding a bare non-head directly.
@@ -693,9 +689,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         if self.over_budget() {
             return Vec::new();
         }
-        // One `MemoKey` "probe": `state_key` plus the lookup it drives, bundled since neither is meaningful alone.
+        // One memo-key "probe": `state_key` plus the lookup it drives, bundled since neither is
+        // meaningful alone.
         let (key, hit_replayed) = {
-            let _mk = self.stats.map(|s| s.phase_enter(AnalysisPhase::MemoKey, 1));
             let key = self.state_key(input);
             let s = scope.borrow();
             // Positive-replay or nogood hit: replay each stored result onto this arrival's own trail/non-head prefix.
@@ -715,7 +711,6 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             (key, replayed)
         };
         if let Some(replayed) = hit_replayed {
-            let _dd = self.stats.map(|s| s.phase_enter(AnalysisPhase::Dedup, 1));
             for r in &replayed {
                 out.add(r.clone());
             }
@@ -735,15 +730,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             let mut s = scope.borrow_mut();
             s.in_progress.remove(&key);
             if s.has_memo_capacity() {
-                let cloned_results = {
-                    let _wb = self
-                        .stats
-                        .map(|st| st.phase_enter(AnalysisPhase::WordBuild, 1));
-                    results.clone()
-                };
-                let _mk = self
-                    .stats
-                    .map(|st| st.phase_enter(AnalysisPhase::MemoKey, 1));
+                let cloned_results = results.clone();
                 s.memo.insert(
                     key,
                     MemoEntry::new(
@@ -768,19 +755,12 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         let in_key = input.dedup_key();
         for i in 0..self.reversed_mrules.len() {
             for result in self.apply_one_mrule(self.reversed_mrules[i], input) {
-                {
-                    let _wb = self
-                        .stats
-                        .map(|s| s.phase_enter(AnalysisPhase::WordBuild, 1));
-                    local.push(result.clone());
-                }
-                // One `Dedup` "insertion attempted": the `OrderedDedup` add, plus the self-loop key check riding along.
-                let is_self_loop = {
-                    let _dd = self.stats.map(|s| s.phase_enter(AnalysisPhase::Dedup, 1));
-                    out.add(result.clone());
-                    // Self-loop guard. Always false here — every unapplication changes the key.
-                    in_key == result.dedup_key()
-                };
+                local.push(result.clone());
+                // One dedup insertion attempted: the `OrderedDedup` add, plus the self-loop key
+                // check riding along.
+                out.add(result.clone());
+                // Self-loop guard. Always false here — every unapplication changes the key.
+                let is_self_loop = in_key == result.dedup_key();
                 if is_self_loop {
                     continue;
                 }

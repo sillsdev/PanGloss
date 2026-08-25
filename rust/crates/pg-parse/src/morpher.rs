@@ -312,23 +312,6 @@ impl<'g> Morpher<'g> {
         (outcome, stats.rows())
     }
 
-    /// `Self::parse_word_with_stats`'s sibling for the finer
-    /// `pg_rules::stats::AnalysisPhase` self-time breakdown; empty unless built with `stats-calibrate`.
-    pub fn parse_word_with_stats_and_phases(
-        &self,
-        word: &str,
-        opts: &ParseOptions,
-    ) -> (
-        ParseOutcome,
-        HashMap<pg_rules::stats::AnalysisPhase, pg_rules::stats_calibrate::KindTotals>,
-    ) {
-        let stats = pg_rules::stats::StatsCollector::new(self.g);
-        let sink = NoopSink;
-        let outcome = self.parse_word_core_selected(word, opts, &sink, None, None, Some(&stats));
-        let phases = stats.phase_totals();
-        (outcome, phases)
-    }
-
     /// Shared body behind `Self::parse_word_opts`/`Self::parse_word_traced`; every trace call here must be guarded by `trace.is_tracing()`, since `NoopSink` panics otherwise.
     fn parse_word_core(
         &self,
@@ -557,7 +540,8 @@ impl<'g> Morpher<'g> {
                     // +1: index 0 must not collide with the `ALLOMORPH_NONE` sentinel.
                     stats.record_lex_entry_attempt(aw.stratum, le, allo_idx as u32 + 1);
                 }
-                // Tier-1 per-object self time: always on (no `stats-calibrate` gate), one of the three object boundaries `StatsCollector::time_enter` names.
+                // Per-object self time is booked at one of the three object boundaries
+                // `StatsCollector::time_enter` names.
                 let _time_lex = stats.map(|stats| {
                     stats.time_enter(
                         pg_rules::stats::ObjectKind::LexEntry,

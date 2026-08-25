@@ -36,32 +36,6 @@ impl Direction {
     }
 }
 
-/// Finer-grained self-time phase inside the ANALYSIS rule-body invocation `ObjectKind::MorphRule`
-/// already times; orthogonal to `ObjectKind` and never a counted `StatsRow` -- a diagnostic
-/// dimension only, read via `StatsCollector::phase_totals`. `Overhead`
-/// is entered as the outermost region around the whole invocation, so its self-time (after every
-/// named phase below is subtracted out as a nested region) is the honest residual: engine
-/// bookkeeping not attributable to any named phase. `WordBuild`, `MemoKey`, and `Dedup` name three
-/// concrete costs that residual used to hide (candidate `Word` construction/cloning, the memo key
-/// plus hash lookup/insert, and dedup-set insertion) and are entered at their real call sites,
-/// which is not always nested under one `Overhead` region.
-///
-/// Every `KindTotals::work` here is a genuine per-kind event count (one per `phase_enter` call),
-/// never a caller-chosen unit like a segment count.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum AnalysisPhase {
-    Overhead,
-    AnaSynFs,
-    SegsOf,
-    AnaAffixAllomorph,
-    FstTraversal,
-    AnaRealizational,
-    AnaCompound,
-    WordBuild,
-    MemoKey,
-    Dedup,
-}
-
 /// Which grammar object a fact row is attributed to.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ObjectKind {
@@ -236,9 +210,7 @@ pub struct StatsCollector {
     morph: DenseTable,
     phon: DenseTable,
     sparse: RefCell<HashMap<SparseKey, Counters>>,
-    /// The finer `AnalysisPhase` breakdown; a no-op unless built with `stats-calibrate`.
-    phase_calib: crate::stats_calibrate::SelfTimeAccumulator<AnalysisPhase>,
-    /// `Self::time_enter`'s open-region stack; always live (no feature gate), empty until entered.
+    /// `Self::time_enter`'s open-region stack, empty until entered.
     obj_time_stack: RefCell<Vec<ObjTimeFrame>>,
 }
 
@@ -248,7 +220,6 @@ impl StatsCollector {
             morph: DenseTable::new(g.strata.len(), g.mrules.len()),
             phon: DenseTable::new(g.strata.len(), g.prules.len()),
             sparse: RefCell::new(HashMap::default()),
-            phase_calib: crate::stats_calibrate::SelfTimeAccumulator::new(),
             obj_time_stack: RefCell::new(Vec::new()),
         }
     }
@@ -256,13 +227,13 @@ impl StatsCollector {
     /// Enter a per-object self-time region, booked at `(kind, stratum, object_index, allomorph,
     /// direction)` on exit -- the same row address `Self::record_mrule_attempt` and friends write
     /// to, so this rides in `Counters::self_time_ns` alongside the counters already there rather
-    /// than needing its own table. Always live whenever a `StatsCollector` exists (no
-    /// `stats-calibrate` gate): callers are the three object boundaries a report needs to attribute
+    /// than needing its own table. Always live whenever a `StatsCollector` exists: callers are the
+    /// three object boundaries a report needs to attribute
     /// coarse time to a kind -- rule application, allomorph attempt, and lexicon lookup -- roughly
-    /// two clock reads each, far fewer than `AnalysisPhase`'s finer breakdown.
+    /// two clock reads each.
     ///
-    /// Nesting-aware like `stats_calibrate::SelfTimeAccumulator`: a region entered while another is
-    /// open has its elapsed time subtracted from the enclosing region's own total, so a
+    /// Nesting-aware: a region entered while another is open has its elapsed time subtracted from
+    /// the enclosing region's own total, so a
     /// compounding rule's self time excludes whatever a nested lexicon lookup already claimed for
     /// itself -- never double-counted, never silently folded into the parent.
     pub fn time_enter(
@@ -329,21 +300,6 @@ impl StatsCollector {
                 );
             }
         }
-    }
-
-    /// Enter an `AnalysisPhase` self-time region; a no-op unless built with `stats-calibrate`.
-    pub fn phase_enter(
-        &self,
-        phase: AnalysisPhase,
-        work: u64,
-    ) -> crate::stats_calibrate::RegionGuard<'_, AnalysisPhase> {
-        self.phase_calib.enter(phase, work)
-    }
-
-    /// This collector's accumulated `AnalysisPhase` totals; empty unless built with
-    /// `stats-calibrate`.
-    pub fn phase_totals(&self) -> HashMap<AnalysisPhase, crate::stats_calibrate::KindTotals> {
-        self.phase_calib.totals()
     }
 
     fn sparse_with_row(&self, key: SparseKey, f: impl FnOnce(&mut Counters)) {
