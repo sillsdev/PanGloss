@@ -93,7 +93,7 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
             }
             other => panic!(
                 "a capped oracle must report Certification::Truncated{{stage: \"oracle-capped\"}}, \
-                 not {other:?} -- an IdentityMismatch/MultiplicityMismatch here would mean the \
+                 not {other:?} -- an IdentityMismatch here would mean the \
                  truncated oracle's partial analyses leaked into certify_corpus as if they were a \
                  complete ground truth"
             ),

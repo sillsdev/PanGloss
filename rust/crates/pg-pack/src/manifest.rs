@@ -117,9 +117,8 @@ pub struct PackManifest {
     pub license: Option<LicenseDeclaration>,
     /// Free-form creation metadata: who/what produced this pack.
     pub created_by: String,
-    /// Free-form creation timestamp (same "no timestamp type dependency" judgment call as
-    /// `pg_foma::health::OverrideRecord::recorded_at` and this crate's
-    /// `CapabilityOverrideRecord::recorded_at`).
+    /// Free-form creation timestamp; like `CapabilityOverrideRecord::recorded_at`, this avoids a
+    /// timestamp type dependency in the manifest schema.
     pub created_at: String,
     /// Optional publisher signature. `None` means this pack is unsigned
     /// (`crate::signature::SignatureState::Unsigned`). Always the **last** field serialized so

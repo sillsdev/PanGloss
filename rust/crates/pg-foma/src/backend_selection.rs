@@ -436,7 +436,6 @@ fn attach_capability_refusal(report: &mut BackendReport) {
             diagnostics.len()
         ),
         remedies: Vec::new(),
-        override_record: None,
     });
 
     let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
@@ -478,7 +477,6 @@ fn attach_operational_failure(report: &mut BackendReport, code: FindingCode) {
         threshold: None,
         explanation: format!("{:?} is not buildable: {detail}", report.strategy),
         remedies: Vec::new(),
-        override_record: None,
     });
 
     let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
@@ -795,7 +793,6 @@ mod tests {
             threshold: None,
             explanation: "synthetic finding".to_string(),
             remedies: Vec::new(),
-            override_record: None,
         }
     }
 

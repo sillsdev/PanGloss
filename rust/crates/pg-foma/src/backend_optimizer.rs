@@ -283,12 +283,6 @@ pub enum Certification {
         word: String,
         detail: String,
     },
-    /// No longer produced (kept for deserializing old reports): multiplicity isn't part of the parity relation (`crate::parity`, set equality over deduplicated identities), so a bare count difference was never a real disagreement -- that case is now `Self::IdentityMismatch`. Do not reintroduce a producer for this variant.
-    MultiplicityMismatch {
-        word: String,
-        expected: u64,
-        actual: u64,
-    },
     FullHcConfirmed {
         words: u64,
         corpus_hash: String,
@@ -302,9 +296,7 @@ impl Certification {
 
     pub fn shortest_disagreement(&self) -> Option<&str> {
         match self {
-            Self::IdentityMismatch { word, .. } | Self::MultiplicityMismatch { word, .. } => {
-                Some(word)
-            }
+            Self::IdentityMismatch { word, .. } => Some(word),
             _ => None,
         }
     }
@@ -1313,11 +1305,6 @@ mod tests {
             Certification::IdentityMismatch {
                 word: "a".to_owned(),
                 detail: "x".to_owned(),
-            },
-            Certification::MultiplicityMismatch {
-                word: "a".to_owned(),
-                expected: 2,
-                actual: 1,
             },
         ];
         let items: Vec<_> = failures

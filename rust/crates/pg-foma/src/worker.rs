@@ -869,7 +869,6 @@ impl WorkerOutcome {
                          uninstrumented stall or an envelope set too small for legitimate work."
                     ),
                     remedies: Vec::new(),
-                    override_record: None,
                 }])
             }
             WorkerOutcome::RssLimitExceeded {
@@ -894,7 +893,6 @@ impl WorkerOutcome {
                      real peak RSS could have been higher than any individual sample recorded."
                 ),
                 remedies: Vec::new(),
-                override_record: None,
             }]),
             WorkerOutcome::OutputLimitExceeded {
                 stream,
@@ -913,7 +911,6 @@ impl WorkerOutcome {
                          output reached the {limit_bytes}-byte protocol limit."
                 ),
                 remedies: Vec::new(),
-                override_record: None,
             }]),
             // Cause is ambiguous (own doc: panic/stack-overflow/OOM/external kill); kept as containment, not a tooling fault.
             WorkerOutcome::ChildCrashed { detail } => HealthReport::new(vec![HealthFinding {
@@ -930,7 +927,6 @@ impl WorkerOutcome {
                      result frame: {detail}"
                 ),
                 remedies: Vec::new(),
-                override_record: None,
             }]),
             // No child process ever ran to be contained, so this is a process fault, not host containment.
             WorkerOutcome::SpawnFailed { detail } | WorkerOutcome::ProtocolViolation { detail } => {
@@ -945,7 +941,6 @@ impl WorkerOutcome {
                     threshold: None,
                     explanation: detail.clone(),
                     remedies: Vec::new(),
-                    override_record: None,
                 }])
             }
         }
@@ -964,7 +959,6 @@ fn build_process_failure_health(detail: String) -> HealthReport {
         threshold: None,
         explanation: detail,
         remedies: Vec::new(),
-        override_record: None,
     }])
 }
 

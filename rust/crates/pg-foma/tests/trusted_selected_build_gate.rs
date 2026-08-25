@@ -69,7 +69,6 @@ fn synthetic_warning() -> HealthFinding {
         threshold: None,
         explanation: "synthetic ranking-only warning".to_string(),
         remedies: Vec::new(),
-        override_record: None,
     }
 }
 

@@ -162,7 +162,7 @@ impl LoadedPack {
 
     /// The FST-health "admission result" (`pg_foma::health::HealthReport::admission`,
     /// reused verbatim — this module never redefines or re-derives the health schema). It is the
-    /// worst raw severity, including legacy audit override records; capability trust is separate.
+    /// worst raw severity among the report's findings; capability trust is separate.
     pub fn fst_health_admission(&self) -> pg_foma::health::Severity {
         self.manifest.fst_health.admission()
     }
@@ -292,7 +292,6 @@ mod tests {
             threshold: None,
             explanation: "synthetic wasm-binding test finding".to_string(),
             remedies: Vec::new(),
-            override_record: None,
         }
     }
 

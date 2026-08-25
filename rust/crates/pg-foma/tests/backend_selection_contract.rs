@@ -21,7 +21,6 @@ fn finding(severity: Severity, code: FindingCode) -> HealthFinding {
         threshold: None,
         explanation: "synthetic finding".to_string(),
         remedies: Vec::new(),
-        override_record: None,
     }
 }
 
