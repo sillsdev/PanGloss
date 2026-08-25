@@ -25,7 +25,7 @@
 //! This module depends only on `pg_pack` (plain data types: manifest, compat, trust) and reuses
 //! `pg_foma::health` (also plain data). It performs zero FST/lexc compilation, links no compiler
 //! constructor, and never calls `pg_foma::analyzer::FomaProposer::new` or any other emit/compile
-//! entry point — the one thing it does is validate an already-compiled artifact's envelope and
+//! entry point — the one thing it does is validate an already-compiled artifact's manifest and
 //! report on it. It does not (yet) construct a working analyzer from the packaged runtime/foma
 //! payload bytes; that is a separate, larger "WASM
 //! analysis-only loading" scope (deserializing the Rust-HermitCrab runtime payload and
@@ -234,8 +234,6 @@ mod tests {
             grammar_id: "synthetic-wasm-wiring-grammar".to_string(),
             package_fingerprint: pg_pack::fingerprint_hex(runtime_payload, foma_payload),
             required_runtime_features,
-            resource_envelope_id: pg_foma::resource_envelope::ResourceEnvelopeId::ManagedV1,
-            compile_size_mode: pg_foma::resource_envelope::CompileSizeMode::Managed,
             capability_trust,
             fst_health: HealthReport::new(Vec::new()),
             backend_assessments: vec![],
