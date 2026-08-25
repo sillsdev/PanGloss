@@ -482,50 +482,10 @@ impl PartitionGranularity {
     }
 }
 
-/// One gate group's `Compose` shape: exactly 2 children, `[0]` the group's `LexiconFragment` leaf, `[1]` its `Replace` node; duplicated from `crate::build`'s private `gate_group_children` rather than shared across the module boundary.
-fn gate_group_parts(plan: &Plan, compose_id: NodeId) -> (NodeId, NodeId) {
-    let PlanNodeKind::Compose { children, .. } = plan
-        .get(compose_id)
-        .unwrap_or_else(|| panic!("dangling Compose NodeId {compose_id} in plan"))
-    else {
-        panic!("expected a Compose node as a Gate group's child at {compose_id}");
-    };
-    assert_eq!(
-        children.len(),
-        2,
-        "a gate-group Compose node must have exactly 2 children (LexiconFragment leaf, Replace \
-         node), got {} at {compose_id}",
-        children.len()
-    );
-    (children[0], children[1])
-}
-
-/// A gate group's `LexiconFragment` leaf, resolved to its `entries` list; same duplication rationale as `gate_group_parts`.
-fn lexicon_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> {
-    let PlanNodeKind::Leaf { fragment, .. } = plan
-        .get(lexicon_id)
-        .unwrap_or_else(|| panic!("dangling LexiconFragment NodeId {lexicon_id}"))
-    else {
-        panic!("expected a Leaf node as a gate-group Compose node's first child at {lexicon_id}");
-    };
-    let FragmentSpec::LexiconFragment { entries } = fragment else {
-        panic!(
-            "expected FragmentSpec::LexiconFragment on the gate-group lexicon leaf at \
-             {lexicon_id}, got {fragment:?}"
-        );
-    };
-    entries.clone().unwrap_or_else(|| {
-        panic!(
-            "refine_gate_partition requires Some(entries) on every gate-group LexiconFragment \
-             leaf (enumerate_default's own invariant); got None at {lexicon_id}"
-        )
-    })
-}
-
 /// A third sound Gate-node restructuring (cardinality, not order); soundness argument in this module's own doc under "Second-topology generators".
 ///
 /// # Panics
-/// Via `Plan::add_node`'s debug-only invariant, or the assertions in `gate_group_parts`/`lexicon_entries`, if `plan` is not shaped the way `enumerate_default` always builds it.
+/// Via `Plan::add_node`'s debug-only invariant, or the assertions in `crate::build::gate_group_children`/`crate::build::lexicon_fragment_entries`, if `plan` is not shaped the way `enumerate_default` always builds it.
 pub fn refine_gate_partition(plan: &Plan, granularity: PartitionGranularity) -> Plan {
     let root = plan
         .root()
@@ -596,8 +556,9 @@ fn refine_node(
             let mut new_groups: Vec<GateGroupSpec> = Vec::new();
             let mut new_children: Vec<NodeId> = Vec::new();
             for (group, &compose_id) in partition.groups.iter().zip(children.iter()) {
-                let (lexicon_id, replace_id) = gate_group_parts(old_plan, compose_id);
-                let entries = lexicon_entries(old_plan, lexicon_id);
+                let (lexicon_id, replace_id) =
+                    crate::build::gate_group_children(old_plan, compose_id);
+                let entries = crate::build::lexicon_fragment_entries(old_plan, lexicon_id);
                 // The Replace node's content is untouched, so recursive copy re-derives the SAME NodeId; every sub-group below shares that one copy.
                 let new_replace_id = refine_node(old_plan, replace_id, new_plan, granularity);
                 let mut offset = 0usize;
