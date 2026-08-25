@@ -4,21 +4,19 @@
 
 **No route is certified: 0 of 3.** The selected-payload trust boundary — ranked capability reports
 choose a route, `select_completed_build` refuses anything that does not match the shipped envelope
-and grammar identity, and the exact returned payload bytes reconstruct the analyzer — is built, and
-green over the narrow test targets that have actually been run. It is **not** green over a full
-package suite, and four synthetic-fixture `pg-cli` tests fail (see below). It is certified over **no
-real grammar**.
+and grammar identity, and the exact returned payload bytes reconstruct the analyzer — is built and
+runs. It is certified over **no real grammar**.
 
 Earlier "working FST" results for these languages were compile-and-parity evidence. Parity of a
 compiled network is not certification of a packaged payload, and this document exists so the two
 are not conflated again.
 
-The blockers are two independent kinds, and neither is closed by writing more tests:
+Each blocker below was measured, not assumed, and none is closed by writing more tests:
 
-1. **The private grammar inputs are absent on this machine.** Every route that would be certified
-   needs one, and no gate can be run without it.
-2. **Amharic and Aweti have no admitted backend at all** under the default envelope. There is no
-   route to certify, so a gate for either would be unrunnable *and* unpassable.
+1. **Indonesian's payload cannot be constructed.** Its gate now runs against the real grammar and
+   fails inside the worker, before any of the 120 cases is compared.
+2. **Amharic and Aweti admit no backend at all** under the default envelope. There is no route to
+   certify, so a gate for either would be unrunnable *and* unpassable.
 
 ## What the corpus actually holds
 
@@ -32,7 +30,7 @@ worktrees' own `samples/data`:
 
 | Language | Required grammar | In `samples/data` | Recoverable on this machine |
 |---|---|---|---|
-| indonesian | `indonesian-hc.xml` | no | **no — not anywhere under the repo** |
+| indonesian | `indonesian-hc.xml` | no | not under this repo; a lock-verified copy exists outside it |
 | sena | `sena-hc.xml` | no | yes, `.claude/worktrees/hc-stats/samples/data` |
 | amharic | `amharic-hc.xml` | no | yes, `.claude/worktrees/hc-stats/samples/data` |
 | aweti | `aweti.json` | no | yes, an agent worktree's `samples/data` |
@@ -47,11 +45,13 @@ The `.fwdata` files are present for all five but are **not** substitutes for the
 `grammarSha256` for the declared grammar source and the gates assert those bytes before use, so
 repointing a gate at a different source silently changes the denominator it was locked against.
 
-`-Mode corpus-test` still refuses outright while `indonesian-hc.xml` is absent, which is correct —
-it validates every required path before Cargo starts. Nothing below claims a corpus-test pass.
+`indonesian-hc.xml` is absent from `samples/data` and from everywhere under this repository. A
+byte-identical copy was found **outside** the repo, in an unrelated worktree, and verified against
+the lock before use — see the Indonesian section below. With that copy in place all ten required
+inputs are present, so `-Mode corpus-test` runs rather than refusing.
 
-`pg.ps1 -Mode corpus-test` is the correct way to run any of this: it refuses before Cargo starts
-when a required input is missing, and fails a run that records zero executed corpus cases. Populate
+`pg.ps1 -Mode corpus-test` remains the correct way to run any of this: it validates every required
+path before Cargo starts and fails a run that records zero executed corpus cases. Populate
 `samples/data/`, or point `PANGLOSS_CORPUS_ROOT` at a populated root.
 
 ## Indonesian — written, believed correct, never run here
