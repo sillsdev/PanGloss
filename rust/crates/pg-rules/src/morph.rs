@@ -374,9 +374,9 @@ fn ana_affix_cached_traced(
             continue;
         };
         let before = output.len();
-        for mut w in ana_affix_allomorph(
-            g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn, mstats,
-        ) {
+        for mut w in
+            ana_affix_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn)
+        {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
@@ -428,7 +428,7 @@ fn ana_realizational_cached_traced(
         };
         let before = output.len();
         for mut w in ana_realizational_allomorph(
-            g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs, mstats,
+            g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs,
         ) {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
@@ -2251,7 +2251,7 @@ fn ana_affix(
         };
         let before = output.len();
         output.extend(ana_affix_allomorph(
-            g, table, word, allo, &lhs, &fst, &segs, &node_of, &new_syn, mstats,
+            g, table, word, allo, &lhs, &fst, &segs, &node_of, &new_syn,
         ));
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -2292,7 +2292,7 @@ fn ana_affix_cached(
             )
         });
         output.extend(ana_affix_allomorph(
-            g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn, mstats,
+            g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn,
         ));
         drop(_allo_time);
         let n = (output.len() - before) as u64;
@@ -2313,7 +2313,6 @@ fn ana_allomorph_matches(
     fst: &Fst,
     segs: &[Segment],
     node_of: &[usize],
-    mstats: Option<MRuleStatsCtx>,
     carry: impl Fn(&mut Word),
 ) -> Vec<Word> {
     let parts: Vec<(String, &Pattern)> = allo
@@ -2347,9 +2346,8 @@ fn ana_affix_allomorph(
     segs: &[Segment],
     node_of: &[usize],
     new_syn: &FeatureStruct,
-    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
-    ana_allomorph_matches(g, table, word, allo, lhs, fst, segs, node_of, mstats, |w| {
+    ana_allomorph_matches(g, table, word, allo, lhs, fst, segs, node_of, |w| {
         w.syn_fs = new_syn.clone()
     })
 }
@@ -2378,7 +2376,7 @@ fn ana_realizational(
         };
         let before = output.len();
         output.extend(ana_realizational_allomorph(
-            g, table, word, allo, &lhs, &fst, &segs, &node_of, &real_fs, mstats,
+            g, table, word, allo, &lhs, &fst, &segs, &node_of, &real_fs,
         ));
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -2419,7 +2417,7 @@ fn ana_realizational_cached(
             )
         });
         output.extend(ana_realizational_allomorph(
-            g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs, mstats,
+            g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs,
         ));
         drop(_allo_time);
         let n = (output.len() - before) as u64;
@@ -2441,9 +2439,8 @@ fn ana_realizational_allomorph(
     segs: &[Segment],
     node_of: &[usize],
     real_fs: &FeatureStruct,
-    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
-    ana_allomorph_matches(g, table, word, allo, lhs, fst, segs, node_of, mstats, |w| {
+    ana_allomorph_matches(g, table, word, allo, lhs, fst, segs, node_of, |w| {
         w.real_fs = real_fs.clone()
     })
 }
