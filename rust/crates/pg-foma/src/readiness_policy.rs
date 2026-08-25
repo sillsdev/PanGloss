@@ -44,10 +44,9 @@
 //!   projected onto a device nobody has benchmarked.
 //! - **`pack_size_max_bytes`, `Calibration::Placeholder`**: no full-scale (10^4-10^5 entry) pack
 //!   has ever been built and measured end-to-end, so there is no real evidence to calibrate a
-//!   device-storage-appropriate cap against. Borrows `crate::health::severity_for_size_bytes`'s own
-//!   production-readiness threshold (100,000,000 bytes) as a starting reference point ONLY, because
-//!   that is the one artifact-size policy already declared anywhere in this repo — not itself
-//!   derived from a device memory/storage budget.
+//!   device-storage-appropriate cap against. Reuses [`crate::health::IDEAL_MAX_BYTES`] directly
+//!   as a starting reference point ONLY, because that is the one artifact-size policy already
+//!   declared anywhere in this repo — not itself derived from a device memory/storage budget.
 //! - **`lexicon_min_entries`, `Calibration::Placeholder`**: no full-scale reference grammar has
 //!   been compiled and certified end-to-end yet (a 10^4-10^5
 //!   entry design target is a goal, not a measurement). Seeded low (1,000) as a clearly-provisional
@@ -178,16 +177,15 @@ pub fn policy_v1() -> ThresholdPolicy {
             evidence about any other device class.)"
             .to_string(),
         pack_size_max_bytes: Threshold::new(
-            100_000_000,
+            crate::health::IDEAL_MAX_BYTES,
             Calibration::placeholder(
                 "No full-scale (10^4-10^5 entry) .pgpack has been built and measured end-to-end, \
                  so there is no real evidence to calibrate a device-storage-appropriate cap \
-                 against. Borrows crate::health::severity_for_size_bytes's own R6 production-readiness \
-                 band edge (100,000,000 bytes) as a starting reference point only -- that is the \
-                 one artifact-size policy already declared in this repo, not itself derived from \
-                 a device memory/storage budget. Replace once a real pack-size-vs-device-capacity \
-                 study exists (see calibrate-fst-resource-envelopes for the FST-internal analogue \
-                 of this same discipline).",
+                 against. Reuses crate::health::IDEAL_MAX_BYTES directly as a starting reference \
+                 point only -- that is the one artifact-size policy already declared in this repo, \
+                 not itself derived from a device memory/storage budget. Replace once a real \
+                 pack-size-vs-device-capacity study exists (see calibrate-fst-resource-envelopes \
+                 for the FST-internal analogue of this same discipline).",
             ),
         ),
         lexicon_min_entries: Threshold::new(
