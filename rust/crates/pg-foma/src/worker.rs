@@ -1381,8 +1381,14 @@ mod tests {
         let error = parse_result_frame(&frame)
             .expect_err("a pre-cleanup child result must not enter a lockstep parent");
         assert!(error.contains("protocol version"), "error: {error}");
-        assert!(error.contains("2"), "error: {error}");
-        assert!(error.contains("3"), "error: {error}");
+        assert!(
+            error.contains(&(WORKER_PROTOCOL_VERSION - 1).to_string()),
+            "error: {error}"
+        );
+        assert!(
+            error.contains(&WORKER_PROTOCOL_VERSION.to_string()),
+            "error: {error}"
+        );
     }
 
     // `run_worker_child` in-process: protocol handling plus the grammar-content outcomes reachable without a real adversarial grammar.
