@@ -230,19 +230,21 @@ mod tests {
     #[test]
     fn removed_envelope_fields_are_rejected_as_unknown_manifest_fields() {
         let manifest = synthetic_manifest();
-        let mut value: serde_json::Value =
+        let value: serde_json::Value =
             serde_json::from_str(&manifest.to_canonical_json()).expect("valid manifest JSON");
-        let object = value.as_object_mut().expect("manifest JSON is an object");
         for field in ["resource_envelope_id", "compile_size_mode"] {
-            object.insert(field.to_string(), serde_json::json!("legacy"));
-            let json = serde_json::to_string(&value).expect("re-serialize the legacy JSON");
+            let mut legacy = value.clone();
+            legacy
+                .as_object_mut()
+                .expect("manifest JSON is an object")
+                .insert(field.to_string(), serde_json::json!("legacy"));
+            let json = serde_json::to_string(&legacy).expect("re-serialize the legacy JSON");
             let error = PackManifest::from_json(&json)
                 .expect_err("removed manifest fields must not deserialize");
             assert!(
                 error.to_string().contains("unknown field"),
                 "expected serde unknown-field error for {field}, got {error}"
             );
-            object.remove(field);
         }
     }
 }
