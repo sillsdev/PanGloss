@@ -551,6 +551,31 @@ pub struct HealthReport {
     pub findings: Vec<HealthFinding>,
 }
 
+/// The four admission questions (`FindingClass`) answered separately instead of collapsed into
+/// one severity. Computed from `HealthReport::findings`, never stored on the wire: every field
+/// here is fully derivable from data the canonical JSON already carries, so adding this type does
+/// not change `HealthReport`'s serialized shape. Each field is independent — a `containment`
+/// severity says nothing about `representability`, and neither says anything about `readiness` or
+/// `process`. See `HealthReport::admission_by_class`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdmissionByClass {
+    /// Worst severity among this report's `FindingClass::Representability` findings. A non-`Ideal`
+    /// value here means PanGloss cannot prove a recall-preserving representation; it is not a
+    /// statement about size, speed, or resource use.
+    pub representability: Severity,
+    /// Worst severity among this report's `FindingClass::Readiness` findings. A non-`Ideal` value
+    /// here is about shippability (size/speed/maintainability), not about whether the grammar is
+    /// representable at all.
+    pub readiness: Severity,
+    /// Worst severity among this report's `FindingClass::Containment` findings. A non-`Ideal`
+    /// value here means only that THIS attempt hit its own operational safety boundary; it says
+    /// nothing about the grammar's representability and never makes partial output usable.
+    pub containment: Severity,
+    /// Worst severity among this report's `FindingClass::Process` findings. A non-`Ideal` value
+    /// here reflects bad input or a worker/protocol/internal fault, not a fact about the grammar.
+    pub process: Severity,
+}
+
 impl HealthReport {
     /// Builds a report stamped with the current `HEALTH_SCHEMA_VERSION`.
     pub fn new(findings: Vec<HealthFinding>) -> Self {
@@ -573,6 +598,32 @@ impl HealthReport {
     /// the public API and appears in older callers and serialized-report discussions.
     pub fn admission_without_overrides(&self) -> Severity {
         self.admission()
+    }
+
+    /// The worst severity among this report's findings of `class`, or `Severity::Ideal` when no
+    /// finding of that class is present. This is additive reporting alongside `admission`: it
+    /// answers one of the three independent admission questions in isolation, never combined with
+    /// the others.
+    pub fn worst_by_class(&self, class: FindingClass) -> Severity {
+        self.findings
+            .iter()
+            .filter(|finding| finding.class() == class)
+            .map(|finding| finding.severity)
+            .max()
+            .unwrap_or(Severity::Ideal)
+    }
+
+    /// The three independent admission questions (plus `Process`) answered separately, never
+    /// blurred into one severity. `admission()` remains the single worst-of-all value that gates
+    /// publication; this is an additional per-class view onto the same findings, not a
+    /// replacement.
+    pub fn admission_by_class(&self) -> AdmissionByClass {
+        AdmissionByClass {
+            representability: self.worst_by_class(FindingClass::Representability),
+            readiness: self.worst_by_class(FindingClass::Readiness),
+            containment: self.worst_by_class(FindingClass::Containment),
+            process: self.worst_by_class(FindingClass::Process),
+        }
     }
 
     /// Canonical machine-readable form. Pretty-printed, two-space indent, fields in Rust
@@ -1061,5 +1112,96 @@ mod tests {
             FindingCode::UnknownUnboundedConstruct.class(),
             FindingClass::Readiness
         );
+    }
+
+    // fst_health_admission_by_class: the per-class view, additive alongside `admission`.
+
+    fn class_finding(code: FindingCode, severity: Severity) -> HealthFinding {
+        HealthFinding {
+            code,
+            severity,
+            phase: Phase::Compile,
+            affected: vec!["synthetic-construct".to_string()],
+            metric: Metric::PayloadBytes,
+            value: MetricValue::Bytes(1),
+            provenance: ValueProvenance::Observed,
+            threshold: None,
+            explanation: "synthetic per-class test finding".to_string(),
+            remedies: Vec::new(),
+            override_record: None,
+        }
+    }
+
+    #[test]
+    fn admission_by_class_separates_a_resource_stop_from_a_representability_gap() {
+        // Demonstrates the blur is gone: one severity used to hide which question was failing.
+        let report = HealthReport::new(vec![
+            class_finding(FindingCode::ResourceBudgetReached, Severity::Error), // Containment
+            class_finding(FindingCode::BackendCoverageIncomplete, Severity::Critical), // Representability
+        ]);
+
+        // The existing publish-gating value is untouched: still the plain max over everything.
+        assert_eq!(report.admission(), Severity::Critical);
+
+        let by_class = report.admission_by_class();
+        assert_eq!(
+            by_class.containment,
+            Severity::Error,
+            "the resource stop must be visible on its own axis"
+        );
+        assert_eq!(
+            by_class.representability,
+            Severity::Critical,
+            "the representability gap must be visible on its own axis"
+        );
+        assert_eq!(by_class.readiness, Severity::Ideal);
+        assert_eq!(by_class.process, Severity::Ideal);
+    }
+
+    #[test]
+    fn worst_by_class_is_ideal_for_an_absent_class() {
+        let report = HealthReport::new(vec![
+            class_finding(FindingCode::PayloadSizeBand, Severity::Warning), // Readiness
+        ]);
+        assert_eq!(
+            report.worst_by_class(FindingClass::Representability),
+            Severity::Ideal
+        );
+        assert_eq!(
+            report.worst_by_class(FindingClass::Containment),
+            Severity::Ideal
+        );
+    }
+
+    #[test]
+    fn admission_is_unchanged_by_the_per_class_view() {
+        // Regression pin: adding `admission_by_class` must move `admission()` for no report.
+        let reports = vec![
+            HealthReport::new(Vec::new()),
+            HealthReport::new(vec![class_finding(FindingCode::PayloadSizeBand, Severity::Info)]),
+            HealthReport::new(vec![
+                class_finding(FindingCode::CompileWorkBudget, Severity::Error),
+                class_finding(FindingCode::BackendCoverageIncomplete, Severity::Warning),
+            ]),
+            HealthReport::new(vec![
+                class_finding(FindingCode::BackendCompilationFailed, Severity::Critical),
+                class_finding(FindingCode::ProposalVolume, Severity::Info),
+                class_finding(FindingCode::ProvenBoundExceedsBudget, Severity::Warning),
+            ]),
+        ];
+
+        for report in reports {
+            let plain_max = report
+                .findings
+                .iter()
+                .map(|finding| finding.severity)
+                .max()
+                .unwrap_or(Severity::Ideal);
+            assert_eq!(
+                report.admission(),
+                plain_max,
+                "admission() must still equal the plain max over all severities"
+            );
+        }
     }
 }
