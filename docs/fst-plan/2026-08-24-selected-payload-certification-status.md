@@ -36,11 +36,11 @@ worktrees' own `samples/data`:
 | aweti | `aweti.json` | no | yes, an agent worktree's `samples/data` |
 | mbugwe | `mbugwe.fwdata` | yes | — |
 
-So the corpus is one file short of complete, not four. Assembling the recoverable grammars with the
-word lists into a directory and pointing `PANGLOSS_CORPUS_ROOT` at it satisfies 9 of the 10
-manifest-`required` entries.
+None of the four is genuinely lost. Gathering the recoverable grammars alongside the word lists into
+one directory and pointing `PANGLOSS_CORPUS_ROOT` at it satisfies every manifest-`required` entry,
+which is how the runs below were performed.
 
-The `.fwdata` files are present for all five but are **not** substitutes for the missing
+The `.fwdata` files are present for all five but are **not** substitutes for
 `indonesian-hc.xml`: the case-set lock in `rust/tools/three-language-case-sets.json` pins
 `grammarSha256` for the declared grammar source and the gates assert those bytes before use, so
 repointing a gate at a different source silently changes the denominator it was locked against.
