@@ -86,8 +86,9 @@ fn reports_retain_every_backend_and_rank_only_normal_candidates() {
     );
 }
 
+/// An oversized payload labels an artifact that exists; only an absent artifact excludes.
 #[test]
-fn not_production_ready_and_machine_limit_reports_are_retained_but_not_selected() {
+fn readiness_labels_stay_selectable_while_containment_and_representability_do_not() {
     let selection = BackendSelection::from_reports(vec![
         BackendReport::accepted(
             EmissionStrategy::TunedSurfaceProbed,
@@ -100,13 +101,24 @@ fn not_production_ready_and_machine_limit_reports_are_retained_but_not_selected(
             CompileDecision::Admit,
             vec![finding(
                 Severity::MachineLimit,
-                FindingCode::UnknownUnboundedConstruct,
+                FindingCode::HostContainmentFired,
             )],
         )
         .unwrap(),
     ]);
 
-    assert!(selection.selected().is_empty());
+    assert!(
+        selection
+            .selected()
+            .contains(&EmissionStrategy::TunedSurfaceProbed),
+        "an oversized payload is a label, not a reason to withhold the backend"
+    );
+    assert!(
+        !selection
+            .selected()
+            .contains(&EmissionStrategy::TemplatedUnderlyingTokens),
+        "a host-containment abort left no artifact to select"
+    );
     assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
     assert_eq!(
         selection

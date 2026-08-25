@@ -9,12 +9,17 @@
 //! this", which is no licence for the backend actually in hand. Nothing in this workspace turned
 //! the envelope into a choice, so callers reached for the join and inherited that ambiguity.
 //!
-//! # Correctness selects; cost does not
-//! A backend is a normal-generation candidate only when its own report is correctness-admitted and
-//! its worst health severity is at most `LargeMultiplier`. `Admit` and `ConfirmOnly` are both
-//! correctness-admitted: `ConfirmOnly` is a recall-preserving mode, not a defect.
-//! NotProductionReady/MachineLimit/CannotRepresent reports and every refusal remain in the report
-//! but are never silently selected.
+//! # Correctness and buildability select; readiness labels
+//! A backend is a normal-generation candidate when its own report is correctness-admitted (`Admit`
+//! or `ConfirmOnly` — `ConfirmOnly` is a recall-preserving mode, not a defect) AND none of its
+//! findings show it cannot produce a usable artifact: a `crate::health::FindingClass::
+//! Representability` finding (the feature cannot be faithfully proposed) or a `FindingClass::
+//! Containment` finding (this attempt was itself stopped, internally or by the host watchdog,
+//! before finishing) both mean there is nothing built to select. A `FindingClass::Readiness`
+//! finding — including `Severity::NotProductionReady`, e.g. an oversized compiled payload — is a
+//! label on an artifact that DID get built, so it never excludes a backend here; see
+//! `BackendReport::is_normal_candidate` for the exact predicate. Refusals and every excluded
+//! report remain visible in `reports`/`excluded`, never silently dropped.
 //!
 //! Candidate ranking is deterministic and deliberately modest: clean reports first, then worst
 //! severity, then finding count, with `BACKEND_PREFERENCE` only as the final tie-break. Cost
@@ -34,7 +39,8 @@ use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{
-    FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
+    FindingClass, FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity,
+    ValueProvenance,
 };
 use crate::junctions::PhonologyProbe;
 use crate::plan::FragmentSpec;
@@ -218,11 +224,24 @@ impl BackendReport {
             .unwrap_or(Severity::WithinLimits)
     }
 
-    /// A backend is a normal-generation candidate only when both correctness and health admit it.
+    /// A backend is a normal-generation candidate when correctness admits it AND no finding shows
+    /// it cannot produce a usable artifact. That second test asks "which question failed", never
+    /// "how high on the severity scale" — a `FindingClass::Representability` finding means the
+    /// feature cannot be faithfully proposed, and a `FindingClass::Containment` finding means this
+    /// attempt itself was stopped (self-imposed budget or the external host watchdog) before
+    /// producing one; both leave nothing to build. A `FindingClass::Readiness` finding — including
+    /// one at `Severity::NotProductionReady`, e.g. an oversized payload — labels an artifact that
+    /// DID get built, so it never excludes here; publication gating for it lives in
+    /// `pg_cli::pack::validate_health_readiness`, a separate gate this predicate does not reach.
     pub fn is_normal_candidate(&self) -> bool {
         self.status == BackendStatus::Accepted
             && !matches!(self.decision, CompileDecision::Refuse(_))
-            && self.worst_severity() <= Severity::LargeMultiplier
+            && !self.findings.iter().any(|finding| {
+                matches!(
+                    finding.code.class(),
+                    FindingClass::Representability | FindingClass::Containment
+                )
+            })
     }
 
     fn rank_key(&self) -> (bool, Severity, usize) {
@@ -321,9 +340,10 @@ impl BackendReport {
         self
     }
 
-    /// Whether this backend is a normal-generation path for the grammar. Refused, missing,
-    /// failed, NotProductionReady, MachineLimit, and CannotRepresent reports are retained but not
-    /// selected.
+    /// Whether this backend is a normal-generation path for the grammar. Refused, missing, and
+    /// failed reports are retained but not selected, as is any report with a Representability or
+    /// Containment finding; a Readiness-only report (e.g. NotProductionReady payload size) IS
+    /// selected — see `is_normal_candidate`.
     pub fn is_selected(&self) -> bool {
         self.is_normal_candidate()
     }
@@ -646,9 +666,10 @@ impl BackendSelection {
     }
 
     /// Returns at most the requested number of normally admissible candidates. The caller may
-    /// request two for a measured comparison; no NotProductionReady/MachineLimit/
-    /// CannotRepresent/refused backend can enter this list. Ranking is clean report, severity,
-    /// finding count, then committed preference.
+    /// request two for a measured comparison; no refused backend, nor one with a Representability
+    /// or Containment finding, can enter this list — a Readiness-only (e.g. NotProductionReady
+    /// payload size) backend can. Ranking is clean report, severity, finding count, then committed
+    /// preference.
     pub fn select_up_to(&self, limit: usize) -> Vec<EmissionStrategy> {
         self.ranked_candidates()
             .into_iter()
@@ -971,15 +992,46 @@ mod tests {
         );
     }
 
+    /// An oversized payload is a label on something that got built, so it stays selectable.
     #[test]
-    fn not_production_ready_and_machine_limit_reports_are_retained_but_not_selected() {
+    fn an_oversized_payload_labels_a_backend_without_excluding_it() {
+        let reports = vec![BackendReport::accepted(
+            EmissionStrategy::TunedSurfaceProbed,
+            CompileDecision::Admit,
+            vec![finding(
+                crate::health::Severity::NotProductionReady,
+                crate::health::FindingCode::PayloadSizeBand,
+            )],
+        )
+        .unwrap()];
+        let selection = BackendSelection::from_reports(reports);
+
+        assert!(
+            selection
+                .selected()
+                .contains(&EmissionStrategy::TunedSurfaceProbed),
+            "a readiness label must never cost a backend its candidacy"
+        );
+        assert_eq!(
+            selection
+                .report_for(EmissionStrategy::TunedSurfaceProbed)
+                .expect("the report is retained")
+                .worst_severity(),
+            crate::health::Severity::NotProductionReady,
+            "and the label itself must survive selection"
+        );
+    }
+
+    /// Nothing was built in either case, so neither can be selected.
+    #[test]
+    fn containment_and_representability_findings_exclude_a_backend() {
         let reports = vec![
             BackendReport::accepted(
                 EmissionStrategy::TunedSurfaceProbed,
                 CompileDecision::Admit,
                 vec![finding(
-                    crate::health::Severity::NotProductionReady,
-                    crate::health::FindingCode::PayloadSizeBand,
+                    crate::health::Severity::MachineLimit,
+                    crate::health::FindingCode::HostContainmentFired,
                 )],
             )
             .unwrap(),
@@ -987,8 +1039,8 @@ mod tests {
                 EmissionStrategy::TemplatedUnderlyingTokens,
                 CompileDecision::Admit,
                 vec![finding(
-                    crate::health::Severity::MachineLimit,
-                    crate::health::FindingCode::UnknownUnboundedConstruct,
+                    crate::health::Severity::CannotRepresent,
+                    crate::health::FindingCode::BackendCoverageIncomplete,
                 )],
             )
             .unwrap(),
@@ -997,13 +1049,6 @@ mod tests {
 
         assert!(selection.selected().is_empty());
         assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
-        assert_eq!(
-            selection
-                .report_for(EmissionStrategy::TunedSurfaceProbed)
-                .expect("not-production-ready report remains retained")
-                .worst_severity(),
-            crate::health::Severity::NotProductionReady
-        );
         assert_eq!(
             selection
                 .report_for(EmissionStrategy::PlanComposed)
