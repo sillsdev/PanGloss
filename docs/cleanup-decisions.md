@@ -9,6 +9,26 @@ Plain English on purpose. If an item cannot be explained without jargon, it is n
 
 ## DECIDED
 
+### D0 — The pipeline and backend choice are explicit *(ratified; current)*
+
+The stages are separate and have one direction:
+
+- **Analyze** independently inspects the grammar and reports each backend's capability facts,
+  warnings, and cost estimates. It does not compile, run the production emitter, or perform a
+  discarded closure/traversal.
+- **Choose** is an explicit project-configuration or per-run CLI choice. Analysis does not choose
+  a backend, and there is no preferred backend, top-N selection, automatic fallback, or retry.
+- **Build** compiles exactly the explicitly selected backend, once per requested backend, under the
+  supervised worker. Explicit P and Q requests are independent; P failing does not suppress Q.
+- **Test** is a separate corpus operation over completed artifacts. It reports raw measurements so
+  people can compare them; it does not select a winner.
+- **Package** consumes one explicitly named, already-completed artifact. `pangloss pack` never
+  compiles, substitutes another backend, or accepts an unproven artifact.
+
+`--allow-unproven` is local-testing-only. It may retain clearly marked local evidence, but no
+publication or distribution route accepts it or an unproven artifact. Execution limits remain
+finite and configurable; they are containment settings, not backend-selection inputs.
+
 ### D1 — Yes, the public API is ours to change *(decided; being done now)*
 
 There are no external users of this code, so anything exported but uncalled can simply be deleted, and

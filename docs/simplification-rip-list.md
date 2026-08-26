@@ -187,11 +187,11 @@ carrying cost, and deleting it now costs nothing.
 
 | # | Item | Evidence | Est. lines | Status |
 |---|---|---|---|---|
-| B1 | `#[serde(alias)]` on every `Severity` variant for pre-schema-3 spellings, plus the test pinning them | `health.rs` | 60–120 | **DONE** — aliases and the compatibility test removed |
-| B2 | `health::OverrideRecord`, kept solely to deserialize already-written reports | `health.rs` | 80–150 | **DONE** — type, field, fixtures, projection, and override-only tests removed |
+| B1 | `#[serde(alias)]` on every `Severity` variant for pre-schema-3 spellings, plus the test pinning them | `health.rs` | 60–120 | **VERIFIED** — aliases and the compatibility test removed |
+| B2 | `health::OverrideRecord`, kept solely to deserialize already-written reports | `health.rs` | 80–150 | **VERIFIED** — type, field, fixtures, projection, and override-only tests removed |
 | B3 | Persistent capability-override records in pack manifests/WASM consumers | `pg_pack::trust`, `readiness_verdict.rs` | — | **AUTHORIZED** — delete from publishable artifacts. Local unproven status survives only in build metadata, which pack rejects |
-| B4 | `Certification::MultiplicityMismatch` — doc says "no longer produced, kept for deserializing old reports" | `backend_optimizer.rs` | 20–40 | **DONE** — variant and compatibility fixture removed |
-| B5 | `Truncated { corpus: Option<..> }` carries live oracle evidence | `backend_optimizer.rs`, `backend_runtime.rs`, `backend_report.rs` | — | **DONE** — audited and retained; live producers and consumers |
+| B4 | `Certification::MultiplicityMismatch` — doc says "no longer produced, kept for deserializing old reports" | `backend_optimizer.rs` | 20–40 | **VERIFIED** — variant and compatibility fixture removed |
+| B5 | `Truncated { corpus: Option<..> }` carries live oracle evidence | `backend_optimizer.rs`, `backend_runtime.rs`, `backend_report.rs` | — | **VERIFIED** — audited and retained; live producers and consumers |
 | B6 | `HEALTH_SCHEMA_VERSION` stamps and validates stored health artifacts | `health.rs`, `fst_health.rs` | — | **AUTHORIZED** — keep strict versioning, bump for the break, reject old reports, delete compatibility-only defaults/tests |
 | B7 | `ResourceEnvelopeId` versioned identity (`ManagedV1`, `TunedSurfaceWork10kV1`) | `resource_envelope.rs`, 47 refs / 9 files | see C1 | **AUTHORIZED** — delete both named envelopes and their persisted provenance |
 
@@ -227,11 +227,11 @@ path with three externally enforced, configurable execution limits. Verified old
 |---|---|---|---|---|
 | D1 | Two ~900-line emission pipelines differing by one already-parameterized flag | `emit.rs` | −524 | **VERIFY** — promising uncommitted consolidation, but currently constructs `MorphotacticIndex` unconditionally for the templated path. Fix and prove output/parity in its own commit |
 | D2 | Duplicate capability-answering substrate and automatic backend preference machinery | `backend_registry.rs` 1,330 + `backend_mechanism.rs` 1,199 + `mechanism_provider.rs` 188 | 2,717 | **SPLIT** — delete cross-backend ranking/preference/selection in this cleanup. Freeze registry/mechanism/Plan/recipe tuning internals; redesign or delete them in the immediate post-cleanup switch round |
-| D3 | `oracle.rs` duplicated two `build.rs` helpers verbatim, panic text already drifted | | ~40 | **DONE** |
-| D4 | Admission-summary rendering implemented three times | `fst_health.rs`, `pack.rs`, `make_report.rs` | ~20 | **DONE** (2 of 3; the third differs in output, left inline) |
+| D3 | `oracle.rs` duplicated two `build.rs` helpers verbatim, panic text already drifted | | ~40 | **VERIFIED** |
+| D4 | Admission-summary rendering implemented three times | `fst_health.rs`, `pack.rs`, `make_report.rs` | ~20 | **VERIFIED** (2 of 3; the third differs in output, left inline) |
 | D5 | `ConfirmedBuckets` flattening copy-pasted three times | `composite.rs` 669, 724, 918 | ~60 | **OPEN** |
-| D6 | Remedy rendering diverged between two tables | `make_report.rs` | ~30 | **DONE** |
-| D7 | `CompileSizeMode` resolution re-inlined twice | `pack.rs`, `make_report.rs` | ~20 | **DONE** (deliberately left; dies with C1) |
+| D6 | Remedy rendering diverged between two tables | `make_report.rs` | ~30 | **VERIFIED** |
+| D7 | `CompileSizeMode` resolution re-inlined twice | `pack.rs`, `make_report.rs` | ~20 | **VERIFIED** (deliberately left; dies with C1) |
 | D8 | Three modules hand-assemble a 10-field `HealthFinding` literal; no shared builder | `health_evaluator.rs`, `characterization.rs`, `fst_health.rs` | ~80 | **OPEN** |
 
 ---
@@ -249,13 +249,13 @@ path with three externally enforced, configurable execution limits. Verified old
 
 | # | Item | Evidence | Status |
 |---|---|---|---|
-| F1 | Five dead match arms — `Refused` is only ever built with two of seven reasons | `characterization.rs` | **DONE** |
-| F2 | Test asserting an impossible severity+code pairing | `characterization.rs` ~810 | **DONE** |
-| F3 | Test fixture manufacturing pairings production cannot produce | `pack.rs` `synthetic_health` | **DONE** (12 call sites) |
-| F4 | Write-only `CompositeRec::morpheme` field | `preexpand.rs` | **DONE** |
-| F5 | `#[allow(dead_code)]` where `#[cfg(test)]` lets the compiler enforce the claim | `preexpand.rs`, `unordered.rs` | **DONE** |
-| F6 | Duplicate adjacent assertions left by `acd313c6` | `health.rs`, `pack.rs` | **DONE** |
-| F7 | Two unlinked copies of the 100 MB threshold | `health.rs`, `readiness_policy.rs` | **DONE** |
+| F1 | Five dead match arms — `Refused` is only ever built with two of seven reasons | `characterization.rs` | **VERIFIED** |
+| F2 | Test asserting an impossible severity+code pairing | `characterization.rs` ~810 | **VERIFIED** |
+| F3 | Test fixture manufacturing pairings production cannot produce | `pack.rs` `synthetic_health` | **VERIFIED** (12 call sites) |
+| F4 | Write-only `CompositeRec::morpheme` field | `preexpand.rs` | **VERIFIED** |
+| F5 | `#[allow(dead_code)]` where `#[cfg(test)]` lets the compiler enforce the claim | `preexpand.rs`, `unordered.rs` | **VERIFIED** |
+| F6 | Duplicate adjacent assertions left by `acd313c6` | `health.rs`, `pack.rs` | **VERIFIED** |
+| F7 | Two unlinked copies of the 100 MB threshold | `health.rs`, `readiness_policy.rs` | **VERIFIED** |
 | F8 | `Certification::StaticRejected` may now be unreachable | `backend_runtime.rs` | **VERIFY** |
 | F9 | Stale `FailClosed` / `RefusalWitness` docs/tests — source machinery is already absent | `capability.rs` and ledgers/docs | **AUTHORIZED** — sweep stale references; do not recreate source behavior |
 | F10 | Dead-weight tests: 2,493 tests, some pinning behaviour being deliberately removed, some vacuous | whole suite | **OPEN** — the second-pass review's main target |
@@ -477,8 +477,8 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed branch range `ff6fe2e2..316aab29`: **4,236 deletions / 5,971 additions, net +1,735 lines**
-across 70 files. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed branch range `ff6fe2e2..b7292e36`: **4,236 deletions / 6,380 additions, net +2,144 lines**
+across 71 files. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
@@ -503,6 +503,8 @@ opportunity is tracked by the stages above; estimates below are directional only
 | E — work that belongs outside the build | 300–600 |
 | F9/F10 — dead machinery and dead-weight tests | unmeasured, likely large |
 
-Reaching five figures depends on D2 (2,717) plus F10 (tests) plus C. The test suite is the least
-explored surface and the most likely to hold the remainder: 2,493 tests, written against a design
-that has changed twice.
+The 2,717-line registry/mechanism substrate named in D2 remains present and protected; it is not
+part of the deletion tally and must not be described as removed. Only the cross-backend chooser and
+ranking glue is authorized in this cleanup. Any future five-figure estimate must count only actual
+deletions, not the protected substrate. The test suite is the least explored surface and the most
+likely to hold the remainder: 2,493 tests, written against a design that has changed twice.

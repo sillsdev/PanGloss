@@ -1,5 +1,10 @@
 # Apply-time containment: cooperative magnitude budgets in-process; engine reports, app decides
 
+> **Status: SUPERSEDED for execution-limit retry policy.** The current ratified policy is in
+> `docs/simplification-rip-list.md`: execution limits are finite and configurable, with no named
+> envelope, automatic escalation, or envelope-increase retry. The apply-time budget model below is
+> retained as historical design context and is not authority for build retries.
+
 ## Decision
 
 Compile-time work runs in a killable native worker under the parent watchdog. **Apply-time
@@ -38,15 +43,16 @@ schema across all three" claim is honest (watchdogs do not port to WASM).
   ambiguous corpus. Deterministic counters → reproducible kills (same word fails identically
   on a fast laptop and a slow CI box). Wall-clock is the outer net for genuinely
   uninstrumented stalls only — best-effort, non-reproducible, never the normal incomplete
-  trigger. Governed like `calibrate-fst-resource-envelopes`: evidence + proposed diff +
-  human-reviewed commit.
+  trigger. Calibration remains governed by evidence, a proposed diff, and a human-reviewed
+  commit.
 - **Two-sided calibration validation.** Lower bound: every legitimate-corpus word must
   complete within the default (a real word tripping it is a cost problem for the dead-end
   census, never a silent cap raise). Upper bound: default × max concurrency ≪ absolute
   ceiling ≪ host capacity.
-- **"Slow but will find it" past the default** is handled by explicit caller retry with a
-  larger named envelope (no automatic escalation); the typed incomplete outcome names the
-  dimension so the caller can decide, and the retry disambiguates hard-but-real from loose.
+- **"Slow but will find it" past the default** is not repaired by an envelope-increase retry.
+  The caller may start a separate, explicitly requested attempt with finite configured limits,
+  but there is no named envelope, automatic escalation, or retry remedy. The typed incomplete
+  outcome names the dimension so the caller can decide what to do next.
 - **The uninstrumented-hang residual** (an infinite loop touching no counter) is contained by
   a documented **host contract**: run analysis in your own killable worker — Worker +
   `terminate()` for WASM — because the engine cannot hard-kill an in-process native thread.
