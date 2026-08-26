@@ -155,7 +155,7 @@ audit above.
 Status key: **VERIFIED** (source, focused behavior proof, integration proof, docs, and residue grep
 all passed) · **LANDED UNVERIFIED** (committed source exists but the full proof gate has not passed)
 · **AUTHORIZED** (decision made; rip it out) · **REJECTED** (do not build/restore it) · **SPLIT**
-(execute only the authorized portion) · **RETAINED** · **DEFERRED NEXT** · **OPEN** · **BLOCKED**
+(execute only the authorized portion) · **RETAINED** · **PROTECTED** · **DEFERRED NEXT** · **OPEN** · **BLOCKED**
 (needs a decision) · **VERIFY** (needs source evidence or measurement). `DONE` is no longer used:
 it hid live remnants. Only reviewed commits count as landed work; tests and documentation are part
 of the completion gate, not evidence for restoring a rejected contract.
@@ -187,11 +187,11 @@ carrying cost, and deleting it now costs nothing.
 
 | # | Item | Evidence | Est. lines | Status |
 |---|---|---|---|---|
-| B1 | `#[serde(alias)]` on every `Severity` variant for pre-schema-3 spellings, plus the test pinning them | `health.rs` | 60–120 | **VERIFIED** — aliases and the compatibility test removed |
-| B2 | `health::OverrideRecord`, kept solely to deserialize already-written reports | `health.rs` | 80–150 | **VERIFIED** — type, field, fixtures, projection, and override-only tests removed |
+| B1 | `#[serde(alias)]` on every `Severity` variant for pre-schema-3 spellings, plus the test pinning them | `health.rs` | 60–120 | **LANDED UNVERIFIED** — aliases and the compatibility test removed; full completion gate is not recorded here |
+| B2 | `health::OverrideRecord`, kept solely to deserialize already-written reports | `health.rs` | 80–150 | **LANDED UNVERIFIED** — type, field, fixtures, projection, and override-only tests removed; full completion gate is not recorded here |
 | B3 | Persistent capability-override records in pack manifests/WASM consumers | `pg_pack::trust`, `readiness_verdict.rs` | — | **AUTHORIZED** — delete from publishable artifacts. Local unproven status survives only in build metadata, which pack rejects |
-| B4 | `Certification::MultiplicityMismatch` — doc says "no longer produced, kept for deserializing old reports" | `backend_optimizer.rs` | 20–40 | **VERIFIED** — variant and compatibility fixture removed |
-| B5 | `Truncated { corpus: Option<..> }` carries live oracle evidence | `backend_optimizer.rs`, `backend_runtime.rs`, `backend_report.rs` | — | **VERIFIED** — audited and retained; live producers and consumers |
+| B4 | `Certification::MultiplicityMismatch` — doc says "no longer produced, kept for deserializing old reports" | `backend_optimizer.rs` | 20–40 | **LANDED UNVERIFIED** — variant and compatibility fixture removed; full completion gate is not recorded here |
+| B5 | `Truncated { corpus: Option<..> }` carries live oracle evidence | `backend_optimizer.rs`, `backend_runtime.rs`, `backend_report.rs` | — | **PROTECTED** — audited and retained; live producers and consumers |
 | B6 | `HEALTH_SCHEMA_VERSION` stamps and validates stored health artifacts | `health.rs`, `fst_health.rs` | — | **AUTHORIZED** — keep strict versioning, bump for the break, reject old reports, delete compatibility-only defaults/tests |
 | B7 | `ResourceEnvelopeId` versioned identity (`ManagedV1`, `TunedSurfaceWork10kV1`) | `resource_envelope.rs`, 47 refs / 9 files | see C1 | **AUTHORIZED** — delete both named envelopes and their persisted provenance |
 
@@ -227,11 +227,11 @@ path with three externally enforced, configurable execution limits. Verified old
 |---|---|---|---|---|
 | D1 | Two ~900-line emission pipelines differing by one already-parameterized flag | `emit.rs` | −524 | **VERIFY** — promising uncommitted consolidation, but currently constructs `MorphotacticIndex` unconditionally for the templated path. Fix and prove output/parity in its own commit |
 | D2 | Duplicate capability-answering substrate and automatic backend preference machinery | `backend_registry.rs` 1,330 + `backend_mechanism.rs` 1,199 + `mechanism_provider.rs` 188 | 2,717 | **SPLIT** — delete cross-backend ranking/preference/selection in this cleanup. Freeze registry/mechanism/Plan/recipe tuning internals; redesign or delete them in the immediate post-cleanup switch round |
-| D3 | `oracle.rs` duplicated two `build.rs` helpers verbatim, panic text already drifted | | ~40 | **VERIFIED** |
-| D4 | Admission-summary rendering implemented three times | `fst_health.rs`, `pack.rs`, `make_report.rs` | ~20 | **VERIFIED** (2 of 3; the third differs in output, left inline) |
+| D3 | `oracle.rs` duplicated two `build.rs` helpers verbatim, panic text already drifted | | ~40 | **LANDED UNVERIFIED** |
+| D4 | Admission-summary rendering implemented three times | `fst_health.rs`, `pack.rs`, `make_report.rs` | ~20 | **PARTIAL** (2 of 3; the third differs in output, left inline) |
 | D5 | `ConfirmedBuckets` flattening copy-pasted three times | `composite.rs` 669, 724, 918 | ~60 | **OPEN** |
-| D6 | Remedy rendering diverged between two tables | `make_report.rs` | ~30 | **VERIFIED** |
-| D7 | `CompileSizeMode` resolution re-inlined twice | `pack.rs`, `make_report.rs` | ~20 | **VERIFIED** (deliberately left; dies with C1) |
+| D6 | Remedy rendering diverged between two tables | `make_report.rs` | ~30 | **LANDED UNVERIFIED** |
+| D7 | `CompileSizeMode` resolution re-inlined twice | `pack.rs`, `make_report.rs` | ~20 | **AUTHORIZED** (deliberately left; dies with C1) |
 | D8 | Three modules hand-assemble a 10-field `HealthFinding` literal; no shared builder | `health_evaluator.rs`, `characterization.rs`, `fst_health.rs` | ~80 | **OPEN** |
 
 ---
@@ -249,13 +249,13 @@ path with three externally enforced, configurable execution limits. Verified old
 
 | # | Item | Evidence | Status |
 |---|---|---|---|
-| F1 | Five dead match arms — `Refused` is only ever built with two of seven reasons | `characterization.rs` | **VERIFIED** |
-| F2 | Test asserting an impossible severity+code pairing | `characterization.rs` ~810 | **VERIFIED** |
-| F3 | Test fixture manufacturing pairings production cannot produce | `pack.rs` `synthetic_health` | **VERIFIED** (12 call sites) |
-| F4 | Write-only `CompositeRec::morpheme` field | `preexpand.rs` | **VERIFIED** |
-| F5 | `#[allow(dead_code)]` where `#[cfg(test)]` lets the compiler enforce the claim | `preexpand.rs`, `unordered.rs` | **VERIFIED** |
-| F6 | Duplicate adjacent assertions left by `acd313c6` | `health.rs`, `pack.rs` | **VERIFIED** |
-| F7 | Two unlinked copies of the 100 MB threshold | `health.rs`, `readiness_policy.rs` | **VERIFIED** |
+| F1 | Five dead match arms — `Refused` is only ever built with two of seven reasons | `characterization.rs` | **LANDED UNVERIFIED** |
+| F2 | Test asserting an impossible severity+code pairing | `characterization.rs` ~810 | **LANDED UNVERIFIED** |
+| F3 | Test fixture manufacturing pairings production cannot produce | `pack.rs` `synthetic_health` | **LANDED UNVERIFIED** (12 call sites) |
+| F4 | Write-only `CompositeRec::morpheme` field | `preexpand.rs` | **LANDED UNVERIFIED** |
+| F5 | `#[allow(dead_code)]` where `#[cfg(test)]` lets the compiler enforce the claim | `preexpand.rs`, `unordered.rs` | **LANDED UNVERIFIED** |
+| F6 | Duplicate adjacent assertions left by `acd313c6` | `health.rs`, `pack.rs` | **LANDED UNVERIFIED** |
+| F7 | Two unlinked copies of the 100 MB threshold | `health.rs`, `readiness_policy.rs` | **LANDED UNVERIFIED** |
 | F8 | `Certification::StaticRejected` may now be unreachable | `backend_runtime.rs` | **VERIFY** |
 | F9 | Stale `FailClosed` / `RefusalWitness` docs/tests — source machinery is already absent | `capability.rs` and ledgers/docs | **AUTHORIZED** — sweep stale references; do not recreate source behavior |
 | F10 | Dead-weight tests: 2,493 tests, some pinning behaviour being deliberately removed, some vacuous | whole suite | **OPEN** — the second-pass review's main target |
