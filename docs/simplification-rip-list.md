@@ -307,59 +307,54 @@ or more bounded Luna slices with disjoint file ownership. `AUTHORIZED` permits d
 that stage's allowed scope. `VERIFY`, `OPEN`, `DEFERRED NEXT`, and protected scope are never deletion
 permission.
 
+**2026-08-26 rip-first sequencing decision:** PanGloss is pre-alpha and has no compatibility users.
+Delete every authorized obsolete test/contract first, then delete its implementation. Deliberate
+compile holes are expected until the removal inventory is exhausted; do not restore rejected
+behavior merely to make a stale test or intermediate build pass. Build the smaller explicit path
+only after the rip stages below. During the rip, use `git diff --check` and targeted residue searches;
+defer Cargo and hosted-platform proof until the replacement stage unless a deletion can be checked
+without pulling replacement design forward.
+
 1. **Finish raw selected-payload transport (A8).** Delete the rejected filesystem transport, legacy
    aggregate-result parser tests/helper, and stdout-only overflow residue. Add subprocess proof for
    missing, truncated, trailing, malformed, and stalled payloads. Gate: protocol 8 rejection; exact
    length/SHA/fingerprint/EOF; no selected-artifact paths, files, hard links, cleanup, or ownership
    code. Status: **VERIFIED**.
-2. **Install real external containment (C1).** Enforce the configurable 1 GB final payload, 10 GB
+2. **Remove the old supervisor; retain the external-containment destination (C1).** The destination
+   enforces the configurable 1 GB final payload, 10 GB
    committed process-tree RAM, and 10-minute wall limit on Windows and Linux. Every production build
    must use it. Gate: descendants die with the worker; memory/time/crash/partial output produce no
    completed artifact and structured provenance. Protected: sequential independent P/Q attempts.
-   Status: **PARTIAL** until the worker adapters pass and Stage 3 migrates every production build
-   route; adapter proof alone verifies only the artifact-worker sub-slice and does not unlock Stage 4.
-   Committed checkpoints: replacement descendant-failure tests (`40897d45`), typed containment
-   outcomes plus the required health/pack v5 break (`b330892f`), and the safe helper API with its
-   verified Windows adapter (`9c7330c2`), test-first Linux wrapper contract (`b6894312` through
-   `9249b4ee`), the fail-closed Linux wrapper source checkpoint (`694de90f`), and the pinned hosted
-   Linux RED/GREEN gate (`42f64571`, `9243cc25`). Still pending, in order: a green execution of that
-   exact delegated-host/service-lifecycle job, production routing, then deletion of the shared
-   direct-`Command` supervisor loop and its source-shape test.
-   Cross-platform fixture success is not Linux runtime proof and does not authorize that deletion.
-   A fresh final-tip Windows rerun reported 5 unit and 11 Windows containment tests passing and the
-   managed command exited cleanly. The earlier procgov teardown hang did not reproduce with an
-   immediate-exit child or the exact cached Cargo target, so no speculative watchdog code was added.
-   The Linux CI dependency remains the sole platform gate. The pinned `ubuntu-24.04` job provisions
-   its own transient delegated systemd service and controlled service-main-death probe, removing the
-   former need for a pre-provisioned self-hosted runner. The job has not yet executed, so workflow-
-   only wiring is prerequisite progress, not Linux runtime proof or deletion authority.
+   Status: **RIPPED FIRST.** `5c4b27de` deleted the stale source-shape test and `95ac164d` deleted the
+   direct-`Command` supervisor. The external adapters and hidden worker child remain as destination
+   substrate. The hosted Linux correction exists in `032e0076`/`1c7cc837`; rerun it only after the
+   minimal explicit route is assembled.
 3. **Delete cross-backend automatic choice and route explicit builds (D2/A7).** Rewrite preference,
    top-N, fallback, retry, winner, and Pareto tests first. Delete `BACKEND_PREFERENCE`, `preferred`,
    `select_up_to`, rank keys, fallback paths, watchdog/placeholder pack compilation, and production
    in-process build routes. The worker receives an explicit backend and validates the result matches
    it. Protected: independent per-backend analysis reports, registry/mechanism capability facts,
    grammar-required correctness routing, and deferred within-backend tuning.
-   Status: **PARTIAL** only for completed-artifact validation. The RED contract `21faa1b5` and GREEN
-   implementation `efcaafa6` removed the validator's `BackendSelection`/`preferred()` dependency and
-   require one explicit requested strategy. The RED/GREEN pair `8b218093`/`777df49d` then deleted the
-   zero-caller `run_selected_compile_worker`, its stale keeper assertion, and 50 lines of private
-   deserialization residue: 105 production deletions and no protocol removal. Selector derivation,
-   supervisor routing, Pack/CLI migration, and the broader chooser deletion remain untouched until
-   Stage 2's Linux gate. The independent RED/GREEN pair `5d428ca7`/`f2f7d69e` also deleted the
-   zero-caller, explicitly rejected top-N `select_up_to` method and its ranking-only tests while
-   preserving `preferred()` for the later atomic route migration. `ecdbb65e`/`341fb5a4` deleted the
-   final zero-caller envelope convenience constructor; the richer production selector path remains.
-4. **Delete internal compile refusal caps (A1-A5/A9/A10/C2-C4/H5).** Only after stages 2-3 prove
-   containment, rewrite cap/refusal/retry tests, then remove state/arc/tuple/group/line/compound/order
+   Status: **RIP IN PROGRESS.** `e10ab3ca`/`64323d45` removed chooser assertions and APIs;
+   `54508605`/`8889877b`/`9396c7b3`/`f1b46d49` removed legacy Pack compile tests, build machinery,
+   implicit report builds, and callers. `a148d2e6`/`c3b8aeaa` removed compile-retry assertions and
+   advice. Explicit destination wiring and completed-artifact ingestion are intentionally not added
+   yet. The hidden worker child remains required.
+4. **Delete internal compile refusal caps (A1-A5/A9/A10/C2-C4/H5).** Rewrite cap/refusal/retry tests,
+   then remove state/arc/tuple/group/line/compound/order
    representability stops, named-envelope remedies, and old constants while preserving measurements.
    Protected: `ApplyBudget`/`ApplyOutcome`, apply path/candidate budgets, reduplication peel safety,
    the real build pre-expansion, and semantic correctness predicates. Ordering multiplicity and
    chain depth must be classified by call site before deletion; uncertainty blocks that hunk only.
+   Status: **RIP IN PROGRESS.** `79d1b058`/`0cf2da0a` removed the compound-pair test and the entire
+   `HC_COMPOUND_PAIR_BUDGET` refusal while retaining compound emission, licensing, and chain-depth
+   safety. Schema vocabulary is deferred to the schema sweep.
 5. **Delete duplicate analysis traversal (E2).** Remove production-emitter-and-discard and separate
    closure characterization walkers from `characterization`, `preexpand`, `emit`, runtime, and
    selection. Gate: analysis performs no production compile/traversal; a selected build performs its
    required pre-expansion exactly once. Protected: cheap grammar facts and real build traversal.
-6. **Separate Analyze, Test, and Package (E1/A2/A3).** Move proposal/confirmation/duplicate metrics
+6. **Build the smaller explicit path and separate Analyze, Test, and Package (E1/A2/A3).** Only after
+   authorized ripping is complete, move proposal/confirmation/duplicate metrics
    to a post-build corpus operation. `pack` consumes one explicitly named completed artifact and
    never compiles or substitutes payloads. Gate: analysis runs independently; corpus work is absent
    from build-only paths; package rejects missing/stale/mismatched artifacts.
@@ -422,7 +417,9 @@ permission.
 
 ### Audited Stage 2 kill ledger (`b330892f` anchors)
 
-Execute this only after the safe lifecycle seam and both platform adapters pass their gates:
+Historical anchors retained so the deletion can be audited. The 2026-08-26 rip-first decision
+superseded the former proof-first gate; items 1-4 were removed by `5c4b27de`/`95ac164d`. Items 5-6
+remain protected.
 
 1. In `worker_execution_limits_contract.rs`, retain/rewrite the descendant timeout and crash proofs
    (lines 168–254) and the protocol classification cases (281–323). Delete the source-shape test
@@ -498,10 +495,10 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..341fb5a4` (through the unused envelope-constructor deletion):
-**4,581 deletions / 10,500 additions, net +5,919 lines** across 81 files. Production Rust accounts
-for 2,099 deletions and Rust integration tests for 988 deletions. This is a branch-wide mechanical
-line tally, not a claim that every commit is
+Committed rebased branch range `1225f25a..0cf2da0a`:
+**7,114 deletions / 10,312 additions, net +3,198 lines** across 87 files. The dedicated rip-first
+range `1c7cc837..0cf2da0a` removed **2,743 lines**, added 15 structural/fixture lines, and is net
+**-2,728 lines** across 21 files. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
@@ -521,8 +518,10 @@ including 105 production deletions. The branch-range totals are smaller than add
 where this cleanup deletes lines introduced after the baseline; both numbers are intentional.
 The top-N RED/GREEN commits then removed 67 and added 5 lines at commit scope (net -62), including
 13 production lines; their focused backend-selection contract passes 11/11.
-The final envelope-constructor RED/GREEN pair removed 9 and added 4 lines at commit scope (net -5),
-all nine deletions in production; the same 11/11 contract remains green.
+The final envelope-constructor RED/GREEN pair removed 9 and added 4 lines at commit scope (net -5).
+The rip-first commits then removed the old supervisor, chooser, legacy Pack/report build path,
+compile-retry advice, and compound-pair refusal. Their intermediate compile holes are intentional;
+no stale test result authorizes restoring those rejected paths.
 Uncommitted work is never counted until its exact staged snapshot is inspected and committed. Remaining deletion
 opportunity is tracked by the stages above; estimates below are directional only:
 
