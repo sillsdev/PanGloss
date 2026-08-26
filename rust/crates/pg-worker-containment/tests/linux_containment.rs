@@ -105,7 +105,10 @@ fn wait_for_file(path: &Path, deadline: Instant) {
     );
 }
 
-fn run_clean_child(args: &[OsString], options: &LaunchOptions) -> Option<(u32, String, String)> {
+fn run_clean_child(
+    args: &[OsString],
+    options: &LaunchOptions,
+) -> Option<(ChildTermination, String, String)> {
     let mut process = spawn_or_skip(args, options, 256 << 20)?;
     let stdio = process.take_stdio().expect("stdio once");
     drop(stdio.stdin);
@@ -118,7 +121,7 @@ fn run_clean_child(args: &[OsString], options: &LaunchOptions) -> Option<(u32, S
     let evidence = process.final_evidence_and_peak().expect("final evidence");
     assert!(evidence.memory_limit.is_none());
     Some((
-        exit.exit_code,
+        exit.termination,
         String::from_utf8(finish_reader(stdout_handle, stdout_receiver)).expect("UTF-8 stdout"),
         String::from_utf8(finish_reader(stderr_handle, stderr_receiver)).expect("UTF-8 stderr"),
     ))
@@ -163,7 +166,7 @@ fn cgroup_capability_unavailable_is_skip_unless_required() {
     let Some((exit, _stdout, _stderr)) = run_clean_child(&args, &LaunchOptions::default()) else {
         return;
     };
-    assert_eq!(exit, 0);
+    assert_eq!(exit, ChildTermination::Exited(0));
 }
 
 #[test]
@@ -182,7 +185,7 @@ fn launches_native_child_with_exact_argv_unicode_quotes_and_backslashes() {
     let Some((exit, stdout, stderr)) = run_clean_child(&args, &LaunchOptions::default()) else {
         return;
     };
-    assert_eq!(exit, 0, "{stderr}");
+    assert_eq!(exit, ChildTermination::Exited(0), "{stderr}");
     let actual = stdout.lines().collect::<Vec<_>>();
     let expected = values
         .iter()
@@ -266,7 +269,7 @@ fn launch_options_set_child_current_directory_with_spaces_and_unicode() {
     else {
         return;
     };
-    assert_eq!(exit, 0, "{stderr}");
+    assert_eq!(exit, ChildTermination::Exited(0), "{stderr}");
     let expected = fs::canonicalize(&directory).expect("canonical test directory");
     assert_eq!(
         stdout.trim(),
@@ -318,7 +321,7 @@ fn child_starts_in_current_unified_cgroup_on_its_first_action() {
     let Some((exit, stdout, stderr)) = run_clean_child(&args, &LaunchOptions::default()) else {
         return;
     };
-    assert_eq!(exit, 0, "{stderr}");
+    assert_eq!(exit, ChildTermination::Exited(0), "{stderr}");
     let child = stdout
         .strip_prefix("CGROUP:0::")
         .expect("fixture emitted unified cgroup membership")
