@@ -315,6 +315,8 @@ permission.
    committed process-tree RAM, and 10-minute wall limit on Windows and Linux. Every production build
    must use it. Gate: descendants die with the worker; memory/time/crash/partial output produce no
    completed artifact and structured provenance. Protected: sequential independent P/Q attempts.
+   Status: **PARTIAL** until the worker adapters pass and Stage 3 migrates every production build
+   route; adapter proof alone verifies only the artifact-worker sub-slice and does not unlock Stage 4.
 3. **Delete cross-backend automatic choice and route explicit builds (D2/A7).** Rewrite preference,
    top-N, fallback, retry, winner, and Pareto tests first. Delete `BACKEND_PREFERENCE`, `preferred`,
    `select_up_to`, rank keys, fallback paths, watchdog/placeholder pack compilation, and production
@@ -382,7 +384,7 @@ permission.
 | Stage | Exact primary source | Rewrite/delete tests first | Minimum focused proof |
 |---|---|---|---|
 | 1 raw transport | `worker.rs`, `worker_contract.rs`, `worker_test_child.rs` | `worker.rs` legacy `parse_result_frame` cases; `worker_execution_limits_contract.rs` subprocess cases | `selected_` unit gate plus worker execution-limit integration target; protocol/file-residue grep |
-| 2 containment | worker supervisor/host-containment module; CLI limit configuration | worker limit defaults stay; replace watchdog-input/source-string tests with descendant-memory/time tests | Windows Job Object and Linux cgroup-v2/process-group descendants; no artifact on termination |
+| 2 containment | worker supervisor/host-containment module; CLI limit configuration | worker limit defaults stay; replace watchdog-input/source-string tests with descendant-memory/time tests | Windows Job Object and Linux cgroup-v2 aggregate descendant containment; no artifact on termination |
 | 3 explicit backend | `backend_selection.rs`, `completed_build.rs`, `worker.rs`, CLI `pack/main/make_report/fst_health`, `witnessed_coverage.rs` | ranking/preference tests in `backend_selection.rs`, `backend_selection_contract.rs`, five-language, trusted-selected-build, strategy-aware, unordered coverage | explicit P builds only P; P+Q independent; P failure does not suppress Q; no fallback/preference symbols |
 | 4 compile refusals | `compose_budget.rs`, `morphotactics.rs`, `analyzer.rs`, `emit.rs`, `preexpand.rs`, `replace.rs`, `uflexc.rs`, `unordered.rs`, `gate.rs`, `health_evaluator.rs` | cap/refusal tests in those modules plus compounding, unordered, closure, and phase-C integration tests | representable builds are not internally resource-refused; external typed containment still fires; apply/redup gates unchanged |
 | 5 duplicate traversal | `characterization.rs`, `preexpand.rs`, `emit.rs`, `backend_runtime.rs`, `backend_selection.rs` | characterization/closure tests that demand a dry-run | analysis invokes no production emitter; selected build has exactly one real pre-expansion |
