@@ -112,28 +112,28 @@ Files:
 - safe `pg-foma` containment integration
 - Linux fixture/integration tests
 
-- [ ] Require `PANGLOSS_CGROUP_DELEGATED_ROOT` as an explicit canonical hierarchy path. Map it
+- [x] Require `PANGLOSS_CGROUP_DELEGATED_ROOT` as an explicit canonical hierarchy path. Map it
       through the most-specific visible cgroup2 mount; require the supervisor's current membership
       to be a strict descendant and the configured root's own `cgroup.procs` to be empty. Never walk
       upward, infer authority from a leaf name, or enable controllers on the host's behalf.
-- [ ] Require `memory` in the configured root's `cgroup.subtree_control`; create each generated
+- [x] Require `memory` in the configured root's `cgroup.subtree_control`; create each generated
       per-attempt worker directly below that root as a sibling of the supervisor leaf, then configure
       memory, OOM-group, and swap boundaries.
-- [ ] Implement race-free placement with `clone3(CLONE_INTO_CGROUP | CLONE_PIDFD)` as the only
+- [x] Implement race-free placement with `clone3(CLONE_INTO_CGROUP | CLONE_PIDFD)` as the only
       admitted route in this checkpoint. Prebuild all child inputs; the child may perform only raw
       no-allocation setup, `execve`, or `_exit`. Fail closed when unavailable; forbid ordinary
       spawn-then-move. Any pre-exec-handshake fallback is a separately reviewed future change.
-- [ ] Implement one complete cleanup sequence for orderly errors, unwinds, and `Drop`: attempt
+- [x] Implement one complete cleanup sequence for orderly errors, unwinds, and `Drop`: attempt
       `cgroup.kill`, bounded populated-zero wait, direct-child reap, memory event/peak capture, and
       directory removal even when an earlier cleanup operation fails. Cleanup failure outranks the
       initiating failure while retaining its diagnostic. Use the caller deadline for owned
       operations and a fixed five-second emergency grace for launch errors and `Drop`.
-- [ ] Fail closed when delegation/controller/placement is unavailable.
-- [ ] Make direct-child termination signal-aware; only a real numeric exit code zero is success.
-- [ ] Read back page-rounded `memory.max`, require it not exceed the requested cap, require the
+- [x] Fail closed when delegation/controller/placement is unavailable.
+- [x] Make direct-child termination signal-aware; only a real numeric exit code zero is success.
+- [x] Read back page-rounded `memory.max`, require it not exceed the requested cap, require the
       `memory.events` `max` and `oom_kill` keys to exist and parse, and require both hierarchical
       deltas before emitting native memory evidence.
-- [ ] Expose only safe owned containment operations to `pg-foma`; native handles and unsafe launch
+- [x] Expose only safe owned containment operations to `pg-foma`; native handles and unsafe launch
       machinery remain private to the helper crate.
 - [ ] Prove success, descendant memory kill, timeout with inherited pipes, fork-race cleanup, and
       required-capability CI behavior on Linux.
@@ -146,6 +146,11 @@ Files:
       delegated cgroup authority. External dependency: a runner launched in a writable delegated
       cgroup with the memory controller enabled, `cgroup.kill`, and permitted `clone3`.
 - [ ] Do not claim the Linux runtime gate from Windows or from a capability-skipped Linux run.
+
+Source status at `00d0eccb`: the checked items above are implemented, compile-checked for the Linux
+target from Windows, and accepted by two exact-tip structural reviews. They are not a Linux runtime
+claim. The unchecked wrapper, CI, and required-capability items remain the gate before supervisor
+integration or deletion of the old spawn/kill loop.
 
 ## Task 5: Supervisor integration and deletion audit
 

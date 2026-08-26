@@ -478,8 +478,9 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed branch range `ff6fe2e2..b7292e36`: **4,236 deletions / 6,380 additions, net +2,144 lines**
-across 71 files. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed branch range `ff6fe2e2..00d0eccb`: **4,312 deletions / 8,909 additions, net +4,597 lines**
+across 74 files. Production Rust accounts for 1,966 deletions and Rust integration tests for 879
+deletions. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while

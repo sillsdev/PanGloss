@@ -179,8 +179,13 @@ cleanup deadline. Orderly launch errors, later supervisor errors, and Rust unwin
 complete sequence. Cleanup continues after an individual cleanup operation fails; a cleanup failure
 takes precedence over the initiating error while retaining that lower-priority diagnostic. `Drop`
 performs the same bounded best-effort sequence for an owned live process rather than only sending
-`cgroup.kill`. Launch-error and `Drop` cleanup use a fixed five-second emergency grace; this is an
-internal lifecycle bound, not a fourth configurable execution limit. Operations reached through the
+`cgroup.kill` when no explicit cleanup attempt has already claimed that process. An explicit cleanup
+attempt continues through every cleanup operation once under the caller's deadline, even after an
+individual operation fails; `Drop` does not silently retry that sequence under a second five-second
+deadline. On Windows, closing the owned job handle retains the kernel's kill-on-close backstop after
+such a failed explicit attempt. Launch-error and otherwise-unclaimed `Drop` cleanup use a fixed
+five-second emergency grace; this is an internal lifecycle bound, not a fourth configurable
+execution limit. Operations reached through the
 owned API continue to use the supervisor-supplied absolute cleanup deadline. Abrupt supervisor
 process death is outside this stage's portable guarantee because cgroup v2 has no job-handle-close
 equivalent. Missing delegation, controller support, `cgroup.kill`, permission, or race-free
