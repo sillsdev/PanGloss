@@ -94,8 +94,7 @@ unreachable through it.
 A `CompoundingRuleDef` with a `multipleApplication` value far beyond the DTD's practical ceiling (9)
 computes an enormous `max_depth` bound. `crate::emit`'s own `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`
 (200) must refuse this grammar with a typed `FomaTier::Unsupported` outcome, checked before any
-lexc text is written, rather than unrolling 60,000 chain levels (a hang/OOM risk). No env var
-mutation is needed (unlike `tests/cover_compounding_budget.rs`'s own `HC_COMPOUND_PAIR_BUDGET`
-convention): the default budget itself is what this grammar is deliberately built to exceed, so
+lexc text is written, rather than unrolling 60,000 chain levels (a hang/OOM risk). The default
+budget itself is what this grammar is deliberately built to exceed, so
 this test needs no process-global state and runs safely alongside every other test in this crate's
 default parallel test execution.

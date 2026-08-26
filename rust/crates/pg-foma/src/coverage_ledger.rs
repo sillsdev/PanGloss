@@ -359,8 +359,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "tests/cover_compounding.rs::head_a_word_over_propose_confirm_prune (+ \
              subrule_group_gate_excludes_partial_match_like_confirm, \
-             head_c_excluded_by_rule_level_gate_like_confirm); budget refusal: tests/\
-             cover_compounding_budget.rs",
+             head_c_excluded_by_rule_level_gate_like_confirm)",
             &[EmissionStrategy::TunedSurfaceProbed],
             "License-gated head/non-head cross-product containment for the non-recursive case, \
              plus the (un)group-awareness witness design.md D4 names.",

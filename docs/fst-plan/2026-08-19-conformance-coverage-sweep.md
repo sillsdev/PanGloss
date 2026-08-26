@@ -27,7 +27,7 @@ languages}/**` (the upstream half of `-Scope all`), for 58 total -- up from the 
 |---|---|---|---|---|
 | `Affixation` | Proven | Covered | AffixProcessRule: prefix/suffix/circumfix/infix; subtraction/truncation | general_pervasive: f1/f2/f4 gates |
 | `RealizationalMorphology` | ConfirmOnly | Covered | RealizationalAffixProcessRule | dedicated: `cover_realizational_morphology_constraints.rs` |
-| `Compounding` | ConfigPredicate | Covered | CompoundingRule | dedicated: `cover_compounding.rs`, `cover_compounding_budget.rs` |
+| `Compounding` | ConfigPredicate | Covered | CompoundingRule | dedicated: `cover_compounding.rs` |
 | `OrderedMorphRuleApplication` | Proven | Covered | Stratum (Linear/Unordered rule order) | general_pervasive: `phase_c_strata_depth.rs`, f1/f4 |
 | `UnorderedMorphRuleApplication` | ConfigPredicate | Covered | Stratum (Linear/Unordered rule order) | dedicated: `cover_unordered_morph_rules.rs` |
 | `MprGroupAppend` | ConfirmOnly | Covered | MPR features/groups | dedicated: `cover_mpr_groups.rs` |

@@ -62,7 +62,7 @@
       "conformance_status": "covered",
       "containment": {
         "kind": "dedicated",
-        "citation": "tests/cover_compounding.rs::head_a_word_over_propose_confirm_prune (+ subrule_group_gate_excludes_partial_match_like_confirm, head_c_excluded_by_rule_level_gate_like_confirm); budget refusal: tests/cover_compounding_budget.rs",
+        "citation": "tests/cover_compounding.rs::head_a_word_over_propose_confirm_prune (+ subrule_group_gate_excludes_partial_match_like_confirm, head_c_excluded_by_rule_level_gate_like_confirm)",
         "strategies": [
           "tuned-surface-probed"
         ],
