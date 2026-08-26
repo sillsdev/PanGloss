@@ -102,6 +102,9 @@ Files:
 
 ## Task 4: Linux cgroup-v2 adapter
 
+Detailed correction plan:
+`docs/superpowers/plans/2026-08-26-linux-cgroup-delegated-root-correction.md`
+
 Files:
 
 - target-scoped Linux dependencies in `pg-worker-containment`
@@ -109,27 +112,35 @@ Files:
 - safe `pg-foma` containment integration
 - Linux fixture/integration tests
 
-- [ ] Discover cgroup2 mount/current membership and validate the supervisor's current unified cgroup
-      as the explicitly delegated parent. Never walk upward or enable controllers on the host's behalf.
-- [ ] Require `memory` in `cgroup.subtree_control`; create a generated per-attempt child cgroup and
-      configure memory, OOM-group, and swap boundaries.
+- [ ] Require `PANGLOSS_CGROUP_DELEGATED_ROOT` as an explicit canonical hierarchy path. Map it
+      through the most-specific visible cgroup2 mount; require the supervisor's current membership
+      to be a strict descendant and the configured root's own `cgroup.procs` to be empty. Never walk
+      upward, infer authority from a leaf name, or enable controllers on the host's behalf.
+- [ ] Require `memory` in the configured root's `cgroup.subtree_control`; create each generated
+      per-attempt worker directly below that root as a sibling of the supervisor leaf, then configure
+      memory, OOM-group, and swap boundaries.
 - [ ] Implement race-free placement with `clone3(CLONE_INTO_CGROUP | CLONE_PIDFD)` as the only
       admitted route in this checkpoint. Prebuild all child inputs; the child may perform only raw
       no-allocation setup, `execve`, or `_exit`. Fail closed when unavailable; forbid ordinary
       spawn-then-move. Any pre-exec-handshake fallback is a separately reviewed future change.
-- [ ] Implement orderly error/unwind cleanup, `cgroup.kill`, bounded populated-zero wait, memory
-      event/peak capture, and bounded directory cleanup; do not promise abrupt-supervisor-death
-      cleanup on Linux without a separate external lifecycle mechanism and proof.
+- [ ] Implement one complete cleanup sequence for orderly errors, unwinds, and `Drop`: attempt
+      `cgroup.kill`, bounded populated-zero wait, direct-child reap, memory event/peak capture, and
+      directory removal even when an earlier cleanup operation fails. Cleanup failure outranks the
+      initiating failure while retaining its diagnostic. Use the caller deadline for owned
+      operations and a fixed five-second emergency grace for launch errors and `Drop`.
 - [ ] Fail closed when delegation/controller/placement is unavailable.
 - [ ] Make direct-child termination signal-aware; only a real numeric exit code zero is success.
-- [ ] Read back page-rounded `memory.max`, require it not exceed the requested cap, and require
-      hierarchical `memory.events` `max` plus `oom_kill` deltas before emitting native memory evidence.
+- [ ] Read back page-rounded `memory.max`, require it not exceed the requested cap, require the
+      `memory.events` `max` and `oom_kill` keys to exist and parse, and require both hierarchical
+      deltas before emitting native memory evidence.
 - [ ] Expose only safe owned containment operations to `pg-foma`; native handles and unsafe launch
       machinery remain private to the helper crate.
 - [ ] Prove success, descendant memory kill, timeout with inherited pipes, fork-race cleanup, and
       required-capability CI behavior on Linux.
-- [ ] Add a Linux execution path to `rust/tools/pg.ps1`; the current managed-build implementation is
-      Windows-specific, and repository Rust policy may not be bypassed with bare Cargo in CI.
+- [ ] Add a Linux execution path to `rust/tools/pg.ps1`; it must prove the wrapper already runs under
+      a finite host-managed cgroup cap before Cargo starts. The current managed-build implementation
+      is Windows-specific, and repository Rust policy may not be bypassed with bare Cargo in CI or
+      weakened by a fallback.
 - [ ] Commit and run the Linux containment target on a deliberately delegated Linux runner with
       `PANGLOSS_CGROUP_TEST_REQUIRED=1`. Generic `ubuntu-latest` workspace tests do not establish
       delegated cgroup authority. External dependency: a runner launched in a writable delegated
