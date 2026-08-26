@@ -412,7 +412,7 @@ Committed_AS:   2048 kB
             Assert-Equal $linuxTarget $resolved 'explicit Linux target root must be preserved'
             Assert-False ($resolved -match '^[A-Za-z]:[\\/]') 'Linux target must not acquire a Windows drive literal'
             $env:SCCACHE_DIR = '/var/tmp/pangloss-fixture-cache'
-            $space = Get-FreeSpaceGB -Path '/var/tmp'
+            $space = Get-FreeSpaceGB -Path $fixtureRoot
             Assert-True ($null -eq $space -or $space -is [double] -or $space -is [decimal] -or $space -is [int]) 'Linux free-space seam must return a number or unavailable result'
             $env:RUSTC_WRAPPER = ''
             [void](Use-Sccache -CommandResolver { 'fake-sccache' } -DirectoryCreator { param([string]$Path) })
