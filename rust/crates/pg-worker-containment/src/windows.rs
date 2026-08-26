@@ -356,13 +356,35 @@ impl ContainedWorkerProcess {
     }
 
     fn final_evidence_and_peak_raw(&mut self) -> Result<FinalEvidence, ContainmentError> {
-        let info = self.query_limits()?;
-        self.observe_peak(info.PeakJobMemoryUsed as u64);
-        self.poll_memory_limit_message()?;
-        Ok(FinalEvidence {
-            memory_limit: self.memory_evidence,
-            peak_memory_charge_bytes: self.peak_memory_charge_bytes,
-        })
+        let mut failures = Vec::new();
+        if self.direct_exit.is_none() {
+            failures.push("direct worker child has not been reaped".to_string());
+        }
+        match self.query_limits() {
+            Ok(info) => {
+                self.observe_peak(info.PeakJobMemoryUsed as u64);
+                if let Err(error) = self.poll_memory_limit_message() {
+                    failures.push(error.to_string());
+                }
+            }
+            Err(error) => failures.push(error.to_string()),
+        }
+        match self.query_accounting() {
+            Ok(accounting) if accounting.ActiveProcesses != 0 => failures
+                .push("worker job still has active processes during finalization".to_string()),
+            Ok(_) => {}
+            Err(error) => failures.push(error.to_string()),
+        }
+        if failures.is_empty() {
+            Ok(FinalEvidence {
+                memory_limit: self.memory_evidence,
+                peak_memory_charge_bytes: self.peak_memory_charge_bytes,
+            })
+        } else {
+            Err(ContainmentError::Failed {
+                detail: format!("worker finalization failed: {}", failures.join("; ")),
+            })
+        }
     }
 
     fn cleanup(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
