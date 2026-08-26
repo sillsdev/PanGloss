@@ -167,6 +167,10 @@ fn analysis_reports_facts_and_does_not_choose_top_n_builds() {
         !source.contains("pub fn select_up_to("),
         "analysis reports facts and must not choose top-N builds"
     );
+    assert!(
+        !source.contains("pub fn from_envelope("),
+        "callers use the production selector/report path rather than an unused envelope convenience API"
+    );
 }
 
 #[test]
