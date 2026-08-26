@@ -19,12 +19,8 @@
 //! finding — including `Severity::NotProductionReady`, e.g. an oversized compiled payload — is a
 //! label on an artifact that DID get built, so it never excludes a backend here; see
 //! `BackendReport::is_normal_candidate` for the exact predicate. Refusals and every excluded
-//! report remain visible in `reports`/`excluded`, never silently dropped.
+//! report remains visible, never silently dropped.
 //!
-//! Candidate ranking is deterministic and deliberately modest: clean reports first, then worst
-//! severity, then finding count, with `BACKEND_PREFERENCE` only as the final tie-break. Cost
-//! evidence is retained for callers and explanations; it never overrides correctness.
-
 use pg_grammar::model::Grammar;
 
 use crate::advice_catalog::{
@@ -45,29 +41,6 @@ use crate::health::{
 use crate::junctions::PhonologyProbe;
 use crate::plan::FragmentSpec;
 use crate::replace::SegAlphabet;
-
-/// The order `BackendSelection::preferred` breaks a tie between viable backends in.
-///
-/// `crate::enumerate::EmissionStrategy::TunedSurfaceProbed` leads because it is the backend this
-/// crate's shipping analyzer realizes (`crate::analyzer::FomaProposer::EMISSION_STRATEGY`), so
-/// "the preferred backend" and "the backend a `pangloss` invocation actually runs" name the same
-/// thing unless a caller deliberately says otherwise. The remaining two are ordered whole-grammar
-/// first, since `EmissionStrategy::is_whole_grammar` is the difference between compiling the
-/// grammar and compiling its controllable subtree.
-///
-/// This is a policy constant, not a derived fact: see this module's own doc.
-pub const BACKEND_PREFERENCE: &[EmissionStrategy] = &[
-    EmissionStrategy::TunedSurfaceProbed,
-    EmissionStrategy::TemplatedUnderlyingTokens,
-    EmissionStrategy::PlanComposed,
-];
-
-fn preference_index(strategy: EmissionStrategy) -> usize {
-    BACKEND_PREFERENCE
-        .iter()
-        .position(|candidate| *candidate == strategy)
-        .unwrap_or(usize::MAX)
-}
 
 /// Why a backend report exists even when no artifact can be produced from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -251,15 +224,6 @@ impl BackendReport {
             })
     }
 
-    fn rank_key(&self) -> (bool, Severity, usize) {
-        (
-            // `false` sorts before `true`: a zero-finding report wins before severity is consulted.
-            !self.findings.is_empty(),
-            self.worst_severity(),
-            self.findings.len(),
-        )
-    }
-
     fn base(strategy: EmissionStrategy, decision: CompileDecision, status: BackendStatus) -> Self {
         Self {
             strategy,
@@ -347,17 +311,6 @@ impl BackendReport {
         self
     }
 
-    /// Whether this backend is a normal-generation path for the grammar. Refused, missing, and
-    /// failed reports are retained but not selected, as is any report with a Representability or
-    /// Containment finding; a Readiness-only report (e.g. NotProductionReady payload size) IS
-    /// selected — see `is_normal_candidate`.
-    pub fn is_selected(&self) -> bool {
-        self.is_normal_candidate()
-    }
-
-    /// Why this backend was not selected: the diagnostics naming the construct it declined on, or
-    /// an empty slice when it WAS selected. Non-empty exactly when `is_selected` is false, so the
-    /// reason for an exclusion is never absent from a report that has one.
     pub fn declined_on(&self) -> &[CapabilityDiagnostic] {
         match &self.decision {
             CompileDecision::Refuse(diagnostics) => diagnostics,
@@ -556,12 +509,6 @@ fn plan_composed_marker_refusal(markers: &[FragmentSpec]) -> CompileDecision {
     )
 }
 
-/// The selector's answer for one grammar: every backend's report, in `BACKEND_PREFERENCE` order.
-///
-/// No path, one path and several paths are all ordinary states of this type — `selected` returns
-/// an empty, one-element or many-element list respectively, and `reports` still carries every
-/// declining backend's named construct in the empty case, which is the case a caller most needs to
-/// explain.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendSelection {
     reports: Vec<BackendReport>,
@@ -636,8 +583,6 @@ impl BackendSelection {
         Self::from_reports(reports)
     }
 
-    /// Every backend's report, in `BACKEND_PREFERENCE` order — selected and excluded alike, since
-    /// "why not that one" is answerable only from the excluded ones.
     pub fn reports(&self) -> &[BackendReport] {
         &self.reports
     }
@@ -647,45 +592,6 @@ impl BackendSelection {
         self.reports.iter().find(|r| r.strategy == strategy)
     }
 
-    /// Normal-generation candidates, ranked by report quality. Empty is the "no path" answer.
-    pub fn selected(&self) -> Vec<EmissionStrategy> {
-        self.ranked_candidates()
-            .into_iter()
-            .map(|r| r.strategy)
-            .collect()
-    }
-
-    /// The single highest-ranked normal-generation backend, or `None` when no backend is
-    /// correctness- and health-admitted.
-    pub fn preferred(&self) -> Option<EmissionStrategy> {
-        self.ranked_candidates().first().map(|r| r.strategy)
-    }
-
-    fn ranked_candidates(&self) -> Vec<&BackendReport> {
-        let mut candidates: Vec<_> = self.reports.iter().filter(|r| r.is_selected()).collect();
-        candidates.sort_by(|a, b| {
-            a.rank_key()
-                .cmp(&b.rank_key())
-                .then_with(|| preference_index(a.strategy).cmp(&preference_index(b.strategy)))
-        });
-        candidates
-    }
-
-    /// Every backend that declined, with the constructs it declined on — the per-backend
-    /// attribution a single whole-grammar verdict cannot carry.
-    pub fn excluded(&self) -> Vec<(EmissionStrategy, &[CapabilityDiagnostic])> {
-        self.reports
-            .iter()
-            .filter(|r| !r.is_selected())
-            .map(|r| (r.strategy, r.declined_on()))
-            .collect()
-    }
-
-    /// Whether no backend at all can compile this grammar. Distinct from an empty `excluded`, which
-    /// says the opposite. Pinned by `no_path_is_representable_and_carries_every_reason`.
-    pub fn is_no_path(&self) -> bool {
-        !self.reports.is_empty() && self.reports.iter().all(|r| !r.is_selected())
-    }
 }
 
 /// Selects over an already-derived `crate::grammar_semantics::GrammarSemantics` — the primary form,
