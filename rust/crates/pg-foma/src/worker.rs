@@ -96,18 +96,14 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::analyzer::FomaError;
-use crate::backend_selection::BackendSelection;
 use crate::completed_build::{
-    compile_completed_backend, select_completed_build, sha256_hex, CompileAttempt,
-    CompletedBackendBuildWire,
+    compile_completed_backend, sha256_hex, CompileAttempt, CompletedBackendBuildWire,
 };
 use crate::compose_budget::ComposeBudget;
 use crate::enumerate::EmissionStrategy;
 use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
-use pg_grammar::model::Grammar;
-
 // Protocol version and versioned wire limits, mirroring `pg_pack::format`'s `VersionLimits` shape.
 
 /// This worker protocol's own version, carried inside every `CompileWorkerRequest`/
@@ -1283,56 +1279,6 @@ pub fn run_compile_worker(
                 WorkerOutcome::ChildCrashed { detail }
             }
         }
-    }
-}
-
-/// Compile exactly `selection.preferred()` in one contained worker and hand its raw payload through
-/// the ordinary trusted selector. The caller cannot supply a route independently of selection;
-/// no lower-ranked route is attempted when the preferred route fails.
-pub fn run_selected_compile_worker(
-    child_exe: &Path,
-    child_args: &[String],
-    grammar_path: &str,
-    grammar_format: GrammarFormat,
-    grammar: &Grammar,
-    selection: &BackendSelection,
-    request: &CompileAttempt,
-    limits: &ExecutionLimits,
-) -> Result<crate::completed_build::SelectedBackendBuild, crate::completed_build::CompletedBuildError>
-{
-    let preferred = selection
-        .preferred()
-        .ok_or(crate::completed_build::CompletedBuildError::NoMatchingCompletedBuild)?;
-    let selected = SelectedCompileRequest {
-        attempt_id: request.attempt_id().as_str().to_string(),
-        route: preferred.label().to_string(),
-        max_serialized_fst_bytes: limits.max_serialized_fst_bytes(),
-    };
-    let mut worker_request = CompileWorkerRequest::new(grammar_path.to_string(), grammar_format);
-    worker_request.selected = Some(selected);
-    let outcome = run_compile_worker(child_exe, child_args, &worker_request, limits);
-    match outcome {
-        WorkerOutcome::SelectedCompleted { build, payload } => {
-            let build = crate::completed_build::CompletedBackendBuild::from_wire(build, payload)?;
-            select_completed_build(
-                preferred,
-                [build],
-                request,
-                &crate::backend_runtime::grammar_identity(grammar),
-            )
-        }
-        WorkerOutcome::Completed(CompileWorkerOutcome::SelectedExecutionLimitExceeded {
-            actual_bytes,
-            limit_bytes,
-        }) => Err(crate::completed_build::CompletedBuildError::Compiler(format!(
-            "selected serialized FST is {actual_bytes} byte(s), exceeding the {limit_bytes}-byte execution limit"
-        ))),
-        WorkerOutcome::Completed(CompileWorkerOutcome::SelectedCompileFailed { detail }) => {
-            Err(crate::completed_build::CompletedBuildError::Compiler(detail))
-        }
-        other => Err(crate::completed_build::CompletedBuildError::Compiler(format!(
-            "selected compile worker did not return a payload: {other:?}"
-        ))),
     }
 }
 

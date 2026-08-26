@@ -245,45 +245,6 @@ impl CompletedBackendBuild {
         (wire, self.payload_bytes)
     }
 
-    pub(crate) fn from_wire(
-        wire: CompletedBackendBuildWire,
-        payload_bytes: Vec<u8>,
-    ) -> Result<Self, CompletedBuildError> {
-        let requested_strategy = strategy_from_label(&wire.requested_strategy)?;
-        let realized_strategy = strategy_from_label(&wire.realized_strategy)?;
-        let completion_proof = match wire.completion_proof {
-            CompletionProofWire::TunedClosure {
-                terminal,
-                worklist_empty,
-                pending_successor_count,
-            } => CompletionProof::TunedClosure {
-                terminal,
-                worklist_empty,
-                pending_successor_count,
-            },
-            CompletionProofWire::TemplatedFullEmission {
-                uncovered_count,
-                skipped_count,
-            } => CompletionProof::TemplatedFullEmission {
-                uncovered_count,
-                skipped_count,
-            },
-        };
-        Ok(Self {
-            evidence: CompletedBackendBuildEvidence {
-                requested_strategy,
-                realized_strategy,
-                grammar_identity: wire.grammar_identity,
-                attempt_id: wire.attempt_id,
-                completion_proof,
-                state_count: wire.state_count,
-                arc_count: wire.arc_count,
-                model_fingerprint: wire.model_fingerprint,
-                payload_fingerprint: wire.payload_fingerprint,
-            },
-            payload_bytes,
-        })
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -312,17 +273,6 @@ pub enum CompletionProofWire {
         uncovered_count: usize,
         skipped_count: usize,
     },
-}
-
-fn strategy_from_label(label: &str) -> Result<EmissionStrategy, CompletedBuildError> {
-    match label {
-        "tuned-surface-probed" => Ok(EmissionStrategy::TunedSurfaceProbed),
-        "templated-underlying-tokens" => Ok(EmissionStrategy::TemplatedUnderlyingTokens),
-        "plan-composed" => Ok(EmissionStrategy::PlanComposed),
-        _ => Err(CompletedBuildError::IncompleteEvidence(format!(
-            "unknown completed-build strategy label {label:?}"
-        ))),
-    }
 }
 
 /// The selector's opaque choice.  It cannot be constructed from a caller-supplied strategy or
