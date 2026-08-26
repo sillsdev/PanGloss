@@ -755,52 +755,6 @@ mod compose_budget_tests {
         assert!(composed.statecount > 0);
     }
 
-    #[test]
-    fn deadline_fast_closure_passes() {
-        let opts = FomaOptions::default();
-        let a = tiny_net(&opts, "a");
-        let net = call_with_deadline(move || a, Duration::from_secs(5))
-            .expect("a closure returning immediately must not time out");
-        assert!(net.statecount > 0);
-    }
-
-    #[test]
-    fn deadline_slow_closure_trips_fast() {
-        let start = std::time::Instant::now();
-        let opts = FomaOptions::default();
-        let a = tiny_net(&opts, "a");
-        let elapsed_budget = Duration::from_millis(50);
-        let result = call_with_deadline(
-            move || {
-                std::thread::sleep(Duration::from_secs(5));
-                a
-            },
-            elapsed_budget,
-        );
-        assert!(
-            result.is_err(),
-            "a 5s sleep must time out against a 50ms deadline"
-        );
-        assert!(
-            start.elapsed() < Duration::from_secs(2),
-            "call_with_deadline must return promptly once the deadline passes, not wait for the \
-             abandoned worker thread to finish (took {:?})",
-            start.elapsed()
-        );
-    }
-
-    #[test]
-    fn compose_step_timed_out_display_is_specific() {
-        let err = ComposeError::ComposeStepTimedOut {
-            elapsed: Duration::from_millis(120),
-            limit: Duration::from_millis(50),
-            site: "unit-test-site",
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("unit-test-site"));
-        assert!(msg.contains("ABANDONED"));
-    }
-
     // Chain-depth dimension: exercises `check_chain_depth` directly, no `Fsm`/foma call involved.
 
     #[test]

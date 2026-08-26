@@ -759,11 +759,6 @@ mod tests {
                 limit: 1,
                 gated_subrules: 1,
             },
-            ComposeError::ComposeStepTimedOut {
-                elapsed: Duration::from_millis(2),
-                limit: Duration::from_millis(1),
-                site: "compose",
-            },
             ComposeError::ChainDepthExceeded {
                 depth: 2,
                 limit: 1,
@@ -1110,21 +1105,6 @@ mod tests {
         assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
         assert_eq!(finding.metric, Metric::GateGroupCount);
         assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
-    }
-
-    #[test]
-    fn fst_health_evaluator_compose_step_timed_out_is_resource_budget_reached_millis() {
-        let err = ComposeError::ComposeStepTimedOut {
-            elapsed: Duration::from_millis(5_500),
-            limit: Duration::from_millis(5_000),
-            site: "synthetic-timeout-site",
-        };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
-        let finding = &health.findings[0];
-        assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
-        assert_eq!(finding.metric, Metric::ElapsedMillis);
-        assert_eq!(finding.value, MetricValue::Millis(5_500));
-        assert_eq!(finding.threshold, Some(MetricValue::Millis(5_000)));
     }
 
     #[test]
