@@ -325,6 +325,10 @@ permission.
    order: required-capability CI plus a real delegated-host/service-lifecycle run, production
    routing, then deletion of the shared direct-`Command` supervisor loop and its source-shape test.
    Cross-platform fixture success is not Linux runtime proof and does not authorize that deletion.
+   The final-tip Windows Cargo run reported 5 unit and 11 Windows containment tests passing, but the
+   managed command required interruption after procgov failed to exit; wrapper teardown therefore
+   remains open. The Linux CI dependency has no matching provisioned runner in repository evidence,
+   so workflow-only wiring is deliberately not counted as progress.
 3. **Delete cross-backend automatic choice and route explicit builds (D2/A7).** Rewrite preference,
    top-N, fallback, retry, winner, and Pareto tests first. Delete `BACKEND_PREFERENCE`, `preferred`,
    `select_up_to`, rank keys, fallback paths, watchdog/placeholder pack compilation, and production
@@ -481,7 +485,7 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 ## Tally
 
 Committed rebased branch range `1225f25a..HEAD` (through this ledger update): **4,339 deletions /
-10,107 additions, net +5,768 lines** across 78 files. Production Rust accounts for 1,966 deletions
+10,123 additions, net +5,784 lines** across 78 files. Production Rust accounts for 1,966 deletions
 and Rust integration tests for 879 deletions. This is a branch-wide mechanical line tally, not a
 claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract

@@ -151,6 +151,10 @@ Source status at `694de90f`: the native containment adapter is compile-checked f
 from Windows, and the managed wrapper has a reviewed 25-case cross-platform contract. Neither is a
 Linux runtime claim. Required-capability CI, a real delegated-host run, and host-service interruption
 proof remain the gate before supervisor integration or deletion of the old spawn/kill loop.
+The final-tip Windows Cargo run reported 5 unit and 11 Windows containment tests passing, but the
+outer wrapper required interruption after procgov failed to exit; record the test results as green
+and the wrapper lifecycle gate as open. The required Linux CI job cannot honestly be landed as proof
+until its labeled delegated runner and service contract exist.
 
 ## Task 5: Supervisor integration and deletion audit
 
