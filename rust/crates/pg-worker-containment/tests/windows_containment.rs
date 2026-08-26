@@ -256,6 +256,71 @@ fn termination_kills_descendant_tree_and_closes_both_pipes_within_deadline() {
 }
 
 #[test]
+fn premature_finalization_rejects_live_tree_and_cleans_with_same_deadline() {
+    let directory = temporary_directory("premature-finalization");
+    let ready = directory.join("ready");
+    let late = directory.join("late");
+    let args = [
+        OsString::from("spawn-holder"),
+        ready.as_os_str().to_os_string(),
+        late.as_os_str().to_os_string(),
+    ];
+    let mut process = ContainedWorkerProcess::spawn(
+        child_executable(),
+        &args,
+        &LaunchOptions::default(),
+        limits(256 << 20),
+    )
+    .expect("contained launch");
+    let stdio = process.take_stdio().expect("stdio once");
+    drop(stdio.stdin);
+    let (stdout_handle, stdout_receiver) = spawn_reader(stdio.stdout);
+    let (stderr_handle, stderr_receiver) = spawn_reader(stdio.stderr);
+    let ready_deadline = Instant::now() + Duration::from_secs(5);
+    while !ready.exists() && Instant::now() < ready_deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(ready.exists(), "descendant never became ready");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let error = match process.final_evidence_and_peak(deadline) {
+        Err(error) => error,
+        Ok(_) => {
+            process.terminate_tree(deadline).expect("cleanup tree");
+            process.reap_direct_child(deadline).expect("cleanup child");
+            process
+                .wait_tree_empty(deadline)
+                .expect("cleanup tree empty");
+            let _ = finish_reader(stdout_handle, stdout_receiver);
+            let _ = finish_reader(stderr_handle, stderr_receiver);
+            fs::remove_dir_all(&directory).expect("remove test directory");
+            panic!("finalization succeeded before direct-child reap and tree drain");
+        }
+    };
+    match error {
+        ContainmentError::Failed { detail } => assert!(
+            detail.contains("direct worker child has not been reaped"),
+            "wrong lifecycle diagnostic: {detail}"
+        ),
+        error => panic!("premature finalization returned the wrong error: {error}"),
+    }
+
+    let exit = process
+        .reap_direct_child(deadline)
+        .expect("cleanup cached direct-child exit");
+    assert!(exit.process_id > 0);
+    process
+        .wait_tree_empty(deadline)
+        .expect("cleanup drained descendant tree");
+    let stdout = finish_reader(stdout_handle, stdout_receiver);
+    let stderr = finish_reader(stderr_handle, stderr_receiver);
+    assert!(stdout.windows(6).any(|bytes| bytes == b"holder"));
+    assert!(stderr.windows(6).any(|bytes| bytes == b"holder"));
+    assert!(!late.exists(), "cleanup did not kill delayed descendant");
+    fs::remove_dir_all(&directory).expect("remove test directory");
+}
+
+#[test]
 fn aggregate_descendant_memory_limit_latches_native_evidence_and_kills_tree() {
     for attempt in 0..3 {
         let directory = temporary_directory(&format!("memory-{attempt}"));
