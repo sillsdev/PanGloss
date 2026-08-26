@@ -345,19 +345,10 @@ fn supervisor_accepts_execution_limits_as_its_only_execution_control_input() {
         "old watchdog controls must not remain supervisor inputs: {signature}"
     );
 
-    let selected_start = source
-        .find("pub fn run_selected_compile_worker(")
-        .expect("selected worker entrypoint must remain explicit");
-    let selected_end = source[selected_start..]
-        .find(") -> Result<")
-        .map(|offset| selected_start + offset)
-        .expect("selected worker signature must return a result");
-    let selected_signature = &source[selected_start..=selected_end];
     assert!(
-        selected_signature.contains("limits: &ExecutionLimits"),
-        "selected supervisor entrypoint must receive the same limits: {selected_signature}"
+        !source.contains("pub fn run_selected_compile_worker("),
+        "the unused implicit-preference selected-worker convenience wrapper must stay deleted"
     );
-    assert!(!selected_signature.contains("WatchdogEnvelope"));
 }
 
 #[test]
