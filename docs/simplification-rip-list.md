@@ -152,11 +152,13 @@ audit above.
 6. Never restore named envelopes, automatic selection, compatibility shims, duplicate prechecks,
    or build-time corpus work just to make an old test green.
 
-Status key: **DONE** (implemented, not necessarily committed) · **AUTHORIZED** (decision made; rip
-it out) · **REJECTED** (do not build/restore it) · **SPLIT** (execute only the authorized portion) ·
-**DEFERRED NEXT** (first follow-on after cleanup) · **OPEN** · **BLOCKED** (needs a decision) ·
-**VERIFY** (needs source evidence or measurement). Only the tally of reviewed commits counts as
-landed work.
+Status key: **VERIFIED** (source, focused behavior proof, integration proof, docs, and residue grep
+all passed) · **LANDED UNVERIFIED** (committed source exists but the full proof gate has not passed)
+· **AUTHORIZED** (decision made; rip it out) · **REJECTED** (do not build/restore it) · **SPLIT**
+(execute only the authorized portion) · **RETAINED** · **DEFERRED NEXT** · **OPEN** · **BLOCKED**
+(needs a decision) · **VERIFY** (needs source evidence or measurement). `DONE` is no longer used:
+it hid live remnants. Only reviewed commits count as landed work; tests and documentation are part
+of the completion gate, not evidence for restoring a rejected contract.
 
 ---
 
@@ -164,14 +166,14 @@ landed work.
 
 | # | Item | Evidence | Status |
 |---|---|---|---|
-| A1 | `ResourceBudgetReached` / `ProvenBoundExceedsBudget` classed as machine-health, so they excluded a backend | `health.rs` class map | **DONE** — moved to the labelling class; `HostContainmentFired` is now the only machine-health code |
-| A2 | Pack write gate refused on a severity number | `pack.rs` `validate_health_readiness` | **DONE** — routes on category; oversized artifacts publish with a label |
-| A3 | Apply-phase + severity used as a proxy for category | `pack.rs` | **DONE** — tests category directly |
-| A4 | `evaluate_via_tuned_emit_mode` rejected on mere *presence* of a finding, before construction | `backend_runtime.rs` | **DONE** |
-| A5 | `realize_accuracy_proposer` — same presence-based rejection, second site | `backend_runtime.rs` | **DONE**; dead helper `tuned_surface_resource_refusal` deleted |
-| A6 | Marker-bearing candidates banked `Unsupported` with zero work measured | `backend_runtime.rs` | **DONE** — was a revert of `76cf8416`, reinstated by `87320bff` |
-| A7 | `--watchdog` structurally could never produce an artifact | `pack.rs` + `worker.rs` | **DONE** |
-| A8 | 16 MiB wire frame capped artifact size below the 100 MB label threshold | `worker_contract.rs` | **AUTHORIZED** — use a separately bounded raw stdout frame; delete the rejected filesystem transport |
+| A1 | `ResourceBudgetReached` / `ProvenBoundExceedsBudget` classed as machine-health, so they exclude a backend | `health.rs:468-487`, `backend_selection.rs:227-252` | **AUTHORIZED** — live contradiction found; make them measurements/labels, never cross-backend selection input |
+| A2 | Pack write gate refuses on a severity number | `pack.rs:202-232` | **AUTHORIZED** — live contradiction found; publication follows capability proof, not size/readiness severity |
+| A3 | Apply-phase + severity used as a proxy for category | `pack.rs:202-232`, oversized-pack test | **AUTHORIZED** — rewrite the stale test before deleting the gate |
+| A4 | `evaluate_via_tuned_emit_mode` rejects on mere *presence* of a finding, before construction | `backend_runtime.rs:1428-1458` | **AUTHORIZED** — live pre-refusal remains |
+| A5 | `realize_accuracy_proposer` / `tuned_surface_resource_refusal` repeats the pre-refusal | `backend_runtime.rs:1428-1458,2082-2113` | **AUTHORIZED** — helper and callers remain |
+| A6 | Marker-bearing candidates banked `Unsupported` with zero work measured | `backend_runtime.rs` | **LANDED UNVERIFIED** — re-audit after A4/A5 deletion |
+| A7 | `--watchdog` structurally cannot produce a real artifact | `pack.rs:267-325,479-489,562-565,624-642` | **AUTHORIZED** — live watchdog/placeholder production path remains |
+| A8 | 16 MiB result metadata frame must not cap the selected payload | `worker_contract.rs`, `worker.rs` | **LANDED UNVERIFIED** — protocol v9 raw frame committed; prefix-before-allocation fixed; subprocess failure coverage and final grep remain |
 | A9 | `finished_net_digests` — same marker pre-refusal, third site | `backend_runtime.rs` ~1750 | **OPEN** — diagnostic-only, but same false premise |
 | A10 | Internal construction caps in `compose_budget.rs` can still stop a representable build | 1,334-line file, 165 refs / 27 files | **AUTHORIZED** — retain useful measurements; delete internal representability/size refusals. The supervised worker's three configured execution limits are the only resource stops |
 
@@ -289,9 +291,9 @@ path with three externally enforced, configurable execution limits. Verified old
 
 | # | Item | Status |
 |---|---|---|
-| I1 | ~24 files of uncommitted work in one tree | **OPEN** — commit |
-| I2 | Baseline worktree at `.claude/worktrees/baseline-verify` | **OPEN** — remove |
-| I3 | Mismatch ledger: B3, B5, and B6 were inaccurate | **DONE** — corrected from source audit |
+| I1 | Historical large dirty-tree churn | **RETAINED DISCIPLINE** — every slice is separately committed; final snapshot must be clean |
+| I2 | Baseline worktree at `.claude/worktrees/baseline-verify` | **VERIFIED** — path is absent |
+| I3 | Mismatch ledger accuracy | **AUTHORIZED** — B3 persistence and B6 stale-version acceptance still contradict the charter; correct them with their behavior slices |
 | I4 | `2026-08-23-developer-fst-controls.md` drifts both ways; obsolete once C1 lands | **AUTHORIZED** — replace or delete with C1 |
 | I5 | Docs referencing envelope retry, automatic selection, build-time corpus work, or compatibility guarantees | **AUTHORIZED** — update in the same slice that removes each behavior |
 
@@ -299,44 +301,94 @@ path with three externally enforced, configurable execution limits. Verified old
 
 ## Execution order: small, intentional commits
 
-Do not preserve the current 18-file dirty diff as a single unit. Partition it by behavior and use
-this order unless fresh dependency evidence requires a documented adjustment.
+Use the stages below unless fresh dependency evidence is written into this file. Each stage is one
+or more bounded Luna slices with disjoint file ownership. `AUTHORIZED` permits deletion only inside
+that stage's allowed scope. `VERIFY`, `OPEN`, `DEFERRED NEXT`, and protected scope are never deletion
+permission.
 
-1. **Commit this charter alone.** It is the authority for rewriting tests and rejecting accidental
-   restoration during later slices.
-2. **Define the new worker/build contract.** Add the finite execution-limit configuration, strict
-   worker protocol version, typed outcomes, atomic success artifact, and failed-intermediate cleanup.
-   Tests first describe 1 GB/10 GB/10-minute defaults without allocating those quantities.
-3. **Remove named-envelope and capped/uncapped behavior.** Delete `CompileSizeMode`,
-   `ResourceEnvelopeId`, retry authorization, `--remove-size-limits`, old remedies, persisted fields,
-   and tests. Replace them only with the three worker execution limits. Do not stage unrelated
-   emitter or selection changes here.
-4. **Remove the duplicate precheck traversal.** Delete production-emitter-and-discard APIs and the
-   separate recursive synthesize/probe characterization walker. Build retains one real
-   pre-expansion traversal. Analysis retains only cheap grammar-derived facts.
-5. **Separate build, test, and package.** Build emits a bound artifact; corpus testing consumes it;
-   pack verifies and bundles it. Move proposal/confirmation/duplicate metrics out of build. Delete
-   all pack-time compilation.
-6. **Replace automatic backend selection.** Require configured or explicit backend input; remove
-   preferred/top-N/fallback/retry selection and winner/Pareto output. Preserve per-backend
-   representability reports and raw corpus comparison metrics.
-7. **Freeze within-backend tuning.** Do not redesign recipe search, plan transformations, precision
-   modes, or automatic tuning in this cleanup. Make only narrow compile-preserving adaptations to
-   the explicit-backend and separated-stage contracts. Bank the completed switch audit as the first
-   task immediately after cleanup.
-8. **Handle local unproven artifacts.** Keep developer-only generation and corpus consumption, mark
-   build metadata unproven, and make pack rejection unconditional. Delete persistent override
-   records from pack/WASM schemas.
-9. **Break old schemas deliberately.** Bump health/report/pack/worker versions as applicable and
-   delete all backward-reading shims and compatibility-only tests in the same commits.
-10. **Land emitter consolidation separately.** First repair the unconditional templated-path
-    `MorphotacticIndex` construction. Inspect the complete diff and require semantic/byte parity plus
-    the retained real-language gates. Do not use this refactor to smuggle in policy changes.
-11. **Sweep secondary cruft.** Only after the new pipeline is green: stale F9 docs, duplicate
-    flattening, dead finding constructors, unreachable variants, and tests with no live producer.
-12. **Authoritative verification.** The primary agent personally reviews every delegated diff and
-    claim, then runs the focused gates and relevant full suites through `rust/tools/pg.ps1`. Never
-    narrow the test set to hide a failure and never re-add rejected behavior to satisfy a stale test.
+1. **Finish raw selected-payload transport (A8).** Delete the rejected filesystem transport, legacy
+   aggregate-result parser tests/helper, and stdout-only overflow residue. Add subprocess proof for
+   missing, truncated, trailing, malformed, and stalled payloads. Gate: protocol 8 rejection; exact
+   length/SHA/fingerprint/EOF; no selected-artifact paths, files, hard links, cleanup, or ownership
+   code. Status: **IN PROGRESS**.
+2. **Install real external containment (C1).** Enforce the configurable 1 GB final payload, 10 GB
+   committed process-tree RAM, and 10-minute wall limit on Windows and Linux. Every production build
+   must use it. Gate: descendants die with the worker; memory/time/crash/partial output produce no
+   completed artifact and structured provenance. Protected: sequential independent P/Q attempts.
+3. **Delete cross-backend automatic choice and route explicit builds (D2/A7).** Rewrite preference,
+   top-N, fallback, retry, winner, and Pareto tests first. Delete `BACKEND_PREFERENCE`, `preferred`,
+   `select_up_to`, rank keys, fallback paths, watchdog/placeholder pack compilation, and production
+   in-process build routes. The worker receives an explicit backend and validates the result matches
+   it. Protected: independent per-backend analysis reports, registry/mechanism capability facts,
+   grammar-required correctness routing, and deferred within-backend tuning.
+4. **Delete internal compile refusal caps (A1-A5/A9/A10/C2-C4/H5).** Only after stages 2-3 prove
+   containment, rewrite cap/refusal/retry tests, then remove state/arc/tuple/group/line/compound/order
+   representability stops, named-envelope remedies, and old constants while preserving measurements.
+   Protected: `ApplyBudget`/`ApplyOutcome`, apply path/candidate budgets, reduplication peel safety,
+   the real build pre-expansion, and semantic correctness predicates. Ordering multiplicity and
+   chain depth must be classified by call site before deletion; uncertainty blocks that hunk only.
+5. **Delete duplicate analysis traversal (E2).** Remove production-emitter-and-discard and separate
+   closure characterization walkers from `characterization`, `preexpand`, `emit`, runtime, and
+   selection. Gate: analysis performs no production compile/traversal; a selected build performs its
+   required pre-expansion exactly once. Protected: cheap grammar facts and real build traversal.
+6. **Separate Analyze, Test, and Package (E1/A2/A3).** Move proposal/confirmation/duplicate metrics
+   to a post-build corpus operation. `pack` consumes one explicitly named completed artifact and
+   never compiles or substitutes payloads. Gate: analysis runs independently; corpus work is absent
+   from build-only paths; package rejects missing/stale/mismatched artifacts.
+7. **Remove publication overrides (B3).** Keep explicitly local unproven generation/testing metadata;
+   delete persistent `CapabilityOverrideRecord` data and all pack/WASM acceptance of unproven output.
+   `pangloss pack` rejects `--allow-unproven` and every unproven artifact unconditionally.
+8. **Break schemas and sweep stale contracts (B1-B7/F9/I3-I5).** For each schema owner, bump and
+   strictly validate the current version, delete aliases/defaults/shims/old fixtures, and update or
+   supersede docs/OpenSpec that promise envelopes, retries, preference, build-time corpus work, or
+   publication overrides. Historical documents receive a superseded marker rather than fabricated
+   retroactive history.
+9. **Verify emitter consolidation separately (D1/G1).** Fix tag-reachability correctness first, then
+   require byte/semantic parity over representative grammars before deleting either emitter path.
+   No selection, containment, or tuning policy changes belong in this slice.
+10. **Narrow secondary slices.** Treat D5, D8, F8, F10, G2-G5, H2-H4, and A9 as separate research or
+    correctness tasks with exact files and proof gates. Never issue a Luna task to “clean up all
+    remaining cruft.”
+11. **Authoritative verification.** The primary agent personally inspects every delegated diff and
+    claim, runs focused and relevant full suites through `rust/tools/pg.ps1`, performs residue greps,
+    and verifies the final tree is clean. Never narrow tests to hide failure or re-add rejected
+    behavior to satisfy a stale test.
+
+### Protected and deferred scope
+
+- **Retain:** grammar-required correctness routing; `MorphotacticIndex`; real build pre-expansion;
+  apply-time and reduplication safety budgets; sequential independent explicit builds;
+  `Certification::Truncated`; capability facts describing grammar properties.
+- **Deferred immediately after cleanup:** within-backend `auto` and configuration exposure; recipe
+  search and experimental transformations; precision/strategy scaffolding; whole-grammar Plan IR.
+- **Rejected:** named execution envelopes or an “increase envelope” remedy; automatic retry,
+  fallback, preference, or top-N; concurrent cross-build kill arbitration.
+
+### Open boundaries—no deletion authority until resolved
+
+- Whether batch, parse, diagnose, assessment, and library convenience constructors are production
+  build routes that must consume supervised completed artifacts, or explicitly runtime-only APIs.
+- Whether a completed artifact must include a HermitCrab runtime payload immediately, or whether a
+  completed Foma payload is the only current serializable artifact.
+- Whether `backend_runtime`'s PlanComposed-to-tuned path is deferred within-backend tuning or a
+  forbidden cross-backend fallback.
+- Whether `witnessed_coverage` remains an explicit compile-consuming evidence command outside the
+  normal pipeline.
+- Whether static backend-card “Envelope” names describe harmless grammar cost facts or are stale
+  execution-envelope terminology.
+
+### Luna removal handoff ledger
+
+| Stage | Exact primary source | Rewrite/delete tests first | Minimum focused proof |
+|---|---|---|---|
+| 1 raw transport | `worker.rs`, `worker_contract.rs`, `worker_test_child.rs` | `worker.rs` legacy `parse_result_frame` cases; `worker_execution_limits_contract.rs` subprocess cases | `selected_` unit gate plus worker execution-limit integration target; protocol/file-residue grep |
+| 2 containment | worker supervisor/host-containment module; CLI limit configuration | worker limit defaults stay; replace watchdog-input/source-string tests with descendant-memory/time tests | Windows Job Object and Linux cgroup-v2/process-group descendants; no artifact on termination |
+| 3 explicit backend | `backend_selection.rs`, `completed_build.rs`, `worker.rs`, CLI `pack/main/make_report/fst_health`, `witnessed_coverage.rs` | ranking/preference tests in `backend_selection.rs`, `backend_selection_contract.rs`, five-language, trusted-selected-build, strategy-aware, unordered coverage | explicit P builds only P; P+Q independent; P failure does not suppress Q; no fallback/preference symbols |
+| 4 compile refusals | `compose_budget.rs`, `morphotactics.rs`, `analyzer.rs`, `emit.rs`, `preexpand.rs`, `replace.rs`, `uflexc.rs`, `unordered.rs`, `gate.rs`, `health_evaluator.rs` | cap/refusal tests in those modules plus compounding, unordered, closure, and phase-C integration tests | representable builds are not internally resource-refused; external typed containment still fires; apply/redup gates unchanged |
+| 5 duplicate traversal | `characterization.rs`, `preexpand.rs`, `emit.rs`, `backend_runtime.rs`, `backend_selection.rs` | characterization/closure tests that demand a dry-run | analysis invokes no production emitter; selected build has exactly one real pre-expansion |
+| 6 stage separation | `fst_health.rs`, `pack.rs`, `make_report.rs`, `main.rs`, completed-artifact/manifest code | mixed corpus/build tests and grammar-compiling pack fixtures become completed-artifact fixtures | analyze without compile; corpus consumes artifact; pack contains exact artifact bytes and never compiles |
+| 7 publication proof | `pg-pack/trust.rs`, format/manifest, CLI pack/report, `pg-wasm/pack.rs` | overridden-manifest/WASM acceptance and allow-unproven publication tests | local unproven generation remains; every publication route rejects it; no persistent override record |
+| 8 schemas/docs | schema owners plus cited docs/OpenSpec | delete stale compatibility fixtures before shims | current round-trip passes; stale versions fail loudly; contract grep matches source |
 
 ### Per-commit staging checklist
 
@@ -352,16 +404,20 @@ this order unless fresh dependency evidence requires a documented adjustment.
 
 ## Tally
 
-Committed cleanup so far: **386 deletions / 90 additions, net −296 lines** across four reviewed
-commits. Uncommitted work is not counted as removed until its exact staged snapshot is reviewed and
-committed. Identified remaining deletion opportunity, conservatively:
+Committed branch range `ff6fe2e2..26e4c995`: **4,015 deletions / 2,127 additions, net −1,888
+lines** across 60 files. This is a branch-wide mechanical line tally, not a claim that every commit
+is cleanup: it includes the ratified charter, raw-transport design/plan, and replacement tests. The
+raw transport production commit itself removed 366 and added 337 lines (net −29); its reviewed
+prefix-validation follow-up added 67 and removed 26. Uncommitted work is never counted until its
+exact staged snapshot is inspected and committed. Remaining deletion opportunity is tracked by the
+stages above; estimates below are directional only:
 
 | Section | Est. lines |
 |---|---|
 | B — dead backward compatibility | 330–700 |
 | C — capped/uncapped apparatus | 1,200–1,800 |
 | A10 — cap refusals in `compose_budget.rs` | 400–700 |
-| D2 — duplicate capability substrate (blocked) | 2,717 |
+| D2 — cross-backend chooser/ranking only; registry/mechanism substrate protected | unmeasured |
 | D5 + D8 — remaining duplication | 140 |
 | E — work that belongs outside the build | 300–600 |
 | F9/F10 — dead machinery and dead-weight tests | unmeasured, likely large |
