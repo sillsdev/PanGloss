@@ -248,7 +248,11 @@ WorkerOutcome::SelectedCompleted {
 },
 ```
 
-Map it to an empty success `HealthReport`. `run_selected_compile_worker` must accept only this variant, call `CompletedBackendBuild::from_wire(build, payload)`, and then use `select_completed_build`. Delete artifact derivation, prechecks, reopen/read validation, and cleanup from this function.
+Map it to an empty success `HealthReport`. This plan originally required the zero-caller
+`run_selected_compile_worker` convenience wrapper to decode and select the variant. The cleanup
+charter superseded that speculative API: `8b218093`/`777df49d` deleted the wrapper and its private
+decode residue while retaining the wire variant and generic supervisor for a real explicit-route
+caller. Delete artifact derivation, prechecks, reopen/read validation, and cleanup from this path.
 
 - [ ] **Step 5: Delete obsolete parser/capture code**
 

@@ -341,8 +341,11 @@ permission.
    grammar-required correctness routing, and deferred within-backend tuning.
    Status: **PARTIAL** only for completed-artifact validation. The RED contract `21faa1b5` and GREEN
    implementation `efcaafa6` removed the validator's `BackendSelection`/`preferred()` dependency and
-   require one explicit requested strategy. They deliberately leave selector derivation, supervisor
-   routing, Pack/CLI migration, and the broader chooser deletion untouched until Stage 2's Linux gate.
+   require one explicit requested strategy. The RED/GREEN pair `8b218093`/`777df49d` then deleted the
+   zero-caller `run_selected_compile_worker`, its stale keeper assertion, and 50 lines of private
+   deserialization residue: 105 production deletions and no protocol removal. Selector derivation,
+   supervisor routing, Pack/CLI migration, and the broader chooser deletion remain untouched until
+   Stage 2's Linux gate.
 4. **Delete internal compile refusal caps (A1-A5/A9/A10/C2-C4/H5).** Only after stages 2-3 prove
    containment, rewrite cap/refusal/retry tests, then remove state/arc/tuple/group/line/compound/order
    representability stops, named-envelope remedies, and old constants while preserving measurements.
@@ -455,10 +458,10 @@ implementation region. Replacement size is not counted as deletion until its com
 3. Replace `completed_build::select_completed_build` and `PreferredBuildMissing` with validation of
    one explicitly requested strategy. Preserve grammar/attempt identity, realized-route, trust,
    payload-presence, and integrity checks.
-4. Change `run_selected_compile_worker` to accept an explicit route, not `selection.preferred()`.
-   Keep route encoding/validation and protocol-error transport. Decide whether the currently unused
-   selected-worker convenience API gains a real caller or is deleted rather than preserved by its
-   source-shape test.
+4. **Done (`8b218093`, `777df49d`):** the zero-caller `run_selected_compile_worker` convenience API
+   was deleted rather than assigned a speculative caller. Its source-shape keeper assertion and
+   private `from_wire`/label parser residue were deleted with it. Route encoding/validation,
+   protocol-error transport, and the real generic supervisor remain.
 5. Make Pack consume one named completed artifact. Delete its fixed `GATED_BACKEND`, in-process and
    watchdog compilation branches, `PLACEHOLDER_FOMA_PAYLOAD`, substitution/explanation state, and
    chooser-derived certificate attachment. Rewrite Pack tests as completed-artifact ingestion tests
@@ -492,9 +495,9 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..9243cc25` (through the hosted-Linux gate commits):
-**4,436 deletions / 10,511 additions, net +6,075 lines** across 81 files. Production Rust accounts
-for 1,978 deletions and Rust integration tests for 964 deletions. This is a branch-wide mechanical
+Committed rebased branch range `1225f25a..777df49d` (through the unused selected-wrapper deletion):
+**4,505 deletions / 10,477 additions, net +5,972 lines** across 81 files. Production Rust accounts
+for 2,047 deletions and Rust integration tests for 964 deletions. This is a branch-wide mechanical
 line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
@@ -510,6 +513,9 @@ prerequisite infrastructure, not a removal win or a Linux runtime pass. The expl
 slice then removed 98 and added 36 lines across its RED test and GREEN production commits (net -62).
 The hosted-Linux gate added 132 RED-contract lines and 212 workflow/script lines without deleting
 production code; those 344 lines are prerequisite proof infrastructure, not a removal win.
+The selected-wrapper RED/GREEN commits removed 116 and added 3 lines at commit scope (net -113),
+including 105 production deletions. The branch-range totals are smaller than additive commit totals
+where this cleanup deletes lines introduced after the baseline; both numbers are intentional.
 Uncommitted work is never counted until its exact staged snapshot is inspected and committed. Remaining deletion
 opportunity is tracked by the stages above; estimates below are directional only:
 
