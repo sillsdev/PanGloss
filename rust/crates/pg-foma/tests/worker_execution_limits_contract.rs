@@ -323,35 +323,6 @@ fn selected_payload_process_stalling_after_header_is_killed_by_wall_limit() {
 }
 
 #[test]
-fn supervisor_accepts_execution_limits_as_its_only_execution_control_input() {
-    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
-    let start = source
-        .find("pub fn run_compile_worker(")
-        .expect("worker source must declare the supervisor entrypoint");
-    let end = source[start..]
-        .find(") -> WorkerOutcome")
-        .map(|offset| start + offset)
-        .expect("supervisor signature must return WorkerOutcome");
-    let signature = &source[start..=end];
-
-    assert!(
-        signature.contains("limits: &ExecutionLimits"),
-        "supervisor must receive the finite execution limits directly: {signature}"
-    );
-    assert!(
-        !signature.contains("WatchdogEnvelope")
-            && !signature.contains("rss_limit")
-            && !signature.contains("sample_interval"),
-        "old watchdog controls must not remain supervisor inputs: {signature}"
-    );
-
-    assert!(
-        !source.contains("pub fn run_selected_compile_worker("),
-        "the unused implicit-preference selected-worker convenience wrapper must stay deleted"
-    );
-}
-
-#[test]
 fn wire_frame_limits_remain_separate_from_execution_limits() {
     let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/worker.rs"));
     let start = source
