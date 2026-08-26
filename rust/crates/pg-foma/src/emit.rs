@@ -2097,12 +2097,8 @@ pub(crate) fn compound_extra_levels_checked(g: &Grammar) -> Result<usize, Compos
 
 fn fixed_compose_budget() -> ComposeBudget {
     ComposeBudget::with_caps(
-        crate::compose_budget::DEFAULT_STATE_BUDGET,
-        crate::compose_budget::DEFAULT_ARC_BUDGET,
         crate::compose_budget::DEFAULT_TUPLE_BUDGET,
         crate::compose_budget::DEFAULT_GROUP_BUDGET,
-        crate::compose_budget::DEFAULT_LINE_BUDGET,
-        None,
     )
     .with_ordering_multiplicity_cap(crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET)
 }

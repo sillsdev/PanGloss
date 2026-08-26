@@ -588,15 +588,7 @@ pub fn fuzz_gate_group_reordering_for_grammar(
     let permuted = permute_gate_groups(&plan);
 
     let opts = FomaOptions::default();
-    // ComposeBudget::unbounded() is #[cfg(test)]-only, so this production entry point builds the equivalent "never trips" budget via with_caps directly.
-    let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX);
     let result = differential_oracle(
         &plan,
         &permuted,

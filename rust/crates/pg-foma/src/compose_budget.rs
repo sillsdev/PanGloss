@@ -24,14 +24,11 @@
 //!   out of scope here.
 
 use std::fmt;
-use std::time::Duration;
 
 use foma::constructions::{fsm_compose, fsm_union};
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::types::Fsm;
-
-// Defaults / env overrides: `HC_*`-prefixed, parsed as the field's own type, falling back to the documented default when unset/unparsable.
 
 pub(crate) const DEFAULT_STATE_BUDGET: usize = 2_000_000;
 
@@ -61,20 +58,6 @@ pub(crate) const DEFAULT_GROUP_BUDGET: usize = 64;
 
 pub(crate) const DEFAULT_LINE_BUDGET: usize = 1_000_000;
 
-pub(crate) fn state_budget_from_env() -> usize {
-    std::env::var("HC_COMPOSE_STATE_BUDGET")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_STATE_BUDGET)
-}
-
-pub(crate) fn arc_budget_from_env() -> usize {
-    std::env::var("HC_COMPOSE_ARC_BUDGET")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_ARC_BUDGET)
-}
-
 pub(crate) fn tuple_budget_from_env() -> usize {
     std::env::var("HC_COMPOSE_TUPLE_BUDGET")
         .ok()
@@ -87,20 +70,6 @@ pub(crate) fn group_budget_from_env() -> usize {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_GROUP_BUDGET)
-}
-
-pub(crate) fn line_budget_from_env() -> usize {
-    std::env::var("HC_COMPOSE_LINE_BUDGET")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_LINE_BUDGET)
-}
-
-pub(crate) fn step_timeout_from_env() -> Option<Duration> {
-    std::env::var("HC_COMPOSE_STEP_TIMEOUT_MS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .map(Duration::from_millis)
 }
 
 // Chain-depth dimension: closes stack overflow from a deep derivation/unapplication chain, but only where wired (`check_chain_depth`'s
@@ -126,8 +95,8 @@ pub(crate) const CHAIN_DEPTH_ABSOLUTE_CEILING: usize = 1_000_000;
 
 /// `HC_COMPOSE_CHAIN_DEPTH_BUDGET`: per-word derivation/unapplication chain-depth cap.
 /// **Default `None` (unbounded/off)** -- see this section's module doc for why this dimension
-/// mirrors `step_timeout_from_env`'s opt-in shape rather than the default-ON
-/// shape. When set, parses as `usize` and is clamped to `CHAIN_DEPTH_ABSOLUTE_CEILING`
+/// is opt-in rather than default-ON. When set, parses as `usize` and is clamped to
+/// `CHAIN_DEPTH_ABSOLUTE_CEILING`
 /// (unparsable or unset falls back to `None`, exactly like every other `_from_env` function in
 /// this module falls back to its own default on a parse failure).
 pub(crate) fn chain_depth_cap_from_env() -> Option<usize> {
@@ -375,12 +344,8 @@ impl std::error::Error for ComposeError {}
 
 #[derive(Debug, Clone, Copy)]
 pub struct ComposeBudget {
-    pub(crate) state_cap: usize,
-    pub(crate) arc_cap: usize,
     pub(crate) tuple_cap: usize,
     pub(crate) group_cap: usize,
-    pub(crate) line_cap: usize,
-    pub(crate) step_timeout: Option<Duration>,
     /// This crate's chain-depth dimension (this module's "Chain-depth dimension" section). `None`
     /// (the default everywhere -- `Self::from_env`, `Self::with_caps`, `Self::unbounded`)
     /// means unbounded/off, at any depth -- pinned by `chain_depth_unbounded_budget_never_trips`
@@ -415,45 +380,22 @@ impl ComposeBudget {
     /// `Self::with_caps` instead, so parallel test processes never race process-global env state.
     pub fn from_env() -> Self {
         ComposeBudget {
-            state_cap: state_budget_from_env(),
-            arc_cap: arc_budget_from_env(),
             tuple_cap: tuple_budget_from_env(),
             group_cap: group_budget_from_env(),
-            line_cap: line_budget_from_env(),
-            step_timeout: step_timeout_from_env(),
             chain_depth_cap: chain_depth_cap_from_env(),
             ordering_multiplicity_cap: Some(ordering_multiplicity_budget_from_env()),
         }
     }
 
-    pub fn with_step_timeout(mut self, timeout: Option<Duration>) -> Self {
-        self.step_timeout = timeout;
-        self
-    }
-
     /// Explicit-caps constructor -- what tests use ("explicit-caps constructors,
     /// never env vars"), and what `Self::from_env` builds internally.
     ///
-    /// Does not take a chain-depth cap: the chain-depth extension landed after this
-    /// constructor's 6-positional-argument shape was already in wide use across this crate's
-    /// tests -- changing its signature would be a breaking, non-additive edit for every existing
-    /// call site. `chain_depth_cap` is always `None` (unbounded) here; use
+    /// Does not take a chain-depth cap: `chain_depth_cap` is always `None` (unbounded) here; use
     /// `Self::with_chain_depth_cap` to opt a test into an explicit cap.
-    pub fn with_caps(
-        state_cap: usize,
-        arc_cap: usize,
-        tuple_cap: usize,
-        group_cap: usize,
-        line_cap: usize,
-        step_timeout: Option<Duration>,
-    ) -> Self {
+    pub fn with_caps(tuple_cap: usize, group_cap: usize) -> Self {
         ComposeBudget {
-            state_cap,
-            arc_cap,
             tuple_cap,
             group_cap,
-            line_cap,
-            step_timeout,
             chain_depth_cap: None,
             ordering_multiplicity_cap: None,
         }
@@ -465,19 +407,11 @@ impl ComposeBudget {
     #[cfg(test)]
     pub(crate) fn unbounded() -> Self {
         ComposeBudget {
-            state_cap: usize::MAX,
-            arc_cap: usize::MAX,
             tuple_cap: usize::MAX,
             group_cap: usize::MAX,
-            line_cap: usize::MAX,
-            step_timeout: None,
             chain_depth_cap: None,
             ordering_multiplicity_cap: None,
         }
-    }
-
-    pub(crate) fn line_cap(&self) -> usize {
-        self.line_cap
     }
 
     pub(crate) fn tuple_cap(&self) -> usize {

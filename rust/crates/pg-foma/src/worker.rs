@@ -244,16 +244,10 @@ pub struct CompileWorkerRequest {
     pub protocol_version: u32,
     pub grammar_path: String,
     pub grammar_format: GrammarFormat,
-    /// `ComposeBudget::state_cap`.
-    pub state_cap: usize,
-    /// `ComposeBudget::arc_cap`.
-    pub arc_cap: usize,
     /// `ComposeBudget::tuple_cap`.
     pub tuple_cap: usize,
     /// `ComposeBudget::group_cap`.
     pub group_cap: usize,
-    /// `ComposeBudget::line_cap`.
-    pub line_cap: usize,
     /// `ComposeBudget::chain_depth_cap` -- `None` (unbounded) by default, mirroring that field's
     /// own uncalibrated-default convention (`compose_budget.rs`'s "Chain-depth dimension" doc).
     pub chain_depth_cap: Option<usize>,
@@ -265,23 +259,18 @@ pub struct CompileWorkerRequest {
 }
 
 impl CompileWorkerRequest {
-    /// A request for `grammar_path`/`grammar_format` under this crate's own documented DEFAULT
-    /// compose-budget caps (`compose_budget::DEFAULT_*` -- the same defaults
-    /// `ComposeBudget::from_env` falls back to when no `HC_COMPOSE_*` env var is set), explicit
-    /// rather than reading env itself: the request is the single source of truth for what budget
-    /// the CHILD process runs under, so a caller who wants different limits should build them
-    /// explicitly (mirrors `ComposeBudget::with_caps`'s own "explicit-caps constructors, never env
-    /// vars" convention one layer down).
+    /// A request for `grammar_path`/`grammar_format` under this crate's own documented
+    /// compose-budget caps, explicit rather than reading env itself: the request is the single
+    /// source of truth for what budget the CHILD process runs under, so a caller who wants
+    /// different limits should build them explicitly (mirrors `ComposeBudget::with_caps`'s own
+    /// "explicit-caps constructors, never env vars" convention one layer down).
     pub fn new(grammar_path: impl Into<String>, grammar_format: GrammarFormat) -> Self {
         CompileWorkerRequest {
             protocol_version: WORKER_PROTOCOL_VERSION,
             grammar_path: grammar_path.into(),
             grammar_format,
-            state_cap: crate::compose_budget::DEFAULT_STATE_BUDGET,
-            arc_cap: crate::compose_budget::DEFAULT_ARC_BUDGET,
             tuple_cap: crate::compose_budget::DEFAULT_TUPLE_BUDGET,
             group_cap: crate::compose_budget::DEFAULT_GROUP_BUDGET,
-            line_cap: crate::compose_budget::DEFAULT_LINE_BUDGET,
             chain_depth_cap: None,
             ordering_multiplicity_cap: Some(
                 crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET,
@@ -291,14 +280,7 @@ impl CompileWorkerRequest {
     }
 
     pub fn compose_budget(&self) -> ComposeBudget {
-        let mut budget = ComposeBudget::with_caps(
-            self.state_cap,
-            self.arc_cap,
-            self.tuple_cap,
-            self.group_cap,
-            self.line_cap,
-            None,
-        );
+        let mut budget = ComposeBudget::with_caps(self.tuple_cap, self.group_cap);
         if let Some(cap) = self.chain_depth_cap {
             budget = budget.with_chain_depth_cap(cap);
         }
