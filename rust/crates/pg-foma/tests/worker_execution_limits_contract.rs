@@ -25,9 +25,9 @@ fn selected_request(payload_limit: u64) -> CompileWorkerRequest {
 fn run_selected_output_mode(mode: &str, wall_time: Duration) -> WorkerOutcome {
     let _guard = CHILD_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     std::env::set_var("PANGLOSS_WORKER_TEST_OUTPUT_MODE", mode);
-    let request = selected_request(1024);
     let limits = ExecutionLimits::try_new(GIB, 10 * GIB, wall_time)
         .expect("positive test limits must be valid");
+    let request = selected_request(limits.max_serialized_fst_bytes());
     let outcome = run_compile_worker(
         Path::new(env!("CARGO_BIN_EXE_worker_test_child")),
         &[],
