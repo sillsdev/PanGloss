@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io::{Read, Write};
+use std::os::fd::RawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -137,7 +138,12 @@ fn missing_executable_returns_typed_spawn_failure_without_fallback() {
     let result =
         ContainedWorkerProcess::spawn(&missing, &[], &LaunchOptions::default(), limits(64 << 20));
     match result {
-        Err(ContainmentError::Failed { .. }) => {}
+        Err(ContainmentError::Failed { detail }) => {
+            assert!(
+                detail.contains("worker failed before exec"),
+                "missing-executable detail lost initiating pre-exec diagnostic: {detail}"
+            );
+        }
         Err(ContainmentError::Unavailable { detail }) if !required_capability() => {
             eprintln!("SKIP: Linux cgroup containment unavailable: {detail}");
             fs::remove_dir(&directory).expect("remove missing-executable test directory");
@@ -377,6 +383,69 @@ fn assert_unavailable_spawn(context: &str) {
     }
 }
 
+struct ClosedStdinGuard {
+    backup: Option<RawFd>,
+}
+
+impl ClosedStdinGuard {
+    fn close() -> Self {
+        // SAFETY: duplicating the process stdin descriptor does not dereference Rust pointers.
+        let backup = unsafe { libc::dup(libc::STDIN_FILENO) };
+        if backup < 0 {
+            let error = std::io::Error::last_os_error();
+            assert_eq!(
+                error.raw_os_error(),
+                Some(libc::EBADF),
+                "duplicating stdin failed unexpectedly: {error}"
+            );
+            return Self { backup: None };
+        }
+        // SAFETY: backup is a live descriptor returned by dup.
+        let result = unsafe { libc::close(libc::STDIN_FILENO) };
+        assert_eq!(
+            result,
+            0,
+            "closing duplicated supervisor stdin failed: {}",
+            std::io::Error::last_os_error()
+        );
+        Self {
+            backup: Some(backup),
+        }
+    }
+}
+
+impl Drop for ClosedStdinGuard {
+    fn drop(&mut self) {
+        let Some(backup) = self.backup.take() else {
+            return;
+        };
+        // SAFETY: backup is the guard's sole live descriptor and fd 0 is the restored target.
+        let result = unsafe { libc::dup2(backup, libc::STDIN_FILENO) };
+        if result < 0 {
+            eprintln!(
+                "failed to restore supervisor stdin: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+        // SAFETY: backup remains owned by this guard after dup2 and must be closed exactly once.
+        unsafe {
+            libc::close(backup);
+        }
+    }
+}
+
+struct SymlinkCwdCleanup {
+    link: PathBuf,
+    target: PathBuf,
+}
+
+impl Drop for SymlinkCwdCleanup {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.link);
+        let _ = fs::remove_dir_all(&self.target);
+    }
+}
+
 #[test]
 fn cgroup_capability_unavailable_is_skip_unless_required() {
     let args = [OsString::from("cgroup")];
@@ -549,6 +618,35 @@ fn launch_options_set_child_current_directory_with_spaces_and_unicode() {
 }
 
 #[test]
+fn launch_options_follow_symlinked_current_directory() {
+    let target = temporary_directory("cwd symlink target Unicode 漢字");
+    let link = target.with_file_name(format!(
+        "{}-link",
+        target
+            .file_name()
+            .expect("target has a file name")
+            .to_string_lossy()
+    ));
+    std::os::unix::fs::symlink(&target, &link).expect("create cwd symlink");
+    let _cleanup = SymlinkCwdCleanup {
+        link: link.clone(),
+        target: target.clone(),
+    };
+    let args = [OsString::from("cwd")];
+    let Some((exit, stdout, stderr)) =
+        run_clean_child(&args, &LaunchOptions::new().current_dir(&link))
+    else {
+        return;
+    };
+    assert_eq!(exit, ChildTermination::Exited(0), "{stderr}");
+    let expected = fs::canonicalize(&target).expect("canonical target directory");
+    assert_eq!(
+        stdout.trim(),
+        format!("BYTES:{}", encoded(expected.as_os_str()))
+    );
+}
+
+#[test]
 fn stdin_stdout_and_stderr_remain_connected_to_the_contained_child() {
     let args = [OsString::from("stdio")];
     let Some(mut process) = spawn_or_skip(&args, &LaunchOptions::default(), 256 << 20) else {
@@ -582,8 +680,46 @@ fn stdin_stdout_and_stderr_remain_connected_to_the_contained_child() {
 }
 
 #[test]
+fn contained_stdio_works_when_supervisor_stdin_is_closed() {
+    let _lock = ENVIRONMENT_LOCK.lock().expect("environment lock");
+    let _stdin = ClosedStdinGuard::close();
+    let args = [OsString::from("stdio")];
+    let Some(mut process) = spawn_or_skip(&args, &LaunchOptions::default(), 256 << 20) else {
+        return;
+    };
+    let mut stdio = process.take_stdio().expect("stdio once");
+    stdio
+        .stdin
+        .write_all(b"stdin survives closed supervisor stdin\n")
+        .expect("write child stdin");
+    drop(stdio.stdin);
+    let (stdout_handle, stdout_receiver) = spawn_reader(stdio.stdout);
+    let (stderr_handle, stderr_receiver) = spawn_reader(stdio.stderr);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let exit = process.reap_direct_child(deadline).expect("reap child");
+    process.wait_tree_empty(deadline).expect("empty tree");
+    assert_eq!(exit.termination, ChildTermination::Exited(0));
+    assert_eq!(
+        finish_reader(stdout_handle, stdout_receiver),
+        b"stdin survives closed supervisor stdin\n"
+    );
+    assert_eq!(
+        finish_reader(stderr_handle, stderr_receiver),
+        b"stderr marker\n"
+    );
+    assert!(process
+        .final_evidence_and_peak()
+        .expect("final evidence")
+        .memory_limit
+        .is_none());
+}
+
+#[test]
 fn child_starts_in_configured_delegated_root_on_its_first_action() {
     let Some(root) = configured_delegated_root() else {
+        if required_capability() {
+            panic!("PANGLOSS_CGROUP_DELEGATED_ROOT is required for Linux containment tests");
+        }
         eprintln!("SKIP: PANGLOSS_CGROUP_DELEGATED_ROOT is not configured");
         return;
     };
