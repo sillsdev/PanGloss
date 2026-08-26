@@ -309,12 +309,28 @@ fn configured_worker_root_snapshot() -> Option<(PathBuf, BTreeSet<OsString>)> {
     Some((mapped, children))
 }
 
-fn current_parent_worker_root_snapshot() -> Option<(PathBuf, BTreeSet<OsString>)> {
-    let current = current_unified_membership()?;
-    let root = parent_hierarchy(&current)?;
-    let mapped = map_hierarchy_to_cgroup_mount(&root)?;
-    let children = direct_worker_children(&mapped).expect("read current parent children");
-    Some((mapped, children))
+fn current_and_parent_worker_root_snapshots() -> Vec<(PathBuf, BTreeSet<OsString>)> {
+    let Some(current) = current_unified_membership() else {
+        return Vec::new();
+    };
+    let mut hierarchies = vec![current.clone()];
+    if let Some(parent) = parent_hierarchy(&current) {
+        hierarchies.push(parent);
+    }
+    let mut mapped_roots = BTreeSet::new();
+    for hierarchy in hierarchies {
+        if let Some(mapped) = map_hierarchy_to_cgroup_mount(&hierarchy) {
+            mapped_roots.insert(mapped);
+        }
+    }
+    mapped_roots
+        .into_iter()
+        .filter_map(|mapped| {
+            direct_worker_children(&mapped)
+                .ok()
+                .map(|children| (mapped, children))
+        })
+        .collect()
 }
 
 fn assert_configured_root_ready() {
@@ -349,7 +365,15 @@ fn assert_unavailable_spawn(context: &str) {
             assert!(!detail.trim().is_empty(), "{context} returned empty detail")
         }
         Err(error) => panic!("{context} returned the wrong error: {error}"),
-        Ok(_) => panic!("{context} unexpectedly spawned a worker"),
+        Ok(mut process) => {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let _ = process.terminate_tree(deadline);
+            let _ = process.reap_direct_child(deadline);
+            let _ = process.wait_tree_empty(deadline);
+            let _ = process.final_evidence_and_peak();
+            drop(process.take_stdio());
+            panic!("{context} unexpectedly spawned a worker");
+        }
     }
 }
 
@@ -373,11 +397,11 @@ fn absent_delegated_root_is_a_typed_unavailable_error() {
 fn malformed_delegated_roots_fail_without_worker_residue() {
     let _lock = ENVIRONMENT_LOCK.lock().expect("environment lock");
     for raw_root in ["", "relative", "/.", "/..", "/foo//bar", "/foo/"] {
-        let snapshot = current_parent_worker_root_snapshot();
+        let snapshots = current_and_parent_worker_root_snapshots();
         let _environment =
             EnvironmentGuard::set("PANGLOSS_CGROUP_DELEGATED_ROOT", Some(OsStr::new(raw_root)));
         assert_unavailable_spawn(&format!("malformed delegated root {raw_root:?}"));
-        if let Some((mapped, before)) = snapshot {
+        for (mapped, before) in snapshots {
             let after = direct_worker_children(&mapped).expect("read current parent children");
             assert_eq!(
                 after, before,
