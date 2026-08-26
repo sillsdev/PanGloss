@@ -349,8 +349,11 @@ without pulling replacement design forward.
    Status: **RIP IN PROGRESS.** `79d1b058`/`0cf2da0a` removed the compound-pair test and the entire
    `HC_COMPOUND_PAIR_BUDGET` refusal while retaining compound emission, licensing, and chain-depth
    safety. `1aac38b7`/`566606ec` removed the post-operation state/arc net-size refusal while retaining
-   telemetry and the remaining independently classified safety families. Schema vocabulary and
-   broad config-field cleanup are deferred to their own sweeps.
+   telemetry. `4e1339f8`/`0087d5f1` removed the emitted-line refusal; `d52587f3`/`731e8fd2`
+   removed the abandoned-thread compose timeout; `fecfab9d`/`104e3971`/`2e0a8180` then removed
+   their serialized no-op fields and fixture arguments. The external 1 GiB payload, 10 GiB worker-
+   tree RAM, and 10-minute limits remain. Tuple/group/order/chain safety are still independently
+   classified. Worker protocol v10 is required in the later schema/add phase.
 5. **Delete duplicate analysis traversal (E2).** Remove production-emitter-and-discard and separate
    closure characterization walkers from `characterization`, `preexpand`, `emit`, runtime, and
    selection. Gate: analysis performs no production compile/traversal; a selected build performs its
@@ -366,6 +369,10 @@ without pulling replacement design forward.
 7. **Remove publication overrides (B3).** Keep explicitly local unproven generation/testing metadata;
    delete persistent `CapabilityOverrideRecord` data and all pack/WASM acceptance of unproven output.
    `pangloss pack` rejects `--allow-unproven` and every unproven artifact unconditionally.
+   Status: **RIPPED FIRST.** `67c661cc` deleted publication-acceptance tests and `05ba71b8` deleted
+   persistent override/trust types, the manifest field, and WASM override signal APIs. Local
+   parse/batch readiness metadata remains. Manifest schema v6 and strict v5 rejection belong to the
+   later schema/add phase; stale report projections are the next deletion audit.
 8. **Break schemas and sweep stale contracts (B1-B7/F9/I3-I5).** For each schema owner, bump and
    strictly validate the current version, delete aliases/defaults/shims/old fixtures, and update or
    supersede docs/OpenSpec that promise envelopes, retries, preference, build-time corpus work, or
@@ -500,11 +507,10 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..516821e0`:
-**8,360 deletions / 10,285 additions, net +1,925 lines** across 91 files. The dedicated rip-first
-range `1c7cc837..516821e0` removed **4,082 lines**, added 81 structural/fixture/documentation lines,
-and is net **-4,001 lines** across 30 files. Excluding the rip-ledger rewrite itself, code and tests
-removed 4,044 lines and added 44. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed rebased branch range `1225f25a..2e0a8180`:
+**9,753 deletions / 10,357 additions, net +604 lines** across 120 files. The dedicated rip-first
+range `1c7cc837..2e0a8180` removed **5,506 lines**, added 184 structural/fixture/documentation lines,
+and is net **-5,322 lines** across 64 files. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
