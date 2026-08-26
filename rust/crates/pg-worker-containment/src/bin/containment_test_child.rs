@@ -189,7 +189,7 @@ mod unix_child {
             "spawn-allocators" => spawn_allocators(args),
             "allocate" => allocate_forever(args),
             "spawn-crash" => spawn_crash(args),
-            "spawn-fanout-crash" => spawn_fanout_crash(args),
+            "spawn-race" => spawn_race(args),
             other => Err(format!("unknown fixture mode {other}")),
         }
     }
@@ -358,7 +358,7 @@ mod unix_child {
         std::process::exit(97);
     }
 
-    fn spawn_fanout_crash(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
+    fn spawn_race(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
         let directory = args
             .next()
             .ok_or_else(|| "missing sentinel directory".to_string())?;
@@ -367,9 +367,15 @@ mod unix_child {
             .ok_or_else(|| "missing ready path".to_string())?;
         let count = args
             .next()
-            .ok_or_else(|| "missing fanout count".to_string())?
+            .ok_or_else(|| "missing race count".to_string())?
             .to_string_lossy()
             .parse::<usize>()
+            .map_err(|error| error.to_string())?;
+        let cadence_ms = args
+            .next()
+            .ok_or_else(|| "missing race cadence".to_string())?
+            .to_string_lossy()
+            .parse::<u64>()
             .map_err(|error| error.to_string())?;
         fs::create_dir_all(Path::new(&directory)).map_err(io_error)?;
         let executable = std::env::current_exe().map_err(io_error)?;
@@ -380,12 +386,19 @@ mod unix_child {
                 .arg(&sentinel)
                 .arg("2000")
                 .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
                 .spawn()
                 .map_err(io_error)?;
+            println!("race-{index}");
+            eprintln!("race-{index}");
+            io::stdout().flush().map_err(io_error)?;
+            io::stderr().flush().map_err(io_error)?;
+            if index == 0 {
+                fs::write(Path::new(&ready), b"ready").map_err(io_error)?;
+            }
+            std::thread::sleep(Duration::from_millis(cadence_ms));
         }
-        fs::write(Path::new(&ready), b"ready").map_err(io_error)?;
         std::process::exit(97);
     }
 

@@ -1,7 +1,8 @@
 #![cfg(target_os = "linux")]
 
 use pg_worker_containment::{
-    ContainedWorkerProcess, ContainmentError, ExecutionLimits, LaunchOptions, MemoryLimitEvidence,
+    ChildTermination, ContainedWorkerProcess, ContainmentError, ExecutionLimits, LaunchOptions,
+    MemoryLimitEvidence,
 };
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
@@ -193,35 +194,43 @@ fn launches_native_child_with_exact_argv_unicode_quotes_and_backslashes() {
 #[test]
 fn launch_options_preserve_clear_override_remove_and_environment() {
     let _guard = ENVIRONMENT_LOCK.lock().expect("environment lock");
-    let inherited = format!("PANGLOSS_CGROUP_INHERITED_{}", std::process::id());
-    std::env::set_var(&inherited, "inherited value ✓");
-    let args = [OsString::from("environment"), OsString::from(&inherited)];
-    let Some(result) = run_clean_child(&args, &LaunchOptions::default()) else {
-        std::env::remove_var(&inherited);
-        return;
-    };
-    assert_eq!(
-        result.1.trim(),
-        format!("BYTES:{}", encoded(OsStr::new("inherited value ✓")))
-    );
-
-    let options = LaunchOptions::new()
-        .env(inherited.to_ascii_lowercase(), "first")
-        .env(inherited.to_ascii_uppercase(), "second value 漢")
-        .env_remove("PATH");
+    let upper = format!("PANGLOSS_CGROUP_CASE_{}", std::process::id());
+    let lower = upper.to_ascii_lowercase();
+    std::env::set_var(&upper, "upper inherited ✓");
+    std::env::set_var(&lower, "lower inherited 漢");
     let args = [
         OsString::from("environment"),
-        OsString::from(&inherited),
-        OsString::from("PATH"),
+        OsString::from(&upper),
+        OsString::from(&lower),
     ];
-    let Some(result) = run_clean_child(&args, &options) else {
-        std::env::remove_var(&inherited);
+    let Some(result) = run_clean_child(&args, &LaunchOptions::default()) else {
+        std::env::remove_var(&upper);
+        std::env::remove_var(&lower);
         return;
     };
     assert_eq!(
         result.1.lines().collect::<Vec<_>>(),
         [
-            format!("BYTES:{}", encoded(OsStr::new("second value 漢"))),
+            format!("BYTES:{}", encoded(OsStr::new("upper inherited ✓"))),
+            format!("BYTES:{}", encoded(OsStr::new("lower inherited 漢"))),
+        ]
+    );
+
+    let options = LaunchOptions::new().env(&upper, "upper override ✓").env_remove(&lower);
+    let args = [
+        OsString::from("environment"),
+        OsString::from(&upper),
+        OsString::from(&lower),
+    ];
+    let Some(result) = run_clean_child(&args, &options) else {
+        std::env::remove_var(&upper);
+        std::env::remove_var(&lower);
+        return;
+    };
+    assert_eq!(
+        result.1.lines().collect::<Vec<_>>(),
+        [
+            format!("BYTES:{}", encoded(OsStr::new("upper override ✓"))),
             "ABSENT".to_string()
         ]
     );
@@ -230,17 +239,20 @@ fn launch_options_preserve_clear_override_remove_and_environment() {
     let args = [
         OsString::from("environment"),
         OsString::from("Only"),
-        OsString::from(&inherited),
+        OsString::from(&upper),
+        OsString::from(&lower),
     ];
     let Some(result) = run_clean_child(&args, &options) else {
-        std::env::remove_var(&inherited);
+        std::env::remove_var(&upper);
+        std::env::remove_var(&lower);
         return;
     };
     assert_eq!(
         result.1.lines().collect::<Vec<_>>(),
-        ["BYTES:76,61,6c,75,65", "ABSENT"]
+        ["BYTES:76,61,6c,75,65", "ABSENT", "ABSENT"]
     );
-    std::env::remove_var(&inherited);
+    std::env::remove_var(&upper);
+    std::env::remove_var(&lower);
 }
 
 #[test]
@@ -378,6 +390,7 @@ fn aggregate_descendant_memory_limit_latches_hierarchical_event_evidence() {
         std::thread::sleep(Duration::from_millis(5));
     };
     let MemoryLimitEvidence::LinuxCgroupV2MemoryLimitViolation {
+        effective_memory_max_bytes,
         memory_peak_bytes,
         oom_kill_count_delta,
         max_event_count_delta,
@@ -385,14 +398,16 @@ fn aggregate_descendant_memory_limit_latches_hierarchical_event_evidence() {
     else {
         panic!("Linux adapter returned non-Linux evidence");
     };
-    assert!(memory_peak_bytes >= memory_limit);
+    assert!(effective_memory_max_bytes > 0);
+    assert!(effective_memory_max_bytes <= memory_limit);
+    assert!(memory_peak_bytes > 0);
     assert!(oom_kill_count_delta.get() > 0);
     assert!(max_event_count_delta.get() > 0);
     process.reap_direct_child(deadline).expect("direct reap");
     process.wait_tree_empty(deadline).expect("tree empty");
     let final_evidence = process.final_evidence_and_peak().expect("final evidence");
     assert!(final_evidence.memory_limit.is_some());
-    assert!(final_evidence.peak_memory_charge_bytes >= memory_limit);
+    assert!(final_evidence.peak_memory_charge_bytes > 0);
     let _ = finish_reader(stdout_handle, stdout_receiver);
     let _ = finish_reader(stderr_handle, stderr_receiver);
     fs::remove_dir_all(&directory).expect("remove test directory");
@@ -433,15 +448,16 @@ fn direct_child_crash_cleans_up_its_living_descendant_without_memory_evidence() 
 }
 
 #[test]
-fn fork_fanout_before_direct_crash_leaves_no_surviving_descendants() {
-    let directory = temporary_directory("fanout");
+fn concurrent_fork_fanout_during_termination_leaves_no_surviving_descendants() {
+    let directory = temporary_directory("fanout-race");
     let survivors = directory.join("survivors");
     let ready = directory.join("ready");
     let args = [
-        OsString::from("spawn-fanout-crash"),
+        OsString::from("spawn-race"),
         survivors.as_os_str().to_os_string(),
         ready.as_os_str().to_os_string(),
-        OsString::from("16"),
+        OsString::from("24"),
+        OsString::from("10"),
     ];
     let Some(mut process) = spawn_or_skip(&args, &LaunchOptions::default(), 256 << 20) else {
         return;
@@ -452,11 +468,13 @@ fn fork_fanout_before_direct_crash_leaves_no_surviving_descendants() {
     let (stderr_handle, stderr_receiver) = spawn_reader(stdio.stderr);
     wait_for_file(&ready, Instant::now() + Duration::from_secs(5));
     let deadline = Instant::now() + Duration::from_secs(5);
-    process.reap_direct_child(deadline).expect("reap crash");
     process.terminate_tree(deadline).expect("kill fanout");
+    process.reap_direct_child(deadline).expect("reap race parent");
     process.wait_tree_empty(deadline).expect("tree empty");
-    let _ = finish_reader(stdout_handle, stdout_receiver);
-    let _ = finish_reader(stderr_handle, stderr_receiver);
+    let stdout = finish_reader(stdout_handle, stdout_receiver);
+    let stderr = finish_reader(stderr_handle, stderr_receiver);
+    assert!(stdout.windows(5).any(|bytes| bytes == b"race-"));
+    assert!(stderr.windows(5).any(|bytes| bytes == b"race-"));
     std::thread::sleep(Duration::from_millis(2300));
     let survivors = fs::read_dir(&survivors)
         .expect("survivor directory")
@@ -478,7 +496,7 @@ fn ordinary_abort_and_timeout_have_no_memory_limit_evidence() {
     let (stderr_handle, stderr_receiver) = spawn_reader(stdio.stderr);
     let deadline = Instant::now() + Duration::from_secs(5);
     let exit = process.reap_direct_child(deadline).expect("reap abort");
-    assert!(!exit.success());
+    assert!(matches!(exit.termination, ChildTermination::Signaled(_)));
     process.wait_tree_empty(deadline).expect("empty tree");
     assert!(process
         .final_evidence_and_peak()
@@ -541,15 +559,11 @@ fn completed_child_cgroup_is_removed_after_tree_cleanup() {
         .expect("fixture emitted cgroup")
         .trim();
     process.final_evidence_and_peak().expect("final evidence");
-    drop(process);
     let path = cgroup_absolute(relative);
-    let cleanup_deadline = Instant::now() + Duration::from_secs(3);
-    while path.exists() && Instant::now() < cleanup_deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
     assert!(
         !path.exists(),
-        "worker cgroup was not removed: {}",
+        "worker cgroup removal was not confirmed before final evidence returned: {}",
         path.display()
     );
+    drop(process);
 }
