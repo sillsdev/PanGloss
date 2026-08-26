@@ -1,7 +1,8 @@
 #![cfg(windows)]
 
 use pg_worker_containment::{
-    ContainedWorkerProcess, ContainmentError, ExecutionLimits, LaunchOptions, MemoryLimitEvidence,
+    ChildTermination, ContainedWorkerProcess, ContainmentError, ExecutionLimits, LaunchOptions,
+    MemoryLimitEvidence,
 };
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
@@ -81,7 +82,7 @@ fn current_process_is_in_job() -> bool {
     in_job != 0
 }
 
-fn run_child(args: &[OsString], options: &LaunchOptions) -> (u32, String, String) {
+fn run_child(args: &[OsString], options: &LaunchOptions) -> (ChildTermination, String, String) {
     let mut process =
         ContainedWorkerProcess::spawn(child_executable(), args, options, limits(256 << 20))
             .expect("contained child launch");
@@ -94,7 +95,7 @@ fn run_child(args: &[OsString], options: &LaunchOptions) -> (u32, String, String
     process.wait_tree_empty(deadline).expect("empty tree");
     assert!(process.poll_containment().expect("final poll").is_none());
     (
-        exit.exit_code,
+        exit.termination,
         String::from_utf8(finish_reader(stdout_handle, stdout_receiver)).expect("UTF-8 stdout"),
         String::from_utf8(finish_reader(stderr_handle, stderr_receiver)).expect("UTF-8 stderr"),
     )
@@ -114,7 +115,7 @@ fn launches_native_child_with_exact_argv_unicode_quotes_and_backslashes() {
         .chain(values.iter().cloned())
         .collect::<Vec<_>>();
     let (exit, stdout, stderr) = run_child(&args, &LaunchOptions::default());
-    assert_eq!(exit, 0, "{stderr}");
+    assert_eq!(exit, ChildTermination::Exited(0), "{stderr}");
     let actual = stdout.lines().collect::<Vec<_>>();
     let expected = values
         .iter()
@@ -163,7 +164,7 @@ fn launch_options_set_child_current_directory_with_spaces_and_unicode() {
     let directory = temporary_directory("cwd");
     let args = [OsString::from("cwd")];
     let (exit, stdout, stderr) = run_child(&args, &LaunchOptions::new().current_dir(&directory));
-    assert_eq!(exit, 0, "{stderr}");
+    assert_eq!(exit, ChildTermination::Exited(0), "{stderr}");
     let expected = fs::canonicalize(&directory).expect("canonical test directory");
     assert_eq!(
         stdout.trim(),
@@ -176,7 +177,7 @@ fn launch_options_set_child_current_directory_with_spaces_and_unicode() {
 fn child_observes_job_membership_before_first_user_action() {
     let args = [OsString::from("job")];
     let (exit, stdout, stderr) = run_child(&args, &LaunchOptions::default());
-    assert_eq!(exit, 0, "{stderr}");
+    assert_eq!(exit, ChildTermination::Exited(0), "{stderr}");
     assert_eq!(stdout.trim(), "IN_JOB=1");
 }
 
@@ -187,7 +188,7 @@ fn managed_host_job_allows_nested_atomic_containment() {
     }
     let args = [OsString::from("job")];
     let (exit, stdout, stderr) = run_child(&args, &LaunchOptions::default());
-    assert_eq!(exit, 0, "{stderr}");
+    assert_eq!(exit, ChildTermination::Exited(0), "{stderr}");
     assert_eq!(stdout.trim(), "IN_JOB=1");
 }
 
@@ -195,7 +196,7 @@ fn managed_host_job_allows_nested_atomic_containment() {
 fn direct_child_exit_code_259_is_not_mistaken_for_a_live_process() {
     let args = [OsString::from("exit"), OsString::from("259")];
     let (exit, _, _) = run_child(&args, &LaunchOptions::default());
-    assert_eq!(exit, 259);
+    assert_eq!(exit, ChildTermination::Exited(259));
 }
 
 #[test]

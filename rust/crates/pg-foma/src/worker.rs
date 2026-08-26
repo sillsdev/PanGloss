@@ -2095,6 +2095,7 @@ mod tests {
     #[test]
     fn linux_memory_limit_requires_nonzero_native_limit_event_evidence() {
         let evidence = MemoryLimitEvidence::LinuxCgroupV2MemoryLimitViolation {
+            effective_memory_max_bytes: 999_424,
             memory_peak_bytes: 1_048_576,
             oom_kill_count_delta: NonZeroU64::new(1).unwrap(),
             max_event_count_delta: NonZeroU64::new(2).unwrap(),
@@ -2109,6 +2110,7 @@ mod tests {
             WorkerOutcome::MemoryLimitKilled {
                 evidence:
                     MemoryLimitEvidence::LinuxCgroupV2MemoryLimitViolation {
+                        effective_memory_max_bytes: 999_424,
                         memory_peak_bytes: 1_048_576,
                         oom_kill_count_delta,
                         max_event_count_delta,
