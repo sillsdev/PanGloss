@@ -1,57 +1,11 @@
-//! Compile-worker supervisor subsystem. Compile-time work runs in a killable native
-//! worker process under the parent supervisor, distinct
-//! from `crate::compose_budget`'s in-process cooperative APPLY-side budgets, under which
-//! apply-time (word analysis) runs in-process. Do not add
-//! anything here that touches per-word `propose`/`apply_up` -- that is `compose_budget.rs`'s
-//! `ApplyBudget`/`ApplyOutcome`, unchanged by this module.
-//!
-//! # The contract this module implements
-//! **Platform parity.** Windows and Linux are equal,
-//! first-class native production targets. Both use ONE compiler worker, ONE versioned
-//! request/result protocol, standard-library `Child::try_wait`/`Child::kill` wall-time control,
-//! compiler budgets, and bounded input/output. Broader host process-tree policy is outside this
-//! wire contract; callers may provide that policy around this one-worker seam. WASM
-//! is analysis-only and needs no compile supervisor.
-//!
-//! **Fast-failure primacy.** Deterministic logical counters are the primary fast-failure mechanism;
-//! cooperative
-//! elapsed checks and the parent wall timeout are outer safeguards. This module's wall-clock check
-//! is exactly that outer safeguard -- `CompileWorkerRequest::compose_budget` is what the
-//! child compiles UNDER (the same `crate::compose_budget::ComposeBudget` every other production
-//! call site uses), never a substitute for it.
-//!
-//! This module is the
-//! compile half of the compile-vs-apply split; `compose_budget.rs`'s own module doc names the exact gap this module closes:
-//! "Full 'never blow up' for a single adversarial call needs an external supervisor process." This
-//! module is that external supervisor process.
-//!
-//! # Why this whole module is non-wasm only
-//! `#[cfg(not(target_arch = "wasm32"))]`-gated in `lib.rs`, and its three extra dependencies
-//! (`pg-snapshot`, `pg-fwdata`) are scoped to the identical target cfg in this crate's
-//! `Cargo.toml` -- not merely dead code on wasm32, genuinely absent from `pg-wasm`'s dependency
-//! graph, mirroring the contract above: "WASM is analysis-only and needs no compile supervisor." `wasm32-unknown-
-//! unknown` has no `std::process::Command`, so a process-spawning supervisor cannot exist there by
-//! construction, not merely by choice.
-//!
-//! # Three pieces
-//! - **Protocol** (`CompileWorkerRequest`/`CompileWorkerResult`/`WorkerProtocolLimits`): a versioned,
+//! **Protocol** (`CompileWorkerRequest`/`CompileWorkerResult`/`WorkerProtocolLimits`): a versioned,
 //!   length-prefixed, bounded wire format over stdin/stdout. `read_frame` mirrors `pg-pack`'s own
 //!   `format.rs` validate-before-allocate discipline verbatim: the declared length is checked
 //!   against a versioned ceiling BEFORE any buffer of that size is allocated.
-//! - **Child** (`run_worker_child`): reads exactly one `CompileWorkerRequest` frame, loads and
+//! **Child** (`run_worker_child`): reads exactly one `CompileWorkerRequest` frame, loads and
 //!   compiles the named grammar under the request's `ComposeBudget`, and writes one result frame
 //!   (plus one length-prefixed raw payload frame for selected success). Wraps the compile call in
-//!   `std::panic::catch_unwind` --
-//!   best-effort only; `compose_budget.rs`'s own doc is explicit that "stack-overflow and
-//!   allocator-OOM abort the process, bypassing every check" including `catch_unwind` -- that is
-//!   exactly why the supervisor below exists: it observes the whole child PROCESS, not just one
-//!   `Result`.
-//! - **Supervisor** (`run_compile_worker`): spawns a child process (`std::process::Command`),
-//!   writes the request, parses stdout and drains stderr on bounded reader threads, and polls
-//!   `Child::try_wait` in a loop that checks a wall deadline -- killing the child (`Child::kill`)
-//!   and returning a typed `WorkerOutcome` the
-//!   instant any bound is breached. This module uses only the standard-library child seam; host
-//!   process-tree policy remains the caller's responsibility.
+//!   `std::panic::catch_unwind` as best-effort panic containment only.
 //!
 //! # Typed outcomes -> existing health/error vocabulary (do not invent a parallel one)
 //! `CompileWorkerOutcome` (what the CHILD reports) reuses `crate::compose_budget::ComposeError`
@@ -71,13 +25,6 @@
 //! `WorkerOutcome::health_report`'s own doc for the reasoning). The health vocabulary remains
 //! shared with the rest of the crate; this module does not add a parallel report shape.
 //!
-//! # Opt-in, additive, default path unchanged
-//! Nothing in this module is called by `crate::analyzer::FomaProposer::new`/`new_with_profile`,
-//! `crate::composite::FomaAnalyzer::new`, or any other existing production entry point --
-//! spawning a worker is something a caller (`pg-cli`'s pack path and hidden
-//! `__compile-worker-child` subcommand) opts into explicitly. The in-process compile path's
-//! behavior, output, and exit codes are unchanged by this module's mere existence.
-//!
 //! # Documented gap: grammar-format dispatch duplicates `pg-cli::load_grammar`
 //! `load_grammar_for_worker` re-implements the same `.xml`/`.json`/`.fwdata` three-way extension
 //! dispatch `pg-cli/src/main.rs::load_grammar` already has, rather than sharing it, since
@@ -88,10 +35,9 @@
 
 use std::io::{self, Read, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -810,7 +756,6 @@ pub enum WorkerOutcome {
     /// kill) without producing a valid result frame; `detail` names the observed status and why
     /// parsing failed.
     ChildCrashed { detail: String },
-    /// `std::process::Command::spawn` itself failed (e.g. the child executable does not exist), distinct from every outcome above, which all require a live child process.
     SpawnFailed { detail: String },
     /// The request could not even be serialized/sized within `WorkerProtocolLimits::max_request_bytes`, so no child was spawned at all.
     ProtocolViolation { detail: String },
@@ -1083,203 +1028,6 @@ fn spawn_worker_output_reader<R: Read + Send + 'static>(
     std::thread::spawn(move || {
         let _ = sender.send(read_worker_output(reader, selected_payload_limit));
     })
-}
-
-/// The parent-side supervisor (the platform-parity contract's "standard-library
-/// `Child::try_wait`/`Child::kill` wall-time control"): spawns `child_exe child_args...` (expected to eventually call `run_worker_child` on
-/// its own stdin/stdout -- e.g. `pangloss`'s hidden `__compile-worker-child` subcommand, or this
-/// crate's own `worker_test_child` test-support binary), writes `request` to its stdin, and polls
-/// until the child exits or `limits.max_wall_time()` is breached -- whichever comes first -- returning exactly one
-/// typed `WorkerOutcome`.
-///
-/// `std::process::Command`/`Child::try_wait`/`Child::kill`, a protocol-aware stdout reader, and a
-/// capped stderr drain are the worker mechanism; broader process-tree policy belongs to the caller.
-/// Windows-compatible: every API used here is cross-platform in the standard library, with no
-/// Unix-only assumption (no signals, no `/proc` path assumed directly).
-pub fn run_compile_worker(
-    child_exe: &Path,
-    child_args: &[String],
-    request: &CompileWorkerRequest,
-    limits: &ExecutionLimits,
-) -> WorkerOutcome {
-    let protocol_limits = WORKER_PROTOCOL_LIMITS;
-    let request_json = match serde_json::to_vec(request) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            return WorkerOutcome::ProtocolViolation {
-                detail: format!("failed to serialize compile-worker request: {e}"),
-            };
-        }
-    };
-    if request_json.len() as u64 > protocol_limits.max_request_bytes {
-        return WorkerOutcome::ProtocolViolation {
-            detail: format!(
-                "request is {} byte(s), exceeding the {}-byte protocol limit",
-                request_json.len(),
-                protocol_limits.max_request_bytes
-            ),
-        };
-    }
-    if let Some(selected) = request.selected.as_ref() {
-        if selected.max_serialized_fst_bytes != limits.max_serialized_fst_bytes() {
-            return WorkerOutcome::ProtocolViolation {
-                detail: format!(
-                    "selected request serialized-FST limit {} disagrees with supervisor ExecutionLimits {}",
-                    selected.max_serialized_fst_bytes,
-                    limits.max_serialized_fst_bytes()
-                ),
-            };
-        }
-    }
-
-    let mut child = match Command::new(child_exe)
-        .args(child_args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return WorkerOutcome::SpawnFailed {
-                detail: format!("spawning {}: {e}", child_exe.display()),
-            };
-        }
-    };
-
-    let mut stdin = child.stdin.take().expect("piped stdin");
-    let stdin_handle = std::thread::spawn(move || {
-        // Best-effort: a hung child that never reads stdin blocks only this thread, not the supervisor's poll loop, which still enforces the wall deadline.
-        let _ = write_frame(&mut stdin, &request_json);
-    });
-
-    let stdout = child.stdout.take().expect("piped stdout");
-    let stderr = child.stderr.take().expect("piped stderr");
-
-    let (stdout_sender, stdout_receiver) = std::sync::mpsc::channel();
-    let stdout_handle = spawn_worker_output_reader(
-        stdout,
-        request
-            .selected
-            .as_ref()
-            .map(|_| limits.max_serialized_fst_bytes()),
-        stdout_sender,
-    );
-
-    let stderr_buf = Arc::new(Mutex::new(Vec::new()));
-    let stderr_overflow = Arc::new(AtomicBool::new(false));
-    let stderr_handle = spawn_capped_reader(
-        stderr,
-        protocol_limits.max_captured_stderr_bytes,
-        Arc::clone(&stderr_buf),
-        Arc::clone(&stderr_overflow),
-    );
-
-    let start = Instant::now();
-    let poll_interval = Duration::from_millis(50);
-    let mut parsed_output = None;
-    let mut exit_status = None;
-    let mut forced_outcome = None;
-
-    loop {
-        if parsed_output.is_none() {
-            match stdout_receiver.try_recv() {
-                Ok(Ok(parsed)) => parsed_output = Some(Ok(parsed)),
-                Ok(Err(detail)) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    forced_outcome = Some(WorkerOutcome::ProtocolViolation { detail });
-                    break;
-                }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            }
-        }
-
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                exit_status = Some(status);
-                break;
-            }
-            Ok(None) => {}
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                forced_outcome = Some(WorkerOutcome::ChildCrashed {
-                    detail: format!("try_wait failed: {error}"),
-                });
-                break;
-            }
-        }
-
-        if stderr_overflow.load(Ordering::SeqCst) {
-            let _ = child.kill();
-            let _ = child.wait();
-            forced_outcome = Some(WorkerOutcome::StderrOutputLimitExceeded {
-                limit_bytes: protocol_limits.max_captured_stderr_bytes,
-            });
-            break;
-        }
-
-        let elapsed = start.elapsed();
-        if elapsed >= limits.max_wall_time() {
-            let _ = child.kill();
-            let _ = child.wait();
-            forced_outcome = Some(WorkerOutcome::WallTimeoutKilled {
-                elapsed,
-                limit: limits.max_wall_time(),
-            });
-            break;
-        }
-
-        std::thread::sleep(poll_interval);
-    };
-
-    let _ = stdin_handle.join();
-    let _ = stdout_handle.join();
-    let _ = stderr_handle.join();
-    let _ = stderr_buf; // captured for future diagnostics surfacing; not read on every path today.
-
-    if forced_outcome.is_none() && parsed_output.is_none() {
-        if let Ok(result) = stdout_receiver.try_recv() {
-            parsed_output = Some(result);
-        }
-    }
-    if let Some(outcome) = forced_outcome {
-        return outcome;
-    }
-
-    let status = match exit_status {
-        Some(status) => status,
-        None => {
-            return WorkerOutcome::ChildCrashed {
-                detail: "worker supervisor stopped without an exit status".to_string(),
-            }
-        }
-    };
-    match parsed_output {
-        Some(Ok(parsed)) if status.success() => match parsed {
-            ParsedWorkerOutput::Completed(outcome) => WorkerOutcome::Completed(outcome),
-            ParsedWorkerOutput::SelectedCompleted { build, payload } => {
-                WorkerOutcome::SelectedCompleted { build, payload }
-            }
-        },
-        Some(Err(detail)) if status.success() => WorkerOutcome::ProtocolViolation { detail },
-        Some(Ok(_)) => WorkerOutcome::ChildCrashed {
-            detail: format!("child exited with {status:?} after producing a valid result"),
-        },
-        Some(Err(detail)) => WorkerOutcome::ChildCrashed {
-            detail: format!("child exited with {status:?}; invalid worker output: {detail}"),
-        },
-        None => {
-            let detail = format!("child exited with {status:?} without producing a result frame");
-            if status.success() {
-                WorkerOutcome::ProtocolViolation { detail }
-            } else {
-                WorkerOutcome::ChildCrashed { detail }
-            }
-        }
-    }
 }
 
 #[cfg(test)]

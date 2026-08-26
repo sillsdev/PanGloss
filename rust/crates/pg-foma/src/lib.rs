@@ -335,14 +335,6 @@ pub mod uflexc;
 /// load-bearing finding that the "ordering-union proposal" is an
 /// EXISTING mechanism (`crate::emit::build_deriv_chain`), not a new one.
 pub(crate) mod unordered;
-/// The compile-worker watchdog -- a versioned request/result
-/// protocol, a killable native worker process (`std::process::Command`/`Child::try_wait`/
-/// `Child::kill`), and typed outcomes mapped into `health`'s existing
-/// vocabulary. COMPILE-side containment, distinct from `compose_budget`'s in-process
-/// cooperative APPLY-side budgets -- see that module's own doc. `#[cfg(not(target_arch =
-/// "wasm32"))]`: this crate's own wasm32 dependency-graph discipline (WASM is analysis-only
-/// and needs no compile watchdog) -- see that module's own top doc for why its three extra
-/// dependencies are scoped to the identical target cfg in `Cargo.toml`.
 /// The COLLECTED half of the per-strategy construct account: `witnessed_coverage::observe_grammar`
 /// characterizes a grammar, asks `backend_selection` which backends may run it, and then actually
 /// compiles with each one, crediting a `(capability::CharacteristicKind, enumerate::
