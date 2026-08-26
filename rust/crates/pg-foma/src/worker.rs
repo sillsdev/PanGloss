@@ -1418,112 +1418,250 @@ fn read_selected_artifact(
 mod tests {
     use super::*;
 
-    fn scratch_attempt_id() -> String {
-        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        format!("attempt-{:08x}{:024x}", std::process::id(), n)
+    fn selected_build(payload_fingerprint: String) -> CompletedBackendBuildWire {
+        CompletedBackendBuildWire {
+            requested_strategy: "templated-underlying-tokens".to_string(),
+            realized_strategy: "templated-underlying-tokens".to_string(),
+            grammar_identity: "grammar".to_string(),
+            attempt_id: "attempt".to_string(),
+            completion_proof: crate::completed_build::CompletionProofWire::TemplatedFullEmission {
+                uncovered_count: 0,
+                skipped_count: 0,
+            },
+            state_count: 1,
+            arc_count: 1,
+            model_fingerprint: "model".to_string(),
+            payload_fingerprint,
+        }
     }
 
-    fn scratch_artifact_path() -> PathBuf {
-        selected_artifact_path_for_attempt(&scratch_attempt_id()).expect("derive scratch artifact")
+    fn selected_success_with(
+        payload_byte_len: u64,
+        payload_sha256: String,
+        payload_fingerprint: String,
+    ) -> CompileWorkerResult {
+        CompileWorkerResult {
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            outcome: CompileWorkerOutcome::SelectedSuccess {
+                build: selected_build(payload_fingerprint),
+                payload_byte_len,
+                payload_sha256,
+            },
+        }
+    }
+
+    fn selected_success(payload: &[u8]) -> CompileWorkerResult {
+        let digest = sha256_hex(payload);
+        selected_success_with(
+            payload.len() as u64,
+            digest.clone(),
+            digest,
+        )
+    }
+
+    fn framed_result(result: &CompileWorkerResult, payload: Option<&[u8]>) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        write_frame(
+            &mut bytes,
+            &serde_json::to_vec(result).expect("serialize result fixture"),
+        )
+        .expect("frame result fixture");
+        if let Some(payload) = payload {
+            write_frame(&mut bytes, payload).expect("frame payload fixture");
+        }
+        bytes
+    }
+
+    fn parse_selected(bytes: Vec<u8>, limit: u64) -> Result<ParsedWorkerOutput, String> {
+        read_worker_output(std::io::Cursor::new(bytes), Some(limit))
     }
 
     #[test]
-    fn selected_artifact_publish_is_atomic_and_described_by_actual_bytes() {
-        let artifact_path = scratch_artifact_path();
+    fn selected_success_is_one_json_frame_then_one_raw_frame() {
         let payload = b"fst!";
 
-        let descriptor =
-            write_selected_artifact(&artifact_path, payload).expect("publish selected artifact");
+        let parsed = parse_selected(
+            framed_result(&selected_success(payload), Some(payload)),
+            payload.len() as u64,
+        )
+        .expect("valid selected output");
 
-        assert_eq!(fs::read(&artifact_path).expect("read artifact"), payload);
-        assert_eq!(descriptor.byte_len, payload.len() as u64);
-        assert_eq!(descriptor.sha256, sha256_hex(payload));
-        cleanup_selected_output(&artifact_path).expect("clean selected output");
+        assert!(matches!(
+            parsed,
+            ParsedWorkerOutput::SelectedCompleted { payload: actual, .. } if actual == payload
+        ));
     }
 
     #[test]
-    fn selected_payload_over_limit_publishes_nothing() {
-        let artifact_path = scratch_artifact_path();
+    fn selected_payload_exactly_at_limit_is_completed() {
+        let payload = b"four".to_vec();
 
-        let outcome = publish_selected_payload(&artifact_path, b"four", 3)
-            .expect_err("four bytes must exceed a three-byte limit");
+        let output = finish_selected_payload(
+            selected_build(sha256_hex(&payload)),
+            payload.clone(),
+            payload.len() as u64,
+        );
 
         assert!(matches!(
-            outcome,
-            CompileWorkerOutcome::SelectedExecutionLimitExceeded {
-                actual_bytes: 4,
-                limit_bytes: 3
+            output,
+            WorkerChildOutput {
+                outcome: CompileWorkerOutcome::SelectedSuccess { payload_byte_len: 4, .. },
+                selected_payload: Some(actual),
+            } if actual == payload
+        ));
+    }
+
+    #[test]
+    fn selected_payload_one_byte_over_limit_emits_no_raw_frame() {
+        let payload = b"four".to_vec();
+
+        let output = finish_selected_payload(
+            selected_build(sha256_hex(&payload)),
+            payload,
+            3,
+        );
+
+        assert!(matches!(
+            output,
+            WorkerChildOutput {
+                outcome: CompileWorkerOutcome::SelectedExecutionLimitExceeded {
+                    actual_bytes: 4,
+                    limit_bytes: 3,
+                },
+                selected_payload: None,
             }
         ));
-        assert!(!artifact_path.exists());
     }
 
     #[test]
-    fn selected_publish_never_clobbers_or_removes_an_existing_file() {
-        let artifact_path = scratch_artifact_path();
-        fs::write(&artifact_path, b"sentinel").expect("seed existing artifact");
+    fn selected_payload_declaration_over_limit_is_rejected_before_body_read() {
+        let payload = b"four";
+        let mut bytes = framed_result(&selected_success(payload), None);
+        bytes.extend_from_slice(&u64::MAX.to_le_bytes());
 
-        let outcome = publish_selected_payload(&artifact_path, b"replacement", u64::MAX)
-            .expect_err("create-new publication must reject an existing artifact");
+        let error = parse_selected(bytes, 3).expect_err("oversized declaration must fail");
+
+        assert!(error.contains("payload") && error.contains("limit"), "{error}");
+    }
+
+    #[test]
+    fn selected_success_without_raw_frame_is_rejected() {
+        let payload = b"fst!";
+        let error = parse_selected(framed_result(&selected_success(payload), None), 4)
+            .expect_err("missing raw frame must fail");
+        assert!(error.contains("payload"), "{error}");
+    }
+
+    #[test]
+    fn selected_zero_length_raw_frame_is_rejected() {
+        let payload = b"fst!";
+        let mut bytes = framed_result(&selected_success(payload), None);
+        bytes.extend_from_slice(&0u64.to_le_bytes());
+        let error = parse_selected(bytes, 4).expect_err("zero-length raw frame must fail");
+        assert!(error.contains("zero") || error.contains("empty"), "{error}");
+    }
+
+    #[test]
+    fn selected_truncated_raw_frame_is_rejected() {
+        let payload = b"fst!";
+        let mut bytes = framed_result(&selected_success(payload), None);
+        bytes.extend_from_slice(&4u64.to_le_bytes());
+        bytes.extend_from_slice(b"fst");
+        let error = parse_selected(bytes, 4).expect_err("truncated raw frame must fail");
+        assert!(error.contains("payload") || error.contains("I/O"), "{error}");
+    }
+
+    #[test]
+    fn selected_header_and_raw_lengths_must_match() {
+        let payload = b"fst!";
+        let result = selected_success_with(
+            5,
+            sha256_hex(payload),
+            sha256_hex(payload),
+        );
+        let error = parse_selected(framed_result(&result, Some(payload)), 5)
+            .expect_err("length mismatch must fail");
+        assert!(error.contains("length"), "{error}");
+    }
+
+    #[test]
+    fn selected_header_digest_must_match_raw_payload() {
+        let payload = b"fst!";
+        let result = selected_success_with(
+            4,
+            sha256_hex(b"other"),
+            sha256_hex(payload),
+        );
+        let error = parse_selected(framed_result(&result, Some(payload)), 4)
+            .expect_err("header digest mismatch must fail");
+        assert!(error.contains("digest"), "{error}");
+    }
+
+    #[test]
+    fn selected_build_fingerprint_must_match_raw_payload() {
+        let payload = b"fst!";
+        let result = selected_success_with(
+            4,
+            sha256_hex(payload),
+            sha256_hex(b"other"),
+        );
+        let error = parse_selected(framed_result(&result, Some(payload)), 4)
+            .expect_err("build fingerprint mismatch must fail");
+        assert!(error.contains("fingerprint") || error.contains("digest"), "{error}");
+    }
+
+    #[test]
+    fn selected_trailing_output_is_rejected() {
+        let payload = b"fst!";
+        let mut bytes = framed_result(&selected_success(payload), Some(payload));
+        bytes.push(0xff);
+        let error = parse_selected(bytes, 4).expect_err("trailing output must fail");
+        assert!(error.contains("trailing"), "{error}");
+    }
+
+    #[test]
+    fn selected_raw_frame_after_failure_is_rejected() {
+        let result = CompileWorkerResult {
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            outcome: CompileWorkerOutcome::SelectedCompileFailed {
+                detail: "synthetic failure".to_string(),
+            },
+        };
+        let error = parse_selected(framed_result(&result, Some(b"fst!")), 4)
+            .expect_err("failure plus payload must fail");
+        assert!(error.contains("trailing"), "{error}");
+    }
+
+    #[test]
+    fn selected_success_for_non_selected_request_is_rejected() {
+        let payload = b"fst!";
+        let error = read_worker_output(
+            std::io::Cursor::new(framed_result(&selected_success(payload), Some(payload))),
+            None,
+        )
+        .expect_err("generic request must reject selected success");
+        assert!(error.contains("selected"), "{error}");
+    }
+
+    #[test]
+    fn selected_transport_preserves_one_frame_generic_outcomes() {
+        let result = CompileWorkerResult {
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            outcome: CompileWorkerOutcome::ProtocolViolation {
+                detail: "synthetic generic result".to_string(),
+            },
+        };
+
+        let parsed = read_worker_output(
+            std::io::Cursor::new(framed_result(&result, None)),
+            None,
+        )
+        .expect("one generic frame followed by EOF");
 
         assert!(matches!(
-            outcome,
-            CompileWorkerOutcome::SelectedCompileFailed { .. }
+            parsed,
+            ParsedWorkerOutput::Completed(CompileWorkerOutcome::ProtocolViolation { .. })
         ));
-        assert_eq!(
-            fs::read(&artifact_path).expect("read sentinel"),
-            b"sentinel"
-        );
-        fs::remove_file(&artifact_path).expect("remove sentinel");
-    }
-
-    #[test]
-    fn selected_output_cleanup_removes_the_attempt_owned_file() {
-        let artifact_path = scratch_artifact_path();
-        fs::write(&artifact_path, b"partial").expect("seed partial artifact");
-
-        cleanup_selected_output(&artifact_path).expect("clean selected output");
-
-        assert!(!artifact_path.exists());
-    }
-
-    #[test]
-    fn selected_artifact_path_is_a_fixed_direct_child_of_canonical_temp() {
-        let attempt_id = "attempt-0123456789abcdef0123456789abcdef";
-
-        let artifact_path =
-            selected_artifact_path_for_attempt(attempt_id).expect("derive selected artifact");
-        let temp_root = fs::canonicalize(std::env::temp_dir()).expect("canonical temp");
-
-        assert_eq!(artifact_path.parent(), Some(temp_root.as_path()));
-        assert_eq!(
-            artifact_path.file_name().and_then(|name| name.to_str()),
-            Some("pangloss-selected-attempt-0123456789abcdef0123456789abcdef.fst")
-        );
-    }
-
-    #[test]
-    fn selected_artifact_path_rejects_every_non_generated_attempt_id_shape() {
-        for invalid in [
-            "",
-            "attempt",
-            "attempt-0123",
-            "../outside",
-            "attempt-../../outside",
-            "attempt-0123456789abcdef0123456789abcdeg",
-            "attempt-0123456789ABCDEF0123456789ABCDEF",
-            "attempt-0123456789abcdef0123456789abcdef0",
-            "C:\\outside",
-            "attempt-0123456789abcdef/123456789abcdef0",
-            "attempt-0123456789abcdef\\123456789abcdef0",
-            "attempt-0123456789abcdef0123456789abcdeé",
-        ] {
-            assert!(
-                selected_artifact_path_for_attempt(invalid).is_err(),
-                "malformed attempt id must not become a path: {invalid:?}"
-            );
-        }
     }
 
     #[test]
@@ -1542,37 +1680,22 @@ mod tests {
     }
 
     #[test]
-    fn selected_success_json_contains_descriptor_but_no_payload() {
+    fn selected_success_json_contains_transport_metadata_but_no_payload() {
+        let payload = b"fst!";
         let result = CompileWorkerResult {
             protocol_version: WORKER_PROTOCOL_VERSION,
-            outcome: CompileWorkerOutcome::SelectedSuccess {
-                build: CompletedBackendBuildWire {
-                    requested_strategy: "templated-underlying-tokens".to_string(),
-                    realized_strategy: "templated-underlying-tokens".to_string(),
-                    grammar_identity: "grammar".to_string(),
-                    attempt_id: "attempt".to_string(),
-                    completion_proof:
-                        crate::completed_build::CompletionProofWire::TemplatedFullEmission {
-                            uncovered_count: 0,
-                            skipped_count: 0,
-                        },
-                    state_count: 1,
-                    arc_count: 1,
-                    model_fingerprint: "model".to_string(),
-                    payload_fingerprint: sha256_hex(b"fst!"),
-                },
-                artifact: SelectedArtifactDescriptor {
-                    byte_len: 4,
-                    sha256: sha256_hex(b"fst!"),
-                },
-            },
+            outcome: selected_success(payload).outcome,
         };
 
         let json = serde_json::to_value(result).expect("serialize selected success");
 
         assert_eq!(
-            json["outcome"]["SelectedSuccess"]["artifact"]["byte_len"],
+            json["outcome"]["SelectedSuccess"]["payload_byte_len"],
             4
+        );
+        assert_eq!(
+            json["outcome"]["SelectedSuccess"]["payload_sha256"],
+            sha256_hex(payload)
         );
         assert!(
             !json.to_string().contains("payload_bytes"),
@@ -1593,36 +1716,6 @@ mod tests {
         assert_eq!(health.admission(), Severity::NotProductionReady);
         assert_eq!(health.findings[0].code, FindingCode::ResourceBudgetReached);
         assert_eq!(health.findings[0].metric, Metric::PayloadBytes);
-    }
-
-    #[test]
-    fn selected_parent_read_is_bounded_before_accepting_payload() {
-        let artifact_path = scratch_artifact_path();
-        fs::write(&artifact_path, b"four").expect("write oversized artifact");
-        let descriptor = SelectedArtifactDescriptor {
-            byte_len: 4,
-            sha256: sha256_hex(b"four"),
-        };
-        let wire = CompletedBackendBuildWire {
-            requested_strategy: "templated-underlying-tokens".to_string(),
-            realized_strategy: "templated-underlying-tokens".to_string(),
-            grammar_identity: "grammar".to_string(),
-            attempt_id: "attempt-0123456789abcdef0123456789abcdef".to_string(),
-            completion_proof: crate::completed_build::CompletionProofWire::TemplatedFullEmission {
-                uncovered_count: 0,
-                skipped_count: 0,
-            },
-            state_count: 1,
-            arc_count: 1,
-            model_fingerprint: "model".to_string(),
-            payload_fingerprint: sha256_hex(b"four"),
-        };
-
-        let error = read_selected_artifact(&artifact_path, &descriptor, wire, 3)
-            .expect_err("parent must reject before accepting an over-limit payload");
-
-        assert!(error.to_string().contains("execution limit"), "{error}");
-        cleanup_selected_output(&artifact_path).expect("clean selected output");
     }
 
     #[test]

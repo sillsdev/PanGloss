@@ -55,7 +55,7 @@ fn execution_limits_are_configurable_but_cannot_be_disabled() {
 
 #[test]
 fn cleanup_breaks_the_old_worker_protocol_in_lockstep() {
-    assert_eq!(WORKER_PROTOCOL_VERSION, 8);
+    assert_eq!(WORKER_PROTOCOL_VERSION, 9);
     assert!(
         limits_for_version(1).is_none(),
         "pre-cleanup worker messages must be rejected, not migrated"
@@ -68,9 +68,9 @@ fn cleanup_breaks_the_old_worker_protocol_in_lockstep() {
 }
 
 #[test]
-fn protocol_seven_request_frames_are_rejected_before_compile() {
+fn protocol_eight_request_frames_are_rejected_before_compile() {
     let mut request = CompileWorkerRequest::new("stale.xml", GrammarFormat::Xml);
-    request.protocol_version = 7;
+    request.protocol_version = 8;
     let body = serde_json::to_vec(&request).expect("serialize stale request");
     let mut input = Vec::new();
     input.extend_from_slice(&(body.len() as u64).to_le_bytes());
@@ -85,8 +85,8 @@ fn protocol_seven_request_frames_are_rejected_before_compile() {
     match result.outcome {
         CompileWorkerOutcome::ProtocolViolation { detail } => {
             assert!(detail.contains("protocol_version"), "detail: {detail}");
-            assert!(detail.contains("7"), "detail: {detail}");
             assert!(detail.contains("8"), "detail: {detail}");
+            assert!(detail.contains("9"), "detail: {detail}");
         }
         other => panic!("expected ProtocolViolation, got {other:?}"),
     }
