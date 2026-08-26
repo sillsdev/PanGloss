@@ -90,40 +90,41 @@ impl ContainedWorkerProcess {
         limits: ExecutionLimits,
     ) -> Result<Self, ContainmentError> {
         let cgroup = create_cgroup(limits.max_committed_memory_bytes())?;
-        let baseline_events = match read_events(cgroup.child.as_raw_fd()) {
+        let mut guard = SpawnGuard::new(cgroup);
+        let baseline_events = match read_events(guard.child_fd()) {
             Ok(events) => events,
             Err(error) => {
-                return Err(cleanup_unlaunched_failure(&cgroup, error));
+                return Err(guard.fail(error));
             }
         };
         let mut spec = match prepare_exec(executable, args, options) {
             Ok(spec) => spec,
             Err(error) => {
-                return Err(cleanup_unlaunched_failure(&cgroup, error));
+                return Err(guard.fail(error));
             }
         };
         let stdin = match pipe() {
             Ok(pipe) => pipe,
             Err(error) => {
-                return Err(cleanup_unlaunched_failure(&cgroup, error));
+                return Err(guard.fail(error));
             }
         };
         let stdout = match pipe() {
             Ok(pipe) => pipe,
             Err(error) => {
-                return Err(cleanup_unlaunched_failure(&cgroup, error));
+                return Err(guard.fail(error));
             }
         };
         let stderr = match pipe() {
             Ok(pipe) => pipe,
             Err(error) => {
-                return Err(cleanup_unlaunched_failure(&cgroup, error));
+                return Err(guard.fail(error));
             }
         };
         let error_pipe = match pipe() {
             Ok(pipe) => pipe,
             Err(error) => {
-                return Err(cleanup_unlaunched_failure(&cgroup, error));
+                return Err(guard.fail(error));
             }
         };
         // SAFETY: getpid has no pointer arguments and is safe to call in the launching parent.
@@ -140,7 +141,7 @@ impl ContainedWorkerProcess {
             tls: 0,
             set_tid: 0,
             set_tid_size: 0,
-            cgroup: cgroup.child.as_raw_fd() as u64,
+            cgroup: guard.child_fd() as u64,
         };
         // SAFETY: clone_args points to live, repr(C) storage and all referenced fds remain open
         // until the synchronous syscall returns; the kernel copies the structure immediately.
@@ -177,20 +178,16 @@ impl ContainedWorkerProcess {
             let initiating = unavailable(format!(
                 "clone3 with cgroup placement failed: {error}"
             ));
-            return Err(cleanup_unlaunched_failure(&cgroup, initiating));
+            return Err(guard.fail(initiating));
         }
         let process_id = result as libc::pid_t;
+        guard.record_process(process_id);
         let pidfd = if pidfd >= 0 {
             // SAFETY: clone3 returned this as a new owned pidfd, and no other owner exists.
             unsafe { OwnedFd::from_raw_fd(pidfd) }
         } else {
             let initiating = unavailable("clone3 did not return a pidfd");
-            return Err(cleanup_created_failure(
-                &cgroup,
-                process_id,
-                Instant::now() + Duration::from_secs(5),
-                initiating,
-            ));
+            return Err(guard.fail(initiating));
         };
         drop(stdin.read);
         drop(stdout.write);
@@ -201,12 +198,7 @@ impl ContainedWorkerProcess {
         let mut launch_error = Vec::new();
         if let Err(error) = error_file.read_to_end(&mut launch_error) {
             let initiating = failed(format!("reading child launch status: {error}"));
-            return Err(cleanup_created_failure(
-                &cgroup,
-                process_id,
-                Instant::now() + Duration::from_secs(5),
-                initiating,
-            ));
+            return Err(guard.fail(initiating));
         }
         if !launch_error.is_empty() {
             let errno = launch_error
@@ -218,12 +210,7 @@ impl ContainedWorkerProcess {
                 "worker failed before exec: {}",
                 std::io::Error::from_raw_os_error(errno)
             ));
-            return Err(cleanup_created_failure(
-                &cgroup,
-                process_id,
-                Instant::now() + Duration::from_secs(5),
-                initiating,
-            ));
+            return Err(guard.fail(initiating));
         }
         let stdio = ContainedStdio {
             // SAFETY: each into_raw_fd transfers sole ownership of its live parent endpoint.
@@ -233,6 +220,7 @@ impl ContainedWorkerProcess {
             // SAFETY: each into_raw_fd transfers sole ownership of its live parent endpoint.
             stderr: unsafe { std::fs::File::from_raw_fd(stderr.read.into_raw_fd()) },
         };
+        let cgroup = guard.disarm();
         let effective_memory_max_bytes = cgroup.effective_memory_max_bytes;
         let parent_cgroup = cgroup.parent;
         let child_cgroup = cgroup.child;
@@ -271,7 +259,7 @@ impl ContainedWorkerProcess {
                 return Ok(None);
             }
             if result == self.process_id {
-                return Ok(Some(self.record_exit(status)));
+                return Ok(Some(self.record_exit(status)?));
             }
             let error = std::io::Error::last_os_error();
             if error.raw_os_error() == Some(libc::EINTR) {
@@ -370,51 +358,36 @@ impl ContainedWorkerProcess {
     }
 
     fn cleanup(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
-        let mut failures = Vec::new();
-        if let Err(error) = write_at(self.cgroup.as_raw_fd(), "cgroup.kill", b"1") {
-            failures.push(error.to_string());
-        }
-        if let Err(error) = self.wait_tree_empty(deadline) {
-            failures.push(error.to_string());
-        }
-        if let Err(error) = self.reap_direct_child(deadline) {
-            failures.push(error.to_string());
-        }
-        if let Err(error) = self.observe_memory_peak() {
-            failures.push(error.to_string());
-        }
-        match read_events(self.cgroup.as_raw_fd()) {
-            Ok(events) => {
-                if let Err(error) = self.latch_memory_evidence(events) {
-                    failures.push(error.to_string());
-                }
-            }
-            Err(error) => failures.push(error.to_string()),
-        }
-        if let Err(error) = self.remove_cgroup() {
-            failures.push(error.to_string());
-        }
-        if failures.is_empty() {
-            Ok(())
-        } else {
-            Err(failed(format!("worker cleanup failed: {}", failures.join("; "))))
-        }
+        let report = {
+            let mut context = CleanupContext {
+                parent: self.parent_cgroup.as_raw_fd(),
+                child: self.cgroup.as_raw_fd(),
+                name: &self.cgroup_name,
+                process_id: Some(self.process_id),
+                direct_exit: self.direct_exit,
+                baseline_events: Some(self.baseline_events),
+                effective_memory_max_bytes: Some(self.effective_memory_max_bytes),
+                memory_evidence: self.memory_evidence,
+                peak_memory_charge_bytes: self.peak_memory_charge_bytes,
+                removed: self.removed,
+            };
+            context.run(deadline)
+        };
+        self.direct_exit = report.direct_exit;
+        self.memory_evidence = report.memory_evidence;
+        self.peak_memory_charge_bytes = report.peak_memory_charge_bytes;
+        self.removed = report.removed;
+        report.result
     }
 
-    fn record_exit(&mut self, status: c_int) -> DirectChildExit {
-        let termination = if libc::WIFEXITED(status) {
-            ChildTermination::Exited(libc::WEXITSTATUS(status) as u32)
-        } else if libc::WIFSIGNALED(status) {
-            ChildTermination::Signaled(libc::WTERMSIG(status) as i32)
-        } else {
-            ChildTermination::Signaled(libc::SIGKILL)
-        };
+    fn record_exit(&mut self, status: c_int) -> Result<DirectChildExit, ContainmentError> {
+        let termination = decode_wait_status(status)?;
         let exit = DirectChildExit {
             process_id: self.process_id as u32,
             termination,
         };
         self.direct_exit = Some(exit);
-        exit
+        Ok(exit)
     }
 
     fn observe_memory_peak(&mut self) -> Result<(), ContainmentError> {
@@ -425,28 +398,14 @@ impl ContainedWorkerProcess {
     }
 
     fn latch_memory_evidence(&mut self, events: MemoryEvents) -> Result<(), ContainmentError> {
-        if self.memory_evidence.is_some() {
-            return Ok(());
-        }
-        let max_delta = events.max.saturating_sub(self.baseline_events.max);
-        let oom_delta = events
-            .oom_kill
-            .saturating_sub(self.baseline_events.oom_kill);
-        let (Some(max_delta), Some(oom_delta)) = (
-            std::num::NonZeroU64::new(max_delta),
-            std::num::NonZeroU64::new(oom_delta),
-        ) else {
-            return Ok(());
-        };
-        let evidence = MemoryLimitEvidence::LinuxCgroupV2MemoryLimitViolation {
-            effective_memory_max_bytes: self.effective_memory_max_bytes,
-            memory_peak_bytes: self.peak_memory_charge_bytes,
-            oom_kill_count_delta: oom_delta,
-            max_event_count_delta: max_delta,
-        };
-        self.memory_evidence = Some(evidence);
-        write_at(self.cgroup.as_raw_fd(), "cgroup.kill", b"1")?;
-        Ok(())
+        latch_memory_evidence_at(
+            self.cgroup.as_raw_fd(),
+            self.baseline_events,
+            self.effective_memory_max_bytes,
+            self.peak_memory_charge_bytes,
+            &mut self.memory_evidence,
+            events,
+        )
     }
 
     fn remove_cgroup(&mut self) -> Result<(), ContainmentError> {
@@ -484,6 +443,167 @@ struct CreatedCgroup {
     child: OwnedFd,
     name: CString,
     effective_memory_max_bytes: u64,
+}
+
+struct SpawnGuard {
+    cgroup: Option<CreatedCgroup>,
+    process_id: Option<libc::pid_t>,
+}
+
+impl SpawnGuard {
+    fn new(cgroup: CreatedCgroup) -> Self {
+        Self {
+            cgroup: Some(cgroup),
+            process_id: None,
+        }
+    }
+
+    fn child_fd(&self) -> RawFd {
+        self.cgroup
+            .as_ref()
+            .expect("spawn guard retains cgroup")
+            .child
+            .as_raw_fd()
+    }
+
+    fn record_process(&mut self, process_id: libc::pid_t) {
+        self.process_id = Some(process_id);
+    }
+
+    fn fail(&mut self, initiating: ContainmentError) -> ContainmentError {
+        combine_initiating_cleanup(initiating, self.cleanup())
+    }
+
+    fn disarm(mut self) -> CreatedCgroup {
+        self.cgroup.take().expect("spawn guard retains cgroup")
+    }
+
+    fn cleanup(&mut self) -> Result<(), ContainmentError> {
+        let Some(cgroup) = self.cgroup.as_ref() else {
+            return Ok(());
+        };
+        let result = if let Some(process_id) = self.process_id {
+            let report = CleanupContext {
+                parent: cgroup.parent.as_raw_fd(),
+                child: cgroup.child.as_raw_fd(),
+                name: &cgroup.name,
+                process_id: Some(process_id),
+                direct_exit: None,
+                baseline_events: None,
+                effective_memory_max_bytes: None,
+                memory_evidence: None,
+                peak_memory_charge_bytes: 0,
+                removed: false,
+            }
+            .run(Instant::now() + Duration::from_secs(5));
+            if report.removed {
+                self.cgroup.take();
+            }
+            report.result
+        } else {
+            let result = remove_named_cgroup(cgroup.parent.as_raw_fd(), &cgroup.name);
+            if result.is_ok() {
+                self.cgroup.take();
+            }
+            result
+        };
+        result
+    }
+}
+
+impl Drop for SpawnGuard {
+    fn drop(&mut self) {
+        let _ = self.cleanup();
+    }
+}
+
+struct CleanupReport {
+    result: Result<(), ContainmentError>,
+    direct_exit: Option<DirectChildExit>,
+    memory_evidence: Option<MemoryLimitEvidence>,
+    peak_memory_charge_bytes: u64,
+    removed: bool,
+}
+
+struct CleanupContext<'a> {
+    parent: RawFd,
+    child: RawFd,
+    name: &'a CString,
+    process_id: Option<libc::pid_t>,
+    direct_exit: Option<DirectChildExit>,
+    baseline_events: Option<MemoryEvents>,
+    effective_memory_max_bytes: Option<u64>,
+    memory_evidence: Option<MemoryLimitEvidence>,
+    peak_memory_charge_bytes: u64,
+    removed: bool,
+}
+
+impl CleanupContext<'_> {
+    fn run(mut self, deadline: Instant) -> CleanupReport {
+        let mut failures = Vec::new();
+        if self.process_id.is_some() {
+            if let Err(error) = write_at(self.child, "cgroup.kill", b"1") {
+                failures.push(error.to_string());
+            }
+            if let Err(error) = wait_cgroup_empty(self.child, deadline) {
+                failures.push(error.to_string());
+            }
+            if self.direct_exit.is_none() {
+                match reap_process(self.process_id.expect("process id is present"), deadline) {
+                    Ok(status) => match decode_wait_status(status) {
+                        Ok(termination) => {
+                            self.direct_exit = Some(DirectChildExit {
+                                process_id: self.process_id.expect("process id is present") as u32,
+                                termination,
+                            });
+                        }
+                        Err(error) => failures.push(error.to_string()),
+                    },
+                    Err(error) => failures.push(error.to_string()),
+                }
+            }
+            match read_u64_at(self.child, "memory.peak") {
+                Ok(peak) => self.peak_memory_charge_bytes = self.peak_memory_charge_bytes.max(peak),
+                Err(error) => failures.push(error.to_string()),
+            }
+            match read_events(self.child) {
+                Ok(events) => {
+                    if let (Some(baseline), Some(effective)) =
+                        (self.baseline_events, self.effective_memory_max_bytes)
+                    {
+                        if let Err(error) = latch_memory_evidence_at(
+                            self.child,
+                            baseline,
+                            effective,
+                            self.peak_memory_charge_bytes,
+                            &mut self.memory_evidence,
+                            events,
+                        ) {
+                            failures.push(error.to_string());
+                        }
+                    }
+                }
+                Err(error) => failures.push(error.to_string()),
+            }
+        }
+        if let Err(error) = remove_named_cgroup(self.parent, self.name) {
+            failures.push(error.to_string());
+        } else {
+            self.removed = true;
+        }
+        let result = if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failed(format!("worker cleanup failed: {}", failures.join("; "))))
+        };
+        CleanupReport {
+            result,
+            direct_exit: self.direct_exit,
+            memory_evidence: self.memory_evidence,
+            peak_memory_charge_bytes: self.peak_memory_charge_bytes,
+            removed: self.removed,
+        }
+    }
 }
 
 fn create_cgroup(memory_limit: u64) -> Result<CreatedCgroup, ContainmentError> {
@@ -742,10 +862,6 @@ fn configure_child_cgroup(child: RawFd, requested: u64) -> Result<u64, Containme
     Ok(effective)
 }
 
-fn remove_created_cgroup(cgroup: &CreatedCgroup) -> Result<(), ContainmentError> {
-    remove_named_cgroup(cgroup.parent.as_raw_fd(), &cgroup.name)
-}
-
 fn remove_named_cgroup(parent: RawFd, name: &CString) -> Result<(), ContainmentError> {
     // SAFETY: cgroup parent fd and name are owned/live and the kernel reads the name immediately.
     let result = unsafe {
@@ -753,7 +869,7 @@ fn remove_named_cgroup(parent: RawFd, name: &CString) -> Result<(), ContainmentE
     };
     if result != 0 {
         return Err(failed(format!(
-            "removing unlaunched worker cgroup: {}",
+            "removing worker cgroup: {}",
             std::io::Error::last_os_error()
         )));
     }
@@ -770,46 +886,32 @@ fn combine_initiating_cleanup(
     }
 }
 
-fn cleanup_unlaunched_failure(
-    cgroup: &CreatedCgroup,
-    initiating: ContainmentError,
-) -> ContainmentError {
-    combine_initiating_cleanup(initiating, remove_created_cgroup(cgroup))
-}
-
-fn cleanup_created_failure(
-    cgroup: &CreatedCgroup,
-    process_id: libc::pid_t,
-    deadline: Instant,
-    initiating: ContainmentError,
-) -> ContainmentError {
-    let mut failures = Vec::new();
-    if let Err(error) = write_at(cgroup.child.as_raw_fd(), "cgroup.kill", b"1") {
-        failures.push(error.to_string());
+fn latch_memory_evidence_at(
+    child: RawFd,
+    baseline: MemoryEvents,
+    effective_memory_max_bytes: u64,
+    peak_memory_charge_bytes: u64,
+    memory_evidence: &mut Option<MemoryLimitEvidence>,
+    events: MemoryEvents,
+) -> Result<(), ContainmentError> {
+    if memory_evidence.is_some() {
+        return Ok(());
     }
-    if let Err(error) = wait_cgroup_empty(cgroup.child.as_raw_fd(), deadline) {
-        failures.push(error.to_string());
-    }
-    if let Err(error) = reap_failed_launch(process_id, deadline) {
-        failures.push(error.to_string());
-    }
-    if let Err(error) = read_u64_at(cgroup.child.as_raw_fd(), "memory.peak") {
-        failures.push(error.to_string());
-    }
-    if let Err(error) = read_events(cgroup.child.as_raw_fd()) {
-        failures.push(error.to_string());
-    }
-    if let Err(error) = remove_created_cgroup(cgroup) {
-        failures.push(error.to_string());
-    }
-    if failures.is_empty() {
-        initiating
-    } else {
-        failed(format!(
-            "{initiating}; cleanup failed: {}",
-            failures.join("; ")
-        ))
-    }
+    let max_delta = events.max.saturating_sub(baseline.max);
+    let oom_delta = events.oom_kill.saturating_sub(baseline.oom_kill);
+    let (Some(max_delta), Some(oom_delta)) = (
+        std::num::NonZeroU64::new(max_delta),
+        std::num::NonZeroU64::new(oom_delta),
+    ) else {
+        return Ok(());
+    };
+    *memory_evidence = Some(MemoryLimitEvidence::LinuxCgroupV2MemoryLimitViolation {
+        effective_memory_max_bytes,
+        memory_peak_bytes: peak_memory_charge_bytes,
+        oom_kill_count_delta: oom_delta,
+        max_event_count_delta: max_delta,
+    });
+    write_at(child, "cgroup.kill", b"1")
 }
 
 fn wait_cgroup_empty(cgroup: RawFd, deadline: Instant) -> Result<(), ContainmentError> {
@@ -885,10 +987,7 @@ fn prepare_exec(
         .collect();
     let cwd = options
         .current_dir_path()
-        .map(|path| {
-            let path = cstring_os(path.as_os_str())?;
-            open_at(libc::AT_FDCWD, &path, libc::O_RDONLY | libc::O_DIRECTORY)
-        })
+        .map(open_current_dir)
         .transpose()?;
     Ok(ExecSpec {
         candidates: vec![cstring_os(executable.as_os_str())?],
@@ -898,6 +997,25 @@ fn prepare_exec(
         envp,
         cwd,
     })
+}
+
+fn open_current_dir(path: &Path) -> Result<OwnedFd, ContainmentError> {
+    let path = cstring_os(path.as_os_str())?;
+    // SAFETY: path is live NUL-terminated storage; caller paths intentionally follow symlinks.
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(unavailable(format!(
+            "opening worker current directory: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    // SAFETY: open returned a fresh descriptor with no Rust owner.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
 fn prepare_environment(options: &LaunchOptions) -> Result<Vec<CString>, ContainmentError> {
@@ -923,7 +1041,8 @@ fn prepare_environment(options: &LaunchOptions) -> Result<Vec<CString>, Containm
         .collect()
 }
 
-// The clone3 child supplies prebuilt strings and valid inherited fds.
+// SAFETY: The clone3 child supplies prebuilt strings and valid inherited fds; the body uses only
+// async-signal-safe operations until execve or _exit.
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn child_exec(
     spec: &mut ExecSpec,
@@ -949,6 +1068,12 @@ unsafe fn child_exec(
     {
         report_child_error(launch_error, libc::EIO);
     }
+    for fd in [libc::STDIN_FILENO, libc::STDOUT_FILENO, libc::STDERR_FILENO] {
+        let flags = libc::fcntl(fd, libc::F_GETFD);
+        if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+            report_child_error(launch_error, *libc::__errno_location());
+        }
+    }
     for fd in [stdin, stdout, stderr] {
         if fd > libc::STDERR_FILENO {
             libc::close(fd);
@@ -966,7 +1091,8 @@ unsafe fn child_exec(
     report_child_error(launch_error, *libc::__errno_location());
 }
 
-// `launch_error` is the live child-only writable end of the CLOEXEC status pipe.
+// SAFETY: `launch_error` is the live child-only writable end of the CLOEXEC status pipe; the body
+// uses only async-signal-safe operations until _exit.
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn report_child_error(launch_error: RawFd, errno: c_int) -> ! {
     let bytes = errno.to_ne_bytes();
@@ -1058,13 +1184,38 @@ fn read_u64_at(dir: RawFd, name: &str) -> Result<u64, ContainmentError> {
 }
 
 fn read_cgroup_event(dir: RawFd, wanted: &str) -> Result<u64, ContainmentError> {
-    read_text_at(dir, "cgroup.events")?
-        .lines()
-        .find_map(|line| {
-            let (name, value) = line.split_once(' ')?;
-            (name == wanted).then(|| value.parse().ok()).flatten()
-        })
-        .ok_or_else(|| failed(format!("cgroup.events has no {wanted} field")))
+    parse_cgroup_event_value(&read_text_at(dir, "cgroup.events")?, wanted)
+        .map_err(|detail| failed(format!("cgroup.events {detail} for {wanted}")))
+}
+
+fn parse_cgroup_event_value(text: &str, wanted: &str) -> Result<u64, &'static str> {
+    let mut value = None;
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut fields = line.split_whitespace();
+        let Some(name) = fields.next() else {
+            return Err("contains a malformed record");
+        };
+        let Some(raw_value) = fields.next() else {
+            return Err("contains a truncated record");
+        };
+        if fields.next().is_some() {
+            return Err("contains an extra field");
+        }
+        if name == wanted {
+            if value.is_some() {
+                return Err("contains a duplicate requested record");
+            }
+            value = Some(
+                raw_value
+                    .parse()
+                    .map_err(|_| "requested record is not numeric")?,
+            );
+        }
+    }
+    value.ok_or("has no requested record")
 }
 
 fn read_events(dir: RawFd) -> Result<MemoryEvents, ContainmentError> {
@@ -1108,13 +1259,23 @@ fn read_events(dir: RawFd) -> Result<MemoryEvents, ContainmentError> {
     Ok(events)
 }
 
-fn reap_failed_launch(process_id: libc::pid_t, deadline: Instant) -> Result<(), ContainmentError> {
+fn decode_wait_status(status: c_int) -> Result<ChildTermination, ContainmentError> {
+    if libc::WIFEXITED(status) {
+        Ok(ChildTermination::Exited(libc::WEXITSTATUS(status) as u32))
+    } else if libc::WIFSIGNALED(status) {
+        Ok(ChildTermination::Signaled(libc::WTERMSIG(status) as i32))
+    } else {
+        Err(failed("waitpid returned a non-terminal child status"))
+    }
+}
+
+fn reap_process(process_id: libc::pid_t, deadline: Instant) -> Result<c_int, ContainmentError> {
     let mut status = 0;
     loop {
         // SAFETY: process_id is the owned direct child and status points to writable storage.
         let result = unsafe { libc::waitpid(process_id, &mut status, libc::WNOHANG) };
         if result == process_id {
-            return Ok(());
+            return Ok(status);
         }
         if result == 0 {
             if Instant::now() >= deadline {
@@ -1163,5 +1324,40 @@ fn unavailable(detail: impl Into<String>) -> ContainmentError {
 fn failed(detail: impl Into<String>) -> ContainmentError {
     ContainmentError::Failed {
         detail: detail.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_wait_status, parse_cgroup_event_value};
+
+    #[test]
+    fn cgroup_event_parser_accepts_numeric_populated_zero() {
+        assert_eq!(
+            parse_cgroup_event_value("populated 0\nfrozen 0\n", "populated"),
+            Ok(0)
+        );
+    }
+
+    #[test]
+    fn cgroup_event_parser_rejects_malformed_record() {
+        assert!(parse_cgroup_event_value("populated\n", "populated").is_err());
+        assert!(parse_cgroup_event_value("populated 0 extra\n", "populated").is_err());
+        assert!(parse_cgroup_event_value("populated nope\n", "populated").is_err());
+    }
+
+    #[test]
+    fn cgroup_event_parser_rejects_duplicate_requested_record() {
+        assert!(parse_cgroup_event_value("populated 0\npopulated 1\n", "populated").is_err());
+    }
+
+    #[test]
+    fn cgroup_event_parser_rejects_missing_requested_record() {
+        assert!(parse_cgroup_event_value("frozen 0\n", "populated").is_err());
+    }
+
+    #[test]
+    fn wait_status_parser_rejects_non_terminal_status() {
+        assert!(decode_wait_status(0x37).is_err());
     }
 }
