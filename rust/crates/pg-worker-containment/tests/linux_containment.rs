@@ -401,6 +401,15 @@ fn delegated_root_outside_current_membership_is_unavailable() {
 fn populated_delegated_root_is_unavailable() {
     let _lock = ENVIRONMENT_LOCK.lock().expect("environment lock");
     let current = current_unified_membership().expect("read current unified cgroup membership");
+    let mapped = map_hierarchy_to_cgroup_mount(&current)
+        .expect("map populated current cgroup through a visible mount");
+    assert!(
+        !fs::read_to_string(mapped.join("cgroup.procs"))
+            .expect("read populated cgroup.procs")
+            .trim()
+            .is_empty(),
+        "test precondition failed: current cgroup must be populated"
+    );
     let _environment =
         EnvironmentGuard::set("PANGLOSS_CGROUP_DELEGATED_ROOT", Some(OsStr::new(&current)));
     assert_unavailable_spawn("populated delegated root");
