@@ -361,13 +361,11 @@ impl ContainedWorkerProcess {
             failures.push("direct worker child has not been reaped".to_string());
         }
         match self.query_limits() {
-            Ok(info) => {
-                self.observe_peak(info.PeakJobMemoryUsed as u64);
-                if let Err(error) = self.poll_memory_limit_message() {
-                    failures.push(error.to_string());
-                }
-            }
+            Ok(info) => self.observe_peak(info.PeakJobMemoryUsed as u64),
             Err(error) => failures.push(error.to_string()),
+        }
+        if let Err(error) = self.poll_memory_limit_message() {
+            failures.push(error.to_string());
         }
         match self.query_accounting() {
             Ok(accounting) if accounting.ActiveProcesses != 0 => failures
