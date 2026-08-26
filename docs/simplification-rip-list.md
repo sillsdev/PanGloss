@@ -337,6 +337,10 @@ permission.
    in-process build routes. The worker receives an explicit backend and validates the result matches
    it. Protected: independent per-backend analysis reports, registry/mechanism capability facts,
    grammar-required correctness routing, and deferred within-backend tuning.
+   Status: **PARTIAL** only for completed-artifact validation. The RED contract `21faa1b5` and GREEN
+   implementation `efcaafa6` removed the validator's `BackendSelection`/`preferred()` dependency and
+   require one explicit requested strategy. They deliberately leave selector derivation, supervisor
+   routing, Pack/CLI migration, and the broader chooser deletion untouched until Stage 2's Linux gate.
 4. **Delete internal compile refusal caps (A1-A5/A9/A10/C2-C4/H5).** Only after stages 2-3 prove
    containment, rewrite cap/refusal/retry tests, then remove state/arc/tuple/group/line/compound/order
    representability stops, named-envelope remedies, and old constants while preserving measurements.
@@ -486,10 +490,10 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..HEAD` (through this ledger update): **4,339 deletions /
-10,123 additions, net +5,784 lines** across 78 files. Production Rust accounts for 1,966 deletions
-and Rust integration tests for 879 deletions. This is a branch-wide mechanical line tally, not a
-claim that every commit is
+Committed rebased branch range `1225f25a..efcaafa6` (through the explicit completed-route commits):
+**4,436 deletions / 10,162 additions, net +5,726 lines** across 78 files. Production Rust accounts
+for 1,978 deletions and Rust integration tests for 964 deletions. This is a branch-wide mechanical
+line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
@@ -500,8 +504,9 @@ native adapter and adversarial process-tree test harness. It is prerequisite con
 removal win; the authorized shared-loop and routing deletions remain downstream. The committed
 Linux wrapper contract and source checkpoint added 1,172 lines and removed 27 across four tool
 files. Its 623-line test contract came first; its 549-addition/27-deletion production commit is
-prerequisite infrastructure, not a removal win or a Linux runtime pass. Uncommitted work is never
-counted until its exact staged snapshot is inspected and committed. Remaining deletion
+prerequisite infrastructure, not a removal win or a Linux runtime pass. The explicit completed-route
+slice then removed 98 and added 36 lines across its RED test and GREEN production commits (net -62).
+Uncommitted work is never counted until its exact staged snapshot is inspected and committed. Remaining deletion
 opportunity is tracked by the stages above; estimates below are directional only:
 
 | Section | Est. lines |
