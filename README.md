@@ -143,6 +143,23 @@ most words are rejected by the proposer outright — with a heavy tail). The ana
 targets `wasm32-unknown-unknown`; that build loads a precompiled analysis package and deliberately
 excludes grammar and FST compilation.
 
+## Optimize a grammar with stats
+
+The default HermitCrab engine can collect opt-in statistics over a representative word list. The
+reports identify expensive object kinds, rules that repeatedly produce nothing, and rules that
+manufacture forms with no lexical root:
+
+```powershell
+pangloss batch <grammar> <words.txt> out.tsv --stats --threads 1 --word-timeout-ms 1000 --cache <cache.sqlite3>
+pangloss stats <grammar> --cache <cache.sqlite3> --group group
+pangloss stats <grammar> --cache <cache.sqlite3> --group never-fires
+pangloss stats <grammar> --cache <cache.sqlite3> --group object --sort no-root
+```
+
+See [Optimize a grammar with PanGloss stats](docs/optimize-grammar-with-stats.md) for the complete
+human- and AI-readable workflow, report semantics, drill-down filters, machine-readable output, and
+interpretation cautions.
+
 ## Layout
 
 - `rust/` — the engine workspace (crate map in [`rust/README.md`](rust/README.md)). Key crates:

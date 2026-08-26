@@ -2,14 +2,13 @@
 
 Date: 2026-08-22
 
-Status: design of record. Settled by product grill (25 rounds). Implementation plan:
-`docs/superpowers/specs/2026-08-22-hc-stats-implementation-plan.md`.
+Status: technical reference for the shipped statistics collector and reports.
 
-Companion research: `search-tree-failure-attribution.md` (why `terminated-at`),
-`pangloss-stats-metrics-precedent-research.md` (why not Prometheus),
-`fieldworks-parser-report-storage-and-scoping.md` (what FieldWorks does),
-`pangloss-hc-stats-feature-report.md` (the synthesis this refines),
-`pangloss-profiler-health-design-freeze.md` (prior product decisions this must not contradict).
+User guide: [Optimize a grammar with PanGloss stats](../optimize-grammar-with-stats.md).
+
+Supporting research: `search-tree-failure-attribution.md` (why `terminated-at`),
+`pangloss-stats-metrics-precedent-research.md` (why not Prometheus), and
+`fieldworks-parser-report-storage-and-scoping.md` (what FieldWorks does).
 
 ## Conclusion
 
@@ -47,7 +46,7 @@ rest of this document. Four commands, bounded runtime, qualitative answer.
 **1. Bound the run so a pathological grammar cannot hang it.**
 
 ```
-pangloss batch <grammar> <words.txt> out.tsv --engine=hc --stats \
+pangloss batch <grammar> <words.txt> out.tsv --stats \
         --threads 1 --word-timeout-ms 1000 --cache <cache.sqlite3>
 ```
 
@@ -519,7 +518,7 @@ Aggregation needs nothing beyond SQLite at this scale.
 
 Six orientations are shipped, selected by `--group`: `word`, `object`, `group`, `morpheme`,
 `allomorph`, and `never-fires`. Stratum and direction remain dimensions and filters, not standalone
-profiles: aggregating their rows across object kinds would combine incompatible attempt units.
+reports: aggregating their rows across object kinds would combine incompatible attempt units.
 Reports use `GROUP BY` queries; there is no top-N by default (object count is bounded by grammar
 size), with `--top N` available for large grammars.
 

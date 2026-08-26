@@ -238,7 +238,7 @@ fn finish_stats_flush(
     Ok(())
 }
 
-/// `batch --stats`'s `--engine=hc` path: skips cached words, parses the rest via `Morpher::parse_word_with_stats`, and accumulates the result.
+/// `batch --stats`'s default-engine path: skips cached words, parses the rest via `Morpher::parse_word_with_stats`, and accumulates the result.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_batch_stats_hc(
     grammar: &Grammar,
