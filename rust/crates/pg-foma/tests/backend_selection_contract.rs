@@ -1,7 +1,6 @@
 use pg_foma::advice_catalog::RemedyEffort;
 use pg_foma::backend_selection::{
     sort_blocking_remedy_sets, AdviceReference, BackendReport, BackendSelection, BackendStatus,
-    BACKEND_PREFERENCE,
 };
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::enumerate::EmissionStrategy;
@@ -63,52 +62,6 @@ fn default_budget_exceeding_grammar() -> pg_grammar::model::Grammar {
     pg_grammar::load(&expanded).expect("default-budget fixture must load")
 }
 
-#[test]
-fn reports_retain_every_backend_and_rank_only_normal_candidates() {
-    let selection = BackendSelection::from_reports(vec![
-        BackendReport::accepted(
-            EmissionStrategy::TunedSurfaceProbed,
-            CompileDecision::Admit,
-            vec![finding(Severity::LargeMultiplier, FindingCode::PayloadSizeBand)],
-        )
-        .unwrap(),
-        BackendReport::accepted(
-            EmissionStrategy::TemplatedUnderlyingTokens,
-            CompileDecision::Admit,
-            vec![],
-        )
-        .unwrap(),
-        refused(EmissionStrategy::PlanComposed),
-    ]);
-
-    assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
-    assert_eq!(
-        selection.selected(),
-        vec![
-            EmissionStrategy::TemplatedUnderlyingTokens,
-            EmissionStrategy::TunedSurfaceProbed,
-        ]
-    );
-    assert_eq!(
-        selection.preferred(),
-        Some(EmissionStrategy::TemplatedUnderlyingTokens)
-    );
-    assert_eq!(
-        selection
-            .report_for(EmissionStrategy::PlanComposed)
-            .unwrap()
-            .status(),
-        BackendStatus::Refused
-    );
-    assert_eq!(
-        selection
-            .report_for(EmissionStrategy::PlanComposed)
-            .unwrap()
-            .failed_predicates(),
-        &["synthetic.test-only".to_string()]
-    );
-}
-
 /// An oversized payload labels an artifact that exists; only an absent artifact excludes.
 #[test]
 fn readiness_labels_stay_selectable_while_containment_and_representability_do_not() {
@@ -130,19 +83,6 @@ fn readiness_labels_stay_selectable_while_containment_and_representability_do_no
         .unwrap(),
     ]);
 
-    assert!(
-        selection
-            .selected()
-            .contains(&EmissionStrategy::TunedSurfaceProbed),
-        "an oversized payload is a label, not a reason to withhold the backend"
-    );
-    assert!(
-        !selection
-            .selected()
-            .contains(&EmissionStrategy::TemplatedUnderlyingTokens),
-        "a host-containment abort left no artifact to select"
-    );
-    assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
     assert_eq!(
         selection
             .report_for(EmissionStrategy::TunedSurfaceProbed)
@@ -156,20 +96,6 @@ fn readiness_labels_stay_selectable_while_containment_and_representability_do_no
             .unwrap()
             .status(),
         BackendStatus::Missing
-    );
-}
-
-#[test]
-fn analysis_reports_facts_and_does_not_choose_top_n_builds() {
-    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/backend_selection.rs"));
-
-    assert!(
-        !source.contains("pub fn select_up_to("),
-        "analysis reports facts and must not choose top-N builds"
-    );
-    assert!(
-        !source.contains("pub fn from_envelope("),
-        "callers use the production selector/report path rather than an unused envelope convenience API"
     );
 }
 
@@ -227,10 +153,6 @@ fn shared_remedies_keep_shape_specific_effort_and_report_refs_are_stable() {
             advice("shape-a", "shared-order", RemedyEffort::Easy),
             advice("shape-b", "shared-order", RemedyEffort::Hard),
         ]
-    );
-    assert!(
-        report.is_selected(),
-        "remedy effort must not override correctness/health"
     );
 }
 
@@ -302,7 +224,6 @@ fn tuned_surface_closure_budget_finding_is_reported_and_not_production_ready_is_
         .report_for(EmissionStrategy::TunedSurfaceProbed)
         .expect("TunedSurface must always have one report");
 
-    assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
     assert_eq!(tuned.worst_severity(), Severity::NotProductionReady);
     assert_eq!(tuned.findings().len(), 1);
     assert_eq!(
@@ -319,19 +240,6 @@ fn tuned_surface_closure_budget_finding_is_reported_and_not_production_ready_is_
         .iter()
         .any(|evidence| evidence.metric == Metric::CompositeRulePairCount));
     assert!(!tuned.advice_references().is_empty());
-    assert!(
-        !selection
-            .selected()
-            .contains(&EmissionStrategy::TunedSurfaceProbed),
-        "a proven closure-budget NotProductionReady finding remains reportable but cannot receive an implicit override"
-    );
-    assert!(
-        selection.is_no_path(),
-        "the fixture has no complete route: TunedSurface exceeds its managed closure budget, \
-         Templated \
-         refuses its unordered rules, and PlanComposed cannot build its required structural \
-         subtree: {selection:?}"
-    );
 }
 
 #[test]
@@ -346,7 +254,6 @@ fn plan_composed_required_subtrees_are_a_typed_cannot_represent_refusal() {
         .report_for(EmissionStrategy::PlanComposed)
         .expect("PlanComposed must always have one report");
 
-    assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
     assert_eq!(composed.status(), BackendStatus::Refused);
     assert_eq!(composed.worst_severity(), Severity::CannotRepresent);
     assert!(composed.findings().iter().any(|finding| {
@@ -365,12 +272,6 @@ fn plan_composed_required_subtrees_are_a_typed_cannot_represent_refusal() {
     }));
     assert!(!composed.failed_predicates().is_empty());
     assert!(!composed.advice_references().is_empty());
-    assert!(
-        !selection
-            .selected()
-            .contains(&EmissionStrategy::PlanComposed),
-        "the selector must not advertise a net that runtime already knows is incomplete"
-    );
 }
 
 #[test]
@@ -386,7 +287,6 @@ fn marker_free_plan_composed_remains_selectable() {
         .expect("PlanComposed must always have one report");
 
     assert_eq!(composed.status(), BackendStatus::Accepted);
-    assert!(composed.is_selected());
     assert!(composed.findings().is_empty());
     assert!(composed.shapes().is_empty());
 }

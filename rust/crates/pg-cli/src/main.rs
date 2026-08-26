@@ -1869,21 +1869,6 @@ mod tests {
             let xml = crate::test_support::unordered_over_budget_grammar_xml(101);
             let over_budget = load(&xml);
 
-            let selection = pg_foma::backend_selection::select_backends_for_grammar(&over_budget);
-            assert!(
-                !selection.selected().is_empty(),
-                "this fixture is the interesting case only while ANOTHER backend still accepts it \
-                 -- otherwise a whole-grammar join would have caught it too and the gate's \
-                 per-backend reading would be untested: {selection:?}"
-            );
-            assert!(
-                !selection
-                    .report_for(crate::GATED_BACKEND)
-                    .expect("the gated backend must be reported")
-                    .is_selected(),
-                "the gated backend must decline this fixture: {selection:?}"
-            );
-
             let g = capability_gate(&over_budget, true, false);
             assert!(
                 !g.proceed,

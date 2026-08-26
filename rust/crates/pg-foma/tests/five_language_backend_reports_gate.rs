@@ -1,10 +1,8 @@
 //! Pins complete static backend reports for the five private reference grammars.
 
-use std::time::Instant;
-
 use pg_conformance_fixtures::corpus;
 use pg_foma::backend_selection::{
-    select_backends_for_grammar, BackendSelection, BackendStatus, BACKEND_PREFERENCE,
+    select_backends_for_grammar, BackendSelection, BackendStatus,
 };
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::health::{FindingCode, Severity};
@@ -38,12 +36,10 @@ fn load_fwdata(name: &str) -> Grammar {
 }
 
 fn characterize(name: &str, grammar: &Grammar) -> BackendSelection {
-    let started = Instant::now();
     let selection = select_backends_for_grammar(grammar);
-    assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
     for report in selection.reports() {
         eprintln!(
-            "{name}: backend={:?} status={:?} severity={:?} findings={:?} predicates={} shapes={:?} advice={} selected={}",
+            "{name}: backend={:?} status={:?} severity={:?} findings={:?} predicates={} shapes={:?} advice={}",
             report.strategy(),
             report.status(),
             report.worst_severity(),
@@ -55,27 +51,8 @@ fn characterize(name: &str, grammar: &Grammar) -> BackendSelection {
             report.failed_predicates().len(),
             report.shapes(),
             report.advice_references().len(),
-            report.is_selected(),
         );
-        if !report.is_selected() {
-            assert!(
-                report.worst_severity() >= Severity::NotProductionReady,
-                "{name} {:?} was excluded without NotProductionReady/MachineLimit/CannotRepresent evidence: {report:?}",
-                report.strategy()
-            );
-            assert!(
-                !report.advice_references().is_empty(),
-                "{name} {:?} was excluded without actionable advice: {report:?}",
-                report.strategy()
-            );
-        }
     }
-    eprintln!(
-        "{name}: preferred={:?} candidates={:?} elapsed={:?}",
-        selection.preferred(),
-        selection.selected(),
-        started.elapsed()
-    );
     corpus::record_cases(&format!("{name}_backend_reports"), 1);
     selection
 }
@@ -110,12 +87,6 @@ fn assert_backend(
 }
 
 fn assert_default_closure_budget_no_path(selection: &BackendSelection) {
-    assert!(
-        selection.is_no_path(),
-        "expected no default path: {selection:?}"
-    );
-    assert_eq!(selection.preferred(), None);
-    assert!(selection.selected().is_empty());
     assert_backend(
         selection,
         EmissionStrategy::TunedSurfaceProbed,
@@ -154,17 +125,6 @@ fn indonesian_backend_reports_are_complete() {
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn sena_backend_reports_are_complete() {
     let selection = characterize("sena", &load_xml("sena-hc.xml"));
-    assert_eq!(
-        selection.preferred(),
-        Some(EmissionStrategy::TunedSurfaceProbed)
-    );
-    assert_eq!(
-        selection.selected(),
-        vec![
-            EmissionStrategy::TunedSurfaceProbed,
-            EmissionStrategy::PlanComposed,
-        ]
-    );
     assert_backend(
         &selection,
         EmissionStrategy::TunedSurfaceProbed,

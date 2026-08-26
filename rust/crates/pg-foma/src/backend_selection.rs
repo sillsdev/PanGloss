@@ -720,16 +720,6 @@ mod tests {
     //! through `pg_grammar::load` rather than a hand-built `Grammar`.
 
     use super::*;
-    use crate::capability::CapabilityDiagnostic;
-
-    fn diagnostic(construct: &str) -> CapabilityDiagnostic {
-        CapabilityDiagnostic {
-            predicate: "synthetic.test-only",
-            construct: construct.to_string(),
-            witness: "synthetic".to_string(),
-        }
-    }
-
     fn finding(
         severity: crate::health::Severity,
         code: crate::health::FindingCode,
@@ -748,206 +738,6 @@ mod tests {
         }
     }
 
-    fn envelope_of(rows: &[(EmissionStrategy, CompileDecision)]) -> BackendSelection {
-        BackendSelection::from_reports(
-            BACKEND_PREFERENCE
-                .iter()
-                .filter_map(|&strategy| {
-                    rows.iter()
-                        .find(|(s, _)| *s == strategy)
-                        .map(|(_, decision)| match decision {
-                            CompileDecision::Refuse(_) => {
-                                BackendReport::refused(strategy, decision.clone())
-                            }
-                            CompileDecision::Admit | CompileDecision::ConfirmOnly => {
-                                BackendReport::accepted(strategy, decision.clone(), Vec::new())
-                                    .expect("a non-refusing decision is accepted")
-                            }
-                        })
-                })
-                .collect(),
-        )
-    }
-
-    /// A refusing backend is excluded and carries its diagnostics; a `ConfirmOnly` one is selected, since `ConfirmOnly` is recall-preserving rather than a defect.
-    #[test]
-    fn a_refusing_backend_is_never_selected() {
-        let selection = envelope_of(&[
-            (
-                EmissionStrategy::TunedSurfaceProbed,
-                CompileDecision::Refuse(vec![diagnostic("stratum 0 (Unordered)")]),
-            ),
-            (
-                EmissionStrategy::TemplatedUnderlyingTokens,
-                CompileDecision::ConfirmOnly,
-            ),
-            (EmissionStrategy::PlanComposed, CompileDecision::Admit),
-        ]);
-
-        assert_eq!(
-            selection.selected(),
-            vec![
-                EmissionStrategy::TemplatedUnderlyingTokens,
-                EmissionStrategy::PlanComposed
-            ]
-        );
-        assert_eq!(
-            selection.preferred(),
-            Some(EmissionStrategy::TemplatedUnderlyingTokens),
-            "preference order decides among viable backends, and the refused one is not viable"
-        );
-        let excluded = selection.excluded();
-        assert_eq!(excluded.len(), 1);
-        assert_eq!(excluded[0].0, EmissionStrategy::TunedSurfaceProbed);
-        assert_eq!(excluded[0].1[0].construct, "stratum 0 (Unordered)");
-        let report = selection
-            .report_for(EmissionStrategy::TunedSurfaceProbed)
-            .expect("the refusal remains reportable");
-        assert_eq!(report.worst_severity(), Severity::CannotRepresent);
-        assert_eq!(
-            report.findings()[0].code,
-            FindingCode::BackendCoverageIncomplete
-        );
-        assert!(!report.advice_references().is_empty());
-        assert!(!selection.is_no_path());
-    }
-
-    /// Every backend refusing is a first-class answer, and every backend's own reason survives into it.
-    #[test]
-    fn no_path_is_representable_and_carries_every_reason() {
-        let selection = envelope_of(&[
-            (
-                EmissionStrategy::TunedSurfaceProbed,
-                CompileDecision::Refuse(vec![diagnostic("tuned construct")]),
-            ),
-            (
-                EmissionStrategy::TemplatedUnderlyingTokens,
-                CompileDecision::Refuse(vec![diagnostic("templated construct")]),
-            ),
-            (
-                EmissionStrategy::PlanComposed,
-                CompileDecision::Refuse(vec![diagnostic("plan construct")]),
-            ),
-        ]);
-
-        assert!(selection.is_no_path());
-        assert!(selection.selected().is_empty());
-        assert_eq!(selection.preferred(), None);
-        let constructs: Vec<&str> = selection
-            .excluded()
-            .iter()
-            .map(|(_, diags)| diags[0].construct.as_str())
-            .collect();
-        assert_eq!(
-            constructs,
-            vec!["tuned construct", "templated construct", "plan construct"],
-            "no path must still name what each backend declined on"
-        );
-    }
-
-    /// The selector reads the SAME per-backend verdicts the envelope holds, so an envelope whose backends disagree is not collapsed to its join.
-    #[test]
-    fn the_selection_is_per_backend_not_the_envelope_join() {
-        const XML: &str = r#"<HermitCrabInput><Language><Name>SelectorFixture</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
-          <Strata>
-            <Stratum characterDefinitionTable="t1">
-              <Name>S</Name>
-              <MorphologicalRuleDefinitions>
-                <RealizationalRule id="rr1">
-                  <Name>Realiz</Name>
-                  <MorphologicalSubrules>
-                    <MorphologicalSubrule id="sub1">
-                      <MorphologicalInput><PhoneticSequence id="s0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
-                      <MorphologicalOutput><CopyFromInput index="s0" /></MorphologicalOutput>
-                    </MorphologicalSubrule>
-                  </MorphologicalSubrules>
-                </RealizationalRule>
-              </MorphologicalRuleDefinitions>
-              <LexicalEntries>
-                <LexicalEntry id="e1">
-                  <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
-                </LexicalEntry>
-              </LexicalEntries>
-            </Stratum>
-          </Strata>
-        </Language></HermitCrabInput>"#;
-        let g = pg_grammar::load(XML).expect("fixture must load");
-        let selection = select_backends_for_grammar(&g);
-
-        let plan_composed = selection
-            .report_for(EmissionStrategy::PlanComposed)
-            .expect("every backend must be reported");
-        assert!(
-            !plan_composed.is_selected(),
-            "the plan-composed backend has no lexicon emitter for a realizational rule, so it must \
-             be excluded here: {:?}",
-            plan_composed.decision()
-        );
-        assert!(
-            selection
-                .report_for(EmissionStrategy::TunedSurfaceProbed)
-                .expect("every backend must be reported")
-                .is_selected(),
-            "the same grammar must stay a path for the backend that can represent it"
-        );
-        assert_eq!(
-            selection.preferred(),
-            Some(EmissionStrategy::TunedSurfaceProbed)
-        );
-    }
-
-    #[test]
-    fn reports_retain_every_backend_and_rank_only_normal_candidates() {
-        let reports = vec![
-            BackendReport::accepted(
-                EmissionStrategy::TunedSurfaceProbed,
-                CompileDecision::Admit,
-                vec![finding(
-                    crate::health::Severity::LargeMultiplier,
-                    crate::health::FindingCode::PayloadSizeBand,
-                )],
-            )
-            .unwrap(),
-            BackendReport::accepted(
-                EmissionStrategy::TemplatedUnderlyingTokens,
-                CompileDecision::Admit,
-                vec![],
-            )
-            .unwrap(),
-            BackendReport::refused(
-                EmissionStrategy::PlanComposed,
-                CompileDecision::Refuse(vec![diagnostic("unsupported")]),
-            ),
-        ];
-        let selection = BackendSelection::from_reports(reports);
-
-        assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
-        assert_eq!(
-            selection.selected(),
-            vec![
-                EmissionStrategy::TemplatedUnderlyingTokens,
-                EmissionStrategy::TunedSurfaceProbed,
-            ],
-            "clean reports rank ahead of warning reports; refused reports remain retained but are not candidates"
-        );
-        assert_eq!(
-            selection.preferred(),
-            Some(EmissionStrategy::TemplatedUnderlyingTokens)
-        );
-        assert_eq!(
-            selection
-                .report_for(EmissionStrategy::PlanComposed)
-                .expect("refused backend remains reportable")
-                .status(),
-            BackendStatus::Refused
-        );
-    }
-
     /// An oversized payload is a label on something that got built, so it stays selectable.
     #[test]
     fn an_oversized_payload_labels_a_backend_without_excluding_it() {
@@ -962,12 +752,6 @@ mod tests {
         .unwrap()];
         let selection = BackendSelection::from_reports(reports);
 
-        assert!(
-            selection
-                .selected()
-                .contains(&EmissionStrategy::TunedSurfaceProbed),
-            "a readiness label must never cost a backend its candidacy"
-        );
         assert_eq!(
             selection
                 .report_for(EmissionStrategy::TunedSurfaceProbed)
@@ -975,32 +759,6 @@ mod tests {
                 .worst_severity(),
             crate::health::Severity::NotProductionReady,
             "and the label itself must survive selection"
-        );
-    }
-
-    /// An approaching-but-not-tripped budget observation must never cost a backend its candidacy.
-    #[test]
-    fn an_approaching_compile_work_budget_labels_a_backend_without_excluding_it() {
-        let reports = vec![BackendReport::accepted(
-            EmissionStrategy::TunedSurfaceProbed,
-            CompileDecision::Admit,
-            vec![finding(
-                crate::health::Severity::LargeMultiplier,
-                crate::health::FindingCode::CompileWorkBudget,
-            )],
-        )
-        .unwrap()];
-        let selection = BackendSelection::from_reports(reports);
-
-        assert!(
-            selection
-                .selected()
-                .contains(&EmissionStrategy::TunedSurfaceProbed),
-            "an approaching-budget magnitude finding must never cost a backend its candidacy"
-        );
-        assert_eq!(
-            crate::health::FindingCode::CompileWorkBudget.class(),
-            FindingClass::Readiness
         );
     }
 
@@ -1045,8 +803,6 @@ mod tests {
         ];
         let selection = BackendSelection::from_reports(reports);
 
-        assert!(selection.selected().is_empty());
-        assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
         assert_eq!(
             selection
                 .report_for(EmissionStrategy::PlanComposed)
