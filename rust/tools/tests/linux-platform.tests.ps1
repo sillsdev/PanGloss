@@ -59,7 +59,7 @@ function Assert-LinuxAdapterReady {
         throw 'Linux adapter importer returned no marker'
     }
     Assert-Equal 'Linux' $linuxAdapterImportResult.Platform 'the importer must return the Linux adapter marker'
-    foreach ($name in @('Enter-BuildSlot', 'Exit-BuildSlot', 'Invoke-CargoWithReaper')) {
+    foreach ($name in @('Get-AvailableMemoryGB', 'Get-TotalMemoryGB', 'Get-CommitChargeGB', 'Enter-BuildSlot', 'Exit-BuildSlot', 'Invoke-CargoWithReaper', 'Invoke-ProcessInJobObject')) {
         Assert-Contains -Haystack @($linuxAdapterImportResult.Overrides) -Needle $name `
             "the Linux adapter must override the actual shared seam $name"
         Assert-True ($null -ne (Get-Command $name -CommandType Function -ErrorAction SilentlyContinue)) `
@@ -130,6 +130,16 @@ Committed_AS:   2048 kB
 "@
         Assert-Throws { Get-LinuxMemorySnapshot -MeminfoPath $overflow } -CommandName 'Get-LinuxMemorySnapshot' `
             -Message 'a KiB-to-byte multiplication overflow must fail closed'
+
+        $duplicate = New-FixtureFile -Root $fixtureRoot -Name 'meminfo-duplicate' -Text @'
+MemTotal:       4096 kB
+MemTotal:       8192 kB
+MemAvailable:   1024 kB
+CommitLimit:    8192 kB
+Committed_AS:   2048 kB
+'@
+        Assert-Throws { Get-LinuxMemorySnapshot -MeminfoPath $duplicate } -CommandName 'Get-LinuxMemorySnapshot' `
+            -Message 'duplicate required meminfo fields must fail closed'
     }
 
     # --- Host cgroup proof: all input comes through an injected file reader. ---
@@ -176,6 +186,80 @@ Committed_AS:   2048 kB
         Assert-True $r.Ok $r.Detail
         Assert-Equal ([long]8388608) $r.EffectiveMemoryCapBytes `
             'a finite parent cap bounds a leaf whose memory.max is max'
+    }
+
+    Test-Case 'Linux memory seams use the checked snapshot and preserve shared return shapes' {
+        Assert-LinuxAdapterReady
+        $snapshotFn = (Get-Command Get-LinuxMemorySnapshot -CommandType Function).ScriptBlock
+        try {
+            Set-Item Function:\global:Get-LinuxMemorySnapshot -Value {
+                [PSCustomObject]@{
+                    TotalBytes = [long]8GB; AvailableBytes = [long]3GB
+                    CommitLimitBytes = [long]10GB; CommittedBytes = [long]4GB
+                }
+            }
+            Assert-Equal 3.0 (Get-AvailableMemoryGB) 'Linux available memory must be reported in the shared GB shape'
+            Assert-Equal 8.0 (Get-TotalMemoryGB) 'Linux total memory must be reported in the shared GB shape'
+            $commit = Get-CommitChargeGB
+            Assert-Equal 10.0 $commit.LimitGB
+            Assert-Equal 6.0 $commit.FreeGB
+            Assert-Equal 4.0 $commit.CommittedGB
+            Assert-Equal 40 $commit.PercentUsed
+        } finally {
+            Set-Item Function:\global:Get-LinuxMemorySnapshot -Value $snapshotFn
+        }
+    }
+
+    Test-Case 'Linux pg preflight is ordered before rustfmt and has a distinct refusal code' {
+        $pgText = Get-Content -LiteralPath (Join-Path $toolRoot 'pg.ps1') -Raw
+        $commonText = Get-Content -LiteralPath $commonPath -Raw
+        $proofAt = $pgText.IndexOf('$linuxHostProof = Get-LinuxHostCgroupPreflight', [StringComparison]::Ordinal)
+        $fmtAt = $pgText.IndexOf('Invoke-RustFmt -RustRoot $rustRoot', [StringComparison]::Ordinal)
+        Assert-True ($proofAt -ge 0 -and $fmtAt -gt $proofAt) 'Linux host proof must be established before any rustfmt invocation'
+        Assert-True $commonText.Contains('ExitCodeLinuxHostContainment') 'Linux host containment must have its own exit code'
+        Assert-True $pgText.Contains('-HostCgroupProof $linuxHostProof') `
+            'the validated proof must be passed through the preflight/report seam'
+    }
+
+    Test-Case 'Linux process seam is the actual Invoke-ProcessInJobObject path and preflights before launch' {
+        Assert-LinuxAdapterReady
+        $calls = [System.Collections.Generic.List[object]]::new()
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments, [string]$WorkingDirectory)
+            [void]$calls.Add([PSCustomObject]@{ Executable = $Executable; Arguments = @($Arguments); WorkingDirectory = $WorkingDirectory })
+            return 23
+        }.GetNewClosure()
+        $code = Invoke-ProcessInJobObject -Exe 'cargo' -CmdArgs @('build') -WorkingDirectory $fixtureRoot `
+            -SelfCgroupText "0::/delegated/supervisor/worker`n" -MountInfoText $mountInfo `
+            -ReadFile (New-Reader -Files $validCgroupFiles) -ProcessInvoker $runner
+        Assert-Equal 23 $code 'Linux direct process invocation must preserve the injected exit code'
+        Assert-Equal 1 $calls.Count 'Linux direct process invocation must launch exactly once'
+        Assert-Equal 'cargo' $calls[0].Executable
+        Assert-Equal $fixtureRoot $calls[0].WorkingDirectory
+    }
+
+    Test-Case 'Linux process seam accepts derived cap arguments while pg rejects explicit run overrides' {
+        Assert-LinuxAdapterReady
+        $calls = [System.Collections.Generic.List[object]]::new()
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments, [string]$WorkingDirectory)
+            [void]$calls.Add($Executable)
+            return 29
+        }.GetNewClosure()
+        $code = Invoke-ProcessInJobObject -Exe 'cargo' -CmdArgs @('run') -WorkingDirectory $fixtureRoot `
+            -JobMemoryGB 10 -CpuRatePercent 50 -SelfCgroupText "0::/delegated/supervisor/worker`n" `
+            -MountInfoText $mountInfo -ReadFile (New-Reader -Files $validCgroupFiles) -ProcessInvoker $runner
+        Assert-Equal 29 $code 'derived Windows-shaped cap arguments must not block ordinary Linux execution'
+        Assert-Equal 1 $calls.Count
+
+        $pgText = Get-Content -LiteralPath (Join-Path $toolRoot 'pg.ps1') -Raw
+        $overrideCondition = 'if ($IsLinux -and $Mode -eq ''run'' -and $RunMemoryGB -gt 0)'
+        $overrideAt = $pgText.IndexOf($overrideCondition, [StringComparison]::Ordinal)
+        $fmtAt = $pgText.IndexOf('Invoke-RustFmt -RustRoot $rustRoot', [StringComparison]::Ordinal)
+        Assert-True ($overrideAt -ge 0 -and $fmtAt -gt $overrideAt) `
+            'the exact Linux -RunMemoryGB refusal must precede rustfmt/Cargo'
+        Assert-True $pgText.Contains('Linux -RunMemoryGB is not supported: the host cgroup owns the cap.') `
+            'the Linux refusal must explain that the host cgroup owns the cap'
     }
 
     Test-Case 'Linux cgroup preflight chooses a finite leaf cap below its ancestors' {
